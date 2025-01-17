@@ -1,0 +1,1574 @@
+<mediawiki xmlns="http://www.mediawiki.org/xml/export-0.10/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mediawiki.org/xml/export-0.10/ http://www.mediawiki.org/xml/export-0.10.xsd" version="0.10" xml:lang="en">
+  <siteinfo>
+    <sitename>The Battle for Wesnoth Wiki</sitename>
+    <dbname>wiki</dbname>
+    <base>https://wiki.wesnoth.org/Main_Page</base>
+    <generator>MediaWiki 1.31.16</generator>
+    <case>first-letter</case>
+    <namespaces>
+      <namespace key="-2" case="first-letter">Media</namespace>
+      <namespace key="-1" case="first-letter">Special</namespace>
+      <namespace key="0" case="first-letter" />
+      <namespace key="1" case="first-letter">Talk</namespace>
+      <namespace key="2" case="first-letter">User</namespace>
+      <namespace key="3" case="first-letter">User talk</namespace>
+      <namespace key="4" case="first-letter">Wesnoth</namespace>
+      <namespace key="5" case="first-letter">Wesnoth talk</namespace>
+      <namespace key="6" case="first-letter">File</namespace>
+      <namespace key="7" case="first-letter">File talk</namespace>
+      <namespace key="8" case="first-letter">MediaWiki</namespace>
+      <namespace key="9" case="first-letter">MediaWiki talk</namespace>
+      <namespace key="10" case="first-letter">Template</namespace>
+      <namespace key="11" case="first-letter">Template talk</namespace>
+      <namespace key="12" case="first-letter">Help</namespace>
+      <namespace key="13" case="first-letter">Help talk</namespace>
+      <namespace key="14" case="first-letter">Category</namespace>
+      <namespace key="15" case="first-letter">Category talk</namespace>
+      <namespace key="100" case="first-letter">Old</namespace>
+      <namespace key="101" case="first-letter">Old talk</namespace>
+      <namespace key="102" case="first-letter">Contrib</namespace>
+      <namespace key="103" case="first-letter">Contrib talk</namespace>
+    </namespaces>
+  </siteinfo>
+  <page>
+    <title>ReferenceWML</title>
+    <ns>0</ns>
+    <id>1493</id>
+    <revision>
+      <id>73349</id>
+      <parentid>73036</parentid>
+      <timestamp>2024-07-30T02:47:57Z</timestamp>
+      <contributor>
+        <username>Egallager</username>
+        <id>19574</id>
+      </contributor>
+      <minor/>
+      <comment>/* WML toplevel tags */ minor formatting</comment>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text xml:space="preserve" bytes="7278">{{WML Tags}}
+== The Wesnoth Markup Language ==
+
+The Wesnoth Markup Language (WML) is used to code almost everything in Wesnoth, including scenarios, units, savefiles, and the user interface layout. WML files are simple, human-readable text files, usually with the .cfg extension, with similarities to INI files and XML. A major feature in WML are macros, which are alike those found in the C language and similarily are handled by a preprocessor. Implementation-wise, WML files are handled mainly by the ''config'' class (and ''simple_wml'' in [[wesnothd]]).
+
+This page is a collection of pointers to different common WML structures.
+
+See [[BuildingScenarios]], [[BuildingCampaigns]] and [[BuildingUnits]]
+for a tutorial style overview.
+
+
+
+''Note: this reference may contain slight inaccuracies, might not list all existing keys and tags or might contain some deprecated syntax. If you find that this reference doesn't give you the answer to how to implement some feature in WML, the most reliable way is to look at the WML code of existing units and campaigns that have done so.''
+
+== How WML works ==
+
+* [[SyntaxWML]] Description of WML syntax
+* [[VariablesWML]] How to use WML variables
+* [[PreprocessorRef]] the WML preprocessor syntax
+* [[GrammarWML]] A more formal definition of the WML syntax. More useful for implementing a WML parser than for writing WML documents.
+* [[AddonsWML]] Content that can be published and downloaded via the add-ons server
+
+== WML toplevel tags ==
+
+The following covers most of the possible toplevel tags in a typical main WML file. Some minor and dev-oriented tags (not intended for use by UMC) are omitted.
+
+* [[GameConfigWML]] the top level '''[game_config]''' tag
+* [[UnitsWML]] the top level '''[units]''' tag
+** [[AbilitiesWML]] a list of the different abilities a unit or weapon can have
+** [[UnitTypeWML]] how to describe a unit type
+** [[AnimationWML]] how to animate units
+* [[CoreWML]] the top level '''[core]''' tag
+* [[CampaignWML]] the top level '''[campaign]''' tag
+** [[CreditsWML]] how to describe the credits (the '''[about]''' tag)
+* [[ScenarioWML]] the top level tags '''[scenario]''', '''[multiplayer]''', and '''[test]'''
+** [[EventWML]] how to describe an event (the '''[event]''' tag)
+** [[SideWML]] how to describe a side (the '''[side]''' tag)
+** [[MapGeneratorWML]] the random map generator
+** [[TimeWML]] how to describe a day
+** [[IntroWML]] how to describe the intro screen (the '''[story]''' and '''[part]''' tags)
+* [[EraWML]] the top level '''[era]''' tag
+* [[ModificationWML]] the top level '''[modification]''' and '''[resource]''' tags
+* [[TerrainWML]] the top level '''[terrain_type]''' tag
+* [[TerrainGraphicsWML]], the top level '''[terrain_graphics]''' tag
+* [[ThemeWML]] the top level '''[theme]''' tag
+* [[LanguageWML]] the top level '''[language]''' tag
+* [[LocaleWML]] the top level '''[locale]''' tag
+* [[HelpWML]] the top level '''[help]''' tag
+* [[BinaryPathWML]] the top level '''[binary_path]''' tag
+* [[FontsWML]] the top level '''[fonts]''' tag
+* [[GettextForWesnothDevelopers#The_textdomain_tag|Textdomains]] the '''[textdomain]''' tag
+
+Some other files use the WML format, but with different tags.
+
+* [[AchievementsWML]] the '''[achievement_group]''' and '''[achievement]''' tags.
+* [[SavefileWML]] a description of the format of savegames
+** [[ReplayWML]] a description of the format of player actions such as moving a unit
+** [[StatisticalScenarioWML]] used to generate statistics of a savegame
+* [[PblWML]] a description of the format of server-uploadable campaigns
+* [[SchemaWML]] a description of WML files that define the structure of other WML files
+* [[DiffWML]] used to describe structural differences between preprocessed WML documents
+* [[GUIToolkit]] gives an overview of Wesnoth's current UI system and how to create user interfaces with it.
+
+== Other WML tags ==
+
+* [[EventWML]] how to describe an event
+** [[FilterWML]] the construct to filter on [[StandardUnitFilter|units]], [[StandardLocationFilter|locations]], [[StandardSideFilter|sides]], weapons, vision, and WML data.
+** [[ActionWML]] to describe the actions which occur when the event is fired
+*** [[ConditionalActionsWML]] actions that encapsulate conditional filters and the actions to execute if the conditions are met
+*** [[DirectActionsWML]] actions that directly affect gameplay: for example, creating a unit
+**** [[SingleUnitWML]] how to describe a unit (for uses such as placing one on the map with the '''[unit]''' tag)
+*** [[InternalActionsWML]] actions that WML uses internally: for example, storing a variable
+*** [[InterfaceActionsWML]] actions that do not affect gameplay: for example, displaying a message
+*** [[LuaWML]] how to code actions with the Lua language (BfW 1.14 and earlier)
+*** [[LuaAPI]] how to code actions with the Lua language (BfW 1.16 and later)
+* [[AiWML]] how to describe parameters for AI (the '''[ai]''' tag)
+* [[EffectWML]] the construct to modify a unit (the '''[effect]''' tag)
+* [[DescriptionWML]] the structure of WML coded menus like the difficulty chooser of campaigns
+* [[EditorWML]] tags controlling the post-1.4 editor's behavior
+* [[MusicListWML]] for playing music (see also [[Available Music]] for a list of what's available)
+
+== Predefined macros == 
+
+Wesnoth ships with a library of predefined macros you should find useful in writing your own WML.
+* [https://www.wesnoth.org/macro-reference.html WML Macros] - description of all such macros.
+
+== Other ==
+
+* [[ReferenceWMLSyntax]] how this wiki and the pages it links to should be formatted
+* [[ConventionsWML]] how to make your WML more readable
+* [[Wml_optimisation]] how to make your WML code more efficient
+* [[UsefulWMLFragments]] Various pieces of WML for various purposes. If you have some WML you're proud of that you think others can use, add it here.
+* [[Maintenance tools]] for wmlindent, wmllint, wmlscope
+* [[CommandMode]] commands are not strictly speaking part of WML, but they are useful for debugging it, and could be a little hard to find, so linking to them here makes sense.
+* [[MultiplayerServerWML]] is used when communicating with the multiplayer server.
+* [[CampaignServerWML]] is used when managing contributed campaigns on the campaign server.
+* [[ImagePathFunctions]] (IPFs) are used when applying the color function to images, such as marking units as belonging to a team or in TerrainGraphics.
+* [[Pango formatting]] shows ways to enrich descriptions using pango markup, which can use basic html style formatting tags, such as &lt;nowiki&gt;&lt;b&gt;, &lt;i&gt;, &lt;span&gt;&lt;/nowiki&gt; and others.
+* [[Wesnoth_Formula_Language|Wesnoth Formula Language (WFL)]] often used with $() formulas.
+* [[PreprocessorRef|Syntax of preprocessor mini-language]] : symbols, macros, file inclusions...
+
+== See Also ==
+
+* [[BuildingMaps]] the text-based format for Wesnoth maps
+* [[TerrainCodeTableWML]] a list of all terrains, and [[TerrainCodesWML]], on how to use them
+* [[MultiHexTutorial]] a description of the multi-hex tiling system
+* [[IGNFileFormat]] a description of the ignore file format
+* [[CompatibilityStandards#Deprecation_levels_-_When_to_remove_deprecated_features|DeprecationLevels]]
+* [[Environment_variables]] a cheat-sheet for CLI environment variables
+* Back to [[Create]]
+
+[[Category: WML Reference]]</text>
+      <sha1>o7qh68hjwmt6p14a67072ix2msgq260</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>SyntaxWML</title>
+    <ns>0</ns>
+    <id>1528</id>
+    <revision>
+      <id>72335</id>
+      <parentid>72330</parentid>
+      <timestamp>2024-02-23T03:36:23Z</timestamp>
+      <contributor>
+        <username>Celtic Minstrel</username>
+        <id>17798</id>
+      </contributor>
+      <comment>/* Tag and Attribute Structures */ Note case sensitivity</comment>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text xml:space="preserve" bytes="10686">{{Translations}}
+{{WML Tags}}
+
+The '''Wesnoth Markup Language''' ('''WML''') is used to code almost everything in Wesnoth, including scenarios, units, savefiles, and the user interface layout. WML files are simple, human-readable text files, usually with the .cfg extension, with similarities to INI files and XML.
+For guidelines on keeping these files easily human-readable, see [[ConventionsWML#Indentation|ConventionsWML]].
+
+== Tag and Attribute Structures ==
+
+WML has a syntax containing two basic elements: ''tags'' and ''attributes''. Furthermore, ''attributes'' consist of ''keys'' and ''values''. For example:
+&lt;syntaxhighlight lang=&quot;wml&quot;&gt;
+[tag]
+    key=value
+[/tag]
+&lt;/syntaxhighlight&gt;
+
+''Tags'' are used to partition information, while the data is contained in the ''attributes''. ''Keys'' identify the type of data to be stored and ''values'' are the actual data stored. When WML is processed, the tag identifies some unit of information, such as an action to perform or even an entire campaign. This gives a context for the attributes within the tag. For each &lt;code&gt;key=value&lt;/code&gt; line within a tag, the attribute identified by &lt;code&gt;key&lt;/code&gt; has its data set to &lt;code&gt;value&lt;/code&gt;.
+Also allowed inside a tag is another tag. The inner tag is considered the child of the outer tag, as in the following example.
+&lt;syntaxhighlight lang=&quot;wml&quot;&gt;
+[parent_tag]
+    key1=value1
+    [child_tag]
+        key2=value2
+    [/child_tag]
+[/parent_tag]
+&lt;/syntaxhighlight&gt;
+
+Every tag describes something different about the game; different tags work differently, with the allowed tags defined by context. There are several &quot;[[ReferenceWML#WML_toplevel_tags|top-level tags]]&quot; that are allowed when not inside any other tag, and each tag defines which child tags (and which keys) it recognizes. Unrecognized tags and keys, such as the result of typos, sometimes produce error messages, but at other times they are ignored. The [[SchemaWML|WML schema]] defines what is allowed and where. Although it's not designed to be read by humans, you can [[ValidationFAQ|use it to automatically detect]] if you've done something wrong even in contexts where unrecognized keys and tags would be ignored, though it still won't work in contexts where you're allowed to define the contents however you like.
+
+''Keys should not be confused with variables!'' A common mistake among beginners is to make up undocumented key names. Instead, consult the WML Reference to find allowed key names for each tag. For a list of all tags with links to their documentation, see the &quot;WML Tags&quot; navigation box.
+
+Also, tag and key names follow a special format. They will contain only alphanumeric characters and underscores; in particular, they cannot contain &lt;code&gt;+&lt;/code&gt;, &lt;code&gt;-&lt;/code&gt;, or whitespace. The values, however, may contain such characters when needed. A key or tag name beginning with a digit or even consisting of entirely digits is permitted. Tag and key names are case sensitive.
+
+
+=== Tag Amendment Syntax ===
+
+Inserting a plus sign (&lt;code&gt;+&lt;/code&gt;) before a tag name allows one to append to an earlier tag (the most recent with the same name) rather than starting a new tag. This allows attributes to be added or replaced.
+&lt;syntaxhighlight lang=&quot;wml&quot;&gt;
+[tag]
+    key=value
+[/tag]
+[+tag]
+    key=value
+[/tag]
+&lt;/syntaxhighlight&gt;
+
+* All keys in the ''+tag'' will be set to the given values. If the keys did not exist in the most recent [tag] then they are added to that [tag]; otherwise their values will replace the old values in the most recent [tag].
+
+* Any child tags of the ''+tag'' will be appended to the children of the most recent [tag]. To be clear: none of those original child tags will be altered by this operation, since this is an &quot;append&quot; and not a &quot;merge.&quot;
+
+* It is even possible to make tag amendments to a child tag after the parent tag has already closed. Using [+tag] syntax multiple times in a row (first for the parent, then for the child) will allow you to amend the more inward scopes.
+
+=== Multiple Assignment Syntax ===
+
+It is possible to set multiple attributes on a single line. This is done by listing the associated keys, followed by an equal sign, followed by the desired values.
+&lt;syntaxhighlight lang=&quot;wml&quot;&gt;
+[tag]
+    key1,key2,key3=value1,value2,value3
+[/tag]
+&lt;/syntaxhighlight&gt;
+would be the same as:
+&lt;syntaxhighlight lang=&quot;wml&quot;&gt;
+[tag]
+    key1=value1
+    key2=value2
+    key3=value3
+[/tag]
+&lt;/syntaxhighlight&gt;
+* If there are extra keys, they will be set to an empty value. If there are extra values the last key will be set to the comma-separated list of all remaining values.
+* It is recommended not to use this syntax with keys which normally interpret commas specially (such as x and y in a [[StandardLocationFilter]]), to avoid confusion on which key receives which value. However, using &lt;code&gt;x,y=12,10&lt;/code&gt; for single coordinates is widely used and is an exception to the recommendation.
+
+=== Special Attribute Values ===
+
+Although an attribute's value can be just text corresponding to the function of its key, a value can also be encoded in many other ways, each with a specific purpose.
+* {{Anchor|quoted values|2='''key = &quot;value&quot;'''}}: a ''quoted value'' is a value surrounded by quotes. This is often unnecessary as single-line values are typically interpreted as intended. However, quotes are required in order to specify multiple-line values (a line break without quotes would otherwise end the value). Quotes may also be required to cancel the special meaning of other characters, and they prevent spaces from being stripped &amp;ndash; without quotes, all leading and trailing spaces would be removed, and internal runs of spaces would be replaced by a single space. It is never wrong to use quotes with correct WML.
+* {{Anchor|translatable strings|2='''key = _&quot;value&quot;'''}}: a ''[[translatable]] value'' is a value that is subject to translations, and should be used for all text intended to be shown to a player (most notably seen in [story], [message], and the name= key in unit definitions). A translatable value is surrounded by quotes and preceded by an underscore (_). In terms of WML syntax, it behaves very much like a quoted value, other than being unsuitable for [[ConditionalActionsWML#Condition_Tags|comparisons to other values]]. Translatable values are intended for display on the screen, not for internal data.  See [[TranslationsWML]] and [[GettextForWesnothDevelopers]] for more information.
+* {{Anchor|value concatenation|2='''key = &quot;value1&quot; + &quot;value2&quot;'''}}: ''string concatenation'' is performed with the plus sign (&lt;code&gt;+&lt;/code&gt;). If a plus sign appears outside quotes in a value, it means that the string/value on its right will be appended to the string/value on its left.  To have an actual plus sign in a value, the string containing the &lt;code&gt;+&lt;/code&gt; character must be surrounded by quotes (a quoted value or a translatable value). Quotes are not strictly necessary around the pre-concatenated values, but they are advisable so that it is easy to tell where the values begin and end and to spot some kinds of mistakes. If two non-quoted values are concatenated, they will have a space inserted between them, but if either value is quoted, no space will be inserted.
+* {{Anchor|escaping quotes|2='''key = &quot;quoted &quot;&quot;double quoted value&quot;&quot; value&quot;'''}}: ''doubled quotes'' can be used to create quote marks within a quoted or translatable value. The doubled quote mark in the value produces one quote mark in the stored data and does not terminate the quoted value. (These do not necessarily need to be used in pairs.)
+* {{Anchor|variable substitution basics|2='''key = $variable'''}}: a ''variable substitution'' sets the key to the value of the indicated WML variable. This is indicated by the dollar sign (&lt;code&gt;$&lt;/code&gt;) and is really just  a special case of general variable substitution, as variables can be substituted within other values. See [[VariablesWML]] for more information on values based on WML variables. (Note that some keys require their data to be a variable name, not the variable's value; in that case there would be no dollar sign.) ''Variable substitution is supported in only a few contexts, such as in [[IntroWML]] and [[EventWML]].''
+* {{Anchor|formula substitution|2='''key = &quot;$(formula-expression)&quot;'''}}: a ''formula expression'' sets the key to the value of the processed formula. This is indicated by a dollar sign (&lt;code&gt;$&lt;/code&gt;) followed by a parenthesized expression. See [[Wesnoth Formula Language]] for more information on formula basics, data types, and built-in functions. Quotes around the formula are not strictly necessary in all cases, but they are advisable, particularly since quotes are the only way to use a plus sign (&lt;code&gt;+&lt;/code&gt;) within a formula (without quotes, the plus sign represents string concatenation). ''Formula expressions are only supported where variable substitution is supported.''
+* {{Anchor|macro-protected string|2='''key = &lt;&lt;value&gt;&gt;'''}}: similar to a quoted value but stronger: the value is hidden from the [[PreprocessorRef|preprocessor]], which will see all text therein as literal. Useful with [[LuaWML]] or whenever a literal curly brace (&quot;{&quot;, a US-ASCII 0x7B) is needed in any text string. This can also be combined with the translatable mark, in case curly braces are needed in translatable text.
+
+== Comments ==
+
+Comments are indicated by a pound sign (&lt;code&gt;#&lt;/code&gt;) unless in double quotes. Unless the line forms a valid [[PreprocessorRef#Preprocessor_directives|preprocessor directive]], all text after the pound sign will be ignored by the WML engine. Note that if the beginning of the line is a valid preprocessor directive, which is then followed by ''another'' pound sign, the second pound sign will still be interpreted as a comment character. For example, this works:
+&lt;syntaxhighlight lang=&quot;wml&quot;&gt;
+#ifdef FOO
+#endif # FOO
+&lt;/syntaxhighlight&gt;
+Whether or not doing so is a good idea is a stylistic choice.
+
+It is a very good coding convention to always add a space immediately following a pound sign for every comment. Not only does it avoid accidentally calling a preprocessor directive (for example, a commented line that begins with the word “define”) but it also makes comments stand further apart from the code.
+
+Specially-formatted comments are frequently used to give commands to the Wesnoth [[MaintenanceTools|maintenance tools]] to suppress false positives and enhance their coverage, as well as for adding explanatory comments for [[GettextForWesnothDevelopers#Marking_up_strings_in_WML|translatable strings]].
+
+== See Also ==
+
+* [[PreprocessorRef]]
+* [[ConventionsWML]]
+* [[SavefileWML]]
+* [[ReferenceWML]]
+
+[[Category: WML Reference]]</text>
+      <sha1>9pm5s15dcjtzdfkzrdu072mcn9jsj96</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>VariablesWML</title>
+    <ns>0</ns>
+    <id>4870</id>
+    <revision>
+      <id>73861</id>
+      <parentid>73847</parentid>
+      <timestamp>2024-10-20T19:41:24Z</timestamp>
+      <contributor>
+        <username>Soliton</username>
+        <id>47</id>
+      </contributor>
+      <comment>/* The [variables] tag */ Looks like there is no proper place where [variables] is documented</comment>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text xml:space="preserve" bytes="21288">{{Template:WML Tags}}
+Variables in WML are used to store data for later retrieval. Each variable is identified by its name. Once created, a variable persists until the end of a campaign or scenario unless explicitly cleared.
+Variable names can contain only alphanumerics and underscores and are case-sensitive. Though technically permitted, it is recommended not to use an underscore as the first character of a variable name.
+
+The three basic manipulations of WML variables are assigning a value, querying the value, and clearing the variable.
+* [[#Assigning Variables|'''Assigning to a variable''']]: stores a value in the variable, either creating a new variable or modifying a variable that already exists.
+* [[#Reading Variables|'''Querying a variable''']]: retrieves the last value stored in the variable (usually returning an empty string if no value was stored).
+* [[#Clearing Variables|'''Clearing a variable''']]: makes the WML engine forget about that variable. This is useful for reducing overhead, since all used variables are stored in saved games.
+
+== Kinds of Variables ==
+=== Scalar ===
+A scalar variable can store a single string, number, or boolean value.
+
+&lt;syntaxhighlight lang=&quot;wml&quot;&gt;
+[set_variable]
+    name=my_variable
+    value=&quot;sample value&quot;
+    boolean_value=yes
+[/set_variable]
+&lt;/syntaxhighlight&gt;
+
+The full name of a scalar variable is its given name, in this case ''my_variable''. Note that the value of the variable can be translatable or even a formula expression ([[SyntaxWML#Special_Attribute_Values|Special Attribute Values]]).
+
+=== Container ===
+A container variable can store any number of scalar variables, as well as nested containers. There are tags to assign specific information, for instance [store_side]. To refer to a variable &lt;code&gt;bar&lt;/code&gt; stored in a container &lt;code&gt;foo&lt;/code&gt; you would write &lt;code&gt;foo.bar&lt;/code&gt;. This works even if one of the variable names is entirely numeric.
+
+=== Array ===
+An array variable is a numbered sequence of container variables. There are some specific tags that assign array information, for example [store_unit] and [store_locations]. One could create an array using [set_variable] like this:
+&lt;syntaxhighlight lang=&quot;wml&quot;&gt;
+[set_variable]
+    name=my_awesome_array[0].x
+    value=10
+[/set_variable]
+[set_variable]
+    name=my_awesome_array[1].x
+    value=12
+[/set_variable]
+[set_variable]
+    name=my_awesome_array[2].x
+    value=14
+[/set_variable]
+&lt;/syntaxhighlight&gt;
+
+However, when working with arrays, it is usually easier to make use of [set_variables]. This would be written as follows:
+&lt;syntaxhighlight lang=&quot;wml&quot;&gt;
+[set_variables]
+    name=my_awesome_array
+    [value]
+        x=10
+    [/value]
+    [value]
+        x=12
+    [/value]
+    [value]
+        x=14
+    [/value]
+[/set_variables]
+&lt;/syntaxhighlight&gt;
+
+Arrays are indexed from 0, which means that if &lt;code&gt;foo&lt;/code&gt; is the name of an array, &lt;code&gt;foo[0]&lt;/code&gt; is the full name of its first container variable, &lt;code&gt;foo[1]&lt;/code&gt; the full name of its second, and so on.
+
+For an array variable, &lt;code&gt;foo.length&lt;/code&gt; is the special variable that always stores the number of containers in the array &lt;code&gt;foo&lt;/code&gt;. Hence, if the value stored in &lt;code&gt;foo.length&lt;/code&gt; is 18, the last container in the array would be &lt;code&gt;foo[17]&lt;/code&gt;.
+
+If you try to query an array as if it were a container, then it will simply use the first index. Thus &lt;code&gt;$foo.bar&lt;/code&gt; would be the same as &lt;code&gt;$foo[0].bar&lt;/code&gt;. An explicit index inside an array is also considered a container.
+
+''Note'': Do not attempt to store a scalar value to the explicit index of an array, which is a container of scalar variables. Hence referring to a variable named &lt;code&gt;foo[3]&lt;/code&gt; as if it were a scalar one is illegal; instead, you would use &lt;code&gt;foo[3].value&lt;/code&gt; to store a scalar value. (While it may appear to work to an extent if you ignore this rule, it may also cause undefined behavior. For example, loading a save of a game that contains such variables will fail with a WML error.)
+
+=== Global ===
+
+Most variables are global variables – they exist in the global scope. Variables created with '''[set_variable]''', '''[set_variables]''', or any of the '''[store_something]''' styled WML tags are all global variables, and [[#Variable Substitution|variable substitution]] and the '''[variable]''' conditional tag only read global variables.
+
+=== Unit ===
+
+Unit variables are stored on a specific unit. That means that, if desired, every unit could have a variable with the same name, and it doesn't conflict with a global variable of the same name. Note that they are not global only in the sense that they are &quot;namespaced&quot; and not in the sense that they cannot be accessed globally.
+
+Unit variables can be created with '''[modify_unit]''', but there is currently no way to read them directly in WML. You can read them from [[Wesnoth Formula Language|formulas]] (eg in [[StandardUnitFilter]] or [[AbilitiesWML]]) and the '''[filter_wml][variables]''' tag in [[StandardUnitFilter]], or you can use '''[store_unit]''' to copy the unit along with all its variables into a global variable which can then be accessed normally – if you call the variable &lt;code&gt;my_unit&lt;/code&gt;, then you could access the scalar unit variable &lt;code&gt;stamina&lt;/code&gt; as &lt;code&gt;$my_unit.variables.stamina&lt;/code&gt;.
+
+If modifying unit variables after storing the unit, remember to [[DirectActionsWML#.5Bunstore_unit.5D|[unstore_unit]]] for the changes to be kept.
+
+An example of how you can filter on a unit variable in [[StandardUnitFilter]]:
+&lt;syntaxhighlight lang=&quot;wml&quot;&gt;
+[filter]
+  [filter_wml]
+    [variables]
+      my_variable=&quot;test&quot;
+    [/variables]
+  [/filter_wml]
+[/filter]
+&lt;/syntaxhighlight&gt;
+
+=== Side ===
+
+Side variables are stored on a specific side. That means that, if desired, every side could have a variable with the same name, and it doesn't conflict with a global variable of the same name. Note that they are not global only in the sense that they are &quot;namespaced&quot; and not in the sense that they cannot be accessed globally.
+
+Side variables can be created with '''[modify_side]''', but there is currently no way to read them directly in WML. You can read them from [[Wesnoth Formula Language|formulas]] (eg in [[StandardSideFilter]]), or you can use '''[store_side]''' to copy the side along with all its variables into a global variable which can then be accessed normally – if you call the variable &lt;code&gt;my_side&lt;/code&gt;, then you could access the scalar side variable &lt;code&gt;wood_amount&lt;/code&gt; as &lt;code&gt;$my_side.variables.wood_amount&lt;/code&gt;.
+
+Since there is no '''[unstore_side]''' tag, don't modify the variables in a stored side. Instead, use [[DirectActionsWML#.5Bmodify_side.5D|[modify_side]]] for the changes to be kept.
+
+== Assigning Variables ==
+
+Variables can be created and modified using [[ActionWML]] or [[LuaAPI/wml#wml.variables|Lua]]. There are several ways to do this:
+
+* The '''[set_variable]''' tag can assign or modify a scalar variable using a wide variety of operations.
+* The '''[set_variables]''' tag can assign or modify a container or array variable using a wide variety of operations.
+* The '''[variables]''' tag can be used to set up a large number of variables all at once.
+* The '''{VARIABLE}''' macro can assign a new scalar variable with a given value.
+* The '''{VARIABLE_OP}''' macro can modify an existing scalar variable using a wide variety of operations.
+* There are several ways to assign variables from Lua. They won't be covered here, however.
+
+=== The [set_variable] tag ===
+
+The '''[[InternalActionsWML#.5Bset_variable.5D|[set_variable]]]''' tag can be directly used as ActionWML to work with global variables, or it can be placed in the '''[modify_unit]''' or '''[modify_side]''' ActionWML tags to work with unit or side variables, respectively. See the documentation of these tags for details.
+
+=== The [set_variables] tag ===
+
+As of 1.18.0, the '''[[InternalActionsWML#.5Bset_variables.5D|[set_variables]]]''' tag can only be used as ActionWML. Support for placing it in '''[modify_unit]''' and '''[modify_side]''' is planned. See the documentation of these tags for details.
+
+=== The [variables] tag ===
+
+Unlike the others, the '''[variables]''' tag cannot be directly used as ActionWML. It can be used in a number of other places, however:
+
+* Placed in a scenario tag to assign initial global variables at scenario start.
+* Placed in a '''[side]''' tag to assign initial side variables at scenario start.
+* Placed in a '''[unit]''' tag to assign initial unit variables when the unit is spawned.
+* Placed in '''[leader]''' with the same meaning as in '''[unit]'''.
+* Placed in '''[modify_unit]''' and '''[modify_side]''' ActionWML to adjust the values of several variables at once using &quot;merge mode&quot; (see '''[set_variables]''' documentation for the explanation of how this works).
+* Seen in saved games to describe the current value of each variable when the game was saved.
+
+When using the '''[variables]''' tag, a scalar variable is assigned using an attribute, where the attribute's key is the variable's given name, and the attribute's value is the value to be stored in the variable.
+
+A container variable with given name ''foo'' is assigned using a [foo] tag that contains the definitions for the contained variables.
+
+An array variable with given name ''foo'' is assigned using several [foo] tags, where the first tag describes foo[0], the second foo[1], ...
+
+== Reading Variables ==
+
+Variables can be queried in a variety of ways, including substitutions, [[ConditionalWML]], [[Wesnoth Formula Language]], and Lua. The Lua methods won't be covered here, however.
+
+=== Conditionals ===
+
+Variables may be compared by using '''[variable]''' within an [if] or [while] tag. The '''{VARIABLE_CONDITIONAL}''' macro can also be used for this purpose. For more information, please refer to [[ConditionalActionsWML]].
+
+=== Filters ===
+
+In [[StandardUnitFilter|unit filters]], the '''[variables]''' tag can be used in '''[filter_wml]''' to check the value of unit variables, respectively.
+
+Both unit filters and [[StandardSideFilter|side filters]] also support querying variables via WFL. The details of how this works is not covered here, however.
+
+=== Variable Substitution ===
+
+When writing scenario events ([[EventWML]]) and filters, a scalar variable can generally be substituted in the right-hand side of any '''key=value''' assignment. To do this, enclose the full variable name to be queried between a dollar sign (&lt;code&gt;$&lt;/code&gt;) and a pipe (&lt;code&gt;|&lt;/code&gt;). The variable name should be the entire dot-separated path, where each component is an identifier (consisting of English letters, Arabic digits, and underscores) optionally followed by a pair of square brackets containing either a number or another substitution. The number represents the array index. When such a substitution appears in the text, the content which has previously been put into this variable name is used instead of the name of the variable.
+
+In certain situations, the &lt;code&gt;|&lt;/code&gt; that marks the end of the variable name to be queried can be omitted. The exact rule is: if there is no &lt;code&gt;|&lt;/code&gt;, variable names span identifier characters (as defined in the preceding paragraph), balanced square brackets and some periods. Doubled periods, final periods (followed by a non-identifier character), and some periods that would result in an illegal variable name will not be included. If the variable name ends up being empty (e.g. when using &lt;code&gt;$|&lt;/code&gt;), then it will be replaced by just &lt;code&gt;$&lt;/code&gt;, giving you an easy way to include a dollar sign in an interpolated string.
+
+{{DevFeature1.13|2}} If you want to substitute a default value when the variable is uninitialized or empty, add a question mark (&lt;code&gt;?&lt;/code&gt;) followed by the default value after the variable name, eg &lt;code&gt;$varname?default text|&lt;/code&gt;. In this case, the pipe (&lt;code&gt;|&lt;/code&gt;) is required. The default text can be anything at all, as long as it doesn't contain a pipe. (There exists no mechanism to escape a pipe so it can be included in the default text.)
+
+A dollar sign at the end of a string or followed by a character that's not an identifier will be left alone. If it's followed by a pipe, the pipe will be removed.
+
+Variable substitutions (and also formula substitutions, see [[SyntaxWML#formula substitution|here]] for more details) in a string are processed one at a time from right to left. That is, the engine finds the last dollar sign, substitutes that variable in, and then moves on to the next one in the resulting string. This means that the result of one variable substitution can affect the next one.
+
+For example, consider the substitution &lt;code&gt;$house_$colour|.title&lt;/code&gt;. First the &quot;colour&quot; variable is substituted in. If it contains &quot;blue&quot;, the result is &lt;code&gt;$house_blue.title&lt;/code&gt;, so the game will then look for a container variable called &quot;house_blue&quot; and substitute in its &quot;title&quot; key. On the other hand, if the &quot;colour&quot; variable contains &quot;red&quot;, the result of the first substitution is &lt;code&gt;$house_red.title&lt;/code&gt;, so the engine will instead look for a container variable called &quot;house_red&quot; and substitute in ''its'' &quot;title&quot; key.
+
+The most common use-case for this is using a scalar variable to index an array variable, for example &lt;code&gt;$houses[$n].title&lt;/code&gt;. In cases where substitution will occur more than once, such as a nested event, it can also be used to delay substitution to the second phase by simply adding a pipe directly after the dollar sign. The first round of substitution will remove the pipe and stop there (moving on to the next substitution left of it, if any), and then the second round of substitution will detect the variable and replace it.
+
+Here's a more complete example:
+
+&lt;syntaxhighlight lang=&quot;wml&quot;&gt;
+[event]
+    name=turn 1
+    [set_variable]
+        name=my_variable
+        value= _ &quot;Konrad&quot;
+    [/set_variable]
+    [message]
+        speaker=Delfador
+        message= _ &quot;Hello, $my_variable|... How are you?&quot;
+    [/message]
+[/event]
+&lt;/syntaxhighlight&gt;
+
+The WML code above will cause Delfador to say &quot;Hello, Konrad... How are you?&quot; on turn 1.
+
+==== Literal Mode ====
+
+There are a few places where the substitution mode is literal. In these places, attribute values are used exactly as provided, nothing is substituted, and the &lt;code&gt;$&lt;/code&gt; will not have special significance. The following places use the literal mode:
+* The value of '''literal=''' inside [set_variable]
+* The contents of '''[literal]''' inside [set_variables]
+* The special [[SyntaxWML#The_.5Bvariables.5D_tag|[variables]]] tag, when used to give initial values to many variables upon scenario start
+* In general, anything that's not nested inside '''[event]''', '''[command]''', '''[tunnel]''', '''[story]''', or a filter. For example, the '''[unit_type]''' tag cannot use variable substitution (except in filters).
+
+=== [insert_tag] ===
+
+The '''[insert_tag]''' tag inserts a variable as WML. In other words, the value of the passed [[VariablesWML#Container|container variable]] will be injected into the game as if they had been written out in WML form.
+
+This works in any tag that permits sub-tags and supports variable substitution. That means that, like variable substitution, it will ''not'' work in places that use [[#Literal Mode|literal mode]].
+
+*'''name''': The [&quot;name&quot;] to be given to the tag. This must be a tag which would be valid at the place where [insert_tag] is used, for anything to happen. (For example, if used as ActionWML, it should be a [[ActionWML]] tag name, and it may be a recognized subtag such as &quot;option&quot; when used within a [message]).
+
+*'''variable''': The name of the container variable which will have its value inserted into the tag. If the container variable is a WML array, [insert_tag] will insert a different tag for each of its elements.
+
+Here's an example of its use:
+
+&lt;syntaxhighlight lang=wml&gt;
+[event]
+    name=moveto
+    
+    [set_variable]
+        name=temp.speaker
+        value=Konrad
+    [/set_variable]
+    
+    [set_variable]
+        name=temp.message
+        value= _ &quot;Yo Kalenz!&quot;
+    [/set_variable]    
+    
+    [insert_tag]
+        name=message
+        variable=temp
+    [/insert_tag]
+[/event]
+&lt;/syntaxhighlight&gt;
+
+This is effectively identical to:
+
+&lt;syntaxhighlight lang=wml&gt;
+[event]
+    name=moveto
+    
+    [message]
+        speaker=Konrad
+        message= _ &quot;Yo Kalenz!&quot;
+    [/message]
+[/event]
+&lt;/syntaxhighlight&gt;
+
+== Clearing Variables ==
+
+This is done with {{tag|InternalActionsWML|clear_variable}} or the &lt;tt&gt;{CLEAR_VARIABLE}&lt;/tt&gt; [[PreprocessorRef|macro]]. It can also be done from Lua.
+
+Like '''[set_variable]''', the '''[clear_variable]''' tag can either be used as ActionWML or placed inside '''[modify_unit]''' or '''[modify_side]'''.
+
+== Automatically Stored Variables ==
+* '''side_number''': the number of the current player's side (may be empty during start or prestart events)
+* '''turn_number''': the number of the current turn (may be empty during start or prestart events)
+* '''x1''': this is the x-coordinate of the location where the most recent event was triggered
+* '''y1''': this is the y-coordinate of the location where the most recent event was triggered
+* '''x2''': this is the x-coordinate of the location that assisted in triggering the most recent event
+* '''y2''': this is the y-coordinate of the location that assisted in triggering the most recent event
+* '''unit''': inside an event, this is the unit at $x1,$y1
+* '''second_unit''': inside an event, this is the unit at $x2,$y2
+* '''this_unit''': inside a standard unit filter, this is the unit currently being considered for a possible match
+* '''other_unit''': inside some standard unit filters, this is an adjacent unit relevant to the match
+* '''damage_inflicted''': inside attacker_hits and defender_hits events, this is the amount of damage that was inflicted
+* '''weapon''': inside attack, attack_end, attacker_hits, attacker_misses, defender_hits, defender_misses, die and last_breath events, this is some information about the weapon that is/was being used by the unit at $x1,$y1. It contains the attributes from [attack], see [[UnitTypeWML]].
+* '''second_weapon''': inside attack, attack_end, attacker_hits, attacker_misses, defender_hits, defender_misses, die and last_breath events, this is some information about the weapon that is/was being used by the unit at $x2,$y2. It contains the attributes from [attack], see [[UnitTypeWML]].
+* '''owner_side''': inside a capture event, this contains the number of the previous owner (0 if previously unowned)
+* '''teleport_unit''': inside the [[AbilitiesWML#Extra_tags_used_by_the_.5Bteleport.5D_ability|[tunnel]]] tag used by a teleport ability, this is the unit with that ability
+
+Note: Automatically stored container and array variables are only stored once one of their attributes is accessed for the first time. This means that one can sometimes get incorrect results, for instance by killing the unit at $x1,$y1 as first action in a moveto event and then accessing $unit.something. This can be worked around by previously making a dummy access, such as adding 0 to hitpoints.
+
+== Variable Usage Examples ==
+Consider a saved game with the following [variables] tag (or a freshly started scenario with that tag)
+&lt;syntaxhighlight lang=&quot;wml&quot;&gt;
+[variables]
+    attitude_of_elves=hate
+    attitude_of_dwarves=love
+    attitude_of_humans=like
+    current_opponent=elves
+[/variables]
+&lt;/syntaxhighlight&gt;
+
+Then,
+&lt;syntaxhighlight lang=&quot;wml&quot;&gt;
+[message]
+   message=&quot;Oh, I see $current_opponent|! They surely $attitude_of_$current_opponent|| us!&quot;
+[/message]
+&lt;/syntaxhighlight&gt;
+displays the message
+ Oh, I see elves! They surely hate us!
+
+Consider another game with variables
+&lt;syntaxhighlight lang=&quot;wml&quot;&gt;
+[variables]
+    our_side=1
+    their_side=2
+[/variables]
+&lt;/syntaxhighlight&gt;
+where side 1 has 75 gold, and side 2 50 gold. Then, 
+&lt;syntaxhighlight lang=&quot;wml&quot;&gt;
+[store_side]
+    side=$our_side
+    variable=we
+[/store_side]
+[store_side]
+    side=$their_side
+    variable=they
+[/store_side]
+[message]
+    message=We have $we.gold gold, they have $they.gold gold.
+[/message]
+[if]
+    [variable]
+        name=we.gold
+        greater_than=$they.gold
+    [/variable]
+    [then]
+        [message]
+            message=This should be easy!
+        [/message]
+    [/then]
+    [else]
+        [message]
+            message=This will not be easy!
+        [/message]
+    [/else]
+[/if]
+[clear_variable]
+    name=we
+[/clear_variable]
+[clear_variable]
+    name=they
+[/clear_variable]
+&lt;/syntaxhighlight&gt;
+displays the messages
+ We have 75 gold, they have 50 gold.
+ This should be easy!
+If side 2 had 100 gold instead, the same code would display the messages
+ We have 75 gold, they have 100 gold.
+ This will not be easy!
+
+The code
+&lt;syntaxhighlight lang=&quot;wml&quot;&gt;
+[store_unit]
+    [filter]
+        canrecruit=yes
+        side=1
+    [/filter]
+    variable=leader
+[/store_unit]
+[message]
+    message=Our leader's first attack does $leader[0].attack[0].damage damage per hit.
+[/message]
+[clear_variable]
+    name=leader
+[/clear_variable]
+&lt;/syntaxhighlight&gt;
+always displays a true sentence.
+
+You may find more complicated examples of variable use in the [[UsefulWMLFragments]] section.
+
+== Tutorial ==
+
+* [[/How_to_use_variables|How to use variables]]</text>
+      <sha1>aynjizhp6p482i3pzms8a8md0zlr407</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>PreprocessorRef</title>
+    <ns>0</ns>
+    <id>1480</id>
+    <revision>
+      <id>73924</id>
+      <parentid>73579</parentid>
+      <timestamp>2024-11-03T15:21:57Z</timestamp>
+      <contributor>
+        <username>Bssarkar</username>
+        <id>19616</id>
+      </contributor>
+      <comment>/* #define */ Convert to named link</comment>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text xml:space="preserve" bytes="23092">{{WML Tags}}
+== Overview ==
+
+Wesnoth loads just one configuration file directly: '''data/_main.cfg'''. However, the '''WML preprocessor''' allows the inclusion of more files. Whenever a WML file is read by Wesnoth, it is passed through the preprocessor.
+
+The preprocessor can interpret a simple language of string expansions known as ''macros''. A macro should always be defined '''before''' the place where it needs to be used.
+
+The preprocessor is applied recursively, so included files will be parsed for macros, and after macro expansion will be parsed for macros again, and so on. As a result, you should not write a recursive macro that references itself, because it will cause errors (but, alas, not necessarily error messages).
+
+== Preprocessor directives ==
+
+The following directives are used to create and use ''macros'', i.e. shortcuts which reduce repetition of information. See [https://www.wesnoth.org/macro-reference.html the macro reference] for the list of predefined core macros.
+
+Macros have scoping rules such that addons have separate preprocessing contexts, meaning that they can be overridden however an author of UMC wishes to override them, without worrying about breaking other add-ons.
+
+The preprocessor has changed several times, so don't expect old Wesnoth versions to behave exactly the same as the current stable and development series.
+
+'''Note:''' In multiplayer scenarios, these directives will appear to work only for the host and not for other clients. This is because the preprocessor is run only on the host, and the clients receive the resultant WML from the server. It's particularly important to keep this in mind before using preprocessor conditionals.
+
+=== #define ===
+
+'''Syntax: #define ''symbol'' [''parameters''] ''&lt;newline&gt;'' ''substitution'' #enddef'''
+
+All subsequent occurences of '''{''symbol'' [''arguments'']}''' (see below) will be replaced by the contents of the ''substitution'' block, with all occurrences of any parameter {''parameter''} within ''substitution'' replaced by the corresponding value in ''arguments''. For example, the ENEMY_UNIT macro for the [[#Macro inclusions|macro inclusion]] example below could be defined as follows:
+
+&lt;syntaxhighlight lang=&quot;wml&quot;&gt;
+#define ENEMY_UNIT TYPE X Y
+## the ordering above is important, since the preprocessor does not distinguish
+## data into different types; only the ordering is used to determine which
+## arguments apply to which parameters.
+[unit]
+    type={TYPE} ## the unit will be of type TYPE, so different
+                ## instantiations
+                ## of this macro can create different units.
+    x={X}
+    y={Y}
+    side=2 ## the unit will be an enemy, regardless of the parameter
+           ## values. This reduces &quot;repetition of information&quot;,
+           ## since it is no longer necessary to specify
+           ## each created unit as an enemy.
+[/unit]
+#enddef
+&lt;/syntaxhighlight&gt;
+
+(See [[SingleUnitWML]] for further information on creating units using WML.)
+
+'''Important note:''' Although macros may look like they're simplifying the code, they do not help with wml bloating. Macros are very good at ''disguising'' WML bloat, but they do nothing to ''alleviate'' it. So instead of using macros to generate redundant and repetitive instructions, you should be considering how to eliminate redundancy through programming techniques of abstraction. The most popular way to improve your code is using custom [[EventWML|events]] and [[InternalActionsWML#.5Bfire_event.5D|fire_event]] tags. See also: [[Wml_optimisation|WML Optimisation]].
+
+==== Whitespace in Macros ====
+
+When expanding a macro, '''''all''''' whitespace in the definition of the macro is preserved. The &lt;tt&gt;#arg&lt;/tt&gt; declarations for optional arguments are removed including the final newline. The body of the optional argument (the default value) is similarly processed just as if it were a macro, so all whitespace is preserved.
+
+There are two main practical implications of these rules:
+
+* When using a macro to define simple constants to be used inline in the middle of an attribute value, the entire content and the &lt;tt&gt;#enddef&lt;/tt&gt; must be on one line, like so:
+: &lt;syntaxhighlight lang=wml&gt;
+#define MY_CONSTANT
+42#enddef&lt;/syntaxhighlight&gt;
+* If using a macro inside a quoted string, you should not indent the contents of the macro, as the indentation will be preserved upon macro substitution.
+* Similarly if you use an optional argument in the middle of an attribute value, the entire content and the &lt;tt&gt;#endarg&lt;/tt&gt; must be on one line, like so:
+: &lt;syntaxhighlight lang=wml&gt;
+#define MY_MACRO
+#arg OPTIONAL_ARG
+default#endarg
+  key = &quot;composite {OPTIONAL_ARG} value&quot;
+#enddef&lt;/syntaxhighlight&gt;
+
+=== #arg ===
+
+{{DevFeature1.13|7}} 
+
+'''Syntax: #arg ''symbol'' ''&lt;newline&gt;'' ''default value'' #endarg'''
+
+Defines an optional argument for a macro along with its default value. Optional arguments can be used to make a macro more flexible and to allow its user to specify certain parameters only when necessary.
+
+For example, one could define a shortcut macro for [message] with only one required argument (the text displayed), but several optional ones:
+
+&lt;syntaxhighlight lang=&quot;wml&quot;&gt;
+#define MESSAGE TEXT
+
+#arg SPEAKER_ID
+narrator#endarg
+
+#arg CAPTION
+#endarg
+
+#arg SOUND
+#endarg
+
+#arg IMG
+#endarg
+
+[message]
+    speaker={SPEAKER_ID}
+    message={TEXT}
+    caption={CAPTION}
+    sound={SOUND}
+    image={IMG}
+[/message]
+#enddef
+&lt;/syntaxhighlight&gt;
+
+The caller of the macro can then decide which, if any, of the default values to override:
+&lt;syntaxhighlight lang=&quot;wml&quot;&gt;
+{MESSAGE _&quot;Halt!&quot; SPEAKER_ID=&quot;Guard Captain&quot;}
+{MESSAGE _&quot;Two days pass...&quot; IMG=wesnoth-icon.png SOUND=ambient/morning.ogg}
+{MESSAGE _&quot;...&quot;}
+{MESSAGE _&quot;Welcome!&quot; CAPTION=_&quot;Elóndra's shop of wonders&quot; IMG=portraits/elves/shyde.png}
+{MESSAGE _&quot;*smash*&quot; SPEAKER_ID=&quot;Bridge Troll&quot; SOUND=mace.ogg}
+&lt;/syntaxhighlight&gt;
+
+For a multiline optional argument defined and called as follows:
+&lt;syntaxhighlight lang=&quot;wml&quot;&gt;
+#define MY_MACRO
+#arg MULTILINE
+[some_tag]
+    some_attribute = &quot;some value&quot;
+[/some_tag]
+#endarg
+...
+#enddef
+
+{MY_MACRO (MULTILINE=[other_tag]
+    other_attribute = &quot;other value&quot;
+[/other_tag])}
+&lt;/syntaxhighlight&gt;
+
+'''Note:''' As with #enddef, the final line break before #endarg is included in the default value. This means that if the symbol is used in the middle of a line, you should place the #endarg immediately after the value has ended, without a line break in between.
+
+=== #undef ===
+
+'''Syntax:''' '''#undef ''symbol'' '''
+
+Removes the previous definition of the macro named ''symbol''. Wesnoth expects this to be done when overriding an existing macro, and will warn you if you redefine an existing macro without an explicit #undef before it.
+
+=== Inclusion directive {} ===
+
+This directive can be used to include macros, single files or sets of files from a target directory.
+
+==== File/directory inclusions ====
+
+'''Syntax: {''path''}'''
+
+Includes the file with the specified ''path'', which will in turn run the preprocessor on it and perform any required substitutions or inclusions within it. The ''path'' may not contain ''..'' or the inclusion will be skipped.
+
+The exact location in which the ''path'' will be resolved will depend on its prefix:
+
+* '''{''path''}''': If ''path'' isn't a known macro (see below), the game will assume it's a relative path to a file in the main game '''data/''' directory and include it.
+* '''{~''path''}''': As above, but instead of the game data directory, the path is resolved relative to the user '''data/''' directory, where user made add-ons can normally be found.
+* '''{./''path''}''': The path is resolved relative to the location of the current file containing this inclusion.
+
+Information for locating the user data and game data directories can be found in [[EditingWesnoth]].
+
+Forward slashes ('''/''') should '''always''' be used as the path delimiter, even if your platform uses a different symbol such as colons (''':''') or backslashes ('''\''')! It is also very important to respect the '''actual letter case''' used to name files and directories for compatibility with case-sensitive filesystems on Unix-based operating systems.
+
+When ''path'' points to a directory instead of a file, the preprocessor will include all files found within with the '''.cfg''' extension, in alphabetical order; files without this extension (such as '''.map''' or '''.png''' files) are ignored.
+
+Some directories are handled in a special fashion according to their contents:
+
+* If there's a file named '''_main.cfg''' in the target directory, only that file will be included and preprocessed. It may include other files from its own directory or subdirectories within it, of course. This is used for managing WML directories as self-contained packages, like user made add-ons.
+* If there are files named '''_main.cfg''' in subdirectories of the target and there isn't one in the target itself, they will be all preprocessed. Given the following layout:
+ dir/
+ dir/a/_main.cfg
+ dir/a/other.cfg
+ dir/b/_main.cfg
+ dir/b/other.cfg
+ dir/other.cfg
+Using '''{dir}''' will cause dir/a/_main.cfg, dir/b/_main.cfg and dir/other.cfg to be included.
+* If there's a file named '''_final.cfg''' but no '''_main.cfg''', the file is guaranteed to be included and processed ''after'' all the other files in the directory.
+* If there's a file named '''_initial.cfg''' but no '''_main.cfg''', the file is guaranteed to be included and processed ''before'' all the other files in the directory.
+
+==== Macro inclusions ====
+
+'''Syntax: {''symbol'' [''arguments''] [''optional arguments'']}'''
+
+If the macro named ''symbol'' is defined, the preprocessor will replace this instruction by the expression ''symbol'' was previously defined as, using ''arguments'' as parameters. The number of normal arguments must be exactly the same as in the original definition or an error will occur. Optional arguments can only be placed '''after''' all normal arguments, however they can be specified in any order desired.
+
+You can create multiple word arguments by using parentheses to delimit the contents. For example, in '''{ENEMY_UNIT Wolf Rider 18 24}''' the four words will be interpreted as separate arguments and cause the preprocessor to fail since the macro was defined above with only three; instead, you should use '''{ENEMY_UNIT (Wolf Rider) 18 24}'''.
+
+Optional arguments can also be delimited by placing parentheses, however they must be placed around both the argument name '''and''' content:
+
+&lt;syntaxhighlight lang=&quot;wml&quot;&gt;
+{MESSAGE _&quot;I'll smash you!&quot; (SPEAKER_ID=Bridge Troll) } # Correct
+{MESSAGE _&quot;I'll smash you!&quot; SPEAKER_ID=(Bridge Troll) } # Wrong
+&lt;/syntaxhighlight&gt;
+
+This way even complex arguments can be passed:
+
+&lt;syntaxhighlight lang=&quot;wml&quot;&gt;
+{MODIFY_UNIT (
+    [filter_adjacent]
+        canrecruit=yes
+    [/filter_adjacent]
+    ) side 2}
+&lt;/syntaxhighlight&gt;
+
+Using the name of an existing macro as the name of a macro argument is possible, but the argument will always take precedence over the original macro:
+
+&lt;syntaxhighlight lang=&quot;wml&quot;&gt;
+#define VARIABLE
+#enddef
+#define MACRO VARIABLE
+    {VARIABLE} # is calling for the argument, not for the macro above
+#enddef
+&lt;/syntaxhighlight&gt;
+
+=== #ifdef and #ifndef ===
+
+Unlike the other preprocessor directives, '''#ifdef''' and '''#ifndef''' are not mere conveniences. They are often necessary to distinguish between different gameplay modes or difficulties (see [[#Built-in macros|Built-in macros]] below).
+
+'''Syntax:''' '''#ifdef ''symbol'' ''substitution-if-defined'' [#else ''substitution-if-not-defined'' ] #endif'''
+
+If ''symbol'' has been defined with '''#define''' or as a built-in macro, the whole block will be replaced by ''substitution-if-defined''.  If not, it will be replaced by ''substitution-if-not-defined'' if it is available.
+
+'''#ifndef''' is the exact opposite of '''#ifdef''', reversing the logic:
+
+'''Syntax:''' '''#ifndef ''symbol'' ''substitution-if-not-defined''  [#else ''substitution-if-defined''] #endif'''
+
+=== #ifhave and #ifnhave ===
+
+'''Syntax:''' '''#ifhave ''path'' ''substitution-if-path-exists'' [#else ''substitution-if-path-does-not-exist''] #endif'''
+
+Checks for the existence of a file. Uses the same relative paths as [[#Inclusion_directive_.7B.7D|include directives]].
+
+Example:
+
+&lt;syntaxhighlight lang=&quot;wml&quot;&gt;
+#ifhave ~add-ons/My_Addon/_main.cfg
+    {MY_ADDON_MACROS}
+#endif
+&lt;/syntaxhighlight&gt;
+
+'''#ifnhave'''  does the opposite of '''#ifhave''':
+
+'''Syntax:''' '''#ifnhave ''path'' ''substitution-if-path-does-not-exist'' [#else ''substitution-if-path-exists''] #endif'''
+
+=== #ifver and #ifnver ===
+
+'''Syntax:''' '''#ifver ''symbol'' ''operator'' ''version-number'' ''&lt;newline&gt;'' ''substitution-if-condition-met'' [#else ''substitution-if-condition-not-met''] #endif'''
+
+Compares a version number defined in a macro against an argument for conditional block inclusions, like ''#ifdef'' and ''#ifhave''. ''operator'' is one of ''=='' (equal), ''!='' (not equal), ''&lt;'' (less), ''&lt;='' (less or equal), ''&gt;'' (greater), ''&gt;='' (greater or equal). The specified ''symbol'' should have been previously defined as plain text without more macro inclusions within it, and it must not require any arguments.
+
+Versions with text suffixes are sorted in binary order and come after all versions with the same number. The most common suffixes begin with &quot;+&quot;, but as this represents multiple possible versions, comparing versions against it is not recommended.
+
+Example:
+&lt;syntaxhighlight lang=&quot;wml&quot;&gt;
+#ifver WESNOTH_VERSION &gt;= 1.9.7+
+    [message]
+        speaker=narrator
+        message= _ &quot;I’m on Wesnoth 1.9.7+, 1.9.8 or later!&quot;
+    [/message]
+#else
+#ifver WESNOTH_VERSION == 1.9.7
+    [message]
+        speaker=narrator
+        message= _ &quot;I’m on Wesnoth 1.9.7, and I’ll include some workaround code for bug #9001!&quot;
+    [/message]
+#endif
+#endif
+&lt;/syntaxhighlight&gt;
+
+'''#ifnver'''  does the opposite of '''#ifver''':
+
+'''Syntax:''' '''#ifnver ''symbol'' ''operator'' ''version-number'' ''&lt;newline&gt;'' ''substitution-if-condition-not-met'' [#else ''substitution-if-condition-met''] #endif'''
+
+=== #error ===
+
+'''Syntax:''' '''#error [''message'']'''
+
+Causes the WML preprocessor to fail unconditionally upon encountering the line. For add-ons, this will cause the game to display an error and return to the titlescreen if the add-on is required for the user's action (such as playing a campaign or loading a saved game). For core WML, this will cause the game to quit entirely.
+
+Please note that in spite of the example below, it is '''not''' advisable to use this mechanism in published add-ons for version or feature-checking, since the message is not displayed in a form that permits translation and the additional trace information may confuse players. This directive is only intended as a debugging aid for content creators.
+
+Example:
+&lt;syntaxhighlight lang=&quot;wml&quot;&gt;
+#ifver WESNOTH_VERSION &lt; 1.11.10
+#error This add-on does not support Wesnoth 1.11.10!
+#endif
+&lt;/syntaxhighlight&gt;
+
+=== #warning ===
+
+'''Syntax:''' '''#warning [''message'']'''
+
+Causes the WML preprocessor to emit a warning upon encountering the line. The message will '''only''' be relayed to stderr, not to the player in the game UI. This directive is only intended as a debugging aid for content creators.
+
+Example:
+&lt;syntaxhighlight lang=&quot;wml&quot;&gt;
+#ifver WESNOTH_VERSION &lt; 1.11.10
+#warning On Wesnoth 1.11.9 or earlier, bug workarounds enabled!
+#endif
+&lt;/syntaxhighlight&gt;
+
+=== #deprecated ===
+
+{{DevFeature1.13|11}}
+
+'''Syntax:''' '''#deprecated 1 ''message'''''
+
+'''Syntax:''' '''#deprecated 2 ''version'' ''message'''''
+
+'''Syntax:''' '''#deprecated 3 ''version'' ''message'''''
+
+'''Syntax:''' '''#deprecated 4 ''message'''''
+
+The effect of this directive depends on whether it appears within a macro definition.
+
+* If it appears at file level, outside any macro definition, then it immediately outputs a warning saying that the file is deprecated, with the provided message. Multiple '''#deprecated''' directives at toplevel in a single file will result in separate messages.
+* If it appears inside a macro definition ('''#define ... #enddef'''), then it doesn't output anything. Instead, it marks the macro as deprecated. When that macro is later used, only then will the preprocessor output a warning saying that the macro is deprecated, with the provided message. Multiple '''#deprecated''' directives within a single macro will be merged into one message.
+
+Note that deprecation messages will only appear if they have been set to. {{DevFeature1.13|12}} This can be done by enabling debug mode, or by going to Advanced Preferences and setting the log-level for the deprecation logdomain. (This can also be done on the command-line.)
+
+If you provide a deprecation level of 2 or 3, it is required to indicate the earliest version in which the feature could be removed. However, if you provide a deprecation level of 1 or 4, any provided ''version'' will instead be parsed as part of the message, so you will probably not want to provide one at all. Other deprecation levels are not valid. See the documentation for [[InterfaceActionsWML#.5Bdeprecated_message.5D|[deprecated_message]]] for the meaning of the various ''level'' values.
+
+== Built-in macros ==
+
+The following macros are automatically defined with empty contents (unless specified otherwise) by the game engine depending on the configuration or gameplay mode.
+
+Note that except during an actual game, '''MULTIPLAYER''', '''EDITOR''' and previous campaign defines, are not guaranteed to be undefined, especially when coming back to the titlescreen. So it is not enough to hide contents inside of an #ifdef to prevent them from being seen by the campaign selection dialog, for example for multiplayer specific '''[campaign]'''s or '''[modification]'''s '''type=mp''' must be used. 
+
+* A campaign define symbol (see ''define'' in [[CampaignWML]]): defined when playing a single-player campaign.
+* A campaign difficulty level, usually '''EASY''', '''NORMAL''' or '''HARD''' (see ''difficulties'' in [[CampaignWML]]): defined according to the chosen difficulty when starting a single-player campaign, also stored in saved games.
+* '''MULTIPLAYER''': defined when in multiplayer mode.
+* '''EDITOR''': defined when running the built-in map editor.
+* '''DEBUG_MODE''': defined when the game has been launched in debug mode (i.e. with '''-d''' or '''--debug''' in the command line). Can also be set by typing &lt;code&gt;:&lt;/code&gt; to bring up [[CommandMode]], then typing &lt;code&gt;debug&lt;/code&gt;, and then restarting the scenario.
+* '''APPLE''': defined while processing the main game data when running on Mac OS X. This primarily exists to switch Control for Command in hotkeys, which is why there are no defines for other platforms.
+* '''WESNOTH_VERSION''': defined containing just the game version number when running the WML preprocessor.
+* '''CURRENT_FILE''': Expands to the name of the current WML file.
+* '''CURRENT_DIRECTORY''': Expands to the preprocessor path of the parent directory for the current WML file (e.g. for &lt;code&gt;&amp;lt;user data dir&amp;gt;/data/add-ons/My_Addon/_main.cfg&lt;/code&gt; this evaluates to &lt;code&gt;~add-ons/My_Addon&lt;/code&gt;). 
+* '''LEFT_BRACE''': {{DevFeature1.15|2}} Expands to &lt;code&gt;{&lt;/code&gt;.
+* '''RIGHT_BRACE''': {{DevFeature1.15|2}} Expands to &lt;code&gt;}&lt;/code&gt;.
+* '''SCHEMA_VALIDATION''': defined if the validator is being run.
+* '''__WMLUNITS__''': defined when the tool to create [https://units.wesnoth.org units.wesnoth.org] is being run.
+
+A ''very large'' number of additional macros are provided as part of the default game core WML. For a full list of those, check the [https://www.wesnoth.org/macro-reference.html macro reference].
+
+== Command-line preprocessor ==
+
+'''Syntax: --preprocess ''&amp;lt;source file/directory&gt;'' ''&lt;target directory&gt;'' '''
+
+Or the short form:
+
+'''Syntax: -p ''&amp;lt;source file/directory&gt;'' ''&lt;target directory&gt;'' '''
+
+You can specify a list of predefined defines with:
+
+'''Syntax: --preprocess-defines=DEFINE1,DEFINE2,etc'''
+
+comma separated list of defines to be used by '--preprocess' command. If 'SKIP_CORE' is in the define list the data/core won't be preprocessed.
+
+The command will first preprocess '''data/core/macros''' and '''data/core/terrain-graphics''', and afterwards the specified path. You can specify a single file to be preprocessed (if you want to preprocess multiple separate files, you'll need to run a different command line for each one), or an entire directory, which will be preprocessed according to the rules used by the inclusion directive above.
+
+The resulting preprocessed files will be written in the target directory. There will be two types of files: .cfg files --- the normal ones, and .plain files containing line markers and textdomain changes.
+
+If by chance, the simple macro define doesn't suffice, you can use:
+
+'''Syntax: --preprocess-input-macros &lt;file&gt;'''
+
+To import an existing file that contains macros, and they will be available in the defines database before processing the specified files.
+
+There is also the possibility to export the preprocessed defines/macro list with:
+
+'''Syntax: --preprocess-output-macros [&lt;target file&gt;]'''
+
+This file could be fed to the 'input-macros' argument next time you run it. For example, a scenario would be: parsing just the core first time, and for the intended target files, you would add SKIP_CORE but import the generated macros file - that will be faster than preprocessing the core again. If the target file is not specified, the output file will be _MACROS_.cfg in the target directory of the preprocess's command.
+
+If ''file/directory'' and ''target directory'' are not absolute paths, they will be considered relative to the current directory.
+
+Some examples:
+
+* Preprocess the entire tutorial dir, and write the results in the ~/result folder:
+ -p ~/wesnoth/data/campaigns/tutorial ~/result
+* Add the MULTIPLAYER define to the list and preprocess a scenario's config file:
+ -p ~/.wesnoth/data/add-ons/My_Campaign/scenarios/01_First_Scenario.cfg ~/result --preprocess-defines=MULTIPLAYER
+* Add the MY_CAMPAIGN and HARD defines before preprocessing a campaign's files:
+ -p ~/.wesnoth/data/add-ons/My_Campaign ~/result --preprocess-defines=MY_CAMPAIGN,HARD
+* File myfile.cfg depends on macros defined in data/gui/macros/_initial.cfg:
+ -p data/gui/macros/_initial.cfg  /tmp --preprocess-output-macros=macros
+ -p myfile.cfg ~/result --preprocess-input-macros=/tmp/macros
+
+When it starts getting complicated, such as a file that depends on multiple other files, it is probably easiest to simply &quot;include&quot; the dependencies:
+
+* File myfile.cfg depends on macros defined in data/gui/macros/_initial.cfg:
+  Add {gui/macros/_initial.cfg} to the beginning of  myfile.cfg
+  -p myfile.cfg ~/result
+
+If you want a more detailed (and potentially overwhelming) log, you can simply add the switches '''--log-debug=all''' or '''--log-info=all''' to the command line, so you can see how things are preprocessed in detail.
+
+== See Also ==
+
+* [[SyntaxWML]] (explains relationship between comments and preprocessor directives)
+* [[ReferenceWML]]
+
+[[Category: WML Reference]]</text>
+      <sha1>27onnibj6qr1wac8rj3cbt5qo4zx9xh</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>GrammarWML</title>
+    <ns>0</ns>
+    <id>6408</id>
+    <revision>
+      <id>72356</id>
+      <parentid>72355</parentid>
+      <timestamp>2024-02-24T16:24:21Z</timestamp>
+      <contributor>
+        <username>Celtic Minstrel</username>
+        <id>17798</id>
+      </contributor>
+      <comment>Try writing a grammar for the WFL language</comment>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text xml:space="preserve" bytes="7235">{{WML Tags}}
+This page contains a formal grammar of the Wesnoth domain-specific languages, including WML and its preprocessor. It does not attempt to capture any of the ways that the Wesnoth engine may interpret a string, such as WML variable substitution. It also doesn't fully capture the potential consequences of macros, for example the use of unbalanced WML tags. The syntax used is regular-expression-like (which is not quite the same as regex-like!), with the following conventions:
+
+* Literal values are enclosed in either 'single quotes' or &quot;double quotes&quot;.
+* Square brackets enclose character classes, with initial ^ inverting them
+* Whitespace within an expression (unless quoted) is used only for readability or to separate non-terminals
+* The meta-characters * + ? | have the same meaning as is typical in regular expressions
+* The sequence «tab» represents a tab character, and «nl» represents an end-of-line character or character sequence
+* Multiple definitions of a non-terminal are equivalent to alternation (ie, x:=4 and x:=7 combine to produce x:=4|7)
+
+== WML Preprocessor ==
+
+The WML preprocessor knows little of the grammar of the WML language itself; it is primarily just a text-substitution engine. Currently this is just a draft and may not be entirely accurate.
+
+ preproc_doc := (preproc_directive | preproc_line)*
+ preproc_directive := simple_directive | macro_definition | if_block
+ preproc_line := (preproc_text | '&lt;&lt;' macro_free_text '&gt;&gt;' | macro_inclusion)* comment? «nl»
+ preproc_text := (preproc_char | '&lt;' preproc_char)* '&lt;'?
+ preproc_char := [^&lt;{#«nl»]
+ macro_free_text := (macro_free_char | '&gt;' macro_free_char)*
+ macro_free_char := [^&gt;]
+ macro_inclusion := '{' ([^}]+ | macro_function) '}'
+ macro_function := macro_name_char+ (macro_argument)*
+ macro_name_char := [^} «tab»]
+ macro_argument := (macro_name_char | macro_inclusion)+
+ macro_argument := '(' preproc_doc? ')' | '_'? '&quot;' ([^}&quot;]
+ macro_argument := ('&quot;&quot;' | macro_inclusion)* '&quot;'
+ macro_argument := '&lt;&lt;' macro_free_text '&gt;&gt;'
+ comment := '#' [^«nl»]+ «nl»
+ ws := ' ' | «tab»
+ simple_directive := '#undef' ws+ macro_name_char+ ws* «nl»
+ simple_directive := ('#warning' | '#error') ws+ [^«nl»]* «nl»
+ macro_definition := '#define' ws+ macro_name_char+ (ws+ macro_name_char+)* «nl» (opt_arg_definition)* (simple_directive | if_block | preproc_line)+ '#enddef' «nl»
+ opt_arg_definition := '#arg' ws+ macro_name_char+ «nl» (simple_directive | if_block | preproc_line)+ '#endarg' «nl»
+ if_block := (ifdef_header | ifver_header | ifhave_header) «nl» preproc_doc ('#else' «nl» preproc_doc)? '#endif' «nl»
+ ifdef_header := ('#ifdef' | '#ifndef') ws+ macro_name_char+
+ ifver_header := ('#ifver' | '#ifnver') ws+ macro_name_char+ ws* comparison_op ws* version_string
+ ifhave_header := ('#ifhave' | '#ifnhave') ws+ [^«nl»]+
+ comparison_op := '&lt;' | '&lt;=' | '==' | '!=' | '&gt;=' | '&gt;'
+ version_string := integer ('.' integer)*
+ integer := [0-9]+
+
+== WML ==
+
+This grammar describes WML '''after''' the preprocessor is finished with it, and as such does not account for macros, preprocessor directives, or comments. It also assumes tokenization has already occurred and thus does not specify whitespace, except for newlines. Note that it omits the requirement for opening and closing tags to match.
+
+ wml_doc := (wml_tag | wml_attribute)*
+ wml_tag := '[' '+'? wml_name ']' wml_doc '[/' wml_name ']'
+ wml_name := [a-zA-Z0-9_]+
+ wml_attribute := textdomain? wml_key_sequence '=' wml_value «nl»
+ wml_key_sequence := wml_name (',' wml_name)*
+ wml_value := wml_value_component ('+' («nl» textdomain?)? wml_value_component)*
+ wml_value_component := text | '_'? string | '_'? raw_string
+ 
+ text := [^+«nl»&quot;]*
+ string := '&quot;' ([^&quot;] | '&quot;&quot;')* '&quot;'
+ raw_string := '&lt;&lt;' ([^&gt;] | &gt;[^&gt;])* '&gt;&gt;'
+ textdomain := '#textdomain' [a-zA-Z0-9_-]+ «nl»
+
+== WML Substitutions ==
+
+This grammar describes the syntax of WML substitutions, the syntax used to specify that variables should be substituted into the value of a WML attribute. The grammar here describes a single placeholder, without regard to the fact that they can be nested. Thus, parsing a string using this grammar would only succeed if done from right to left ''while'' performing the substitutions.
+
+ wml_substitution := wml_var | wml_formula | '$|'
+ wml_var := '$' wml_var_path (wml_var_default | '|')?
+ wml_var_path := (wml_var_name wml_var_index? '.')* wml_var_name
+ wml_var_name := [a-zA-Z0-9_]+
+ wml_var_index := '[' [0-9]+ ']'
+ wml_var_default := '?' [^|]+ '|'
+ wml_formula := '$' '(' wfl_document ')'
+
+== Wesnoth Formula Language ==
+
+This grammar describes the syntax of the [[Wesnoth Formula Language]]. Though it specifies the format of comments and file markers, they are not integrated into the main grammar since it treats the equivalently to whitespace. The grammar may not be completely accurate to the actual in-game parser.
+
+ wfl_comment := '#' [^#]* '#'
+ wfl_file_run := 'wfl' wfl_string «any token»* 'wflend'
+ wfl_document := wfl_function_definition* wfl_formula
+ wfl_function_definition := 'def' wfl_name '(' wfl_function_args ')' wfl_formula ';'
+ wfl_function_args := (wfl_function_arg (',' wfl_function_arg)*)?
+ wfl_function_arg := wfl_name '*'?
+ wfl_formula := 'not'? where_expression
+ wfl_formula := bracketed_expression
+ bracketed_expression := '(' wfl_formula ')'
+ where_expression := (boolean_or_expression | bracketed_expression) ('where' wfl_variables)*
+ wfl_variables := wfl_variable (',' wfl_variable)*
+ wfl_variable := wfl_name '=' wfl_formula
+ boolean_or_expression := (boolean_and_expression | bracketed_expression) ('or' wfl_formula)*
+ boolean_and_expression := (comparison_expression | bracketed_expression) ('and' wfl_formula)*
+ comparison_expression := (containment_expression | bracketed_expression) (comparison_op wfl_formula)*
+ comparison_op := '=' | '!=' | '&lt;' | '&gt;' | '&lt;=' | '&gt;='
+ containment_expression := (range_expression | bracketed_expression) ('in' wfl_formula)*
+ range_expression := (additive_expression | bracketed_expression) ('~' wfl_formula)*
+ additive_expression := negation_opt? (multiplicative_expression | bracketed_expression) (additive_op wfl_formula)*
+ negation_op := '-' | '+'
+ additive_op := '-' | '+' | '..'
+ multiplicative_expression := (exponent_expression | bracketed_expression) (multiplicative_op wfl_formula)*
+ muliplicative_op := '*' | '/' | '%'
+ exponent_expression := (wfl_formula '^')* (dice_expression | bracketed_expression)
+ dice_expression := (dot_expression | bracketed_expression) ('d' wfl_formula)*
+ dot_expression := (wfl_value | bracketed_expression) ('.' wfl_formula)*
+ wfl_value := 'functions' | wfl_name | wfl_number | wfl_string | wfl_container | wfl_function_call
+ wfl_name := [a-zA-Z_]+
+ wfl_number := [0-9]+ ('.' [0-9]+)?
+ wfl_string := &quot;'&quot; ([^'[]+ | wfl_string_subst | wfl_string_escape)* &quot;'&quot;
+ wfl_string_subst := '[' wfl_formula ']'
+ wfl_string_escape := &quot;[']&quot; | '[(]' | '[)]'
+ wfl_container := '[' ('-&gt;' | wfl_expression_list | wfl_key_value_list)? ']'
+ wfl_expression_list := wfl_formula (',' wfl_formula)*
+ wfl_key_value_list := wfl_formula '-&gt;' wfl_formula (',' wfl_formula '-&gt;' wfl_formula)*
+ wfl_function_call := wfl_name '(' wfl_expression_list? ')'
+
+[[Category:WML Reference]]</text>
+      <sha1>s39ehrc7zz11ajfcumctjsxja993crp</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>AddonsWML</title>
+    <ns>0</ns>
+    <id>7095</id>
+    <revision>
+      <id>73930</id>
+      <parentid>72398</parentid>
+      <timestamp>2024-11-03T17:33:24Z</timestamp>
+      <contributor>
+        <username>Newfrenchy83</username>
+        <id>19610</id>
+      </contributor>
+      <comment>/* Common Tags and Keys */</comment>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text xml:space="preserve" bytes="6771">{{WML Tags}}
+== Creating add-ons in WML ==
+
+An add-on is defined by a directory structure, there is no tag called '''[addon]'''. The directory must contain a '''_main.cfg''', and the name of the directory is treated as its '''id'''. There are different rules for add-ons that define a custom core, which are described in [[CoreWML]] and ignored for the purposes of this page.
+
+The description of a downloaded add-on is found in '''_info.cfg''', the data for a locally authored add-on is in '''_server.pbl''' (see [[PblWML]]).
+
+An add-on typically contains other files, see for example [[AddonStructure]] or [[BuildingCampaignsTheCampaignFile]].
+
+== Which add-ons are active during gameplay ==
+
+To help prevent clashes between add-ons, when starting a scenario the engine only loads the active add-ons. An add-on is active if one or more &quot;add-on modules&quot; is used by the game. If a game does not use any add-on module from your add-on, then your add-on won't be parsed at all. On the other hand, if the game uses any add-on module from your add-on, then your entire add-on will be parsed, relying on preprocessor defines to exclude parts that aren't relevant to the add-on module that is to be loaded.
+
+Several toplevel tags are used to define an &quot;add-on module&quot;:
+
+* [[EraWML|'''[era]''']] - A multiplayer era
+* [[CampaignWML|'''[campaign]''']] - A campaign, either single-player or multiplayer
+* [[ScenarioWML#The .5Bscenario.5D tag|'''[scenario]''']] - A campaign scenario
+* [[ScenarioWML#The .5Bmultiplayer.5D tag|'''[multiplayer]''']] - A multiplayer scenario
+* [[ScenarioWML#The .5Btest.5D tag|'''[test]''']] - A test or demo scenario
+* [[ModificationWML#The .5Bmodification.5D toplevel tag|'''[modification]''']] - A modification that can be selected in the campaign or multiplayer menu
+* [[ModificationWML#The .5Bresource.5D toplevel tag|'''[resource]''']] - A resource that can be requested by any other add-on module
+
+Notably, that list doesn't contain the [[UnitsWML|'''[units]''']] tag. For example, a multiplayer scenario which allows the player to choose any era but has scripted events that spawn Ageless Era units needs to activate those units' add-on by loading a resource from it.
+
+== Common Tags and Keys ==
+
+The following tags and keys are supported in most types of addon modules:
+
+* '''id''': The addon module's unique ID. It must be unique across all addon module types, so for example there cannot be a '''[scenario]''' and a '''[multiplayer]''' with the same ID.
+* '''addon_min_version''': The minimum version of your add-on with which this content is backwards compatible. Compared with the version string given in [[PblWML]]. If ''addon_min_version'' is not explicitly specified, it means compatible only with the same version. Clients in multiplayer must have add-on versions agreeing with the ''addon_min_versions'' of each others' content in order to play, and will be prompted to update otherwise.
+* '''name''': (translatable) The visible name for the addon module, shown in the campaign selection or multiplayer game creation menu. (Not supported for '''[resource]''' since it is never visible anywhere.)
+* '''description''': (translatable) The detailed description for the addon module, shown in the campaign selection or multiplayer game creation menu. (Also not supported for '''[resource]''', nor for '''[scenario]''' or '''[test]'''.)
+* '''define'''='''''SYMBOL''''' When this addon module is active, the preprocessor symbol '''''SYMBOL''''' will be defined. See [[PreprocessorRef#.23ifdef_and_.23ifndef|ifdef]] for how this can be used to isolate parts of the file from other addon modules. Besides the addon module tag, only the tags '''[textdomain]''' and '''[binary_path]''' (see [[BinaryPathWML]]) should go outside of '''#ifdef ''SYMBOL'''''. This symbol will be defined ''before'' any .cfg is preprocessed. Note: If for some reason you don't want to place your '''[binary_path]''' outside your '''#ifdef ''SYMBOL''''' (perhaps it's causing conflicts with other addon modules), you can use binary-path-independent paths for the textdomain and any assets that are used in the addon module tag. This looks like '''icon=data/add-ons/whatever/something.png''' – essentially, any path beginning with '''data/'''.
+* '''[event]''' - An event handler that will be registered when the addon module is active. See [[EventWML]].
+* '''[lua]''' - Lua code that will be run when the addon module is loaded, before the '''preload''' event is fired. See [[LuaWML]].
+* {{anchor|ai|'''[ai]'''}}: Defines an AI algorithm that can be selected by players at the join game screen. See [[Wesnoth_AI_Framework#The_.5Bai.5D_Tag_.E2.80.94_Top-level_Elements|here]] for details. This is not used in single-player.
+** Note: This is not the place to define faction-specific AI parameters in an era. For that, place the '''[ai]''' tag in '''[multiplayer_side]'''.
+** Note: This tag may not be supported in '''[resource]''', '''[scenario]''', or '''[test]'''.
+* '''[options]''': Custom options. See [[OptionWML]] for details. Note: This may not be supported in '''[resource]''', '''[scenario]''', or '''[test]'''.
+* {{anchor|load_resource|'''[load_resource]'''}}: Indicates a resource to load when this addon module is loaded.
+** '''id''': The ID of the resource.
+* {{anchor|modify_unit_type|'''[modify_unit_type]'''}} {{DevFeature1.15|2}}: Changes a unit type while this modification is active. The supported attributes are:
+** '''type''' : the id of the unit type to change.
+** '''set_experience''' : changes the unit type's max experience.
+** '''set_cost''' : changes the unit type's recruit cost.
+** '''set_advances_to''' : changes the unit type's advancements.
+** '''add_advancement''' : adds a (list of comma separated) unit type(s) to the possible advancements of this unit type.
+** '''remove_advancement''' : removes a (list of comma separated) unit type(s) from the possible advancements of this unit type.
+** '''[advancement]''' : {{DevFeature1.19|5}} If a list of [advancement] is here, replace all [advancement] in unit type(s).
+** '''[male]''' : {{DevFeature1.19|5}} If exist and unit type use this tag, key and tags previously listed contained in this tag will apply to male unit type(s) only.
+** '''[female]''' : {{DevFeature1.19|5}} Same what [male] but for [female] sub_tags in unit type(s).
+** '''[variation]''' : {{DevFeature1.19|5}} If '''variation_id''' matches with '''variation_id''' of a [variation] in unit type(s), same what [male] or [female] tags.
+
+== See Also ==
+
+* [[BinaryPathWML]] - Toplevel tag to define search paths for assets.
+* [[UnitsWML]] - Toplevel tag to define units and unit-related data.
+* [[TerrainWML]] - Toplevel tag to define terrain types.
+* [[TerrainGraphicsWML]] - Toplevel tag to define how terrain is drawn.</text>
+      <sha1>tl2eym3aivxglc3r11n5kbro7o1lwta</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>ReplayWML</title>
+    <ns>0</ns>
+    <id>1497</id>
+    <revision>
+      <id>72401</id>
+      <parentid>72372</parentid>
+      <timestamp>2024-02-27T05:41:41Z</timestamp>
+      <contributor>
+        <username>Celtic Minstrel</username>
+        <id>17798</id>
+      </contributor>
+      <comment>/* The [command] tag */ Add another anchor</comment>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text xml:space="preserve" bytes="4452">{{WML Tags}}
+== The [command] tag ==
+
+The '''[command]''' tag is used to specify an action in a replay. It has the following attributes:
+
+* '''dependent''' if true, this command is not a lone-standing command and instead belongs to an earlier command, for example an advancement choice for an earlier attack command which issued an advancement.
+* '''from_side''' the side which issued the command. Only present for dependent commands.
+* '''sent''' used internally in networked mp, to know which commands were already sent to the other clients.
+The following tags are recognized for dependent=no(default):
+* {{anchor|start|'''[start]'''}}: is used to initialize the replay so that generated random numbers can be saved.
+* {{anchor|move|'''[move]'''}}: the player moved a unit.
+** '''x,y''': the path the unit walks.
+** '''skip_sighted''': whether the unit doesn't stop when discovering another unit, possible values are 'only_ally', 'all' or no, (default no). 
+* {{anchor|recruit|'''[recruit]'''}}: the player recruited a unit.
+** '''type''': the id of the type of unit recruited.
+** '''x''' and '''y''': the castle tile the unit is recruited on.
+** '''[from]'''
+*** '''x''' and '''y''': the keep tile the unit is recruited from.
+* {{anchor|recall|'''[recall]'''}}: the player recalled a unit. Same keys as [recruit], except that '''value''' is the id of the unit being recalled.
+* {{anchor|attack|'''[attack]'''}}: the player attacked.
+** '''weapon''': the index number of the weapon. Weapons are indexed by the unit designer.
+** '''defender_weapon''': the index number of the defenders weapon. Weapons are indexed by the unit designer, '-1' to choose the best weapon locally. The '-1' option is deprecated because it can cause OOS.
+** '''[source]''': the location of the attacking unit.
+** '''[destination]''': the location of the defending unit.
+* {{anchor|disband|'''[disband]'''}}: the player removes a unit from his recall list.
+** '''value''' the id of the removed unit.
+* {{anchor|end_turn|'''[end_turn]'''}}: the player ended his turn.
+* {{anchor|init_side|'''[init_side]'''}}: new turn is starting for a side. This fires begin of turn events.
+* {{anchor|fire_event|'''[fire_event]'''}}: a specific event was raised. This is mainly used for right-click menu items. ([set_menu_item])
+** '''raise''': the name of the event
+** '''[source]''': the location of the event
+** '''[set_variable]''' (deprecated): set WML variable(s) before firing. 
+*** '''name''': the name of the variable
+*** '''value''': a string value (literal)
+* {{anchor|lua_ai|'''[lua_ai]'''}}: {{DevFeature1.13|12}} This has been removed.
+** '''code''' the lua code that is executed.
+* {{anchor|custom_command|'''[custom_command]'''}}: {{DevFeature1.13|12}} Executes a custom command registered by Lua code
+** '''name''': The name of the custom command to run.
+** '''[data]''': Arbitrary data to be passed to the custom command.
+* {{anchor|auto_shroud|'''[auto_shroud]'''}}: a player toggled delayed shroud update
+** '''active''' whether automatic shroud updates will be active.
+* {{anchor|update_shroud|'''[update_shroud]'''}}: a player manually updated shroud.
+
+Non dependent commands can have a [checkup] tag which is used to check whether the data generated in the replay matches the data generated during the original game, The [checkup] tag can contain different [result] tags whose content is different for the different actions.
+For [attack] commands the [result]s give information about the single hits and can have the following attributes:
+** '''chance''': the percent chance that the attack had to hit.
+** '''damage''': the amount of damage that the attack would do if it hits.
+** '''hits''': whether the attack hits.
+** '''dies''': whether the defender dies from the hit.
+
+The following tags are recognized for dependent=true:
+* {{anchor|choose|'''[choose]'''}}: the player was given an option by the scenario or for an advancement path.
+** '''value''': the index number of the option chosen. Index numbers are given by the scenario designer.
+* {{anchor|input|'''[input]'''}}: if a lua code used [[LuaWML:Misc#wesnoth.synchronize_choice]] this tag contains the returned table.
+* {{anchor|global_variable|'''[global_variable]'''}}: a WML code used with [get_global_variable]
+* {{anchor|random_seed|'''[random_seed]'''}}: A user actions uses the rng and thus new random seed is needed.
+
+== See Also ==
+* [[SavefileWML]]
+* [[ReferenceWML]]
+
+
+[[Category: WML Reference]]</text>
+      <sha1>qtwx61m9y81oujaxvlxa62hqap2fbnu</sha1>
+    </revision>
+  </page>
+  <page>
+    <title>MultiplayerServerWML</title>
+    <ns>0</ns>
+    <id>2844</id>
+    <revision>
+      <id>74046</id>
+      <parentid>73205</parentid>
+      <timestamp>2025-01-02T13:07:58Z</timestamp>
+      <contributor>
+        <username>Soliton</username>
+        <id>47</id>
+      </contributor>
+      <minor/>
+      <comment>/* The login procedure */</comment>
+      <model>wikitext</model>
+      <format>text/x-wiki</format>
+      <text xml:space="preserve" bytes="11514">This page describes the [[WML]] used to communicate with the multiplayer server for Wesnoth, [[wesnothd]].
+
+== The handshake ==
+
+The client sends four bytes, then the server replies with four bytes. To get a new connection number, the client will send these four bytes: 0x00 0x00 0x00 0x00. The server then sends back the connection number (wesnothd calls this number the &quot;socket number&quot;). Since 1.13+ the server no longer is using socket numbers to keep track of clients and always sends the same number to them all. Since 1.15+ client can also send 0x00 0x00 0x00 0x01 instead to request entire connection to be [https://github.com/wesnoth/wesnoth/blob/2f8136951cd77526188cf8d0fb2cf21eaa2ebe63/src/server/common/server_base.hpp#L60-L76 encapsulated in TLS] immediately '''after'''. If the handshake is successful, the server will be the first to send a data package. All packages are in [http://en.wikipedia.org/wiki/Gzip gzip] format and are preceded by four bytes that specify the size of the package to come in '''big-endian''' (network byte order). Below you'll find information about what data the (unzipped) packages contain. Unpacked WML uses utf-8 charset.
+
+== The login procedure ==
+
+* server request (optional)
+** '''[version]'''
+
+* client response
+** '''[version]'''
+*** '''version''': The client's version string.
+*** '''client_source''': The client's distribution info. (Steam, SourceForge, App Store, etc.)
+
+* server response (if the server does not accept this version)
+** '''[redirect]'''
+*** '''host''': The host you should connect to.
+*** '''port''': The port you should connect to.
+*** '''version''': A comma-separated list of globs that this server should accept (e.g. &quot;1.0*,1.2*,1.4*,1.7*,1.8*&quot;)
+** or '''[reject]''' (if the version is unknown)
+*** '''accepted_versions''': A comma-separated list of globs that this server does accept
+
+* server request
+** '''[mustlogin]'''
+
+* client response
+** '''[login]'''
+*** '''username''': The username the client would like to have.
+*** '''password''': The hashed password, created from the password and salt received from the server. More information about how this password is being generated, including a real world example, can be found in the file [http://forum.wesnoth.org/download/file.php?id=41145 HashedPasswords.pdf] (885 KiB). Since version 1.15+ if TLS was successfully established before then password will be passed as is, without hashing, relying on TLS for secrecy. Passing password hashes is no longer supported to free the client from responsibility to support all hash schemes the forum can potentially use. Client will emit error instead of trying to send password if TLS wasn't established.
+
+* server response
+** '''[join_lobby]'''
+*** '''is_moderator''': &quot;yes&quot; if the user is a moderator, &quot;no&quot; otherwise.
+*** '''profile_url_prefix''': The external URL prefix for player profiles (empty if the server doesn't have an attached database)
+** or '''[error]''' (server is waiting for another '''[login]''' message now)
+*** '''message''': The error message.
+*** '''password_request''': If not empty the server asks the client to provide a password for its desired username.
+*** '''phpbb_encryption''': If &quot;yes&quot; the client will encrypt the password using phpbb's algorithm.
+*** '''random_salt''': Random salt sent to the client for mixing with the password hash.
+*** '''hash_seed''': Salt generated from the original hash that is required to recreate it.
+*** '''salt''': Salt generated from the original hash that is required to recreate it.
+*** '''force_confirmation''': Display an ok/cancel dialog with the content of the 'message' key.
+
+* server response
+** '''[gamelist]'''
+*** '''[game]''' (repeated)
+**** '''id''': A unique id of the game.
+**** '''name''': The title of the game.
+**** '''mp_scenario''': The id of the scenario.
+**** '''mp_era''': The id of the used era.
+**** '''mp_use_map_settings''': Does the game use the map settings specified in the scenario.
+**** '''mp_fog''': Does the game use fog.
+**** '''mp_shroud''': Does the game use shroud.
+**** '''mp_village_gold''': The number of gold per village.
+**** '''experience_modifier''': The experience setting.
+**** '''mp_countdown''': Does the game use a timer.
+**** '''mp_countdown_reservoir_time''': Upper limit of the possibly available time.
+**** '''mp_countdown_init_time''': Initial time.
+**** '''mp_countdown_action_bonus''': Time bonus per action.
+**** '''mp_countdown_turn_bonus''': Time bonus per turn.
+**** '''map_data''': The map data. ''Notice: not sent to lobby if the game uses shroud''
+**** '''hash''': The hash value of the map_data.
+**** '''observer''': Are observers allowed or not.
+**** '''human_sides''': The number of sides played by humans.
+**** '''slots''': The number of vacant/max slots.
+**** '''[slot_data]''' replaces '''slots''' since {{DevFeature1.13|12}}
+***** '''max''': The number of total slots.
+***** '''vacant''': The number of vacant slots.
+**** '''turn''': The current turn/max turn.
+**** '''[turn_data]''' replaces '''turn''' since {{DevFeature1.13|12}}
+***** '''current''': The current turn number.
+***** '''max''': The total number of turns.
+**** '''[modification]''' Modifications used in this game. See [[ModificationWML]].
+***** '''id''': ID of the modification.
+***** '''name''': Name of the modification.
+***** '''addon_id''': ID of the addon the modification is from.
+***** '''require_modification''': A boolean value; if set to yes, all players have to have this modification installed to join the game.
+**** '''[options]''' Options selected for this game. See [[OptionWML]].
+***** '''[campaign|era|modification|multiplayer]'''
+****** '''id''': ID of the addon the campaign|era|modification|multiplayer (scenario) is from.
+****** '''[option]'''
+******* '''id''': ID of the option.
+******* '''value''': Value of the option.
+** '''[user]''' (repeated)
+*** '''name''': The username of the player.
+*** '''game_id''': The ID of the game the player is in.
+*** '''location''': The name of the game the player is in.
+*** '''available''': &quot;yes&quot; if the player is in the lobby; &quot;no&quot; if in a game.
+Many of the keys under [game] are described more indepth on the [[ScenarioWML]] page.
+
+== Error messages ==
+
+* '''[error]'''
+** '''message''': The error message.
+
+== Chat (lobby and in-game) ==
+
+* '''[message]'''
+** '''sender''': (optional - filled by the server) The sender of the message.
+** '''message''': The message itself.
+** '''room''': The room the message is from/to
+* '''[whisper]'''
+** '''receiver''': The receiver of the whisper
+** '''sender''': (optional - filled by the server) The sender of the whisper.
+** '''message''': The message itself.
+
+== Nickname registration related commands (lobby and in-game) ==
+
+* '''[nickserv]'''
+** '''[info]''': Request info about another username.
+*** '''name''': The username.
+
+== Updating the lobby state ==
+
+* '''[gamelist_diff]''': server message - basically a [[DiffWML|diff]] from two gamelists, which also includes the user list.
+
+* '''[observer]''' or '''[observer_quit]''': server message - players joining([observer_quit] - quitting the lobby &quot;game&quot;)/quitting([observer] - joining the lobby &quot;game&quot;) a game
+** '''name''': Username of the player/observer.
+* '''[refresh_lobby]''': Request the full gamelist.
+
+== Game setup (the phase from creation to start) ==
+To create a game the client sends:
+* '''[create_game]'''
+** '''name''': The title of the game.
+** '''password''': The password to use to join the game.
+** '''ignored''': The list of ignored players from the host.
+** '''auto_hosted''': True if this request is from a bot, false otherwise.
+
+followed by a message with the scenario options as under [game] (see above) plus the scenario data ([time], [era], [side], etc. see [[ScenarioWML]])
+
+* '''[join]'''
+** '''id''': The id of the game.
+** '''observe''': Join the game as an observer.
+
+* '''[scenario_diff]''': [[DiffWML|diff]] of the [[ScenarioWML]] (side changes, etc.)
+
+* '''[start_game]''': sent by the host to start a game
+* '''[leave_game]''': sent by the client when it leaves a game; sent by the server to make a client leave a game
+** '''reason''': optional reason if sent by the server and was initiated by moderator action
+
+== In-game communication ==
+
+* '''[store_next_scenario]''': sent by the host - the scenario data (see [[ScenarioWML]]) to advance to the next scenario
+* '''[notify_next_scenario]''': sent by the server to tell players that the data for the next scenario is available
+* '''[load_next_scenario]''': sent by the client to request the data for the next scenario
+* '''[next_scenario]''': data for the next scenario (see [[ScenarioWML]]), sent by the server on request
+
+* '''[info]''': sent by the host on game end - info about the game state
+** '''type''': &quot;termination&quot; 
+** '''condition''': the termination reason
+
+* '''[change_controller]''': a player (un)droids one of his sides or assigns control to someone else (The host can assign control for any side.)
+** '''side''': the side to change controller
+** '''player''': the nickname of the player to take control
+** '''controller''': the new controller: &quot;human&quot; or &quot;human_ai&quot;
+** '''own_side''': &quot;yes&quot;
+
+If a player leaves this is sent to the host for all sides he owned.
+* '''side_drop''': The number of a side that dropped because a player left.
+* '''controller''': The controller of that side. (&quot;ai&quot;, &quot;network&quot;)
+
+* '''[muteall]''': the host mutes/unmutes all observers - toggles
+* '''[mute]''': the host mutes an observer - toggles
+** '''username''': the username of the observer - if not specified the servers returns a list of muted usernames
+* '''[kick]''' or '''[ban]''': the host kicks/bans a player/observer
+** '''username''': the username of the player/observer
+
+* '''[turn]'''
+** '''[command]''': (repeated) can contain all the tags you can find in a [[ReplayWML|replay]]: [recruit], [move], [end_turn], etc.
+*** '''[speak]'''
+**** '''message''': text of the message
+**** '''id''': the sender
+**** '''team_name''': the name of the team the message is for - empty if it's a public message
+
+== Game history ==
+This is a request to query a set of 11 rows of game history data based on the provided search criteria. The official client calls this from the Match History button in the  multiplayer lobby to display 10 rows of data. The 11th row is used as a flag to indicate whether there is more data to be queried or not via the right/left arrows on the dialog.
+
+* '''[game_history_request]'''
+** '''offset''': where in the result set to start returning data from. If there are 50 results and offset 10 is given, then rows 10-21 will be returned.
+** '''search_player''': the forum username of the player to search for.
+** '''search_game_name''': the name of the game to filter results by. Can use the * (matches any character before or after it's used) and _ (matches any single character) wildcards.
+** '''search_content_type''': the type of content to filter by. Must be one of:
+*** '''0''': scenario
+*** '''1''': era
+*** '''2''':modification
+** '''search_content''': The content to filter by. This is the ID of the content, not the name displayed on the UI, due to the translated name getting stored in the database.
+
+== Administrative commands ==
+* '''[query]'''
+** '''type''': The type of query. See [[ServerAdministration]] for details.
+
+== See also ==
+[https://github.com/renom/fastbot fastbot] -  the bot for tournaments which implements the protocol, can log in into the lobby and host games. Written in Go. 
+[[Category:WML Reference]]
+[[Category:Server Documentation]]</text>
+      <sha1>2wz5tpgqlng2w04p2shg4zhoz7fl6ba</sha1>
+    </revision>
+  </page>
+</mediawiki>

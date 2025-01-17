@@ -1,0 +1,187 @@
+# batch_manager.py
+
+from dataclasses import dataclass
+from typing import List, Dict, Optional, Tuple
+import torch
+import numpy as np
+
+@dataclass
+class BatchElement:
+    """
+    Represents a single game state that needs AI processing.
+    Includes metadata to track where results should go.
+    """
+    game_id: str
+    state: dict  # Raw game state from Wesnoth
+    encoded_state: Optional[torch.Tensor] = None  # State after encoding
+    action_mask: Optional[torch.Tensor] = None  # Valid actions mask
+
+class BatchManager:
+    """
+    Manages the collection and processing of game states in batches.
+    Handles encoding, batching, and unbatching of states and actions.
+    """
+    def __init__(self, 
+                 encoder: GameStateEncoding,
+                 batch_size: int = 32,
+                 device: str = "cuda"):
+        self.encoder = encoder
+        self.batch_size = batch_size
+        self.device = device
+        self.current_batch: List[BatchElement] = []
+        
+    def add_state(self, game_id: str, state: dict):
+        """
+        Adds a new game state to the current batch.
+        Automatically processes full batches.
+        """
+        # Create encoded version of the state
+        encoded_state = self.encoder.encode_game_state(state)
+        
+        # Create action mask based on valid moves
+        action_mask = self._create_action_mask(state)
+        
+        element = BatchElement(
+            game_id=game_id,
+            state=state,
+            encoded_state=encoded_state,
+            action_mask=action_mask
+        )
+        
+        self.current_batch.append(element)
+        
+        # If we have a full batch, process it automatically
+        if len(self.current_batch) >= self.batch_size:
+            return self.process_current_batch()
+        return None
+    
+    def process_current_batch(self) -> Optional[Dict[str, dict]]:
+        """
+        Processes all states in the current batch.
+        Returns actions for each game_id if batch is non-empty.
+        """
+        if not self.current_batch:
+            return None
+            
+        # Combine all states into a single batch tensor
+        batch_states = torch.stack([
+            elem.encoded_state for elem in self.current_batch
+        ]).to(self.device)
+        
+        # Combine action masks
+        batch_masks = torch.stack([
+            elem.action_mask for elem in self.current_batch
+        ]).to(self.device)
+        
+        # Get AI decisions for the whole batch
+        with torch.no_grad():  # No need for gradients during inference
+            actions = self.model(batch_states, batch_masks)
+        
+        # Convert actions back to individual game formats
+        results = {}
+        for elem, action in zip(self.current_batch, actions):
+            results[elem.game_id] = self._decode_action(action, elem.state)
+        
+        # Clear the batch
+        self.current_batch = []
+        
+        return results
+    
+    def _create_action_mask(self, state: dict) -> torch.Tensor:
+        """
+        Creates a mask of valid actions for the current state.
+        This is crucial for preventing the AI from trying invalid moves.
+        """
+        # We'll need to implement this based on Wesnoth's rules
+        # For example, units can't move beyond their movement range
+        # and can't attack if they've already attacked this turn
+        mask = torch.zeros(
+            (state['map_height'], state['map_width']),
+            dtype=torch.bool
+        )
+        
+        # Mark valid starting positions (units that can move/attack)
+        for unit in state['units']:
+            if unit['side'] == state['current_side'] and unit['can_act']:
+                x, y = unit['position']
+                mask[y, x] = True
+                
+        # Add valid recruitment hexes if we have enough gold
+        if state['current_gold'] > 0:
+            for hex in state['recruitment_hexes']:
+                x, y = hex['position']
+                mask[y, x] = True
+        
+        return mask
+
+class ExperienceBuffer:
+    """
+    Stores and manages experiences for training.
+    Uses prioritized replay like in EfficientZero.
+    """
+    def __init__(self, capacity: int = 100000):
+        self.capacity = capacity
+        self.experiences = []
+        self.priorities = np.zeros(capacity)
+        self.position = 0
+        
+    def add_experience(self, 
+                      state: dict,
+                      action: dict,
+                      reward: float,
+                      next_state: dict,
+                      done: bool):
+        """Adds a new experience to the buffer."""
+        experience = {
+            'state': state,
+            'action': action,
+            'reward': reward,
+            'next_state': next_state,
+            'done': done
+        }
+        
+        # Replace old experiences once we reach capacity
+        if len(self.experiences) < self.capacity:
+            self.experiences.append(experience)
+        else:
+            self.experiences[self.position] = experience
+            
+        # Give new experiences maximum priority
+        self.priorities[self.position] = max(self.priorities) + 1
+        
+        self.position = (self.position + 1) % self.capacity
+    
+    def sample_batch(self, 
+                    batch_size: int,
+                    beta: float = 0.4) -> Tuple[List[dict], np.ndarray]:
+        """
+        Samples a batch of experiences using prioritized replay.
+        Returns both the experiences and their importance sampling weights.
+        """
+        if len(self.experiences) == 0:
+            return [], np.array([])
+            
+        # Convert priorities to probabilities
+        probs = self.priorities[:len(self.experiences)]
+        probs = probs / probs.sum()
+        
+        # Sample indices based on priorities
+        indices = np.random.choice(
+            len(self.experiences),
+            batch_size,
+            p=probs,
+            replace=False
+        )
+        
+        # Calculate importance sampling weights
+        weights = (len(self.experiences) * probs[indices]) ** (-beta)
+        weights = weights / weights.max()
+        
+        experiences = [self.experiences[idx] for idx in indices]
+        
+        return experiences, weights
+    
+    def update_priorities(self, indices: List[int], priorities: np.ndarray):
+        """Updates priorities based on TD errors."""
+        for idx, priority in zip(indices, priorities):
+            self.priorities[idx] = priority
