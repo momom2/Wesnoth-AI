@@ -8,14 +8,14 @@ MAX_ATTACKS = 4 # We assume no unit has more than 4 attack options. TODO: check 
 
 SPECIAL_EMBEDDING_DIM = 16 # ARBITRARY. TODO: Sanity check.
 UNIT_EMBEDDING_DIM = 32 # ARBITRARY. TODO: Sanity check.
-UNIT_ENCODING_DIM = 113 # TODO: Hope I got it right, check more rigorously than by hand.
+UNIT_ENCODING_DIM = 129 # TODO: Hope I got it right, check more rigorously than by hand.
 # UNIT_EMBEDDING_DIM for unit type features
 # + 11 for numerical features
-# + 2 * SPECIAL_EMBEDDING_DIM for special features
+# + 3 * SPECIAL_EMBEDDING_DIM for special features
 # + 6 for resistance features
 # + 16 for defence features
 # + 16 for movement cost features
-# = 113
+# = 129
 
 MAX_RECRUITS = 20 # We assume the recruitment list is never longer than 20. This would need to be changed to handle arbitrary long lists if we wanted to do campaign. 
 

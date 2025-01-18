@@ -8,7 +8,7 @@ import random
 import math
 from pathlib import Path
 from dataclasses import dataclass
-from typing import List, Dict, Optional, Set
+from typing import List, Dict, Optional
 import torch
 
 from assumptions import (

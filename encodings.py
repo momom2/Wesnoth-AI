@@ -3,7 +3,7 @@
 import torch
 import torch.nn as nn
 from typing import List, Set, Tuple, Dict
-from classes import Unit, Attack, Map, Position, Memory, UnitAbility, UnitTrait
+from classes import Unit, Attack, Map, Position, Memory, UnitAbility, UnitTrait, UnitStatus
 from assumptions import MAX_ATTACKS, MAX_UNIT_TYPE, UNIT_ENCODING_DIM, UNIT_EMBEDDING_DIM, SPECIAL_EMBEDDING_DIM
 
 class AttackEncoding:
@@ -88,7 +88,7 @@ class UnitEncoding(nn.Module):
             embedding_dim=unit_embedding_dim
         )
         
-        # Embedders for abilities and traits
+        # Embedders for abilities, traits and statuses
         self.ability_embedder = nn.Embedding(
             num_embeddings=14,  # Number of UnitAbility enum values
             embedding_dim=special_embedding_dim
@@ -97,20 +97,25 @@ class UnitEncoding(nn.Module):
             num_embeddings=16,  # Number of UnitTrait enum values
             embedding_dim=special_embedding_dim
         )
+        self.status_embedder = nn.Embedding(
+            num_embeddings=4,  # Number of UnitStatus enum values
+            embedding_dim=special_embedding_dim
+        )
         
         # Learnable query vectors for weighted combination
         self.ability_query = nn.Parameter(torch.randn(special_embedding_dim))
         self.trait_query = nn.Parameter(torch.randn(special_embedding_dim))
+        self.status_query = nn.Parameter(torch.randn(special_embedding_dim))
         
         self.attack_encoder = AttackEncoding()
     
-    def encode_abilities_and_traits(self, 
+    def encode_abilities_traits_and_statuses(self, 
                                   abilities: Set[UnitAbility],
-                                  traits: Set[UnitTrait]) -> torch.Tensor:
+                                  traits: Set[UnitTrait],
+                                  statuses: Set[UnitStatus]) -> torch.Tensor:
         """
-        Encodes abilities and traits using learnable weighted combinations.
-        This preserves information about different combinations by learning
-        which combinations are important to distinguish.
+        Encodes abilities traits and statuses using learnable weighted combinations.
+        #TODO: Might want to encode abilities and traits together but statuses apart dues to being temporary?
         """
         # Handle abilities
         ability_embeddings = [
@@ -126,7 +131,7 @@ class UnitEncoding(nn.Module):
             attention_weights = torch.softmax(attention_scores, dim=0)
             abilities_encoding = torch.matmul(attention_weights, stacked_abilities)
         
-        # Handle traits similarly
+        # Handle traits
         trait_embeddings = [
             self.trait_embedder(trait.value) 
             for trait in traits
@@ -139,8 +144,22 @@ class UnitEncoding(nn.Module):
             attention_scores = torch.matmul(stacked_traits, self.trait_query)
             attention_weights = torch.softmax(attention_scores, dim=0)
             traits_encoding = torch.matmul(attention_weights, stacked_traits)
+
+        # Handle statuses
+        status_embeddings = [
+            self.status_embedder(status.value) 
+            for status in statuses
+        ]
         
-        return torch.cat([abilities_encoding, traits_encoding])
+        if not status_embeddings:
+            statuses_encoding = torch.zeros(self.status_embedder.embedding_dim)
+        else:
+            stacked_statuses = torch.stack(status_embeddings)
+            attention_scores = torch.matmul(stacked_statuses, self.status_query)
+            attention_weights = torch.softmax(attention_scores, dim=0)
+            statuses_encoding = torch.matmul(attention_weights, stacked_statuses)
+        
+        return torch.cat([abilities_encoding, traits_encoding, statuses_encoding])
     
     def encode_unit(self, unit: Unit) -> torch.Tensor:
         """Creates a complete encoding for a unit."""
@@ -163,8 +182,8 @@ class UnitEncoding(nn.Module):
         ])
         
         # Get special abilities and traits encoding
-        special_features = self.encode_abilities_and_traits(
-            unit.abilities, unit.traits
+        special_features = self.encode_abilities_traits_and_statuses(
+            unit.abilities, unit.traits, unit.statuses
         )
         
         # Include resistances and defenses
@@ -175,7 +194,7 @@ class UnitEncoding(nn.Module):
         return torch.cat([
             unit_type_features,     # unit_embedding_dim dimensions
             numerical_features,     # 11 dimensions
-            special_features,       # 2 * special_embedding_dim dimensions
+            special_features,       # 3 * special_embedding_dim dimensions
             resistance_features,    # 6 dimensions
             defense_features,       # 16 dimensions
             movement_cost_features  # 16 dimensions
@@ -229,6 +248,8 @@ class GameStateEncoding(nn.Module):
             pos.x / map_width,
             pos.y / map_height
         ])
+    
+    # TODO: Encode memory? Check if it should be done here or in transformer.py
     
     def encode_game_state(self, game_map: Map) -> Tuple[torch.Tensor, torch.Tensor]:
         """Creates a complete encoding of the game state."""

@@ -1,7 +1,7 @@
 # classes.py
 
 from dataclasses import dataclass
-from typing import List, Set, Optional
+from typing import List, Set
 from enum import IntEnum
 
 class Alignment(IntEnum):
@@ -113,6 +113,16 @@ class TimeOfDay(IntEnum):
     FIRSTWATCH = 4    # First night phase
     SECONDWATCH = 5   # Second night phase, followed by dawn
 
+class UnitStatus(IntEnum):
+    POISONED = 0
+    SLOW = 1
+    PETRIFIED = 2
+    STUNNED = 3 # Not sure if it appears in default anymore; there might be a df with a stun shield bash?
+    # Distraction is an ability, not applying a status 
+    # OTHER = 4 # TODO: Gotta think a bit about possible statuses, they're not in the manual
+
+
+
 @dataclass
 class Position:
     """Represents a position on the hex grid."""
@@ -164,6 +174,7 @@ class Unit:
     movement_costs: List[int] # 16 values, 1 to 10 (like def, once per terrain)
     abilities: Set[UnitAbility]
     traits: Set[UnitTrait]
+    statuses: Set[UnitStatus]
 
     def __post_init__(self):
         """Validates unit properties are within expected ranges."""
