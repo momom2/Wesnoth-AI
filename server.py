@@ -1,263 +1,443 @@
 import socket
 import struct
 import gzip
-import threading
 import logging
-from dataclasses import dataclass
-from typing import Dict, Optional
-import xml.etree.ElementTree as ET
+import threading
+import msvcrt
+from dataclasses import dataclass, field
+from typing import Optional, Dict, Set, Any
+from datetime import datetime
+import re
+import random
+from collections import defaultdict
+from logging.handlers import RotatingFileHandler
+from assumptions import HOST, PORT, TIMEOUT, LOG_FILE, HANDSHAKE_SIZE, CHUNK_SIZE
 
-# TODO: Determine appropriate logging format and level
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Pre-compile all regex patterns for efficiency
+USERNAME_PATTERN = re.compile(r'username="([^"]+)"')
+GAME_NAME_PATTERN = re.compile(r'name="([^"]+)"')
 
-@dataclass
-class Client:
-    socket: socket.socket
-    username: Optional[str] = None
-    game_id: Optional[int] = None
-    # TODO: Add fields for:
-    # - side number in game
-    # - player state (lobby/game/observing)
-    # - connection state (handshake/lobby/game)
-    
+# Pre-generate common responses once
+VERSION_RESPONSE = gzip.compress(b'[version]\n[/version]\n')
+MUSTLOGIN_RESPONSE = gzip.compress(b'[mustlogin]\n[/mustlogin]\n')
+JOIN_LOBBY_RESPONSE = gzip.compress(b'[join_lobby]\nis_moderator=no\n[/join_lobby]\n')
+
 @dataclass
 class Game:
+    """Represents a game instance in the server."""
     id: int
     name: str
-    host: Client
-    clients: Dict[str, Client]
-    observers: Dict[str, Client]
-    started: bool = False
-    # TODO: Add fields for:
-    # - game state (setup/playing/ended)
-    # - current turn
-    # - scenario data
-    # - replay data
-    # - game settings (era, modifications, etc.)
-
-class WesnothServer:
-    def __init__(self, host='localhost', port=15000):
-        """
-        Initialize the Wesnoth server.
-        
-        UNCERTAIN: Is port 15000 a good default? The official server seems to use 15000
-        but documentation doesn't specify if this is standard.
-        """
-        self.host = host
-        self.port = port
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        
-        self.clients: Dict[socket.socket, Client] = {}
-        self.games: Dict[int, Game] = {}
-        self.next_game_id = 1
-        
-    def start(self):
-        """Start the server"""
-        self.socket.bind((self.host, self.port))
-        # UNCERTAIN: Is 5 an appropriate backlog value?
-        self.socket.listen(5)
-        logger.info(f"Server started on {self.host}:{self.port}")
-        
-        while True:
-            client_socket, address = self.socket.accept()
-            logger.info(f"New connection from {address}")
-            client = Client(socket=client_socket)
-            self.clients[client_socket] = client
-            
-            # Handle each client in a separate thread
-            thread = threading.Thread(target=self.handle_client, args=(client,))
-            thread.daemon = True
-            thread.start()
+    host: str
+    created: datetime
+    scenario: str = ""
+    era: str = ""
+    turn: int = 0
+    sides: Dict[int, str] = field(default_factory=dict)
+    active: bool = True
     
-    def handle_client(self, client: Client):
-        """Handle individual client connections"""
+    def to_wml(self) -> str:
+        """Generates WML representation of the game state."""
+        parts = [
+            '[game]',
+            f'id={self.id}',
+            f'name="{self.name}"'
+        ]
+        if self.scenario:
+            parts.append(f'scenario="{self.scenario}"')
+        if self.era:
+            parts.append(f'era="{self.era}"')
+        if self.turn:
+            parts.append(f'turn={self.turn}')
+        
+        # Add sides information
+        for side_num, player in self.sides.items():
+            parts.append(f'[side]\nside={side_num}\nplayer="{player}"\n[/side]')
+            
+        parts.append('[/game]')
+        return '\n'.join(parts)
+
+class ClientConnection:
+    """Manages a single client connection."""
+    def __init__(self, socket: socket.socket, address: str, server: 'WesnothTrainingServer'):
+        self.socket = socket
+        self.address = address
+        self.server = server
+        self.username: Optional[str] = None
+        self.game_id: Optional[int] = None
+        self.buffer = bytearray()
+        self.logger = logging.getLogger(f"client_{address}")
+        
+    def handle(self):
+        """Main client handling loop."""
         try:
-            # Handle handshake
-            if not self.handle_handshake(client):
-                return
-                
-            # Main client loop
+            self._handle_handshake()
             while True:
-                wml = self.receive_wml(client.socket)
+                wml = self._receive_wml()
                 if not wml:
                     break
-                    
-                self.process_wml(client, wml)
-                
-        except Exception as e:
-            logger.error(f"Error handling client: {e}")
+                self._process_wml(wml)
+        except (socket.error, ConnectionError) as e:
+            self.logger.error(f"Connection error: {e}")
         finally:
-            self.disconnect_client(client)
+            self._cleanup()
+    
+    def _handle_request_choice(self, wml: str):
+        # Extract request_id if present
+        match = re.search(r'request_id=(\d+)', wml)
+        if match:
+            request_id = match.group(1)
+                    
+            # Check if this is a random_seed request
+            if '[random_seed]' in wml:
+                # Generate random seed response
+                #seed = random.randint(0, 9999) # Testing with a fixed seed for now
+                seed = 0
+                response = f'[choice]\nrequest_id={request_id}\n[random_seed]\nseed={seed}\n[/random_seed]\n[/choice]\n'
+            else:
+                # For other types of choices, send back an empty choice
+                response = f'[choice]\nrequest_id={request_id}\n[/choice]\n'
+                        
+            if not self.send_wml(response, log=False):
+                self.logger.debug(f"Failed to send choice response: {response}")
+            self.logger.debug(f"Sent choice response: {response}")
 
-    def handle_handshake(self, client: Client) -> bool:
-        """
-        Handle the initial handshake with a client
-        
-        UNCERTAIN: The documentation mentions protocol changes in 1.13+ and 1.15+
-        Need to verify this implementation works with current Wesnoth version.
-        """
+    def _handle_handshake(self):
+        """Handles initial client handshake."""
         try:
-            # Receive client's 4 bytes
-            data = client.socket.recv(4)
-            if len(data) != 4:
-                return False
-                
-            # Check if client wants TLS (we don't support it yet)
+            data = self.socket.recv(HANDSHAKE_SIZE)
+            if not data:
+                raise ConnectionError("Empty handshake")
+            
             if data == b'\x00\x00\x00\x01':
-                logger.warning("Client requested TLS which is not supported")
-                return False
+                self.logger.info("Client requested TLS (not supported)")
+                raise ConnectionError("TLS not supported")
                 
-            # Send back connection number (always 1 in modern versions)
-            client.socket.send(struct.pack('!I', 1))
+            self.socket.send(struct.pack('!I', 1))
+            self._send_raw(VERSION_RESPONSE)
             
-            # Send version request
-            self.send_wml(client.socket, self.create_version_request())
+        except socket.timeout:
+            raise ConnectionError("Handshake timeout")
             
-            return True
-            
-        except Exception as e:
-            logger.error(f"Handshake failed: {e}")
-            return False
-            
-    def receive_wml(self, sock: socket.socket) -> Optional[str]:
-        """
-        Receive and decode a WML message
-        
-        UNCERTAIN: Current implementation assumes messages are complete.
-        Need to handle partial messages and message boundaries properly.
-        """
+    def _receive_wml(self) -> Optional[str]:
+        """Receives and decodes a WML message with partial message handling."""
         try:
-            # Read message size (4 bytes, big endian)
-            size_data = sock.recv(4)
-            if not size_data:
-                return None
-            size = struct.unpack('!I', size_data)[0]
-            
-            # Read the full message
-            data = b''
-            while len(data) < size:
-                chunk = sock.recv(min(size - len(data), 4096))
+            # First get the message size
+            while len(self.buffer) < HANDSHAKE_SIZE:
+                chunk = self.socket.recv(HANDSHAKE_SIZE - len(self.buffer))
                 if not chunk:
                     return None
-                data += chunk
-                
+                self.buffer.extend(chunk)
+            
+            size = struct.unpack('!I', self.buffer[:HANDSHAKE_SIZE])[0]
+            self.buffer = self.buffer[HANDSHAKE_SIZE:]
+            
+            # Then get the complete message
+            while len(self.buffer) < size:
+                remaining = size - len(self.buffer)
+                chunk = self.socket.recv(min(remaining, CHUNK_SIZE))
+                if not chunk:
+                    return None
+                self.buffer.extend(chunk)
+            
+            # Extract the complete message
+            message = self.buffer[:size]
+            self.buffer = self.buffer[size:]
+            
             # Decompress and decode
-            decompressed = gzip.decompress(data)
-            return decompressed.decode('utf-8')
+            decompressed = gzip.decompress(message)
+            wml = decompressed.decode('utf-8')
             
-        except Exception as e:
-            logger.error(f"Error receiving WML: {e}")
+            # Log the received WML
+            self.logger.debug(f"Received WML: {wml}")
+            
+            return wml
+            
+        except socket.timeout:
+            self.logger.warning("Socket timeout during receive")
             return None
-            
-    def send_wml(self, sock: socket.socket, wml: str) -> bool:
-        """Encode and send a WML message"""
+        except Exception as e:
+            self.logger.error(f"Error receiving WML: {e}")
+            return None
+
+    def _process_wml(self, wml: str):
+        """Processes received WML messages."""
         try:
-            # Compress the WML
+            if '[version]' in wml:
+                self._send_raw(MUSTLOGIN_RESPONSE)
+                
+            elif '[login]' in wml:
+                match = USERNAME_PATTERN.search(wml)
+                if match:
+                    username = match.group(1)
+                    if self.server.add_user(username, self):
+                        self.username = username
+                        self._send_raw(JOIN_LOBBY_RESPONSE)
+                        self.server.send_game_list(self)
+                        
+            elif '[create_game]' in wml:
+                if self.username:
+                    match = GAME_NAME_PATTERN.search(wml)
+                    if match:
+                        game_name = match.group(1)
+                        game_id = self.server.create_game(game_name, self.username)
+                        if game_id is not None:
+                            self.game_id = game_id
+                            
+            elif '[leave_game]' in wml and self.username:
+                if self.game_id is not None:
+                    self.server.remove_game(self.game_id)
+                    self.game_id = None
+                    
+            elif '[request_choice]' in wml:
+                self._handle_request_choice(wml)
+                    
+        except Exception as e:
+            self.logger.error(f"Error processing WML: {e}")
+
+    def send_wml(self, wml: str, log=True) -> bool:
+        """Sends a WML message to the client."""
+        try:
+            if log:
+                self.logger.debug(f"Sending WML: {wml}")
             compressed = gzip.compress(wml.encode('utf-8'))
-            
-            # Send size followed by data
             size = struct.pack('!I', len(compressed))
-            sock.send(size)
-            sock.send(compressed)
+            self.socket.sendall(size + compressed)
             return True
-            
         except Exception as e:
-            logger.error(f"Error sending WML: {e}")
+            if log:
+                self.logger.error(f"Error sending WML: {e}")
             return False
-            
-    def create_version_request(self) -> str:
-        """Create a version request WML message"""
-        # TODO: Implement proper version negotiation
-        return '[version]\n[/version]\n'
+
+    def _send_raw(self, compressed_data: bytes) -> bool:
+        """Sends pre-compressed data to the client."""
+        try:
+            # Log the decompressed data for debugging
+            try:
+                decompressed = gzip.decompress(compressed_data).decode('utf-8')
+                self.logger.debug(f"Sending raw WML: {decompressed}")
+            except Exception as e:
+                self.logger.debug(f"Could not decode raw WML for logging: {e}")
+                
+            size = struct.pack('!I', len(compressed_data))
+            self.socket.sendall(size + compressed_data)
+            return True
+        except Exception as e:
+            self.logger.error(f"Error sending pre-compressed WML: {e}")
+            return False
+
+    def _cleanup(self):
+        """Cleans up client resources."""
+        try:
+            if self.game_id is not None:
+                self.server.remove_game(self.game_id)
+            if self.username is not None:
+                self.server.remove_user(self.username)
+            self.socket.close()
+        except Exception as e:
+            self.logger.error(f"Error during cleanup: {e}")
+
+class WesnothTrainingServer:
+    """Main server class managing multiple games and clients."""
+    def __init__(self, host=HOST, port=PORT):
+        self.host = host
+        self.port = port
+        self.running = True
         
-    def process_wml(self, client: Client, wml: str):
-        """
-        Process received WML messages
+        # Server socket
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.socket.bind((host, port))
         
-        UNCERTAIN: Using XML parsing for WML might not handle all WML features correctly.
-        Need to verify this works with complex WML or implement proper WML parser.
-        """
+        # State management
+        self.games: Dict[int, Game] = {}
+        self.clients: Dict[str, ClientConnection] = {}
+        self.next_game_id = 1
+        
+        # Configure logging
+        self._setup_logging()
+        
+    def _setup_logging(self):
+        """Configures logging with both file and console output."""
+        # Clear any existing handlers
+        logging.getLogger().handlers = []
+        
+        # Set root logger to DEBUG
+        logging.getLogger().setLevel(logging.DEBUG)
+        
+        # Create formatters
+        file_formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+        console_formatter = logging.Formatter(
+            '%(levelname)s: %(message)s'
+        )
+        
+        # File handler with rotation
+        file_handler = RotatingFileHandler(
+            LOG_FILE, maxBytes=1024*1024, backupCount=5
+        )
+        file_handler.setLevel(logging.DEBUG)  # Ensure file gets everything
+        file_handler.setFormatter(file_formatter)
+        
+        # Console handler
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.DEBUG)  # Changed from INFO to DEBUG
+        console_handler.setFormatter(console_formatter)
+        
+        # Add handlers to root logger
+        logging.getLogger().addHandler(file_handler)
+        logging.getLogger().addHandler(console_handler)
+        
+        # Get our logger
+        self.logger = logging.getLogger("wesnoth_server")
+
+    def start(self):
+        """Starts the server."""
+        self.socket.listen(5)
+        self.socket.settimeout(TIMEOUT)
+        self.logger.info(f"Server listening on {self.host}:{self.port}")
+        
+        # Start keyboard listener thread
+        keyboard_thread = threading.Thread(target=self._keyboard_listener)
+        keyboard_thread.daemon = True
+        keyboard_thread.start()
+        
+        # Main server loop
+        while self.running:
+            try:
+                client_socket, address = self.socket.accept()
+                self._handle_new_client(client_socket, address)
+            except socket.timeout:
+                continue
+            except KeyboardInterrupt:
+                break
+            except Exception as e:
+                self.logger.error(f"Error in main loop: {e}")
+        
+        self._cleanup()
+
+    def _handle_new_client(self, client_socket: socket.socket, address: Any):
+        """Handles a new client connection."""
+        self.logger.info(f"New connection from {address}")
+        client = ClientConnection(client_socket, address, self)
+        client_thread = threading.Thread(target=client.handle)
+        client_thread.daemon = True
+        client_thread.start()
+
+    def _keyboard_listener(self):
+        """Listens for keyboard commands."""
+        self.logger.info("Press 'k' to display current games, 'q' to exit")
+        while self.running:
+            if msvcrt.kbhit():
+                key = msvcrt.getch().decode('utf-8').lower()
+                if key == 'k':
+                    self._display_games()
+                elif key == 'q':
+                    self.logger.info("Shutting down server...")
+                    self.running = False
+                    break
+
+    def _display_games(self):
+        """Displays information about all current games."""
+        print("\n=== Current Games ===")
+        if not self.games:
+            print("No active games")
+        else:
+            for game in self.games.values():
+                print(f"\n{game}")
+        print("===================\n")
+
+    def add_user(self, username: str, client: ClientConnection) -> bool:
+        """Adds a new user to the server."""
+        if username in self.clients:
+            return False
+        self.clients[username] = client
+        self.logger.info(f"User '{username}' logged in")
+        return True
+
+    def remove_user(self, username: str):
+        """Removes a user from the server."""
+        if username in self.clients:
+            del self.clients[username]
+            self.logger.info(f"User '{username}' logged out")
+
+    def create_game(self, name: str, host: str) -> Optional[int]:
+        """Creates a new game."""
+        game_id = self.next_game_id
+        self.next_game_id += 1
+        
+        game = Game(
+            id=game_id,
+            name=name,
+            host=host,
+            created=datetime.now()
+        )
+        
+        self.games[game_id] = game
+        self.logger.info(f"Created game {game_id}: {name}")
+        self._broadcast_game_list()
+        return game_id
+
+    def remove_game(self, game_id: int):
+        """Removes a game from the server."""
+        if game_id in self.games:
+            game = self.games[game_id]
+            game.active = False
+            del self.games[game_id]
+            self.logger.info(f"Removed game {game_id}")
+            self._broadcast_game_list()
+
+    def send_game_list(self, client: ClientConnection):
+        """Sends the game list to a specific client."""
+        wml = self._generate_game_list()
+        client.send_wml(wml)
+
+    def _broadcast_game_list(self):
+        """Broadcasts the game list to all clients."""
+        wml = self._generate_game_list()
+        compressed = gzip.compress(wml.encode('utf-8'))
+        size = struct.pack('!I', len(compressed))
+        message = size + compressed
+        
+        # Send to all connected clients
+        for client in list(self.clients.values()):
+            try:
+                client.socket.sendall(message)
+            except Exception as e:
+                self.logger.error(f"Error broadcasting to {client.username}: {e}")
+
+    def _generate_game_list(self) -> str:
+        """Generates the WML for the game list."""
+        if not self.games:
+            return '[gamelist]\n[/gamelist]\n'
+        
+        parts = ['[gamelist]']
+        parts.extend(game.to_wml() for game in self.games.values())
+        parts.append('[/gamelist]')
+        return '\n'.join(parts)
+
+    def _cleanup(self):
+        """Cleans up server resources."""
+        self.running = False
+        
+        # Close all client connections
+        for client in list(self.clients.values()):
+            try:
+                client.socket.close()
+            except:
+                pass
+        
+        # Close server socket
         try:
-            # Parse WML into XML-like structure for easier processing
-            root = ET.fromstring(wml.replace('[', '<').replace(']', '>'))
+            self.socket.close()
+        except:
+            pass
             
-            if root.tag == 'version':
-                # TODO: Implement handle_version
-                self.handle_version(client, root)
-            elif root.tag == 'login':
-                # TODO: Implement handle_login
-                self.handle_login(client, root)
-            elif root.tag == 'create_game':
-                # TODO: Implement handle_create_game
-                self.handle_create_game(client, root)
-            elif root.tag == 'join':
-                # TODO: Implement handle_join_game
-                self.handle_join_game(client, root)
-            # TODO: Implement handlers for:
-            # - scenario_diff (game setup changes)
-            # - start_game
-            # - leave_game
-            # - turn (game actions)
-            # - chat messages
-            else:
-                logger.warning(f"Unhandled WML tag: {root.tag}")
-                
-        except Exception as e:
-            logger.error(f"Error processing WML: {e}")
-
-    def disconnect_client(self, client: Client):
-        """Clean up when a client disconnects"""
-        try:
-            if client.game_id and client.game_id in self.games:
-                game = self.games[client.game_id]
-                if client.username in game.clients:
-                    del game.clients[client.username]
-                if client.username in game.observers:
-                    del game.observers[client.username]
-                    
-                # If host disconnects, end the game
-                if game.host == client:
-                    self.end_game(game)
-                    
-            if client.socket in self.clients:
-                del self.clients[client.socket]
-                
-            client.socket.close()
-            
-        except Exception as e:
-            logger.error(f"Error disconnecting client: {e}")
-
-    def end_game(self, game: Game):
-        """End a game and notify all participants"""
-        try:
-            # Notify all participants
-            for participant in list(game.clients.values()) + list(game.observers.values()):
-                self.send_wml(participant.socket, '[leave_game]\n[/leave_game]\n')
-                participant.game_id = None
-                
-            # Remove the game
-            if game.id in self.games:
-                del self.games[game.id]
-                
-        except Exception as e:
-            logger.error(f"Error ending game: {e}")
-
-    # TODO: Implement methods for:
-    # - handle_version(self, client: Client, data: ET.Element)
-    # - handle_login(self, client: Client, data: ET.Element)
-    # - handle_create_game(self, client: Client, data: ET.Element)
-    # - handle_join_game(self, client: Client, data: ET.Element)
-    # - handle_game_setup(self, game: Game, data: ET.Element)
-    # - handle_start_game(self, game: Game)
-    # - handle_turn(self, game: Game, client: Client, data: ET.Element)
-    # - broadcast_to_game(self, game: Game, wml: str)
-    # - validate_game_action(self, game: Game, client: Client, action: str) -> bool
+        self.logger.info("Server shut down")
 
 if __name__ == '__main__':
-    server = WesnothServer()
+    server = WesnothTrainingServer()
     try:
         server.start()
     except KeyboardInterrupt:
-        logger.info("Server shutting down")
+        pass

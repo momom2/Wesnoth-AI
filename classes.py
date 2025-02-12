@@ -171,6 +171,7 @@ class Unit:
     attacks: List[Attack]
     resistances: List[float]  # 6 values, -1.0 to 1.0
     defenses: List[float]    # 16 values, 0.0 to 1.0
+    # Not included: defence caps. Would require a tensor as big as defenses for little gain; let's leave it to be learned the hard way. Not too bad if AI doesn't realize about defence caps.
     movement_costs: List[int] # 16 values, 1 to 10 (like def, once per terrain)
     abilities: Set[UnitAbility]
     traits: Set[UnitTrait]
