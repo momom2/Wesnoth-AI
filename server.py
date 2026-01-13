@@ -86,7 +86,7 @@ class ClientConnection:
         match = re.search(r'request_id=(\d+)', wml)
         if match:
             request_id = match.group(1)
-                    
+
             # Check if this is a random_seed request
             if '[random_seed]' in wml:
                 # Generate random seed response
@@ -96,10 +96,12 @@ class ClientConnection:
             else:
                 # For other types of choices, send back an empty choice
                 response = f'[choice]\nrequest_id={request_id}\n[/choice]\n'
-                        
-            if not self.send_wml(response, log=False):
-                self.logger.debug(f"Failed to send choice response: {response}")
-            self.logger.debug(f"Sent choice response: {response}")
+
+            success = self.send_wml(response)
+            if success:
+                self.logger.debug(f"Successfully sent choice response for request_id={request_id}")
+            else:
+                self.logger.error(f"Failed to send choice response: {response}")
 
     def _handle_handshake(self):
         """Handles initial client handshake."""

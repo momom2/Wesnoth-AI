@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from typing import List, Set
 from enum import IntEnum
+from pathlib import Path
 
 class Alignment(IntEnum):
     """Determines how units are affected by time of day."""
@@ -172,7 +173,7 @@ class Unit:
     resistances: List[float]  # 6 values, -1.0 to 1.0
     defenses: List[float]    # 16 values, 0.0 to 1.0
     # Not included: defence caps. Would require a tensor as big as defenses for little gain; let's leave it to be learned the hard way. Not too bad if AI doesn't realize about defence caps.
-    movement_costs: List[int] # 16 values, 1 to 10 (like def, once per terrain)
+    movement_costs: List[int] # 17 values, 1 to 10 (like def, once per terrain)
     abilities: Set[UnitAbility]
     traits: Set[UnitTrait]
     statuses: Set[UnitStatus]
@@ -183,8 +184,8 @@ class Unit:
         assert 0 <= self.current_hp <= self.max_hp
         assert 0 <= self.current_moves <= self.max_moves
         assert 0 <= self.current_exp < self.max_exp
-        assert len(self.resistances) == 6
-        assert len(self.defenses) == 16
+        assert len(self.resistances) == 6  # One per DamageType
+        assert len(self.defenses) == 17  # Changed from 16 to match Terrain enum count
         assert all(-1.0 <= x <= 1.0 for x in self.resistances)
         assert all(0.0 <= x <= 1.0 for x in self.defenses)
 
@@ -218,8 +219,10 @@ class Map:
     size_y: int
     mask: Set[Position]                 # Hexes that are not used in the map: void, unplayable.
     fog: Set[Position]                  # Fogged hexes: covered by the fog of war. Doesn't include void hexes.
-    hexes: Set[Hex]                     # All playable hexes: what we know about the non-void non-fogged hexes.
-    units: Set[Unit]                    # All visible units
+    # Changed from Set to List because Hex and Unit contain mutable fields and can't be hashed
+    # This impacts lookup performance but is necessary for the dataclass to work
+    hexes: List[Hex]                    # All playable hexes: what we know about the non-void non-fogged hexes.
+    units: List[Unit]                   # All visible units
 
 @dataclass
 class Memory:
@@ -246,3 +249,14 @@ class Action:
     target_hex: Position    # Where to act to
     attack_index: int       # Which attack to use (-1 for none)
     recruit_unit: int       # Which unit to recruit (-1 for none)
+
+@dataclass
+class GameConfig:
+    """Configuration for a game instance."""
+    game_id: str
+    map_name: str
+    faction1: str
+    faction2: str
+    state_file: Path
+    action_file: Path
+    signal_file: Path

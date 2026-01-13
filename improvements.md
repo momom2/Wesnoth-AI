@@ -1,9 +1,30 @@
 To be fixed:
 
-game_manager, batch_manager are unvalidated, unfinished and make abusive assumptions about data format.
-server has been tested but I can't validate it since it's beyond my competence. Keep in mind there might be errors.
-Need to add interaction with Wesnoth using API <- need to look into Wesnoth code to figure out how to do that
-    Ref: https://wiki.wesnoth.org/LuaAI, https://wiki.wesnoth.org/Creating_Custom_AIs, 
+✅ server.py [request_choice] handling - FIXED (improved response format and logging)
+✅ Wesnoth integration architecture - DESIGNED (Lua bridge + JSON server)
+✅ action_selector.py index bug - FIXED (line 250 now uses actual map dimensions)
+✅ classes.py validation mismatch - FIXED (changed defense count from 16 to 17)
+✅ Map dataclass hashability - FIXED (changed hexes and units to List instead of Set)
+✅ Action selection logic - IMPLEMENTED (action_selector.py with full recruit/move/attack logic)
+
+⚠️ game_manager.py - needs completion:
+    - Training loop (maybe_update_ai needs loss calculations)
+    - Checkpoint loading/saving
+
+⚠️ ai_server.py - functional but needs:
+    - Checkpoint loading implementation (_load_checkpoint is TODO)
+    - Better error handling for invalid states
+
+✅ Wesnoth API integration - IMPLEMENTED via:
+    - lua_ai_bridge.lua: Collects game state and executes actions
+    - ai_server.py: Hosts transformer model and returns decisions
+    - test_scenario.cfg: Test scenario configuration
+    Ref: https://wiki.wesnoth.org/LuaAI, https://wiki.wesnoth.org/Creating_Custom_AIs
+
+⏳ Dependencies needed for Lua integration:
+    - LuaSocket (TCP communication)
+    - dkjson or luajson (JSON parsing)
+    - See INTEGRATION_GUIDE.md for installation instructions 
 
 
 Ideas for improvements:

@@ -162,8 +162,8 @@ class TrainingManager:
             size_y=map_state['height'],
             mask=set(Position(x=p['x'], y=p['y']) for p in map_state['mask']),
             fog=set(Position(x=p['x'], y=p['y']) for p in map_state['fog']),
-            hexes=set(self.convert_hex(h) for h in map_state['hexes']),
-            units=set(self.convert_unit(u) for u in map_state['units'])
+            hexes=[self.convert_hex(h) for h in map_state['hexes']],
+            units=[self.convert_unit(u) for u in map_state['units']]
         )
         
         # Convert recruitment options
@@ -271,7 +271,20 @@ class TrainingManager:
             self.games[game_id].experiences.append(exp)
         
         return actions
-    
+
+    def select_action(self, start_logits, target_logits, attack_logits, recruit_logits) -> dict:
+        """
+        Select action from model outputs.
+        This is a simple implementation - can be improved with better sampling.
+        """
+        # For now, use greedy selection (pick highest probability)
+        # In training, you'd want to add exploration
+
+        # Simple action format for compatibility
+        return {
+            'type': 'end_turn'  # Placeholder - would need proper action decoding
+        }
+
     def create_game_config(self, game_id: str) -> GameConfig:
         """Create configuration for a new game."""
         base_path = Path(f"./games/{game_id}")
@@ -370,22 +383,92 @@ class TrainingManager:
     async def maybe_update_ai(self):
         """Perform AI updates if we have enough experiences."""
         if len(self.replay_buffer) >= REPLAY_BATCH_SIZE:
-            # Sample experiences, applying off-policy correction
+            # Sample experiences
             batch = random.sample(self.replay_buffer, REPLAY_BATCH_SIZE)
-            
+
             # Sort by timestamp for consistency loss calculation
             batch.sort(key=lambda x: x.timestamp)
-            
-            # We'll implement the actual training step next
-            # This will include:
-            # 1. Policy and value losses
-            # 2. Self-supervised consistency loss
-            # 3. Value prefix loss
-            # TODO: Implement training step
-            
+
+            # Perform training step
+            self._train_step(batch)
+
             # Save checkpoint periodically
             if self.training_stats['games_completed'] % CHECKPOINT_FREQUENCY == 0:
                 self.save_checkpoint()
+
+    def _train_step(self, batch: List[Experience]):
+        """Perform one training step on a batch of experiences."""
+        # Prepare batch tensors
+        batch_maps = [exp.state.map for exp in batch]
+        batch_recruits = [exp.state.recruits for exp in batch]
+        batch_memory = [exp.state.memory for exp in batch]
+
+        # Get actual rewards (targets)
+        target_rewards = torch.tensor([exp.reward for exp in batch], dtype=torch.float32)
+
+        # Forward pass through model
+        self.ai.train()
+        start_logits_list = []
+        target_logits_list = []
+        attack_logits_list = []
+        recruit_logits_list = []
+        value_list = []
+
+        for map_state, recruits, memory in zip(batch_maps, batch_recruits, batch_memory):
+            start_logits, target_logits, attack_logits, recruit_logits, value = self.ai(
+                map_state, recruits, memory
+            )
+            start_logits_list.append(start_logits)
+            target_logits_list.append(target_logits)
+            attack_logits_list.append(attack_logits)
+            recruit_logits_list.append(recruit_logits)
+            value_list.append(value)
+
+        # Stack predictions
+        predicted_values = torch.stack(value_list).squeeze()
+
+        # Calculate losses
+        # 1. Value Loss (MSE between predicted and actual rewards)
+        value_loss = torch.nn.functional.mse_loss(predicted_values, target_rewards)
+
+        # 2. Policy Loss (simplified - would need actual action taken)
+        # For now, just use value loss as a placeholder
+        # In full implementation, this would be cross-entropy with actual actions
+        policy_loss = torch.tensor(0.0)  # TODO: Implement proper policy loss
+
+        # 3. Consistency Loss (between consecutive states)
+        # Encourage similar value predictions for states close in time
+        consistency_loss = torch.tensor(0.0)
+        if len(value_list) > 1:
+            consecutive_values = torch.stack(value_list[:-1]).squeeze()
+            next_values = torch.stack(value_list[1:]).squeeze()
+            # States close in time should have similar values
+            consistency_loss = torch.nn.functional.mse_loss(consecutive_values, next_values) * 0.1
+
+        # Total loss
+        total_loss = value_loss + policy_loss + consistency_loss
+
+        # Backward pass and optimization
+        self.optimizer.zero_grad()
+        total_loss.backward()
+
+        # Gradient clipping to prevent exploding gradients
+        torch.nn.utils.clip_grad_norm_(self.ai.parameters(), max_norm=1.0)
+
+        self.optimizer.step()
+
+        # Update statistics
+        self.training_stats['loss_value'] = value_loss.item()
+        self.training_stats['loss_policy'] = policy_loss.item()
+        self.training_stats['loss_consistency'] = consistency_loss.item()
+
+        # Log training progress
+        if self.training_stats['games_completed'] % 10 == 0:
+            self.logger.info(
+                f"Training step - Value Loss: {value_loss.item():.4f}, "
+                f"Consistency Loss: {consistency_loss.item():.4f}, "
+                f"Total Loss: {total_loss.item():.4f}"
+            )
     
     def save_checkpoint(self):
         """Save model checkpoint and training stats."""
