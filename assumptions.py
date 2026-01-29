@@ -32,11 +32,6 @@ REPLAY_BATCH_SIZE = 512  # Size of training batches
 CHECKPOINT_FREQUENCY = 1000  # Save model every N games
 REPLAY_SAVE_FREQUENCY = 100  # Save detailed replay every N games
 
-# Server-related constants
-# We assume there is no need for security of any kind. Do not use outside this particular project.
-HOST = 'localhost'
-PORT = 15000
-TIMEOUT = 1  # 1 second timeout for server socket
-LOG_FILE = 'wesnoth_AI_test_server.log'
-HANDSHAKE_SIZE = 4 # According to documentation: https://wiki.wesnoth.org/Multiplayerserverwml
-CHUNK_SIZE = 4096 # Arbitrary
+# Local game execution constants
+WESNOTH_STATE_TIMEOUT = 30.0  # Maximum time to wait for Wesnoth to produce state (seconds)
+GAME_STARTUP_TIMEOUT = 60.0  # Maximum time for game to start (seconds)

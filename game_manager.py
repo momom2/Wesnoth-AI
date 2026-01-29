@@ -21,7 +21,9 @@ from classes import (
     Input, PartialUnit, Alignment, UnitAbility, UnitTrait,
     DamageType, Terrain, TerrainModifiers, AttackSpecial
 )
-from transformer import WesnothTransformer
+# from transformer import WesnothTransformer  # TODO: Complete implementation
+from transformer import WesnothTransformer  # TEMPORARY: Using stub until transformer is complete
+from local_game_launcher import LocalGameManager, LocalGameInstance, WesnothConfig
 
 @dataclass
 class Experience:
@@ -36,46 +38,46 @@ class Experience:
     game_length: Optional[int]  # None until game ends
 
 class GameInstance:
-    """Manages a single game of Wesnoth."""
-    def __init__(self, config: GameConfig):
+    """Manages a single game of Wesnoth with local game launcher."""
+    def __init__(self, config: GameConfig, wesnoth_game: LocalGameInstance):
         self.config = config
+        self.wesnoth_game = wesnoth_game
         self.logger = logging.getLogger(f"game_{config.game_id}")
         self.is_active = True
         self.last_state = None
         self.action_count = 0
         self.experiences: List[Experience] = []
-        
+
     async def watch_for_state_update(self) -> Optional[dict]:
         """Monitor state file for updates from Wesnoth."""
-        while self.is_active:
-            try:
-                if self.config.signal_file.exists():
-                    # Read new state
-                    state_data = json.loads(self.config.state_file.read_text())
-                    self.config.signal_file.unlink()  # Clear signal
-                    self.last_state = state_data
-                    return state_data
-            except Exception as e:
-                self.logger.error(f"Error reading game state: {e}")
-                await asyncio.sleep(0.1)
-        return None
-    
+        state_data = await self.wesnoth_game.wait_for_state()
+        if state_data:
+            self.last_state = state_data
+        return state_data
+
     async def send_action(self, action: dict):
         """Send an action back to Wesnoth."""
-        try:
-            self.config.action_file.write_text(json.dumps(action))
-            self.action_count += 1
-        except Exception as e:
-            self.logger.error(f"Error sending action: {e}")
+        await self.wesnoth_game.send_action(action)
+        self.action_count += 1
 
 class TrainingManager:
     """Manages multiple concurrent games and AI training."""
-    def __init__(self, num_parallel_games: int = 16):
+    def __init__(self, num_parallel_games: int = 16, wesnoth_config: Optional[WesnothConfig] = None):
         self.num_games = num_parallel_games
         self.games: Dict[str, GameInstance] = {}
         self.game_memories: Dict[str, Memory] = {}
         self.logger = logging.getLogger("training_manager")
-        
+
+        # Set up local game manager
+        if wesnoth_config is None:
+            # Use default paths - user should configure these
+            wesnoth_config = WesnothConfig(
+                wesnoth_exe=Path("wesnoth"),  # Assumes in PATH
+                userdata_dir=Path.home() / ".local/share/wesnoth/1.16",
+                addon_dir=Path.home() / ".local/share/wesnoth/1.16/data/add-ons"
+            )
+        self.local_game_manager = LocalGameManager(wesnoth_config)
+
         # Training statistics
         self.training_stats = {
             'games_completed': 0,
@@ -87,14 +89,15 @@ class TrainingManager:
             'loss_value': 0.0,
             'loss_consistency': 0.0
         }
-        
+
         # Experience replay buffer
         self.replay_buffer: List[Experience] = []
-        
+
         # Initialize AI model and optimizer
-        self.ai = WesnothTransformer()
+        # self.ai = WesnothTransformer()  # TODO: Complete implementation
+        self.ai = WesnothTransformer()  # TEMPORARY: Using stub
         self.optimizer = torch.optim.Adam(self.ai.parameters())
-        
+
         # Set up save directories
         self.save_dir = Path("./training")
         self.save_dir.mkdir(exist_ok=True)
@@ -132,12 +135,15 @@ class TrainingManager:
         """Ensures we maintain the desired number of parallel games."""
         current_count = len([g for g in self.games.values() if g.is_active])
         games_needed = self.num_games - current_count
-        
+
         if games_needed > 0:
             for _ in range(games_needed):
                 game_id = f"game_{len(self.games)}"
                 config = self.create_game_config(game_id)
-                self.games[game_id] = GameInstance(config)
+
+                # Launch local Wesnoth game
+                wesnoth_game = await self.local_game_manager.create_game(config)
+                self.games[game_id] = GameInstance(config, wesnoth_game)
     
     async def collect_game_states(self) -> Dict[str, dict]:
         """Collects new states from all active games."""
@@ -152,7 +158,25 @@ class TrainingManager:
                     if state.get('game_over') or game.action_count >= MAX_ACTIONS_ALLOWED:
                         await self.handle_game_completion(game_id)
         return states
-    
+
+    async def send_actions(self, actions: Dict[str, dict]):
+        """Send actions to all games."""
+        for game_id, action in actions.items():
+            if game_id in self.games:
+                await self.games[game_id].send_action(action)
+
+    async def maybe_update_ai(self):
+        """Update AI if we have enough experiences (stub for now)."""
+        # TODO: Implement training step when we have enough data
+        pass
+
+    async def handle_game_completion(self, game_id: str):
+        """Handle when a game ends."""
+        game = self.games[game_id]
+        game.is_active = False
+        self.training_stats['games_completed'] += 1
+        self.logger.info(f"Game {game_id} completed after {game.action_count} actions")
+
     def convert_state_to_ai_input(self, state: dict) -> Input:
         """Convert game state from Wesnoth format to AI input format."""
         # Convert map information
@@ -160,10 +184,10 @@ class TrainingManager:
         game_map = Map(
             size_x=map_state['width'],
             size_y=map_state['height'],
-            mask=set(Position(x=p['x'], y=p['y']) for p in map_state['mask']),
-            fog=set(Position(x=p['x'], y=p['y']) for p in map_state['fog']),
-            hexes=set(self.convert_hex(h) for h in map_state['hexes']),
-            units=set(self.convert_unit(u) for u in map_state['units'])
+            mask=[Position(x=p['x'], y=p['y']) for p in map_state['mask']],
+            fog=[Position(x=p['x'], y=p['y']) for p in map_state['fog']],
+            hexes=[self.convert_hex(h) for h in map_state['hexes']],
+            units=[self.convert_unit(u) for u in map_state['units']]
         )
         
         # Convert recruitment options
@@ -184,12 +208,22 @@ class TrainingManager:
         """Convert hex data from Wesnoth format to internal format."""
         return Hex(
             position=Position(x=hex_data['x'], y=hex_data['y']),
-            terrain_types=set(Terrain[t.upper()] for t in hex_data['terrain_types']),
-            modifiers=set(TerrainModifiers[m.upper()] for m in hex_data.get('modifiers', []))
+            terrain_types=frozenset(Terrain[t.upper()] for t in hex_data['terrain_types']),
+            modifiers=frozenset(TerrainModifiers[m.upper()] for m in hex_data.get('modifiers', []))
         )
     
     def convert_unit(self, unit_data: dict) -> Unit:
         """Convert unit data from Wesnoth format to internal format."""
+        # Convert statuses
+        statuses_data = unit_data.get('statuses', {})
+        statuses = set()
+        if statuses_data.get('poisoned'):
+            statuses.add(UnitStatus.POISONED)
+        if statuses_data.get('slowed'):
+            statuses.add(UnitStatus.SLOW)
+        if statuses_data.get('petrified'):
+            statuses.add(UnitStatus.PETRIFIED)
+
         return Unit(
             name=unit_data['name'],
             side=unit_data['side'],
@@ -210,7 +244,8 @@ class TrainingManager:
             defenses=unit_data['defenses'],
             movement_costs=unit_data['movement_costs'],
             abilities=set(UnitAbility[a.upper()] for a in unit_data['abilities']),
-            traits=set(UnitTrait[t.upper()] for t in unit_data['traits'])
+            traits=set(UnitTrait[t.upper()] for t in unit_data['traits']),
+            statuses=statuses
         )
     
     def convert_attack(self, attack_data: dict) -> Attack:
@@ -236,11 +271,16 @@ class TrainingManager:
             attacks=[self.convert_attack(a) for a in unit_data['attacks']],
             resistances=unit_data['resistances'],
             defenses=unit_data['defenses'],
-            movement_costs=unit_data['movement_costs'],
             abilities=set(UnitAbility[a.upper()] for a in unit_data['abilities']),
             traits=set(UnitTrait[t.upper()] for t in unit_data['traits'])
         )
-    
+
+    def select_action(self, start_logits, target_logits, attack_logits, recruit_logits) -> dict:
+        """Convert model logits to a game action."""
+        # Simple greedy selection (TODO: Add sampling for exploration)
+        # For now, just end turn (simplest valid action)
+        return {"type": "end_turn"}
+
     async def process_states_with_ai(self, game_states: Dict[str, dict]) -> Dict[str, dict]:
         """Get AI decisions for all active games that need them."""
         actions = {}
@@ -250,9 +290,7 @@ class TrainingManager:
             
             # Get AI action
             with torch.no_grad():
-                start_logits, target_logits, attack_logits, recruit_logits, value = self.ai(
-                    ai_input.map, ai_input.recruits, ai_input.memory
-                )
+                start_logits, target_logits, attack_logits, recruit_logits, value = self.ai(ai_input)
                 action = self.select_action(start_logits, target_logits, attack_logits, recruit_logits)
             
             actions[game_id] = action
@@ -410,10 +448,13 @@ class TrainingManager:
         """Clean up resources and save final progress."""
         self.logger.info("Saving final checkpoint...")
         self.save_checkpoint()
-        
+
+        # Stop all Wesnoth processes
+        await self.local_game_manager.stop_all()
+
         for game in self.games.values():
             if game.is_active:
                 game.is_active = False
-        
+
         self.logger.info("Training session complete. Final stats:")
         self.logger.info(json.dumps(self.training_stats, indent=2))

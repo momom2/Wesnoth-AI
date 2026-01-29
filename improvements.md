@@ -1,41 +1,69 @@
-To be fixed:
+# Implementation Status and Future Work
 
-game_manager, batch_manager are unvalidated, unfinished and make abusive assumptions about data format.
-server has been tested but I can't validate it since it's beyond my competence. Keep in mind there might be errors.
-Need to add interaction with Wesnoth using API <- need to look into Wesnoth code to figure out how to do that
-    Ref: https://wiki.wesnoth.org/LuaAI, https://wiki.wesnoth.org/Creating_Custom_AIs, 
+## Current Status
 
+**Completed:**
+- Local game execution architecture (replaced server-based approach)
+- Lua AI plugin for Wesnoth integration
+- File-based IPC protocol
+- Training manager framework
+- Experience replay system
+- Test suite (import, basic functionality, mock games)
 
-Ideas for improvements:
+**Pending Validation:**
+- Lua plugin testing with actual Wesnoth
+- State serialization format verification
+- Action execution in live games
+- End-to-end training loop
 
-Early training:
-- More intrusive reward (for income, for killing, for recruiting) (to learn valid moves)
+## Planned Improvements
 
+### Training Enhancements
 
-Better modelization of the game:
-- Provide defence caps
-(Hassle, might negatively impact compute requirements.)
-- Provide starting location of leaders
-(Hassle, not even sure that's provided to players, can be memorized since the map pool is so limited.)
-- Explicit gold-tracking (self and enemy)
-- Explicit fog-of-war prediction
-(Let's see if it works unconstrained first)
-- Add ability to pick advancements per the plan advancements mod.
+**Reward Shaping (Early Training):**
+- Intrusive rewards for income, kills, recruitment
+- Helps model learn valid moves faster
 
-Better memory:
-- Separate memory into tactical and strategic. Tactical memory gets wiped out at the beginning of each turn.
+**Advanced Training Techniques:**
+- Self-supervised consistency loss (EfficientZero)
+- Value prefix prediction
+- Off-policy correction
+- ReAnalyse - revisit experiences with current model
+- Nash equilibrium learning - policy correction via opponent modeling
+
+### Model Improvements
+
+**Game State Representation:**
+- Defense caps (currently not modeled)
+- Leader starting locations
+- Explicit gold tracking (self and opponent)
+- Fog-of-war prediction
+- Advancement selection (plan advancements mod)
+
+**Memory Architecture:**
+- Tactical/strategic memory separation (tactical resets each turn)
 - Hierarchical memory with different time scales
-(Let's see if it works unconstrained first)
-- Attention-based selective updates (sounds complicated)
-- Episodic memory for storing specific game situations (i.e. tactical table) (suggested by Claude, not convinced it's worthwhile)
+- Attention-based selective updates
+- ~~Episodic memory for tactical situations~~ (not convinced)
 
-From EfficientZero:
-https://www.lesswrong.com/posts/mRwJce3npmzbKfxws/efficientzero-how-it-works
-- Self Supervised Consistency Loss
-- Value Prefix
-- Off-Policy Correction
-- ReAnalyse https://arxiv.org/pdf/2104.06294 (???) (gotta understand it first)
+### Performance Optimization
 
+- Profile file I/O overhead
+- Optimize Lua serialization
+- Batch state processing
+- Improve parallel game scaling
 
-- Look into Diplodocus to see what I can copy; looks like I could use something similar to the strategic module for Wesnoth tactics.
-- That thing where the policy is corrected by the expected policy and expected opponent policy for finding Nash equilibria in mixed strategies (Nash learning?)
+## References
+
+- [EfficientZero](https://www.lesswrong.com/posts/mRwJce3npmzbKfxws/efficientzero-how-it-works)
+- [ReAnalyse](https://arxiv.org/pdf/2104.06294)
+- Diplodocus - strategic module architecture
+- Nash learning - mixed strategy equilibria
+
+## Validation Priorities
+
+1. Test Lua plugin loads in Wesnoth without errors
+2. Verify state.json format matches Python expectations
+3. Test all action types execute correctly
+4. Confirm games complete end-to-end
+5. Measure performance overhead

@@ -123,7 +123,7 @@ class UnitStatus(IntEnum):
 
 
 
-@dataclass
+@dataclass(frozen=True)
 class Position:
     """Represents a position on the hex grid."""
     x: int
@@ -204,22 +204,22 @@ class PartialUnit:
     abilities: Set[UnitAbility]
     traits: Set[UnitTrait]
 
-@dataclass
+@dataclass(frozen=True)
 class Hex:
     """Represents a single hex on the map."""
     position: Position
-    terrain_types: Set[Terrain]
-    modifiers: Set[TerrainModifiers]
+    terrain_types: frozenset  # frozenset of Terrain for hashability
+    modifiers: frozenset  # frozenset of TerrainModifiers for hashability
 
 @dataclass
 class Map:
     """Represents the complete game map state for a 1v1."""
     size_x: int
     size_y: int
-    mask: Set[Position]                 # Hexes that are not used in the map: void, unplayable.
-    fog: Set[Position]                  # Fogged hexes: covered by the fog of war. Doesn't include void hexes.
-    hexes: Set[Hex]                     # All playable hexes: what we know about the non-void non-fogged hexes.
-    units: Set[Unit]                    # All visible units
+    mask: List[Position]                 # Hexes that are not used in the map: void, unplayable.
+    fog: List[Position]                  # Fogged hexes: covered by the fog of war. Doesn't include void hexes.
+    hexes: List[Hex]                     # All playable hexes: what we know about the non-void non-fogged hexes.
+    units: List[Unit]                    # All visible units
 
 @dataclass
 class Memory:
@@ -246,3 +246,14 @@ class Action:
     target_hex: Position    # Where to act to
     attack_index: int       # Which attack to use (-1 for none)
     recruit_unit: int       # Which unit to recruit (-1 for none)
+
+@dataclass
+class GameConfig:
+    """Configuration for a single game instance."""
+    game_id: str
+    map_name: str
+    faction1: str
+    faction2: str
+    state_file: 'Path'
+    action_file: 'Path'
+    signal_file: 'Path'
