@@ -39,7 +39,12 @@ class VoxelGrid:
         self.temperature = np.zeros((width, depth, height), dtype=np.float32)
         self.loose = np.zeros((width, depth, height), dtype=np.bool_)
         self.load = np.zeros((width, depth, height), dtype=np.float32)
+        self.shear_load = np.zeros((width, depth, height), dtype=np.float32)
         self.stress_ratio = np.zeros((width, depth, height), dtype=np.float32)
+        self.fall_distance = np.zeros((width, depth, height), dtype=np.uint8)
+        self.water_level = np.zeros((width, depth, height), dtype=np.uint8)
+        self.thermal_fatigue = np.zeros((width, depth, height), dtype=np.float32)
+        self.block_state = np.zeros((width, depth, height), dtype=np.uint8)
         self._dirty_chunks: set[tuple[int, int, int]] = set()
 
         # Number of chunks per axis
@@ -58,6 +63,7 @@ class VoxelGrid:
         if old == voxel_type:
             return
         self.grid[x, y, z] = voxel_type
+        self.block_state[x, y, z] = 0  # Reset state when type changes
         if voxel_type == VOXEL_AIR:
             self.loose[x, y, z] = False
 
@@ -130,6 +136,33 @@ class VoxelGrid:
     def set_loose(self, x: int, y: int, z: int, value: bool) -> None:
         if self.in_bounds(x, y, z):
             self.loose[x, y, z] = value
+
+    def get_water_level(self, x: int, y: int, z: int) -> int:
+        if not self.in_bounds(x, y, z):
+            return 0
+        return int(self.water_level[x, y, z])
+
+    def set_water_level(self, x: int, y: int, z: int, level: int) -> None:
+        if self.in_bounds(x, y, z):
+            self.water_level[x, y, z] = max(0, min(255, level))
+
+    def get_thermal_fatigue(self, x: int, y: int, z: int) -> float:
+        if not self.in_bounds(x, y, z):
+            return 0.0
+        return float(self.thermal_fatigue[x, y, z])
+
+    def get_block_state(self, x: int, y: int, z: int) -> int:
+        if not self.in_bounds(x, y, z):
+            return 0
+        return int(self.block_state[x, y, z])
+
+    def set_block_state(self, x: int, y: int, z: int, state: int) -> None:
+        if not self.in_bounds(x, y, z):
+            return
+        self.block_state[x, y, z] = state
+        # Mark chunk dirty for re-render
+        cx, cy = x // CHUNK_SIZE, y // CHUNK_SIZE
+        self._dirty_chunks.add((cx, cy, z))
 
     def pop_dirty_chunks(self) -> set[tuple[int, int, int]]:
         dirty = self._dirty_chunks.copy()

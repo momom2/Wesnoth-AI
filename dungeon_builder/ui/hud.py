@@ -10,7 +10,7 @@ from panda3d.core import TextNode
 from direct.showbase.ShowBase import ShowBase
 from direct.task.Task import Task
 
-from dungeon_builder.config import VOXEL_COLORS
+from dungeon_builder.config import VOXEL_COLORS, ARCHETYPE_COLORS
 
 if TYPE_CHECKING:
     from dungeon_builder.core.event_bus import EventBus
@@ -72,8 +72,8 @@ class HUD:
 
         # Speed controls
         self.speed_label = DirectLabel(
-            text="PAUSED",
-            text_fg=(1, 1, 0, 1),
+            text="PLAYING",
+            text_fg=(0, 1, 0, 1),
             text_scale=0.05,
             text_align=TextNode.A_center,
             pos=(0.8, 0, 0.91),
@@ -118,6 +118,17 @@ class HUD:
             text_scale=0.05,
             text_align=TextNode.A_left,
             pos=(-1.7, 0, 0.76),
+            frameColor=(0, 0, 0, 0),
+            parent=a2d,
+        )
+
+        # Party / archetype breakdown
+        self.party_label = DirectLabel(
+            text="",
+            text_fg=(0.8, 0.8, 0.8, 1),
+            text_scale=0.04,
+            text_align=TextNode.A_left,
+            pos=(-1.2, 0, 0.76),
             frameColor=(0, 0, 0, 0),
             parent=a2d,
         )
@@ -183,6 +194,7 @@ class HUD:
 
         # Intruder tracking
         self._intruder_count = 0
+        self._archetype_counts: dict[str, int] = {}  # name → alive count
 
         # Subscribe to events
         event_bus.subscribe("core_damaged", self._on_core_damaged)
@@ -248,13 +260,38 @@ class HUD:
         self.game_over_frame.show()
         self.game_state.game_over = True
 
-    def _on_intruder_spawned(self, **kwargs) -> None:
+    def _on_intruder_spawned(self, intruder=None, **kwargs) -> None:
         self._intruder_count += 1
         self.intruder_label["text"] = f"Intruders: {self._intruder_count}"
+        if intruder is not None:
+            name = intruder.archetype.name
+            self._archetype_counts[name] = self._archetype_counts.get(name, 0) + 1
+            self._refresh_party_label()
 
-    def _on_intruder_removed(self, **kwargs) -> None:
+    def _on_intruder_removed(self, intruder=None, **kwargs) -> None:
         self._intruder_count = max(0, self._intruder_count - 1)
         self.intruder_label["text"] = f"Intruders: {self._intruder_count}"
+        if intruder is not None:
+            name = intruder.archetype.name
+            self._archetype_counts[name] = max(
+                0, self._archetype_counts.get(name, 1) - 1
+            )
+            # Remove zero-count entries
+            if self._archetype_counts.get(name, 0) == 0:
+                self._archetype_counts.pop(name, None)
+            self._refresh_party_label()
+
+    def _refresh_party_label(self) -> None:
+        """Update the archetype breakdown display."""
+        if not self._archetype_counts:
+            self.party_label["text"] = ""
+            return
+        parts = []
+        for name in sorted(self._archetype_counts):
+            count = self._archetype_counts[name]
+            if count > 0:
+                parts.append(f"{name}: {count}")
+        self.party_label["text"] = " | ".join(parts)
 
     def _on_tool_changed(self, mode: str) -> None:
         label = "Dig" if mode == "dig" else "Move"

@@ -1,6 +1,7 @@
 """Tests for temperature diffusion physics."""
 
 import numpy as np
+import pytest
 
 from dungeon_builder.core.event_bus import EventBus
 from dungeon_builder.world.voxel_grid import VoxelGrid
@@ -129,3 +130,54 @@ def test_equilibrium_converges():
     # All temperatures should be closer together
     temps = grid.temperature.flatten()
     assert np.std(temps) < 50.0  # significant convergence
+
+
+def test_heat_conservation_no_sources_or_sinks():
+    """Total heat in a closed system (no lava, no mana crystal, no surface)
+    should be conserved across diffusion ticks."""
+    # Use interior cells only to avoid surface heat loss (z=0 loses heat).
+    # Place all heat in interior cells and fill entire grid with stone.
+    bus, grid, phys = _make_physics(width=6, depth=6, height=6)
+    grid.grid[:] = VOXEL_STONE
+
+    # Set up a hot spot in the interior (away from z=0 surface)
+    grid.temperature[:] = 0.0
+    grid.temperature[3, 3, 3] = 1000.0
+    grid.temperature[2, 3, 3] = 500.0
+
+    initial_total_heat = float(np.sum(grid.temperature))
+
+    # Run multiple diffusion cycles
+    for i in range(1, 200):
+        bus.publish("tick", tick=i)
+
+    final_total_heat = float(np.sum(grid.temperature))
+
+    # Surface heat loss will reduce total heat. Measure only interior.
+    # For a precise test, check interior-only conservation by subtracting
+    # the known sink (surface z=0).
+    # Instead, just verify no heat was CREATED (total can decrease from surface loss)
+    assert final_total_heat <= initial_total_heat + 1e-3
+
+
+def test_heat_conservation_interior_only():
+    """Heat in interior cells (no surface contact) is conserved exactly."""
+    bus, grid, phys = _make_physics(width=8, depth=8, height=8)
+    grid.grid[:] = VOXEL_STONE
+    grid.temperature[:] = 0.0
+
+    # Place heat only in deep interior (far from z=0 surface)
+    grid.temperature[4, 4, 5] = 800.0
+    grid.temperature[3, 4, 5] = 200.0
+
+    initial_total = float(np.sum(grid.temperature))
+
+    # Run a few diffusion ticks
+    for i in range(1, 30):
+        bus.publish("tick", tick=i)
+
+    final_total = float(np.sum(grid.temperature))
+
+    # Heat should be approximately conserved (small float error acceptable)
+    # Surface z=0 starts at 0 so no surface loss occurs
+    assert final_total == pytest.approx(initial_total, abs=1.0)

@@ -20,6 +20,7 @@ from dungeon_builder.config import (
     CHUNK_SIZE,
     VOXEL_AIR,
     VOXEL_COLORS,
+    VOXEL_DOOR,
     GRID_HEIGHT,
     RENDER_MODE_MATTER,
     RENDER_MODE_HUMIDITY,
@@ -29,6 +30,7 @@ from dungeon_builder.config import (
 
 if TYPE_CHECKING:
     from dungeon_builder.core.event_bus import EventBus
+    from dungeon_builder.building.build_system import BuildSystem
     from dungeon_builder.rendering.layer_slice import LayerSliceManager
     from dungeon_builder.world.voxel_grid import VoxelGrid
 
@@ -145,6 +147,7 @@ class ChunkMeshBuilder:
         chunk_y: int,
         z_level: int,
         render_mode: str = RENDER_MODE_MATTER,
+        build_system: BuildSystem | None = None,
     ) -> GeomNode | None:
         """Build mesh for chunk at (chunk_x, chunk_y, z_level).
 
@@ -179,7 +182,8 @@ class ChunkMeshBuilder:
 
                 # Choose color based on render mode
                 base_color = self._get_color(
-                    voxel_grid, gx, gy, z_level, vtype, render_mode
+                    voxel_grid, gx, gy, z_level, vtype, render_mode,
+                    build_system,
                 )
 
                 for dx, dy, dz, face_name in FACES:
@@ -228,6 +232,7 @@ class ChunkMeshBuilder:
         z: int,
         vtype: int,
         render_mode: str,
+        build_system: BuildSystem | None = None,
     ) -> tuple[float, float, float, float]:
         """Get the color for a voxel based on render mode."""
         if render_mode == RENDER_MODE_STRUCTURAL:
@@ -244,6 +249,21 @@ class ChunkMeshBuilder:
 
         # Matter mode (default)
         base = VOXEL_COLORS.get(vtype, (1.0, 0.0, 1.0, 1.0))
+
+        # Golden overlay for blocks being dug
+        if build_system is not None and build_system.is_being_dug(x, y, z):
+            progress = build_system.get_dig_progress(x, y, z)
+            # Blend from gold (queued) to brighter gold (near complete)
+            # Gold: (1.0, 0.85, 0.0) — lerp from base toward gold
+            t = 0.4 + 0.3 * max(0.0, progress)  # 0.4 blend at start, 0.7 near done
+            r = base[0] * (1 - t) + 1.0 * t
+            g = base[1] * (1 - t) + 0.85 * t
+            b = base[2] * (1 - t) + 0.0 * t
+            return (r, g, b, base[3])
+
+        # Open doors are semi-transparent
+        if vtype == VOXEL_DOOR and voxel_grid.get_block_state(x, y, z) == 0:
+            return (base[0], base[1], base[2], 0.3)
         # Dim loose material slightly
         if voxel_grid.is_loose(x, y, z):
             return (base[0] * 0.7, base[1] * 0.7, base[2] * 0.7, base[3])
@@ -264,11 +284,18 @@ class VoxelWorldRenderer:
         self.layer_manager = layer_manager
         self.mesh_builder = ChunkMeshBuilder()
         self.render_mode: str = RENDER_MODE_MATTER
+        self.build_system: BuildSystem | None = None  # set after construction
 
         # chunk_key (cx, cy, z) -> NodePath
         self._chunk_nodes: dict[tuple[int, int, int], NodePath] = {}
 
+        # Track chunks containing active digs for periodic progress refresh
+        self._dig_chunks: set[tuple[int, int, int]] = set()
+
         event_bus.subscribe("voxel_changed", self._on_voxel_changed)
+        event_bus.subscribe("dig_queued", self._on_dig_state_changed)
+        event_bus.subscribe("dig_complete", self._on_dig_state_changed)
+        event_bus.subscribe("tick", self._on_tick_refresh_digs)
 
     def set_render_mode(self, mode: str) -> None:
         """Switch render mode and rebuild all chunks."""
@@ -305,7 +332,8 @@ class VoxelWorldRenderer:
 
         # Build new mesh
         geom_node = self.mesh_builder.build(
-            self.voxel_grid, cx, cy, z, render_mode=self.render_mode
+            self.voxel_grid, cx, cy, z, render_mode=self.render_mode,
+            build_system=self.build_system,
         )
         if geom_node is None:
             return
@@ -324,3 +352,41 @@ class VoxelWorldRenderer:
         # rebuild on next update. We could do it immediately, but batching
         # via update_dirty_chunks is more efficient during bulk operations.
         self.update_dirty_chunks()
+
+    def _on_dig_state_changed(self, x: int, y: int, z: int, **kwargs) -> None:
+        """Rebuild the chunk when a dig is queued or completed."""
+        cx, cy = x // CHUNK_SIZE, y // CHUNK_SIZE
+        key = (cx, cy, z)
+        self._dig_chunks.discard(key)
+        # Track chunk if dig is still active
+        if self.build_system is not None and self.build_system.is_being_dug(x, y, z):
+            self._dig_chunks.add(key)
+        self._rebuild_chunk(cx, cy, z)
+
+    def _on_tick_refresh_digs(self, tick: int, **kwargs) -> None:
+        """Periodically rebuild dig chunks to show progress animation."""
+        if not self._dig_chunks:
+            return
+        # Refresh every 5 ticks (~4x/sec) for smooth progress updates
+        if tick % 5 != 0:
+            return
+        # Rebuild all chunks that have active digs
+        stale = set()
+        for key in list(self._dig_chunks):
+            cx, cy, z = key
+            self._rebuild_chunk(cx, cy, z)
+            # Check if any digs remain in this chunk
+            has_digs = False
+            if self.build_system is not None:
+                x_off = cx * CHUNK_SIZE
+                y_off = cy * CHUNK_SIZE
+                for lx in range(CHUNK_SIZE):
+                    for ly in range(CHUNK_SIZE):
+                        if self.build_system.is_being_dug(x_off + lx, y_off + ly, z):
+                            has_digs = True
+                            break
+                    if has_digs:
+                        break
+            if not has_digs:
+                stale.add(key)
+        self._dig_chunks -= stale

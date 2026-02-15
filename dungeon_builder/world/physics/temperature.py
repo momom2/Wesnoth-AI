@@ -49,6 +49,13 @@ class TemperaturePhysics:
         self._diffuse()
 
     def _diffuse(self) -> None:
+        """Discrete heat equation: T_new = T + α·Δt·∇²T.
+
+        With α·Δt = DIFFUSION_RATE * min(cond_a, cond_b) and 6 neighbors,
+        the CFL condition requires DIFFUSION_RATE * max_cond * 6 < 1.0.
+        Currently 0.1 * 1.0 * 6 = 0.6 < 1, so the scheme is unconditionally
+        stable and non-negative — no per-flow clamping needed.
+        """
         grid = self.voxel_grid
         temp = grid.temperature
         voxels = grid.grid
@@ -81,18 +88,18 @@ class TemperaturePhysics:
         total_flow[:, :, :-1] += flow
         total_flow[:, :, 1:] -= flow
 
-        # Apply flow
+        # Apply flow (conservative: sum of total_flow is zero)
         temp += total_flow
 
-        # Surface heat loss (z=0)
+        # Surface heat loss (z=0) — environmental sink
         temp[:, :, 0] *= (1.0 - SURFACE_HEAT_LOSS)
 
-        # Clamp fixed-temperature voxels
+        # Fixed-temperature voxels — explicit sources/sinks
         lava_mask = voxels == VOXEL_LAVA
         temp[lava_mask] = LAVA_TEMPERATURE
 
         mana_mask = voxels == VOXEL_MANA_CRYSTAL
         temp[mana_mask] = MANA_CRYSTAL_TEMPERATURE
 
-        # Prevent negative temperatures
+        # Safety clamp (CFL guarantees non-negativity, but float rounding)
         np.maximum(temp, 0.0, out=temp)

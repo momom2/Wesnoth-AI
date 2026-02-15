@@ -94,6 +94,30 @@ class BuildSystem:
         for job in completed:
             self.active_digs.remove(job)
 
+    def is_being_dug(self, x: int, y: int, z: int) -> bool:
+        """Return True if the voxel at (x, y, z) is queued or actively being dug."""
+        for job in self.dig_queue:
+            if job.x == x and job.y == y and job.z == z:
+                return True
+        for job in self.active_digs:
+            if job.x == x and job.y == y and job.z == z:
+                return True
+        return False
+
+    def get_dig_progress(self, x: int, y: int, z: int) -> float:
+        """Return dig progress as 0.0 (not started) to 1.0 (complete).
+
+        Queued jobs return 0.0. Active jobs return fraction completed.
+        Returns -1.0 if the voxel is not being dug.
+        """
+        for job in self.dig_queue:
+            if job.x == x and job.y == y and job.z == z:
+                return 0.0
+        for job in self.active_digs:
+            if job.x == x and job.y == y and job.z == z:
+                return 1.0 - (job.ticks_remaining / job.total_ticks)
+        return -1.0
+
     def _on_voxel_left_clicked(self, x: int, y: int, z: int, mode: str) -> None:
         if mode == "dig":
             self.queue_dig(x, y, z)

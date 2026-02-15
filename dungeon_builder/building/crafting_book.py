@@ -14,6 +14,8 @@ from typing import Callable, TYPE_CHECKING
 
 from dungeon_builder.config import (
     VOXEL_AIR,
+    VOXEL_DIRT,
+    VOXEL_STONE,
     VOXEL_MARBLE,
     VOXEL_LIMESTONE,
     VOXEL_BASALT,
@@ -30,6 +32,14 @@ from dungeon_builder.config import (
     VOXEL_COPPER_INGOT,
     VOXEL_GOLD_INGOT,
     VOXEL_ENCHANTED_METAL,
+    VOXEL_REINFORCED_WALL,
+    VOXEL_SPIKE,
+    VOXEL_DOOR,
+    VOXEL_TREASURE,
+    VOXEL_ROLLING_STONE,
+    VOXEL_TARP,
+    VOXEL_SLOPE,
+    VOXEL_STAIRS,
 )
 
 if TYPE_CHECKING:
@@ -191,20 +201,192 @@ def _craft_glass(
 
 
 def _check_granite_pillar(grid: VoxelGrid, x: int, y: int, z: int, held_type: int) -> bool:
-    """Drop granite on air with solid below -> granite pillar."""
+    """Drop granite on air with solid below -> granite pillar.
+
+    Does not match if below is slope/stairs (rolling stone takes priority).
+    """
     if held_type != VOXEL_GRANITE:
         return False
     if grid.get(x, y, z) != VOXEL_AIR:
         return False
-    # Must have solid below (z+1 = deeper)
+    # Must have solid below (z+1 = deeper), but not slope/stairs
     below = grid.get(x, y, z + 1)
-    return below != VOXEL_AIR
+    if below == VOXEL_AIR:
+        return False
+    if below in (VOXEL_SLOPE, VOXEL_STAIRS):
+        return False
+    return True
 
 
 def _craft_granite_pillar(
     grid: VoxelGrid, x: int, y: int, z: int, held_type: int, event_bus: EventBus
 ) -> bool:
     grid.set(x, y, z, VOXEL_GRANITE, event_bus=event_bus)
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Functional block recipe implementations
+# ---------------------------------------------------------------------------
+
+def _check_reinforced_wall(grid: VoxelGrid, x: int, y: int, z: int, held_type: int) -> bool:
+    """Iron ingot on stone -> reinforced wall."""
+    if held_type != VOXEL_IRON_INGOT:
+        return False
+    return grid.get(x, y, z) == VOXEL_STONE
+
+
+def _craft_reinforced_wall(
+    grid: VoxelGrid, x: int, y: int, z: int, held_type: int, event_bus: EventBus
+) -> bool:
+    grid.set(x, y, z, VOXEL_REINFORCED_WALL, event_bus=event_bus)
+    return True
+
+
+def _check_treasure(grid: VoxelGrid, x: int, y: int, z: int, held_type: int) -> bool:
+    """Gold ingot on stone -> treasure."""
+    if held_type != VOXEL_GOLD_INGOT:
+        return False
+    return grid.get(x, y, z) == VOXEL_STONE
+
+
+def _craft_treasure(
+    grid: VoxelGrid, x: int, y: int, z: int, held_type: int, event_bus: EventBus
+) -> bool:
+    grid.set(x, y, z, VOXEL_TREASURE, event_bus=event_bus)
+    return True
+
+
+def _count_solid_sides_xy(grid: VoxelGrid, x: int, y: int, z: int) -> int:
+    """Count how many of the 4 cardinal XY neighbors are solid (non-air)."""
+    count = 0
+    for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+        if grid.get(x + dx, y + dy, z) != VOXEL_AIR:
+            count += 1
+    return count
+
+
+def _has_opposite_walls(grid: VoxelGrid, x: int, y: int, z: int) -> bool:
+    """Check if there are solid blocks on 2 opposite sides (X or Y axis)."""
+    # Check X axis
+    if grid.get(x + 1, y, z) != VOXEL_AIR and grid.get(x - 1, y, z) != VOXEL_AIR:
+        return True
+    # Check Y axis
+    if grid.get(x, y + 1, z) != VOXEL_AIR and grid.get(x, y - 1, z) != VOXEL_AIR:
+        return True
+    return False
+
+
+def _check_slope(grid: VoxelGrid, x: int, y: int, z: int, held_type: int) -> bool:
+    """Stone on air with solid below + solid on exactly 1 side (X or Y)."""
+    if held_type != VOXEL_STONE:
+        return False
+    if grid.get(x, y, z) != VOXEL_AIR:
+        return False
+    # Solid below (z+1 is deeper)
+    if grid.get(x, y, z + 1) == VOXEL_AIR:
+        return False
+    return _count_solid_sides_xy(grid, x, y, z) == 1
+
+
+def _craft_slope(
+    grid: VoxelGrid, x: int, y: int, z: int, held_type: int, event_bus: EventBus
+) -> bool:
+    grid.set(x, y, z, VOXEL_SLOPE, event_bus=event_bus)
+    return True
+
+
+def _check_stairs(grid: VoxelGrid, x: int, y: int, z: int, held_type: int) -> bool:
+    """Stone on air with solid below + solid on exactly 1 side + air above."""
+    if held_type != VOXEL_STONE:
+        return False
+    if grid.get(x, y, z) != VOXEL_AIR:
+        return False
+    # Solid below (z+1 is deeper)
+    if grid.get(x, y, z + 1) == VOXEL_AIR:
+        return False
+    # Air above (z-1 is shallower)
+    if z == 0 or grid.get(x, y, z - 1) != VOXEL_AIR:
+        return False
+    return _count_solid_sides_xy(grid, x, y, z) == 1
+
+
+def _craft_stairs(
+    grid: VoxelGrid, x: int, y: int, z: int, held_type: int, event_bus: EventBus
+) -> bool:
+    grid.set(x, y, z, VOXEL_STAIRS, event_bus=event_bus)
+    return True
+
+
+def _check_door(grid: VoxelGrid, x: int, y: int, z: int, held_type: int) -> bool:
+    """Enchanted metal on air between 2 opposite walls."""
+    if held_type != VOXEL_ENCHANTED_METAL:
+        return False
+    if grid.get(x, y, z) != VOXEL_AIR:
+        return False
+    return _has_opposite_walls(grid, x, y, z)
+
+
+def _craft_door(
+    grid: VoxelGrid, x: int, y: int, z: int, held_type: int, event_bus: EventBus
+) -> bool:
+    grid.set(x, y, z, VOXEL_DOOR, event_bus=event_bus)
+    # Doors start closed (state=1)
+    grid.set_block_state(x, y, z, 1)
+    return True
+
+
+def _check_spike_trap(grid: VoxelGrid, x: int, y: int, z: int, held_type: int) -> bool:
+    """Iron ingot on air with solid below."""
+    if held_type != VOXEL_IRON_INGOT:
+        return False
+    if grid.get(x, y, z) != VOXEL_AIR:
+        return False
+    # Solid below (z+1 is deeper)
+    return grid.get(x, y, z + 1) != VOXEL_AIR
+
+
+def _craft_spike_trap(
+    grid: VoxelGrid, x: int, y: int, z: int, held_type: int, event_bus: EventBus
+) -> bool:
+    grid.set(x, y, z, VOXEL_SPIKE, event_bus=event_bus)
+    # Spikes start extended (state=1)
+    grid.set_block_state(x, y, z, 1)
+    return True
+
+
+def _check_tarp(grid: VoxelGrid, x: int, y: int, z: int, held_type: int) -> bool:
+    """Dirt on air between 2 opposite walls."""
+    if held_type != VOXEL_DIRT:
+        return False
+    if grid.get(x, y, z) != VOXEL_AIR:
+        return False
+    return _has_opposite_walls(grid, x, y, z)
+
+
+def _craft_tarp(
+    grid: VoxelGrid, x: int, y: int, z: int, held_type: int, event_bus: EventBus
+) -> bool:
+    grid.set(x, y, z, VOXEL_TARP, event_bus=event_bus)
+    return True
+
+
+def _check_rolling_stone(grid: VoxelGrid, x: int, y: int, z: int, held_type: int) -> bool:
+    """Granite on air above slope or stairs."""
+    if held_type != VOXEL_GRANITE:
+        return False
+    if grid.get(x, y, z) != VOXEL_AIR:
+        return False
+    # Must have slope or stairs below (z+1 is deeper)
+    below = grid.get(x, y, z + 1)
+    return below in (VOXEL_SLOPE, VOXEL_STAIRS)
+
+
+def _craft_rolling_stone(
+    grid: VoxelGrid, x: int, y: int, z: int, held_type: int, event_bus: EventBus
+) -> bool:
+    grid.set(x, y, z, VOXEL_ROLLING_STONE, event_bus=event_bus)
+    grid.set_loose(x, y, z, True)  # Rolling stone starts loose
     return True
 
 
@@ -259,6 +441,55 @@ class CraftingBook:
                 _check_granite_pillar,
                 _craft_granite_pillar,
             ),
+            # --- Functional block recipes ---
+            CraftingRecipe(
+                "Reinforced Wall",
+                "Apply iron ingot to stone to reinforce it",
+                _check_reinforced_wall,
+                _craft_reinforced_wall,
+            ),
+            CraftingRecipe(
+                "Treasure",
+                "Apply gold ingot to stone to create a treasure",
+                _check_treasure,
+                _craft_treasure,
+            ),
+            CraftingRecipe(
+                "Slope",
+                "Place stone on air with solid below and one wall to form a slope",
+                _check_slope,
+                _craft_slope,
+            ),
+            CraftingRecipe(
+                "Stairs",
+                "Place stone on air with solid below, one wall, and air above to form stairs",
+                _check_stairs,
+                _craft_stairs,
+            ),
+            CraftingRecipe(
+                "Door",
+                "Place enchanted metal between two opposite walls to build a door",
+                _check_door,
+                _craft_door,
+            ),
+            CraftingRecipe(
+                "Spike Trap",
+                "Place iron ingot on air above solid ground to set a spike trap",
+                _check_spike_trap,
+                _craft_spike_trap,
+            ),
+            CraftingRecipe(
+                "Tarp",
+                "Stretch dirt between two opposite walls to cover a pit",
+                _check_tarp,
+                _craft_tarp,
+            ),
+            CraftingRecipe(
+                "Rolling Stone",
+                "Place granite above a slope or stairs to create a rolling stone",
+                _check_rolling_stone,
+                _craft_rolling_stone,
+            ),
         ]
 
     def find_recipe(
@@ -269,3 +500,9 @@ class CraftingBook:
             if recipe.check_fn(grid, x, y, z, held_type):
                 return recipe
         return None
+
+    def find_all_recipes(
+        self, grid: VoxelGrid, x: int, y: int, z: int, held_type: int
+    ) -> list[CraftingRecipe]:
+        """Return ALL matching recipes (not just the first)."""
+        return [r for r in self.recipes if r.check_fn(grid, x, y, z, held_type)]

@@ -12,7 +12,11 @@ from panda3d.core import (
     LVector4f,
     LVector3f,
     AntialiasAttrib,
+    loadPrcFileData,
 )
+
+# Set window size before ShowBase init (must happen before window creation)
+loadPrcFileData("", "win-size 1280 720")
 
 from dungeon_builder.config import (
     DEFAULT_SEED,
@@ -32,6 +36,7 @@ from dungeon_builder.world.geology import GeologyGenerator
 from dungeon_builder.world.room_detection import RoomDetector
 from dungeon_builder.world.pathfinding import AStarPathfinder
 from dungeon_builder.world.physics.temperature import TemperaturePhysics
+from dungeon_builder.world.physics.humidity import HumidityPhysics
 from dungeon_builder.world.physics.gravity import GravityPhysics
 from dungeon_builder.world.physics.structural import StructuralIntegrityPhysics
 from dungeon_builder.building.build_system import BuildSystem
@@ -103,8 +108,10 @@ class DungeonApp(ShowBase):
         game_state.move_system = move_system
 
         crafting_system = CraftingSystem(event_bus, voxel_grid, move_system)
+        move_system.crafting_system = crafting_system
 
         temperature_physics = TemperaturePhysics(event_bus, voxel_grid)
+        humidity_physics = HumidityPhysics(event_bus, voxel_grid)
         gravity_physics = GravityPhysics(event_bus, voxel_grid)
         structural_physics = StructuralIntegrityPhysics(event_bus, voxel_grid)
 
@@ -117,6 +124,7 @@ class DungeonApp(ShowBase):
         layer_manager = LayerSliceManager(self.render)
 
         world_renderer = VoxelWorldRenderer(event_bus, voxel_grid, layer_manager)
+        world_renderer.build_system = build_system
         world_renderer.build_all_chunks()
 
         camera_ctrl = CameraController(self, event_bus, game_state, layer_manager)
@@ -155,6 +163,7 @@ class DungeonApp(ShowBase):
             "move_system": move_system,
             "crafting_system": crafting_system,
             "temperature_physics": temperature_physics,
+            "humidity_physics": humidity_physics,
             "gravity_physics": gravity_physics,
             "structural_physics": structural_physics,
             "intruder_ai": intruder_ai,

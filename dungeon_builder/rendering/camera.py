@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING
 from panda3d.core import (
     LPoint3f,
     LVector3f,
-    NodePath,
 )
 from direct.showbase.ShowBase import ShowBase
 
@@ -70,6 +69,9 @@ class CameraController:
         # Right-click tracking (distinguish click from drag)
         self._right_click_start_x = 0.0
         self._right_click_start_y = 0.0
+
+        # Hover tracking — last hovered voxel for highlight
+        self._hovered_voxel: tuple[int, int, int] | None = None
 
         self._bind_controls()
         self._update_camera()
@@ -165,7 +167,20 @@ class CameraController:
             self._last_mouse_y = my
 
         self._update_camera()
+        self._update_hover()
         return task.cont
+
+    def _update_hover(self) -> None:
+        """Update the hovered voxel highlight each frame."""
+        hit = self._pick_voxel()
+        if hit != self._hovered_voxel:
+            self._hovered_voxel = hit
+            if hit is not None:
+                self.event_bus.publish(
+                    "voxel_hover", x=hit[0], y=hit[1], z=hit[2]
+                )
+            else:
+                self.event_bus.publish("voxel_hover_clear")
 
     def _update_camera(self) -> None:
         # Spherical to Cartesian
@@ -270,19 +285,16 @@ class CameraController:
             mode=self.game_state.build_mode,
         )
 
-    def _pick_voxel(self) -> tuple[int, int, int] | None:
-        """Cast a ray from mouse into the voxel grid using DDA ray marching.
+    def _get_mouse_ray(self) -> tuple[LPoint3f, LVector3f] | None:
+        """Get the mouse ray origin and direction in world space.
 
-        This works directly on the voxel grid data — no collision solids needed.
-        Returns the (x, y, z) grid coordinates of the first solid voxel hit,
-        or None if the ray misses the grid entirely.
+        Returns (origin, direction) or None if mouse is not available.
         """
         if not self.app.mouseWatcherNode.has_mouse():
             return None
 
         mpos = self.app.mouseWatcherNode.get_mouse()
 
-        # Get ray origin and direction from the camera lens
         origin = LPoint3f()
         direction = LVector3f()
         lens = self.app.camNode.get_lens()
@@ -294,192 +306,90 @@ class CameraController:
         origin = cam_mat.xform_point(origin)
         direction = cam_mat.xform_vec(direction)
         direction.normalize()
+        return origin, direction
 
-        # Convert world coordinates to grid coordinates
-        # World: (wx, wy, wz) -> Grid: (wx, wy, -wz)
-        # Ray: origin + t * direction, but in grid space z is flipped
-        ox, oy, oz = origin.x, origin.y, -origin.z
-        dx, dy, dz = direction.x, direction.y, -direction.z
+    def _ray_hit_layer(
+        self, origin: LPoint3f, direction: LVector3f
+    ) -> tuple[int, int] | None:
+        """Intersect a ray with the horizontal plane of the current layer.
 
-        return self._dda_march(ox, oy, oz, dx, dy, dz)
+        The current layer at grid z = current_z is rendered at world z in
+        the range [-current_z, -current_z + 1].  We intersect the ray with
+        the middle of that slab (world_z = -current_z + 0.5) and return
+        the (grid_x, grid_y) of the hit cell, or None if the ray is
+        parallel to the plane or the hit is outside the grid.
+        """
+        z_level = self.layer_manager.current_z
+        # Voxels at grid z render with their top face at world z = -z_level + 1
+        # and bottom face at world z = -z_level.  Use the midpoint.
+        plane_z = -z_level + 0.5
+
+        # Ray: P = origin + t * direction
+        # Solve for t where P.z == plane_z
+        dz = direction.z
+        if abs(dz) < 1e-12:
+            return None  # Ray parallel to the layer plane
+
+        t = (plane_z - origin.z) / dz
+        if t < 0:
+            return None  # Plane is behind the camera
+
+        hit_x = origin.x + t * direction.x
+        hit_y = origin.y + t * direction.y
+
+        gx = int(math.floor(hit_x))
+        gy = int(math.floor(hit_y))
+
+        grid = self.game_state.voxel_grid
+        if grid is None:
+            return None
+        if not grid.in_bounds(gx, gy, z_level):
+            return None
+
+        return gx, gy
+
+    def _pick_voxel(self) -> tuple[int, int, int] | None:
+        """Pick the solid voxel under the mouse on the current layer.
+
+        Returns (x, y, z) grid coordinates or None.
+        """
+        ray = self._get_mouse_ray()
+        if ray is None:
+            return None
+
+        hit = self._ray_hit_layer(*ray)
+        if hit is None:
+            return None
+
+        gx, gy = hit
+        z_level = self.layer_manager.current_z
+        grid = self.game_state.voxel_grid
+        if grid is None:
+            return None
+
+        if grid.get(gx, gy, z_level) != VOXEL_AIR:
+            return (gx, gy, z_level)
+        return None
 
     def _pick_air_voxel(self) -> tuple[int, int, int] | None:
-        """Cast a ray and return the last air voxel before hitting solid.
+        """Pick the air voxel under the mouse on the current layer.
 
         Used for right-click drop: find an air space to drop material into.
         """
-        if not self.app.mouseWatcherNode.has_mouse():
+        ray = self._get_mouse_ray()
+        if ray is None:
             return None
 
-        mpos = self.app.mouseWatcherNode.get_mouse()
-        origin = LPoint3f()
-        direction = LVector3f()
-        lens = self.app.camNode.get_lens()
-        if not lens.extrude(mpos, origin, direction):
+        hit = self._ray_hit_layer(*ray)
+        if hit is None:
             return None
 
-        cam_mat = self.app.camera.get_mat(self.app.render)
-        origin = cam_mat.xform_point(origin)
-        direction = cam_mat.xform_vec(direction)
-        direction.normalize()
-
-        ox, oy, oz = origin.x, origin.y, -origin.z
-        dx, dy, dz = direction.x, direction.y, -direction.z
-
-        return self._dda_march_air(ox, oy, oz, dx, dy, dz)
-
-    def _dda_march(
-        self, ox: float, oy: float, oz: float,
-        dx: float, dy: float, dz: float,
-        max_steps: int = 200,
-    ) -> tuple[int, int, int] | None:
-        """3D DDA (Amanatides & Woo) ray march through the voxel grid.
-
-        All coordinates are in grid space where z increases downward.
-        """
+        gx, gy = hit
+        z_level = self.layer_manager.current_z
         grid = self.game_state.voxel_grid
         if grid is None:
             return None
 
-        # Current voxel
-        vx = int(math.floor(ox))
-        vy = int(math.floor(oy))
-        vz = int(math.floor(oz))
-
-        # Step direction (+1 or -1)
-        step_x = 1 if dx > 0 else (-1 if dx < 0 else 0)
-        step_y = 1 if dy > 0 else (-1 if dy < 0 else 0)
-        step_z = 1 if dz > 0 else (-1 if dz < 0 else 0)
-
-        # Distance along ray to cross one voxel in each axis
-        INF = 1e30
-        t_delta_x = abs(1.0 / dx) if dx != 0 else INF
-        t_delta_y = abs(1.0 / dy) if dy != 0 else INF
-        t_delta_z = abs(1.0 / dz) if dz != 0 else INF
-
-        # Distance to next voxel boundary in each axis
-        if dx > 0:
-            t_max_x = (math.floor(ox) + 1 - ox) * t_delta_x
-        elif dx < 0:
-            t_max_x = (ox - math.floor(ox)) * t_delta_x
-        else:
-            t_max_x = INF
-
-        if dy > 0:
-            t_max_y = (math.floor(oy) + 1 - oy) * t_delta_y
-        elif dy < 0:
-            t_max_y = (oy - math.floor(oy)) * t_delta_y
-        else:
-            t_max_y = INF
-
-        if dz > 0:
-            t_max_z = (math.floor(oz) + 1 - oz) * t_delta_z
-        elif dz < 0:
-            t_max_z = (oz - math.floor(oz)) * t_delta_z
-        else:
-            t_max_z = INF
-
-        for _ in range(max_steps):
-            # Check if current voxel is in bounds and solid
-            if grid.in_bounds(vx, vy, vz) and grid.get(vx, vy, vz) != VOXEL_AIR:
-                return (vx, vy, vz)
-
-            # Check if we've left the grid entirely (and won't come back)
-            if (vx < -1 or vx > grid.width
-                or vy < -1 or vy > grid.depth
-                or vz < -1 or vz > grid.height):
-                return None
-
-            # Advance to next voxel boundary
-            if t_max_x < t_max_y:
-                if t_max_x < t_max_z:
-                    vx += step_x
-                    t_max_x += t_delta_x
-                else:
-                    vz += step_z
-                    t_max_z += t_delta_z
-            else:
-                if t_max_y < t_max_z:
-                    vy += step_y
-                    t_max_y += t_delta_y
-                else:
-                    vz += step_z
-                    t_max_z += t_delta_z
-
+        if grid.get(gx, gy, z_level) == VOXEL_AIR:
+            return (gx, gy, z_level)
         return None
-
-    def _dda_march_air(
-        self, ox: float, oy: float, oz: float,
-        dx: float, dy: float, dz: float,
-        max_steps: int = 200,
-    ) -> tuple[int, int, int] | None:
-        """DDA march returning the last air voxel before hitting a solid."""
-        grid = self.game_state.voxel_grid
-        if grid is None:
-            return None
-
-        vx = int(math.floor(ox))
-        vy = int(math.floor(oy))
-        vz = int(math.floor(oz))
-
-        step_x = 1 if dx > 0 else (-1 if dx < 0 else 0)
-        step_y = 1 if dy > 0 else (-1 if dy < 0 else 0)
-        step_z = 1 if dz > 0 else (-1 if dz < 0 else 0)
-
-        INF = 1e30
-        t_delta_x = abs(1.0 / dx) if dx != 0 else INF
-        t_delta_y = abs(1.0 / dy) if dy != 0 else INF
-        t_delta_z = abs(1.0 / dz) if dz != 0 else INF
-
-        if dx > 0:
-            t_max_x = (math.floor(ox) + 1 - ox) * t_delta_x
-        elif dx < 0:
-            t_max_x = (ox - math.floor(ox)) * t_delta_x
-        else:
-            t_max_x = INF
-
-        if dy > 0:
-            t_max_y = (math.floor(oy) + 1 - oy) * t_delta_y
-        elif dy < 0:
-            t_max_y = (oy - math.floor(oy)) * t_delta_y
-        else:
-            t_max_y = INF
-
-        if dz > 0:
-            t_max_z = (math.floor(oz) + 1 - oz) * t_delta_z
-        elif dz < 0:
-            t_max_z = (oz - math.floor(oz)) * t_delta_z
-        else:
-            t_max_z = INF
-
-        last_air: tuple[int, int, int] | None = None
-
-        for _ in range(max_steps):
-            if grid.in_bounds(vx, vy, vz):
-                if grid.get(vx, vy, vz) == VOXEL_AIR:
-                    last_air = (vx, vy, vz)
-                else:
-                    # Hit solid — return the last air we saw
-                    return last_air
-
-            if (vx < -1 or vx > grid.width
-                or vy < -1 or vy > grid.depth
-                or vz < -1 or vz > grid.height):
-                return last_air
-
-            if t_max_x < t_max_y:
-                if t_max_x < t_max_z:
-                    vx += step_x
-                    t_max_x += t_delta_x
-                else:
-                    vz += step_z
-                    t_max_z += t_delta_z
-            else:
-                if t_max_y < t_max_z:
-                    vy += step_y
-                    t_max_y += t_delta_y
-                else:
-                    vz += step_z
-                    t_max_z += t_delta_z
-
-        return last_air

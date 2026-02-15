@@ -54,13 +54,13 @@ def test_speed_change_event():
 
     events = []
     bus.subscribe("speed_changed", lambda **kw: events.append(kw))
-    tm.set_speed(1)
-    assert events == [{"speed": 1, "old_speed": 0}]
+    tm.set_speed(0)
+    assert events == [{"speed": 0, "old_speed": 1}]
 
 
 def test_paused_property():
     bus = EventBus()
     tm = TimeManager(bus)
+    assert tm.paused is False  # starts playing
+    tm.set_speed(0)
     assert tm.paused is True
-    tm.set_speed(1)
-    assert tm.paused is False

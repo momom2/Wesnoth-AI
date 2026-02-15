@@ -1,5 +1,7 @@
 """Tests for the dig/build system."""
 
+import pytest
+
 from dungeon_builder.core.event_bus import EventBus
 from dungeon_builder.world.voxel_grid import VoxelGrid
 from dungeon_builder.building.build_system import BuildSystem
@@ -121,3 +123,85 @@ def test_left_click_dig_mode():
 
     bus.publish("voxel_left_clicked", x=1, y=1, z=1, mode="dig")
     assert len(bs.dig_queue) == 1
+
+
+# ---------------------------------------------------------------------------
+# Dig overlay: is_being_dug and get_dig_progress
+# ---------------------------------------------------------------------------
+
+
+def test_is_being_dug_queued():
+    """Queued blocks report as being dug."""
+    bus = EventBus()
+    grid = VoxelGrid(width=4, depth=4, height=4)
+    grid.grid[1, 1, 1] = VOXEL_STONE
+    bs = BuildSystem(bus, grid)
+    bs.queue_dig(1, 1, 1)
+
+    assert bs.is_being_dug(1, 1, 1) is True
+    assert bs.is_being_dug(0, 0, 0) is False
+
+
+def test_is_being_dug_active():
+    """Active digs report as being dug."""
+    bus = EventBus()
+    grid = VoxelGrid(width=4, depth=4, height=4)
+    grid.grid[1, 1, 1] = VOXEL_DIRT
+    bs = BuildSystem(bus, grid)
+    bs.queue_dig(1, 1, 1)
+
+    # First tick promotes to active
+    bus.publish("tick", tick=1)
+    assert bs.is_being_dug(1, 1, 1) is True
+
+
+def test_is_being_dug_completed():
+    """Completed digs are no longer reported as being dug."""
+    bus = EventBus()
+    grid = VoxelGrid(width=4, depth=4, height=4)
+    grid.grid[1, 1, 1] = VOXEL_DIRT  # 20 ticks
+    bs = BuildSystem(bus, grid)
+    bs.queue_dig(1, 1, 1)
+
+    for i in range(1, 21):
+        bus.publish("tick", tick=i)
+
+    assert bs.is_being_dug(1, 1, 1) is False
+
+
+def test_dig_progress_queued():
+    """Queued digs have progress 0.0."""
+    bus = EventBus()
+    grid = VoxelGrid(width=4, depth=4, height=4)
+    grid.grid[1, 1, 1] = VOXEL_STONE
+    bs = BuildSystem(bus, grid)
+    bs.queue_dig(1, 1, 1)
+
+    assert bs.get_dig_progress(1, 1, 1) == pytest.approx(0.0)
+
+
+def test_dig_progress_active():
+    """Active digs report fractional progress."""
+    bus = EventBus()
+    grid = VoxelGrid(width=4, depth=4, height=4)
+    grid.grid[1, 1, 1] = VOXEL_DIRT  # 20 ticks
+    bs = BuildSystem(bus, grid)
+    bs.queue_dig(1, 1, 1)
+
+    # Tick 1 promotes to active and decrements once (19 remaining / 20 total)
+    bus.publish("tick", tick=1)
+    assert bs.get_dig_progress(1, 1, 1) == pytest.approx(1.0 / 20.0)
+
+    # After 10 more ticks (11 total), 9 remaining / 20 total
+    for i in range(2, 12):
+        bus.publish("tick", tick=i)
+    assert bs.get_dig_progress(1, 1, 1) == pytest.approx(11.0 / 20.0)
+
+
+def test_dig_progress_not_digging():
+    """Non-digging blocks return -1.0."""
+    bus = EventBus()
+    grid = VoxelGrid(width=4, depth=4, height=4)
+    bs = BuildSystem(bus, grid)
+
+    assert bs.get_dig_progress(0, 0, 0) == pytest.approx(-1.0)

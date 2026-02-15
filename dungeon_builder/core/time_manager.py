@@ -15,7 +15,7 @@ class TimeManager:
 
     def __init__(self, event_bus) -> None:
         self.event_bus = event_bus
-        self.speed: int = 0  # Start paused; 0=paused, 1=normal, 2=fast
+        self.speed: int = 1  # Start playing; 0=paused, 1=normal, 2=fast
         self.tick_count: int = 0
         self._accumulator: float = 0.0
         self._tick_interval: float = 1.0 / TICKS_PER_SECOND

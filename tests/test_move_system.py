@@ -1,5 +1,7 @@
 """Tests for the move (pick up / drop) system."""
 
+import pytest
+
 from dungeon_builder.core.event_bus import EventBus
 from dungeon_builder.world.voxel_grid import VoxelGrid
 from dungeon_builder.building.move_system import MoveSystem
@@ -131,3 +133,75 @@ def test_ignores_non_move_mode():
     bus, grid, ms = _setup(VOXEL_STONE, loose=True)
     bus.publish("voxel_left_clicked", x=1, y=1, z=1, mode="dig")
     assert ms.held_material is None  # move system doesn't handle dig mode
+
+
+def test_pick_up_captures_temperature():
+    """Picking up a hot block stores its temperature."""
+    bus, grid, ms = _setup(VOXEL_STONE, loose=True)
+    grid.temperature[1, 1, 1] = 500.0
+
+    ms.pick_up(1, 1, 1)
+
+    assert ms.held_temperature == 500.0
+    # Source cleared
+    assert grid.temperature[1, 1, 1] == 0.0
+
+
+def test_drop_restores_temperature():
+    """Dropping a block restores its stored temperature."""
+    bus, grid, ms = _setup(VOXEL_STONE, loose=True)
+    grid.temperature[1, 1, 1] = 500.0
+
+    ms.pick_up(1, 1, 1)
+    ms.drop(2, 2, 2)
+
+    assert grid.temperature[2, 2, 2] == 500.0
+
+
+def test_pick_up_captures_humidity():
+    """Picking up a wet block stores its humidity."""
+    bus, grid, ms = _setup(VOXEL_DIRT, loose=True)
+    grid.humidity[1, 1, 1] = 0.8
+
+    ms.pick_up(1, 1, 1)
+
+    assert ms.held_humidity == pytest.approx(0.8)
+
+
+def test_drop_restores_humidity():
+    """Dropping a block restores its stored humidity."""
+    bus, grid, ms = _setup(VOXEL_DIRT, loose=True)
+    grid.humidity[1, 1, 1] = 0.8
+
+    ms.pick_up(1, 1, 1)
+    ms.drop(2, 2, 2)
+
+    assert grid.humidity[2, 2, 2] == pytest.approx(0.8)
+
+
+def test_stacking_averages_temperature():
+    """Picking up multiple blocks averages their temperature."""
+    bus, grid, ms = _setup(VOXEL_STONE, loose=True)
+    grid.temperature[1, 1, 1] = 400.0
+    grid.grid[2, 1, 1] = VOXEL_STONE
+    grid.set_loose(2, 1, 1, True)
+    grid.temperature[2, 1, 1] = 200.0
+
+    ms.pick_up(1, 1, 1)
+    ms.pick_up(2, 1, 1)
+
+    # Average of 400 and 200 = 300
+    assert ms.held_temperature == 300.0
+
+
+def test_drop_clears_held_properties():
+    """Dropping the last block clears held temperature and humidity."""
+    bus, grid, ms = _setup(VOXEL_STONE, loose=True)
+    grid.temperature[1, 1, 1] = 500.0
+    grid.humidity[1, 1, 1] = 0.6
+
+    ms.pick_up(1, 1, 1)
+    ms.drop(2, 2, 2)
+
+    assert ms.held_temperature == 0.0
+    assert ms.held_humidity == 0.0
