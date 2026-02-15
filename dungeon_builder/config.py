@@ -131,10 +131,21 @@ SURFACE_HEAT_LOSS = 0.05
 TEMPERATURE_TICK_INTERVAL = 5   # run diffusion every N ticks
 DIFFUSION_RATE = 0.1
 
+# Gravity / structural physics
+GRAVITY_TICK_INTERVAL = 1        # Loose-fall runs every tick (responsive)
+STRUCTURAL_TICK_INTERVAL = 10    # Load calc every 0.5s
+CONNECTIVITY_TICK_INTERVAL = 10  # Connectivity flood-fill every 0.5s
+MAX_FALL_PER_TICK = 5            # Loose blocks fall up to 5 cells per tick
+MAX_CASCADE_PER_TICK = 64        # Cap structural failures per tick
+
+# Structural anchors (absorb all load, infinite capacity)
+STRUCTURAL_ANCHORS = frozenset({3, 4, 43})  # BEDROCK, CORE, MANA_CRYSTAL
+
 # Render modes
 RENDER_MODE_MATTER = "matter"
 RENDER_MODE_HUMIDITY = "humidity"
 RENDER_MODE_HEAT = "heat"
+RENDER_MODE_STRUCTURAL = "structural"
 
 # Dig durations in ticks (at 20 ticks/sec)
 DIG_DURATION = {
@@ -206,3 +217,70 @@ CAMERA_DEFAULT_PITCH = -60.0
 CAMERA_PAN_SPEED = 30.0
 CAMERA_ROTATE_SPEED = 90.0
 CAMERA_ZOOM_STEP = 5.0
+
+# Material weight (arbitrary load units, granite=10.0 baseline)
+VOXEL_WEIGHT = {
+    VOXEL_AIR: 0.0,
+    VOXEL_DIRT: 5.0,
+    VOXEL_STONE: 8.0,
+    VOXEL_BEDROCK: 0.0,
+    VOXEL_CORE: 0.0,
+    VOXEL_SANDSTONE: 6.0,
+    VOXEL_LIMESTONE: 7.0,
+    VOXEL_SHALE: 5.5,
+    VOXEL_CHALK: 4.0,
+    VOXEL_SLATE: 7.5,
+    VOXEL_MARBLE: 8.5,
+    VOXEL_GNEISS: 8.0,
+    VOXEL_GRANITE: 10.0,
+    VOXEL_BASALT: 11.0,
+    VOXEL_OBSIDIAN: 9.0,
+    VOXEL_IRON_ORE: 12.0,
+    VOXEL_COPPER_ORE: 11.0,
+    VOXEL_GOLD_ORE: 14.0,
+    VOXEL_MANA_CRYSTAL: 0.0,
+    VOXEL_LAVA: 0.0,
+    VOXEL_IRON_INGOT: 15.0,
+    VOXEL_COPPER_INGOT: 14.0,
+    VOXEL_GOLD_INGOT: 18.0,
+    VOXEL_ENCHANTED_METAL: 10.0,
+}
+
+# Max load capacity (compressive strength) per voxel type
+VOXEL_MAX_LOAD = {
+    VOXEL_AIR: 0.0,
+    VOXEL_DIRT: 20.0,
+    VOXEL_STONE: 80.0,
+    VOXEL_BEDROCK: float("inf"),
+    VOXEL_CORE: float("inf"),
+    VOXEL_SANDSTONE: 40.0,
+    VOXEL_LIMESTONE: 50.0,
+    VOXEL_SHALE: 30.0,
+    VOXEL_CHALK: 15.0,
+    VOXEL_SLATE: 70.0,
+    VOXEL_MARBLE: 85.0,
+    VOXEL_GNEISS: 75.0,
+    VOXEL_GRANITE: 120.0,
+    VOXEL_BASALT: 110.0,
+    VOXEL_OBSIDIAN: 60.0,
+    VOXEL_IRON_ORE: 65.0,
+    VOXEL_COPPER_ORE: 55.0,
+    VOXEL_GOLD_ORE: 45.0,
+    VOXEL_MANA_CRYSTAL: float("inf"),
+    VOXEL_LAVA: 0.0,
+    VOXEL_IRON_INGOT: 100.0,
+    VOXEL_COPPER_INGOT: 80.0,
+    VOXEL_GOLD_INGOT: 50.0,
+    VOXEL_ENCHANTED_METAL: 150.0,
+}
+
+# Load distribution weights
+LOAD_DIST_BELOW = 0.60       # 60% to block directly below
+LOAD_DIST_LATERAL = 0.05     # 5% to each of 4 cardinal-below neighbors
+BUTTRESS_FACTOR = 0.03       # Each solid same-level neighbor reduces load 3%
+
+# Environmental weakness factors
+HUMIDITY_WEAKNESS = 0.3       # At humidity=1.0, capacity drops to 70%
+TEMP_WEAKNESS_MIN = 200.0     # Below this, no thermal weakening
+TEMP_WEAKNESS_MAX = 800.0     # At this temp, maximum weakening
+TEMP_WEAKNESS_FACTOR = 0.5    # At max temp, capacity drops to 50%

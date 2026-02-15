@@ -32,6 +32,8 @@ from dungeon_builder.world.geology import GeologyGenerator
 from dungeon_builder.world.room_detection import RoomDetector
 from dungeon_builder.world.pathfinding import AStarPathfinder
 from dungeon_builder.world.physics.temperature import TemperaturePhysics
+from dungeon_builder.world.physics.gravity import GravityPhysics
+from dungeon_builder.world.physics.structural import StructuralIntegrityPhysics
 from dungeon_builder.building.build_system import BuildSystem
 from dungeon_builder.building.move_system import MoveSystem
 from dungeon_builder.building.crafting_system import CraftingSystem
@@ -103,6 +105,8 @@ class DungeonApp(ShowBase):
         crafting_system = CraftingSystem(event_bus, voxel_grid, move_system)
 
         temperature_physics = TemperaturePhysics(event_bus, voxel_grid)
+        gravity_physics = GravityPhysics(event_bus, voxel_grid)
+        structural_physics = StructuralIntegrityPhysics(event_bus, voxel_grid)
 
         intruder_ai = IntruderAI(event_bus, voxel_grid, pathfinder, core, rng)
 
@@ -151,6 +155,8 @@ class DungeonApp(ShowBase):
             "move_system": move_system,
             "crafting_system": crafting_system,
             "temperature_physics": temperature_physics,
+            "gravity_physics": gravity_physics,
+            "structural_physics": structural_physics,
             "intruder_ai": intruder_ai,
             "layer_manager": layer_manager,
             "world_renderer": world_renderer,

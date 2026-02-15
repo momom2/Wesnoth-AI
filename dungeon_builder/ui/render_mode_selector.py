@@ -11,14 +11,15 @@ from dungeon_builder.config import (
     RENDER_MODE_MATTER,
     RENDER_MODE_HUMIDITY,
     RENDER_MODE_HEAT,
+    RENDER_MODE_STRUCTURAL,
 )
 
 if TYPE_CHECKING:
     from dungeon_builder.core.event_bus import EventBus
     from dungeon_builder.rendering.voxel_renderer import VoxelWorldRenderer
 
-_MODES = [RENDER_MODE_MATTER, RENDER_MODE_HUMIDITY, RENDER_MODE_HEAT]
-_LABELS = {"matter": "Matter", "humidity": "Humidity", "heat": "Heat"}
+_MODES = [RENDER_MODE_MATTER, RENDER_MODE_HUMIDITY, RENDER_MODE_HEAT, RENDER_MODE_STRUCTURAL]
+_LABELS = {"matter": "Matter", "humidity": "Humidity", "heat": "Heat", "structural": "Structural"}
 
 
 class RenderModeSelector:

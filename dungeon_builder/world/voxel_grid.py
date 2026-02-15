@@ -38,6 +38,8 @@ class VoxelGrid:
         self.humidity = np.zeros((width, depth, height), dtype=np.float32)
         self.temperature = np.zeros((width, depth, height), dtype=np.float32)
         self.loose = np.zeros((width, depth, height), dtype=np.bool_)
+        self.load = np.zeros((width, depth, height), dtype=np.float32)
+        self.stress_ratio = np.zeros((width, depth, height), dtype=np.float32)
         self._dirty_chunks: set[tuple[int, int, int]] = set()
 
         # Number of chunks per axis
@@ -114,6 +116,16 @@ class VoxelGrid:
         if not self.in_bounds(x, y, z):
             return False
         return bool(self.loose[x, y, z])
+
+    def get_load(self, x: int, y: int, z: int) -> float:
+        if not self.in_bounds(x, y, z):
+            return 0.0
+        return float(self.load[x, y, z])
+
+    def get_stress_ratio(self, x: int, y: int, z: int) -> float:
+        if not self.in_bounds(x, y, z):
+            return 0.0
+        return float(self.stress_ratio[x, y, z])
 
     def set_loose(self, x: int, y: int, z: int, value: bool) -> None:
         if self.in_bounds(x, y, z):

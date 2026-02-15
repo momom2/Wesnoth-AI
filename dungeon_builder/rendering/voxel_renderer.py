@@ -24,6 +24,7 @@ from dungeon_builder.config import (
     RENDER_MODE_MATTER,
     RENDER_MODE_HUMIDITY,
     RENDER_MODE_HEAT,
+    RENDER_MODE_STRUCTURAL,
 )
 
 if TYPE_CHECKING:
@@ -91,6 +92,25 @@ def humidity_to_color(h: float) -> tuple[float, float, float, float]:
         t = (h - 0.5) / 0.5
         # Cyan (0,1,1) -> Green (0,1,0)
         return (0.0, 1.0, 1.0 - t, 1.0)
+
+
+def stress_to_color(stress: float) -> tuple[float, float, float, float]:
+    """Map stress ratio [0..1+] to green-yellow-orange-red gradient."""
+    stress = max(0.0, stress)
+    if stress <= 0.5:
+        t = stress / 0.5
+        # Green -> Yellow
+        return (0.9 * t, 0.7 + 0.2 * t, 0.0, 1.0)
+    elif stress <= 0.8:
+        t = (stress - 0.5) / 0.3
+        # Yellow -> Orange
+        return (0.9 + 0.1 * t, 0.9 - 0.4 * t, 0.0, 1.0)
+    elif stress <= 1.0:
+        t = (stress - 0.8) / 0.2
+        # Orange -> Red
+        return (1.0, 0.5 - 0.5 * t, 0.0, 1.0)
+    else:
+        return (1.0, 0.0, 0.0, 1.0)
 
 
 def temperature_to_color(temp: float) -> tuple[float, float, float, float]:
@@ -210,6 +230,10 @@ class ChunkMeshBuilder:
         render_mode: str,
     ) -> tuple[float, float, float, float]:
         """Get the color for a voxel based on render mode."""
+        if render_mode == RENDER_MODE_STRUCTURAL:
+            s = voxel_grid.get_stress_ratio(x, y, z)
+            return stress_to_color(s)
+
         if render_mode == RENDER_MODE_HUMIDITY:
             h = voxel_grid.get_humidity(x, y, z)
             return humidity_to_color(h)
