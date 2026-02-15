@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "dungeon-builder"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "panda3d>=1.10.14",
+    "numpy>=1.24.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
