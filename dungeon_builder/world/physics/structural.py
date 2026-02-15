@@ -123,39 +123,68 @@ class StructuralIntegrityPhysics:
             # Direct downward distribution
             direct_below = effective_load * LOAD_DIST_BELOW
             solid_below = solid[:, :, z + 1]
-            load[:, :, z + 1] += np.where(solid_below, direct_below, 0.0)
+
+            # Track how much load was successfully distributed
+            distributed = np.zeros((w, d), dtype=np.float32)
+
+            direct_accepted = np.where(solid_below, direct_below, 0.0)
+            load[:, :, z + 1] += direct_accepted
+            distributed += direct_accepted
 
             # Lateral-below distribution (4 cardinal-below neighbors)
             lateral = effective_load * LOAD_DIST_LATERAL
             if w > 1:
                 mask = solid[1:, :, z + 1]
-                load[1:, :, z + 1] += np.where(mask, lateral[:-1, :], 0.0)
+                contrib = np.where(mask, lateral[:-1, :], 0.0)
+                load[1:, :, z + 1] += contrib
+                distributed[:-1, :] += contrib
                 mask = solid[:-1, :, z + 1]
-                load[:-1, :, z + 1] += np.where(mask, lateral[1:, :], 0.0)
+                contrib = np.where(mask, lateral[1:, :], 0.0)
+                load[:-1, :, z + 1] += contrib
+                distributed[1:, :] += contrib
             if d > 1:
                 mask = solid[:, 1:, z + 1]
-                load[:, 1:, z + 1] += np.where(mask, lateral[:, :-1], 0.0)
+                contrib = np.where(mask, lateral[:, :-1], 0.0)
+                load[:, 1:, z + 1] += contrib
+                distributed[:, :-1] += contrib
                 mask = solid[:, :-1, z + 1]
-                load[:, :-1, z + 1] += np.where(mask, lateral[:, 1:], 0.0)
+                contrib = np.where(mask, lateral[:, 1:], 0.0)
+                load[:, :-1, z + 1] += contrib
+                distributed[:, 1:] += contrib
 
             # Arch effect: if block directly below is air, redistribute
             # 25% of direct load laterally to cardinal-below neighbors
             air_below = (~solid_below) & (voxels[:, :, z + 1] == VOXEL_AIR)
             redistributed = np.where(air_below, direct_below * 0.25, 0.0)
             if w > 1:
-                load[1:, :, z + 1] += np.where(
+                contrib = np.where(
                     solid[1:, :, z + 1], redistributed[:-1, :], 0.0
                 )
-                load[:-1, :, z + 1] += np.where(
+                load[1:, :, z + 1] += contrib
+                distributed[:-1, :] += contrib
+                contrib = np.where(
                     solid[:-1, :, z + 1], redistributed[1:, :], 0.0
                 )
+                load[:-1, :, z + 1] += contrib
+                distributed[1:, :] += contrib
             if d > 1:
-                load[:, 1:, z + 1] += np.where(
+                contrib = np.where(
                     solid[:, 1:, z + 1], redistributed[:, :-1], 0.0
                 )
-                load[:, :-1, z + 1] += np.where(
+                load[:, 1:, z + 1] += contrib
+                distributed[:, :-1] += contrib
+                contrib = np.where(
                     solid[:, :-1, z + 1], redistributed[:, 1:], 0.0
                 )
+                load[:, :-1, z + 1] += contrib
+                distributed[:, 1:] += contrib
+
+            # Undistributed load stays on the current block as retained stress.
+            # This models cantilever stress: a block over air with no supports
+            # bears all the weight itself.
+            intended = effective_load * (LOAD_DIST_BELOW + 4 * LOAD_DIST_LATERAL)
+            undistributed = np.maximum(intended - distributed, 0.0)
+            load[:, :, z] += undistributed
 
         grid.load[:] = load
 

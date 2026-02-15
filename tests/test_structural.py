@@ -318,4 +318,39 @@ def test_self_weight_contributes_to_load():
 
     bus.publish("tick", tick=STRUCTURAL_TICK_INTERVAL)
 
-    assert grid.load[4, 4, 5] == VOXEL_WEIGHT[VOXEL_GRANITE]
+    # Load >= self weight (may be higher due to retained undistributed lateral)
+    assert grid.load[4, 4, 5] >= VOXEL_WEIGHT[VOXEL_GRANITE]
+
+
+def test_undistributed_load_retained():
+    """Load that can't be distributed stays on the block as stress."""
+    bus, grid, struct = _setup()
+    # A granite block over air: can't distribute anything downward
+    grid.grid[4, 4, 3] = VOXEL_GRANITE  # weight 10, nothing below
+    # No bedrock either — block is floating
+    # (In practice connectivity would make it loose, but structural
+    # still computes load on all solid non-loose blocks)
+
+    bus.publish("tick", tick=STRUCTURAL_TICK_INTERVAL)
+
+    # Load should be higher than just self-weight because the intended
+    # downward distribution (80% of effective_load) bounced back
+    assert grid.load[4, 4, 3] > VOXEL_WEIGHT[VOXEL_GRANITE]
+
+
+def test_cantilever_over_void_high_stress():
+    """A block overhanging air retains undistributed load as stress."""
+    bus, grid, struct = _setup()
+    # Column connected to bedrock, with a cantilever extension over void
+    grid.grid[4, 4, 9] = VOXEL_BEDROCK
+    for z in range(4, 9):
+        grid.grid[4, 4, z] = VOXEL_GRANITE
+    # Cantilever: extends horizontally at z=4 over air
+    grid.grid[5, 4, 4] = VOXEL_GRANITE  # hanging over void at z=5
+
+    bus.publish("tick", tick=STRUCTURAL_TICK_INTERVAL)
+
+    # The cantilever block should have higher stress than same-level supported block
+    stress_supported = grid.stress_ratio[4, 4, 4]
+    stress_cantilever = grid.stress_ratio[5, 4, 4]
+    assert stress_cantilever > stress_supported
