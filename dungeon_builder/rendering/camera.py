@@ -245,7 +245,7 @@ class CameraController:
         self.event_bus.publish("tool_changed", mode=self.game_state.build_mode)
 
     def _on_left_click(self) -> None:
-        """Handle left-click: pick a voxel via DDA ray march and dispatch action."""
+        """Handle left-click: pick a voxel and dispatch action."""
         hit = self._pick_voxel()
         if hit is None:
             return
@@ -295,16 +295,19 @@ class CameraController:
 
         mpos = self.app.mouseWatcherNode.get_mouse()
 
-        origin = LPoint3f()
-        direction = LVector3f()
+        near_point = LPoint3f()
+        far_point = LPoint3f()
         lens = self.app.camNode.get_lens()
-        if not lens.extrude(mpos, origin, direction):
+        if not lens.extrude(mpos, near_point, far_point):
             return None
 
         # Transform to world space
         cam_mat = self.app.camera.get_mat(self.app.render)
-        origin = cam_mat.xform_point(origin)
-        direction = cam_mat.xform_vec(direction)
+        origin = cam_mat.xform_point(near_point)
+        far_world = cam_mat.xform_point(far_point)
+
+        # Direction is from near to far
+        direction = LVector3f(far_world - origin)
         direction.normalize()
         return origin, direction
 
