@@ -12,19 +12,15 @@ from panda3d.core import (
 )
 from direct.showbase.ShowBase import ShowBase
 
+import dungeon_builder.config as _cfg
 from dungeon_builder.config import (
     GRID_WIDTH,
     GRID_DEPTH,
     GRID_HEIGHT,
     VOXEL_AIR,
     CAMERA_DEFAULT_DISTANCE,
-    CAMERA_MIN_DISTANCE,
-    CAMERA_MAX_DISTANCE,
     CAMERA_DEFAULT_HEADING,
     CAMERA_DEFAULT_PITCH,
-    CAMERA_PAN_SPEED,
-    CAMERA_ROTATE_SPEED,
-    CAMERA_ZOOM_STEP,
 )
 
 if TYPE_CHECKING:
@@ -79,7 +75,8 @@ class CameraController:
     def _bind_controls(self) -> None:
         app = self.app
         # Key tracking for continuous input
-        for key in ["w", "a", "s", "d", "q", "e"]:
+        for key in ["w", "a", "s", "d", "q", "e",
+                     "arrow_up", "arrow_down", "arrow_left", "arrow_right"]:
             self._keys[key] = False
             app.accept(key, self._set_key, [key, True])
             app.accept(f"{key}-up", self._set_key, [key, False])
@@ -111,22 +108,30 @@ class CameraController:
         self._keys[key] = value
 
     def _input_task(self, task):
+        # Suppress all camera input while menu is open
+        if self.game_state.menu_open:
+            # Still track mouse position to avoid jumps on menu close
+            if self.app.mouseWatcherNode.has_mouse():
+                self._last_mouse_x = self.app.mouseWatcherNode.get_mouse_x()
+                self._last_mouse_y = self.app.mouseWatcherNode.get_mouse_y()
+            return task.cont
+
         dt = globalClock.get_dt()
 
-        # WASD panning (relative to camera heading)
+        # WASD + Arrow key panning (relative to camera heading)
         move = LVector3f(0, 0, 0)
-        if self._keys.get("w"):
+        if self._keys.get("w") or self._keys.get("arrow_up"):
             move.y += 1
-        if self._keys.get("s"):
+        if self._keys.get("s") or self._keys.get("arrow_down"):
             move.y -= 1
-        if self._keys.get("a"):
+        if self._keys.get("a") or self._keys.get("arrow_left"):
             move.x -= 1
-        if self._keys.get("d"):
+        if self._keys.get("d") or self._keys.get("arrow_right"):
             move.x += 1
 
         if move.length_squared() > 0:
             move.normalize()
-            speed = CAMERA_PAN_SPEED * dt
+            speed = _cfg.CAMERA_PAN_SPEED * dt
             # Rotate movement by heading
             rad = math.radians(self.heading)
             cos_h = math.cos(rad)
@@ -138,9 +143,9 @@ class CameraController:
 
         # Q/E rotation
         if self._keys.get("q"):
-            self.heading -= CAMERA_ROTATE_SPEED * dt
+            self.heading -= _cfg.CAMERA_ROTATE_SPEED * dt
         if self._keys.get("e"):
-            self.heading += CAMERA_ROTATE_SPEED * dt
+            self.heading += _cfg.CAMERA_ROTATE_SPEED * dt
 
         # Mouse drag rotation / panning
         if self.app.mouseWatcherNode.has_mouse():
@@ -195,22 +200,30 @@ class CameraController:
         self.app.camera.look_at(self.focus)
 
     def _z_up(self) -> None:
+        if self.game_state.menu_open:
+            return
         new_z = max(0, self.layer_manager.current_z - 1)
         self.layer_manager.set_focus_z(new_z)
         self.focus.z = -new_z
         self.event_bus.publish("z_level_changed", z=new_z)
 
     def _z_down(self) -> None:
+        if self.game_state.menu_open:
+            return
         new_z = min(GRID_HEIGHT - 1, self.layer_manager.current_z + 1)
         self.layer_manager.set_focus_z(new_z)
         self.focus.z = -new_z
         self.event_bus.publish("z_level_changed", z=new_z)
 
     def _zoom_in(self) -> None:
-        self.distance = max(CAMERA_MIN_DISTANCE, self.distance - CAMERA_ZOOM_STEP)
+        if self.game_state.menu_open:
+            return
+        self.distance = max(_cfg.CAMERA_MIN_DISTANCE, self.distance - _cfg.CAMERA_ZOOM_STEP)
 
     def _zoom_out(self) -> None:
-        self.distance = min(CAMERA_MAX_DISTANCE, self.distance + CAMERA_ZOOM_STEP)
+        if self.game_state.menu_open:
+            return
+        self.distance = min(_cfg.CAMERA_MAX_DISTANCE, self.distance + _cfg.CAMERA_ZOOM_STEP)
 
     def _on_right_down(self) -> None:
         self._mouse_right_down = True
@@ -220,6 +233,8 @@ class CameraController:
 
     def _on_right_up(self) -> None:
         self._mouse_right_down = False
+        if self.game_state.menu_open:
+            return
 
         # Check if this was a click (not a drag)
         if self.app.mouseWatcherNode.has_mouse():
@@ -238,6 +253,8 @@ class CameraController:
 
     def _toggle_tool(self) -> None:
         """Toggle between dig and move tools."""
+        if self.game_state.menu_open:
+            return
         if self.game_state.build_mode == "dig":
             self.game_state.build_mode = "move"
         else:
@@ -246,24 +263,47 @@ class CameraController:
 
     def _on_left_click(self) -> None:
         """Handle left-click: pick a voxel and dispatch action."""
+        if self.game_state.menu_open:
+            return
+
+        # Craft mode: click to place at position
+        if self.game_state.craft_mode_active:
+            hit = self._pick_voxel()
+            if hit is None:
+                hit = self._pick_air_voxel()
+            if hit is not None:
+                self.event_bus.publish(
+                    "craft_at_position", x=hit[0], y=hit[1], z=hit[2]
+                )
+            else:
+                self.event_bus.publish("craft_cancel")
+            return
+
         hit = self._pick_voxel()
         if hit is None:
+            # Allow clicking on air for pending digs on invisible blocks
+            hit = self._pick_air_voxel()
+            if hit is not None:
+                vx, vy, vz = hit
+                grid = self.game_state.voxel_grid
+                if grid is not None and not grid.is_visible(vx, vy, vz):
+                    # Treat as dig click on invisible block (pending dig)
+                    self.event_bus.publish(
+                        "voxel_left_clicked", x=vx, y=vy, z=vz, mode="dig"
+                    )
             return
 
         vx, vy, vz = hit
-        mode = self.game_state.build_mode
         grid = self.game_state.voxel_grid
         if grid is None:
             return
 
-        # Auto-switch: if in dig mode and clicked voxel is loose, switch to move
-        if mode == "dig" and grid.is_loose(vx, vy, vz):
-            self.game_state.build_mode = "move"
+        # Auto-switch: determine mode from block state
+        # Loose blocks → move; solid blocks → dig
+        if grid.is_loose(vx, vy, vz):
             mode = "move"
-            self.event_bus.publish("tool_changed", mode="move")
-            self.event_bus.publish(
-                "error_message", text="Switched to move tool"
-            )
+        else:
+            mode = "dig"
 
         self.event_bus.publish(
             "voxel_left_clicked", x=vx, y=vy, z=vz, mode=mode
@@ -271,6 +311,11 @@ class CameraController:
 
     def _on_right_click(self) -> None:
         """Handle right-click: pick a voxel and dispatch right-click action."""
+        # In craft mode, right-click cancels
+        if self.game_state.craft_mode_active:
+            self.event_bus.publish("craft_cancel")
+            return
+
         hit = self._pick_voxel()
         if hit is None:
             # Right-click on air: try to find the air voxel for dropping

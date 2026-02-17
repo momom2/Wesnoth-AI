@@ -140,9 +140,9 @@ class TestBrittleMaterialShatters:
 
         # Large impact energy directly at obsidian
         # Need shock/capacity > SHATTER_THRESHOLD=2.0 and brittleness >= 0.5
-        # Obsidian capacity = 60, so shock > 120
+        # Obsidian capacity = 180 (3× buff), so shock > 360
         impact = np.zeros((10, 10, 9), dtype=np.float32)
-        impact[5, 5, 4] = 200.0  # Very large impact
+        impact[5, 5, 4] = 600.0  # Very large impact
 
         phys._propagate_shock(impact)
 
@@ -164,13 +164,13 @@ class TestDuctileMaterialCracksNotShatters:
         grid.grid[5, 5, 5] = VOXEL_IRON_INGOT
         grid.grid[5, 5, 6] = VOXEL_BEDROCK
 
-        # Large impact — enough to exceed capacity (100)
+        # Large impact — enough to exceed capacity (300, 3× buff)
         # but iron brittleness=0.05 < 0.5, so it should crack, not shatter
         impact = np.zeros((10, 10, 9), dtype=np.float32)
-        impact[5, 5, 4] = 250.0
+        impact[5, 5, 4] = 750.0
 
         # Set existing load to push it over
-        grid.load[5, 5, 5] = 80.0  # near capacity
+        grid.load[5, 5, 5] = 250.0  # near capacity
 
         phys._propagate_shock(impact)
 
@@ -208,15 +208,15 @@ class TestShockPlusStructuralLoadFails:
         grid.grid[:, :, :] = VOXEL_AIR
 
         # Chalk block already near capacity
-        grid.grid[5, 5, 5] = VOXEL_CHALK  # max_load=15
+        grid.grid[5, 5, 5] = VOXEL_CHALK  # max_load=45 (3× buff)
         grid.grid[5, 5, 6] = VOXEL_BEDROCK
-        grid.load[5, 5, 5] = 14.0  # Almost at capacity
+        grid.load[5, 5, 5] = 43.0  # Almost at capacity
 
         # Small shock — should push it over the edge
-        # total_force = 14 + shock * 0.5 > 15
-        # So shock needs to be > 2.0 (after propagation)
+        # total_force = 43 + shock * 0.5 > 45
+        # So shock needs to be > 4.0 (after propagation)
         impact = np.zeros((10, 10, 9), dtype=np.float32)
-        impact[5, 5, 4] = 20.0
+        impact[5, 5, 4] = 60.0
 
         phys._propagate_shock(impact)
 
@@ -300,31 +300,31 @@ class TestObsidianTransmitsShock:
         # Setup 1: Obsidian followed by chalk
         grid1.grid[:, :, :] = VOXEL_AIR
         grid1.grid[5, 5, 5] = VOXEL_OBSIDIAN  # transmit=0.8
-        grid1.grid[5, 5, 6] = VOXEL_CHALK     # weak, max_load=15
+        grid1.grid[5, 5, 6] = VOXEL_CHALK     # weak, max_load=45 (3× buff)
         grid1.grid[5, 5, 7] = VOXEL_BEDROCK
-        grid1.load[5, 5, 6] = 10.0  # Pre-load chalk near capacity
+        grid1.load[5, 5, 6] = 40.0  # Pre-load chalk near capacity
 
         # Setup 2: Dirt followed by chalk (for comparison)
         grid2.grid[:, :, :] = VOXEL_AIR
         grid2.grid[5, 5, 5] = VOXEL_DIRT      # transmit=0.1
         grid2.grid[5, 5, 6] = VOXEL_CHALK
         grid2.grid[5, 5, 7] = VOXEL_BEDROCK
-        grid2.load[5, 5, 6] = 10.0
+        grid2.load[5, 5, 6] = 40.0
 
         # Same impact on both
         impact1 = np.zeros((10, 10, 9), dtype=np.float32)
-        impact1[5, 5, 4] = 50.0
+        impact1[5, 5, 4] = 150.0
         impact2 = np.zeros((10, 10, 9), dtype=np.float32)
-        impact2[5, 5, 4] = 50.0
+        impact2[5, 5, 4] = 150.0
 
         phys1._propagate_shock(impact1)
         phys2._propagate_shock(impact2)
 
         # Obsidian transmits much more shock through to chalk
-        # With obsidian: shock transmitted to chalk ≈ 50 * 0.8 * 0.3 = 12.0
-        #   total_force = 10 + 12 * 0.5 = 16 > 15 → cracks
-        # With dirt: shock transmitted to chalk ≈ 50 * 0.1 * 0.3 = 1.5
-        #   total_force = 10 + 1.5 * 0.5 = 10.75 < 15 → survives
+        # With obsidian: shock transmitted to chalk ≈ 150 * 0.8 * 0.3 = 36.0
+        #   total_force = 40 + 36 * 0.5 = 58 > 45 → cracks
+        # With dirt: shock transmitted to chalk ≈ 150 * 0.1 * 0.3 = 4.5
+        #   total_force = 40 + 4.5 * 0.5 = 42.25 < 45 → survives
         chalk_cracked_obsidian = bool(grid1.loose[5, 5, 6]) or bool(grid1.grid[5, 5, 6] == VOXEL_AIR)
         chalk_cracked_dirt = bool(grid2.loose[5, 5, 6]) or bool(grid2.grid[5, 5, 6] == VOXEL_AIR)
 

@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 from dungeon_builder.intruders.agent import Intruder, IntruderState
 from dungeon_builder.intruders.archetypes import (
     IntruderObjective,
+    IntruderStatus,
     VANGUARD,
 )
 from dungeon_builder.intruders.personal_map import PersonalMap
@@ -34,22 +35,62 @@ from dungeon_builder.intruders.interactions import (
 from dungeon_builder.intruders.party import (
     Party,
     choose_template,
+    choose_underworld_template,
     generate_composition,
 )
+from dungeon_builder.intruders.knowledge_archive import KnowledgeArchive
+from dungeon_builder.intruders.reputation import DungeonReputation
+import dungeon_builder.config as _cfg
 from dungeon_builder.config import (
     VOXEL_AIR,
+    VOXEL_STONE,
     VOXEL_TREASURE,
     VOXEL_DOOR,
+    VOXEL_SPIKE,
+    VOXEL_LAVA,
+    VOXEL_TARP,
+    VOXEL_GOLD_BAIT,
+    VOXEL_HEAT_BEACON,
+    VOXEL_PRESSURE_PLATE,
+    VOXEL_IRON_BARS,
+    VOXEL_FLOODGATE,
+    VOXEL_ALARM_BELL,
+    VOXEL_FRAGILE_FLOOR,
+    VOXEL_PIPE,
+    VOXEL_PUMP,
+    VOXEL_STEAM_VENT,
     SURFACE_Z,
     DIG_DURATION,
     NON_DIGGABLE,
-    INTRUDER_PARTY_SPAWN_INTERVAL,
-    MAX_PARTIES,
-    MAX_INTRUDERS_TOTAL,
     PYREMANCER_HEAT_AMOUNT,
     PYREMANCER_HEAT_INTERVAL,
     GORECLAW_FRENZY_RANDOM_CHANCE,
+    UNDERWORLD_SPAWN_INTERVAL,
+    MAX_UNDERWORLD_PARTIES,
+    MAX_UNDERWORLDERS_TOTAL,
+    UNDERWORLD_SPAWN_Z_MIN,
+    UNDERWORLD_SPAWN_Z_MAX,
+    MAGMAWRAITH_HEAT_AMOUNT,
+    MAGMAWRAITH_HEAT_INTERVAL,
+    BOREMITE_DIG_DIVISOR,
+    CORROSIVE_DAMAGE_FACTOR,
+    LEVEL_WEIGHTS,
+    MORALE_DAMAGE_PENALTY,
+    MORALE_HAZARD_PENALTY,
+    MORALE_TREASURE_BONUS,
+    MORALE_LOW_THRESHOLD,
+    MORALE_RETREAT_MULTIPLIER,
+    FACTION_ENCOUNTER_INTERVAL,
+    PRESSURE_PLATE_TRIGGER_RANGE,
+    ALARM_BELL_DETECTION_RANGE,
+    ALARM_BELL_COOLDOWN,
+    FRAGILE_FLOOR_WEIGHT_THRESHOLD,
 )
+
+_HAZARD_TYPES = frozenset((
+    VOXEL_SPIKE, VOXEL_LAVA, VOXEL_TARP,
+    VOXEL_PRESSURE_PLATE, VOXEL_STEAM_VENT, VOXEL_FRAGILE_FLOOR,
+))
 
 if TYPE_CHECKING:
     from dungeon_builder.core.event_bus import EventBus
@@ -87,13 +128,25 @@ class IntruderAI:
 
         self.intruders: list[Intruder] = []
         self.parties: list[Party] = []
+        self._underworld_parties: list[Party] = []
         self._next_id = 1
         self._next_party_id = 1
         self._spawn_timer = 0
+        self._underworld_spawn_timer = 0
+
+        # Social dynamics systems
+        self._knowledge_archive = KnowledgeArchive()
+        self._reputation = DungeonReputation(event_bus)
+
+        # Alarm bell cooldown tracking: pos → remaining ticks
+        self._alarm_cooldowns: dict[tuple[int, int, int], int] = {}
 
         event_bus.subscribe("tick", self._on_tick)
         event_bus.subscribe("intruder_needs_repath", self._on_needs_repath)
         event_bus.subscribe("game_over", self._on_game_over)
+        event_bus.subscribe("voxel_changed", self._on_voxel_changed)
+        event_bus.subscribe("debug_spawn_party", self._on_debug_spawn_party)
+        event_bus.subscribe("debug_spawn_underworld_party", self._on_debug_spawn_uw)
 
         self._game_over = False
         self.spawning_enabled = False
@@ -109,13 +162,15 @@ class IntruderAI:
 
         if self.spawning_enabled:
             self._tick_spawning()
+            self._tick_underworld_spawning()
 
-        # Party-level updates
-        for party in self.parties:
+        # Party-level updates (surface + underworld)
+        for party in list(self.parties) + list(self._underworld_parties):
             if party.is_wiped:
                 continue
             party.share_maps()
             party.apply_warden_aura()
+            party.update_morale(tick)
             heals = party.tick_warden_heal()
             for warden, patient, amount in heals:
                 logger.debug(
@@ -124,11 +179,20 @@ class IntruderAI:
                 )
             self._tick_betrayals(party)
 
+        # Alarm bell cooldown decrement
+        if self._alarm_cooldowns:
+            self._tick_alarm_cooldowns()
+
         # Per-intruder update
         for intruder in self.intruders:
             if not intruder.alive:
                 continue
             self._update_intruder(intruder, tick)
+
+        # TODO: Overhaul faction dynamics — current implementation is
+        # hostile-only. Future work should add alliance, avoidance, and
+        # negotiation mechanics.
+        self._tick_faction_encounters(tick)
 
         # Periodic cleanup
         if tick % 100 == 0:
@@ -137,20 +201,34 @@ class IntruderAI:
     def _on_needs_repath(self, intruder: Intruder, **kwargs) -> None:
         self._repath_intruder(intruder)
 
+    def _on_voxel_changed(self, x: int = 0, y: int = 0, z: int = 0, **kwargs) -> None:
+        """When the player modifies a cell, increase uncertainty in faction archives."""
+        self._knowledge_archive.on_voxel_changed(x, y, z)
+
+    def _on_debug_spawn_party(self, **kwargs) -> None:
+        """Debug: immediately spawn a surface intruder party."""
+        self.spawning_enabled = True
+        self._spawn_party()
+
+    def _on_debug_spawn_uw(self, **kwargs) -> None:
+        """Debug: immediately spawn an underworld party."""
+        self.spawning_enabled = True
+        self._spawn_underworld_party()
+
     # ── Spawning ───────────────────────────────────────────────────
 
     def _tick_spawning(self) -> None:
         self._spawn_timer += 1
-        if self._spawn_timer < INTRUDER_PARTY_SPAWN_INTERVAL:
+        if self._spawn_timer < _cfg.INTRUDER_PARTY_SPAWN_INTERVAL:
             return
         self._spawn_timer = 0
 
         alive_count = sum(1 for i in self.intruders if i.alive)
         active_parties = sum(1 for p in self.parties if not p.is_wiped)
 
-        if alive_count >= MAX_INTRUDERS_TOTAL:
+        if alive_count >= _cfg.MAX_INTRUDERS_TOTAL:
             return
-        if active_parties >= MAX_PARTIES:
+        if active_parties >= _cfg.MAX_PARTIES:
             return
 
         self._spawn_party()
@@ -169,16 +247,27 @@ class IntruderAI:
 
         sx, sy, sz = spawn_pos
         members: list[Intruder] = []
+        loyalty_mod = self._reputation.get_loyalty_modifier()
+        level_shift = self._reputation.get_level_shift()
 
         for arch in composition:
             obj = self._pick_objective(arch, party_rng)
+            level = self._assign_level(party_rng, level_shift)
+            status = self._level_to_status(level)
+            pmap = PersonalMap()
+            self._knowledge_archive.inject_knowledge(
+                pmap, False, self._spawn_timer, arch.cunning,
+            )
             intruder = Intruder(
                 intruder_id=self._next_id,
                 x=sx, y=sy, z=sz,
                 archetype=arch,
                 objective=obj,
-                personal_map=PersonalMap(),
+                personal_map=pmap,
+                level=level,
+                status=status,
             )
+            intruder.loyalty_modifier += loyalty_mod
             self._next_id += 1
             intruder.state = IntruderState.ADVANCING
             members.append(intruder)
@@ -186,7 +275,9 @@ class IntruderAI:
         if not members:
             return
 
+        rep_modifier = self._reputation.get_objective_modifier()
         party = Party(self._next_party_id, members)
+        party._vote_objective(reputation_modifier=rep_modifier)
         self._next_party_id += 1
         self.parties.append(party)
 
@@ -270,6 +361,125 @@ class IntruderAI:
             return None
         return self.rng.choice(edges)
 
+    # ── Underworld spawning ──────────────────────────────────────
+
+    def _tick_underworld_spawning(self) -> None:
+        self._underworld_spawn_timer += 1
+        if self._underworld_spawn_timer < UNDERWORLD_SPAWN_INTERVAL:
+            return
+        self._underworld_spawn_timer = 0
+
+        alive_uw = sum(1 for i in self.intruders if i.alive and i.is_underworlder)
+        active_uw = sum(1 for p in self._underworld_parties if not p.is_wiped)
+
+        if alive_uw >= MAX_UNDERWORLDERS_TOTAL:
+            return
+        if active_uw >= MAX_UNDERWORLD_PARTIES:
+            return
+
+        self._spawn_underworld_party()
+
+    def _spawn_underworld_party(self) -> None:
+        """Spawn a new underworld party at a deep map edge."""
+        party_rng = self.rng.fork(f"uw_party_{self._next_party_id}")
+        template = choose_underworld_template(party_rng)
+        composition = generate_composition(template, party_rng)
+
+        spawn_pos = self._find_underworld_spawn_position()
+        if spawn_pos is None:
+            logger.debug("No valid underworld spawn position found")
+            return
+
+        sx, sy, sz = spawn_pos
+        members: list[Intruder] = []
+        loyalty_mod = self._reputation.get_loyalty_modifier()
+        level_shift = self._reputation.get_level_shift()
+
+        for arch in composition:
+            obj = self._pick_objective(arch, party_rng)
+            level = self._assign_level(party_rng, level_shift)
+            status = self._level_to_status(level)
+            pmap = PersonalMap()
+            self._knowledge_archive.inject_knowledge(
+                pmap, True, self._underworld_spawn_timer, arch.cunning,
+            )
+            intruder = Intruder(
+                intruder_id=self._next_id,
+                x=sx, y=sy, z=sz,
+                archetype=arch,
+                objective=obj,
+                personal_map=pmap,
+                is_underworlder=True,
+                level=level,
+                status=status,
+            )
+            intruder.loyalty_modifier += loyalty_mod
+            self._next_id += 1
+            intruder.state = IntruderState.ADVANCING
+            members.append(intruder)
+
+        if not members:
+            return
+
+        rep_modifier = self._reputation.get_objective_modifier()
+        party = Party(self._next_party_id, members)
+        party._vote_objective(reputation_modifier=rep_modifier)
+        self._next_party_id += 1
+        self._underworld_parties.append(party)
+
+        for m in members:
+            self.intruders.append(m)
+            self._update_vision(m)
+            self._repath_intruder(m)
+            self.event_bus.publish("intruder_spawned", intruder=m)
+
+        logger.info(
+            "Spawned underworld party #%d (%s) with %d members at (%d,%d,%d)",
+            party.id, template.name, len(members), sx, sy, sz,
+        )
+
+    def _find_underworld_spawn_position(self) -> tuple[int, int, int] | None:
+        """Find an air cell on a map edge at a deep z-level."""
+        grid = self.voxel_grid
+        target_z = self.rng.randint(UNDERWORLD_SPAWN_Z_MIN, UNDERWORLD_SPAWN_Z_MAX)
+
+        # Try target z, then ±1, ±2
+        for dz in (0, 1, -1, 2, -2):
+            z = target_z + dz
+            if z < UNDERWORLD_SPAWN_Z_MIN or z > UNDERWORLD_SPAWN_Z_MAX:
+                continue
+            edges: list[tuple[int, int, int]] = []
+            for x in range(grid.width):
+                for y_edge in (0, grid.depth - 1):
+                    if grid.get(x, y_edge, z) == VOXEL_AIR:
+                        edges.append((x, y_edge, z))
+            for y in range(grid.depth):
+                for x_edge in (0, grid.width - 1):
+                    if grid.get(x_edge, y, z) == VOXEL_AIR:
+                        edges.append((x_edge, y, z))
+            if edges:
+                return self.rng.choice(edges)
+
+        # Fallback: carve into a diggable solid cell at the edge
+        z = target_z
+        solid_edges: list[tuple[int, int, int]] = []
+        for x in range(grid.width):
+            for y_edge in (0, grid.depth - 1):
+                vtype = grid.get(x, y_edge, z)
+                if vtype != VOXEL_AIR and vtype not in NON_DIGGABLE:
+                    solid_edges.append((x, y_edge, z))
+        for y in range(grid.depth):
+            for x_edge in (0, grid.width - 1):
+                vtype = grid.get(x_edge, y, z)
+                if vtype != VOXEL_AIR and vtype not in NON_DIGGABLE:
+                    solid_edges.append((x_edge, y, z))
+        if solid_edges:
+            pos = self.rng.choice(solid_edges)
+            grid.set(pos[0], pos[1], pos[2], VOXEL_AIR)
+            return pos
+
+        return None
+
     # ── Per-intruder state machine ─────────────────────────────────
 
     def _update_intruder(self, intruder: Intruder, tick: int = 0) -> None:
@@ -292,33 +502,57 @@ class IntruderAI:
         elif state == IntruderState.ATTACKING:
             self._update_attacking(intruder)
         elif state == IntruderState.RETREATING:
-            self._update_retreating(intruder)
+            self._update_retreating(intruder, tick)
         elif state == IntruderState.PILLAGING:
             self._update_pillaging(intruder)
 
     # ── Vision ─────────────────────────────────────────────────────
 
     def _update_vision(self, intruder: Intruder) -> None:
-        """Update the intruder's personal map from current LOS + special vision."""
+        """Update the intruder's personal map from current LOS + special vision.
+
+        Only recomputes when the intruder has moved since the last vision update
+        (_vision_dirty flag), avoiding expensive ray-casting on stationary ticks.
+        """
+        if not intruder._vision_dirty:
+            return
+        intruder._vision_dirty = False
+
         grid = self.voxel_grid
         arch = intruder.archetype
         x, y, z = intruder.x, intruder.y, intruder.z
         pmap = intruder.personal_map
 
-        # Standard LOS
+        # Track hazards known before vision update (for morale penalty)
+        hazards_before = len(pmap.hazards)
+
+        # Standard LOS (with vision deception for certain blocks)
         visible = compute_los(grid, x, y, z, arch.perception_range)
         for vx, vy, vz in visible:
             vtype = grid.get(vx, vy, vz)
             bstate = int(grid.block_state[vx, vy, vz])
-            pmap.reveal(vx, vy, vz, vtype, bstate)
+            # Vision deception: Gold Bait looks like Treasure to normal sight
+            if vtype == VOXEL_GOLD_BAIT:
+                pmap.reveal(vx, vy, vz, VOXEL_TREASURE, bstate)
+            # Vision deception: Fragile Floor looks like Stone to normal sight
+            elif vtype == VOXEL_FRAGILE_FLOOR:
+                pmap.reveal(vx, vy, vz, VOXEL_STONE, bstate)
+            else:
+                pmap.reveal(vx, vy, vz, vtype, bstate)
 
-        # Arcane sight (Gloomseer)
+        # Arcane sight (Gloomseer) — sees true types through walls
         if arch.arcane_sight_range > 0:
             arcane = compute_arcane_sight(grid, x, y, z, arch.arcane_sight_range)
             for vx, vy, vz in arcane:
                 vtype = grid.get(vx, vy, vz)
                 bstate = int(grid.block_state[vx, vy, vz])
+                # Arcane sight sees true types (no deception)
                 pmap.reveal(vx, vy, vz, vtype, bstate)
+                # Additionally mark baits and hazards for true types
+                if vtype == VOXEL_GOLD_BAIT:
+                    pmap.mark_bait(vx, vy, vz)
+                elif vtype == VOXEL_FRAGILE_FLOOR:
+                    pmap.mark_hazard(vx, vy, vz)
 
         # Thermal vision (Pyremancer)
         if arch.fire_immune and arch.perception_range >= 4:
@@ -327,6 +561,13 @@ class IntruderAI:
                 vtype = grid.get(vx, vy, vz)
                 bstate = int(grid.block_state[vx, vy, vz])
                 pmap.reveal(vx, vy, vz, vtype, bstate)
+
+        # Morale penalty for newly revealed hazards
+        new_hazards = len(pmap.hazards) - hazards_before
+        if new_hazards > 0:
+            intruder.morale = max(
+                0.0, intruder.morale - MORALE_HAZARD_PENALTY * new_hazards,
+            )
 
     # ── Frenzy ─────────────────────────────────────────────────────
 
@@ -348,8 +589,9 @@ class IntruderAI:
         if intruder.state != IntruderState.ADVANCING:
             return
 
-        # Pyremancer: heat adjacent blocks periodically
+        # Heat adjacent blocks periodically (Pyremancer / Magmawraith)
         self._tick_pyremancer_heat(intruder, tick)
+        self._tick_magmawraith_heat(intruder, tick)
 
         # Movement tick
         intruder.ticks_since_move += 1
@@ -412,6 +654,7 @@ class IntruderAI:
                 grid.set(tx, ty, tz, VOXEL_AIR)
                 intruder.loot_count += 1
                 intruder.personal_map.remove_treasure(tx, ty, tz)
+                intruder.morale = min(1.0, intruder.morale + MORALE_TREASURE_BONUS)
                 logger.debug(
                     "Intruder #%d collected treasure at (%d,%d,%d)",
                     intruder.id, tx, ty, tz,
@@ -420,11 +663,32 @@ class IntruderAI:
                     "intruder_collected_treasure",
                     intruder=intruder, x=tx, y=ty, z=tz,
                 )
+        elif itype == "grab_bait":
+            if grid.get(tx, ty, tz) == VOXEL_GOLD_BAIT:
+                # Bait consumed
+                grid.set(tx, ty, tz, VOXEL_AIR)
+                # Intruder realizes they were tricked — morale hit
+                intruder.morale = max(0.0, intruder.morale - 0.1)
+                intruder.personal_map.mark_bait(tx, ty, tz)
+                logger.debug(
+                    "Intruder #%d grabbed gold bait at (%d,%d,%d)",
+                    intruder.id, tx, ty, tz,
+                )
+                self.event_bus.publish(
+                    "intruder_grabbed_bait",
+                    intruder=intruder, x=tx, y=ty, z=tz,
+                )
+                # Bait triggers adjacent traps (same as pressure plate)
+                self._activate_pressure_plate(tx, ty, tz, intruder)
+
         elif itype == "dig":
             vtype = grid.get(tx, ty, tz)
             if vtype != VOXEL_AIR and vtype not in NON_DIGGABLE:
                 grid.set(tx, ty, tz, VOXEL_AIR)
                 intruder.personal_map.reveal(tx, ty, tz, VOXEL_AIR, 0)
+                # Corrosive Crawler: weaken adjacent blocks
+                if intruder.archetype.name == "Corrosive Crawler":
+                    self._apply_corrosive_damage(tx, ty, tz)
                 logger.debug(
                     "Intruder #%d dug through (%d,%d,%d)",
                     intruder.id, tx, ty, tz,
@@ -460,7 +724,7 @@ class IntruderAI:
 
     # ── RETREATING state ───────────────────────────────────────────
 
-    def _update_retreating(self, intruder: Intruder) -> None:
+    def _update_retreating(self, intruder: Intruder, tick: int = 0) -> None:
         intruder.ticks_since_move += 1
         if intruder.ticks_since_move < intruder.effective_move_interval:
             return
@@ -468,10 +732,18 @@ class IntruderAI:
 
         self._advance_along_path(intruder)
 
-        if intruder.z == SURFACE_Z:
-            intruder.state = IntruderState.ESCAPED
-            self.event_bus.publish("intruder_escaped", intruder=intruder)
-            logger.info("Intruder #%d escaped to the surface!", intruder.id)
+        if intruder.is_underworlder:
+            if self._is_at_deep_edge(intruder):
+                intruder.state = IntruderState.ESCAPED
+                self._knowledge_archive.archive_survivor(intruder, tick)
+                self.event_bus.publish("intruder_escaped", intruder=intruder)
+                logger.info("Underworlder #%d escaped underground!", intruder.id)
+        else:
+            if intruder.z == SURFACE_Z:
+                intruder.state = IntruderState.ESCAPED
+                self._knowledge_archive.archive_survivor(intruder, tick)
+                self.event_bus.publish("intruder_escaped", intruder=intruder)
+                logger.info("Intruder #%d escaped to the surface!", intruder.id)
 
     # ── PILLAGING state ────────────────────────────────────────────
 
@@ -548,6 +820,7 @@ class IntruderAI:
 
         elif info.result == InteractionResult.DAMAGE:
             intruder.take_damage(info.damage)
+            intruder.morale = max(0.0, intruder.morale - MORALE_DAMAGE_PENALTY)
             if intruder.alive:
                 self._move_to(intruder, next_pos)
             else:
@@ -594,7 +867,41 @@ class IntruderAI:
         """Move intruder to a new position and advance path index."""
         intruder.x, intruder.y, intruder.z = pos
         intruder.path_index += 1
+        intruder._vision_dirty = True
         self.event_bus.publish("intruder_moved", intruder=intruder)
+
+        # Post-move triggers on the cell we just stepped into
+        grid = self.voxel_grid
+        nx, ny, nz = pos
+        if grid.in_bounds(nx, ny, nz):
+            vtype = grid.get(nx, ny, nz)
+
+            # Pressure plate activation
+            if vtype == VOXEL_PRESSURE_PLATE:
+                bstate = int(grid.block_state[nx, ny, nz])
+                if bstate == 0:  # Not yet triggered
+                    grid.set_block_state(nx, ny, nz, 1)
+                    self._activate_pressure_plate(nx, ny, nz, intruder)
+
+            # Fragile floor collapse check (flyers don't trigger)
+            if vtype == VOXEL_FRAGILE_FLOOR and not intruder.archetype.can_fly:
+                collapsed = self._check_fragile_floor(intruder, nx, ny, nz)
+                if collapsed:
+                    # Intruder falls — check if there's air below
+                    below_z = nz + 1  # z+1 = deeper
+                    if (
+                        grid.in_bounds(nx, ny, below_z)
+                        and grid.get(nx, ny, below_z) == VOXEL_AIR
+                    ):
+                        intruder.z = below_z
+                        intruder._vision_dirty = True
+                        self.event_bus.publish(
+                            "intruder_fell",
+                            intruder=intruder, x=nx, y=ny, z=nz,
+                        )
+
+            # Alarm bell proximity check
+            self._check_alarm_bells(intruder)
 
     def _move_random(self, intruder: Intruder) -> None:
         """Move the intruder to a random adjacent air cell (frenzy)."""
@@ -608,6 +915,7 @@ class IntruderAI:
         if candidates:
             pos = self.rng.choice(candidates)
             intruder.x, intruder.y, intruder.z = pos
+            intruder._vision_dirty = True
             self.event_bus.publish("intruder_moved", intruder=intruder)
 
     # ── Digging ────────────────────────────────────────────────────
@@ -618,9 +926,15 @@ class IntruderAI:
         target: tuple[int, int, int],
         vtype: int,
     ) -> None:
-        """Start digging through a solid block (Tunneler half-duration)."""
+        """Start digging through a solid block.
+
+        Boremite digs at 1/3 base duration, others at 1/2.
+        """
         base_ticks = DIG_DURATION.get(vtype, 40)
-        dig_ticks = max(1, base_ticks // 2)
+        if intruder.archetype.name == "Boremite":
+            dig_ticks = max(1, base_ticks // BOREMITE_DIG_DIVISOR)
+        else:
+            dig_ticks = max(1, base_ticks // 2)
 
         intruder.state = IntruderState.INTERACTING
         intruder.interaction_type = "dig"
@@ -638,13 +952,28 @@ class IntruderAI:
         arch = intruder.archetype
         if arch.never_retreats:
             return
+
+        # Morale-based flee: very low morale → abandon party
+        if intruder.morale < _cfg.MORALE_FLEE_THRESHOLD:
+            intruder.state = IntruderState.RETREATING
+            return
+
         if arch.retreat_threshold <= 0:
             return
+
         hp_ratio = intruder.hp / intruder.max_hp
-        if hp_ratio < arch.retreat_threshold:
+        # Low morale doubles the retreat threshold (flee at higher HP)
+        threshold = arch.retreat_threshold
+        if intruder.morale < MORALE_LOW_THRESHOLD:
+            threshold *= MORALE_RETREAT_MULTIPLIER
+
+        if hp_ratio < threshold:
             intruder.state = IntruderState.RETREATING
 
     def _start_retreat(self, intruder: Intruder) -> None:
+        if intruder.is_underworlder:
+            self._start_underworld_retreat(intruder)
+            return
         # Already at surface → escape immediately
         if intruder.z == SURFACE_Z:
             intruder.state = IntruderState.RETREATING
@@ -671,12 +1000,88 @@ class IntruderAI:
                 intruder.state = IntruderState.ADVANCING
         logger.info("Intruder #%d retreating (HP: %d)", intruder.id, intruder.hp)
 
+    def _start_underworld_retreat(self, intruder: Intruder) -> None:
+        """Underworlders retreat toward the nearest deep map edge."""
+        # Already at deep edge → escape immediately
+        if self._is_at_deep_edge(intruder):
+            intruder.state = IntruderState.RETREATING
+            return
+
+        goal = self._find_underworld_retreat_goal(intruder)
+        if goal is None:
+            # No escape route — fight to the death
+            intruder.state = IntruderState.ADVANCING
+            return
+
+        intruder.state = IntruderState.RETREATING
+        path = PersonalPathfinder.find_path(
+            intruder.personal_map, intruder.pos, goal, intruder.archetype,
+        )
+        if path and len(path) > 1:
+            intruder.path = path
+            intruder.path_index = 1
+        else:
+            path = self.pathfinder.find_path(intruder.pos, goal)
+            if path and len(path) > 1:
+                intruder.path = path
+                intruder.path_index = 1
+            else:
+                intruder.state = IntruderState.ADVANCING
+        logger.info(
+            "Underworlder #%d retreating underground (HP: %d)",
+            intruder.id, intruder.hp,
+        )
+
+    def _is_at_deep_edge(self, intruder: Intruder) -> bool:
+        """Return True if the intruder is at a map edge at depth."""
+        x, y, z = intruder.x, intruder.y, intruder.z
+        if z < UNDERWORLD_SPAWN_Z_MIN:
+            return False
+        grid = self.voxel_grid
+        return x == 0 or x == grid.width - 1 or y == 0 or y == grid.depth - 1
+
+    def _find_underworld_retreat_goal(
+        self, intruder: Intruder,
+    ) -> tuple[int, int, int] | None:
+        """Find the nearest air cell on a deep map edge for retreat."""
+        x, y, z = intruder.x, intruder.y, intruder.z
+        grid = self.voxel_grid
+
+        edge_goals: list[tuple[int, int, int]] = []
+        for test_z in range(
+            max(UNDERWORLD_SPAWN_Z_MIN, z),
+            min(UNDERWORLD_SPAWN_Z_MAX + 1, z + 5),
+        ):
+            for ex in range(grid.width):
+                for ey_edge in (0, grid.depth - 1):
+                    if grid.get(ex, ey_edge, test_z) == VOXEL_AIR:
+                        edge_goals.append((ex, ey_edge, test_z))
+            for ey in range(grid.depth):
+                for ex_edge in (0, grid.width - 1):
+                    if grid.get(ex_edge, ey, test_z) == VOXEL_AIR:
+                        edge_goals.append((ex_edge, ey, test_z))
+
+        if not edge_goals:
+            return None
+
+        # Pick nearest edge by Manhattan distance
+        return min(
+            edge_goals,
+            key=lambda g: abs(g[0] - x) + abs(g[1] - y) + abs(g[2] - z),
+        )
+
     # ── Pathing ────────────────────────────────────────────────────
 
     def _repath_intruder(self, intruder: Intruder) -> None:
         """Find a new path for the intruder based on its objective/state."""
         if intruder.state == IntruderState.RETREATING:
-            goal = (intruder.x, intruder.y, SURFACE_Z)
+            if intruder.is_underworlder:
+                goal = self._find_underworld_retreat_goal(intruder)
+                if goal is None:
+                    intruder.state = IntruderState.ADVANCING
+                    return
+            else:
+                goal = (intruder.x, intruder.y, SURFACE_Z)
         elif intruder.state == IntruderState.PILLAGING:
             treasures = list(intruder.personal_map.treasures)
             if treasures:
@@ -696,6 +1101,15 @@ class IntruderAI:
         else:
             return
 
+        # Skip repathing if position, goal, and map haven't changed
+        cache_key = (intruder.pos, goal, intruder.personal_map._generation)
+        if (
+            intruder._path_cache_key == cache_key
+            and intruder.path is not None
+            and intruder.path_index < len(intruder.path)
+        ):
+            return
+
         # Try personal pathfinder first
         path = PersonalPathfinder.find_path(
             intruder.personal_map, intruder.pos, goal, intruder.archetype,
@@ -703,18 +1117,21 @@ class IntruderAI:
         if path and len(path) > 1:
             intruder.path = path
             intruder.path_index = 1
+            intruder._path_cache_key = cache_key
         else:
             # Fallback to global pathfinder
             path = self.pathfinder.find_path(intruder.pos, goal)
             if path and len(path) > 1:
                 intruder.path = path
                 intruder.path_index = 1
+                intruder._path_cache_key = cache_key
             else:
                 logger.debug(
                     "Intruder #%d cannot find path from %s to %s",
                     intruder.id, intruder.pos, goal,
                 )
                 intruder.path = None
+                intruder._path_cache_key = None
 
     # ── Pyremancer heat ────────────────────────────────────────────
 
@@ -736,6 +1153,157 @@ class IntruderAI:
             nx, ny, nz = x + dx, y + dy, z + dz
             if grid.in_bounds(nx, ny, nz):
                 grid.temperature[nx, ny, nz] += PYREMANCER_HEAT_AMOUNT
+
+    # ── Magmawraith heat ──────────────────────────────────────────
+
+    def _tick_magmawraith_heat(self, intruder: Intruder, tick: int) -> None:
+        """Magmawraiths heat adjacent blocks periodically."""
+        if intruder.archetype.name != "Magmawraith":
+            return
+        if tick % MAGMAWRAITH_HEAT_INTERVAL != 0:
+            return
+
+        grid = self.voxel_grid
+        x, y, z = intruder.x, intruder.y, intruder.z
+        for dx, dy, dz in (
+            (1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0),
+            (0, 0, 1), (0, 0, -1),
+        ):
+            nx, ny, nz = x + dx, y + dy, z + dz
+            if grid.in_bounds(nx, ny, nz):
+                grid.temperature[nx, ny, nz] += MAGMAWRAITH_HEAT_AMOUNT
+
+    # ── Corrosive damage ────────────────────────────────────────
+
+    def _apply_corrosive_damage(self, x: int, y: int, z: int) -> None:
+        """Corrosive Crawler weakens adjacent blocks after digging."""
+        grid = self.voxel_grid
+        for dx, dy, dz in (
+            (1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0),
+            (0, 0, 1), (0, 0, -1),
+        ):
+            nx, ny, nz = x + dx, y + dy, z + dz
+            if (
+                grid.in_bounds(nx, ny, nz)
+                and grid.get(nx, ny, nz) != VOXEL_AIR
+            ):
+                grid.stress_ratio[nx, ny, nz] += CORROSIVE_DAMAGE_FACTOR
+
+    # ── Pressure plate activation ─────────────────────────────────
+
+    def _activate_pressure_plate(
+        self, x: int, y: int, z: int, intruder: Intruder,
+    ) -> None:
+        """Activate a pressure plate and trigger adjacent traps.
+
+        Within PRESSURE_PLATE_TRIGGER_RANGE, activates:
+        - Spikes: set block_state = 1 (extended)
+        - Doors: set block_state = 1 (closed)
+        - Floodgates: toggle block_state (open↔closed)
+        """
+        grid = self.voxel_grid
+        r = PRESSURE_PLATE_TRIGGER_RANGE
+        for dx in range(-r, r + 1):
+            for dy in range(-r, r + 1):
+                for dz in range(-r, r + 1):
+                    if dx == 0 and dy == 0 and dz == 0:
+                        continue
+                    nx, ny, nz = x + dx, y + dy, z + dz
+                    if not grid.in_bounds(nx, ny, nz):
+                        continue
+                    vtype = grid.get(nx, ny, nz)
+                    if vtype == VOXEL_SPIKE:
+                        grid.set_block_state(nx, ny, nz, 1)  # Extend
+                    elif vtype == VOXEL_DOOR:
+                        grid.set_block_state(nx, ny, nz, 1)  # Close
+                    elif vtype == VOXEL_FLOODGATE:
+                        # Toggle: open→closed, closed→open
+                        old = int(grid.block_state[nx, ny, nz])
+                        grid.set_block_state(nx, ny, nz, 1 - old)
+        self.event_bus.publish(
+            "pressure_plate_activated",
+            intruder=intruder, x=x, y=y, z=z,
+        )
+
+    # ── Fragile floor collapse ────────────────────────────────────
+
+    def _check_fragile_floor(
+        self, intruder: Intruder, x: int, y: int, z: int,
+    ) -> bool:
+        """Check and handle fragile floor collapse.
+
+        Increments block_state each step. If >= FRAGILE_FLOOR_WEIGHT_THRESHOLD,
+        the floor collapses to air and the intruder falls.
+
+        Returns True if the floor collapsed (caller should handle the fall).
+        """
+        grid = self.voxel_grid
+        if grid.get(x, y, z) != VOXEL_FRAGILE_FLOOR:
+            return False
+
+        current = int(grid.block_state[x, y, z])
+        new_state = current + 1
+        if new_state >= FRAGILE_FLOOR_WEIGHT_THRESHOLD:
+            # Collapse!
+            grid.set(x, y, z, VOXEL_AIR)
+            intruder.personal_map.mark_hazard(x, y, z)
+            self.event_bus.publish(
+                "fragile_floor_collapsed",
+                intruder=intruder, x=x, y=y, z=z,
+            )
+            return True
+        else:
+            grid.set_block_state(x, y, z, new_state)
+            return False
+
+    # ── Alarm bell detection ──────────────────────────────────────
+
+    def _check_alarm_bells(self, intruder: Intruder) -> None:
+        """Check if intruder is within range of any alarm bell.
+
+        Alarm bells detect intruders within ALARM_BELL_DETECTION_RANGE
+        (Manhattan distance) and publish an alarm event. Each bell has a
+        cooldown (tracked in ``_alarm_cooldowns``) to prevent spam.
+        """
+        grid = self.voxel_grid
+        ix, iy, iz = intruder.x, intruder.y, intruder.z
+        r = ALARM_BELL_DETECTION_RANGE
+
+        # Scan the area around the intruder for alarm bells
+        for dx in range(-r, r + 1):
+            for dy in range(-r, r + 1):
+                for dz in range(-r, r + 1):
+                    if abs(dx) + abs(dy) + abs(dz) > r:
+                        continue
+                    bx, by, bz = ix + dx, iy + dy, iz + dz
+                    if not grid.in_bounds(bx, by, bz):
+                        continue
+                    if grid.get(bx, by, bz) != VOXEL_ALARM_BELL:
+                        continue
+                    bell_pos = (bx, by, bz)
+                    # Check cooldown
+                    if self._alarm_cooldowns.get(bell_pos, 0) > 0:
+                        continue
+                    # Trigger alarm!
+                    self._alarm_cooldowns[bell_pos] = ALARM_BELL_COOLDOWN
+                    # Share alarm zone with intruder's personal map
+                    intruder.personal_map.mark_alarm_zone(bx, by, bz)
+                    self.event_bus.publish(
+                        "alarm_bell_triggered",
+                        intruder=intruder,
+                        bell_x=bx, bell_y=by, bell_z=bz,
+                    )
+
+    def _tick_alarm_cooldowns(self) -> None:
+        """Decrement all alarm bell cooldowns each tick."""
+        expired: list[tuple[int, int, int]] = []
+        for pos, cd in self._alarm_cooldowns.items():
+            if cd <= 1:
+                expired.append(pos)
+            else:
+                self._alarm_cooldowns[pos] = cd - 1
+        for pos in expired:
+            del self._alarm_cooldowns[pos]
 
     # ── Betrayal ───────────────────────────────────────────────────
 
@@ -777,7 +1345,7 @@ class IntruderAI:
         )
 
         # Notify party
-        for party in self.parties:
+        for party in list(self.parties) + list(self._underworld_parties):
             if any(m.id == intruder.id for m in party.members):
                 party.on_member_death(intruder)
                 break
@@ -787,4 +1355,159 @@ class IntruderAI:
     def _cleanup(self) -> None:
         """Remove dead/escaped intruders and wiped parties."""
         self.intruders = [i for i in self.intruders if i.alive]
+
+        # Detect party wipes before removing them
+        for party in self.parties:
+            if party.is_wiped and all(
+                m.state == IntruderState.DEAD for m in party.members
+            ):
+                self._reputation.on_party_wiped()
+        for party in self._underworld_parties:
+            if party.is_wiped and all(
+                m.state == IntruderState.DEAD for m in party.members
+            ):
+                self._reputation.on_party_wiped()
+
         self.parties = [p for p in self.parties if not p.is_wiped]
+        self._underworld_parties = [
+            p for p in self._underworld_parties if not p.is_wiped
+        ]
+
+    # ── Level & status assignment ────────────────────────────────────
+
+    @staticmethod
+    def _assign_level(rng, level_shift: float = 0.0) -> int:
+        """Assign a level 1-5 using weighted random, shifted by reputation.
+
+        *level_shift* moves probability from level 1 toward higher levels.
+        """
+        weights = list(LEVEL_WEIGHTS)
+        if level_shift > 0.0:
+            shift = min(level_shift, weights[0] * 0.8)
+            weights[0] -= shift
+            # Distribute shift evenly across levels 2-5
+            per_level = shift / 4
+            for i in range(1, 5):
+                weights[i] += per_level
+        roll = rng.random()
+        cumulative = 0.0
+        for i, w in enumerate(weights):
+            cumulative += w
+            if roll < cumulative:
+                return i + 1
+        return 5
+
+    @staticmethod
+    def _level_to_status(level: int) -> IntruderStatus:
+        """Convert intruder level to IntruderStatus."""
+        if level <= 2:
+            return IntruderStatus.GRUNT
+        if level == 3:
+            return IntruderStatus.VETERAN
+        if level == 4:
+            return IntruderStatus.ELITE
+        return IntruderStatus.CHAMPION
+
+    # ── Faction encounters ───────────────────────────────────────────
+
+    def _tick_faction_encounters(self, tick: int) -> None:
+        """Handle inter-faction combat between surface and underworld intruders.
+
+        TODO: Overhaul faction dynamics — current implementation is
+        hostile-only. Future work should add alliance, avoidance, and
+        negotiation mechanics.
+        """
+        if tick % FACTION_ENCOUNTER_INTERVAL != 0:
+            return
+
+        # Performance guard: skip if no underworlders active
+        has_uw = any(
+            i.alive and i.is_underworlder for i in self.intruders
+        )
+        if not has_uw:
+            return
+
+        has_surface = any(
+            i.alive and not i.is_underworlder for i in self.intruders
+        )
+        if not has_surface:
+            return
+
+        # Build spatial index: position → list of alive intruders
+        pos_map: dict[tuple[int, int, int], list[Intruder]] = {}
+        for i in self.intruders:
+            if not i.alive:
+                continue
+            pos = i.pos
+            if pos not in pos_map:
+                pos_map[pos] = []
+            pos_map[pos].append(i)
+
+        # Check same-cell encounters
+        engaged: set[int] = set()
+        for pos, occupants in pos_map.items():
+            if len(occupants) < 2:
+                continue
+            surface = [o for o in occupants if not o.is_underworlder]
+            underworld = [o for o in occupants if o.is_underworlder]
+            if not surface or not underworld:
+                continue
+            # All surface and underworld intruders in same cell fight
+            for s in surface:
+                for u in underworld:
+                    if s.id in engaged or u.id in engaged:
+                        continue
+                    s.take_damage(u.effective_damage)
+                    u.take_damage(s.effective_damage)
+                    engaged.add(s.id)
+                    engaged.add(u.id)
+                    self.event_bus.publish(
+                        "faction_combat",
+                        surface=s, underworld=u,
+                        x=pos[0], y=pos[1], z=pos[2],
+                    )
+                    if not s.alive:
+                        self._on_intruder_death(s)
+                    if not u.alive:
+                        self._on_intruder_death(u)
+
+        # Check adjacent encounters (6-connected)
+        for pos, occupants in pos_map.items():
+            for dx, dy, dz in (
+                (1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0),
+                (0, 0, 1), (0, 0, -1),
+            ):
+                adj = (pos[0] + dx, pos[1] + dy, pos[2] + dz)
+                if adj not in pos_map:
+                    continue
+                for a in occupants:
+                    if not a.alive or a.id in engaged:
+                        continue
+                    if a.state not in (
+                        IntruderState.ADVANCING, IntruderState.ATTACKING,
+                    ):
+                        continue
+                    for b in pos_map[adj]:
+                        if not b.alive or b.id in engaged:
+                            continue
+                        if b.state not in (
+                            IntruderState.ADVANCING, IntruderState.ATTACKING,
+                        ):
+                            continue
+                        if a.is_underworlder == b.is_underworlder:
+                            continue
+                        # Different factions, both advancing/attacking
+                        a.take_damage(b.effective_damage)
+                        b.take_damage(a.effective_damage)
+                        engaged.add(a.id)
+                        engaged.add(b.id)
+                        self.event_bus.publish(
+                            "faction_combat",
+                            surface=b if not b.is_underworlder else a,
+                            underworld=a if a.is_underworlder else b,
+                            x=pos[0], y=pos[1], z=pos[2],
+                        )
+                        if not a.alive:
+                            self._on_intruder_death(a)
+                        if not b.alive:
+                            self._on_intruder_death(b)

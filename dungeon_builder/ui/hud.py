@@ -25,8 +25,10 @@ _VTYPE_NAMES = {
     20: "Slate", 21: "Marble", 22: "Gneiss",
     30: "Granite", 31: "Basalt", 32: "Obsidian",
     40: "Iron Ore", 41: "Copper Ore", 42: "Gold Ore", 43: "Mana Crystal",
-    50: "Lava",
+    50: "Lava", 51: "Water",
     60: "Iron Ingot", 61: "Copper Ingot", 62: "Gold Ingot", 63: "Enchanted Metal",
+    70: "Reinforced Wall", 71: "Spike", 72: "Door", 73: "Treasure",
+    74: "Rolling Stone", 75: "Tarp", 76: "Slope", 77: "Stairs",
 }
 
 
@@ -122,13 +124,35 @@ class HUD:
             parent=a2d,
         )
 
+        # Underworlder count
+        self.underworld_label = DirectLabel(
+            text="Underworlders: 0",
+            text_fg=(0.6, 1, 0.6, 1),
+            text_scale=0.05,
+            text_align=TextNode.A_left,
+            pos=(-1.7, 0, 0.69),
+            frameColor=(0, 0, 0, 0),
+            parent=a2d,
+        )
+
+        # Dungeon reputation
+        self.reputation_label = DirectLabel(
+            text="Reputation: Unknown",
+            text_fg=(0.6, 0.6, 0.6, 1),
+            text_scale=0.05,
+            text_align=TextNode.A_left,
+            pos=(-1.7, 0, 0.62),
+            frameColor=(0, 0, 0, 0),
+            parent=a2d,
+        )
+
         # Party / archetype breakdown
         self.party_label = DirectLabel(
             text="",
             text_fg=(0.8, 0.8, 0.8, 1),
             text_scale=0.04,
             text_align=TextNode.A_left,
-            pos=(-1.2, 0, 0.76),
+            pos=(-1.2, 0, 0.55),
             frameColor=(0, 0, 0, 0),
             parent=a2d,
         )
@@ -163,6 +187,51 @@ class HUD:
             parent=a2d,
         )
 
+        # Hover info (shows voxel type under cursor)
+        self.hover_label = DirectLabel(
+            text="",
+            text_fg=(0.7, 0.85, 1, 1),
+            text_scale=0.045,
+            text_align=TextNode.A_left,
+            pos=(0.2, 0, -0.95),
+            frameColor=(0, 0, 0, 0),
+            parent=a2d,
+        )
+
+        # Book of Crafting button
+        self.book_btn = DirectButton(
+            text="Book [B]",
+            text_scale=0.04,
+            text_fg=(0.9, 0.8, 0.4, 1),
+            frameSize=(-0.12, 0.12, -0.03, 0.04),
+            frameColor=(0.15, 0.15, 0.2, 0.8),
+            pos=(0.9, 0, -0.95),
+            command=lambda: event_bus.publish("toggle_crafting_book"),
+            parent=a2d,
+        )
+
+        # Debug: spawn buttons (temporary, for testing)
+        self.spawn_surface_btn = DirectButton(
+            text="Spawn Surface",
+            text_scale=0.035,
+            text_fg=(1, 0.6, 0.6, 1),
+            frameSize=(-0.16, 0.16, -0.03, 0.04),
+            frameColor=(0.2, 0.1, 0.1, 0.8),
+            pos=(1.2, 0, -0.95),
+            command=lambda: event_bus.publish("debug_spawn_party"),
+            parent=a2d,
+        )
+        self.spawn_underworld_btn = DirectButton(
+            text="Spawn Underworld",
+            text_scale=0.035,
+            text_fg=(0.6, 1, 0.6, 1),
+            frameSize=(-0.18, 0.18, -0.03, 0.04),
+            frameColor=(0.1, 0.2, 0.1, 0.8),
+            pos=(1.6, 0, -0.95),
+            command=lambda: event_bus.publish("debug_spawn_underworld_party"),
+            parent=a2d,
+        )
+
         # Error message (center, red, fades)
         self.error_label = DirectLabel(
             text="",
@@ -194,6 +263,7 @@ class HUD:
 
         # Intruder tracking
         self._intruder_count = 0
+        self._underworld_count = 0
         self._archetype_counts: dict[str, int] = {}  # name → alive count
 
         # Subscribe to events
@@ -209,7 +279,13 @@ class HUD:
         event_bus.subscribe("material_picked_up", self._on_material_picked_up)
         event_bus.subscribe("material_dropped", self._on_material_dropped)
         event_bus.subscribe("craft_success", self._on_craft_success)
+        event_bus.subscribe("recipe_discovered", self._on_recipe_discovered)
         event_bus.subscribe("error_message", self._on_error_message)
+        event_bus.subscribe("reputation_changed", self._on_reputation_changed)
+        event_bus.subscribe("voxel_hover", self._on_voxel_hover)
+        event_bus.subscribe("voxel_hover_clear", self._on_voxel_hover_clear)
+        event_bus.subscribe("craft_mode_entered", self._on_craft_mode_entered)
+        event_bus.subscribe("craft_mode_exited", self._on_craft_mode_exited)
 
         # Keyboard shortcuts
         app.accept("space", self._toggle_pause)
@@ -261,16 +337,26 @@ class HUD:
         self.game_state.game_over = True
 
     def _on_intruder_spawned(self, intruder=None, **kwargs) -> None:
-        self._intruder_count += 1
-        self.intruder_label["text"] = f"Intruders: {self._intruder_count}"
+        is_uw = intruder is not None and getattr(intruder, "is_underworlder", False)
+        if is_uw:
+            self._underworld_count += 1
+            self.underworld_label["text"] = f"Underworlders: {self._underworld_count}"
+        else:
+            self._intruder_count += 1
+            self.intruder_label["text"] = f"Intruders: {self._intruder_count}"
         if intruder is not None:
             name = intruder.archetype.name
             self._archetype_counts[name] = self._archetype_counts.get(name, 0) + 1
             self._refresh_party_label()
 
     def _on_intruder_removed(self, intruder=None, **kwargs) -> None:
-        self._intruder_count = max(0, self._intruder_count - 1)
-        self.intruder_label["text"] = f"Intruders: {self._intruder_count}"
+        is_uw = intruder is not None and getattr(intruder, "is_underworlder", False)
+        if is_uw:
+            self._underworld_count = max(0, self._underworld_count - 1)
+            self.underworld_label["text"] = f"Underworlders: {self._underworld_count}"
+        else:
+            self._intruder_count = max(0, self._intruder_count - 1)
+            self.intruder_label["text"] = f"Intruders: {self._intruder_count}"
         if intruder is not None:
             name = intruder.archetype.name
             self._archetype_counts[name] = max(
@@ -297,9 +383,8 @@ class HUD:
         label = "Dig" if mode == "dig" else "Move"
         self.tool_label["text"] = f"Tool: {label} [X]"
 
-    def _on_material_picked_up(self, vtype: int, count: int) -> None:
-        name = _VTYPE_NAMES.get(vtype, f"Type {vtype}")
-        self.hand_label["text"] = f"Hand: {name} x{count}"
+    def _on_material_picked_up(self, **kwargs) -> None:
+        self._refresh_hand()
 
     def _on_material_dropped(self, **kwargs) -> None:
         self._refresh_hand()
@@ -308,14 +393,19 @@ class HUD:
         self._refresh_hand()
         self._show_error(f"Crafted: {recipe}", color=(0.3, 1, 0.3, 1))
 
+    def _on_recipe_discovered(self, recipe: str, total: int, **kwargs) -> None:
+        self._show_error(f"Recipe discovered: {recipe}!", color=(0.4, 0.9, 0.4, 1))
+
     def _refresh_hand(self) -> None:
         ms = self.game_state.move_system
-        if ms is None or ms.held_material is None:
+        if ms is None or not ms.held_materials:
             self.hand_label["text"] = "Hand: Empty"
         else:
-            vtype, count = ms.held_material
-            name = _VTYPE_NAMES.get(vtype, f"Type {vtype}")
-            self.hand_label["text"] = f"Hand: {name} x{count}"
+            parts = []
+            for vtype, count in sorted(ms.held_materials.items()):
+                name = _VTYPE_NAMES.get(vtype, f"Type {vtype}")
+                parts.append(f"{name} x{count}")
+            self.hand_label["text"] = "Hand: " + ", ".join(parts)
 
     def _on_error_message(self, text: str) -> None:
         self._show_error(text)
@@ -335,3 +425,42 @@ class HUD:
         self.app.taskMgr.doMethodLater(
             2.0, clear_error, self._error_task_name
         )
+
+    def _on_reputation_changed(
+        self, lethality: float = 0.5, richness: float = 0.0, **kwargs,
+    ) -> None:
+        """Update the reputation label based on dungeon profile."""
+        if lethality > 0.7 and richness < 0.4:
+            self.reputation_label["text"] = "Reputation: Deadly"
+            self.reputation_label["text_fg"] = (1, 0.2, 0.2, 1)
+        elif richness > 0.4:
+            self.reputation_label["text"] = "Reputation: Treasure Hoard"
+            self.reputation_label["text_fg"] = (1, 0.85, 0.2, 1)
+        else:
+            self.reputation_label["text"] = "Reputation: Moderate"
+            self.reputation_label["text_fg"] = (0.6, 0.6, 0.6, 1)
+
+    def _on_voxel_hover(self, x: int, y: int, z: int, **kwargs) -> None:
+        """Display voxel type and coordinates when hovering."""
+        grid = self.game_state.voxel_grid
+        if grid is None:
+            return
+        vtype = grid.get(x, y, z)
+        name = _VTYPE_NAMES.get(vtype, f"Type {vtype}")
+        self.hover_label["text"] = f"[{name}] ({x}, {y}, {-z})"
+
+    def _on_voxel_hover_clear(self, **kwargs) -> None:
+        """Clear hover display when cursor leaves voxels."""
+        self.hover_label["text"] = ""
+
+    def _on_craft_mode_entered(self, recipe_name: str, **kwargs) -> None:
+        """Show craft mode indicator in the tool label area."""
+        self.tool_label["text"] = f"Crafting: {recipe_name} (click to place, ESC to cancel)"
+        self.tool_label["text_fg"] = (0.3, 1.0, 0.3, 1)
+
+    def _on_craft_mode_exited(self, **kwargs) -> None:
+        """Restore normal tool display."""
+        mode = self.game_state.build_mode
+        label = "Dig" if mode == "dig" else "Move"
+        self.tool_label["text"] = f"Tool: {label} [X]"
+        self.tool_label["text_fg"] = (0.8, 0.8, 1, 1)

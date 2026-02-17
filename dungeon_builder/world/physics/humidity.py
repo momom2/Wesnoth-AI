@@ -14,6 +14,7 @@ from dungeon_builder.config import (
     VOXEL_AIR,
     VOXEL_LAVA,
     VOXEL_WATER,
+    VOXEL_STEAM_VENT,
     VOXEL_POROSITY,
     LAVA_TEMPERATURE,
     HUMIDITY_TICK_INTERVAL,
@@ -22,6 +23,8 @@ from dungeon_builder.config import (
     HUMIDITY_SOURCE_LEVEL,
     WATER_HUMIDITY_SOURCE,
     CONVECTION_RATE,
+    STEAM_VENT_HUMIDITY_PULSE,
+    STEAM_VENT_RANGE,
 )
 
 if TYPE_CHECKING:
@@ -184,8 +187,30 @@ class HumidityPhysics:
                     hum[receives_moisture], moisture_level
                 )
 
+        # Steam vent humidity pulse upward through air
+        self._apply_steam_vent_humidity(voxels, hum)
+
         # Clamp humidity to [0.0, 1.0]
         np.clip(hum, 0.0, 1.0, out=hum)
 
         # Safety clamp (CFL guarantees non-negativity, but float rounding)
         np.maximum(temp, 0.0, out=temp)
+
+    def _apply_steam_vent_humidity(
+        self, voxels: np.ndarray, hum: np.ndarray,
+    ) -> None:
+        """Steam vents push humidity upward through air cells above them."""
+        vent_positions = np.argwhere(voxels == VOXEL_STEAM_VENT)
+        if len(vent_positions) == 0:
+            return
+
+        for pos in vent_positions:
+            x, y, z = int(pos[0]), int(pos[1]), int(pos[2])
+            # Pulse humidity upward (z-1 = shallower/up)
+            for dz in range(1, STEAM_VENT_RANGE + 1):
+                nz = z - dz
+                if nz < 0:
+                    break
+                if voxels[x, y, nz] != VOXEL_AIR:
+                    break  # Blocked by solid
+                hum[x, y, nz] = min(1.0, hum[x, y, nz] + STEAM_VENT_HUMIDITY_PULSE)

@@ -87,10 +87,10 @@ class TestObsidianCracksNearLava:
         grid.temperature[4, 3, 2] = LAVA_TEMPERATURE
         grid.temperature[3, 3, 2] = 0.0
 
-        # Obsidian CTE=0.025, tensile=6.0
-        # gradient=1000, stress=25, ratio=25/6=4.17
-        # fatigue_per_tick = 4.17 * 0.1 = 0.417
-        # Should crack in 3 ticks (1.25 total fatigue > 1.0)
+        # Obsidian CTE=0.025, tensile=18.0 (3× buff)
+        # gradient=1000, stress=25, ratio=25/18=1.39
+        # fatigue_per_tick = 1.39 * 0.1 = 0.139
+        # Should crack in ~8 ticks (1.11 total fatigue > 1.0)
 
         events_fired = []
         grid.loose[3, 3, 2] = False  # Ensure not already loose
@@ -100,7 +100,7 @@ class TestObsidianCracksNearLava:
 
         bus.subscribe("thermal_crack", on_crack)
 
-        for i in range(1, 5):
+        for i in range(1, 12):
             _tick(bus, THERMAL_STRESS_TICK_INTERVAL * i)
 
         assert bool(grid.loose[3, 3, 2]) is True
@@ -338,12 +338,11 @@ class TestObsidianQuenchCracksFast:
         grid.temperature[3, 3, 2] = 800.0
         grid.temperature[2, 3, 2] = WATER_TEMPERATURE = 20.0
 
-        # ratio = 780 * 0.025 * 3.0 / 6.0 = 9.75
-        # fatigue_per_tick = 9.75 * 0.1 = 0.975
-        # Should crack in ~2 ticks
+        # ratio = 780 * 0.025 * 3.0 / 18.0 = 3.25 (3× buff tensile)
+        # fatigue_per_tick = 3.25 * 0.1 = 0.325
+        # Should crack in ~4 ticks (1.3 total fatigue > 1.0)
 
-        _tick(bus, THERMAL_STRESS_TICK_INTERVAL)
-        if not bool(grid.loose[3, 3, 2]):
-            _tick(bus, THERMAL_STRESS_TICK_INTERVAL * 2)
+        for i in range(1, 6):
+            _tick(bus, THERMAL_STRESS_TICK_INTERVAL * i)
 
         assert bool(grid.loose[3, 3, 2]) is True

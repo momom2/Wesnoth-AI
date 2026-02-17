@@ -22,6 +22,16 @@ from dungeon_builder.config import (
     VOXEL_WATER,
     VOXEL_SLOPE,
     VOXEL_STAIRS,
+    VOXEL_GOLD_BAIT,
+    VOXEL_HEAT_BEACON,
+    VOXEL_PRESSURE_PLATE,
+    VOXEL_IRON_BARS,
+    VOXEL_FLOODGATE,
+    VOXEL_ALARM_BELL,
+    VOXEL_FRAGILE_FLOOR,
+    VOXEL_PIPE,
+    VOXEL_PUMP,
+    VOXEL_STEAM_VENT,
     SPIKE_DAMAGE,
     ROLLING_STONE_DAMAGE,
     DOOR_BASH_TICKS,
@@ -29,6 +39,9 @@ from dungeon_builder.config import (
     DOOR_LOCKPICK_TICKS,
     TREASURE_GRAB_TICKS,
     TARP_DETECT_CUNNING,
+    GOLD_BAIT_INTERACT_TICKS,
+    HEAT_BEACON_DAMAGE,
+    STEAM_VENT_DAMAGE,
 )
 
 if TYPE_CHECKING:
@@ -148,6 +161,12 @@ def handle_block(
                 InteractionResult.DAMAGE,
                 damage=SPIKE_DAMAGE // 2,
             )
+        # Stoneskin Brute takes quarter damage (stone armor)
+        if arch.name == "Stoneskin Brute":
+            return InteractionInfo(
+                InteractionResult.DAMAGE,
+                damage=SPIKE_DAMAGE // 4,
+            )
         # Shadowblade detects and avoids (if spike_detect_range > 0)
         if arch.spike_detect_range > 0:
             return InteractionInfo(InteractionResult.REPATH)
@@ -189,10 +208,85 @@ def handle_block(
         # Fast intruders dodge (speed >= 3)
         if arch.speed >= 3:
             return InteractionInfo(InteractionResult.CONTINUE)
+        # Stoneskin Brute takes half damage (stone armor)
+        if arch.name == "Stoneskin Brute":
+            return InteractionInfo(
+                InteractionResult.DAMAGE,
+                damage=ROLLING_STONE_DAMAGE // 2,
+            )
         # Everyone else takes damage
         return InteractionInfo(
             InteractionResult.DAMAGE,
             damage=ROLLING_STONE_DAMAGE,
+        )
+
+    # ── Gold Bait ──────────────────────────────────────────────
+    if voxel_type == VOXEL_GOLD_BAIT:
+        # Arcane sight reveals it as bait → repath
+        if arch.arcane_sight_range > 0:
+            return InteractionInfo(InteractionResult.REPATH)
+        # Greedy intruders grab the bait
+        if arch.greed > 0:
+            return InteractionInfo(
+                InteractionResult.COLLECT,
+                ticks=GOLD_BAIT_INTERACT_TICKS,
+                interaction_type="grab_bait",
+            )
+        return InteractionInfo(InteractionResult.CONTINUE)
+
+    # ── Heat Beacon ───────────────────────────────────────────
+    if voxel_type == VOXEL_HEAT_BEACON:
+        if arch.fire_immune:
+            return InteractionInfo(InteractionResult.CONTINUE)
+        return InteractionInfo(
+            InteractionResult.DAMAGE,
+            damage=HEAT_BEACON_DAMAGE,
+        )
+
+    # ── Pressure Plate ────────────────────────────────────────
+    if voxel_type == VOXEL_PRESSURE_PLATE:
+        # Pressure plate activation is handled in decision.py
+        return InteractionInfo(InteractionResult.CONTINUE)
+
+    # ── Iron Bars ─────────────────────────────────────────────
+    if voxel_type == VOXEL_IRON_BARS:
+        return InteractionInfo(InteractionResult.REPATH)
+
+    # ── Floodgate ─────────────────────────────────────────────
+    if voxel_type == VOXEL_FLOODGATE:
+        if block_state == 0:  # Open
+            return InteractionInfo(InteractionResult.CONTINUE)
+        return InteractionInfo(InteractionResult.REPATH)  # Closed
+
+    # ── Alarm Bell ────────────────────────────────────────────
+    if voxel_type == VOXEL_ALARM_BELL:
+        return InteractionInfo(InteractionResult.CONTINUE)
+
+    # ── Fragile Floor ─────────────────────────────────────────
+    if voxel_type == VOXEL_FRAGILE_FLOOR:
+        # Flyers pass over without triggering
+        if arch.can_fly:
+            return InteractionInfo(InteractionResult.CONTINUE)
+        # Arcane sight detects it
+        if arch.arcane_sight_range > 0:
+            return InteractionInfo(InteractionResult.REPATH)
+        # High cunning detects
+        if arch.cunning >= TARP_DETECT_CUNNING:
+            return InteractionInfo(InteractionResult.REPATH)
+        # Everyone else walks on it (collapse handled in decision.py)
+        return InteractionInfo(InteractionResult.CONTINUE)
+
+    # ── Pipe / Pump ───────────────────────────────────────────
+    if voxel_type in (VOXEL_PIPE, VOXEL_PUMP):
+        return InteractionInfo(InteractionResult.REPATH)
+
+    # ── Steam Vent ────────────────────────────────────────────
+    if voxel_type == VOXEL_STEAM_VENT:
+        if arch.fire_immune or arch.can_fly:
+            return InteractionInfo(InteractionResult.CONTINUE)
+        return InteractionInfo(
+            InteractionResult.DAMAGE,
+            damage=STEAM_VENT_DAMAGE,
         )
 
     # ── Reinforced wall ─────────────────────────────────────────

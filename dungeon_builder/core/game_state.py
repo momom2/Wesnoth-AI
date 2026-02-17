@@ -33,3 +33,5 @@ class GameState:
         # Current build mode for mouse interaction
         self.build_mode: str = "dig"
         self.game_over: bool = False
+        self.menu_open: bool = True  # True at startup (main menu showing)
+        self.craft_mode_active: bool = False  # True when player selected a recipe to place

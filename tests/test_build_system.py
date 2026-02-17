@@ -12,6 +12,7 @@ def test_queue_dig_on_stone():
     bus = EventBus()
     grid = VoxelGrid(width=4, depth=4, height=4)
     grid.grid[1, 1, 1] = VOXEL_STONE
+    grid.visible[:] = True
     bs = BuildSystem(bus, grid)
 
     assert bs.queue_dig(1, 1, 1) is True
@@ -21,6 +22,7 @@ def test_queue_dig_on_stone():
 def test_cannot_dig_air():
     bus = EventBus()
     grid = VoxelGrid(width=4, depth=4, height=4)
+    grid.visible[:] = True  # must be visible for validation to fire
     bs = BuildSystem(bus, grid)
 
     assert bs.queue_dig(0, 0, 0) is False  # Air
@@ -30,6 +32,7 @@ def test_cannot_dig_bedrock():
     bus = EventBus()
     grid = VoxelGrid(width=4, depth=4, height=4)
     grid.grid[0, 0, 0] = VOXEL_BEDROCK
+    grid.visible[:] = True
     bs = BuildSystem(bus, grid)
 
     assert bs.queue_dig(0, 0, 0) is False
@@ -39,6 +42,7 @@ def test_cannot_dig_lava():
     bus = EventBus()
     grid = VoxelGrid(width=4, depth=4, height=4)
     grid.grid[0, 0, 0] = VOXEL_LAVA
+    grid.visible[:] = True
     bs = BuildSystem(bus, grid)
 
     assert bs.queue_dig(0, 0, 0) is False
@@ -49,6 +53,7 @@ def test_dig_creates_loose_material():
     bus = EventBus()
     grid = VoxelGrid(width=4, depth=4, height=4)
     grid.grid[1, 1, 1] = VOXEL_DIRT  # Dirt takes 20 ticks
+    grid.visible[:] = True
     bs = BuildSystem(bus, grid)
     bs.queue_dig(1, 1, 1)
 
@@ -75,6 +80,7 @@ def test_cannot_dig_already_loose():
     grid = VoxelGrid(width=4, depth=4, height=4)
     grid.grid[1, 1, 1] = VOXEL_STONE
     grid.set_loose(1, 1, 1, True)
+    grid.visible[:] = True
     bs = BuildSystem(bus, grid)
 
     errors = []
@@ -89,6 +95,7 @@ def test_no_double_queue():
     bus = EventBus()
     grid = VoxelGrid(width=4, depth=4, height=4)
     grid.grid[1, 1, 1] = VOXEL_STONE
+    grid.visible[:] = True
     bs = BuildSystem(bus, grid)
 
     assert bs.queue_dig(1, 1, 1) is True
@@ -100,6 +107,7 @@ def test_stone_takes_longer_than_dirt():
     grid = VoxelGrid(width=4, depth=4, height=4)
     grid.grid[0, 0, 0] = VOXEL_DIRT
     grid.grid[1, 0, 0] = VOXEL_STONE
+    grid.visible[:] = True
     bs = BuildSystem(bus, grid)
     bs.queue_dig(0, 0, 0)
     bs.queue_dig(1, 0, 0)
@@ -119,6 +127,7 @@ def test_left_click_dig_mode():
     bus = EventBus()
     grid = VoxelGrid(width=4, depth=4, height=4)
     grid.grid[1, 1, 1] = VOXEL_STONE
+    grid.visible[:] = True
     bs = BuildSystem(bus, grid)
 
     bus.publish("voxel_left_clicked", x=1, y=1, z=1, mode="dig")
@@ -135,6 +144,7 @@ def test_is_being_dug_queued():
     bus = EventBus()
     grid = VoxelGrid(width=4, depth=4, height=4)
     grid.grid[1, 1, 1] = VOXEL_STONE
+    grid.visible[:] = True
     bs = BuildSystem(bus, grid)
     bs.queue_dig(1, 1, 1)
 
@@ -147,6 +157,7 @@ def test_is_being_dug_active():
     bus = EventBus()
     grid = VoxelGrid(width=4, depth=4, height=4)
     grid.grid[1, 1, 1] = VOXEL_DIRT
+    grid.visible[:] = True
     bs = BuildSystem(bus, grid)
     bs.queue_dig(1, 1, 1)
 
@@ -160,6 +171,7 @@ def test_is_being_dug_completed():
     bus = EventBus()
     grid = VoxelGrid(width=4, depth=4, height=4)
     grid.grid[1, 1, 1] = VOXEL_DIRT  # 20 ticks
+    grid.visible[:] = True
     bs = BuildSystem(bus, grid)
     bs.queue_dig(1, 1, 1)
 
@@ -174,6 +186,7 @@ def test_dig_progress_queued():
     bus = EventBus()
     grid = VoxelGrid(width=4, depth=4, height=4)
     grid.grid[1, 1, 1] = VOXEL_STONE
+    grid.visible[:] = True
     bs = BuildSystem(bus, grid)
     bs.queue_dig(1, 1, 1)
 
@@ -185,6 +198,7 @@ def test_dig_progress_active():
     bus = EventBus()
     grid = VoxelGrid(width=4, depth=4, height=4)
     grid.grid[1, 1, 1] = VOXEL_DIRT  # 20 ticks
+    grid.visible[:] = True
     bs = BuildSystem(bus, grid)
     bs.queue_dig(1, 1, 1)
 

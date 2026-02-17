@@ -3,6 +3,7 @@
 import numpy as np
 
 from dungeon_builder.core.event_bus import EventBus
+from dungeon_builder.core.game_state import GameState
 from dungeon_builder.world.voxel_grid import VoxelGrid
 from dungeon_builder.building.move_system import MoveSystem
 from dungeon_builder.building.crafting_system import CraftingSystem
@@ -12,15 +13,21 @@ from dungeon_builder.config import (
     VOXEL_DOOR,
     VOXEL_SPIKE,
     VOXEL_ENCHANTED_METAL,
+    DEFAULT_SEED,
 )
 
 
 def _setup(width=8, depth=8, height=8):
     bus = EventBus()
     grid = VoxelGrid(width=width, depth=depth, height=height)
-    ms = MoveSystem(bus, grid)
-    cs = CraftingSystem(bus, grid, ms)
-    ms.crafting_system = cs
+    # Mark all blocks visible and claimed so territory checks don't interfere
+    grid.visible[:] = True
+    grid.claimed[:] = True
+    gs = GameState(DEFAULT_SEED)
+    gs.event_bus = bus
+    ms = MoveSystem(bus, grid, gs)
+    cs = CraftingSystem(bus, grid, ms, gs)
+    gs.move_system = ms
     return bus, grid, ms, cs
 
 
@@ -121,7 +128,7 @@ class TestDoorToggle:
 
         # Door still present, not picked up
         assert grid.get(4, 4, 4) == VOXEL_DOOR
-        assert ms.held_material is None
+        assert ms.held_materials == {}
 
     def test_loose_door_can_be_picked_up(self):
         """A loose door is picked up normally (not toggled)."""
@@ -133,8 +140,8 @@ class TestDoorToggle:
 
         # Door was picked up
         assert grid.get(4, 4, 4) == VOXEL_AIR
-        assert ms.held_material is not None
-        assert ms.held_material[0] == VOXEL_DOOR
+        assert ms.has_material(VOXEL_DOOR)
+        assert ms.held_materials[VOXEL_DOOR] == 1
 
 
 class TestDoorCraftState:
@@ -143,15 +150,11 @@ class TestDoorCraftState:
         bus, grid, ms, cs = _setup()
         grid.grid[3, 4, 4] = VOXEL_STONE
         grid.grid[5, 4, 4] = VOXEL_STONE
-        ms.held_material = (VOXEL_ENCHANTED_METAL, 1)
+        ms.held_materials = {VOXEL_ENCHANTED_METAL: 1}
 
-        bus.publish(
-            "attempt_craft",
-            x=4, y=4, z=4,
-            held_type=VOXEL_ENCHANTED_METAL,
-            held_count=1,
-            target_type=VOXEL_AIR,
-        )
+        cs._current_z = 4
+        bus.publish("craft_recipe_selected", recipe_name="Door")
+        bus.publish("craft_at_position", x=4, y=4, z=4)
 
         assert grid.get(4, 4, 4) == VOXEL_DOOR
         assert grid.get_block_state(4, 4, 4) == 1

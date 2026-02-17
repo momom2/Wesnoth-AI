@@ -6,14 +6,23 @@ import numpy as np
 from typing import TYPE_CHECKING
 
 from dungeon_builder.config import (
+    VOXEL_AIR,
     VOXEL_LAVA,
     VOXEL_MANA_CRYSTAL,
+    VOXEL_HEAT_BEACON,
+    VOXEL_STEAM_VENT,
     VOXEL_CONDUCTIVITY,
     LAVA_TEMPERATURE,
     MANA_CRYSTAL_TEMPERATURE,
+    HEAT_BEACON_TEMPERATURE,
+    STEAM_VENT_HEAT_PULSE,
+    STEAM_VENT_RANGE,
     SURFACE_HEAT_LOSS,
     TEMPERATURE_TICK_INTERVAL,
     DIFFUSION_RATE,
+    MELTABLE_BLOCKS,
+    METAL_MELT_TEMPERATURE,
+    ENCHANTED_OFFSET,
 )
 
 if TYPE_CHECKING:
@@ -101,5 +110,81 @@ class TemperaturePhysics:
         mana_mask = voxels == VOXEL_MANA_CRYSTAL
         temp[mana_mask] = MANA_CRYSTAL_TEMPERATURE
 
+        # Heat Beacon — fixed-temperature source (like lava but lower temp)
+        beacon_mask = voxels == VOXEL_HEAT_BEACON
+        if np.any(beacon_mask):
+            temp[beacon_mask] = HEAT_BEACON_TEMPERATURE
+
+        # Steam Vent — pulse heat upward through air above
+        self._apply_steam_vent_heat(voxels, temp)
+
+        # Metal melting — metallic blocks melt when temp >= melt threshold
+        self._check_melting(voxels, temp)
+
         # Safety clamp (CFL guarantees non-negativity, but float rounding)
         np.maximum(temp, 0.0, out=temp)
+
+    def _apply_steam_vent_heat(
+        self, voxels: np.ndarray, temp: np.ndarray,
+    ) -> None:
+        """Steam vents push heat upward through air cells above them."""
+        grid = self.voxel_grid
+        vent_positions = np.argwhere(voxels == VOXEL_STEAM_VENT)
+        if len(vent_positions) == 0:
+            return
+
+        for pos in vent_positions:
+            x, y, z = int(pos[0]), int(pos[1]), int(pos[2])
+            # Pulse heat upward (z-1 = shallower/up in our coordinate system)
+            for dz in range(1, STEAM_VENT_RANGE + 1):
+                nz = z - dz
+                if nz < 0:
+                    break
+                if voxels[x, y, nz] != VOXEL_AIR:
+                    break  # Blocked by solid
+                temp[x, y, nz] += STEAM_VENT_HEAT_PULSE
+
+    def _check_melting(
+        self, voxels: np.ndarray, temp: np.ndarray,
+    ) -> None:
+        """Melt metallic blocks when temperature exceeds their melt threshold.
+
+        Enchanted blocks (metal_type & ENCHANTED_OFFSET) are immune.
+        Melted blocks become air.
+        """
+        grid = self.voxel_grid
+        metal_type_arr = grid.metal_type
+        melted_any = False
+
+        for vtype in MELTABLE_BLOCKS:
+            mask = (voxels == vtype)
+            if not np.any(mask):
+                continue
+
+            mt = metal_type_arr[mask]
+            # Enchanted blocks are immune
+            enchanted = (mt & ENCHANTED_OFFSET) != 0
+            base = mt & 0x7F
+
+            # Look up melt temperature for each base metal
+            melt_temps = np.array(
+                [METAL_MELT_TEMPERATURE.get(int(b), 99999.0) for b in base],
+                dtype=np.float32,
+            )
+            melt_temps[enchanted] = 99999.0  # Immune
+
+            # Check which blocks should melt
+            should_melt = temp[mask] >= melt_temps
+            if not np.any(should_melt):
+                continue
+
+            # Apply melting: set to AIR
+            positions = np.argwhere(mask)
+            for i, pos in enumerate(positions):
+                if should_melt[i]:
+                    x, y, z = int(pos[0]), int(pos[1]), int(pos[2])
+                    grid.set(x, y, z, VOXEL_AIR, event_bus=self.event_bus)
+                    melted_any = True
+
+        if melted_any:
+            self.event_bus.publish("metal_melted")

@@ -26,6 +26,16 @@ from dungeon_builder.config import (
     VOXEL_REINFORCED_WALL,
     VOXEL_BEDROCK,
     VOXEL_CORE,
+    VOXEL_GOLD_BAIT,
+    VOXEL_HEAT_BEACON,
+    VOXEL_PRESSURE_PLATE,
+    VOXEL_IRON_BARS,
+    VOXEL_FLOODGATE,
+    VOXEL_ALARM_BELL,
+    VOXEL_FRAGILE_FLOOR,
+    VOXEL_PIPE,
+    VOXEL_PUMP,
+    VOXEL_STEAM_VENT,
     NON_DIGGABLE,
     PERSONAL_PATHFINDER_MAX_ITERATIONS,
     HAZARD_PATH_COST,
@@ -174,6 +184,50 @@ def _move_cost(
         if pos in personal_map.hazards and archetype.cunning >= 0.5:
             cost += HAZARD_PATH_COST
         return cost
+
+    # --- New traversable blocks ---
+    # Gold bait, heat beacon, alarm bell: traversable (interaction handles)
+    if vtype in (VOXEL_GOLD_BAIT, VOXEL_HEAT_BEACON, VOXEL_ALARM_BELL):
+        cost = base_cost
+        if pos in personal_map.hazards and archetype.cunning >= 0.5:
+            cost += HAZARD_PATH_COST
+        return cost
+
+    # Pressure plate: traversable, cunning adds hazard cost
+    if vtype == VOXEL_PRESSURE_PLATE:
+        cost = base_cost
+        if pos in personal_map.hazards and archetype.cunning >= 0.5:
+            cost += HAZARD_PATH_COST
+        return cost
+
+    # Fragile floor: traversable (looks like stone), hazard cost if known
+    if vtype == VOXEL_FRAGILE_FLOOR:
+        cost = base_cost
+        if pos in personal_map.hazards and archetype.cunning >= 0.5:
+            cost += HAZARD_PATH_COST
+        return cost
+
+    # Steam vent: traversable, cunning adds hazard cost
+    if vtype == VOXEL_STEAM_VENT:
+        cost = base_cost
+        if pos in personal_map.hazards and archetype.cunning >= 0.5:
+            cost += HAZARD_PATH_COST
+        return cost
+
+    # Iron bars: impassable (no one can pass through)
+    if vtype == VOXEL_IRON_BARS:
+        return None
+
+    # Floodgate: state-dependent (open=passable, closed=impassable)
+    if vtype == VOXEL_FLOODGATE:
+        door_state = personal_map.get_door_state(*pos)
+        if door_state == 0:  # Open
+            return base_cost
+        return None  # Closed — impassable
+
+    # Pipe / Pump: impassable solid
+    if vtype in (VOXEL_PIPE, VOXEL_PUMP):
+        return None
 
     # --- Lava ---
     if vtype == VOXEL_LAVA:

@@ -1,9 +1,11 @@
-"""Crafting system: matches recipes and executes crafts.
+"""Crafting system: highlight-mode state machine for recipe placement.
 
-Supports an event-driven craft menu:
-- 0 matches: publish error (non-air target) or do nothing (air target)
-- 1 match: auto-execute the recipe
-- 2+ matches: publish "craft_menu" event with all options, wait for "craft_selected"
+Flow:
+1. Player clicks a recipe in the panel -> "craft_recipe_selected" event
+2. System scans for valid positions and highlights them
+3. Player clicks a highlighted voxel -> "craft_at_position" event
+4. System executes the recipe, consumes material, re-scans highlights
+5. Player cancels (ESC/right-click) or runs out of material -> exit craft mode
 """
 
 from __future__ import annotations
@@ -11,11 +13,11 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from dungeon_builder.building.crafting_book import CraftingBook
-from dungeon_builder.config import VOXEL_AIR
+from dungeon_builder.building.crafting_book import CraftingBook, CraftingRecipe
 
 if TYPE_CHECKING:
     from dungeon_builder.core.event_bus import EventBus
+    from dungeon_builder.core.game_state import GameState
     from dungeon_builder.world.voxel_grid import VoxelGrid
     from dungeon_builder.building.move_system import MoveSystem
 
@@ -23,10 +25,10 @@ logger = logging.getLogger("dungeon_builder.building")
 
 
 class CraftingSystem:
-    """Listens for attempt_craft events and executes matching recipes.
+    """Manages recipe selection, position highlighting, and craft execution.
 
-    When multiple recipes match, publishes a craft_menu event and waits
-    for a craft_selected event to execute the chosen recipe.
+    Replaces the old auto-craft-on-drop flow with an explicit
+    panel → highlight → click workflow.
     """
 
     def __init__(
@@ -34,94 +36,155 @@ class CraftingSystem:
         event_bus: EventBus,
         voxel_grid: VoxelGrid,
         move_system: MoveSystem,
+        game_state: GameState,
     ) -> None:
         self.event_bus = event_bus
         self.voxel_grid = voxel_grid
         self.move_system = move_system
+        self.game_state = game_state
         self.crafting_book = CraftingBook()
 
-        # Pending craft state for menu selection
-        self._pending_craft: tuple | None = None
+        # Highlight-mode state
+        self._active_recipe: CraftingRecipe | None = None
+        self._active_held_type: int | None = None
+        self._highlighted_positions: set[tuple[int, int, int]] = set()
+        self._current_z: int = 0
 
-        # Flag set after each attempt_craft so MoveSystem can check results
-        self._last_craft_matched: bool = False
+        event_bus.subscribe("craft_recipe_selected", self._on_recipe_selected)
+        event_bus.subscribe("craft_cancel", self._on_craft_cancel)
+        event_bus.subscribe("craft_at_position", self._on_craft_at_position)
+        event_bus.subscribe("z_level_changed", self._on_z_changed)
 
-        event_bus.subscribe("attempt_craft", self._on_attempt_craft)
-        event_bus.subscribe("craft_selected", self._on_craft_selected)
+    @property
+    def is_craft_mode_active(self) -> bool:
+        """Return True if a recipe is selected and highlights are showing."""
+        return self._active_recipe is not None
 
-    def has_pending_craft(self) -> bool:
-        """Return True if a craft menu is open and waiting for selection."""
-        return self._pending_craft is not None
+    # ── Recipe selection ─────────────────────────────────────────────
 
-    def _on_attempt_craft(
-        self,
-        x: int,
-        y: int,
-        z: int,
-        held_type: int,
-        held_count: int,
-        target_type: int,
-    ) -> None:
-        matches = self.crafting_book.find_all_recipes(
-            self.voxel_grid, x, y, z, held_type
-        )
-
-        self._last_craft_matched = len(matches) > 0
-
-        if len(matches) == 0:
-            # Only publish error if target is non-air (air targets fall through
-            # to place-as-loose in MoveSystem)
-            if target_type != VOXEL_AIR:
-                self.event_bus.publish(
-                    "error_message", text="No recipe matches"
-                )
+    def _on_recipe_selected(self, recipe_name: str, **kw) -> None:
+        """Player clicked a recipe in the panel."""
+        # If already in craft mode for this recipe, toggle it off
+        if self._active_recipe is not None and self._active_recipe.name == recipe_name:
+            self._exit_craft_mode()
             return
 
-        if len(matches) == 1:
-            # Auto-execute the single matching recipe
-            self._execute_recipe(matches[0], x, y, z, held_type, held_count)
+        recipe = self.crafting_book.get_recipe_by_name(recipe_name)
+        if recipe is None:
+            logger.warning("Unknown recipe: %s", recipe_name)
             return
 
-        # Multiple matches — open craft menu for player selection
-        self._pending_craft = (x, y, z, held_type, held_count, matches)
-        recipe_info = [
-            {"name": r.name, "description": r.description} for r in matches
-        ]
+        # Find a matching held type
+        held_keys = set(self.move_system.held_materials.keys())
+        matching = held_keys & recipe.required_inputs
+        if not matching:
+            self.event_bus.publish(
+                "error_message", text="Missing required material"
+            )
+            return
+
+        # Pick the first matching held type
+        held_type = next(iter(matching))
+
+        self._active_recipe = recipe
+        self._active_held_type = held_type
+
+        # Scan and highlight
+        self._scan_and_highlight(self._current_z)
+
+        self.game_state.craft_mode_active = True
         self.event_bus.publish(
-            "craft_menu", recipes=recipe_info, x=x, y=y, z=z
+            "craft_mode_entered", recipe_name=recipe.name
         )
         logger.info(
-            "Craft menu opened at (%d, %d, %d) with %d options",
-            x, y, z, len(matches),
+            "Craft mode entered: %s (held_type=%d)", recipe.name, held_type
         )
 
-    def _on_craft_selected(self, recipe_index: int, **kw) -> None:
-        """Player selected a recipe from the menu."""
-        if self._pending_craft is None:
+    # ── Position scanning ────────────────────────────────────────────
+
+    def _scan_and_highlight(self, z_level: int) -> None:
+        """Find all valid craft positions at z_level and publish highlights."""
+        if self._active_recipe is None or self._active_held_type is None:
             return
 
-        x, y, z, held_type, held_count, recipes = self._pending_craft
-        self._pending_craft = None
-
-        if 0 <= recipe_index < len(recipes):
-            self._execute_recipe(
-                recipes[recipe_index], x, y, z, held_type, held_count
-            )
-        else:
-            logger.warning("Invalid recipe_index %d (max %d)", recipe_index, len(recipes) - 1)
-
-    def _execute_recipe(self, recipe, x, y, z, held_type, held_count) -> None:
-        """Execute a recipe and consume one unit of held material."""
-        success = recipe.craft_fn(
-            self.voxel_grid, x, y, z, held_type, self.event_bus
+        positions = self.crafting_book.find_valid_positions(
+            self._active_recipe, self.voxel_grid, self._active_held_type,
+            z_level,
         )
-        if success:
-            # Consume one unit of held material
-            if held_count > 1:
-                self.move_system.held_material = (held_type, held_count - 1)
-            else:
-                self.move_system.held_material = None
+        self._highlighted_positions = set(positions)
+
+        self.event_bus.publish(
+            "craft_highlights_updated",
+            positions=self._highlighted_positions,
+        )
+
+    # ── Craft execution ──────────────────────────────────────────────
+
+    def _on_craft_at_position(self, x: int, y: int, z: int, **kw) -> None:
+        """Player clicked a position while in craft mode."""
+        if self._active_recipe is None:
+            return
+
+        if (x, y, z) not in self._highlighted_positions:
+            # Clicked non-highlighted position — cancel craft mode
+            self._exit_craft_mode()
+            return
+
+        # Execute the recipe, passing held metal_type if available
+        held_metal = self.move_system.get_held_metal_type(self._active_held_type)
+        success = self._active_recipe.craft_fn(
+            self.voxel_grid, x, y, z, self._active_held_type, self.event_bus,
+            held_metal=held_metal,
+        )
+        if not success:
             self.event_bus.publish(
-                "craft_success", recipe=recipe.name, x=x, y=y, z=z
+                "error_message", text="Craft failed"
             )
-            logger.info("Crafted '%s' at (%d, %d, %d)", recipe.name, x, y, z)
+            return
+
+        # Consume one unit of material
+        self.move_system.consume(self._active_held_type, 1)
+
+        self.event_bus.publish(
+            "craft_success",
+            recipe=self._active_recipe.name,
+            x=x, y=y, z=z,
+        )
+        logger.info(
+            "Crafted '%s' at (%d, %d, %d)", self._active_recipe.name, x, y, z
+        )
+
+        # Check if material is depleted
+        if not self.move_system.has_material(self._active_held_type):
+            self._exit_craft_mode()
+            return
+
+        # Re-scan highlights (crafted position may no longer be valid,
+        # other positions may open up)
+        self._scan_and_highlight(self._current_z)
+
+    # ── Cancellation ─────────────────────────────────────────────────
+
+    def _on_craft_cancel(self, **kw) -> None:
+        """Player cancelled craft mode (ESC, right-click, panel toggle)."""
+        if self._active_recipe is not None:
+            self._exit_craft_mode()
+
+    def _exit_craft_mode(self) -> None:
+        """Clear craft mode state and notify subscribers."""
+        self._active_recipe = None
+        self._active_held_type = None
+        self._highlighted_positions.clear()
+
+        self.game_state.craft_mode_active = False
+        self.event_bus.publish("craft_highlights_cleared")
+        self.event_bus.publish("craft_mode_exited")
+        logger.info("Craft mode exited")
+
+    # ── Z-level change ───────────────────────────────────────────────
+
+    def _on_z_changed(self, z: int, **kw) -> None:
+        """Re-scan valid positions when the view layer changes."""
+        self._current_z = z
+        if self._active_recipe is not None:
+            self._scan_and_highlight(z)

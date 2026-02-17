@@ -23,6 +23,7 @@ from dungeon_builder.config import (
     GRID_WIDTH,
     GRID_DEPTH,
     VOXEL_AIR,
+    VOXEL_CORE,
     CORE_X,
     CORE_Y,
     CORE_Z,
@@ -37,11 +38,14 @@ from dungeon_builder.world.room_detection import RoomDetector
 from dungeon_builder.world.pathfinding import AStarPathfinder
 from dungeon_builder.world.physics.temperature import TemperaturePhysics
 from dungeon_builder.world.physics.humidity import HumidityPhysics
+from dungeon_builder.world.physics.pipe import PipePhysics
 from dungeon_builder.world.physics.gravity import GravityPhysics
 from dungeon_builder.world.physics.structural import StructuralIntegrityPhysics
+from dungeon_builder.world.claimed_territory import ClaimedTerritorySystem
 from dungeon_builder.building.build_system import BuildSystem
 from dungeon_builder.building.move_system import MoveSystem
 from dungeon_builder.building.crafting_system import CraftingSystem
+from dungeon_builder.building.crafting_journal import CraftingJournal
 from dungeon_builder.intruders.decision import IntruderAI
 from dungeon_builder.dungeon_core.core import DungeonCore
 from dungeon_builder.rendering.voxel_renderer import VoxelWorldRenderer
@@ -51,6 +55,8 @@ from dungeon_builder.rendering.intruder_renderer import IntruderRenderer
 from dungeon_builder.rendering.effects import EffectsRenderer
 from dungeon_builder.ui.hud import HUD
 from dungeon_builder.ui.render_mode_selector import RenderModeSelector
+from dungeon_builder.ui.crafting_book_panel import CraftingBookPanel
+from dungeon_builder.ui.main_menu import MainMenu
 from dungeon_builder.utils.rng import SeededRNG
 from dungeon_builder.utils.logging import setup_logging
 
@@ -82,14 +88,16 @@ class DungeonApp(ShowBase):
         game_state = GameState(DEFAULT_SEED)
         game_state.event_bus = event_bus
         game_state.time_manager = TimeManager(event_bus)
+        game_state.time_manager.set_speed(0)  # Start paused (main menu showing)
 
         # ── World generation ──
         voxel_grid = VoxelGrid()
         GeologyGenerator(rng).generate(voxel_grid)
         game_state.voxel_grid = voxel_grid
 
-        # Carve entrance and core room
+        # Carve entrance and core room, then place the core block
         self._carve_initial_dungeon(voxel_grid)
+        voxel_grid.grid[CORE_X, CORE_Y, CORE_Z] = VOXEL_CORE
 
         # ── Dungeon core ──
         core = DungeonCore(event_bus, CORE_X, CORE_Y, CORE_Z, hp=CORE_DEFAULT_HP)
@@ -100,18 +108,22 @@ class DungeonApp(ShowBase):
         game_state.pathfinder = pathfinder
 
         room_detector = RoomDetector(event_bus, voxel_grid)
+        claimed_system = ClaimedTerritorySystem(event_bus, voxel_grid)
 
         build_system = BuildSystem(event_bus, voxel_grid)
         game_state.build_system = build_system
 
-        move_system = MoveSystem(event_bus, voxel_grid)
+        move_system = MoveSystem(event_bus, voxel_grid, game_state)
         game_state.move_system = move_system
 
-        crafting_system = CraftingSystem(event_bus, voxel_grid, move_system)
-        move_system.crafting_system = crafting_system
+        crafting_system = CraftingSystem(event_bus, voxel_grid, move_system, game_state)
+
+        crafting_journal = CraftingJournal(event_bus, crafting_system.crafting_book)
+        crafting_journal.discover_all()  # All recipes known for now
 
         temperature_physics = TemperaturePhysics(event_bus, voxel_grid)
         humidity_physics = HumidityPhysics(event_bus, voxel_grid)
+        pipe_physics = PipePhysics(event_bus, voxel_grid)
         gravity_physics = GravityPhysics(event_bus, voxel_grid)
         structural_physics = StructuralIntegrityPhysics(event_bus, voxel_grid)
 
@@ -121,7 +133,7 @@ class DungeonApp(ShowBase):
         self._setup_lighting()
 
         # ── Rendering ──
-        layer_manager = LayerSliceManager(self.render)
+        layer_manager = LayerSliceManager(self.render, event_bus)
 
         world_renderer = VoxelWorldRenderer(event_bus, voxel_grid, layer_manager)
         world_renderer.build_system = build_system
@@ -138,6 +150,13 @@ class DungeonApp(ShowBase):
         render_mode_selector = RenderModeSelector(
             self, event_bus, world_renderer
         )
+        crafting_book_panel = CraftingBookPanel(
+            self, event_bus, crafting_journal, move_system,
+            game_state=game_state,
+        )
+
+        # ── Main menu (title screen / options overlay) ──
+        main_menu = MainMenu(self, event_bus, game_state)
 
         # ── Main game loop ──
         def game_loop(task):
@@ -146,9 +165,6 @@ class DungeonApp(ShowBase):
             return task.cont
 
         self.taskMgr.add(game_loop, "game_loop", sort=10)
-
-        # ── Escape to quit ──
-        self.accept("escape", self.userExit)
 
         # Store references to prevent garbage collection
         self._game_state = game_state
@@ -159,11 +175,14 @@ class DungeonApp(ShowBase):
             "core": core,
             "pathfinder": pathfinder,
             "room_detector": room_detector,
+            "claimed_system": claimed_system,
             "build_system": build_system,
             "move_system": move_system,
             "crafting_system": crafting_system,
+            "crafting_journal": crafting_journal,
             "temperature_physics": temperature_physics,
             "humidity_physics": humidity_physics,
+            "pipe_physics": pipe_physics,
             "gravity_physics": gravity_physics,
             "structural_physics": structural_physics,
             "intruder_ai": intruder_ai,
@@ -174,6 +193,8 @@ class DungeonApp(ShowBase):
             "effects_renderer": effects_renderer,
             "hud": hud,
             "render_mode_selector": render_mode_selector,
+            "crafting_book_panel": crafting_book_panel,
+            "main_menu": main_menu,
         }
 
         logger.info("Dungeon Builder initialized. Press SPACE to start!")
@@ -182,11 +203,13 @@ class DungeonApp(ShowBase):
         """Carve a vertical shaft and corridor so intruders can reach the core."""
         grid = voxel_grid
 
-        # Clear 3x3 room around core
+        # Clear 5x5 room around core (at core level and one above for headroom)
         for dx in range(-2, 3):
             for dy in range(-2, 3):
                 if grid.in_bounds(CORE_X + dx, CORE_Y + dy, CORE_Z):
                     grid.grid[CORE_X + dx, CORE_Y + dy, CORE_Z] = VOXEL_AIR
+                if grid.in_bounds(CORE_X + dx, CORE_Y + dy, CORE_Z - 1):
+                    grid.grid[CORE_X + dx, CORE_Y + dy, CORE_Z - 1] = VOXEL_AIR
 
         # Vertical shaft from surface (z=0) down to core level (z=CORE_Z)
         # Located at (CORE_X, 0) to (CORE_X+1, 1)

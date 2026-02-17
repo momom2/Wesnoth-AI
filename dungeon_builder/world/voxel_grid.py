@@ -45,6 +45,9 @@ class VoxelGrid:
         self.water_level = np.zeros((width, depth, height), dtype=np.uint8)
         self.thermal_fatigue = np.zeros((width, depth, height), dtype=np.float32)
         self.block_state = np.zeros((width, depth, height), dtype=np.uint8)
+        self.metal_type = np.zeros((width, depth, height), dtype=np.uint8)
+        self.claimed = np.zeros((width, depth, height), dtype=np.bool_)
+        self.visible = np.zeros((width, depth, height), dtype=np.bool_)
         self._dirty_chunks: set[tuple[int, int, int]] = set()
 
         # Number of chunks per axis
@@ -64,6 +67,7 @@ class VoxelGrid:
             return
         self.grid[x, y, z] = voxel_type
         self.block_state[x, y, z] = 0  # Reset state when type changes
+        self.metal_type[x, y, z] = 0  # Reset metal type when type changes
         if voxel_type == VOXEL_AIR:
             self.loose[x, y, z] = False
 
@@ -123,6 +127,18 @@ class VoxelGrid:
             return False
         return bool(self.loose[x, y, z])
 
+    def is_claimed(self, x: int, y: int, z: int) -> bool:
+        """Return True if the air voxel at (x,y,z) is claimed territory."""
+        if not self.in_bounds(x, y, z):
+            return False
+        return bool(self.claimed[x, y, z])
+
+    def is_visible(self, x: int, y: int, z: int) -> bool:
+        """Return True if the block at (x,y,z) is adjacent to claimed air."""
+        if not self.in_bounds(x, y, z):
+            return False
+        return bool(self.visible[x, y, z])
+
     def get_load(self, x: int, y: int, z: int) -> float:
         if not self.in_bounds(x, y, z):
             return 0.0
@@ -164,6 +180,20 @@ class VoxelGrid:
         cx, cy = x // CHUNK_SIZE, y // CHUNK_SIZE
         self._dirty_chunks.add((cx, cy, z))
 
+    def get_metal_type(self, x: int, y: int, z: int) -> int:
+        """Return the metal type at (x,y,z), or 0 (METAL_NONE) if out of bounds."""
+        if not self.in_bounds(x, y, z):
+            return 0
+        return int(self.metal_type[x, y, z])
+
+    def set_metal_type(self, x: int, y: int, z: int, metal: int) -> None:
+        """Set the metal type at (x,y,z). Marks chunk dirty for re-render."""
+        if not self.in_bounds(x, y, z):
+            return
+        self.metal_type[x, y, z] = metal
+        cx, cy = x // CHUNK_SIZE, y // CHUNK_SIZE
+        self._dirty_chunks.add((cx, cy, z))
+
     def pop_dirty_chunks(self) -> set[tuple[int, int, int]]:
         dirty = self._dirty_chunks.copy()
         self._dirty_chunks.clear()
@@ -175,3 +205,34 @@ class VoxelGrid:
             for cy in range(self.chunks_y):
                 for z in range(self.height):
                     self._dirty_chunks.add((cx, cy, z))
+
+    def mark_chunk_dirty(self, cx: int, cy: int, z: int) -> None:
+        """Mark a single chunk as needing re-mesh."""
+        self._dirty_chunks.add((cx, cy, z))
+
+    def mark_block_dirty(self, x: int, y: int, z: int) -> None:
+        """Mark the chunk containing (x,y,z) as dirty, including neighbour z layers."""
+        cx, cy = x // CHUNK_SIZE, y // CHUNK_SIZE
+        self._dirty_chunks.add((cx, cy, z))
+        if z > 0:
+            self._dirty_chunks.add((cx, cy, z - 1))
+        if z < self.height - 1:
+            self._dirty_chunks.add((cx, cy, z + 1))
+
+    def mark_blocks_dirty(self, xs, ys, zs) -> None:
+        """Mark chunks for arrays of block positions as dirty.
+
+        *xs*, *ys*, *zs* are NumPy int arrays of equal length.
+        """
+        if len(xs) == 0:
+            return
+        cxs = xs // CHUNK_SIZE
+        cys = ys // CHUNK_SIZE
+        unique = set(zip(cxs.tolist(), cys.tolist(), zs.tolist()))
+        self._dirty_chunks.update(unique)
+        h = self.height
+        for cx_val, cy_val, z_val in list(unique):
+            if z_val > 0:
+                self._dirty_chunks.add((cx_val, cy_val, z_val - 1))
+            if z_val < h - 1:
+                self._dirty_chunks.add((cx_val, cy_val, z_val + 1))

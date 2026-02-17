@@ -18,6 +18,24 @@ class IntruderObjective(Enum):
     PILLAGE = auto()
 
 
+class IntruderStatus(Enum):
+    """Rank/status of an intruder, determines leadership priority and intel trust."""
+
+    GRUNT = auto()       # Rank 0 — expendable, intel trust weight 0.5
+    VETERAN = auto()     # Rank 1 — experienced, trust weight 1.0
+    ELITE = auto()       # Rank 2 — seasoned, trust weight 1.5
+    CHAMPION = auto()    # Rank 3 — exceptional, trust weight 2.0
+
+
+# Trust weight per status (how much faction trusts this intruder's intel)
+STATUS_TRUST: dict[IntruderStatus, float] = {
+    IntruderStatus.GRUNT: 0.5,
+    IntruderStatus.VETERAN: 1.0,
+    IntruderStatus.ELITE: 1.5,
+    IntruderStatus.CHAMPION: 2.0,
+}
+
+
 @dataclass(frozen=True)
 class ArchetypeStats:
     """Immutable stat block shared by all intruders of one archetype.
@@ -181,10 +199,91 @@ GLOOMSEER = ArchetypeStats(
     objective_weights=(0.3, 0.6, 0.1),
 )
 
-# All archetypes in a tuple for iteration / lookup
+# All surfacer archetypes in a tuple for iteration / lookup
 ALL_ARCHETYPES: tuple[ArchetypeStats, ...] = (
     VANGUARD, SHADOWBLADE, TUNNELER, PYREMANCER,
     WINDCALLER, WARDEN, GORECLAW, GLOOMSEER,
 )
 
 ARCHETYPE_BY_NAME: dict[str, ArchetypeStats] = {a.name: a for a in ALL_ARCHETYPES}
+
+
+# ── Underworld archetype instances ────────────────────────────────────
+
+MAGMAWRAITH = ArchetypeStats(
+    name="Magmawraith",
+    hp=80, speed=1, damage=10,
+    attack_interval=15, attack_range=2,
+    perception_range=3, darkvision_range=4,
+    arcane_sight_range=0, spike_detect_range=0,
+    move_interval=8,
+    retreat_threshold=0.0, greed=0.0, loyalty=0.3, cunning=0.1,
+    can_fly=False, can_dig=False, can_bash_door=True, can_lockpick=False,
+    fire_immune=True,
+    frenzy_threshold=0.0, never_retreats=True, healer=False,
+    objective_weights=(1.0, 0.0, 0.0),
+)
+
+BOREMITE = ArchetypeStats(
+    name="Boremite",
+    hp=25, speed=3, damage=3,
+    attack_interval=20, attack_range=1,
+    perception_range=2, darkvision_range=3,
+    arcane_sight_range=0, spike_detect_range=0,
+    move_interval=3,
+    retreat_threshold=0.0, greed=0.0, loyalty=0.1, cunning=0.0,
+    can_fly=False, can_dig=True, can_bash_door=False, can_lockpick=False,
+    fire_immune=False,
+    frenzy_threshold=0.0, never_retreats=True, healer=False,
+    objective_weights=(0.8, 0.2, 0.0),
+)
+
+STONESKIN_BRUTE = ArchetypeStats(
+    name="Stoneskin Brute",
+    hp=200, speed=1, damage=20,
+    attack_interval=25, attack_range=1,
+    perception_range=3, darkvision_range=2,
+    arcane_sight_range=0, spike_detect_range=0,
+    move_interval=15,
+    retreat_threshold=0.15, greed=0.3, loyalty=0.0, cunning=0.0,
+    can_fly=False, can_dig=False, can_bash_door=True, can_lockpick=False,
+    fire_immune=False,
+    frenzy_threshold=0.3, never_retreats=False, healer=False,
+    objective_weights=(0.7, 0.0, 0.3),
+)
+
+TREMORSTALKER = ArchetypeStats(
+    name="Tremorstalker",
+    hp=35, speed=3, damage=5,
+    attack_interval=20, attack_range=1,
+    perception_range=2, darkvision_range=5,
+    arcane_sight_range=4, spike_detect_range=3,
+    move_interval=4,
+    retreat_threshold=0.15, greed=0.5, loyalty=0.2, cunning=0.6,
+    can_fly=False, can_dig=False, can_bash_door=False, can_lockpick=True,
+    fire_immune=False,
+    frenzy_threshold=0.0, never_retreats=False, healer=False,
+    objective_weights=(0.2, 0.5, 0.3),
+)
+
+CORROSIVE_CRAWLER = ArchetypeStats(
+    name="Corrosive Crawler",
+    hp=50, speed=2, damage=6,
+    attack_interval=20, attack_range=1,
+    perception_range=3, darkvision_range=3,
+    arcane_sight_range=0, spike_detect_range=0,
+    move_interval=6,
+    retreat_threshold=0.0, greed=0.0, loyalty=0.3, cunning=0.2,
+    can_fly=False, can_dig=True, can_bash_door=True, can_lockpick=False,
+    fire_immune=False,
+    frenzy_threshold=0.0, never_retreats=True, healer=False,
+    objective_weights=(0.9, 0.1, 0.0),
+)
+
+UNDERWORLD_ARCHETYPES: tuple[ArchetypeStats, ...] = (
+    MAGMAWRAITH, BOREMITE, STONESKIN_BRUTE, TREMORSTALKER, CORROSIVE_CRAWLER,
+)
+
+UNDERWORLD_ARCHETYPE_BY_NAME: dict[str, ArchetypeStats] = {
+    a.name: a for a in UNDERWORLD_ARCHETYPES
+}

@@ -103,13 +103,13 @@ def test_granite_supports_heavy_load():
 
 
 def test_chalk_is_weakest():
-    """Chalk fails under minimal load."""
+    """Chalk fails under load exceeding its capacity (45 after 3× buff)."""
     bus, grid, struct = _setup()
-    # Three granite blocks on chalk (weight 10*3 = accumulates through column)
-    grid.grid[4, 4, 3] = VOXEL_GRANITE
-    grid.grid[4, 4, 4] = VOXEL_GRANITE
-    grid.grid[4, 4, 5] = VOXEL_GRANITE
-    grid.grid[4, 4, 6] = VOXEL_CHALK  # capacity=15
+    # Stack heavy blocks above chalk to exceed capacity=45
+    # 6 granite blocks (weight 10 each = 60 cumulative) > chalk capacity 45
+    for z in range(0, 6):
+        grid.grid[4, 4, z] = VOXEL_GRANITE
+    grid.grid[4, 4, 6] = VOXEL_CHALK  # capacity=45
     grid.grid[4, 4, 9] = VOXEL_BEDROCK
     for z in range(7, 9):
         grid.grid[4, 4, z] = VOXEL_STONE
@@ -379,23 +379,23 @@ def test_cantilever_over_void_high_stress():
 
 
 def test_stone_cantilever_fails_at_span():
-    """A stone beam over a gap fails at the center from tensile stress.
+    """A stone beam over a gap fails from tensile stress.
 
-    Stone tensile=10, weight=8. Supported blocks at beam ends
+    Stone tensile=30 (3× buff), weight=8.  Supported blocks at beam ends
     (solid at z+1), unsupported in the middle (air at z+1).
-    At span 3: tension = 8 * 3 / 2 = 12 > 10 (fails).
+    At span 8: tension = 8 * 8 / 2 = 32 > 30 (fails).
     """
-    bus, grid, _ = _setup(width=12, depth=8, height=10)
+    bus, grid, _ = _setup(width=20, depth=8, height=10)
     # Support piers at z=5 (below beam level z=4)
     for z in range(5, 10):
-        grid.grid[2, 4, z] = VOXEL_STONE  # left pier
-        grid.grid[9, 4, z] = VOXEL_STONE  # right pier
+        grid.grid[2, 4, z] = VOXEL_STONE   # left pier
+        grid.grid[18, 4, z] = VOXEL_STONE  # right pier
     grid.grid[2, 4, 9] = VOXEL_BEDROCK
-    grid.grid[9, 4, 9] = VOXEL_BEDROCK
-    # Stone beam at z=4 from x=2 to x=9
-    # x=2 and x=9 have piers below → supported
-    # x=3..8 are unsupported (air below at z=5)
-    for x in range(2, 10):
+    grid.grid[18, 4, 9] = VOXEL_BEDROCK
+    # Stone beam at z=4 from x=2 to x=18
+    # x=2 and x=18 have piers below → supported
+    # x=3..17 are unsupported (air below at z=5)
+    for x in range(2, 19):
         grid.grid[x, 4, 4] = VOXEL_STONE
 
     tensile_events = []
@@ -403,10 +403,10 @@ def test_stone_cantilever_fails_at_span():
 
     bus.publish("tick", tick=STRUCTURAL_TICK_INTERVAL)
 
-    # Blocks in the middle (x=5,6) have span ≥ 3 from nearest support
-    # tension = 8 * 3 / 2 = 12 > 10 → should fail
+    # Blocks in the middle (x=9,10,11) have span ≥ 8 from nearest support
+    # tension = 8 * 8 / 2 = 32 > 30 → should fail
     mid_loose = any(
-        bool(grid.loose[x, 4, 4]) for x in range(5, 7)
+        bool(grid.loose[x, 4, 4]) for x in range(9, 12)
     )
     assert mid_loose or len(tensile_events) > 0
 
@@ -445,25 +445,28 @@ def test_metal_cantilever_longer_span():
 
 
 def test_dirt_cannot_overhang():
-    """Dirt has very low tensile strength and fails even at span=1.
+    """Dirt has low tensile strength and fails at span=3.
 
-    Dirt tensile=2, weight=5. At span 1: tension = 5*1/2 = 2.5 > 2.
+    Dirt tensile=6 (3× buff), weight=5. At span 3: tension = 5*3/2 = 7.5 > 6.
     """
     bus, grid, _ = _setup()
     # Support column
     grid.grid[4, 4, 9] = VOXEL_BEDROCK
     for z in range(4, 9):
         grid.grid[4, 4, z] = VOXEL_GRANITE
-    # Dirt block cantilevered off the side at z=4
-    grid.grid[5, 4, 4] = VOXEL_DIRT  # hanging over void
+    # Dirt beam cantilevered off the side at z=4, spans x=5,6,7
+    grid.grid[5, 4, 4] = VOXEL_DIRT
+    grid.grid[6, 4, 4] = VOXEL_DIRT
+    grid.grid[7, 4, 4] = VOXEL_DIRT  # span=3 from support
 
     tensile_events = []
     bus.subscribe("tensile_failure", lambda **kw: tensile_events.append(kw))
 
     bus.publish("tick", tick=STRUCTURAL_TICK_INTERVAL)
 
-    # Dirt should fail from tensile stress
-    assert bool(grid.loose[5, 4, 4]) is True
+    # Outermost dirt should fail from tensile stress (span=3)
+    outermost_loose = bool(grid.loose[7, 4, 4])
+    assert outermost_loose or len(tensile_events) > 0
 
 
 def test_supported_block_no_tensile_failure():

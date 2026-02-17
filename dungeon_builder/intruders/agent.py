@@ -5,8 +5,17 @@ from __future__ import annotations
 from enum import Enum, auto
 from typing import TYPE_CHECKING
 
+import dungeon_builder.config as _cfg
+from dungeon_builder.config import (
+    MORALE_LOW_THRESHOLD,
+    MORALE_HIGH_THRESHOLD,
+    MORALE_SLOW_FACTOR,
+    MORALE_FAST_FACTOR,
+    MORALE_DAMAGE_BONUS,
+)
+
 if TYPE_CHECKING:
-    from dungeon_builder.intruders.archetypes import ArchetypeStats, IntruderObjective
+    from dungeon_builder.intruders.archetypes import ArchetypeStats, IntruderObjective, IntruderStatus
     from dungeon_builder.intruders.personal_map import PersonalMap
 
 
@@ -60,6 +69,16 @@ class Intruder:
         "loot_count",
         # Tunneling progress: maps (x,y,z) -> ticks spent digging
         "dig_progress",
+        # Vision cache: True when intruder has moved and needs re-scan
+        "_vision_dirty",
+        # Path cache: (start, goal, map_generation) → avoids repathing
+        "_path_cache_key",
+        # Origin faction
+        "is_underworlder",
+        # Social dynamics
+        "level",
+        "status",
+        "morale",
     )
 
     def __init__(
@@ -72,7 +91,12 @@ class Intruder:
         objective: IntruderObjective,
         personal_map: PersonalMap,
         party_id: int | None = None,
+        is_underworlder: bool = False,
+        level: int = 1,
+        status: IntruderStatus | None = None,
     ) -> None:
+        from dungeon_builder.intruders.archetypes import IntruderStatus as _IS
+
         self.id = intruder_id
         self.archetype = archetype
 
@@ -80,8 +104,12 @@ class Intruder:
         self.y = y
         self.z = z
 
-        self.hp = archetype.hp
-        self.max_hp = archetype.hp
+        # Level stat scaling (applied to mutable instance fields, not frozen archetype)
+        self.level: int = level
+        self.status: IntruderStatus = status if status is not None else _IS.GRUNT
+        hp_mult = 1.0 + (level - 1) * _cfg.LEVEL_HP_SCALE
+        self.hp = int(archetype.hp * hp_mult)
+        self.max_hp = self.hp
 
         self.state = IntruderState.SPAWNING
         self.objective = objective
@@ -105,6 +133,10 @@ class Intruder:
         self.frenzy_active: bool = False
         self.loot_count: int = 0
         self.dig_progress: dict[tuple[int, int, int], int] = {}
+        self._vision_dirty: bool = True
+        self._path_cache_key: tuple | None = None
+        self.is_underworlder: bool = is_underworlder
+        self.morale: float = _cfg.MORALE_BASE
 
     # ── Convenience properties ──────────────────────────────────────
 
@@ -128,15 +160,25 @@ class Intruder:
 
     @property
     def effective_damage(self) -> int:
+        # Level scaling applied to base archetype damage
+        damage_mult = 1.0 + (self.level - 1) * _cfg.LEVEL_DAMAGE_SCALE
+        base = int(self.archetype.damage * damage_mult)
         if self.frenzy_active:
-            return int(self.archetype.damage * 1.5)
-        return self.archetype.damage
+            base = int(base * 1.5)
+        if self.morale > MORALE_HIGH_THRESHOLD:
+            base = int(base * MORALE_DAMAGE_BONUS)
+        return base
 
     @property
     def effective_move_interval(self) -> int:
+        base = self.move_interval
         if self.frenzy_active:
-            return max(1, self.move_interval // 2)
-        return self.move_interval
+            base = max(1, base // 2)
+        if self.morale < MORALE_LOW_THRESHOLD:
+            base = int(base * MORALE_SLOW_FACTOR)
+        elif self.morale > MORALE_HIGH_THRESHOLD:
+            base = max(1, int(base * MORALE_FAST_FACTOR))
+        return max(1, base)
 
     def take_damage(self, amount: int) -> None:
         """Apply damage, clamping HP to 0."""
@@ -147,6 +189,8 @@ class Intruder:
     def __repr__(self) -> str:
         return (
             f"Intruder(id={self.id}, {self.archetype.name}, "
+            f"L{self.level} {self.status.name}, "
             f"pos=({self.x},{self.y},{self.z}), "
-            f"hp={self.hp}/{self.max_hp}, state={self.state.name})"
+            f"hp={self.hp}/{self.max_hp}, morale={self.morale:.2f}, "
+            f"state={self.state.name})"
         )

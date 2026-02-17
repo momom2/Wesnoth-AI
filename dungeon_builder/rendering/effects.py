@@ -1,4 +1,4 @@
-"""Visual effects for the dungeon core, hover highlight, and dig indicators."""
+"""Visual effects for the dungeon core, hover highlight, craft markers, and dig indicators."""
 
 from __future__ import annotations
 
@@ -108,20 +108,64 @@ def _make_highlight_cube() -> GeomNode:
     return node
 
 
+def _make_craft_marker() -> GeomNode:
+    """Create a semi-transparent green cube for craft-valid air positions.
+
+    Uses the same geometry as the core marker but green with alpha=0.35.
+    """
+    vdata = GeomVertexData("craft", GeomVertexFormat.get_v3n3c4(), Geom.UH_static)
+    vertex = GeomVertexWriter(vdata, "vertex")
+    normal = GeomVertexWriter(vdata, "normal")
+    color = GeomVertexWriter(vdata, "color")
+    prim = GeomTriangles(Geom.UH_static)
+
+    # Slightly smaller than a full voxel to avoid z-fighting
+    m = 0.05
+    r, g, b, a = 0.2, 0.9, 0.3, 0.35
+
+    faces = [
+        ((0, 0, 1), [(m, m, 1 - m), (1 - m, m, 1 - m), (1 - m, 1 - m, 1 - m), (m, 1 - m, 1 - m)]),
+        ((0, 0, -1), [(m, 1 - m, m), (1 - m, 1 - m, m), (1 - m, m, m), (m, m, m)]),
+        ((1, 0, 0), [(1 - m, m, m), (1 - m, 1 - m, m), (1 - m, 1 - m, 1 - m), (1 - m, m, 1 - m)]),
+        ((-1, 0, 0), [(m, 1 - m, m), (m, m, m), (m, m, 1 - m), (m, 1 - m, 1 - m)]),
+        ((0, 1, 0), [(1 - m, 1 - m, m), (m, 1 - m, m), (m, 1 - m, 1 - m), (1 - m, 1 - m, 1 - m)]),
+        ((0, -1, 0), [(m, m, m), (1 - m, m, m), (1 - m, m, 1 - m), (m, m, 1 - m)]),
+    ]
+
+    vi = 0
+    for nrm, corners in faces:
+        for cx, cy, cz in corners:
+            vertex.add_data3f(cx, cy, cz)
+            normal.add_data3f(*nrm)
+            color.add_data4f(r, g, b, a)
+        prim.add_vertices(vi, vi + 1, vi + 2)
+        prim.add_vertices(vi, vi + 2, vi + 3)
+        vi += 4
+
+    geom = Geom(vdata)
+    geom.add_primitive(prim)
+    node = GeomNode("craft_marker")
+    node.add_geom(geom)
+    return node
+
+
 class EffectsRenderer:
-    """Renders visual indicators for the core and hover highlight."""
+    """Renders visual indicators for the core, hover highlight, and craft markers."""
 
     def __init__(self, app: ShowBase, event_bus: EventBus) -> None:
         self.app = app
         self.event_bus = event_bus
         self._core_np: NodePath | None = None
         self._highlight_np: NodePath | None = None
+        self._craft_marker_nps: list[NodePath] = []  # Pool of reusable markers
 
         # Create the reusable highlight cube (hidden initially)
         self._init_highlight()
 
         event_bus.subscribe("voxel_hover", self._on_voxel_hover)
         event_bus.subscribe("voxel_hover_clear", self._on_voxel_hover_clear)
+        event_bus.subscribe("craft_highlights_updated", self._on_craft_highlights_updated)
+        event_bus.subscribe("craft_highlights_cleared", self._on_craft_highlights_cleared)
 
     def _init_highlight(self) -> None:
         """Create the wireframe highlight cube, hidden by default."""
@@ -153,3 +197,31 @@ class EffectsRenderer:
         np = self.app.render.attach_new_node(node)
         np.set_pos(x, y, -z)
         self._core_np = np
+
+    # ── Craft highlight markers ──────────────────────────────────────
+
+    def _on_craft_highlights_updated(self, positions: set, **kwargs) -> None:
+        """Show green markers at all valid craft positions."""
+        # Hide all existing markers first
+        for np in self._craft_marker_nps:
+            np.hide()
+
+        # Show/create markers for each position
+        for i, (x, y, z) in enumerate(positions):
+            if i >= len(self._craft_marker_nps):
+                # Create a new marker node and add to pool
+                node = _make_craft_marker()
+                np = self.app.render.attach_new_node(node)
+                np.set_transparency(TransparencyAttrib.M_alpha)
+                np.set_light_off()
+                np.set_bin("fixed", 45)
+                np.set_depth_write(False)
+                self._craft_marker_nps.append(np)
+            marker = self._craft_marker_nps[i]
+            marker.set_pos(x, y, -z)
+            marker.show()
+
+    def _on_craft_highlights_cleared(self, **kwargs) -> None:
+        """Hide all craft markers."""
+        for np in self._craft_marker_nps:
+            np.hide()

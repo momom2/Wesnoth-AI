@@ -97,14 +97,32 @@ class StructuralIntegrityPhysics:
             if 0 <= vtype < 256:
                 self._shear_lut[vtype] = min(shear, 1e9)
 
+        # Snapshots for skip-if-unchanged optimisation
+        self._last_structural_grid: np.ndarray | None = None
+        self._last_structural_loose: np.ndarray | None = None
+
         event_bus.subscribe("tick", self._on_tick)
 
     def _on_tick(self, tick: int, **kw) -> None:
         if tick % STRUCTURAL_TICK_INTERVAL != 0:
             return
+
+        # Skip full recomputation if grid and loose arrays haven't changed
+        grid = self.voxel_grid
+        if (
+            self._last_structural_grid is not None
+            and np.array_equal(grid.grid, self._last_structural_grid)
+            and np.array_equal(grid.loose, self._last_structural_loose)
+        ):
+            return
+
         self._compute_load()
         self._check_failures()
         self._compute_tensile_failures()
+
+        # Save snapshot for next skip check
+        self._last_structural_grid = grid.grid.copy()
+        self._last_structural_loose = grid.loose.copy()
 
     def _compute_load(self) -> None:
         """Top-down load accumulation with stiffness-weighted distribution.
@@ -550,7 +568,7 @@ class StructuralIntegrityPhysics:
             xs, ys, zs = xs[worst_indices], ys[worst_indices], zs[worst_indices]
 
         loose[xs, ys, zs] = True
-        grid.mark_all_dirty()
+        grid.mark_blocks_dirty(xs, ys, zs)
 
         self.event_bus.publish("structural_failure", count=int(count))
 
@@ -579,6 +597,7 @@ class StructuralIntegrityPhysics:
         effective_tensile = self._compute_effective_tensile_capacity()
 
         total_new_loose = 0
+        dirty_positions: list[tuple] = []  # Collect (txs, tys, z) for dirty marking
 
         for z in range(h):
             solid_z = solid[:, :, z]
@@ -601,54 +620,52 @@ class StructuralIntegrityPhysics:
                 continue
 
             # Compute minimum span to nearest supported block in 4 cardinal
-            # directions along this z-level.
+            # directions along this z-level (vectorized).
             # span = min distance to a supported-and-solid block.
             # If no supported block found in any direction, span = infinity.
-            min_span = np.full((w, d), np.float32(w + d), dtype=np.float32)
+            max_span = np.float32(w + d)
+            min_span = np.full((w, d), max_span, dtype=np.float32)
 
-            # Scan each row for +x/-x spans
-            for y in range(d):
-                # +x scan: forward pass
-                last_supported = -1
-                for x in range(w):
-                    if supported[x, y] and solid_z[x, y]:
-                        last_supported = x
-                    elif unsupported[x, y] and last_supported >= 0:
-                        span = x - last_supported
-                        if span < min_span[x, y]:
-                            min_span[x, y] = span
+            # Support mask: cells that are both supported and solid
+            support_mask = supported & solid_z
 
-                # -x scan: backward pass
-                last_supported = -1
-                for x in range(w - 1, -1, -1):
-                    if supported[x, y] and solid_z[x, y]:
-                        last_supported = x
-                    elif unsupported[x, y] and last_supported >= 0:
-                        span = last_supported - x
-                        if span < min_span[x, y]:
-                            min_span[x, y] = span
+            # +x direction: distance from nearest supported cell to the left
+            # Build index array where supported cells record their x index
+            x_idx = np.arange(w, dtype=np.float32)[:, None] * np.ones(d, dtype=np.float32)[None, :]
+            # Replace non-support with -inf, then cumulative max along x axis
+            sup_x_fwd = np.where(support_mask, x_idx, np.float32(-1))
+            np.maximum.accumulate(sup_x_fwd, axis=0, out=sup_x_fwd)
+            span_fwd_x = x_idx - sup_x_fwd
+            # Only valid where sup_x_fwd >= 0 (found a supported cell)
+            valid_fwd_x = (sup_x_fwd >= 0) & unsupported
+            min_span = np.where(valid_fwd_x & (span_fwd_x < min_span), span_fwd_x, min_span)
 
-            # Scan each column for +y/-y spans
-            for x in range(w):
-                # +y scan
-                last_supported = -1
-                for y in range(d):
-                    if supported[x, y] and solid_z[x, y]:
-                        last_supported = y
-                    elif unsupported[x, y] and last_supported >= 0:
-                        span = y - last_supported
-                        if span < min_span[x, y]:
-                            min_span[x, y] = span
+            # -x direction: distance from nearest supported cell to the right
+            sup_x_bwd = np.where(support_mask, x_idx, np.float32(-1))
+            sup_x_bwd_rev = sup_x_bwd[::-1, :]
+            # Cumulative max of reversed → finds nearest support to the right
+            np.maximum.accumulate(sup_x_bwd_rev, axis=0, out=sup_x_bwd_rev)
+            sup_x_bwd = sup_x_bwd_rev[::-1, :]
+            span_bwd_x = sup_x_bwd - x_idx
+            valid_bwd_x = (sup_x_bwd >= 0) & unsupported
+            min_span = np.where(valid_bwd_x & (span_bwd_x < min_span), span_bwd_x, min_span)
 
-                # -y scan
-                last_supported = -1
-                for y in range(d - 1, -1, -1):
-                    if supported[x, y] and solid_z[x, y]:
-                        last_supported = y
-                    elif unsupported[x, y] and last_supported >= 0:
-                        span = last_supported - y
-                        if span < min_span[x, y]:
-                            min_span[x, y] = span
+            # +y direction: distance from nearest supported cell above (in y)
+            y_idx = np.ones(w, dtype=np.float32)[:, None] * np.arange(d, dtype=np.float32)[None, :]
+            sup_y_fwd = np.where(support_mask, y_idx, np.float32(-1))
+            np.maximum.accumulate(sup_y_fwd, axis=1, out=sup_y_fwd)
+            span_fwd_y = y_idx - sup_y_fwd
+            valid_fwd_y = (sup_y_fwd >= 0) & unsupported
+            min_span = np.where(valid_fwd_y & (span_fwd_y < min_span), span_fwd_y, min_span)
+
+            # -y direction: distance from nearest supported cell below (in y)
+            sup_y_bwd = np.where(support_mask, y_idx, np.float32(-1))
+            sup_y_bwd_rev = sup_y_bwd[:, ::-1]
+            np.maximum.accumulate(sup_y_bwd_rev, axis=1, out=sup_y_bwd_rev)
+            sup_y_bwd = sup_y_bwd_rev[:, ::-1]
+            span_bwd_y = sup_y_bwd - y_idx
+            valid_bwd_y = (sup_y_bwd >= 0) & unsupported
+            min_span = np.where(valid_bwd_y & (span_bwd_y < min_span), span_bwd_y, min_span)
 
             # Compute bending moment: tension = load × span / 2
             block_load = load[:, :, z]
@@ -689,7 +706,10 @@ class StructuralIntegrityPhysics:
 
             loose[txs, tys, z] = True
             total_new_loose += count
+            dirty_positions.append((txs, tys, z))
 
         if total_new_loose > 0:
-            grid.mark_all_dirty()
+            for d_txs, d_tys, d_z in dirty_positions:
+                d_zs = np.full_like(d_txs, d_z)
+                grid.mark_blocks_dirty(d_txs, d_tys, d_zs)
             self.event_bus.publish("tensile_failure", count=total_new_loose)

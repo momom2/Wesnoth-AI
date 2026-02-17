@@ -16,6 +16,8 @@ from dungeon_builder.config import (
     VOXEL_STAIRS,
     VOXEL_WATER,
     VOXEL_LAVA,
+    VOXEL_IRON_BARS,
+    VOXEL_FLOODGATE,
     WATER_LOS_DEPTH,
 )
 
@@ -24,7 +26,10 @@ if TYPE_CHECKING:
 
 
 # Voxel types that are always transparent to LOS
-_TRANSPARENT = frozenset({VOXEL_AIR, VOXEL_SLOPE, VOXEL_STAIRS})
+_TRANSPARENT = frozenset({VOXEL_AIR, VOXEL_SLOPE, VOXEL_STAIRS, VOXEL_IRON_BARS})
+
+# Block types that are state-dependent transparent (open = transparent)
+_STATE_TRANSPARENT = frozenset({VOXEL_DOOR, VOXEL_FLOODGATE})
 
 
 def bresenham_3d(
@@ -114,7 +119,8 @@ def _is_los_transparent(
     vtype = voxel_grid.get(x, y, z)
     if vtype in _TRANSPARENT:
         return True
-    if vtype == VOXEL_DOOR and voxel_grid.block_state[x, y, z] == 0:
+    # Open doors and open floodgates are transparent
+    if vtype in _STATE_TRANSPARENT and voxel_grid.block_state[x, y, z] == 0:
         return True
     # Water is handled separately — callers use _is_water
     return False
@@ -135,45 +141,142 @@ def compute_los(
 
     Casts rays to every cell on the surface of a cube of side
     ``2 * perception_range + 1`` centered on the origin.  Each ray walks
-    the 3D Bresenham line; opaque cells stop the ray.
+    the 3D Bresenham line inline; opaque cells stop the ray.
 
     Water is semi-transparent: LOS passes through at most
     :data:`WATER_LOS_DEPTH` consecutive water cells before being blocked.
     """
     visible: set[tuple[int, int, int]] = set()
-    visible.add((ox, oy, oz))
+    visible_add = visible.add
+    visible_add((ox, oy, oz))
 
     r = perception_range
     # Collect unique target cells on the surface of the cube
     targets: set[tuple[int, int, int]] = set()
+    targets_add = targets.add
     for x in range(ox - r, ox + r + 1):
         for y in range(oy - r, oy + r + 1):
             for z in range(oz - r, oz + r + 1):
                 if abs(x - ox) == r or abs(y - oy) == r or abs(z - oz) == r:
-                    targets.add((x, y, z))
+                    targets_add((x, y, z))
+
+    # Cache grid access for performance
+    grid_arr = voxel_grid.grid
+    block_state_arr = voxel_grid.block_state
+    gw, gd, gh = voxel_grid.width, voxel_grid.depth, voxel_grid.height
+    water_los_depth = WATER_LOS_DEPTH
+    transparent = _TRANSPARENT
+    state_transparent = _STATE_TRANSPARENT
+    voxel_water = VOXEL_WATER
 
     for tx, ty, tz in targets:
-        ray = bresenham_3d(ox, oy, oz, tx, ty, tz)
-        water_count = 0
-        for cx, cy, cz in ray:
-            if (cx, cy, cz) == (ox, oy, oz):
-                continue  # Skip origin
-            if not voxel_grid.in_bounds(cx, cy, cz):
-                break  # Out of bounds — stop this ray
+        # Inline Bresenham walk — avoids building an intermediate list
+        x0, y0, z0 = ox, oy, oz
+        x1, y1, z1 = tx, ty, tz
 
-            if _is_water(voxel_grid, cx, cy, cz):
-                water_count += 1
-                if water_count > WATER_LOS_DEPTH:
-                    break  # Too much water, ray blocked
-                visible.add((cx, cy, cz))
-            elif _is_los_transparent(voxel_grid, cx, cy, cz):
-                water_count = 0
-                visible.add((cx, cy, cz))
-            else:
-                # Opaque solid — mark it visible (you can see the wall face)
-                # but stop the ray beyond it
-                visible.add((cx, cy, cz))
-                break
+        dx = abs(x1 - x0)
+        dy = abs(y1 - y0)
+        dz = abs(z1 - z0)
+
+        sx = 1 if x1 > x0 else -1
+        sy = 1 if y1 > y0 else -1
+        sz = 1 if z1 > z0 else -1
+
+        water_count = 0
+
+        if dx >= dy and dx >= dz:
+            # X-driven
+            ey = 2 * dy - dx
+            ez = 2 * dz - dx
+            cx, cy, cz = x0, y0, z0
+            for _ in range(dx + 1):
+                if (cx, cy, cz) != (ox, oy, oz):
+                    # Bounds check
+                    if not (0 <= cx < gw and 0 <= cy < gd and 0 <= cz < gh):
+                        break
+                    vtype = int(grid_arr[cx, cy, cz])
+                    if vtype == voxel_water:
+                        water_count += 1
+                        if water_count > water_los_depth:
+                            break
+                        visible_add((cx, cy, cz))
+                    elif vtype in transparent or (vtype in state_transparent and block_state_arr[cx, cy, cz] == 0):
+                        water_count = 0
+                        visible_add((cx, cy, cz))
+                    else:
+                        visible_add((cx, cy, cz))
+                        break
+                if ey > 0:
+                    cy += sy
+                    ey -= 2 * dx
+                if ez > 0:
+                    cz += sz
+                    ez -= 2 * dx
+                ey += 2 * dy
+                ez += 2 * dz
+                cx += sx
+
+        elif dy >= dx and dy >= dz:
+            # Y-driven
+            ex = 2 * dx - dy
+            ez = 2 * dz - dy
+            cx, cy, cz = x0, y0, z0
+            for _ in range(dy + 1):
+                if (cx, cy, cz) != (ox, oy, oz):
+                    if not (0 <= cx < gw and 0 <= cy < gd and 0 <= cz < gh):
+                        break
+                    vtype = int(grid_arr[cx, cy, cz])
+                    if vtype == voxel_water:
+                        water_count += 1
+                        if water_count > water_los_depth:
+                            break
+                        visible_add((cx, cy, cz))
+                    elif vtype in transparent or (vtype in state_transparent and block_state_arr[cx, cy, cz] == 0):
+                        water_count = 0
+                        visible_add((cx, cy, cz))
+                    else:
+                        visible_add((cx, cy, cz))
+                        break
+                if ex > 0:
+                    cx += sx
+                    ex -= 2 * dy
+                if ez > 0:
+                    cz += sz
+                    ez -= 2 * dy
+                ex += 2 * dx
+                ez += 2 * dz
+                cy += sy
+
+        else:
+            # Z-driven
+            ex = 2 * dx - dz
+            ey = 2 * dy - dz
+            cx, cy, cz = x0, y0, z0
+            for _ in range(dz + 1):
+                if (cx, cy, cz) != (ox, oy, oz):
+                    if not (0 <= cx < gw and 0 <= cy < gd and 0 <= cz < gh):
+                        break
+                    vtype = int(grid_arr[cx, cy, cz])
+                    if vtype == voxel_water:
+                        water_count += 1
+                        if water_count > water_los_depth:
+                            break
+                        visible_add((cx, cy, cz))
+                    elif vtype in transparent or (vtype in state_transparent and block_state_arr[cx, cy, cz] == 0):
+                        water_count = 0
+                        visible_add((cx, cy, cz))
+                    else:
+                        visible_add((cx, cy, cz))
+                        break
+                if ex > 0:
+                    cx += sx
+                    ex -= 2 * dz
+                if ey > 0:
+                    cy += sy
+                    ey -= 2 * dz
+                ex += 2 * dx
+                ey += 2 * dy
+                cz += sz
 
     return visible
 

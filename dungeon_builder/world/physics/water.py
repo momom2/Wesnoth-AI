@@ -19,6 +19,8 @@ from dungeon_builder.config import (
     VOXEL_AIR,
     VOXEL_WATER,
     VOXEL_LAVA,
+    VOXEL_DOOR,
+    VOXEL_FLOODGATE,
     VOXEL_POROSITY,
     VOXEL_SHEAR_STRENGTH,
     VOXEL_WEIGHT,
@@ -33,6 +35,8 @@ from dungeon_builder.config import (
     MAX_WATER_FLOW_PER_TICK,
     WATER_LAVA_PRODUCT,
     MAX_CASCADE_PER_TICK,
+    METAL_STRENGTH_MULT,
+    ENCHANTED_OFFSET,
 )
 
 if TYPE_CHECKING:
@@ -102,10 +106,14 @@ class WaterPhysics:
 
             # --- Downward flow (z increases = deeper) ---
             if h > 1:
-                # Water above air: transfer down
+                # Water above air (or open floodgate): transfer down
                 water_above = (voxels[:, :, :-1] == VOXEL_WATER)
                 air_below = (voxels[:, :, 1:] == VOXEL_AIR)
-                can_flow_down = water_above & air_below
+                gate_below = (
+                    (voxels[:, :, 1:] == VOXEL_FLOODGATE)
+                    & (grid.block_state[:, :, 1:] == 0)
+                )
+                can_flow_down = water_above & (air_below | gate_below)
 
                 if np.any(can_flow_down):
                     moved = True
@@ -137,7 +145,9 @@ class WaterPhysics:
             # --- Lateral leveling ---
             # Transfer water from higher-level to lower-level neighbors
             water_mask = (voxels == VOXEL_WATER)
-            # Neighbors that are either water or air can receive
+            # Neighbors that are water, air, or open floodgates can receive
+            # Open floodgate: block_state == 0
+            open_gate = (voxels == VOXEL_FLOODGATE) & (grid.block_state == 0)
             for axis, slc_hi, slc_lo in [
                 (0, (slice(None, -1), slice(None), slice(None)),
                     (slice(1, None), slice(None), slice(None))),
@@ -149,7 +159,11 @@ class WaterPhysics:
                     (slice(None), slice(None, -1), slice(None))),
             ]:
                 src_water = water_mask[slc_hi]
-                dst_ok = (voxels[slc_lo] == VOXEL_AIR) | (voxels[slc_lo] == VOXEL_WATER)
+                dst_ok = (
+                    (voxels[slc_lo] == VOXEL_AIR)
+                    | (voxels[slc_lo] == VOXEL_WATER)
+                    | open_gate[slc_lo]
+                )
                 can_level = src_water & dst_ok
 
                 if not np.any(can_level):
@@ -299,6 +313,11 @@ class WaterPhysics:
         wall_pressure = np.where(solid, adj_pressure, 0.0)
         grid.shear_load += wall_pressure
 
+        # --- Gate/door pressure burst ---
+        # Closed floodgates and doors under water pressure can be forced open.
+        # Effective shear = base_shear * METAL_STRENGTH_MULT[base_metal].
+        self._check_gate_burst(voxels, wall_pressure, shear, grid)
+
         # Burst check: if pressure > shear_strength * BURST_FACTOR → wall breaks
         safe_shear = np.where(shear > 0, shear, 1e9)
         should_burst = (
@@ -322,6 +341,49 @@ class WaterPhysics:
         grid.loose[xs, ys, zs] = False
         grid.mark_all_dirty()
         self.event_bus.publish("water_burst", count=int(count))
+
+    def _check_gate_burst(
+        self,
+        voxels: np.ndarray,
+        wall_pressure: np.ndarray,
+        shear: np.ndarray,
+        grid: VoxelGrid,
+    ) -> None:
+        """Force open closed doors/floodgates under water pressure.
+
+        Closed doors/floodgates under pressure exceeding their effective shear
+        (base_shear × METAL_STRENGTH_MULT[metal]) are forced open (block_state=0).
+        """
+        gate_types = frozenset({VOXEL_DOOR, VOXEL_FLOODGATE})
+        metal_type_arr = grid.metal_type
+        block_state_arr = grid.block_state
+
+        for gate_type in gate_types:
+            mask = (voxels == gate_type) & (block_state_arr != 0)  # Closed only
+            if not np.any(mask):
+                continue
+
+            positions = np.argwhere(mask)
+            for pos in positions:
+                x, y, z = int(pos[0]), int(pos[1]), int(pos[2])
+                pressure = wall_pressure[x, y, z]
+                if pressure <= 0:
+                    continue
+
+                # Get effective shear strength
+                base_shear = float(shear[x, y, z])
+                mt = int(metal_type_arr[x, y, z])
+                base_mt = mt & 0x7F
+                strength_mult = METAL_STRENGTH_MULT.get(base_mt, 1.0)
+                effective_shear = base_shear * strength_mult
+
+                if pressure > effective_shear * WATER_BURST_FACTOR:
+                    # Force open
+                    grid.set_block_state(x, y, z, 0)
+                    self.event_bus.publish(
+                        "gate_pressure_burst",
+                        x=x, y=y, z=z, vtype=gate_type,
+                    )
 
     # ------------------------------------------------------------------
     # Lava interaction

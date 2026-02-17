@@ -17,6 +17,8 @@ from dungeon_builder.config import (
 def _setup(width=4, depth=4, height=4):
     bus = EventBus()
     grid = VoxelGrid(width=width, depth=depth, height=height)
+    # Mark all blocks visible so fog-of-war doesn't interfere with overlay tests
+    grid.visible[:] = True
     bs = BuildSystem(bus, grid)
     builder = ChunkMeshBuilder()
     return bus, grid, bs, builder

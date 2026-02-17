@@ -1,16 +1,20 @@
-"""Pick up and drop loose materials."""
+"""Pick up and drop loose materials.
+
+Inventory is a multi-type bag: the player can hold multiple material types
+simultaneously with no limit on quantity.
+"""
 
 from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING
 
-from dungeon_builder.config import VOXEL_AIR, VOXEL_DOOR
+from dungeon_builder.config import VOXEL_AIR, VOXEL_DOOR, VOXEL_PUMP, METAL_NONE
 
 if TYPE_CHECKING:
     from dungeon_builder.core.event_bus import EventBus
+    from dungeon_builder.core.game_state import GameState
     from dungeon_builder.world.voxel_grid import VoxelGrid
-    from dungeon_builder.building.crafting_system import CraftingSystem
 
 logger = logging.getLogger("dungeon_builder.building")
 
@@ -18,25 +22,80 @@ logger = logging.getLogger("dungeon_builder.building")
 class MoveSystem:
     """Lets the player pick up loose material and drop it elsewhere.
 
-    Held material is a (voxel_type, count) tuple or None.
-    Temperature and humidity are averaged across picked-up blocks and
-    restored when dropped, so moving hot blocks carries their heat.
-    Dropping onto a non-air voxel triggers an "attempt_craft" event
-    so the crafting system can check for recipes.
-    Dropping onto air first checks for recipes (air-target crafts like
-    spikes, doors, slopes) before falling through to place-as-loose.
+    Held materials are stored as a dict mapping voxel_type -> count.
+    Temperature and humidity are tracked per-type as running averages,
+    so moving hot blocks carries their heat.
+
+    Dropping onto air places a loose block.  Crafting is handled
+    separately via the recipe panel (no auto-craft on drop).
     """
 
-    def __init__(self, event_bus: EventBus, voxel_grid: VoxelGrid) -> None:
+    def __init__(
+        self, event_bus: EventBus, voxel_grid: VoxelGrid, game_state: GameState,
+    ) -> None:
         self.event_bus = event_bus
         self.voxel_grid = voxel_grid
-        self.held_material: tuple[int, int] | None = None  # (vtype, count)
-        self.held_temperature: float = 0.0  # running average temperature
-        self.held_humidity: float = 0.0     # running average humidity
-        self.crafting_system: CraftingSystem | None = None  # set after construction
+        self.game_state = game_state
+
+        # Multi-type bag: vtype -> count
+        self.held_materials: dict[int, int] = {}
+        # Per-type running average temperature/humidity
+        self.held_temperatures: dict[int, float] = {}
+        self.held_humidities: dict[int, float] = {}
+        # Per-type metal variant: vtype -> metal_type (uint8)
+        self.held_metal_types: dict[int, int] = {}
+        # Track which type to drop on right-click (last picked up type)
+        self._last_picked_type: int | None = None
 
         event_bus.subscribe("voxel_left_clicked", self._on_left_click)
         event_bus.subscribe("voxel_right_clicked", self._on_right_click)
+
+    # ── Helpers ──────────────────────────────────────────────────────
+
+    def has_material(self, vtype: int) -> bool:
+        """Return True if the bag contains at least one of this type."""
+        return self.held_materials.get(vtype, 0) > 0
+
+    def get_count(self, vtype: int) -> int:
+        """Return count of a specific material type in the bag."""
+        return self.held_materials.get(vtype, 0)
+
+    def total_count(self) -> int:
+        """Return total number of items across all types."""
+        return sum(self.held_materials.values())
+
+    def consume(self, vtype: int, count: int = 1) -> bool:
+        """Remove *count* units of *vtype* from the bag.
+
+        Returns True if successful, False if insufficient.
+        """
+        current = self.held_materials.get(vtype, 0)
+        if current < count:
+            return False
+        new_count = current - count
+        if new_count == 0:
+            del self.held_materials[vtype]
+            self.held_temperatures.pop(vtype, None)
+            self.held_humidities.pop(vtype, None)
+            self.held_metal_types.pop(vtype, None)
+            if self._last_picked_type == vtype:
+                # Fall back to any remaining type
+                self._last_picked_type = (
+                    next(iter(self.held_materials)) if self.held_materials else None
+                )
+        else:
+            self.held_materials[vtype] = new_count
+        self.event_bus.publish(
+            "material_dropped",
+            materials=dict(self.held_materials),
+        )
+        return True
+
+    def get_held_metal_type(self, vtype: int) -> int:
+        """Return the metal_type of the held block of *vtype*, or METAL_NONE."""
+        return self.held_metal_types.get(vtype, METAL_NONE)
+
+    # ── Pick up ──────────────────────────────────────────────────────
 
     def pick_up(self, x: int, y: int, z: int) -> bool:
         """Pick up loose material at (x, y, z). Returns True on success."""
@@ -47,37 +106,44 @@ class MoveSystem:
         if vtype == VOXEL_AIR:
             return False
 
+        # Can only pick up within claimed territory
+        if not self.voxel_grid.is_visible(x, y, z):
+            self.event_bus.publish(
+                "error_message", text="Too far from claimed territory"
+            )
+            return False
+
         if not self.voxel_grid.is_loose(x, y, z):
             self.event_bus.publish(
                 "error_message", text="Not loose, dig first"
             )
             return False
 
-        # Capture temperature and humidity before removing the block
+        # Capture temperature, humidity, and metal_type before removing the block
         block_temp = self.voxel_grid.get_temperature(x, y, z)
         block_hum = self.voxel_grid.get_humidity(x, y, z)
+        block_metal = self.voxel_grid.get_metal_type(x, y, z)
 
-        if self.held_material is not None:
-            held_type, held_count = self.held_material
-            if held_type == vtype:
-                # Running average of temperature and humidity
-                new_count = held_count + 1
-                self.held_temperature = (
-                    (self.held_temperature * held_count + block_temp) / new_count
-                )
-                self.held_humidity = (
-                    (self.held_humidity * held_count + block_hum) / new_count
-                )
-                self.held_material = (held_type, new_count)
-            else:
-                self.event_bus.publish(
-                    "error_message", text="Already holding a different material"
-                )
-                return False
+        # Accumulate into bag with running average for temp/humidity
+        old_count = self.held_materials.get(vtype, 0)
+        new_count = old_count + 1
+        if old_count > 0:
+            old_temp = self.held_temperatures.get(vtype, 0.0)
+            old_hum = self.held_humidities.get(vtype, 0.0)
+            self.held_temperatures[vtype] = (
+                (old_temp * old_count + block_temp) / new_count
+            )
+            self.held_humidities[vtype] = (
+                (old_hum * old_count + block_hum) / new_count
+            )
         else:
-            self.held_material = (vtype, 1)
-            self.held_temperature = block_temp
-            self.held_humidity = block_hum
+            self.held_temperatures[vtype] = block_temp
+            self.held_humidities[vtype] = block_hum
+        # Store metal_type (most recent pick-up wins for same vtype)
+        if block_metal != METAL_NONE:
+            self.held_metal_types[vtype] = block_metal
+        self.held_materials[vtype] = new_count
+        self._last_picked_type = vtype
 
         # Remove the voxel (set to AIR clears loose flag automatically)
         self.voxel_grid.set(x, y, z, VOXEL_AIR, event_bus=self.event_bus)
@@ -86,15 +152,20 @@ class MoveSystem:
         self.voxel_grid.set_humidity(x, y, z, 0.0)
         self.event_bus.publish(
             "material_picked_up",
-            vtype=self.held_material[0],
-            count=self.held_material[1],
+            materials=dict(self.held_materials),
         )
         logger.debug("Picked up type=%d at (%d, %d, %d)", vtype, x, y, z)
         return True
 
+    # ── Drop ─────────────────────────────────────────────────────────
+
     def drop(self, x: int, y: int, z: int) -> bool:
-        """Drop held material at (x, y, z). Returns True on success."""
-        if self.held_material is None:
+        """Drop one unit of the last-picked material at (x, y, z).
+
+        Returns True on success.  Dropping is simple placement — no
+        auto-crafting.  Crafting goes through the recipe panel instead.
+        """
+        if not self.held_materials:
             self.event_bus.publish("error_message", text="Nothing to drop")
             return False
 
@@ -102,61 +173,64 @@ class MoveSystem:
             return False
 
         target = self.voxel_grid.get(x, y, z)
-        held_type, held_count = self.held_material
 
-        if target == VOXEL_AIR:
-            # Try crafting first (air-target recipes like spikes, doors, slopes)
-            held_before = self.held_material
+        if target != VOXEL_AIR:
             self.event_bus.publish(
-                "attempt_craft",
-                x=x, y=y, z=z,
-                held_type=held_type,
-                held_count=held_count,
-                target_type=VOXEL_AIR,
+                "error_message", text="Can't drop on a solid block"
             )
-            # Check if craft system handled it:
-            # 1. Material was consumed (auto-executed single match)
-            if self.held_material != held_before:
-                return True
-            # 2. Menu is open (multiple matches, waiting for selection)
-            if self.crafting_system is not None and self.crafting_system.has_pending_craft():
-                return True
+            return False
 
-            # No recipe matched — fall through to place-as-loose
-            self.voxel_grid.set(x, y, z, held_type, event_bus=self.event_bus)
-            self.voxel_grid.set_loose(x, y, z, True)
-            self.voxel_grid.set_temperature(x, y, z, self.held_temperature)
-            self.voxel_grid.set_humidity(x, y, z, self.held_humidity)
-            if held_count > 1:
-                self.held_material = (held_type, held_count - 1)
-            else:
-                self.held_material = None
-                self.held_temperature = 0.0
-                self.held_humidity = 0.0
+        # Must be within claimed territory
+        if not self.voxel_grid.is_claimed(x, y, z):
             self.event_bus.publish(
-                "material_dropped", x=x, y=y, z=z, vtype=held_type
+                "error_message", text="Too far from claimed territory"
             )
-            logger.debug("Dropped type=%d at (%d, %d, %d)", held_type, x, y, z)
-            return True
+            return False
 
-        # Target is not air — attempt crafting
+        # Determine which type to drop
+        drop_type = self._last_picked_type
+        if drop_type is None or drop_type not in self.held_materials:
+            # Fall back to first available type
+            drop_type = next(iter(self.held_materials))
+
+        # Place as loose block
+        self.voxel_grid.set(x, y, z, drop_type, event_bus=self.event_bus)
+        self.voxel_grid.set_loose(x, y, z, True)
+        # Restore carried temperature, humidity, and metal_type
+        temp = self.held_temperatures.get(drop_type, 0.0)
+        hum = self.held_humidities.get(drop_type, 0.0)
+        metal = self.held_metal_types.get(drop_type, METAL_NONE)
+        self.voxel_grid.set_temperature(x, y, z, temp)
+        self.voxel_grid.set_humidity(x, y, z, hum)
+        if metal != METAL_NONE:
+            self.voxel_grid.set_metal_type(x, y, z, metal)
+
+        # Decrement count
+        self.consume(drop_type, 1)
+
         self.event_bus.publish(
-            "attempt_craft",
-            x=x, y=y, z=z,
-            held_type=held_type,
-            held_count=held_count,
-            target_type=target,
+            "material_dropped",
+            x=x, y=y, z=z, vtype=drop_type,
+            materials=dict(self.held_materials),
         )
+        logger.debug("Dropped type=%d at (%d, %d, %d)", drop_type, x, y, z)
         return True
+
+    # ── Event handlers ───────────────────────────────────────────────
 
     def _on_left_click(self, x: int, y: int, z: int, mode: str) -> None:
         if mode != "move":
             return
 
+        # Craft mode: left-clicks handled by camera → craft_at_position
+        if self.game_state.craft_mode_active:
+            return
+
         vtype = self.voxel_grid.get(x, y, z)
 
         # Door toggle: clicking a non-loose door toggles its state
-        if vtype == VOXEL_DOOR and not self.voxel_grid.is_loose(x, y, z):
+        if vtype == VOXEL_DOOR and not self.voxel_grid.is_loose(x, y, z) \
+                and self.voxel_grid.is_visible(x, y, z):
             current = self.voxel_grid.get_block_state(x, y, z)
             new_state = 0 if current == 1 else 1
             self.voxel_grid.set_block_state(x, y, z, new_state)
@@ -168,9 +242,27 @@ class MoveSystem:
             )
             return
 
+        # Pump direction: clicking a non-loose pump cycles direction (0-5)
+        if vtype == VOXEL_PUMP and not self.voxel_grid.is_loose(x, y, z) \
+                and self.voxel_grid.is_visible(x, y, z):
+            current = self.voxel_grid.get_block_state(x, y, z)
+            new_state = (current + 1) % 6
+            self.voxel_grid.set_block_state(x, y, z, new_state)
+            self.event_bus.publish(
+                "pump_direction_changed", x=x, y=y, z=z, direction=new_state
+            )
+            logger.debug(
+                "Pump direction at (%d, %d, %d) -> %d", x, y, z, new_state
+            )
+            return
+
         # Default: pick up loose material
         self.pick_up(x, y, z)
 
     def _on_right_click(self, x: int, y: int, z: int, mode: str) -> None:
-        if mode == "move":
-            self.drop(x, y, z)
+        if mode != "move":
+            return
+        # In craft mode, right-click cancels (handled by camera)
+        if self.game_state.craft_mode_active:
+            return
+        self.drop(x, y, z)

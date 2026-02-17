@@ -21,10 +21,16 @@ from dungeon_builder.intruders.archetypes import (
     WARDEN,
     GORECLAW,
     GLOOMSEER,
+    MAGMAWRAITH,
+    BOREMITE,
+    STONESKIN_BRUTE,
+    TREMORSTALKER,
+    CORROSIVE_CRAWLER,
     ArchetypeStats,
 )
 from dungeon_builder.config import (
     MAP_SHARE_RANGE,
+    MAP_SHARE_INTERVAL,
     WARDEN_HEAL_AMOUNT,
     WARDEN_HEAL_INTERVAL,
     WARDEN_LOYALTY_BONUS,
@@ -33,6 +39,15 @@ from dungeon_builder.config import (
     PARTY_WEIGHT_SCOUTING_PARTY,
     PARTY_WEIGHT_SIEGE_FORCE,
     PARTY_WEIGHT_WAR_BAND,
+    PARTY_WEIGHT_UNDERWORLD_HORDE,
+    PARTY_WEIGHT_UNDERWORLD_OVERSEER,
+    PARTY_WEIGHT_UNDERWORLD_INFERNAL,
+    PARTY_WEIGHT_UNDERWORLD_SOLITARY,
+    MORALE_BASE,
+    MORALE_LEADER_BONUS,
+    MORALE_WARDEN_TICK,
+    MORALE_DRIFT_RATE,
+    MORALE_ALLY_DEATH_PENALTY,
 )
 
 if TYPE_CHECKING:
@@ -107,18 +122,74 @@ ALL_TEMPLATES: tuple[PartyTemplate, ...] = (
 )
 
 
+# ── Underworld composition templates ─────────────────────────────────
+
+UNDERWORLD_HORDE = PartyTemplate(
+    name="Underworld Horde",
+    weight=PARTY_WEIGHT_UNDERWORLD_HORDE,
+    slots=(
+        _MemberSlot((BOREMITE,), 4, 7),
+        _MemberSlot((CORROSIVE_CRAWLER,), 1, 2),
+        _MemberSlot((TREMORSTALKER,), 0, 1),
+    ),
+)
+
+UNDERWORLD_OVERSEER = PartyTemplate(
+    name="Overseer & Slaves",
+    weight=PARTY_WEIGHT_UNDERWORLD_OVERSEER,
+    slots=(
+        _MemberSlot((STONESKIN_BRUTE,), 1, 1),
+        _MemberSlot((BOREMITE,), 2, 4),
+        _MemberSlot((CORROSIVE_CRAWLER,), 0, 1),
+    ),
+)
+
+UNDERWORLD_INFERNAL = PartyTemplate(
+    name="Infernal Vanguard",
+    weight=PARTY_WEIGHT_UNDERWORLD_INFERNAL,
+    slots=(
+        _MemberSlot((MAGMAWRAITH,), 2, 3),
+        _MemberSlot((STONESKIN_BRUTE,), 0, 1),
+        _MemberSlot((TREMORSTALKER,), 1, 1),
+    ),
+)
+
+UNDERWORLD_SOLITARY = PartyTemplate(
+    name="Solitary Hunter",
+    weight=PARTY_WEIGHT_UNDERWORLD_SOLITARY,
+    slots=(
+        _MemberSlot((STONESKIN_BRUTE, MAGMAWRAITH, CORROSIVE_CRAWLER), 1, 1),
+    ),
+)
+
+UNDERWORLD_TEMPLATES: tuple[PartyTemplate, ...] = (
+    UNDERWORLD_HORDE, UNDERWORLD_OVERSEER, UNDERWORLD_INFERNAL, UNDERWORLD_SOLITARY,
+)
+
+
 # ── Composition generation ─────────────────────────────────────────────
 
-def choose_template(rng: SeededRNG) -> PartyTemplate:
-    """Weighted random selection of a party template."""
+def _choose_from_templates(
+    templates: tuple[PartyTemplate, ...], rng: SeededRNG,
+) -> PartyTemplate:
+    """Weighted random selection from a set of templates."""
     roll = rng.random()
     cumulative = 0.0
-    for tmpl in ALL_TEMPLATES:
+    for tmpl in templates:
         cumulative += tmpl.weight
         if roll < cumulative:
             return tmpl
-    # Fallback (floating-point edge case)
-    return ALL_TEMPLATES[-1]
+    return templates[-1]
+
+
+def choose_template(rng: SeededRNG) -> PartyTemplate:
+    """Weighted random selection of a surface party template."""
+    return _choose_from_templates(ALL_TEMPLATES, rng)
+
+
+def choose_underworld_template(rng: SeededRNG) -> PartyTemplate:
+    """Weighted random selection of an underworld party template."""
+    return _choose_from_templates(UNDERWORLD_TEMPLATES, rng)
 
 
 def generate_composition(
@@ -153,6 +224,7 @@ class Party:
         "_leader_id",
         "_objective",
         "_heal_tick_counter",
+        "_share_tick_counter",
     )
 
     def __init__(self, party_id: int, members: list[Intruder]) -> None:
@@ -161,6 +233,7 @@ class Party:
         self._leader_id: int | None = None
         self._objective: IntruderObjective | None = None
         self._heal_tick_counter: int = 0
+        self._share_tick_counter: int = MAP_SHARE_INTERVAL - 1
 
         # Assign party_id to all members
         for m in self.members:
@@ -173,16 +246,18 @@ class Party:
     # ── Leader election ────────────────────────────────────────────
 
     def _elect_leader(self) -> None:
-        """Elect the alive member with highest effective_loyalty as leader.
+        """Elect the alive member with highest status, then loyalty, as leader.
 
-        Ties are broken by intruder id (lowest wins for determinism).
+        Status (CHAMPION > ELITE > VETERAN > GRUNT) takes priority.
+        Loyalty breaks ties within the same status.
+        Intruder id breaks remaining ties for determinism.
         """
         alive = [m for m in self.members if m.alive]
         if not alive:
             self._leader_id = None
             return
-        # Sort by (-loyalty, id) → highest loyalty first, then lowest id
-        best = min(alive, key=lambda m: (-m.effective_loyalty, m.id))
+        # Sort by (-status.value, -loyalty, id) → highest status first
+        best = min(alive, key=lambda m: (-m.status.value, -m.effective_loyalty, m.id))
         self._leader_id = best.id
 
     @property
@@ -204,10 +279,14 @@ class Party:
 
     # ── Objective voting ───────────────────────────────────────────
 
-    def _vote_objective(self) -> None:
+    def _vote_objective(
+        self,
+        reputation_modifier: tuple[float, float, float] | None = None,
+    ) -> None:
         """Set party objective by weighted vote from alive members.
 
-        Each member contributes its archetype's objective_weights.
+        Each member contributes its archetype's objective_weights, optionally
+        shifted by a reputation modifier (destroy, explore, pillage offsets).
         The objective with the highest total weight wins.
         Leader breaks ties.
         """
@@ -216,12 +295,13 @@ class Party:
             self._objective = IntruderObjective.DESTROY_CORE
             return
 
+        mod = reputation_modifier or (0.0, 0.0, 0.0)
         totals = [0.0, 0.0, 0.0]  # destroy, explore, pillage
         for m in alive:
             w = m.archetype.objective_weights
-            totals[0] += w[0]
-            totals[1] += w[1]
-            totals[2] += w[2]
+            totals[0] += w[0] + mod[0]
+            totals[1] += w[1] + mod[1]
+            totals[2] += w[2] + mod[2]
 
         objectives = [
             IntruderObjective.DESTROY_CORE,
@@ -274,7 +354,16 @@ class Party:
 
         Distance is Chebyshev (max of |dx|, |dy|, |dz|) so members in
         adjacent cells share instantly.
+
+        Throttled to run every MAP_SHARE_INTERVAL ticks.  Within each merge
+        pass, generation-based skip in PersonalMap.merge() avoids redundant
+        dict copies when nothing has changed.
         """
+        self._share_tick_counter += 1
+        if self._share_tick_counter < MAP_SHARE_INTERVAL:
+            return
+        self._share_tick_counter = 0
+
         alive = self.alive_members
         n = len(alive)
         if n < 2:
@@ -367,19 +456,59 @@ class Party:
                 )
                 if dist <= MAP_SHARE_RANGE:
                     ally.loyalty_modifier += WARDEN_LOYALTY_BONUS
+                    # Morale boost from warden aura
+                    ally.morale = min(1.0, ally.morale + MORALE_WARDEN_TICK)
 
     # ── Warden death penalty ───────────────────────────────────────
 
     def on_member_death(self, dead: Intruder) -> None:
         """Handle a member's death.  If it's a warden, penalise loyalty.
 
+        All alive members suffer a morale penalty from witnessing a death.
         Re-elects leader and re-votes objective after any death.
         """
         if dead.archetype.healer:
             for m in self.alive_members:
                 m.loyalty_modifier -= WARDEN_DEATH_LOYALTY_PENALTY
+
+        # Morale penalty for witnessing ally death
+        for m in self.alive_members:
+            m.morale = max(0.0, m.morale - MORALE_ALLY_DEATH_PENALTY)
+
         self._elect_leader()
         self._vote_objective()
+
+    # ── Morale update ─────────────────────────────────────────────
+
+    def update_morale(self, tick: int) -> None:
+        """Update morale for all alive members each tick.
+
+        - Leader alive bonus: +MORALE_LEADER_BONUS per tick
+        - Natural decay: drift toward MORALE_BASE
+        - Frenzy override: frenzy_active → morale = 1.0
+        - Warden morale handled in apply_warden_aura()
+        """
+        alive = self.alive_members
+        leader = self.leader
+
+        for m in alive:
+            # Frenzy overrides everything
+            if m.frenzy_active:
+                m.morale = 1.0
+                continue
+
+            # Leader alive bonus
+            if leader is not None:
+                m.morale += MORALE_LEADER_BONUS
+
+            # Natural drift toward MORALE_BASE
+            if m.morale < MORALE_BASE:
+                m.morale = min(MORALE_BASE, m.morale + MORALE_DRIFT_RATE)
+            elif m.morale > MORALE_BASE:
+                m.morale = max(MORALE_BASE, m.morale - MORALE_DRIFT_RATE)
+
+            # Clamp
+            m.morale = min(1.0, max(0.0, m.morale))
 
     # ── Betrayal ───────────────────────────────────────────────────
 
