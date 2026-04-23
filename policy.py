@@ -97,6 +97,8 @@ def available() -> List[str]:
 def _register_builtins() -> None:
     from dummy_policy import DummyPolicy
     register("dummy", DummyPolicy)
+    # transformer_policy self-registers on import.
+    import transformer_policy  # noqa: F401
 
 
 _register_builtins()

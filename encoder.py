@@ -125,10 +125,13 @@ class GameStateEncoder(nn.Module):
         super().__init__()
         self.d_model = d_model
 
-        # Sharing this dict with StateConverter keeps Unit.name_id and
-        # recruit-type indices in lockstep — otherwise a unit known to
-        # the converter as id=3 would get a different id here and hit
-        # a different row of unit_type_embed than its recruit entry.
+        # We maintain our OWN name→id map. StateConverter also maintains
+        # one (Unit.name_id comes from it), but we intentionally ignore
+        # that here — an encoder-only dict means a recruit-string
+        # "Dwarvish Fighter" and a unit of the same name always hit the
+        # same embedding row, even if the converter saw them in a
+        # different order. Optional init arg lets checkpoints restore
+        # the dict at load time.
         self.unit_type_to_id: Dict[str, int] = (
             unit_type_to_id if unit_type_to_id is not None else {}
         )
@@ -255,21 +258,12 @@ class GameStateEncoder(nn.Module):
         ids = [u.id for u in units]
         is_ours = [1.0 if u.side == current_side else 0.0 for u in units]
 
-        # Unit-type embedding: reuse Unit.name_id (assigned by the
-        # converter) when possible; fall back to our own registry for
-        # recruit tokens that might not have appeared as units yet.
+        # Use OUR name→id map (self.unit_type_to_id), not Unit.name_id
+        # — see class docstring for why.
         type_ids = torch.tensor(
-            [
-                min(u.name_id if u.name_id < MAX_UNIT_TYPES
-                    else self._name_id(u.name), MAX_UNIT_TYPES - 1)
-                for u in units
-            ],
+            [self._name_id(u.name) for u in units],
             device=device, dtype=torch.long,
         )
-        # Keep the shared dict in sync so recruit tokens match.
-        for u in units:
-            if u.name not in self.unit_type_to_id:
-                self.unit_type_to_id[u.name] = u.name_id
         type_emb = self.unit_type_embed(type_ids)  # [U, d]
 
         side_ids = torch.tensor(
