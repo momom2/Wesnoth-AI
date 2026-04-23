@@ -145,8 +145,8 @@ def check_setup() -> bool:
     required_lua = [
         LUA_PATH / "state_collector.lua",
         LUA_PATH / "action_executor.lua",
-        LUA_PATH / "ca_state_sender.lua",
-        LUA_PATH / "ca_action_executor.lua",
+        LUA_PATH / "ca_turn_loop.lua",
+        LUA_PATH / "json_encoder.lua",
     ]
     required_other = [
         SCENARIOS_PATH / "training_scenario.cfg",
