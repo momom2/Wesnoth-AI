@@ -24,6 +24,7 @@ stored so load can refuse an incompatible model.
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -70,6 +71,7 @@ class TransformerPolicy:
         ).to(self._device)
         self._trainer = Trainer(
             self._model,
+            encoder=self._encoder,
             config=trainer_config,
             device=self._device,
         )
@@ -109,21 +111,23 @@ class TransformerPolicy:
     ) -> Dict:
         """Forward pass + sample + record pending Transition.
 
-        Runs WITH grads: the log_prob / value / entropy tensors stored
-        in the pending Transition carry their computation graph, so
-        when ``train_step`` eventually calls ``loss.backward()`` the
-        model weights receive proper gradients.
+        Runs under torch.no_grad(): we only need the sampled indices
+        at collection time, not the grad graph. The trainer re-forwards
+        the stored game_state at training time. This is the key
+        memory-saving move — see trainer.py's docstring.
         """
-        encoded = self._encoder.encode(game_state)
-        output = self._model(encoded)
-        sampled = sample_action(encoded, output, game_state)
+        with torch.no_grad():
+            encoded = self._encoder.encode(game_state)
+            output = self._model(encoded)
+            sampled = sample_action(encoded, output, game_state)
 
         side = game_state.global_info.current_side
         key = (game_label, side)
         self._pending.setdefault(key, []).append(Transition(
-            log_prob=sampled.log_prob,
-            value=sampled.value,
-            entropy=sampled.entropy,
+            game_state=game_state,
+            actor_idx=sampled.actor_idx,
+            target_idx=sampled.target_idx,
+            weapon_idx=sampled.weapon_idx,
         ))
         return sampled.action
 
@@ -162,20 +166,35 @@ class TransformerPolicy:
         """Apply one gradient update over queued trajectories.
 
         Clears the queue regardless of outcome. No-op if empty.
+        Logs duration — this is the most likely source of a perceived
+        'freeze' in the rolling-pool game_manager, since train_step
+        blocks the asyncio event loop while it runs. See trainer.py
+        for the re-forward design that keeps this tractable.
         """
         if not self._queue:
             return TrainStats()
+        n_transitions_total = sum(len(t) for t in self._queue)
+        self._logger.info(
+            f"train_step starting: {len(self._queue)} trajectories, "
+            f"{n_transitions_total} transitions pending"
+        )
+        t0 = time.perf_counter()
         self._model.train()
+        self._encoder.train()
         try:
             stats = self._trainer.step(self._queue)
         finally:
             self._model.eval()
+            self._encoder.eval()
             self._queue.clear()
+        dt = time.perf_counter() - t0
         self._logger.info(
-            "train_step: %d trajectories, %d transitions, "
+            "train_step done in %.2fs: "
+            "%d trajectories / %d transitions "
+            "(of %d queued, capped by trainer) "
             "total_loss=%.4f policy=%.4f value=%.4f entropy=%.4f "
             "mean_return=%.4f grad_norm=%.4f",
-            stats.n_trajectories, stats.n_transitions,
+            dt, stats.n_trajectories, stats.n_transitions, n_transitions_total,
             stats.total_loss, stats.policy_loss, stats.value_loss,
             stats.entropy, stats.mean_return, stats.grad_norm,
         )
