@@ -2,8 +2,7 @@
 # Data structures for Wesnoth AI
 
 from dataclasses import dataclass
-from typing import List, Set, Optional
-from pathlib import Path
+from typing import Dict, List, Optional, Set
 from enum import IntEnum
 
 class Alignment(IntEnum):
@@ -204,27 +203,11 @@ class GameState:
     winner: Optional[int] = None
 
 @dataclass
-class Memory:
-    """AI memory state."""
-    state: List[float]
-
-@dataclass
-class Action:
-    """AI action."""
-    type: str  # 'move', 'attack', 'recruit', 'recall', 'end_turn'
-    start_hex: Optional[Position] = None
-    target_hex: Optional[Position] = None
-    attack_index: int = -1
-    recruit_unit: Optional[str] = None
-    unit_id: Optional[str] = None
-    end_turn: bool = False
-
-@dataclass
 class Experience:
-    """Training experience."""
+    """Training experience. `action` is the on-wire dict passed to Lua."""
     game_id: str
     state: GameState
-    action: Action
+    action: Dict
     value: float
     reward: Optional[float]
     turn_number: int

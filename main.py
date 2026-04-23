@@ -5,7 +5,6 @@ import asyncio
 import sys
 import argparse
 import subprocess
-from pathlib import Path
 
 from game_manager import GameManager
 from constants import NUM_PARALLEL_GAMES
@@ -109,67 +108,6 @@ def check_setup():
     print("\n✓ All checks passed!")
     return True
 
-def run_all_tests():
-    """Run all test suites."""
-    print("\n" + "=" * 70)
-    print("  Running All Test Suites")
-    print("=" * 70)
-
-    test_scripts = [
-        ("WML Parser Tests", "test_wml_parser.py"),
-        ("Lua Action Tests", "test_lua_actions.py"),
-        ("Integration Tests", "test_integration.py"),
-    ]
-
-    results = []
-
-    for test_name, test_script in test_scripts:
-        print(f"\n{'=' * 70}")
-        print(f"  Running: {test_name}")
-        print(f"{'=' * 70}\n")
-
-        try:
-            # Run the test script
-            result = subprocess.run(
-                [sys.executable, test_script],
-                cwd=Path(__file__).parent,
-                capture_output=False,  # Show output in real-time
-                text=True
-            )
-
-            passed = (result.returncode == 0)
-            results.append((test_name, passed))
-
-            if passed:
-                print(f"\n✓ {test_name} PASSED")
-            else:
-                print(f"\n✗ {test_name} FAILED")
-
-        except Exception as e:
-            print(f"\n✗ {test_name} CRASHED: {e}")
-            results.append((test_name, False))
-
-    # Print summary
-    print("\n" + "=" * 70)
-    print("  Test Summary")
-    print("=" * 70)
-
-    passed_count = sum(1 for _, passed in results if passed)
-    total_count = len(results)
-
-    for name, passed in results:
-        status = "✓ PASS" if passed else "✗ FAIL"
-        print(f"{status}: {name}")
-
-    print(f"\nTotal: {passed_count}/{total_count} test suites passed")
-
-    if passed_count == total_count:
-        print("\n🎉 All test suites passed! Ready for training.")
-        return 0
-    else:
-        print(f"\n❌ {total_count - passed_count} test suite(s) failed")
-        return 1
-
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(description="Wesnoth AI Training")
@@ -184,17 +122,8 @@ def main():
         action='store_true',
         help='Check setup and exit'
     )
-    parser.add_argument(
-        '--all-tests',
-        action='store_true',
-        help='Run all test suites and exit'
-    )
 
     args = parser.parse_args()
-
-    # Run all tests if requested
-    if args.all_tests:
-        return run_all_tests()
 
     # Check setup
     if not check_setup():

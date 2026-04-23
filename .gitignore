@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
+
+# Project runtime artifacts (regenerated on each run)
+logs/
+training/checkpoints/
+training/replays/
+add-ons/wesnoth_ai/games/
+
+# Wesnoth debugging dumps (anywhere in the tree)
+*.log
