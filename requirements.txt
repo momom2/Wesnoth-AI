@@ -1,2 +1,9 @@
-# Phase 1 has no Python dependencies outside the stdlib.
-# Phase 3 (model training) will reintroduce torch here.
+# Python deps. Phase 1/2 runtime is stdlib-only; Phase 3 adds torch
+# for the TransformerPolicy + trainer.
+#
+# torch-directml pulls in a matching torch wheel (currently torch
+# 2.4.1+cpu). It provides a DirectML backend so AMD / Intel GPUs on
+# Windows work via DirectX 12. AMD ROCm on Windows does NOT support
+# the user's RX 6600 (RDNA 2 / gfx1032), so DirectML is the path.
+# See memory/user_gpu_setup.md for device-picker notes.
+torch-directml>=0.2.5
