@@ -29,7 +29,7 @@ from constants import (
     REPLAYS_PATH,
     SCENARIOS_PATH,
 )
-from dummy_policy import DummyPolicy
+from policy import Policy, get_policy
 from state_converter import StateConverter
 from wesnoth_interface import WesnothGame
 
@@ -37,7 +37,11 @@ from wesnoth_interface import WesnothGame
 class GameManager:
     """Coordinates a batch of Wesnoth subprocesses sharing a single policy."""
 
-    def __init__(self, num_games: int = NUM_PARALLEL_GAMES, policy=None):
+    def __init__(
+        self,
+        num_games: int = NUM_PARALLEL_GAMES,
+        policy: Optional[Policy] = None,
+    ):
         self.num_games = num_games
         self.games: Dict[str, WesnothGame] = {}
         self.converters: Dict[str, StateConverter] = {}
@@ -50,9 +54,9 @@ class GameManager:
         self._setup_logging()
 
         # Default policy: scripted, deterministic, just enough to make
-        # the IPC path observable. Swap at construction time when a
-        # trainable policy exists.
-        self.policy = policy if policy is not None else DummyPolicy()
+        # the IPC path observable. main.py's --policy flag can pick
+        # anything registered in policy.py's _REGISTRY.
+        self.policy: Policy = policy if policy is not None else get_policy("dummy")
         self.logger.info(f"Policy: {type(self.policy).__name__}")
 
         self.stats = {

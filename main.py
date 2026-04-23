@@ -173,12 +173,21 @@ def check_setup() -> bool:
 
 
 def main() -> int:
+    # Import `policy` eagerly so --help can show the registered choices.
+    import policy
+
     parser = argparse.ArgumentParser(description="Wesnoth AI Training")
     parser.add_argument(
         "--games",
         type=int,
         default=NUM_PARALLEL_GAMES,
         help=f"Number of parallel games (default: {NUM_PARALLEL_GAMES})",
+    )
+    parser.add_argument(
+        "--policy",
+        choices=policy.available(),
+        default="dummy",
+        help="Which policy drives the AI sides (default: dummy).",
     )
     parser.add_argument(
         "--check-setup",
@@ -198,10 +207,10 @@ def main() -> int:
     # setup-check path with unrelated import errors.
     from game_manager import GameManager
 
-    print(f"\nStarting training with {args.games} parallel games...")
+    print(f"\nStarting: {args.games} parallel games, policy={args.policy}")
     print("Press Ctrl+C to stop training and save checkpoint.\n")
 
-    manager = GameManager(num_games=args.games)
+    manager = GameManager(num_games=args.games, policy=policy.get_policy(args.policy))
     try:
         asyncio.run(manager.run_training())
     except KeyboardInterrupt:
