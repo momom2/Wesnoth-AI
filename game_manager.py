@@ -72,6 +72,13 @@ class GameManager:
         # integer ID, used consistently across games.
         self.global_converter = StateConverter()
 
+        # Serializes Wesnoth launches so each WesnothGame gets a clean
+        # pre-launch-logs snapshot; otherwise concurrent launches all
+        # see the same "new" log files and adopt the wrong one. Held
+        # briefly — just long enough for Wesnoth to start writing its
+        # log so the next launch's snapshot can see it as "existing".
+        self._launch_lock = asyncio.Lock()
+
         self.logger = logging.getLogger("game_manager")
         self._setup_logging()
 
@@ -117,17 +124,43 @@ class GameManager:
     # ------------------------------------------------------------------
 
     async def create_game(self, label: str) -> WesnothGame:
+        """Launch a Wesnoth process for this game.
+
+        Takes self._launch_lock so the pre-launch-logs snapshot taken
+        inside start_wesnoth doesn't overlap with another launch. We
+        also wait briefly for the new .out.log to appear before
+        releasing the lock, so the NEXT game's snapshot sees our log
+        as "existing".
+        """
         self.logger.info(f"Creating game {label}")
         scenario_path = SCENARIOS_PATH / "training_scenario.cfg"
         game = WesnothGame(label, scenario_path)
-        game.start_wesnoth()
+
+        async with self._launch_lock:
+            game.start_wesnoth()
+            # Wait up to ~5s for Wesnoth to create its .out.log file,
+            # then lock in the path so later reads don't re-probe
+            # (re-probing would include OTHER games' subsequently-
+            # created logs in the "new" set and assign the wrong one).
+            for _ in range(50):
+                candidate = game._find_out_log()
+                if candidate is not None:
+                    game._log_path = candidate
+                    self.logger.debug(
+                        f"Game {label}: .out.log = {candidate.name}")
+                    break
+                await asyncio.sleep(0.1)
         return game
 
     async def handle_game_turn(self, game: WesnothGame) -> bool:
         """One state→action exchange. Returns False when the game ends."""
         label = game.label
         try:
-            state_payload = game.read_state()
+            # read_state spins in a polling loop with time.sleep, which
+            # blocks the asyncio event loop. Push it to a thread so
+            # parallel games can actually run in parallel — otherwise
+            # asyncio.gather over N game tasks just serializes them.
+            state_payload = await asyncio.to_thread(game.read_state)
             if not state_payload:
                 self.logger.warning(f"Game {label}: no state, ending game")
                 return False

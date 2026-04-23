@@ -127,9 +127,17 @@ class WesnothGame:
         """
         cmd = [str(WESNOTH_PATH), "--test", "ai_training"]
 
-        # Small slack so we don't mistake a log file that was created a
-        # hair before Popen for ours. Wesnoth typically writes its log
-        # filename within ~100ms of launch.
+        # Snapshot the set of existing .out.log files. When the Wesnoth
+        # subprocess starts writing its own log, it'll appear as a NEW
+        # file relative to this snapshot — see _find_out_log. This is
+        # how we pick the right log in parallel-games runs (the old
+        # "newest by mtime" heuristic had all concurrently-launched
+        # games adopting the same file).
+        self._pre_launch_logs: set = set()
+        if WESNOTH_LOGS_PATH.exists():
+            self._pre_launch_logs = set(
+                WESNOTH_LOGS_PATH.glob("wesnoth-*.out.log")
+            )
         self._launch_time = time.time() - 0.5
 
         self.logger.info(f"Starting Wesnoth: {' '.join(cmd)}")
@@ -144,18 +152,20 @@ class WesnothGame:
     def _find_out_log(self) -> Optional[Path]:
         """Find the .out.log file Wesnoth opened for this process.
 
-        Wesnoth names logs wesnoth-<UTC-date>-<UTC-time>-<rand>.out.log.
-        We pick the newest .out.log whose mtime is >= our launch time.
+        Returns the most recently-modified .out.log that *wasn't*
+        present when we called start_wesnoth. A simple set-difference
+        against the pre-launch snapshot: if N Wesnoths are launched
+        under different snapshots, each sees a different "new" set.
+        (create_game serializes launches with a lock so the snapshots
+        don't overlap.)
         """
         if not WESNOTH_LOGS_PATH.exists():
             return None
         if self._launch_time is None:
             return None
 
-        candidates = [
-            p for p in WESNOTH_LOGS_PATH.glob("wesnoth-*.out.log")
-            if p.stat().st_mtime >= self._launch_time
-        ]
+        current = set(WESNOTH_LOGS_PATH.glob("wesnoth-*.out.log"))
+        candidates = [p for p in current - self._pre_launch_logs]
         if not candidates:
             return None
         # Newest first.
