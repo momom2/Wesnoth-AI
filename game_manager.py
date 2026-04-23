@@ -228,11 +228,13 @@ class GameManager:
             with self._profiler.time("send_action"):
                 sent = game.send_action(wire_action)
             if not sent:
-                self.logger.warning(f"Game {label}: action send failed")
+                # Non-fatal: Lua's 30s action timeout will end the side's
+                # turn and the game proceeds. We lose one action of
+                # learning signal but not the whole game.
+                self.logger.warning(f"Game {label}: action send failed (turn will time out)")
                 self.stats['action_send_errors'] += 1
-                return False
-
-            self.stats['total_actions'] += 1
+            else:
+                self.stats['total_actions'] += 1
             return True
 
         except Exception as e:

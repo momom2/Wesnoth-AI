@@ -246,12 +246,17 @@ class WesnothGame:
     def send_action(self, action: Dict,
                     timeout: float = ACTION_TIMEOUT_SECONDS) -> bool:
         """Write the action file atomically with a fresh sequence number.
-        Returns True if the file landed on disk. Doesn't wait for Lua to
-        consume it — the CA evaluator polls and handles that itself.
 
         Requires adopt_game_id() to have been called (i.e., at least
         one state frame observed). In practice the turn-loop always
         reads state before sending, so this is a non-issue.
+
+        Windows-specific quirk we defend against: os.replace can fail
+        with WinError 5 (Access denied) when Lua's polling
+        (`wesnoth.have_file` / `wesnoth.read_file`) happens to hit the
+        destination path at the same moment. It's transient — 10-50ms
+        later the rename succeeds. We retry with short backoff before
+        giving up.
         """
         if self.action_path is None or self.game_dir is None:
             self.logger.error("send_action before adopt_game_id()")
@@ -265,14 +270,33 @@ class WesnothGame:
 
         try:
             tmp.write_text(lua_code, encoding="utf-8")
-            os.replace(tmp, self.action_path)
         except OSError as e:
-            self.logger.error(f"Failed to write action: {e}")
+            self.logger.error(f"Failed to write tmp: {e}")
             return False
 
-        self.logger.debug(
-            f"Sent action seq={action_with_seq['seq']} type={action.get('type', '?')}")
-        return True
+        # Retry the rename: Lua polling races on Windows.
+        last_err: Optional[OSError] = None
+        for attempt in range(12):
+            try:
+                os.replace(tmp, self.action_path)
+                self.logger.debug(
+                    f"Sent action seq={action_with_seq['seq']} "
+                    f"type={action.get('type', '?')}"
+                    + (f" (after {attempt} retries)" if attempt else "")
+                )
+                return True
+            except OSError as e:
+                last_err = e
+                # Geometric-ish backoff: 10, 20, 40, ..., capped ~300ms total.
+                time.sleep(min(0.01 * (2 ** attempt), 0.05))
+
+        self.logger.warning(
+            f"Failed to write action after 12 retries: {last_err}. "
+            f"Dropping this action; Lua will time out and end the turn."
+        )
+        # Leave .tmp behind; it'll be overwritten next send. Don't kill
+        # the game for one lost action.
+        return False
 
     def _dict_to_lua(self, d: Dict) -> str:
         parts = [f"{k} = {self._lua_value(v)}" for k, v in d.items()]
