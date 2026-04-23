@@ -5,19 +5,29 @@ verify that state flows from Wesnoth to Python, actions flow back, and
 the Lua action executor dispatches them correctly. The transformer
 (Phase 2 material) isn't involved.
 
-Rules, evaluated in order every time we're asked for an action:
+IMPORTANT constraint discovered during Phase 1 testing: Wesnoth's AI
+scheduler blacklists a CA whose execution failed to change game state —
+that includes rejected actions (invalid_move, invalid_recruit_location,
+etc.). So a failed action burns the turn. This policy therefore has ONE
+shot per turn and must pick an action with a high probability of
+succeeding.
 
-  1. If our leader still has moves and we have enough gold and at least
-     one empty adjacent hex, recruit the first recruit type there.
-  2. Else pick the first owned unit with moves remaining and step it to
-     some empty adjacent hex.
+Rules, evaluated in order:
+
+  1. If we have fewer than BOOTSTRAP_UNITS units, the leader has moves,
+     we have the gold, and there's an empty *castle* hex near the
+     leader's keep, recruit the first recruit type there.
+  2. Else pick the first owned unit with moves remaining and step it
+     to some empty adjacent hex.
   3. Else end the turn.
 
-Adjacency is approximated with a cartesian ring — not all six hex
-neighbors are represented, but at least one usually resolves to a real
-neighbor and Wesnoth's check_move/check_recruit will reject any that
-don't. That rejection showing up in `.out.log` is itself useful Phase 1
-signal.
+Adjacency is approximated with a Cartesian ring — not all six hex
+neighbors are represented, but most resolve to real ones. Wesnoth's
+check_move has its own nearest-valid-hex fallback so misfires usually
+succeed anyway. Castle targeting uses a Chebyshev-distance box around
+the leader: Wesnoth's real rule is path-connectivity through castle
+tiles, but the small box approximates that well for the layouts we
+care about.
 
 Action format is the *internal* shape: a dict with `start_hex` /
 `target_hex` as `Position` objects (0-indexed). The caller
@@ -27,15 +37,23 @@ Action format is the *internal* shape: a dict with `start_hex` /
 
 from typing import Dict, Iterable, List, Optional
 
-from classes import GameState, Position, SideInfo, Unit
+from classes import GameState, Position, SideInfo, TerrainModifiers, Unit
 
-# Cheapest dwarvish/saurian recruit is 14g, pad a bit so we don't
-# accidentally try to recruit without the gold.
+# Cheapest dwarvish/saurian recruit is 14g. Pad so we don't try to
+# recruit without the cash.
 _MIN_RECRUIT_GOLD = 20
 
-# Cartesian neighborhood (not true hex adjacency — Wesnoth uses
-# offset-axial which depends on column parity). Good enough for a
-# "find SOMEWHERE legal to step" policy.
+# Stop recruiting once we've bootstrapped to this many units. Beyond
+# that, our single-attempt-per-turn is better spent on moves.
+_BOOTSTRAP_UNITS = 3
+
+# How far from the leader we'll consider a castle tile a valid recruit
+# target (Chebyshev distance). Real rule is "connected through castle
+# tiles to the keep"; this is a cheap approximation good enough for the
+# starting-keep layouts on 2p_Caves_of_the_Basilisk.
+_CASTLE_SEARCH_RADIUS = 3
+
+# Cartesian neighborhood (not true hex axial adjacency).
 _ADJACENT_OFFSETS = [(1, 0), (-1, 0), (0, 1), (0, -1),
                      (1, 1), (-1, -1), (1, -1), (-1, 1)]
 
@@ -43,9 +61,6 @@ _ADJACENT_OFFSETS = [(1, 0), (-1, 0), (0, 1), (0, -1),
 class DummyPolicy:
     """Stateless scripted policy. Not trainable."""
 
-    # Flag we'll teach game_manager / training-loop code to look at.
-    # A real policy will be an object that both select_action and
-    # train_step in one place; this one has nothing to learn.
     trainable = False
 
     def select_action(self, game_state: GameState) -> Dict:
@@ -57,7 +72,7 @@ class DummyPolicy:
 
         side_info = game_state.sides[current_side - 1]
 
-        recruit = self._try_recruit(leader, side_info, game_state)
+        recruit = self._try_recruit(leader, side_info, game_state, my_units)
         if recruit is not None:
             return recruit
 
@@ -72,14 +87,17 @@ class DummyPolicy:
         leader: Unit,
         side_info: SideInfo,
         game_state: GameState,
+        my_units: List[Unit],
     ) -> Optional[Dict]:
+        if len(my_units) >= _BOOTSTRAP_UNITS:
+            return None
         if leader.current_moves <= 0:
             return None
         if not side_info.recruits:
             return None
         if side_info.current_gold < _MIN_RECRUIT_GOLD:
             return None
-        target = self._first_empty_adjacent(leader.position, game_state)
+        target = self._find_nearby_empty_castle(leader.position, game_state)
         if target is None:
             return None
         return {
@@ -104,6 +122,28 @@ class DummyPolicy:
                 'start_hex': u.position,
                 'target_hex': target,
             }
+        return None
+
+    def _find_nearby_empty_castle(
+        self,
+        leader_pos: Position,
+        game_state: GameState,
+    ) -> Optional[Position]:
+        """An unoccupied castle hex near the leader's keep."""
+        occupied = {(u.position.x, u.position.y) for u in game_state.map.units}
+        lx, ly = leader_pos.x, leader_pos.y
+
+        # Outward ring-by-ring so closer castles win.
+        candidates = [
+            h for h in game_state.map.hexes
+            if TerrainModifiers.CASTLE in h.modifiers
+            and (h.position.x, h.position.y) not in occupied
+        ]
+        for radius in range(1, _CASTLE_SEARCH_RADIUS + 1):
+            for h in candidates:
+                p = h.position
+                if max(abs(p.x - lx), abs(p.y - ly)) == radius:
+                    return Position(p.x, p.y)
         return None
 
     def _first_empty_adjacent(
