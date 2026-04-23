@@ -71,6 +71,7 @@ class StepDelta:
     villages_gained: int = 0         # villages we captured this step
     villages_lost:   int = 0         # villages we lost this step
     unit_recruited_cost: int = 0     # cost of a unit we just recruited (0 otherwise)
+    leader_moved:    bool = False    # our leader changed hexes this step
 
     # Terminal flag.
     outcome: str = OUTCOME_ONGOING   # one of the OUTCOME_* constants
@@ -123,12 +124,25 @@ class WeightedReward:
     unit_recruited_cost:  float = 0.001
     per_turn_penalty:     float = 0.0      # applied once per Python-side step
 
+    # Penalty subtracted whenever our leader changed hexes this step.
+    # Purpose: break the "every game returns ~0.22" uniformity that
+    # prevents policy-gradient updates. Random policies that happen to
+    # recruit more (leader stays on the keep) now get measurably
+    # better reward than those that wander the leader around — which
+    # creates the inter-episode variance the policy gradient needs.
+    # Scaled so a game with ~20 leader moves has ~0.2 total penalty,
+    # comparable to the ~0.1 recruit/village shaping, so the gradient
+    # nudges the policy toward "recruit more, move leader less".
+    leader_move_penalty:  float = 0.01
+
     def __call__(self, delta: StepDelta) -> float:
         r  = self.gold_killed_delta * (delta.enemy_gold_lost - delta.our_gold_lost)
         r += self.village_delta     * (delta.villages_gained - delta.villages_lost)
         r += self.damage_dealt      * delta.enemy_hp_lost
         r += self.unit_recruited_cost * delta.unit_recruited_cost
         r -= self.per_turn_penalty
+        if delta.leader_moved:
+            r -= self.leader_move_penalty
 
         if delta.outcome == OUTCOME_WIN:
             r += self.terminal_win
@@ -218,4 +232,24 @@ def compute_delta(
             elif new_v < prev_v:
                 delta.villages_lost = prev_v - new_v
 
+    # Leader movement: did OUR (acting-side) leader change hex this step?
+    # Implementation note: we look for a unit on acting_side with
+    # is_leader=True in both snapshots; if their position differs, count
+    # it. Death handles itself (leader gone → not "moved" → no penalty,
+    # terminal reward fires separately).
+    prev_leader_pos = _our_leader_pos(prev_state, acting_side)
+    new_leader_pos  = _our_leader_pos(new_state,  acting_side)
+    if prev_leader_pos is not None and new_leader_pos is not None:
+        if (prev_leader_pos.x, prev_leader_pos.y) != (new_leader_pos.x, new_leader_pos.y):
+            delta.leader_moved = True
+
     return delta
+
+
+def _our_leader_pos(state: GameState, side: int):
+    """Return the Position of `side`'s leader in `state`, or None if
+    no leader of that side is visible."""
+    for u in state.map.units:
+        if u.side == side and u.is_leader:
+            return u.position
+    return None
