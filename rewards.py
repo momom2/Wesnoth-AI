@@ -1,0 +1,221 @@
+"""Reward function for the Wesnoth AI trainer.
+
+Design goals (from the user, Phase 3 planning):
+
+  - Customizable. Experimenting with "incentivize unorthodox strategies"
+    should mean editing a dataclass field, not touching the trainer.
+  - Maintainable. No scope creep: one weighted sum, all terms local,
+    no plumbing needed anywhere else.
+  - Dense enough to train on. Pure terminal ±1 is too sparse with
+    MAX_ACTIONS_PER_GAME=200 and an untrained policy — leader kills
+    will be a faraway tactical dream early on. The main per-turn
+    signal is **gold-killed-delta**: gold-value of enemy units we
+    killed since last step, minus gold-value of our units lost. This
+    is a better proxy than raw HP damage because it accounts for
+    hit-points, resistances, and trait rolls (a 40-HP Fighter lost is
+    worse than a 30-HP Guardsman even if the HP numbers look similar).
+  - Also small positive terms for village capture, damage dealt, and
+    the cost of newly-recruited units (encourage army-building and
+    engagement in early training). These sum to << 1 relative to the
+    terminal reward so they don't dominate.
+
+The module exposes:
+  - `WeightedReward` dataclass — the weighted-sum reward function.
+  - `StepDelta` — the observable change between two game states that
+    the trainer computes and feeds to reward fns.
+  - `RewardFn` Protocol — any `StepDelta → float` callable is a valid
+    reward fn; WeightedReward is the default.
+
+The trainer computes StepDeltas itself (comparing prev_state and
+new_state snapshots it already has); reward fns just consume them.
+That keeps deltas as a shared interchange so custom reward fns don't
+reinvent state diffing.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Optional, Protocol
+
+from classes import GameState
+
+
+# Outcome of a game as seen from ONE side's perspective.
+OUTCOME_ONGOING = "ongoing"
+OUTCOME_WIN     = "win"
+OUTCOME_LOSS    = "loss"
+OUTCOME_DRAW    = "draw"
+OUTCOME_TIMEOUT = "timeout"   # hit MAX_ACTIONS_PER_GAME without a victor
+
+
+@dataclass
+class StepDelta:
+    """Everything a reward function might want about ONE Python-side
+    decision step, from the perspective of the side that just acted.
+
+    The trainer populates this by diffing the pre-action and post-action
+    GameState snapshots. Fields are named from *our* (the actor's) view:
+    `enemy_gold_lost` is good for us, `our_gold_lost` is bad.
+    """
+
+    # Step metadata.
+    side: int                        # 1 or 2, the side acting
+    turn: int                        # game-turn number at this step
+    action_type: str                 # "move", "attack", "recruit", "end_turn"
+
+    # Per-step numeric deltas (all non-negative; signs come from weights).
+    enemy_hp_lost:   int = 0         # total HP our enemies lost this step
+    our_hp_lost:     int = 0         # total HP we lost this step
+    enemy_gold_lost: int = 0         # sum(cost) of enemy units that died
+    our_gold_lost:   int = 0         # sum(cost) of our units that died
+    villages_gained: int = 0         # villages we captured this step
+    villages_lost:   int = 0         # villages we lost this step
+    unit_recruited_cost: int = 0     # cost of a unit we just recruited (0 otherwise)
+
+    # Terminal flag.
+    outcome: str = OUTCOME_ONGOING   # one of the OUTCOME_* constants
+
+
+class RewardFn(Protocol):
+    """Any callable mapping a StepDelta to a scalar reward."""
+
+    def __call__(self, delta: StepDelta) -> float: ...
+
+
+@dataclass
+class WeightedReward:
+    """Default reward: weighted sum of the StepDelta fields.
+
+    All weights default to 0 except the ones we want on for Phase 3.
+    Override by constructing with different values:
+
+        reward_fn = WeightedReward(village_delta=0.2, damage_dealt=0.005)
+
+    Scale guidance for the defaults (assumes MAX_ACTIONS_PER_GAME=200,
+    100g starting gold, avg unit cost ~17):
+
+      - terminal_win/loss ±1.0 is the anchor: a won game earns ~1 total.
+      - gold_killed_delta 0.01 means a clean 14g fighter kill earns
+        0.14 and a 20g Drake Clasher kill earns 0.2. Across a
+        competitive match, total should be O(0.5), comparable to the
+        terminal signal.
+      - village_delta 0.05 per village: a 2-village map with typical
+        back-and-forth ≈ 0.1 total, small relative to combat.
+      - damage_dealt 0.0005 per HP: a full Drake Clasher health bar
+        (43 HP) knocked to zero earns 0.02 before the kill bonus —
+        noise level, just to distinguish "engaged" from "idled".
+      - unit_recruited_cost 0.001 per gold: 14g fighter earns 0.014.
+        Tiny; just biases toward spending gold rather than hoarding.
+      - per_turn_penalty 0.0: enable only if we observe policies
+        learning to run out the clock.
+    """
+
+    # Terminal rewards.
+    terminal_win:     float = +1.0
+    terminal_loss:    float = -1.0
+    terminal_draw:    float =  0.0
+    terminal_timeout: float =  0.0
+
+    # Per-step shaping. See docstring for scale guidance.
+    gold_killed_delta:    float = 0.01     # (enemy_gold_lost - our_gold_lost)
+    village_delta:        float = 0.05     # (villages_gained - villages_lost)
+    damage_dealt:         float = 0.0005   # enemy_hp_lost only
+    unit_recruited_cost:  float = 0.001
+    per_turn_penalty:     float = 0.0      # applied once per Python-side step
+
+    def __call__(self, delta: StepDelta) -> float:
+        r  = self.gold_killed_delta * (delta.enemy_gold_lost - delta.our_gold_lost)
+        r += self.village_delta     * (delta.villages_gained - delta.villages_lost)
+        r += self.damage_dealt      * delta.enemy_hp_lost
+        r += self.unit_recruited_cost * delta.unit_recruited_cost
+        r -= self.per_turn_penalty
+
+        if delta.outcome == OUTCOME_WIN:
+            r += self.terminal_win
+        elif delta.outcome == OUTCOME_LOSS:
+            r += self.terminal_loss
+        elif delta.outcome == OUTCOME_DRAW:
+            r += self.terminal_draw
+        elif delta.outcome == OUTCOME_TIMEOUT:
+            r += self.terminal_timeout
+        # OUTCOME_ONGOING: no terminal contribution
+
+        return r
+
+
+def compute_delta(
+    prev_state: Optional[GameState],
+    new_state: GameState,
+    action_type: str,
+    *,
+    recruit_cost: int = 0,
+    outcome: str = OUTCOME_ONGOING,
+) -> StepDelta:
+    """Diff two game states into a StepDelta for `new_state.current_side`.
+
+    Called by the trainer between action-step pairs. Pre-recruit info
+    that isn't derivable from the state (e.g., the cost of the unit
+    just recruited, because its stats are already in new_state) comes
+    in as keyword args.
+
+    Convention: the 'side' of the delta is the side that *acted* to
+    transition prev_state → new_state. That is usually
+    `prev_state.global_info.current_side`; on a fresh episode where
+    prev_state is None, we use new_state's current side.
+
+    If prev_state is None (first step of an episode), all deltas are
+    zero except any terminal outcome; this avoids spurious "the enemy
+    just appeared" signals on the initial observation.
+    """
+    acting_side = (
+        prev_state.global_info.current_side if prev_state is not None
+        else new_state.global_info.current_side
+    )
+    delta = StepDelta(
+        side=acting_side,
+        turn=new_state.global_info.turn_number,
+        action_type=action_type,
+        unit_recruited_cost=recruit_cost,
+        outcome=outcome,
+    )
+
+    if prev_state is None:
+        return delta
+
+    # Unit-keyed lookups. unit.id is a stable per-unit identifier
+    # assigned by Wesnoth (e.g., "knalgan_leader" or an auto-generated
+    # "Dwarvish Fighter-42").
+    prev_units = {u.id: u for u in prev_state.map.units}
+    new_units  = {u.id: u for u in new_state.map.units}
+
+    # Damage / deaths.
+    for uid, u_prev in prev_units.items():
+        u_new = new_units.get(uid)
+        if u_new is None:
+            # Unit gone: died (or left fog, but we assume same-side fog
+            # so same-side disappearance == death; cross-side is a best
+            # effort).
+            if u_prev.side == acting_side:
+                delta.our_gold_lost += u_prev.cost
+            else:
+                delta.enemy_gold_lost += u_prev.cost
+                delta.enemy_hp_lost   += u_prev.current_hp
+            continue
+        hp_drop = max(u_prev.current_hp - u_new.current_hp, 0)
+        if hp_drop > 0 and u_new.side != acting_side:
+            delta.enemy_hp_lost += hp_drop
+        elif hp_drop > 0 and u_new.side == acting_side:
+            delta.our_hp_lost += hp_drop
+
+    # Village counts (from sides info; side indices are 1-based).
+    if prev_state.sides and new_state.sides:
+        idx = acting_side - 1
+        if 0 <= idx < len(prev_state.sides) and idx < len(new_state.sides):
+            prev_v = prev_state.sides[idx].nb_villages_controlled
+            new_v  = new_state.sides[idx].nb_villages_controlled
+            if new_v > prev_v:
+                delta.villages_gained = new_v - prev_v
+            elif new_v < prev_v:
+                delta.villages_lost = prev_v - new_v
+
+    return delta
