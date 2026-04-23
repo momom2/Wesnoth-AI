@@ -18,6 +18,7 @@
 -- emits one state block per turn, then action_executor takes over.
 
 local state_collector = wesnoth.require("~add-ons/wesnoth_ai/lua/state_collector.lua")
+local json = wesnoth.require("~add-ons/wesnoth_ai/lua/json_encoder.lua")
 
 local ca_state_sender = {}
 
@@ -56,7 +57,7 @@ function ca_state_sender:execution(cfg, data)
     std_print(FRAME_BEGIN)
     std_print(string.format("meta: game_id=%s turn=%d side=%d",
         game_id, turn, side_number))
-    std_print(wml.tostring(state))
+    std_print(json.encode(state))
     std_print(FRAME_END)
 end
 

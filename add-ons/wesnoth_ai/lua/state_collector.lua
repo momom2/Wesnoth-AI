@@ -61,21 +61,21 @@ function state_collector.collect_unit(unit)
         end
     end)
 
-    -- Defense per terrain (as a keyed table).
+    -- Defense per terrain. Initialize with defaults FIRST so the table
+    -- has string keys even if the pcall below bails — an empty Lua table
+    -- would JSON-encode as "[]" and break Python's dict lookups.
     local defenses = {}
+    for _, t in ipairs(DEFENSE_TERRAINS) do defenses[t] = 100 end
     pcall(function()
         if unit.defense then
             for _, t in ipairs(DEFENSE_TERRAINS) do
                 defenses[t] = unit.defense[t] or 100
             end
-        else
-            for _, t in ipairs(DEFENSE_TERRAINS) do defenses[t] = 100 end
         end
     end)
 
-    -- Movement costs: TODO — unit.movement isn't reliably exposed; for now
-    -- ship impassable defaults and let the Python encoder treat them as
-    -- "unknown". Phase 2 can pull per-terrain movement costs properly.
+    -- Movement costs: same defense-first pattern. unit.movement isn't
+    -- reliably exposed in 1.18; Phase 2 can pull real per-terrain costs.
     local movement_costs = {}
     for _, t in ipairs(DEFENSE_TERRAINS) do movement_costs[t] = 99 end
 

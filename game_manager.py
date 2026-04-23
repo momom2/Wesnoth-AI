@@ -177,7 +177,7 @@ class GameManager:
             
             # Convert WML to internal format
             try:
-                game_state = self.converters[game_id].convert_wml_to_game_state(state_wml)
+                game_state = self.converters[game_id].convert_payload_to_game_state(state_wml)
             except Exception as e:
                 self.logger.error(f"Game {game_id}: Error converting WML state: {e}", exc_info=True)
                 self.stats['state_conversion_errors'] += 1

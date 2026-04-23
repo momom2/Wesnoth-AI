@@ -1,11 +1,11 @@
 # state_converter.py
-# Convert between Wesnoth WML format and internal game state representation
-# FIXED: Changed from JSON to WML parsing (wesnoth.format_json doesn't exist)
-# NOTE: Wesnoth uses 1-indexed coordinates, Python uses 0-indexed
+# Convert the JSON state payload emitted by the Lua state_collector into
+# our internal GameState dataclasses.
+# NOTE: Wesnoth uses 1-indexed coordinates; Python uses 0-indexed. The
+# conversion happens here and ONLY here — do not sprinkle ±1 around.
 
+import json
 from typing import Dict, List, Set, Optional
-from dataclasses import dataclass
-import re
 
 from classes import (
     GameState, Map, Unit, Attack, Position, Hex, GlobalInfo, SideInfo,
@@ -14,7 +14,7 @@ from classes import (
 )
 
 class StateConverter:
-    """Converts between Wesnoth WML and internal representation."""
+    """Converts the Lua-emitted JSON state payload to GameState objects."""
     
     # Mapping dictionaries for enums
     ALIGNMENT_MAP = {
@@ -126,112 +126,6 @@ class StateConverter:
     def python_to_wesnoth_coords(self, x: int, y: int) -> tuple:
         """Convert Python 0-indexed coordinates to Wesnoth 1-indexed."""
         return (x + 1, y + 1)
-    
-    def parse_wml(self, wml_string: str) -> Dict:
-        """
-        Parse WML string into a dictionary structure.
-        This is a simple parser for the WML format output by wml.tostring().
-        """
-        result = {}
-        current_dict = result
-        dict_stack = []
-        current_tag = None
-        
-        lines = wml_string.strip().split('\n')
-        
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-            
-            # Check for opening tag [tag_name]
-            if line.startswith('[') and not line.startswith('[/') and line.endswith(']'):
-                tag_name = line[1:-1]
-                new_dict = {}
-                
-                # Store in parent as list if multiple same-named tags exist
-                if tag_name in current_dict:
-                    if not isinstance(current_dict[tag_name], list):
-                        current_dict[tag_name] = [current_dict[tag_name]]
-                    current_dict[tag_name].append(new_dict)
-                else:
-                    current_dict[tag_name] = new_dict
-                
-                dict_stack.append((current_dict, tag_name))
-                current_dict = new_dict
-                current_tag = tag_name
-                
-            # Check for closing tag [/tag_name]
-            elif line.startswith('[/') and line.endswith(']'):
-                if dict_stack:
-                    current_dict, current_tag = dict_stack.pop()
-                
-            # Parse attribute key=value
-            elif '=' in line:
-                key, value = line.split('=', 1)
-                key = key.strip()
-                value = value.strip()
-                
-                # Try to convert to appropriate type
-                if value.lower() == 'true':
-                    value = True
-                elif value.lower() == 'false':
-                    value = False
-                elif value.startswith('"') and value.endswith('"'):
-                    value = value[1:-1]
-                else:
-                    try:
-                        if '.' in value:
-                            value = float(value)
-                        else:
-                            value = int(value)
-                    except ValueError:
-                        pass  # Keep as string
-                
-                current_dict[key] = value
-        
-        return result
-    
-    def convert_wml_to_json_format(self, wml_dict: Dict) -> Dict:
-        """
-        Convert parsed WML dictionary to the JSON format expected by the rest of the code.
-        This bridges the gap between WML format and the original JSON structure.
-        """
-        # The WML structure should already be in the right format
-        # but we need to ensure lists are properly handled
-        
-        # Helper function to normalize single items to lists where expected
-        def ensure_list(data, key):
-            """Ensure a key's value is a list."""
-            if key in data:
-                if not isinstance(data[key], list):
-                    data[key] = [data[key]] if data[key] else []
-            else:
-                data[key] = []
-        
-        # Normalize map structure
-        if 'map' in wml_dict:
-            map_data = wml_dict['map']
-            ensure_list(map_data, 'hexes')
-            ensure_list(map_data, 'units')
-            ensure_list(map_data, 'fog')
-            ensure_list(map_data, 'mask')
-            
-            # Handle alternate key names that might come from WML
-            if 'hex' in map_data:
-                map_data['hexes'] = map_data['hex'] if isinstance(map_data['hex'], list) else [map_data['hex']]
-                del map_data['hex']
-            if 'unit' in map_data:
-                map_data['units'] = map_data['unit'] if isinstance(map_data['unit'], list) else [map_data['unit']]
-                del map_data['unit']
-        
-        # Normalize sides structure
-        ensure_list(wml_dict, 'sides')
-        if 'side' in wml_dict:
-            wml_dict['sides'] = wml_dict['side'] if isinstance(wml_dict['side'], list) else [wml_dict['side']]
-            del wml_dict['side']
-        
-        return wml_dict
     
     def convert_attack(self, attack_data: Dict) -> Attack:
         """Convert attack from parsed data to Attack object."""
@@ -397,45 +291,23 @@ class StateConverter:
             modifiers=modifiers
         )
     
-    def convert_wml_to_game_state(self, wml_string: str) -> GameState:
-        """Convert WML string to GameState object."""
-        # Parse WML string to dictionary
-        parsed = self.parse_wml(wml_string)
-        
-        # Convert to JSON-like format expected by rest of code
-        data = self.convert_wml_to_json_format(parsed)
-        
-        # Now convert using the same logic as before
+    def convert_payload_to_game_state(self, payload: str) -> GameState:
+        """Parse the JSON state payload emitted by the Lua state_collector
+        and return a populated GameState.
+
+        Accepts a JSON string. We used to accept WML and hand-parse it;
+        that was replaced when Wesnoth's `wml.tostring` proved too strict
+        about table shape and the hand-rolled parser too brittle.
+        """
+        data = json.loads(payload)
+
         map_data = data['map']
-        
-        # Convert hexes
-        hexes_data = map_data.get('hexes', [])
-        if isinstance(hexes_data, dict):
-            hexes_data = [hexes_data]
-        hexes = set(self.convert_hex(hex_data) for hex_data in hexes_data)
-        
-        # Convert units
-        units_data = map_data.get('units', [])
-        if isinstance(units_data, dict):
-            units_data = [units_data]
-        units = set(self.convert_unit(unit_data) for unit_data in units_data)
-        
-        # Convert fog and mask
-        fog_data = map_data.get('fog', [])
-        if isinstance(fog_data, dict):
-            fog_data = [fog_data]
-        fog = set(
-            Position(x=pos['x'] - 1, y=pos['y'] - 1)
-            for pos in fog_data
-        )
-        
-        mask_data = map_data.get('mask', [])
-        if isinstance(mask_data, dict):
-            mask_data = [mask_data]
-        mask = set(
-            Position(x=pos['x'] - 1, y=pos['y'] - 1)
-            for pos in mask_data
-        )
+        hexes = set(self.convert_hex(h) for h in map_data.get('hexes', []))
+        units = set(self.convert_unit(u) for u in map_data.get('units', []))
+        fog = set(Position(x=pos['x'] - 1, y=pos['y'] - 1)
+                  for pos in map_data.get('fog', []))
+        mask = set(Position(x=pos['x'] - 1, y=pos['y'] - 1)
+                   for pos in map_data.get('mask', []))
         
         # Create map
         game_map = Map(
