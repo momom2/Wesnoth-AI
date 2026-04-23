@@ -102,26 +102,24 @@ REPLAY_SAVE_FREQUENCY = 100  # Save replay every N games
 LOG_FREQUENCY = 10           # Log stats every N games
 
 # ============================================================================
-# IPC Configuration (File-Based)
+# IPC Configuration (mixed transport — see wesnoth_interface.py)
 # ============================================================================
 #
-# Transport: Lua and Python both read and write files under
-# ADDONS_PATH/games/<game_id>/. The writer produces "<name>.tmp" and then
-# renames it to "<name>" (atomic on the same filesystem). The reader
-# checks for "<name>", reads it, and unlinks it.
+# Lua → Python (state): Lua std_print()s a framed block; it lands in
+# <userdata>/logs/wesnoth-*.out.log; Python tails the file.
 #
-# Per-game filenames:
-#   state.wml     — Lua → Python (current game state, serialized WML)
-#   action.lua    — Python → Lua (a Lua chunk returning an action table)
+# Python → Lua (action): Python atomically writes a Lua chunk to
+# ADDONS_PATH/games/<game_id>/action.lua. Lua reads it via
+# wesnoth.read_file. Each action carries a monotonic `seq` field; Lua
+# tracks last-executed seq and ignores stale payloads.
 
-STATE_FILE_NAME = "state.wml"
 ACTION_FILE_NAME = "action.lua"
 
-# How long either side will wait for the other to produce a fresh file.
+# How long either side will wait for the other before giving up.
 STATE_TIMEOUT_SECONDS = 30.0
 ACTION_TIMEOUT_SECONDS = 30.0
 
-# How often the Python side polls for the state file (seconds). Small
+# How often the Python side polls for new log content (seconds). Small
 # enough to keep turn latency low; large enough to avoid hogging CPU.
 STATE_POLL_INTERVAL = 0.05
 

@@ -1,10 +1,22 @@
 -- state_collector.lua
--- Helper functions to collect complete game state from Wesnoth
--- FIXED: Complete rewrite with proper syntax and error handling
+-- Build a per-turn game-state table that the Python side will parse.
+--
+-- Runs inside Wesnoth's sandboxed Lua (no io, no os.remove, etc.) — the
+-- caller (ca_state_sender) emits the serialized result via std_print,
+-- which reaches <userdata>/logs/wesnoth-*.out.log where Python tails it.
 
 local state_collector = {}
 
--- Collect attack information for a unit
+-- Turn on when chasing a specific bug; leaves [DEBUG] traces in .out.log.
+local DEBUG = false
+local function dbg(s) if DEBUG then std_print(s) end end
+
+local DEFENSE_TERRAINS = {
+    "castle", "cave", "deep_water", "flat", "forest", "frozen",
+    "fungus", "hills", "mountains", "reef", "sand", "shallow_water",
+    "swamp", "unwalkable", "village", "impassable",
+}
+
 function state_collector.collect_attack(attack)
     local specials = {}
     if attack.specials then
@@ -12,45 +24,31 @@ function state_collector.collect_attack(attack)
             table.insert(specials, attack.specials[i][1])
         end
     end
-    
     return {
         type = attack.type,
         strikes = attack.number,
         damage = attack.damage,
         is_ranged = (attack.range == "ranged"),
-        specials = specials
+        specials = specials,
     }
 end
 
--- Collect complete unit information
 function state_collector.collect_unit(unit)
-    if not unit then 
-        std_print("[ERROR] collect_unit called with nil unit")
-        return nil 
-    end
-    
-    std_print(string.format("[DEBUG] ===== Collecting unit: %s at (%d,%d) =====", 
-        tostring(unit.type), tostring(unit.x), tostring(unit.y)))
-    
-    -- Collect attacks with error handling
+    if not unit then return nil end
+
+    -- Attacks.
     local attacks = {}
-    local attack_status, attack_error = pcall(function()
+    pcall(function()
         if unit.attacks then
             for i = 1, #unit.attacks do
                 table.insert(attacks, state_collector.collect_attack(unit.attacks[i]))
             end
-            std_print(string.format("[DEBUG]   Attacks: %d", #attacks))
-        else
-            std_print("[DEBUG]   No attacks")
         end
     end)
-    if not attack_status then
-        std_print(string.format("[ERROR] Failed to collect attacks: %s", attack_error))
-    end
-    
-    -- Collect resistances with error handling
-    local resistances = {}
-    local resist_status, resist_error = pcall(function()
+
+    -- Resistances (as an ordered list; order must match Python's DamageType enum).
+    local resistances = { 0, 0, 0, 0, 0, 0 }
+    pcall(function()
         if unit.resistance then
             resistances = {
                 unit.resistance.blade or 0,
@@ -58,105 +56,57 @@ function state_collector.collect_unit(unit)
                 unit.resistance.impact or 0,
                 unit.resistance.fire or 0,
                 unit.resistance.cold or 0,
-                unit.resistance.arcane or 0
+                unit.resistance.arcane or 0,
             }
-            std_print("[DEBUG]   Resistances collected")
-        else
-            resistances = {0, 0, 0, 0, 0, 0}
-            std_print("[DEBUG]   No resistance data, using defaults")
         end
     end)
-    if not resist_status then
-        std_print(string.format("[ERROR] Failed to collect resistances: %s", resist_error))
-        resistances = {0, 0, 0, 0, 0, 0}
-    end
-    
-    -- Collect defense values
+
+    -- Defense per terrain (as a keyed table).
     local defenses = {}
-    local defense_keys = {
-        "castle", "cave", "deep_water", "flat", "forest", "frozen",
-        "fungus", "hills", "mountains", "reef", "sand", "shallow_water",
-        "swamp", "unwalkable", "village", "impassable"
-    }
-    
-    local defense_status, defense_error = pcall(function()
+    pcall(function()
         if unit.defense then
-            for _, terrain in ipairs(defense_keys) do
-                defenses[terrain] = unit.defense[terrain] or 100
+            for _, t in ipairs(DEFENSE_TERRAINS) do
+                defenses[t] = unit.defense[t] or 100
             end
-            std_print("[DEBUG]   Defenses collected")
         else
-            for _, terrain in ipairs(defense_keys) do
-                defenses[terrain] = 100
-            end
-            std_print("[DEBUG]   No defense data, using defaults")
+            for _, t in ipairs(DEFENSE_TERRAINS) do defenses[t] = 100 end
         end
     end)
-    if not defense_status then
-        std_print(string.format("[ERROR] Failed to collect defenses: %s", defense_error))
-        for _, terrain in ipairs(defense_keys) do
-            defenses[terrain] = 100
-        end
-    end
-    
-    -- Collect movement costs - use defaults only
-    std_print("[DEBUG]   Using default movement costs (99 for all terrain)")
+
+    -- Movement costs: TODO — unit.movement isn't reliably exposed; for now
+    -- ship impassable defaults and let the Python encoder treat them as
+    -- "unknown". Phase 2 can pull per-terrain movement costs properly.
     local movement_costs = {}
-    for _, terrain in ipairs(defense_keys) do
-        movement_costs[terrain] = 99
-    end
-    
-    -- Collect abilities
+    for _, t in ipairs(DEFENSE_TERRAINS) do movement_costs[t] = 99 end
+
+    -- Abilities / traits / statuses.
     local abilities = {}
-    local ability_status, ability_error = pcall(function()
+    pcall(function()
         if unit.abilities then
             for i = 1, #unit.abilities do
                 table.insert(abilities, unit.abilities[i][1])
             end
-            std_print(string.format("[DEBUG]   Abilities: %d", #abilities))
-        else
-            std_print("[DEBUG]   No abilities")
         end
     end)
-    if not ability_status then
-        std_print(string.format("[ERROR] Failed to collect abilities: %s", ability_error))
-    end
-    
-    -- Collect traits
+
     local traits = {}
-    local trait_status, trait_error = pcall(function()
+    pcall(function()
         if unit.traits then
             for i = 1, #unit.traits do
                 table.insert(traits, unit.traits[i].name)
             end
-            std_print(string.format("[DEBUG]   Traits: %d", #traits))
-        else
-            std_print("[DEBUG]   No traits")
         end
     end)
-    if not trait_status then
-        std_print(string.format("[ERROR] Failed to collect traits: %s", trait_error))
-    end
-    
-    -- Collect status
+
     local status = {}
-    local status_status, status_error = pcall(function()
+    pcall(function()
         if unit.status then
             if unit.status.poisoned then table.insert(status, "poisoned") end
             if unit.status.slowed then table.insert(status, "slowed") end
             if unit.status.petrified then table.insert(status, "petrified") end
-            std_print(string.format("[DEBUG]   Status effects: %d", #status))
-        else
-            std_print("[DEBUG]   No status")
         end
     end)
-    if not status_status then
-        std_print(string.format("[ERROR] Failed to collect status: %s", status_error))
-    end
-    
-    std_print("[DEBUG] ===== Unit collection complete =====")
-    
-    -- Build and return unit data
+
     return {
         id = unit.id or "",
         name = unit.type,
@@ -180,153 +130,138 @@ function state_collector.collect_unit(unit)
         movement_costs = movement_costs,
         abilities = abilities,
         traits = traits,
-        statuses = status
+        statuses = status,
     }
 end
 
--- Collect terrain information for a hex
 function state_collector.collect_terrain(x, y, map_obj)
-    local terrain_code = map_obj[{x, y}]
-    local base, overlay = "", ""
-    local caret_pos = terrain_code:find("%^")
-    if caret_pos then
-        base = terrain_code:sub(1, caret_pos - 1)
-        overlay = terrain_code:sub(caret_pos + 1)
-    else
-        base = terrain_code
-        overlay = ""
+    local terrain_code = map_obj[{ x, y }]
+    local base, overlay = terrain_code, ""
+    local caret = terrain_code:find("%^")
+    if caret then
+        base = terrain_code:sub(1, caret - 1)
+        overlay = terrain_code:sub(caret + 1)
     end
-    
-    local terrain_types = {base}
-    if overlay ~= "" then
-        table.insert(terrain_types, overlay)
-    end
-    
+
+    local terrain_types = { base }
+    if overlay ~= "" then table.insert(terrain_types, overlay) end
+
     local modifiers = {}
-    local village_owner = wesnoth.map.get_owner({x, y})
+    local village_owner = wesnoth.map.get_owner({ x, y })
     if village_owner and village_owner ~= 0 then
         table.insert(modifiers, "village")
     end
-    if terrain_code:find("K") then
-        table.insert(modifiers, "keep")
-    end
-    if terrain_code:find("C") then
-        table.insert(modifiers, "castle")
-    end
-    
+    if terrain_code:find("K") then table.insert(modifiers, "keep") end
+    if terrain_code:find("C") then table.insert(modifiers, "castle") end
+
     return {
         x = x,
         y = y,
         terrain_types = terrain_types,
         modifiers = modifiers,
-        full_code = terrain_code
+        full_code = terrain_code,
     }
 end
 
--- Collect complete game state
+-- Safely read the time-of-day id. The 1.18 Lua API changed here and the
+-- old `wesnoth.current.schedule[wesnoth.current.schedule.id]` pattern
+-- dereferences nil on some installs. Fall back to "morning" if anything
+-- fails — the AI doesn't depend on ToD correctness yet.
+local function safe_time_of_day()
+    local tod_id = "morning"
+    pcall(function()
+        local sched = wesnoth.current.schedule
+        if type(sched) == "table" and sched.id then
+            tod_id = sched.id
+        end
+    end)
+    return tod_id
+end
+
 function state_collector.collect_game_state(side_number, game_id)
-    std_print(string.format("[DEBUG] Starting game state collection for side %d", side_number))
-    
     local map_obj = wesnoth.current.map
     local width = map_obj.playable_width
     local height = map_obj.playable_height
-    
-    std_print(string.format("[DEBUG] Map size: %dx%d", width, height))
-    
-    -- Collect hexes
+    dbg(string.format("[DEBUG] Map %dx%d", width, height))
+
+    -- Hexes.
     local hexes = {}
-    local hex_count = 0
     for y = 1, height do
         for x = 1, width do
-            if wesnoth.current.map:on_board({x, y}) then
+            if wesnoth.current.map:on_board({ x, y }) then
                 table.insert(hexes, state_collector.collect_terrain(x, y, map_obj))
-                hex_count = hex_count + 1
             end
         end
     end
-    std_print(string.format("[DEBUG] Collected %d hexes", hex_count))
-    
-    -- Collect units
+
+    -- Units visible to the current side.
     local units = {}
     local all_units = wesnoth.units.find_on_map({})
-    std_print(string.format("[DEBUG] Found %d total units on map", #all_units))
-    
     for _, unit in ipairs(all_units) do
         if not wesnoth.sides.is_fogged(side_number, unit.x, unit.y) then
-            local unit_data = state_collector.collect_unit(unit)
-            if unit_data then
-                table.insert(units, unit_data)
-            end
+            local u = state_collector.collect_unit(unit)
+            if u then table.insert(units, u) end
         end
     end
-    std_print(string.format("[DEBUG] Collected %d visible units", #units))
-    
-    -- Collect fog
+
+    -- Fog.
     local fog = {}
     for y = 1, height do
         for x = 1, width do
-            if wesnoth.current.map:on_board({x, y}) and 
+            if wesnoth.current.map:on_board({ x, y }) and
                wesnoth.sides.is_fogged(side_number, x, y) then
-                table.insert(fog, {x = x, y = y})
+                table.insert(fog, { x = x, y = y })
             end
         end
     end
-    std_print(string.format("[DEBUG] Collected %d fogged hexes", #fog))
-    
-    -- Collect mask
+
+    -- Mask (off-board hexes for irregular maps).
     local mask = {}
     for y = 1, height do
         for x = 1, width do
-            if not wesnoth.current.map:on_board({x, y}) then
-                table.insert(mask, {x = x, y = y})
+            if not wesnoth.current.map:on_board({ x, y }) then
+                table.insert(mask, { x = x, y = y })
             end
         end
     end
-    std_print(string.format("[DEBUG] Collected %d masked hexes", #mask))
-    
-    -- Collect sides
+
+    -- Per-side info.
     local sides_info = {}
     for i = 1, #wesnoth.sides do
         local side = wesnoth.sides[i]
-        local villages = {}
+        local villages = 0
         for y = 1, height do
             for x = 1, width do
-                local owner = wesnoth.map.get_owner({x, y})
-                if owner == i then
-                    table.insert(villages, {x = x, y = y})
+                if wesnoth.map.get_owner({ x, y }) == i then
+                    villages = villages + 1
                 end
             end
         end
-        
         sides_info[i] = {
             gold = side.gold,
             village_gold = side.village_gold,
             village_support = side.village_support or 1,
             base_income = side.base_income or 0,
             recruits = side.recruit or {},
-            num_villages = #villages
+            num_villages = villages,
         }
-        std_print(string.format("[DEBUG] Side %d: gold=%d, villages=%d", i, side.gold, #villages))
     end
-    
-    local tod = wesnoth.current.schedule[wesnoth.current.schedule.id]
-    std_print("[DEBUG] Game state collection completed successfully")
-    
+
     return {
         game_id = game_id,
         current_side = side_number,
         turn_number = wesnoth.current.turn,
-        time_of_day = tod.id or "morning",
+        time_of_day = safe_time_of_day(),
         map = {
             width = width,
             height = height,
             hexes = hexes,
             units = units,
             fog = fog,
-            mask = mask
+            mask = mask,
         },
         sides = sides_info,
-        game_over = false
+        game_over = false,
     }
 end
 

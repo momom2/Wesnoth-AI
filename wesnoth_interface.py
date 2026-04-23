@@ -1,20 +1,26 @@
-"""Per-game Wesnoth process wrapper and file-based IPC.
+"""Per-game Wesnoth process wrapper and mixed-transport IPC.
 
-Design: Wesnoth on Windows is a GUI-subsystem executable, so its stdout
-never reaches a piped subprocess. We ignore stdout entirely and do all
-IPC via files in the game's per-process directory. Lua and Python both
-see the same directory thanks to the add-on directory junction created
-by main.install_addon().
+Why this is mixed: Wesnoth 1.18's Lua sandbox excludes `io` entirely,
+so Lua cannot write files directly. Meanwhile, `wesnoth.exe` on Windows
+is a GUI-subsystem binary whose stdout never reaches a piped subprocess.
+The only writable outbound channel available to Lua is `std_print()`,
+which Wesnoth routes to `<userdata>/logs/wesnoth-*.out.log`. We tail that
+file.
+
+Inbound (Python → Lua) is simpler: Python writes `action.lua` atomically;
+Lua reads it via `wesnoth.read_file`. Lua can't delete files either, so
+each action includes a monotonic `seq` field; Lua tracks the
+last-executed seq in `wml.variables` and ignores stale ones.
 
 Per-turn protocol:
-  1. Lua CA `ca_state_sender` writes state.wml.tmp, renames to state.wml.
-  2. Python polls for state.wml, reads it, deletes it.
-  3. Python decides an action, writes action.lua.tmp, renames to action.lua.
-  4. Lua CA `ca_action_executor` reads action.lua, deletes it, executes.
-
-File names are constants in constants.py so Lua and Python agree.
+  1. Lua CA `ca_state_sender` std_print()s state wrapped in marker lines.
+  2. Python tails the .out.log, extracts the framed block, parses WML.
+  3. Python writes action.lua with seq = self._next_seq and increments.
+  4. Lua CA `ca_action_executor` reads action.lua, checks seq freshness,
+     executes, stores new seq in wml.variables.last_action_seq.
 """
 
+import itertools
 import logging
 import os
 import subprocess
@@ -26,11 +32,21 @@ from constants import (
     ACTION_FILE_NAME,
     ACTION_TIMEOUT_SECONDS,
     GAMES_PATH,
-    STATE_FILE_NAME,
     STATE_POLL_INTERVAL,
     STATE_TIMEOUT_SECONDS,
+    WESNOTH_LOGS_PATH,
     WESNOTH_PATH,
 )
+
+# Must match the constants in ca_state_sender.lua
+FRAME_BEGIN = "===WESNOTH_AI_STATE_BEGIN==="
+FRAME_END = "===WESNOTH_AI_STATE_END==="
+
+# Monotonic action-sequence counter shared across all WesnothGame instances.
+# Using a module-level counter avoids races when parallel games share a Lua
+# environment; each game still has its own action.lua file so they don't
+# collide.
+_seq_source = itertools.count(start=1)
 
 
 class WesnothGame:
@@ -44,18 +60,24 @@ class WesnothGame:
         self.game_dir = GAMES_PATH / game_id
         self.game_dir.mkdir(parents=True, exist_ok=True)
 
-        self.state_path = self.game_dir / STATE_FILE_NAME
         self.action_path = self.game_dir / ACTION_FILE_NAME
         self.game_id_path = self.game_dir / "game_id.txt"
-
-        # Tell the scenario's preload event which game this is.
         self.game_id_path.write_text(game_id)
 
-        # Start clean — remove any stale IPC files from prior runs.
-        for stale in [self.state_path, self.action_path,
-                      self.game_dir / (STATE_FILE_NAME + ".tmp"),
+        # Start clean. Delete any stale action file from a previous run;
+        # otherwise the Lua side would see it and try to execute something
+        # we've moved past.
+        for stale in [self.action_path,
                       self.game_dir / (ACTION_FILE_NAME + ".tmp")]:
             stale.unlink(missing_ok=True)
+
+        # Log-tailing state.
+        self._log_path: Optional[Path] = None
+        self._log_offset = 0
+        self._log_buffer = ""
+
+        # Per-process launch timestamp (used to pick the right .out.log).
+        self._launch_time: Optional[float] = None
 
         self.process: Optional[subprocess.Popen] = None
         self.is_running = False
@@ -63,14 +85,18 @@ class WesnothGame:
         self.winner: Optional[int] = None
 
     def start_wesnoth(self) -> None:
-        """Launch the Wesnoth process. Its stdout is unusable on Windows;
-        we rely on the file-based IPC and Wesnoth's own log files under
-        <userdata>/logs/ for observability."""
+        """Launch the Wesnoth process. Stdout/stderr are discarded — on
+        Windows they're not connected to a console anyway, and on POSIX
+        we don't want engine chatter flooding our logs. Lua-originated
+        output reaches us via <userdata>/logs/wesnoth-*.out.log instead."""
         cmd = [str(WESNOTH_PATH), "--test", "ai_training"]
-        self.logger.info(f"Starting Wesnoth: {' '.join(cmd)}")
 
-        # DEVNULL for stdout/stderr: on Windows they're disconnected anyway,
-        # and on POSIX we don't want Wesnoth's verbose logs flooding ours.
+        # Small slack so we don't mistake a log file that was created a
+        # hair before Popen for ours. Wesnoth typically writes its log
+        # filename within ~100ms of launch.
+        self._launch_time = time.time() - 0.5
+
+        self.logger.info(f"Starting Wesnoth: {' '.join(cmd)}")
         self.process = subprocess.Popen(
             cmd,
             stdout=subprocess.DEVNULL,
@@ -79,75 +105,127 @@ class WesnothGame:
         self.is_running = True
         self.logger.info(f"Wesnoth started (PID {self.process.pid})")
 
-    def read_state(self, timeout: float = STATE_TIMEOUT_SECONDS) -> Optional[str]:
-        """Poll for a fresh state file, return its contents, delete it.
+    def _find_out_log(self) -> Optional[Path]:
+        """Find the .out.log file Wesnoth opened for this process.
 
-        Returns the raw WML state string (the Python-side parser in
-        state_converter.py consumes it), or None on timeout/process death.
+        Wesnoth names logs wesnoth-<UTC-date>-<UTC-time>-<rand>.out.log.
+        We pick the newest .out.log whose mtime is >= our launch time.
+        """
+        if not WESNOTH_LOGS_PATH.exists():
+            return None
+        if self._launch_time is None:
+            return None
+
+        candidates = [
+            p for p in WESNOTH_LOGS_PATH.glob("wesnoth-*.out.log")
+            if p.stat().st_mtime >= self._launch_time
+        ]
+        if not candidates:
+            return None
+        # Newest first.
+        candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        return candidates[0]
+
+    def _read_new_log_content(self) -> str:
+        """Pull any new bytes from the .out.log since we last read."""
+        if self._log_path is None:
+            self._log_path = self._find_out_log()
+            if self._log_path is None:
+                return ""
+
+        try:
+            with self._log_path.open("r", encoding="utf-8", errors="replace") as f:
+                f.seek(self._log_offset)
+                new = f.read()
+                self._log_offset = f.tell()
+                return new
+        except OSError as e:
+            self.logger.debug(f"log read error: {e}")
+            return ""
+
+    def _extract_state_frame(self) -> Optional[str]:
+        """If our buffer contains a complete BEGIN..END frame, consume it
+        and return just the WML payload (without markers or meta header).
+        """
+        begin = self._log_buffer.find(FRAME_BEGIN)
+        if begin < 0:
+            # Discard anything before a BEGIN marker so the buffer doesn't
+            # grow unboundedly with unrelated engine output.
+            if len(self._log_buffer) > 64 * 1024:
+                self._log_buffer = self._log_buffer[-1024:]
+            return None
+
+        end = self._log_buffer.find(FRAME_END, begin + len(FRAME_BEGIN))
+        if end < 0:
+            return None  # frame still being written
+
+        frame = self._log_buffer[begin + len(FRAME_BEGIN):end]
+        self._log_buffer = self._log_buffer[end + len(FRAME_END):]
+
+        # Strip the opening newline and the "meta:" header line that
+        # ca_state_sender emits right after BEGIN.
+        lines = frame.splitlines()
+        while lines and (not lines[0].strip() or lines[0].startswith("meta:")):
+            lines.pop(0)
+        return "\n".join(lines)
+
+    def read_state(self, timeout: float = STATE_TIMEOUT_SECONDS) -> Optional[str]:
+        """Block until the Lua side emits a fresh state frame, then return
+        the raw WML payload. None on timeout or process death.
         """
         deadline = time.time() + timeout
 
         while time.time() < deadline:
-            if self.state_path.exists():
-                try:
-                    content = self.state_path.read_text(encoding="utf-8")
-                except OSError as e:
-                    # File may have been mid-rename; try again.
-                    self.logger.debug(f"Transient read error: {e}")
-                    time.sleep(STATE_POLL_INTERVAL)
-                    continue
+            self._log_buffer += self._read_new_log_content()
 
-                try:
-                    self.state_path.unlink()
-                except OSError:
-                    pass  # already gone; harmless
-
-                self.logger.debug(f"Read {len(content)} bytes of state")
-                return content
+            frame = self._extract_state_frame()
+            if frame is not None:
+                self.logger.debug(f"Got state frame ({len(frame)} chars)")
+                return frame
 
             if self.process is not None and self.process.poll() is not None:
                 self.logger.warning(
                     f"Wesnoth exited (returncode={self.process.returncode}) "
-                    f"while waiting for state"
+                    f"before state arrived"
                 )
-                return None
+                # Drain any last bytes in case the frame landed just before exit.
+                self._log_buffer += self._read_new_log_content()
+                return self._extract_state_frame()
 
             time.sleep(STATE_POLL_INTERVAL)
 
         self.logger.warning(f"Timeout after {timeout:.1f}s waiting for state")
         return None
 
-    def send_action(self, action: Dict, timeout: float = ACTION_TIMEOUT_SECONDS) -> bool:
-        """Write the action file atomically. Returns True if the file
-        landed on disk; doesn't wait for Lua to consume it."""
-        lua_code = "return " + self._dict_to_lua(action) + "\n"
+    def send_action(self, action: Dict,
+                    timeout: float = ACTION_TIMEOUT_SECONDS) -> bool:
+        """Write the action file atomically with a fresh sequence number.
+        Returns True if the file landed on disk. Doesn't wait for Lua to
+        consume it — the CA evaluator polls and handles that itself.
+        """
+        action_with_seq = dict(action)
+        action_with_seq["seq"] = next(_seq_source)
+
+        lua_code = "return " + self._dict_to_lua(action_with_seq) + "\n"
         tmp = self.game_dir / (ACTION_FILE_NAME + ".tmp")
 
         try:
             tmp.write_text(lua_code, encoding="utf-8")
-            os.replace(tmp, self.action_path)  # atomic overwrite cross-platform
+            os.replace(tmp, self.action_path)
         except OSError as e:
             self.logger.error(f"Failed to write action: {e}")
             return False
 
-        self.logger.debug(f"Sent action: {action.get('type', '?')}")
+        self.logger.debug(
+            f"Sent action seq={action_with_seq['seq']} type={action.get('type', '?')}")
         return True
 
     def _dict_to_lua(self, d: Dict) -> str:
-        """Serialize a Python dict to a Lua table literal.
-
-        Supports: str, int, float, bool, nested dicts, lists of same, and
-        Position-like objects (anything with .x and .y attributes).
-        """
-        parts = []
-        for key, value in d.items():
-            parts.append(f"{key} = {self._lua_value(value)}")
+        parts = [f"{k} = {self._lua_value(v)}" for k, v in d.items()]
         return "{" + ", ".join(parts) + "}"
 
     def _lua_value(self, value) -> str:
         if isinstance(value, str):
-            # Use double-quoted string with backslash-escapes on the two
-            # characters Lua treats specially.
             escaped = value.replace("\\", "\\\\").replace('"', '\\"')
             return f'"{escaped}"'
         if isinstance(value, bool):
@@ -161,20 +239,14 @@ class WesnothGame:
         if isinstance(value, (list, tuple)):
             items = [self._lua_value(v) for v in value]
             return "{" + ", ".join(items) + "}"
-        # Fall back to repr — caller-beware if it contains anything weird.
         return repr(value)
 
     def check_game_over(self) -> bool:
-        """True if the game-over marker file exists. The scenario writes
-        this via the Lua 'endlevel' handler; we look for it opportunistically
-        but the authoritative signal is the `game_over` flag embedded in
-        the state WML (see state_converter)."""
-        # Placeholder: with file IPC, game_over flows through the state
-        # payload itself, so this method is kept only for interface compat.
+        """Compatibility shim. Game-over state now flows through the state
+        payload (game_over / winner fields), not a separate check."""
         return self.game_over
 
     def terminate(self) -> None:
-        """Kill the Wesnoth process if still running. Safe to call twice."""
         if self.process and self.process.poll() is None:
             self.logger.info(f"Terminating Wesnoth (PID {self.process.pid})")
             try:
