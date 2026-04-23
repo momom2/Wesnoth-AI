@@ -49,7 +49,15 @@ NUM_PARALLEL_GAMES   = 4      # Each game is a separate Wesnoth process.
                               # so parallel games don't collide on the
                               # IPC directory. See training_scenario.cfg
                               # preload.
-MAX_ACTIONS_PER_GAME = 2000   # Safety rail against runaway games.
+# Was 2000 — with a 16-way actor pool (units + recruits + end_turn),
+# ~1/16 of random actions end the turn, so 2000 actions ≈ 60 turns.
+# That's far longer than necessary, and a random policy never finds a
+# leader kill before hitting the cap — meaning every game terminated
+# on TIMEOUT (terminal reward 0) and the ±1 training signal never
+# fired. 500 actions ≈ 15-30 turns, still enough room for proper
+# engagement but produces way more terminations per hour and raises
+# the probability of a stumbled-upon kill registering in the queue.
+MAX_ACTIONS_PER_GAME = 500
 
 # How often to emit aggregated stats / save checkpoints. Only
 # checkpoints fire when the policy is trainable; stats always.

@@ -62,13 +62,20 @@ class TrainerConfig:
     weight_decay:         float = 1e-4
     gamma:                float = 0.99
     value_coef:           float = 0.5
-    entropy_coef:         float = 0.01
+    # Lowered from 0.01 after the first 22 train_steps held entropy
+    # ~8.3 (near max). The bonus was dominating the tiny shaping
+    # gradients and preventing the policy from ever committing to an
+    # action. Still nonzero so exploration isn't killed entirely.
+    entropy_coef:         float = 0.001
     grad_clip:            float = 1.0
     normalize_advantages: bool  = True
-    # Cap transitions processed per train_step. Nothing's dropped from
-    # trajectories themselves; just trims the backward-graph size.
-    # Tune up if freezes remain; down if training is too expensive.
-    max_transitions_per_step: int = 512
+    # Cap transitions processed per train_step. Originally 512 as a
+    # defensive memory guard; re-forward training (trainer.py intro)
+    # removed the memory pressure, so we can afford much more of the
+    # collected data. 4000 is ~50% of a typical 4-game queue; each
+    # train_step runs ~3-4x longer (~100-200 s on CPU) but uses 8x
+    # more data. If freezes recur, bring it back down.
+    max_transitions_per_step: int = 4000
 
 
 @dataclass
