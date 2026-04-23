@@ -85,10 +85,20 @@ class WesnothGame:
         self.winner: Optional[int] = None
 
     def start_wesnoth(self) -> None:
-        """Launch the Wesnoth process. Stdout/stderr are discarded — on
-        Windows they're not connected to a console anyway, and on POSIX
-        we don't want engine chatter flooding our logs. Lua-originated
-        output reaches us via <userdata>/logs/wesnoth-*.out.log instead."""
+        """Launch Wesnoth on our training scenario.
+
+        Using `--test ai_training`, which opens a GUI window. Headless
+        (`--nogui --multiplayer --scenario=...`) turned out to be
+        unreliable on this Windows install — see
+        memory/reference_wesnoth_headless_attempt.md for findings.
+        When headless works, latency can drop substantially; until
+        then, the GUI overhead is tolerable for single-game runs, and
+        Phase 3.2 will hide most of it behind parallel processes.
+
+        Stdout/stderr are discarded — on Windows they're not connected
+        to a console anyway. Lua-originated output reaches us via
+        <userdata>/logs/wesnoth-*.out.log.
+        """
         cmd = [str(WESNOTH_PATH), "--test", "ai_training"]
 
         # Small slack so we don't mistake a log file that was created a
