@@ -1,74 +1,74 @@
 # transformer.py
+# Transformer model for Wesnoth AI
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Tuple, Optional
-from assumptions import MAX_ATTACKS, MAX_RECRUITS
+
+from constants import (
+    TRANSFORMER_D_MODEL, TRANSFORMER_NUM_LAYERS, TRANSFORMER_NUM_HEADS,
+    TRANSFORMER_D_FF, TRANSFORMER_DROPOUT, TRANSFORMER_MEMORY_SIZE,
+    MAX_MAP_WIDTH, MAX_MAP_HEIGHT, MAX_ATTACKS, MAX_RECRUITS
+)
 
 class MultiHeadAttention(nn.Module):
-    """
-    Custom multi-head attention that handles our hex-based spatial structure.
-    This lets the model look at different aspects of the game state simultaneously,
-    like one head focusing on combat opportunities while another watches for threats.
-    """
+    """Multi-head attention with masking."""
+    
     def __init__(self, d_model: int, num_heads: int):
         super().__init__()
-        assert d_model % num_heads == 0, "d_model must be divisible by num_heads"
+        assert d_model % num_heads == 0
         
         self.d_model = d_model
         self.num_heads = num_heads
         self.d_k = d_model // num_heads
         
-        # Create learnable projections for queries, keys, and values
         self.W_q = nn.Linear(d_model, d_model)
         self.W_k = nn.Linear(d_model, d_model)
         self.W_v = nn.Linear(d_model, d_model)
         self.W_o = nn.Linear(d_model, d_model)
         
-    def forward(self, 
-                query: torch.Tensor,
-                key: torch.Tensor,
-                value: torch.Tensor,
-                mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+    def forward(
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        mask: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
         batch_size = query.size(0)
         
-        # Create queries, keys, and values for all heads
+        # Project and reshape
         Q = self.W_q(query).view(batch_size, -1, self.num_heads, self.d_k).transpose(1, 2)
         K = self.W_k(key).view(batch_size, -1, self.num_heads, self.d_k).transpose(1, 2)
         V = self.W_v(value).view(batch_size, -1, self.num_heads, self.d_k).transpose(1, 2)
         
-        # Calculate attention scores
-        scores = torch.matmul(Q, K.transpose(-2, -1)) / torch.sqrt(torch.tensor(self.d_k))
+        # Attention scores
+        scores = torch.matmul(Q, K.transpose(-2, -1)) / (self.d_k ** 0.5)
         
-        # Apply mask if provided (for fog of war or invalid actions)
+        # Apply mask
         if mask is not None:
             scores = scores.masked_fill(mask == 0, float('-inf'))
         
-        # Get attention weights and apply to values
         attention = F.softmax(scores, dim=-1)
         output = torch.matmul(attention, V)
         
-        # Combine heads and project back to original dimension
+        # Combine heads
         output = output.transpose(1, 2).contiguous().view(batch_size, -1, self.d_model)
         return self.W_o(output)
 
 class TransformerBlock(nn.Module):
-    """
-    A single transformer block that processes the game state.
-    Each block lets the model refine its understanding of the tactical situation.
-    """
-    def __init__(self, d_model: int, num_heads: int, d_ff: int, dropout: float = 0.1):
+    """Single transformer block."""
+    
+    def __init__(self, d_model: int, num_heads: int, d_ff: int, dropout: float):
         super().__init__()
         
         self.attention = MultiHeadAttention(d_model, num_heads)
         self.norm1 = nn.LayerNorm(d_model)
         self.norm2 = nn.LayerNorm(d_model)
         
-        # Feed-forward network for processing attention outputs
         self.ff = nn.Sequential(
             nn.Linear(d_model, d_ff),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Dropout(dropout),
             nn.Linear(d_ff, d_model)
         )
@@ -76,35 +76,101 @@ class TransformerBlock(nn.Module):
         self.dropout = nn.Dropout(dropout)
         
     def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
-        # Self-attention with residual connection and normalization
+        # Self-attention
         attended = self.attention(x, x, x, mask)
         x = self.norm1(x + self.dropout(attended))
         
-        # Feed-forward with residual connection and normalization
+        # Feed-forward
         fed_forward = self.ff(x)
         return self.norm2(x + self.dropout(fed_forward))
 
-class WesnothTransformer(nn.Module):
-    """
-    The main transformer architecture for our Wesnoth AI.
-    Processes the game state and outputs action probabilities and value estimates.
-    """
-    def __init__(self,
-                 d_model: int = 256,
-                 num_layers: int = 6,
-                 num_heads: int = 8,
-                 d_ff: int = 1024,
-                 dropout: float = 0.1,
-                 max_memory_size: int = 128,
-                 max_recruits: int = MAX_RECRUITS,
-                 max_attacks: int = MAX_ATTACKS):
+class MemoryModule(nn.Module):
+    """Memory module for storing and retrieving game history."""
+    
+    def __init__(self, d_model: int, memory_size: int, num_heads: int, dropout: float):
         super().__init__()
         
-        # Embedding projections
-        self.hex_projection = nn.Linear(101, d_model)  # Project hex features to model dimension
-        self.global_projection = nn.Linear(7, d_model)  # Project global features
-        self.memory_size = max_memory_size
-        self.memory_projection = nn.Linear(max_memory_size, d_model)
+        self.d_model = d_model
+        self.memory_size = memory_size
+        
+        self.memory_attention = nn.MultiheadAttention(
+            d_model, num_heads, dropout=dropout, batch_first=True
+        )
+        
+        self.update_gate = nn.Sequential(
+            nn.Linear(2 * d_model, d_model),
+            nn.Sigmoid()
+        )
+        
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+        
+    def forward(
+        self,
+        query_state: torch.Tensor,
+        memory_state: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Args:
+            query_state: [batch, seq_len, d_model]
+            memory_state: [batch, memory_size, d_model]
+        
+        Returns:
+            conditioned_features: [batch, seq_len, d_model]
+            new_memory: [batch, memory_size, d_model]
+        """
+        # Read from memory
+        memory_output, _ = self.memory_attention(
+            query=query_state,
+            key=memory_state,
+            value=memory_state,
+            need_weights=False
+        )
+        conditioned = self.norm1(query_state + memory_output)
+        
+        # Update memory
+        memory_updates, _ = self.memory_attention(
+            query=memory_state,
+            key=query_state,
+            value=query_state,
+            need_weights=False
+        )
+        
+        # Gated update
+        gate_input = torch.cat([memory_state, memory_updates], dim=-1)
+        gate = self.update_gate(gate_input)
+        new_memory = gate * memory_updates + (1 - gate) * memory_state
+        new_memory = self.norm2(new_memory)
+        
+        return conditioned, new_memory
+
+class WesnothTransformer(nn.Module):
+    """Main transformer for Wesnoth AI."""
+    
+    def __init__(
+        self,
+        d_model: int = TRANSFORMER_D_MODEL,
+        num_layers: int = TRANSFORMER_NUM_LAYERS,
+        num_heads: int = TRANSFORMER_NUM_HEADS,
+        d_ff: int = TRANSFORMER_D_FF,
+        dropout: float = TRANSFORMER_DROPOUT,
+        memory_size: int = TRANSFORMER_MEMORY_SIZE,
+        max_width: int = MAX_MAP_WIDTH,
+        max_height: int = MAX_MAP_HEIGHT
+    ):
+        super().__init__()
+        
+        self.d_model = d_model
+        self.max_width = max_width
+        self.max_height = max_height
+        
+        # Input projection (hex features -> d_model)
+        # Hex feature size: 150 (from encodings.py)
+        self.hex_projection = nn.Linear(150, d_model)
+        self.global_projection = nn.Linear(7, d_model)
+        
+        # Memory module
+        self.memory_module = MemoryModule(d_model, memory_size, num_heads, dropout)
         
         # Transformer layers
         self.layers = nn.ModuleList([
@@ -112,48 +178,104 @@ class WesnothTransformer(nn.Module):
             for _ in range(num_layers)
         ])
         
-        # Output heads
-        self.start_hex_head = nn.Linear(d_model, 1)  # Probability of selecting each hex
-        self.target_hex_head = nn.Linear(d_model, 1)  # Probability of targeting each hex
-        self.attack_head = nn.Linear(d_model, max_attacks)  # Probabilities for the attacks
-        self.recruit_head = nn.Linear(d_model, max_recruits)  # Probabilities for recruitment options
-        self.value_head = nn.Linear(d_model, 1)  # Position evaluation
+        # Pooling for global decisions
+        self.pooling_head = nn.Linear(d_model, 1)
         
-    def forward(self, 
-                map_representation: torch.Tensor,
-                global_features: torch.Tensor,
-                memory: torch.Tensor,
-                fog_mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        # Output heads
+        self.start_x_head = nn.Linear(d_model, max_width)
+        self.start_y_head = nn.Linear(d_model, max_height)
+        self.target_x_head = nn.Linear(d_model, max_width)
+        self.target_y_head = nn.Linear(d_model, max_height)
+        
+        self.attack_head = nn.Linear(d_model, MAX_ATTACKS)
+        self.recruit_head = nn.Linear(d_model, MAX_RECRUITS)
+        self.end_turn_head = nn.Linear(d_model, 1)
+        self.value_head = nn.Linear(d_model, 1)
+        
+    def forward(
+        self,
+        map_representation: torch.Tensor,
+        global_features: torch.Tensor,
+        memory: torch.Tensor,
+        fog_mask: torch.Tensor
+    ) -> Tuple[torch.Tensor, ...]:
+        """
+        Args:
+            map_representation: [batch, height, width, features]
+            global_features: [batch, 7]
+            memory: [batch, memory_size, d_model]
+            fog_mask: [batch, height, width]
+        
+        Returns:
+            start_x_logits, start_y_logits, target_x_logits, target_y_logits,
+            attack_logits, recruit_logits, end_turn_logit, value, new_memory
+        """
         batch_size, height, width, _ = map_representation.shape
         
-        # Project all inputs to model dimension
-        hex_features = self.hex_projection(map_representation)
-        global_features = self.global_projection(global_features)
-        memory_features = self.memory_projection(memory)
+        # Project inputs
+        hex_features = self.hex_projection(map_representation)  # [batch, height, width, d_model]
+        global_feat = self.global_projection(global_features)  # [batch, d_model]
         
-        # Combine features into sequence
-        # Reshape hex features to sequence
-        hex_seq = hex_features.view(batch_size, height * width, -1)
+        # Broadcast global features
+        global_feat = global_feat.unsqueeze(1).unsqueeze(1).expand(-1, height, width, -1)
+        combined = hex_features + global_feat
         
-        # Add global and memory features to sequence
-        sequence = torch.cat([
-            hex_seq,
-            global_features.unsqueeze(1),
-            memory_features.unsqueeze(1)
-        ], dim=1)
+        # Reshape to sequence
+        sequence = combined.view(batch_size, height * width, self.d_model)
         
-        # Process through transformer layers
+        # Create attention mask from fog
+        attention_mask = fog_mask.view(batch_size, height * width).unsqueeze(1).unsqueeze(2)
+        attention_mask = attention_mask.expand(-1, -1, height * width, -1)
+        
+        # Process with memory
+        sequence, new_memory = self.memory_module(sequence, memory)
+        
+        # Process through transformer
         for layer in self.layers:
-            sequence = layer(sequence, fog_mask)
+            sequence = layer(sequence, attention_mask)
         
-        # Split processed features
-        hex_features = sequence[:, :height * width].view(batch_size, height, width, -1)
+        # Reshape back
+        processed = sequence.view(batch_size, height, width, self.d_model)
         
-        # Generate outputs
-        start_logits = self.start_hex_head(hex_features).squeeze(-1)
-        target_logits = self.target_hex_head(hex_features).squeeze(-1)
-        attack_logits = self.attack_head(hex_features.mean(dim=[1, 2]))
-        recruit_logits = self.recruit_head(hex_features.mean(dim=[1, 2]))
-        value = self.value_head(hex_features.mean(dim=[1, 2]))
+        # Pooling for global decisions
+        pooling_weights = F.softmax(
+            self.pooling_head(processed).squeeze(-1),
+            dim=(1, 2)
+        ).unsqueeze(-1)
+        pooled = (processed * pooling_weights).sum(dim=(1, 2))
         
-        return start_logits, target_logits, attack_logits, recruit_logits, value
+        # Generate coordinate logits
+        x_features = processed.mean(dim=1)  # [batch, width, d_model]
+        y_features = processed.mean(dim=2)  # [batch, height, d_model]
+        
+        start_x_logits = self.start_x_head(x_features).squeeze(-1)  # [batch, width]
+        start_y_logits = self.start_y_head(y_features).squeeze(-1)  # [batch, height]
+        target_x_logits = self.target_x_head(x_features).squeeze(-1)
+        target_y_logits = self.target_y_head(y_features).squeeze(-1)
+        
+        # Generate action logits
+        attack_logits = self.attack_head(pooled)
+        recruit_logits = self.recruit_head(pooled)
+        end_turn_logit = self.end_turn_head(pooled)
+        value = self.value_head(pooled)
+        
+        # Apply fog mask to coordinate logits
+        fog_x_mask = (fog_mask.sum(dim=1) == 0).float()  # [batch, width]
+        fog_y_mask = (fog_mask.sum(dim=2) == 0).float()  # [batch, height]
+        
+        start_x_logits = start_x_logits.masked_fill(fog_x_mask == 1, float('-inf'))
+        start_y_logits = start_y_logits.masked_fill(fog_y_mask == 1, float('-inf'))
+        target_x_logits = target_x_logits.masked_fill(fog_x_mask == 1, float('-inf'))
+        target_y_logits = target_y_logits.masked_fill(fog_y_mask == 1, float('-inf'))
+        
+        return (
+            start_x_logits,
+            start_y_logits,
+            target_x_logits,
+            target_y_logits,
+            attack_logits,
+            recruit_logits,
+            end_turn_logit,
+            value,
+            new_memory
+        )

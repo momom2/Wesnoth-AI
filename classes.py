@@ -1,72 +1,72 @@
 # classes.py
+# Data structures for Wesnoth AI
 
 from dataclasses import dataclass
-from typing import List, Set
+from typing import List, Set, Optional
+from pathlib import Path
 from enum import IntEnum
 
 class Alignment(IntEnum):
-    """Determines how units are affected by time of day."""
+    """Unit alignment affecting ToD damage."""
     LAWFUL = 0
     NEUTRAL = 1
     CHAOTIC = 2
     LIMINAL = 3
 
 class UnitTrait(IntEnum):
-    """
-    Traits that units can have. These are typically assigned randomly at recruitment,
-    though some units have fixed traits.
-    """
-    INTELLIGENT = 0     # -20% exp required
-    QUICK = 1           # +1 mp, -5% hp
-    RESILIENT = 2       # +4 hp, +1hp per level
-    STRONG = 3          # +1 damage for melee attacks, +1 hp
-    DEXTROUS = 4        # +1 damage for ranged attacks
-    FEARLESS = 5        # No malus at bad ToD
-    FERAL = 6           # 50% max def on villages; pretend trait
-    HEALTHY = 7         # Always rest heals (regens 2hp per turn)
-    DIM = 8             # +20% exp required
-    SLOW = 9            # -1 mp, +5% hp
-    UNDEAD = 10         # Immune to drain, plague, poison, feeding, etc.
-    WEAK = 11           # -1 damage for melee attacks, -1 hp
-    AGED = 12           # Not used in standard 1v1
-    ELEMENTAL = 13      # Not used in standard 1v1
-    LOYAL = 14          # Not used in standard 1v1
-    MECHANICAL = 15     # Not used in standard 1v1
+    """Traits units can have."""
+    INTELLIGENT = 0
+    QUICK = 1
+    RESILIENT = 2
+    STRONG = 3
+    DEXTROUS = 4
+    FEARLESS = 5
+    FERAL = 6
+    HEALTHY = 7
+    DIM = 8
+    SLOW = 9
+    UNDEAD = 10
+    WEAK = 11
 
 class UnitAbility(IntEnum):
-    """Special abilities that units can have."""
-    AMBUSH = 0          # Hidden in forest
-    CONCEALMENT = 1     # Hidden in village
-    CURES = 2           # Cures nearby allied units of poison
-    FEEDING = 3         # +1 max and current hp on kill
-    HEALS4 = 4          # Heals nearby allied units for 4 hp per turn
-    HEALS8 = 5          # Heals nearby allied units for 8 hp per turn
-    ILLUMINATES = 6     # Adjacent hexes are brighter.
-    LEADERSHIP = 7      # +25% dmg for adjacent units per level of difference
-    NIGHTSTALK = 8      # Hidden at night
-    REGENERATES = 9     # Heals self +8 every turn or cures self of poison
-    SKIRMISHER = 10     # Ignores enemy zones of control
-    STEADFAST = 11      # Double resistance in defence (up to 50%)
-    SUBMERGE = 12       # Hidden in deep water
-    TELEPORT = 13       # Can teleport between villages for 1mp
+    """Special abilities."""
+    AMBUSH = 0
+    CONCEALMENT = 1
+    CURES = 2
+    FEEDING = 3
+    HEALS4 = 4
+    HEALS8 = 5
+    ILLUMINATES = 6
+    LEADERSHIP = 7
+    NIGHTSTALK = 8
+    REGENERATES = 9
+    SKIRMISHER = 10
+    STEADFAST = 11
+    SUBMERGE = 12
+    TELEPORT = 13
+
+class UnitStatus(IntEnum):
+    """Status effects."""
+    POISONED = 0
+    SLOW = 1
+    PETRIFIED = 2
+    STUNNED = 3
 
 class AttackSpecial(IntEnum):
-    """Special properties that individual attacks can have."""
-    BACKSTAB = 0        # Double damage dealt if enemy unit behind
-    BERSERK = 1         # Repeats attack up to 50 times - or until death
-    CHARGE = 2          # Double damage dealt and received on attack
-    DRAIN = 3           # Heals self for half damage dealt
-    FIRSTSTRIKE = 4     # Strikes first on defense
-    MAGICAL = 5         # Always 70% chance to hit
-    MARKSMAN = 6        # At least 60% chance to hit
-    PLAGUE = 7          # Creates walking corpse on kill
-    POISON = 8          # Poisons the target
-    SLOW = 9            # Hinders movement and divides damage by 2
-    PETRIFY = 10        # Petrifies the target - Not used in standard 1v1
-    SWARM = 11          # Damage depends on own HP - Not used in standard 1v1
+    """Weapon special properties."""
+    BACKSTAB = 0
+    BERSERK = 1
+    CHARGE = 2
+    DRAIN = 3
+    FIRSTSTRIKE = 4
+    MAGICAL = 5
+    MARKSMAN = 6
+    PLAGUE = 7
+    POISON = 8
+    SLOW = 9
 
 class DamageType(IntEnum):
-    """The six basic damage types in Wesnoth."""
+    """Damage types."""
     SLASH = 0
     PIERCE = 1
     IMPACT = 2
@@ -75,66 +75,42 @@ class DamageType(IntEnum):
     ARCANE = 5
 
 class Terrain(IntEnum):
-    """All basic terrain types in Wesnoth."""
+    """Terrain types."""
     CASTLE = 0
     CAVE = 1
-    COASTALREEF = 2
-    DEEPWATER = 3
-    FLAT = 4
-    FOREST = 5
-    FROZEN = 6
-    FUNGUS = 7
-    HILLS = 8
-    IMPASSABLE = 9
-    MOUNTAINS = 10
-    SAND = 11
-    SHALLOWWATER = 12
-    SWAMP = 13
-    UNWALKABLE = 14
-    VILLAGE = 15
-    VOID = 16        # For hexes outside the map
+    DEEPWATER = 2
+    FLAT = 3
+    FOREST = 4
+    FROZEN = 5
+    HILLS = 6
+    IMPASSABLE = 7
+    MOUNTAINS = 8
+    SAND = 9
+    SHALLOWWATER = 10
+    SWAMP = 11
+    UNWALKABLE = 12
+    VILLAGE = 13
 
 class TerrainModifiers(IntEnum):
-    """Special modifiers that can affect terrain."""
-    OASIS = 0
-    OBSTRUCTED = 1   # Statue, fire, etc.
-    SHADOWED = 2     # Darker than normal
-    ILLUMINATED = 3   # Brighter than normal
-    FIXEDLIGHTSHADOWY = 4     # Always dark
-    FIXEDLIGHTNEUTRAL = 5     # No ToD effect
-    FIXEDLIGHTILLUMINATED = 6  # Always bright
-
-class TimeOfDay(IntEnum):
-    """Different times of day affecting unit alignment."""
-    DAWN = 0
-    MORNING = 1
-    AFTERNOON = 2
-    DUSK = 3
-    FIRSTWATCH = 4    # First night phase
-    SECONDWATCH = 5   # Second night phase, followed by dawn
-
-class UnitStatus(IntEnum):
-    POISONED = 0
-    SLOW = 1
-    PETRIFIED = 2
-    STUNNED = 3 # Not sure if it appears in default anymore; there might be a df with a stun shield bash?
-    # Distraction is an ability, not applying a status 
-    # OTHER = 4 # TODO: Gotta think a bit about possible statuses, they're not in the manual
-
-
+    """Special terrain modifiers."""
+    VILLAGE = 0
+    KEEP = 1
+    CASTLE = 2
+    ILLUMINATED = 3
+    SHADOWED = 4
 
 @dataclass
 class Position:
-    """Represents a position on the hex grid."""
+    """Position on hex grid."""
     x: int
     y: int
+    
+    def __hash__(self):
+        return hash((self.x, self.y))
 
 @dataclass
 class Attack:
-    """
-    Represents a single attack that a unit can perform.
-    Each unit typically has 1-3 different attacks.
-    """
+    """Unit attack."""
     type_id: DamageType
     number_strikes: int
     damage_per_strike: int
@@ -143,106 +119,113 @@ class Attack:
 
 @dataclass
 class Unit:
-    """
-    Represents an actual unit on the map, with both
-    permanent and current properties.
-    """
+    """Complete unit information."""
     # Identity
-    name: str           # Will be converted to ID
-    side: int           # Player number (1 or 2)
-    is_leader: bool     # Is this the leader unit?
+    id: str
+    name: str
+    name_id: int  # Numeric ID for embedding
+    side: int
+    is_leader: bool
     position: Position
-
+    
     # Permanent stats
     max_hp: int
     max_moves: int
     max_exp: int
     cost: int
     alignment: Alignment
-    levelup_names: List[str]  # Will be converted to IDs
-
+    levelup_names: List[str]
+    
     # Current state
     current_hp: int
     current_moves: int
     current_exp: int
-    has_attacked: bool  # Reset at start of turn
-
-    # Combat properties
-    attacks: List[Attack]
-    resistances: List[float]  # 6 values, -1.0 to 1.0
-    defenses: List[float]    # 16 values, 0.0 to 1.0
-    # Not included: defence caps. Would require a tensor as big as defenses for little gain; let's leave it to be learned the hard way. Not too bad if AI doesn't realize about defence caps.
-    movement_costs: List[int] # 16 values, 1 to 10 (like def, once per terrain)
-    abilities: Set[UnitAbility]
-    traits: Set[UnitTrait]
-    statuses: Set[UnitStatus]
-
-    def __post_init__(self):
-        """Validates unit properties are within expected ranges."""
-        assert self.side in [1, 2], "Only 1v1 games supported"
-        assert 0 <= self.current_hp <= self.max_hp
-        assert 0 <= self.current_moves <= self.max_moves
-        assert 0 <= self.current_exp < self.max_exp
-        assert len(self.resistances) == 6
-        assert len(self.defenses) == 16
-        assert all(-1.0 <= x <= 1.0 for x in self.resistances)
-        assert all(0.0 <= x <= 1.0 for x in self.defenses)
-
-@dataclass
-class PartialUnit:
-    """Template for a unit that can be recruited."""
-    name: str
-    hp: int
-    moves: int
-    exp: int
-    cost: int
-    alignment: Alignment
-    levelup_names: List[str]
+    has_attacked: bool
+    
+    # Combat
     attacks: List[Attack]
     resistances: List[float]
     defenses: List[float]
+    movement_costs: List[int]
     abilities: Set[UnitAbility]
     traits: Set[UnitTrait]
+    statuses: Set[UnitStatus]
+    
+    def __hash__(self):
+        return hash((self.id, self.side))
 
 @dataclass
 class Hex:
-    """Represents a single hex on the map."""
+    """Single hex on map."""
     position: Position
     terrain_types: Set[Terrain]
     modifiers: Set[TerrainModifiers]
+    
+    def __hash__(self):
+        return hash(self.position)
 
 @dataclass
 class Map:
-    """Represents the complete game map state for a 1v1."""
+    """Complete map state."""
     size_x: int
     size_y: int
-    mask: Set[Position]                 # Hexes that are not used in the map: void, unplayable.
-    fog: Set[Position]                  # Fogged hexes: covered by the fog of war. Doesn't include void hexes.
-    hexes: Set[Hex]                     # All playable hexes: what we know about the non-void non-fogged hexes.
-    units: Set[Unit]                    # All visible units
+    mask: Set[Position]  # Off-board hexes
+    fog: Set[Position]   # Fogged hexes
+    hexes: Set[Hex]      # All visible hexes
+    units: Set[Unit]     # All visible units
+
+@dataclass
+class GlobalInfo:
+    """Global game information."""
+    current_side: int
+    turn_number: int
+    time_of_day: str
+    village_gold: int
+    village_upkeep: int
+    base_income: int
+
+@dataclass
+class SideInfo:
+    """Per-side information."""
+    player: str
+    recruits: List[str]
+    current_gold: int
+    base_income: int
+    nb_villages_controlled: int
+
+@dataclass
+class GameState:
+    """Complete game state."""
+    game_id: str
+    map: Map
+    global_info: GlobalInfo
+    sides: List[SideInfo]
+    game_over: bool = False
+    winner: Optional[int] = None
 
 @dataclass
 class Memory:
-    """
-    The AI's memory of past states.
-    Exact structure will be learned by the model.
-    """
+    """AI memory state."""
     state: List[float]
 
 @dataclass
-class Input:
-    """Complete input state for the AI to make a decision."""
-    map: Map
-    recruits: List[PartialUnit]
-    memory: Memory
+class Action:
+    """AI action."""
+    type: str  # 'move', 'attack', 'recruit', 'recall', 'end_turn'
+    start_hex: Optional[Position] = None
+    target_hex: Optional[Position] = None
+    attack_index: int = -1
+    recruit_unit: Optional[str] = None
+    unit_id: Optional[str] = None
+    end_turn: bool = False
 
 @dataclass
-class Action:
-    """
-    Represents a single action the AI can take.
-    This can be movement, attack, or recruitment.
-    """
-    start_hex: Position     # Where to act from
-    target_hex: Position    # Where to act to
-    attack_index: int       # Which attack to use (-1 for none)
-    recruit_unit: int       # Which unit to recruit (-1 for none)
+class Experience:
+    """Training experience."""
+    game_id: str
+    state: GameState
+    action: Action
+    value: float
+    reward: Optional[float]
+    turn_number: int
+    action_number: int
