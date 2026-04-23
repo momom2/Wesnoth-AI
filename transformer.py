@@ -237,36 +237,35 @@ class WesnothTransformer(nn.Module):
         # Reshape back
         processed = sequence.view(batch_size, height, width, self.d_model)
         
-        # Pooling for global decisions
-        pooling_weights = F.softmax(
-            self.pooling_head(processed).squeeze(-1),
-            dim=(1, 2)
-        ).unsqueeze(-1)
-        pooled = (processed * pooling_weights).sum(dim=(1, 2))
-        
-        # Generate coordinate logits
-        x_features = processed.mean(dim=1)  # [batch, width, d_model]
-        y_features = processed.mean(dim=2)  # [batch, height, d_model]
-        
-        start_x_logits = self.start_x_head(x_features).squeeze(-1)  # [batch, width]
-        start_y_logits = self.start_y_head(y_features).squeeze(-1)  # [batch, height]
-        target_x_logits = self.target_x_head(x_features).squeeze(-1)
-        target_y_logits = self.target_y_head(y_features).squeeze(-1)
-        
-        # Generate action logits
-        attack_logits = self.attack_head(pooled)
-        recruit_logits = self.recruit_head(pooled)
-        end_turn_logit = self.end_turn_head(pooled)
-        value = self.value_head(pooled)
-        
-        # Apply fog mask to coordinate logits
-        fog_x_mask = (fog_mask.sum(dim=1) == 0).float()  # [batch, width]
-        fog_y_mask = (fog_mask.sum(dim=2) == 0).float()  # [batch, height]
-        
-        start_x_logits = start_x_logits.masked_fill(fog_x_mask == 1, float('-inf'))
-        start_y_logits = start_y_logits.masked_fill(fog_y_mask == 1, float('-inf'))
-        target_x_logits = target_x_logits.masked_fill(fog_x_mask == 1, float('-inf'))
-        target_y_logits = target_y_logits.masked_fill(fog_y_mask == 1, float('-inf'))
+        # Attention-pool over the hex grid to one global feature vector.
+        # F.softmax doesn't accept tuple dims (only a single int), so
+        # flatten the spatial axes, softmax across them, reshape back.
+        scores = self.pooling_head(processed).squeeze(-1)      # [B, H, W]
+        flat = scores.view(batch_size, height * width)
+        pooling_weights = F.softmax(flat, dim=1).view(
+            batch_size, height, width, 1)
+        pooled = (processed * pooling_weights).sum(dim=(1, 2))  # [B, d_model]
+
+        # All heads project from the pooled global vector. Output shapes:
+        #   start_x/target_x: [B, max_width]      — padded beyond actual W
+        #   start_y/target_y: [B, max_height]     — padded beyond actual H
+        #   attack_logits:    [B, MAX_ATTACKS]
+        #   recruit_logits:   [B, MAX_RECRUITS]
+        #   end_turn_logit:   [B, 1]
+        #   value:            [B, 1]
+        # action_selector clamps coord heads to the actual map size, so
+        # the padding positions don't need to be masked here.
+        # TODO(phase-2): revisit architecture; per-hex coord heads would
+        # be more informative than projecting from a single pooled vector.
+        start_x_logits = self.start_x_head(pooled)
+        start_y_logits = self.start_y_head(pooled)
+        target_x_logits = self.target_x_head(pooled)
+        target_y_logits = self.target_y_head(pooled)
+
+        attack_logits   = self.attack_head(pooled)
+        recruit_logits  = self.recruit_head(pooled)
+        end_turn_logit  = self.end_turn_head(pooled)
+        value           = self.value_head(pooled)
         
         return (
             start_x_logits,
