@@ -1,22 +1,29 @@
-"""Manages parallel Wesnoth games driven by a pluggable policy.
+"""Coordinates Wesnoth subprocesses + policy + per-step reward feeding.
 
-Scope in Phase 1: pure orchestration around the file/log IPC. We launch
-Wesnoth, shuttle state in, ask the policy for an action, shuttle the
-action back out. No model, no training, no replay buffer — that stuff
-was keeping company with a broken transformer and is kept out of the
-way until Phase 2 reintroduces a trainable policy.
+Per game (per side's turn-local view):
 
-The `policy` attribute is duck-typed: any object with a
-`select_action(game_state) -> dict` method works. See `dummy_policy.py`
-for the scripted Phase 1 implementation. Trainable policies (Phase 2)
-will add `train_step(...)` and `trainable = True`; the training-loop
-hook here looks for that.
+    [read state_t] → [attribute reward to prev action] → [policy picks
+     action_t (= internally records a pending Transition for side_t)]
+     → [send action_t to Lua] → loop
+
+At end of game we finalize: both sides' last pending transitions get a
+terminal reward (win/loss/draw) with `done=True`, which flushes them
+into the policy's training queue.
+
+Reward plumbing is only active when the policy is trainable (exposes
+an ``observe`` method). Scripted policies (DummyPolicy) don't care.
+
+After a batch of games completes, if the policy is trainable and has
+`train_step`, we call it. It drains the queue and runs one gradient
+update. Checkpoints are saved on a schedule (CHECKPOINT_FREQUENCY) and
+delegated to the policy's own save_checkpoint method.
 """
 
 import asyncio
 import logging
 from datetime import datetime
-from typing import Dict, Optional
+from pathlib import Path
+from typing import Dict, Optional, Tuple
 
 from classes import GameState
 from constants import (
@@ -30,8 +37,23 @@ from constants import (
     SCENARIOS_PATH,
 )
 from policy import Policy, get_policy
+from rewards import (
+    OUTCOME_DRAW,
+    OUTCOME_LOSS,
+    OUTCOME_ONGOING,
+    OUTCOME_TIMEOUT,
+    OUTCOME_WIN,
+    StepDelta,
+    WeightedReward,
+    compute_delta,
+)
 from state_converter import StateConverter
 from wesnoth_interface import WesnothGame
+
+
+# Per-label state we carry between turns to compute StepDeltas. Tuple:
+#   (prev_state, prev_action_type, prev_acting_side, prev_recruit_cost)
+_PrevEntry = Tuple[GameState, str, int, int]
 
 
 class GameManager:
@@ -41,6 +63,7 @@ class GameManager:
         self,
         num_games: int = NUM_PARALLEL_GAMES,
         policy: Optional[Policy] = None,
+        reward_fn=None,
     ):
         self.num_games = num_games
         self.games: Dict[str, WesnothGame] = {}
@@ -52,11 +75,20 @@ class GameManager:
         self.logger = logging.getLogger("game_manager")
         self._setup_logging()
 
-        # Default policy: scripted, deterministic, just enough to make
-        # the IPC path observable. main.py's --policy flag can pick
-        # anything registered in policy.py's _REGISTRY.
         self.policy: Policy = policy if policy is not None else get_policy("dummy")
         self.logger.info(f"Policy: {type(self.policy).__name__}")
+
+        # Default reward fn is WeightedReward with its sensible defaults
+        # (gold_killed_delta at 0.01, village_delta at 0.05, small
+        # damage/recruit bonuses, ±1 terminal). Callers can pass any
+        # RewardFn-compatible callable to override — the Phase 3 user
+        # ask for "incentivize unorthodox strategies" flows through
+        # construction with different weights, no other code touched.
+        self._reward_fn = reward_fn if reward_fn is not None else WeightedReward()
+
+        # Per-(game_label) state needed to build StepDeltas between
+        # consecutive frames. See _PrevEntry type alias.
+        self._prev: Dict[str, _PrevEntry] = {}
 
         self.stats = {
             'games_completed': 0,
@@ -80,30 +112,19 @@ class GameManager:
             handlers=[logging.FileHandler(log_file), logging.StreamHandler()],
         )
 
+    # ------------------------------------------------------------------
+    # Game lifecycle
+    # ------------------------------------------------------------------
+
     async def create_game(self, label: str) -> WesnothGame:
-        """`label` is a Python-side tag (e.g., "game_0"). The actual
-        Wesnoth-side game_id comes from the scenario's preload and is
-        learned when the first state frame arrives."""
         self.logger.info(f"Creating game {label}")
         scenario_path = SCENARIOS_PATH / "training_scenario.cfg"
         game = WesnothGame(label, scenario_path)
         game.start_wesnoth()
         return game
 
-    def get_ai_action(self, game_state: GameState) -> Dict:
-        """Ask the policy for an action; translate to wire format."""
-        try:
-            action = self.policy.select_action(game_state)
-            # Lua expects flat 1-indexed fields (start_x/start_y/...),
-            # not our internal Position objects. The converter handles
-            # both the shape and the coordinate system.
-            return self.global_converter.convert_action_to_json(action)
-        except Exception as e:
-            self.logger.error(f"Policy error: {e}", exc_info=True)
-            return {'type': 'end_turn'}
-
     async def handle_game_turn(self, game: WesnothGame) -> bool:
-        """Run one state→action exchange. Return False to end the game."""
+        """One state→action exchange. Returns False when the game ends."""
         label = game.label
         try:
             state_payload = game.read_state()
@@ -121,20 +142,41 @@ class GameManager:
                 self.logger.debug(f"Payload preview: {preview}")
                 return False
 
-            # Adopt the Wesnoth-side game_id on the first frame. All
-            # subsequent send_action writes will go to the right dir.
             if game.game_id is None:
                 game.adopt_game_id(game_state.game_id)
 
+            # Attribute an intermediate reward to the previous action,
+            # if any. Terminal rewards are applied in _finalize_game.
+            self._reward_previous_step(label, game_state)
+
             if game_state.game_over:
-                self.logger.info(
-                    f"Game {label}: game over, winner={game_state.winner}")
-                self._record_game_result(game, game_state.winner)
+                winner = game_state.winner or 0
+                self.logger.info(f"Game {label}: over, winner={winner}")
+                self._finalize_game(label, game_state, winner, OUTCOME_WIN)
+                self._record_game_result(game, winner)
                 return False
 
-            action = self.get_ai_action(game_state)
+            # Policy forward + action send.
+            try:
+                internal_action = self.policy.select_action(
+                    game_state, game_label=label
+                )
+            except Exception as e:
+                self.logger.error(f"Policy error: {e}", exc_info=True)
+                internal_action = {'type': 'end_turn'}
 
-            if not game.send_action(action):
+            wire_action = self.global_converter.convert_action_to_json(internal_action)
+
+            # Stash what we need to compute this step's delta next time
+            # we see a state frame.
+            self._prev[label] = (
+                game_state,
+                internal_action.get('type', ''),
+                game_state.global_info.current_side,
+                _recruit_cost(internal_action, game_state),
+            )
+
+            if not game.send_action(wire_action):
                 self.logger.warning(f"Game {label}: action send failed")
                 self.stats['action_send_errors'] += 1
                 return False
@@ -147,8 +189,6 @@ class GameManager:
             return False
 
     async def run_game(self, label: str) -> None:
-        """`label` is a human-readable per-batch tag; Wesnoth's own
-        game_id is learned from the first state frame."""
         game: Optional[WesnothGame] = None
         try:
             game = await self.create_game(label)
@@ -168,14 +208,98 @@ class GameManager:
                 self.logger.warning(
                     f"Game {label}: timeout after {actions} actions")
                 self.stats['timeouts'] += 1
+                # Seal both sides' trajectories with OUTCOME_TIMEOUT
+                # so their last pending transitions still reach the
+                # training queue (no terminal bonus by default).
+                prev = self._prev.get(label)
+                if prev is not None:
+                    self._finalize_game(
+                        label, prev[0], winner=0, default_outcome=OUTCOME_TIMEOUT,
+                    )
+                else:
+                    self._drop_trajectories(label)
 
         except Exception as e:
             self.logger.error(f"Game {label}: error: {e}", exc_info=True)
+            self._drop_trajectories(label)
         finally:
             if label in self.games:
                 self.games[label].terminate()
                 del self.games[label]
+            self._prev.pop(label, None)
             self.logger.info(f"Game {label}: finished")
+
+    # ------------------------------------------------------------------
+    # Reward plumbing
+    # ------------------------------------------------------------------
+
+    def _reward_previous_step(
+        self, label: str, game_state: GameState,
+    ) -> None:
+        """If there is a pending previous action for this game, compute
+        its intermediate (non-terminal) delta and hand the reward to the
+        policy's observe hook (if any)."""
+        prev = self._prev.get(label)
+        if prev is None:
+            return
+        prev_state, prev_action_type, prev_side, prev_recruit_cost = prev
+        delta = compute_delta(
+            prev_state, game_state, prev_action_type,
+            recruit_cost=prev_recruit_cost, outcome=OUTCOME_ONGOING,
+        )
+        reward = self._reward_fn(delta)
+        self._observe_policy(label, prev_side, reward, done=False)
+
+    def _finalize_game(
+        self,
+        label: str,
+        game_state: GameState,
+        winner: int,
+        default_outcome: str = OUTCOME_WIN,  # unused — see body
+    ) -> None:
+        """Seal both sides' trajectories with the appropriate terminal
+        outcome. `winner` is 0 for draw/timeout/endless, 1/2 otherwise.
+        `default_outcome` kept for signature symmetry; outcome per side
+        is always derived from `winner` here (OUTCOME_TIMEOUT if
+        default_outcome == OUTCOME_TIMEOUT)."""
+        for side in (1, 2):
+            if default_outcome == OUTCOME_TIMEOUT:
+                outcome = OUTCOME_TIMEOUT
+            elif winner == 0:
+                outcome = OUTCOME_DRAW
+            elif winner == side:
+                outcome = OUTCOME_WIN
+            else:
+                outcome = OUTCOME_LOSS
+            terminal = StepDelta(
+                side=side,
+                turn=game_state.global_info.turn_number,
+                action_type='terminal',
+                outcome=outcome,
+            )
+            reward = self._reward_fn(terminal)
+            self._observe_policy(label, side, reward, done=True)
+
+    def _drop_trajectories(self, label: str) -> None:
+        """Error path: discard pending transitions for this game."""
+        dropper = getattr(self.policy, 'drop_pending', None)
+        if dropper is not None:
+            dropper(label)
+
+    def _observe_policy(
+        self, label: str, side: int, reward: float, done: bool,
+    ) -> None:
+        observer = getattr(self.policy, 'observe', None)
+        if observer is None:
+            return
+        try:
+            observer(label, side, reward, done=done)
+        except Exception as e:
+            self.logger.error(f"policy.observe error: {e}", exc_info=True)
+
+    # ------------------------------------------------------------------
+    # Stats + training loop
+    # ------------------------------------------------------------------
 
     def _record_game_result(self, game: WesnothGame, winner: Optional[int]) -> None:
         self.stats['games_completed'] += 1
@@ -194,19 +318,19 @@ class GameManager:
         if total == 0:
             return
         self.logger.info("=" * 70)
-        self.logger.info("=== Stats ===")
-        self.logger.info(f"Games: {total}")
-        self.logger.info(f"Side 1 wins: {self.stats['wins_side1']}")
-        self.logger.info(f"Side 2 wins: {self.stats['wins_side2']}")
-        self.logger.info(f"Draws: {self.stats['draws']}")
-        self.logger.info(f"Timeouts: {self.stats['timeouts']}")
-        self.logger.info(f"Total actions: {self.stats['total_actions']}")
-        self.logger.info(f"Parse errors: {self.stats['state_conversion_errors']}")
-        self.logger.info(f"Send errors: {self.stats['action_send_errors']}")
+        self.logger.info(f"Stats @ {total} games:")
+        self.logger.info(
+            f"  wins S1={self.stats['wins_side1']} "
+            f"S2={self.stats['wins_side2']} "
+            f"draws={self.stats['draws']} "
+            f"timeouts={self.stats['timeouts']}")
+        self.logger.info(f"  total actions: {self.stats['total_actions']}")
+        self.logger.info(
+            f"  errors: parse={self.stats['state_conversion_errors']} "
+            f"send={self.stats['action_send_errors']}")
         self.logger.info("=" * 70)
 
     async def run_training(self) -> None:
-        """Main loop. Training hook fires when the policy is trainable."""
         self.logger.info(f"Running {self.num_games} parallel games per batch")
         try:
             while True:
@@ -216,8 +340,6 @@ class GameManager:
                 ]
                 await asyncio.gather(*tasks)
 
-                # Phase 2: trainable policies will implement train_step.
-                # For now this is a no-op.
                 if getattr(self.policy, 'trainable', False):
                     try:
                         self.policy.train_step()  # type: ignore[attr-defined]
@@ -240,16 +362,31 @@ class GameManager:
                 game.terminate()
 
     def _save_checkpoint(self) -> None:
-        """Delegated to the policy. No-op if the policy isn't trainable."""
         saver = getattr(self.policy, 'save_checkpoint', None)
         if saver is None:
             return
         path = CHECKPOINTS_PATH / f"checkpoint_{self.stats['games_completed']}.pt"
         try:
             saver(path)
-            self.logger.info(f"Saved checkpoint to {path}")
         except Exception as e:
             self.logger.error(f"Checkpoint save failed: {e}", exc_info=True)
+
+
+# ----------------------------------------------------------------------
+# Helpers
+# ----------------------------------------------------------------------
+
+def _recruit_cost(action: Dict, game_state: GameState) -> int:
+    """Best-effort cost lookup for a recruit action. We look up a unit
+    of the same name in the current game state; if none exists, return
+    0 (the reward-shaping term contributes 0 then, which is fine)."""
+    if action.get('type') != 'recruit':
+        return 0
+    name = action.get('unit_type', '')
+    for u in game_state.map.units:
+        if u.name == name:
+            return u.cost
+    return 0
 
 
 async def main():
