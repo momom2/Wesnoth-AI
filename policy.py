@@ -57,9 +57,21 @@ from classes import GameState
 
 
 class Policy(Protocol):
-    """The one method every policy MUST provide."""
+    """The one method every policy MUST provide.
 
-    def select_action(self, game_state: GameState) -> Dict: ...
+    ``game_label`` is a caller-assigned string identifying which
+    game/episode this call belongs to — trainable policies use it to
+    bucket per-episode bookkeeping (rollout buffers, per-side
+    trajectories). Scripted policies can ignore it. Required as a
+    keyword-only argument so a call always reads unambiguously.
+    """
+
+    def select_action(
+        self,
+        game_state: GameState,
+        *,
+        game_label: str = "default",
+    ) -> Dict: ...
 
 
 # Name → zero-arg factory. Factories (not instances) so we don't

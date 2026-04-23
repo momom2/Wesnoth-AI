@@ -63,7 +63,13 @@ class DummyPolicy:
 
     trainable = False
 
-    def select_action(self, game_state: GameState) -> Dict:
+    def select_action(
+        self,
+        game_state: GameState,
+        *,
+        game_label: str = "default",
+    ) -> Dict:
+        # game_label unused — this policy is stateless.
         current_side = game_state.global_info.current_side
         my_units = [u for u in game_state.map.units if u.side == current_side]
         leader = next((u for u in my_units if u.is_leader), None)
