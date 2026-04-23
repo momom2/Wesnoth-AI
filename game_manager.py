@@ -202,6 +202,8 @@ class GameManager:
                 self.logger.info(f"Game {label}: over, winner={winner}")
                 self._finalize_game(label, game_state, winner, OUTCOME_WIN)
                 self._record_game_result(game, winner)
+                game.game_over = True
+                game.winner = winner
                 return False
 
             # Policy forward + action send.
@@ -243,6 +245,7 @@ class GameManager:
 
     async def run_game(self, label: str) -> None:
         game: Optional[WesnothGame] = None
+        natural_over = False
         try:
             game = await self.create_game(label)
             self.games[label] = game
@@ -251,36 +254,57 @@ class GameManager:
             actions = 0
             while actions < MAX_ACTIONS_PER_GAME:
                 if not await self.handle_game_turn(game):
+                    # Natural game-over was already counted by
+                    # _record_game_result in handle_game_turn and set
+                    # game.game_over. Anything else (no state, send
+                    # error, parse error) needs counting here.
+                    natural_over = bool(game and game.game_over)
                     break
                 actions += 1
-                if game.check_game_over():
-                    self._record_game_result(game, game.winner)
-                    break
 
-            if actions >= MAX_ACTIONS_PER_GAME:
+            if natural_over:
+                pass  # already counted; trajectories already finalized
+            elif actions >= MAX_ACTIONS_PER_GAME:
                 self.logger.warning(
                     f"Game {label}: timeout after {actions} actions")
-                self.stats['timeouts'] += 1
-                # Seal both sides' trajectories with OUTCOME_TIMEOUT
-                # so their last pending transitions still reach the
-                # training queue (no terminal bonus by default).
                 prev = self._prev.get(label)
                 if prev is not None:
                     self._finalize_game(
-                        label, prev[0], winner=0, default_outcome=OUTCOME_TIMEOUT,
+                        label, prev[0], winner=0,
+                        default_outcome=OUTCOME_TIMEOUT,
                     )
                 else:
                     self._drop_trajectories(label)
+                self._count_terminated('timeout')
+            else:
+                # Mid-episode exit (no-state / send fail / ...).
+                # Outcome unknown; drop trajectories rather than seal
+                # with a fake reward. Still bump the counter so
+                # train_step fires on schedule.
+                self._drop_trajectories(label)
+                self._count_terminated('interrupted')
 
         except Exception as e:
             self.logger.error(f"Game {label}: error: {e}", exc_info=True)
             self._drop_trajectories(label)
+            self._count_terminated('errored')
         finally:
             if label in self.games:
                 self.games[label].terminate()
                 del self.games[label]
             self._prev.pop(label, None)
             self.logger.info(f"Game {label}: finished")
+
+    def _count_terminated(self, bucket: str) -> None:
+        """Bump games_completed + the relevant stats bucket, and trigger
+        a periodic stats log. Used for all non-natural game endings
+        (timeouts, mid-episode exits, errors). Natural game-overs
+        continue to go through _record_game_result."""
+        self.stats['games_completed'] += 1
+        self.stats.setdefault(bucket, 0)
+        self.stats[bucket] += 1
+        if self.stats['games_completed'] % LOG_FREQUENCY == 0:
+            self._log_stats()
 
     # ------------------------------------------------------------------
     # Reward plumbing
