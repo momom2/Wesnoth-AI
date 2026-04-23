@@ -37,6 +37,7 @@ from constants import (
     SCENARIOS_PATH,
 )
 from policy import Policy, get_policy
+from profiling import Profiler
 from rewards import (
     OUTCOME_DRAW,
     OUTCOME_LOSS,
@@ -96,6 +97,17 @@ class GameManager:
         # Per-(game_label) state needed to build StepDeltas between
         # consecutive frames. See _PrevEntry type alias.
         self._prev: Dict[str, _PrevEntry] = {}
+
+        # Rolling-pool bookkeeping. These track when we last fired a
+        # train_step / checkpoint so the pool's event loop can fire
+        # them at a schedule independent of batch boundaries.
+        self._last_trained_at = 0
+        self._last_checkpoint_at = 0
+
+        # Profiling. handle_game_turn wraps its stages in
+        # `with self._profiler.time("..."): ...` and the periodic
+        # stats log emits self._profiler.report().
+        self._profiler = Profiler()
 
         self.stats = {
             'games_completed': 0,
@@ -160,13 +172,15 @@ class GameManager:
             # blocks the asyncio event loop. Push it to a thread so
             # parallel games can actually run in parallel — otherwise
             # asyncio.gather over N game tasks just serializes them.
-            state_payload = await asyncio.to_thread(game.read_state)
+            with self._profiler.time("read_state"):
+                state_payload = await asyncio.to_thread(game.read_state)
             if not state_payload:
                 self.logger.warning(f"Game {label}: no state, ending game")
                 return False
 
             try:
-                game_state = self.global_converter.convert_payload_to_game_state(state_payload)
+                with self._profiler.time("parse_state"):
+                    game_state = self.global_converter.convert_payload_to_game_state(state_payload)
             except Exception as e:
                 self.logger.error(
                     f"Game {label}: state parse failed: {e}", exc_info=True)
@@ -180,7 +194,8 @@ class GameManager:
 
             # Attribute an intermediate reward to the previous action,
             # if any. Terminal rewards are applied in _finalize_game.
-            self._reward_previous_step(label, game_state)
+            with self._profiler.time("reward_delta"):
+                self._reward_previous_step(label, game_state)
 
             if game_state.game_over:
                 winner = game_state.winner or 0
@@ -191,9 +206,10 @@ class GameManager:
 
             # Policy forward + action send.
             try:
-                internal_action = self.policy.select_action(
-                    game_state, game_label=label
-                )
+                with self._profiler.time("policy_select"):
+                    internal_action = self.policy.select_action(
+                        game_state, game_label=label
+                    )
             except Exception as e:
                 self.logger.error(f"Policy error: {e}", exc_info=True)
                 internal_action = {'type': 'end_turn'}
@@ -209,7 +225,9 @@ class GameManager:
                 _recruit_cost(internal_action, game_state),
             )
 
-            if not game.send_action(wire_action):
+            with self._profiler.time("send_action"):
+                sent = game.send_action(wire_action)
+            if not sent:
                 self.logger.warning(f"Game {label}: action send failed")
                 self.stats['action_send_errors'] += 1
                 return False
@@ -361,38 +379,97 @@ class GameManager:
         self.logger.info(
             f"  errors: parse={self.stats['state_conversion_errors']} "
             f"send={self.stats['action_send_errors']}")
+        self.logger.info("  " + self._profiler.throughput(total))
+        self.logger.info("  per-stage:\n" + self._profiler.report())
         self.logger.info("=" * 70)
 
     async def run_training(self) -> None:
-        self.logger.info(f"Running {self.num_games} parallel games per batch")
+        """Rolling pool of N in-flight games.
+
+        Keeps self.num_games tasks running at all times. Whenever one
+        finishes, immediately spawn a replacement — so the slowest game
+        in a set doesn't pause the others.
+
+        train_step and checkpoints fire on game-count schedules rather
+        than at batch boundaries (there are no batches anymore).
+        """
+        trainable = bool(getattr(self.policy, 'trainable', False))
+        train_every = self.num_games        # same cadence as old batched version
+        ckpt_every = CHECKPOINT_FREQUENCY
+
+        self.logger.info(
+            f"Rolling pool: {self.num_games} in-flight games. "
+            f"train_step every {train_every} games. "
+            f"checkpoint every {ckpt_every} games."
+        )
+
+        # Map of label → Task, for cancellation on shutdown.
+        active: Dict[str, asyncio.Task] = {}
+        counter = 0
+
+        def _spawn() -> None:
+            nonlocal counter
+            label = f"game_{counter}"
+            counter += 1
+            active[label] = asyncio.create_task(
+                self.run_game(label), name=label,
+            )
+
         try:
+            for _ in range(self.num_games):
+                _spawn()
+
             while True:
-                tasks = [
-                    self.run_game(f"game_{self.stats['games_completed'] + i}")
-                    for i in range(self.num_games)
+                done, _ = await asyncio.wait(
+                    list(active.values()),
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                finished_labels = [
+                    label for label, task in active.items() if task in done
                 ]
-                await asyncio.gather(*tasks)
+                # Drain exceptions so they're logged, not silently swallowed.
+                for label in finished_labels:
+                    task = active.pop(label)
+                    if task.exception() is not None:
+                        self.logger.error(
+                            f"Game {label} raised: {task.exception()}",
+                            exc_info=task.exception(),
+                        )
+                    _spawn()
 
-                if getattr(self.policy, 'trainable', False):
-                    try:
-                        self.policy.train_step()  # type: ignore[attr-defined]
-                    except Exception as e:
-                        self.logger.error(f"Training error: {e}", exc_info=True)
+                # Fire training and checkpointing on game-count schedules.
+                self._maybe_train(train_every, trainable)
+                self._maybe_checkpoint(ckpt_every, trainable)
 
-                if (self.stats['games_completed']
-                        and self.stats['games_completed'] % CHECKPOINT_FREQUENCY == 0
-                        and getattr(self.policy, 'trainable', False)):
-                    self._save_checkpoint()
-
-                self.logger.info(
-                    f"Batch done. Total games: {self.stats['games_completed']}")
+        except asyncio.CancelledError:
+            raise
         except KeyboardInterrupt:
-            self.logger.info("Interrupted")
-            if getattr(self.policy, 'trainable', False):
+            self.logger.info("Interrupted — cancelling in-flight games")
+            for task in active.values():
+                task.cancel()
+            await asyncio.gather(*active.values(), return_exceptions=True)
+            if trainable:
                 self._save_checkpoint()
         finally:
-            for game in self.games.values():
+            for game in list(self.games.values()):
                 game.terminate()
+
+    def _maybe_train(self, every: int, trainable: bool) -> None:
+        n = self.stats['games_completed']
+        if not trainable or n == 0 or n < self._last_trained_at + every:
+            return
+        try:
+            self.policy.train_step()  # type: ignore[attr-defined]
+        except Exception as e:
+            self.logger.error(f"Training error: {e}", exc_info=True)
+        self._last_trained_at = n
+
+    def _maybe_checkpoint(self, every: int, trainable: bool) -> None:
+        n = self.stats['games_completed']
+        if not trainable or n == 0 or n < self._last_checkpoint_at + every:
+            return
+        self._save_checkpoint()
+        self._last_checkpoint_at = n
 
     def _save_checkpoint(self) -> None:
         saver = getattr(self.policy, 'save_checkpoint', None)
