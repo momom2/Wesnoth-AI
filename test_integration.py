@@ -210,14 +210,15 @@ game_over=false
         with TemporaryDirectory() as tmpdir:
             game = WesnothGame("integration_test", Path("dummy.cfg"))
             game.game_dir = Path(tmpdir)
-            game.action_file = game.game_dir / "action_input.lua"
+            from constants import ACTION_FILE_NAME
+            game.action_path = game.game_dir / ACTION_FILE_NAME
             
             # Write action
             success = game.send_action(action_for_wesnoth)
             assert success, "Failed to write action file"
             
             # Read back
-            lua_content = game.action_file.read_text()
+            lua_content = game.action_path.read_text()
             
             print(f"  ✓ Generated Lua file:")
             print(f"    {lua_content[:150]}...")

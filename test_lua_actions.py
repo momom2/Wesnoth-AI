@@ -36,24 +36,16 @@ def test_dict_to_lua_conversion():
         game = WesnothGame("test_game", Path("dummy.cfg"))
         game.game_dir = Path(tmpdir)
         
+        # We care that each (key, value) pair appears in the output somehow
+        # — not which quote style we used for strings (both ' and " are
+        # valid Lua).
         test_cases = [
-            # (input_dict, expected_lua_substring)
-            (
-                {'type': 'end_turn'},
-                "type = 'end_turn'"
-            ),
-            (
-                {'type': 'move', 'start_x': 5, 'start_y': 10, 'target_x': 6, 'target_y': 10},
-                "type = 'move'"
-            ),
-            (
-                {'type': 'attack', 'weapon_index': 0},
-                "weapon_index = 0"
-            ),
-            (
-                {'type': 'recruit', 'unit_type': 'Dwarvish Fighter'},
-                "unit_type = 'Dwarvish Fighter'"
-            ),
+            ({'type': 'end_turn'}, 'type = "end_turn"'),
+            ({'type': 'move', 'start_x': 5, 'start_y': 10,
+              'target_x': 6, 'target_y': 10}, 'type = "move"'),
+            ({'type': 'attack', 'weapon_index': 0}, "weapon_index = 0"),
+            ({'type': 'recruit', 'unit_type': 'Dwarvish Fighter'},
+             'unit_type = "Dwarvish Fighter"'),
         ]
         
         all_passed = True
@@ -77,7 +69,9 @@ def test_action_file_writing():
     with TemporaryDirectory() as tmpdir:
         game = WesnothGame("test_game", Path("dummy.cfg"))
         game.game_dir = Path(tmpdir)
-        game.action_file = game.game_dir / "action_input.lua"
+        # Repoint the action file at the test's temp dir.
+        from constants import ACTION_FILE_NAME
+        game.action_path = game.game_dir / ACTION_FILE_NAME
         
         test_actions = [
             {'type': 'end_turn'},
@@ -98,7 +92,7 @@ def test_action_file_writing():
                     continue
                 
                 # Read back and verify
-                content = game.action_file.read_text()
+                content = game.action_path.read_text()
                 
                 # Check that it starts with "return"
                 if not content.strip().startswith('return'):
@@ -168,7 +162,9 @@ def test_action_roundtrip():
     with TemporaryDirectory() as tmpdir:
         game = WesnothGame("test_game", Path("dummy.cfg"))
         game.game_dir = Path(tmpdir)
-        game.action_file = game.game_dir / "action_input.lua"
+        # Repoint the action file at the test's temp dir.
+        from constants import ACTION_FILE_NAME
+        game.action_path = game.game_dir / ACTION_FILE_NAME
         
         actions = [
             {
@@ -204,7 +200,7 @@ def test_action_roundtrip():
                 game.send_action(action)
                 
                 # Read the file
-                content = game.action_file.read_text()
+                content = game.action_path.read_text()
                 
                 # Verify structure
                 assert content.startswith('return'), "Should start with 'return'"

@@ -10,15 +10,27 @@ from pathlib import Path
 # Path to Wesnoth executable (Steam version on Windows)
 WESNOTH_PATH = Path(r"C:\Program Files (x86)\Steam\steamapps\common\wesnoth\wesnoth.exe")
 
+# Wesnoth userdata directory. This is where add-ons live, where Wesnoth
+# writes its own log files, and where our file-based IPC happens.
+# On Windows the default is "<user>/Documents/My Games/Wesnoth<version>".
+WESNOTH_USERDATA_PATH = Path.home() / "Documents" / "My Games" / "Wesnoth1.18"
+WESNOTH_LOGS_PATH = WESNOTH_USERDATA_PATH / "logs"
+
 # Base directory for project
 BASE_PATH = Path(__file__).parent  # Uses directory where constants.py is located
 
-# Paths to project directories
+# Paths to project directories (source of truth — Wesnoth reads these via
+# a directory junction installed into WESNOTH_USERDATA_PATH/data/add-ons/).
 LOGS_PATH = BASE_PATH / "logs"
 ADDONS_PATH = BASE_PATH / "add-ons" / "wesnoth_ai"
 SCENARIOS_PATH = ADDONS_PATH / "scenarios"
 LUA_PATH = ADDONS_PATH / "lua"
 GAMES_PATH = ADDONS_PATH / "games"
+
+# Where the add-on is installed for Wesnoth to find. Created as a junction
+# (on Windows) or symlink (POSIX) pointing back at ADDONS_PATH so edits
+# in the project tree show up live in Wesnoth.
+ADDON_INSTALL_PATH = WESNOTH_USERDATA_PATH / "data" / "add-ons" / "wesnoth_ai"
 
 # Training data paths
 CHECKPOINTS_PATH = BASE_PATH / "training" / "checkpoints"
@@ -92,12 +104,26 @@ LOG_FREQUENCY = 10           # Log stats every N games
 # ============================================================================
 # IPC Configuration (File-Based)
 # ============================================================================
+#
+# Transport: Lua and Python both read and write files under
+# ADDONS_PATH/games/<game_id>/. The writer produces "<name>.tmp" and then
+# renames it to "<name>" (atomic on the same filesystem). The reader
+# checks for "<name>", reads it, and unlinks it.
+#
+# Per-game filenames:
+#   state.wml     — Lua → Python (current game state, serialized WML)
+#   action.lua    — Python → Lua (a Lua chunk returning an action table)
 
-# Timeout for reading state from stdout (seconds)
+STATE_FILE_NAME = "state.wml"
+ACTION_FILE_NAME = "action.lua"
+
+# How long either side will wait for the other to produce a fresh file.
 STATE_TIMEOUT_SECONDS = 30.0
-
-# Timeout for action file polling (seconds)
 ACTION_TIMEOUT_SECONDS = 30.0
+
+# How often the Python side polls for the state file (seconds). Small
+# enough to keep turn latency low; large enough to avoid hogging CPU.
+STATE_POLL_INTERVAL = 0.05
 
 # ============================================================================
 # Game Configuration

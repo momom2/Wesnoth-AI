@@ -1,155 +1,114 @@
 -- ca_action_executor.lua
--- Candidate Action that waits for action from Python and executes it
--- This CA has max_score=999980 and loops until end_turn is received
+-- Candidate Action: wait for Python to deliver an action, execute it.
+--
+-- Protocol: Python atomically writes "<game_dir>/action.lua". This CA
+-- polls for that file in its evaluation pass, and when present, consumes
+-- it (read → delete → execute) in the execution pass. Deleting ensures
+-- the next evaluation waits for a *fresh* action rather than re-running
+-- a stale one.
+--
+-- Action file format: a Lua chunk that `return`s an action table, e.g.
+--     return { type = "move", start_x = 5, start_y = 7, target_x = 6, target_y = 7 }
+--
+-- On timeout, we return 0 from evaluation, which hands control back to
+-- Wesnoth's AI scheduler — effectively ending the side's turn.
 
 local action_executor = wesnoth.require("~add-ons/wesnoth_ai/lua/action_executor.lua")
 
 local ca_action_executor = {}
 
--- Helper function to serialize a simple action table to string for comparison
-local function action_to_string(action)
-    if not action then return "nil" end
-    
-    local parts = {}
-    table.insert(parts, "type=" .. tostring(action.type or ""))
-    
-    if action.start_x then table.insert(parts, "sx=" .. tostring(action.start_x)) end
-    if action.start_y then table.insert(parts, "sy=" .. tostring(action.start_y)) end
-    if action.target_x then table.insert(parts, "tx=" .. tostring(action.target_x)) end
-    if action.target_y then table.insert(parts, "ty=" .. tostring(action.target_y)) end
-    if action.weapon_index then table.insert(parts, "w=" .. tostring(action.weapon_index)) end
-    if action.unit_type then table.insert(parts, "u=" .. tostring(action.unit_type)) end
-    
-    return table.concat(parts, "|")
+local ACTION_POLL_MS     = 50      -- how often we poll for a fresh action
+local ACTION_TIMEOUT_MS  = 30000   -- total time we'll wait before giving up
+
+local function action_path(game_id)
+    -- Wesnoth CWD is <userdata>/data/; relative paths work via the junction.
+    return "add-ons/wesnoth_ai/games/" .. game_id .. "/action.lua"
+end
+
+local function read_action(path)
+    -- Read the chunk ourselves (rather than wesnoth.dofile) so we can
+    -- delete the file before executing — avoids re-reading a stale one
+    -- on the next turn if execution errors partway through.
+    local fh = io.open(path, "r")
+    if not fh then return nil, "action file missing" end
+    local source = fh:read("*a")
+    fh:close()
+
+    local chunk, err = load(source, path, "t")
+    if not chunk then return nil, "parse error: " .. tostring(err) end
+
+    local ok, result = pcall(chunk)
+    if not ok then return nil, "execution error: " .. tostring(result) end
+    if type(result) ~= "table" then return nil, "action is not a table" end
+    return result, nil
+end
+
+local function detect_game_over_and_end()
+    local side1, side2 = false, false
+    for _, leader in ipairs(wesnoth.units.find_on_map({ canrecruit = true })) do
+        if leader.side == 1 then side1 = true end
+        if leader.side == 2 then side2 = true end
+    end
+    if side1 and side2 then return end
+
+    wesnoth.wml_actions.endlevel({
+        result = "victory",
+        bonus = false,
+        carryover_percentage = 0,
+    })
 end
 
 function ca_action_executor:evaluation()
     local game_id = wml.variables.game_id or "game_0"
-    local action_file = string.format("~add-ons/wesnoth_ai/games/%s/action_input.lua", game_id)
-    
-    -- Poll for action file changes with timeout
-    local start_time = wesnoth.get_time_stamp()
-    local timeout_ms = 30000  -- 30 seconds timeout
-    
-    -- Store previous action to detect changes
-    local prev_action_str = wml.variables.prev_action_str or ""
-    
-    local action_changed = false
-    local action_data = nil
-    
-    while (wesnoth.get_time_stamp() < start_time + timeout_ms) and not action_changed do
-        local success, result = pcall(function()
-            return wesnoth.dofile(action_file)
-        end)
-        
-        if success and result then
-            -- Convert action to string for comparison
-            local action_str = action_to_string(result)
-            
-            if action_str ~= prev_action_str then
-                action_data = result
-                action_changed = true
-                wml.variables.prev_action_str = action_str
-            else
-                -- No change yet, wait a bit
-                wesnoth.interface.delay(50)  -- 50ms delay
-            end
-        else
-            -- File read error, wait and retry
-            wesnoth.interface.delay(50)
+    local path = action_path(game_id)
+
+    local start = wesnoth.get_time_stamp()
+    local deadline = start + ACTION_TIMEOUT_MS
+
+    while wesnoth.get_time_stamp() < deadline do
+        -- have_file() accepts ~add-ons/ prefix; we also use a plain io.open
+        -- probe as a belt-and-braces check in case have_file caches results.
+        local probe = io.open(path, "r")
+        if probe then
+            probe:close()
+            return 999980
         end
+        wesnoth.interface.delay(ACTION_POLL_MS)
     end
-    
-    if action_changed then
-        -- Store action in WML variable (we'll retrieve it in execution)
-        -- We can't store the Lua table directly, so we store a marker
-        wml.variables.pending_action_ready = true
-        wml.variables.cached_action_str = action_to_string(action_data)
-        return 999980
-    else
-        std_print(string.format("[Turn %d, Side %d] WARNING: Action timeout, ending turn", 
-            wesnoth.current.turn, wesnoth.current.side))
-        -- Timeout - end turn by returning 0
-        return 0
-    end
+
+    std_print(string.format("[Turn %d, Side %d] Action timeout after %dms",
+        wesnoth.current.turn, wesnoth.current.side, ACTION_TIMEOUT_MS))
+    return 0
 end
 
 function ca_action_executor:execution(cfg, data)
-    -- NOTE: ai_context parameter removed - use global 'ai' table instead
     local side_number = wesnoth.current.side
     local game_id = wml.variables.game_id or "game_0"
-    
-    -- Check if action is ready
-    if not wml.variables.pending_action_ready then
-        std_print(string.format("[Turn %d, Side %d] ERROR: No pending action", 
-            wesnoth.current.turn, side_number))
+    local path = action_path(game_id)
+
+    local action, err = read_action(path)
+    os.remove(path)  -- always consume so next turn waits for a fresh one
+
+    if not action then
+        std_print(string.format("[Turn %d, Side %d] ERROR reading action: %s",
+            wesnoth.current.turn, side_number, tostring(err)))
         return
     end
-    
-    -- Re-read the action file to get the actual action table
-    local action_file = string.format("~add-ons/wesnoth_ai/games/%s/action_input.lua", game_id)
-    local success, action = pcall(function()
-        return wesnoth.dofile(action_file)
-    end)
-    
-    if not success or not action then
-        std_print(string.format("[Turn %d, Side %d] ERROR: Could not read action", 
-            wesnoth.current.turn, side_number))
-        return
-    end
-    
-    -- Clear the marker
-    wml.variables.pending_action_ready = false
-    
-    std_print(string.format("[Turn %d, Side %d] Executing action: %s", 
-        wesnoth.current.turn, side_number, action.type))
-    
-    -- Check for end_turn action
+
+    std_print(string.format("[Turn %d, Side %d] Executing: %s",
+        wesnoth.current.turn, side_number, tostring(action.type)))
+
     if action.type == "end_turn" then
-        std_print(string.format("[Turn %d, Side %d] Ending turn", 
-            wesnoth.current.turn, side_number))
-        return  -- Execution completes, CA returns 0 next evaluation
+        return  -- falling through returns control; no explicit call needed
     end
-    
-    -- Execute the action (passing global ai table)
+
     local result = action_executor.execute_action(action)
-    
-    if result.success then
-        std_print(string.format("[Turn %d, Side %d] Action succeeded", 
-            wesnoth.current.turn, side_number))
-        
-        -- If it's not end_turn, this CA will be evaluated again
-        -- for the next action
-    else
-        std_print(string.format("[Turn %d, Side %d] Action failed: %s", 
-            wesnoth.current.turn, side_number, result.error or "unknown"))
-        
-        -- Even if action fails, we continue to avoid blacklisting
-        -- The Python side should handle this gracefully
+    if not result.success then
+        std_print(string.format("[Turn %d, Side %d] Action failed: %s",
+            wesnoth.current.turn, side_number, tostring(result.error)))
     end
-    
-    -- Check if game is over
-    local leaders = wesnoth.units.find_on_map({canrecruit = true})
-    local side1_has_leader = false
-    local side2_has_leader = false
-    
-    for _, leader in ipairs(leaders) do
-        if leader.side == 1 then side1_has_leader = true end
-        if leader.side == 2 then side2_has_leader = true end
-    end
-    
-    if not side1_has_leader or not side2_has_leader then
-        local winner = side1_has_leader and 1 or (side2_has_leader and 2 or 0)
-        std_print(string.format("[Turn %d] ===GAME_OVER===", wesnoth.current.turn))
-        std_print(tostring(winner))
-        
-        -- Actually end the scenario
-        wesnoth.wml_actions.endlevel({
-            result = "victory",
-            bonus = false,
-            carryover_percentage = 0
-        })
-    end
+
+    detect_game_over_and_end()
 end
 
 return ca_action_executor
