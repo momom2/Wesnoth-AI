@@ -48,6 +48,7 @@ _NEG_INF = -1e9
 class SampledAction:
     action:   Dict            # internal-format action dict (0-indexed Positions)
     log_prob: torch.Tensor    # scalar, sum of log-probs of sampled choices
+    entropy:  torch.Tensor    # scalar, sum of entropies of the sampled dists
     value:    torch.Tensor    # scalar, V(s) from the model
 
 
@@ -70,6 +71,8 @@ def sample_action(
         torch.ones(1, 1, device=device),
     ], dim=1)
 
+    # end_turn is always valid, so the mask has at least one nonzero
+    # column; no defensive fallback needed.
     actor_logits = output.actor_logits.masked_fill(actor_mask == 0, _NEG_INF)
 
     # --- sample actor --------------------------------------------------
@@ -77,6 +80,7 @@ def sample_action(
     actor_idx_t = actor_dist.sample()
     actor_idx = actor_idx_t.item()
     log_prob = actor_dist.log_prob(actor_idx_t)
+    entropy = actor_dist.entropy()
 
     kind = output.actor_kind[0, actor_idx].item()
 
@@ -84,6 +88,7 @@ def sample_action(
         return SampledAction(
             action={'type': 'end_turn'},
             log_prob=log_prob,
+            entropy=entropy,
             value=value,
         )
 
@@ -94,6 +99,7 @@ def sample_action(
         return SampledAction(
             action={'type': 'end_turn'},
             log_prob=log_prob,
+            entropy=entropy,
             value=value,
         )
 
@@ -101,6 +107,7 @@ def sample_action(
     target_idx_t = target_dist.sample()
     target_idx = target_idx_t.item()
     log_prob = log_prob + target_dist.log_prob(target_idx_t)
+    entropy = entropy + target_dist.entropy()
     target_pos = encoded.hex_positions[target_idx]
 
     # --- resolve action type based on state ----------------------------
@@ -115,6 +122,7 @@ def sample_action(
             target_pos=target_pos,
             game_state=game_state,
             log_prob=log_prob,
+            entropy=entropy,
             value=value,
         )
 
@@ -127,6 +135,7 @@ def sample_action(
             'target_hex': target_pos,
         },
         log_prob=log_prob,
+        entropy=entropy,
         value=value,
     )
 
@@ -140,6 +149,7 @@ def _build_unit_action(
     target_pos:  Position,
     game_state:  GameState,
     log_prob:    torch.Tensor,
+    entropy:     torch.Tensor,
     value:       torch.Tensor,
 ) -> SampledAction:
     """Move or attack, depending on what's at target_pos."""
@@ -153,6 +163,7 @@ def _build_unit_action(
                 'target_hex': target_pos,
             },
             log_prob=log_prob,
+            entropy=entropy,
             value=value,
         )
 
@@ -169,6 +180,7 @@ def _build_unit_action(
                 'target_hex': target_pos,
             },
             log_prob=log_prob,
+            entropy=entropy,
             value=value,
         )
 
@@ -179,6 +191,7 @@ def _build_unit_action(
     weapon_idx_t = weapon_dist.sample()
     weapon_idx = weapon_idx_t.item()
     log_prob = log_prob + weapon_dist.log_prob(weapon_idx_t)
+    entropy = entropy + weapon_dist.entropy()
 
     return SampledAction(
         action={
@@ -188,6 +201,7 @@ def _build_unit_action(
             'attack_index': weapon_idx,
         },
         log_prob=log_prob,
+        entropy=entropy,
         value=value,
     )
 
