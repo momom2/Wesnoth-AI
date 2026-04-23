@@ -50,26 +50,29 @@ _seq_source = itertools.count(start=1)
 
 
 class WesnothGame:
-    """One Wesnoth subprocess, one game, one per-game IPC directory."""
+    """One Wesnoth subprocess, one game, one per-game IPC directory.
 
-    def __init__(self, game_id: str, scenario_path: Path):
-        self.game_id = game_id
+    The Wesnoth-side game_id (the subdir name under add-ons/wesnoth_ai/
+    games/ that Lua reads action.lua from) is chosen by the scenario's
+    preload event as a random string. Python doesn't know the id until
+    it parses the first state frame; `adopt_game_id(...)` is called
+    then. Until adoption, send_action fails — but the game loop always
+    reads state before sending, so that's the natural ordering.
+
+    `label` here is a short human-readable tag used in log-file names
+    and in game_manager's stats; it does NOT need to match the
+    Wesnoth-side game_id.
+    """
+
+    def __init__(self, label: str, scenario_path: Path):
+        self.label = label
         self.scenario_path = scenario_path
-        self.logger = logging.getLogger(f"wesnoth_{game_id}")
+        self.logger = logging.getLogger(f"wesnoth_{label}")
 
-        self.game_dir = GAMES_PATH / game_id
-        self.game_dir.mkdir(parents=True, exist_ok=True)
-
-        self.action_path = self.game_dir / ACTION_FILE_NAME
-        self.game_id_path = self.game_dir / "game_id.txt"
-        self.game_id_path.write_text(game_id)
-
-        # Start clean. Delete any stale action file from a previous run;
-        # otherwise the Lua side would see it and try to execute something
-        # we've moved past.
-        for stale in [self.action_path,
-                      self.game_dir / (ACTION_FILE_NAME + ".tmp")]:
-            stale.unlink(missing_ok=True)
+        # Assigned by adopt_game_id() when the first state frame lands.
+        self.game_id: Optional[str] = None
+        self.game_dir: Optional[Path] = None
+        self.action_path: Optional[Path] = None
 
         # Log-tailing state.
         self._log_path: Optional[Path] = None
@@ -83,6 +86,29 @@ class WesnothGame:
         self.is_running = False
         self.game_over = False
         self.winner: Optional[int] = None
+
+    def adopt_game_id(self, game_id: str) -> None:
+        """Called once, after the first state frame, to lock in the
+        id Lua generated and create the per-game IPC directory."""
+        if self.game_id is not None:
+            # Already adopted. If the id changed, that's a protocol
+            # error — ignore subsequent changes and log.
+            if self.game_id != game_id:
+                self.logger.warning(
+                    f"game_id changed mid-game: {self.game_id!r} → "
+                    f"{game_id!r}; keeping the first one")
+            return
+        self.game_id = game_id
+        self.game_dir = GAMES_PATH / game_id
+        self.game_dir.mkdir(parents=True, exist_ok=True)
+        self.action_path = self.game_dir / ACTION_FILE_NAME
+
+        # Clear any stale action file (shouldn't exist — id is random).
+        for stale in (self.action_path,
+                      self.game_dir / (ACTION_FILE_NAME + ".tmp")):
+            stale.unlink(missing_ok=True)
+
+        self.logger.info(f"adopted game_id={game_id}, ipc dir {self.game_dir}")
 
     def start_wesnoth(self) -> None:
         """Launch Wesnoth on our training scenario.
@@ -212,7 +238,15 @@ class WesnothGame:
         """Write the action file atomically with a fresh sequence number.
         Returns True if the file landed on disk. Doesn't wait for Lua to
         consume it — the CA evaluator polls and handles that itself.
+
+        Requires adopt_game_id() to have been called (i.e., at least
+        one state frame observed). In practice the turn-loop always
+        reads state before sending, so this is a non-issue.
         """
+        if self.action_path is None or self.game_dir is None:
+            self.logger.error("send_action before adopt_game_id()")
+            return False
+
         action_with_seq = dict(action)
         action_with_seq["seq"] = next(_seq_source)
 

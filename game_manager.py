@@ -44,7 +44,6 @@ class GameManager:
     ):
         self.num_games = num_games
         self.games: Dict[str, WesnothGame] = {}
-        self.converters: Dict[str, StateConverter] = {}
 
         # Shared state converter — one mapping from unit-type-name to an
         # integer ID, used consistently across games.
@@ -81,15 +80,17 @@ class GameManager:
             handlers=[logging.FileHandler(log_file), logging.StreamHandler()],
         )
 
-    async def create_game(self, game_id: str) -> WesnothGame:
-        self.logger.info(f"Creating game {game_id}")
+    async def create_game(self, label: str) -> WesnothGame:
+        """`label` is a Python-side tag (e.g., "game_0"). The actual
+        Wesnoth-side game_id comes from the scenario's preload and is
+        learned when the first state frame arrives."""
+        self.logger.info(f"Creating game {label}")
         scenario_path = SCENARIOS_PATH / "training_scenario.cfg"
-        game = WesnothGame(game_id, scenario_path)
-        self.converters[game_id] = self.global_converter
+        game = WesnothGame(label, scenario_path)
         game.start_wesnoth()
         return game
 
-    def get_ai_action(self, game_state: GameState, game_id: str) -> Dict:
+    def get_ai_action(self, game_state: GameState) -> Dict:
         """Ask the policy for an action; translate to wire format."""
         try:
             action = self.policy.select_action(game_state)
@@ -103,33 +104,38 @@ class GameManager:
 
     async def handle_game_turn(self, game: WesnothGame) -> bool:
         """Run one state→action exchange. Return False to end the game."""
-        game_id = game.game_id
+        label = game.label
         try:
             state_payload = game.read_state()
             if not state_payload:
-                self.logger.warning(f"Game {game_id}: no state, ending game")
+                self.logger.warning(f"Game {label}: no state, ending game")
                 return False
 
             try:
-                game_state = self.converters[game_id].convert_payload_to_game_state(state_payload)
+                game_state = self.global_converter.convert_payload_to_game_state(state_payload)
             except Exception as e:
                 self.logger.error(
-                    f"Game {game_id}: state parse failed: {e}", exc_info=True)
+                    f"Game {label}: state parse failed: {e}", exc_info=True)
                 self.stats['state_conversion_errors'] += 1
                 preview = state_payload[:400] if state_payload else "<empty>"
                 self.logger.debug(f"Payload preview: {preview}")
                 return False
 
+            # Adopt the Wesnoth-side game_id on the first frame. All
+            # subsequent send_action writes will go to the right dir.
+            if game.game_id is None:
+                game.adopt_game_id(game_state.game_id)
+
             if game_state.game_over:
                 self.logger.info(
-                    f"Game {game_id}: game over, winner={game_state.winner}")
+                    f"Game {label}: game over, winner={game_state.winner}")
                 self._record_game_result(game, game_state.winner)
                 return False
 
-            action = self.get_ai_action(game_state, game_id)
+            action = self.get_ai_action(game_state)
 
             if not game.send_action(action):
-                self.logger.warning(f"Game {game_id}: action send failed")
+                self.logger.warning(f"Game {label}: action send failed")
                 self.stats['action_send_errors'] += 1
                 return False
 
@@ -137,15 +143,17 @@ class GameManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"Game {game_id}: turn error: {e}", exc_info=True)
+            self.logger.error(f"Game {label}: turn error: {e}", exc_info=True)
             return False
 
-    async def run_game(self, game_id: str) -> None:
+    async def run_game(self, label: str) -> None:
+        """`label` is a human-readable per-batch tag; Wesnoth's own
+        game_id is learned from the first state frame."""
         game: Optional[WesnothGame] = None
         try:
-            game = await self.create_game(game_id)
-            self.games[game_id] = game
-            self.logger.info(f"Game {game_id}: started")
+            game = await self.create_game(label)
+            self.games[label] = game
+            self.logger.info(f"Game {label}: started")
 
             actions = 0
             while actions < MAX_ACTIONS_PER_GAME:
@@ -158,16 +166,16 @@ class GameManager:
 
             if actions >= MAX_ACTIONS_PER_GAME:
                 self.logger.warning(
-                    f"Game {game_id}: timeout after {actions} actions")
+                    f"Game {label}: timeout after {actions} actions")
                 self.stats['timeouts'] += 1
 
         except Exception as e:
-            self.logger.error(f"Game {game_id}: error: {e}", exc_info=True)
+            self.logger.error(f"Game {label}: error: {e}", exc_info=True)
         finally:
-            if game_id in self.games:
-                self.games[game_id].terminate()
-                del self.games[game_id]
-            self.logger.info(f"Game {game_id}: finished")
+            if label in self.games:
+                self.games[label].terminate()
+                del self.games[label]
+            self.logger.info(f"Game {label}: finished")
 
     def _record_game_result(self, game: WesnothGame, winner: Optional[int]) -> None:
         self.stats['games_completed'] += 1

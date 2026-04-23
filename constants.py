@@ -44,7 +44,11 @@ REPLAYS_PATH     = BASE_PATH / "training" / "replays"
 # Run configuration
 # ----------------------------------------------------------------------
 
-NUM_PARALLEL_GAMES   = 1      # Phase 1 only tested with one; Phase 3 can scale.
+NUM_PARALLEL_GAMES   = 4      # Each game is a separate Wesnoth process.
+                              # Lua generates a random per-process game_id
+                              # so parallel games don't collide on the
+                              # IPC directory. See training_scenario.cfg
+                              # preload.
 MAX_ACTIONS_PER_GAME = 2000   # Safety rail against runaway games.
 
 # How often to emit aggregated stats / save checkpoints. Only
