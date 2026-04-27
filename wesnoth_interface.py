@@ -65,31 +65,31 @@ if os.name == "nt":
     from ctypes import wintypes
 
     _user32 = ctypes.windll.user32
-    _HWND_BOTTOM     = 1
-    _SWP_NOSIZE      = 0x0001
-    _SWP_NOMOVE      = 0x0002
-    _SWP_NOACTIVATE  = 0x0010
-    _SWP_NOOWNERZORDER = 0x0200  # don't reorder owners along with us
+    _SW_SHOWMINNOACTIVE = 7  # minimized + don't activate another window
+    _SW_SHOWMINIMIZED   = 2  # synonym used in STARTUPINFO context
 
     _EnumWindowsProc = ctypes.WINFUNCTYPE(
         ctypes.c_bool, wintypes.HWND, wintypes.LPARAM,
     )
 
-    def _push_pid_windows_to_back(pid: int) -> int:
+    def _minimize_pid_windows(pid: int) -> int:
         """Walk all top-level windows; for each visible one owned by
-        `pid`, push it to the bottom of the Z-order WITHOUT activating
-        it. Returns the count of windows pushed."""
+        `pid`, minimize it without activating another window. Returns
+        the count of windows minimized."""
         count = [0]
 
         def _cb(hwnd, _lparam):
             out_pid = wintypes.DWORD()
             _user32.GetWindowThreadProcessId(hwnd, ctypes.byref(out_pid))
             if out_pid.value == pid and _user32.IsWindowVisible(hwnd):
-                _user32.SetWindowPos(
-                    hwnd, _HWND_BOTTOM, 0, 0, 0, 0,
-                    _SWP_NOMOVE | _SWP_NOSIZE
-                    | _SWP_NOACTIVATE | _SWP_NOOWNERZORDER,
-                )
+                # SW_SHOWMINNOACTIVE: animates the window down to the
+                # taskbar without bringing the next top-level window
+                # to the foreground. Visually faster than SetWindowPos
+                # to HWND_BOTTOM (no compositor "shove-to-back"
+                # animation -- just the minimize animation, which on
+                # most machines is the fastest of the show-state
+                # transitions).
+                _user32.ShowWindow(hwnd, _SW_SHOWMINNOACTIVE)
                 count[0] += 1
             return True   # keep enumerating
 
@@ -98,20 +98,23 @@ if os.name == "nt":
 
     def _pin_to_background(pid: int, log: logging.Logger) -> None:
         """Run in a daemon thread. Wait up to 10s for Wesnoth's window
-        to appear, then push it to the bottom of the Z-order. Stops
-        polling as soon as one window has been pushed -- if Wesnoth
-        opens further windows later (modal dialog, etc.) they'll
-        steal focus, but in practice Wesnoth only has one main window
-        per `--test` session."""
+        to appear, then minimize it. Stops polling as soon as one
+        window has been minimized -- in `--test` mode Wesnoth only
+        has one main top-level window per process. Combined with
+        STARTUPINFO.wShowWindow=SW_SHOWMINNOACTIVE in start_wesnoth,
+        this catches both honoring-app and ignoring-app cases (SDL2
+        ignores the hint; this thread is the fallback)."""
         deadline = time.time() + 10.0
         while time.time() < deadline:
             try:
-                if _push_pid_windows_to_back(pid) > 0:
+                if _minimize_pid_windows(pid) > 0:
                     return
             except Exception as e:
                 log.debug(f"pin-to-background failed: {e}")
                 return
-            time.sleep(0.15)
+            time.sleep(0.05)   # tighter poll: we want to catch the
+                               # window at first paint and minimize it
+                               # before the user sees it linger
 
 else:
     def _pin_to_background(pid: int, log: logging.Logger) -> None:
@@ -240,18 +243,19 @@ class WesnothGame:
             )
         self._launch_time = time.time() - 0.5
 
-        # On Windows, suppress focus-stealing -- otherwise every spawned
-        # Wesnoth grabs the foreground when its main window appears,
-        # which is annoying during a 60-game eval (you get yanked to
-        # a new Wesnoth roughly every minute as the parallel pool
-        # cycles). SW_SHOWNOACTIVATE shows the window normally but
-        # doesn't activate it; the user's current foreground window
-        # stays in front. Visible-still, just not pushy.
+        # On Windows, ask the OS to start Wesnoth with its main window
+        # MINIMIZED (SW_SHOWMINNOACTIVE = 7). SDL2's window-creation
+        # path appears to ignore this hint and shows the window
+        # normally anyway, but the post-launch _pin_to_background
+        # watcher catches that case and minimizes the window as soon
+        # as it appears. Setting the hint also covers the case where
+        # SDL DOES honor it -- the polling thread then sees the
+        # window already minimized and exits without doing anything.
         startupinfo = None
         if os.name == "nt":
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = 4   # SW_SHOWNOACTIVATE
+            startupinfo.wShowWindow = 7   # SW_SHOWMINNOACTIVE
 
         self.logger.info(f"Starting Wesnoth: {' '.join(cmd)}")
         self.process = subprocess.Popen(
@@ -263,11 +267,12 @@ class WesnothGame:
         self.is_running = True
         self.logger.info(f"Wesnoth started (PID {self.process.pid})")
 
-        # Background watcher: shoves Wesnoth's window to the bottom of
-        # the Z-order as soon as it appears. STARTUPINFO's
-        # SW_SHOWNOACTIVATE alone wasn't enough -- SDL2's window
-        # creation clobbers the hint and yanks the window to the top.
-        # The thread is daemon, polls for ~10s, then exits.
+        # Background watcher: minimizes Wesnoth's window as soon as
+        # it appears. STARTUPINFO.wShowWindow=SW_SHOWMINNOACTIVE alone
+        # wasn't enough -- SDL2 calls ShowWindow(SW_SHOW) explicitly
+        # during window creation and clobbers our request. The watcher
+        # tightly polls EnumWindows for ~10s and ShowWindow(SW_SHOWMINNOACTIVE)s
+        # the first matching window, then exits.
         threading.Thread(
             target=_pin_to_background,
             args=(self.process.pid, self.logger),
