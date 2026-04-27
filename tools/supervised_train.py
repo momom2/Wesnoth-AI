@@ -424,6 +424,31 @@ class LossParts:
     weapon_fired: bool
 
 
+# Per-action-type loss weight on the actor head. Recruits are roughly
+# 10% of human-replay actions; without upweighting, the actor head
+# spends 90% of its gradient budget on moves/attacks and the model
+# learns to never recruit. We also slightly upweight attacks so weapon
+# selection gets a bit more signal. Weights of 1.0 = no change.
+#
+# These multiply the ACTOR-HEAD CE only (the target-hex / weapon-slot
+# heads still see their natural distribution). Action-type isn't a
+# model output -- we know it from the supervised label, so weighting
+# is purely a training-time decision.
+_ACTION_TYPE_LOSS_WEIGHT = {
+    "recruit":  5.0,
+    "recall":   5.0,
+    "attack":   2.0,
+    "move":     1.0,
+    "end_turn": 1.0,
+}
+
+# Label smoothing on cross-entropy. 0.05 = 5% of probability mass
+# spread uniformly over the non-target classes. Standard regularization;
+# discourages overconfident logits without meaningfully changing the
+# argmax decision boundary.
+_LABEL_SMOOTHING = 0.05
+
+
 def _loss_parts_for_output(
     output,                      # ModelOutput
     ai:      ActionIndices,
@@ -434,6 +459,12 @@ def _loss_parts_for_output(
     Returns a LossParts. The `total` field is what the trainer
     backprops; the per-head fields are the same per-CE breakdown for
     diagnostic reporting.
+
+    Action-type-conditional weighting on the actor head is applied so
+    rare-but-important action types (recruits, recalls) get a stronger
+    learning signal. See `_ACTION_TYPE_LOSS_WEIGHT`. Per-head running
+    averages report the UNWEIGHTED loss so the magnitudes stay
+    comparable to plain CE (random ≈ ln(num_classes)).
 
     Skips heads if the observed slot index doesn't land inside the
     model's output shape (very rare — the encoder sort should match;
@@ -460,7 +491,12 @@ def _loss_parts_for_output(
         return LossParts(zero, zero, zero, zero, False, False, False)
 
     actor_target = torch.tensor(ai.actor_idx, device=device, dtype=torch.long)
-    actor_loss = F.cross_entropy(actor_logits, actor_target.unsqueeze(0))
+    actor_loss_raw = F.cross_entropy(
+        actor_logits, actor_target.unsqueeze(0),
+        label_smoothing=_LABEL_SMOOTHING,
+    )
+    actor_weight = _ACTION_TYPE_LOSS_WEIGHT.get(ai.action_type, 1.0)
+    actor_loss = actor_loss_raw * actor_weight
 
     target_loss = zero
     target_fired = False
@@ -469,7 +505,10 @@ def _loss_parts_for_output(
         H = tgt_row.numel()
         if H > 0 and ai.target_idx < H:
             tt = torch.tensor(ai.target_idx, device=device, dtype=torch.long)
-            target_loss = F.cross_entropy(tgt_row.unsqueeze(0), tt.unsqueeze(0))
+            target_loss = F.cross_entropy(
+                tgt_row.unsqueeze(0), tt.unsqueeze(0),
+                label_smoothing=_LABEL_SMOOTHING,
+            )
             target_fired = True
 
     weapon_loss = zero
@@ -479,11 +518,18 @@ def _loss_parts_for_output(
         W = w_row.numel()
         if W > 0 and ai.weapon_idx < W:
             wt = torch.tensor(ai.weapon_idx, device=device, dtype=torch.long)
-            weapon_loss = F.cross_entropy(w_row.unsqueeze(0), wt.unsqueeze(0))
+            weapon_loss = F.cross_entropy(
+                w_row.unsqueeze(0), wt.unsqueeze(0),
+                label_smoothing=_LABEL_SMOOTHING,
+            )
             weapon_fired = True
 
     total = actor_loss + target_loss + weapon_loss
-    return LossParts(total, actor_loss, target_loss, weapon_loss,
+    # Per-head fields report the raw CE (no action-type weight, no
+    # smoothing scale baked in) so the running-average log line stays
+    # interpretable -- "actor=2.5" means CE=2.5 even if the actor head
+    # is internally scaled 5x for recruits.
+    return LossParts(total, actor_loss_raw, target_loss, weapon_loss,
                      True, target_fired, weapon_fired)
 
 
@@ -670,6 +716,22 @@ def train(
         lr=lr, weight_decay=1e-4,
     )
 
+    # Cosine learning-rate decay across the planned epoch budget. With
+    # the resume-from-checkpoint path, `T_max` is the TOTAL planned
+    # epochs (not just the remaining ones) -- the scheduler is
+    # advanced once per epoch and we use `last_epoch=resumed_epoch`
+    # to skip forward to the right point on the cosine curve. The
+    # late-epoch sharpening this gives is empirically helpful for
+    # behavior-cloning loss to converge tightly.
+    #
+    # `eta_min = lr * 0.05` (i.e. final lr is 5% of initial) -- not
+    # zero, so opt continues to learn through the last few hundred
+    # steps; not the typical 0.1 because the corpus is small enough
+    # that we benefit from a steeper decay.
+    lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        opt, T_max=epochs, eta_min=lr * 0.05,
+    )
+
     # Optional resume: restore model + encoder + optimizer state from
     # a previous checkpoint. Loop continues with a fresh shuffled
     # file order — we don't try to resume mid-replay precisely, since
@@ -693,6 +755,28 @@ def train(
         resumed_step  = int(ckpt.get("supervised_step", 0))
         resumed_pairs = int(ckpt.get("supervised_pairs", 0))
         log.info(f"  resumed at step={resumed_step} pairs={resumed_pairs}")
+        # Fast-forward the LR scheduler past the epochs already
+        # completed. We don't checkpoint the scheduler's state, so
+        # we infer "epochs done" from the saved per-epoch snapshots.
+        # Best-effort: if no `supervised_epoch{N}.pt` exists alongside
+        # the resumed file, assume 0 epochs done and start at the
+        # initial lr. Either way, scheduler.step() at end of each
+        # epoch will continue from there.
+        completed_epochs = 0
+        for n in range(epochs):
+            sibling = resume.with_name(
+                f"{resume.stem.replace('_epoch' + str(n), '')}_epoch{n}{resume.suffix}"
+            )
+            # Resume target is usually `supervised.pt` (rolling), and
+            # per-epoch snapshots live alongside as supervised_epoch0.pt
+            # etc. Probe for the highest existing epoch snapshot.
+            cand = resume.parent / f"supervised_epoch{n}.pt"
+            if cand.exists():
+                completed_epochs = n + 1
+        for _ in range(completed_epochs):
+            lr_scheduler.step()
+        log.info(f"  LR scheduler advanced {completed_epochs} epochs; "
+                 f"current lr = {opt.param_groups[0]['lr']:.2e}")
 
     # Competitive-2p filter: reads index.jsonl entries and only keeps
     # replays on ships-with ladder maps with two default-faction sides.
@@ -1008,6 +1092,11 @@ def train(
         _save_checkpoint(epoch_path, model, encoder, opt,
                          global_step, running_count)
         log.info(f"Epoch {epoch} saved to {checkpoint_out} and {epoch_path.name}")
+        # Advance the LR scheduler one cosine step. Done AFTER the
+        # save so the saved optimizer state still has the lr that
+        # produced this epoch's gradients (recoverable for analysis).
+        lr_scheduler.step()
+        log.info(f"  next-epoch lr = {opt.param_groups[0]['lr']:.2e}")
 
 
 def main(argv: List[str]) -> int:
