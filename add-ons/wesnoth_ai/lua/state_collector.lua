@@ -146,11 +146,10 @@ function state_collector.collect_terrain(x, y, map_obj)
     local terrain_types = { base }
     if overlay ~= "" then table.insert(terrain_types, overlay) end
 
+    -- Only STATIC modifiers here; village-ownership (dynamic) is emitted
+    -- separately per frame as `villages_owned` so we can skip hex
+    -- re-collection on delta frames without losing capture/loss signals.
     local modifiers = {}
-    local village_owner = wesnoth.map.get_owner({ x, y })
-    if village_owner and village_owner ~= 0 then
-        table.insert(modifiers, "village")
-    end
     if terrain_code:find("K") then table.insert(modifiers, "keep") end
     if terrain_code:find("C") then table.insert(modifiers, "castle") end
 
@@ -178,18 +177,36 @@ local function safe_time_of_day()
     return tod_id
 end
 
-function state_collector.collect_game_state(side_number, game_id)
+-- `include_map` toggles hex+mask emission. On the first frame of a
+-- Wesnoth process we send the static terrain data in full; on every
+-- subsequent frame we skip it (hexes/mask shape doesn't change across
+-- a Caves-of-the-Basilisk match, so re-sending is pure waste). Python
+-- reconstructs each frame's hex set from cached terrain + the dynamic
+-- villages_owned map below.
+function state_collector.collect_game_state(side_number, game_id, include_map)
     local map_obj = wesnoth.current.map
     local width = map_obj.playable_width
     local height = map_obj.playable_height
-    dbg(string.format("[DEBUG] Map %dx%d", width, height))
+    dbg(string.format("[DEBUG] Map %dx%d include_map=%s",
+        width, height, tostring(include_map)))
 
-    -- Hexes.
-    local hexes = {}
-    for y = 1, height do
-        for x = 1, width do
-            if wesnoth.current.map:on_board({ x, y }) then
-                table.insert(hexes, state_collector.collect_terrain(x, y, map_obj))
+    -- Hexes + off-board mask: only on the first (full) frame.
+    -- Each hex visit is roughly:
+    --   map_obj[{x,y}]   + find("%^") + find("K") + find("C")
+    -- which sums to ~5-15 µs × 1700 hexes = ~20 ms. Skipping that on
+    -- every delta frame is the main win of this protocol change.
+    local hexes = nil
+    local mask = nil
+    if include_map then
+        hexes = {}
+        mask = {}
+        for y = 1, height do
+            for x = 1, width do
+                if wesnoth.current.map:on_board({ x, y }) then
+                    table.insert(hexes, state_collector.collect_terrain(x, y, map_obj))
+                else
+                    table.insert(mask, { x = x, y = y })
+                end
             end
         end
     end
@@ -204,23 +221,24 @@ function state_collector.collect_game_state(side_number, game_id)
         end
     end
 
-    -- Fog.
+    -- Fog + village ownership: both dynamic, both emitted every frame.
+    -- Collecting them in a single map-scan lets us count per-side
+    -- villages at the same time — saves a 2×1700-call loop we used
+    -- to run for that count alone.
     local fog = {}
+    local villages_owned = {}
+    local villages_count = { 0, 0, 0, 0, 0, 0, 0, 0 }  -- up to 8 sides
     for y = 1, height do
         for x = 1, width do
-            if wesnoth.current.map:on_board({ x, y }) and
-               wesnoth.sides.is_fogged(side_number, x, y) then
-                table.insert(fog, { x = x, y = y })
-            end
-        end
-    end
-
-    -- Mask (off-board hexes for irregular maps).
-    local mask = {}
-    for y = 1, height do
-        for x = 1, width do
-            if not wesnoth.current.map:on_board({ x, y }) then
-                table.insert(mask, { x = x, y = y })
+            if wesnoth.current.map:on_board({ x, y }) then
+                if wesnoth.sides.is_fogged(side_number, x, y) then
+                    table.insert(fog, { x = x, y = y })
+                end
+                local owner = wesnoth.map.get_owner({ x, y })
+                if owner and owner ~= 0 then
+                    villages_owned[tostring(x) .. "," .. tostring(y)] = owner
+                    villages_count[owner] = (villages_count[owner] or 0) + 1
+                end
             end
         end
     end
@@ -229,21 +247,26 @@ function state_collector.collect_game_state(side_number, game_id)
     local sides_info = {}
     for i = 1, #wesnoth.sides do
         local side = wesnoth.sides[i]
-        local villages = 0
-        for y = 1, height do
-            for x = 1, width do
-                if wesnoth.map.get_owner({ x, y }) == i then
-                    villages = villages + 1
-                end
+        -- Faction name for encoder conditioning. The attribute sits on
+        -- the side's underlying WML config; some Wesnoth builds expose
+        -- it as `side.faction`, others only via `side.__cfg.faction`.
+        -- Wrap both paths in pcall and default to "" if neither works
+        -- (encoder tolerates empty via its "" → id 0 reserved slot).
+        local faction = ""
+        pcall(function()
+            if side.faction then faction = side.faction
+            elseif side.__cfg and side.__cfg.faction then
+                faction = side.__cfg.faction
             end
-        end
+        end)
         sides_info[i] = {
             gold = side.gold,
             village_gold = side.village_gold,
             village_support = side.village_support or 1,
             base_income = side.base_income or 0,
             recruits = side.recruit or {},
-            num_villages = villages,
+            num_villages = villages_count[i] or 0,
+            faction = faction,
         }
     end
 
@@ -252,13 +275,15 @@ function state_collector.collect_game_state(side_number, game_id)
         current_side = side_number,
         turn_number = wesnoth.current.turn,
         time_of_day = safe_time_of_day(),
+        frame_type = include_map and "full" or "delta",
         map = {
             width = width,
             height = height,
-            hexes = hexes,
+            hexes = hexes,             -- nil on delta frames
             units = units,
             fog = fog,
-            mask = mask,
+            mask = mask,               -- nil on delta frames
+            villages_owned = villages_owned,
         },
         sides = sides_info,
         game_over = false,
