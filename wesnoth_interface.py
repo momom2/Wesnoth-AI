@@ -24,6 +24,7 @@ import itertools
 import logging
 import os
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Dict, Optional
@@ -37,6 +38,88 @@ from constants import (
     WESNOTH_LOGS_PATH,
     WESNOTH_PATH,
 )
+
+# ---------------------------------------------------------------------
+# Windows-only: keep newly-spawned Wesnoth windows from stealing focus.
+# ---------------------------------------------------------------------
+#
+# STARTUPINFO.wShowWindow = SW_SHOWNOACTIVATE (4) is supposed to do
+# this, but SDL2 (Wesnoth's window-system layer) doesn't seem to honor
+# the hint -- it calls ShowWindow(SW_SHOW) explicitly during window
+# creation, which clobbers our request. Net result: every new Wesnoth
+# window pops to the top of the Z-order and momentarily snags the
+# user's attention, especially during a 60-game eval where windows
+# cycle every minute or two.
+#
+# Workaround: after Popen, spawn a tiny watcher thread that polls
+# EnumWindows for top-level windows owned by Wesnoth's PID. As soon
+# as it finds one, it calls SetWindowPos(HWND_BOTTOM, ...) to push
+# the window to the back of the Z-order without activating it. The
+# window stays on screen (the user can still see/click it), but is
+# now behind whatever was foreground -- so the user keeps their
+# focus and visual context. One-shot per process: once we've pushed
+# at least one window, we stop polling.
+
+if os.name == "nt":
+    import ctypes
+    from ctypes import wintypes
+
+    _user32 = ctypes.windll.user32
+    _HWND_BOTTOM     = 1
+    _SWP_NOSIZE      = 0x0001
+    _SWP_NOMOVE      = 0x0002
+    _SWP_NOACTIVATE  = 0x0010
+    _SWP_NOOWNERZORDER = 0x0200  # don't reorder owners along with us
+
+    _EnumWindowsProc = ctypes.WINFUNCTYPE(
+        ctypes.c_bool, wintypes.HWND, wintypes.LPARAM,
+    )
+
+    def _push_pid_windows_to_back(pid: int) -> int:
+        """Walk all top-level windows; for each visible one owned by
+        `pid`, push it to the bottom of the Z-order WITHOUT activating
+        it. Returns the count of windows pushed."""
+        count = [0]
+
+        def _cb(hwnd, _lparam):
+            out_pid = wintypes.DWORD()
+            _user32.GetWindowThreadProcessId(hwnd, ctypes.byref(out_pid))
+            if out_pid.value == pid and _user32.IsWindowVisible(hwnd):
+                _user32.SetWindowPos(
+                    hwnd, _HWND_BOTTOM, 0, 0, 0, 0,
+                    _SWP_NOMOVE | _SWP_NOSIZE
+                    | _SWP_NOACTIVATE | _SWP_NOOWNERZORDER,
+                )
+                count[0] += 1
+            return True   # keep enumerating
+
+        _user32.EnumWindows(_EnumWindowsProc(_cb), 0)
+        return count[0]
+
+    def _pin_to_background(pid: int, log: logging.Logger) -> None:
+        """Run in a daemon thread. Wait up to 10s for Wesnoth's window
+        to appear, then push it to the bottom of the Z-order. Stops
+        polling as soon as one window has been pushed -- if Wesnoth
+        opens further windows later (modal dialog, etc.) they'll
+        steal focus, but in practice Wesnoth only has one main window
+        per `--test` session."""
+        deadline = time.time() + 10.0
+        while time.time() < deadline:
+            try:
+                if _push_pid_windows_to_back(pid) > 0:
+                    return
+            except Exception as e:
+                log.debug(f"pin-to-background failed: {e}")
+                return
+            time.sleep(0.15)
+
+else:
+    def _pin_to_background(pid: int, log: logging.Logger) -> None:
+        """Posix no-op stub -- Wesnoth is launched from Linux/Mac
+        under different focus-mgmt rules and no equivalent intervention
+        is needed locally; the cluster doesn't run Wesnoth at all."""
+        return
+
 
 # Must match the constants in ca_state_sender.lua
 FRAME_BEGIN = "===WESNOTH_AI_STATE_BEGIN==="
@@ -179,6 +262,17 @@ class WesnothGame:
         )
         self.is_running = True
         self.logger.info(f"Wesnoth started (PID {self.process.pid})")
+
+        # Background watcher: shoves Wesnoth's window to the bottom of
+        # the Z-order as soon as it appears. STARTUPINFO's
+        # SW_SHOWNOACTIVATE alone wasn't enough -- SDL2's window
+        # creation clobbers the hint and yanks the window to the top.
+        # The thread is daemon, polls for ~10s, then exits.
+        threading.Thread(
+            target=_pin_to_background,
+            args=(self.process.pid, self.logger),
+            daemon=True,
+        ).start()
 
     def _find_out_log(self) -> Optional[Path]:
         """Find the .out.log file Wesnoth opened for this process.
