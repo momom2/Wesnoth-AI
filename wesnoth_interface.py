@@ -86,6 +86,9 @@ class WesnothGame:
         self.is_running = False
         self.game_over = False
         self.winner: Optional[int] = None
+        # Set by terminate() so read_state can distinguish a real crash
+        # from our own shutdown when it observes process exit.
+        self._terminated_by_us = False
 
     def adopt_game_id(self, game_id: str) -> None:
         """Called once, after the first state frame, to lock in the
@@ -125,7 +128,11 @@ class WesnothGame:
         to a console anyway. Lua-originated output reaches us via
         <userdata>/logs/wesnoth-*.out.log.
         """
-        cmd = [str(WESNOTH_PATH), "--test", "ai_training"]
+        # --nodelay short-circuits SDL_Delay inside the animation loop
+        # (verified in 1.18 src/units/animation.cpp); combined with the
+        # turbo/animate_map prefs set in lua/turn_stage.lua this takes
+        # most of the animation time out of the per-action wait.
+        cmd = [str(WESNOTH_PATH), "--nodelay", "--test", "ai_training"]
 
         # Snapshot the set of existing .out.log files. When the Wesnoth
         # subprocess starts writing its own log, it'll appear as a NEW
@@ -230,10 +237,18 @@ class WesnothGame:
                 return frame
 
             if self.process is not None and self.process.poll() is not None:
-                self.logger.warning(
-                    f"Wesnoth exited (returncode={self.process.returncode}) "
-                    f"before state arrived"
-                )
+                # Suppress the warning if we're the ones who killed it
+                # (shutdown path): that's expected, not a crash.
+                if self._terminated_by_us:
+                    self.logger.debug(
+                        f"Wesnoth exited (returncode={self.process.returncode}) "
+                        f"during our shutdown before state arrived"
+                    )
+                else:
+                    self.logger.warning(
+                        f"Wesnoth exited (returncode={self.process.returncode}) "
+                        f"before state arrived"
+                    )
                 # Drain any last bytes in case the frame landed just before exit.
                 self._log_buffer += self._read_new_log_content()
                 return self._extract_state_frame()
@@ -325,6 +340,7 @@ class WesnothGame:
         return self.game_over
 
     def terminate(self) -> None:
+        self._terminated_by_us = True
         if self.process and self.process.poll() is None:
             self.logger.info(f"Terminating Wesnoth (PID {self.process.pid})")
             try:

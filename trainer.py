@@ -77,6 +77,17 @@ class TrainerConfig:
     # more data. If freezes recur, bring it back down.
     max_transitions_per_step: int = 4000
 
+    # How many re-forwarded transitions to push through the model in
+    # one batched call. On CPU with our current tensor sizes (~1600
+    # hex tokens × 128 d_model × 3 layers), batching the transformer
+    # ran 1.7–2.8× SLOWER than a sequence of single forwards — the
+    # padded activations spill past L2/L3 and PyTorch's CPU attention
+    # doesn't amortize gemm setup across batch for these shapes. So
+    # we default to 1 (equivalent to the old path via forward_batch's
+    # B==1 shortcut). Raise this on GPU, where batched forwards
+    # actually win. Benchmarks and rationale in history for this file.
+    train_batch_size: int = 1
+
 
 @dataclass
 class TrainStats:
@@ -142,48 +153,108 @@ class Trainer:
             flat = [flat[i] for i in idxs]
             returns_flat = [returns_flat[i] for i in idxs]
 
-        # Pass 1: re-forward each transition, build per-transition
-        # loss contributions, stack at the end and backward once.
-        log_probs_all: List[torch.Tensor] = []
-        values_all:    List[torch.Tensor] = []
-        entropies_all: List[torch.Tensor] = []
+        # Two-pass training to keep peak activation memory bounded to a
+        # single chunk's forward graph — required on DML, where the
+        # whole-training-graph retention of the old design OOMed even
+        # at small batch sizes.
+        #
+        # Pass 1 (no_grad): forward every transition to obtain its value
+        #   estimate. Activations are not retained; we record a Python
+        #   float per transition and move on.
+        # Pass 2 (grad):    with the advantages precomputed from Pass 1
+        #   values, forward each chunk again, build the chunk's share of
+        #   the loss, and call .backward() before moving to the next
+        #   chunk. Per-chunk backward releases that chunk's activations;
+        #   optimizer.step() fires only once at the end.
+        #
+        # Cost: 2× forwards per transition. With torch.no_grad the first
+        # pass is cheap (~40-50% of a training forward). The batching
+        # savings on DML offset this; on CPU we use B=1 anyway so the
+        # extra pass is the same ~30 ms/transition we already eat.
+        dev = self.device or next(self.model.parameters()).device
+        N = len(flat)
+        B = max(1, self.config.train_batch_size)
 
-        for t in flat:
-            encoded = self.encoder.encode(t.game_state)
-            output = self.model(encoded)
-            log_prob, entropy = reforward_logprob_entropy(
-                encoded, output, t.game_state,
-                actor_idx=t.actor_idx,
-                target_idx=t.target_idx,
-                weapon_idx=t.weapon_idx,
-            )
-            value = output.value.squeeze()
-            log_probs_all.append(log_prob)
-            values_all.append(value)
-            entropies_all.append(entropy)
+        returns_t = torch.tensor(returns_flat, device=dev, dtype=torch.float32)
 
-        dev = log_probs_all[0].device
-        log_probs = torch.stack(log_probs_all)           # [N]
-        values    = torch.stack(values_all)              # [N]
-        entropies = torch.stack(entropies_all)           # [N]
-        returns = torch.tensor(returns_flat, device=dev, dtype=values.dtype)
+        # --- Pass 1: values without grad --------------------------------
+        values_np: List[float] = []
+        self.model.eval(); self.encoder.eval()
+        try:
+            with torch.no_grad():
+                for start in range(0, N, B):
+                    chunk = flat[start:start + B]
+                    encoded_chunk = [self.encoder.encode(t.game_state) for t in chunk]
+                    outputs = self.model.forward_batch(encoded_chunk)
+                    for output in outputs:
+                        values_np.append(float(output.value.squeeze().item()))
+        finally:
+            self.model.train(); self.encoder.train()
 
-        advantages = returns - values.detach()
+        values_est = torch.tensor(values_np, device=dev, dtype=torch.float32)
+        advantages = returns_t - values_est
         if self.config.normalize_advantages and advantages.numel() > 1:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
-        policy_loss  = -(log_probs * advantages).mean()
-        value_loss   = F.mse_loss(values, returns)
-        entropy_term = entropies.mean()
-
-        total_loss = (
-            policy_loss
-            + self.config.value_coef   * value_loss
-            - self.config.entropy_coef * entropy_term
-        )
-
+        # --- Pass 2: gradient accumulation, per-chunk backward ----------
         self.optimizer.zero_grad()
-        total_loss.backward()
+
+        # Scalar accumulators for logging (summed over N, divided at the
+        # end to match the old mean-based metrics).
+        sum_policy_loss = 0.0
+        sum_value_loss  = 0.0
+        sum_entropy     = 0.0
+
+        for start in range(0, N, B):
+            chunk = flat[start:start + B]
+            L = len(chunk)
+            encoded_chunk = [self.encoder.encode(t.game_state) for t in chunk]
+            outputs = self.model.forward_batch(encoded_chunk)
+
+            chunk_log_probs: List[torch.Tensor] = []
+            chunk_values:    List[torch.Tensor] = []
+            chunk_entropies: List[torch.Tensor] = []
+            for t, encoded, output in zip(chunk, encoded_chunk, outputs):
+                lp, ent = reforward_logprob_entropy(
+                    encoded, output, t.game_state,
+                    actor_idx=t.actor_idx,
+                    target_idx=t.target_idx,
+                    weapon_idx=t.weapon_idx,
+                )
+                chunk_log_probs.append(lp)
+                chunk_values.append(output.value.squeeze())
+                chunk_entropies.append(ent)
+
+            lp_t  = torch.stack(chunk_log_probs)
+            val_t = torch.stack(chunk_values)
+            ent_t = torch.stack(chunk_entropies)
+            adv_t = advantages[start:start + L]
+            ret_t = returns_t[start:start + L]
+
+            # Mean-style losses, scaled by L/N so summing across chunks
+            # matches the old .mean() over all N.
+            policy_loss  = -(lp_t * adv_t).sum() / N
+            value_loss   = F.mse_loss(val_t, ret_t, reduction='sum') / N
+            entropy_term = ent_t.sum() / N
+
+            chunk_loss = (
+                policy_loss
+                + self.config.value_coef   * value_loss
+                - self.config.entropy_coef * entropy_term
+            )
+            chunk_loss.backward()
+
+            sum_policy_loss += float(policy_loss.item())
+            sum_value_loss  += float(value_loss.item())
+            sum_entropy     += float(entropy_term.item())
+
+            # Drop references before the next chunk so the previous
+            # chunk's graph + activations can be reclaimed even if DML's
+            # allocator holds onto buffers.
+            del chunk_log_probs, chunk_values, chunk_entropies
+            del lp_t, val_t, ent_t, adv_t, ret_t
+            del encoded_chunk, outputs, chunk_loss
+
         grad_norm = torch.nn.utils.clip_grad_norm_(
             list(self.model.parameters()) + list(self.encoder.parameters()),
             self.config.grad_clip,
@@ -191,14 +262,18 @@ class Trainer:
         self.optimizer.step()
 
         return TrainStats(
-            policy_loss    = float(policy_loss.item()),
-            value_loss     = float(value_loss.item()),
-            entropy        = float(entropy_term.item()),
-            total_loss     = float(total_loss.item()),
+            policy_loss    = float(sum_policy_loss),
+            value_loss     = float(sum_value_loss),
+            entropy        = float(sum_entropy),
+            total_loss     = float(
+                sum_policy_loss
+                + self.config.value_coef   * sum_value_loss
+                - self.config.entropy_coef * sum_entropy
+            ),
             grad_norm      = float(grad_norm) if isinstance(grad_norm, float)
                              else float(grad_norm.item()),
-            mean_return    = float(returns.mean().item()),
-            n_transitions  = int(len(flat)),
+            mean_return    = float(returns_t.mean().item()),
+            n_transitions  = int(N),
             n_trajectories = int(n_traj),
         )
 

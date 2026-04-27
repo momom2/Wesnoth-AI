@@ -77,4 +77,7 @@ CHECKPOINT_FREQUENCY = 100
 ACTION_FILE_NAME       = "action.lua"
 STATE_TIMEOUT_SECONDS  = 30.0
 ACTION_TIMEOUT_SECONDS = 30.0
-STATE_POLL_INTERVAL    = 0.05
+STATE_POLL_INTERVAL    = 0.01   # lowered from 0.05 — Python's 50 ms tick
+                                # added an avg 25 ms tail to every
+                                # read_state. 10 ms cuts that to ~5 ms
+                                # and matches the Lua-side POLL_MS.

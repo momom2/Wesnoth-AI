@@ -73,6 +73,19 @@ class StepDelta:
     unit_recruited_cost: int = 0     # cost of a unit we just recruited (0 otherwise)
     leader_moved:    bool = False    # our leader changed hexes this step
 
+    # Invalid-action flag: True when the action produced NO observable
+    # state change (no unit moved, no HP changed, no unit appeared, no
+    # village changed, no side swap). Used to penalize recruit-spam /
+    # invalid-move attempts that the custom AI stage silently ignores.
+    invalid_action:  bool = False
+
+    # Smallest hex distance between any friendly unit and any enemy unit
+    # visible to `side`. Used by the reward to apply an ongoing penalty
+    # proportional to distance, pushing the policy to at least put ONE
+    # unit in contact with an enemy. Zero if either side has no visible
+    # units (no meaningful distance to compute).
+    min_enemy_distance: int = 0
+
     # Terminal flag.
     outcome: str = OUTCOME_ONGOING   # one of the OUTCOME_* constants
 
@@ -135,6 +148,27 @@ class WeightedReward:
     # nudges the policy toward "recruit more, move leader less".
     leader_move_penalty:  float = 0.01
 
+    # Flat penalty for actions Wesnoth silently rejected (state didn't
+    # change). Added after the overnight run showed the policy spamming
+    # ~500 invalid recruits per game — our custom AI stage doesn't
+    # blacklist-on-failure, so there's no engine-side back-pressure on
+    # garbage actions. With 500-action games a 0.001 per-invalid
+    # penalty caps at -0.5 for a fully-wasted game, strong enough to
+    # be the dominant shaping term for a stuck-spamming policy but not
+    # enough to drown the terminal ±1 for a game that actually plays.
+    invalid_action_penalty: float = 0.001
+
+    # Per-step penalty proportional to the minimum hex distance between
+    # any friendly unit and any enemy unit. Purpose: random exploration
+    # basically never stumbles into combat on a 16×20 map with ~12 hex
+    # starting distance. Keeping a unit close costs nothing; leaving
+    # them all far away accumulates a steady negative reward, so the
+    # policy gets gradient toward "send at least ONE unit to the
+    # enemy's zone". 0.0001 × 12 × ~500 actions ≈ -0.6 for a game
+    # that never closes — roughly the payoff of a small kill, so
+    # closing is clearly worth it.
+    min_enemy_distance_penalty: float = 0.0001
+
     def __call__(self, delta: StepDelta) -> float:
         r  = self.gold_killed_delta * (delta.enemy_gold_lost - delta.our_gold_lost)
         r += self.village_delta     * (delta.villages_gained - delta.villages_lost)
@@ -143,6 +177,9 @@ class WeightedReward:
         r -= self.per_turn_penalty
         if delta.leader_moved:
             r -= self.leader_move_penalty
+        if delta.invalid_action:
+            r -= self.invalid_action_penalty
+        r -= self.min_enemy_distance_penalty * delta.min_enemy_distance
 
         if delta.outcome == OUTCOME_WIN:
             r += self.terminal_win
@@ -155,6 +192,107 @@ class WeightedReward:
         # OUTCOME_ONGOING: no terminal contribution
 
         return r
+
+
+def hex_distance(a_x: int, a_y: int, b_x: int, b_y: int) -> int:
+    """Wesnoth hex distance (odd-q offset coordinates).
+
+    Matches the formula in Wesnoth's C++ `map_location::distance_between`:
+    horizontal distance plus a half-step vertical component, with a
+    +1 penalty for the zig-zag between even- and odd-x columns.
+    """
+    hd = abs(a_x - b_x)
+    a_even = (a_x & 1) == 0
+    b_even = (b_x & 1) == 0
+    vpenalty = 0
+    if (a_even and not b_even and a_y <= b_y) or \
+       (b_even and not a_even and b_y <= a_y):
+        vpenalty = 1
+    return max(hd, abs(a_y - b_y) + hd // 2 + vpenalty)
+
+
+def _action_had_visible_effect(
+    prev_state: GameState, new_state: GameState,
+) -> bool:
+    """True iff the transition shows SOMETHING changed.
+
+    Used to detect invalid actions: the custom AI stage silently loops
+    when Wesnoth rejects an action, so Python sees state_t == state_t+1.
+    Changes we consider 'visible': side swap (end_turn), unit count
+    change (recruit/death), position change (move), HP change (combat),
+    current_moves change (move with no position change — shouldn't
+    happen but handled), has_attacked flip (attempted attack even on
+    full-absorb), village count change. Healing between turns also
+    flips HP, but that's tied to side swap which we catch separately.
+    """
+    if prev_state.global_info.current_side != new_state.global_info.current_side:
+        return True
+    prev_units = {u.id: u for u in prev_state.map.units}
+    new_units = {u.id: u for u in new_state.map.units}
+    if set(prev_units.keys()) != set(new_units.keys()):
+        return True
+    for uid, u in prev_units.items():
+        nu = new_units[uid]
+        if (u.position.x, u.position.y) != (nu.position.x, nu.position.y):
+            return True
+        if u.current_hp != nu.current_hp:
+            return True
+        if u.current_moves != nu.current_moves:
+            return True
+        if u.has_attacked != nu.has_attacked:
+            return True
+    if prev_state.sides and new_state.sides:
+        for idx in range(min(len(prev_state.sides), len(new_state.sides))):
+            if (prev_state.sides[idx].nb_villages_controlled
+                    != new_state.sides[idx].nb_villages_controlled):
+                return True
+    return False
+
+
+def _min_enemy_distance(state: GameState, our_side: int) -> int:
+    """Smallest hex distance between any our_side NON-LEADER unit and
+    any enemy unit. Falls back to 2× the leader's distance if we have
+    no non-leader units yet.
+
+    Why non-leader: if the leader counts, the cheapest way to minimize
+    the distance penalty is to walk the leader straight at the enemy
+    — which we already punish via leader_move_penalty AND which breaks
+    recruiting (leader off keep = no recruits). Requiring a NON-leader
+    to close creates the intended pressure: recruit → send the recruit
+    forward → make contact.
+    Why 2× fallback (not equal, not zero): zero makes "never recruit"
+    a penalty-free local optimum. Equal to leader distance lets the
+    policy substitute leader-walking for recruiting. 2× makes
+    "recruit and then rely on the leader to close" strictly worse than
+    "recruit and move the recruit" at every distance — the penalty
+    from having only a leader at distance D is 2×D×k, while a single
+    recruited fighter at the same spot would give D×k. A zero-recruit
+    policy always pays strictly more per step than a recruit-and-move
+    policy.
+    Returns 0 only if there's no enemy visible (nothing to close to).
+    """
+    enemies = [u for u in state.map.units if u.side != our_side]
+    if not enemies:
+        return 0
+    non_leaders = [u for u in state.map.units
+                   if u.side == our_side and not u.is_leader]
+    fallback_multiplier = 1
+    if non_leaders:
+        sources = non_leaders
+    else:
+        sources = [u for u in state.map.units
+                   if u.side == our_side and u.is_leader]
+        fallback_multiplier = 2
+    if not sources:
+        return 0
+    best = None
+    for u in sources:
+        for e in enemies:
+            d = hex_distance(u.position.x, u.position.y,
+                             e.position.x, e.position.y)
+            if best is None or d < best:
+                best = d
+    return (best * fallback_multiplier) if best is not None else 0
 
 
 def compute_delta(
@@ -189,18 +327,49 @@ def compute_delta(
         side=acting_side,
         turn=new_state.global_info.turn_number,
         action_type=action_type,
-        unit_recruited_cost=recruit_cost,
+        # unit_recruited_cost filled in below only if a unit actually
+        # appeared — the in-arg is the INTENDED cost, but our custom AI
+        # stage doesn't tell Python whether Wesnoth accepted the recruit,
+        # and rejected recruits must not be rewarded (otherwise the
+        # policy learns to spam invalid recruits forever; see the
+        # 985-game overnight run that climbed to mean_return=1.28 while
+        # attempting 400+ recruits per game).
+        unit_recruited_cost=0,
         outcome=outcome,
     )
 
+    # Distance to closest enemy is always reported (when possible).
+    # Computed on new_state so it reflects the CURRENT state the policy
+    # just transitioned into — a penalty on "still far away" after this
+    # action.
+    delta.min_enemy_distance = _min_enemy_distance(new_state, acting_side)
+
     if prev_state is None:
         return delta
+
+    # Invalid-action detection. If the full state has not changed
+    # relative to prev_state, the action Python sent did nothing —
+    # rejected by Wesnoth (invalid move target, no gold, etc.). Flagged
+    # here; the reward function decides what to charge for it.
+    delta.invalid_action = not _action_had_visible_effect(prev_state, new_state)
 
     # Unit-keyed lookups. unit.id is a stable per-unit identifier
     # assigned by Wesnoth (e.g., "knalgan_leader" or an auto-generated
     # "Dwarvish Fighter-42").
     prev_units = {u.id: u for u in prev_state.map.units}
     new_units  = {u.id: u for u in new_state.map.units}
+
+    # Recruit-success check: credit unit_recruited_cost only if a unit
+    # of our side actually appeared in new_state that wasn't in
+    # prev_state. Same-turn death-of-ally is vanishingly rare on a
+    # recruit step so we don't bother netting it out.
+    if action_type == 'recruit' and recruit_cost > 0:
+        appeared = any(
+            u.side == acting_side and u.id not in prev_units
+            for u in new_state.map.units
+        )
+        if appeared:
+            delta.unit_recruited_cost = recruit_cost
 
     # Damage / deaths.
     for uid, u_prev in prev_units.items():

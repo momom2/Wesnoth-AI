@@ -21,9 +21,11 @@ delegated to the policy's own save_checkpoint method.
 
 import asyncio
 import logging
+import statistics
+from collections import deque
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Any, Deque, Dict, Optional, Tuple
 
 from classes import GameState
 from constants import (
@@ -55,6 +57,31 @@ from wesnoth_interface import WesnothGame
 # Per-label state we carry between turns to compute StepDeltas. Tuple:
 #   (prev_state, prev_action_type, prev_acting_side, prev_recruit_cost)
 _PrevEntry = Tuple[GameState, str, int, int]
+
+
+# Fields accumulated per-side per-game from StepDelta. Every name here
+# also appears in _log_stats' rolling aggregate, so keep the order stable
+# (report order follows this list). Adding a field = bump it from the
+# delta in _record_delta_stats and widen the format strings below.
+_PER_SIDE_FIELDS = (
+    'actions',           # count of Python-side decisions this side made
+    'moves', 'attacks', 'recruits', 'end_turns',
+    'invalid_actions',   # subset of actions that produced no state change
+    'enemy_hp_lost',     # HP we took off enemies
+    'our_hp_lost',       # HP enemies took off us
+    'enemy_gold_lost',   # gold-cost of enemy units we killed
+    'our_gold_lost',     # gold-cost of our units that died
+    'recruit_gold',      # gold we spent recruiting (successful only)
+    'villages_gained', 'villages_lost',
+    'leader_moves',
+    # Sum of min_enemy_distance across the side's actions. The per-game
+    # summary divides by `actions` to report mean; lower = better.
+    'enemy_distance_sum',
+)
+
+
+def _new_side_counter() -> Dict[str, int]:
+    return {k: 0 for k in _PER_SIDE_FIELDS}
 
 
 class GameManager:
@@ -98,11 +125,30 @@ class GameManager:
         # consecutive frames. See _PrevEntry type alias.
         self._prev: Dict[str, _PrevEntry] = {}
 
+        # Per-game, per-side stat accumulators. Populated from each
+        # StepDelta via _record_delta_stats, consumed when the game
+        # ends. Shape: {label: {'turn': int, 1: {...}, 2: {...}}}.
+        self._game_counters: Dict[str, Dict[Any, Any]] = {}
+
+        # Rolling window of finished-game summaries for the periodic
+        # Stats block. Each entry:
+        #   {'turn': int, 'outcome': str, 1: {...}, 2: {...}}
+        # maxlen chosen so averages are stable over ~10× LOG_FREQUENCY.
+        self._recent_games: Deque[Dict[str, Any]] = deque(maxlen=100)
+
         # Rolling-pool bookkeeping. These track when we last fired a
         # train_step / checkpoint so the pool's event loop can fire
         # them at a schedule independent of batch boundaries.
         self._last_trained_at = 0
         self._last_checkpoint_at = 0
+
+        # Handle on the currently-running train_step (if any). train_step
+        # takes ~90s; running it on the event-loop thread blocks every
+        # rollout for those 90s (no new Wesnoth launches, queued games
+        # stalled). Instead we launch it on a worker via asyncio.to_thread
+        # and let the event loop keep pumping. See _run_train_step_async
+        # and TransformerPolicy.train_step for the concurrency contract.
+        self._train_task: Optional[asyncio.Task] = None
 
         # Profiling. handle_game_turn wraps its stages in
         # `with self._profiler.time("..."): ...` and the periodic
@@ -246,6 +292,12 @@ class GameManager:
     async def run_game(self, label: str) -> None:
         game: Optional[WesnothGame] = None
         natural_over = False
+        outcome_label = 'unknown'
+        # Initialize per-game stat counters up front; _record_delta_stats
+        # writes into these as each turn closes, _summarize_game drains.
+        self._game_counters[label] = {
+            'turn': 0, 1: _new_side_counter(), 2: _new_side_counter(),
+        }
         try:
             game = await self.create_game(label)
             self.games[label] = game
@@ -263,7 +315,11 @@ class GameManager:
                 actions += 1
 
             if natural_over:
-                pass  # already counted; trajectories already finalized
+                # Already counted; derive an outcome label from winner.
+                winner = game.winner if game is not None else 0
+                outcome_label = (
+                    f'win_s{winner}' if winner in (1, 2) else 'draw'
+                )
             elif actions >= MAX_ACTIONS_PER_GAME:
                 self.logger.warning(
                     f"Game {label}: timeout after {actions} actions")
@@ -275,7 +331,8 @@ class GameManager:
                     )
                 else:
                     self._drop_trajectories(label)
-                self._count_terminated('timeout')
+                self._count_terminated('timeouts')
+                outcome_label = 'timeout'
             else:
                 # Mid-episode exit (no-state / send fail / ...).
                 # Outcome unknown; drop trajectories rather than seal
@@ -283,16 +340,24 @@ class GameManager:
                 # train_step fires on schedule.
                 self._drop_trajectories(label)
                 self._count_terminated('interrupted')
+                outcome_label = 'interrupted'
 
         except Exception as e:
             self.logger.error(f"Game {label}: error: {e}", exc_info=True)
             self._drop_trajectories(label)
             self._count_terminated('errored')
+            outcome_label = 'errored'
         finally:
             if label in self.games:
+                # Drop the state-converter's cached static map for this
+                # game_id so long runs don't accumulate dead caches.
+                gid = self.games[label].game_id
+                if gid:
+                    self.global_converter.forget_game(gid)
                 self.games[label].terminate()
                 del self.games[label]
             self._prev.pop(label, None)
+            self._summarize_game(label, outcome_label)
             self.logger.info(f"Game {label}: finished")
 
     def _count_terminated(self, bucket: str) -> None:
@@ -326,6 +391,78 @@ class GameManager:
         )
         reward = self._reward_fn(delta)
         self._observe_policy(label, prev_side, reward, done=False)
+        self._record_delta_stats(label, delta)
+
+    def _record_delta_stats(self, label: str, delta: StepDelta) -> None:
+        """Fold one per-step delta into the game's running stat counters.
+
+        Drives both the per-game end-of-game log line and the rolling
+        per-side averages in the periodic Stats block. The goal is
+        diagnostic: when mean_return plateaus we want to see WHICH
+        reward component is paying the bill — combat, villages, or
+        recruits — and whether it's symmetric across sides.
+        """
+        counters = self._game_counters.get(label)
+        if counters is None:
+            return
+        if delta.turn > counters['turn']:
+            counters['turn'] = delta.turn
+        s = counters.get(delta.side)
+        if s is None:
+            return
+        s['actions'] += 1
+        atype = delta.action_type
+        if atype == 'move':
+            s['moves'] += 1
+        elif atype == 'attack':
+            s['attacks'] += 1
+        elif atype == 'recruit':
+            s['recruits'] += 1
+        elif atype == 'end_turn':
+            s['end_turns'] += 1
+        s['enemy_hp_lost']   += delta.enemy_hp_lost
+        s['our_hp_lost']     += delta.our_hp_lost
+        s['enemy_gold_lost'] += delta.enemy_gold_lost
+        s['our_gold_lost']   += delta.our_gold_lost
+        s['recruit_gold']    += delta.unit_recruited_cost
+        s['villages_gained'] += delta.villages_gained
+        s['villages_lost']   += delta.villages_lost
+        if delta.leader_moved:
+            s['leader_moves'] += 1
+        if delta.invalid_action:
+            s['invalid_actions'] += 1
+        s['enemy_distance_sum'] += delta.min_enemy_distance
+
+    def _summarize_game(self, label: str, outcome: str) -> None:
+        """Emit a one-line-per-game summary and archive it for the
+        rolling stats window. Called from run_game's finally block
+        regardless of how the game ended."""
+        counters = self._game_counters.pop(label, None)
+        if counters is None:
+            return
+        s1, s2 = counters[1], counters[2]
+        def fmt_side(s):
+            avg_dist = (s['enemy_distance_sum'] / s['actions']) if s['actions'] else 0.0
+            return (
+                f"acts={s['actions']}(inv={s['invalid_actions']}) "
+                f"mv={s['moves']} atk={s['attacks']} "
+                f"rec={s['recruits']}({s['recruit_gold']}g) "
+                f"dmg={s['enemy_hp_lost']}HP kill={s['enemy_gold_lost']}g "
+                f"took={s['our_hp_lost']}HP lost={s['our_gold_lost']}g "
+                f"vil+{s['villages_gained']}/-{s['villages_lost']} "
+                f"ldr={s['leader_moves']} dist={avg_dist:.1f}"
+            )
+        self.logger.info(
+            f"Game {label} done: turn={counters['turn']} outcome={outcome} "
+            f"| s1 {fmt_side(s1)} "
+            f"| s2 {fmt_side(s2)}"
+        )
+        self._recent_games.append({
+            'turn': counters['turn'],
+            'outcome': outcome,
+            1: dict(s1),
+            2: dict(s2),
+        })
 
     def _finalize_game(
         self,
@@ -407,7 +544,49 @@ class GameManager:
             f"send={self.stats['action_send_errors']}")
         self.logger.info("  " + self._profiler.throughput(total))
         self.logger.info("  per-stage:\n" + self._profiler.report())
+        self._log_recent_game_stats()
         self.logger.info("=" * 70)
+
+    def _log_recent_game_stats(self) -> None:
+        """Rolling per-game averages over the last _recent_games window.
+
+        Diagnostic: answers "is the policy fighting, recruiting, or
+        ignoring combat?". Each field in _PER_SIDE_FIELDS gets a mean
+        across the window; turn counts additionally get min/max so
+        we can spot whether games are converging in length.
+        """
+        if not self._recent_games:
+            return
+        n = len(self._recent_games)
+        turns = [g['turn'] for g in self._recent_games]
+        self.logger.info(
+            f"  per-game avg over last {n} games: "
+            f"turn mean={statistics.mean(turns):.1f} "
+            f"min={min(turns)} max={max(turns)}"
+        )
+        for side in (1, 2):
+            agg: Dict[str, int] = {k: 0 for k in _PER_SIDE_FIELDS}
+            for g in self._recent_games:
+                for k in _PER_SIDE_FIELDS:
+                    agg[k] += g[side][k]
+            # Weighted avg distance: total enemy-distance summed across
+            # games, divided by total actions — an approximation of the
+            # typical min-enemy-distance observed per action.
+            avg_dist = (agg['enemy_distance_sum'] / agg['actions']) if agg['actions'] else 0.0
+            self.logger.info(
+                f"    s{side}: "
+                f"acts={agg['actions']/n:.1f}(inv={agg['invalid_actions']/n:.1f}) "
+                f"mv={agg['moves']/n:.1f} "
+                f"atk={agg['attacks']/n:.1f} "
+                f"rec={agg['recruits']/n:.1f}({agg['recruit_gold']/n:.1f}g) "
+                f"dmg={agg['enemy_hp_lost']/n:.1f}HP "
+                f"kill={agg['enemy_gold_lost']/n:.1f}g "
+                f"took={agg['our_hp_lost']/n:.1f}HP "
+                f"lost={agg['our_gold_lost']/n:.1f}g "
+                f"vil+{agg['villages_gained']/n:.2f}/-{agg['villages_lost']/n:.2f} "
+                f"ldr={agg['leader_moves']/n:.1f} "
+                f"dist={avg_dist:.1f}"
+            )
 
     async def run_training(self) -> None:
         """Rolling pool of N in-flight games.
@@ -474,6 +653,17 @@ class GameManager:
             for task in active.values():
                 task.cancel()
             await asyncio.gather(*active.values(), return_exceptions=True)
+            # Wait for any in-flight train_step to complete so we
+            # checkpoint the newest weights, not the previous ones.
+            # The task runs in a worker thread we can't cancel cleanly;
+            # await its completion instead.
+            if self._train_task is not None and not self._train_task.done():
+                self.logger.info("Waiting for in-flight train_step to finish…")
+                try:
+                    await self._train_task
+                except Exception as e:
+                    self.logger.error(f"final train_step failed: {e}",
+                                      exc_info=True)
             if trainable:
                 self._save_checkpoint()
         finally:
@@ -481,14 +671,47 @@ class GameManager:
                 game.terminate()
 
     def _maybe_train(self, every: int, trainable: bool) -> None:
+        """Fire-and-forget: schedule train_step on a worker thread if
+        enough games have completed and no previous train_step is still
+        running. Rollouts continue on the event-loop thread while the
+        worker trains.
+        """
         n = self.stats['games_completed']
         if not trainable or n == 0 or n < self._last_trained_at + every:
             return
-        try:
-            self.policy.train_step()  # type: ignore[attr-defined]
-        except Exception as e:
-            self.logger.error(f"Training error: {e}", exc_info=True)
+        # Reap the previous task if it's finished — re-raise any
+        # exception so we notice training failures instead of silently
+        # dropping them.
+        if self._train_task is not None and self._train_task.done():
+            exc = self._train_task.exception()
+            if exc is not None:
+                self.logger.error(
+                    f"train_step failed: {exc}", exc_info=exc)
+            self._train_task = None
+
+        # Still in flight? Skip this trigger; the next one (N more games
+        # from now) will try again. Rollout has outrun training; that's
+        # fine — the queue just keeps accumulating trajectories.
+        if self._train_task is not None and not self._train_task.done():
+            self.logger.info(
+                f"train_step still in flight (prev started at "
+                f"game {self._last_trained_at}); skipping this trigger "
+                f"at game {n}. Queued trajectories will go in next step."
+            )
+            self._last_trained_at = n  # don't fire-spam every game
+            return
+
         self._last_trained_at = n
+        self._train_task = asyncio.create_task(self._run_train_step_async())
+
+    async def _run_train_step_async(self) -> None:
+        """Coroutine wrapper that pushes policy.train_step into a worker
+        thread. Returns whatever the policy returns; exceptions propagate
+        to the task and are reaped by the next _maybe_train call."""
+        train_step = getattr(self.policy, 'train_step', None)
+        if train_step is None:
+            return
+        await asyncio.to_thread(train_step)
 
     def _maybe_checkpoint(self, every: int, trainable: bool) -> None:
         n = self.stats['games_completed']
