@@ -23,6 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
+import numpy as np
 import torch
 import torch.nn as nn
 
@@ -43,9 +44,23 @@ from classes import (
 
 MAX_MAP_SIZE    = 128   # covers every mainline MP map with headroom
 MAX_UNIT_TYPES  = 200   # # distinct unit type names we can embed
+MAX_FACTIONS    = 32    # default era has 6; supervised corpus adds a
+                        # handful ("Custom", era-specific, "") — 32
+                        # leaves room for growth.
 NUM_TERRAINS    = max(Terrain) + 1       # 14 enum values today
 NUM_ALIGNMENTS  = max(Alignment) + 1     # 4
 NUM_SIDE_CODES  = 2     # 0 = ours (current_side), 1 = theirs
+
+
+# Pre-seed the faction vocab so the 6 default-era factions always
+# land on the same embedding row regardless of whether the first
+# state we see happens to be, e.g., a Rebels vs Undead supervised
+# replay (which would otherwise bind Rebels→0 and never re-map it).
+# Empty string is reserved for "unknown/unset" → id 0.
+_DEFAULT_FACTIONS = [
+    "", "Drakes", "Knalgan Alliance", "Rebels",
+    "Loyalists", "Northerners", "Undead",
+]
 
 # Per-hex multi-hot: (village, keep, castle).
 NUM_HEX_MODIFIERS = 3
@@ -114,6 +129,83 @@ class EncodedState:
     end_turn_token: torch.Tensor           # [1, 1, d_model]
 
 
+# ---------------------------------------------------------------------
+# Two-phase encoding split
+# ---------------------------------------------------------------------
+#
+# encode() does two distinct things: (1) walk the GameState graph and
+# build lists of integer indices and float feature vectors, (2) feed
+# those through nn.Embedding/nn.Linear to produce learned tensors.
+#
+# Phase (1) is pure Python and dominates step time when the model
+# itself is fast (e.g. on a CUDA GPU). Splitting it out as a free
+# function — `encode_raw` — that takes the vocab dicts read-only lets
+# worker processes do (1) ahead of time, while the main process keeps
+# (2) where the trainable parameters live.
+#
+# `RawEncoded` carries the result of (1): plain Python lists, ints,
+# floats, strings, and Position named tuples. It pickles cheaply, so
+# crossing a multiprocessing.Queue boundary is fast.
+#
+# Backwards compat: GameStateEncoder.encode(game_state) still exists
+# and behaves identically — it grows vocab on demand and runs both
+# phases in sequence.
+#
+# Vocab discipline for workers: when the encoder's vocab is frozen
+# (e.g., shared with workers), `encode_raw` falls back to the
+# overflow bucket (MAX_*-1) for unseen names rather than mutating
+# the dict. New names then collide there until the next training run
+# pre-seeds the vocab.
+
+@dataclass
+class RawEncoded:
+    """Pure-Python representation of an encoded GameState.
+
+    No torch, no nn parameters — picklable for cross-process transport.
+    Convert to an `EncodedState` via `GameStateEncoder.encode_from_raw`.
+
+    Bulk per-hex / per-unit / per-recruit fields are numpy arrays so
+    the trainer-side `encode_from_raw` can use `torch.from_numpy`
+    (~3 µs per call, no copy on CPU) instead of `torch.tensor(list, ...)`
+    (~500 µs per call, includes a Python-side list → C-array conversion
+    and a fresh allocation). Workers pay the np.asarray cost off the
+    critical path (it's hidden behind whatever GPU work the main thread
+    is doing on the previous batch).
+
+    `*_positions` and `*_ids` / `*_types` stay as Python objects:
+    they're only used by the action sampler downstream as plain Python
+    addresses into game-state, never as tensor inputs.
+    """
+
+    # Per-hex stream (variable H).
+    hex_positions:      List["Position"]
+    hex_xs:             np.ndarray          # int64 [H]
+    hex_ys:             np.ndarray          # int64 [H]
+    hex_terrain_ids:    np.ndarray          # int64 [H]
+    hex_modifier_flags: np.ndarray          # float32 [H, NUM_HEX_MODIFIERS]
+
+    # Per-unit stream (variable U).
+    unit_positions:  List["Position"]
+    unit_ids:        List[str]
+    unit_is_ours:    np.ndarray             # float32 [U]
+    unit_type_ids:   np.ndarray             # int64 [U]; clamped to MAX-1
+    unit_side_ids:   np.ndarray             # int64 [U]; 0 = ours, 1 = theirs
+    unit_xs:         np.ndarray             # int64 [U]
+    unit_ys:         np.ndarray             # int64 [U]
+    unit_feats:      np.ndarray             # float32 [U, UNIT_FEAT_DIM]
+
+    # Per-recruit stream (variable R).
+    recruit_types:    List[str]
+    recruit_is_ours:  np.ndarray            # float32 [R]
+    recruit_type_ids: np.ndarray            # int64 [R]
+    recruit_side_ids: np.ndarray            # int64 [R]
+
+    # Global features.
+    global_feats:     np.ndarray            # float32 [GLOBAL_FEAT_DIM]
+    our_faction_id:   int
+    their_faction_id: int
+
+
 class GameStateEncoder(nn.Module):
     """Learned embedder: GameState → EncodedState."""
 
@@ -121,6 +213,7 @@ class GameStateEncoder(nn.Module):
         self,
         d_model: int = 128,
         unit_type_to_id: Optional[Dict[str, int]] = None,
+        faction_to_id: Optional[Dict[str, int]] = None,
     ):
         super().__init__()
         self.d_model = d_model
@@ -135,6 +228,15 @@ class GameStateEncoder(nn.Module):
         self.unit_type_to_id: Dict[str, int] = (
             unit_type_to_id if unit_type_to_id is not None else {}
         )
+
+        # Faction vocab. Pre-seeded with the 6 default factions plus
+        # "" (unknown). Growing on demand for custom/era-specific
+        # factions encountered during supervised training. Load-time
+        # restore from checkpoint keeps id assignments stable.
+        if faction_to_id is not None:
+            self.faction_to_id: Dict[str, int] = dict(faction_to_id)
+        else:
+            self.faction_to_id = {f: i for i, f in enumerate(_DEFAULT_FACTIONS)}
 
         # --- hex embeddings -------------------------------------------
         self.terrain_embed  = nn.Embedding(NUM_TERRAINS, d_model)
@@ -152,6 +254,16 @@ class GameStateEncoder(nn.Module):
         # --- global ---------------------------------------------------
         self.global_proj = nn.Linear(GLOBAL_FEAT_DIM, d_model)
 
+        # --- faction embeddings ---------------------------------------
+        # Separate embed tables for "our" and "their" faction so the
+        # model can learn a conditioning distinction (Drakes-as-us
+        # plays differently than Drakes-as-them). Small init so
+        # untrained faction tokens don't swamp the global_token.
+        self.our_faction_embed   = nn.Embedding(MAX_FACTIONS, d_model)
+        self.their_faction_embed = nn.Embedding(MAX_FACTIONS, d_model)
+        nn.init.normal_(self.our_faction_embed.weight,   std=0.02)
+        nn.init.normal_(self.their_faction_embed.weight, std=0.02)
+
         # --- end_turn sentinel ----------------------------------------
         # Small init so it doesn't dominate the softmax at step 0.
         self.end_turn_token = nn.Parameter(torch.randn(d_model) * 0.02)
@@ -159,194 +271,337 @@ class GameStateEncoder(nn.Module):
     # ----- public API --------------------------------------------------
 
     def encode(self, game_state: GameState) -> EncodedState:
-        """Build an EncodedState for one GameState."""
-        device = next(self.parameters()).device
-        current_side = game_state.global_info.current_side
+        """Build an EncodedState for one GameState.
 
-        hex_tokens, hex_positions = self._encode_hexes(game_state, device)
-        unit_tokens, unit_is_ours, unit_positions, unit_ids = (
-            self._encode_units(game_state, current_side, device)
+        Convenience entry point: registers any new names into the
+        encoder's vocab, runs `encode_raw` against the (now-grown)
+        dicts, and finalizes the tensors via `encode_from_raw`. This
+        is the call self-play and tests use.
+        """
+        self.register_names(game_state)
+        raw = encode_raw(
+            game_state,
+            type_to_id=self.unit_type_to_id,
+            faction_to_id=self.faction_to_id,
         )
-        recruit_tokens, recruit_is_ours, recruit_types = (
-            self._encode_recruits(game_state, current_side, device)
-        )
-        global_token = self._encode_global(game_state, current_side, device)
+        return self.encode_from_raw(raw)
+
+    def register_names(self, game_state: GameState) -> None:
+        """Grow `unit_type_to_id` / `faction_to_id` for any name we
+        haven't seen before. Pure dict mutation, no torch — safe to
+        call before the encoder's parameters are touched.
+
+        Workers should NOT call this: their dicts are read-only views.
+        """
+        type_to_id = self.unit_type_to_id
+        for u in game_state.map.units:
+            if u.name not in type_to_id:
+                type_to_id[u.name] = len(type_to_id)
+        faction_to_id = self.faction_to_id
+        for s in game_state.sides:
+            if s.faction not in faction_to_id:
+                faction_to_id[s.faction] = len(faction_to_id)
+            for r in s.recruits:
+                if r not in type_to_id:
+                    type_to_id[r] = len(type_to_id)
+
+    def encode_from_raw(
+        self,
+        raw: RawEncoded,
+        *,
+        device: Optional[torch.device] = None,
+    ) -> EncodedState:
+        """Finalize a `RawEncoded` into an `EncodedState`.
+
+        This is the half that touches learned parameters — embeddings
+        and linear projections. It must run on the process that owns
+        the encoder's parameters (the trainer / inference main).
+
+        Hot-path note: bulk fields go through `torch.from_numpy(...)`
+        (~3 µs, zero-copy on CPU) plus an optional `.to(device)` for
+        the GPU case (single coalesced memcpy per array). The previous
+        version used `torch.tensor(python_list, ...)` which paid an
+        extra ~500 µs per call iterating the Python list. With ~12
+        such calls per pair the savings dominate the trainer's
+        main-thread budget once workers prefetch encode_raw.
+        """
+        if device is None:
+            device = next(self.parameters()).device
+        d = self.d_model
+        # `non_blocking=True` lets the H2D copy overlap with whatever
+        # the device was already doing. Harmless on CPU (no-op).
+        nb = device.type != "cpu"
+
+        def _to_dev(arr_or_tensor):
+            t = torch.from_numpy(arr_or_tensor)
+            if device.type != "cpu":
+                t = t.to(device, non_blocking=nb)
+            return t
+
+        # ---- hexes ----
+        H = raw.hex_xs.shape[0]
+        if H == 0:
+            hex_tokens = torch.zeros(1, 0, d, device=device)
+        else:
+            hx = _to_dev(raw.hex_xs)
+            hy = _to_dev(raw.hex_ys)
+            ht = _to_dev(raw.hex_terrain_ids)
+            hm = _to_dev(raw.hex_modifier_flags)
+            hex_tokens = (
+                self.pos_x_embed(hx)
+                + self.pos_y_embed(hy)
+                + self.terrain_embed(ht)
+                + self.modifier_proj(hm)
+            ).unsqueeze(0)  # [1, H, d]
+
+        # ---- units ----
+        U = raw.unit_xs.shape[0]
+        if U == 0:
+            unit_tokens  = torch.zeros(1, 0, d, device=device)
+            unit_is_ours = torch.zeros(1, 0, device=device, dtype=torch.float32)
+        else:
+            ut = _to_dev(raw.unit_type_ids)
+            us_ids = _to_dev(raw.unit_side_ids)
+            ux = _to_dev(raw.unit_xs)
+            uy = _to_dev(raw.unit_ys)
+            uf = _to_dev(raw.unit_feats)
+            unit_tokens = (
+                self.unit_type_embed(ut)
+                + self.side_embed(us_ids)
+                + self.pos_x_embed(ux)
+                + self.pos_y_embed(uy)
+                + self.unit_feat_proj(uf)
+            ).unsqueeze(0)  # [1, U, d]
+            unit_is_ours = _to_dev(raw.unit_is_ours).unsqueeze(0)
+
+        # ---- recruits ----
+        R = raw.recruit_type_ids.shape[0]
+        if R == 0:
+            recruit_tokens  = torch.zeros(1, 0, d, device=device)
+            recruit_is_ours = torch.zeros(1, 0, device=device, dtype=torch.float32)
+        else:
+            rt = _to_dev(raw.recruit_type_ids)
+            rs = _to_dev(raw.recruit_side_ids)
+            recruit_tokens = (
+                self.unit_type_embed(rt) + self.side_embed(rs)
+            ).unsqueeze(0)  # [1, R, d]
+            recruit_is_ours = _to_dev(raw.recruit_is_ours).unsqueeze(0)
+
+        # ---- global ----
+        # 6-element float vector + two ints — small enough that
+        # torch.tensor scalar paths are fine; from_numpy on a 6-element
+        # array would be a wash.
+        gf = torch.from_numpy(raw.global_feats).unsqueeze(0)
+        if device.type != "cpu":
+            gf = gf.to(device, non_blocking=nb)
+        emb = self.global_proj(gf)
+        our_fid  = torch.tensor([raw.our_faction_id],  device=device, dtype=torch.long)
+        them_fid = torch.tensor([raw.their_faction_id], device=device, dtype=torch.long)
+        emb = emb + self.our_faction_embed(our_fid) + self.their_faction_embed(them_fid)
+        global_token = emb.unsqueeze(0)  # [1, 1, d]
 
         return EncodedState(
             hex_tokens=hex_tokens,
-            hex_positions=hex_positions,
+            hex_positions=raw.hex_positions,
             unit_tokens=unit_tokens,
             unit_is_ours=unit_is_ours,
-            unit_positions=unit_positions,
-            unit_ids=unit_ids,
+            unit_positions=raw.unit_positions,
+            unit_ids=raw.unit_ids,
             recruit_tokens=recruit_tokens,
             recruit_is_ours=recruit_is_ours,
-            recruit_types=recruit_types,
+            recruit_types=raw.recruit_types,
             global_token=global_token,
             end_turn_token=self.end_turn_token.view(1, 1, -1),
         )
 
-    # ----- internals ---------------------------------------------------
 
-    def _name_id(self, name: str) -> int:
-        """Map a unit-type name to a stable small int, growing on demand.
+# ---------------------------------------------------------------------
+# encode_raw — phase-1 of encoding. Pure Python, vocab read-only.
+# ---------------------------------------------------------------------
 
-        Clamped to ``MAX_UNIT_TYPES - 1`` so an out-of-vocabulary type
-        doesn't blow up the embedding table. Collisions on overflow are
-        acceptable — the AI just treats rare types as "the overflow
-        type". Retrain with a bigger table if this starts to bite.
-        """
-        if name not in self.unit_type_to_id:
-            self.unit_type_to_id[name] = len(self.unit_type_to_id)
-        idx = self.unit_type_to_id[name]
-        return min(idx, MAX_UNIT_TYPES - 1)
+def _clamp_pos(v: int) -> int:
+    return max(0, min(v, MAX_MAP_SIZE - 1))
 
-    def _clamp_pos(self, v: int) -> int:
-        return max(0, min(v, MAX_MAP_SIZE - 1))
 
-    def _encode_hexes(self, game_state: GameState, device):
-        # Row-major sort so hex_positions has a predictable order.
-        hexes = sorted(
-            game_state.map.hexes,
-            key=lambda h: (h.position.y, h.position.x),
+def _lookup_id(name: str, table: Dict[str, int], maxn: int) -> int:
+    """Read-only vocab lookup. Out-of-vocab → overflow bucket (maxn-1).
+
+    Mirrors the clamping behavior of the old `_name_id` / `_faction_id`
+    methods, but never mutates the dict — safe to call from worker
+    processes that share a frozen view of the vocab.
+    """
+    return min(table.get(name, maxn - 1), maxn - 1)
+
+
+def encode_raw(
+    game_state: GameState,
+    *,
+    type_to_id: Dict[str, int],
+    faction_to_id: Dict[str, int],
+) -> RawEncoded:
+    """Build a `RawEncoded` from a GameState using read-only vocab.
+
+    Self-contained: no torch, no nn modules, no GPU. The result is
+    picklable, so workers can call this and ship results back to the
+    trainer over a multiprocessing queue.
+
+    The caller is responsible for keeping `type_to_id` / `faction_to_id`
+    in sync between workers and the encoder owning the embedding tables
+    — typically by pre-seeding before spawning workers and never
+    growing during training.
+
+    Output bulk fields are numpy arrays (int64 / float32) so the
+    trainer's `encode_from_raw` can wrap them with `torch.from_numpy`
+    in zero-copy O(1) time. The np.asarray calls here run in the
+    worker process and are hidden behind the main thread's GPU work.
+    """
+    current_side = game_state.global_info.current_side
+    sides = game_state.sides
+    MAP_LIMIT = MAX_MAP_SIZE - 1   # avoid attribute lookup in tight loops
+
+    # ---- hexes (drop fogged) ----
+    fog_set = {(p.x, p.y) for p in game_state.map.fog}
+    if fog_set:
+        hexes_iter = (
+            h for h in game_state.map.hexes
+            if (h.position.x, h.position.y) not in fog_set
         )
-        positions = [h.position for h in hexes]
-        if not hexes:
-            return (
-                torch.zeros(1, 0, self.d_model, device=device),
-                positions,
+    else:
+        hexes_iter = iter(game_state.map.hexes)
+    hexes = sorted(hexes_iter, key=lambda h: (h.position.y, h.position.x))
+
+    hex_positions = [h.position for h in hexes]
+    H = len(hex_positions)
+
+    if H == 0:
+        hex_xs_np = np.empty(0, dtype=np.int64)
+        hex_ys_np = np.empty(0, dtype=np.int64)
+        hex_terrain_ids_np = np.empty(0, dtype=np.int64)
+        hex_modifier_flags_np = np.empty((0, NUM_HEX_MODIFIERS), dtype=np.float32)
+    else:
+        # Inline the clamp + terrain/modifier extraction in tight loops
+        # to skip per-call Python-frame overhead. _clamp_pos/_first_terrain_id
+        # are still defined as standalone helpers for clarity / unit tests;
+        # we just don't call them per-hex.
+        hex_xs_np          = np.empty(H, dtype=np.int64)
+        hex_ys_np          = np.empty(H, dtype=np.int64)
+        hex_terrain_ids_np = np.empty(H, dtype=np.int64)
+        hex_modifier_flags_np = np.zeros((H, NUM_HEX_MODIFIERS), dtype=np.float32)
+        terrain_village = Terrain.VILLAGE
+        terrain_castle  = Terrain.CASTLE
+        terrain_flat_v  = Terrain.FLAT.value
+        mod_village = TerrainModifiers.VILLAGE
+        mod_keep    = TerrainModifiers.KEEP
+        mod_castle  = TerrainModifiers.CASTLE
+        for i, h in enumerate(hexes):
+            p = h.position
+            hex_xs_np[i] = 0 if p.x < 0 else (MAP_LIMIT if p.x > MAP_LIMIT else p.x)
+            hex_ys_np[i] = 0 if p.y < 0 else (MAP_LIMIT if p.y > MAP_LIMIT else p.y)
+            tt = h.terrain_types
+            if not tt:
+                hex_terrain_ids_np[i] = terrain_flat_v
+            elif terrain_village in tt:
+                hex_terrain_ids_np[i] = terrain_village.value
+            elif terrain_castle in tt:
+                hex_terrain_ids_np[i] = terrain_castle.value
+            else:
+                hex_terrain_ids_np[i] = next(iter(tt)).value
+            mods = h.modifiers
+            if mod_village in mods: hex_modifier_flags_np[i, 0] = 1.0
+            if mod_keep    in mods: hex_modifier_flags_np[i, 1] = 1.0
+            if mod_castle  in mods: hex_modifier_flags_np[i, 2] = 1.0
+
+    # ---- units ----
+    units = sorted(
+        game_state.map.units,
+        key=lambda u: (u.position.y, u.position.x, u.id),
+    )
+    U = len(units)
+    unit_positions = [u.position for u in units]
+    unit_ids       = [u.id for u in units]
+
+    unit_is_ours_np  = np.empty(U, dtype=np.float32)
+    unit_type_ids_np = np.empty(U, dtype=np.int64)
+    unit_side_ids_np = np.empty(U, dtype=np.int64)
+    unit_xs_np       = np.empty(U, dtype=np.int64)
+    unit_ys_np       = np.empty(U, dtype=np.int64)
+    unit_feats_np    = np.empty((U, UNIT_FEAT_DIM), dtype=np.float32)
+    type_overflow    = MAX_UNIT_TYPES - 1
+    for i, u in enumerate(units):
+        is_ours = u.side == current_side
+        unit_is_ours_np[i]  = 1.0 if is_ours else 0.0
+        unit_side_ids_np[i] = 0 if is_ours else 1
+        unit_type_ids_np[i] = min(
+            type_to_id.get(u.name, type_overflow), type_overflow
+        )
+        ux, uy = u.position.x, u.position.y
+        unit_xs_np[i] = 0 if ux < 0 else (MAP_LIMIT if ux > MAP_LIMIT else ux)
+        unit_ys_np[i] = 0 if uy < 0 else (MAP_LIMIT if uy > MAP_LIMIT else uy)
+        unit_feats_np[i] = _unit_features(u)
+
+    # ---- recruits ----
+    recruit_types: List[str] = []
+    recruit_is_ours: List[float] = []
+    recruit_type_ids: List[int]  = []
+    recruit_side_ids: List[int]  = []
+    for side_idx, side_info in enumerate(sides, start=1):
+        is_ours = side_idx == current_side
+        for name in side_info.recruits:
+            recruit_types.append(name)
+            recruit_is_ours.append(1.0 if is_ours else 0.0)
+            recruit_type_ids.append(
+                min(type_to_id.get(name, type_overflow), type_overflow)
             )
+            recruit_side_ids.append(0 if is_ours else 1)
+    recruit_is_ours_np  = np.asarray(recruit_is_ours,  dtype=np.float32)
+    recruit_type_ids_np = np.asarray(recruit_type_ids, dtype=np.int64)
+    recruit_side_ids_np = np.asarray(recruit_side_ids, dtype=np.int64)
 
-        xs = torch.tensor(
-            [self._clamp_pos(p.x) for p in positions],
-            device=device, dtype=torch.long,
-        )
-        ys = torch.tensor(
-            [self._clamp_pos(p.y) for p in positions],
-            device=device, dtype=torch.long,
-        )
-        pos_emb = self.pos_x_embed(xs) + self.pos_y_embed(ys)  # [H, d]
+    # ---- global ----
+    gi = game_state.global_info
+    us_idx = current_side - 1
+    them_idx = 1 - us_idx if len(sides) == 2 else us_idx  # 2p assumption
+    our_gold       = sides[us_idx].current_gold if 0 <= us_idx < len(sides) else 0
+    our_income     = sides[us_idx].base_income  if 0 <= us_idx < len(sides) else 0
+    our_villages   = sides[us_idx].nb_villages_controlled if 0 <= us_idx < len(sides) else 0
+    their_villages = sides[them_idx].nb_villages_controlled if 0 <= them_idx < len(sides) else 0
 
-        terr_ids = torch.tensor(
-            [_first_terrain_id(h.terrain_types) for h in hexes],
-            device=device, dtype=torch.long,
-        )
-        terr_emb = self.terrain_embed(terr_ids)  # [H, d]
+    global_feats_np = np.array([
+        gi.turn_number / TURN_NORM,
+        (current_side - 1.5) * 2.0,   # 1 → -1, 2 → +1
+        our_gold       / GOLD_NORM,
+        our_income     / INCOME_NORM,
+        our_villages   / VILLAGES_NORM,
+        their_villages / VILLAGES_NORM,
+    ], dtype=np.float32)
 
-        mod_flags = torch.tensor(
-            [_modifier_flags(h.modifiers) for h in hexes],
-            device=device, dtype=torch.float32,
-        )  # [H, 3]
-        mod_emb = self.modifier_proj(mod_flags)  # [H, d]
+    our_fac  = sides[us_idx].faction   if 0 <= us_idx   < len(sides) else ""
+    them_fac = sides[them_idx].faction if 0 <= them_idx < len(sides) else ""
+    our_faction_id   = _lookup_id(our_fac,  faction_to_id, MAX_FACTIONS)
+    their_faction_id = _lookup_id(them_fac, faction_to_id, MAX_FACTIONS)
 
-        tokens = (pos_emb + terr_emb + mod_emb).unsqueeze(0)  # [1, H, d]
-        return tokens, positions
-
-    def _encode_units(self, game_state: GameState, current_side: int, device):
-        units = sorted(
-            game_state.map.units,
-            key=lambda u: (u.position.y, u.position.x, u.id),
-        )
-        if not units:
-            return (
-                torch.zeros(1, 0, self.d_model, device=device),
-                torch.zeros(1, 0, device=device, dtype=torch.float32),
-                [], [],
-            )
-
-        positions = [u.position for u in units]
-        ids = [u.id for u in units]
-        is_ours = [1.0 if u.side == current_side else 0.0 for u in units]
-
-        # Use OUR name→id map (self.unit_type_to_id), not Unit.name_id
-        # — see class docstring for why.
-        type_ids = torch.tensor(
-            [self._name_id(u.name) for u in units],
-            device=device, dtype=torch.long,
-        )
-        type_emb = self.unit_type_embed(type_ids)  # [U, d]
-
-        side_ids = torch.tensor(
-            [0 if u.side == current_side else 1 for u in units],
-            device=device, dtype=torch.long,
-        )
-        side_emb = self.side_embed(side_ids)  # [U, d]
-
-        xs = torch.tensor([self._clamp_pos(u.position.x) for u in units],
-                          device=device, dtype=torch.long)
-        ys = torch.tensor([self._clamp_pos(u.position.y) for u in units],
-                          device=device, dtype=torch.long)
-        pos_emb = self.pos_x_embed(xs) + self.pos_y_embed(ys)  # [U, d]
-
-        feats = torch.tensor(
-            [_unit_features(u) for u in units],
-            device=device, dtype=torch.float32,
-        )  # [U, UNIT_FEAT_DIM]
-        feat_emb = self.unit_feat_proj(feats)  # [U, d]
-
-        tokens = (type_emb + side_emb + pos_emb + feat_emb).unsqueeze(0)
-        is_ours_t = torch.tensor(is_ours, device=device,
-                                 dtype=torch.float32).unsqueeze(0)
-        return tokens, is_ours_t, positions, ids
-
-    def _encode_recruits(self, game_state: GameState, current_side: int, device):
-        entries = []  # (name, side)
-        for side_idx, side_info in enumerate(game_state.sides, start=1):
-            for name in side_info.recruits:
-                entries.append((name, side_idx))
-
-        if not entries:
-            return (
-                torch.zeros(1, 0, self.d_model, device=device),
-                torch.zeros(1, 0, device=device, dtype=torch.float32),
-                [],
-            )
-
-        recruit_types = [name for name, _ in entries]
-        is_ours = [1.0 if s == current_side else 0.0 for _, s in entries]
-
-        type_ids = torch.tensor(
-            [self._name_id(name) for name, _ in entries],
-            device=device, dtype=torch.long,
-        )
-        type_emb = self.unit_type_embed(type_ids)
-
-        side_ids = torch.tensor(
-            [0 if s == current_side else 1 for _, s in entries],
-            device=device, dtype=torch.long,
-        )
-        side_emb = self.side_embed(side_ids)
-
-        # Recruit tokens have no position — they live in the keep
-        # abstractly. They also don't have the per-unit numerical
-        # features (HP/moves/...), because no instance exists yet.
-        tokens = (type_emb + side_emb).unsqueeze(0)
-        is_ours_t = torch.tensor(is_ours, device=device,
-                                 dtype=torch.float32).unsqueeze(0)
-        return tokens, is_ours_t, recruit_types
-
-    def _encode_global(self, game_state: GameState, current_side: int, device):
-        gi = game_state.global_info
-        sides = game_state.sides
-        us_idx = current_side - 1
-        them_idx = 1 - us_idx if len(sides) == 2 else us_idx  # 2p assumption
-
-        our_gold         = sides[us_idx].current_gold if 0 <= us_idx < len(sides) else 0
-        our_income       = sides[us_idx].base_income  if 0 <= us_idx < len(sides) else 0
-        our_villages     = sides[us_idx].nb_villages_controlled if 0 <= us_idx < len(sides) else 0
-        their_villages   = sides[them_idx].nb_villages_controlled if 0 <= them_idx < len(sides) else 0
-
-        feats = torch.tensor([[
-            gi.turn_number / TURN_NORM,
-            (current_side - 1.5) * 2.0,   # 1 → -1, 2 → +1
-            our_gold / GOLD_NORM,
-            our_income / INCOME_NORM,
-            our_villages / VILLAGES_NORM,
-            their_villages / VILLAGES_NORM,
-        ]], device=device, dtype=torch.float32)
-
-        emb = self.global_proj(feats)  # [1, d_model]
-        return emb.unsqueeze(0)        # [1, 1, d_model]
+    return RawEncoded(
+        hex_positions=hex_positions,
+        hex_xs=hex_xs_np,
+        hex_ys=hex_ys_np,
+        hex_terrain_ids=hex_terrain_ids_np,
+        hex_modifier_flags=hex_modifier_flags_np,
+        unit_positions=unit_positions,
+        unit_ids=unit_ids,
+        unit_is_ours=unit_is_ours_np,
+        unit_type_ids=unit_type_ids_np,
+        unit_side_ids=unit_side_ids_np,
+        unit_xs=unit_xs_np,
+        unit_ys=unit_ys_np,
+        unit_feats=unit_feats_np,
+        recruit_types=recruit_types,
+        recruit_is_ours=recruit_is_ours_np,
+        recruit_type_ids=recruit_type_ids_np,
+        recruit_side_ids=recruit_side_ids_np,
+        global_feats=global_feats_np,
+        our_faction_id=our_faction_id,
+        their_faction_id=their_faction_id,
+    )
 
 
 # ---------------------------------------------------------------------
