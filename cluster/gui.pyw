@@ -357,14 +357,39 @@ class App:
         self.root.after(0, lambda: self._end_op(rc))
 
     def _cancel_op(self) -> None:
+        """Terminate the running op. The naive `proc.terminate()` only
+        kills the immediate child (powershell.exe) and leaves anything
+        it spawned -- python.exe + its child wesnoth.exe processes --
+        running. On Windows we issue `taskkill /T /F` to walk the whole
+        process tree from `proc.pid` down. Falls back to terminate() on
+        non-Windows or if taskkill is unavailable.
+        """
         with self._proc_lock:
             proc = self._proc
         if proc is None:
             return
-        try:
-            proc.terminate()
-        except OSError:
-            pass
+        killed_via_taskkill = False
+        if os.name == "nt":
+            try:
+                # /T = include the entire tree starting at PID.
+                # /F = force (Wesnoth doesn't respond to graceful close
+                #      on a hidden console anyway).
+                # Suppress the spawned taskkill's own console window
+                # for the same reason we did on the orchestrating
+                # subprocess: keep the GUI uncluttered.
+                subprocess.run(
+                    ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                    capture_output=True, timeout=5,
+                    creationflags=subprocess.CREATE_NO_WINDOW,  # type: ignore[attr-defined]
+                )
+                killed_via_taskkill = True
+            except (OSError, subprocess.TimeoutExpired) as e:
+                self._log(f"taskkill failed ({e}); falling back to terminate()")
+        if not killed_via_taskkill:
+            try:
+                proc.terminate()
+            except OSError:
+                pass
         self._log("--- cancel requested ---")
 
     # -- cluster operations ---------------------------------------------
