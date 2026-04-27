@@ -293,6 +293,24 @@ The script generates per-matchup `.cfg` scenarios under
 `add-ons/wesnoth_ai/scenarios/eval/` (gitignored — rebuilt each run)
 and adds a glob include to `_main.cfg` on first run.
 
+### One-click GUI for the common ops
+
+If repeatedly typing `powershell -ExecutionPolicy Bypass -File ...`
+is wearing thin, double-click `cluster\gui.bat` (or `cluster\gui.pyw`
+directly if Windows associated `.pyw` with `pythonw.exe`). A small
+Tk window appears with:
+
+- A password field (kept in memory only, deleted on window close).
+- Buttons for Status / Sync / Sync+Restart / Pull checkpoint
+  (the cluster-side ones use the password automatically via
+  OpenSSH's `SSH_ASKPASS` hook -- you type it once per session).
+- Buttons for Run self-play / Run eval (local, no password).
+- A scrolled output panel showing live stdout from the launched
+  scripts.
+- A Cancel button to terminate the running op.
+
+Stdlib only -- no pip installs needed.
+
 ### Push code-only updates without re-shipping the corpus
 
 When you've edited Python locally and want the cluster to pick up the
