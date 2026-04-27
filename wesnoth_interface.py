@@ -157,11 +157,25 @@ class WesnothGame:
             )
         self._launch_time = time.time() - 0.5
 
+        # On Windows, suppress focus-stealing -- otherwise every spawned
+        # Wesnoth grabs the foreground when its main window appears,
+        # which is annoying during a 60-game eval (you get yanked to
+        # a new Wesnoth roughly every minute as the parallel pool
+        # cycles). SW_SHOWNOACTIVATE shows the window normally but
+        # doesn't activate it; the user's current foreground window
+        # stays in front. Visible-still, just not pushy.
+        startupinfo = None
+        if os.name == "nt":
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = 4   # SW_SHOWNOACTIVATE
+
         self.logger.info(f"Starting Wesnoth: {' '.join(cmd)}")
         self.process = subprocess.Popen(
             cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            startupinfo=startupinfo,
         )
         self.is_running = True
         self.logger.info(f"Wesnoth started (PID {self.process.pid})")
