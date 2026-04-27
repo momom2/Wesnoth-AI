@@ -249,15 +249,31 @@ powershell -ExecutionPolicy Bypass -File cluster\pull_checkpoint.ps1 -Rolling
 powershell -ExecutionPolicy Bypass -File cluster\pull_checkpoint.ps1 -Epoch 3
 ```
 
-Then launch self-play locally with the pulled checkpoint:
+Then launch self-play locally with the pulled checkpoint. There are
+two distinct modes:
+
 ```powershell
-# Auto-pick the freshest supervised*.pt by mtime:
+# TRAINING mode -- N parallel games (default 4), 10x turbo, no
+# animations, the transformer keeps learning from rollouts.
 powershell -ExecutionPolicy Bypass -File run_self_play.ps1
 
-# Specific checkpoint, single game (good for watching one play through):
+# DISPLAY mode -- ONE Wesnoth window, 2x turbo, animations on,
+# training disabled. For watching a trained model play.
+powershell -ExecutionPolicy Bypass -File run_self_play.ps1 -Display
+
+# Specific checkpoint:
 powershell -ExecutionPolicy Bypass -File run_self_play.ps1 `
-    -Checkpoint training\checkpoints\supervised_epoch3.pt -Games 1
+    -Checkpoint training\checkpoints\supervised_epoch3.pt -Display
 ```
+
+Internally the modes differ in three places:
+- Wesnoth scenario: `ai_training` (no anims, 10x turbo) vs
+  `ai_display` (animations, 2x turbo). The Lua side picks prefs by
+  inspecting `wesnoth.current.scenario`.
+- `--games` value: training default is 4, display forces 1.
+- Trainer flags: display passes `--display` which sets
+  `eval_mode=True` in `GameManager`, skipping `train_step`,
+  `observe`, and checkpoint saves.
 
 ## Evaluating against Wesnoth's built-in AI
 

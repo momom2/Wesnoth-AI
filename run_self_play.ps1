@@ -1,35 +1,41 @@
 # Launch self-play with a trained transformer checkpoint.
 #
+# Two modes -- pick one:
+#
+#   TRAINING mode (default): N parallel Wesnoth processes, fast turbo
+#   (10x), no animations, the transformer keeps training on the
+#   trajectories it generates. Pair this with -Games 4 (the default)
+#   for sensible local throughput.
+#
+#   DISPLAY mode (-Display): ONE Wesnoth window, 2x turbo,
+#   animations on so a human can follow what's happening. Training is
+#   disabled -- the loaded checkpoint is treated as read-only. Useful
+#   for sanity-checking a fresh checkpoint pull, demoing the model,
+#   or just watching it play.
+#
 # Pairs with cluster/pull_checkpoint.ps1: pull a fresh model back from
-# the cluster, then run it locally to see how it actually plays. Wraps
-#   python main.py --policy transformer --resume <ckpt> --games <N>
-# with sensible defaults for the user's typical workflow.
+# the cluster, then either train on top of it OR watch one game.
 #
 # Defaults:
-#   - With no flags: auto-picks the most recently modified
+#   - With no -Checkpoint: auto-picks the most recently modified
 #     supervised*.pt in training/checkpoints/. That's almost always
 #     the freshly-pulled one.
-#   - -Checkpoint <path>: explicit path (relative or absolute).
-#   - -Games N: parallelism. Default 4 (matches NUM_PARALLEL_GAMES
-#     in constants.py and what main.py would pick on its own).
+#   - -Games N (training mode only): parallelism. Default 4. Ignored
+#     in -Display mode (which forces 1).
 #   - -DryRun: print the resolved command, don't actually launch.
 #
 # Notes:
 #   - This launches Wesnoth GUI windows on Windows -- there's no
-#     headless option that worked for us locally. Expect 4 (or
-#     -Games N) Wesnoth windows to pop up.
-#   - Press Ctrl+C in the launching shell to stop. Any in-flight
-#     trajectories are saved as part of the trainer's normal
-#     checkpoint flow.
-#   - Self-play TRAINS on top of the resumed checkpoint by default
-#     (the transformer policy has trainable=True). Pass
-#     -SkipTraining if you only want pure rollouts for evaluation
-#     (currently no flag exists for that on the Python side, so
-#     this is informational only).
+#     headless option that worked for us locally. In training mode,
+#     expect -Games windows. In display mode, just one.
+#   - Press Ctrl+C in the launching shell to stop. The GUI's Cancel
+#     button uses taskkill /T to bring down the whole tree if you
+#     launched via cluster/gui.pyw.
 
 param(
     [string]$Checkpoint = '',
     [int]$Games = 4,
+    [switch]$Display,
     [switch]$DryRun
 )
 
@@ -63,7 +69,13 @@ Pull one from the cluster first:
     Write-Host "[selfplay] checkpoint: $Checkpoint"
 }
 
-Write-Host "[selfplay] games: $Games"
+if ($Display) {
+    Write-Host "[selfplay] mode  : DISPLAY (1 game, 2x turbo, animations on, no training)"
+    $effectiveGames = 1
+} else {
+    Write-Host "[selfplay] mode  : TRAINING ($Games parallel games, fast turbo, training on)"
+    $effectiveGames = $Games
+}
 Write-Host "[selfplay] policy: transformer"
 Write-Host ""
 
@@ -71,8 +83,11 @@ $cmd = @(
     'python', 'main.py',
     '--policy', 'transformer',
     '--resume', $Checkpoint,
-    '--games', $Games
+    '--games', $effectiveGames
 )
+if ($Display) {
+    $cmd += '--display'
+}
 
 if ($DryRun) {
     Write-Host "[selfplay] dry run -- would launch:"

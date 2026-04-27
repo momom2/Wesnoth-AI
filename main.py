@@ -244,6 +244,18 @@ def main() -> int:
             "or an explicit path. Silently ignored for non-trainable policies."
         ),
     )
+    parser.add_argument(
+        "--display",
+        action="store_true",
+        help=(
+            "Watch ONE game with animations on (2x turbo) instead of "
+            "training. Forces --games 1, switches Wesnoth to the "
+            "ai_display scenario, and disables train_step / "
+            "checkpointing / observe so the loaded policy is treated "
+            "as read-only. Pair with --policy transformer --resume "
+            "<ckpt> to demo a trained model."
+        ),
+    )
     args = parser.parse_args()
 
     if not check_setup():
@@ -257,8 +269,25 @@ def main() -> int:
     # setup-check path with unrelated import errors.
     from game_manager import GameManager
 
+    # --display overrides --games and --policy to a sensible default
+    # for "watch ONE game with the trained model". User can still pass
+    # --games / --policy explicitly to combine flags, but the common
+    # case (`python main.py --display --resume <ckpt>`) just works.
+    if args.display:
+        if args.games != NUM_PARALLEL_GAMES and args.games != 1:
+            print(f"NOTE: --display forces 1 game (you passed --games {args.games}).")
+        args.games = 1
+        scenario_id = "ai_display"
+        eval_mode = True
+        mode_msg = "DISPLAY mode (no training, 2x turbo, animations on)"
+    else:
+        scenario_id = "ai_training"
+        eval_mode = False
+        mode_msg = "TRAINING mode"
+
     print(f"\nStarting: {args.games} parallel games, policy={args.policy}")
-    print("Press Ctrl+C to stop training and save checkpoint.\n")
+    print(f"  {mode_msg} (scenario={scenario_id})")
+    print("Press Ctrl+C to stop.\n")
 
     policy_obj = policy.get_policy(args.policy)
     if args.resume is not None:
@@ -273,7 +302,12 @@ def main() -> int:
             loader(ckpt_path)
             print(f"✓ Resumed from {ckpt_path.name}")
 
-    manager = GameManager(num_games=args.games, policy=policy_obj)
+    manager = GameManager(
+        num_games=args.games,
+        policy=policy_obj,
+        scenario_id=scenario_id,
+        eval_mode=eval_mode,
+    )
     try:
         asyncio.run(manager.run_training())
     except KeyboardInterrupt:

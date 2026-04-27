@@ -92,8 +92,21 @@ class GameManager:
         num_games: int = NUM_PARALLEL_GAMES,
         policy: Optional[Policy] = None,
         reward_fn=None,
+        scenario_id: str = "ai_training",
+        eval_mode: bool = False,
     ):
         self.num_games = num_games
+        # Wesnoth scenario ID to launch via `--test`. Default
+        # "ai_training" is the fast-turbo training scenario; the GUI's
+        # display button (and main.py --display) passes "ai_display"
+        # for the slow-turbo human-watch variant.
+        self.scenario_id = scenario_id
+        # Eval mode: skip train_step, skip checkpoint saves, skip
+        # observe -> reward plumbing (no transitions queued for
+        # learning). The policy still selects actions normally; we
+        # just don't ask it to learn from them. Used by --display and
+        # by anyone who wants pure rollout.
+        self.eval_mode = eval_mode
         self.games: Dict[str, WesnothGame] = {}
 
         # Shared state converter — one mapping from unit-type-name to an
@@ -192,7 +205,7 @@ class GameManager:
         """
         self.logger.info(f"Creating game {label}")
         scenario_path = SCENARIOS_PATH / "training_scenario.cfg"
-        game = WesnothGame(label, scenario_path)
+        game = WesnothGame(label, scenario_path, scenario_id=self.scenario_id)
 
         async with self._launch_lock:
             game.start_wesnoth()
@@ -503,6 +516,13 @@ class GameManager:
     def _observe_policy(
         self, label: str, side: int, reward: float, done: bool,
     ) -> None:
+        # In eval_mode we don't feed rewards back; transitions never
+        # become training signal. Calling observe anyway would just
+        # grow the policy's _pending queue without bound. Skipping
+        # also makes display runs run a touch faster and saves the
+        # GUI from confused-looking train_step log lines.
+        if self.eval_mode:
+            return
         observer = getattr(self.policy, 'observe', None)
         if observer is None:
             return
@@ -598,13 +618,20 @@ class GameManager:
         train_step and checkpoints fire on game-count schedules rather
         than at batch boundaries (there are no batches anymore).
         """
-        trainable = bool(getattr(self.policy, 'trainable', False))
+        # In eval_mode the policy is treated as non-trainable: no
+        # train_step, no checkpoints, no observe -> reward plumbing
+        # (the policy still selects actions; we just don't learn from
+        # them). Lets `--display` and other read-only flows reuse this
+        # same loop without growing a second one.
+        trainable = (not self.eval_mode and
+                     bool(getattr(self.policy, 'trainable', False)))
         train_every = self.num_games        # same cadence as old batched version
         ckpt_every = CHECKPOINT_FREQUENCY
 
         self.logger.info(
             f"Rolling pool: {self.num_games} in-flight games. "
-            f"train_step every {train_every} games. "
+            f"scenario_id={self.scenario_id} "
+            f"{'eval_mode (no training)' if self.eval_mode else f'train every {train_every} games'}, "
             f"checkpoint every {ckpt_every} games."
         )
 

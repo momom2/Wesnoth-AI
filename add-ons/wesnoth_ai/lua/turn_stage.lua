@@ -35,19 +35,42 @@ local json            = wesnoth.require("~add-ons/wesnoth_ai/lua/json_encoder.lu
 --
 -- Wrapped in pcall so a future Wesnoth that drops one of these keys
 -- doesn't take the whole training run down — we'd just run slower.
-local function set_training_prefs()
+-- Two pref profiles, picked by scenario id:
+--   * Display mode (id contains "display"): a human is watching, so
+--     2x turbo + animations on so the game is intelligible.
+--   * Training mode (everything else, incl. eval_*): no human is
+--     watching, push for max throughput -- 10x turbo, no animations.
+--
+-- `wesnoth.current.scenario` is set before AI engines load (we're
+-- required from an [engine] block on a side, which runs after the
+-- scenario id is bound). Falling back to "" matches training prefs,
+-- which is the safe default.
+local function set_prefs()
+    local scenario_id = (wesnoth.current and wesnoth.current.scenario) or ""
+    local display_mode = string.find(scenario_id, "display") ~= nil
+
     local function try(k, v)
         pcall(function() wesnoth.preferences[k] = v end)
     end
-    try("turbo", true)
-    try("turbo_speed", 10.0)
-    try("animate_map", false)
-    try("animate_water", false)
-    try("idle_anim", false)
-    try("show_combat", false)
-    try("scroll_to_action", false)
+    if display_mode then
+        try("turbo", true)
+        try("turbo_speed", 2.0)        -- 2x: fast but human-readable
+        try("animate_map", true)
+        try("animate_water", false)    -- water animation is purely cosmetic
+        try("idle_anim", false)
+        try("show_combat", true)       -- watching combat is the point
+        try("scroll_to_action", true)
+    else
+        try("turbo", true)
+        try("turbo_speed", 10.0)
+        try("animate_map", false)
+        try("animate_water", false)
+        try("idle_anim", false)
+        try("show_combat", false)
+        try("scroll_to_action", false)
+    end
 end
-set_training_prefs()
+set_prefs()
 
 local M = {}
 

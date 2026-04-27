@@ -209,11 +209,13 @@ class App:
         local_frame = tk.LabelFrame(self.root, text="Local (no password needed)")
         local_frame.pack(fill="x", **pad)
         row3 = tk.Frame(local_frame); row3.pack(fill="x", padx=4, pady=4)
-        tk.Button(row3, text="Run self-play",
-                  width=14, command=self._op_selfplay).pack(side="left", padx=4)
+        tk.Button(row3, text="Train (self-play)",
+                  width=18, command=self._op_train_selfplay).pack(side="left", padx=4)
+        tk.Button(row3, text="Display 1 game",
+                  width=16, command=self._op_display_selfplay).pack(side="left", padx=4)
         tk.Button(row3, text="Run eval ...",
                   width=14, command=self._op_eval_dialog).pack(side="left", padx=4)
-        tk.Label(row3, text="(self-play picks newest local *.pt)",
+        tk.Label(row3, text="(picks newest local *.pt)",
                  fg="gray").pack(side="left", padx=4)
 
         # Output panel
@@ -439,9 +441,20 @@ class App:
 
     # -- local operations -----------------------------------------------
 
-    def _op_selfplay(self) -> None:
+    def _op_train_selfplay(self) -> None:
+        """Self-play TRAINING run: N parallel games, fast turbo, the
+        transformer keeps learning from rollouts. Defaults to whatever
+        run_self_play.ps1 picks for -Games (currently 4)."""
         self._spawn(self._ps(SCRIPT_SELFPLAY),
-                    needs_password=False, label="self-play")
+                    needs_password=False, label="self-play (training)")
+
+    def _op_display_selfplay(self) -> None:
+        """Self-play DISPLAY run: ONE Wesnoth window, 2x turbo,
+        animations on, training disabled. The Wesnoth window opens on
+        the user's desktop -- this is meant for watching the model
+        play, not for collecting data."""
+        self._spawn(self._ps(SCRIPT_SELFPLAY, "-Display"),
+                    needs_password=False, label="self-play (display)")
 
     def _op_eval_dialog(self) -> None:
         """Pop a small dialog to pick the checkpoint + matchup config."""
