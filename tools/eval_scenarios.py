@@ -210,40 +210,51 @@ _SCENARIO_TEMPLATE = """\
     # scenarios the engine doesn't reliably fire the victory event.
     # The die event always fires when any leader unit dies and is
     # what training_scenario.cfg uses for its end-game detection.
+    # A leader died -> emit a final state frame so Python doesn't have
+    # to wait out the 90s state-read timeout. On a 2p map, the LOSER
+    # side is the one whose leader died and the WINNER is the other.
+    #
+    # Why two handlers instead of `[filter] canrecruit=yes` plus a
+    # dynamic loser-side lookup: in Wesnoth 1.18 the Lua-side
+    # `wesnoth.current.event_context` is built from a config that has
+    # NO `unit` field (only x1/y1/unit_x/unit_y/data; see
+    # src/scripting/game_lua_kernel.cpp around line 1716). So we can't
+    # ask "who died?" from Lua at die-event time. The cleanest answer
+    # is to use Wesnoth's own [filter] side= matching: each handler
+    # only fires for one side, so the side is known statically.
+
     [event]
         name=die
         first_time_only=no
 
         [filter]
             canrecruit=yes
+            side=1
         [/filter]
 
         [lua]
             code=<<
-                -- A leader unit died -- on 2p maps that means the OTHER
-                -- side has won (or, on rare mutual-death turns, the
-                -- second die event will land with no leaders left and
-                -- we'll resolve to winner=0).
-                --
-                -- We don't gate on `#leaders <= 1` anymore: at
-                -- [event] name=die fire time the dying unit may still
-                -- be in find_on_map's result, so the count check could
-                -- skip the emit even though the game is in fact over.
-                -- Instead we read the dying unit directly from the
-                -- event context and pass its side to emit_terminal_state
-                -- as the LOSER -- the helper computes winner = 3-loser
-                -- on a 2p map. The emit also std_prints a "Leader of
-                -- side N has died" line, mirroring training_scenario's
-                -- die handler so log greps for "Leader" find both.
-                -- NB: Lua table literals {{...}} are double-braced
-                -- because this is a Python .format() template.
-                local dying = wesnoth.current.event_context
-                              and wesnoth.current.event_context.unit
-                local loser_side = dying and dying.side or 0
-                std_print(string.format(
-                    "Leader of side %d has died!", loser_side))
+                std_print("Leader of side 1 has died!")
                 local m = wesnoth.require("~add-ons/wesnoth_ai/lua/turn_stage.lua")
-                m.emit_terminal_state(loser_side)
+                m.emit_terminal_state(1)
+            >>
+        [/lua]
+    [/event]
+
+    [event]
+        name=die
+        first_time_only=no
+
+        [filter]
+            canrecruit=yes
+            side=2
+        [/filter]
+
+        [lua]
+            code=<<
+                std_print("Leader of side 2 has died!")
+                local m = wesnoth.require("~add-ons/wesnoth_ai/lua/turn_stage.lua")
+                m.emit_terminal_state(2)
             >>
         [/lua]
     [/event]
