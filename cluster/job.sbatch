@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=wai-supervised
+#SBATCH --partition=ENSTA-l40s
+#SBATCH --gres=gpu:1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=32G
+#SBATCH --time=03:55:00
+#SBATCH --output=training/logs/slurm-%j.log
+#SBATCH --error=training/logs/slurm-%j.log
+#
+# Supervised training of the Wesnoth model on one GPU.
+# Submit with:  sbatch cluster/job.sbatch
+# Status:       squeue --me        (or  bash cluster/run.sh status)
+# Cancel:       scancel <jobid>    (or  bash cluster/run.sh stop)
+
+set -euo pipefail
+
+# When sbatch is invoked from the project root, SLURM_SUBMIT_DIR is the
+# project root; that's the path our scripts assume. cd-ing there here
+# makes the script callable from anywhere.
+cd "${SLURM_SUBMIT_DIR}"
+
+echo "[job] node:       $(hostname)"
+echo "[job] job_id:     ${SLURM_JOB_ID}"
+echo "[job] start:      $(date -Is)"
+echo "[job] gpu(s):"
+nvidia-smi --query-gpu=index,name,memory.total --format=csv 2>&1 | sed 's/^/[job]   /'
+
+# Activate the venv (built by cluster/setup.sh on the login node — same
+# filesystem on compute nodes since /home is shared).
+# shellcheck disable=SC1091
+source .venv/bin/activate
+
+# Final sanity check before the long run: torch must see the GPU.
+python - <<'PY'
+import torch
+assert torch.cuda.is_available(), "CUDA not available inside the job — check driver / wheel"
+print(f"[job] torch:    {torch.__version__}")
+print(f"[job] device:   {torch.cuda.get_device_name(0)} cap={torch.cuda.get_device_capability(0)}")
+PY
+
+mkdir -p training/checkpoints training/logs
+
+# Hyperparameters identical to the local CPU baseline. `--device cuda`
+# routes the model + encoder onto the GPU; the encoder's Python state-
+# building still runs on the CPU side of each step, but on a compute
+# node with 8 cores per task that's no longer the bottleneck.
+#
+# Auto-resume across day-boundary jobs: the student QoS caps a single
+# job at 24h, so we run for 23:55 and rely on chained submissions for
+# longer training. Each fresh submission inherits whatever the previous
+# job's checkpoint left behind (model + encoder + optimizer state +
+# step/pair counters). If no checkpoint exists yet, --resume's path
+# check inside the trainer just falls through and starts from scratch.
+RESUME_FLAG=""
+if [ -f training/checkpoints/supervised.pt ]; then
+    RESUME_FLAG="--resume training/checkpoints/supervised.pt"
+    echo "[job] resuming from training/checkpoints/supervised.pt"
+fi
+
+# Resubmission chain. Student QoS limits us to 4h per job (slide 16
+# of the cluster doc); training likely needs more. Strategy: when this
+# job ends, if the work isn't complete (no `done.flag`), submit a
+# follow-up that will auto-resume from the checkpoint we just wrote.
+# MaxJobs=1 + MaxSubmit=5 means at most one resubmit can be queued at
+# a time, which is exactly what we want.
+#
+# When walltime hits, SLURM SIGTERMs python; the trainer doesn't catch
+# it, so the last periodic checkpoint (every 500 steps, ~30s on GPU)
+# is what survives. Worst-case lost work is ~500 steps. exit 143 from
+# python = SIGTERM-killed; we count that as a normal end-of-job.
+TRAINER_EXIT=0
+# --workers 6: prefetch encode_raw in 6 subprocesses while the main
+# thread runs encode_from_raw + model forward/backward on the GPU.
+# Hides the CPU encode work (~3-4ms/pair) behind the GPU step time.
+# 8 CPUs allocated → 6 workers + 1 main + 1 OS slack. Workers
+# inherit a frozen vocab snapshot pre-seeded from unit_stats.json
+# (356 unit types) so out-of-vocab clamps stay rare.
+#
+# Resume re-uses the saved encoder vocab dict, so a follow-up job
+# in the chain doesn't re-seed (would only matter for fresh runs
+# anyway — vocab IDs in the checkpoint are the source of truth).
+python -u tools/supervised_train.py replays_dataset \
+    --bs 32 \
+    --lr 1e-4 \
+    --epochs 10 \
+    --device cuda \
+    --log-every 100 \
+    --ckpt-every 500 \
+    --workers 6 \
+    --checkpoint training/checkpoints/supervised.pt \
+    ${RESUME_FLAG} || TRAINER_EXIT=$?
+
+echo "[job] trainer exit code: ${TRAINER_EXIT}"
+
+# "Done" detection: trainer finished all 10 epochs => the last per-
+# epoch snapshot exists. If it does, drop a `done.flag` so future
+# job invocations skip resubmission too. If we got SIGTERM'd before
+# epoch 9 finished, the snapshot won't be there and we'll chain
+# another job.
+if [ -f training/checkpoints/supervised_epoch9.pt ]; then
+    touch training/checkpoints/done.flag
+    echo "[job] training complete (epoch9 snapshot present)"
+fi
+
+# Resubmit only if (a) training isn't done AND (b) the trainer exited
+# cleanly (0) or via SIGTERM (143 = walltime-hit). Other non-zero exit
+# codes mean a real crash; chaining would just spam failing jobs into
+# the queue, which (a) is rude on a shared cluster and (b) trips the
+# 5-job MaxSubmit cap pointlessly.
+RESUBMIT=0
+if [ ! -f training/checkpoints/done.flag ]; then
+    if [ "${TRAINER_EXIT}" = "0" ] || [ "${TRAINER_EXIT}" = "143" ]; then
+        RESUBMIT=1
+    else
+        echo "[job] trainer crashed (exit ${TRAINER_EXIT}); NOT chaining"
+        echo "[job] inspect this log, fix the issue, then submit by hand"
+    fi
+fi
+
+if [ "${RESUBMIT}" = "1" ]; then
+    cd "${SLURM_SUBMIT_DIR}"
+    next_id=$(sbatch --parsable cluster/job.sbatch || true)
+    if [ -n "${next_id}" ]; then
+        echo "${next_id}" > training/logs/supervised.jobid
+        echo "[job] chained: next job id ${next_id}"
+    else
+        echo "[job] WARNING: failed to chain follow-up job"
+    fi
+elif [ -f training/checkpoints/done.flag ]; then
+    echo "[job] training is complete; not chaining"
+fi
