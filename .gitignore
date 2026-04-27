@@ -28,3 +28,20 @@ add-ons/wesnoth_ai/games/
 
 # Wesnoth debugging dumps (anywhere in the tree)
 *.log
+
+# External Wesnoth source — clone separately (see CLAUDE.md, README).
+wesnoth_src/
+
+# Local data — corpus is too big for git; built by tools/download_replays.py
+# and tools/replay_extract.py respectively.
+replays_raw/
+replays_dataset/
+replays_dataset.old/
+
+# Build artifacts.
+wai_cluster_bundle.tar.gz
+unit_stats.json
+tmp_scratch/
+
+# Tooling local config (Claude Code session metadata).
+.claude/

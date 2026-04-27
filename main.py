@@ -14,6 +14,17 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
+
+# Windows `cmd` defaults stdout to cp1252, which can't encode the ✓
+# characters our setup banners use. Reconfigure to UTF-8 so the script
+# runs in a fresh terminal without `chcp 65001` or PYTHONIOENCODING.
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except (OSError, AttributeError):
+        pass
 
 from constants import (
     ADDON_INSTALL_PATH,
@@ -142,6 +153,14 @@ def check_setup() -> bool:
         dir_path.mkdir(parents=True, exist_ok=True)
     print(f"✓ Project dirs ready")
 
+    # turn_stage.lua is the active AI stage (custom Lua engine that
+    # replaces the default Wesnoth RCA, bypassing its blacklist-on-
+    # failure rule); it loads state_collector / action_executor /
+    # json_encoder via wesnoth.require. ai_config.cfg holds the [ai]
+    # block both sides include from training_scenario.cfg.
+    # The MP variant + headless_*.lua are dormant artifacts of a prior
+    # headless experiment — present in-tree but not on the load path
+    # and not required here.
     required_lua = [
         LUA_PATH / "state_collector.lua",
         LUA_PATH / "action_executor.lua",
@@ -172,6 +191,26 @@ def check_setup() -> bool:
     return True
 
 
+def _resolve_resume_path(spec: str) -> Optional[Path]:
+    """Resolve --resume argument to an existing checkpoint file, or None
+    on error (error printed to stdout)."""
+    if spec == "latest":
+        candidates = sorted(
+            CHECKPOINTS_PATH.glob("checkpoint_*.pt"),
+            # Sort numerically: checkpoint_900 > checkpoint_100 > checkpoint_90.
+            key=lambda p: int(p.stem.split("_", 1)[1]) if p.stem.split("_", 1)[1].isdigit() else -1,
+        )
+        if not candidates:
+            print(f"ERROR: --resume latest: no checkpoints in {CHECKPOINTS_PATH}")
+            return None
+        return candidates[-1]
+    path = Path(spec)
+    if not path.exists():
+        print(f"ERROR: --resume path does not exist: {path}")
+        return None
+    return path
+
+
 def main() -> int:
     # Import `policy` eagerly so --help can show the registered choices.
     import policy
@@ -194,6 +233,17 @@ def main() -> int:
         action="store_true",
         help="Verify setup (including add-on install) and exit.",
     )
+    parser.add_argument(
+        "--resume",
+        type=str,
+        default=None,
+        metavar="PATH_OR_LATEST",
+        help=(
+            "Resume a trainable policy from a checkpoint. Pass 'latest' to "
+            "auto-pick the newest checkpoint_*.pt in training/checkpoints/, "
+            "or an explicit path. Silently ignored for non-trainable policies."
+        ),
+    )
     args = parser.parse_args()
 
     if not check_setup():
@@ -210,7 +260,20 @@ def main() -> int:
     print(f"\nStarting: {args.games} parallel games, policy={args.policy}")
     print("Press Ctrl+C to stop training and save checkpoint.\n")
 
-    manager = GameManager(num_games=args.games, policy=policy.get_policy(args.policy))
+    policy_obj = policy.get_policy(args.policy)
+    if args.resume is not None:
+        loader = getattr(policy_obj, "load_checkpoint", None)
+        if loader is None:
+            print(f"NOTE: policy '{args.policy}' is not checkpoint-loadable; "
+                  f"ignoring --resume.")
+        else:
+            ckpt_path = _resolve_resume_path(args.resume)
+            if ckpt_path is None:
+                return 1
+            loader(ckpt_path)
+            print(f"✓ Resumed from {ckpt_path.name}")
+
+    manager = GameManager(num_games=args.games, policy=policy_obj)
     try:
         asyncio.run(manager.run_training())
     except KeyboardInterrupt:
