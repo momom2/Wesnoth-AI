@@ -191,6 +191,12 @@ class SideInfo:
     current_gold: int
     base_income: int
     nb_villages_controlled: int
+    # Default-era faction name ("Drakes", "Knalgan Alliance", etc.) or
+    # "Custom" / "" when unknown. Used by the encoder's faction
+    # embedding so one model can learn all matchups. Absent from pre-
+    # faction-conditioning checkpoints — state_converter and the replay
+    # DataLoader default to "" for backwards compatibility.
+    faction: str = ""
 
 @dataclass
 class GameState:

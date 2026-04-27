@@ -17,6 +17,21 @@ behind config is preferred to code that gates behavior behind weights.
   parser and Lua-file generation with synthetic data — they do NOT spin
   up real Wesnoth)
 
+### Wesnoth source pinning
+
+`wesnoth_src/` MUST stay on the **1.18.4 tag** (`git checkout 1.18.4` in
+that directory). Wesnoth's `master` branch is 1.19.x development and
+unit stats DRIFT between releases — e.g., in master the Ghoul gained
+a `[resistance] pierce=90` override that doesn't exist in 1.18.4
+(where pierce inherits 70 from the gruefoot movement_type). Using
+master's stats made our combat reconstruction overdamage units that
+should have lived. Re-run `python tools/scrape_unit_stats.py
+wesnoth_src unit_stats.json` after any version change.
+
+Most replays in `replays_raw/` are from 1.18.x clients; pin
+accordingly. If a replay's `[scenario] version=` says something
+other than 1.18.x, scrape from that version's tag instead.
+
 ## Current status (2026-04-23)
 
 **The Python ↔ Wesnoth pipeline has never delivered a single game
