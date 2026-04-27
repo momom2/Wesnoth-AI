@@ -236,9 +236,27 @@ The job (`cluster/job.sbatch`):
 
 Pull the trained checkpoint back when an epoch finishes:
 ```powershell
-scp mesogip_outside:~/wesnoth-ai/training/checkpoints/supervised_epoch0.pt training/checkpoints/
-# or the rolling latest:
-scp mesogip_outside:~/wesnoth-ai/training/checkpoints/supervised.pt training/checkpoints/
+# What's available on the cluster:
+powershell -ExecutionPolicy Bypass -File cluster\pull_checkpoint.ps1 -List
+
+# Pull the latest per-epoch snapshot (default — stable, immutable):
+powershell -ExecutionPolicy Bypass -File cluster\pull_checkpoint.ps1
+
+# Pull the live rolling supervised.pt (may be mid-epoch, but freshest):
+powershell -ExecutionPolicy Bypass -File cluster\pull_checkpoint.ps1 -Rolling
+
+# Pull a specific epoch:
+powershell -ExecutionPolicy Bypass -File cluster\pull_checkpoint.ps1 -Epoch 3
+```
+
+Then launch self-play locally with the pulled checkpoint:
+```powershell
+# Auto-pick the freshest supervised*.pt by mtime:
+powershell -ExecutionPolicy Bypass -File run_self_play.ps1
+
+# Specific checkpoint, single game (good for watching one play through):
+powershell -ExecutionPolicy Bypass -File run_self_play.ps1 `
+    -Checkpoint training\checkpoints\supervised_epoch3.pt -Games 1
 ```
 
 ### Push code-only updates without re-shipping the corpus

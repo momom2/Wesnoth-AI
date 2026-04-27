@@ -34,6 +34,7 @@ import random
 import sys
 import time
 from collections import deque
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator, List, Optional, Tuple
 
@@ -403,18 +404,43 @@ def _encode_one(
     return encoder.encode(state_or_raw)
 
 
-def _loss_for_output(
+@dataclass
+class LossParts:
+    """Per-head decomposition of one pair's CE loss.
+
+    `total = actor + target + weapon` — used for backward. The
+    `*_fired` flags tell the trainer whether each head was relevant
+    for THIS pair (e.g. end_turn actions don't fire the target head;
+    move actions don't fire the weapon head). Per-head averages in
+    the progress log are taken over fired pairs only, so they're
+    interpretable as "when this head HAS to predict, how good is it?"
+    """
+    total:        torch.Tensor   # scalar, grad-tracking
+    actor:        torch.Tensor   # scalar, grad-tracking (or zero sentinel)
+    target:       torch.Tensor   # scalar, grad-tracking (or zero sentinel)
+    weapon:       torch.Tensor   # scalar, grad-tracking (or zero sentinel)
+    actor_fired:  bool
+    target_fired: bool
+    weapon_fired: bool
+
+
+def _loss_parts_for_output(
     output,                      # ModelOutput
     ai:      ActionIndices,
     device:  torch.device,
-) -> torch.Tensor:
-    """Per-sample CE loss given a pre-computed model output.
+) -> LossParts:
+    """Per-sample CE loss decomposed into actor/target/weapon heads.
 
-    Sums cross-entropy on whichever heads are relevant for the observed
-    action type. Skips heads if the observed slot index doesn't land
-    inside the model's output shape (very rare — the encoder sort
-    should match; the guard is there so one bad replay doesn't tank a
-    run).
+    Returns a LossParts. The `total` field is what the trainer
+    backprops; the per-head fields are the same per-CE breakdown for
+    diagnostic reporting.
+
+    Skips heads if the observed slot index doesn't land inside the
+    model's output shape (very rare — the encoder sort should match;
+    the guard is there so one bad replay doesn't tank a run). When a
+    head is skipped, the corresponding `*_fired` flag is False and
+    the loss tensor is the zero sentinel (contributes nothing to
+    gradients or to the per-head running average).
 
     NO legality mask: the observed action in a human replay is legal
     by construction, so we don't feed the policy a legality prior
@@ -423,40 +449,56 @@ def _loss_for_output(
     than actual Wesnoth rules (e.g., multi-turn moves, ZoC
     interactions) and blow the loss up to ~1e9. The legality mask IS
     still applied at rollout time in action_sampler.sample_action, so
-    illegal model predictions are filtered there — supervised training
-    just teaches the shape of the distribution over the full output
-    space.
-
-    Returns a scalar tensor. If `ai.actor_idx` is out of range (very
-    rare), returns a non-grad zero — adding it to the batch sum
-    contributes nothing to gradients, matching the per-pair behavior.
+    illegal model predictions are filtered there.
     """
+    zero = torch.zeros((), device=device)
     actor_logits = output.actor_logits        # [1, A]
     A = actor_logits.size(1)
     if ai.actor_idx >= A:
-        return torch.zeros((), device=device)
-    actor_target = torch.tensor(ai.actor_idx, device=device, dtype=torch.long)
-    loss = F.cross_entropy(actor_logits, actor_target.unsqueeze(0))
+        # Pathological: observed actor isn't in the model's output. The
+        # whole pair contributes nothing — total=0, no head fired.
+        return LossParts(zero, zero, zero, zero, False, False, False)
 
+    actor_target = torch.tensor(ai.actor_idx, device=device, dtype=torch.long)
+    actor_loss = F.cross_entropy(actor_logits, actor_target.unsqueeze(0))
+
+    target_loss = zero
+    target_fired = False
     if ai.target_idx is not None and ai.action_type != "end_turn":
         tgt_row = output.target_logits[0, ai.actor_idx]  # [H]
         H = tgt_row.numel()
         if H > 0 and ai.target_idx < H:
-            target_target = torch.tensor(
-                ai.target_idx, device=device, dtype=torch.long)
-            loss = loss + F.cross_entropy(tgt_row.unsqueeze(0),
-                                          target_target.unsqueeze(0))
+            tt = torch.tensor(ai.target_idx, device=device, dtype=torch.long)
+            target_loss = F.cross_entropy(tgt_row.unsqueeze(0), tt.unsqueeze(0))
+            target_fired = True
 
+    weapon_loss = zero
+    weapon_fired = False
     if ai.weapon_idx is not None:
         w_row = output.weapon_logits[0, ai.actor_idx]  # [max_attacks]
         W = w_row.numel()
         if W > 0 and ai.weapon_idx < W:
-            w_target = torch.tensor(
-                ai.weapon_idx, device=device, dtype=torch.long)
-            loss = loss + F.cross_entropy(w_row.unsqueeze(0),
-                                          w_target.unsqueeze(0))
+            wt = torch.tensor(ai.weapon_idx, device=device, dtype=torch.long)
+            weapon_loss = F.cross_entropy(w_row.unsqueeze(0), wt.unsqueeze(0))
+            weapon_fired = True
 
-    return loss
+    total = actor_loss + target_loss + weapon_loss
+    return LossParts(total, actor_loss, target_loss, weapon_loss,
+                     True, target_fired, weapon_fired)
+
+
+def _loss_for_output(
+    output,
+    ai:     ActionIndices,
+    device: torch.device,
+) -> torch.Tensor:
+    """Backwards-compat shim: returns just the total scalar loss.
+
+    Existing callers (parity tests, single-step debugging) didn't need
+    the per-head breakdown. The trainer's hot loop uses
+    `_loss_parts_for_output` directly.
+    """
+    return _loss_parts_for_output(output, ai, device).total
 
 
 def _loss_for_pair(
@@ -466,13 +508,26 @@ def _loss_for_pair(
     ai:      ActionIndices,
     device:  torch.device,
 ) -> torch.Tensor:
-    """Per-pair forward + loss. Kept around for backwards compatibility
-    (parity tests, single-step debugging). The trainer's hot loop now
-    uses `_encode_one` + `model.forward_batch` + `_loss_for_output` to
-    amortize per-forward overhead across `batch_size` pairs."""
+    """Per-pair forward + total loss. Kept for backwards compatibility
+    (parity tests). The trainer's hot loop computes per-head losses
+    via `_loss_parts_for_output` so it can report each head's progress
+    separately."""
     encoded = _encode_one(encoder, state_or_raw, device)
     output = model(encoded)
     return _loss_for_output(output, ai, device)
+
+
+def _loss_parts_for_pair(
+    encoder: GameStateEncoder,
+    model:   WesnothModel,
+    state_or_raw,
+    ai:      ActionIndices,
+    device:  torch.device,
+) -> LossParts:
+    """Per-pair forward + per-head loss breakdown."""
+    encoded = _encode_one(encoder, state_or_raw, device)
+    output = model(encoded)
+    return _loss_parts_for_output(output, ai, device)
 
 
 def _flush_batch(
@@ -485,6 +540,9 @@ def _flush_batch(
     batch_size:      int,
     device:          torch.device,
     running_loss:    deque,
+    running_loss_actor:  deque,
+    running_loss_target: deque,
+    running_loss_weapon: deque,
 ) -> None:
     """One batched forward + summed-loss backward + opt step.
 
@@ -496,9 +554,11 @@ def _flush_batch(
     the same effective learning rate per pair, regardless of where
     file boundaries fell.
 
-    Per-sample losses are appended to `running_loss` for the rate /
-    avg-loss progress log. We pull them after backward via a single
-    `.detach().cpu().tolist()` to avoid a sync per pair.
+    Per-sample losses (total + per-head) are appended to the
+    `running_loss*` deques for the progress log. We pull them after
+    backward via a single `.detach().cpu().tolist()` to avoid a sync
+    per pair. Per-head averages are taken over fired pairs only — see
+    LossParts docstring.
     """
     if not batch_encoded:
         return
@@ -506,24 +566,45 @@ def _flush_batch(
     # Single padded transformer pass over B samples.
     outputs = model.forward_batch(batch_encoded)
 
-    per_sample_losses: List[torch.Tensor] = []
-    for out, ai in zip(outputs, batch_ais):
-        per_sample_losses.append(_loss_for_output(out, ai, device))
+    parts_list = [
+        _loss_parts_for_output(out, ai, device)
+        for out, ai in zip(outputs, batch_ais)
+    ]
 
-    # `torch.stack` over scalar losses gives [B]; sum + scale once
-    # produces the same gradient as B individual `(loss/bs).backward()`
-    # calls thanks to backward's linearity.
-    loss_stack = torch.stack(per_sample_losses)
-    total_loss = loss_stack.sum() / batch_size
+    # Stack each head separately so we can both backprop through the
+    # sum AND retrieve per-head per-sample values for logging in one
+    # post-backward sync.
+    actor_stack  = torch.stack([p.actor  for p in parts_list])  # [B]
+    target_stack = torch.stack([p.target for p in parts_list])  # [B]
+    weapon_stack = torch.stack([p.weapon for p in parts_list])  # [B]
+
+    # backward() through the same scalar that the per-pair path
+    # produces: sum of all heads divided by batch_size. Linearity
+    # guarantees identical gradients to B individual
+    # `(part.total / bs).backward()` calls.
+    total_loss = (actor_stack.sum() + target_stack.sum()
+                  + weapon_stack.sum()) / batch_size
     total_loss.backward()
 
     torch.nn.utils.clip_grad_norm_(params_for_clip, 1.0)
     opt.step()
     opt.zero_grad()
 
-    # Single sync to pull per-sample loss values for logging.
-    for v in loss_stack.detach().cpu().tolist():
-        running_loss.append(v)
+    # One sync per head (three small CPU transfers) — vs 3*B if we
+    # called .item() per pair per head. Pre-cast to lists once.
+    actor_floats  = actor_stack.detach().cpu().tolist()
+    target_floats = target_stack.detach().cpu().tolist()
+    weapon_floats = weapon_stack.detach().cpu().tolist()
+    for i, p in enumerate(parts_list):
+        if not p.actor_fired:
+            continue   # actor_idx out of range — pair contributed 0 to grad
+        a, t, w = actor_floats[i], target_floats[i], weapon_floats[i]
+        running_loss.append(a + t + w)   # `total` is the sum of heads
+        running_loss_actor.append(a)
+        if p.target_fired:
+            running_loss_target.append(t)
+        if p.weapon_fired:
+            running_loss_weapon.append(w)
 
 
 def train(
@@ -666,6 +747,13 @@ def train(
     # is both correct and memory-frugal (only one chunk's activation
     # graph lives at a time).
     running_loss = deque(maxlen=200)
+    # Per-head loss running averages. Each only sees pairs where the
+    # corresponding head fired (see LossParts) — actor is every pair,
+    # target is every move/attack/recruit (i.e. not end_turn), weapon
+    # is every attack. So the deques can grow at different rates.
+    running_loss_actor  = deque(maxlen=200)
+    running_loss_target = deque(maxlen=200)
+    running_loss_weapon = deque(maxlen=200)
     # running_count is THIS RUN's pair count (drives max_pairs cap and
     # rate). cumulative_pairs adds the resumed-from total for the
     # progress-display + checkpoint save.
@@ -783,6 +871,9 @@ def train(
                             model, encoder, batch_encoded, batch_ais,
                             opt, params_for_clip, batch_size, device,
                             running_loss,
+                            running_loss_actor,
+                            running_loss_target,
+                            running_loss_weapon,
                         )
                     except Exception as e:
                         log.debug(f"  batch flush failed: {e}")
@@ -799,14 +890,22 @@ def train(
                     # batched path's padding-to-max-seq waste is far
                     # worse so per-pair wins.
                     try:
-                        loss = _loss_for_pair(
+                        parts = _loss_parts_for_pair(
                             encoder, model, state_or_raw, ai, device,
                         )
                     except Exception as e:
                         log.debug(f"  loss compute failed: {e}")
                         continue
-                    (loss / batch_size).backward()
-                    running_loss.append(float(loss.item()))
+                    (parts.total / batch_size).backward()
+                    if parts.actor_fired:
+                        # 4 .item() calls per pair on CPU is fine — the
+                        # per-pair flow only runs on CPU, no GPU sync.
+                        running_loss.append(float(parts.total.item()))
+                        running_loss_actor.append(float(parts.actor.item()))
+                        if parts.target_fired:
+                            running_loss_target.append(float(parts.target.item()))
+                        if parts.weapon_fired:
+                            running_loss_weapon.append(float(parts.weapon.item()))
                     running_count += 1
                     losses_in_batch += 1
                     if losses_in_batch < batch_size:
@@ -822,7 +921,12 @@ def train(
                     step += 1
                     global_step += 1
                     if step % log_every == 0:
-                        avg = sum(running_loss) / max(len(running_loss), 1)
+                        def _avg(d):
+                            return sum(d) / len(d) if d else float("nan")
+                        avg        = _avg(running_loss)
+                        avg_actor  = _avg(running_loss_actor)
+                        avg_target = _avg(running_loss_target)
+                        avg_weapon = _avg(running_loss_weapon)
                         elapsed = time.time() - t_epoch
                         # Rate is per-epoch: pairs trained THIS EPOCH
                         # divided by elapsed THIS EPOCH. Cumulative
@@ -833,9 +937,17 @@ def train(
                         total_elapsed = time.time() - t_start
                         eta_pairs = (max_pairs - running_count) if max_pairs else None
                         eta = f"{eta_pairs/rate/60:.1f}m" if eta_pairs and rate > 0 else "?"
+                        # Per-head breakdown lets us see e.g. that
+                        # actor loss is converging while target loss
+                        # stays near ln(num_hexes) — i.e. the model
+                        # learned WHAT to do but not WHERE. (Either
+                        # head can be NaN early on if no pair has
+                        # fired it yet.)
                         log.info(
                             f"  epoch={epoch} step={step} "
                             f"avg_loss={avg:.3f} "
+                            f"(actor={avg_actor:.3f} target={avg_target:.3f} "
+                            f"weapon={avg_weapon:.3f}) "
                             f"pairs={running_count} rate={rate:.1f}/s "
                             f"wall={total_elapsed/60:.1f}m eta={eta}"
                         )
@@ -867,6 +979,9 @@ def train(
                         model, encoder, batch_encoded, batch_ais,
                         opt, params_for_clip, batch_size, device,
                         running_loss,
+                        running_loss_actor,
+                        running_loss_target,
+                        running_loss_weapon,
                     )
                     running_count += len(batch_encoded)
                 except Exception as e:

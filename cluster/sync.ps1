@@ -74,7 +74,8 @@ $clusterCandidates = @(
     'cluster/run.sh',
     'cluster/RUNBOOK.md',
     'cluster/build_bundle.ps1',
-    'cluster/sync.ps1'
+    'cluster/sync.ps1',
+    'cluster/pull_checkpoint.ps1'
 )
 $clusterFiles = @($clusterCandidates | Where-Object { Test-Path $_ })
 
