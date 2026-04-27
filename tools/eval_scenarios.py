@@ -220,18 +220,30 @@ _SCENARIO_TEMPLATE = """\
 
         [lua]
             code=<<
-                -- At die-event time the dying unit is already removed
-                -- from the map list, so leader-count <=1 means the
-                -- game has ended. (==1 is the normal "winner stands
-                -- alone" path; ==0 covers mutual elimination.)
+                -- A leader unit died -- on 2p maps that means the OTHER
+                -- side has won (or, on rare mutual-death turns, the
+                -- second die event will land with no leaders left and
+                -- we'll resolve to winner=0).
+                --
+                -- We don't gate on `#leaders <= 1` anymore: at
+                -- [event] name=die fire time the dying unit may still
+                -- be in find_on_map's result, so the count check could
+                -- skip the emit even though the game is in fact over.
+                -- Instead we read the dying unit directly from the
+                -- event context and pass its side to emit_terminal_state
+                -- as the LOSER -- the helper computes winner = 3-loser
+                -- on a 2p map. The emit also std_prints a "Leader of
+                -- side N has died" line, mirroring training_scenario's
+                -- die handler so log greps for "Leader" find both.
                 -- NB: Lua table literals {{...}} are double-braced
-                -- because this is a Python .format() template -- the
-                -- generated .cfg file has the singular {{}} -> {{}}.
-                local leaders = wesnoth.units.find_on_map({{canrecruit = true}})
-                if #leaders <= 1 then
-                    local m = wesnoth.require("~add-ons/wesnoth_ai/lua/turn_stage.lua")
-                    m.emit_terminal_state()
-                end
+                -- because this is a Python .format() template.
+                local dying = wesnoth.current.event_context
+                              and wesnoth.current.event_context.unit
+                local loser_side = dying and dying.side or 0
+                std_print(string.format(
+                    "Leader of side %d has died!", loser_side))
+                local m = wesnoth.require("~add-ons/wesnoth_ai/lua/turn_stage.lua")
+                m.emit_terminal_state(loser_side)
             >>
         [/lua]
     [/event]

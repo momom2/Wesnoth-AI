@@ -131,29 +131,42 @@ local function emit_state(game_id, turn, side_number)
 end
 
 -- Emit a final state frame with game_over=true regardless of whose
--- turn it is. Called from a scenario `[event] name=victory` handler
--- so that, when the game ends on the OPPOSING side's turn (default
--- RCA in eval scenarios), the Python side learns immediately
+-- turn it is. Called from the eval scenarios' `[event] name=die`
+-- handler when a leader dies, so the Python side learns immediately
 -- instead of waiting out the 90s state-read timeout.
 --
--- Idempotent: if leaders_alive() shows everyone's still standing
--- (shouldn't happen on victory but defensive), winner is set to 0.
-function M.emit_terminal_state()
+-- `loser_side` (optional): the side whose leader just died. On a 2p
+-- map the winner is unambiguously `3 - loser_side`. We prefer this
+-- over leaders_alive() because at [event] name=die fire time the
+-- dying unit can still be in find_on_map's result -- the count check
+-- would then return both sides "alive" and we'd emit winner=0
+-- incorrectly.
+--
+-- If `loser_side` is nil/0 we fall back to leaders_alive() (still
+-- right for cases where the caller doesn't know who died -- e.g.
+-- if we ever hook a victory event that fires after unit removal).
+function M.emit_terminal_state(loser_side)
     local game_id = wml.variables.game_id or "game_0"
     local turn    = (wesnoth.current and wesnoth.current.turn) or 0
     local side    = (wesnoth.current and wesnoth.current.side) or 0
 
     local state = state_collector.collect_game_state(side, game_id, false)
     state.game_over = true
-    local s1, s2 = leaders_alive()
-    if not s1 and not s2 then
-        state.winner = 0    -- mutual elimination / unknown
-    elseif not s1 then
+    if loser_side == 1 then
         state.winner = 2
-    elseif not s2 then
+    elseif loser_side == 2 then
         state.winner = 1
     else
-        state.winner = 0    -- victory event fired without anyone dying?
+        local s1, s2 = leaders_alive()
+        if not s1 and not s2 then
+            state.winner = 0    -- mutual elimination
+        elseif not s1 then
+            state.winner = 2
+        elseif not s2 then
+            state.winner = 1
+        else
+            state.winner = 0    -- nobody dead but called anyway?
+        end
     end
 
     std_print(FRAME_BEGIN)
