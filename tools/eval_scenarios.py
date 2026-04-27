@@ -164,6 +164,40 @@ _SCENARIO_TEMPLATE = """\
 
 {side1}
 {side2}
+
+    # Per-process random game_id. Without this every eval Wesnoth
+    # process falls back to the Lua-side default ("game_0") and 4
+    # parallel games stomp on the same add-ons/wesnoth_ai/games/game_0/
+    # action.lua + share each other's state-frame std_prints. This
+    # mirrors training_scenario.cfg's preload event verbatim -- if you
+    # touch it there, mirror the change here too (or extract a macro).
+    [event]
+        name=preload
+        first_time_only=yes
+
+        [lua]
+            code=<<
+                math.randomseed(os.time() + math.floor(os.clock() * 1000000))
+                local game_id = string.format("g%09d", math.random(1, 999999999))
+                wml.variables.game_id = game_id
+                std_print("=== Eval scenario starting: {scenario_id} ===")
+                std_print("Game ID: " .. game_id)
+            >>
+        [/lua]
+    [/event]
+
+    # Turn-boundary marker so log tails are easy to read.
+    [event]
+        name=turn refresh
+        first_time_only=no
+
+        [lua]
+            code=<<
+                std_print(string.format("=== Turn %d, Side %d ===",
+                    wesnoth.current.turn, wesnoth.current.side))
+            >>
+        [/lua]
+    [/event]
 [/test]
 """
 

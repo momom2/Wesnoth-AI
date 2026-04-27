@@ -83,6 +83,7 @@ async def play_one(
     label:          str   = "eval",
     max_actions:    int   = MAX_ACTIONS_PER_GAME,
     state_timeout:  float = 90.0,
+    launch_lock:    Optional[asyncio.Lock] = None,
 ) -> GameResult:
     """Run one eval game to completion (or timeout). Returns the outcome.
 
@@ -104,7 +105,30 @@ async def play_one(
     last_gs: Optional[GameState] = None  # for terminal-state fallback
 
     try:
-        game.start_wesnoth()
+        # Launch under the shared lock when one's provided -- so that
+        # this WesnothGame's pre_launch_logs snapshot includes all the
+        # previous parallel games' logs, AND we lock in our own log
+        # path before the next game's snapshot is taken. Without this,
+        # parallel launches all snapshot the same set, then all see
+        # the same N "new" .out.logs and pick the wrong one (cross-talk
+        # of state frames between unrelated games -- exactly the
+        # "state frame for side X but we're side Y" bug the unsafe
+        # parallel eval hit).
+        if launch_lock is not None:
+            async with launch_lock:
+                game.start_wesnoth()
+                # Wait up to ~5s for Wesnoth to create its .out.log
+                # file, then lock the path in so later reads don't
+                # re-probe (re-probing would include OTHER games'
+                # subsequently-created logs in the "new" set).
+                for _ in range(50):
+                    candidate = game._find_out_log()
+                    if candidate is not None:
+                        game._log_path = candidate
+                        break
+                    await asyncio.sleep(0.1)
+        else:
+            game.start_wesnoth()
         if not game.is_running:
             return GameResult(
                 scenario_id=scenario_id, our_side=our_side, winner=0,
@@ -227,6 +251,13 @@ async def play_many(
     """
     results: List[Optional[GameResult]] = [None] * len(matchups)
     sem = asyncio.Semaphore(parallel)
+    # Serializes Wesnoth launches across the pool so each game's
+    # pre_launch_logs snapshot sees the previously-launched games'
+    # .out.logs as "existing" and only its own as "new". Held briefly
+    # -- just long enough for Wesnoth to create its log file (up to
+    # ~5s in the worst case). The semaphore above still gates total
+    # in-flight games at `parallel`.
+    launch_lock = asyncio.Lock()
     next_label_id = 0
 
     async def _runner(idx: int, m: Dict) -> None:
@@ -243,6 +274,7 @@ async def play_many(
                 encoder=encoder, model=model, converter=converter,
                 label=label, max_actions=max_actions,
                 state_timeout=state_timeout,
+                launch_lock=launch_lock,
             )
             results[idx] = res
             if progress_cb is not None:
