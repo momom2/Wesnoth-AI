@@ -25,6 +25,7 @@ logs/
 training/checkpoints/
 training/replays/
 add-ons/wesnoth_ai/games/
+add-ons/wesnoth_ai/scenarios/eval/
 
 # Wesnoth debugging dumps (anywhere in the tree)
 *.log

@@ -64,9 +64,19 @@ class WesnothGame:
     Wesnoth-side game_id.
     """
 
-    def __init__(self, label: str, scenario_path: Path):
+    def __init__(
+        self,
+        label: str,
+        scenario_path: Path,
+        scenario_id: str = "ai_training",
+    ):
         self.label = label
         self.scenario_path = scenario_path
+        # `scenario_id` selects which [test] scenario `--test` launches.
+        # Default `ai_training` is the self-play / training scenario.
+        # Eval harness passes per-game ids like
+        # `eval_2p_caves_drakes_vs_loyalists_s1`.
+        self.scenario_id = scenario_id
         self.logger = logging.getLogger(f"wesnoth_{label}")
 
         # Assigned by adopt_game_id() when the first state frame lands.
@@ -132,7 +142,7 @@ class WesnothGame:
         # (verified in 1.18 src/units/animation.cpp); combined with the
         # turbo/animate_map prefs set in lua/turn_stage.lua this takes
         # most of the animation time out of the per-action wait.
-        cmd = [str(WESNOTH_PATH), "--nodelay", "--test", "ai_training"]
+        cmd = [str(WESNOTH_PATH), "--nodelay", "--test", self.scenario_id]
 
         # Snapshot the set of existing .out.log files. When the Wesnoth
         # subprocess starts writing its own log, it'll appear as a NEW

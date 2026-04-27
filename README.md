@@ -259,6 +259,40 @@ powershell -ExecutionPolicy Bypass -File run_self_play.ps1 `
     -Checkpoint training\checkpoints\supervised_epoch3.pt -Games 1
 ```
 
+## Evaluating against Wesnoth's built-in AI
+
+`tools/eval_vs_builtin.py` runs the trained transformer against
+Wesnoth's default RCA AI across a matrix of (map × faction matchup ×
+side-swap), reports overall and per-faction / per-map / per-matchup
+win rates, and dumps a JSON for further analysis.
+
+```powershell
+# Quick read (~30 games, ~2h on 4 parallel) -- 2 maps, no mirrors, no swap:
+python tools/eval_vs_builtin.py \
+    --checkpoint training/checkpoints/supervised_epoch3.pt \
+    --maps caves den --pairs cross --no-swap \
+    --parallel 4 --save-json eval_results.json
+
+# Full grid (252 games -- many hours): 6 maps × 21 pairs × 2 swaps.
+python tools/eval_vs_builtin.py \
+    --checkpoint training/checkpoints/supervised_epoch3.pt
+```
+
+Key flags:
+- `--checkpoint PATH` (required): trained `.pt` to evaluate.
+- `--maps {caves,den,sablestone,hornshark,hamlets,freelands}`: subset of
+  the 6 popular 2p maps (default: all).
+- `--pairs {all,cross}`: `all` includes mirrors (21 pairs); `cross` is
+  non-mirror only (15).
+- `--no-swap`: skip the side-swap rerun. Halves game count but
+  introduces first-mover bias.
+- `--parallel N`: max parallel Wesnoth processes.
+- `--save-json PATH`: persist structured results.
+
+The script generates per-matchup `.cfg` scenarios under
+`add-ons/wesnoth_ai/scenarios/eval/` (gitignored — rebuilt each run)
+and adds a glob include to `_main.cfg` on first run.
+
 ### Push code-only updates without re-shipping the corpus
 
 When you've edited Python locally and want the cluster to pick up the
