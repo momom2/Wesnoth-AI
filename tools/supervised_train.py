@@ -696,6 +696,13 @@ def train(
         random.shuffle(files)
         step = 0
         t_epoch = time.time()
+        # Snapshot the cumulative `running_count` at epoch start so the
+        # rate log uses pairs-this-epoch / elapsed-this-epoch. Without
+        # this the rate report blows up at the start of each epoch
+        # past the first (the cumulative count is already large but
+        # the elapsed timer resets, giving e.g. 150000 pairs/sec for
+        # the first log step of epoch 2).
+        epoch_start_count = running_count
 
         # Producer: a stream of ("pair", state_or_raw, ai, gz_name)
         # events plus ("file_done", gz_name, n) markers. Either serial
@@ -817,7 +824,12 @@ def train(
                     if step % log_every == 0:
                         avg = sum(running_loss) / max(len(running_loss), 1)
                         elapsed = time.time() - t_epoch
-                        rate = running_count / max(1e-9, elapsed)
+                        # Rate is per-epoch: pairs trained THIS EPOCH
+                        # divided by elapsed THIS EPOCH. Cumulative
+                        # `running_count` is reported separately as
+                        # `pairs=` so the user still sees total
+                        # progress.
+                        rate = (running_count - epoch_start_count) / max(1e-9, elapsed)
                         total_elapsed = time.time() - t_start
                         eta_pairs = (max_pairs - running_count) if max_pairs else None
                         eta = f"{eta_pairs/rate/60:.1f}m" if eta_pairs and rate > 0 else "?"
