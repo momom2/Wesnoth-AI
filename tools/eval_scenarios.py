@@ -198,6 +198,23 @@ _SCENARIO_TEMPLATE = """\
             >>
         [/lua]
     [/event]
+
+    # Terminal-state notification. When victory_when_enemies_defeated
+    # auto-fires endlevel(victory), we emit a final state frame with
+    # game_over=true so the Python eval doesn't have to wait out the
+    # 90s state-read timeout. This is critical when the OPPOSING side
+    # (default RCA) lands the killing blow -- in that case our
+    # turn_stage never gets to run again, so without this hook Python
+    # would only learn the game ended via timeout fallback.
+    [event]
+        name=victory
+        [lua]
+            code=<<
+                local m = wesnoth.require("~add-ons/wesnoth_ai/lua/turn_stage.lua")
+                m.emit_terminal_state()
+            >>
+        [/lua]
+    [/event]
 [/test]
 """
 

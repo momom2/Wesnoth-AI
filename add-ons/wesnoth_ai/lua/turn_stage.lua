@@ -130,6 +130,39 @@ local function emit_state(game_id, turn, side_number)
     std_print(FRAME_END)
 end
 
+-- Emit a final state frame with game_over=true regardless of whose
+-- turn it is. Called from a scenario `[event] name=victory` handler
+-- so that, when the game ends on the OPPOSING side's turn (default
+-- RCA in eval scenarios), the Python side learns immediately
+-- instead of waiting out the 90s state-read timeout.
+--
+-- Idempotent: if leaders_alive() shows everyone's still standing
+-- (shouldn't happen on victory but defensive), winner is set to 0.
+function M.emit_terminal_state()
+    local game_id = wml.variables.game_id or "game_0"
+    local turn    = (wesnoth.current and wesnoth.current.turn) or 0
+    local side    = (wesnoth.current and wesnoth.current.side) or 0
+
+    local state = state_collector.collect_game_state(side, game_id, false)
+    state.game_over = true
+    local s1, s2 = leaders_alive()
+    if not s1 and not s2 then
+        state.winner = 0    -- mutual elimination / unknown
+    elseif not s1 then
+        state.winner = 2
+    elseif not s2 then
+        state.winner = 1
+    else
+        state.winner = 0    -- victory event fired without anyone dying?
+    end
+
+    std_print(FRAME_BEGIN)
+    std_print(string.format("meta: game_id=%s turn=%d side=%d (terminal)",
+        game_id, turn, side))
+    std_print(json.encode(state))
+    std_print(FRAME_END)
+end
+
 -- Returns (action_table, nil) on a fresh action; (nil, reason) otherwise.
 local function try_read_action(path)
     if not wesnoth.have_file(path) then return nil, "missing" end

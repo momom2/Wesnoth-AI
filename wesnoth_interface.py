@@ -354,7 +354,23 @@ class WesnothGame:
         if self.process and self.process.poll() is None:
             self.logger.info(f"Terminating Wesnoth (PID {self.process.pid})")
             try:
-                self.process.terminate()
+                # Wesnoth on Windows under `--test` often spawns a
+                # game-window child process that survives the launcher.
+                # `proc.terminate()` only signals the immediate child,
+                # leaving the visible Wesnoth window alive as an orphan
+                # (parented to System after the launcher exits). Walk
+                # the tree with taskkill /T /F so the actual game
+                # process dies too. Mirrors the GUI Cancel-button fix.
+                if os.name == "nt":
+                    subprocess.run(
+                        ["taskkill", "/T", "/F", "/PID", str(self.process.pid)],
+                        capture_output=True, timeout=5,
+                        creationflags=subprocess.CREATE_NO_WINDOW,  # type: ignore[attr-defined]
+                    )
+                    # taskkill sets exit codes via /F; the wait below
+                    # picks up the launcher's exit either way.
+                else:
+                    self.process.terminate()
                 self.process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 self.process.kill()
