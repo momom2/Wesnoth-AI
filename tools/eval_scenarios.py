@@ -199,19 +199,39 @@ _SCENARIO_TEMPLATE = """\
         [/lua]
     [/event]
 
-    # Terminal-state notification. When victory_when_enemies_defeated
-    # auto-fires endlevel(victory), we emit a final state frame with
-    # game_over=true so the Python eval doesn't have to wait out the
-    # 90s state-read timeout. This is critical when the OPPOSING side
-    # (default RCA) lands the killing blow -- in that case our
-    # turn_stage never gets to run again, so without this hook Python
-    # would only learn the game ended via timeout fallback.
+    # Terminal-state notification. Critical when the OPPOSING side
+    # (default RCA) lands the killing blow on our leader: in that case
+    # our turn_stage never gets to run again, so without this hook
+    # Python would only learn the game ended via the 90s state-read
+    # timeout.
+    #
+    # We hook `[event] name=die [filter] canrecruit=yes [/filter]`
+    # rather than `[event] name=victory` because for all-AI [test]
+    # scenarios the engine doesn't reliably fire the victory event.
+    # The die event always fires when any leader unit dies and is
+    # what training_scenario.cfg uses for its end-game detection.
     [event]
-        name=victory
+        name=die
+        first_time_only=no
+
+        [filter]
+            canrecruit=yes
+        [/filter]
+
         [lua]
             code=<<
-                local m = wesnoth.require("~add-ons/wesnoth_ai/lua/turn_stage.lua")
-                m.emit_terminal_state()
+                -- At die-event time the dying unit is already removed
+                -- from the map list, so leader-count <=1 means the
+                -- game has ended. (==1 is the normal "winner stands
+                -- alone" path; ==0 covers mutual elimination.)
+                -- NB: Lua table literals {{...}} are double-braced
+                -- because this is a Python .format() template -- the
+                -- generated .cfg file has the singular {{}} -> {{}}.
+                local leaders = wesnoth.units.find_on_map({{canrecruit = true}})
+                if #leaders <= 1 then
+                    local m = wesnoth.require("~add-ons/wesnoth_ai/lua/turn_stage.lua")
+                    m.emit_terminal_state()
+                end
             >>
         [/lua]
     [/event]
