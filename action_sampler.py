@@ -581,7 +581,12 @@ def _build_legality_masks(
 
     # Occupancy per hex: 0 empty, 1 friendly, 2 enemy. Lookups off the
     # hex-position list make sure we only mark hexes the encoder emits.
-    pos_to_hex = {(int(hex_xs[j]), int(hex_ys[j])): j for j in range(H)}
+    # `pos_to_hex` is now cached on EncodedState (encoder builds it
+    # once per decision instead of here per call). Saves rebuild
+    # work when reforward_logprob_entropy or
+    # enumerate_legal_actions_with_priors hits the same encoded
+    # state multiple times.
+    pos_to_hex = encoded.pos_to_hex
     occupancy = np.zeros(H, dtype=np.int8)
     unit_at: Dict[Tuple[int, int], Unit] = {}
     for u in game_state.map.units:

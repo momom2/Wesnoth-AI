@@ -381,7 +381,27 @@ class TransformerPolicy:
         )
         self._logger.info(f"Saved checkpoint to {path}")
 
-    def load_checkpoint(self, path: Path) -> None:
+    def load_checkpoint(self, path: Path, *, strict: bool = False) -> None:
+        """Load weights from a checkpoint.
+
+        `strict=False` (default): tolerate mismatched submodules. If the
+        model's architecture changed (added a head, resized an
+        embedding), `load_state_dict(..., strict=False)` warns about
+        missing/unexpected keys and loads the rest. The optimizer
+        state is then dropped (it's keyed by parameter id and won't
+        align with a partially-loaded model). This lets us iterate on
+        architecture without throwing away every prior cluster
+        checkpoint.
+
+        `strict=True`: every key must match. Restores the prior
+        behavior; useful for production resumption where any
+        mismatch is genuinely a bug.
+
+        Arch-record check: top-level dimensions (d_model, num_layers,
+        ...) MUST still match in both modes. Loading weights into a
+        smaller transformer than the checkpoint would silently
+        truncate; `_arch` mismatch is always a hard error.
+        """
         path = Path(path)
         ckpt = torch.load(path, map_location=self._device, weights_only=False)
         saved_arch = ckpt.get("arch", {})
@@ -389,10 +409,30 @@ class TransformerPolicy:
             if saved_arch.get(k) != v:
                 raise RuntimeError(
                     f"Checkpoint arch mismatch on '{k}': "
-                    f"saved={saved_arch.get(k)!r} vs current={v!r}"
+                    f"saved={saved_arch.get(k)!r} vs current={v!r}. "
+                    f"Architecture dimensions can't be resolved by "
+                    f"partial loading -- rebuild the policy with the "
+                    f"saved arch instead."
                 )
-        self._model.load_state_dict(ckpt["model_state"])
-        self._encoder.load_state_dict(ckpt["encoder_state"])
+        model_res = self._model.load_state_dict(
+            ckpt["model_state"], strict=strict)
+        encoder_res = self._encoder.load_state_dict(
+            ckpt["encoder_state"], strict=strict)
+        if not strict:
+            # Surface what didn't load. PyTorch returns a
+            # _IncompatibleKeys named-tuple with `missing_keys` and
+            # `unexpected_keys` attributes; both empty means a clean
+            # load.
+            for label, res in (("model", model_res), ("encoder", encoder_res)):
+                miss = list(getattr(res, "missing_keys", []) or [])
+                extra = list(getattr(res, "unexpected_keys", []) or [])
+                if miss or extra:
+                    self._logger.warning(
+                        f"partial {label} load: {len(miss)} missing key(s), "
+                        f"{len(extra)} unexpected key(s). Missing: "
+                        f"{miss[:5]}{'...' if len(miss) > 5 else ''}. "
+                        f"Unexpected: {extra[:5]}"
+                        f"{'...' if len(extra) > 5 else ''}.")
         self._encoder.unit_type_to_id = dict(ckpt["unit_type_to_id"])
         # Faction vocab — present in checkpoints saved after faction
         # conditioning landed. Older checkpoints lack it; fall back to

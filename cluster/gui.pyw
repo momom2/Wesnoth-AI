@@ -537,7 +537,11 @@ class App:
 
         maps_var     = tk.StringVar(value="caves den")
         pairs_var    = tk.StringVar(value="cross")
-        no_swap_var  = tk.BooleanVar(value=True)
+        # Default OFF: side-swapping doubles game count but eliminates
+        # first-mover bias, which is the standard in eval. The CLI
+        # (tools/eval_vs_builtin.py) defaults to swap-on; the GUI
+        # silently regressed every eval through it before this flip.
+        no_swap_var  = tk.BooleanVar(value=False)
         parallel_var = tk.IntVar(value=4)
         max_actions_var = tk.IntVar(value=500)
 

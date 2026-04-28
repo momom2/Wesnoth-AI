@@ -110,6 +110,11 @@ class EncodedState:
 
     hex_tokens:     torch.Tensor           # [1, H, d_model]
     hex_positions:  List[Position]         # len H
+    # `(x, y) -> j` map. Cached once at encode time so callers like
+    # action_sampler._build_legality_masks don't rebuild it per
+    # decision. Saves a few ms on busy mid-game states with ~250
+    # visible hexes; matters for MCTS rollouts.
+    pos_to_hex:     "Dict[tuple, int]"     # mapping over hex_positions
     # Note: we only emit on-board hexes, so no hex_mask is needed in
     # Phase 3.1. When Phase 3.2 pads to a fixed H across a batch, add
     # a mask.
@@ -424,9 +429,17 @@ class GameStateEncoder(nn.Module):
         emb = emb + self.our_faction_embed(our_fid) + self.their_faction_embed(them_fid)
         global_token = emb.unsqueeze(0)  # [1, 1, d]
 
+        # Pre-compute (x, y) -> hex index map for downstream sampler
+        # legality checks. Saves rebuilding it per-decision in
+        # action_sampler._build_legality_masks.
+        pos_to_hex = {
+            (p.x, p.y): j for j, p in enumerate(raw.hex_positions)
+        }
+
         return EncodedState(
             hex_tokens=hex_tokens,
             hex_positions=raw.hex_positions,
+            pos_to_hex=pos_to_hex,
             unit_tokens=unit_tokens,
             unit_is_ours=unit_is_ours,
             unit_positions=raw.unit_positions,

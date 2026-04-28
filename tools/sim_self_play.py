@@ -151,7 +151,30 @@ def play_one_game(
         pre_state = copy.deepcopy(sim.gs)
         action = policy.select_action(pre_state, game_label=game_label)
         atype = action.get("type", "end_turn")
-        recruit_cost = cost_lookup.get(action.get("unit_type", ""), 0) if atype == "recruit" else 0
+        if atype == "recruit":
+            unit_type = action.get("unit_type", "")
+            recruit_cost = cost_lookup.get(unit_type)
+            if recruit_cost is None:
+                # Unknown unit type (custom era / out-of-date scrape /
+                # typo). Fall back to 14 -- the smallfoot/orcishfoot
+                # baseline -- not 0. Zero would silently zero the
+                # gold-spent shaping for this recruit, biasing the
+                # policy toward repeatedly picking the unknown type
+                # (high reward / no apparent gold cost). Log once so
+                # we notice the missing entry without spamming.
+                if not getattr(_recruit_cost_lookup, "_warned",
+                               set()).__contains__(unit_type):
+                    log.warning(
+                        f"recruit cost: unit type {unit_type!r} not in "
+                        f"unit_stats.json; falling back to 14. "
+                        f"Re-run tools/scrape_unit_stats.py if this "
+                        f"unit is from a freshly-installed era.")
+                    if not hasattr(_recruit_cost_lookup, "_warned"):
+                        _recruit_cost_lookup._warned = set()
+                    _recruit_cost_lookup._warned.add(unit_type)
+                recruit_cost = 14
+        else:
+            recruit_cost = 0
 
         sim.step(action)
 

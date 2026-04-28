@@ -437,10 +437,10 @@ replay export.
 
 ### Performance
 
-- [ ] 🟡 **`_build_legality_masks` rebuilds `pos_to_hex` and walks
-  `gs.map.hexes` linearly per decision** (`action_sampler.py:404,485-490,556`).
-  Cache once at the top; pull `hex_xs/hex_ys` numpy arrays into
-  `EncodedState` instead of recomputing. Saves several ms per decision.
+- [x] 🟡 **`pos_to_hex` cached on EncodedState** (DONE 2026-04-28).
+  `EncodedState.pos_to_hex: Dict[(x,y), int]` populated once during
+  encode(); `_build_legality_masks` reads from there. Saves the
+  per-call rebuild (~1ms on 250-hex states; matters for MCTS).
 
 - [ ] 🟡 **Trainer Pass-2 re-encodes every transition** (`trainer.py:211`).
   Pass-1 just encoded all of them. Cache encoded chunk between passes.
@@ -461,10 +461,12 @@ replay export.
   only between train_steps. **Probably already manifesting as occasional
   noise in self-play.**
 
-- [ ] 🟡 **Checkpoint compat refuses on any arch mismatch**
-  (`transformer_policy.py:325-331`). Brittle for an RL system that gets
-  tweaked. Allow partial loads (load matching submodules, warn on
-  mismatch); store optimizer state per-module.
+- [x] 🟡 **Checkpoint partial loads (`strict=False` default)** (DONE
+  2026-04-28). `load_checkpoint(strict=False)` tolerates mismatched
+  submodules and logs missing/unexpected keys. Top-level `arch`
+  fields (d_model, num_layers, ...) still hard-error -- those
+  dimensions can't be partially loaded. `strict=True` restores the
+  prior behavior.
 
 ### Customizability gaps
 
@@ -576,10 +578,11 @@ curriculum hook.
   Companion to the eval harness — eval measures vs the built-in AI;
   mini-scenarios measure vs a fixed pinpoint task.
 
-- [ ] 🟡 **Recruit cost lookup falls back to 0 silently**
-  (`tools/sim_self_play.py:79`). For unit types not in `unit_stats.json`,
-  `cost_lookup.get(unit_type, 0)` gives 0 reward credit on successful
-  recruit. Use 14 (default) and log a warning at lookup time.
+- [x] 🟡 **Recruit cost fallback to 14 + warning** (DONE 2026-04-28).
+  `cost_lookup.get(unit_type)` returns None on miss, falls back to
+  14 (smallfoot/orcishfoot baseline), logs a warning ONCE per
+  unknown unit type. Prevents the policy from learning to spam an
+  unknown unit type that scored zero gold-cost shaping.
 
 - [ ] 🟢 **`leader_move_penalty` is unconditional** (`rewards.py:149`).
   Promote it to a `TurnConditionalBonus` so it can be turn-bounded
@@ -661,10 +664,10 @@ weight. Eval still needs real Wesnoth, so be cautious.
 
 ## Eval harness (`tools/eval_*.py`, `add-ons/wesnoth_ai/scenarios/eval/*`)
 
-- [ ] 🟠 **GUI eval defaults `no_swap_var = True`** (`cluster/gui.pyw:481`).
-  Halves game count by skipping side-swaps but introduces first-mover
-  bias. The CLI default is `False`; the GUI silently regresses every
-  eval the user runs through it. Flip to `False`.
+- [x] 🟠 **GUI eval no_swap default flipped to False** (DONE
+  2026-04-28). The GUI dialog now matches CLI semantics: side-
+  swapping ON by default, eliminating first-mover bias from every
+  eval run through the GUI.
 
 - [ ] 🟡 **No confidence interval on eval win-rates**
   (`tools/eval_vs_builtin.py:139-217`). At ~30 games per matchup, a
