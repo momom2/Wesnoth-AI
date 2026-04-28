@@ -422,11 +422,17 @@ replay export.
   (`encoder.py:289`). On checkpoint resume with a never-before-seen unit
   type, the new id may collide with an embedding row. Pre-seed from
   `tools/scrape_unit_stats.py` output and freeze post-pretrain (warn if
-  a new type shows up).
+  a new type shows up). PARTIAL (2026-04-28): vocab overflow now
+  warns once per (unit-type / faction) on registration, surfacing
+  the silent encode-time clamp at the source. Pre-seeding from
+  scrape + freeze still TODO.
 
-- [ ] 🟡 **`MAX_UNIT_TYPES=200` overflow buckets all unknowns to id 199**.
-  Aliases all unknown types together. Probably fine for scope but
-  document.
+- [x] 🟡 **MAX_UNIT_TYPES overflow documented** (DONE 2026-04-28).
+  Encoder.py docstring spells out: 200 covers default era + typical
+  expansions, overflow clamps to id 199 (silent alias), watch the
+  encoder's overflow log on first epoch -- if it fires, retrain
+  with a larger MAX_UNIT_TYPES (changing it requires a fresh
+  model). Linked to the `register_names` warn-once path.
 
 - [x] 🟡 **Encoder NORM constants moved to constants.py** (DONE
   2026-04-28). `HP_NORM`, `MOVES_NORM`, `EXP_NORM`, `COST_NORM`,
@@ -644,11 +650,11 @@ weight. Eval still needs real Wesnoth, so be cautious.
 - [ ] 🟠 **`pull_checkpoint.ps1` non-atomic** — top priority, see top
   section.
 
-- [ ] 🟡 **`cluster/job.sbatch:102` hardcodes `supervised_epoch9.pt`** as
-  done-detection sentinel, paired with `--epochs 10` (line 87). Change
-  one without the other and the auto-resubmit chain runs forever.
-  Compute the sentinel from `--epochs` or use a `--max-epoch=N`
-  argument that emits the right `done.flag` itself.
+- [x] 🟡 **`job.sbatch` sentinel computed from `EPOCHS`** (DONE
+  2026-04-28). `EPOCHS=10` + `EPOCHS_LAST_SENTINEL=...epoch$((EPOCHS-1)).pt`
+  block at the top; one place to bump both atomically. Bumping
+  `--epochs` without updating the sentinel can no longer cause an
+  infinite resubmit chain.
 
 - [ ] 🟡 **`sync.ps1`: no checksum verification of extracted files on
   remote** (`cluster/sync.ps1:122-147`). On non-zero return code we
@@ -692,7 +698,12 @@ collected here:
 - [ ] 🟠 Reward unit tests (`compute_delta` over hand-built pairs).
 - [ ] 🟠 Replay round-trip (recon → re-emit → diff against source WML).
 - [ ] 🟡 `hex_distance` parity edges.
-- [ ] 🟡 State-key collision fuzz for MCTS transposition table.
+- [x] 🟡 **state_key fuzz** (DONE 2026-04-28). New
+  `test_state_key.py` (16 cases): discrimination on every
+  meaningful field (HP/MP/XP/position/has_attacked/status/gold/
+  villages/turn/side/village_owner/RNG counter); order-invariance
+  on unit-set iteration (2-unit and 6-unit); deterministic across
+  calls. Necessary precondition for MCTS transposition correctness.
 - [x] 🟡 **sim_self_play reward-flow smoke** (DONE 2026-04-28). New
   `test_sim_self_play_smoke.py` (3 cases): observe called per step
   + per terminal; per-unit-type bonuses propagate end-to-end; once-

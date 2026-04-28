@@ -43,7 +43,16 @@ from classes import (
 # ---------------------------------------------------------------------
 
 MAX_MAP_SIZE    = 128   # covers every mainline MP map with headroom
-MAX_UNIT_TYPES  = 200   # # distinct unit type names we can embed
+# # distinct unit type names we can embed in one model. Default 200
+# is enough for the full default-era roster (~50 units across 6
+# factions) plus typical custom-era expansions. Overflow:
+# `register_names` (encoder.py) clamps the (200+1)-th type seen to
+# id 199, aliasing it with whatever happened to land at id 199 first
+# -- a silent data-quality issue rather than an error. Watch the
+# encoder's overflow log on first epoch of supervised training; if
+# it fires, re-train with a larger MAX_UNIT_TYPES (changing it
+# requires a fresh model -- the embedding row count is baked in).
+MAX_UNIT_TYPES  = 200
 MAX_FACTIONS    = 32    # default era has 6; supervised corpus adds a
                         # handful ("Custom", era-specific, "") — 32
                         # leaves room for growth.
@@ -96,6 +105,10 @@ from constants import (
     HP_NORM, MOVES_NORM, EXP_NORM, COST_NORM,
     GOLD_NORM, INCOME_NORM, VILLAGES_NORM, TURN_NORM,
 )
+
+
+import logging
+log = logging.getLogger("encoder")
 
 
 @dataclass
@@ -305,17 +318,53 @@ class GameStateEncoder(nn.Module):
         call before the encoder's parameters are touched.
 
         Workers should NOT call this: their dicts are read-only views.
+
+        Capacity: when `unit_type_to_id` reaches `MAX_UNIT_TYPES - 1`
+        slots, every additional new type gets clamped to id
+        `MAX_UNIT_TYPES - 1` in `encode_from_raw`. The clamp is
+        silent on the encode path; we surface it here at registration
+        time with a warning so it's visible during pretrain
+        (when new types are most likely to appear). At inference,
+        `register_names` is generally not called -- the trainer
+        freezes the vocab after pretrain and worker processes only
+        consume the saved dict.
         """
         type_to_id = self.unit_type_to_id
+        cap = MAX_UNIT_TYPES
         for u in game_state.map.units:
             if u.name not in type_to_id:
+                if len(type_to_id) >= cap:
+                    if not getattr(self, "_warned_type_overflow", False):
+                        log.warning(
+                            f"unit_type vocab full (MAX_UNIT_TYPES={cap}); "
+                            f"new types like {u.name!r} will alias id "
+                            f"{cap - 1}. Pre-seed via "
+                            f"tools/scrape_unit_stats.py + load on encoder "
+                            f"init, OR re-train with a larger MAX_UNIT_TYPES."
+                        )
+                        self._warned_type_overflow = True
+                    # Don't add the new entry; the encode path's
+                    # `min(get(name, overflow), overflow)` clamp does
+                    # the right thing without a phantom dict slot.
+                    continue
                 type_to_id[u.name] = len(type_to_id)
         faction_to_id = self.faction_to_id
         for s in game_state.sides:
             if s.faction not in faction_to_id:
+                if len(faction_to_id) >= MAX_FACTIONS:
+                    if not getattr(self, "_warned_faction_overflow", False):
+                        log.warning(
+                            f"faction vocab full (MAX_FACTIONS={MAX_FACTIONS}); "
+                            f"new faction {s.faction!r} aliasing.")
+                        self._warned_faction_overflow = True
+                    continue
                 faction_to_id[s.faction] = len(faction_to_id)
             for r in s.recruits:
                 if r not in type_to_id:
+                    if len(type_to_id) >= cap:
+                        # Already warned above on the unit pass; quiet
+                        # here to avoid log-spam on a single state.
+                        continue
                     type_to_id[r] = len(type_to_id)
 
     def encode_from_raw(

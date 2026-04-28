@@ -81,10 +81,17 @@ TRAINER_EXIT=0
 # Resume re-uses the saved encoder vocab dict, so a follow-up job
 # in the chain doesn't re-seed (would only matter for fresh runs
 # anyway — vocab IDs in the checkpoint are the source of truth).
+# EPOCHS and the sentinel snapshot path go together: the trainer
+# writes `supervised_epoch{EPOCHS-1}.pt` after the last epoch. Bump
+# both atomically here so we don't desync (running with --epochs N
+# but checking for epoch{M}.pt would chain forever even on success).
+EPOCHS=10
+EPOCHS_LAST_SENTINEL=training/checkpoints/supervised_epoch$((EPOCHS - 1)).pt
+
 python -u tools/supervised_train.py replays_dataset \
     --bs 32 \
     --lr 1e-4 \
-    --epochs 10 \
+    --epochs ${EPOCHS} \
     --device cuda \
     --log-every 100 \
     --ckpt-every 500 \
@@ -94,14 +101,14 @@ python -u tools/supervised_train.py replays_dataset \
 
 echo "[job] trainer exit code: ${TRAINER_EXIT}"
 
-# "Done" detection: trainer finished all 10 epochs => the last per-
-# epoch snapshot exists. If it does, drop a `done.flag` so future
-# job invocations skip resubmission too. If we got SIGTERM'd before
-# epoch 9 finished, the snapshot won't be there and we'll chain
-# another job.
-if [ -f training/checkpoints/supervised_epoch9.pt ]; then
+# "Done" detection: trainer finished all $EPOCHS epochs => the last
+# per-epoch snapshot exists. If it does, drop a `done.flag` so
+# future job invocations skip resubmission too. If we got SIGTERM'd
+# before the last epoch finished, the snapshot won't be there and
+# we'll chain another job.
+if [ -f "${EPOCHS_LAST_SENTINEL}" ]; then
     touch training/checkpoints/done.flag
-    echo "[job] training complete (epoch9 snapshot present)"
+    echo "[job] training complete (${EPOCHS_LAST_SENTINEL} present)"
 fi
 
 # Resubmit only if (a) training isn't done AND (b) the trainer exited
