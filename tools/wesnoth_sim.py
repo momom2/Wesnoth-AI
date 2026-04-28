@@ -640,6 +640,12 @@ class WesnothSim:
                 kind=cmd[0], side=side_now, cmd=list(cmd), extras=extras))
 
         self._actions_by_side[side_now] = self._actions_by_side.get(side_now, 0) + 1
+        # Post-step invariants. Run only under __debug__ so production
+        # runs (`python -O`) skip the check; this catches divergences
+        # at the source command rather than during Wesnoth playback or
+        # in a corrupt training step several minutes later.
+        if __debug__:
+            self._assert_invariants(after_cmd=cmd[0])
         self._check_game_over()
         return self.done
 
@@ -898,6 +904,67 @@ class WesnothSim:
         # nightstalk's lawful_bonus check sees the right ToD.
         self._refresh_uncovered_state(side)
         self._check_game_over()
+
+    def _assert_invariants(self, *, after_cmd: str) -> None:
+        """Cheap structural sanity check on the unit set. Catches
+        common bugs early -- rather than seeing them later as Wesnoth
+        OOSes or corrupt rewards. Each check below has actually
+        triggered during development of the sim.
+
+        Invariants:
+
+          (a) `current_hp` in [0, max_hp]. HP > max_hp means an effect
+              (drain, healing) overshot; HP < 0 means we forgot to
+              clamp a damage roll.
+
+          (b) `current_moves` in [0, max_moves]. MP > max_moves means
+              `_deduct_extra_mp` over-credited or `_begin_side_turn`
+              re-applied the reset twice; MP < 0 means we deducted
+              past zero somewhere.
+
+          (c) No two units on the same hex (Wesnoth never allows
+              stacking, and `_apply_command` for "move" doesn't check
+              -- the gate is in `_action_to_command`).
+
+          (d) Per side, AT MOST one leader. Two leaders on one side is
+              recoverable via `_check_game_over`'s heuristic but
+              indicates a recruit/recall logic bug.
+
+        Raises AssertionError with enough context to debug.
+        """
+        seen_hexes: Dict[Tuple[int, int], str] = {}
+        leaders_per_side: Dict[int, List[str]] = {}
+        for u in self.gs.map.units:
+            # (a) HP bounds.
+            if u.current_hp < 0 or u.current_hp > u.max_hp:
+                raise AssertionError(
+                    f"sim invariant: unit {u.id} ({u.name!r}) HP out of "
+                    f"range: current_hp={u.current_hp}, max_hp={u.max_hp} "
+                    f"(after cmd={after_cmd!r}, turn={self.gs.global_info.turn_number})")
+            # (b) MP bounds.
+            if u.current_moves < 0 or u.current_moves > u.max_moves:
+                raise AssertionError(
+                    f"sim invariant: unit {u.id} ({u.name!r}) MP out of "
+                    f"range: current_moves={u.current_moves}, "
+                    f"max_moves={u.max_moves} "
+                    f"(after cmd={after_cmd!r}, turn={self.gs.global_info.turn_number})")
+            # (c) No hex stacking.
+            key = (u.position.x, u.position.y)
+            if key in seen_hexes:
+                raise AssertionError(
+                    f"sim invariant: hex {key} occupied by both "
+                    f"{seen_hexes[key]!r} and {u.id!r} "
+                    f"(after cmd={after_cmd!r}, turn={self.gs.global_info.turn_number})")
+            seen_hexes[key] = u.id
+            # (d) Leader count per side.
+            if u.is_leader:
+                leaders_per_side.setdefault(u.side, []).append(u.id)
+        for side, leaders in leaders_per_side.items():
+            if len(leaders) > 1:
+                raise AssertionError(
+                    f"sim invariant: side {side} has {len(leaders)} "
+                    f"leaders ({leaders!r}); at most one allowed "
+                    f"(after cmd={after_cmd!r}, turn={self.gs.global_info.turn_number})")
 
     def _check_game_over(self) -> None:
         if self.done:

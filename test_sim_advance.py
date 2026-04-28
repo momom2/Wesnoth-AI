@@ -95,7 +95,7 @@ def test_no_advance_no_choose(fresh_sim):
     rc = _run_attack(
         sim,
         _make("Skeleton", 1, 10, 10, 1, current_exp=0, exp_modifier=xpmod),
-        _make("Spearman", 2, 11, 10, 2, current_hp=80, exp_modifier=xpmod),
+        _make("Spearman", 2, 11, 10, 2, exp_modifier=xpmod),  # full HP
         _make("Skeleton", 1, 20, 20, 100, is_leader=True, exp_modifier=xpmod),
         _make("Skeleton", 2, 21, 20, 101, is_leader=True, exp_modifier=xpmod),
     )
@@ -128,7 +128,7 @@ def test_damage_based_advance_detected(fresh_sim):
                current_exp=26, exp_modifier=xpmod)  # +1 per attack on lvl-1
     rc = _run_attack(
         sim, sk,
-        _make("Spearman", 2, 11, 10, 2, current_hp=80, exp_modifier=xpmod),
+        _make("Spearman", 2, 11, 10, 2, exp_modifier=xpmod),  # full HP
         _make("Skeleton", 1, 20, 20, 100, is_leader=True, exp_modifier=xpmod),
         _make("Skeleton", 2, 21, 20, 101, is_leader=True, exp_modifier=xpmod),
     )

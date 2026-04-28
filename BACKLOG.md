@@ -292,11 +292,14 @@ replay export.
   MCTS. Estimated MCTS bottleneck is model forward (~30ms), not
   deepcopy — but every ms helps.
 
-- [ ] 🟡 **Sim should assert invariants after each `_apply_command`** —
-  no unit has `current_moves > max_moves`, no unit has
-  `current_hp > max_hp`, no two units share a hex, exactly one leader
-  per side (or zero if dead). Cheap; catches divergences early instead
-  of in Wesnoth.
+- [x] 🟡 **Sim post-step invariants** (DONE 2026-04-28).
+  `WesnothSim._assert_invariants` runs under `__debug__` after every
+  `step`: HP in [0, max_hp], MP in [0, max_moves], no two units on
+  the same hex, ≤1 leader per side. Each violation raises with
+  unit id, name, side, command, turn -- enough context to debug.
+  Already caught a sloppy unit setup in our own test fixtures
+  (Spearman with current_hp=80 against max_hp=42). Skipped under
+  `python -O`.
 
 ### Exporter
 
