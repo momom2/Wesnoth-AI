@@ -331,15 +331,22 @@ replay export.
   precondition for MCTS branching: rolling out from the same
   position must give the same result every time.
 
-- [ ] 🟠 **Reward unit tests**: hand-built `(prev, new)` pairs covering
-  each `StepDelta` field (kill, village swap, recruit-success,
-  recruit-fail-invalid, leader-move). The reward function has accreted
-  comments about "0.22 flat-return plateau" and other anti-patterns
-  that nobody caught before overnight runs — unit tests would.
+- [x] 🟠 **Reward unit tests** (DONE 2026-04-28). New
+  `test_rewards.py` (31 cases): each `StepDelta` field exercised via
+  hand-built (prev, new) GameState pairs (enemy/our HP & gold, village
+  ±1, recruit-success / recruit-fail / zero-cost-fallback, leader
+  moved / static / dying, invalid-action gate via static state +
+  side-swap clear), plus `WeightedReward` summation paths (terminal
+  outcome contributions, signed gold-killed-delta, leader-move
+  penalty, invalid-action penalty, distance penalty), plus
+  `_action_had_visible_effect` coverage. Locks in the comments about
+  "0.22 flat-return plateau" / "400+ invalid recruits" so future
+  refactors can't silently regress shaping math.
 
-- [ ] 🟡 **`hex_distance` test**: identity at zero, symmetry, the
-  odd-q parity edge case the docstring describes
-  (`rewards.py:204-211`).
+- [x] 🟡 **`hex_distance` test** (DONE 2026-04-28; folded into
+  `test_rewards.py`): identity, symmetry, six-neighbour adjacency
+  for both even and odd columns (covers the odd-q parity edge case
+  from the docstring), long-range row/column.
 
 - [ ] 🟡 **End-to-end round-trip test**: take a real replay, run our
   recon, re-export from `command_history`, diff WML token-stream
@@ -520,6 +527,37 @@ curriculum hook.
   the command stream entirely and starts from turn 1. For curriculum
   training (sample mid-game positions), wrap `iter_replay_pairs` and
   stop applying commands when `turn_number == target_turn`.
+
+- [ ] 🟡 **Mini-scenarios for training specific capabilities**. Build a
+  small library of hand-crafted starting positions that isolate ONE
+  skill each, so training can curriculum-mix them with full self-play
+  and we can verify capability gain test-by-test. Each scenario is
+  a constructed `GameState` (or a `[scenario]` WML for export) with
+  a clear win condition, e.g.:
+
+    - **kite-1**: 1 archer vs 1 melee on flat — learn to retreat
+      after attacking, never let the melee close.
+    - **village-grab**: leader + 1 grunt with 2 villages 4 hexes
+      apart, no enemies — learn that capturing villages > standing on
+      keep when no recruits are immediately useful.
+    - **focus-fire**: 3 fighters vs 1 wounded enemy at HP=8 — learn
+      to commit all three to finishing kills before they're healed.
+    - **flank-zoc**: skirmisher vs ZoC chain — learn to use
+      skirmisher's ZoC immunity to break a wall.
+    - **ToD-time**: lawful unit vs chaotic unit, choice of attack at
+      day or wait until night — learn ToD timing.
+    - **leader-safety**: enemy fast unit 5 hexes from our leader —
+      learn to retreat the leader when threatened.
+
+  Sketch: `tools/mini_scenarios.py` exports a `SCENARIOS: Dict[str,
+  Callable[[], GameState]]` registry, plus a CLI to evaluate a
+  checkpoint per-scenario and print a capability score per skill.
+  Plumbing into `sim_self_play` via `--curriculum-mix kite=0.1
+  village-grab=0.1 ...` lets the trainer over-sample weak skills
+  without giving up full-game training. Locks in unit-test-style
+  capability checks (vs only end-to-end self-play scoring).
+  Companion to the eval harness — eval measures vs the built-in AI;
+  mini-scenarios measure vs a fixed pinpoint task.
 
 - [ ] 🟡 **Recruit cost lookup falls back to 0 silently**
   (`tools/sim_self_play.py:79`). For unit types not in `unit_stats.json`,
