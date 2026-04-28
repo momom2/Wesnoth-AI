@@ -28,13 +28,20 @@ Pieces:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from action_sampler import reforward_logprob_entropy
+from action_sampler import (
+    _build_legality_masks,
+    _masked_actor_logits,
+    _masked_target_logits,
+    _masked_weapon_logits,
+    _unit_by_id,
+    reforward_logprob_entropy,
+)
 from classes import GameState
 
 
@@ -53,6 +60,33 @@ class Transition:
     # Filled in by game_manager after the next state arrives:
     reward:     float = 0.0
     done:       bool  = False
+
+
+@dataclass
+class MCTSExperience:
+    """One root-state, MCTS-distilled training sample (AlphaZero
+    convention). The trainer's `step_mcts` consumes a list of these.
+
+    `visit_counts` records how many MCTS rollouts selected each
+    legal (actor, target, weapon) action FROM this state. It's NOT
+    pre-normalized -- the loss divides by total visits internally
+    so different states with different rollout budgets weight
+    correctly when batched.
+
+    `z` is the terminal outcome from the perspective of the
+    side-to-move at `game_state` (Wesnoth has no draws in PvP, but
+    timeouts / mutual elimination produce z=0). For mid-game states
+    on a played-out trajectory, AlphaZero uses the GAME's terminal
+    z (not a bootstrap from the value net) -- the network learns
+    to predict the eventual outcome from each visited state.
+
+    Indices match `LegalActionPrior` from action_sampler so the
+    same (actor, target, weapon) tuple a node returned during
+    expansion can be stored verbatim here.
+    """
+    game_state:  GameState
+    visit_counts: List[Tuple[int, Optional[int], Optional[int], int]]
+    z:            float
 
 
 @dataclass
@@ -308,3 +342,226 @@ def _compute_returns(traj: List[Transition], gamma: float) -> List[float]:
         out.append(G)
     out.reverse()
     return out
+
+
+# =====================================================================
+# AlphaZero-style soft-target trainer extension
+# =====================================================================
+# Bolted onto the existing Trainer rather than living in a separate
+# class because (a) it shares the same model + encoder + optimizer
+# (one set of weights, one set of momenta) and (b) MCTS+REINFORCE
+# co-training is a real option later (DeepMind's AlphaTensor uses it).
+# Method-injection at module bottom keeps the diff to the REINFORCE
+# core small.
+
+def _mcts_factored_policy_loss(
+    encoded,
+    output,
+    game_state: GameState,
+    visit_counts: List[Tuple[int, Optional[int], Optional[int], int]],
+) -> Tuple[torch.Tensor, float, float]:
+    """Cross-entropy of the model's factored policy against MCTS
+    visit counts. Returns (loss, total_visits, action_kl_proxy).
+
+    The factored loss decomposes joint cross-entropy across the three
+    heads: per-visit, sum log P(actor) + log P(target|actor) +
+    log P(weapon|actor). This is mathematically identical to building
+    a flat joint distribution and CE'ing against it -- the marginal
+    visits per actor naturally weight the conditional CE on its
+    targets / weapons -- but avoids materializing the joint tensor
+    over A * H * MAX_ATTACKS slots.
+
+    Caches per-actor target/weapon log-probs since multiple visits
+    typically share an actor.
+    """
+    masks = _build_legality_masks(encoded, game_state)
+    actor_logits = _masked_actor_logits(encoded, output, masks.actor_valid)
+    actor_logp = F.log_softmax(actor_logits.squeeze(0), dim=-1)  # [A]
+
+    target_logp_cache: Dict[int, torch.Tensor] = {}
+    weapon_logp_cache: Dict[int, Tuple[torch.Tensor, int]] = {}
+
+    total_visits = sum(c for _, _, _, c in visit_counts)
+    if total_visits <= 0:
+        return (
+            actor_logp.new_zeros(()),
+            0.0,
+            0.0,
+        )
+
+    # Accumulate negative log-prob weighted by visit count.
+    nll = actor_logp.new_zeros(())
+    # Diagnostic: empirical visit entropy vs. policy entropy proxy
+    # via the negative-log-prob average. Caller logs `entropy` from
+    # the original REINFORCE convention; we expose total visits and
+    # mean -log p(a|s) so the train_step log line stays informative.
+    sum_actor_nlp = 0.0
+
+    for actor_idx, target_idx, weapon_idx, count in visit_counts:
+        if count <= 0:
+            continue
+        nll = nll - count * actor_logp[actor_idx]
+        sum_actor_nlp += count * float(-actor_logp[actor_idx].item())
+
+        if target_idx is not None:
+            tlp = target_logp_cache.get(actor_idx)
+            if tlp is None:
+                tl = _masked_target_logits(
+                    output, masks.target_valid, actor_idx,
+                    attack_bias=masks.attack_bias,
+                )
+                # Empty target row -> skip the target term (the actor
+                # was selected but had no valid hex; the loss can't
+                # distill an undefined distribution).
+                if tl.numel() == 0:
+                    target_logp_cache[actor_idx] = None  # type: ignore
+                    continue
+                tlp = F.log_softmax(tl, dim=-1)
+                target_logp_cache[actor_idx] = tlp
+            if tlp is None:
+                continue
+            nll = nll - count * tlp[target_idx]
+
+        if weapon_idx is not None:
+            cached = weapon_logp_cache.get(actor_idx)
+            if cached is None:
+                # Weapon mask needs the unit's actual attack count.
+                unit_id = encoded.unit_ids[actor_idx]
+                attacker = _unit_by_id(game_state, unit_id)
+                num_attacks = len(attacker.attacks) if attacker else 0
+                if num_attacks <= 0:
+                    weapon_logp_cache[actor_idx] = (None, 0)  # type: ignore
+                    continue
+                wl = _masked_weapon_logits(output, actor_idx, num_attacks)
+                wlp = F.log_softmax(wl, dim=-1)
+                weapon_logp_cache[actor_idx] = (wlp, num_attacks)
+            else:
+                wlp, num_attacks = cached
+            if wlp is None:
+                continue
+            if weapon_idx >= num_attacks:
+                # Stale visit-count slot (the unit's attack list has
+                # fewer slots now than at MCTS time). Skip silently.
+                continue
+            nll = nll - count * wlp[weapon_idx]
+
+    loss = nll / float(total_visits)
+    mean_actor_nlp = sum_actor_nlp / float(total_visits)
+    return loss, float(total_visits), float(mean_actor_nlp)
+
+
+def _trainer_step_mcts(
+    self,                                     # Trainer (method injected below)
+    experiences: List[MCTSExperience],
+) -> TrainStats:
+    """One AlphaZero-style gradient step. Each experience contributes
+    a factored cross-entropy term against the MCTS visit
+    distribution, plus an MSE term against the terminal outcome z.
+
+    Like REINFORCE `step`, processes experiences in chunks of
+    `train_batch_size` and calls `.backward()` per chunk to bound
+    peak activation memory. Final `optimizer.step()` once at the end.
+    """
+    if not experiences:
+        return TrainStats()
+
+    cap = self.config.max_transitions_per_step
+    if len(experiences) > cap:
+        # Subsample. Same uniform-stride logic the REINFORCE path
+        # uses; the subsample bias documented in BACKLOG.md applies
+        # here too.
+        step = len(experiences) / cap
+        experiences = [experiences[int(i * step)] for i in range(cap)]
+
+    dev = self.device or next(self.model.parameters()).device
+    N = len(experiences)
+    B = max(1, self.config.train_batch_size)
+
+    # Clamp z values to the value head's range (matches REINFORCE
+    # path's value_clip handling).
+    zs = torch.tensor(
+        [e.z for e in experiences], device=dev, dtype=torch.float32,
+    )
+    if self.config.value_clip is not None:
+        zs.clamp_(min=-float(self.config.value_clip),
+                  max=+float(self.config.value_clip))
+
+    self.optimizer.zero_grad()
+
+    sum_policy_loss = 0.0
+    sum_value_loss  = 0.0
+    sum_total_visits = 0.0
+    sum_actor_nlp_weighted = 0.0  # for "entropy"-style logging
+
+    self.model.train(); self.encoder.train()
+
+    for start in range(0, N, B):
+        chunk = experiences[start:start + B]
+        L = len(chunk)
+        encoded_chunk = [self.encoder.encode(e.game_state) for e in chunk]
+        outputs = self.model.forward_batch(encoded_chunk)
+
+        chunk_policy_losses: List[torch.Tensor] = []
+        chunk_values: List[torch.Tensor] = []
+        for e, encoded, output in zip(chunk, encoded_chunk, outputs):
+            policy_loss, total_v, mean_actor_nlp = (
+                _mcts_factored_policy_loss(
+                    encoded, output, e.game_state, e.visit_counts,
+                )
+            )
+            chunk_policy_losses.append(policy_loss)
+            chunk_values.append(output.value.squeeze())
+            sum_total_visits += total_v
+            sum_actor_nlp_weighted += mean_actor_nlp * total_v
+
+        policy_loss_t = torch.stack(chunk_policy_losses).sum() / N
+        val_t = torch.stack(chunk_values)
+        z_t   = zs[start:start + L]
+        value_loss = F.mse_loss(val_t, z_t, reduction='sum') / N
+
+        chunk_loss = (
+            policy_loss_t
+            + self.config.value_coef * value_loss
+        )
+        chunk_loss.backward()
+
+        sum_policy_loss += float(policy_loss_t.item())
+        sum_value_loss  += float(value_loss.item())
+
+        del chunk_policy_losses, chunk_values, val_t, z_t, chunk_loss
+        del encoded_chunk, outputs
+
+    grad_norm = torch.nn.utils.clip_grad_norm_(
+        list(self.model.parameters()) + list(self.encoder.parameters()),
+        self.config.grad_clip,
+    )
+    self.optimizer.step()
+
+    self.model.eval(); self.encoder.eval()
+
+    # "Entropy" slot reports mean -log p(actor | s), weighted by
+    # visits, for logging continuity with the REINFORCE path.
+    mean_actor_nlp = (
+        sum_actor_nlp_weighted / sum_total_visits
+        if sum_total_visits > 0 else 0.0
+    )
+
+    return TrainStats(
+        policy_loss    = float(sum_policy_loss),
+        value_loss     = float(sum_value_loss),
+        entropy        = float(mean_actor_nlp),  # see comment above
+        total_loss     = float(
+            sum_policy_loss
+            + self.config.value_coef * sum_value_loss
+        ),
+        grad_norm      = float(grad_norm) if isinstance(grad_norm, float)
+                         else float(grad_norm.item()),
+        mean_return    = float(zs.mean().item()),
+        n_transitions  = int(N),
+        n_trajectories = int(N),  # one experience = one root state
+    )
+
+
+# Inject as a method on Trainer. Gives users `trainer.step_mcts(exps)`
+# alongside the REINFORCE `trainer.step(trajectories)`.
+Trainer.step_mcts = _trainer_step_mcts
