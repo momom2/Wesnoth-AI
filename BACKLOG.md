@@ -60,12 +60,14 @@ stated goals.
   kill-based AND damage-based threshold-crossings (the detection looks
   at id+name, not death). Tested in `test_sim_advance.py` (6 cases).
 
-- [ ] 🔴 **Fix `cluster/gui.pyw` "Train" button to use the simulator**
-  (`cluster/gui.pyw:447-457`, `run_self_play.ps1`). Both the "Train
-  (self-play)" and "Display 1 game" buttons invoke `run_self_play.ps1`
-  which spawns subprocess Wesnoth — the broken/slow path. Should call
-  `python tools/sim_self_play.py` instead. Otherwise every GUI training
-  click silently routes the user back into the broken pipeline.
+- [x] 🔴 **`cluster/gui.pyw` Train + Display buttons re-routed
+  through the simulator** (DONE 2026-04-28). Train calls
+  `tools/sim_self_play.py`; Display calls a new
+  `tools/sim_demo_game.py` (one-game inference + bz2 replay export
+  via `sim_to_replay.export_replay`, watchable in Wesnoth's replay
+  viewer). Both auto-pick the freshest `supervised*.pt` from
+  `training/checkpoints/`. Display warns + bails early if no
+  checkpoint is present.
 
 - [ ] 🔴 **Add `cluster/job_selfplay.sbatch`** before the next cluster
   window (`cluster/job.sbatch`). The existing sbatch only runs

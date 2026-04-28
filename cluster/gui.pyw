@@ -67,7 +67,16 @@ PYTHON     = sys.executable  # the same interpreter running the GUI
 
 SCRIPT_SYNC          = CLUSTER_DIR / "sync.ps1"
 SCRIPT_PULL          = CLUSTER_DIR / "pull_checkpoint.ps1"
-SCRIPT_SELFPLAY      = PROJECT_ROOT / "run_self_play.ps1"
+# Self-play + one-game demo run via the in-process Wesnoth simulator
+# (`tools/sim_self_play.py` / `tools/sim_demo_game.py`). The old
+# `run_self_play.ps1` -> `python main.py --policy transformer` path
+# went through the Wesnoth subprocess pipeline (see project_state.md
+# in MEMORY: that pipeline has never delivered a single game state on
+# this Windows install). The simulator is bit-exact for the maps in
+# the test set and ~1000x faster, so both training-mode and watch-one-
+# game functionality come from there now.
+SCRIPT_SIM_SELFPLAY  = PROJECT_ROOT / "tools" / "sim_self_play.py"
+SCRIPT_SIM_DEMO      = PROJECT_ROOT / "tools" / "sim_demo_game.py"
 EVAL_SCRIPT          = PROJECT_ROOT / "tools" / "eval_vs_builtin.py"
 
 REMOTE_HOST = "mesogip_outside"
@@ -441,20 +450,70 @@ class App:
 
     # -- local operations -----------------------------------------------
 
+    def _autoselect_checkpoint(self) -> Optional[Path]:
+        """Pick the freshest `supervised*.pt` (or any .pt) under
+        `training/checkpoints/`. Mirrors the old run_self_play.ps1
+        auto-pick so users coming from the cluster pull workflow keep
+        the zero-config feel."""
+        ckpt_dir = PROJECT_ROOT / "training" / "checkpoints"
+        if not ckpt_dir.is_dir():
+            return None
+        sup = sorted(ckpt_dir.glob("supervised*.pt"),
+                     key=lambda p: p.stat().st_mtime, reverse=True)
+        if sup:
+            return sup[0]
+        any_pt = sorted(ckpt_dir.glob("*.pt"),
+                        key=lambda p: p.stat().st_mtime, reverse=True)
+        return any_pt[0] if any_pt else None
+
     def _op_train_selfplay(self) -> None:
-        """Self-play TRAINING run: N parallel games, fast turbo, the
-        transformer keeps learning from rollouts. Defaults to whatever
-        run_self_play.ps1 picks for -Games (currently 4)."""
-        self._spawn(self._ps(SCRIPT_SELFPLAY),
-                    needs_password=False, label="self-play (training)")
+        """Self-play TRAINING run via the in-process simulator.
+        Equivalent to `python tools/sim_self_play.py` with sensible
+        defaults; the model keeps learning from rollouts.
+
+        No live Wesnoth window -- the sim is headless. Logs stream to
+        the GUI text panel; checkpoints land in
+        `training/checkpoints/sim_selfplay.pt`."""
+        ckpt = self._autoselect_checkpoint()
+        argv: List[str] = [PYTHON, str(SCRIPT_SIM_SELFPLAY)]
+        if ckpt is not None:
+            argv += ["--checkpoint-in", str(ckpt)]
+            self._log(f"[selfplay] starting from checkpoint: {ckpt.name}")
+        else:
+            self._log(
+                "[selfplay] no supervised*.pt found under "
+                "training/checkpoints/. Pulling one from the cluster "
+                "first will give the policy a sensible starting point; "
+                "without one we'll train from scratch.")
+        self._spawn(argv, needs_password=False,
+                    label="self-play (training, sim)")
 
     def _op_display_selfplay(self) -> None:
-        """Self-play DISPLAY run: ONE Wesnoth window, 2x turbo,
-        animations on, training disabled. The Wesnoth window opens on
-        the user's desktop -- this is meant for watching the model
-        play, not for collecting data."""
-        self._spawn(self._ps(SCRIPT_SELFPLAY, "-Display"),
-                    needs_password=False, label="self-play (display)")
+        """Watch ONE game with the loaded model: runs one full game
+        through the simulator, then writes a Wesnoth-loadable .bz2
+        replay so the user can scrub through it in Wesnoth's replay
+        viewer (File -> Load Game -> pick the .bz2).
+
+        Output bz2 lands in `logs/sim_demo_<UTC>.bz2`. The path is
+        echoed to the GUI log; double-click on Windows opens it in
+        Wesnoth via the file association."""
+        ckpt = self._autoselect_checkpoint()
+        argv: List[str] = [PYTHON, str(SCRIPT_SIM_DEMO)]
+        if ckpt is not None:
+            argv += ["--checkpoint", str(ckpt)]
+            self._log(f"[demo] using checkpoint: {ckpt.name}")
+        else:
+            self._log(
+                "[demo] no supervised*.pt found; the demo will fail. "
+                "Pull a checkpoint from the cluster first.")
+            messagebox.showwarning(
+                "No checkpoint",
+                "No `supervised*.pt` checkpoint found under "
+                "`training/checkpoints/`. Use the Pull checkpoint "
+                "button first, then retry Display.")
+            return
+        self._spawn(argv, needs_password=False,
+                    label="demo game (sim + .bz2 export)")
 
     def _op_eval_dialog(self) -> None:
         """Pop a small dialog to pick the checkpoint + matchup config."""
