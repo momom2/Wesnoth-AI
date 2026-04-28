@@ -881,6 +881,7 @@ class WesnothSim:
         (every move command), the speedup compounds. ~30x faster on
         a 30-unit mid-game state vs the rebuild loop."""
         from classes import Unit
+        from replay_dataset import _rebuild_unit
         target: Optional[Unit] = None
         for u in self.gs.map.units:
             if u.position.x == x and u.position.y == y:
@@ -893,13 +894,7 @@ class WesnothSim:
         new_mp = max(0, target.current_moves - extra)
         if new_mp == target.current_moves:
             return  # already clamped to 0; saves the rebuild
-        base = {k: v for k, v in target.__dict__.items()
-                if not k.startswith("_")}
-        base["current_moves"] = new_mp
-        replacement = Unit(**base)
-        for k, v in target.__dict__.items():
-            if k.startswith("_"):
-                setattr(replacement, k, v)
+        replacement = _rebuild_unit(target, current_moves=new_mp)
         self.gs.map.units.discard(target)
         self.gs.map.units.add(replacement)
 

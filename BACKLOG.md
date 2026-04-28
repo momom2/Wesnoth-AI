@@ -275,13 +275,15 @@ replay export.
   `action["_terrain_cost"]`. Eliminates the side-effect class of
   bug.
 
-- [ ] 🟡 **`_replace_unit` pattern not used everywhere; risk of dropping
-  `_defense_table`** (`tools/replay_dataset.py:790-792` vs. various
-  open-coded patterns). The `_`-prefixed stash is preserved in healing
-  (line 1051-1064), end_turn (1106-1120), and recruit (1310-1316), but
-  there's no central helper. A future refactor of any of these will
-  silently drop e.g. `feral` Bat's defense overrides. Factor into a
-  single `_replace_unit_safe(u, **changes)`.
+- [x] 🟡 **`_rebuild_unit` helper consolidates the pattern** (DONE
+  2026-04-28). New `_rebuild_unit(unit, **changes)` returns a NEW
+  Unit copy with `**changes` applied to dataclass fields, preserving
+  the `_`-prefixed setattr stash. `_replace_unit` (in-place modify)
+  delegates to it. All five open-coded sites in `replay_dataset.py`
+  (healing, end_turn slow-clear, recruit spawn, plague spawn) +
+  `_deduct_extra_mp` in `wesnoth_sim.py` now route through it.
+  Future refactors can't silently drop `_defense_table` (feral
+  override) or any other stashed attribute.
 
 ### Performance / scaling for MCTS
 
@@ -309,19 +311,23 @@ replay export.
 
 ### Exporter
 
-- [ ] 🟡 **`sim_to_replay` doesn't escape `"` or `\` in unit names**
-  (`tools/sim_to_replay.py:108-149`). For default era it doesn't matter;
-  for custom-era unit types with special chars in their names the file
-  becomes invalid WML. Wesnoth WML escapes `"` as `""`. Or assert.
+- [x] 🟡 **WML escaping for unit names** (DONE 2026-04-28).
+  `_wml_quote` helper escapes `\` → `\\\\` and `"` → `""`.
+  Applied to recruit + recall emission. Default era doesn't have
+  units with special chars; this is dormant insurance for custom
+  eras.
 
-- [ ] 🟡 **`_find_final_replay_block` is positional and brittle**
-  (`tools/sim_to_replay.py:269-284`). `text.rfind("[replay]")` works for
-  current source files; a literal `[/replay]` inside a `[message]`
-  body would fool it. Anchor the regex to start-of-line.
+- [x] 🟡 **`_find_final_replay_block` regex-anchored** (DONE
+  2026-04-28). Two `re.compile(r"^\[/?replay\]\s*$", MULTILINE)`
+  patterns + the LAST open match + first close after it. A literal
+  `[replay]` inside a quoted `[message]` body can't fool the splice
+  anymore.
 
-- [ ] 🟡 **Encoding: `errors="ignore"` silently drops non-UTF8 bytes**
-  (`tools/sim_to_replay.py:305`). Fine for the current corpus. Use
-  `errors="replace"` and log a warning so we notice.
+- [x] 🟡 **Encoding errors='replace' + warning** (DONE 2026-04-28).
+  Decode to text via `errors="replace"` (preserves byte offsets
+  via U+FFFD substitution) and log a warning if any FFFD landed.
+  Old `errors="ignore"` could shift offsets by dropping bytes,
+  breaking the [replay]-block splice silently.
 
 - [ ] 🟢 **Optional `[checkup]` debug emission** — let the user flip a
   flag and emit `attacker_hp/defender_hp` checkup blocks so OOS
@@ -422,9 +428,12 @@ replay export.
   Aliases all unknown types together. Probably fine for scope but
   document.
 
-- [ ] 🟡 **Module-level constants `HP_NORM=80, COST_NORM=80` etc.**
-  (`encoder.py:95-100`). These should live in `constants.py` so an
-  era mod with cost-200 units doesn't silently saturate features.
+- [x] 🟡 **Encoder NORM constants moved to constants.py** (DONE
+  2026-04-28). `HP_NORM`, `MOVES_NORM`, `EXP_NORM`, `COST_NORM`,
+  `GOLD_NORM`, `INCOME_NORM`, `VILLAGES_NORM`, `TURN_NORM` now
+  live in `constants.py` with a comment block explaining the
+  scale rationale. `encoder.py` re-exports them for backwards
+  compatibility. Era mods can override in one place.
 
 ### Performance
 
@@ -459,10 +468,9 @@ replay export.
 
 ### Customizability gaps
 
-- [ ] 🟡 **`_COMBAT_LOGIT_ALPHA = 0.1` baked in** (`action_sampler.py:71`).
-  Strategic lever ("how aggressive is the attack bias"). Move to
-  `constants.py` so a "pacifist" or "berserker" variant is a config
-  flip.
+- [x] 🟡 **`COMBAT_LOGIT_ALPHA` moved to constants.py** (DONE
+  2026-04-28). action_sampler now imports the constant; "pacifist"
+  / "berserker" tuning is a config flip in one place.
 
 - [ ] 🟢 **Combat-oracle bias only on attacks, not on moves**
   (`action_sampler.py:467`). Adding move-toward-good-attack-position

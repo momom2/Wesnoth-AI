@@ -771,6 +771,30 @@ def _to_combat_unit(u: Unit, terrain_key) -> cb.CombatUnit:
     )
 
 
+def _rebuild_unit(unit: Unit, **changes) -> Unit:
+    """Return a NEW Unit copy of `unit` with `**changes` applied to
+    the dataclass fields, preserving any `_`-prefixed setattr stash
+    (e.g. `_defense_table`). Pure -- doesn't touch any GameState.
+
+    Why a separate helper from `_replace_unit`: spawn paths build a
+    fresh Unit (recruit, plague corpse) and then need to apply
+    final-state overrides (e.g. `current_moves=0`, `has_attacked=True`)
+    while keeping the FRESHLY-built stash. _replace_unit is for the
+    in-place modify-existing case (`old` is already on the map and
+    its stash should carry forward). Both go through this helper to
+    consolidate the "preserve _-stash" pattern that several open-
+    coded sites used to repeat verbatim.
+    """
+    base_fields = {
+        k: v for k, v in unit.__dict__.items() if not k.startswith("_")
+    }
+    new = Unit(**{**base_fields, **changes})
+    for k, v in unit.__dict__.items():
+        if k.startswith("_"):
+            setattr(new, k, v)
+    return new
+
+
 def _replace_unit(gs: GameState, old: Unit, **changes) -> Unit:
     """Replace `old` in gs.map.units with a new Unit carrying changed
     fields. Returns the replacement (or the original on no-op).
@@ -780,13 +804,7 @@ def _replace_unit(gs: GameState, old: Unit, **changes) -> Unit:
     forward. Without this, every combat round would silently drop
     feral's village=50 override.
     """
-    base_fields = {
-        k: v for k, v in old.__dict__.items() if not k.startswith("_")
-    }
-    new = Unit(**{**base_fields, **changes})
-    for k, v in old.__dict__.items():
-        if k.startswith("_"):
-            setattr(new, k, v)
+    new = _rebuild_unit(old, **changes)
     gs.map.units.discard(old)
     gs.map.units.add(new)
     return new
@@ -1048,19 +1066,13 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             # (will be cleared again by move/attack during the upcoming
             # turn). Subsequent moves and attacks discard "resting".
             new_statuses.add("resting")
-            base_fields = {
-                k: v for k, v in u.__dict__.items() if not k.startswith("_")
-            }
-            healed = Unit(**{
-                **base_fields,
-                "current_moves": u.max_moves,
-                "has_attacked": False,
-                "current_hp": new_hp,
-                "statuses": new_statuses,
-            })
-            for k, v in u.__dict__.items():
-                if k.startswith("_"):
-                    setattr(healed, k, v)
+            healed = _rebuild_unit(
+                u,
+                current_moves=u.max_moves,
+                has_attacked=False,
+                current_hp=new_hp,
+                statuses=new_statuses,
+            )
             new_units.add(healed)
         gs.map.units = new_units
 
@@ -1118,13 +1130,7 @@ def _apply_command(gs: GameState, cmd: list) -> None:
                 new_units.add(u); continue
             new_statuses = set(u.statuses)
             new_statuses.discard("slowed")
-            base_fields = {
-                k: v for k, v in u.__dict__.items() if not k.startswith("_")
-            }
-            unslowed = Unit(**{**base_fields, "statuses": new_statuses})
-            for k, v in u.__dict__.items():
-                if k.startswith("_"):
-                    setattr(unslowed, k, v)
+            unslowed = _rebuild_unit(u, statuses=new_statuses)
             new_units.add(unslowed)
         gs.map.units = new_units
         return
@@ -1318,15 +1324,10 @@ def _apply_command(gs: GameState, cmd: list) -> None:
                                        game_id=gs.game_id,
                                        trait_seed_hex=trait_seed,
                                        exp_modifier=exp_mod)
-        # On spawn turn, recruits have 0 moves. Preserve any non-field
-        # stash (`_defense_table`) — Unit() reconstruction drops it.
-        base_fields = {
-            k: v for k, v in new_unit.__dict__.items() if not k.startswith("_")
-        }
-        spawned = Unit(**{**base_fields, "current_moves": 0})
-        for k, v in new_unit.__dict__.items():
-            if k.startswith("_"):
-                setattr(spawned, k, v)
+        # On spawn turn, recruits have 0 moves. _rebuild_unit
+        # preserves any `_`-prefixed setattr stash (e.g.
+        # `_defense_table` for trait-modified defenses).
+        spawned = _rebuild_unit(new_unit, current_moves=0)
         gs.map.units.add(spawned)
 
         # Deduct cost from side gold (use unit_db cost; fall back to 14).
@@ -1463,18 +1464,14 @@ def _spawn_plague_corpse(gs: GameState, dead: Unit,
         exp_modifier=exp_mod,
     )
     new_statuses = set(corpse.statuses)
-    base_fields = {
-        k: v for k, v in corpse.__dict__.items() if not k.startswith("_")
-    }
-    spawned = Unit(**{**base_fields,
-                     "current_moves": 0,
-                     "has_attacked": True,
-                     "statuses": new_statuses})
-    for k, v in corpse.__dict__.items():
-        if k.startswith("_"):
-            setattr(spawned, k, v)
     if variation:
-        spawned.statuses.add(f"variation:{variation}")
+        new_statuses.add(f"variation:{variation}")
+    spawned = _rebuild_unit(
+        corpse,
+        current_moves=0,
+        has_attacked=True,
+        statuses=new_statuses,
+    )
     gs.map.units.add(spawned)
 
 

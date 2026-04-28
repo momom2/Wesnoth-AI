@@ -66,6 +66,27 @@ from wesnoth_sim import PvPDefaults, RecordedCommand, WesnothSim, request_seed
 log = logging.getLogger("sim_to_replay")
 
 
+def _wml_quote(s: str) -> str:
+    """Quote `s` for inclusion in a WML attribute value
+    (`key="..."`).
+
+    WML's parser treats backslashes as line-continuations and
+    interprets `""` inside a quoted string as an embedded `"`. Other
+    characters are literal. So:
+      - `\\` must be doubled to `\\\\` (becomes a literal backslash).
+      - `"` must be doubled to `""` (escapes the quote).
+      - everything else passes through.
+
+    Default-era unit names contain no special chars (verified by
+    grepping `data/core/units/**/*.cfg` for `id=...` -- all match
+    `[A-Za-z _:'-]+`), so this is dormant insurance for custom
+    eras / scenarios. Without it, a unit type named e.g.
+    `Custom"Unit` would produce malformed WML that Wesnoth can't
+    parse; with it, the same name round-trips cleanly.
+    """
+    return s.replace("\\", "\\\\").replace('"', '""')
+
+
 # ---------------------------------------------------------------------
 # WML command emission
 # ---------------------------------------------------------------------
@@ -155,7 +176,7 @@ def _wml_for_command(rc: RecordedCommand,
 
     if rc.kind == "recruit":
         # cmd = ["recruit", unit_type, tx, ty, trait_seed]
-        unit_type = rc.cmd[1]
+        unit_type = _wml_quote(str(rc.cmd[1]))
         tx, ty = rc.cmd[2], rc.cmd[3]
         leader_pos = rc.extras.get("leader_pos", (tx, ty))
         lx, ly = leader_pos
@@ -176,7 +197,7 @@ def _wml_for_command(rc: RecordedCommand,
 
     if rc.kind == "recall":
         # cmd = ["recall", unit_id, tx, ty]
-        unit_id = rc.cmd[1]
+        unit_id = _wml_quote(str(rc.cmd[1]))
         tx, ty = rc.cmd[2], rc.cmd[3]
         leader_pos = rc.extras.get("leader_pos", (tx, ty))
         lx, ly = leader_pos
@@ -415,15 +436,27 @@ def _find_final_replay_block(text: str) -> Optional[tuple]:
 
     The file may have an empty initial `[replay]` block (with just
     `[upload_log]`) before `[scenario]`; we always want the LAST one
-    in the file, after `[/scenario]`."""
-    # Find every [replay] / [/replay] pair, take the last one.
-    last_open = text.rfind("[replay]")
-    if last_open < 0:
+    in the file, after `[/scenario]`.
+
+    Robustness: WML tags like `[replay]` / `[/replay]` always appear
+    at the start of a line in real replay files, but the previous
+    plain `text.rfind("[replay]")` would also match a literal
+    `[replay]` substring inside a quoted attribute value (e.g. a
+    `[message] description="..."` body that happened to mention the
+    string). Anchor to start-of-line via regex so quoted-string
+    occurrences don't mislead the splice.
+    """
+    import re
+    open_re  = re.compile(r"^\[replay\]\s*$",  re.MULTILINE)
+    close_re = re.compile(r"^\[/replay\]\s*$", re.MULTILINE)
+    open_matches = list(open_re.finditer(text))
+    if not open_matches:
         return None
-    last_close = text.find("[/replay]", last_open)
-    if last_close < 0:
+    last_open_match = open_matches[-1]
+    close_match = close_re.search(text, last_open_match.end())
+    if close_match is None:
         return None
-    return (last_open, last_close + len("[/replay]"))
+    return (last_open_match.start(), close_match.end())
 
 
 def _rewrite_pvp_settings(text: str, defaults: PvPDefaults) -> str:
@@ -505,8 +538,24 @@ def export_replay(
     source_bz2 = Path(source_bz2)
     out_path = Path(out_path)
     log.info(f"loading source replay {source_bz2}")
-    with bz2.open(source_bz2, "rt", encoding="utf-8", errors="ignore") as f:
-        text = f.read()
+    # `errors="replace"` substitutes U+FFFD for malformed bytes
+    # instead of dropping them. Dropping bytes (errors="ignore")
+    # could shift offsets and break our [replay]-block splicing
+    # silently. With "replace" we count the bad bytes via a
+    # lightweight scan and warn -- a non-zero count is a signal
+    # the source file is corrupted (custom-era replays sometimes
+    # have stray Latin-1 bytes from old Wesnoth versions).
+    with bz2.open(source_bz2, "rb") as f:
+        raw = f.read()
+    text = raw.decode("utf-8", errors="replace")
+    n_replaced = text.count("�")
+    if n_replaced:
+        log.warning(
+            f"{source_bz2.name}: {n_replaced} non-UTF-8 byte(s) "
+            f"replaced with U+FFFD. The file may be from a "
+            f"non-UTF-8 era; if Wesnoth playback errors with "
+            f"'corrupt file', re-decode with errors='ignore' is "
+            f"available at the call site as a fallback.")
 
     span = _find_final_replay_block(text)
     if span is None:

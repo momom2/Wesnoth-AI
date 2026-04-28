@@ -81,3 +81,31 @@ STATE_POLL_INTERVAL    = 0.01   # lowered from 0.05 — Python's 50 ms tick
                                 # added an avg 25 ms tail to every
                                 # read_state. 10 ms cuts that to ~5 ms
                                 # and matches the Lua-side POLL_MS.
+
+# ----------------------------------------------------------------------
+# Encoder feature normalization
+# ----------------------------------------------------------------------
+# Each scalar feature is divided by its NORM constant before being
+# concatenated into the unit / global token. The NORMs are chosen so
+# default-era values land in the [0, ~1] range (the transformer's
+# input scale). Override at config-time to support custom eras whose
+# unit costs / HP exceed these (a cost-200 unit feeds in as 2.5 with
+# the default COST_NORM=80; clipping is fine but you might want to
+# tune COST_NORM up so the spread of cost values is more uniform).
+
+HP_NORM       = 80.0    # full Walking-Corpse's HP =~22; ladder Drake max =~70
+MOVES_NORM    = 10.0    # ladder caps around 7 (Wolf Rider with quick)
+EXP_NORM      = 150.0   # 4-level units (e.g. Lich) need ~150 XP to AMLA
+COST_NORM     = 80.0    # ladder caps around 60 (Yeti, Lich)
+GOLD_NORM     = 500.0   # default-era 2p starts at 100; 500 covers
+                        # late-game gold accumulation
+INCOME_NORM   = 50.0
+VILLAGES_NORM = 30.0    # large 4p maps; 2p ladder caps ~15
+TURN_NORM     = 60.0    # default 2p ladder turn limit ~30, 60 for safety
+
+# Combat-oracle bias on attack-action logits. Raises the prior on
+# attacks where expected net damage is positive (so the policy
+# learns to attack when the trade is favorable). 0.1 = "moderate
+# bias"; 0 = oracle off; >0.3 = aggressive override of learned
+# logits. See action_sampler's call site.
+COMBAT_LOGIT_ALPHA = 0.1

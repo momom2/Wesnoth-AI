@@ -89,15 +89,13 @@ UNIT_FEAT_DIM         = UNIT_NUMERIC_FEATS + UNIT_ALIGNMENT_ONEHOT  # 13
 #   5: their_villages / VILLAGES_NORM
 GLOBAL_FEAT_DIM = 6
 
-# Normalization divisors. Rough upper bounds for each quantity.
-HP_NORM       = 80.0
-MOVES_NORM    = 10.0
-EXP_NORM      = 150.0
-COST_NORM     = 80.0
-GOLD_NORM     = 500.0
-INCOME_NORM   = 50.0
-VILLAGES_NORM = 30.0
-TURN_NORM     = 60.0
+# Normalization divisors. Re-exported from `constants.py` so era
+# mods can override them in one place; see the comment block in
+# constants.py for scale rationale.
+from constants import (
+    HP_NORM, MOVES_NORM, EXP_NORM, COST_NORM,
+    GOLD_NORM, INCOME_NORM, VILLAGES_NORM, TURN_NORM,
+)
 
 
 @dataclass

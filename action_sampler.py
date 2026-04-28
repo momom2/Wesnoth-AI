@@ -72,7 +72,9 @@ log = logging.getLogger("action_sampler")
 # 0.1 × (net damage of ±40) = ±4 logit units, which moves the attack
 # distribution noticeably but doesn't overwhelm learned preferences.
 # Tune down if we see the policy obsessing over marginal attacks.
-_COMBAT_LOGIT_ALPHA = 0.1
+# Re-exported from constants.py so era mods can override; see
+# constants.COMBAT_LOGIT_ALPHA for scale guidance.
+from constants import COMBAT_LOGIT_ALPHA as _COMBAT_LOGIT_ALPHA
 
 
 # Safer-than-torch.inf fill for "this slot is invalid". -inf sometimes
