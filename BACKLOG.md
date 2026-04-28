@@ -76,10 +76,13 @@ stated goals.
   pulled checkpoint. Mirror `job.sbatch` but with a different `done.flag`
   signal (e.g. iteration count instead of epoch9 detection).
 
-- [ ] 🟠 **`pull_checkpoint.ps1` is non-atomic** (`cluster/pull_checkpoint.ps1:82`).
-  `scp REMOTE LOCAL` writes directly. If self-play reads the checkpoint
-  mid-pull, we load a torn file. One-line fix: scp to `<LOCAL>.tmp` then
-  `Move-Item` (atomic on Windows same-drive). Cheap insurance.
+- [x] 🟠 **`pull_checkpoint.ps1` made atomic** (DONE 2026-04-28). scp
+  now writes to `<LOCAL>.tmp`; on success, `Move-Item -Force` swaps it
+  over `<LOCAL>` (same-volume NTFS Move-Item =
+  MoveFileEx(MOVEFILE_REPLACE_EXISTING) which is atomic at the FS
+  level). On scp failure the .tmp is cleaned up. Concurrent self-play
+  readers now see either the old file in full or the new file in full,
+  never a torn half-written buffer.
 
 - [ ] 🟠 **State passed to `select_action` MUST be a stable snapshot — make it
   enforced.** (`transformer_policy.py:143-169`). The harness now deepcopies

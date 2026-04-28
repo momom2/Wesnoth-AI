@@ -77,12 +77,29 @@ $remoteFile = Split-Path -Leaf $remoteFull
 New-Item -ItemType Directory -Force -Path $LocalPath | Out-Null
 $localFull = Join-Path $LocalPath $remoteFile
 
-# scp it back. Single connection.
-Write-Host "[pull] scp ${RemoteHost}:${remoteFull} -> $localFull"
-& scp "${RemoteHost}:${remoteFull}" $localFull
+# Atomic-ish pull: scp into a sibling .tmp file, THEN Move-Item over
+# the final path. Move-Item on the same NTFS volume uses
+# MoveFileEx(MOVEFILE_REPLACE_EXISTING) which is atomic at the
+# filesystem level -- a self-play process reading the same path
+# concurrently either sees the OLD file in full or the NEW file in
+# full, never a torn half-written buffer. Without this, scp writes
+# directly to the target name and a concurrent reader can hit a
+# truncated file (PyTorch torch.load throws "PytorchStreamReader
+# failed reading zip archive" or similar). One-line fix; trivial
+# insurance.
+$tmpFull = "$localFull.tmp"
+# Clean up any orphan .tmp from a prior aborted pull.
+if (Test-Path $tmpFull) { Remove-Item -LiteralPath $tmpFull -Force }
+
+Write-Host "[pull] scp ${RemoteHost}:${remoteFull} -> $tmpFull"
+& scp "${RemoteHost}:${remoteFull}" $tmpFull
 if ($LASTEXITCODE -ne 0) {
+    if (Test-Path $tmpFull) { Remove-Item -LiteralPath $tmpFull -Force }
     throw "[pull] scp failed (exit $LASTEXITCODE)"
 }
+
+# Atomic replace. -Force overrides the existing $localFull.
+Move-Item -LiteralPath $tmpFull -Destination $localFull -Force
 
 $size = (Get-Item $localFull).Length
 Write-Host ("[pull] done: {0} ({1:N1} MB)" -f $localFull, ($size / 1MB))
