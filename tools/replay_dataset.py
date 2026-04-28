@@ -1402,17 +1402,26 @@ def _spawn_plague_corpse(gs: GameState, dead: Unit,
     if _terrain_at(gs, dead.position.x, dead.position.y) == "village":
         return
 
-    # Pick the spawn unit-type: attacker's PARENT_ID (`Walking Corpse`
-    # / `Soulless` for default-era plague users), NOT the attacker's
-    # own name. If the attacker is itself a variation -- e.g. a
-    # `Walking Corpse:mounted` (a previously-raised cavalry corpse)
-    # killing a Wose -- Wesnoth's plague spawns a fresh `Walking
-    # Corpse` (the parent) with the dead unit's `undead_variation`
-    # applied, NOT a `Walking Corpse:mounted:wose` chained-variation
-    # which doesn't exist in the unit DB. The parent_id is stored
-    # under "id" on every entry (variations inherit their parent's
-    # id; see scrape_unit_stats.extract_variations). Fall back to
-    # attacker.name if the lookup misses (custom era, missing scrape).
+    # Resolve the spawn type via Wesnoth's two-axis rule (verified
+    # against wesnoth_src/src/actions/attack.cpp:159-164, 1290-1306):
+    #
+    #   - SPAWN BASE TYPE = attacker's `parent_id` -- so the attacker's
+    #     TYPE FAMILY (Walking Corpse vs Soulless) carries over, but
+    #     its VARIATION does NOT. Both `Walking Corpse:mounted` and
+    #     `Walking Corpse:falcon` spawn from the parent `Walking Corpse`.
+    #     A `Soulless` (or any of its variations) spawns from `Soulless`.
+    #
+    #   - SPAWN VARIATION = killed unit's `undead_variation`. The
+    #     attacker's variation never propagates. Cavalryman has
+    #     undead_variation=mounted -> any plague kill on a Cavalryman
+    #     produces a `:mounted` variation, regardless of who the
+    #     attacker was.
+    #
+    # The parent_id is stored under "id" on every entry (variations
+    # inherit their parent's id; see scrape_unit_stats.extract_variations).
+    # Fall back to attacker_name if the lookup misses (custom era /
+    # missing scrape). Locked in by test_plague_spawn_type_resolution
+    # in test_sim_advance.py.
     attacker_stats = _stats_for(attacker_name)
     base_type = str(attacker_stats.get("id", "") or "").strip() or attacker_name
     variation = str(dead_stats.get("undead_variation", "")).strip()

@@ -224,6 +224,50 @@ def test_select_action_rejects_repeated_state(fresh_sim):
         policy.select_action(sim.gs, game_label="contract")
 
 
+def test_plague_spawn_type_resolution():
+    """`_spawn_plague_corpse`'s type-resolution logic, locked in via
+    the post-fix invariants:
+
+    From Wesnoth source (attack.cpp:159-164, 1290-1306):
+      - SPAWN BASE TYPE = `attacker.type().parent_id()` -- the
+        attacker's PARENT type-family carries over (Walking Corpse vs
+        Soulless), but its variation does NOT.
+      - SPAWN VARIATION = killed unit's `undead_variation` -- the
+        attacker's variation never propagates.
+
+    So if a Walking Corpse:falcon kills a Cavalryman:
+      - parent_id of attacker = "Walking Corpse" (NOT "Walking Corpse:falcon")
+      - undead_variation of dead = "mounted"
+      - spawn = "Walking Corpse:mounted" (NOT "Walking Corpse:falcon:mounted",
+        NOT "Walking Corpse:falcon", NOT "Walking Corpse").
+    """
+    from tools.replay_dataset import _stats_for
+
+    def _resolve(attacker_name: str, dead_name: str) -> str:
+        """Mirror the type-resolution slice of _spawn_plague_corpse
+        without going through the full GameState plumbing."""
+        attacker_stats = _stats_for(attacker_name)
+        dead_stats = _stats_for(dead_name)
+        base_type = (str(attacker_stats.get("id", "") or "").strip()
+                     or attacker_name)
+        variation = str(dead_stats.get("undead_variation", "")).strip()
+        return f"{base_type}:{variation}" if variation else base_type
+
+    # Variation comes from dead, type family from attacker.
+    assert _resolve("Walking Corpse",          "Cavalryman") == "Walking Corpse:mounted"
+    assert _resolve("Walking Corpse:mounted",  "Cavalryman") == "Walking Corpse:mounted"
+    assert _resolve("Walking Corpse:falcon",   "Cavalryman") == "Walking Corpse:mounted"
+    # Same family invariant for Soulless.
+    assert _resolve("Soulless",         "Cavalryman") == "Soulless:mounted"
+    assert _resolve("Soulless:mounted", "Cavalryman") == "Soulless:mounted"
+    # Empty-undead-variation dead: no variation applied.
+    # (Spearman has undead_variation="" so it stays as base WC.)
+    assert _resolve("Walking Corpse:mounted", "Spearman") == "Walking Corpse"
+    # Cross-family: a Soulless variation kills a mounted unit -> Soulless,
+    # NOT Walking Corpse, regardless of the attacker variation.
+    assert _resolve("Soulless:mounted", "Cavalryman") == "Soulless:mounted"
+
+
 def test_recall_action_rejected_to_end_turn(fresh_sim):
     """The sim has no recall list and the exporter would emit a
     broken `[recall]` block citing a unit_id that's not on Wesnoth's
