@@ -359,12 +359,18 @@ class ActionIndices:
     actor_idx is an index into (unit_slots + recruit_slots + end_turn),
     the same ordering the encoder produces. target_idx is an index
     into hex_positions. weapon_idx is an attack-slot index (0..3).
-    None where the head is irrelevant for this action type.
+    type_idx is the UnitActionType (ATTACK/MOVE) for unit actors,
+    None for recruit / end_turn / legacy. Derived at extract time
+    from action_type:
+      "attack" -> 0 (UnitActionType.ATTACK)
+      "move"   -> 1 (UnitActionType.MOVE)
+      else     -> None
     """
     action_type: str
     actor_idx:   int
     target_idx:  Optional[int]  = None
     weapon_idx:  Optional[int]  = None
+    type_idx:    Optional[int]  = None
 
 
 def _alignment_from_str(s: str) -> AlignmentEnum:
@@ -1602,7 +1608,13 @@ def _action_indices(gs: GameState, cmd: list) -> Optional[ActionIndices]:
         target = pos_to_hex_idx.get((tx, ty))
         if target is None:
             return None
-        return ActionIndices("move", actor_idx=actor, target_idx=target)
+        # type_idx=1 (MOVE) for the action-type head; lazy import
+        # of model.UnitActionType to avoid a hard dep cycle (model
+        # already imports replay_dataset transitively via the
+        # encoder).
+        from model import UnitActionType
+        return ActionIndices("move", actor_idx=actor, target_idx=target,
+                             type_idx=UnitActionType.MOVE)
 
     if kind == "attack":
         ax, ay, dx, dy, weapon = cmd[1], cmd[2], cmd[3], cmd[4], cmd[5]
@@ -1615,8 +1627,10 @@ def _action_indices(gs: GameState, cmd: list) -> Optional[ActionIndices]:
         target = pos_to_hex_idx.get((dx, dy))
         if target is None:
             return None
+        from model import UnitActionType
         return ActionIndices("attack", actor_idx=actor,
-                             target_idx=target, weapon_idx=weapon)
+                             target_idx=target, weapon_idx=weapon,
+                             type_idx=UnitActionType.ATTACK)
 
     if kind == "recruit":
         unit_type = cmd[1]
