@@ -103,12 +103,39 @@ INCOME_NORM   = 50.0
 VILLAGES_NORM = 30.0    # large 4p maps; 2p ladder caps ~15
 TURN_NORM     = 60.0    # default 2p ladder turn limit ~30, 60 for safety
 
-# Combat-oracle bias on attack-action logits. Raises the prior on
-# attacks where expected net damage is positive (so the policy
-# learns to attack when the trade is favorable). 0.1 = "moderate
-# bias"; 0 = oracle off; >0.3 = aggressive override of learned
-# logits. See action_sampler's call site.
-COMBAT_LOGIT_ALPHA = 0.1
+# Combat-oracle biases. Two channels:
+#
+#   - TARGET_ALPHA: scales the per-target attack-bias added to the
+#     hex-target logits when the policy chose ATTACK. Raises priors
+#     for high expected-damage targets. 0.1 = moderate; 0 = off.
+#   - TYPE_ALPHA: scales the per-actor "raise P(ATTACK | actor)"
+#     bias added to the type_logits[ATTACK] when ANY reachable
+#     enemy gives positive expected net damage. The aggregator is
+#     `max_j(net_score[actor, j])` -- "you have at least one
+#     profitable attack available, consider attacking."
+#
+# Both biases anneal multiplicatively over training: at the start
+# of supervised training they're at full strength, by horizon end
+# they're at 10% strength (configurable floor below). The policy's
+# learned logits dominate after horizon; the oracle is just a
+# warm-start prior. See action_sampler.combat_alphas_at().
+COMBAT_TARGET_ALPHA = 0.1
+COMBAT_TYPE_ALPHA   = 0.1
+# Backwards-compat alias (used by the rare external caller); the
+# canonical names are the two above.
+COMBAT_LOGIT_ALPHA = COMBAT_TARGET_ALPHA
+
+# Anneal horizon (per-Python-decision count) over which the alphas
+# decay from their configured value to ANNEAL_FLOOR_FRACTION × the
+# configured value. 1M decisions ≈ a significant chunk of supervised
+# training (5000 self-play games × 200 decisions/game), so the
+# annealing reaches the floor late in training. Set to 0 to disable
+# annealing (alphas stay at the configured value forever).
+COMBAT_ANNEAL_HORIZON     = 1_000_000
+# Minimum multiplier on the configured alphas at horizon end. 0.1 =
+# the bias persists at 10% strength forever (a small nudge that's
+# still useful late-training when the model has its own preferences).
+COMBAT_ANNEAL_FLOOR_FRACTION = 0.1
 
 # Pre-seeded faction vocab. The encoder pre-binds these to specific
 # embedding rows so cross-replay supervised training stays

@@ -132,6 +132,13 @@ class TransformerPolicy:
         # so production runs (`python -O`) skip the bookkeeping.
         self._last_state_id: Dict[Tuple[str, int], int] = {}
 
+        # Per-Python-decision counter, threaded into the sampler so
+        # combat-oracle alphas anneal over training. Persisted via
+        # save_checkpoint / load_checkpoint so resumed training picks
+        # up the schedule cleanly. See action_sampler.combat_alphas_at
+        # and constants.COMBAT_ANNEAL_HORIZON.
+        self._decision_step: int = 0
+
         # Architecture record (for checkpoint compat checks).
         self._arch = {
             "d_model":     d_model,
@@ -213,7 +220,15 @@ class TransformerPolicy:
         with torch.no_grad():
             encoded = self._encoder.encode(game_state)
             output = self._model(encoded)
-            sampled = sample_action(encoded, output, game_state)
+            sampled = sample_action(
+                encoded, output, game_state,
+                decision_step=self._decision_step,
+            )
+        # Increment AFTER sampling so decision N's alpha schedule
+        # matches the value the trainer's reforward sees when it
+        # consults the same counter (we save the counter at
+        # checkpoint time; trainer's reforward uses it as-is).
+        self._decision_step += 1
 
         side = game_state.global_info.current_side
         key = (game_label, side)
@@ -377,6 +392,7 @@ class TransformerPolicy:
                 "unit_type_to_id": dict(self._encoder.unit_type_to_id),
                 "faction_to_id":   dict(self._encoder.faction_to_id),
                 "optimizer_state": self._trainer.optimizer.state_dict(),
+                "decision_step":   self._decision_step,
             },
             path,
         )
@@ -448,7 +464,14 @@ class TransformerPolicy:
                     f"Couldn't restore optimizer state: {e}. Training "
                     f"will re-accumulate momentum from scratch."
                 )
-        self._logger.info(f"Loaded checkpoint from {path}")
+        # Decision counter -- absent on pre-C.3 checkpoints; default 0
+        # there means the alpha schedule starts fresh on resume from
+        # an old checkpoint, which is fine (the model just gets full
+        # oracle bias for a while as if starting over).
+        self._decision_step = int(ckpt.get("decision_step", 0))
+        self._logger.info(
+            f"Loaded checkpoint from {path} "
+            f"(decision_step={self._decision_step})")
 
 
 def _register() -> None:

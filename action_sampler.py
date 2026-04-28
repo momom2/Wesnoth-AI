@@ -67,14 +67,50 @@ from rewards import hex_distance
 log = logging.getLogger("action_sampler")
 
 
-# How strongly the combat oracle nudges attack-target selection. Set
-# as a fraction of the typical logit scale (~ ±3-5 after training).
-# 0.1 × (net damage of ±40) = ±4 logit units, which moves the attack
-# distribution noticeably but doesn't overwhelm learned preferences.
-# Tune down if we see the policy obsessing over marginal attacks.
-# Re-exported from constants.py so era mods can override; see
-# constants.COMBAT_LOGIT_ALPHA for scale guidance.
-from constants import COMBAT_LOGIT_ALPHA as _COMBAT_LOGIT_ALPHA
+# Combat-oracle alpha schedule. See constants.py for full
+# explanation. The TARGET alpha shifts attack-target logits
+# (current behavior); the TYPE alpha shifts P(ATTACK | actor) on
+# the type head (new in C.3). Both anneal as a multiplicative
+# fraction of their configured value over a horizon of training
+# decisions, with a floor (default 0.1×) so the bias persists at
+# small strength forever.
+from constants import (
+    COMBAT_TARGET_ALPHA,
+    COMBAT_TYPE_ALPHA,
+    COMBAT_ANNEAL_HORIZON,
+    COMBAT_ANNEAL_FLOOR_FRACTION,
+)
+
+
+def combat_alphas_at(decision_step: int) -> Tuple[float, float]:
+    """Return (target_alpha, type_alpha) at training step
+    `decision_step`. Linear decay from the configured value at
+    decision 0 to `FLOOR × configured` at HORIZON; flat at FLOOR
+    afterward. With HORIZON=0 the schedule degenerates to the
+    configured values.
+
+    Decoupling the schedule from the constants lets the trainer
+    (or any caller that holds a decision counter) anneal without
+    monkey-patching globals. Per-decision-step granularity matches
+    the unit the sampler operates on.
+    """
+    if COMBAT_ANNEAL_HORIZON <= 0:
+        return COMBAT_TARGET_ALPHA, COMBAT_TYPE_ALPHA
+    floor = COMBAT_ANNEAL_FLOOR_FRACTION
+    if decision_step <= 0:
+        frac = 1.0
+    elif decision_step >= COMBAT_ANNEAL_HORIZON:
+        frac = floor
+    else:
+        # Linear from 1.0 at step 0 to `floor` at horizon.
+        progress = decision_step / COMBAT_ANNEAL_HORIZON
+        frac = 1.0 - progress * (1.0 - floor)
+    return COMBAT_TARGET_ALPHA * frac, COMBAT_TYPE_ALPHA * frac
+
+
+# Legacy alias kept for any external caller that imported the old
+# name. New code should call `combat_alphas_at(step)`.
+_COMBAT_LOGIT_ALPHA = COMBAT_TARGET_ALPHA
 
 
 # Safer-than-torch.inf fill for "this slot is invalid". -inf sometimes
@@ -134,6 +170,8 @@ def sample_action(
     encoded:    EncodedState,
     output:     ModelOutput,
     game_state: GameState,
+    *,
+    decision_step: int = 0,
 ) -> SampledAction:
     """Stochastic sampling. Caller should be in torch.no_grad context
     to avoid retaining the forward graph — this function only reads
@@ -154,7 +192,8 @@ def sample_action(
     device = output.actor_logits.device
     value_est = float(output.value.squeeze().item())
 
-    masks = _build_legality_masks(encoded, game_state)
+    masks = _build_legality_masks(encoded, game_state,
+                                  decision_step=decision_step)
 
     actor_logits = _masked_actor_logits(encoded, output, masks.actor_valid)
     actor_idx = _sample_from_logits(actor_logits.squeeze(0))
@@ -199,7 +238,9 @@ def sample_action(
 
     # ActorKind.UNIT: type -> target (with type-conditional mask)
     # -> weapon (only for ATTACK).
-    type_logits = _masked_type_logits(output, masks.type_valid, actor_idx)
+    type_logits = _masked_type_logits(
+        output, masks.type_valid, actor_idx, type_bias=masks.type_bias,
+    )
     if type_logits.numel() == 0 or torch.isinf(type_logits).all():
         # No legal type for this unit (shouldn't happen since
         # actor_valid already gates on that, but guard against
@@ -285,6 +326,7 @@ def reforward_logprob_entropy(
     target_idx: Optional[int],
     weapon_idx: Optional[int],
     type_idx:   Optional[int] = None,
+    decision_step: int = 0,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Given stored action indices, compute (log_prob, entropy) as
     scalar grad-enabled tensors. The trainer sums these across a
@@ -304,7 +346,8 @@ def reforward_logprob_entropy(
     """
     from model import UnitActionType
 
-    masks = _build_legality_masks(encoded, game_state)
+    masks = _build_legality_masks(encoded, game_state,
+                                  decision_step=decision_step)
 
     actor_logits = _masked_actor_logits(encoded, output, masks.actor_valid)
     log_prob, entropy = _logprob_entropy_1d(actor_logits.squeeze(0), actor_idx)
@@ -315,7 +358,9 @@ def reforward_logprob_entropy(
     # Type term -- only for UNIT actors with a stored type_idx.
     is_unit_actor = actor_idx < output.num_units
     if is_unit_actor and type_idx is not None:
-        type_logits = _masked_type_logits(output, masks.type_valid, actor_idx)
+        type_logits = _masked_type_logits(
+            output, masks.type_valid, actor_idx, type_bias=masks.type_bias,
+        )
         lp_type, ent_type = _logprob_entropy_1d(type_logits, type_idx)
         log_prob = log_prob + lp_type
         entropy  = entropy  + ent_type
@@ -559,14 +604,22 @@ def _masked_type_logits(
     output: ModelOutput,
     type_valid: torch.Tensor,    # [1, A, T] float
     actor_idx: int,
+    type_bias: Optional[torch.Tensor] = None,    # [1, A, T] or None
 ) -> torch.Tensor:
     """Pull `output.type_logits[actor]` and mask types whose
     legality bit is zero. Returns [T] tensor; if every type is
     masked off, returns the unmasked row (caller should treat
-    that as a degenerate state and degrade gracefully)."""
+    that as a degenerate state and degrade gracefully).
+
+    `type_bias`: combat-oracle prior on type selection (currently
+    only ATTACK gets a non-zero bias). Added to the row BEFORE
+    masking, mirroring how `attack_bias` is composed into target
+    logits."""
     row = output.type_logits[0, actor_idx]   # [T]
     if row.numel() == 0:
         return row
+    if type_bias is not None:
+        row = row + type_bias[0, actor_idx]
     mask = type_valid[0, actor_idx]          # [T]
     if mask.sum().item() == 0:
         return row
@@ -687,11 +740,22 @@ class LegalityMasks:
                                 #                  has any 1; MOVE
                                 #                  similarly. Always 0
                                 #                  for non-UNIT actors.
+    type_bias:    torch.Tensor  # [1, A, T] float -- combat-oracle prior
+                                # ON THE TYPE distribution: raises
+                                # P(ATTACK | actor) when at least one
+                                # reachable enemy gives positive
+                                # expected net damage. type_bias[..., MOVE]
+                                # is always 0. Scaled by the annealed
+                                # COMBAT_TYPE_ALPHA at compute time.
     attack_bias:  torch.Tensor  # [A, H] float — combat-oracle logit prior
+                                # ON THE TARGET distribution (within
+                                # ATTACK type). Scaled by the annealed
+                                # COMBAT_TARGET_ALPHA at compute time.
 
 
 def _build_legality_masks(
     encoded: EncodedState, game_state: GameState,
+    *, decision_step: int = 0,
 ) -> LegalityMasks:
     """Assemble actor + target validity masks from the game state.
 
@@ -699,7 +763,12 @@ def _build_legality_masks(
     checks. Transfers to the model's device at the end. Cost budget
     is ~1ms per decision on Caves-of-the-Basilisk scale; if that
     grows, the per-unit loop is the thing to flatten further.
+
+    `decision_step`: per-Python-decision counter the trainer / policy
+    threads through. Drives the combat-oracle alpha schedule (see
+    `combat_alphas_at`). Default 0 = full-strength oracle.
     """
+    target_alpha, type_alpha = combat_alphas_at(decision_step)
     device = encoded.unit_is_ours.device
     U = encoded.unit_tokens.size(1)
     R = encoded.recruit_tokens.size(1)
@@ -714,6 +783,7 @@ def _build_legality_masks(
     target_attack_np = np.zeros((A, H), dtype=np.float32)
     target_move_np   = np.zeros((A, H), dtype=np.float32)
     type_valid_np   = np.zeros((A, T), dtype=np.float32)
+    type_bias_np    = np.zeros((A, T), dtype=np.float32)
     attack_bias_np  = np.zeros((A, H), dtype=np.float32)
 
     # End_turn actor is the LAST slot; always valid, no target.
@@ -726,6 +796,7 @@ def _build_legality_masks(
             target_valid_attack = torch.from_numpy(target_attack_np).to(device),
             target_valid_move   = torch.from_numpy(target_move_np).to(device),
             type_valid   = torch.from_numpy(type_valid_np).to(device).unsqueeze(0),
+            type_bias    = torch.from_numpy(type_bias_np).to(device).unsqueeze(0),
             attack_bias  = torch.from_numpy(attack_bias_np).to(device),
         )
 
@@ -782,12 +853,16 @@ def _build_legality_masks(
             move_row = empty_mask & ~self_mask & (dist <= moves)
         if can_attack:
             attack_row = enemy_mask & (dist <= moves + 1)
-            # Combat-oracle prior: for each valid attack target, score
-            # the expected net damage using the unit's best weapon. We
-            # feed this into attack_bias_np so sample_action can add
-            # it to target_logits. Only apply to enemy hexes this
-            # actor can actually reach-and-attack.
+            # Combat-oracle priors: for each valid attack target, score
+            # the expected net damage using the unit's best weapon.
+            #   - Per-target bias: feed scaled net into attack_bias_np
+            #     so the target softmax leans toward favorable trades.
+            #   - Per-actor type bias: aggregate (max over targets)
+            #     the same scores into type_bias_np[ATTACK] so the
+            #     type softmax leans toward "attack at all" when at
+            #     least one favorable trade exists.
             if attack_row.any():
+                best_score = float("-inf")
                 for j in np.where(attack_row)[0]:
                     ex, ey = int(hex_xs[j]), int(hex_ys[j])
                     enemy_u = unit_at.get((ex, ey))
@@ -797,7 +872,18 @@ def _build_legality_masks(
                         net = expected_attack_net_damage(u, enemy_u)
                     except Exception:
                         net = 0.0
-                    attack_bias_np[i, j] = _COMBAT_LOGIT_ALPHA * net
+                    attack_bias_np[i, j] = target_alpha * net
+                    if net > best_score:
+                        best_score = net
+                # Type bias: only positive scores motivate the "attack"
+                # nudge. A reachable enemy with NEGATIVE expected
+                # net damage shouldn't bias the policy toward
+                # attacking; pinning to max(0, best) keeps the bias
+                # one-sided.
+                if best_score > 0.0 and best_score != float("-inf"):
+                    type_bias_np[i, UnitActionType.ATTACK] = (
+                        type_alpha * best_score
+                    )
 
         # Per-type legality + union into legacy target_valid_np.
         if attack_row.any():
@@ -882,6 +968,7 @@ def _build_legality_masks(
         target_valid_attack = torch.from_numpy(target_attack_np).to(device),
         target_valid_move   = torch.from_numpy(target_move_np).to(device),
         type_valid   = torch.from_numpy(type_valid_np).to(device).unsqueeze(0),
+        type_bias    = torch.from_numpy(type_bias_np).to(device).unsqueeze(0),
         attack_bias  = torch.from_numpy(attack_bias_np).to(device),
     )
 
