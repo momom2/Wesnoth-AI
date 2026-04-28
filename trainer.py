@@ -75,10 +75,18 @@ class MCTSExperience:
     convention). The trainer's `step_mcts` consumes a list of these.
 
     `visit_counts` records how many MCTS rollouts selected each
-    legal (actor, target, weapon) action FROM this state. It's NOT
-    pre-normalized -- the loss divides by total visits internally
-    so different states with different rollout budgets weight
-    correctly when batched.
+    legal (actor, target, weapon, type) action FROM this state. It
+    is NOT pre-normalized -- the loss divides by total visits
+    internally so different states with different rollout budgets
+    weight correctly when batched.
+
+    Schema: tuples of (actor_idx, target_idx, weapon_idx, count, type_idx).
+    `type_idx` is the new (C.4) sub-decision for unit actors --
+    UnitActionType.ATTACK or UnitActionType.MOVE. None for recruit
+    / end_turn. Old (pre-C.4) MCTSExperience pickles used 4-tuples
+    without type; the loss path tolerates either length and
+    falls back to type_idx=None when the tuple is short, so legacy
+    serialized data still trains.
 
     `z` is the terminal outcome from the perspective of the
     side-to-move at `game_state` (Wesnoth has no draws in PvP, but
@@ -88,11 +96,11 @@ class MCTSExperience:
     to predict the eventual outcome from each visited state.
 
     Indices match `LegalActionPrior` from action_sampler so the
-    same (actor, target, weapon) tuple a node returned during
+    same (actor, target, weapon, type) tuple a node returned during
     expansion can be stored verbatim here.
     """
     game_state:  GameState
-    visit_counts: List[Tuple[int, Optional[int], Optional[int], int]]
+    visit_counts: List[Tuple]    # 4-tuple (legacy) or 5-tuple (new)
     z:            float
 
 
@@ -398,30 +406,49 @@ def _mcts_factored_policy_loss(
     encoded,
     output,
     game_state: GameState,
-    visit_counts: List[Tuple[int, Optional[int], Optional[int], int]],
+    visit_counts: List[Tuple],
 ) -> Tuple[torch.Tensor, float, float]:
     """Cross-entropy of the model's factored policy against MCTS
     visit counts. Returns (loss, total_visits, action_kl_proxy).
 
-    The factored loss decomposes joint cross-entropy across the three
-    heads: per-visit, sum log P(actor) + log P(target|actor) +
-    log P(weapon|actor). This is mathematically identical to building
-    a flat joint distribution and CE'ing against it -- the marginal
-    visits per actor naturally weight the conditional CE on its
-    targets / weapons -- but avoids materializing the joint tensor
-    over A * H * MAX_ATTACKS slots.
+    The factored loss decomposes joint cross-entropy across four
+    heads:
+      log P(actor) + [log P(type | actor) for unit actors]
+                   + log P(target | actor [, type]) + [log P(weapon | actor) for ATTACK]
+    Mathematically identical to a flat joint CE; avoids
+    materializing the A*T*H*MAX_ATTACKS joint.
 
-    Caches per-actor target/weapon log-probs since multiple visits
-    typically share an actor.
+    Caches per-actor target / weapon / type log-probs since
+    multiple visits typically share an actor.
+
+    Visit-count tuple schema: 4-tuple (actor, target, weapon, count)
+    on legacy data, 5-tuple (actor, target, weapon, count, type) on
+    new data. The unpacking below tolerates both.
     """
+    from action_sampler import _masked_target_logits_from_row, _masked_type_logits
+    from model import UnitActionType
+
+    # Helper to unpack legacy 4-tuple OR new 5-tuple.
+    def _unpack(t):
+        if len(t) >= 5:
+            actor, target, weapon, count, type_idx = t[0], t[1], t[2], t[3], t[4]
+        else:
+            actor, target, weapon, count = t[0], t[1], t[2], t[3]
+            type_idx = None
+        return actor, target, weapon, count, type_idx
+
     masks = _build_legality_masks(encoded, game_state)
     actor_logits = _masked_actor_logits(encoded, output, masks.actor_valid)
     actor_logp = F.log_softmax(actor_logits.squeeze(0), dim=-1)  # [A]
 
-    target_logp_cache: Dict[int, torch.Tensor] = {}
+    # Per-actor caches.
+    type_logp_cache:        Dict[int, torch.Tensor] = {}
+    target_attack_logp_cache: Dict[int, torch.Tensor] = {}
+    target_move_logp_cache:   Dict[int, torch.Tensor] = {}
+    target_union_logp_cache:  Dict[int, torch.Tensor] = {}
     weapon_logp_cache: Dict[int, Tuple[torch.Tensor, int]] = {}
 
-    total_visits = sum(c for _, _, _, c in visit_counts)
+    total_visits = sum(_unpack(t)[3] for t in visit_counts)
     if total_visits <= 0:
         return (
             actor_logp.new_zeros(()),
@@ -437,27 +464,62 @@ def _mcts_factored_policy_loss(
     # mean -log p(a|s) so the train_step log line stays informative.
     sum_actor_nlp = 0.0
 
-    for actor_idx, target_idx, weapon_idx, count in visit_counts:
+    for tup in visit_counts:
+        actor_idx, target_idx, weapon_idx, count, type_idx = _unpack(tup)
         if count <= 0:
             continue
         nll = nll - count * actor_logp[actor_idx]
         sum_actor_nlp += count * float(-actor_logp[actor_idx].item())
 
-        if target_idx is not None:
-            tlp = target_logp_cache.get(actor_idx)
-            if tlp is None:
-                tl = _masked_target_logits(
-                    output, masks.target_valid, actor_idx,
-                    attack_bias=masks.attack_bias,
+        # Type term (only for unit actors with a type_idx).
+        is_unit = actor_idx < output.num_units
+        if is_unit and type_idx is not None:
+            tylp = type_logp_cache.get(actor_idx)
+            if tylp is None:
+                tyl = _masked_type_logits(
+                    output, masks.type_valid, actor_idx,
+                    type_bias=masks.type_bias,
                 )
-                # Empty target row -> skip the target term (the actor
-                # was selected but had no valid hex; the loss can't
-                # distill an undefined distribution).
-                if tl.numel() == 0:
-                    target_logp_cache[actor_idx] = None  # type: ignore
-                    continue
-                tlp = F.log_softmax(tl, dim=-1)
-                target_logp_cache[actor_idx] = tlp
+                if tyl.numel() == 0:
+                    type_logp_cache[actor_idx] = None  # type: ignore
+                else:
+                    tylp = F.log_softmax(tyl, dim=-1)
+                    type_logp_cache[actor_idx] = tylp
+            if tylp is not None:
+                nll = nll - count * tylp[type_idx]
+
+        if target_idx is not None:
+            # Pick the type-conditional cache for unit actors with
+            # a type_idx; legacy entries (type_idx=None) fall back
+            # to the union mask (legacy chain rule).
+            if is_unit and type_idx == UnitActionType.ATTACK:
+                tlp = target_attack_logp_cache.get(actor_idx)
+                if tlp is None:
+                    tl = _masked_target_logits_from_row(
+                        output, masks.target_valid_attack[actor_idx],
+                        actor_idx, attack_bias=masks.attack_bias[actor_idx],
+                    )
+                    tlp = F.log_softmax(tl, dim=-1) if tl.numel() else None
+                    target_attack_logp_cache[actor_idx] = tlp
+            elif is_unit and type_idx == UnitActionType.MOVE:
+                tlp = target_move_logp_cache.get(actor_idx)
+                if tlp is None:
+                    tl = _masked_target_logits_from_row(
+                        output, masks.target_valid_move[actor_idx],
+                        actor_idx, attack_bias=None,
+                    )
+                    tlp = F.log_softmax(tl, dim=-1) if tl.numel() else None
+                    target_move_logp_cache[actor_idx] = tlp
+            else:
+                # Legacy / recruit / end_turn -- union mask.
+                tlp = target_union_logp_cache.get(actor_idx)
+                if tlp is None:
+                    tl = _masked_target_logits(
+                        output, masks.target_valid, actor_idx,
+                        attack_bias=masks.attack_bias,
+                    )
+                    tlp = F.log_softmax(tl, dim=-1) if tl.numel() else None
+                    target_union_logp_cache[actor_idx] = tlp
             if tlp is None:
                 continue
             nll = nll - count * tlp[target_idx]

@@ -158,12 +158,13 @@ class MCTSConfig:
 class MCTSEdge:
     """One outgoing action from a node. Stores PUCT statistics:
     visit count, summed value, prior, lazy-created child node."""
-    __slots__ = ("action", "actor_idx", "target_idx", "weapon_idx",
-                 "prior", "n_visits", "w_value", "child")
+    __slots__ = ("action", "actor_idx", "type_idx", "target_idx",
+                 "weapon_idx", "prior", "n_visits", "w_value", "child")
 
     def __init__(self, lap: LegalActionPrior):
         self.action     = lap.action
         self.actor_idx  = lap.actor_idx
+        self.type_idx   = lap.type_idx
         self.target_idx = lap.target_idx
         self.weapon_idx = lap.weapon_idx
         self.prior      = lap.prior
@@ -457,16 +458,21 @@ def mcts_search(
 
 def extract_visit_counts(
     root: MCTSNode,
-) -> List[Tuple[int, Optional[int], Optional[int], int]]:
+) -> List[Tuple]:
     """Convert the root's edge visit counts into the tuple format
     `MCTSExperience.visit_counts` expects. Skips zero-visit edges.
 
+    Schema: 5-tuples (actor_idx, target_idx, weapon_idx, count, type_idx).
+    Trainer's `_mcts_factored_policy_loss` consumes this; legacy 4-
+    tuples without type_idx still work (caller-side fallback).
+
     Cast to int because virtual-loss accounting promotes `n_visits` to
     float during batched search (vloss=1.0 + add/sub round-trip leaves
-    an integer-valued float). Trainer math is float-safe but the
-    `MCTSExperience.visit_counts` schema annotates `int` -- honor it."""
+    an integer-valued float). Trainer math is float-safe but we
+    canonicalize to int here."""
     return [
-        (e.actor_idx, e.target_idx, e.weapon_idx, int(e.n_visits))
+        (e.actor_idx, e.target_idx, e.weapon_idx,
+         int(e.n_visits), e.type_idx)
         for e in root.edges if e.n_visits > 0
     ]
 

@@ -350,6 +350,79 @@ def test_legality_mask_type_bias_decays_with_decision_step():
     assert ratio == pytest.approx(COMBAT_ANNEAL_FLOOR_FRACTION, rel=1e-4)
 
 
+# ---------------------------------------------------------------------
+# MCTS expansion: type_idx in priors + visit counts
+# ---------------------------------------------------------------------
+
+def test_enumerate_legal_actions_with_priors_includes_type_idx():
+    """LegalActionPrior records type_idx for unit actions; recruit
+    + end_turn keep type_idx=None."""
+    from action_sampler import enumerate_legal_actions_with_priors
+    from model import UnitActionType
+    gs = _gs_with_unit_and_enemy()
+    encoder = GameStateEncoder()
+    encoder.register_names(gs)
+    model = WesnothModel()
+    encoded = encoder.encode(gs)
+    with torch.no_grad():
+        out = model(encoded)
+        priors = enumerate_legal_actions_with_priors(encoded, out, gs)
+    by_type = {"attack": 0, "move": 0, "recruit": 0, "end_turn": 0}
+    for p in priors:
+        atype = p.action.get("type")
+        by_type[atype] = by_type.get(atype, 0) + 1
+        if atype == "attack":
+            assert p.type_idx == UnitActionType.ATTACK
+        elif atype == "move":
+            assert p.type_idx == UnitActionType.MOVE
+        elif atype in ("recruit", "end_turn"):
+            assert p.type_idx is None
+    # Should have multiple unit actions (we have a unit at (3,3) +
+    # an enemy at (4,3)) AND at least one end_turn entry.
+    assert by_type["end_turn"] >= 1
+    assert (by_type["attack"] + by_type["move"]) >= 1
+
+
+def test_mcts_factored_loss_consumes_type_idx():
+    """Trainer's _mcts_factored_policy_loss handles 5-tuples (with
+    type_idx). Smoke check that the loss is finite and depends on
+    the type term."""
+    from action_sampler import enumerate_legal_actions_with_priors
+    from trainer import _mcts_factored_policy_loss
+    from model import UnitActionType
+
+    gs = _gs_with_unit_and_enemy()
+    encoder = GameStateEncoder()
+    encoder.register_names(gs)
+    model = WesnothModel()
+    encoded = encoder.encode(gs)
+    out = model(encoded)
+    priors = enumerate_legal_actions_with_priors(encoded, out, gs)
+
+    # Synthetic visit_counts: one visit on the first unit-actor
+    # action with type_idx populated. Use the new 5-tuple schema.
+    unit_priors = [p for p in priors if p.type_idx is not None]
+    if not unit_priors:
+        pytest.skip("no unit-actor actions in priors")
+    p0 = unit_priors[0]
+    new_schema_visits = [
+        (p0.actor_idx, p0.target_idx, p0.weapon_idx, 1, p0.type_idx),
+    ]
+    legacy_schema_visits = [
+        (p0.actor_idx, p0.target_idx, p0.weapon_idx, 1),
+    ]
+    loss_new, _, _ = _mcts_factored_policy_loss(
+        encoded, out, gs, new_schema_visits)
+    loss_legacy, _, _ = _mcts_factored_policy_loss(
+        encoded, out, gs, legacy_schema_visits)
+    assert torch.isfinite(loss_new).item()
+    assert torch.isfinite(loss_legacy).item()
+    # New schema includes the type term; legacy doesn't. They should
+    # differ for unit actions (where the type term fires).
+    assert float(loss_new.item()) != pytest.approx(
+        float(loss_legacy.item()), abs=1e-6)
+
+
 def test_reforward_legacy_no_type_idx_still_works():
     """A transition stored before the type head landed (type_idx=None)
     must still produce a valid log_prob via the legacy chain rule."""
