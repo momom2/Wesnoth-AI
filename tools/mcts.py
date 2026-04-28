@@ -51,9 +51,17 @@ Usage:
     trainer.step_mcts([exp])
 
 Performance: dominated by the model forward at each leaf expansion
-(~30-50ms on CPU for our default model). 50 simulations =>
-1.5-2.5s per move single-thread. Batched leaf evaluation
-(BACKLOG.md item) is the next scaling lever.
+(~30-35ms on CPU for our default-sized model: d=128, 3 layers).
+50 simulations => ~1.6s per move single-thread.
+
+Batched-leaf evaluation (`MCTSConfig.batch_size > 1`) is wired up
+via virtual loss but on CPU it's a NET SLOWDOWN at our token
+sequence length: B=1 = 33ms/sim, B=4 = 54ms/sim, B=8 = 56ms/sim
+(measured 2026-04, default model, 30 sims/run). Same root cause
+as `train_batch_size = 1` in the trainer: torch's MHA on CPU
+prefers many small invocations over one big padded one at
+~1750-token sequences. On GPU the inverse holds; flip
+`batch_size` up there.
 """
 
 from __future__ import annotations
@@ -120,6 +128,27 @@ class MCTSConfig:
     # n_simulations yet. Useful for self-play data generation where
     # you'd rather collect more games than over-search any one.
     time_budget:      Optional[float] = None
+
+    # Batched leaf evaluation: how many simulations to run in parallel
+    # via virtual-loss before doing one batched model forward. 1 is
+    # serial (equivalent to the simple algorithm). Setting >1
+    # diverges parallel rollouts via temporary "this looks bad"
+    # virtual losses on selected edges so each sim explores a
+    # different path; once `batch_size` leaves accumulate, they're
+    # forwarded together via model.forward_batch.
+    #
+    # GPU: bigger batches amortize per-launch overhead; B=8-32 is
+    # typically a 5-10x speedup over B=1.
+    # CPU: PyTorch's batched MHA can be SLOWER than B=1 at our
+    # token sequence lengths (see the trainer.py train_batch_size
+    # comment for benchmark rationale). Default B=1 for that reason
+    # -- override on GPU.
+    batch_size:       int   = 1
+    # Virtual-loss strength. Higher = stronger discouragement of
+    # parallel rollouts hitting the same edge. AlphaZero paper uses
+    # 1; AlphaGo Zero used 3. With a small-to-medium batch_size,
+    # 1 is plenty.
+    virtual_loss:     float = 1.0
 
 
 # ---------------------------------------------------------------------
@@ -248,6 +277,83 @@ def _add_dirichlet_noise(
 # Public API
 # ---------------------------------------------------------------------
 
+def _select_one(
+    root:         MCTSNode,
+    c_puct:       float,
+    virtual_loss: float,
+) -> Tuple[MCTSNode, List[Tuple[MCTSNode, MCTSEdge]]]:
+    """Walk down from root picking PUCT-best edges. Lazy-create
+    child nodes by forking the parent sim and applying the edge's
+    action. Apply virtual loss to each selected edge so the next
+    parallel selection in the same batch is biased away from this
+    path. Returns (leaf, path) where path is the list of
+    (parent_node, edge_taken) pairs; backup walks it in reverse."""
+    path: List[Tuple[MCTSNode, MCTSEdge]] = []
+    node = root
+    while node.expanded and not node.is_terminal:
+        edge = _puct_select(node, c_puct)
+        if edge.child is None:
+            child_sim = node.sim.fork()
+            try:
+                child_sim.step(edge.action)
+            except Exception as e:
+                log.debug(f"mcts: step rejected: {e}; treating as terminal")
+                child_sim.done = True
+                child_sim.winner = 0
+                child_sim.ended_by = "step_error"
+            edge.child = MCTSNode(child_sim)
+        # Apply virtual loss BEFORE descending so the next
+        # parallel selection in the same batch sees an edge that
+        # currently looks bad (q drops, PUCT score drops). Real
+        # backup undoes this and adds the actual update.
+        if virtual_loss > 0:
+            edge.n_visits += virtual_loss
+            edge.w_value -= virtual_loss
+            node._total_visits += virtual_loss
+        path.append((node, edge))
+        node = edge.child
+    return node, path
+
+
+def _backup(
+    path:         List[Tuple[MCTSNode, MCTSEdge]],
+    v:            float,
+    leaf_side:    int,
+    virtual_loss: float,
+) -> None:
+    """Walk the path in reverse, undoing virtual loss and adding the
+    real visit. `v` is from `leaf_side`'s perspective; flip per edge
+    when the parent's side differs."""
+    for parent, edge in reversed(path):
+        if virtual_loss > 0:
+            edge.n_visits -= virtual_loss
+            edge.w_value += virtual_loss
+            parent._total_visits -= virtual_loss
+        edge.n_visits += 1
+        parent._total_visits += 1
+        edge.w_value += v if parent.side == leaf_side else -v
+
+
+def _populate_leaf(
+    leaf:    MCTSNode,
+    encoded,
+    output,
+) -> float:
+    """Build the leaf's edges from the model's enumerated priors and
+    return v from leaf.side's perspective. Mirrors the post-forward
+    half of `_expand`."""
+    priors = enumerate_legal_actions_with_priors(
+        encoded, output, leaf.sim.gs)
+    if not priors:
+        leaf.is_terminal = True
+        leaf.expanded = True
+        return 0.0
+    priors.sort(key=lambda p: -p.prior)
+    leaf.edges = [MCTSEdge(p) for p in priors]
+    leaf.expanded = True
+    return float(output.value.squeeze().item())
+
+
 def mcts_search(
     sim:     WesnothSim,
     model:   WesnothModel,
@@ -260,8 +366,13 @@ def mcts_search(
     populated visit counts on outgoing edges.
 
     The caller's `sim` is NOT mutated -- the search runs on a fork.
-    Cost: ~`config.n_simulations` model forwards (one per leaf
-    expansion); ~30-50ms each on CPU for our default model.
+    With `config.batch_size > 1`, leaves accumulate and are forwarded
+    through `model.forward_batch` together (virtual-loss
+    parallelization).
+
+    Cost (B=1, CPU, default model): ~30-50 ms per simulation, model
+    forward dominated. With B=8 on GPU: typically 5-10x speedup as
+    forward overhead amortizes.
     """
     if config is None:
         config = MCTSConfig()
@@ -274,6 +385,7 @@ def mcts_search(
     root = MCTSNode(root_sim)
 
     # Initial expand at root + optional Dirichlet noise on the priors.
+    # Always serial (single state to evaluate at the start).
     _expand(root, model, encoder)
     if config.add_root_noise and root.edges:
         _add_dirichlet_noise(root, config.dirichlet_alpha,
@@ -282,54 +394,63 @@ def mcts_search(
     deadline = (_time.perf_counter() + config.time_budget
                 if config.time_budget is not None else None)
 
-    for sim_idx in range(config.n_simulations):
+    B = max(1, int(config.batch_size))
+    V_LOSS = float(config.virtual_loss) if B > 1 else 0.0
+    sims_done = 0
+
+    while sims_done < config.n_simulations:
         if deadline is not None and _time.perf_counter() > deadline:
-            log.info(f"mcts: stopping at {sim_idx}/{config.n_simulations} "
+            log.info(f"mcts: stopping at {sims_done}/{config.n_simulations} "
                      f"(time budget hit)")
             break
 
-        # ----- Selection: walk down picking PUCT-best edges --------
-        path: List[Tuple[MCTSNode, MCTSEdge]] = []
-        node = root
-        while node.expanded and not node.is_terminal:
-            edge = _puct_select(node, config.c_puct)
-            if edge.child is None:
-                # Lazy-create the child the first time we descend
-                # this edge. fork() the sim, apply the action, wrap
-                # in a node.
-                child_sim = node.sim.fork()
-                try:
-                    child_sim.step(edge.action)
-                except Exception as e:
-                    # Rare: a sim-side rejection due to a corner-case
-                    # we haven't covered. Treat as terminal+neutral
-                    # rather than crashing the search.
-                    log.debug(f"mcts: step rejected: {e}; treating as terminal")
-                    child_sim.done = True
-                    child_sim.winner = 0
-                    child_sim.ended_by = "step_error"
-                edge.child = MCTSNode(child_sim)
-            path.append((node, edge))
-            node = edge.child
+        # How many sims to run in this batch.
+        n_this_batch = min(B, config.n_simulations - sims_done)
 
-        # ----- Expansion: forward model at the leaf ----------------
-        if not node.expanded:
-            v = _expand(node, model, encoder)
-        else:
-            # Already-expanded terminal -- just read its value.
-            v = _terminal_value(node.sim, node.side)
+        # ----- Phase 1: select leaves --------------------------------
+        # Each iteration descends from root via PUCT, applying virtual
+        # loss as it goes. Terminal-leaf paths are backed up
+        # immediately (no model forward needed). Non-terminal leaves
+        # accumulate in `pending` for batched forward.
+        pending: List[Tuple[MCTSNode, List[Tuple[MCTSNode, MCTSEdge]]]] = []
+        for _ in range(n_this_batch):
+            leaf, path = _select_one(root, config.c_puct, V_LOSS)
+            if leaf.is_terminal:
+                # Immediate backup -- no model forward needed.
+                v = _terminal_value(leaf.sim, leaf.side)
+                _backup(path, v, leaf.side, V_LOSS)
+                sims_done += 1
+            else:
+                pending.append((leaf, path))
 
-        # ----- Backup ----------------------------------------------
-        # `v` is from `node.side`'s perspective. For each edge on
-        # the path, flip the sign if the edge's parent's side
-        # differs from the leaf's side. 2p alternating means a flip
-        # at every step; 2p with multi-action turns means flips at
-        # the boundaries.
-        leaf_side = node.side
-        for parent, edge in reversed(path):
-            edge.n_visits += 1
-            parent._total_visits += 1
-            edge.w_value += v if parent.side == leaf_side else -v
+        # ----- Phase 2: batch evaluate the non-terminal leaves -------
+        if pending:
+            # Deduplicate leaves: with virtual loss, two parallel
+            # selections rarely converge on the same unexpanded leaf,
+            # but it CAN happen (e.g. tiny tree, tied priors). Encode
+            # + forward each unique leaf once; share the value across
+            # all paths that reached it.
+            unique_leaves: Dict[int, MCTSNode] = {}
+            for leaf, _ in pending:
+                if id(leaf) not in unique_leaves:
+                    unique_leaves[id(leaf)] = leaf
+            unique_list = list(unique_leaves.values())
+
+            with torch.no_grad():
+                encoded_list = [encoder.encode(l.sim.gs) for l in unique_list]
+                outputs = model.forward_batch(encoded_list)
+
+            # Build edges + record value per unique leaf.
+            leaf_values: Dict[int, float] = {}
+            for leaf, encoded, output in zip(
+                    unique_list, encoded_list, outputs):
+                leaf_values[id(leaf)] = _populate_leaf(leaf, encoded, output)
+
+            # Backup all pending paths (each may share or own its leaf).
+            for leaf, path in pending:
+                v = leaf_values[id(leaf)]
+                _backup(path, v, leaf.side, V_LOSS)
+                sims_done += 1
 
     return root
 
@@ -338,9 +459,14 @@ def extract_visit_counts(
     root: MCTSNode,
 ) -> List[Tuple[int, Optional[int], Optional[int], int]]:
     """Convert the root's edge visit counts into the tuple format
-    `MCTSExperience.visit_counts` expects. Skips zero-visit edges."""
+    `MCTSExperience.visit_counts` expects. Skips zero-visit edges.
+
+    Cast to int because virtual-loss accounting promotes `n_visits` to
+    float during batched search (vloss=1.0 + add/sub round-trip leaves
+    an integer-valued float). Trainer math is float-safe but the
+    `MCTSExperience.visit_counts` schema annotates `int` -- honor it."""
     return [
-        (e.actor_idx, e.target_idx, e.weapon_idx, e.n_visits)
+        (e.actor_idx, e.target_idx, e.weapon_idx, int(e.n_visits))
         for e in root.edges if e.n_visits > 0
     ]
 
