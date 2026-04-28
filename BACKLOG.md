@@ -219,14 +219,19 @@ replay export.
   level-up of dying-side units, expose recall slots to the encoder
   / sampler / exporter.
 
-- [x] 🟠 **Plague variation now uses parent_id** (DONE 2026-04-28).
-  `_spawn_plague_corpse` reads `_stats_for(attacker.name)["id"]` (the
-  parent unit's id, which `extract_variations` already inherits onto
-  every variation entry in unit_stats.json). A `Walking Corpse:mounted`
-  attacker killing a Cavalryman now spawns `Walking Corpse:mounted`
-  (parent + dead's variation), NOT `Walking Corpse:mounted:mounted`
-  (chained). Falls back to attacker.name when the lookup misses
-  (custom era / pre-scrape replay).
+- [x] 🟠 **Plague spawn type fixed** (DONE 2026-04-28; corrected
+  course-mid-commit). Original commit used attacker's `parent_id`,
+  which would have spawned `Soulless:mounted` from a Soulless plague
+  kill. Wrong: WEAPON_SPECIAL_PLAGUE
+  (wesnoth_src/data/core/macros/weapon_specials.cfg:47-57) hardcodes
+  `type=Walking Corpse`, so EVERY default-era plague kill spawns a
+  Walking Corpse regardless of attacker (WC, Soulless, Necromancer,
+  any variation). attack.cpp:159-164 only falls back to parent_id
+  when the special's `type=` is empty, which never happens for the
+  canned macro. Fixed: `base_type = "Walking Corpse"` hardcoded;
+  variation still comes from dead's `undead_variation`. Custom
+  plague (Ant Queen -> Giant Ant Egg via PLAGUE_TYPE macro) is not
+  modeled -- mainline 2p doesn't use it.
 
 - [ ] 🟠 **Combat damage seed alignment is correct today** but verify with
   a smoke test once the model attacks meaningfully. Each attack:

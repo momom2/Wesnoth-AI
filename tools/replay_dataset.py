@@ -1293,6 +1293,10 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             # via the unit's `not_living` flag. We check race only
             # (sufficient for default-era 2p).
             if result.plague_spawned and att in gs.map.units:
+                # `attacker_name` is no longer used (default-era plague
+                # always spawns Walking Corpse regardless of attacker)
+                # but kept as a forward-compat hook for custom plague
+                # specials that override `type=`. See _spawn_plague_corpse.
                 _spawn_plague_corpse(gs, dfd,
                                      attacker_side=att.side,
                                      attacker_name=att.name)
@@ -1376,19 +1380,30 @@ def _spawn_plague_corpse(gs: GameState, dead: Unit,
       4. Attacker's plague special is present (caller already filtered
          on `result.plague_spawned`).
 
-    Type and variation:
-      - The plague special's `type=` attribute (rare; most weapons
-        leave it empty) overrides the spawn type.
-      - Otherwise the spawn uses the ATTACKER's `parent_id` — for
-        a base "Walking Corpse" attacker, parent_id is "Walking
-        Corpse" (variations carry that as parent).
-      - The killed unit's `undead_variation` is then applied as a
-        [variation] modification on the new corpse, picking the
-        right Walking Corpse flavor (Mounted, Drake, Wose, etc.).
-        Different variations have different stats. We approximate
-        this by spawning the base "Walking Corpse" and noting the
-        variation in `unit.statuses` so encoding/dumping can carry
-        it. A future pass could materialize per-variation stats.
+    Type and variation (default era):
+      - The plague special's `type=` attribute determines what's
+        spawned. WEAPON_SPECIAL_PLAGUE (weapon_specials.cfg:47-57)
+        hardcodes `type=Walking Corpse`, so EVERY default-era plague
+        kill spawns a Walking Corpse -- whether the attacker was a
+        Walking Corpse, Soulless, Necromancer, or any variation of
+        them. The attacker's own type is irrelevant.
+        attack.cpp:159-164 only falls back to `attacker.parent_id`
+        when the special's `type=` is empty, which never happens for
+        the canned macro.
+      - The killed unit's `undead_variation` is applied as a
+        [variation] modification on the spawn (attack.cpp:1299-1306),
+        picking the right Walking Corpse flavor (Mounted, Drake,
+        Wose, etc.). The attacker's variation never propagates.
+      - Variations have different stats. We approximate by spawning
+        "Walking Corpse:<variation>" if that composite key exists in
+        the unit DB, falling back to base "Walking Corpse" otherwise.
+        Statuses carry `variation:<name>` as a tag for downstream code.
+
+    Custom-era plague (Ant Queen -> Giant Ant Egg via
+    WEAPON_SPECIAL_PLAGUE_TYPE) is NOT modeled here. Mainline 2p
+    ladder doesn't use those units. If we ever do, thread the
+    `plague_type` from combat.AttackResult (combat.py:296 already
+    has the field) through the call chain.
 
     Fresh corpse: full HP, 0 XP, 0 moves, has_attacked=True
     (Wesnoth sets `attacks=0`/`movement=0` so it can't act this turn).
@@ -1402,28 +1417,29 @@ def _spawn_plague_corpse(gs: GameState, dead: Unit,
     if _terrain_at(gs, dead.position.x, dead.position.y) == "village":
         return
 
-    # Resolve the spawn type via Wesnoth's two-axis rule (verified
-    # against wesnoth_src/src/actions/attack.cpp:159-164, 1290-1306):
+    # Resolve the spawn type. Verified against
+    # wesnoth_src/data/core/macros/weapon_specials.cfg:47-57:
+    # WEAPON_SPECIAL_PLAGUE hardcodes `type=Walking Corpse`. In
+    # attack.cpp:159-164 the plague_type is read from the special's
+    # `type=` attribute first; only if that's empty does it fall back
+    # to `u.type().parent_id()`. Because the default macro always
+    # sets `type=Walking Corpse`, EVERY default-era plague kill spawns
+    # a Walking Corpse -- the attacker's own type (WC, Soulless,
+    # Necromancer, ANY variation thereof) is irrelevant to the spawn.
     #
-    #   - SPAWN BASE TYPE = attacker's `parent_id` -- so the attacker's
-    #     TYPE FAMILY (Walking Corpse vs Soulless) carries over, but
-    #     its VARIATION does NOT. Both `Walking Corpse:mounted` and
-    #     `Walking Corpse:falcon` spawn from the parent `Walking Corpse`.
-    #     A `Soulless` (or any of its variations) spawns from `Soulless`.
+    # Caveat: WEAPON_SPECIAL_PLAGUE_TYPE is a parameterized macro that
+    # lets a unit specify a different spawn type (e.g. Ant Queen ->
+    # Giant Ant Egg). Mainline 2p ladder doesn't use those units; if
+    # we ever do, we'd thread the plague_type from the combat
+    # resolver (combat.py:296 already has the field) through to here.
+    # For now we hardcode the default-era result.
     #
-    #   - SPAWN VARIATION = killed unit's `undead_variation`. The
-    #     attacker's variation never propagates. Cavalryman has
-    #     undead_variation=mounted -> any plague kill on a Cavalryman
-    #     produces a `:mounted` variation, regardless of who the
-    #     attacker was.
-    #
-    # The parent_id is stored under "id" on every entry (variations
-    # inherit their parent's id; see scrape_unit_stats.extract_variations).
-    # Fall back to attacker_name if the lookup misses (custom era /
-    # missing scrape). Locked in by test_plague_spawn_type_resolution
-    # in test_sim_advance.py.
-    attacker_stats = _stats_for(attacker_name)
-    base_type = str(attacker_stats.get("id", "") or "").strip() or attacker_name
+    # Variation: the killed unit's `undead_variation` is applied as a
+    # `[variation]` modification (attack.cpp:1299-1306) regardless of
+    # what type was spawned. The attacker's variation never
+    # propagates -- it can't, because the spawn type comes from the
+    # plague special, not from the attacker.
+    base_type = "Walking Corpse"
     variation = str(dead_stats.get("undead_variation", "")).strip()
     spawn_type = f"{base_type}:{variation}" if variation else base_type
     if variation and spawn_type not in _UNIT_DB:

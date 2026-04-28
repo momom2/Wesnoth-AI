@@ -225,47 +225,52 @@ def test_select_action_rejects_repeated_state(fresh_sim):
 
 
 def test_plague_spawn_type_resolution():
-    """`_spawn_plague_corpse`'s type-resolution logic, locked in via
-    the post-fix invariants:
+    """`_spawn_plague_corpse`'s type-resolution logic, derived from
+    Wesnoth source (verified 2026-04-28):
 
-    From Wesnoth source (attack.cpp:159-164, 1290-1306):
-      - SPAWN BASE TYPE = `attacker.type().parent_id()` -- the
-        attacker's PARENT type-family carries over (Walking Corpse vs
-        Soulless), but its variation does NOT.
-      - SPAWN VARIATION = killed unit's `undead_variation` -- the
-        attacker's variation never propagates.
+      - WEAPON_SPECIAL_PLAGUE (weapon_specials.cfg:47-57) hardcodes
+        `type=Walking Corpse`. Every default-era plague kill spawns
+        a Walking Corpse, regardless of attacker (WC, Soulless,
+        Necromancer, or any variation thereof). attack.cpp:159-164
+        only falls back to attacker.parent_id when type= is empty,
+        which never happens for the canned macro.
+      - The killed unit's `undead_variation` is applied as a
+        [variation] modification (attack.cpp:1299-1306). Variation
+        comes solely from the dead unit's race; attacker's
+        variation never propagates.
 
-    So if a Walking Corpse:falcon kills a Cavalryman:
-      - parent_id of attacker = "Walking Corpse" (NOT "Walking Corpse:falcon")
-      - undead_variation of dead = "mounted"
-      - spawn = "Walking Corpse:mounted" (NOT "Walking Corpse:falcon:mounted",
-        NOT "Walking Corpse:falcon", NOT "Walking Corpse").
+    So:
+      Walking Corpse           kills Cavalryman -> Walking Corpse:mounted
+      Soulless                 kills Cavalryman -> Walking Corpse:mounted (NOT Soulless:mounted!)
+      Walking Corpse:falcon    kills Cavalryman -> Walking Corpse:mounted
+      Soulless:mounted         kills Cavalryman -> Walking Corpse:mounted
+      Walking Corpse           kills Spearman   -> Walking Corpse (no variation)
+      Walking Corpse:mounted   kills Spearman   -> Walking Corpse
     """
     from tools.replay_dataset import _stats_for
 
-    def _resolve(attacker_name: str, dead_name: str) -> str:
-        """Mirror the type-resolution slice of _spawn_plague_corpse
-        without going through the full GameState plumbing."""
-        attacker_stats = _stats_for(attacker_name)
+    def _resolve(_attacker_name: str, dead_name: str) -> str:
+        """Mirror the post-fix _spawn_plague_corpse type resolution.
+        The attacker name is INTENTIONALLY ignored -- spawn type is
+        always 'Walking Corpse' for default-era plague."""
         dead_stats = _stats_for(dead_name)
-        base_type = (str(attacker_stats.get("id", "") or "").strip()
-                     or attacker_name)
+        base_type = "Walking Corpse"
         variation = str(dead_stats.get("undead_variation", "")).strip()
         return f"{base_type}:{variation}" if variation else base_type
 
-    # Variation comes from dead, type family from attacker.
+    # Variation always comes from the dead's undead_variation.
+    # Spawn TYPE is always Walking Corpse, regardless of attacker.
     assert _resolve("Walking Corpse",          "Cavalryman") == "Walking Corpse:mounted"
     assert _resolve("Walking Corpse:mounted",  "Cavalryman") == "Walking Corpse:mounted"
     assert _resolve("Walking Corpse:falcon",   "Cavalryman") == "Walking Corpse:mounted"
-    # Same family invariant for Soulless.
-    assert _resolve("Soulless",         "Cavalryman") == "Soulless:mounted"
-    assert _resolve("Soulless:mounted", "Cavalryman") == "Soulless:mounted"
+    # Soulless attacker ALSO spawns Walking Corpse (NOT Soulless).
+    # This was the bug in the original commit.
+    assert _resolve("Soulless",         "Cavalryman") == "Walking Corpse:mounted"
+    assert _resolve("Soulless:mounted", "Cavalryman") == "Walking Corpse:mounted"
     # Empty-undead-variation dead: no variation applied.
-    # (Spearman has undead_variation="" so it stays as base WC.)
+    assert _resolve("Walking Corpse",         "Spearman") == "Walking Corpse"
     assert _resolve("Walking Corpse:mounted", "Spearman") == "Walking Corpse"
-    # Cross-family: a Soulless variation kills a mounted unit -> Soulless,
-    # NOT Walking Corpse, regardless of the attacker variation.
-    assert _resolve("Soulless:mounted", "Cavalryman") == "Soulless:mounted"
+    assert _resolve("Soulless",               "Spearman") == "Walking Corpse"
 
 
 def test_recall_action_rejected_to_end_turn(fresh_sim):
