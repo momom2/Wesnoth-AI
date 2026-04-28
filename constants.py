@@ -109,3 +109,21 @@ TURN_NORM     = 60.0    # default 2p ladder turn limit ~30, 60 for safety
 # bias"; 0 = oracle off; >0.3 = aggressive override of learned
 # logits. See action_sampler's call site.
 COMBAT_LOGIT_ALPHA = 0.1
+
+# Pre-seeded faction vocab. The encoder pre-binds these to specific
+# embedding rows so cross-replay supervised training stays
+# consistent (a state that happens to feed Rebels first wouldn't
+# alone determine its row). Empty string is reserved for
+# "unknown / unset" -> id 0; the six default-era factions follow.
+# Era mods can extend the list (the encoder's `MAX_FACTIONS=32`
+# bound leaves headroom). Order MATTERS for backwards compatibility
+# with saved checkpoints; appending is safe, reordering is not.
+DEFAULT_FACTIONS = (
+    "",
+    "Drakes",
+    "Knalgan Alliance",
+    "Rebels",
+    "Loyalists",
+    "Northerners",
+    "Undead",
+)

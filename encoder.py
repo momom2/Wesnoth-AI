@@ -61,15 +61,10 @@ NUM_ALIGNMENTS  = max(Alignment) + 1     # 4
 NUM_SIDE_CODES  = 2     # 0 = ours (current_side), 1 = theirs
 
 
-# Pre-seed the faction vocab so the 6 default-era factions always
-# land on the same embedding row regardless of whether the first
-# state we see happens to be, e.g., a Rebels vs Undead supervised
-# replay (which would otherwise bind Rebels→0 and never re-map it).
-# Empty string is reserved for "unknown/unset" → id 0.
-_DEFAULT_FACTIONS = [
-    "", "Drakes", "Knalgan Alliance", "Rebels",
-    "Loyalists", "Northerners", "Undead",
-]
+# Pre-seeded faction vocab. Re-exported from constants.py so era
+# mods can override in one place. Empty string is reserved for
+# "unknown/unset" -> id 0.
+from constants import DEFAULT_FACTIONS as _DEFAULT_FACTIONS
 
 # Per-hex multi-hot: (village, keep, castle).
 NUM_HEX_MODIFIERS = 3

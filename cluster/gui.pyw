@@ -139,6 +139,37 @@ class AskpassFiles:
             pass
 
 
+def _purge_stale_askpass_dirs() -> int:
+    """Walk `%TEMP%` for orphan `wai_gui_pw_*` directories from
+    prior GUI runs that crashed or got force-killed before
+    `AskpassFiles.cleanup()` could fire. Returns the count
+    removed.
+
+    `tempfile.mkdtemp(prefix='wai_gui_pw_')` always creates the
+    directory under `tempfile.gettempdir()`, which is what
+    `gettempdir()` returns -- the same location we walk here.
+    `rmtree(ignore_errors=True)` swallows permission / locked-file
+    issues; another concurrent GUI process holding that dir's
+    handle just means we leave it for next time.
+
+    Called once at GUI startup. Idempotent and cheap.
+    """
+    import shutil
+    tmp = Path(tempfile.gettempdir())
+    if not tmp.is_dir():
+        return 0
+    removed = 0
+    for p in tmp.iterdir():
+        if not p.is_dir():
+            continue
+        if not p.name.startswith("wai_gui_pw_"):
+            continue
+        shutil.rmtree(p, ignore_errors=True)
+        if not p.exists():
+            removed += 1
+    return removed
+
+
 def _stream_to_queue(pipe, q: queue.Queue, tag: str) -> None:
     """Read `pipe` line by line and push (tag, line) onto q. Runs in
     a worker thread; the GUI thread drains q via tk.after()."""
@@ -604,6 +635,19 @@ class App:
 
 
 def main() -> int:
+    # Sweep stale askpass dirs from prior GUI runs that crashed or
+    # got force-killed before AskpassFiles.cleanup() fired. Each
+    # `wai_gui_pw_*` holds (a) the password file (sensitive!) and
+    # (b) the askpass.bat helper. Leaving them in %TEMP% is both
+    # an inode-pressure issue and a minor security concern, so
+    # purge on startup.
+    n_purged = _purge_stale_askpass_dirs()
+    if n_purged:
+        # No logger configured yet; print to stderr so the user sees
+        # it in the launching shell when they run pythonw and watch
+        # for output, but it won't pop a dialog.
+        print(f"[gui] purged {n_purged} stale askpass dir(s) "
+              f"from {tempfile.gettempdir()}", file=sys.stderr)
     root = tk.Tk()
     App(root)
     root.mainloop()

@@ -485,8 +485,10 @@ replay export.
   bias would help unorthodox-strategy training. Infrastructure already
   there.
 
-- [ ] 🟢 **`_DEFAULT_FACTIONS` is a Python literal** (`encoder.py:60-63`).
-  Era mods would require a code edit. Pull from config file.
+- [x] 🟢 **`DEFAULT_FACTIONS` lives in constants.py** (DONE
+  2026-04-28). Encoder re-exports `_DEFAULT_FACTIONS` from
+  `constants.DEFAULT_FACTIONS`. Era mods extend in one place.
+  Order documented as load-bearing for checkpoint compatibility.
 
 ---
 
@@ -662,9 +664,10 @@ weight. Eval still needs real Wesnoth, so be cautious.
   — partial extraction overwrites in place. Add a `sha256sum` round-trip
   for files in the manifest.
 
-- [ ] 🟡 **GUI: per-op `pw.txt` lingers in `%TEMP%` if GUI killed
-  externally** (`cluster/gui.pyw:95,286-288,537-539`). Add an `atexit`
-  hook that walks `%TEMP%/wai_gui_pw_*` on every GUI startup.
+- [x] 🟡 **GUI startup purges stale askpass dirs** (DONE 2026-04-28).
+  `_purge_stale_askpass_dirs()` runs at the top of `main()` and
+  recursively removes `%TEMP%/wai_gui_pw_*`. Idempotent +
+  ignore-errors so concurrent GUI processes can't conflict.
 
 ---
 
