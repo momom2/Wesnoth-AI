@@ -669,11 +669,12 @@ weight. Eval still needs real Wesnoth, so be cautious.
   swapping ON by default, eliminating first-mover bias from every
   eval run through the GUI.
 
-- [ ] 🟡 **No confidence interval on eval win-rates**
-  (`tools/eval_vs_builtin.py:139-217`). At ~30 games per matchup, a
-  50% win-rate has a ±18% 95% CI. Add Wilson interval or at least
-  `n` per cell (already there as `(W/decisive)`, just promote
-  visibility).
+- [x] 🟡 **Wilson 95% CI on eval win-rates** (DONE 2026-04-28).
+  `_wilson_interval(wins, n)` returns the score-interval bounds;
+  `_wr` formats `XX.X% (W/N, 95% CI lo%-hi%)`. Stays inside [0, 1]
+  for small-n / extreme-p (textbook formula gives nonsensical
+  bounds at 9/10 wins). 8 unit tests cover boundary cases (0/0,
+  full sweeps, top-/bottom-clamp).
 
 - [ ] 🟢 **Eval has no per-faction strength heatmap**. We track per-side,
   per-map. Adding a faction × faction matrix would let the user see
@@ -692,8 +693,11 @@ collected here:
 - [ ] 🟠 Replay round-trip (recon → re-emit → diff against source WML).
 - [ ] 🟡 `hex_distance` parity edges.
 - [ ] 🟡 State-key collision fuzz for MCTS transposition table.
-- [ ] 🟡 `sim_self_play` reward-flow smoke (one game, terminal+shaping
-  attached to right transitions).
+- [x] 🟡 **sim_self_play reward-flow smoke** (DONE 2026-04-28). New
+  `test_sim_self_play_smoke.py` (3 cases): observe called per step
+  + per terminal; per-unit-type bonuses propagate end-to-end; once-
+  per-game gating resets between games via the harness's
+  reset_game_state hook.
 
 ---
 

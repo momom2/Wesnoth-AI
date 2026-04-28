@@ -47,7 +47,7 @@ import time
 from collections import defaultdict
 from dataclasses import asdict
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import torch
 
@@ -128,12 +128,52 @@ def _bucket() -> Dict[str, int]:
     return {"win": 0, "loss": 0, "draw": 0, "timeout": 0, "errored": 0}
 
 
+def _wilson_interval(wins: int, n: int, z: float = 1.96) -> Tuple[float, float]:
+    """Wilson score interval for a binomial proportion (default 95%
+    confidence). Mathematically:
+
+        center = (p + z²/2n) / (1 + z²/n)
+        delta  = z * sqrt(p(1-p)/n + z²/4n²) / (1 + z²/n)
+        ci     = center ± delta
+
+    where p = wins/n. Wilson is preferred over the textbook
+    "p ± z·sqrt(p(1-p)/n)" because it stays inside [0, 1] for small
+    n / extreme p (the textbook formula gives, e.g., 90%±25% for
+    9/10 wins -- bound up to 115%, nonsense). Returns the (lower,
+    upper) bounds in [0, 1]; n=0 returns (0, 1) because nothing is
+    known.
+    """
+    if n == 0:
+        return (0.0, 1.0)
+    import math
+    p = wins / n
+    denom = 1.0 + (z * z) / n
+    center = (p + (z * z) / (2.0 * n)) / denom
+    half = (z / denom) * math.sqrt(
+        (p * (1 - p) / n) + (z * z) / (4.0 * n * n)
+    )
+    lo = max(0.0, center - half)
+    hi = min(1.0, center + half)
+    return (lo, hi)
+
+
 def _wr(b: Dict[str, int]) -> str:
-    """Win rate over decisive games (excludes draws/timeouts/errors)."""
+    """Win rate over decisive games + Wilson 95% CI. Excludes draws,
+    timeouts, errors. Format::
+
+        ' 70.0% (7/10, 95% CI 39.7%-89.2%)'
+
+    The CI width matters: at typical eval volumes (n≈30 per cell)
+    a 50% win-rate has a ±18% interval, so a 55% vs 60% delta is
+    almost certainly noise. Surfacing the bounds discourages over-
+    interpretation of small samples."""
     decisive = b["win"] + b["loss"]
     if decisive == 0:
         return "n/a"
-    return f"{100.0 * b['win'] / decisive:5.1f}% ({b['win']}/{decisive})"
+    lo, hi = _wilson_interval(b["win"], decisive)
+    return (f"{100.0 * b['win'] / decisive:5.1f}% "
+            f"({b['win']}/{decisive}, "
+            f"95% CI {100.0*lo:4.1f}%-{100.0*hi:4.1f}%)")
 
 
 def aggregate_and_report(
@@ -177,8 +217,10 @@ def aggregate_and_report(
     print()
     if decisive > 0:
         wr = 100.0 * overall["win"] / decisive
+        lo, hi = _wilson_interval(overall["win"], decisive)
         print(f"Overall win rate (decisive only): {wr:.1f}% "
-              f"({overall['win']} / {decisive})")
+              f"({overall['win']} / {decisive}, "
+              f"95% CI {100.0*lo:.1f}%-{100.0*hi:.1f}%)")
     else:
         print("Overall win rate: n/a (no decisive games)")
     print()
