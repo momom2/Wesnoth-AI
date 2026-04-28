@@ -213,6 +213,99 @@ def _seed_from_recorded(rc: RecordedCommand) -> str:
     return "00000000"
 
 
+# ---------------------------------------------------------------------
+# RNG-consumption gating
+# ---------------------------------------------------------------------
+# Wesnoth's synced_rng is LAZY: the seed from `[random_seed]` is only
+# fetched on the FIRST `get_next_random()` call inside a synced
+# command (see wesnoth_src/src/random_synced.cpp:31-49). If a recruit
+# never calls RNG -- e.g. Skeleton (musthave=['undead'], num_traits=1,
+# pool_size=0, single-gender) -- the seed is never fetched. Our
+# `[random_seed]` follow-up is then orphaned: the outer replay loop
+# sees a `dependent="yes"` command while is_unsynced=true and fires
+# "found dependent command in replay while is_synced=false".
+#
+# So we have to predict whether each synced command consumes RNG and
+# only emit `[random_seed]` for those that do. Real Wesnoth replays
+# do this implicitly because the seed-write only happens when the
+# server actually generated a seed.
+
+_RNG_INFO_CACHE: Dict[str, dict] = {}
+
+
+def _unit_trait_info(unit_type: str) -> dict:
+    """Return the trait/gender info we need to predict synced RNG
+    consumption for a recruit. Returns {} on lookup failure."""
+    if unit_type in _RNG_INFO_CACHE:
+        return _RNG_INFO_CACHE[unit_type]
+    try:
+        import json
+        path = Path(__file__).resolve().parent.parent / "unit_stats.json"
+        with path.open(encoding="utf-8") as f:
+            data = json.load(f)
+        u = data.get("units", {}).get(unit_type, {})
+        t = u.get("traits", {}) or {}
+        info = {
+            "n_genders":  int(u.get("n_genders", 1)),
+            "num_traits": int(t.get("num_traits", 2)),
+            "musthave":   list(t.get("musthave", [])),
+            "pool":       list(t.get("pool", [])),
+        }
+        _RNG_INFO_CACHE[unit_type] = info
+        return info
+    except Exception:
+        _RNG_INFO_CACHE[unit_type] = {}
+        return {}
+
+
+def _recruit_consumes_synced_rng(unit_type: str) -> bool:
+    """True iff Wesnoth's recruit handler calls `get_random_int` for
+    this unit type, which is the trigger for `synced_rng::initialize`
+    fetching the [random_seed] payload.
+
+    Wesnoth's order in `unit::init` (wesnoth_src/src/units/unit.cpp:714):
+      1. generate_gender -- one synced RNG call iff genders.size() > 1
+         (single-gender unit_types like Skeleton short-circuit and
+         consume zero).
+      2. facing_ -- uses default_instance() (NON-synced); doesn't
+         touch our seed.
+      3. advance_to -> generate_traits -- per missing trait beyond
+         musthaves, one synced call to pick from the available pool.
+         If musthaves already fill num_traits OR the pool is empty
+         after filtering, the for-loop never enters.
+    """
+    info = _unit_trait_info(unit_type)
+    if not info:
+        # Unknown unit type -- be conservative and emit the seed.
+        # Worst case Wesnoth ignores it; missing seed produces the
+        # actual OOS we're trying to fix.
+        return True
+    if info["n_genders"] > 1:
+        return True
+    n_random = max(0, info["num_traits"] - len(info["musthave"]))
+    if n_random <= 0:
+        return False
+    # If pool minus already-applied musthaves is empty, the loop
+    # exits via the `if(candidate_traits.empty()) break` branch
+    # without calling RNG.
+    available = [t for t in info["pool"] if t not in info["musthave"]]
+    return len(available) > 0
+
+
+def _command_consumes_synced_rng(rc: RecordedCommand) -> bool:
+    """Whether a recorded command's Wesnoth-side execution calls
+    synced RNG (and thus should receive a [random_seed] follow-up).
+    Recruit: depends on unit type (see _recruit_consumes_synced_rng).
+    Attack: always (combat rolls every strike's hit/miss).
+    Other kinds: never (caller doesn't reach here)."""
+    if rc.kind == "recruit":
+        unit_type = rc.cmd[1] if len(rc.cmd) > 1 else ""
+        return _recruit_consumes_synced_rng(unit_type)
+    if rc.kind == "attack":
+        return True
+    return False
+
+
 def _wml_random_seed_command(seed: str, request_id: int) -> str:
     """Emit a synthetic `[command] ... [random_seed]` block. Wesnoth's
     replay engine demands one of these after every command that needs
@@ -261,7 +354,13 @@ def _build_replay_wml(history: List[RecordedCommand]) -> str:
     request_id = 0
     for rc in history:
         parts.append(_wml_for_command(rc, next_side=None))
-        if rc.kind in _NEEDS_RNG:
+        # Only emit [random_seed] for commands Wesnoth's synced_rng
+        # will actually consume. Skeleton-class recruits with no
+        # random traits never call get_next_random; emitting a
+        # dangling [random_seed] for them produces "found dependent
+        # command in replay while is_synced=false" on the NEXT
+        # outer-loop iteration.
+        if rc.kind in _NEEDS_RNG and _command_consumes_synced_rng(rc):
             request_id += 1
             seed = _seed_from_recorded(rc)
             parts.append(_wml_random_seed_command(seed, request_id))
