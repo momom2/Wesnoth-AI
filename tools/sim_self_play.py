@@ -68,7 +68,7 @@ from rewards import (
     StepDelta, WeightedReward, compute_delta,
 )
 from transformer_policy import TransformerPolicy
-from wesnoth_sim import SimResult, WesnothSim
+from wesnoth_sim import PvPDefaults, SimResult, WesnothSim
 
 
 log = logging.getLogger("sim_self_play")
@@ -256,15 +256,25 @@ def run_iteration(
     games_per_iter: int,
     max_turns:     int,
     rng:           random.Random,
+    pvp_defaults:  Optional[PvPDefaults] = None,
 ) -> List[GameOutcome]:
     """Roll out `games_per_iter` games and call `train_step` once at
-    the end. Returns the per-game outcomes for logging."""
+    the end. Returns the per-game outcomes for logging.
+
+    `pvp_defaults`: forwarded to `WesnothSim.from_replay`. When set,
+    each game starts with standard 2p ladder economy/experience
+    rather than whatever the source replay's host had configured.
+    Self-play wants this -- it ensures the policy learns a single
+    consistent ruleset rather than per-host quirks."""
     outcomes: List[GameOutcome] = []
     t0 = time.perf_counter()
     for g_idx in range(games_per_iter):
         replay = rng.choice(pool_files)
         try:
-            sim = WesnothSim.from_replay(replay, max_turns=max_turns)
+            sim = WesnothSim.from_replay(
+                replay, max_turns=max_turns,
+                pvp_defaults=pvp_defaults,
+            )
         except Exception as e:
             log.warning(f"skipping {replay.name}: {e}")
             continue
@@ -344,6 +354,24 @@ def main(argv: List[str]) -> int:
                     help="RNG seed for replay sampling.")
     ap.add_argument("--log-level", default="INFO",
                     choices=["DEBUG", "INFO", "WARNING"])
+    ap.add_argument("--no-map-settings", dest="use_map_settings",
+                    action="store_false",
+                    help="Do NOT override the source replay's economy "
+                         "settings with PvP defaults. Use this when "
+                         "you want the sim to track the source's "
+                         "actual settings (e.g. for replay-recon "
+                         "smoke tests). Default: ON -- self-play uses "
+                         "standard 2p ladder defaults regardless of "
+                         "source-replay quirks.")
+    ap.set_defaults(use_map_settings=True)
+    ap.add_argument("--starting-gold", type=int, default=100,
+                    help="PvP defaults: starting gold per side.")
+    ap.add_argument("--village-gold", type=int, default=2,
+                    help="PvP defaults: gold per village per turn.")
+    ap.add_argument("--village-support", type=int, default=1,
+                    help="PvP defaults: upkeep absorbed per village.")
+    ap.add_argument("--exp-modifier", type=int, default=70,
+                    help="PvP defaults: experience required modifier (%%).")
     args = ap.parse_args(argv[1:])
 
     logging.basicConfig(
@@ -365,6 +393,18 @@ def main(argv: List[str]) -> int:
 
     reward_fn = WeightedReward()
 
+    pvp_defaults: Optional[PvPDefaults] = None
+    if args.use_map_settings:
+        pvp_defaults = PvPDefaults(
+            starting_gold=args.starting_gold,
+            village_gold=args.village_gold,
+            village_support=args.village_support,
+            experience_modifier=args.exp_modifier,
+        )
+        log.info(f"using PvP defaults: {pvp_defaults}")
+    else:
+        log.info("--no-map-settings: keeping source-replay settings")
+
     for it in range(args.iterations):
         run_iteration(
             policy, pool_files, reward_fn, cost_lookup,
@@ -372,6 +412,7 @@ def main(argv: List[str]) -> int:
             games_per_iter=args.games_per_iter,
             max_turns=args.max_turns,
             rng=rng,
+            pvp_defaults=pvp_defaults,
         )
         if (it + 1) % args.save_every == 0 or (it + 1) == args.iterations:
             policy.save_checkpoint(args.checkpoint_out)

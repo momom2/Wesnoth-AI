@@ -70,7 +70,7 @@ _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
-from classes import GameState, Position
+from classes import GameState, Position, SideInfo
 from replay_dataset import (
     _apply_command,
     _build_initial_gamestate,
@@ -79,6 +79,60 @@ from replay_dataset import (
 
 
 log = logging.getLogger("wesnoth_sim")
+
+
+# ---------------------------------------------------------------------
+# "Use map settings" -- standard PvP defaults for self-play
+# ---------------------------------------------------------------------
+# Source replays in our corpus come from games with arbitrary host
+# settings: custom-era 800g start, experience_modifier=30, village_gold=6,
+# whatever. For self-play training we want consistent ladder-PvP
+# behavior across the corpus -- otherwise the policy would learn to
+# exploit per-host quirks rather than play standard 2p.
+#
+# This dataclass + helper override the source replay's settings with
+# vanilla 2p multiplayer defaults. Only used by self-play paths
+# (`tools/sim_self_play.py`); supervised training on real replays
+# MUST keep source-replay settings intact for bit-exact reconstruction.
+
+@dataclass
+class PvPDefaults:
+    """Standard 2p ladder settings ('use map settings' equivalent
+    when self-playing). Defaults match Wesnoth vanilla:
+      - 100 gold start
+      - +2 base income (game_config::base_income, side income offset 0)
+      - +2 gold per village
+      - -1 upkeep per village (village_support)
+      - 70% experience modifier
+    Construct a different instance to deviate (e.g. 75 gold for tournament
+    settings, 50% xp for fast-train experiments)."""
+    starting_gold:        int = 100
+    base_income:          int = 2
+    village_gold:         int = 2
+    village_support:      int = 1
+    experience_modifier:  int = 70
+
+
+def apply_pvp_defaults(gs: GameState, defaults: PvPDefaults) -> None:
+    """Override the GameState's settings with `defaults` in place.
+    Touches every side's gold + base_income, plus the global village
+    economy and experience modifier. Doesn't touch unit positions,
+    factions, recruit lists, or terrain -- only the economy/xp knobs."""
+    gs.sides = [
+        SideInfo(
+            player=s.player,
+            recruits=s.recruits,
+            current_gold=defaults.starting_gold,
+            base_income=defaults.base_income,
+            nb_villages_controlled=s.nb_villages_controlled,
+            faction=s.faction,
+        )
+        for s in gs.sides
+    ]
+    gs.global_info.village_gold = defaults.village_gold
+    gs.global_info.village_upkeep = defaults.village_support
+    setattr(gs.global_info, "_experience_modifier",
+            defaults.experience_modifier)
 
 
 # ---------------------------------------------------------------------
@@ -414,15 +468,28 @@ class WesnothSim:
     # ----- factory ---------------------------------------------------
 
     @classmethod
-    def from_replay(cls, gz_path: Path, **kwargs) -> "WesnothSim":
+    def from_replay(
+        cls,
+        gz_path: Path,
+        *,
+        pvp_defaults: Optional[PvPDefaults] = None,
+        **kwargs,
+    ) -> "WesnothSim":
         """Build an initial state from any replay's `starting_units` +
         scenario_id. The replay is used as a source of map / faction /
         starting-unit configuration only -- we discard the command
-        stream and let the policy decide what happens from turn 1."""
+        stream and let the policy decide what happens from turn 1.
+
+        `pvp_defaults`: when provided, overrides the source replay's
+        economy / experience settings with standard PvP values. Use
+        for self-play; leave None for replay reconstruction in
+        supervised training."""
         with gzip.open(Path(gz_path), "rt", encoding="utf-8") as f:
             data = json.load(f)
         gs = _build_initial_gamestate(data)
         scenario_id = data.get("scenario_id", "")
+        if pvp_defaults is not None:
+            apply_pvp_defaults(gs, pvp_defaults)
         return cls(gs, scenario_id=scenario_id, **kwargs)
 
     # ----- public stepping API ---------------------------------------

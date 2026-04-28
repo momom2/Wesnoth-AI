@@ -60,7 +60,7 @@ _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
-from wesnoth_sim import RecordedCommand, WesnothSim, request_seed
+from wesnoth_sim import PvPDefaults, RecordedCommand, WesnothSim, request_seed
 
 
 log = logging.getLogger("sim_to_replay")
@@ -389,10 +389,66 @@ def _find_final_replay_block(text: str) -> Optional[tuple]:
     return (last_open, last_close + len("[/replay]"))
 
 
+def _rewrite_pvp_settings(text: str, defaults: PvPDefaults) -> str:
+    """Rewrite the source bz2's [scenario] / [side] / [multiplayer]
+    blocks so Wesnoth's playback uses the same PvP settings the sim
+    used for its decisions. If we don't do this, the sim's view of
+    income / starting gold / experience differs from Wesnoth's view,
+    and the policy's recruit decisions (gated on gold) emit moves
+    that Wesnoth's playback then rejects (insufficient gold) -- OOS.
+
+    Updates in place via regex (whitespace-insensitive WML doesn't
+    care about exact formatting):
+      - top-level `mp_use_map_settings="yes"` (force "use map
+        settings" semantics so [scenario]'s embedded values dominate
+        any host-customized mp_* values).
+      - top-level `mp_village_gold`, `mp_village_support`.
+      - [scenario] `experience_modifier`.
+      - each [side] gold / income (income is a side-level offset
+        added to game_config::base_income=2; we set income=0 so the
+        effective base income equals the default 2).
+      - each [side] village_gold, village_support (per-side overrides
+        that some replays set).
+    """
+    def repl_attr(name: str, value, content: str, flags=re.MULTILINE) -> str:
+        # Replace `name=...` line with `name="value"`. If absent, leave
+        # alone (Wesnoth will use its own default which matches our
+        # defaults for the standard ladder cases).
+        return re.sub(
+            rf'^(\s*){re.escape(name)}=\"?[^\"\n]*\"?',
+            rf'\1{name}="{value}"',
+            content,
+            flags=flags,
+        )
+
+    text = repl_attr("mp_use_map_settings", "yes", text)
+    text = repl_attr("mp_village_gold",     defaults.village_gold, text)
+    text = repl_attr("mp_village_support",  defaults.village_support, text)
+    text = repl_attr("experience_modifier", defaults.experience_modifier, text)
+
+    # Per-side rewrite: walk each [side]...[/side] block and rewrite
+    # its gold / income / village_gold / village_support attrs.
+    def rewrite_side(m: "re.Match") -> str:
+        block = m.group(0)
+        block = repl_attr("gold",            defaults.starting_gold, block)
+        block = repl_attr("income",          0, block)  # offset; effective = 2
+        block = repl_attr("village_gold",    defaults.village_gold, block)
+        block = repl_attr("village_support", defaults.village_support, block)
+        return block
+    text = re.sub(
+        r'\[side\][\s\S]*?\[/side\]',
+        rewrite_side,
+        text,
+    )
+    return text
+
+
 def export_replay(
     sim:        WesnothSim,
     source_bz2: Path,
     out_path:   Path,
+    *,
+    pvp_defaults: Optional[PvPDefaults] = None,
 ) -> None:
     """Write `out_path` (a .bz2) such that Wesnoth can load it as a
     replay reproducing `sim`'s game from its initial state.
@@ -403,6 +459,11 @@ def export_replay(
     map, sides, factions, leader stats. We can't reconstruct that
     from the sim's GameState alone (we'd lose modifications, era
     config, ai settings, mp_era_name, etc.).
+
+    `pvp_defaults`: when provided, rewrite the source's
+    economy/experience settings to match self-play "use map settings"
+    behavior. Pass the SAME `PvPDefaults` you passed to
+    `WesnothSim.from_replay` so sim and Wesnoth playback agree.
     """
     source_bz2 = Path(source_bz2)
     out_path = Path(out_path)
@@ -434,7 +495,9 @@ def export_replay(
         count=1,
         flags=re.MULTILINE,
     )
-    span = _find_final_replay_block(text)  # re-locate after edit
+    if pvp_defaults is not None:
+        text = _rewrite_pvp_settings(text, pvp_defaults)
+    span = _find_final_replay_block(text)  # re-locate after edits
     start, end = span
 
     new_replay = _build_replay_wml(sim.command_history)
