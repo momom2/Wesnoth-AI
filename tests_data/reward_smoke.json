@@ -1,7 +1,7 @@
 {
   "gold_killed_delta": 0.02,
   "village_delta": 0.1,
-  "leader_move_penalty": 0.005,
+  "leader_move_penalty": -0.005,
   "unit_type_bonuses": [
     {"unit_type": "Wose", "weight": 0.5},
     {"unit_type": "Elvish Fighter", "weight": 0.05}

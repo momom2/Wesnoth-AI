@@ -334,10 +334,12 @@ def test_weighted_reward_gold_killed_delta_uses_signed_diff():
 
 
 def test_weighted_reward_leader_move_penalty_is_charged_once():
-    """Even with a per-step delta that ALSO has positive shaping, the
-    leader_move_penalty subtracts once when leader_moved is True."""
+    """Sign convention (post-2026-04-29): the configured value IS
+    the contribution sign-and-all. Negative value -> negative
+    contribution, fires once per leader_moved=True step.
+    """
     rf = WeightedReward(
-        gold_killed_delta=0.01, leader_move_penalty=0.05,
+        gold_killed_delta=0.01, leader_move_penalty=-0.05,
         terminal_win=0, terminal_loss=0, terminal_draw=0,
         terminal_timeout=0, village_delta=0, damage_dealt=0,
         unit_recruited_cost=0, per_turn_penalty=0,
@@ -346,27 +348,27 @@ def test_weighted_reward_leader_move_penalty_is_charged_once():
     delta = StepDelta(
         side=1, turn=1, action_type="move",
         enemy_gold_lost=14, leader_moved=True)
-    assert rf(delta) == pytest.approx(0.01 * 14 - 0.05)
+    # 0.01 * 14 + (-0.05) = 0.14 - 0.05 = 0.09
+    assert rf(delta) == pytest.approx(0.01 * 14 + (-0.05))
 
 
 def test_weighted_reward_invalid_action_penalty():
-    """Default invalid_action_penalty=0.001 fires when invalid_action
-    is True. With 500 invalid actions we get -0.5 -- the exact cap
-    the rewards docstring promises."""
+    """Default `invalid_action_penalty=-0.001` fires when
+    invalid_action is True. With 500 invalid actions we get -0.5 --
+    the exact cap the rewards docstring promises."""
     rf = WeightedReward()  # default weights
     inv = StepDelta(side=1, turn=1, action_type="recruit",
                     invalid_action=True)
     val = rf(inv)
     # Default min_enemy_distance is 0 and ongoing outcome contributes
-    # nothing -> only the invalid penalty applies.
+    # nothing -> only the invalid penalty (-0.001) applies.
     assert val == pytest.approx(-0.001)
 
 
 def test_weighted_reward_min_enemy_distance_penalty_scales():
-    """Penalty proportional to distance: at distance 12 (typical
-    starting separation), default 0.0001 weight gives -0.0012/step."""
-    rf = WeightedReward()  # defaults
-    # Strip the invalid_action flag and any other contributors.
+    """Negative coefficient × distance: at distance 12 with default
+    -0.0001 we get -0.0012/step."""
+    rf = WeightedReward()  # defaults (negative penalty fields)
     delta = StepDelta(side=1, turn=1, action_type="end_turn",
                       min_enemy_distance=12)
     val = rf(delta)

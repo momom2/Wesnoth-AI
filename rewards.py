@@ -230,7 +230,14 @@ class TurnConditionalBonus:
 class WeightedReward:
     """Default reward: weighted sum of the StepDelta fields.
 
-    All weights default to 0 except the ones we want on for Phase 3.
+    SIGN CONVENTION (post-2026-04-29): every field is the SIGNED
+    REWARD CONTRIBUTION. Positive = reward; negative = penalty.
+    The `__call__` method sums fields additively with no per-field
+    sign-flipping. So a config of `leader_move_penalty: -0.01`
+    contributes exactly -0.01 every leader-move step. Field names
+    ending `_penalty` are kept for readability; the sign is in the
+    value, not in the name.
+
     Override by constructing with different values:
 
         reward_fn = WeightedReward(village_delta=0.2, damage_dealt=0.005)
@@ -250,8 +257,15 @@ class WeightedReward:
         noise level, just to distinguish "engaged" from "idled".
       - unit_recruited_cost 0.001 per gold: 14g fighter earns 0.014.
         Tiny; just biases toward spending gold rather than hoarding.
-      - per_turn_penalty 0.0: enable only if we observe policies
-        learning to run out the clock.
+      - per_turn_penalty 0.0: enable (typically NEGATIVE) only if we
+        observe policies learning to run out the clock.
+      - leader_move_penalty -0.01: typically -0.2 across a 20-move
+        game, comparable to recruit/village shaping.
+      - invalid_action_penalty -0.001: caps at -0.5 over 500
+        invalid attempts; back-pressure on garbage actions.
+      - min_enemy_distance_penalty -0.0001: ~-0.6 across a 500-step
+        game where units never close, comparable to a small kill --
+        so closing dominates camping.
     """
 
     # Terminal rewards.
@@ -261,43 +275,50 @@ class WeightedReward:
     terminal_timeout: float =  0.0
 
     # Per-step shaping. See docstring for scale guidance.
+    # Per the sign convention below, all of these are reward
+    # contributions: gold_killed_delta etc. are typically positive
+    # (good things to reward); per_turn_penalty defaults to 0 and
+    # is typically NEGATIVE when configured (a per-step cost).
     gold_killed_delta:    float = 0.01     # (enemy_gold_lost - our_gold_lost)
     village_delta:        float = 0.05     # (villages_gained - villages_lost)
     damage_dealt:         float = 0.0005   # enemy_hp_lost only
     unit_recruited_cost:  float = 0.001
     per_turn_penalty:     float = 0.0      # applied once per Python-side step
 
-    # Penalty subtracted whenever our leader changed hexes this step.
-    # Purpose: break the "every game returns ~0.22" uniformity that
-    # prevents policy-gradient updates. Random policies that happen to
-    # recruit more (leader stays on the keep) now get measurably
-    # better reward than those that wander the leader around — which
-    # creates the inter-episode variance the policy gradient needs.
-    # Scaled so a game with ~20 leader moves has ~0.2 total penalty,
-    # comparable to the ~0.1 recruit/village shaping, so the gradient
-    # nudges the policy toward "recruit more, move leader less".
-    leader_move_penalty:  float = 0.01
+    # SIGN CONVENTION (changed 2026-04-29): every field's value is the
+    # SIGNED REWARD CONTRIBUTION. Positive = reward; negative = penalty.
+    # The `__call__` method sums each field's contribution with no
+    # sign-flipping, so a config of `leader_move_penalty: -0.01`
+    # produces a reward contribution of -0.01 every leader-move step.
+    # Field names ending in `_penalty` are kept for readability but
+    # are NOT semantically penalty-only -- a positive value would
+    # be a reward. Defaults below are negative for the disciplinary
+    # fields (matches the prior "subtract" semantics with the new
+    # config-as-truth convention).
+    #
+    # Per-step contribution when our leader changed hexes. Negative
+    # default discourages wandering the leader away from the keep --
+    # the original fix for "every game returns ~0.22 with no inter-
+    # episode variance" because random policies that happened to
+    # recruit more (leader stays on keep) couldn't be distinguished
+    # from those that wandered. Scaled so a game with ~20 leader
+    # moves contributes ~-0.2.
+    leader_move_penalty:  float = -0.01
 
-    # Flat penalty for actions Wesnoth silently rejected (state didn't
-    # change). Added after the overnight run showed the policy spamming
-    # ~500 invalid recruits per game — our custom AI stage doesn't
-    # blacklist-on-failure, so there's no engine-side back-pressure on
-    # garbage actions. With 500-action games a 0.001 per-invalid
-    # penalty caps at -0.5 for a fully-wasted game, strong enough to
-    # be the dominant shaping term for a stuck-spamming policy but not
-    # enough to drown the terminal ±1 for a game that actually plays.
-    invalid_action_penalty: float = 0.001
+    # Flat contribution for actions Wesnoth/sim silently rejected
+    # (state didn't change). Negative default added after the
+    # overnight run showed the policy spamming ~500 invalid
+    # recruits per game; with 500-action games this caps at -0.5.
+    invalid_action_penalty: float = -0.001
 
-    # Per-step penalty proportional to the minimum hex distance between
-    # any friendly unit and any enemy unit. Purpose: random exploration
-    # basically never stumbles into combat on a 16×20 map with ~12 hex
-    # starting distance. Keeping a unit close costs nothing; leaving
-    # them all far away accumulates a steady negative reward, so the
-    # policy gets gradient toward "send at least ONE unit to the
-    # enemy's zone". 0.0001 × 12 × ~500 actions ≈ -0.6 for a game
-    # that never closes — roughly the payoff of a small kill, so
-    # closing is clearly worth it.
-    min_enemy_distance_penalty: float = 0.0001
+    # Per-step contribution proportional to the minimum hex
+    # distance between any friendly unit and any enemy unit.
+    # Negative default pushes the policy toward "send at least ONE
+    # unit to the enemy's zone" rather than camping at base.
+    # -0.0001 * 12 * ~500 actions ~= -0.6 for a game that never
+    # closes -- roughly the payoff of a small kill, so closing is
+    # clearly worth it.
+    min_enemy_distance_penalty: float = -0.0001
 
     # Customizability hooks (default empty -- keep behavior identical
     # to pre-2026-04-28 unless the user opts in).
@@ -330,16 +351,24 @@ class WeightedReward:
             del self._fired_once[k]
 
     def __call__(self, delta: StepDelta) -> float:
+        # Sign convention: every field is a SIGNED reward contribution.
+        # Positive = reward, negative = penalty. The arithmetic is
+        # purely additive with no per-field sign-flipping, so a config
+        # of `leader_move_penalty: -0.01` contributes exactly -0.01
+        # every step the leader moved. This makes the JSON config
+        # match the effective contribution one-to-one (audited
+        # 2026-04-29 against earlier "subtract penalties" convention,
+        # which inverted JSON sign vs effect and was confusing).
         r  = self.gold_killed_delta * (delta.enemy_gold_lost - delta.our_gold_lost)
         r += self.village_delta     * (delta.villages_gained - delta.villages_lost)
         r += self.damage_dealt      * delta.enemy_hp_lost
         r += self.unit_recruited_cost * delta.unit_recruited_cost
-        r -= self.per_turn_penalty
+        r += self.per_turn_penalty
         if delta.leader_moved:
-            r -= self.leader_move_penalty
+            r += self.leader_move_penalty
         if delta.invalid_action:
-            r -= self.invalid_action_penalty
-        r -= self.min_enemy_distance_penalty * delta.min_enemy_distance
+            r += self.invalid_action_penalty
+        r += self.min_enemy_distance_penalty * delta.min_enemy_distance
 
         # Per-unit-type recruit bonuses. Iterate the list (small in
         # practice; <10 typical configurations) and accumulate
@@ -724,13 +753,19 @@ register_predicate("no_units_lost",            _pred_no_units_lost)
 def load_reward_config(path) -> "WeightedReward":
     """Construct a `WeightedReward` from a JSON or YAML config file.
 
+    Sign convention (see WeightedReward docstring): each field's
+    value is the signed reward contribution. Negative penalty
+    fields like `leader_move_penalty: -0.01` contribute -0.01 per
+    fire; positive shaping fields like `village_delta: 0.05`
+    contribute +0.05 per village swing.
+
     File format -- all keys optional; missing keys keep WeightedReward
     defaults::
 
         {
           "gold_killed_delta": 0.01,
           "village_delta": 0.05,
-          "leader_move_penalty": 0.0,
+          "leader_move_penalty": -0.01,
           "unit_type_bonuses": [
             {"unit_type": "Wose", "weight": 0.5},
             {"unit_type": "Elvish Fighter", "weight": 0.05}
@@ -812,11 +847,17 @@ def load_reward_config(path) -> "WeightedReward":
 
     # Validate the remaining (scalar) keys against WeightedReward
     # fields so a typo'd key is caught at load time, not silently
-    # ignored.
+    # ignored. Keys that start with `_` are treated as inert
+    # documentation (e.g. `_about`, `_generated_at`); they pass
+    # through unchallenged but don't end up on the WeightedReward
+    # instance.
     import dataclasses
     valid_fields = {f.name for f in dataclasses.fields(WeightedReward)}
     valid_fields -= {"unit_type_bonuses", "turn_conditional_bonuses",
                      "_fired_once"}
+    doc_keys = [k for k in data if k.startswith("_")]
+    for k in doc_keys:
+        del data[k]
     for k in data:
         if k not in valid_fields:
             raise ValueError(
