@@ -120,6 +120,7 @@ class SampledAction:
     """
     action:      Dict
     actor_idx:   int
+    type_idx:    Optional[int]   # None unless actor is UNIT (then ATTACK/MOVE)
     target_idx:  Optional[int]   # None iff action.type == 'end_turn'
     weapon_idx:  Optional[int]   # None unless action.type == 'attack'
     value_est:   float           # pooled from output.value; debug/logging
@@ -136,7 +137,20 @@ def sample_action(
 ) -> SampledAction:
     """Stochastic sampling. Caller should be in torch.no_grad context
     to avoid retaining the forward graph — this function only reads
-    logits and samples indices."""
+    logits and samples indices.
+
+    Chain (for UNIT actors): actor -> type (ATTACK/MOVE) -> target.
+    For RECRUIT: actor -> target (recruit hex). For END_TURN: actor.
+
+    The type sample uses `output.type_logits[actor]` masked by
+    `masks.type_valid[actor]`; the target sample uses the
+    type-conditional mask (`target_valid_attack` or
+    `target_valid_move`). This separates "should I attack at all?"
+    from "if I'm attacking, where?", giving cleaner PUCT priors and
+    cleaner supervised CE.
+    """
+    from model import UnitActionType
+
     device = output.actor_logits.device
     value_est = float(output.value.squeeze().item())
 
@@ -150,67 +164,110 @@ def sample_action(
     if kind == ActorKind.END_TURN:
         return SampledAction(
             action={'type': 'end_turn'},
-            actor_idx=actor_idx, target_idx=None, weapon_idx=None,
+            actor_idx=actor_idx, type_idx=None,
+            target_idx=None, weapon_idx=None,
             value_est=value_est,
         )
 
-    target_logits = _masked_target_logits(
-        output, masks.target_valid, actor_idx,
-        attack_bias=masks.attack_bias,
+    if kind == ActorKind.RECRUIT:
+        # Recruit: no type sample (type is implicit). Sample target
+        # from the union mask (recruit-hex network).
+        target_logits = _masked_target_logits(
+            output, masks.target_valid, actor_idx,
+            attack_bias=masks.attack_bias,
+        )
+        if target_logits.numel() == 0:
+            return SampledAction(
+                action={'type': 'end_turn'},
+                actor_idx=actor_idx, type_idx=None,
+                target_idx=None, weapon_idx=None,
+                value_est=value_est,
+            )
+        target_idx = _sample_from_logits(target_logits)
+        target_pos = encoded.hex_positions[target_idx]
+        recruit_type = encoded.recruit_types[actor_idx - output.num_units]
+        return SampledAction(
+            action={
+                'type':       'recruit',
+                'unit_type':  recruit_type,
+                'target_hex': target_pos,
+            },
+            actor_idx=actor_idx, type_idx=None,
+            target_idx=target_idx, weapon_idx=None,
+            value_est=value_est,
+        )
+
+    # ActorKind.UNIT: type -> target (with type-conditional mask)
+    # -> weapon (only for ATTACK).
+    type_logits = _masked_type_logits(output, masks.type_valid, actor_idx)
+    if type_logits.numel() == 0 or torch.isinf(type_logits).all():
+        # No legal type for this unit (shouldn't happen since
+        # actor_valid already gates on that, but guard against
+        # empty distributions). Fall through to end_turn.
+        return SampledAction(
+            action={'type': 'end_turn'},
+            actor_idx=actor_idx, type_idx=None,
+            target_idx=None, weapon_idx=None,
+            value_est=value_est,
+        )
+    type_idx = _sample_from_logits(type_logits)
+
+    # Pick the type-conditional target mask.
+    if type_idx == UnitActionType.ATTACK:
+        type_target_row = masks.target_valid_attack[actor_idx]
+    else:
+        type_target_row = masks.target_valid_move[actor_idx]
+    target_logits = _masked_target_logits_from_row(
+        output, type_target_row, actor_idx,
+        attack_bias=(masks.attack_bias[actor_idx]
+                     if type_idx == UnitActionType.ATTACK else None),
     )
     if target_logits.numel() == 0:
         return SampledAction(
             action={'type': 'end_turn'},
-            actor_idx=actor_idx, target_idx=None, weapon_idx=None,
+            actor_idx=actor_idx, type_idx=type_idx,
+            target_idx=None, weapon_idx=None,
             value_est=value_est,
         )
-
     target_idx = _sample_from_logits(target_logits)
     target_pos = encoded.hex_positions[target_idx]
+    unit_pos = encoded.unit_positions[actor_idx]
 
-    if kind == ActorKind.UNIT:
-        unit_pos = encoded.unit_positions[actor_idx]
-        unit_id  = encoded.unit_ids[actor_idx]
-        enemy    = _enemy_unit_at(game_state, target_pos)
-
-        if enemy is None:
-            return SampledAction(
-                action={'type': 'move', 'start_hex': unit_pos, 'target_hex': target_pos},
-                actor_idx=actor_idx, target_idx=target_idx, weapon_idx=None,
-                value_est=value_est,
-            )
-
-        attacker = _unit_by_id(game_state, unit_id)
-        num_attacks = len(attacker.attacks) if attacker else 0
-        if num_attacks == 0:
-            return SampledAction(
-                action={'type': 'move', 'start_hex': unit_pos, 'target_hex': target_pos},
-                actor_idx=actor_idx, target_idx=target_idx, weapon_idx=None,
-                value_est=value_est,
-            )
-
-        weapon_logits = _masked_weapon_logits(output, actor_idx, num_attacks)
-        weapon_idx = _sample_from_logits(weapon_logits)
+    if type_idx == UnitActionType.MOVE:
         return SampledAction(
-            action={
-                'type':         'attack',
-                'start_hex':    unit_pos,
-                'target_hex':   target_pos,
-                'attack_index': weapon_idx,
-            },
-            actor_idx=actor_idx, target_idx=target_idx, weapon_idx=weapon_idx,
+            action={'type': 'move',
+                    'start_hex': unit_pos,
+                    'target_hex': target_pos},
+            actor_idx=actor_idx, type_idx=type_idx,
+            target_idx=target_idx, weapon_idx=None,
             value_est=value_est,
         )
 
-    # ActorKind.RECRUIT
-    recruit_type = encoded.recruit_types[actor_idx - output.num_units]
+    # ATTACK: pick a weapon.
+    unit_id = encoded.unit_ids[actor_idx]
+    attacker = _unit_by_id(game_state, unit_id)
+    num_attacks = len(attacker.attacks) if attacker else 0
+    if num_attacks == 0:
+        # Shouldn't happen (mask gated on attackability via
+        # has_attacked + adjacency), but degrade safely to end_turn
+        # rather than emit an attack with no weapon.
+        return SampledAction(
+            action={'type': 'end_turn'},
+            actor_idx=actor_idx, type_idx=type_idx,
+            target_idx=None, weapon_idx=None,
+            value_est=value_est,
+        )
+    weapon_logits = _masked_weapon_logits(output, actor_idx, num_attacks)
+    weapon_idx = _sample_from_logits(weapon_logits)
     return SampledAction(
         action={
-            'type':       'recruit',
-            'unit_type':  recruit_type,
-            'target_hex': target_pos,
+            'type':         'attack',
+            'start_hex':    unit_pos,
+            'target_hex':   target_pos,
+            'attack_index': weapon_idx,
         },
-        actor_idx=actor_idx, target_idx=target_idx, weapon_idx=None,
+        actor_idx=actor_idx, type_idx=type_idx,
+        target_idx=target_idx, weapon_idx=weapon_idx,
         value_est=value_est,
     )
 
@@ -227,14 +284,25 @@ def reforward_logprob_entropy(
     actor_idx:  int,
     target_idx: Optional[int],
     weapon_idx: Optional[int],
+    type_idx:   Optional[int] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Given stored action indices, compute (log_prob, entropy) as
     scalar grad-enabled tensors. The trainer sums these across a
     batch to form the policy-gradient loss.
 
+    Chain (must mirror `sample_action`):
+        actor -> [type if UNIT] -> target -> [weapon if ATTACK]
+
+    `type_idx` is None for non-UNIT actors (recruit / end_turn) and
+    for legacy callers that pre-date the type head; in both cases
+    we fall back to the old chain-rule (actor -> target -> weapon)
+    so transitions stored before this change keep training without
+    re-collection. Once new transitions land, type_idx is non-None
+    for unit actions.
+
     Must be called with grads enabled (normal mode, NOT under no_grad).
     """
-    device = output.actor_logits.device
+    from model import UnitActionType
 
     masks = _build_legality_masks(encoded, game_state)
 
@@ -244,10 +312,30 @@ def reforward_logprob_entropy(
     if target_idx is None:
         return log_prob, entropy
 
-    target_logits = _masked_target_logits(
-        output, masks.target_valid, actor_idx,
-        attack_bias=masks.attack_bias,
-    )
+    # Type term -- only for UNIT actors with a stored type_idx.
+    is_unit_actor = actor_idx < output.num_units
+    if is_unit_actor and type_idx is not None:
+        type_logits = _masked_type_logits(output, masks.type_valid, actor_idx)
+        lp_type, ent_type = _logprob_entropy_1d(type_logits, type_idx)
+        log_prob = log_prob + lp_type
+        entropy  = entropy  + ent_type
+
+        # Target term: type-conditional mask.
+        if type_idx == UnitActionType.ATTACK:
+            row = masks.target_valid_attack[actor_idx]
+            attack_bias_row = masks.attack_bias[actor_idx]
+        else:
+            row = masks.target_valid_move[actor_idx]
+            attack_bias_row = None
+        target_logits = _masked_target_logits_from_row(
+            output, row, actor_idx, attack_bias=attack_bias_row,
+        )
+    else:
+        # Recruit / end_turn / legacy transitions: use the union mask.
+        target_logits = _masked_target_logits(
+            output, masks.target_valid, actor_idx,
+            attack_bias=masks.attack_bias,
+        )
     lp_t, ent_t = _logprob_entropy_1d(target_logits, target_idx)
     log_prob = log_prob + lp_t
     entropy = entropy + ent_t
@@ -467,6 +555,45 @@ def _masked_actor_logits(
     return output.actor_logits.masked_fill(mask == 0, _NEG_INF)
 
 
+def _masked_type_logits(
+    output: ModelOutput,
+    type_valid: torch.Tensor,    # [1, A, T] float
+    actor_idx: int,
+) -> torch.Tensor:
+    """Pull `output.type_logits[actor]` and mask types whose
+    legality bit is zero. Returns [T] tensor; if every type is
+    masked off, returns the unmasked row (caller should treat
+    that as a degenerate state and degrade gracefully)."""
+    row = output.type_logits[0, actor_idx]   # [T]
+    if row.numel() == 0:
+        return row
+    mask = type_valid[0, actor_idx]          # [T]
+    if mask.sum().item() == 0:
+        return row
+    return row.masked_fill(mask == 0, _NEG_INF)
+
+
+def _masked_target_logits_from_row(
+    output: ModelOutput,
+    target_valid_row: torch.Tensor,    # [H] float for ONE actor
+    actor_idx: int,
+    attack_bias: Optional[torch.Tensor] = None,    # [H] or None
+) -> torch.Tensor:
+    """Variant of `_masked_target_logits` that takes a pre-sliced
+    [H] row instead of the full [A, H] tensor. Used by the new
+    type-conditional sampling path where we choose between
+    `target_valid_attack[actor]` and `target_valid_move[actor]`
+    BEFORE the masked logit comes out."""
+    row = output.target_logits[0, actor_idx]  # [H]
+    if row.numel() == 0:
+        return row
+    if attack_bias is not None:
+        row = row + attack_bias
+    if target_valid_row.sum().item() == 0:
+        return row
+    return row.masked_fill(target_valid_row == 0, _NEG_INF)
+
+
 def _masked_target_logits(
     output: ModelOutput,
     target_valid: torch.Tensor,
@@ -541,6 +668,25 @@ class LegalityMasks:
     """
     actor_valid:  torch.Tensor  # [1, A] float — 1 = actor has ≥1 valid target
     target_valid: torch.Tensor  # [A, H] float — 1 = hex is a valid target
+                                #                  (union of attack ∪ move
+                                #                  for unit actors; recruit-
+                                #                  hex set for recruit
+                                #                  actors). Kept for
+                                #                  legacy callers; new
+                                #                  code should consult
+                                #                  the type-conditional
+                                #                  pair below.
+    target_valid_attack: torch.Tensor  # [A, H] -- enemy-attack legal
+    target_valid_move:   torch.Tensor  # [A, H] -- empty-move legal
+    type_valid: torch.Tensor    # [1, A, T] float -- 1 = action type
+                                #                  legal for actor.
+                                #                  Computed from the
+                                #                  per-type target masks:
+                                #                  ATTACK legal iff
+                                #                  target_valid_attack
+                                #                  has any 1; MOVE
+                                #                  similarly. Always 0
+                                #                  for non-UNIT actors.
     attack_bias:  torch.Tensor  # [A, H] float — combat-oracle logit prior
 
 
@@ -561,8 +707,13 @@ def _build_legality_masks(
     A = U + R + 1  # +1 for end_turn
     current_side = game_state.global_info.current_side
 
+    from model import UnitActionType
+    T = UnitActionType.COUNT
     actor_valid_np  = np.zeros(A, dtype=np.float32)
     target_valid_np = np.zeros((A, H), dtype=np.float32)
+    target_attack_np = np.zeros((A, H), dtype=np.float32)
+    target_move_np   = np.zeros((A, H), dtype=np.float32)
+    type_valid_np   = np.zeros((A, T), dtype=np.float32)
     attack_bias_np  = np.zeros((A, H), dtype=np.float32)
 
     # End_turn actor is the LAST slot; always valid, no target.
@@ -572,6 +723,9 @@ def _build_legality_masks(
         return LegalityMasks(
             actor_valid  = torch.from_numpy(actor_valid_np).to(device).unsqueeze(0),
             target_valid = torch.from_numpy(target_valid_np).to(device),
+            target_valid_attack = torch.from_numpy(target_attack_np).to(device),
+            target_valid_move   = torch.from_numpy(target_move_np).to(device),
+            type_valid   = torch.from_numpy(type_valid_np).to(device).unsqueeze(0),
             attack_bias  = torch.from_numpy(attack_bias_np).to(device),
         )
 
@@ -618,24 +772,23 @@ def _build_legality_masks(
         dist = _hex_distance_vec(ux, uy, hex_xs, hex_ys)
         self_mask = (hex_xs == ux) & (hex_ys == uy)
 
-        row = np.zeros(H, dtype=bool)
+        # Type-conditional target masks. UNIT actors split their
+        # legal targets across ATTACK (enemy-occupied within
+        # move+1 hexes) and MOVE (empty-and-reachable, excluding
+        # our own current hex).
+        move_row   = np.zeros(H, dtype=bool)
+        attack_row = np.zeros(H, dtype=bool)
         if can_move:
-            # Empty and reachable. Exclude our own hex (a no-op move).
-            row |= empty_mask & ~self_mask & (dist <= moves)
+            move_row = empty_mask & ~self_mask & (dist <= moves)
         if can_attack:
-            # Enemy-occupied and close enough that SOME neighbor of the
-            # enemy is reachable. Neighbor distance is distance ± 1, so
-            # "enemy at <= moves + 1" is a tight bound for move-to-attack.
-            # Distance == 1 already means we're adjacent (attack in place).
-            row |= enemy_mask & (dist <= moves + 1)
+            attack_row = enemy_mask & (dist <= moves + 1)
             # Combat-oracle prior: for each valid attack target, score
             # the expected net damage using the unit's best weapon. We
             # feed this into attack_bias_np so sample_action can add
             # it to target_logits. Only apply to enemy hexes this
             # actor can actually reach-and-attack.
-            reachable_enemies = enemy_mask & (dist <= moves + 1)
-            if reachable_enemies.any():
-                for j in np.where(reachable_enemies)[0]:
+            if attack_row.any():
+                for j in np.where(attack_row)[0]:
                     ex, ey = int(hex_xs[j]), int(hex_ys[j])
                     enemy_u = unit_at.get((ex, ey))
                     if enemy_u is None:
@@ -646,8 +799,16 @@ def _build_legality_masks(
                         net = 0.0
                     attack_bias_np[i, j] = _COMBAT_LOGIT_ALPHA * net
 
-        if row.any():
-            target_valid_np[i] = row.astype(np.float32)
+        # Per-type legality + union into legacy target_valid_np.
+        if attack_row.any():
+            target_attack_np[i] = attack_row.astype(np.float32)
+            type_valid_np[i, UnitActionType.ATTACK] = 1.0
+        if move_row.any():
+            target_move_np[i] = move_row.astype(np.float32)
+            type_valid_np[i, UnitActionType.MOVE] = 1.0
+        union_row = attack_row | move_row
+        if union_row.any():
+            target_valid_np[i] = union_row.astype(np.float32)
             actor_valid_np[i] = 1.0
 
     # ----- Recruit actors (slots U..U+R-1) -----
@@ -718,6 +879,9 @@ def _build_legality_masks(
     return LegalityMasks(
         actor_valid  = torch.from_numpy(actor_valid_np).to(device).unsqueeze(0),
         target_valid = torch.from_numpy(target_valid_np).to(device),
+        target_valid_attack = torch.from_numpy(target_attack_np).to(device),
+        target_valid_move   = torch.from_numpy(target_move_np).to(device),
+        type_valid   = torch.from_numpy(type_valid_np).to(device).unsqueeze(0),
         attack_bias  = torch.from_numpy(attack_bias_np).to(device),
     )
 

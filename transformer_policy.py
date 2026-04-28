@@ -222,6 +222,7 @@ class TransformerPolicy:
             actor_idx=sampled.actor_idx,
             target_idx=sampled.target_idx,
             weapon_idx=sampled.weapon_idx,
+            type_idx=sampled.type_idx,
         ))
         return sampled.action
 

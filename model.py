@@ -58,6 +58,60 @@ class ActorKind:
     COUNT    = 3
 
 
+# Action sub-type for UNIT actors. Recruit / end_turn actors don't
+# need this sub-decision -- their action type is implicit in the
+# actor kind. The type head only fires for UNIT actors and chooses
+# between attacking an enemy or moving to an empty hex (HOLD is not
+# modeled in v1; see CLAUDE.md design discussion).
+class UnitActionType:
+    ATTACK = 0
+    MOVE   = 1
+    COUNT  = 2
+
+
+def _compute_marginal_type_logits(
+    actor_logits: torch.Tensor,
+    type_logits:  torch.Tensor,
+    U: int, R: int,
+    device,
+) -> torch.Tensor:
+    """Aggregate per-leaf-action-type probabilities by marginalizing
+    over the actor distribution. Returns log-probabilities (for
+    consistency with the rest of the model output). Layout
+    [1, T+2] = [ATTACK, MOVE, RECRUIT, END_TURN].
+
+    Done WITHOUT the legality mask -- the sampler's `_masked_*`
+    helpers compose the legality on top. This is a debug / coarse-
+    prior signal, not an exact distribution.
+    """
+    # Softmax over actors (joint actor probability).
+    actor_probs = torch.softmax(actor_logits, dim=-1)   # [1, A]
+    # Softmax over type axis (per-actor type prior).
+    type_probs = torch.softmax(type_logits, dim=-1)     # [1, A, T]
+    # Layout-dependent slicing: actor index 0..U-1 = UNIT,
+    # U..U+R-1 = RECRUIT, U+R = END_TURN.
+    if U > 0:
+        unit_actor_p = actor_probs[:, :U]                   # [1, U]
+        unit_type_p  = type_probs[:, :U, :]                  # [1, U, T]
+        # Sum P(actor) * P(type | actor) over UNIT actors.
+        attack_mass = (unit_actor_p * unit_type_p[:, :, UnitActionType.ATTACK]).sum(dim=-1)
+        move_mass   = (unit_actor_p * unit_type_p[:, :, UnitActionType.MOVE]).sum(dim=-1)
+    else:
+        attack_mass = torch.zeros(1, device=device)
+        move_mass   = torch.zeros(1, device=device)
+    if R > 0:
+        recruit_mass = actor_probs[:, U:U + R].sum(dim=-1)   # [1]
+    else:
+        recruit_mass = torch.zeros(1, device=device)
+    end_turn_mass = actor_probs[:, U + R]                    # [1]
+
+    # Stack and convert to log-probs. Clamp the inner sum to avoid
+    # log(0) when an entire actor-class has zero mass.
+    masses = torch.stack([attack_mass, move_mass, recruit_mass, end_turn_mass],
+                         dim=-1)                              # [1, 4]
+    return torch.log(masses.clamp_min(1e-10))
+
+
 @dataclass
 class ModelOutput:
     """Everything the sampler needs from one forward pass.
@@ -65,14 +119,35 @@ class ModelOutput:
     Shapes (batch dim = 1 in Phase 3.1):
       A = num_units + num_recruits + 1   — # of actor slots, incl. end_turn
       H = # hex tokens
+      T = UnitActionType.COUNT (= 2: ATTACK, MOVE)
     """
     actor_logits:  torch.Tensor  # [1, A]            pick an actor
     actor_kind:    torch.Tensor  # [1, A] long       UNIT / RECRUIT / END_TURN
+    type_logits:   torch.Tensor  # [1, A, T]         per-actor ATTACK/MOVE
+                                 #                   prior. Meaningful only
+                                 #                   for UNIT slots; sampler
+                                 #                   ignores T-axis for
+                                 #                   non-UNIT actors.
     target_logits: torch.Tensor  # [1, A, H]         pick a hex per actor
     weapon_logits: torch.Tensor  # [1, A, MAX_ATTACKS]
     value:         torch.Tensor  # [1, 1]
     num_units:     int
     num_recruits:  int
+
+    # Diagnostic: marginal-over-actors probability of each action
+    # type. Useful for "what % of decisions did the policy attack?"
+    # logging and as a coarse PUCT prior at the type level.
+    # Computed by the model after softmaxing actor_logits and
+    # type_logits, summing P(actor) * P(type | actor) over UNIT
+    # actors (with -inf masking elsewhere). Shape [1, T+2] where
+    # the extra two indices capture aggregated RECRUIT and END_TURN
+    # mass (so the sum across the four leaf-action-types equals 1
+    # given a legal action distribution). Layout:
+    #   0: ATTACK   (sum_unit_actors P(unit) * P(attack | unit))
+    #   1: MOVE     (sum_unit_actors P(unit) * P(move   | unit))
+    #   2: RECRUIT  (sum_recruit_actors P(recruit_slot))
+    #   3: END_TURN (P(end_turn_slot))
+    marginal_type_logits: torch.Tensor  # [1, T+2]
 
 
 class WesnothModel(nn.Module):
@@ -120,6 +195,13 @@ class WesnothModel(nn.Module):
 
         # Heads.
         self.actor_head     = nn.Linear(d_model, 1)
+        # Per-actor sub-type head. Reads each actor token's
+        # contextualized embedding and predicts P(ATTACK / MOVE | actor).
+        # Only meaningful for UNIT slots; for RECRUIT and END_TURN
+        # the sampler ignores it (their action type is fixed by
+        # actor kind). Old checkpoints lack this Linear and
+        # initialize fresh under load_checkpoint(strict=False).
+        self.type_head      = nn.Linear(d_model, UnitActionType.COUNT)
         # Pointer-network projections: query from actor, key from hex.
         self.target_q_proj  = nn.Linear(d_model, d_model, bias=False)
         self.target_k_proj  = nn.Linear(d_model, d_model, bias=False)
@@ -144,7 +226,7 @@ class WesnothModel(nn.Module):
             nn.Tanh(),
         )
 
-    def forward(self, encoded: EncodedState) -> ModelOutput:
+    def forward(self, encoded: "EncodedState") -> ModelOutput:
         device = encoded.hex_tokens.device
         d      = self.d_model
 
@@ -189,6 +271,12 @@ class WesnothModel(nn.Module):
 
         actor_logits = self.actor_head(actor_ctx).squeeze(-1)  # [1, A]
 
+        # Per-actor sub-type logits (ATTACK / MOVE). Computed for ALL
+        # actor slots; sampler / reforward consult only the UNIT
+        # slots' values (R and END_TURN slots have meaningless type
+        # logits). Shape [1, A, T].
+        type_logits = self.type_head(actor_ctx)
+
         # Target logits: pointer attention from each actor to each hex.
         # For empty hex_ctx we emit a [1, A, 0] tensor gracefully.
         if H == 0:
@@ -209,14 +297,24 @@ class WesnothModel(nn.Module):
         # [1, d].
         value = self.value_head(global_ctx.squeeze(1))  # [1, 1]
 
+        # Diagnostic marginal: aggregated probability of each leaf-
+        # action-type across the whole actor distribution. Useful for
+        # logging "what % of decisions did the policy attack?" and
+        # as a coarse PUCT prior at the leaf-type level.
+        marginal_type_logits = _compute_marginal_type_logits(
+            actor_logits, type_logits, U, R, device,
+        )
+
         return ModelOutput(
             actor_logits=actor_logits,
             actor_kind=actor_kind,
+            type_logits=type_logits,
             target_logits=target_logits,
             weapon_logits=weapon_logits,
             value=value,
             num_units=U,
             num_recruits=R,
+            marginal_type_logits=marginal_type_logits,
         )
 
     # ------------------------------------------------------------------
@@ -326,6 +424,11 @@ class WesnothModel(nn.Module):
         recruit_weapon_b = self.weapon_head(recruit_ctx_b)            # [B, R_max, MAX_ATTACKS]
         end_weapon_b     = self.weapon_head(end_turn_ctx_b)           # [B, 1, MAX_ATTACKS]
 
+        # Per-actor sub-type head, batched over actors.
+        unit_type_b    = self.type_head(unit_ctx_b)                   # [B, U_max, T]
+        recruit_type_b = self.type_head(recruit_ctx_b)                # [B, R_max, T]
+        end_type_b     = self.type_head(end_turn_ctx_b)               # [B, 1, T]
+
         scale = d ** 0.5
         outputs = []
         for b in range(B):
@@ -370,15 +473,27 @@ class WesnothModel(nn.Module):
                 end_weapon_b[b:b+1],
             ], dim=1)  # [1, A_b, MAX_ATTACKS]
 
+            type_logits = torch.cat([
+                unit_type_b[b:b+1, :U_b],
+                recruit_type_b[b:b+1, :R_b],
+                end_type_b[b:b+1],
+            ], dim=1)  # [1, A_b, T]
+
             value_sample = value_b[b:b+1]  # [1, 1]
+
+            marginal_type_logits = _compute_marginal_type_logits(
+                actor_logits, type_logits, U_b, R_b, device,
+            )
 
             outputs.append(ModelOutput(
                 actor_logits=actor_logits,
                 actor_kind=actor_kind,
+                type_logits=type_logits,
                 target_logits=target_logits,
                 weapon_logits=weapon_logits,
                 value=value_sample,
                 num_units=U_b,
                 num_recruits=R_b,
+                marginal_type_logits=marginal_type_logits,
             ))
         return outputs

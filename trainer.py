@@ -53,11 +53,17 @@ class Transition:
     No grad tensors — those are built fresh from game_state when the
     trainer re-forwards. Keeping the raw GameState is cheap (a tree of
     Python dataclasses); keeping activations is not.
+
+    `type_idx` is the UnitActionType (ATTACK / MOVE) for unit actors;
+    None for recruit / end_turn / legacy transitions. Defaulted to None
+    so checkpoints / pickled trajectories from before the type head
+    landed still load.
     """
     game_state: GameState
     actor_idx:  int
     target_idx: Optional[int] = None
     weapon_idx: Optional[int] = None
+    type_idx:   Optional[int] = None
     # Filled in by game_manager after the next state arrives:
     reward:     float = 0.0
     done:       bool  = False
@@ -301,6 +307,7 @@ class Trainer:
                         actor_idx=t.actor_idx,
                         target_idx=t.target_idx,
                         weapon_idx=t.weapon_idx,
+                        type_idx=t.type_idx,
                     )
                     chunk_log_probs.append(lp)
                     chunk_values.append(output.value.squeeze())
