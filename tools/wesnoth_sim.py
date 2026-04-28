@@ -249,6 +249,41 @@ def request_seed(request_id: int) -> str:
     return h[:8]
 
 
+# ---------------------------------------------------------------------
+# Recruit cost lookup
+# ---------------------------------------------------------------------
+# Wesnoth's recruit handler refuses a recruit if the side can't afford
+# the unit's cost (see wesnoth_src/src/synced_commands.cpp recruit
+# handler around the `u_type->cost() > beginning_gold` check). Our
+# `_apply_command` is permissive (clamps gold to 0), so the sim's
+# move-validation layer needs the cost to gate recruits before they
+# reach _apply_command.
+
+_RECRUIT_COSTS_CACHE: Dict[str, int] = {}
+
+
+def _recruit_cost_for(unit_type: str) -> int:
+    """Look up the recruit cost (gold) for a unit type from
+    `unit_stats.json`. Returns 14 (the smallfoot/orcishfoot Footpad
+    baseline) if not found, so an unknown type fails the gold check
+    safely on a small budget rather than slipping through with cost=0."""
+    if unit_type in _RECRUIT_COSTS_CACHE:
+        return _RECRUIT_COSTS_CACHE[unit_type]
+    try:
+        import json
+        from pathlib import Path
+        path = Path(__file__).resolve().parent.parent / "unit_stats.json"
+        with path.open(encoding="utf-8") as f:
+            data = json.load(f)
+        cost = int(data.get("units", {}).get(unit_type, {}).get("cost", 14))
+        _RECRUIT_COSTS_CACHE[unit_type] = cost
+        return cost
+    except Exception as e:
+        log.debug(f"sim: recruit cost lookup failed for {unit_type!r}: {e}")
+        _RECRUIT_COSTS_CACHE[unit_type] = 14
+        return 14
+
+
 @dataclass
 class SimResult:
     """Outcome of a simulated game."""
@@ -590,6 +625,24 @@ class WesnothSim:
         if atype == "recruit":
             unit_type = action["unit_type"]
             target: Position = action["target_hex"]
+            # Validate the recruit BEFORE letting it through. Wesnoth
+            # playback re-checks each [recruit] command against the
+            # current side's gold and the keep-castle network; if the
+            # side can't afford the unit or the target hex isn't part
+            # of the leader's castle, playback errors with "cannot
+            # recruit unit: ...". Our `_apply_command` is permissive --
+            # it deducts cost and clamps gold to 0, then accepts the
+            # recruit -- so without this gate the sim emits illegal
+            # recruits that Wesnoth rejects.
+            cost = _recruit_cost_for(unit_type)
+            side_idx = self.current_side - 1
+            if 0 <= side_idx < len(self.gs.sides):
+                gold = int(self.gs.sides[side_idx].current_gold)
+                if gold < cost:
+                    log.debug(
+                        f"sim: refusing recruit {unit_type!r} (cost={cost} "
+                        f"> gold={gold})")
+                    return None
             # Allocate a synced-RNG seed for the trait roll. Without
             # this both sides diverge: the sim might give the recruit
             # `quick` (+1 MP) while Wesnoth's playback rolls a

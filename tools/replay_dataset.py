@@ -1082,6 +1082,15 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             for u in gs.map.units:
                 if u.side != side:
                     continue
+                # Leaders never contribute to upkeep, regardless of
+                # whether they have the `loyal` trait. Verified in
+                # wesnoth_src/src/units/unit.cpp:1746-1751
+                # (`unit::upkeep` short-circuits on `can_recruit()`).
+                # Without this, our income is short by leader.level
+                # gold per turn -- compounding to ~30g over a 30-turn
+                # game and biasing the policy toward smaller armies.
+                if u.is_leader:
+                    continue
                 if "loyal" in u.traits:
                     continue
                 u_stats = _stats_for(u.name)

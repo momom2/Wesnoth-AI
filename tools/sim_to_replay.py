@@ -218,16 +218,21 @@ def _wml_random_seed_command(seed: str, request_id: int) -> str:
     a random roll (recruit -> trait roll, attack -> damage rolls);
     without them you get 'expecting a user choice' on playback. The
     seed must be the SAME hex value the sim used internally so both
-    sides agree on traits / damage."""
+    sides agree on traits / damage.
+
+    Indentation: emitted unindented to match the formatting Wesnoth
+    itself produces for dependent commands. WML's parser is supposed
+    to be whitespace-insensitive, but matching the real-replay style
+    is one less variable when debugging OOS issues."""
     return (
-        "\t[command]\n"
-        "\t\tdependent=\"yes\"\n"
-        "\t\tfrom_side=\"server\"\n"
-        "\t\t[random_seed]\n"
-        f"\t\t\tnew_seed=\"{seed}\"\n"
-        f"\t\t\trequest_id=\"{request_id}\"\n"
-        "\t\t[/random_seed]\n"
-        "\t[/command]\n"
+        "[command]\n"
+        "dependent=\"yes\"\n"
+        "from_side=\"server\"\n"
+        "[random_seed]\n"
+        f"new_seed=\"{seed}\"\n"
+        f"request_id=\"{request_id}\"\n"
+        "[/random_seed]\n"
+        "[/command]\n"
     )
 
 
