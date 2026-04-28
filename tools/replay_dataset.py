@@ -1344,7 +1344,35 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         return
 
     if kind == "recall":
-        # Unit identity unknown without the recall list; skip creating one.
+        # PvP shouldn't include recall actions (the user's
+        # statement: 2026-04-28). When we encounter one in the
+        # supervised corpus we want to (a) NOT silently no-op
+        # because that hides a real data quality issue, but (b)
+        # not crash the recon either because lots of other
+        # transitions in the same replay may still be useful.
+        # Compromise: log an ERROR with full context and stash
+        # the recall on `gs.global_info._recall_log` so callers
+        # (specifically `tools/flag_replays_with_recalls.py`) can
+        # collect the affected replays for inspection / removal.
+        unit_id = cmd[1] if len(cmd) > 1 else "<unknown>"
+        tx = cmd[2] if len(cmd) > 2 else -1
+        ty = cmd[3] if len(cmd) > 3 else -1
+        side = gs.global_info.current_side
+        turn = gs.global_info.turn_number
+        log.error(
+            f"recall in PvP replay {gs.game_id!r} "
+            f"(turn={turn}, side={side}, unit_id={unit_id!r}, "
+            f"hex=({tx},{ty})). "
+            f"Run tools/flag_replays_with_recalls.py to surface for "
+            f"inspection / removal from the supervised corpus."
+        )
+        recall_log = list(getattr(gs.global_info, "_recall_log", []) or [])
+        recall_log.append({
+            "turn": turn, "side": side,
+            "unit_id": unit_id, "x": tx, "y": ty,
+        })
+        setattr(gs.global_info, "_recall_log", recall_log)
+        setattr(gs.global_info, "_has_recall", True)
         return
 
 

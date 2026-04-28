@@ -273,6 +273,62 @@ def test_plague_spawn_type_resolution():
     assert _resolve("Soulless",               "Spearman") == "Walking Corpse"
 
 
+def test_replay_recon_recall_flags_state(fresh_sim, caplog):
+    """In replay-recon, hitting a `recall` action sets
+    `_has_recall=True` + appends to `_recall_log`, AND emits an
+    ERROR log so the corpus issue is visible. PvP shouldn't have
+    recalls; the flag lets `tools/flag_replays_with_recalls.py`
+    pick the replay out for inspection."""
+    import logging
+    from tools.replay_dataset import _apply_command
+
+    sim = fresh_sim
+    sim.gs.global_info.current_side = 1
+    sim.gs.global_info.turn_number = 7
+    sim.gs.game_id = "weird_pvp_replay_42"
+
+    # Pre-existing flags should be absent.
+    assert not getattr(sim.gs.global_info, "_has_recall", False)
+
+    with caplog.at_level(logging.ERROR, logger="replay_dataset"):
+        _apply_command(sim.gs, ["recall", "fighter_42", 5, 6])
+
+    # The recon doesn't crash; flag is set; log captures the event.
+    assert getattr(sim.gs.global_info, "_has_recall") is True
+    log = getattr(sim.gs.global_info, "_recall_log", [])
+    assert len(log) == 1
+    entry = log[0]
+    assert entry["turn"] == 7
+    assert entry["side"] == 1
+    assert entry["unit_id"] == "fighter_42"
+    assert entry["x"] == 5
+    assert entry["y"] == 6
+    # Ensure the ERROR log mentions both the game_id and the
+    # remediation utility.
+    err_text = " ".join(rec.message for rec in caplog.records
+                        if rec.levelno == logging.ERROR)
+    assert "weird_pvp_replay_42" in err_text
+    assert "flag_replays_with_recalls" in err_text
+
+
+def test_replay_recon_two_recalls_both_logged(fresh_sim):
+    """Multiple recalls in one replay each append to the log."""
+    from tools.replay_dataset import _apply_command
+
+    sim = fresh_sim
+    sim.gs.global_info.current_side = 2
+    sim.gs.game_id = "double_recall"
+    _apply_command(sim.gs, ["recall", "u1", 1, 1])
+    _apply_command(sim.gs, ["recall", "u2", 2, 2])
+
+    log = getattr(sim.gs.global_info, "_recall_log", [])
+    assert len(log) == 2
+    assert {(e["unit_id"], e["x"], e["y"]) for e in log} == {
+        ("u1", 1, 1),
+        ("u2", 2, 2),
+    }
+
+
 def test_recall_action_rejected_to_end_turn(fresh_sim):
     """The sim has no recall list and the exporter would emit a
     broken `[recall]` block citing a unit_id that's not on Wesnoth's

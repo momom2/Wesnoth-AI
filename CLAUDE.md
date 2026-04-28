@@ -125,6 +125,60 @@ Python-side wait must have a finite timeout and log which stage timed
 out. Lua errors must reach Python's log, not die silently inside a
 `pcall`.
 
+### 6. Legality mask = pure function of OBSERVABLE STATE
+The action sampler's "legality mask" answers exactly one question:
+**what can the policy validly attempt right now, given the
+information it has?** It is a pure function of the observable state.
+
+Observable state has two pieces:
+1. **Visible game state** — what the encoder sees. Includes
+   own-side fog hexes (the encoder retains them after the
+   2026-04-28 fix), but NOT enemy units hidden in fog and NOT
+   any god-view information from the simulator.
+2. **Per-turn rejection history** — the set of hexes where a
+   recruit attempt has bounced this turn, stashed on
+   `gs.global_info._recruit_rejected_hexes`. Cleared at
+   `init_side` (so each side starts a turn with a fresh slate).
+
+What this resolves: the mask is NOT "what the engine will accept"
+(which would require god-view fog truth, cheating) AND it is NOT
+just "what the model wants to attempt" (which would let the model
+infinite-loop on the same fog-hidden hex). It is "what the model
+*can* validly attempt given everything it has observed so far,"
+which gives the model the same information a human player has.
+
+Concretely:
+
+  - Fog castle hexes ARE legal recruit targets (the model can
+    attempt them; like a human, it can't see what's there until
+    it tries).
+  - After a rejection, that hex becomes illegal AND a per-hex
+    "recruit_rejected" bit appears in the encoder feature -- the
+    mask consults the rejection set, the model sees the bit; both
+    read the same state.
+  - Next turn, rejection history clears. The hex is legal again
+    (the enemy may have moved away).
+
+Designs that violate this contract are bugs. In particular:
+
+  - **God-view masking is forbidden.** Even though the simulator
+    has fog truth, the mask must not consult it. The model must
+    play with the same information a human would have.
+  - **Rejection history is per-turn.** Persisting it across turns
+    would model long-term knowledge that the human player doesn't
+    have (the enemy could have moved).
+  - **The mask must be a pure function of observable state.** Two
+    decisions on the same observable state produce identical
+    masks. Mutable state outside `gs.global_info` (e.g. cached
+    per-call counters) is forbidden.
+
+This contract applies to all action types -- attack, move,
+recruit, end_turn -- not just recruits. The recruit-rejected
+case is the most prominent example, but the rule generalizes:
+if a future action category needs "we tried this and it
+bounced" tracking, it lives on `gs.global_info`, clears at the
+right turn boundary, and is mirrored in encoder features.
+
 ## Code Style
 
 ### File Size
