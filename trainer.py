@@ -69,6 +69,18 @@ class TrainerConfig:
     entropy_coef:         float = 0.001
     grad_clip:            float = 1.0
     normalize_advantages: bool  = True
+    # Clamp discounted returns to the value head's output range so the
+    # MSE loss has a finite, well-conditioned target. The model's value
+    # head is `tanh`-bounded to [-1, +1] (model.py value_head), so any
+    # return outside that range is unreachable -- leaving the clamp off
+    # has the loss chasing impossible targets and the value estimate
+    # saturating at ±1 with infinite gradient pressure.
+    #
+    # 1.0 is the natural cap for AlphaZero-style win/loss/draw rewards.
+    # Bump if you genuinely need shaping rewards larger than the
+    # terminal signal -- but in that case the value head should grow
+    # too (drop the tanh + scale it).
+    value_clip:           float = 1.0
     # Cap transitions processed per train_step. Originally 512 as a
     # defensive memory guard; re-forward training (trainer.py intro)
     # removed the memory pressure, so we can afford much more of the
@@ -176,6 +188,15 @@ class Trainer:
         B = max(1, self.config.train_batch_size)
 
         returns_t = torch.tensor(returns_flat, device=dev, dtype=torch.float32)
+        # Clamp returns to the value head's output range. Without this,
+        # tanh-bounded value can never match a return like +5 (e.g. from
+        # leftover shaping weights), leaving the MSE term saturating at
+        # 1.0 forever and the policy loss starving for advantage signal.
+        if self.config.value_clip is not None:
+            returns_t = returns_t.clamp_(
+                min=-float(self.config.value_clip),
+                max=+float(self.config.value_clip),
+            )
 
         # --- Pass 1: values without grad --------------------------------
         values_np: List[float] = []

@@ -127,9 +127,21 @@ class WesnothModel(nn.Module):
             nn.Linear(d_model, d_model), nn.GELU(),
             nn.Linear(d_model, max_attacks),
         )
+        # Value head: reads ONLY the global [CLS] token. Earlier
+        # versions mean-pooled over all ~1750 token positions, which
+        # diluted any global signal by 1700× and forced the network
+        # to learn "ignore most of your input" via gradient pressure
+        # alone. The global token is built specifically to carry
+        # state-summary signal (turn number, gold, ToD), so reading
+        # just it gives the value head the cleanest input.
+        # Output is `tanh`-bounded to [-1, +1] so it stays well-scaled
+        # against AlphaZero-style ±1 terminal returns regardless of
+        # which shaping weights the reward function happens to have
+        # this run. Trainer normalizes returns to the same range.
         self.value_head     = nn.Sequential(
             nn.Linear(d_model, d_model), nn.GELU(),
             nn.Linear(d_model, 1),
+            nn.Tanh(),
         )
 
     def forward(self, encoded: EncodedState) -> ModelOutput:
@@ -161,7 +173,7 @@ class WesnothModel(nn.Module):
         hex_ctx      = x[:, :H]
         unit_ctx     = x[:, H : H + U]
         recruit_ctx  = x[:, H + U : H + U + R]
-        # global_ctx  = x[:, H + U + R : H + U + R + 1]   # unused currently
+        global_ctx   = x[:, H + U + R : H + U + R + 1]   # [1, 1, d]
         end_turn_ctx = x[:, H + U + R + 1 : H + U + R + 2]
 
         # Actor-slot tokens, same order used by actor_kind.
@@ -191,7 +203,11 @@ class WesnothModel(nn.Module):
 
         weapon_logits = self.weapon_head(actor_ctx)  # [1, A, max_attacks]
 
-        value = self.value_head(x.mean(dim=1))  # [1, 1]
+        # Read the contextualized global token (it has attended over
+        # every other token via the encoder; carries the cleanest
+        # global-state summary). Squeeze the seq dim so the head sees
+        # [1, d].
+        value = self.value_head(global_ctx.squeeze(1))  # [1, 1]
 
         return ModelOutput(
             actor_logits=actor_logits,
@@ -282,18 +298,14 @@ class WesnothModel(nn.Module):
         hex_ctx_b      = x[:, :H_max]                                 # [B, H_max, d]
         unit_ctx_b     = x[:, H_max : H_max + U_max]                  # [B, U_max, d]
         recruit_ctx_b  = x[:, H_max + U_max : H_max + U_max + R_max]  # [B, R_max, d]
+        global_ctx_b   = x[:, H_max + U_max + R_max :
+                              H_max + U_max + R_max + 1]              # [B, 1, d]
         end_turn_ctx_b = x[:, H_max + U_max + R_max + 1 :
                               H_max + U_max + R_max + 2]              # [B, 1, d]
 
-        # Value head uses the mean over valid (non-pad) positions only.
-        # Using the full mean would dilute every sample's value by its
-        # own pad count, which is a different amount of dilution per
-        # sample — breaks the value estimate across batch.
-        valid = (~pad_mask).to(x.dtype).unsqueeze(-1)   # [B, seq_len, 1]
-        x_sum   = (x * valid).sum(dim=1)                # [B, d]
-        x_count = valid.sum(dim=1).clamp(min=1.0)       # [B, 1]
-        x_mean  = x_sum / x_count                       # [B, d]
-        value_b = self.value_head(x_mean)               # [B, 1]
+        # Value head reads the contextualized global token (one per
+        # sample). Same head as the single-sample path.
+        value_b = self.value_head(global_ctx_b.squeeze(1))            # [B, 1]
 
         # Heads applied to the padded streams once each — replaces the
         # old per-sample loop that called actor_head / target_q_proj /

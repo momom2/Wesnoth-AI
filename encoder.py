@@ -194,11 +194,21 @@ class RawEncoded:
     unit_ys:         np.ndarray             # int64 [U]
     unit_feats:      np.ndarray             # float32 [U, UNIT_FEAT_DIM]
 
-    # Per-recruit stream (variable R).
+    # Per-recruit stream (variable R). Each recruit is treated as a
+    # phantom unit at its leader's keep, so the actor head can
+    # discriminate recruit options by cost / hp / alignment / etc.
+    # rather than only by type+side. Without these the sampler
+    # collapses all of "our" recruits onto a single embedding cluster
+    # and never learns which to pick. recruit_xs/ys = leader's keep
+    # of the recruit's side; recruit_feats = `_unit_features` of a
+    # full-HP / 0-MP / 0-XP / non-leader phantom of that type.
     recruit_types:    List[str]
     recruit_is_ours:  np.ndarray            # float32 [R]
     recruit_type_ids: np.ndarray            # int64 [R]
     recruit_side_ids: np.ndarray            # int64 [R]
+    recruit_xs:       np.ndarray            # int64 [R]
+    recruit_ys:       np.ndarray            # int64 [R]
+    recruit_feats:    np.ndarray            # float32 [R, UNIT_FEAT_DIM]
 
     # Global features.
     global_feats:     np.ndarray            # float32 [GLOBAL_FEAT_DIM]
@@ -382,8 +392,24 @@ class GameStateEncoder(nn.Module):
         else:
             rt = _to_dev(raw.recruit_type_ids)
             rs = _to_dev(raw.recruit_side_ids)
+            rx = _to_dev(raw.recruit_xs)
+            ry = _to_dev(raw.recruit_ys)
+            rf = _to_dev(raw.recruit_feats)
+            # Recruit token now mirrors the unit token's structure: type
+            # + side + position (leader's keep) + per-unit features.
+            # Sharing `unit_feat_proj` and the position embeds with real
+            # units lets the actor head treat "would-be Dwarvish
+            # Fighter at our keep" the same way as "Dwarvish Fighter
+            # standing here", so the recruit decision conditions on
+            # the same numeric features the model uses everywhere
+            # else. Closes the under-specification gap that drove
+            # "model never recruits" in earlier supervised eval.
             recruit_tokens = (
-                self.unit_type_embed(rt) + self.side_embed(rs)
+                self.unit_type_embed(rt)
+                + self.side_embed(rs)
+                + self.pos_x_embed(rx)
+                + self.pos_y_embed(ry)
+                + self.unit_feat_proj(rf)
             ).unsqueeze(0)  # [1, R, d]
             recruit_is_ours = _to_dev(raw.recruit_is_ours).unsqueeze(0)
 
@@ -540,12 +566,27 @@ def encode_raw(
         unit_feats_np[i] = _unit_features(u)
 
     # ---- recruits ----
+    # Pre-compute each side's leader keep position so recruit tokens
+    # carry a meaningful "where would I spawn?" coordinate. If a side
+    # has no leader (it's been killed but the side isn't formally
+    # eliminated), fall back to (0, 0) -- the recruit is unreachable
+    # anyway, the legality mask will hide it.
+    side_leader_xy: Dict[int, Tuple[int, int]] = {}
+    for u in game_state.map.units:
+        if u.is_leader and u.side not in side_leader_xy:
+            side_leader_xy[u.side] = (u.position.x, u.position.y)
     recruit_types: List[str] = []
     recruit_is_ours: List[float] = []
     recruit_type_ids: List[int]  = []
     recruit_side_ids: List[int]  = []
+    recruit_xs: List[int] = []
+    recruit_ys: List[int] = []
+    recruit_feats_rows: List[np.ndarray] = []
     for side_idx, side_info in enumerate(sides, start=1):
         is_ours = side_idx == current_side
+        lx, ly = side_leader_xy.get(side_idx, (0, 0))
+        lx_clamped = 0 if lx < 0 else (MAP_LIMIT if lx > MAP_LIMIT else lx)
+        ly_clamped = 0 if ly < 0 else (MAP_LIMIT if ly > MAP_LIMIT else ly)
         for name in side_info.recruits:
             recruit_types.append(name)
             recruit_is_ours.append(1.0 if is_ours else 0.0)
@@ -553,9 +594,18 @@ def encode_raw(
                 min(type_to_id.get(name, type_overflow), type_overflow)
             )
             recruit_side_ids.append(0 if is_ours else 1)
+            recruit_xs.append(lx_clamped)
+            recruit_ys.append(ly_clamped)
+            recruit_feats_rows.append(_recruit_features_for(name))
     recruit_is_ours_np  = np.asarray(recruit_is_ours,  dtype=np.float32)
     recruit_type_ids_np = np.asarray(recruit_type_ids, dtype=np.int64)
     recruit_side_ids_np = np.asarray(recruit_side_ids, dtype=np.int64)
+    recruit_xs_np       = np.asarray(recruit_xs,       dtype=np.int64)
+    recruit_ys_np       = np.asarray(recruit_ys,       dtype=np.int64)
+    if recruit_feats_rows:
+        recruit_feats_np = np.stack(recruit_feats_rows, axis=0)
+    else:
+        recruit_feats_np = np.zeros((0, UNIT_FEAT_DIM), dtype=np.float32)
 
     # ---- global ----
     gi = game_state.global_info
@@ -598,6 +648,9 @@ def encode_raw(
         recruit_is_ours=recruit_is_ours_np,
         recruit_type_ids=recruit_type_ids_np,
         recruit_side_ids=recruit_side_ids_np,
+        recruit_xs=recruit_xs_np,
+        recruit_ys=recruit_ys_np,
+        recruit_feats=recruit_feats_np,
         global_feats=global_feats_np,
         our_faction_id=our_faction_id,
         their_faction_id=their_faction_id,
@@ -650,3 +703,69 @@ def _unit_features(u: Unit) -> List[float]:
     alignment_onehot = [0.0] * NUM_ALIGNMENTS
     alignment_onehot[u.alignment.value] = 1.0
     return numeric + alignment_onehot
+
+
+# ---------------------------------------------------------------------
+# Recruit phantom-unit features
+# ---------------------------------------------------------------------
+# A "recruit option" doesn't have a Unit instance until it's spawned,
+# but we want the same feature vector shape `_unit_features` produces
+# so the model treats recruits and on-board units consistently. Build a
+# phantom feature vector from the unit-stats DB (scraped from
+# wesnoth_src). HP / moves / xp / cost / alignment all come from the
+# stats; current_* fields are spawn defaults (full HP, 0 MP since
+# spawn turn, 0 XP); is_leader=False, has_attacked=False.
+
+_RECRUIT_STATS_CACHE: Dict[str, np.ndarray] = {}
+_FALLBACK_RECRUIT_STATS = {
+    "hitpoints": 33, "moves": 5, "experience": 50, "cost": 14,
+    "alignment": "neutral",
+}
+
+
+def _alignment_value(name: str) -> int:
+    """Map an alignment string to the Alignment enum's int value.
+    Mirrors what classes.Alignment uses."""
+    n = (name or "neutral").lower()
+    # Order matches classes.Alignment: NEUTRAL, LAWFUL, CHAOTIC, LIMINAL.
+    table = {"neutral": 0, "lawful": 1, "chaotic": 2, "liminal": 3}
+    return table.get(n, 0)
+
+
+def _recruit_features_for(unit_type: str) -> np.ndarray:
+    """Return a [UNIT_FEAT_DIM] float32 phantom feature vector for
+    a recruit option of `unit_type`. Cached to avoid re-reading the
+    stats DB on every encoding call."""
+    cached = _RECRUIT_STATS_CACHE.get(unit_type)
+    if cached is not None:
+        return cached
+    # Lazy import: tools.replay_dataset already loads the unit DB on
+    # first access; reuse it rather than re-parsing the JSON.
+    try:
+        from tools.replay_dataset import _stats_for, _load_unit_db
+        _load_unit_db()
+        stats = _stats_for(unit_type)
+    except Exception:
+        stats = _FALLBACK_RECRUIT_STATS
+    max_hp = float(stats.get("hitpoints", 33))
+    max_mv = float(stats.get("moves", 5))
+    max_xp = float(stats.get("experience", 50))
+    cost   = float(stats.get("cost", 14))
+    align  = _alignment_value(stats.get("alignment", "neutral"))
+
+    numeric = [
+        max_hp / HP_NORM,
+        1.0,                      # current_hp = max on spawn
+        max_mv / MOVES_NORM,
+        0.0,                      # current_moves = 0 on spawn turn
+        max_xp / EXP_NORM,
+        0.0,                      # current_exp = 0
+        cost / COST_NORM,
+        0.0,                      # is_leader = False
+        0.0,                      # has_attacked = False
+    ]
+    alignment_onehot = [0.0] * NUM_ALIGNMENTS
+    alignment_onehot[align] = 1.0
+    out = np.asarray(numeric + alignment_onehot, dtype=np.float32)
+    _RECRUIT_STATS_CACHE[unit_type] = out
+    return out

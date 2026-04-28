@@ -268,6 +268,161 @@ def reforward_logprob_entropy(
 
 
 # ---------------------------------------------------------------------
+# MCTS expansion: enumerate every legal action with its prior
+# ---------------------------------------------------------------------
+# The single-action sampler (`sample_action`) is fine for REINFORCE,
+# but MCTS-PUCT needs the FULL prior distribution over the legal
+# action set: per node expansion, `argmax(Q + cpuct*P*sqrt(N)/(1+n))`
+# scores every legal child, and visit-count training distills `P`
+# back from the search's empirical distribution.
+#
+# The factorization is:
+#   P(action) = P(actor) * P(target | actor) [* P(weapon | actor) for attacks]
+# All three factors come from masked softmaxes (same masks the
+# sampler uses, so legality is consistent between sampling and MCTS
+# expansion).
+
+@dataclass
+class LegalActionPrior:
+    """One element of the MCTS expansion list. `prior` is the joint
+    probability under the current policy; the trainer's distillation
+    target replaces it with MCTS visit counts at training time.
+
+    `actor_idx / target_idx / weapon_idx` are the same indices the
+    REINFORCE trainer uses via `reforward_logprob_entropy`, so MCTS
+    + REINFORCE can share trainer code without re-deriving them."""
+    action:     Dict
+    prior:      float
+    actor_idx:  int
+    target_idx: Optional[int]
+    weapon_idx: Optional[int]
+
+
+def enumerate_legal_actions_with_priors(
+    encoded:    EncodedState,
+    output:     ModelOutput,
+    game_state: GameState,
+) -> List[LegalActionPrior]:
+    """Enumerate every legal (actor, target, weapon) action with its
+    joint prior. Caller MUST be in `torch.no_grad()` (this is for
+    inference only -- nothing here builds a backprop graph).
+
+    Priors over the returned list sum to ~1 (modulo tiny mask leakage
+    when the actor mask zeroed an actor whose target/weapon
+    distribution would have summed to a small ε). MCTS treats them as
+    a normalized probability distribution; we don't bother
+    re-normalizing here -- if you need exact normalization, divide
+    by sum(prior) yourself."""
+    masks = _build_legality_masks(encoded, game_state)
+    actor_logits = _masked_actor_logits(encoded, output, masks.actor_valid)
+    actor_p = F.softmax(actor_logits.squeeze(0), dim=-1)  # [A]
+    A = actor_p.shape[0]
+
+    actor_kind = output.actor_kind[0]      # [A] long
+    num_units = output.num_units
+    actor_valid_row = masks.actor_valid[0]   # [A] float
+
+    out: List[LegalActionPrior] = []
+    for actor_idx in range(A):
+        # Skip actors the legality mask filtered out -- their masked
+        # logit was -inf, so their softmax probability is 0 too. The
+        # explicit skip is just to avoid the per-target inner loop.
+        if float(actor_valid_row[actor_idx].item()) == 0.0:
+            continue
+        p_actor = float(actor_p[actor_idx].item())
+        if p_actor <= 0.0:
+            continue
+        kind = int(actor_kind[actor_idx].item())
+
+        if kind == ActorKind.END_TURN:
+            out.append(LegalActionPrior(
+                action={"type": "end_turn"},
+                prior=p_actor,
+                actor_idx=actor_idx, target_idx=None, weapon_idx=None,
+            ))
+            continue
+
+        # Target distribution for THIS actor (masked).
+        target_logits = _masked_target_logits(
+            output, masks.target_valid, actor_idx,
+            attack_bias=masks.attack_bias,
+        )
+        if target_logits.numel() == 0:
+            continue
+        target_p = F.softmax(target_logits, dim=-1)  # [H]
+
+        if kind == ActorKind.RECRUIT:
+            recruit_type = encoded.recruit_types[actor_idx - num_units]
+            for target_idx in range(target_p.shape[0]):
+                p_t = float(target_p[target_idx].item())
+                if p_t <= 0.0:
+                    continue
+                target_pos = encoded.hex_positions[target_idx]
+                out.append(LegalActionPrior(
+                    action={
+                        "type": "recruit",
+                        "unit_type": recruit_type,
+                        "target_hex": target_pos,
+                    },
+                    prior=p_actor * p_t,
+                    actor_idx=actor_idx, target_idx=target_idx, weapon_idx=None,
+                ))
+            continue
+
+        # ActorKind.UNIT -- distinguish move vs attack at each target.
+        unit_pos = encoded.unit_positions[actor_idx]
+        unit_id  = encoded.unit_ids[actor_idx]
+        attacker = _unit_by_id(game_state, unit_id)
+        # Pre-compute the weapon distribution if the unit has any
+        # attacks; for moves this is unused.
+        num_attacks = len(attacker.attacks) if attacker else 0
+        if num_attacks > 0:
+            weapon_logits = _masked_weapon_logits(
+                output, actor_idx, num_attacks)
+            weapon_p = F.softmax(weapon_logits, dim=-1)  # [MAX_ATTACKS]
+        else:
+            weapon_p = None
+
+        for target_idx in range(target_p.shape[0]):
+            p_t = float(target_p[target_idx].item())
+            if p_t <= 0.0:
+                continue
+            target_pos = encoded.hex_positions[target_idx]
+            joint_at = p_actor * p_t
+
+            enemy = _enemy_unit_at(game_state, target_pos)
+            if enemy is None or num_attacks == 0:
+                out.append(LegalActionPrior(
+                    action={
+                        "type": "move",
+                        "start_hex": unit_pos,
+                        "target_hex": target_pos,
+                    },
+                    prior=joint_at,
+                    actor_idx=actor_idx, target_idx=target_idx, weapon_idx=None,
+                ))
+                continue
+
+            # One child per weapon (each is a distinct PUCT action).
+            for weapon_idx in range(num_attacks):
+                p_w = float(weapon_p[weapon_idx].item())
+                if p_w <= 0.0:
+                    continue
+                out.append(LegalActionPrior(
+                    action={
+                        "type":         "attack",
+                        "start_hex":    unit_pos,
+                        "target_hex":   target_pos,
+                        "attack_index": weapon_idx,
+                    },
+                    prior=joint_at * p_w,
+                    actor_idx=actor_idx, target_idx=target_idx,
+                    weapon_idx=weapon_idx,
+                ))
+    return out
+
+
+# ---------------------------------------------------------------------
 # Helpers (shared by sample + reforward)
 # ---------------------------------------------------------------------
 
