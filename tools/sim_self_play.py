@@ -120,6 +120,28 @@ def _recruit_cost_lookup() -> Dict[str, int]:
 # One game's rollout
 # ---------------------------------------------------------------------
 
+def _would_recruit_bounce(action: Dict, gs: "GameState") -> bool:
+    """True if `action` is a recruit on a hex the SIM (god-view)
+    knows is occupied. The action sampler's mask only knows visible
+    units, so the model can pick a fog-hidden castle hex -- the sim
+    has ground truth and would reject. We use this to detect
+    bounces in the harness BEFORE calling sim.step, so the side's
+    turn isn't consumed by a no-op.
+
+    Cheap: linear over gs.map.units (~10-30 entries on a typical
+    mid-game state); fires only on recruit actions.
+    """
+    if action.get("type") != "recruit":
+        return False
+    tgt = action.get("target_hex")
+    if tgt is None:
+        return False
+    for u in gs.map.units:
+        if u.position.x == tgt.x and u.position.y == tgt.y:
+            return True
+    return False
+
+
 def play_one_game(
     sim:         WesnothSim,
     policy:      TransformerPolicy,
@@ -150,6 +172,46 @@ def play_one_game(
         #      saved reference IS pre; the live sim.gs IS post.
         pre_state = copy.deepcopy(sim.gs)
         action = policy.select_action(pre_state, game_label=game_label)
+
+        # Recruit-rejection retry loop. Per the legality-mask
+        # contract (CLAUDE.md): a recruit attempt on a hex that the
+        # MODEL thinks is empty (visible state) but is actually
+        # occupied (god-view, e.g. by a fog-hidden enemy) is
+        # rejected. We re-decide WITHOUT consuming the side's turn
+        # -- the model sees the new rejection state via the per-hex
+        # feature + mask and tries again. Loop bounds: each
+        # rejection adds one hex to the set; eventually the
+        # recruit-mask exhausts (no legal hexes) and the policy
+        # picks a different action type. No K-cap needed: the mask
+        # shrinks monotonically within a turn.
+        #
+        # We pre-check occupancy here (rather than letting sim.step
+        # do it) so sim.step's contract stays simple: every step()
+        # call advances the game by exactly one accepted action.
+        # The pre-check is cheap: a single pass over gs.map.units.
+        while _would_recruit_bounce(action, sim.gs):
+            tgt = action["target_hex"]
+            rejected = (
+                getattr(sim.gs.global_info,
+                        "_recruit_rejected_hexes", None) or set()
+            )
+            rejected.add((tgt.x, tgt.y))
+            setattr(sim.gs.global_info,
+                    "_recruit_rejected_hexes", rejected)
+            log.debug(
+                f"recruit rejected: {action.get('unit_type')!r} on "
+                f"({tgt.x},{tgt.y}) (god-view occupied); "
+                f"re-deciding with hex blacklisted")
+            # Drop the pending Transition the policy recorded for
+            # the rejected select_action so the trainer doesn't
+            # re-forward on it. observe() with reward=0 keeps the
+            # trajectory shape consistent: the rejected pick lands
+            # in the trajectory with a neutral signal -- not great,
+            # not awful. A future refactor could expose a "drop
+            # just the tail" API on the policy.
+            policy.observe(game_label, acting_side, 0.0, done=False)
+            pre_state = copy.deepcopy(sim.gs)
+            action = policy.select_action(pre_state, game_label=game_label)
         atype = action.get("type", "end_turn")
         if atype == "recruit":
             unit_type = action.get("unit_type", "")

@@ -267,6 +267,15 @@ replay export.
   Audit: grep a real `replays_raw/*.bz2` for `[clear_shroud_uncovers_unit]`
   to confirm whether 2p replays carry these dependents.
 
+- [x] 🟡 **Fog hexes retained in encoder** (DONE 2026-04-28). The
+  encoder previously dropped `gs.map.fog` hexes from the hex token
+  stream, silently making them ineligible for the recruit mask
+  (BFS over the leader's castle network would skip fog castles).
+  Per the legality-mask contract in CLAUDE.md, fog hexes ARE
+  attemptable -- the rejection-history feature handles the
+  bounce case. Token sequence length bumps from ~180 to ~256 on
+  default 2p mid-game; negligible cost.
+
 ### Mutation / consistency hazards
 
 - [x] 🟠 **`_action_to_command` no longer mutates caller's action**
@@ -392,13 +401,14 @@ replay export.
   200-step trajectory); random sampling keeps the sub-batch's return
   distribution unbiased relative to the full batch in expectation.
 
-- [ ] 🟡 **Fogged hexes silently disappear from the legality mask**
-  (`encoder.py:471`, `action_sampler.py:404,556`). The encoder drops
-  fogged hexes; `_recruit_hex_mask` walks `mods_by_pos` (full map) but
-  the BFS results map back through `pos_to_hex` (visible-only), so a
-  recruit hex hidden by fog is silently illegal. Fix: build `pos_to_hex`
-  from full map, not encoded set; or stop dropping fogged hexes for
-  the side that owns them.
+- [x] 🟡 **Fog castle hexes legal for recruit** (DONE 2026-04-28).
+  Encoder retains fog hexes; `_recruit_hex_mask` no longer
+  silently drops them. Per the legality-mask contract, fog castle
+  hexes ARE legal recruit targets -- the model can attempt; the
+  sim's god-view occupancy check + harness retry loop handle the
+  bounce case via the per-turn rejection set. Recruit affordability
+  also gated at the mask level (unaffordable unit-type slots get
+  actor_valid=0).
 
 ### Architecture for MCTS / superhuman play
 

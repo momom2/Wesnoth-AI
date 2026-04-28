@@ -461,6 +461,17 @@ class WesnothSim:
         # between simulator and Wesnoth playback.
         self._rng_requests: int = 0
 
+        # last_step_rejected: did the most recent .step() call refuse
+        # to apply the action (rather than apply or fall back to
+        # end_turn)? Currently only set on recruit-rejection (target
+        # hex was god-view-occupied; the harness should re-decide
+        # rather than waste the turn). Callers that loop on
+        # rejection check this flag; existing callers that ignore
+        # it see a `step()` that's a silent no-op for the rejected
+        # decision -- they'd typically just call step() again,
+        # which is exactly the right behavior.
+        self.last_step_rejected: bool = False
+
         # Turn 0 is pre-game. The first init_side(1) bumps to turn 1
         # AND fires turn-1 events / healing. Mirror that here.
         self._begin_side_turn(1)
@@ -548,7 +559,20 @@ class WesnothSim:
                     leader_pos = (u.position.x, u.position.y)
                     break
 
+        # Reset the per-step rejection signal. The harness consults
+        # this AFTER step() to decide whether to re-decide rather than
+        # advance.
+        self.last_step_rejected = False
+
         cmd, terrain_cost = self._action_to_command(action)
+        if cmd is not None and cmd[0] == "__retry_recruit__":
+            # Recruit hex was god-view-occupied. _action_to_command
+            # added it to the rejection set; we just bail out without
+            # applying anything (no command_history append, no side
+            # advance, no actions_by_side bump). Caller's
+            # `last_step_rejected` check then triggers a re-decide.
+            self.last_step_rejected = True
+            return self.done
         if cmd is None:
             # Action was illegal-shaped or referred to a missing unit.
             # Treat as a wasted turn -- end the side's turn.
@@ -1112,6 +1136,33 @@ class WesnothSim:
                         f"sim: refusing recruit {unit_type!r} (cost={cost} "
                         f"> gold={gold})")
                     return None, None
+            # God-view occupancy check. The sampler's mask only sees
+            # what the model can see (visible units); the sim has
+            # ground truth and knows about fog-hidden enemies on
+            # castle hexes. If we'd be recruiting on top of an
+            # actually-occupied hex, signal "rejected for retry"
+            # rather than "rejected for end_turn fallback":
+            #   - Add hex to gs.global_info._recruit_rejected_hexes.
+            #   - Return ("__retry_recruit__", None) -- a sentinel
+            #     step() recognizes and turns into a no-op (no apply,
+            #     no end_turn, no history append). The harness sees
+            #     `last_step_rejected=True` and re-decides with the
+            #     new rejection state.
+            for u in self.gs.map.units:
+                if u.position.x == target.x and u.position.y == target.y:
+                    rejected = (
+                        getattr(self.gs.global_info,
+                                "_recruit_rejected_hexes", None) or set()
+                    )
+                    rejected.add((target.x, target.y))
+                    setattr(self.gs.global_info,
+                            "_recruit_rejected_hexes", rejected)
+                    log.debug(
+                        f"sim: recruit on ({target.x},{target.y}) "
+                        f"rejected (occupied by {u.id!r}, side {u.side}); "
+                        f"adding to rejection set, harness should retry"
+                    )
+                    return ["__retry_recruit__"], None
             # Allocate a synced-RNG seed for the trait roll. Without
             # this both sides diverge: the sim might give the recruit
             # `quick` (+1 MP) while Wesnoth's playback rolls a

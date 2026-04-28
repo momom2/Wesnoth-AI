@@ -672,13 +672,44 @@ def _build_legality_masks(
                     leader_on_keep = True
 
         if leader_on_keep and leader is not None:
+            # Side gold for affordability gating. Slots whose unit
+            # type costs more than this side's current gold get
+            # actor_valid=0; the policy never wastes a decision on an
+            # unaffordable recruit.
+            side_gold = 0
+            side_idx = current_side - 1
+            if 0 <= side_idx < len(game_state.sides):
+                side_gold = int(game_state.sides[side_idx].current_gold)
+            # Per-turn rejection history (per the CLAUDE.md
+            # legality-mask contract): hexes a previous recruit
+            # attempt bounced on this turn. Subtracted from the
+            # recruit hex mask so the policy can't re-attempt the
+            # same fog-occupied hex within the turn. Cleared at
+            # init_side, so next turn the hex is available again.
+            rejected = (
+                getattr(game_state.global_info,
+                        "_recruit_rejected_hexes", None) or set()
+            )
             recruit_hex_row = _recruit_hex_mask(
                 game_state, pos_to_hex, unit_at, leader, H,
+                rejected_hexes=rejected,
             )
             if recruit_hex_row.any():
                 recruit_is_ours_np = encoded.recruit_is_ours.detach().cpu().numpy()[0]
+                # Lazy import to avoid a circular dep at module-load
+                # time (action_sampler is imported from many places
+                # and tools/wesnoth_sim ultimately imports
+                # action_sampler too).
+                from tools.wesnoth_sim import _recruit_cost_for
                 for r_off in range(R):
                     if recruit_is_ours_np[r_off] == 0:
+                        continue
+                    unit_type = encoded.recruit_types[r_off]
+                    cost = _recruit_cost_for(unit_type)
+                    if cost > side_gold:
+                        # Unaffordable -- mask off entirely.
+                        # actor_valid_np[a] stays 0 and target row
+                        # all zeros.
                         continue
                     a = U + r_off
                     target_valid_np[a] = recruit_hex_row.astype(np.float32)
@@ -728,11 +759,26 @@ def _recruit_hex_mask(
     unit_at:    Dict[Tuple[int, int], Unit],
     leader:     Unit,
     H:          int,
+    *,
+    rejected_hexes: Optional[set] = None,
 ) -> np.ndarray:
     """Compute [H] bool mask of hexes that form the leader's castle
-    network AND are empty. BFS through CASTLE/KEEP modifiers starting
-    at the leader's keep.
+    network AND are visibly empty AND haven't been rejected this turn.
+    BFS through CASTLE/KEEP modifiers starting at the leader's keep.
+
+    Per the legality-mask contract (CLAUDE.md): a hex is "legal" iff
+    it can be VALIDLY ATTEMPTED given the policy's observable state.
+    Visible occupancy excludes hexes our units stand on. Rejection
+    history (`rejected_hexes`, scoped to current turn) excludes
+    hexes a prior attempt bounced -- prevents within-turn looping
+    on the same fog-hidden enemy. Both clear at the right boundary:
+    visible occupancy when our unit moves; rejection history at
+    init_side.
+
+    Fog hexes ARE legal (the model can attempt; bounce-on-fog is
+    handled by the harness retry loop, not the mask).
     """
+    rejected_hexes = rejected_hexes or set()
     mods_by_pos: Dict[Tuple[int, int], set] = {
         (h.position.x, h.position.y): h.modifiers for h in game_state.map.hexes
     }
@@ -752,8 +798,11 @@ def _recruit_hex_mask(
             if TerrainModifiers.CASTLE in nmods or TerrainModifiers.KEEP in nmods:
                 visited.add((nx, ny))
                 q.append((nx, ny))
-                if (nx, ny) not in unit_at:
-                    valid.add((nx, ny))
+                if (nx, ny) in unit_at:
+                    continue
+                if (nx, ny) in rejected_hexes:
+                    continue
+                valid.add((nx, ny))
 
     mask = np.zeros(H, dtype=bool)
     for (x, y) in valid:

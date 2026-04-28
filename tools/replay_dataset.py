@@ -939,6 +939,14 @@ def _apply_command(gs: GameState, cmd: list) -> None:
     if kind == "init_side":
         side = cmd[1]
         gs.global_info.current_side = side
+        # Per-turn rejection history clears at init_side. Per the
+        # legality-mask contract (CLAUDE.md): rejection history is
+        # part of the OBSERVABLE STATE and is scoped to the current
+        # side's turn. Clearing here means each side starts its turn
+        # with a fresh slate -- the enemy might've moved, so a hex
+        # that bounced last time we tried is worth attempting again.
+        if hasattr(gs.global_info, "_recruit_rejected_hexes"):
+            gs.global_info._recruit_rejected_hexes = set()
         # Turn counter: increment on every init_side(1). Initial state
         # has turn_number=0 (pre-game), so the very first init_side(1)
         # bumps to 1 (Turn 1), matching Wesnoth's UI numbering.

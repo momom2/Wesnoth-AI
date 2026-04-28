@@ -66,8 +66,25 @@ NUM_SIDE_CODES  = 2     # 0 = ours (current_side), 1 = theirs
 # "unknown/unset" -> id 0.
 from constants import DEFAULT_FACTIONS as _DEFAULT_FACTIONS
 
-# Per-hex multi-hot: (village, keep, castle).
+# Per-hex STATIC multi-hot: (village, keep, castle). Static = doesn't
+# change during a game (or only changes via village-capture, which
+# is captured by the village bit being side-agnostic).
 NUM_HEX_MODIFIERS = 3
+
+# Per-hex DYNAMIC features that DO change within a turn / decision.
+# Separate from the static modifiers so:
+#   (a) old checkpoints' modifier_proj (3-input Linear) loads
+#       unchanged via `strict=False`, while the new dynamic_flag_proj
+#       initializes fresh;
+#   (b) future per-hex dynamic flags (e.g. "attacked-from last turn",
+#       "ZoC'd by us", ...) can extend NUM_HEX_DYNAMIC_FLAGS without
+#       breaking either projection.
+#
+# Currently:
+#   0: recruit_rejected -- this hex bounced a recruit attempt this
+#                          turn (cleared at init_side). See the
+#                          legality-mask contract in CLAUDE.md.
+NUM_HEX_DYNAMIC_FLAGS = 1
 
 # Per-unit numerical features. Order MATTERS — changing it requires
 # a retrain (the Linear weights are positional).
@@ -194,6 +211,7 @@ class RawEncoded:
     hex_ys:             np.ndarray          # int64 [H]
     hex_terrain_ids:    np.ndarray          # int64 [H]
     hex_modifier_flags: np.ndarray          # float32 [H, NUM_HEX_MODIFIERS]
+    hex_dynamic_flags:  np.ndarray          # float32 [H, NUM_HEX_DYNAMIC_FLAGS]
 
     # Per-unit stream (variable U).
     unit_positions:  List["Position"]
@@ -262,6 +280,11 @@ class GameStateEncoder(nn.Module):
         # --- hex embeddings -------------------------------------------
         self.terrain_embed  = nn.Embedding(NUM_TERRAINS, d_model)
         self.modifier_proj  = nn.Linear(NUM_HEX_MODIFIERS, d_model, bias=False)
+        # Dynamic flags (e.g. recruit_rejected) live in their own
+        # projection -- old checkpoints lacking this Linear initialize
+        # it from scratch under load_checkpoint(strict=False); the
+        # static modifier projection above is unaffected.
+        self.dynamic_flag_proj = nn.Linear(NUM_HEX_DYNAMIC_FLAGS, d_model, bias=False)
 
         # --- shared position embeddings --------------------------------
         self.pos_x_embed = nn.Embedding(MAX_MAP_SIZE, d_model)
@@ -404,11 +427,13 @@ class GameStateEncoder(nn.Module):
             hy = _to_dev(raw.hex_ys)
             ht = _to_dev(raw.hex_terrain_ids)
             hm = _to_dev(raw.hex_modifier_flags)
+            hd = _to_dev(raw.hex_dynamic_flags)
             hex_tokens = (
                 self.pos_x_embed(hx)
                 + self.pos_y_embed(hy)
                 + self.terrain_embed(ht)
                 + self.modifier_proj(hm)
+                + self.dynamic_flag_proj(hd)
             ).unsqueeze(0)  # [1, H, d]
 
         # ---- units ----
@@ -540,25 +565,43 @@ def encode_raw(
     sides = game_state.sides
     MAP_LIMIT = MAX_MAP_SIZE - 1   # avoid attribute lookup in tight loops
 
-    # ---- hexes (drop fogged) ----
-    fog_set = {(p.x, p.y) for p in game_state.map.fog}
-    if fog_set:
-        hexes_iter = (
-            h for h in game_state.map.hexes
-            if (h.position.x, h.position.y) not in fog_set
-        )
-    else:
-        hexes_iter = iter(game_state.map.hexes)
-    hexes = sorted(hexes_iter, key=lambda h: (h.position.y, h.position.x))
+    # ---- hexes ----
+    # Fog hexes are RETAINED. Wesnoth's fog of war hides UNITS on a
+    # hex from sides that don't have vision there, but the TERRAIN
+    # is still visible (the player saw the map at scenario start).
+    # Dropping fog hexes from our hex token stream silently makes
+    # them ineligible for the recruit hex mask (the BFS over the
+    # leader's castle network would skip them) -- so the policy
+    # could never attempt to recruit on fog castle hexes, even
+    # though Wesnoth would happily accept the attempt and bounce
+    # only if an enemy is actually there. Per the legality-mask
+    # contract in CLAUDE.md, we want fog hexes attemptable; the
+    # rejection-history feature handles the bounce case.
+    #
+    # We DON'T need to filter units in fog -- Wesnoth's state
+    # collector already excludes invisible enemy units from
+    # `gs.map.units` for the side we're encoding for, so any
+    # hidden unit isn't in the input we see anyway.
+    hexes = sorted(game_state.map.hexes,
+                   key=lambda h: (h.position.y, h.position.x))
 
     hex_positions = [h.position for h in hexes]
     H = len(hex_positions)
+
+    # Per-turn rejection set (hexes a previous recruit attempt
+    # bounced this turn). Stashed on global_info by the harness;
+    # absent on fresh states. See CLAUDE.md legality-mask contract.
+    rejected_hexes = (
+        getattr(game_state.global_info, "_recruit_rejected_hexes", None)
+        or set()
+    )
 
     if H == 0:
         hex_xs_np = np.empty(0, dtype=np.int64)
         hex_ys_np = np.empty(0, dtype=np.int64)
         hex_terrain_ids_np = np.empty(0, dtype=np.int64)
         hex_modifier_flags_np = np.empty((0, NUM_HEX_MODIFIERS), dtype=np.float32)
+        hex_dynamic_flags_np = np.empty((0, NUM_HEX_DYNAMIC_FLAGS), dtype=np.float32)
     else:
         # Inline the clamp + terrain/modifier extraction in tight loops
         # to skip per-call Python-frame overhead. _clamp_pos/_first_terrain_id
@@ -568,6 +611,7 @@ def encode_raw(
         hex_ys_np          = np.empty(H, dtype=np.int64)
         hex_terrain_ids_np = np.empty(H, dtype=np.int64)
         hex_modifier_flags_np = np.zeros((H, NUM_HEX_MODIFIERS), dtype=np.float32)
+        hex_dynamic_flags_np = np.zeros((H, NUM_HEX_DYNAMIC_FLAGS), dtype=np.float32)
         terrain_village = Terrain.VILLAGE
         terrain_castle  = Terrain.CASTLE
         terrain_flat_v  = Terrain.FLAT.value
@@ -591,6 +635,9 @@ def encode_raw(
             if mod_village in mods: hex_modifier_flags_np[i, 0] = 1.0
             if mod_keep    in mods: hex_modifier_flags_np[i, 1] = 1.0
             if mod_castle  in mods: hex_modifier_flags_np[i, 2] = 1.0
+            # Dynamic flag: recruit-rejected this turn.
+            if (p.x, p.y) in rejected_hexes:
+                hex_dynamic_flags_np[i, 0] = 1.0
 
     # ---- units ----
     units = sorted(
@@ -691,6 +738,7 @@ def encode_raw(
         hex_ys=hex_ys_np,
         hex_terrain_ids=hex_terrain_ids_np,
         hex_modifier_flags=hex_modifier_flags_np,
+        hex_dynamic_flags=hex_dynamic_flags_np,
         unit_positions=unit_positions,
         unit_ids=unit_ids,
         unit_is_ours=unit_is_ours_np,
