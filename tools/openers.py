@@ -259,3 +259,89 @@ def end_turn() -> OpenerMove:
     def _move(state: GameState, side: int) -> Optional[Dict]:
         return {"type": "end_turn"}
     return _move
+
+
+# ---------------------------------------------------------------------
+# Opener registry
+# ---------------------------------------------------------------------
+# Lets `tools/sim_self_play.py --opener-spec NAME` resolve a name to
+# a pre-built Opener without the CLI having to know about every
+# scripted recipe. Add new openers via `register()` -- typically in
+# this file alongside the built-ins below, or in user code before
+# parsing CLI args.
+
+_REGISTRY: Dict[str, Callable[[], "Opener"]] = {}
+
+
+def register(name: str, factory: Callable[[], "Opener"]) -> None:
+    """Associate a name with an Opener factory. Later calls win."""
+    _REGISTRY[name] = factory
+
+
+def get_opener(name: str) -> "Opener":
+    """Construct a fresh Opener instance by registered name. Raises
+    KeyError with the available list when `name` doesn't match."""
+    if name not in _REGISTRY:
+        raise KeyError(
+            f"Unknown opener {name!r}. Available: {available()}")
+    return _REGISTRY[name]()
+
+
+def available() -> List[str]:
+    """Sorted list of registered opener names. Used by the CLI's
+    --help output and by error messages on unknown specs."""
+    return sorted(_REGISTRY)
+
+
+# ---------------------------------------------------------------------
+# Built-in openers
+# ---------------------------------------------------------------------
+# Generic recipes that work across factions / maps -- they only
+# reference unit-type names that the recruit list provides, so each
+# fires only when the side actually has that unit available.
+#
+# More specialized openers can be added here OR registered from user
+# code. Keep this list short; openers are easy to write inline.
+
+def _drake_rush() -> "Opener":
+    """Two Burner recruits, then end turn. Fires on side 1; side 2
+    gets the same recipe so symmetric matchups stay balanced.
+    No-op for non-Drakes factions (Burner not in recruit list ->
+    move returns None -> falls through to base policy)."""
+    return Opener(
+        name="drake_rush",
+        moves=[
+            recruit_type("Drake Burner"),
+            recruit_type("Drake Burner"),
+            end_turn(),
+        ],
+        sides=(1, 2),
+    )
+
+
+def _knalgan_thunder() -> "Opener":
+    """Two Thunderers + end turn. Same shape as drake_rush for the
+    Knalgan side."""
+    return Opener(
+        name="knalgan_thunder",
+        moves=[
+            recruit_type("Dwarvish Thunderer"),
+            recruit_type("Dwarvish Thunderer"),
+            end_turn(),
+        ],
+        sides=(1, 2),
+    )
+
+
+def _just_end_turn() -> "Opener":
+    """Trivial opener for testing -- end the first turn unconditionally,
+    then delegate to base. Lets us verify the wrapper's plumbing
+    without depending on any faction."""
+    return Opener(name="just_end_turn", moves=[end_turn()],
+                  sides=(1, 2))
+
+
+# Self-register so the CLI sees these on import.
+register("drake_rush", _drake_rush)
+register("knalgan_thunder", _knalgan_thunder)
+register("just_end_turn", _just_end_turn)

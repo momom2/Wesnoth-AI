@@ -1,0 +1,18 @@
+{
+  "gold_killed_delta": 0.02,
+  "village_delta": 0.1,
+  "leader_move_penalty": 0.005,
+  "unit_type_bonuses": [
+    {"unit_type": "Wose", "weight": 0.5},
+    {"unit_type": "Elvish Fighter", "weight": 0.05}
+  ],
+  "turn_conditional_bonuses": [
+    {
+      "name": "leader_on_keep_early",
+      "turn_range": [1, 5],
+      "predicate": "leader_on_keep",
+      "weight": 0.2,
+      "once": true
+    }
+  ]
+}

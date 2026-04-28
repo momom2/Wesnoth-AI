@@ -818,6 +818,202 @@ def test_opener_policy_reset_game():
     assert a3 == {"type": "end_turn"}
 
 
+# ---------------------------------------------------------------------
+# Predicate registry + JSON/YAML config loader
+# ---------------------------------------------------------------------
+
+def test_predicate_registry_has_builtins():
+    """The four built-in predicates we ship register on import."""
+    from rewards import available_predicates, get_predicate
+    names = available_predicates()
+    for n in ("leader_on_village", "leader_on_keep",
+              "controls_majority_villages", "no_units_lost"):
+        assert n in names, f"missing built-in predicate: {n}"
+    # get_predicate returns a callable
+    pred = get_predicate("leader_on_keep")
+    assert callable(pred)
+
+
+def test_predicate_unknown_raises():
+    from rewards import get_predicate
+    with pytest.raises(KeyError, match="Unknown predicate"):
+        get_predicate("not_a_real_predicate")
+
+
+def test_register_predicate_overrides_existing():
+    """Last registration wins. Custom predicates can shadow built-ins
+    for one-off experiments."""
+    from rewards import register_predicate, get_predicate
+    sentinel_calls = {"count": 0}
+    def custom(state, side):
+        sentinel_calls["count"] += 1
+        return True
+    register_predicate("__test_override__", custom)
+    pred = get_predicate("__test_override__")
+    state = _gs([_u("a", 1, 5, 5)])
+    assert pred(state, 1) is True
+    assert sentinel_calls["count"] == 1
+
+
+def test_load_reward_config_json(tmp_path):
+    """Round-trip a JSON config: scalars override defaults, lists
+    populate, predicates resolve through the registry."""
+    import json
+    from rewards import load_reward_config, UnitTypeBonus, TurnConditionalBonus
+
+    cfg = {
+        "gold_killed_delta": 0.05,         # override
+        "leader_move_penalty": 0.0,        # override (off)
+        "unit_type_bonuses": [
+            {"unit_type": "Wose", "weight": 0.5},
+            {"unit_type": "Elvish Fighter", "weight": 0.05},
+        ],
+        "turn_conditional_bonuses": [
+            {
+                "name": "early_keep",
+                "turn_range": [1, 3],
+                "predicate": "leader_on_keep",
+                "weight": 0.2,
+                "once": True,
+            },
+        ],
+    }
+    p = tmp_path / "cfg.json"
+    p.write_text(json.dumps(cfg))
+
+    rf = load_reward_config(p)
+    assert rf.gold_killed_delta == pytest.approx(0.05)
+    assert rf.leader_move_penalty == pytest.approx(0.0)
+    # WeightedReward defaults preserved for fields the config didn't touch
+    assert rf.terminal_win == pytest.approx(1.0)
+    # Bonus lists populated correctly
+    assert len(rf.unit_type_bonuses) == 2
+    assert isinstance(rf.unit_type_bonuses[0], UnitTypeBonus)
+    assert rf.unit_type_bonuses[0].unit_type == "Wose"
+    assert rf.unit_type_bonuses[0].weight == pytest.approx(0.5)
+    assert len(rf.turn_conditional_bonuses) == 1
+    tcb = rf.turn_conditional_bonuses[0]
+    assert isinstance(tcb, TurnConditionalBonus)
+    assert tcb.turn_range == (1, 3)
+    assert tcb.weight == pytest.approx(0.2)
+    assert callable(tcb.predicate)
+
+
+def test_load_reward_config_unknown_predicate_raises(tmp_path):
+    import json
+    from rewards import load_reward_config
+
+    cfg = {
+        "turn_conditional_bonuses": [
+            {"name": "x", "turn_range": [1, 3],
+             "predicate": "no_such_predicate", "weight": 1.0},
+        ],
+    }
+    p = tmp_path / "cfg.json"
+    p.write_text(json.dumps(cfg))
+    with pytest.raises(KeyError, match="Unknown predicate"):
+        load_reward_config(p)
+
+
+def test_load_reward_config_unknown_scalar_key_raises(tmp_path):
+    """A typo'd scalar key (e.g. 'gold_kileld_delta') is rejected at
+    load time -- prevents silent misconfiguration."""
+    import json
+    from rewards import load_reward_config
+
+    cfg = {"gold_kileld_delta": 0.1}    # typo
+    p = tmp_path / "cfg.json"
+    p.write_text(json.dumps(cfg))
+    with pytest.raises(ValueError, match="unknown key"):
+        load_reward_config(p)
+
+
+def test_load_reward_config_bad_extension_raises(tmp_path):
+    from rewards import load_reward_config
+    p = tmp_path / "cfg.txt"
+    p.write_text("x")
+    with pytest.raises(ValueError, match="unsupported"):
+        load_reward_config(p)
+
+
+def test_load_reward_config_round_trip_predicate_fires(tmp_path):
+    """End-to-end: config loaded predicate actually fires in a
+    realistic step. Uses the leader_on_keep built-in -- our test
+    GameState builder doesn't make villages/keeps in the hex set, so
+    we register a custom always-true predicate to keep the test
+    self-contained."""
+    import json
+    from rewards import (
+        load_reward_config, register_predicate,
+    )
+    register_predicate("__always_true__", lambda st, side: True)
+
+    cfg = {
+        # Zero out all defaults so we read the bonus alone.
+        "gold_killed_delta": 0.0,
+        "village_delta": 0.0,
+        "damage_dealt": 0.0,
+        "unit_recruited_cost": 0.0,
+        "leader_move_penalty": 0.0,
+        "invalid_action_penalty": 0.0,
+        "min_enemy_distance_penalty": 0.0,
+        "terminal_win": 0.0,
+        "terminal_loss": 0.0,
+        "terminal_draw": 0.0,
+        "terminal_timeout": 0.0,
+        "turn_conditional_bonuses": [
+            {
+                "name": "always_fires",
+                "turn_range": [1, 100],
+                "predicate": "__always_true__",
+                "weight": 0.7,
+                "once": False,
+            },
+        ],
+    }
+    p = tmp_path / "cfg.json"
+    p.write_text(json.dumps(cfg))
+    rf = load_reward_config(p)
+
+    state = _gs([_u("a", 1, 5, 5)])
+    delta = StepDelta(side=1, turn=2, action_type="move",
+                      post_state=state, game_label="g")
+    assert rf(delta) == pytest.approx(0.7)
+
+
+# ---------------------------------------------------------------------
+# Opener registry
+# ---------------------------------------------------------------------
+
+def test_opener_registry_has_builtins():
+    """Verify the built-in openers self-register on import."""
+    from tools import openers as openers_mod
+    names = openers_mod.available()
+    for n in ("just_end_turn", "drake_rush", "knalgan_thunder"):
+        assert n in names, f"missing built-in opener: {n}"
+
+
+def test_opener_registry_get_unknown_raises():
+    from tools import openers as openers_mod
+    with pytest.raises(KeyError, match="Unknown opener"):
+        openers_mod.get_opener("not_real")
+
+
+def test_opener_registry_register_and_get():
+    """User-registered opener resolves through the registry."""
+    from tools import openers as openers_mod
+    from tools.openers import Opener, end_turn
+
+    def factory():
+        return Opener(name="t", moves=[end_turn()], sides=(1,))
+
+    openers_mod.register("__test_opener__", factory)
+    o = openers_mod.get_opener("__test_opener__")
+    assert isinstance(o, Opener)
+    assert o.name == "t"
+    assert o.sides == (1,)
+
+
 def test_combined_kill_plus_village_gain():
     """A move that ends on a village AND somehow killed an enemy
     earlier in the same step (rare but happens via plague/leadership

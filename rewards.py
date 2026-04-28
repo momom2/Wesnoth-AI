@@ -150,6 +150,42 @@ class UnitTypeBonus:
     weight:    float
 
 
+# ---------------------------------------------------------------------
+# Predicate registry for TurnConditionalBonus
+# ---------------------------------------------------------------------
+# JSON / YAML config files can't carry callable references, so we
+# resolve predicate names through a string -> function registry. New
+# predicates: register them via `register_predicate("name", fn)` --
+# typically near the bottom of this module for built-ins, or in user
+# code before loading a config.
+#
+# Predicate signature: `(post_state: GameState, side: int) -> bool`.
+
+_Predicate = Callable[[GameState, int], bool]
+_PREDICATE_REGISTRY: Dict[str, _Predicate] = {}
+
+
+def register_predicate(name: str, fn: _Predicate) -> None:
+    """Associate a predicate name (used in reward config files) with
+    a callable. Later calls win."""
+    _PREDICATE_REGISTRY[name] = fn
+
+
+def get_predicate(name: str) -> _Predicate:
+    """Resolve a registered predicate name. Raises KeyError with the
+    available list if `name` is unknown."""
+    if name not in _PREDICATE_REGISTRY:
+        raise KeyError(
+            f"Unknown predicate {name!r}. Available: "
+            f"{sorted(_PREDICATE_REGISTRY)}")
+    return _PREDICATE_REGISTRY[name]
+
+
+def available_predicates() -> List[str]:
+    """Sorted list of registered predicate names."""
+    return sorted(_PREDICATE_REGISTRY)
+
+
 @dataclass
 class TurnConditionalBonus:
     """Conditional reward: when `predicate(post_state, side)` returns
@@ -602,3 +638,193 @@ def _our_leader_pos(state: GameState, side: int):
         if u.side == side and u.is_leader:
             return u.position
     return None
+
+
+# ---------------------------------------------------------------------
+# Built-in predicates for TurnConditionalBonus
+# ---------------------------------------------------------------------
+# Names match what reward-config JSON/YAML files reference.
+
+def _pred_leader_on_village(state: GameState, side: int) -> bool:
+    """Our leader is currently standing on a village hex."""
+    from classes import TerrainModifiers
+    leader = next((u for u in state.map.units
+                   if u.side == side and u.is_leader), None)
+    if leader is None:
+        return False
+    for h in state.map.hexes:
+        if (h.position.x, h.position.y) == (leader.position.x,
+                                            leader.position.y):
+            return TerrainModifiers.VILLAGE in h.modifiers
+    return False
+
+
+def _pred_leader_on_keep(state: GameState, side: int) -> bool:
+    """Our leader is currently standing on a keep hex (where it can
+    recruit). Useful as a 'don't wander the leader off' bonus that's
+    less harsh than `leader_move_penalty` -- only credits while the
+    leader CAN recruit, vs. always-on regardless of position."""
+    from classes import TerrainModifiers
+    leader = next((u for u in state.map.units
+                   if u.side == side and u.is_leader), None)
+    if leader is None:
+        return False
+    for h in state.map.hexes:
+        if (h.position.x, h.position.y) == (leader.position.x,
+                                            leader.position.y):
+            return TerrainModifiers.KEEP in h.modifiers
+    return False
+
+
+def _pred_controls_majority_villages(state: GameState, side: int) -> bool:
+    """We control strictly more than half the visible villages.
+    Triggers a positional-dominance bonus that's silent when the map
+    has zero villages (avoids spurious credit on village-free maps)."""
+    if not state.sides:
+        return False
+    total = 0
+    for s in state.sides:
+        total += int(s.nb_villages_controlled)
+    if total == 0:
+        return False
+    side_idx = side - 1
+    if not (0 <= side_idx < len(state.sides)):
+        return False
+    ours = int(state.sides[side_idx].nb_villages_controlled)
+    return ours * 2 > total
+
+
+def _pred_no_units_lost(state: GameState, side: int) -> bool:
+    """Hard to compute from post-state alone (we'd need to compare
+    against game start). Instead: True iff WE still have at least
+    as many non-leader units as the opponent does. Useful as a
+    'preserve army' bonus."""
+    if not state.sides:
+        return False
+    our_count = sum(1 for u in state.map.units
+                    if u.side == side and not u.is_leader)
+    enemy_count = sum(1 for u in state.map.units
+                      if u.side != side and not u.is_leader)
+    return our_count >= enemy_count
+
+
+register_predicate("leader_on_village",        _pred_leader_on_village)
+register_predicate("leader_on_keep",           _pred_leader_on_keep)
+register_predicate("controls_majority_villages", _pred_controls_majority_villages)
+register_predicate("no_units_lost",            _pred_no_units_lost)
+
+
+# ---------------------------------------------------------------------
+# Config loader
+# ---------------------------------------------------------------------
+# Builds a `WeightedReward` from a JSON or YAML file, including the
+# customizability lists (unit_type_bonuses, turn_conditional_bonuses).
+# Predicates referenced by name resolve through `_PREDICATE_REGISTRY`.
+
+def load_reward_config(path) -> "WeightedReward":
+    """Construct a `WeightedReward` from a JSON or YAML config file.
+
+    File format -- all keys optional; missing keys keep WeightedReward
+    defaults::
+
+        {
+          "gold_killed_delta": 0.01,
+          "village_delta": 0.05,
+          "leader_move_penalty": 0.0,
+          "unit_type_bonuses": [
+            {"unit_type": "Wose", "weight": 0.5},
+            {"unit_type": "Elvish Fighter", "weight": 0.05}
+          ],
+          "turn_conditional_bonuses": [
+            {
+              "name": "early_village",
+              "turn_range": [1, 3],
+              "predicate": "leader_on_village",
+              "weight": 1.0,
+              "once": true
+            }
+          ]
+        }
+
+    Format dispatch by extension: `.json` -> `json.load`, `.yaml` /
+    `.yml` -> `yaml.safe_load` (requires PyYAML). Predicate names
+    resolve through `get_predicate`; unknown names raise KeyError
+    with the available list.
+    """
+    from pathlib import Path
+    p = Path(path)
+    suffix = p.suffix.lower()
+    if suffix == ".json":
+        import json
+        with p.open(encoding="utf-8") as f:
+            data = json.load(f)
+    elif suffix in (".yaml", ".yml"):
+        try:
+            import yaml
+        except ImportError as e:
+            raise ImportError(
+                f"loading {p} requires PyYAML (`pip install pyyaml`); "
+                f"or convert the config to .json"
+            ) from e
+        with p.open(encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+    else:
+        raise ValueError(
+            f"unsupported reward-config extension {suffix!r}; "
+            f"use .json, .yaml, or .yml")
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"reward-config root must be a dict; got {type(data).__name__}")
+
+    # Pull out the structured lists -- WeightedReward's other fields
+    # are scalar-only, so they pass through as-is.
+    raw_unit_bonuses = data.pop("unit_type_bonuses", []) or []
+    raw_turn_bonuses = data.pop("turn_conditional_bonuses", []) or []
+
+    unit_type_bonuses: List[UnitTypeBonus] = []
+    for entry in raw_unit_bonuses:
+        if not isinstance(entry, dict):
+            raise ValueError(
+                f"unit_type_bonuses entry must be a dict; got {entry!r}")
+        unit_type_bonuses.append(UnitTypeBonus(
+            unit_type=str(entry["unit_type"]),
+            weight=float(entry["weight"]),
+        ))
+
+    turn_conditional_bonuses: List[TurnConditionalBonus] = []
+    for entry in raw_turn_bonuses:
+        if not isinstance(entry, dict):
+            raise ValueError(
+                f"turn_conditional_bonuses entry must be a dict; got {entry!r}")
+        pred_name = str(entry["predicate"])
+        predicate = get_predicate(pred_name)   # KeyError on miss
+        turn_range = entry["turn_range"]
+        if not (isinstance(turn_range, (list, tuple)) and len(turn_range) == 2):
+            raise ValueError(
+                f"turn_range must be [lo, hi]; got {turn_range!r}")
+        turn_conditional_bonuses.append(TurnConditionalBonus(
+            name=str(entry["name"]),
+            turn_range=(int(turn_range[0]), int(turn_range[1])),
+            predicate=predicate,
+            weight=float(entry["weight"]),
+            once=bool(entry.get("once", True)),
+        ))
+
+    # Validate the remaining (scalar) keys against WeightedReward
+    # fields so a typo'd key is caught at load time, not silently
+    # ignored.
+    import dataclasses
+    valid_fields = {f.name for f in dataclasses.fields(WeightedReward)}
+    valid_fields -= {"unit_type_bonuses", "turn_conditional_bonuses",
+                     "_fired_once"}
+    for k in data:
+        if k not in valid_fields:
+            raise ValueError(
+                f"reward-config has unknown key {k!r}; valid scalar "
+                f"keys: {sorted(valid_fields)}")
+
+    return WeightedReward(
+        unit_type_bonuses=unit_type_bonuses,
+        turn_conditional_bonuses=turn_conditional_bonuses,
+        **data,
+    )

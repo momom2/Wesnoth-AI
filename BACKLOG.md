@@ -510,10 +510,20 @@ curriculum hook.
   TODO: register openers + expose `--opener-spec` in
   `sim_self_play.py` so cluster jobs can flip openers via CLI.
 
-- [ ] 🟠 **`sim_self_play.py` exposes NO reward weight as CLI arg**
-  (`tools/sim_self_play.py:366`). Currently uses `WeightedReward()`
-  defaults. Add `--reward-config path/to/yaml` so cluster jobs can
-  experiment with reward shapes without code edits.
+- [x] 🟠 **`sim_self_play.py --reward-config path` + `--opener-spec
+  NAME`** (DONE 2026-04-28). JSON / YAML reward config via
+  `rewards.load_reward_config`: scalar weights override defaults,
+  `unit_type_bonuses` and `turn_conditional_bonuses` populate via
+  list-of-dict, predicates resolve through `_PREDICATE_REGISTRY`.
+  Built-in predicates: `leader_on_village`, `leader_on_keep`,
+  `controls_majority_villages`, `no_units_lost`. Validates unknown
+  scalar keys (catches typos at load time, not silently). Opener
+  registry in `tools/openers.py` -- built-ins self-register
+  (`just_end_turn`, `drake_rush`, `knalgan_thunder`). `--help` lists
+  available openers. Per-game state resets (`reset_game`,
+  `reset_game_state`) wired into `run_iteration`. `attach_post_state`
+  conditional on whether the reward function has turn-conditional
+  bonuses configured (avoid retention overhead in the common case).
 
 - [ ] 🟡 **Replay-corpus filter: no rating / faction / scenario triplet**
   (`tools/replay_dataset.py:1673`, `tools/supervised_train.py:781-790`).

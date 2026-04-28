@@ -65,10 +65,12 @@ sys.path.insert(0, str(_THIS.parent))
 from classes import GameState
 from rewards import (
     OUTCOME_DRAW, OUTCOME_LOSS, OUTCOME_ONGOING, OUTCOME_TIMEOUT, OUTCOME_WIN,
-    StepDelta, WeightedReward, compute_delta,
+    StepDelta, WeightedReward, compute_delta, load_reward_config,
 )
 from transformer_policy import TransformerPolicy
 from wesnoth_sim import PvPDefaults, SimResult, WesnothSim
+import openers as openers_mod
+from openers import Opener, OpenerPolicy
 
 
 log = logging.getLogger("sim_self_play")
@@ -158,10 +160,19 @@ def play_one_game(
         # each side's terminal payoff is attached to its OWN last
         # transition, even when the game ended on the other side's
         # killing move.
+        #
+        # `attach_post_state` is opt-in based on whether the reward
+        # function has turn-conditional bonuses configured; doing it
+        # unconditionally would retain a deepcopy-equivalent
+        # reference per Transition.
+        attach_post = bool(getattr(reward_fn,
+                                   "turn_conditional_bonuses", None))
         delta = compute_delta(
             pre_state, sim.gs, atype,
             recruit_cost=recruit_cost,
             outcome=OUTCOME_ONGOING,
+            game_label=game_label,
+            attach_post_state=attach_post,
         )
         step_r = reward_fn(delta)
         policy.observe(game_label, acting_side, step_r, done=False)
@@ -183,6 +194,7 @@ def play_one_game(
             turn=final_turn,
             action_type="terminal",
             outcome=outcome,
+            game_label=game_label,
         )
         terminal_r = reward_fn(term_delta)
         if not last_acting_side.get(side):
@@ -279,6 +291,15 @@ def run_iteration(
             log.warning(f"skipping {replay.name}: {e}")
             continue
         game_label = f"iter{iter_idx}_g{g_idx}"
+        # Per-game state resets for any stateful wrappers (opener
+        # cursor, turn-conditional bonus fired-set). Both are no-op
+        # when the corresponding feature isn't configured. We do this
+        # at the START of each game so the cleanup runs even if
+        # play_one_game raises mid-loop.
+        if hasattr(policy, "reset_game"):
+            policy.reset_game(game_label)
+        if hasattr(reward_fn, "reset_game_state"):
+            reward_fn.reset_game_state(game_label)
         try:
             outcome = play_one_game(
                 sim, policy, reward_fn,
@@ -372,6 +393,23 @@ def main(argv: List[str]) -> int:
                     help="PvP defaults: upkeep absorbed per village.")
     ap.add_argument("--exp-modifier", type=int, default=70,
                     help="PvP defaults: experience required modifier (%%).")
+
+    # Reward + opener customization. Both default to "off" (existing
+    # WeightedReward defaults / no opener) so omitting these flags
+    # reproduces the prior behavior bit-for-bit.
+    ap.add_argument("--reward-config", type=Path, default=None,
+                    help="Path to a JSON or YAML reward-shaping config "
+                         "(see rewards.load_reward_config). Lets you "
+                         "tune weights, add per-unit-type recruit "
+                         "bonuses, and define turn-conditional "
+                         "bonuses without code edits. Default: use "
+                         "WeightedReward() defaults.")
+    ap.add_argument("--opener-spec", type=str, default=None,
+                    help=f"Name of a registered opener to wrap the "
+                         f"policy with (see tools/openers.py). "
+                         f"Available: {', '.join(openers_mod.available()) or '(none)'}. "
+                         f"Default: no opener; the model controls "
+                         f"every decision from turn 1.")
     args = ap.parse_args(argv[1:])
 
     logging.basicConfig(
@@ -391,7 +429,33 @@ def main(argv: List[str]) -> int:
     else:
         log.warning("no input checkpoint -- training from random init")
 
-    reward_fn = WeightedReward()
+    # Optional opener wrapper: scripts the first K decisions per
+    # game-side, then delegates to the learned policy. Forwarding to
+    # `policy.observe` / `train_step` / `save_checkpoint` is duck-typed
+    # in OpenerPolicy so the trainer keeps working unchanged.
+    if args.opener_spec:
+        try:
+            opener = openers_mod.get_opener(args.opener_spec)
+        except KeyError as e:
+            log.error(str(e))
+            return 2
+        policy = OpenerPolicy(base=policy, opener=opener)
+        log.info(f"opener: {args.opener_spec!r} "
+                 f"({len(opener.moves)} moves, sides={opener.sides})")
+
+    if args.reward_config is not None:
+        try:
+            reward_fn = load_reward_config(args.reward_config)
+        except (KeyError, ValueError, ImportError) as e:
+            log.error(f"failed to load reward config: {e}")
+            return 2
+        log.info(
+            f"reward config: {args.reward_config} "
+            f"({len(reward_fn.unit_type_bonuses)} unit-type bonuses, "
+            f"{len(reward_fn.turn_conditional_bonuses)} "
+            f"turn-conditional bonuses)")
+    else:
+        reward_fn = WeightedReward()
 
     pvp_defaults: Optional[PvPDefaults] = None
     if args.use_map_settings:
