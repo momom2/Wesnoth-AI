@@ -480,6 +480,18 @@ class WesnothSim:
             if cmd[0] == "move" and terrain_cost is not None and terrain_cost > 1:
                 tx, ty = cmd[1][-1], cmd[2][-1]
                 self._deduct_extra_mp(tx, ty, terrain_cost - 1)
+            # Post-apply ZoC / village-capture MP zeroing. Wesnoth's
+            # `unit_mover::try_actual_movement` (move.cpp:1042-1054)
+            # calls `set_movement(0, true)` when the unit lands in a
+            # ZoC'd hex (adjacent enemy of level >= 1 and the mover
+            # isn't a skirmisher) or when it captures a village.
+            # Our sim was missing both, so the unit could keep moving
+            # past the stop point -- subsequent moves would be valid
+            # in our view but Wesnoth's playback (with MP=0) would
+            # reject them as "corrupt movement".
+            if cmd[0] == "move":
+                tx, ty = cmd[1][-1], cmd[2][-1]
+                self._apply_post_move_stops(tx, ty, side_now)
             extras: dict = {}
             if cmd[0] == "recruit" and leader_pos is not None:
                 extras["leader_pos"] = leader_pos
@@ -518,6 +530,115 @@ class WesnothSim:
         )
 
     # ----- internals -------------------------------------------------
+
+    # Abilities that hide a unit in its native cover and trigger
+    # `cache_hidden_units` -> ambushed_ -> set_movement(0) when an
+    # enemy moves adjacent. Skirmisher bypasses ZoC but NOT ambush --
+    # both effects share the `ambushed_ || final_loc == zoc_stop_`
+    # branch in move.cpp:1042. Since our sim doesn't model fog, we
+    # conservatively trigger ambush whenever an enemy with one of
+    # these abilities is adjacent (worst case: a fogged enemy is
+    # always potentially hidden). On `mp_fog=no` maps this slightly
+    # under-utilizes movement but never causes OOS.
+    _AMBUSH_ABILITIES = frozenset({
+        "ambush", "nightstalk", "concealment", "submerge",
+    })
+
+    def _apply_post_move_stops(self, x: int, y: int, side: int) -> None:
+        """If the unit at (x, y) of `side` just moved into a hex that
+        Wesnoth would zero its MP on, set current_moves = 0. Three
+        triggers, in order of precedence:
+
+          - Ambush: an adjacent enemy has one of the cover abilities
+            (ambush / nightstalk / concealment / submerge). Wesnoth's
+            `cache_hidden_units` sets `ambushed_` and then
+            `try_actual_movement` calls `set_movement(0)` on landing
+            (move.cpp:1042). Skirmisher does NOT bypass ambush.
+          - ZoC: an adjacent enemy of level >= 1 emits ZoC over (x, y)
+            and the mover lacks the `skirmisher` ability
+            (move.cpp:1042 `final_loc == zoc_stop_`).
+          - Village capture: entering a (formerly-) non-friendly
+            village zeroes movement (move.cpp:1052).
+        """
+        from tools.abilities import hex_neighbors
+        from replay_dataset import _stats_for
+        from classes import TerrainModifiers
+
+        unit = next(
+            (u for u in self.gs.map.units
+             if u.position.x == x and u.position.y == y and u.side == side),
+            None,
+        )
+        if unit is None or unit.current_moves <= 0:
+            return
+
+        zero_mp = False
+
+        # Walk adjacent hexes once; check ambush AND ZoC together.
+        is_skirmisher = "skirmisher" in (unit.abilities or set())
+        for nx, ny in hex_neighbors(x, y):
+            enemy = next(
+                (u for u in self.gs.map.units
+                 if u.position.x == nx and u.position.y == ny
+                 and u.side != side),
+                None,
+            )
+            if enemy is None:
+                continue
+            enemy_abilities = enemy.abilities or set()
+            # Ambush: stops EVERYONE, including skirmishers.
+            if enemy_abilities & self._AMBUSH_ABILITIES:
+                zero_mp = True
+                break
+            # ZoC: only stops non-skirmishers; only level >= 1 enemies emit it.
+            if not is_skirmisher:
+                level = int(_stats_for(enemy.name).get("level", 1))
+                if level >= 1:
+                    zero_mp = True
+                    break
+
+        # Village capture: a village owned by some-side-other-than-`side`
+        # before the move now belongs to `side`. We can't tell pre/post
+        # without snapshots, but the simpler proxy is: this hex is a
+        # village. Since `_apply_command` already calls `_capture_village`
+        # on entry, ownership is set by the time we run. Wesnoth zeroes
+        # MP on capture regardless of prior owner being neutral or
+        # hostile -- only fully-friendly villages don't zero. We don't
+        # track per-village ownership precisely enough to distinguish,
+        # so conservatively zero MP whenever a village hex is entered.
+        # (False positives only cost a turn of movement on revisits,
+        # which is rare for a self-play AI.)
+        if not zero_mp:
+            hex_obj = next(
+                (h for h in self.gs.map.hexes
+                 if h.position.x == x and h.position.y == y),
+                None,
+            )
+            if hex_obj is not None and TerrainModifiers.VILLAGE in hex_obj.modifiers:
+                zero_mp = True
+
+        if zero_mp:
+            self._set_unit_mp(x, y, side, 0)
+
+    def _set_unit_mp(self, x: int, y: int, side: int, new_mp: int) -> None:
+        """Replace the unit at (x, y) of `side` with a copy whose
+        `current_moves` is set to `new_mp`. Mirrors `_deduct_extra_mp`
+        but with an absolute target value rather than a delta."""
+        from classes import Unit
+        new_units = set()
+        for u in self.gs.map.units:
+            if u.position.x == x and u.position.y == y and u.side == side:
+                base = {k: v for k, v in u.__dict__.items()
+                        if not k.startswith("_")}
+                base["current_moves"] = max(0, new_mp)
+                replacement = Unit(**base)
+                for k, v in u.__dict__.items():
+                    if k.startswith("_"):
+                        setattr(replacement, k, v)
+                new_units.add(replacement)
+            else:
+                new_units.add(u)
+        self.gs.map.units = new_units
 
     def _deduct_extra_mp(self, x: int, y: int, extra: int) -> None:
         """Subtract `extra` more MP from the unit now at (x, y),
