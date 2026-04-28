@@ -471,6 +471,16 @@ class WesnothSim:
             next_side = (side_now % n_sides) + 1
             self._begin_side_turn(next_side)
         else:
+            # Snapshot the village owner BEFORE the move applies so
+            # we can tell capture (prior owner != side) from revisit
+            # (prior owner == side, no MP zeroing).
+            prev_village_owner: Optional[int] = None
+            if cmd[0] == "move":
+                tx, ty = cmd[1][-1], cmd[2][-1]
+                owner_map = getattr(
+                    self.gs.global_info, "_village_owner", None) or {}
+                prev_village_owner = int(owner_map.get((tx, ty), 0))
+
             _apply_command(self.gs, cmd)
             # Post-apply terrain MP correction. _apply_command
             # already flat-deducted 1 MP; we owe an extra
@@ -480,18 +490,19 @@ class WesnothSim:
             if cmd[0] == "move" and terrain_cost is not None and terrain_cost > 1:
                 tx, ty = cmd[1][-1], cmd[2][-1]
                 self._deduct_extra_mp(tx, ty, terrain_cost - 1)
-            # Post-apply ZoC / village-capture MP zeroing. Wesnoth's
-            # `unit_mover::try_actual_movement` (move.cpp:1042-1054)
-            # calls `set_movement(0, true)` when the unit lands in a
-            # ZoC'd hex (adjacent enemy of level >= 1 and the mover
-            # isn't a skirmisher) or when it captures a village.
-            # Our sim was missing both, so the unit could keep moving
-            # past the stop point -- subsequent moves would be valid
-            # in our view but Wesnoth's playback (with MP=0) would
-            # reject them as "corrupt movement".
+            # Post-apply ZoC / ambush / village-capture MP zeroing.
+            # Wesnoth's `unit_mover::try_actual_movement`
+            # (move.cpp:1042-1054) calls `set_movement(0, true)` when
+            # the unit lands in a ZoC'd hex, gets ambushed by a
+            # hidden enemy, or captures a non-friendly village. Our
+            # sim was missing all three, so the unit could keep
+            # moving past the stop point -- subsequent moves would be
+            # valid in our view but Wesnoth's playback (with MP=0)
+            # would reject them as "corrupt movement".
             if cmd[0] == "move":
                 tx, ty = cmd[1][-1], cmd[2][-1]
-                self._apply_post_move_stops(tx, ty, side_now)
+                self._apply_post_move_stops(
+                    tx, ty, side_now, prev_village_owner)
             extras: dict = {}
             if cmd[0] == "recruit" and leader_pos is not None:
                 extras["leader_pos"] = leader_pos
@@ -531,34 +542,113 @@ class WesnothSim:
 
     # ----- internals -------------------------------------------------
 
-    # Abilities that hide a unit in its native cover and trigger
-    # `cache_hidden_units` -> ambushed_ -> set_movement(0) when an
-    # enemy moves adjacent. Skirmisher bypasses ZoC but NOT ambush --
-    # both effects share the `ambushed_ || final_loc == zoc_stop_`
-    # branch in move.cpp:1042. Since our sim doesn't model fog, we
-    # conservatively trigger ambush whenever an enemy with one of
-    # these abilities is adjacent (worst case: a fogged enemy is
-    # always potentially hidden). On `mp_fog=no` maps this slightly
-    # under-utilizes movement but never causes OOS.
+    # Cover abilities -- units with one of these CAN be hidden in
+    # the matching terrain/ToD, but only if not already revealed.
+    # `_hide_cover_active` and the per-turn `_uncovered_units` set
+    # together gate when ambush actually fires.
     _AMBUSH_ABILITIES = frozenset({
         "ambush", "nightstalk", "concealment", "submerge",
     })
 
-    def _apply_post_move_stops(self, x: int, y: int, side: int) -> None:
+    def _hide_cover_active(self, unit) -> bool:
+        """True if `unit` has a hide ability AND its current hex
+        terrain (or the ToD, for nightstalk) satisfies the ability's
+        cover condition. Verified abilities and their covers from
+        wesnoth_src/data/core/abilities.cfg:
+
+          - ambush:      forest terrain
+          - concealment: village terrain
+          - submerge:    deep_water terrain
+          - nightstalk:  current ToD has lawful_bonus < 0 (night /
+                         second_watch)
+        """
+        from replay_dataset import _terrain_keys_at, _lawful_bonus_at
+        abilities = unit.abilities or set()
+        if not (abilities & self._AMBUSH_ABILITIES):
+            return False
+        keys = _terrain_keys_at(self.gs, unit.position.x, unit.position.y)
+        if "ambush" in abilities and "forest" in keys:
+            return True
+        if "concealment" in abilities and "village" in keys:
+            return True
+        if "submerge" in abilities and "deep_water" in keys:
+            return True
+        if "nightstalk" in abilities:
+            bonus = _lawful_bonus_at(
+                self.gs, unit.position.x, unit.position.y,
+                self.gs.global_info.turn_number,
+            )
+            if bonus < 0:
+                return True
+        return False
+
+    def _refresh_uncovered_state(self, current_side: int) -> None:
+        """Called at each side's init_side. Implements Wesnoth's
+        `unit::new_turn` reset of STATE_UNCOVERED for the side's own
+        units, plus the start-of-turn re-evaluation: a hidden unit
+        that's already adjacent to ANY enemy at turn start is
+        considered exposed for this turn -- even if the enemy moves
+        away later, the unit doesn't re-hide until its OWN side's
+        next init_side.
+
+        This handles the user-flagged edge case: a hidden unit that
+        starts adjacent to an enemy is revealed; if the enemy then
+        moves away, the unit remains revealed.
+        """
+        from tools.abilities import hex_neighbors
+
+        uncovered: set = getattr(
+            self.gs.global_info, "_uncovered_units", None) or set()
+
+        # Step 1: side-current units re-hide (STATE_UNCOVERED reset).
+        for u in list(self.gs.map.units):
+            if u.side == current_side and u.id in uncovered:
+                uncovered.discard(u.id)
+
+        # Step 2: for each hidden-ability unit on OTHER sides, check
+        # if it's adjacent to any unit of `current_side`. If so, it's
+        # already exposed (visible to current_side from the start).
+        side_unit_positions = {
+            (u.position.x, u.position.y)
+            for u in self.gs.map.units
+            if u.side == current_side
+        }
+        for u in self.gs.map.units:
+            if u.side == current_side:
+                continue
+            if not self._hide_cover_active(u):
+                continue
+            for nx, ny in hex_neighbors(u.position.x, u.position.y):
+                if (nx, ny) in side_unit_positions:
+                    uncovered.add(u.id)
+                    break
+
+        setattr(self.gs.global_info, "_uncovered_units", uncovered)
+
+    def _apply_post_move_stops(
+        self,
+        x: int,
+        y: int,
+        side: int,
+        prev_village_owner: Optional[int] = None,
+    ) -> None:
         """If the unit at (x, y) of `side` just moved into a hex that
         Wesnoth would zero its MP on, set current_moves = 0. Three
-        triggers, in order of precedence:
+        independent triggers (move.cpp:1042-1054), each with the
+        precise condition Wesnoth checks:
 
-          - Ambush: an adjacent enemy has one of the cover abilities
-            (ambush / nightstalk / concealment / submerge). Wesnoth's
-            `cache_hidden_units` sets `ambushed_` and then
-            `try_actual_movement` calls `set_movement(0)` on landing
-            (move.cpp:1042). Skirmisher does NOT bypass ambush.
-          - ZoC: an adjacent enemy of level >= 1 emits ZoC over (x, y)
-            and the mover lacks the `skirmisher` ability
-            (move.cpp:1042 `final_loc == zoc_stop_`).
-          - Village capture: entering a (formerly-) non-friendly
-            village zeroes movement (move.cpp:1052).
+          - Ambush: an adjacent enemy has an ACTIVE hide ability
+            (cover terrain/ToD matches the ability) AND that enemy
+            has not yet been uncovered this turn. Skirmisher does
+            NOT bypass ambush. After firing, the enemy becomes
+            uncovered (won't ambush again until its own side's next
+            init_side reset).
+          - ZoC: an adjacent enemy of level >= 1 emits ZoC over (x,y)
+            and the mover lacks `skirmisher`.
+          - Village capture: entering a village whose previous owner
+            was NOT this side. Friendly revisit doesn't zero MP.
+            Pre-move owner is snapshotted in `step()` before
+            `_apply_command` updates the village owner map.
         """
         from tools.abilities import hex_neighbors
         from replay_dataset import _stats_for
@@ -574,7 +664,9 @@ class WesnothSim:
 
         zero_mp = False
 
-        # Walk adjacent hexes once; check ambush AND ZoC together.
+        # Ambush + ZoC: walk adjacent hexes once.
+        uncovered: set = getattr(
+            self.gs.global_info, "_uncovered_units", None) or set()
         is_skirmisher = "skirmisher" in (unit.abilities or set())
         for nx, ny in hex_neighbors(x, y):
             enemy = next(
@@ -585,30 +677,30 @@ class WesnothSim:
             )
             if enemy is None:
                 continue
-            enemy_abilities = enemy.abilities or set()
-            # Ambush: stops EVERYONE, including skirmishers.
-            if enemy_abilities & self._AMBUSH_ABILITIES:
+            # Ambush: hide ability with matching cover, not already
+            # uncovered. Bypasses skirmisher.
+            if (enemy.id not in uncovered
+                    and self._hide_cover_active(enemy)):
                 zero_mp = True
+                # Once an enemy ambushes, it's revealed for the rest
+                # of the turn (won't ambush twice from the same
+                # cover this turn).
+                uncovered.add(enemy.id)
+                setattr(self.gs.global_info, "_uncovered_units",
+                        uncovered)
                 break
-            # ZoC: only stops non-skirmishers; only level >= 1 enemies emit it.
+            # ZoC: only level >= 1 enemies emit, only stops
+            # non-skirmishers.
             if not is_skirmisher:
                 level = int(_stats_for(enemy.name).get("level", 1))
                 if level >= 1:
                     zero_mp = True
                     break
 
-        # Village capture: a village owned by some-side-other-than-`side`
-        # before the move now belongs to `side`. We can't tell pre/post
-        # without snapshots, but the simpler proxy is: this hex is a
-        # village. Since `_apply_command` already calls `_capture_village`
-        # on entry, ownership is set by the time we run. Wesnoth zeroes
-        # MP on capture regardless of prior owner being neutral or
-        # hostile -- only fully-friendly villages don't zero. We don't
-        # track per-village ownership precisely enough to distinguish,
-        # so conservatively zero MP whenever a village hex is entered.
-        # (False positives only cost a turn of movement on revisits,
-        # which is rare for a self-play AI.)
-        if not zero_mp:
+        # Village capture: only zero MP if the prior owner was NOT
+        # this side. Friendly revisits leave MP alone (Wesnoth's
+        # `if (orig_village_owner != current_side_)` gate).
+        if not zero_mp and prev_village_owner is not None and prev_village_owner != side:
             hex_obj = next(
                 (h for h in self.gs.map.hexes
                  if h.position.x == x and h.position.y == y),
@@ -670,6 +762,11 @@ class WesnothSim:
         _apply_command(self.gs, ["init_side", side])
         self.command_history.append(RecordedCommand(
             kind="init_side", side=side, cmd=["init_side", side]))
+        # Refresh hidden/uncovered tracking: own-side units re-hide,
+        # other-side hidden units adjacent to our units become exposed.
+        # Must run AFTER _apply_command (turn number / ToD updated) so
+        # nightstalk's lawful_bonus check sees the right ToD.
+        self._refresh_uncovered_state(side)
         self._check_game_over()
 
     def _check_game_over(self) -> None:
