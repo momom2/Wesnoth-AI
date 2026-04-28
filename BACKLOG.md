@@ -86,6 +86,57 @@ stated goals.
 
 ---
 
+## Open: Arcanclave Citadel dummy-game OOS
+
+After the `oos_debug="yes"` rewrite (commit cd35979) and the
+override-overlay fix, Arcanclave Citadel is in a partially-working
+state:
+
+- **`SIM_arcanclave_minimal.bz2`** (hand-built, init_side+end_turn
+  only) — loads cleanly. ✓
+- **`SIM_dummy_arcanclave.bz2`** (DummyPolicy full game) — OOSes at
+  turn 1 side 2 with **"found dependent command in replay while
+  is_synced=false"** after the first Skeleton recruit at WML(3,25).
+
+The error fires at `wesnoth_src/src/replay.cpp:849`: our
+`[random_seed]` follow-up arrives while Wesnoth's `is_unsynced` flag
+is still set, meaning the previous `[recruit]` command was rejected
+before entering synced context. So Wesnoth's `find_recruit_location`
+is rejecting our `[recruit]` for some reason we haven't pinned down.
+
+Verified facts:
+- Both recruit hexes (3,25) and (4,24) are part of the leader's
+  92-hex castle network from keep WML(2,24) (BFS confirmed).
+- Side 2 has 100g, Skeleton costs 15g — gold is fine.
+- Same recruit format works on Fallenstar Lake and Aethermaw.
+- Recruit emission, [from] block, [random_seed] format identical
+  to a verified-working real Arcanclave replay (Turn_1_94211).
+
+Possible causes (not yet investigated):
+1. Wesnoth's recruit event handler for Arcanclave fires synced RNG
+   we're not accounting for (no `recruit` events in the source's
+   [scenario] / [era] blocks though).
+2. The 92-hex castle network includes a SECOND keep at WML(6,24);
+   `find_recruit_location` may not handle the "multiple keeps in
+   one network" case the way our analysis assumes.
+3. Some [side] / [scenario] attribute we're inheriting differs
+   subtly from Fallenstar/Aethermaw and triggers a recruit-time
+   user_choice we haven't seen.
+
+**Workaround**: filter Arcanclave out of self-play initial-state
+pools for now; 2/3 maps working is sufficient to proceed. Add
+back when root cause is found.
+
+To debug next: launch Wesnoth via subprocess on
+SIM_dummy_arcanclave.bz2 with `--log-debug=replay` and capture which
+exact hex the recruit fails on (my CLI attempts hit a load-side
+"corrupt file" snag — the user's GUI-load test showed only the
+high-level error message, not the per-line trace). Or instrument
+the simulator to ALSO run the same recruit through Wesnoth
+source's check logic via Lua harness.
+
+---
+
 ## Local simulator (`tools/wesnoth_sim.py`, `tools/sim_to_replay.py`, `tools/replay_dataset.py`, `tools/traits.py`, `combat.py`, `tools/scenario_events.py`)
 
 The faithfulness of this layer matters most: every divergence from
