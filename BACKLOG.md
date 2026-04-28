@@ -86,7 +86,58 @@ stated goals.
 
 ---
 
-## Open: Arcanclave Citadel dummy-game OOS
+## Open: late-turn Arcanclave OOS, root cause unknown
+
+(2026-04-28) After fixes for `oos_debug`, override-overlays
+(`Chw^Xo`), recruit gold-check, lazy-RNG-seed gating, leader
+upkeep, and dummy determinism — the Arcanclave dummy export still
+OOSes around turn 22 ("found corrupt movement in replay").
+
+User-visible: "Last valid: turn 22 side 2 Deathblade WML(44,1)→(45,1).
+Then probably tries WML(46,1) which is occupied by a Cavalryman."
+
+Verified facts about the export at the moment of the failure:
+- Deathblade is at WML(44,1) at end of side-1's turn 22 (correct).
+- Side-1's u4 Cavalryman is at WML(46,1) (correct).
+- Our cmd 400 (the one that fails per user) is `x="45,45"
+  y="1,2"` — internal (44,0)→(44,1), WML (45,1)→(45,2). Target is
+  (45,2) which is `Gs` (grass) and unoccupied per our state.
+- Wesnoth-faithful audit (terrain costs, MP tracking, target
+  occupancy, with seeds correctly fed back from `[random_seed]`
+  follow-ups so trait rolls match the sim) reports **0 issues
+  across 463 commands**.
+
+Hypotheses to investigate (each requires Wesnoth-side debug data
+the user-side GUI doesn't surface):
+1. Wesnoth's view of u4 Cavalryman's position differs from ours
+   — some move earlier than turn 22 was rejected in Wesnoth's
+   view but accepted by our sim. Cumulative drift puts u4 at
+   (45,2) by turn 22 rather than (46,1).
+2. Fog-of-war / `cache_hidden_units` finds an obstruction that
+   our state doesn't have. Arcanclave has `mp_fog=yes`. Our sim
+   doesn't model fog visibility per-side.
+3. Wesnoth's `plot_turn` does something for `(45,1)→(45,2)` we
+   don't (ZoC at start? skirmisher edge case? terrain alias
+   chain we still mishandle?).
+
+Next debug step: add to `tools/sim_to_replay.py` an option to
+emit `[checkup]` blocks containing post-attack `attacker_hp /
+defender_hp` and post-move `final_hex_x/y` per real-replay format.
+With strict-sync `oos_debug=yes` set in our export AND `[checkup]`
+emission, Wesnoth would tell us which command's checkup
+mismatched — pointing directly at the divergence. Today we strip
+oos_debug to no, which papers over divergence into "corrupt
+movement" without naming it.
+
+**Workaround for now**: filter Arcanclave-source replays from
+the self-play pool. Dummy-Fallenstar and dummy-Aethermaw both
+load and run cleanly. We have enough map coverage to proceed
+with self-play training; revisit Arcanclave when we can get
+Wesnoth-side debug data.
+
+---
+
+## Open: Arcanclave Citadel dummy-game OOS (earlier diagnoses)
 
 After the `oos_debug="yes"` rewrite (commit cd35979) and the
 override-overlay fix, Arcanclave Citadel is in a partially-working
