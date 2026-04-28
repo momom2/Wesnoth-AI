@@ -323,9 +323,13 @@ replay export.
 
 ### Tests
 
-- [ ] 🟠 **Sim determinism test**: same seed → same outcome over N
-  steps, both for combat and trait rolls. Currently no such test.
-  Critical before MCTS — branching depends on this.
+- [x] 🟠 **Sim determinism test** (DONE 2026-04-28). New
+  `test_sim_determinism.py` (4 cases): two DummyPolicy runs from the
+  same `replays_dataset/*.json.gz` produce equal `state_key`s,
+  byte-equal `command_history`, equal `_rng_requests` counters, and
+  `WesnothSim.fork()` doesn't perturb the parent state. Necessary
+  precondition for MCTS branching: rolling out from the same
+  position must give the same result every time.
 
 - [ ] 🟠 **Reward unit tests**: hand-built `(prev, new)` pairs covering
   each `StepDelta` field (kill, village swap, recruit-success,
