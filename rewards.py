@@ -34,8 +34,8 @@ reinvent state diffing.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Optional, Protocol
+from dataclasses import dataclass, field
+from typing import Callable, Dict, List, Optional, Protocol, Set, Tuple
 
 from classes import GameState
 
@@ -86,6 +86,30 @@ class StepDelta:
     # units (no meaningful distance to compute).
     min_enemy_distance: int = 0
 
+    # Unit types newly appeared on `side` this step (i.e. successful
+    # recruits). Empty tuple unless action_type=='recruit' and Wesnoth
+    # accepted the recruit. Used by `WeightedReward.unit_type_bonuses`
+    # to award per-type bonuses for "incentivize unorthodox openings"
+    # style training (e.g. +0.5 reward per Wose recruited). Multiple
+    # entries are possible only if the trainer ever batches recruits;
+    # today it doesn't, so this is len 0 or 1.
+    units_recruited: Tuple[str, ...] = ()
+
+    # Optional post-action snapshot (used by `TurnConditionalBonus`
+    # predicates -- see WeightedReward). compute_delta sets this iff
+    # turn-conditional bonuses are configured (signalled via the
+    # `attach_post_state=True` kwarg) so we don't pay the reference
+    # retention cost in the common case. None means "no predicate
+    # access available; turn-conditional bonuses are skipped".
+    post_state: Optional[GameState] = None
+
+    # Game label for keyed once-per-game bookkeeping in stateful
+    # reward components (e.g. TurnConditionalBonus.once=True). Empty
+    # string treats every step as a fresh game -- safe but defeats
+    # `once`. Pass game_label through `compute_delta` to enable proper
+    # per-game tracking.
+    game_label: str = ""
+
     # Terminal flag.
     outcome: str = OUTCOME_ONGOING   # one of the OUTCOME_* constants
 
@@ -94,6 +118,76 @@ class RewardFn(Protocol):
     """Any callable mapping a StepDelta to a scalar reward."""
 
     def __call__(self, delta: StepDelta) -> float: ...
+
+
+# ---------------------------------------------------------------------
+# Customizability hooks: per-unit-type and turn-conditional bonuses
+# ---------------------------------------------------------------------
+# The user explicitly wants behavior gated by config/data/reward
+# shaping rather than weights. These dataclasses are the building
+# blocks for "+0.5 per Wose recruited", "+1.0 if leader on village
+# by turn 3", and similar opener-incentive levers without touching
+# the trainer.
+
+@dataclass
+class UnitTypeBonus:
+    """Flat reward added each time a unit of `unit_type` is recruited
+    on our side. Stackable: multiple entries with the same unit_type
+    sum their weights.
+
+    Example -- bias toward Wose openers in Knalgan vs Drakes::
+
+        WeightedReward(unit_type_bonuses=[
+            UnitTypeBonus("Wose", weight=0.5),
+            UnitTypeBonus("Elvish Fighter", weight=0.05),
+        ])
+
+    `unit_type` matches `Unit.name` (i.e. the Wesnoth type id, NOT
+    the localized name). For variations (e.g. Walking Corpse:mounted)
+    use the composite key. Stateless: no per-game tracking.
+    """
+    unit_type: str
+    weight:    float
+
+
+@dataclass
+class TurnConditionalBonus:
+    """Conditional reward: when `predicate(post_state, side)` returns
+    True during turns in `turn_range` (inclusive), award `weight`.
+    With `once=True` (default) the bonus fires at most once per
+    (game_label, side) -- subsequent step-evaluations on the same
+    game/side are skipped.
+
+    Example -- "+1.0 if our leader is on a village by turn 3"::
+
+        from classes import TerrainModifiers
+        def leader_on_village(state, side):
+            for u in state.map.units:
+                if u.side == side and u.is_leader:
+                    for h in state.map.hexes:
+                        if (h.position.x, h.position.y) == (
+                            u.position.x, u.position.y):
+                            return TerrainModifiers.VILLAGE in h.modifiers
+            return False
+        WeightedReward(turn_conditional_bonuses=[
+            TurnConditionalBonus(
+                name="early_village",
+                turn_range=(1, 3),
+                predicate=leader_on_village,
+                weight=1.0,
+            ),
+        ])
+
+    Predicate gets the POST-action state and the acting side number.
+    Evaluated only when `delta.post_state` is set -- otherwise the
+    bonus is silently inert (a defensive default; explicit predicate
+    failures shouldn't break training).
+    """
+    name:       str
+    turn_range: Tuple[int, int]
+    predicate:  Callable[[GameState, int], bool]
+    weight:     float
+    once:       bool = True
 
 
 @dataclass
@@ -169,6 +263,36 @@ class WeightedReward:
     # closing is clearly worth it.
     min_enemy_distance_penalty: float = 0.0001
 
+    # Customizability hooks (default empty -- keep behavior identical
+    # to pre-2026-04-28 unless the user opts in).
+    #
+    # Per-unit-type recruit bonuses: stackable, stateless. See
+    # UnitTypeBonus.
+    unit_type_bonuses: List[UnitTypeBonus] = field(default_factory=list)
+    # Turn-conditional bonuses with optional once-per-game gating.
+    # See TurnConditionalBonus. Internally we maintain a fired-set
+    # keyed by (game_label, side, bonus_name) so `once=True` works
+    # correctly across multi-game runs without leaking across games.
+    turn_conditional_bonuses: List[TurnConditionalBonus] = field(default_factory=list)
+
+    # Internal: tracks which (game_label, side, bonus_name) triples
+    # have already fired their once-per-game bonus. Init in
+    # __post_init__ so dataclass copies don't share the dict.
+    _fired_once: Dict[Tuple[str, int, str], bool] = field(
+        default_factory=dict, repr=False, compare=False)
+
+    def reset_game_state(self, game_label: str = "") -> None:
+        """Clear once-per-game bookkeeping for `game_label`. Call this
+        between games when re-using the same WeightedReward instance.
+        With game_label='' (default), clears ALL games' state -- safe
+        but coarse."""
+        if not game_label:
+            self._fired_once.clear()
+            return
+        stale = [k for k in self._fired_once if k[0] == game_label]
+        for k in stale:
+            del self._fired_once[k]
+
     def __call__(self, delta: StepDelta) -> float:
         r  = self.gold_killed_delta * (delta.enemy_gold_lost - delta.our_gold_lost)
         r += self.village_delta     * (delta.villages_gained - delta.villages_lost)
@@ -180,6 +304,42 @@ class WeightedReward:
         if delta.invalid_action:
             r -= self.invalid_action_penalty
         r -= self.min_enemy_distance_penalty * delta.min_enemy_distance
+
+        # Per-unit-type recruit bonuses. Iterate the list (small in
+        # practice; <10 typical configurations) and accumulate
+        # contributions. units_recruited may have multiple entries if
+        # a future trainer batches recruits, so we count occurrences
+        # via the list intersection rather than a single bool.
+        if self.unit_type_bonuses and delta.units_recruited:
+            for bonus in self.unit_type_bonuses:
+                count = sum(1 for u in delta.units_recruited
+                            if u == bonus.unit_type)
+                if count:
+                    r += bonus.weight * count
+
+        # Turn-conditional bonuses. Need post_state for the predicate;
+        # if absent (e.g. test-builder StepDelta or compute_delta
+        # called without attach_post_state), skip silently.
+        if self.turn_conditional_bonuses and delta.post_state is not None:
+            for bonus in self.turn_conditional_bonuses:
+                lo, hi = bonus.turn_range
+                if not (lo <= delta.turn <= hi):
+                    continue
+                if bonus.once:
+                    key = (delta.game_label, delta.side, bonus.name)
+                    if self._fired_once.get(key):
+                        continue
+                # Predicate exceptions shouldn't crash a training run.
+                # Catch + log; the bonus stays unawarded for this step.
+                try:
+                    fired = bool(bonus.predicate(delta.post_state, delta.side))
+                except Exception:
+                    fired = False
+                if fired:
+                    r += bonus.weight
+                    if bonus.once:
+                        self._fired_once[(delta.game_label,
+                                          delta.side, bonus.name)] = True
 
         if delta.outcome == OUTCOME_WIN:
             r += self.terminal_win
@@ -302,6 +462,8 @@ def compute_delta(
     *,
     recruit_cost: int = 0,
     outcome: str = OUTCOME_ONGOING,
+    game_label: str = "",
+    attach_post_state: bool = False,
 ) -> StepDelta:
     """Diff two game states into a StepDelta for `new_state.current_side`.
 
@@ -318,6 +480,15 @@ def compute_delta(
     If prev_state is None (first step of an episode), all deltas are
     zero except any terminal outcome; this avoids spurious "the enemy
     just appeared" signals on the initial observation.
+
+    `game_label`: opaque identifier propagated to the StepDelta so
+    stateful reward components (TurnConditionalBonus.once=True)
+    can scope their fired-set per game.
+
+    `attach_post_state`: when True, store a reference to `new_state`
+    on the StepDelta. Required for TurnConditionalBonus predicates to
+    fire. Default False so callers that don't use predicate-bonuses
+    don't pay the (small) reference-retention cost.
     """
     acting_side = (
         prev_state.global_info.current_side if prev_state is not None
@@ -336,6 +507,8 @@ def compute_delta(
         # attempting 400+ recruits per game).
         unit_recruited_cost=0,
         outcome=outcome,
+        game_label=game_label,
+        post_state=(new_state if attach_post_state else None),
     )
 
     # Distance to closest enemy is always reported (when possible).
@@ -363,13 +536,20 @@ def compute_delta(
     # of our side actually appeared in new_state that wasn't in
     # prev_state. Same-turn death-of-ally is vanishingly rare on a
     # recruit step so we don't bother netting it out.
-    if action_type == 'recruit' and recruit_cost > 0:
-        appeared = any(
-            u.side == acting_side and u.id not in prev_units
-            for u in new_state.map.units
-        )
-        if appeared:
-            delta.unit_recruited_cost = recruit_cost
+    if action_type == 'recruit':
+        appeared_units = [
+            u for u in new_state.map.units
+            if u.side == acting_side and u.id not in prev_units
+        ]
+        if appeared_units:
+            if recruit_cost > 0:
+                delta.unit_recruited_cost = recruit_cost
+            # Record unit type names for the per-type bonus path.
+            # WeightedReward.unit_type_bonuses sums weights across
+            # this tuple, so the type appears here regardless of
+            # whether recruit_cost was passed (custom-era unit
+            # type that lookup can't price still gets typed bonus).
+            delta.units_recruited = tuple(u.name for u in appeared_units)
 
     # Damage / deaths.
     for uid, u_prev in prev_units.items():

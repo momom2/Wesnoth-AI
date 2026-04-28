@@ -449,6 +449,375 @@ def test_visible_effect_negative_when_truly_static():
 # Integration: combined fields produce expected reward
 # ---------------------------------------------------------------------
 
+# ---------------------------------------------------------------------
+# Customizability hooks: per-unit-type and turn-conditional bonuses
+# ---------------------------------------------------------------------
+
+def test_units_recruited_populated_on_success():
+    """compute_delta should populate `units_recruited` with the unit
+    name of any unit that newly appeared on our side this step."""
+    prev = _gs([_u("a", 1, 5, 5, is_leader=True)])
+    new  = _gs([_u("a", 1, 5, 5, is_leader=True),
+                _u("r", 1, 6, 5, name="Wose")])
+    delta = compute_delta(prev, new, "recruit", recruit_cost=17)
+    assert delta.units_recruited == ("Wose",)
+
+
+def test_units_recruited_empty_on_recruit_fail():
+    """No unit appeared -> empty tuple. (Caller can't tell from the
+    cost field alone whether the recruit succeeded.)"""
+    prev = _gs([_u("a", 1, 5, 5, is_leader=True)])
+    new  = _gs([_u("a", 1, 5, 5, is_leader=True)])  # no new unit
+    delta = compute_delta(prev, new, "recruit", recruit_cost=17)
+    assert delta.units_recruited == ()
+
+
+def test_unit_type_bonus_fires_on_match():
+    """A UnitTypeBonus for 'Wose' should add weight=0.5 to the reward
+    of a step that recruited a Wose. Other unit types are unaffected."""
+    from rewards import UnitTypeBonus
+    rf = WeightedReward(
+        unit_type_bonuses=[UnitTypeBonus("Wose", weight=0.5)],
+        # zero everything else for a clean read.
+        gold_killed_delta=0, village_delta=0, damage_dealt=0,
+        unit_recruited_cost=0, per_turn_penalty=0,
+        leader_move_penalty=0, invalid_action_penalty=0,
+        min_enemy_distance_penalty=0,
+        terminal_win=0, terminal_loss=0, terminal_draw=0,
+        terminal_timeout=0,
+    )
+    delta = StepDelta(side=1, turn=1, action_type="recruit",
+                      units_recruited=("Wose",))
+    assert rf(delta) == pytest.approx(0.5)
+    # Different unit -> no bonus
+    delta2 = StepDelta(side=1, turn=1, action_type="recruit",
+                       units_recruited=("Elvish Fighter",))
+    assert rf(delta2) == pytest.approx(0.0)
+
+
+def test_unit_type_bonus_stacks():
+    """Multiple bonuses entries with different unit types each fire
+    independently; same-type entries sum."""
+    from rewards import UnitTypeBonus
+    rf = WeightedReward(
+        unit_type_bonuses=[
+            UnitTypeBonus("Wose", weight=0.5),
+            UnitTypeBonus("Wose", weight=0.1),       # stacks with above
+            UnitTypeBonus("Elvish Fighter", weight=0.05),
+        ],
+        gold_killed_delta=0, village_delta=0, damage_dealt=0,
+        unit_recruited_cost=0, per_turn_penalty=0,
+        leader_move_penalty=0, invalid_action_penalty=0,
+        min_enemy_distance_penalty=0,
+        terminal_win=0, terminal_loss=0, terminal_draw=0,
+        terminal_timeout=0,
+    )
+    # Recruited a Wose: 0.5 + 0.1 = 0.6.
+    delta = StepDelta(side=1, turn=1, action_type="recruit",
+                      units_recruited=("Wose",))
+    assert rf(delta) == pytest.approx(0.6)
+
+
+def test_turn_conditional_bonus_fires_in_window():
+    """Predicate fires within turn_range[lo, hi]; bonus is awarded."""
+    from rewards import TurnConditionalBonus
+    rf = WeightedReward(
+        turn_conditional_bonuses=[
+            TurnConditionalBonus(
+                name="early_village",
+                turn_range=(1, 3),
+                predicate=lambda st, side: True,    # always-true
+                weight=1.0, once=False,
+            ),
+        ],
+        gold_killed_delta=0, village_delta=0, damage_dealt=0,
+        unit_recruited_cost=0, per_turn_penalty=0,
+        leader_move_penalty=0, invalid_action_penalty=0,
+        min_enemy_distance_penalty=0,
+        terminal_win=0, terminal_loss=0, terminal_draw=0,
+        terminal_timeout=0,
+    )
+    # Need post_state attached (else the predicate is silently
+    # skipped). Build a dummy.
+    state = _gs([_u("a", 1, 5, 5)])
+    delta = StepDelta(side=1, turn=2, action_type="move",
+                      post_state=state, game_label="g")
+    assert rf(delta) == pytest.approx(1.0)
+
+
+def test_turn_conditional_bonus_skipped_outside_window():
+    """turn=5 but window is (1, 3) -> no bonus."""
+    from rewards import TurnConditionalBonus
+    rf = WeightedReward(
+        turn_conditional_bonuses=[
+            TurnConditionalBonus(
+                name="x", turn_range=(1, 3),
+                predicate=lambda st, side: True,
+                weight=1.0, once=False),
+        ],
+        gold_killed_delta=0, village_delta=0, damage_dealt=0,
+        unit_recruited_cost=0, per_turn_penalty=0,
+        leader_move_penalty=0, invalid_action_penalty=0,
+        min_enemy_distance_penalty=0,
+        terminal_win=0, terminal_loss=0, terminal_draw=0,
+        terminal_timeout=0,
+    )
+    state = _gs([_u("a", 1, 5, 5)])
+    delta = StepDelta(side=1, turn=5, action_type="move",
+                      post_state=state, game_label="g")
+    assert rf(delta) == pytest.approx(0.0)
+
+
+def test_turn_conditional_bonus_once_per_game():
+    """With once=True, the bonus fires exactly ONCE per (game, side).
+    Subsequent same-game/side calls are skipped even when the
+    predicate keeps returning True."""
+    from rewards import TurnConditionalBonus
+    rf = WeightedReward(
+        turn_conditional_bonuses=[
+            TurnConditionalBonus(
+                name="x", turn_range=(1, 10),
+                predicate=lambda st, side: True,
+                weight=1.0, once=True),
+        ],
+        gold_killed_delta=0, village_delta=0, damage_dealt=0,
+        unit_recruited_cost=0, per_turn_penalty=0,
+        leader_move_penalty=0, invalid_action_penalty=0,
+        min_enemy_distance_penalty=0,
+        terminal_win=0, terminal_loss=0, terminal_draw=0,
+        terminal_timeout=0,
+    )
+    state = _gs([_u("a", 1, 5, 5)])
+    d1 = StepDelta(side=1, turn=1, action_type="move",
+                   post_state=state, game_label="g1")
+    d2 = StepDelta(side=1, turn=2, action_type="move",
+                   post_state=state, game_label="g1")
+    assert rf(d1) == pytest.approx(1.0)
+    assert rf(d2) == pytest.approx(0.0)
+    # Different side: still gets the bonus on its own first fire.
+    d3 = StepDelta(side=2, turn=1, action_type="move",
+                   post_state=state, game_label="g1")
+    assert rf(d3) == pytest.approx(1.0)
+    # Different game label: side=1 starts fresh.
+    d4 = StepDelta(side=1, turn=1, action_type="move",
+                   post_state=state, game_label="g2")
+    assert rf(d4) == pytest.approx(1.0)
+
+
+def test_turn_conditional_bonus_reset_game_state():
+    """`reset_game_state(game_label)` clears the fired-set for that
+    game, letting `once=True` fire again."""
+    from rewards import TurnConditionalBonus
+    rf = WeightedReward(
+        turn_conditional_bonuses=[
+            TurnConditionalBonus(
+                name="x", turn_range=(1, 10),
+                predicate=lambda st, side: True,
+                weight=1.0, once=True),
+        ],
+        gold_killed_delta=0, village_delta=0, damage_dealt=0,
+        unit_recruited_cost=0, per_turn_penalty=0,
+        leader_move_penalty=0, invalid_action_penalty=0,
+        min_enemy_distance_penalty=0,
+        terminal_win=0, terminal_loss=0, terminal_draw=0,
+        terminal_timeout=0,
+    )
+    state = _gs([_u("a", 1, 5, 5)])
+    d1 = StepDelta(side=1, turn=1, action_type="move",
+                   post_state=state, game_label="g")
+    assert rf(d1) == pytest.approx(1.0)
+    assert rf(d1) == pytest.approx(0.0)        # already fired
+    rf.reset_game_state("g")
+    assert rf(d1) == pytest.approx(1.0)        # fires again
+
+
+def test_turn_conditional_bonus_silent_without_post_state():
+    """Bonus is silently inert if post_state is None -- compute_delta
+    didn't attach it. Defensive default: don't crash training when
+    a caller forgets attach_post_state=True."""
+    from rewards import TurnConditionalBonus
+    rf = WeightedReward(
+        turn_conditional_bonuses=[
+            TurnConditionalBonus(
+                name="x", turn_range=(1, 10),
+                predicate=lambda st, side: 1/0,    # would explode
+                weight=1.0, once=False),
+        ],
+        gold_killed_delta=0, village_delta=0, damage_dealt=0,
+        unit_recruited_cost=0, per_turn_penalty=0,
+        leader_move_penalty=0, invalid_action_penalty=0,
+        min_enemy_distance_penalty=0,
+        terminal_win=0, terminal_loss=0, terminal_draw=0,
+        terminal_timeout=0,
+    )
+    delta = StepDelta(side=1, turn=2, action_type="move",
+                      post_state=None)  # not attached
+    # No crash, no bonus.
+    assert rf(delta) == pytest.approx(0.0)
+
+
+def test_turn_conditional_bonus_predicate_exception_caught():
+    """If the predicate raises, we treat as not-fired and continue
+    -- a bad predicate shouldn't crash training."""
+    from rewards import TurnConditionalBonus
+    def boom(st, side):
+        raise ValueError("oops")
+    rf = WeightedReward(
+        turn_conditional_bonuses=[
+            TurnConditionalBonus(
+                name="x", turn_range=(1, 10),
+                predicate=boom, weight=1.0, once=False),
+        ],
+        gold_killed_delta=0, village_delta=0, damage_dealt=0,
+        unit_recruited_cost=0, per_turn_penalty=0,
+        leader_move_penalty=0, invalid_action_penalty=0,
+        min_enemy_distance_penalty=0,
+        terminal_win=0, terminal_loss=0, terminal_draw=0,
+        terminal_timeout=0,
+    )
+    state = _gs([_u("a", 1, 5, 5)])
+    delta = StepDelta(side=1, turn=2, action_type="move",
+                      post_state=state)
+    assert rf(delta) == pytest.approx(0.0)
+
+
+def test_compute_delta_attach_post_state_flag():
+    """attach_post_state=True puts new_state on the StepDelta;
+    default False leaves it None to avoid retention overhead."""
+    prev = _gs([_u("a", 1, 5, 5)])
+    new  = _gs([_u("a", 1, 5, 5)])
+
+    # Default: no attachment.
+    d_off = compute_delta(prev, new, "move")
+    assert d_off.post_state is None
+
+    # Opt in: new_state attached by reference.
+    d_on = compute_delta(prev, new, "move", attach_post_state=True)
+    assert d_on.post_state is new
+
+
+def test_compute_delta_propagates_game_label():
+    """game_label kwarg should land on the StepDelta."""
+    prev = _gs([_u("a", 1, 5, 5)])
+    new  = _gs([_u("a", 1, 5, 5)])
+    delta = compute_delta(prev, new, "move", game_label="iter3_g7")
+    assert delta.game_label == "iter3_g7"
+
+
+# ---------------------------------------------------------------------
+# OpenerPolicy wrapper
+# ---------------------------------------------------------------------
+
+def test_opener_policy_fires_scripted_moves_then_falls_through():
+    """The opener's two scripted moves fire on calls 1 and 2; call 3
+    delegates to the base policy."""
+    from tools.openers import Opener, OpenerPolicy, end_turn
+
+    class _StubBase:
+        def __init__(self):
+            self.calls = 0
+        def select_action(self, state, *, game_label="default"):
+            self.calls += 1
+            return {"type": "move", "_from_base": True}
+
+    base = _StubBase()
+    opener = Opener(name="t", moves=[end_turn(), end_turn()],
+                    sides=(1, 2))
+    policy = OpenerPolicy(base=base, opener=opener)
+    state = _gs([_u("a", 1, 5, 5)])
+
+    a1 = policy.select_action(state, game_label="g")
+    a2 = policy.select_action(state, game_label="g")
+    a3 = policy.select_action(state, game_label="g")
+    assert a1 == {"type": "end_turn"}
+    assert a2 == {"type": "end_turn"}
+    assert a3.get("_from_base") is True
+    assert base.calls == 1   # only the third call reached base
+
+
+def test_opener_policy_falls_through_when_move_returns_none():
+    """A move returning None doesn't advance the cursor: we delegate
+    to base AND retry the same opener-step on the next decision."""
+    from tools.openers import Opener, OpenerPolicy
+
+    class _StubBase:
+        def __init__(self):
+            self.calls = 0
+        def select_action(self, state, *, game_label="default"):
+            self.calls += 1
+            return {"type": "end_turn", "_from_base": True}
+
+    fired_once = {"flag": False}
+    def conditional_move(state, side):
+        if not fired_once["flag"]:
+            fired_once["flag"] = True
+            return None             # first call: gate fails
+        return {"type": "move", "_from_opener": True}  # second: gate passes
+
+    base = _StubBase()
+    opener = Opener(name="t", moves=[conditional_move], sides=(1,))
+    policy = OpenerPolicy(base=base, opener=opener)
+    state = _gs([_u("a", 1, 5, 5)])
+
+    # First call: opener returns None -> fall through to base.
+    a1 = policy.select_action(state, game_label="g")
+    assert a1.get("_from_base") is True
+    assert base.calls == 1
+    # Second call: opener fires (cursor still at 0).
+    a2 = policy.select_action(state, game_label="g")
+    assert a2.get("_from_opener") is True
+    # Third call: cursor advanced past end -> base.
+    a3 = policy.select_action(state, game_label="g")
+    assert a3.get("_from_base") is True
+
+
+def test_opener_policy_per_side_filtering():
+    """sides=(1,) means side 2 always goes to base."""
+    from tools.openers import Opener, OpenerPolicy, end_turn
+
+    class _StubBase:
+        def select_action(self, state, *, game_label="default"):
+            return {"type": "move", "_from_base": True}
+
+    base = _StubBase()
+    opener = Opener(name="t", moves=[end_turn()], sides=(1,))
+    policy = OpenerPolicy(base=base, opener=opener)
+
+    # Side 1 -> opener fires.
+    s1 = _gs([_u("a", 1, 5, 5)], current_side=1)
+    a1 = policy.select_action(s1, game_label="g")
+    assert a1 == {"type": "end_turn"}
+
+    # Side 2 -> bypassed, base fires.
+    s2 = _gs([_u("a", 2, 5, 5)], current_side=2)
+    a2 = policy.select_action(s2, game_label="g")
+    assert a2.get("_from_base") is True
+
+
+def test_opener_policy_reset_game():
+    """reset_game(label) clears the cursor for that game so the next
+    run starts opener fresh."""
+    from tools.openers import Opener, OpenerPolicy, end_turn
+
+    class _StubBase:
+        def select_action(self, state, *, game_label="default"):
+            return {"type": "move", "_from_base": True}
+
+    base = _StubBase()
+    opener = Opener(name="t", moves=[end_turn()], sides=(1,))
+    policy = OpenerPolicy(base=base, opener=opener)
+    state = _gs([_u("a", 1, 5, 5)])
+
+    # Burn the opener.
+    policy.select_action(state, game_label="g")
+    a2 = policy.select_action(state, game_label="g")
+    assert a2.get("_from_base") is True
+    # Reset and re-fire.
+    policy.reset_game("g")
+    a3 = policy.select_action(state, game_label="g")
+    assert a3 == {"type": "end_turn"}
+
+
 def test_combined_kill_plus_village_gain():
     """A move that ends on a village AND somehow killed an enemy
     earlier in the same step (rare but happens via plague/leadership

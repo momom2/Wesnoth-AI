@@ -269,12 +269,11 @@ replay export.
 
 ### Mutation / consistency hazards
 
-- [ ] 🟠 **`_action_to_command` mutates the caller's action dict**
-  (`tools/wesnoth_sim.py:564`). `action["_terrain_cost"] = cost` is
-  side-effecting. If a caller hashes or reuses the dict, behavior
-  breaks. Also: any code path that constructs the cmd directly
-  (bypassing `_action_to_command`) silently underdeducts MP. Refactor:
-  thread `terrain_cost` through a separate variable in `step()`.
+- [x] 🟠 **`_action_to_command` no longer mutates caller's action**
+  (DONE 2026-04-28). Returns `(cmd, terrain_cost)` tuple. step()
+  reads terrain_cost from the return value, not from
+  `action["_terrain_cost"]`. Eliminates the side-effect class of
+  bug.
 
 - [ ] 🟡 **`_replace_unit` pattern not used everywhere; risk of dropping
   `_defense_table`** (`tools/replay_dataset.py:790-792` vs. various
@@ -286,10 +285,11 @@ replay export.
 
 ### Performance / scaling for MCTS
 
-- [ ] 🟡 **`_deduct_extra_mp` rebuilds the entire units set per call**
-  (`tools/wesnoth_sim.py:461-474`). Should use the discard/add pattern
-  from `_replace_unit`. ~30× speedup on this path. Negligible for
-  REINFORCE; matters for MCTS rollouts.
+- [x] 🟡 **`_deduct_extra_mp` uses discard/add** (DONE 2026-04-28).
+  Find target -> early-return when extra<=0 or already-clamped ->
+  build replacement Unit -> discard old + add new. O(1) on average
+  vs O(N) per call; ~30× speedup on a 30-unit mid-game state. Same
+  logic preserves the `_`-stash (e.g. `_defense_table`).
 
 - [ ] 🟡 **Map.hexes is immutable per game; `deepcopy(GameState)` is
   ~0.5 ms** (current measured). Add `__deepcopy__` to `Map` that aliases
@@ -481,45 +481,34 @@ rather than weights. Currently `WeightedReward` has fixed scalar
 weights; there is no opener gating, no per-unit-type bonus, no
 curriculum hook.
 
-- [ ] 🟠 **Add per-unit-type recruit bonuses** to `WeightedReward`. Today
-  there's no way to express "+0.5 reward per Wose recruited". Sketch:
-  ```python
-  @dataclass
-  class UnitTypeBonus:
-      unit_type: str
-      weight:    float
-  # Add to WeightedReward:
-  unit_type_bonuses: List[UnitTypeBonus] = field(default_factory=list)
-  ```
-  Trainer needs to pass `units_recruited: Tuple[str, ...]` in `StepDelta`.
+- [x] 🟠 **Per-unit-type recruit bonuses** (DONE 2026-04-28).
+  `UnitTypeBonus(unit_type, weight)` dataclass, list field on
+  `WeightedReward.unit_type_bonuses`. Stackable. `StepDelta.units_recruited:
+  Tuple[str, ...]` populated by `compute_delta` on successful
+  recruit. Tested with stacking + non-match cases.
 
-- [ ] 🟠 **Add turn-conditional bonuses** for opener incentives. E.g.
-  "+1.0 if leader on village by turn 3":
-  ```python
-  @dataclass
-  class TurnConditionalBonus:
-      name:       str
-      turn_range: Tuple[int, int]
-      predicate:  Callable[[GameState, int], bool]   # state, side
-      weight:     float
-      once:       bool = True
-  ```
-  Trainer needs `compute_delta` to receive post-state for the predicate.
+- [x] 🟠 **Turn-conditional bonuses** (DONE 2026-04-28).
+  `TurnConditionalBonus(name, turn_range, predicate, weight, once)`
+  dataclass; `WeightedReward.turn_conditional_bonuses` list. Predicate
+  gets `(post_state, side)`; bonus fires if predicate True and
+  `delta.turn` in range. `once=True` (default) gates on
+  `(game_label, side, name)` -- `WeightedReward.reset_game_state(label)`
+  clears for game restart. Defensive: predicate exceptions caught,
+  silent if `post_state` not attached. `compute_delta` opt-in via
+  `attach_post_state=True` to avoid retention overhead in the common
+  case. `game_label` propagation through `compute_delta` lets
+  multi-game runs scope `once` correctly.
 
-- [ ] 🟠 **Add an opener-gating policy wrapper**. Currently no code path
-  forces moves on early turns. Sketch:
-  ```python
-  # tools/openers.py (new)
-  @dataclass
-  class Opener:
-      name: str
-      moves: List[Callable[[GameState], Optional[Dict]]]
-      sides: Tuple[int, ...] = (1, 2)
-  class OpenerPolicy:
-      """Wraps base; for turn ≤ len(opener.moves), tries opener
-      action; falls through to base if None."""
-  ```
-  Wire via `--opener-spec` in `sim_self_play.py`.
+- [x] 🟠 **Opener-gating policy wrapper** (DONE 2026-04-28).
+  `tools/openers.py` -- `Opener(name, moves, sides)` + `OpenerPolicy`
+  wraps a base policy. Per-(game_label, side) cursor advances on each
+  fired opener move; moves returning None delegate to base WITHOUT
+  advancing (gate-retry semantics). Forwards `observe`,
+  `train_step`, `save_checkpoint`, `load_checkpoint`,
+  `drop_pending` duck-typed to base so trainable wrappers keep
+  working. Built-in helpers: `recruit_type(name)` and `end_turn()`.
+  TODO: register openers + expose `--opener-spec` in
+  `sim_self_play.py` so cluster jobs can flip openers via CLI.
 
 - [ ] 🟠 **`sim_self_play.py` exposes NO reward weight as CLI arg**
   (`tools/sim_self_play.py:366`). Currently uses `WeightedReward()`
