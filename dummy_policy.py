@@ -73,7 +73,15 @@ class DummyPolicy:
     ) -> Dict:
         # game_label unused — this policy is stateless.
         current_side = game_state.global_info.current_side
-        my_units = [u for u in game_state.map.units if u.side == current_side]
+        # Stable iteration order: gs.map.units is a Python set with
+        # hash-randomized iteration, which made dummy runs non-
+        # deterministic across processes. Sorting by unit id keeps
+        # the same export reproducible from one run to the next so
+        # users can re-test specific failure modes.
+        my_units = sorted(
+            (u for u in game_state.map.units if u.side == current_side),
+            key=lambda u: u.id,
+        )
         leader = next((u for u in my_units if u.is_leader), None)
         if leader is None:
             return {'type': 'end_turn'}
