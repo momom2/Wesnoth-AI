@@ -152,7 +152,32 @@ class TransformerPolicy:
         self._inference_model.eval()
 
         import threading
-        self._snapshot_lock = threading.RLock()
+        # Unified policy lock. Protects ALL shared mutable state:
+        # _pending, _queue, _last_state_id, _decision_step, the
+        # inference snapshot read/write in select_action /
+        # _snapshot_inference_weights, and the queue-drain phase of
+        # train_step. Held briefly per call. NOT held during the
+        # trainer's gradient compute (heavy work) -- workers calling
+        # select_action / observe during that compute window run
+        # concurrently with the gradient pass and only contend with
+        # each other on this lock.
+        #
+        # RLock so a single thread can re-enter (e.g.
+        # select_action's body invokes _snapshot_inference_weights
+        # paths in tests that pre-acquire the lock).
+        self._lock = threading.RLock()
+
+        # Trainer mutex: serializes the heavy gradient-compute phase
+        # of train_step. Two concurrent train_step calls would both
+        # backward() on _model and corrupt each other's autograd
+        # buffers (PyTorch raises "variable needed for gradient
+        # computation has been modified by an inplace operation").
+        # Distinct from _lock so workers calling select_action /
+        # observe still run concurrently with gradient compute --
+        # the snapshot design's whole point. Acquire order when
+        # both are held: _trainer_lock first, then _lock (no
+        # reverse-order acquirer exists).
+        self._trainer_lock = threading.Lock()
 
         # Pending transitions keyed by (game_label, side). Each entry
         # is a growing list; the most-recent Transition is the one
@@ -242,53 +267,56 @@ class TransformerPolicy:
         to deepcopy" bug at the first decision after the regression
         instead of in a corrupt loss six hours into a training run.
         """
-        if __debug__:
-            side_dbg = game_state.global_info.current_side
-            key_dbg = (game_label, side_dbg)
-            prev_id = self._last_state_id.get(key_dbg)
-            if prev_id is not None and prev_id == id(game_state):
-                raise RuntimeError(
-                    f"select_action got the SAME GameState object as the "
-                    f"previous call for ({game_label!r}, side={side_dbg}). "
-                    f"This means the caller didn't deepcopy before "
-                    f"sim.step() and the Transition's stored state will "
-                    f"diverge from what train_step re-forwards on. See "
-                    f"the state-snapshot contract docstring above."
+        # The whole select_action body is one critical section under
+        # `_lock`: debug tripwire + forward + decision-step bump +
+        # pending append. Holding the lock for the full body
+        # serializes concurrent select_action calls (no win on CPU
+        # anyway given the GIL during pure-Python pieces of forward),
+        # and crucially serializes against train_step's queue drain
+        # / snapshot swap. The trainer's gradient compute itself
+        # runs LOCK-FREE -- workers can call observe + select_action
+        # while gradient compute is in flight; they only contend on
+        # this lock with each other and with the brief queue-drain /
+        # snapshot phases of train_step.
+        with self._lock:
+            if __debug__:
+                side_dbg = game_state.global_info.current_side
+                key_dbg = (game_label, side_dbg)
+                prev_id = self._last_state_id.get(key_dbg)
+                if prev_id is not None and prev_id == id(game_state):
+                    raise RuntimeError(
+                        f"select_action got the SAME GameState object as the "
+                        f"previous call for ({game_label!r}, side={side_dbg}). "
+                        f"This means the caller didn't deepcopy before "
+                        f"sim.step() and the Transition's stored state will "
+                        f"diverge from what train_step re-forwards on. See "
+                        f"the state-snapshot contract docstring above."
+                    )
+                self._last_state_id[key_dbg] = id(game_state)
+
+            with torch.no_grad():
+                encoded = self._inference_encoder.encode(game_state)
+                output = self._inference_model(encoded)
+                sampled = sample_action(
+                    encoded, output, game_state,
+                    decision_step=self._decision_step,
                 )
-            self._last_state_id[key_dbg] = id(game_state)
+            # Increment AFTER sampling so decision N's alpha schedule
+            # matches the value the trainer's reforward sees when it
+            # consults the same counter (we save the counter at
+            # checkpoint time; trainer's reforward uses it as-is).
+            self._decision_step += 1
 
-        # Run forward on the INFERENCE model + encoder (option-b
-        # snapshot). The lock serializes us against train_step's
-        # post-step `load_state_dict` swap (~ms) but NOT against the
-        # trainer's gradient compute (which mutates `_model`, not
-        # `_inference_model`, so it's lock-free). Worst-case
-        # interference: a rollout that's already mid-forward when
-        # train_step lands its snapshot just finishes on the OLD
-        # snapshot; the next rollout sees the NEW one. Both states
-        # are internally consistent.
-        with self._snapshot_lock, torch.no_grad():
-            encoded = self._inference_encoder.encode(game_state)
-            output = self._inference_model(encoded)
-            sampled = sample_action(
-                encoded, output, game_state,
-                decision_step=self._decision_step,
-            )
-        # Increment AFTER sampling so decision N's alpha schedule
-        # matches the value the trainer's reforward sees when it
-        # consults the same counter (we save the counter at
-        # checkpoint time; trainer's reforward uses it as-is).
-        self._decision_step += 1
-
-        side = game_state.global_info.current_side
-        key = (game_label, side)
-        self._pending.setdefault(key, []).append(Transition(
-            game_state=game_state,
-            actor_idx=sampled.actor_idx,
-            target_idx=sampled.target_idx,
-            weapon_idx=sampled.weapon_idx,
-            type_idx=sampled.type_idx,
-        ))
-        return sampled.action
+            side = game_state.global_info.current_side
+            key = (game_label, side)
+            self._pending.setdefault(key, []).append(Transition(
+                game_state=game_state,
+                actor_idx=sampled.actor_idx,
+                target_idx=sampled.target_idx,
+                weapon_idx=sampled.weapon_idx,
+                type_idx=sampled.type_idx,
+            ))
+            return sampled.action
 
     # ------------------------------------------------------------------
     # Inference snapshot (option-b)
@@ -296,10 +324,10 @@ class TransformerPolicy:
 
     def _snapshot_inference_weights(self) -> None:
         """Copy the current trainer-side `_model` / `_encoder`
-        state_dict into the inference copies. Held under
-        `_snapshot_lock` for the duration of the load (~ms) so any
-        concurrent `select_action` either waits or runs to
-        completion on the previous snapshot.
+        state_dict into the inference copies. Held under `_lock` for
+        the duration of the load (~ms) so any concurrent
+        `select_action` either waits or runs to completion on the
+        previous snapshot.
 
         Uses `state_dict()` (which returns references to the live
         tensors) wrapped in `load_state_dict(...)` (which COPIES
@@ -307,7 +335,7 @@ class TransformerPolicy:
         load_state_dict returns, the inference model has a
         consistent post-step view.
         """
-        with self._snapshot_lock:
+        with self._lock:
             self._inference_model.load_state_dict(self._model.state_dict())
             self._inference_encoder.load_state_dict(self._encoder.state_dict())
             self._inference_model.eval()
@@ -326,29 +354,34 @@ class TransformerPolicy:
     ) -> None:
         """Attach `reward` to the last pending transition for
         (game_label, side). If `done`, seal the trajectory and queue
-        it for training."""
-        key = (game_label, side)
-        pending = self._pending.get(key)
-        if not pending:
-            return
-        pending[-1].reward += reward
-        if done:
-            pending[-1].done = True
-            self._queue.append(pending)
-            del self._pending[key]
+        it for training. Thread-safe: held under `_lock` so concurrent
+        worker threads can safely call this without losing rewards
+        or corrupting `_pending` / `_queue`."""
+        with self._lock:
+            key = (game_label, side)
+            pending = self._pending.get(key)
+            if not pending:
+                return
+            pending[-1].reward += reward
+            if done:
+                pending[-1].done = True
+                self._queue.append(pending)
+                del self._pending[key]
 
     def drop_pending(self, game_label: str) -> None:
         """Forget all pending transitions for a game (called when a
-        game errors out mid-run and never reaches a terminal)."""
-        keys = [k for k in self._pending if k[0] == game_label]
-        for k in keys:
-            del self._pending[k]
-        if __debug__:
-            # Drop the debug tripwire entries for this game too, so the
-            # next game with the same label gets a fresh slate.
-            stale = [k for k in self._last_state_id if k[0] == game_label]
-            for k in stale:
-                del self._last_state_id[k]
+        game errors out mid-run and never reaches a terminal).
+        Thread-safe: under `_lock`."""
+        with self._lock:
+            keys = [k for k in self._pending if k[0] == game_label]
+            for k in keys:
+                del self._pending[k]
+            if __debug__:
+                # Drop the debug tripwire entries for this game too, so
+                # the next game with the same label gets a fresh slate.
+                stale = [k for k in self._last_state_id if k[0] == game_label]
+                for k in stale:
+                    del self._last_state_id[k]
 
     def train_step(self) -> TrainStats:
         """Apply one gradient update over queued trajectories.
@@ -387,36 +420,40 @@ class TransformerPolicy:
         target = self._trainer.config.max_transitions_per_step
         taken: List[List[Transition]] = []
         trans_count = 0
-        # FIFO drain up to the per-step budget. pop(0) under GIL is
-        # atomic — safe while main thread appends.
-        while self._queue and trans_count < target:
-            try:
-                traj = self._queue.pop(0)
-            except IndexError:
-                break  # race with overflow-trim below, shouldn't happen
-            taken.append(traj)
-            trans_count += len(traj)
+        # Drain phase under `_lock`: workers running observe()
+        # concurrently can keep appending to _queue while we
+        # pop/drop. We hold the lock briefly here (a few ms at
+        # most); release it before the heavy gradient compute so
+        # workers don't block on it.
+        with self._lock:
+            while self._queue and trans_count < target:
+                try:
+                    traj = self._queue.pop(0)
+                except IndexError:
+                    break  # shouldn't happen under the lock
+                taken.append(traj)
+                trans_count += len(traj)
 
-        # Safety cap: if the tail of the queue has more than `target`
-        # transitions of unprocessed data still sitting there, drop
-        # the oldest. Rollouts producing data faster than training
-        # can keep up means older samples are becoming progressively
-        # more off-policy; training on them later hurts more than
-        # losing them.
-        max_remaining = target
-        dropped_trajs = 0
-        dropped_trans = 0
-        def _remaining_trans():
-            return sum(len(t) for t in self._queue)
-        while self._queue and _remaining_trans() > max_remaining:
-            try:
-                t = self._queue.pop(0)
-            except IndexError:
-                break
-            dropped_trajs += 1
-            dropped_trans += len(t)
+            # Safety cap: if the tail of the queue has more than
+            # `target` transitions of unprocessed data still
+            # sitting there, drop the oldest. Rollouts producing
+            # data faster than training can keep up means older
+            # samples are becoming progressively more off-policy;
+            # training on them later hurts more than losing them.
+            max_remaining = target
+            dropped_trajs = 0
+            dropped_trans = 0
+            def _remaining_trans():
+                return sum(len(t) for t in self._queue)
+            while self._queue and _remaining_trans() > max_remaining:
+                try:
+                    t = self._queue.pop(0)
+                except IndexError:
+                    break
+                dropped_trajs += 1
+                dropped_trans += len(t)
 
-        queued_after = len(self._queue)
+            queued_after = len(self._queue)
         msg = (
             f"train_step starting: drained {len(taken)} trajectories "
             f"({trans_count} transitions); queue has {queued_after} "
@@ -430,22 +467,35 @@ class TransformerPolicy:
         if not taken:
             return TrainStats()
 
-        self._model.train()
-        self._encoder.train()
-        try:
-            stats = self._trainer.step(taken)
-        finally:
-            self._model.eval()
-            self._encoder.eval()
-        # Snapshot the freshly-updated weights into the inference
-        # copies. Held lock keeps a concurrent select_action either
-        # waiting on the swap (worst case ~ms for a load_state_dict
-        # call) or running on the previous snapshot. Crucially, we
-        # do NOT hold the lock during the gradient compute above --
-        # that's the whole point of the snapshot design. Vocab
-        # dicts share by reference (no copy needed; both encoders
-        # see the same Python dict).
-        self._snapshot_inference_weights()
+        # Serialize gradient compute + snapshot under _trainer_lock.
+        # Two concurrent callers of train_step would both backward()
+        # on the same _model and corrupt each other's autograd
+        # graph; we therefore allow only one trainer at a time. The
+        # snapshot is INSIDE the same critical section because
+        # _snapshot_inference_weights reads _model.state_dict() --
+        # if another trainer.step were already running, that read
+        # would race with optimizer.step's in-place tensor writes.
+        # _lock (the rollout lock) is NOT held here -- that's the
+        # whole point of the snapshot design: workers' select_action
+        # / observe run concurrently with gradient compute, only
+        # blocking briefly on the load_state_dict step inside
+        # _snapshot_inference_weights.
+        with self._trainer_lock:
+            self._model.train()
+            self._encoder.train()
+            try:
+                stats = self._trainer.step(taken)
+            finally:
+                self._model.eval()
+                self._encoder.eval()
+            # Snapshot the freshly-updated weights into the
+            # inference copies. _snapshot_inference_weights acquires
+            # _lock briefly so a concurrent select_action either
+            # waits ~ms on the load_state_dict swap or runs on the
+            # previous snapshot. Vocab dicts share by reference
+            # (no copy needed; both encoders see the same Python
+            # dict).
+            self._snapshot_inference_weights()
         # Keep the historical log key names so dashboards don't break.
         n_transitions_total = trans_count
         queue = taken  # for the log line below

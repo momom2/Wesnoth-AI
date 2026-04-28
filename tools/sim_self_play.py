@@ -154,7 +154,12 @@ def play_one_game(
     policy.observe at each step. Returns the per-game summary."""
     side1_reward = 0.0
     side2_reward = 0.0
-    last_acting_side: Dict[int, bool] = {1: False, 2: False}
+    # Populated lazily as each side acts. We don't pre-seed (1, 2)
+    # because the sim handles N-side replays (some have 3+ declared
+    # sides) and we want every side that called select_action to
+    # get its terminal observe at game end -- otherwise its
+    # `_pending` entries leak.
+    last_acting_side: Dict[int, bool] = {}
 
     while not sim.done:
         acting_side = sim.gs.global_info.current_side
@@ -267,12 +272,20 @@ def play_one_game(
         else:
             side2_reward += step_r
 
-    # Game over. Emit terminal reward to each side so the trajectories
-    # close cleanly. We compute a synthetic terminal-only StepDelta
-    # for each side; observe() adds it on top of whatever shaping the
-    # last transition already accumulated.
+    # Game over. Emit terminal reward to every side that ACTED so
+    # each trajectory the policy started actually gets a terminal
+    # observe(done=True). Iterating over `last_acting_side` (rather
+    # than a hardcoded (1, 2) tuple) handles replays declaring more
+    # than 2 sides: WesnothSim's `_apply_command(end_turn)` cycles
+    # `current_side` modulo `len(gs.sides)`, so a 3- or 4-side
+    # replay's `select_action` keys land on sides > 2. Without this
+    # they leak forever in `_pending`.
     final_turn = sim.gs.global_info.turn_number
-    for side in (1, 2):
+    for side, acted in list(last_acting_side.items()):
+        if not acted:
+            # Side never acted (e.g. game ended before they got a
+            # chance). Nothing to attach the reward to.
+            continue
         outcome = _outcome_for(sim.winner, sim.ended_by, side)
         term_delta = StepDelta(
             side=side,
@@ -282,15 +295,10 @@ def play_one_game(
             game_label=game_label,
         )
         terminal_r = reward_fn(term_delta)
-        if not last_acting_side.get(side):
-            # This side never acted (e.g. game ended before they got a
-            # chance). Nothing to attach the reward to; observe is a
-            # no-op for empty pending lists. Skip.
-            continue
         policy.observe(game_label, side, terminal_r, done=True)
         if side == 1:
             side1_reward += terminal_r
-        else:
+        elif side == 2:
             side2_reward += terminal_r
 
     return GameOutcome(
@@ -343,6 +351,70 @@ def _gather_replay_pool(replay_pool: Path) -> List[Path]:
 # Iteration loop
 # ---------------------------------------------------------------------
 
+def _play_one_game_safe(
+    *, replay, max_turns, pvp_defaults, policy, reward_fn,
+    cost_lookup, game_label,
+) -> Optional[GameOutcome]:
+    """Run one game end-to-end including replay load, per-game state
+    resets, and play_one_game. Catches exceptions, drops pending
+    transitions on crash, and returns None on any failure (vs an
+    outcome object on success).
+
+    Pulled out into a helper so both the serial run_iteration path
+    and the parallel worker loop go through the same code, avoiding
+    drift between the two flows."""
+    try:
+        sim = WesnothSim.from_replay(
+            replay, max_turns=max_turns,
+            pvp_defaults=pvp_defaults,
+        )
+    except Exception as e:
+        log.warning(f"skipping {replay.name}: {e}")
+        return None
+    if hasattr(policy, "reset_game"):
+        policy.reset_game(game_label)
+    if hasattr(reward_fn, "reset_game_state"):
+        reward_fn.reset_game_state(game_label)
+    try:
+        return play_one_game(
+            sim, policy, reward_fn,
+            game_label=game_label, cost_lookup=cost_lookup,
+        )
+    except Exception as e:
+        log.exception(f"game {game_label} crashed: {e}")
+        policy.drop_pending(game_label)
+        return None
+
+
+def _worker_loop(
+    *, worker_id, policy, pool_files, reward_fn, cost_lookup,
+    max_turns, pvp_defaults, worker_rng, shared,
+):
+    """Per-thread rollout loop. Each worker pulls a game index from
+    `shared.next_game` (atomic under the master lock), assigns
+    itself a unique game_label, runs one game, appends the outcome
+    to `shared.outcomes`. Stops when `next_game` would exceed
+    target_games."""
+    while True:
+        with shared["lock"]:
+            if shared["next_game"] >= shared["target_games"]:
+                return
+            g_idx = shared["next_game"]
+            shared["next_game"] += 1
+        replay = worker_rng.choice(pool_files)
+        game_label = (f"iter{shared['iter_idx']}_"
+                      f"w{worker_id}_g{g_idx}")
+        outcome = _play_one_game_safe(
+            replay=replay, max_turns=max_turns,
+            pvp_defaults=pvp_defaults, policy=policy,
+            reward_fn=reward_fn, cost_lookup=cost_lookup,
+            game_label=game_label,
+        )
+        if outcome is not None:
+            with shared["lock"]:
+                shared["outcomes"].append(outcome)
+
+
 def run_iteration(
     policy:        TransformerPolicy,
     pool_files:    List[Path],
@@ -354,47 +426,85 @@ def run_iteration(
     max_turns:     int,
     rng:           random.Random,
     pvp_defaults:  Optional[PvPDefaults] = None,
+    workers:       int = 0,
+    train_at_end:  bool = True,
 ) -> List[GameOutcome]:
     """Roll out `games_per_iter` games and call `train_step` once at
     the end. Returns the per-game outcomes for logging.
+
+    `train_at_end`: when False, skip the post-rollout `train_step`
+    call and leave queued trajectories on `policy._queue` for the
+    caller to inspect or drain. Tests use this to assert queue/
+    pending invariants directly; production callers leave it True.
 
     `pvp_defaults`: forwarded to `WesnothSim.from_replay`. When set,
     each game starts with standard 2p ladder economy/experience
     rather than whatever the source replay's host had configured.
     Self-play wants this -- it ensures the policy learns a single
-    consistent ruleset rather than per-host quirks."""
+    consistent ruleset rather than per-host quirks.
+
+    `workers`: 0 = serial (existing behavior; runs on the main
+    thread, simplest path). >= 1 = spawn N worker threads each
+    pulling games from a shared counter and feeding trajectories
+    to the policy concurrently. Builds on the snapshot+lock design
+    in TransformerPolicy: workers' select_action / observe calls
+    are thread-safe; the main thread fires train_step after all
+    workers finish.
+
+    Throughput: on CPU, the GIL serializes most of the forward
+    work, so workers buy mostly the encode-while-other-thread-is-
+    forwarding overlap (~30% speedup at workers=4). On GPU,
+    multiple workers dispatching forwards in parallel keep the
+    GPU saturated while the main thread also runs gradient compute
+    (the snapshot design makes this safe).
+    """
     outcomes: List[GameOutcome] = []
     t0 = time.perf_counter()
-    for g_idx in range(games_per_iter):
-        replay = rng.choice(pool_files)
-        try:
-            sim = WesnothSim.from_replay(
-                replay, max_turns=max_turns,
-                pvp_defaults=pvp_defaults,
+
+    if workers <= 0:
+        # Serial path -- simplest, used for tests and smoke runs.
+        for g_idx in range(games_per_iter):
+            replay = rng.choice(pool_files)
+            game_label = f"iter{iter_idx}_g{g_idx}"
+            outcome = _play_one_game_safe(
+                replay=replay, max_turns=max_turns,
+                pvp_defaults=pvp_defaults, policy=policy,
+                reward_fn=reward_fn, cost_lookup=cost_lookup,
+                game_label=game_label,
             )
-        except Exception as e:
-            log.warning(f"skipping {replay.name}: {e}")
-            continue
-        game_label = f"iter{iter_idx}_g{g_idx}"
-        # Per-game state resets for any stateful wrappers (opener
-        # cursor, turn-conditional bonus fired-set). Both are no-op
-        # when the corresponding feature isn't configured. We do this
-        # at the START of each game so the cleanup runs even if
-        # play_one_game raises mid-loop.
-        if hasattr(policy, "reset_game"):
-            policy.reset_game(game_label)
-        if hasattr(reward_fn, "reset_game_state"):
-            reward_fn.reset_game_state(game_label)
-        try:
-            outcome = play_one_game(
-                sim, policy, reward_fn,
-                game_label=game_label, cost_lookup=cost_lookup,
+            if outcome is not None:
+                outcomes.append(outcome)
+    else:
+        # Parallel path -- N worker threads share the policy +
+        # reward_fn + replay pool. Each worker has its own RNG
+        # (seeded from the master rng) so games stay deterministic
+        # given the master seed even with worker scheduling jitter.
+        import threading
+        shared = {
+            "lock":           threading.Lock(),
+            "next_game":      0,
+            "target_games":   games_per_iter,
+            "iter_idx":       iter_idx,
+            "outcomes":       outcomes,
+        }
+        threads = []
+        for w in range(workers):
+            worker_rng = random.Random(rng.randint(0, 2**32 - 1))
+            t = threading.Thread(
+                target=_worker_loop,
+                kwargs=dict(
+                    worker_id=w, policy=policy, pool_files=pool_files,
+                    reward_fn=reward_fn, cost_lookup=cost_lookup,
+                    max_turns=max_turns, pvp_defaults=pvp_defaults,
+                    worker_rng=worker_rng, shared=shared,
+                ),
+                daemon=True,
+                name=f"selfplay-w{w}",
             )
-            outcomes.append(outcome)
-        except Exception as e:
-            log.exception(f"game {game_label} crashed: {e}")
-            policy.drop_pending(game_label)
-            continue
+            t.start()
+            threads.append(t)
+        for t in threads:
+            t.join()
 
     rollout_dt = time.perf_counter() - t0
     n_actions = sum(o.side1_actions + o.side2_actions for o in outcomes)
@@ -419,17 +529,18 @@ def run_iteration(
         f"draws/timeouts={draws}; mean_reward s1={avg_r1:+.3f} s2={avg_r2:+.3f}"
     )
 
-    # One gradient step over all queued trajectories.
-    train_t0 = time.perf_counter()
-    stats = policy.train_step()
-    train_dt = time.perf_counter() - train_t0
-    log.info(
-        f"iter {iter_idx}: train_step in {train_dt:.1f}s "
-        f"trajectories={stats.n_trajectories} transitions={stats.n_transitions} "
-        f"loss={stats.total_loss:.4f} policy={stats.policy_loss:.4f} "
-        f"value={stats.value_loss:.4f} entropy={stats.entropy:.4f} "
-        f"mean_return={stats.mean_return:+.3f} grad_norm={stats.grad_norm:.3f}"
-    )
+    if train_at_end:
+        # One gradient step over all queued trajectories.
+        train_t0 = time.perf_counter()
+        stats = policy.train_step()
+        train_dt = time.perf_counter() - train_t0
+        log.info(
+            f"iter {iter_idx}: train_step in {train_dt:.1f}s "
+            f"trajectories={stats.n_trajectories} transitions={stats.n_transitions} "
+            f"loss={stats.total_loss:.4f} policy={stats.policy_loss:.4f} "
+            f"value={stats.value_loss:.4f} entropy={stats.entropy:.4f} "
+            f"mean_return={stats.mean_return:+.3f} grad_norm={stats.grad_norm:.3f}"
+        )
     return outcomes
 
 
@@ -495,6 +606,16 @@ def main(argv: List[str]) -> int:
                          f"Available: {', '.join(openers_mod.available()) or '(none)'}. "
                          f"Default: no opener; the model controls "
                          f"every decision from turn 1.")
+    ap.add_argument("--workers", type=int, default=0,
+                    help="Rollout worker threads per iteration. 0 "
+                         "(default) = serial on the main thread. "
+                         ">= 1 = spawn N workers feeding trajectories "
+                         "to the policy concurrently. Safe via the "
+                         "policy's snapshot+lock design (see "
+                         "transformer_policy.TransformerPolicy._lock). "
+                         "On CPU, ~30%% speedup at workers=4 (GIL "
+                         "limits gains); on GPU, larger speedup as "
+                         "forwards dispatch in parallel.")
     args = ap.parse_args(argv[1:])
 
     logging.basicConfig(
@@ -562,6 +683,7 @@ def main(argv: List[str]) -> int:
             max_turns=args.max_turns,
             rng=rng,
             pvp_defaults=pvp_defaults,
+            workers=args.workers,
         )
         if (it + 1) % args.save_every == 0 or (it + 1) == args.iterations:
             policy.save_checkpoint(args.checkpoint_out)

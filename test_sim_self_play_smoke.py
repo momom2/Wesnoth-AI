@@ -98,8 +98,16 @@ def test_one_game_emits_observe_per_step(small_replay):
                   game_label="g0", cost_lookup=cost_lookup)
 
     assert len(policy.selects) >= 1, "no decisions made?"
-    n_terminals = sum(1 for o in policy.observes if o[3] is True)
-    assert n_terminals <= 2
+    # Every side that made a decision should get exactly one
+    # terminal observe(done=True). play_one_game iterates over
+    # `last_acting_side`, which records every side that called
+    # select_action -- so this is a stricter invariant than the old
+    # "<= 2 terminals" assertion (which assumed 2-side replays).
+    sides_with_decision = {s["side"] for s in policy.selects}
+    sides_with_terminal = {o[1] for o in policy.observes if o[3] is True}
+    assert sides_with_terminal == sides_with_decision, (
+        f"terminal sides {sides_with_terminal} != "
+        f"deciding sides {sides_with_decision}")
     for _, _, r, _ in policy.observes:
         assert isinstance(r, float)
 
