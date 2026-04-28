@@ -47,17 +47,18 @@ stated goals.
   recruits"; the supervised loss reweighting we landed is a partial
   workaround — this is the structural fix.
 
-- [ ] 🔴 **Record + emit `[choose]` for advance-on-kill in the simulator**
-  (`tools/wesnoth_sim.py:586-589`, `tools/sim_to_replay.py:131-149`).
-  When an attacker or defender crosses the XP threshold mid-attack,
-  Wesnoth replay engine waits for a `[command] dependent="yes"
-  [choose] value=K [/choose]` immediately after the attack
-  (`wesnoth_src/src/units/advancement.cpp:296`). The sim picks
-  `targets[0]` automatically; the export currently emits no `[choose]`
-  block. Will OOS the first time the model lands a level-up kill on a
-  unit with multi-`advances_to` (Walking Corpse → Soulless/Ancient is
-  the trivial repro). Order matters: attack's `[random_seed]` follow-up
-  comes BEFORE the `[choose]`.
+- [x] 🔴 **Record + emit `[choose]` for advance-on-mid-attack-XP-cross
+  in the simulator** (DONE 2026-04-28). `WesnothSim.step()` now
+  snapshots attacker/defender (id, name, side) before each attack and
+  detects post-`_apply_command` whether either's name changed
+  (= advanced); `RecordedCommand.extras["advance_choices"]` carries the
+  per-side index list (always 0 -- sim picks `targets[0]`).
+  `_build_replay_wml` emits one `[command] dependent="yes" [choose]`
+  block per advancing unit immediately after the attack's
+  `[random_seed]` follow-up, in attacker-first / defender-second order
+  per `attack_unit_and_advance` (attack.cpp:1556-1573). Covers BOTH
+  kill-based AND damage-based threshold-crossings (the detection looks
+  at id+name, not death). Tested in `test_sim_advance.py` (6 cases).
 
 - [ ] 🔴 **Fix `cluster/gui.pyw` "Train" button to use the simulator**
   (`cluster/gui.pyw:447-457`, `run_self_play.ps1`). Both the "Train
@@ -196,8 +197,9 @@ replay export.
 
 ### Bit-exactness
 
-- [ ] 🔴 **Advance-on-kill missing in attack export** — see top-priority
-  list. The most urgent simulator fix.
+- [x] 🔴 **Advance-on-mid-attack-XP-cross export** — DONE 2026-04-28; see
+  top-priority list. Covers kill-based AND damage-based threshold
+  crossings (detection compares pre/post by unit id+name).
 
 - [ ] 🟠 **Recall is a no-op everywhere; the model can produce one**
   (`tools/wesnoth_sim.py:603-609`, `tools/replay_dataset.py:1332-1334`).

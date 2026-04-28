@@ -306,6 +306,35 @@ def _command_consumes_synced_rng(rc: RecordedCommand) -> bool:
     return False
 
 
+def _wml_choose_command(side: int, value: int) -> str:
+    """Emit a synthetic `[command] dependent="yes" [choose]` block --
+    Wesnoth's record of an advancement choice. After every attack that
+    levels up the attacker and/or defender, `attack_unit_and_advance`
+    (wesnoth_src/src/actions/attack.cpp:1556-1573) calls
+    `advance_unit_at` per advancing unit, which goes through
+    `mp_sync::get_user_choice("choose", ...)`. The replay records the
+    chosen advancement index here. Without these, replay playback
+    errors with "expecting a user choice" the first time a unit levels
+    up mid-battle.
+
+    Order in the WML stream MUST be: attack [command], its
+    [random_seed] follow-up, then attacker's [choose] (if attacker
+    advanced), then defender's [choose] (if defender advanced).
+
+    Format mirrors a real-replay sample (`from_side` is the unit's
+    OWNER side, not "server" -- different from [random_seed] which is
+    server-emitted)."""
+    return (
+        "[command]\n"
+        "dependent=\"yes\"\n"
+        f"from_side=\"{side}\"\n"
+        "[choose]\n"
+        f"value=\"{value}\"\n"
+        "[/choose]\n"
+        "[/command]\n"
+    )
+
+
 def _wml_random_seed_command(seed: str, request_id: int) -> str:
     """Emit a synthetic `[command] ... [random_seed]` block. Wesnoth's
     replay engine demands one of these after every command that needs
@@ -364,6 +393,14 @@ def _build_replay_wml(history: List[RecordedCommand]) -> str:
             request_id += 1
             seed = _seed_from_recorded(rc)
             parts.append(_wml_random_seed_command(seed, request_id))
+        # Advancement [choose] follow-ups: emitted AFTER the attack's
+        # [random_seed] so the order matches Wesnoth's
+        # `attack_unit_and_advance` path (attack -> RNG follow-up ->
+        # advancer per side, attacker first then defender). Sim's
+        # `_maybe_advance_unit` always picks targets[0], so value=0.
+        if rc.kind == "attack":
+            for side, idx in rc.extras.get("advance_choices", []):
+                parts.append(_wml_choose_command(side, idx))
     return "[replay]\n" + "".join(parts) + "[/replay]\n"
 
 
