@@ -502,6 +502,32 @@ class WesnothSim:
     def current_side(self) -> int:
         return self.gs.global_info.current_side
 
+    def fork(self) -> "WesnothSim":
+        """Cheap clone for MCTS-style branching. Deepcopies the
+        game state (via Map.__deepcopy__'s fast-path) and the small
+        scalar fields. **Drops command_history** -- forks aren't
+        meant to be exported to bz2; if you mutate the parent's
+        command_history aliased to the fork, you'd corrupt the
+        export pipeline. Forks always start with an empty history.
+
+        Mirrors `Trainer.step` and `WesnothSim.step` semantics:
+        anything mutable downstream is properly isolated, immutable
+        config (max_turns, max_actions_per_side, scenario_id) is
+        aliased."""
+        import copy as _copy
+        out = WesnothSim.__new__(WesnothSim)
+        out.gs = _copy.deepcopy(self.gs)
+        out.scenario_id = self.scenario_id
+        out.max_turns = self.max_turns
+        out.max_actions_per_side = self.max_actions_per_side
+        out.done     = self.done
+        out.winner   = self.winner
+        out.ended_by = self.ended_by
+        out._actions_by_side = dict(self._actions_by_side)
+        out._rng_requests    = self._rng_requests
+        out.command_history  = []   # forks don't track history
+        return out
+
     def step(self, action: dict) -> bool:
         """Apply one action. Returns True if the game is over after
         this step. The action dict is the same shape the policy
