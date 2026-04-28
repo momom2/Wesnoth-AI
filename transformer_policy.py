@@ -114,6 +114,46 @@ class TransformerPolicy:
             device=self._device,
         )
 
+        # ---- Inference snapshot (the option-b fix) -------------------
+        # `_inference_model` / `_inference_encoder` are SECOND instances
+        # of the same architecture. select_action runs forwards on
+        # them; train_step mutates `_model` / `_encoder` in place AND
+        # snapshots the post-step state_dict into the inference copies
+        # under `_snapshot_lock`. This eliminates the prior race where
+        # a rollout forward overlapping `optimizer.step()` could see
+        # half-updated weights ("split-brain" — layer 1 from step N+1,
+        # layer 5 from step N).
+        #
+        # Memory cost: doubles inference-side parameter footprint
+        # (~3 MB at d_model=128, 3 layers; ~30 MB at d_model=512,
+        # 6 layers). Negligible vs activation memory during a forward.
+        #
+        # Vocab dicts (`unit_type_to_id`, `faction_to_id`) are SHARED
+        # BY REFERENCE between trainer and inference encoders -- they
+        # only ever grow (append-only on new unit types), so sharing
+        # is safe under CPython's GIL for the read-mostly access
+        # pattern. New types registered during a rollout become
+        # visible to the trainer's encoder too.
+        self._inference_encoder = GameStateEncoder(d_model=d_model).to(self._device)
+        self._inference_model = WesnothModel(
+            d_model=d_model,
+            num_layers=num_layers,
+            num_heads=num_heads,
+            d_ff=d_ff,
+        ).to(self._device)
+        self._inference_encoder.load_state_dict(self._encoder.state_dict())
+        self._inference_model.load_state_dict(self._model.state_dict())
+        # Share the vocab dicts (by reference). New types added by
+        # either side appear in both.
+        self._inference_encoder.unit_type_to_id = self._encoder.unit_type_to_id
+        self._inference_encoder.faction_to_id   = self._encoder.faction_to_id
+        # Inference always in eval mode -- never trained directly.
+        self._inference_encoder.eval()
+        self._inference_model.eval()
+
+        import threading
+        self._snapshot_lock = threading.RLock()
+
         # Pending transitions keyed by (game_label, side). Each entry
         # is a growing list; the most-recent Transition is the one
         # that `observe` will attach a reward to when called.
@@ -217,9 +257,18 @@ class TransformerPolicy:
                 )
             self._last_state_id[key_dbg] = id(game_state)
 
-        with torch.no_grad():
-            encoded = self._encoder.encode(game_state)
-            output = self._model(encoded)
+        # Run forward on the INFERENCE model + encoder (option-b
+        # snapshot). The lock serializes us against train_step's
+        # post-step `load_state_dict` swap (~ms) but NOT against the
+        # trainer's gradient compute (which mutates `_model`, not
+        # `_inference_model`, so it's lock-free). Worst-case
+        # interference: a rollout that's already mid-forward when
+        # train_step lands its snapshot just finishes on the OLD
+        # snapshot; the next rollout sees the NEW one. Both states
+        # are internally consistent.
+        with self._snapshot_lock, torch.no_grad():
+            encoded = self._inference_encoder.encode(game_state)
+            output = self._inference_model(encoded)
             sampled = sample_action(
                 encoded, output, game_state,
                 decision_step=self._decision_step,
@@ -240,6 +289,29 @@ class TransformerPolicy:
             type_idx=sampled.type_idx,
         ))
         return sampled.action
+
+    # ------------------------------------------------------------------
+    # Inference snapshot (option-b)
+    # ------------------------------------------------------------------
+
+    def _snapshot_inference_weights(self) -> None:
+        """Copy the current trainer-side `_model` / `_encoder`
+        state_dict into the inference copies. Held under
+        `_snapshot_lock` for the duration of the load (~ms) so any
+        concurrent `select_action` either waits or runs to
+        completion on the previous snapshot.
+
+        Uses `state_dict()` (which returns references to the live
+        tensors) wrapped in `load_state_dict(...)` (which COPIES
+        in place). The copy is the atomicity boundary -- after
+        load_state_dict returns, the inference model has a
+        consistent post-step view.
+        """
+        with self._snapshot_lock:
+            self._inference_model.load_state_dict(self._model.state_dict())
+            self._inference_encoder.load_state_dict(self._encoder.state_dict())
+            self._inference_model.eval()
+            self._inference_encoder.eval()
 
     # ------------------------------------------------------------------
     # Trainable-policy hooks (game_manager uses these)
@@ -281,21 +353,25 @@ class TransformerPolicy:
     def train_step(self) -> TrainStats:
         """Apply one gradient update over queued trajectories.
 
-        SAFE TO RUN IN A WORKER THREAD while the main thread's rollout
-        loop continues. The concurrency contract:
+        SAFE TO RUN IN A WORKER THREAD while the main thread's
+        rollout loop continues. The concurrency contract:
           * We only pop from the FRONT of self._queue; main-thread
             observe() only appends to the END. list.pop(0) and
             list.append() are both atomic under the GIL, so neither
             corrupts the other regardless of interleaving.
           * `self._pending` is only touched by the main thread (in
             `select_action` / `observe`), never by us — no race.
-          * Model weights ARE mutated here and read by `select_action`
-            on the main thread. We rely on GIL-protected tensor ops +
-            RL tolerance for off-policy samples: a rollout step that
-            reads weights mid-optimizer-update gets noisy output, which
-            the next train_step washes out. No lock because it would
-            serialize rollouts with training and defeat the point of
-            running async.
+          * Model weights are mutated HERE on `_model` / `_encoder`,
+            but `select_action` runs on the SEPARATE `_inference_model`
+            / `_inference_encoder` instances. The mutation is
+            invisible to rollouts until we end this method by
+            calling `_snapshot_inference_weights()`, which does an
+            atomic `load_state_dict` swap under `_snapshot_lock`.
+            A rollout that overlaps the gradient compute reads the
+            previous-snapshot weights consistently; a rollout that
+            overlaps the snapshot swap waits ~ms on the lock and
+            then reads either the old or new snapshot in full
+            (never split-brain across layers).
 
         Queue management: we drain OLDEST trajectories first (FIFO) up
         to max_transitions_per_step, leaving any excess for the next
@@ -361,6 +437,15 @@ class TransformerPolicy:
         finally:
             self._model.eval()
             self._encoder.eval()
+        # Snapshot the freshly-updated weights into the inference
+        # copies. Held lock keeps a concurrent select_action either
+        # waiting on the swap (worst case ~ms for a load_state_dict
+        # call) or running on the previous snapshot. Crucially, we
+        # do NOT hold the lock during the gradient compute above --
+        # that's the whole point of the snapshot design. Vocab
+        # dicts share by reference (no copy needed; both encoders
+        # see the same Python dict).
+        self._snapshot_inference_weights()
         # Keep the historical log key names so dashboards don't break.
         n_transitions_total = trans_count
         queue = taken  # for the log line below
@@ -469,6 +554,12 @@ class TransformerPolicy:
         # an old checkpoint, which is fine (the model just gets full
         # oracle bias for a while as if starting over).
         self._decision_step = int(ckpt.get("decision_step", 0))
+        # Sync the inference snapshot to the freshly-loaded weights.
+        # Without this, select_action would keep using whatever
+        # initial-random weights _inference_model started with, and
+        # the policy wouldn't reflect the loaded checkpoint until
+        # after the FIRST train_step.
+        self._snapshot_inference_weights()
         self._logger.info(
             f"Loaded checkpoint from {path} "
             f"(decision_step={self._decision_step})")

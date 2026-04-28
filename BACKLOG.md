@@ -468,14 +468,21 @@ replay export.
 
 ### Stability / safety
 
-- [ ] 🟠 **`train_step` mutates weights without lock during rollout**
-  (`transformer_policy.py:280`). The "GIL-protected tensor ops" comment
-  is misleading: PyTorch's `optimizer.step()` is not a single
-  GIL-atomic operation. A rollout reading weights mid-step can produce
-  garbage outputs. Take a `state_dict` snapshot for inference, or
-  switch to a queue-based architecture where workers reload weights
-  only between train_steps. **Probably already manifesting as occasional
-  noise in self-play.**
+- [x] 🟠 **`train_step` snapshot-for-inference** (DONE 2026-04-28).
+  TransformerPolicy now holds TWO model instances: `_model` /
+  `_encoder` (mutated by train_step) and `_inference_model` /
+  `_inference_encoder` (read by select_action). After each
+  train_step's gradient compute, `_snapshot_inference_weights`
+  atomically copies `state_dict` into the inference copies under
+  `_snapshot_lock`. Rollouts hold the same lock during their
+  forward — short enough (~30 ms) that the trainer's snapshot
+  waits a tiny moment but never reads torn parameters. Vocab
+  dicts (`unit_type_to_id`, `faction_to_id`) shared by reference;
+  they're append-only so no race. load_checkpoint also syncs the
+  inference snapshot. 7 tests in `test_inference_snapshot.py`
+  cover structural separation, snapshot semantics, and a
+  multi-thread stress (rollouts + train_steps in parallel: no
+  NaN, no exceptions).
 
 - [x] 🟡 **Checkpoint partial loads (`strict=False` default)** (DONE
   2026-04-28). `load_checkpoint(strict=False)` tolerates mismatched
