@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import bz2
 import logging
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -315,6 +316,26 @@ def export_replay(
         raise RuntimeError(
             f"{source_bz2}: could not locate final [replay] block. "
             "File doesn't look like a Wesnoth replay.")
+    start, end = span
+
+    # Force oos_debug="no" in the top-level header. When the source
+    # replay was saved with oos_debug="yes" (the host had "Strict
+    # synchronization" enabled in the lobby), Wesnoth replaces every
+    # synced command's checkup with `mp_debug_checkup`, which calls
+    # `get_user_choice` against our (non-existent) `[checkup]` blocks
+    # and immediately fires "expecting a user choice" on the very
+    # first command -- even on a hand-built minimal trace with no
+    # recruits or moves. Our exports don't emit `[checkup]` blocks,
+    # so they're incompatible with debug-mode strictness; downgrading
+    # to standard mode is safe and lossless for our use case.
+    text = re.sub(
+        r'^oos_debug=\"yes\"',
+        'oos_debug="no"',
+        text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    span = _find_final_replay_block(text)  # re-locate after edit
     start, end = span
 
     new_replay = _build_replay_wml(sim.command_history)

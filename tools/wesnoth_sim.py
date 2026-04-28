@@ -134,19 +134,28 @@ def _move_cost(unit, terrain_key: str) -> int:
     return int(cost) if cost is not None else 1
 
 
-# Overlays that affect MOVEMENT cost but NOT defense. Mined from
-# wesnoth_src/data/core/terrain.cfg by scanning every [terrain_type]
-# whose `mvt_alias` follows the pattern `-,_bas,<X>` (MINUS marker:
-# Wesnoth resolves these as MAX(base_cost, X_cost)). Defense for the
-# same overlays is empty / aliasof=_bas, which is why the existing
-# `_OVERLAY_DEFENSE_KEYS` doesn't cover them.
+# Overlays that affect MOVEMENT cost. There are two patterns in
+# wesnoth_src/data/core/terrain.cfg, with different semantics:
 #
-# Without these, e.g. `Re^Tf` (road with mushroom-grove overlay) is
-# read as flat (cost 1 for woodland) when Wesnoth actually treats it
-# as MAX(flat=1, fungus=2)=2 -- the sim then emits a move into Re
-# next that Wesnoth rejects as 'corrupt movement' because the unit
-# now has 1 fewer MP than the sim believed.
-_OVERLAY_MOVEMENT_KEYS: Dict[str, List[str]] = {
+#   1. `mvt_alias=-,_bas,X` (MINUS marker + _bas): Wesnoth resolves
+#      as MAX(base_cost, X_cost). Forest, mushroom-grove, swamp
+#      overlays. Listed in `_OVERLAY_MOVEMENT_MAX`.
+#
+#   2. `mvt_alias=X` (no _bas) OR `aliasof=X` (no _bas): the overlay
+#      OVERRIDES the base for movement. Impassable walls (^Xo, ^Pr|,
+#      ^Pw|), bridges (^Br|), unwalkable embellishments (^Eqf, ^Qov).
+#      A bridge over water makes the hex walkable as flat -- the
+#      water cost is irrelevant -- so we can't just append "flat"
+#      and MAX, we must REPLACE. Listed in
+#      `_OVERLAY_MOVEMENT_OVERRIDE`.
+#
+# Without these, e.g. `Chw^Xo` (sunken-ruin castle with impassable
+# overlay) is read as castle+shallow_water (cost 1-3) instead of
+# impassable (99); the sim emits moves into walls that Wesnoth
+# rejects as "corrupt movement". Both tables mined from terrain.cfg
+# with the helper scripts in tools/wesnoth_sim.py's docstrings.
+
+_OVERLAY_MOVEMENT_MAX: Dict[str, List[str]] = {
     # Forest variants (F*) all alias to "forest" for movement.
     "Fp": ["forest"], "Fpa": ["forest"], "Ft": ["forest"],
     "Ftr": ["forest"], "Ftd": ["forest"], "Ftp": ["forest"],
@@ -163,18 +172,27 @@ _OVERLAY_MOVEMENT_KEYS: Dict[str, List[str]] = {
     "Dc": ["sand"], "Dr": ["hills"],
     # Wreckage on water → swamp movement.
     "Wkf": ["swamp_water"],
-    # Forest+frozen overlays (Fda / Fma / Fpa) — already handled
-    # above as "forest"; the additional `At` (frozen) doesn't usually
-    # matter because forest cost typically dominates, but include
-    # frozen as a safety key for movetypes where frozen > forest.
-    # (We already added these to the base map; an entry here would
-    # be an extra `frozen` key; not adding to keep the table tight.)
-    # Cosmetic / structural overlays Wesnoth lists with `aliasof=_bas`
-    # only (Em, Es, Edp, Bs*, etc.) -- no movement impact, so they
-    # are intentionally absent here.
-    # Impassable overlays mirror what _OVERLAY_DEFENSE_KEYS already
-    # provides for movement (the 99-collapse path catches them).
+    # Impassable mine/cave overlays (Xm/Xv) -- the impassable check
+    # in `_move_cost_at_hex` collapses these to 99.
     "Xm": ["impassable"], "Xv": ["impassable"],
+}
+
+_OVERLAY_MOVEMENT_OVERRIDE: Dict[str, List[str]] = {
+    # Impassable wall overlays. ^Xo is "Impassable Overlay" (=Xt);
+    # ^Pr*, ^Pw* are gate / portal walls (rusty gate, wooden door);
+    # all override the base entirely. e.g. `Chw^Xo` (castle on
+    # water + wall) is impassable, NOT castle+water.
+    "Xo": ["impassable"],
+    "Pr|": ["impassable"], "Pr/": ["impassable"], "Pr\\": ["impassable"],
+    "Pw|": ["impassable"], "Pw/": ["impassable"], "Pw\\": ["impassable"],
+    # Unwalkable embellishments (chasm, gorge details). aliasof=Qt.
+    "Eqf": ["unwalkable"], "Eqp": ["unwalkable"],
+    "Qhux": ["unwalkable"], "Qov": ["unwalkable"],
+    # Bridges -- mvt_alias=Gt,Rt: walkable as flat regardless of
+    # what's underneath. A bridge over deep water is cost 1, not 99.
+    "Br|": ["flat"], "Br/": ["flat"], "Br\\": ["flat"],
+    # Underground fungus overlays that REPLACE base.
+    "Uf": ["fungus"], "Ufi": ["fungus"],
 }
 
 
@@ -210,12 +228,25 @@ def _move_cost_at_hex(unit, gs, x: int, y: int) -> int:
         c = code
         if c[:1].isdigit() and c[1:2] == " ":
             c = c[2:]
-        keys = list(_defense_keys_for_code(c))
         if "^" in c:
             overlay = c.split("^", 1)[1]
-            for k in _OVERLAY_MOVEMENT_KEYS.get(overlay, []):
-                if k not in keys:
-                    keys.append(k)
+            if overlay in _OVERLAY_MOVEMENT_OVERRIDE:
+                # OVERRIDE-style overlay: bridge / wall / impassable
+                # gate. The base terrain is irrelevant for movement
+                # -- a bridge over deep water is walkable, an
+                # impassable wall on grass is impassable. Use the
+                # overlay's keys exclusively.
+                keys = list(_OVERLAY_MOVEMENT_OVERRIDE[overlay])
+            else:
+                # MAX-style overlay (forest/fungus/etc.) OR pure
+                # cosmetic overlay (Em/Es/Bs*): start from the base
+                # defense keys and append any extra MAX keys.
+                keys = list(_defense_keys_for_code(c))
+                for k in _OVERLAY_MOVEMENT_MAX.get(overlay, []):
+                    if k not in keys:
+                        keys.append(k)
+        else:
+            keys = list(_defense_keys_for_code(c))
         if not keys:
             keys = ["flat"]
     if any(k in ("impassable", "unwalkable") for k in keys):
