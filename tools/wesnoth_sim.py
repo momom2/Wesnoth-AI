@@ -1033,12 +1033,31 @@ class WesnothSim:
             seed = request_seed(self._rng_requests)
             return ["recruit", unit_type, target.x, target.y, seed]
         if atype == "recall":
-            unit_id = action["unit_id"]
-            target: Position = action["target_hex"]
-            # Recall is a no-op in replay-recon (no recall list
-            # tracked). For self-play we similarly skip; the action
-            # gets logged as a wasted turn.
-            return ["recall", unit_id, target.x, target.y]
+            # Recall is NOT supported end-to-end. The sim has no
+            # recall list (gs.global_info doesn't track per-side
+            # surviving units), `_apply_command` for "recall" is a
+            # no-op (replay_dataset.py:1341-1343), and
+            # sim_to_replay._wml_for_command WOULD emit a [recall]
+            # block citing a unit_id that doesn't exist on Wesnoth's
+            # recall list -- playback then errors with "no such unit
+            # on recall list".
+            #
+            # action_sampler today never emits recall actions (no
+            # recall slots in the actor head), so this branch is
+            # dormant. Returning None here makes step() fall back to
+            # end_turn -- equivalent to the old behavior in terms of
+            # game progress, but with the broken [recall] WML
+            # suppressed if a future caller does produce one. The
+            # alternative (proper recall support) needs:
+            #   1. recall list in gs.global_info, populated on
+            #      level-up of dying-side units;
+            #   2. recall slots in encoder.recruit_tokens;
+            #   3. the action_sampler, action_executor, and exporter
+            #      all wired to the new slots.
+            log.warning(
+                f"sim: recall not supported end-to-end; treating as "
+                f"end_turn (action={action!r})")
+            return None
         log.debug(f"sim: unknown action type {atype!r}")
         return None
 

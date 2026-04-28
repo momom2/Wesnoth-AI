@@ -199,3 +199,50 @@ def test_no_advance_no_choose_in_wml():
     ]
     wml = _build_replay_wml(history)
     assert "[choose]" not in wml
+
+
+def test_select_action_rejects_repeated_state(fresh_sim):
+    """Debug-mode tripwire: passing the same `GameState` object twice
+    in a row to select_action means the caller didn't deepcopy
+    between calls. The trainer's stored Transition.game_state would
+    then point at a mutated state and the re-forward path would
+    diverge. Catch the bug at the second call rather than in a
+    corrupt loss six hours into a training run."""
+    from transformer_policy import TransformerPolicy
+    sim = fresh_sim
+    leader1 = _make("Skeleton", 1, 5, 5, 1, is_leader=True)
+    leader2 = _make("Skeleton", 2, 6, 5, 2, is_leader=True)
+    sim.gs.map.units.add(leader1)
+    sim.gs.map.units.add(leader2)
+    sim._begin_side_turn(1)
+
+    policy = TransformerPolicy()
+    # First call OK.
+    policy.select_action(sim.gs, game_label="contract")
+    # Second call with same id() should raise.
+    with pytest.raises(RuntimeError, match="SAME GameState object"):
+        policy.select_action(sim.gs, game_label="contract")
+
+
+def test_recall_action_rejected_to_end_turn(fresh_sim):
+    """The sim has no recall list and the exporter would emit a
+    broken `[recall]` block citing a unit_id that's not on Wesnoth's
+    recall list. `_action_to_command` rejects recall actions outright
+    so they translate to end_turn -- the recorded command kind must
+    NEVER be 'recall'."""
+    sim = fresh_sim
+    # Place at least one leader so the sim doesn't error on missing leader.
+    leader = _make("Skeleton", 1, 5, 5, 1, is_leader=True)
+    leader2 = _make("Skeleton", 2, 6, 5, 2, is_leader=True)
+    sim.gs.map.units.add(leader)
+    sim.gs.map.units.add(leader2)
+    sim._begin_side_turn(1)
+    pre_count = len(sim.command_history)
+    sim.step({"type": "recall", "unit_id": "u1",
+              "target_hex": Position(5, 6)})
+    new_kinds = [rc.kind for rc in sim.command_history[pre_count:]]
+    assert "recall" not in new_kinds, (
+        f"recall command leaked through to history: {new_kinds}")
+    # The recall should have triggered an end_turn fallback.
+    assert "end_turn" in new_kinds, (
+        f"expected end_turn fallback, got {new_kinds}")

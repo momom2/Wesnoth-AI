@@ -123,6 +123,15 @@ class TransformerPolicy:
         # awaiting the next train_step.
         self._queue: List[List[Transition]] = []
 
+        # Debug-mode tripwire: id() of the most recent GameState passed
+        # to select_action per (game_label, side). If two consecutive
+        # calls pass the SAME object id, the caller is reusing a live
+        # state that will be mutated in place by sim.step -- breaking
+        # the trainer's re-forward. See the contract in
+        # `select_action`'s docstring. Only populated under __debug__,
+        # so production runs (`python -O`) skip the bookkeeping.
+        self._last_state_id: Dict[Tuple[str, int], int] = {}
+
         # Architecture record (for checkpoint compat checks).
         self._arch = {
             "d_model":     d_model,
@@ -152,7 +161,55 @@ class TransformerPolicy:
         at collection time, not the grad graph. The trainer re-forwards
         the stored game_state at training time. This is the key
         memory-saving move — see trainer.py's docstring.
+
+        ====================================================================
+        STATE SNAPSHOT CONTRACT (read this before adding a new caller):
+        ====================================================================
+        `game_state` MUST be a stable snapshot that won't be mutated
+        between the call returning and the next `train_step()`. The
+        Transition stores a REFERENCE to it, and `train_step` re-forwards
+        the model on that exact reference to recover log-probs and entropy
+        on the SAME inputs the sampling pass saw.
+
+        Two specific failure modes if you pass a live mutable state:
+
+          1. `WesnothSim.step()` swaps `gs.map.units` / `gs.sides` /
+             `gs.global_info` in place. If you pass `sim.gs` directly
+             rather than `copy.deepcopy(sim.gs)`, the trainer's re-forward
+             walks a DIFFERENT state than the sampler did. The legality
+             mask now masks out the slot the sampler picked, log_prob
+             collapses to -inf, and the policy loss explodes (or worse,
+             silently produces nonsense gradients).
+
+          2. `compute_delta(prev, post)` requires a stable `prev`. If
+             `prev IS post` after `sim.step` mutates in place, every
+             reward delta is zero and the policy receives no shaping
+             signal.
+
+        Both `tools/sim_self_play.py:play_one_game` and
+        `tools/sim_demo_game.py` deepcopy `sim.gs` before each call.
+
+        In debug mode (PYTHONOPTIMIZE not set / -O not passed) we keep an
+        id() of the most recent state per (game_label, side) and assert
+        the next call passes a different id; this catches the "I forgot
+        to deepcopy" bug at the first decision after the regression
+        instead of in a corrupt loss six hours into a training run.
         """
+        if __debug__:
+            side_dbg = game_state.global_info.current_side
+            key_dbg = (game_label, side_dbg)
+            prev_id = self._last_state_id.get(key_dbg)
+            if prev_id is not None and prev_id == id(game_state):
+                raise RuntimeError(
+                    f"select_action got the SAME GameState object as the "
+                    f"previous call for ({game_label!r}, side={side_dbg}). "
+                    f"This means the caller didn't deepcopy before "
+                    f"sim.step() and the Transition's stored state will "
+                    f"diverge from what train_step re-forwards on. See "
+                    f"the state-snapshot contract docstring above."
+                )
+            self._last_state_id[key_dbg] = id(game_state)
+
         with torch.no_grad():
             encoded = self._encoder.encode(game_state)
             output = self._model(encoded)
@@ -198,6 +255,12 @@ class TransformerPolicy:
         keys = [k for k in self._pending if k[0] == game_label]
         for k in keys:
             del self._pending[k]
+        if __debug__:
+            # Drop the debug tripwire entries for this game too, so the
+            # next game with the same label gets a fresh slate.
+            stale = [k for k in self._last_state_id if k[0] == game_label]
+            for k in stale:
+                del self._last_state_id[k]
 
     def train_step(self) -> TrainStats:
         """Apply one gradient update over queued trajectories.

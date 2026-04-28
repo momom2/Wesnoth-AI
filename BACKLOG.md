@@ -84,11 +84,14 @@ stated goals.
   readers now see either the old file in full or the new file in full,
   never a torn half-written buffer.
 
-- [ ] 🟠 **State passed to `select_action` MUST be a stable snapshot — make it
-  enforced.** (`transformer_policy.py:143-169`). The harness now deepcopies
-  before every call; document this contract on `select_action` and add
-  an `assert id(prev_state) != id(new_state)` in debug mode. Protect
-  future callers from reproducing the bug we just fixed.
+- [x] 🟠 **`select_action` state-snapshot contract documented + asserted**
+  (DONE 2026-04-28). Big block-comment in `select_action`'s docstring
+  explains the two failure modes (trainer re-forward divergence /
+  zero-delta rewards). Debug-mode tripwire: per-(game_label, side)
+  `_last_state_id` records id() of the most recent state; if the
+  next call passes the same id, RuntimeError. Cleared in
+  `drop_pending`. Fires under default Python (skipped under `python
+  -O`). Test in `test_sim_advance.py`.
 
 ---
 
@@ -206,15 +209,15 @@ replay export.
   top-priority list. Covers kill-based AND damage-based threshold
   crossings (detection compares pre/post by unit id+name).
 
-- [ ] 🟠 **Recall is a no-op everywhere; the model can produce one**
-  (`tools/wesnoth_sim.py:603-609`, `tools/replay_dataset.py:1332-1334`).
-  Sim accepts recall actions but doesn't add the unit, while
-  `sim_to_replay._wml_for_command` (`tools/sim_to_replay.py:176-195`)
-  emits a `[recall]` block. Wesnoth playback then errors with "no such
-  unit on recall list". Today's models don't recall (action_sampler
-  doesn't emit them); document and assert. Long-term, model a recall
-  list in `gs.global_info` and populate it on level-up of dying-side
-  units.
+- [x] 🟠 **Recall actions guarded at sim entry** (DONE 2026-04-28).
+  `WesnothSim._action_to_command` now rejects recall actions outright
+  (returns None -> step() falls back to end_turn). Eliminates the
+  whole class of broken `[recall]` WML the exporter would otherwise
+  emit. Today's action_sampler doesn't produce recall actions; the
+  guard is dormant insurance.
+  Long-term: model a recall list in `gs.global_info`, populate on
+  level-up of dying-side units, expose recall slots to the encoder
+  / sampler / exporter.
 
 - [ ] 🟠 **Plague spawns wrong unit type when attacker is a variation**
   (`tools/replay_dataset.py:1401-1408`). Uses `attacker.name` but
