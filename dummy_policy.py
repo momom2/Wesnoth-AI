@@ -53,9 +53,11 @@ _BOOTSTRAP_UNITS = 3
 # starting-keep layouts on 2p_Caves_of_the_Basilisk.
 _CASTLE_SEARCH_RADIUS = 3
 
-# Cartesian neighborhood (not true hex axial adjacency).
-_ADJACENT_OFFSETS = [(1, 0), (-1, 0), (0, 1), (0, -1),
-                     (1, 1), (-1, -1), (1, -1), (-1, 1)]
+# Hex adjacency (offset/odd-q layout) -- imported from tools.abilities
+# so the dummy policy can't generate moves that exist in Cartesian
+# space but not on Wesnoth's hex grid (Wesnoth's replay engine
+# rejects those as 'corrupt movement').
+from tools.abilities import hex_neighbors as _hex_neighbors
 
 
 class DummyPolicy:
@@ -159,8 +161,7 @@ class DummyPolicy:
     ) -> Optional[Position]:
         on_map = {(h.position.x, h.position.y) for h in game_state.map.hexes}
         occupied = {(u.position.x, u.position.y) for u in game_state.map.units}
-        for dx, dy in _ADJACENT_OFFSETS:
-            nx, ny = pos.x + dx, pos.y + dy
+        for nx, ny in _hex_neighbors(pos.x, pos.y):
             if (nx, ny) in on_map and (nx, ny) not in occupied:
                 return Position(nx, ny)
         return None
