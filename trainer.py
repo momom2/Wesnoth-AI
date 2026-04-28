@@ -27,6 +27,7 @@ Pieces:
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
@@ -190,12 +191,26 @@ class Trainer:
             return TrainStats()
 
         # Cap the number of transitions we process — for overlong
-        # training batches, subsample uniformly. Keeps peak compute
-        # bounded.
+        # training batches, subsample to bound peak compute.
+        #
+        # Use a random subset (not uniform stride). Stride-N gives a
+        # sample that's heavily correlated with episode position: with
+        # `gamma=0.99` and 200-step trajectories, returns near terminal
+        # have ~1.0× weight while step-0 returns have ~0.13× weight,
+        # and stride sampling preferentially keeps near-terminal
+        # transitions (since they appear later in `flat`). The policy
+        # then trains on a biased return distribution. Random sampling
+        # gives every transition the same selection probability so the
+        # subsampled batch's return distribution matches the full
+        # batch's in expectation.
         cap = self.config.max_transitions_per_step
         if len(flat) > cap:
-            step = len(flat) / cap
-            idxs = [int(i * step) for i in range(cap)]
+            idxs = random.sample(range(len(flat)), cap)
+            # Sort to preserve trajectory order for any future
+            # logic that walks `flat` sequentially (e.g. value
+            # bootstrapping across consecutive steps). The sort is
+            # cheap relative to the forward passes.
+            idxs.sort()
             flat = [flat[i] for i in idxs]
             returns_flat = [returns_flat[i] for i in idxs]
 
@@ -232,10 +247,23 @@ class Trainer:
                 max=+float(self.config.value_clip),
             )
 
-        # --- Pass 1: values without grad --------------------------------
-        values_np: List[float] = []
+        # Both passes run in EVAL MODE so the two value forwards
+        # (Pass 1 baseline, Pass 2 MSE target) see identical activations.
+        # Old code only set eval() for Pass 1 and let Pass 2 inherit
+        # train() from the caller -- with dropout=1e-4 (model.py:96)
+        # this introduced tiny noise between the value used for
+        # advantages and the value being fit, dragging the value head's
+        # learning signal. Dropout=1e-4 is functionally a no-op
+        # statistically (see model.py comment), so disabling it via
+        # eval mode for the whole train_step doesn't lose meaningful
+        # regularization. The try/finally restores train() mode for any
+        # downstream caller that re-uses the model post-step.
+        prev_model_training   = self.model.training
+        prev_encoder_training = self.encoder.training
         self.model.eval(); self.encoder.eval()
         try:
+            # --- Pass 1: values without grad ----------------------------
+            values_np: List[float] = []
             with torch.no_grad():
                 for start in range(0, N, B):
                     chunk = flat[start:start + B]
@@ -243,78 +271,83 @@ class Trainer:
                     outputs = self.model.forward_batch(encoded_chunk)
                     for output in outputs:
                         values_np.append(float(output.value.squeeze().item()))
-        finally:
-            self.model.train(); self.encoder.train()
 
-        values_est = torch.tensor(values_np, device=dev, dtype=torch.float32)
-        advantages = returns_t - values_est
-        if self.config.normalize_advantages and advantages.numel() > 1:
-            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+            values_est = torch.tensor(values_np, device=dev, dtype=torch.float32)
+            advantages = returns_t - values_est
+            if self.config.normalize_advantages and advantages.numel() > 1:
+                advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
-        # --- Pass 2: gradient accumulation, per-chunk backward ----------
-        self.optimizer.zero_grad()
+            # --- Pass 2: gradient accumulation, per-chunk backward ------
+            self.optimizer.zero_grad()
 
-        # Scalar accumulators for logging (summed over N, divided at the
-        # end to match the old mean-based metrics).
-        sum_policy_loss = 0.0
-        sum_value_loss  = 0.0
-        sum_entropy     = 0.0
+            # Scalar accumulators for logging (summed over N, divided
+            # at the end to match the old mean-based metrics).
+            sum_policy_loss = 0.0
+            sum_value_loss  = 0.0
+            sum_entropy     = 0.0
 
-        for start in range(0, N, B):
-            chunk = flat[start:start + B]
-            L = len(chunk)
-            encoded_chunk = [self.encoder.encode(t.game_state) for t in chunk]
-            outputs = self.model.forward_batch(encoded_chunk)
+            for start in range(0, N, B):
+                chunk = flat[start:start + B]
+                L = len(chunk)
+                encoded_chunk = [self.encoder.encode(t.game_state) for t in chunk]
+                outputs = self.model.forward_batch(encoded_chunk)
 
-            chunk_log_probs: List[torch.Tensor] = []
-            chunk_values:    List[torch.Tensor] = []
-            chunk_entropies: List[torch.Tensor] = []
-            for t, encoded, output in zip(chunk, encoded_chunk, outputs):
-                lp, ent = reforward_logprob_entropy(
-                    encoded, output, t.game_state,
-                    actor_idx=t.actor_idx,
-                    target_idx=t.target_idx,
-                    weapon_idx=t.weapon_idx,
+                chunk_log_probs: List[torch.Tensor] = []
+                chunk_values:    List[torch.Tensor] = []
+                chunk_entropies: List[torch.Tensor] = []
+                for t, encoded, output in zip(chunk, encoded_chunk, outputs):
+                    lp, ent = reforward_logprob_entropy(
+                        encoded, output, t.game_state,
+                        actor_idx=t.actor_idx,
+                        target_idx=t.target_idx,
+                        weapon_idx=t.weapon_idx,
+                    )
+                    chunk_log_probs.append(lp)
+                    chunk_values.append(output.value.squeeze())
+                    chunk_entropies.append(ent)
+
+                lp_t  = torch.stack(chunk_log_probs)
+                val_t = torch.stack(chunk_values)
+                ent_t = torch.stack(chunk_entropies)
+                adv_t = advantages[start:start + L]
+                ret_t = returns_t[start:start + L]
+
+                # Mean-style losses, scaled by L/N so summing across
+                # chunks matches the old .mean() over all N.
+                policy_loss  = -(lp_t * adv_t).sum() / N
+                value_loss   = F.mse_loss(val_t, ret_t, reduction='sum') / N
+                entropy_term = ent_t.sum() / N
+
+                chunk_loss = (
+                    policy_loss
+                    + self.config.value_coef   * value_loss
+                    - self.config.entropy_coef * entropy_term
                 )
-                chunk_log_probs.append(lp)
-                chunk_values.append(output.value.squeeze())
-                chunk_entropies.append(ent)
+                chunk_loss.backward()
 
-            lp_t  = torch.stack(chunk_log_probs)
-            val_t = torch.stack(chunk_values)
-            ent_t = torch.stack(chunk_entropies)
-            adv_t = advantages[start:start + L]
-            ret_t = returns_t[start:start + L]
+                sum_policy_loss += float(policy_loss.item())
+                sum_value_loss  += float(value_loss.item())
+                sum_entropy     += float(entropy_term.item())
 
-            # Mean-style losses, scaled by L/N so summing across chunks
-            # matches the old .mean() over all N.
-            policy_loss  = -(lp_t * adv_t).sum() / N
-            value_loss   = F.mse_loss(val_t, ret_t, reduction='sum') / N
-            entropy_term = ent_t.sum() / N
+                # Drop references before the next chunk so the previous
+                # chunk's graph + activations can be reclaimed even if
+                # DML's allocator holds onto buffers.
+                del chunk_log_probs, chunk_values, chunk_entropies
+                del lp_t, val_t, ent_t, adv_t, ret_t
+                del encoded_chunk, outputs, chunk_loss
 
-            chunk_loss = (
-                policy_loss
-                + self.config.value_coef   * value_loss
-                - self.config.entropy_coef * entropy_term
+            grad_norm = torch.nn.utils.clip_grad_norm_(
+                list(self.model.parameters()) + list(self.encoder.parameters()),
+                self.config.grad_clip,
             )
-            chunk_loss.backward()
-
-            sum_policy_loss += float(policy_loss.item())
-            sum_value_loss  += float(value_loss.item())
-            sum_entropy     += float(entropy_term.item())
-
-            # Drop references before the next chunk so the previous
-            # chunk's graph + activations can be reclaimed even if DML's
-            # allocator holds onto buffers.
-            del chunk_log_probs, chunk_values, chunk_entropies
-            del lp_t, val_t, ent_t, adv_t, ret_t
-            del encoded_chunk, outputs, chunk_loss
-
-        grad_norm = torch.nn.utils.clip_grad_norm_(
-            list(self.model.parameters()) + list(self.encoder.parameters()),
-            self.config.grad_clip,
-        )
-        self.optimizer.step()
+            self.optimizer.step()
+        finally:
+            # Restore the caller's train/eval mode -- the caller may
+            # toggle modes around train_step (e.g. for inference paths).
+            if prev_model_training:
+                self.model.train()
+            if prev_encoder_training:
+                self.encoder.train()
 
         return TrainStats(
             policy_loss    = float(sum_policy_loss),

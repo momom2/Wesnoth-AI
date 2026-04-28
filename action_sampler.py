@@ -48,6 +48,7 @@ numpy helper below — see profile for current numbers.
 
 from __future__ import annotations
 
+import logging
 from collections import deque
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
@@ -61,6 +62,9 @@ from combat_oracle import expected_attack_net_damage
 from encoder import EncodedState
 from model import ActorKind, ModelOutput
 from rewards import hex_distance
+
+
+log = logging.getLogger("action_sampler")
 
 
 # How strongly the combat oracle nudges attack-target selection. Set
@@ -247,6 +251,20 @@ def reforward_logprob_entropy(
     entropy = entropy + ent_t
 
     if weapon_idx is None:
+        return log_prob, entropy
+
+    # Defensive bounds check: `encoded.unit_ids` indexes only the on-
+    # board unit slots (length = output.num_units). Recruit slots use
+    # `actor_idx >= num_units` and `encoded.recruit_types[actor_idx -
+    # num_units]` instead. Today the `weapon_idx is None` short-circuit
+    # above catches recruit actions (they have no weapon), but a future
+    # change that gives recruits a weapon idx would IndexError here.
+    # Bail safely with the partial log_prob/entropy we already have so
+    # the trainer's loss accumulator stays well-defined.
+    if actor_idx >= len(encoded.unit_ids):
+        log.debug(
+            f"reforward: actor_idx={actor_idx} is a recruit slot but "
+            f"weapon_idx={weapon_idx} is set; skipping weapon term")
         return log_prob, entropy
 
     # Weapon mask needs the attacker's actual attack count — same as

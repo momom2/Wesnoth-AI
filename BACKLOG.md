@@ -219,13 +219,14 @@ replay export.
   level-up of dying-side units, expose recall slots to the encoder
   / sampler / exporter.
 
-- [ ] 🟠 **Plague spawns wrong unit type when attacker is a variation**
-  (`tools/replay_dataset.py:1401-1408`). Uses `attacker.name` but
-  Wesnoth uses the attacker's `parent_id` field. `Walking Corpse:mounted`
-  killing a Wose should raise `Walking Corpse` with `undead_variation=wose`,
-  not `Walking Corpse:mounted:wose`. Dormant — only triggers when Undead
-  attack non-Undead units. Add `parent_id` extraction to
-  `tools/scrape_unit_stats.py` and use it.
+- [x] 🟠 **Plague variation now uses parent_id** (DONE 2026-04-28).
+  `_spawn_plague_corpse` reads `_stats_for(attacker.name)["id"]` (the
+  parent unit's id, which `extract_variations` already inherits onto
+  every variation entry in unit_stats.json). A `Walking Corpse:mounted`
+  attacker killing a Cavalryman now spawns `Walking Corpse:mounted`
+  (parent + dead's variation), NOT `Walking Corpse:mounted:mounted`
+  (chained). Falls back to attacker.name when the lookup misses
+  (custom era / pre-scrape replay).
 
 - [ ] 🟠 **Combat damage seed alignment is correct today** but verify with
   a smoke test once the model attacks meaningfully. Each attack:
@@ -358,23 +359,27 @@ replay export.
 
 ### Bugs (silent corruption)
 
-- [ ] 🟠 **`reforward_logprob_entropy` indexes `unit_ids` for any actor**
-  (`action_sampler.py:255`). `encoded.unit_ids[actor_idx]` IndexErrors
-  when `actor_idx` is a recruit slot (`actor_idx >= num_units`). Today
-  it's masked off by `if weapon_idx is None: return ...` (line 249), but
-  any future change that gives recruits a weapon idx breaks silently.
-  Guard: `if actor_idx >= len(encoded.unit_ids): return log_prob, entropy`.
+- [x] 🟠 **`reforward_logprob_entropy` actor_idx bounds-check** (DONE
+  2026-04-28). Explicit `if actor_idx >= len(encoded.unit_ids)`
+  early-return with a debug log. Was previously masked off by
+  the `weapon_idx is None` short-circuit; now guarded explicitly so
+  a future change that gives recruits a weapon idx can't IndexError
+  silently.
 
-- [ ] 🟡 **Trainer pass-1/pass-2 mode inconsistency**
-  (`trainer.py:184-190`). Pass 1 runs in `eval()` mode, Pass 2 inherits
-  `train()` from `transformer_policy.train_step` (line 278). Even with
-  `dropout=1e-4` this introduces tiny mismatch between value-for-advantage
-  and value-for-MSE. Run both passes in eval mode (no_grad isn't
-  involved).
+- [x] 🟡 **Trainer pass-1/pass-2 eval mode consistency** (DONE
+  2026-04-28). Both passes now run inside the same eval() block
+  (try/finally restores caller's mode); the value-for-advantage
+  baseline and the value-for-MSE target see identical activations.
+  Old code only set eval() for Pass 1; Pass 2 inherited train(),
+  introducing dropout=1e-4 noise between the two value forwards.
 
-- [ ] 🟡 **Trainer subsamples by uniform stride, correlated with episode
-  position** (`trainer.py:151`). With `gamma=0.99`, this preferentially
-  trains on near-terminal returns. Use random shuffle + slice.
+- [x] 🟡 **Trainer random subsampling** (DONE 2026-04-28). Replaced
+  uniform-stride subsampling with `random.sample(range(N), cap)`
+  (sorted to preserve trajectory order for any sequential logic).
+  Stride preferentially kept near-terminal transitions (which have
+  ~7× the gamma-discounted return weight at gamma=0.99 over a
+  200-step trajectory); random sampling keeps the sub-batch's return
+  distribution unbiased relative to the full batch in expectation.
 
 - [ ] 🟡 **Fogged hexes silently disappear from the legality mask**
   (`encoder.py:471`, `action_sampler.py:404,556`). The encoder drops

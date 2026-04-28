@@ -1402,12 +1402,19 @@ def _spawn_plague_corpse(gs: GameState, dead: Unit,
     if _terrain_at(gs, dead.position.x, dead.position.y) == "village":
         return
 
-    # Pick the spawn unit-type: attacker's parent_id (`Walking Corpse`
-    # / `Soulless` for default-era plague users), then apply the dead
-    # unit's `undead_variation` as a stat override. Variations are
-    # stored under composite keys ("Walking Corpse:mounted") in the
-    # unit DB; falling back to the base type when no variation matches.
-    base_type = attacker_name
+    # Pick the spawn unit-type: attacker's PARENT_ID (`Walking Corpse`
+    # / `Soulless` for default-era plague users), NOT the attacker's
+    # own name. If the attacker is itself a variation -- e.g. a
+    # `Walking Corpse:mounted` (a previously-raised cavalry corpse)
+    # killing a Wose -- Wesnoth's plague spawns a fresh `Walking
+    # Corpse` (the parent) with the dead unit's `undead_variation`
+    # applied, NOT a `Walking Corpse:mounted:wose` chained-variation
+    # which doesn't exist in the unit DB. The parent_id is stored
+    # under "id" on every entry (variations inherit their parent's
+    # id; see scrape_unit_stats.extract_variations). Fall back to
+    # attacker.name if the lookup misses (custom era, missing scrape).
+    attacker_stats = _stats_for(attacker_name)
+    base_type = str(attacker_stats.get("id", "") or "").strip() or attacker_name
     variation = str(dead_stats.get("undead_variation", "")).strip()
     spawn_type = f"{base_type}:{variation}" if variation else base_type
     if variation and spawn_type not in _UNIT_DB:
