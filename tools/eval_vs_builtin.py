@@ -105,8 +105,31 @@ def _load_checkpoint(
         d_model=d_model, num_layers=num_layers,
         num_heads=num_heads, d_ff=d_ff,
     ).to(device)
-    model.load_state_dict(ckpt["model_state"])
-    encoder.load_state_dict(ckpt["encoder_state"])
+    # strict=False so a checkpoint saved before an architecture-additive
+    # change (e.g. C.1's type_head, the dynamic_flag_proj column) still
+    # evaluates -- the missing modules just keep their random init,
+    # which is exactly what an "evaluate the OLD checkpoint" workflow
+    # wants. Mirrors `supervised_train.py`'s resume path AND
+    # `transformer_policy.load_checkpoint(strict=False)` default.
+    # Surface the missing/unexpected keys so a real arch divergence
+    # (vs an expected-additive new head) is visible at a glance.
+    m_missing, m_unexpected = model.load_state_dict(
+        ckpt["model_state"], strict=False)
+    if m_missing:
+        log.warning(f"  model: {len(m_missing)} missing key(s) "
+                    f"(random init, expected after additive arch "
+                    f"change): {m_missing}")
+    if m_unexpected:
+        log.warning(f"  model: {len(m_unexpected)} unexpected key(s) "
+                    f"in checkpoint (ignored): {m_unexpected}")
+    e_missing, e_unexpected = encoder.load_state_dict(
+        ckpt["encoder_state"], strict=False)
+    if e_missing:
+        log.warning(f"  encoder: {len(e_missing)} missing key(s) "
+                    f"(random init): {e_missing}")
+    if e_unexpected:
+        log.warning(f"  encoder: {len(e_unexpected)} unexpected "
+                    f"key(s) in checkpoint (ignored): {e_unexpected}")
     encoder.unit_type_to_id = dict(ckpt.get("unit_type_to_id", {}))
     if "faction_to_id" in ckpt:
         encoder.faction_to_id = dict(ckpt["faction_to_id"])
