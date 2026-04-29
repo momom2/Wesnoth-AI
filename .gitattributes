@@ -15,6 +15,7 @@
 # shows the whole file changed because line endings flipped"
 # trap when a Windows editor accidentally re-saves with CRLF.
 *.py           text eol=lf
+*.pyw          text eol=lf
 
 # JSON / Markdown: LF for the same diff-stability reason.
 *.json         text eol=lf
