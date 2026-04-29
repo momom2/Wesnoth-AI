@@ -70,6 +70,7 @@ $toolsPy  = @(Get-ChildItem -Path 'tools' -Filter '*.py' -File |
 
 $clusterCandidates = @(
     'cluster/job.sbatch',
+    'cluster/job_selfplay.sbatch',
     'cluster/setup.sh',
     'cluster/run.sh',
     'cluster/RUNBOOK.md',
@@ -81,13 +82,23 @@ $clusterCandidates = @(
 )
 $clusterFiles = @($clusterCandidates | Where-Object { Test-Path $_ })
 
+# Reward / training configs. These are designed to be added and
+# tweaked between runs (the whole point of "config-driven, not
+# weights-driven" customization), so glob the directory rather
+# than enumerate per file.
+$configFiles = @()
+if (Test-Path 'cluster/configs') {
+    $configFiles = @(Get-ChildItem -Path 'cluster/configs' -Filter '*.json' -File |
+                     ForEach-Object { "cluster/configs/$($_.Name)" })
+}
+
 # unit_stats.json is part of the static corpus shipped via build_bundle,
 # but if it's been re-scraped (Wesnoth version bump) it needs to ride
 # along. Cheap to send (~250KB) so always include if present.
 $extras = @()
 if (Test-Path 'unit_stats.json') { $extras += 'unit_stats.json' }
 
-$paths = $rootPy + $toolsPy + $clusterFiles + $extras
+$paths = $rootPy + $toolsPy + $clusterFiles + $configFiles + $extras
 
 Write-Host "[sync] manifest ($($paths.Count) files):"
 $paths | ForEach-Object { Write-Host "  $_" }
