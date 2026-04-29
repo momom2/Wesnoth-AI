@@ -432,30 +432,6 @@ def _build_unit(u: dict, apply_leader_traits: bool = False,
     max_exp    = u.get("max_exp",    _scaled_max_exp(base_max_exp, exp_modifier))
     cost       = u.get("cost",       int(stats.get("cost",      14)))
 
-    # Replay extracts occasionally carry hp > max_hp (e.g. an Elvish
-    # Scout with hp=37 / max_hp=32) from mid-game snapshots where a
-    # heal-over-cap effect or AMLA bonus left the unit's recorded
-    # state inconsistent with the type's max. Wesnoth itself caps
-    # hp <= max_hp at every healing checkpoint; sim_self_play /
-    # sim_demo_game rely on the same invariant. Clamp at build time
-    # and warn once per unit-type so the source corruption is
-    # visible without spamming the log.
-    raw_hp = u.get("hp", max_hp)
-    if raw_hp > max_hp:
-        seen = getattr(_build_unit, "_warned_hp_clamp", set())
-        if u["type"] not in seen:
-            log.warning(
-                f"replay starting state has hp ({raw_hp}) > max_hp "
-                f"({max_hp}) for {u['type']!r}; clamping. (warning "
-                f"once per unit type)")
-            seen.add(u["type"])
-            _build_unit._warned_hp_clamp = seen
-        raw_hp = max_hp
-    elif raw_hp < 0:
-        # Symmetric guard: hp shouldn't be negative either. The sim
-        # invariant range is [0, max_hp].
-        raw_hp = 0
-
     # Resistances list aligned with DamageType enum order; values are
     # fractions (0.0 = no special resistance, 0.5 = 50% damage taken,
     # i.e. WML resistance=50). Wesnoth's WML stores percentages where
@@ -498,7 +474,7 @@ def _build_unit(u: dict, apply_leader_traits: bool = False,
         cost=cost,
         alignment=_alignment_from_str(stats.get("alignment", "neutral")),
         levelup_names=list(stats.get("advances_to", [])),
-        current_hp=raw_hp,
+        current_hp=u.get("hp", max_hp),
         current_moves=0 if petrified else max_moves,
         current_exp=0,
         has_attacked=petrified,         # statues never act

@@ -73,10 +73,35 @@ def _autoselect_checkpoint(root: Path) -> Optional[Path]:
 
 
 def _pick_replay_seed(pool: Path, rng: random.Random) -> Optional[Path]:
-    """Random `replays_dataset/*.json.gz` to bootstrap the sim from."""
+    """Random `replays_dataset/*.json.gz` to bootstrap the sim from.
+
+    Filters to 2p game_ids via index.jsonl when present (mirrors
+    `sim_self_play._gather_replay_pool`). Without the filter, the
+    demo can land on a campaign-scenario replay whose runtime state
+    used Lua / WML paths the sim doesn't model -- e.g. a
+    `[modify_unit]` that pushed hp past max_hp via `violate_maximum=yes`,
+    which trips `_assert_invariants` on the first sim step.
+    """
     if not pool.is_dir():
         return None
     files = list(pool.glob("*.json.gz"))
+    if not files:
+        return None
+    # 2p filter (matches sim_self_play._gather_replay_pool).
+    idx_path = pool / "index.jsonl"
+    if idx_path.exists():
+        import json as _json
+        keep_names: set = set()
+        with idx_path.open() as f:
+            for line in f:
+                try:
+                    e = _json.loads(line)
+                except _json.JSONDecodeError:
+                    continue
+                if e.get("game_id", "").startswith("2p"):
+                    keep_names.add(e.get("file", ""))
+        if keep_names:
+            files = [f for f in files if f.name in keep_names]
     if not files:
         return None
     return rng.choice(files)

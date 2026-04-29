@@ -949,7 +949,18 @@ class WesnothSim:
 
           (a) `current_hp` in [0, max_hp]. HP > max_hp means an effect
               (drain, healing) overshot; HP < 0 means we forgot to
-              clamp a damage roll.
+              clamp a damage roll. Verified against 1.18 source: drain
+              caps at `max_hp - hp` (attack.cpp:1037), healing caps in
+              calculate_healing (heal.cpp), WML `[effect]
+              apply_to=hitpoints` clamps unless `violate_maximum=yes`
+              (unit.cpp:2167-2170). The only mainline-supported paths
+              to over-cap are Lua `unit.hitpoints = N` (lua_unit.cpp:
+              437 -> unit.hpp:519, no clamp) and `set_max_hitpoints(N)`
+              with N below current hp (unit.hpp:515, no hp clamp) --
+              neither happens in 2p ladder PvP. If this fires on a 2p
+              replay, it's a real sim bug; if it fires on a campaign /
+              custom-era replay, the upstream filter should be
+              tightened to exclude it.
 
           (b) `current_moves` in [0, max_moves]. MP > max_moves means
               `_deduct_extra_mp` over-credited or `_begin_side_turn`
