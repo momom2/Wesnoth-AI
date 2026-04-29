@@ -36,6 +36,7 @@ the log line.
 from __future__ import annotations
 
 import argparse
+import copy
 import logging
 import random
 import sys
@@ -170,7 +171,15 @@ def main(argv) -> int:
     t0 = time.perf_counter()
     game_label = "demo"
     while not sim.done:
-        action = policy.select_action(sim.gs, game_label=game_label)
+        # Deepcopy the state before each select_action: the policy
+        # stores the GameState reference in a Transition (it's a
+        # trainable policy class even though we discard pending here),
+        # and `sim.step` mutates `sim.gs` in place. Without the copy
+        # the stored state would diverge from what the trainer's
+        # reforward sees later. See the contract in
+        # `transformer_policy.select_action`'s docstring.
+        pre_state = copy.deepcopy(sim.gs)
+        action = policy.select_action(pre_state, game_label=game_label)
         sim.step(action)
     # Drop any pending trajectory transitions so policy state stays
     # clean. observe(done=True) would normally close them; we don't
