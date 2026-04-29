@@ -37,9 +37,23 @@ local json            = wesnoth.require("~add-ons/wesnoth_ai/lua/json_encoder.lu
 -- doesn't take the whole training run down — we'd just run slower.
 -- Two pref profiles, picked by scenario id:
 --   * Display mode (id contains "display"): a human is watching, so
---     2x turbo + animations on so the game is intelligible.
+--     2x turbo + animations on + sound on so the game is intelligible.
 --   * Training mode (everything else, incl. eval_*): no human is
---     watching, push for max throughput -- 10x turbo, no animations.
+--     watching, push for max throughput -- 10x turbo, no animations,
+--     no sound (sfx + music + turn bell + UI sounds all OFF).
+--     Sound silencing is a sibling of the turbo settings: the user
+--     never hears it (training/eval Wesnoth windows are minimized
+--     by `_pin_to_background`) but the audio thread still runs in
+--     the background eating CPU, and concurrent training runs of
+--     many parallel Wesnoth processes can produce a audible chorus
+--     of overlapping turn bells if any window steals focus briefly.
+--     Keys verified in src/preferences/general.cpp:
+--       sound / music / turn_bell / UI_sound, all bool, default true.
+--
+-- All preference writes via `wesnoth.preferences[k] = v` are session-
+-- only -- Wesnoth's --test mode doesn't save preferences.cfg back to
+-- disk on exit, so the user's normal pref values are restored as
+-- soon as the test process quits.
 --
 -- `wesnoth.current.scenario` is set before AI engines load (we're
 -- required from an [engine] block on a side, which runs after the
@@ -60,6 +74,8 @@ local function set_prefs()
         try("idle_anim", false)
         try("show_combat", true)       -- watching combat is the point
         try("scroll_to_action", true)
+        -- Sound left at the user's defaults; a human is watching, so
+        -- we want the audio they normally have.
     else
         try("turbo", true)
         try("turbo_speed", 10.0)
@@ -68,6 +84,12 @@ local function set_prefs()
         try("idle_anim", false)
         try("show_combat", false)
         try("scroll_to_action", false)
+        -- Sound off for headless training / eval. Reverts to the
+        -- user's preferences.cfg values when the --test process exits.
+        try("sound", false)
+        try("music", false)
+        try("turn_bell", false)
+        try("UI_sound", false)
     end
 end
 set_prefs()
