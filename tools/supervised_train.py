@@ -834,8 +834,29 @@ def train(
     if resume is not None and resume.exists():
         log.info(f"Resuming from {resume}")
         ckpt = torch.load(resume, map_location=device, weights_only=False)
-        model.load_state_dict(ckpt["model_state"])
-        encoder.load_state_dict(ckpt["encoder_state"])
+        # strict=False so an architecture-additive change (new head,
+        # new embedding column) can warm-start from a prior
+        # checkpoint without losing the heads that DID exist.
+        # Concrete case: C.1 added model.type_head; the cluster's
+        # epoch-3 checkpoint predates it. We log the deltas so a
+        # silent vocab/encoder regression can't sneak through
+        # disguised as "ah, that's just the new head".
+        m_missing, m_unexpected = model.load_state_dict(
+            ckpt["model_state"], strict=False)
+        if m_missing:
+            log.warning(f"  model: {len(m_missing)} missing key(s) "
+                        f"(will train from random init): {m_missing}")
+        if m_unexpected:
+            log.warning(f"  model: {len(m_unexpected)} unexpected key(s) "
+                        f"in checkpoint (ignored): {m_unexpected}")
+        e_missing, e_unexpected = encoder.load_state_dict(
+            ckpt["encoder_state"], strict=False)
+        if e_missing:
+            log.warning(f"  encoder: {len(e_missing)} missing key(s) "
+                        f"(will train from random init): {e_missing}")
+        if e_unexpected:
+            log.warning(f"  encoder: {len(e_unexpected)} unexpected key(s) "
+                        f"in checkpoint (ignored): {e_unexpected}")
         encoder.unit_type_to_id = dict(ckpt.get("unit_type_to_id", {}))
         if "faction_to_id" in ckpt:
             encoder.faction_to_id = dict(ckpt["faction_to_id"])
