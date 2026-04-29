@@ -237,6 +237,18 @@ class App:
                   width=14, command=self._op_sync).pack(side="left", padx=4)
         tk.Button(row1, text="Sync + Restart",
                   width=14, command=self._op_sync_restart).pack(side="left", padx=4)
+        # Start-job row. `cluster/run.sh start <mode>` refuses to
+        # double-submit, so clicking these while a chain is alive is
+        # a safe no-op (it just prints "already submitted").
+        row_start = tk.Frame(cluster_frame); row_start.pack(fill="x", padx=4, pady=4)
+        tk.Button(row_start, text="Start supervised",
+                  width=18,
+                  command=self._op_start_supervised).pack(side="left", padx=4)
+        tk.Button(row_start, text="Start self-play",
+                  width=18,
+                  command=self._op_start_selfplay).pack(side="left", padx=4)
+        tk.Label(row_start, text="(no-op if already running)",
+                 fg="gray").pack(side="left", padx=4)
         row2 = tk.Frame(cluster_frame); row2.pack(fill="x", padx=4, pady=4)
         tk.Label(row2, text="Pull checkpoint  epoch:").pack(side="left", padx=4)
         tk.Entry(row2, textvariable=self._epoch_var, width=10).pack(side="left", padx=4)
@@ -456,6 +468,25 @@ class App:
     def _op_sync_restart(self) -> None:
         self._spawn(self._ps(SCRIPT_SYNC, "-Restart"),
                     needs_password=True, label="sync code + restart")
+
+    def _op_start_supervised(self) -> None:
+        # `run.sh start supervised` refuses to double-submit (it
+        # checks squeue against the recorded jobid before sbatch'ing),
+        # so this is a safe no-op when a supervised chain is alive.
+        self._spawn(
+            ["ssh", REMOTE_HOST,
+             f"cd {REMOTE_PATH} && bash cluster/run.sh start supervised"],
+            needs_password=True, label="start supervised job",
+        )
+
+    def _op_start_selfplay(self) -> None:
+        # Same idempotency story as supervised: harmless if a self-
+        # play chain is already running.
+        self._spawn(
+            ["ssh", REMOTE_HOST,
+             f"cd {REMOTE_PATH} && bash cluster/run.sh start selfplay"],
+            needs_password=True, label="start self-play job",
+        )
 
     def _op_pull(self) -> None:
         spec = self._epoch_var.get().strip().lower()
