@@ -39,6 +39,7 @@ import argparse
 import copy
 import logging
 import random
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -120,6 +121,14 @@ def main(argv) -> int:
     ap.add_argument("--out", type=Path, default=None,
                     help="Output .bz2 path. Default: "
                          "logs/sim_demo_<UTC>.bz2.")
+    ap.add_argument("--saves-dir", type=Path,
+                    default=Path.home() / "Documents" / "My Games"
+                            / "Wesnoth1.18" / "saves",
+                    help="Wesnoth's saves directory; the exported "
+                         ".bz2 is copied here so it shows up in "
+                         "File -> Load Game without manual copying. "
+                         "Default: standard Windows path. Pass an "
+                         "empty string to skip the copy.")
     ap.add_argument("--max-turns", type=int, default=40,
                     help="Per-game turn cap.")
     ap.add_argument("--seed", type=int, default=None,
@@ -230,9 +239,30 @@ def main(argv) -> int:
     export_replay(sim, source_bz2=src_bz2, out_path=out_path,
                   pvp_defaults=pvp)
     log.info(f"wrote {out_path}")
-    log.info(
-        f"To watch: open {out_path} in Wesnoth (File -> Load Game -> "
-        f"pick this file).")
+
+    # Copy into Wesnoth's saves dir so the file shows up under
+    # File -> Load Game without the user having to navigate to
+    # logs/. shutil.copy2 preserves mtime so Wesnoth's "most
+    # recent" sort orders correctly. Failure is non-fatal -- the
+    # logs/ copy is still there.
+    saves_dir = args.saves_dir if str(args.saves_dir) else None
+    if saves_dir is not None:
+        try:
+            saves_dir.mkdir(parents=True, exist_ok=True)
+            saves_path = saves_dir / out_path.name
+            shutil.copy2(out_path, saves_path)
+            log.info(f"copied to Wesnoth saves: {saves_path}")
+            log.info(
+                f"To watch: open Wesnoth -> Load Game -> "
+                f"{out_path.name}")
+        except OSError as e:
+            log.warning(
+                f"could not copy to {saves_dir}: {e}. "
+                f"Open the file manually from {out_path}.")
+    else:
+        log.info(
+            f"To watch: open {out_path} in Wesnoth (File -> Load "
+            f"Game -> pick this file).")
     return 0
 
 
