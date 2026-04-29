@@ -102,39 +102,21 @@ python -u tools/supervised_train.py replays_dataset \
 echo "[job] trainer exit code: ${TRAINER_EXIT}"
 
 # "Done" detection: trainer finished all $EPOCHS epochs => the last
-# per-epoch snapshot exists. If it does, drop a `done.flag` so
-# future job invocations skip resubmission too. If we got SIGTERM'd
-# before the last epoch finished, the snapshot won't be there and
-# we'll chain another job.
+# per-epoch snapshot exists. Drop a done.flag so the operator (and
+# any future automation) sees training as complete.
 if [ -f "${EPOCHS_LAST_SENTINEL}" ]; then
     touch training/checkpoints/done.flag
     echo "[job] training complete (${EPOCHS_LAST_SENTINEL} present)"
 fi
 
-# Resubmit only if (a) training isn't done AND (b) the trainer exited
-# cleanly (0) or via SIGTERM (143 = walltime-hit). Other non-zero exit
-# codes mean a real crash; chaining would just spam failing jobs into
-# the queue, which (a) is rude on a shared cluster and (b) trips the
-# 5-job MaxSubmit cap pointlessly.
-RESUBMIT=0
-if [ ! -f training/checkpoints/done.flag ]; then
-    if [ "${TRAINER_EXIT}" = "0" ] || [ "${TRAINER_EXIT}" = "143" ]; then
-        RESUBMIT=1
-    else
-        echo "[job] trainer crashed (exit ${TRAINER_EXIT}); NOT chaining"
-        echo "[job] inspect this log, fix the issue, then submit by hand"
-    fi
-fi
-
-if [ "${RESUBMIT}" = "1" ]; then
-    cd "${SLURM_SUBMIT_DIR}"
-    next_id=$(sbatch --parsable cluster/job.sbatch || true)
-    if [ -n "${next_id}" ]; then
-        echo "${next_id}" > training/logs/supervised.jobid
-        echo "[job] chained: next job id ${next_id}"
-    else
-        echo "[job] WARNING: failed to chain follow-up job"
-    fi
-elif [ -f training/checkpoints/done.flag ]; then
-    echo "[job] training is complete; not chaining"
-fi
+# NO auto-resubmit. Two reasons:
+#   1. The bash script doesn't reliably survive SLURM's walltime
+#      kill (SIGTERM goes to the whole step; bash exits before
+#      reaching this code), so the chain didn't actually fire on
+#      walltime hits anyway.
+#   2. Self-throttling -- on a shared cluster with daily quotas,
+#      auto-resubmission is impolite. The operator decides when to
+#      continue: GUI "Sync + Continue" or
+#      `bash cluster/run.sh continue supervised`.
+echo "[job] not auto-resubmitting; use 'run.sh continue supervised' or"
+echo "[job] the GUI's 'Sync + Continue' button to start the next link."

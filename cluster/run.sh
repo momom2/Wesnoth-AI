@@ -7,10 +7,19 @@
 #   bash cluster/run.sh start                    # idem
 #   bash cluster/run.sh start supervised         # idem
 #   bash cluster/run.sh start selfplay           # submit a self-play job
+#   bash cluster/run.sh continue [<mode>]        # cancel running ${mode}
+#                                                # job (if any) and submit
+#                                                # a fresh one that auto-
+#                                                # resumes from the latest
+#                                                # checkpoint. Used after
+#                                                # walltime; replaces the
+#                                                # old auto-resubmit chain.
 #   bash cluster/run.sh status                   # show both modes if present
 #   bash cluster/run.sh status supervised        # only the supervised job
 #   bash cluster/run.sh tail [supervised|selfplay]
 #   bash cluster/run.sh stop [supervised|selfplay]   # default supervised
+#   bash cluster/run.sh budget                   # squeue + today's sacct +
+#                                                # 7-day summary + sshare
 #
 # Backwards compat: omitting the second arg keeps the old supervised-
 # only behavior, except for `status` which now shows both modes.
@@ -135,7 +144,76 @@ case "${CMD}" in
         echo "tail:       bash cluster/run.sh tail ${MODE}"
         echo "cancel:     bash cluster/run.sh stop ${MODE}"
         ;;
+    continue)
+        # Cancel any running ${MODE} job, then sbatch a fresh one
+        # (which auto-resumes from the latest checkpoint via the
+        # sbatch script's RESUME / latest-ckpt logic). Used after
+        # a walltime-cancelled job to start the next link manually
+        # -- replaces the old auto-resubmit chain. Polite on shared
+        # clusters: each link is operator-initiated.
+        jid_file="$(mode_jobid_file "${MODE}")"
+        sbatch_file="$(mode_sbatch_file "${MODE}")"
+        jid="$(current_jobid "${MODE}")"
+        if [ -n "${jid}" ] \
+           && squeue -j "${jid}" --noheader 2>/dev/null | grep -q .; then
+            echo "scancel ${jid} (cancelling running ${MODE} job before continue)"
+            scancel "${jid}"
+            # Brief settle so the new sbatch sees an open slot.
+            sleep 2
+        fi
+        out=$(sbatch "${sbatch_file}")
+        new_jid="$(echo "${out}" | awk '{print $NF}')"
+        echo "${new_jid}" > "${jid_file}"
+        echo "submitted: ${out}"
+        log_prefix="$(mode_log_prefix "${MODE}")"
+        echo "log will be: ${LOG_DIR}/${log_prefix}${new_jid}.log"
+        echo "monitor:    bash cluster/run.sh status"
+        echo "tail:       bash cluster/run.sh tail ${MODE}"
+        echo "cancel:     bash cluster/run.sh stop ${MODE}"
+        ;;
+    budget)
+        # Snapshot of cluster usage / budget. Best-effort: we run
+        # the standard SLURM accounting commands and let the
+        # operator interpret. Some clusters don't expose all of
+        # these (sshare in particular needs accounting enabled).
+        echo "--- queue (this user) ---"
+        squeue --me 2>/dev/null || echo "(squeue unavailable)"
+        echo
+        echo "--- today's jobs (sacct since 00:00) ---"
+        sacct -u "${USER}" -X \
+            --starttime="$(date -I)" \
+            --format=JobID,JobName%18,Partition%14,State,Start,Elapsed,ExitCode \
+            2>/dev/null \
+            || echo "(sacct unavailable)"
+        echo
+        echo "--- last 7 days summary ---"
+        sacct -u "${USER}" -X \
+            --starttime=now-7days \
+            --format=JobID,State,Elapsed,Partition \
+            -P 2>/dev/null \
+            | awk -F'|' 'NR>1 && $2 != "" {
+                state=$2;
+                # Elapsed is HH:MM:SS or D-HH:MM:SS.
+                t=$3; n=split(t, p, /[-:]/);
+                if (n==4) sec=((p[1]*24)+p[2])*3600+p[3]*60+p[4];
+                else      sec=p[1]*3600+p[2]*60+p[3];
+                total+=sec; by_state[state]+=sec; count[state]++;
+              }
+              END {
+                for (s in by_state) {
+                  printf "  %-12s %4d jobs  %5.1f h\n",
+                    s, count[s], by_state[s]/3600.0;
+                }
+                printf "  %-12s        %5.1f h total\n", "ALL",
+                       total/3600.0;
+              }' \
+            || echo "(sacct/awk unavailable)"
+        echo
+        echo "--- fair-share (sshare) ---"
+        sshare -U 2>/dev/null \
+            || echo "(sshare unavailable -- accounting may not be configured)"
+        ;;
     *)
-        echo "usage: $0 [start|status|tail|stop] [supervised|selfplay]" >&2
+        echo "usage: $0 [start|continue|status|tail|stop|budget] [supervised|selfplay]" >&2
         exit 2 ;;
 esac

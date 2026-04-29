@@ -17,17 +17,20 @@
 #
 # Usage (from the project root, doesn't matter -- script does its own cd):
 #   powershell -ExecutionPolicy Bypass -File cluster\sync.ps1
-#   powershell -ExecutionPolicy Bypass -File cluster\sync.ps1 -Restart
+#   powershell -ExecutionPolicy Bypass -File cluster\sync.ps1 -Continue
 #   powershell -ExecutionPolicy Bypass -File cluster\sync.ps1 -DryRun
 #   powershell -ExecutionPolicy Bypass -File cluster\sync.ps1 -RemoteHost foo
 #
 # Flags:
 #   -DryRun       List what would be sent, don't connect to the cluster.
-#   -Restart      After extracting, scancel the running job so the chained
-#                 follow-up sbatch picks up the new code immediately. Costs
-#                 at most ~500 steps (last periodic checkpoint). Without
-#                 this, the new code only takes effect at the next natural
-#                 walltime hit (up to ~4h).
+#   -Continue     After extracting, run `bash cluster/run.sh continue
+#                 supervised`: scancel any running supervised job and
+#                 sbatch a fresh one that auto-resumes from the latest
+#                 checkpoint. Replaces the old `-Restart` flag (which
+#                 only made sense alongside the chain auto-resubmit
+#                 logic, since removed). Use after a walltime hit when
+#                 you want the next link to start right away with the
+#                 just-synced code.
 #   -RemoteHost   ssh alias to use. Default: mesogip_outside.
 #   -RemotePath   Project root on the cluster. Default: ~/wesnoth-ai.
 #
@@ -39,7 +42,7 @@
 # we route the byte stream through cmd.exe.
 
 param(
-    [switch]$Restart,
+    [switch]$Continue,
     [switch]$DryRun,
     [string]$RemoteHost = 'mesogip_outside',
     [string]$RemotePath = '~/wesnoth-ai'
@@ -152,12 +155,11 @@ $remoteCmd += "sha256sum -c --quiet $sumPathInArchive && "
 $remoteCmd += "echo '[sync] checksums ok' && "
 $remoteCmd += "rm -f $sumPathInArchive"
 
-if ($Restart) {
-    # `|| true` because run.sh stop returns non-zero if there's no
-    # tracked job to scancel -- that's not an error here.
-    $remoteCmd += " && (bash cluster/run.sh stop || true)"
-    $remoteCmd += " && sleep 2"
-    $remoteCmd += " && bash cluster/run.sh status"
+if ($Continue) {
+    # run.sh continue scancels any running supervised job (if there
+    # is one) and submits a fresh sbatch that auto-resumes from the
+    # latest checkpoint. Replaces the old -Restart flag.
+    $remoteCmd += " && bash cluster/run.sh continue supervised"
 }
 
 Write-Host ""
@@ -203,8 +205,8 @@ if ($rc -ne 0) {
 
 Write-Host ""
 Write-Host "[sync] done."
-if ($Restart) {
-    Write-Host "[sync] cluster job restarted -- watch progress with: ssh $RemoteHost 'bash cluster/run.sh tail'"
+if ($Continue) {
+    Write-Host "[sync] new supervised job submitted -- watch with: ssh $RemoteHost 'bash cluster/run.sh tail supervised'"
 } else {
-    Write-Host "[sync] new code will activate at the next chain hop. Pass -Restart to bounce the job now."
+    Write-Host "[sync] code synced. To start a new job that auto-resumes from the latest checkpoint, pass -Continue, or click 'Sync + Continue' in the GUI."
 }

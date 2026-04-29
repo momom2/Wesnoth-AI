@@ -108,33 +108,12 @@ python -u tools/sim_self_play.py \
 
 echo "[job] trainer exit code: ${TRAINER_EXIT}"
 
-# Self-play has no natural "done" condition (unlike supervised's
-# fixed epoch count). The chain runs until the user explicitly
-# drops `selfplay_done.flag` to stop it. Other reasons to NOT
-# resubmit: a real (non-SIGTERM) crash, or no checkpoint after
-# the run (something fundamentally broken so resuming would just
-# repeat the failure).
-DONE_FLAG=training/checkpoints/selfplay_done.flag
-RESUBMIT=0
-if [ -f "${DONE_FLAG}" ]; then
-    echo "[job] ${DONE_FLAG} present; chain stopped by user"
-elif [ ! -f "${SP_CKPT}" ]; then
-    echo "[job] WARN: no checkpoint at ${SP_CKPT} after run; NOT chaining"
-    echo "[job] inspect this log -- the trainer never wrote a checkpoint"
-elif [ "${TRAINER_EXIT}" = "0" ] || [ "${TRAINER_EXIT}" = "143" ]; then
-    RESUBMIT=1
-else
-    echo "[job] trainer crashed (exit ${TRAINER_EXIT}); NOT chaining"
-    echo "[job] inspect this log, fix the issue, then submit by hand"
-fi
-
-if [ "${RESUBMIT}" = "1" ]; then
-    cd "${SLURM_SUBMIT_DIR}"
-    next_id=$(sbatch --parsable cluster/job_selfplay.sbatch || true)
-    if [ -n "${next_id}" ]; then
-        echo "${next_id}" > training/logs/selfplay.jobid
-        echo "[job] chained: next job id ${next_id}"
-    else
-        echo "[job] WARNING: failed to chain follow-up job"
-    fi
-fi
+# NO auto-resubmit. Same reasoning as cluster/job.sbatch:
+#   1. bash doesn't reliably survive SLURM walltime kills, so the
+#      chain didn't actually fire on walltime hits anyway.
+#   2. Self-throttling on a shared cluster with daily quotas --
+#      operator decides when to continue.
+# Continue with: GUI "Sync + Continue" or
+# `bash cluster/run.sh continue selfplay`.
+echo "[job] not auto-resubmitting; use 'run.sh continue selfplay' or"
+echo "[job] the GUI's 'Sync + Continue' button to start the next link."
