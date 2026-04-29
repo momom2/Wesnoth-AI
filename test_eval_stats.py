@@ -80,3 +80,69 @@ def test_wr_handles_zero_decisive():
     """No decisive games -> 'n/a', no CI fragment."""
     s = _wr({"win": 0, "loss": 0, "draw": 5, "timeout": 0, "errored": 0})
     assert s == "n/a"
+
+
+# ---------------------------------------------------------------------
+# _wr_short (heatmap cell formatter)
+# ---------------------------------------------------------------------
+
+def test_wr_short_format():
+    from eval_vs_builtin import _wr_short
+    s = _wr_short({"win": 7, "loss": 3, "draw": 1, "timeout": 0, "errored": 0})
+    assert "70.0%" in s
+    assert "(7/10)" in s
+    # Compact form does NOT carry the CI bounds (those go in the
+    # full-width per-matchup list below the heatmap).
+    assert "CI" not in s
+
+
+def test_wr_short_handles_zero_decisive():
+    from eval_vs_builtin import _wr_short
+    s = _wr_short({"win": 0, "loss": 0, "draw": 0, "timeout": 0, "errored": 0})
+    assert s == "n/a"
+
+
+# ---------------------------------------------------------------------
+# Heatmap rendering: end-to-end via aggregate_and_report capture
+# ---------------------------------------------------------------------
+
+def test_heatmap_appears_in_aggregate_output(capsys):
+    """aggregate_and_report() prints the heatmap header AND a row per
+    distinct our_faction, with each cell either 'n/a' or 'XX.X% (W/N)'.
+
+    Build a tiny synthetic eval: 4 games on `caves`, two factions,
+    all four matchups represented, mix of wins / losses."""
+    from eval_vs_builtin import aggregate_and_report
+    from eval_runner import GameResult
+
+    matchups = [
+        {"map_short": "caves", "our_faction": "Drakes",
+         "opp_faction": "Knalgan", "our_side": 1, "scenario_id": "g1"},
+        {"map_short": "caves", "our_faction": "Drakes",
+         "opp_faction": "Drakes",  "our_side": 1, "scenario_id": "g2"},
+        {"map_short": "caves", "our_faction": "Knalgan",
+         "opp_faction": "Drakes",  "our_side": 1, "scenario_id": "g3"},
+        {"map_short": "caves", "our_faction": "Knalgan",
+         "opp_faction": "Knalgan", "our_side": 1, "scenario_id": "g4"},
+    ]
+    results = [
+        GameResult(scenario_id="g1", our_side=1, winner=1,
+                   outcome="win",  turns=20, our_actions=10,
+                   wall_seconds=1.0),
+        GameResult(scenario_id="g2", our_side=1, winner=2,
+                   outcome="loss", turns=20, our_actions=10,
+                   wall_seconds=1.0),
+        GameResult(scenario_id="g3", our_side=1, winner=1,
+                   outcome="win",  turns=20, our_actions=10,
+                   wall_seconds=1.0),
+        GameResult(scenario_id="g4", our_side=1, winner=2,
+                   outcome="loss", turns=20, our_actions=10,
+                   wall_seconds=1.0),
+    ]
+    aggregate_and_report(results, matchups)
+    captured = capsys.readouterr().out
+    assert "Heatmap" in captured
+    # Header lists each faction as a column label.
+    assert "Drakes" in captured and "Knalgan" in captured
+    # At least one populated cell -- we put two wins in.
+    assert "100.0%" in captured

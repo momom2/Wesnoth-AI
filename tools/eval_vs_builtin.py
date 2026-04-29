@@ -157,6 +157,18 @@ def _wilson_interval(wins: int, n: int, z: float = 1.96) -> Tuple[float, float]:
     return (lo, hi)
 
 
+def _wr_short(b: Dict[str, int]) -> str:
+    """Compact `WW.W% (W/N)` win rate for grid cells where the full
+    Wilson-CI form is too wide. Returns 'n/a' for zero-decisive cells.
+    Padding is the caller's responsibility -- the format itself is
+    fixed-ish length so the grid lines stay aligned regardless of W/N
+    digit count up to thousands."""
+    decisive = b["win"] + b["loss"]
+    if decisive == 0:
+        return "n/a"
+    return f"{100.0 * b['win'] / decisive:5.1f}% ({b['win']}/{decisive})"
+
+
 def _wr(b: Dict[str, int]) -> str:
     """Win rate over decisive games + Wilson 95% CI. Excludes draws,
     timeouts, errors. Format::
@@ -238,6 +250,28 @@ def aggregate_and_report(
             continue
         print(f"  {m.name:22s} {_wr(by_map[m.short])}")
     print()
+
+    # Heatmap view: row = our faction (we played as), col = opponent
+    # faction (built-in AI played as). Same data as the per-matchup
+    # list below, but in a 2D grid -- much faster to spot "we lose to
+    # Drakes, beat Knalgan" patterns than scanning a list of pairs.
+    our_facs = sorted({a for (a, _) in by_matchup})
+    opp_facs = sorted({b for (_, b) in by_matchup})
+    if our_facs and opp_facs:
+        cell_w = 16  # "100.0% (10/10)" max + 1 pad
+        name_w = max(8, max(len(f) for f in our_facs))
+        print("Heatmap: our_faction (rows) vs opp_faction (cols), win rate")
+        # Header.
+        print(" " * name_w + "  "
+              + "".join(f"{f:>{cell_w}s}" for f in opp_facs))
+        for our in our_facs:
+            cells = []
+            for opp in opp_facs:
+                bucket = by_matchup.get((our, opp))
+                txt = _wr_short(bucket) if bucket else "n/a"
+                cells.append(f"{txt:>{cell_w}s}")
+            print(f"{our:>{name_w}s}  " + "".join(cells))
+        print()
 
     print("Per-matchup (our_faction vs opp_faction):")
     print(f"  {'matchup':45s} {'win rate':22s}")

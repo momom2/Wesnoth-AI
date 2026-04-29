@@ -109,9 +109,48 @@ if ($DryRun) {
     exit 0
 }
 
-# Build the remote command. Always extracts; with -Restart, also bounces
-# the running job. `set -e` so any failure aborts the whole chain.
-$remoteCmd = "set -e; cd $RemotePath && tar -xf - && echo '[sync] extracted ok'"
+# Compute SHA-256 for every manifest file and write a sha256sum-
+# compatible checksum file (`<hex>  <relpath>` per line, LF-only).
+# Pack it INTO the tarball so the remote can `sha256sum -c` against
+# the just-extracted bytes -- catches partial extraction, stream
+# corruption, and tar header weirdness that exit-code checks miss.
+# Use the .Algorithm + lowercased hex to match Linux sha256sum's
+# output exactly so `sha256sum -c` accepts the file unchanged.
+$sumFile = Join-Path $env:TEMP "wai_sync_$([guid]::NewGuid().Guid).sha256"
+$sumLines = New-Object System.Collections.Generic.List[string]
+foreach ($p in $paths) {
+    $h = (Get-FileHash -Path $p -Algorithm SHA256).Hash.ToLowerInvariant()
+    # sha256sum's input format: "<hex>  <path>" (TWO spaces, no
+    # leading "*" since we don't pin binary mode). Path uses forward
+    # slashes so it round-trips through the tarball (which preserves
+    # what we put in) and matches the working-directory layout on
+    # the cluster's bash side.
+    $relpath = $p -replace '\\', '/'
+    $sumLines.Add("$h  $relpath")
+}
+# UTF-8 without BOM, LF-only -- sha256sum's parser accepts UTF-8
+# but a UTF-16/BOM sticks a magic-number prefix on the first line.
+[System.IO.File]::WriteAllLines(
+    $sumFile, $sumLines,
+    (New-Object System.Text.UTF8Encoding($false))
+)
+# Append the checksum file under a fixed name so the remote knows
+# where to find it. Must be in `paths` so it ends up in the tar.
+$sumPathInArchive = '.wai_sync.sha256'
+Copy-Item -Path $sumFile -Destination $sumPathInArchive -Force
+$paths += $sumPathInArchive
+
+# Build the remote command. Always extracts; verifies; optionally
+# restarts. `set -e` so any failure aborts the whole chain.
+# `sha256sum -c` exits non-zero on any mismatch and prints the
+# offending file -- we let that propagate so the operator sees
+# exactly what diverged. `--quiet` suppresses the per-file "OK"
+# output so a clean run only logs failures.
+$remoteCmd  = "set -e; cd $RemotePath && tar -xf - && "
+$remoteCmd += "echo '[sync] verifying checksums...' && "
+$remoteCmd += "sha256sum -c --quiet $sumPathInArchive && "
+$remoteCmd += "echo '[sync] checksums ok' && "
+$remoteCmd += "rm -f $sumPathInArchive"
 
 if ($Restart) {
     # `|| true` because run.sh stop returns non-zero if there's no
@@ -151,11 +190,15 @@ $cmdLine = "type `"$tmpTar`" | ssh $RemoteHost `"$remoteCmd`""
 & cmd /c $cmdLine
 $rc = $LASTEXITCODE
 
-# 3. Local cleanup regardless of remote outcome.
+# 3. Local cleanup regardless of remote outcome. Both the temp tar
+# and the local copy of the checksum manifest (which only existed
+# so we could include it in the tarball) get scrubbed.
 Remove-Item $tmpTar -ErrorAction SilentlyContinue
+Remove-Item $sumFile -ErrorAction SilentlyContinue
+Remove-Item $sumPathInArchive -ErrorAction SilentlyContinue
 
 if ($rc -ne 0) {
-    throw "[sync] FAILED (exit code $rc) -- files may be partially synced. Verify with: ssh $RemoteHost 'cd $RemotePath && ls -la encoder.py tools/supervised_train.py'"
+    throw "[sync] FAILED (exit code $rc) -- files may be partially synced or checksum-mismatched. The remote stopped at the first mismatch (sha256sum -c prints the offending file before exit), so re-run sync to retry; the bytes on disk are whatever made it through tar -xf."
 }
 
 Write-Host ""
