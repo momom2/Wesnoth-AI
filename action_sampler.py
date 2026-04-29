@@ -146,6 +146,47 @@ def _logprob_entropy_1d(logits: torch.Tensor, idx: int) -> Tuple[torch.Tensor, t
 
 
 @dataclass
+class ActionPriors:
+    """Legality-masked, normalized action priors for MCTS / PUCT.
+
+    Shapes (batch dim = 1):
+      A = num_units + num_recruits + 1       (actor slots)
+      H = num_hex_tokens
+      T = UnitActionType.COUNT (= 2: ATTACK, MOVE)
+      W = MAX_ATTACKS
+
+    Each conditional sums to 1 over its legal support, with mass on
+    illegal actions exactly 0. For non-UNIT actors, `type_`,
+    `target_attack`, and `target_move` are all-zero (those dims
+    are undefined for RECRUIT / END_TURN). For non-RECRUIT actors,
+    `target_recruit` is all-zero. For non-UNIT actors, `weapon` is
+    all-zero. Degenerate rows (no legal options for a conditional)
+    are also zero rather than NaN.
+
+    PUCT consumes these as a factored joint:
+      P(end_turn)              = actor[0, A-1]
+      P(unit u attacks h, w)   = actor[0, u] * type_[0, u, ATTACK]
+                                 * target_attack[0, u, h]
+                                 * weapon[0, u, w]
+      P(unit u moves to h)     = actor[0, u] * type_[0, u, MOVE]
+                                 * target_move[0, u, h]
+      P(recruit slot r at h)   = actor[0, U+r] * target_recruit[0, U+r, h]
+
+    `masks` is the underlying LegalityMasks; carries decision-step-
+    dependent combat-oracle biases that the soft-target trainer
+    needs to reproduce these priors against the same logits.
+    """
+    actor:          torch.Tensor   # [1, A]
+    type_:          torch.Tensor   # [1, A, T]
+    target_attack:  torch.Tensor   # [1, A, H]
+    target_move:    torch.Tensor   # [1, A, H]
+    target_recruit: torch.Tensor   # [1, A, H]
+    weapon:         torch.Tensor   # [1, A, W]
+    value:          torch.Tensor   # [1, 1]
+    masks:          "LegalityMasks"
+
+
+@dataclass
 class SampledAction:
     """What sample_action returns.
 
@@ -728,6 +769,147 @@ def _masked_weapon_logits(
     if num_attacks < weapons.shape[0]:
         weapons[num_attacks:] = _NEG_INF
     return weapons
+
+
+def _safe_softmax(logits: torch.Tensor, dim: int) -> torch.Tensor:
+    """Softmax that returns 0 for slices with no legal entries.
+
+    Without this:
+      - All entries == -inf -> softmax NaN
+      - All entries == _NEG_INF (-1e9) -> softmax uniform (= wrong:
+        every entry is "equally illegal", but the right answer is
+        zero mass everywhere)
+
+    Detect the all-masked case by checking if the max of the slice
+    is below a threshold real logits won't reach (-1e8 << -1e9 won't
+    happen organically) and zero those slices' outputs. Partially-
+    masked slices (some entries at _NEG_INF, others real) work
+    correctly under plain softmax because exp(-1e9) ≈ 0."""
+    max_v = logits.max(dim=dim, keepdim=True).values
+    has_legal = (max_v > -1e8).to(logits.dtype)
+    p = F.softmax(logits, dim=dim)
+    p = torch.where(torch.isnan(p), torch.zeros_like(p), p)
+    return p * has_legal
+
+
+def _weapon_count_mask(
+    encoded: EncodedState,
+    game_state: GameState,
+    *,
+    A: int,
+    W: int,
+    device,
+) -> torch.Tensor:
+    """[1, A, W] float. 1 = weapon slot is within the actor's actual
+    attack count (UNIT actor), 0 elsewhere (slots beyond an actor's
+    weapons, OR non-UNIT actors -- their weapon distribution is
+    undefined). Mirrors the per-decision masking sample_action does
+    via `_masked_weapon_logits`. Without this, weapon slots beyond
+    the actor's attack count keep their uninitialized noise (no
+    gradient flow in supervised since reforward_logprob_entropy
+    masks them) and leak into the prior."""
+    mask = np.zeros((A, W), dtype=np.float32)
+    for u_idx, uid in enumerate(encoded.unit_ids):
+        unit = _unit_by_id(game_state, uid)
+        if unit is None:
+            continue
+        n = min(len(unit.attacks), W)
+        if n > 0:
+            mask[u_idx, :n] = 1.0
+    return torch.from_numpy(mask).to(device).unsqueeze(0)
+
+
+def predict_priors(
+    output:     ModelOutput,
+    encoded:    EncodedState,
+    game_state: GameState,
+    *,
+    decision_step: int = 0,
+    masks:         Optional["LegalityMasks"] = None,
+) -> ActionPriors:
+    """Compute legality-masked, normalized action priors for MCTS.
+
+    Mirrors `sample_action`'s decision chain but exposes the
+    *distributions* rather than sampling one. Output is a factored
+    prior (actor, type|actor, target|actor,type, weapon|actor) --
+    PUCT multiplies factors as needed when expanding child actions.
+
+    Doesn't call torch.no_grad(); the caller decides. The trainer's
+    soft-target loss path needs a grad-tracked variant, so leaving
+    the gradient choice to the caller keeps one code path.
+
+    Re-uses an existing `LegalityMasks` if passed -- handy for MCTS
+    nodes that cache masks alongside priors so re-visits don't
+    rebuild them.
+    """
+    from model import ActorKind  # local: avoid model<->sampler cycle
+
+    if masks is None:
+        masks = _build_legality_masks(encoded, game_state,
+                                      decision_step=decision_step)
+
+    device = output.actor_logits.device
+
+    # 1) Actor distribution.
+    actor_logits = _masked_actor_logits(encoded, output, masks.actor_valid)
+    actor_p = _safe_softmax(actor_logits, dim=-1)            # [1, A]
+
+    A = actor_logits.size(-1)
+    H = output.target_logits.size(-1)
+    W = output.weapon_logits.size(-1)
+
+    # 2) Type | actor (UNIT actors only). type_valid is 0 for
+    # non-UNIT rows, so masking yields all-(-inf) → safe_softmax → 0.
+    type_logits = output.type_logits + masks.type_bias
+    type_logits = type_logits.masked_fill(masks.type_valid == 0, _NEG_INF)
+    type_p = _safe_softmax(type_logits, dim=-1)              # [1, A, T]
+
+    # 3) Target | actor, type. UNIT/ATTACK and UNIT/MOVE use the
+    # type-conditional masks; the attack bias adds to ATTACK-target
+    # logits only.
+    target_attack_logits = (output.target_logits
+                            + masks.attack_bias.unsqueeze(0))
+    target_attack_logits = target_attack_logits.masked_fill(
+        masks.target_valid_attack.unsqueeze(0) == 0, _NEG_INF,
+    )
+    target_attack_p = _safe_softmax(target_attack_logits, dim=-1)
+
+    target_move_logits = output.target_logits.masked_fill(
+        masks.target_valid_move.unsqueeze(0) == 0, _NEG_INF,
+    )
+    target_move_p = _safe_softmax(target_move_logits, dim=-1)
+
+    # 4) Target | recruit_actor. RECRUIT actors store the recruit
+    # hex set in masks.target_valid (the union mask); UNIT rows of
+    # target_valid are the union of attack/move and we don't want
+    # to mix those into the recruit prior, so gate by actor_kind.
+    actor_kind = output.actor_kind                            # [1, A]
+    is_recruit = (actor_kind == ActorKind.RECRUIT).float()    # [1, A]
+    recruit_mask = (masks.target_valid.unsqueeze(0)
+                    * is_recruit.unsqueeze(-1))               # [1, A, H]
+    target_recruit_logits = output.target_logits.masked_fill(
+        recruit_mask == 0, _NEG_INF,
+    )
+    target_recruit_p = _safe_softmax(target_recruit_logits, dim=-1)
+
+    # 5) Weapon | actor. Mask slots beyond each unit's attack count.
+    weapon_mask = _weapon_count_mask(encoded, game_state, A=A, W=W,
+                                     device=device)
+    weapon_logits = output.weapon_logits.masked_fill(
+        weapon_mask == 0, _NEG_INF,
+    )
+    weapon_p = _safe_softmax(weapon_logits, dim=-1)           # [1, A, W]
+
+    return ActionPriors(
+        actor=actor_p,
+        type_=type_p,
+        target_attack=target_attack_p,
+        target_move=target_move_p,
+        target_recruit=target_recruit_p,
+        weapon=weapon_p,
+        value=output.value,
+        masks=masks,
+    )
 
 
 def _enemy_unit_at(gs: GameState, pos: Position) -> Optional[Unit]:
