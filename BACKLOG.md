@@ -1,8 +1,10 @@
 # Project review — bugs and improvements
 
-Generated 2026-04-28 from a deep review of every major component. Items
-are graded by impact on the project's stated goals (superhuman play via
-MCTS+self-play; readable/customizable strategies; cluster economy).
+Generated 2026-04-28 from a deep review of every major component.
+Refreshed 2026-04-29: many items closed by the supervised-resume +
+self-play infra + MCTS-prep sessions. Items are graded by impact
+on the project's stated goals (superhuman play via MCTS+self-play;
+readable/customizable strategies; cluster economy).
 
 **Severity:**
 - 🔴 **CRIT** — silent corruption / wrong gradients / blocks a stated goal
@@ -15,37 +17,68 @@ References are `path/file.py:line`. Each item is actionable on its own.
 
 ---
 
+## NEW since 2026-04-29 review
+
+Items surfaced during the supervised-resume + self-play infra
+sessions that aren't in the original review.
+
+- [ ] 🟠 **Sim invariant bug: hex (0,0) duplicate Unit instances**
+  (`tools/wesnoth_sim.py:988`). Triggers on standard
+  `replays_dataset/*.json.gz` partway into self-play games. Two
+  distinct `Unit` dataclass instances landing in the SAME `set`
+  because `Unit.__hash__ = hash((id, side))` while auto-generated
+  `__eq__` covers all fields, so a `dataclasses.replace`-style
+  mutation pattern can land BOTH old and new in the set
+  simultaneously. Probably in `_apply_command` (move / attack /
+  recruit) -- discard old happens AFTER add new somewhere, OR a
+  unit gets replaced without the old being discarded first. ~5 of
+  8 short games on the standard fixture crash. Spawned as a
+  separate task. Workaround in tests: filter to 2-side replays.
+
+- [ ] 🟠 **MCTS tree-search proper** -- now unblocked by the
+  predict_priors / value-head / soft-target / recruit-enrichment
+  quartet. `tools/mcts.py` already exists; PUCT selection,
+  Dirichlet root noise, batched leaf eval are the remaining
+  engineering. Estimated 1-2 weeks per project_state roadmap.
+
+- [ ] 🟢 **Diagnostic in supervised resume**: list missing-key
+  set in a structured way so a regression that adds a SECOND
+  unexpected missing key (beyond `type_head.*` and
+  `dynamic_flag_proj.weight`) is loud, not just a warning the
+  operator might miss. Today the warning lists keys but no
+  whitelist of "expected missing"; one-line addition: assert
+  that `set(missing) ⊆ EXPECTED_NEW_KEYS` else hard-error.
+
 ## TOP PRIORITIES (rank-ordered)
 
 These are the items where time spent has the highest payoff for the
 stated goals.
 
-- [ ] 🔴 **Add a distribution-output API to `WesnothModel`**
-  (`model.py:122,194`). Today `actor_head` is a per-slot scalar that the
-  sampler softmaxes to sample one action; AlphaZero PUCT requires
-  exposed normalized priors `P(a|s)` and AlphaZero training needs a
-  KL-against-visit-counts loss target. Add `model.predict_priors(encoded)
-  -> (actor_logits, target_logits, weapon_logits)` (essentially what
-  `forward` already returns) AND a soft-target trainer path (`trainer.py`
-  currently only trains against single-action targets). **Blocks MCTS
-  entirely.**
+- [x] 🔴 **Distribution-output API + soft-target loss** (DONE
+  2026-04-28 + 2026-04-29). Two complementary surfaces:
+  `enumerate_legal_actions_with_priors(encoded, output, gs)` returns
+  the FLAT per-action prior list with multiplied joint probabilities
+  (commit 5ee3b5d, MCTS-blockers) -- handy for "expand the root /
+  what are all my options". `predict_priors(output, encoded, gs, *,
+  decision_step, masks=None)` returns the FACTORED tensors as
+  `ActionPriors(actor, type_, target_attack, target_move,
+  target_recruit, weapon, value, masks)` with each conditional summed
+  to 1 over its legal support and 0 elsewhere (commit 2314ec3, this
+  session) -- the format the soft-target trainer + PUCT incremental
+  expansion want. Soft-target loss is `Trainer.step_mcts` /
+  `_mcts_factored_policy_loss` (commit 151392b, C.4) with 4-tuple
+  legacy + 5-tuple type-aware visit-count schemas both supported.
 
-- [ ] 🔴 **Pool the value head over the global `[CLS]` token, not over a
-  mean of all tokens** (`model.py:194`). Today `value = mean(x, dim=1)`
-  dilutes any global signal by ~1700×. The global token (`x[:, H+U+R, :]`)
-  is built but never read for value or end_turn. Wrap with `.tanh()` and
-  normalize returns to [−1,1] (`model.py:130`). High-leverage stability
-  improvement that helps even today's REINFORCE training.
+- [x] 🔴 **Value head over global token + tanh + return clamp**
+  (DONE 2026-04-28, commit 5ee3b5d). Value head reads only
+  `global_ctx.squeeze(1)`; tanh-bounded to [-1,+1]. Trainer's
+  `value_clip=1.0` matches.
 
-- [ ] 🔴 **Enrich recruit tokens with full unit features**
-  (`encoder.py:385-387`). Confirmed: recruit tokens have only
-  `unit_type_emb + side_emb`; they collide with on-board units of the
-  same type and the actor head can't distinguish recruit options. Fix
-  by synthesizing a phantom Unit per recruit (full HP, 0 XP, position =
-  leader's keep) and feeding it through the existing `_unit_features`
-  projection. The user already diagnosed this as the root cause of "no
-  recruits"; the supervised loss reweighting we landed is a partial
-  workaround — this is the structural fix.
+- [x] 🔴 **Recruit token enrichment** (DONE 2026-04-28, commit
+  5ee3b5d). Recruits get `type_emb + side_emb + pos_x_emb +
+  pos_y_emb + unit_feat_proj(phantom)` where the phantom is full-HP
+  / 0-MP / 0-XP / non-leader / leader's-keep. Was the diagnosed root
+  cause of "no recruits".
 
 - [x] 🔴 **Record + emit `[choose]` for advance-on-mid-attack-XP-cross
   in the simulator** (DONE 2026-04-28). `WesnothSim.step()` now
@@ -69,12 +102,16 @@ stated goals.
   `training/checkpoints/`. Display warns + bails early if no
   checkpoint is present.
 
-- [ ] 🔴 **Add `cluster/job_selfplay.sbatch`** before the next cluster
-  window (`cluster/job.sbatch`). The existing sbatch only runs
-  `tools/supervised_train.py`; with self-play training landed locally
-  we need a sibling job that runs `tools/sim_self_play.py` against a
-  pulled checkpoint. Mirror `job.sbatch` but with a different `done.flag`
-  signal (e.g. iteration count instead of epoch9 detection).
+- [x] 🔴 **`cluster/job_selfplay.sbatch`** (DONE 2026-04-29, commit
+  a86e11b). Mirrors supervised's chain pattern (ENSTA-l40s, 1 GPU,
+  03:55h walltime, auto-resubmit). Latest-checkpoint pick: existing
+  self-play ckpt → highest `supervised_epoch*.pt` → `supervised.pt`
+  → random init. No automatic done; chain runs until user drops
+  `training/checkpoints/selfplay_done.flag`. `--workers 6` rollout
+  threads, `--device cuda`, `--reward-config
+  cluster/configs/reward_selfplay.json`. Companion: `cluster/run.sh`
+  is now polymorphic (`run.sh start [supervised|selfplay]`); GUI has
+  Start buttons for both modes.
 
 - [x] 🟠 **`pull_checkpoint.ps1` made atomic** (DONE 2026-04-28). scp
   now writes to `<LOCAL>.tmp`; on success, `Move-Item -Force` swaps it
@@ -302,12 +339,12 @@ replay export.
   vs O(N) per call; ~30× speedup on a 30-unit mid-game state. Same
   logic preserves the `_`-stash (e.g. `_defense_table`).
 
-- [ ] 🟡 **Map.hexes is immutable per game; `deepcopy(GameState)` is
-  ~0.5 ms** (current measured). Add `__deepcopy__` to `Map` that aliases
-  immutable fields (`hexes`, `mask`) and only deep-copies units + fog.
-  Drops to ~0.05 ms. Negligible for current self-play; matters for
-  MCTS. Estimated MCTS bottleneck is model forward (~30ms), not
-  deepcopy — but every ms helps.
+- [x] 🟡 **Map.__deepcopy__ aliases immutable fields** (DONE
+  pre-2026-04-29, classes.py:176). `mask`, `fog`, `hexes` aliased
+  as immutable in self-play; `units` rebuilt as a fresh set so
+  add/remove on one copy doesn't leak. ~10× speedup. Slow-path
+  `Map.deep_clone()` available for terrain-mutating scenarios
+  (Aethermaw morph, etc.).
 
 - [x] 🟡 **Sim post-step invariants** (DONE 2026-04-28).
   `WesnothSim._assert_invariants` runs under `__debug__` after every
@@ -412,21 +449,20 @@ replay export.
 
 ### Architecture for MCTS / superhuman play
 
-- [ ] 🔴 **Distribution-output API + soft-target loss** — top priority,
-  see top section.
-
-- [ ] 🔴 **Value head over global token + tanh** — top priority, see top
+- [x] 🔴 **Distribution-output API + soft-target loss** — see top
   section.
 
-- [ ] 🔴 **Recruit token enrichment** — top priority, see top section.
+- [x] 🔴 **Value head over global token + tanh** — see top section.
 
-- [ ] 🟠 **Per-actor action-type head (`attack` vs `move` vs `hold`)**
-  (`action_sampler.py:179`). Today the actor decides "act?" then the
-  target decides where, with attack/move discrimination implicit in
-  whether the target hex contains an enemy. PUCT priors should
-  distinguish "attack any enemy with this unit" from "fortify by
-  retreating". Add a 3-way head per actor that gates the target
-  distribution; existing masks already enforce legality.
+- [x] 🔴 **Recruit token enrichment** — see top section.
+
+- [x] 🟠 **Per-actor action-type head (`ATTACK` vs `MOVE`)** (DONE
+  2026-04-28 in C.1, commit 635691f). 2-way (`UnitActionType.ATTACK
+  / MOVE`) head per actor, masked by `type_valid` and biased by
+  `type_bias`. Sampler chain is actor → type → target → weapon for
+  unit actors. RECRUIT / END_TURN actors skip the type sample (their
+  type is implicit). HOLD intentionally not modeled (see
+  CLAUDE.md).
 
 - [ ] 🟡 **`register_names` mutates encoder vocab during rollout**
   (`encoder.py:289`). On checkpoint resume with a never-before-seen unit
@@ -458,9 +494,15 @@ replay export.
   encode(); `_build_legality_masks` reads from there. Saves the
   per-call rebuild (~1ms on 250-hex states; matters for MCTS).
 
-- [ ] 🟡 **Trainer Pass-2 re-encodes every transition** (`trainer.py:211`).
-  Pass-1 just encoded all of them. Cache encoded chunk between passes.
-  ~30-50% trainer-step speedup.
+- [x] 🟡 **Trainer Pass-2 raw-encoded cache** (DONE 2026-04-29,
+  commit 5cad46b). Both REINFORCE `step` and `_trainer_step_mcts`
+  build a `RawEncoded` list once at the top of train_step, then
+  call only `encode_from_raw` per chunk per pass. Caching the RAW
+  (numpy) and re-running encode_from_raw matters: encode_from_raw's
+  output is autograd-bound to the encoder's CURRENT embedding
+  parameters, and Pass 1 (no_grad) produces tensors with no graph
+  -- reusing them in Pass 2 would zero the gradient. Suite went
+  ~36s → ~33s.
 
 - [ ] 🟢 **`recruit_is_ours.detach().cpu().numpy()[0]`** every decision
   (`action_sampler.py:499`). Crosses device boundary for a tiny tensor.
@@ -623,16 +665,13 @@ weight. Eval still needs real Wesnoth, so be cautious.
 
 ### DEFINITELY DELETABLE
 
-- [ ] 🟢 **Delete `add-ons/wesnoth_ai/lua/headless_plugin.lua`**.
-  Dormant artifact from the abandoned `--nogui --plugin` experiment.
-  Not on `_main.cfg`'s load path, no code imports it.
-
-- [ ] 🟢 **Delete `add-ons/wesnoth_ai/lua/headless_probe.lua`**. Same
-  reason.
-
-- [ ] 🟢 **Delete `add-ons/wesnoth_ai/scenarios/training_scenario_mp.cfg`**.
-  Marked "NOT loaded by _main.cfg by default" in its own header
-  (`training_scenario_mp.cfg:1-15`).
+- [x] 🟢 **Deleted `add-ons/wesnoth_ai/lua/headless_plugin.lua`**
+  (2026-04-29, commit d01f671).
+- [x] 🟢 **Deleted `add-ons/wesnoth_ai/lua/headless_probe.lua`**
+  (2026-04-29, commit d01f671).
+- [x] 🟢 **Deleted `add-ons/wesnoth_ai/scenarios/training_scenario_mp.cfg`**
+  (2026-04-29, commit d01f671). `_main.cfg`'s pointer comment
+  also dropped.
 
 - [ ] 🟢 **Auto-clean `add-ons/wesnoth_ai/games/g*/` dirs**. 1983 stale
   dirs locally (gitignored, but inode pressure). `turn_stage.lua` can't
@@ -663,11 +702,10 @@ weight. Eval still needs real Wesnoth, so be cautious.
 
 ## Cluster (`cluster/*`)
 
-- [ ] 🔴 **Add `cluster/job_selfplay.sbatch`** — top priority, see top
-  section.
+- [x] 🔴 **`cluster/job_selfplay.sbatch`** — see top section.
 
-- [ ] 🟠 **`pull_checkpoint.ps1` non-atomic** — top priority, see top
-  section.
+- [x] 🟠 **`pull_checkpoint.ps1` atomic move** — see top section
+  (DONE 2026-04-28).
 
 - [x] 🟡 **`job.sbatch` sentinel computed from `EPOCHS`** (DONE
   2026-04-28). `EPOCHS=10` + `EPOCHS_LAST_SENTINEL=...epoch$((EPOCHS-1)).pt`
@@ -675,11 +713,12 @@ weight. Eval still needs real Wesnoth, so be cautious.
   `--epochs` without updating the sentinel can no longer cause an
   infinite resubmit chain.
 
-- [ ] 🟡 **`sync.ps1`: no checksum verification of extracted files on
-  remote** (`cluster/sync.ps1:122-147`). On non-zero return code we
-  warn "files may be partially synced" but `tar -xf -` is not atomic
-  — partial extraction overwrites in place. Add a `sha256sum` round-trip
-  for files in the manifest.
+- [x] 🟡 **`sync.ps1` SHA-256 round-trip** (DONE 2026-04-29, commit
+  d01f671). Local SHA-256 of every manifest file → packed in the
+  tarball under `.wai_sync.sha256` → remote `sha256sum -c` after
+  extract → fail loudly with the offending file's path on
+  mismatch. Catches partial extraction, stream corruption, and
+  tar header weirdness that the exit-code check missed.
 
 - [x] 🟡 **GUI startup purges stale askpass dirs** (DONE 2026-04-28).
   `_purge_stale_askpass_dirs()` runs at the top of `main()` and
@@ -702,9 +741,11 @@ weight. Eval still needs real Wesnoth, so be cautious.
   bounds at 9/10 wins). 8 unit tests cover boundary cases (0/0,
   full sweeps, top-/bottom-clamp).
 
-- [ ] 🟢 **Eval has no per-faction strength heatmap**. We track per-side,
-  per-map. Adding a faction × faction matrix would let the user see
-  "model loses to Drakes 80% of the time but beats Knalgan 60%".
+- [x] 🟢 **Per-faction × per-faction win-rate heatmap** (DONE
+  2026-04-29, commit d01f671). 2D matrix view above the existing
+  per-matchup list: rows = our faction, columns = opp faction,
+  cells = compact `WW.W% (W/N)` via `_wr_short` helper. 3 new
+  tests exercise the formatter + capsys end-to-end render.
 
 ---
 
@@ -732,17 +773,19 @@ collected here:
 
 ---
 
-## MCTS readiness scorecard
+## MCTS readiness scorecard (refreshed 2026-04-29)
 
-| Capability | Status | Action |
+| Capability | Status | Notes |
 |---|---|---|
-| Clone GameState | ✅ deepcopy works (~0.5ms) | optimize Map __deepcopy__ for ~10× |
-| Hash GameState | ❌ no canonical content hash | add `state_key(gs)` in `classes.py` |
-| Forward inference | ⚠️ usable but no public masked-distribution API | factor out from `action_sampler` |
-| Visit-count target | ❌ trainer only knows single-action targets | add soft-target path |
-| Determinism | ✅ via `request_seed(N)` counter | add explicit determinism test |
-| Branching cost | ⚠️ ~30 evals/sec single-thread | batched leaf eval mandatory before scale |
-| Bounded value | ❌ unbounded scalar | tanh + return normalization |
+| Clone GameState | ✅ Map.__deepcopy__ ~0.05ms | classes.py:176 |
+| Hash GameState | ✅ `state_key(gs)` covered | test_state_key.py 16 cases |
+| Forward inference | ✅ predict_priors API + LegalActionPrior enumeration | action_sampler.py |
+| Visit-count target | ✅ Trainer.step_mcts + factored CE loss | trainer.py |
+| Determinism | ✅ via request_seed(N) counter + tests | test_sim_determinism.py |
+| Branching cost | ⚠️ ~25-50 evals/sec single-thread | batched leaf eval still TODO |
+| Bounded value | ✅ tanh + return clamp | model.py + trainer.value_clip=1.0 |
+| Recruit token signal | ✅ phantom-unit features | encoder.py |
+| Tree-search loop | ❌ not yet implemented | next milestone |
 
 ---
 
