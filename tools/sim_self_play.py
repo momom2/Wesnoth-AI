@@ -606,6 +606,10 @@ def main(argv: List[str]) -> int:
                          f"Available: {', '.join(openers_mod.available()) or '(none)'}. "
                          f"Default: no opener; the model controls "
                          f"every decision from turn 1.")
+    ap.add_argument("--device", default=None,
+                    help="Torch device for the policy (e.g. 'cuda', "
+                         "'cuda:0', 'cpu'). Default: TransformerPolicy "
+                         "picks CPU. Pass 'cuda' on the cluster.")
     ap.add_argument("--workers", type=int, default=0,
                     help="Rollout worker threads per iteration. 0 "
                          "(default) = serial on the main thread. "
@@ -628,7 +632,9 @@ def main(argv: List[str]) -> int:
     pool_files = _gather_replay_pool(args.replay_pool)
     cost_lookup = _recruit_cost_lookup()
 
-    policy = TransformerPolicy()
+    import torch
+    device = torch.device(args.device) if args.device else None
+    policy = TransformerPolicy(device=device)
     if args.checkpoint_in and args.checkpoint_in.exists():
         log.info(f"loading checkpoint {args.checkpoint_in}")
         policy.load_checkpoint(args.checkpoint_in)
