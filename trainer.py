@@ -44,6 +44,7 @@ from action_sampler import (
     reforward_logprob_entropy,
 )
 from classes import GameState
+from encoder import encode_raw
 
 
 @dataclass
@@ -276,12 +277,41 @@ class Trainer:
         prev_encoder_training = self.encoder.training
         self.model.eval(); self.encoder.eval()
         try:
+            # Build the raw-encoded cache ONCE for the whole train_step.
+            # `encode()` = `register_names` + `encode_raw` + `encode_from_raw`.
+            # `encode_raw` is the expensive Python-side state-building (state-
+            # walking, terrain lookups, threat distance scans); `encode_from_raw`
+            # is just embedding gathers + projections. The two passes used to
+            # call `encode()` separately, redoing the expensive part. Splitting
+            # them and caching the raw chunk halves the encoder cost (one
+            # `encode_raw` per transition for the whole train_step instead of
+            # two) -- ~30-50% wall-clock speedup at typical chunk sizes.
+            #
+            # Caching the raw rather than the EncodedState matters: encode_from_raw's
+            # output tensors are bound to the encoder's CURRENT embedding-table
+            # parameters via autograd. Pass 1 runs under torch.no_grad so its
+            # tensors have no graph; reusing them in Pass 2 would produce
+            # zero-gradient backward calls. Re-running encode_from_raw per pass
+            # produces the right grad-tracked tensors for that pass.
+            register_names = self.encoder.register_names
+            for t in flat:
+                register_names(t.game_state)
+            type_to_id    = self.encoder.unit_type_to_id
+            faction_to_id = self.encoder.faction_to_id
+            raw_cache = [
+                encode_raw(t.game_state,
+                           type_to_id=type_to_id,
+                           faction_to_id=faction_to_id)
+                for t in flat
+            ]
+
             # --- Pass 1: values without grad ----------------------------
             values_np: List[float] = []
             with torch.no_grad():
                 for start in range(0, N, B):
-                    chunk = flat[start:start + B]
-                    encoded_chunk = [self.encoder.encode(t.game_state) for t in chunk]
+                    raw_chunk = raw_cache[start:start + B]
+                    encoded_chunk = [self.encoder.encode_from_raw(r)
+                                     for r in raw_chunk]
                     outputs = self.model.forward_batch(encoded_chunk)
                     for output in outputs:
                         values_np.append(float(output.value.squeeze().item()))
@@ -303,7 +333,9 @@ class Trainer:
             for start in range(0, N, B):
                 chunk = flat[start:start + B]
                 L = len(chunk)
-                encoded_chunk = [self.encoder.encode(t.game_state) for t in chunk]
+                raw_chunk = raw_cache[start:start + B]
+                encoded_chunk = [self.encoder.encode_from_raw(r)
+                                 for r in raw_chunk]
                 outputs = self.model.forward_batch(encoded_chunk)
 
                 chunk_log_probs: List[torch.Tensor] = []
@@ -597,10 +629,28 @@ def _trainer_step_mcts(
 
     self.model.train(); self.encoder.train()
 
+    # Pre-compute the raw-encoded cache (one encode_raw per experience)
+    # so the policy-loss helper -- which already calls encode internally
+    # via _masked_target_logits' codepath -- doesn't pay the Python-
+    # side state-building cost twice. encode_from_raw runs per chunk
+    # below to produce the grad-tracked tensors.
+    register_names = self.encoder.register_names
+    for e in experiences:
+        register_names(e.game_state)
+    type_to_id    = self.encoder.unit_type_to_id
+    faction_to_id = self.encoder.faction_to_id
+    raw_cache = [
+        encode_raw(e.game_state,
+                   type_to_id=type_to_id,
+                   faction_to_id=faction_to_id)
+        for e in experiences
+    ]
+
     for start in range(0, N, B):
         chunk = experiences[start:start + B]
         L = len(chunk)
-        encoded_chunk = [self.encoder.encode(e.game_state) for e in chunk]
+        raw_chunk = raw_cache[start:start + B]
+        encoded_chunk = [self.encoder.encode_from_raw(r) for r in raw_chunk]
         outputs = self.model.forward_batch(encoded_chunk)
 
         chunk_policy_losses: List[torch.Tensor] = []
