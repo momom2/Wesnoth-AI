@@ -115,8 +115,10 @@ def _build_side_block(
     n.attrs["recruit"]         = ",".join(faction_info.recruit)
     n.attrs["type"]            = leader_type
     n.attrs["gold"]            = str(gold)
-    n.attrs["income"]          = "0"   # offset; effective = base 2
-    n.attrs["base_income"]     = str(base_income)
+    # Wesnoth's `income=` attr is an OFFSET added to the engine's
+    # default base_income (= 2 in default era). 0 -> effective
+    # income of 2. There's no `base_income=` attr in standard WML.
+    n.attrs["income"]          = "0"
     n.attrs["fog"]             = "yes"
     n.attrs["shroud"]          = "no"
     n.attrs["village_gold"]    = "2"
@@ -288,9 +290,17 @@ def _build_file_wml(setup, gs, sim, raw_map: str,
         "era_id":                 "era_default",
         "label":                  setup.label(),
         "mod_defines":            "",
-        # mp_game_title is shown in the replay-list UI; setup.label is
-        # informative.
         "mp_game_title":          setup.label(),
+        # mp_use_map_settings / mp_village_gold / mp_village_support:
+        # NOT emitted yet -- their effect on REPLAY load (vs. lobby
+        # game creation) isn't verified against source. team.cpp
+        # reads village_gold from the [side] attr directly when
+        # loading a saved game (team.cpp:236 reads cfg["village_gold"]
+        # with default game_config::village_income), so the per-
+        # [side] attrs we already emit should be authoritative.
+        # If gold accounting diverges from Wesnoth on load, the
+        # next investigation step is to compare team::new_turn
+        # behavior on real replay load vs. our [side] attrs.
         "oos_debug":              "no",
         "random_mode":            "",
         "scenario_define":        "",

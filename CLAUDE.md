@@ -239,5 +239,11 @@ many line-coverage tests.
   scenario/add-on loading, `--plugin`, stdout behavior). The
   [Wesnoth wiki](https://wiki.wesnoth.org/) and
   [Lua API reference](https://wiki.wesnoth.org/LuaAPI) are authoritative.
+- **Don't guess at Wesnoth WML attrs / engine semantics — check the
+  source.** The wiki sometimes lags, has edge cases wrong, or omits
+  attrs. `wesnoth_src/` is pinned to 1.18.4 and is authoritative for
+  what the engine actually does. When you'd otherwise hand-wave
+  ("`income=` is probably an offset"), grep `wesnoth_src/src/` first
+  and cite line numbers in comments / commits.
 - **Prefer removing over adding.** This codebase is recovering from
   bloat. When a feature is load-bearing, we'll re-add it with evidence.

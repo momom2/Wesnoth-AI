@@ -243,9 +243,15 @@ class ScenarioSetup:
     leader2: str
 
     def label(self) -> str:
-        """Short human-readable label for logging."""
+        """Short human-readable label. Filesystem-safe: no colons,
+        slashes, asterisks, etc. Wesnoth's save dialog rejects
+        filenames with ` " * / : < > ? \\ | ~` and uses the
+        `label=` attr as the default save name on replay end, so
+        a label with colons triggers a "save names may not contain
+        ..." warning even when the user didn't try to save."""
         sid = self.scenario_id.replace("multiplayer_", "")
-        return f"{sid}:{self.faction1}({self.leader1})_vs_{self.faction2}({self.leader2})"
+        return (f"{sid} - {self.faction1} ({self.leader1}) "
+                f"vs {self.faction2} ({self.leader2})")
 
 
 # Faction that MUST appear on at least one side every game.
