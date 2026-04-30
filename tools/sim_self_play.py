@@ -318,32 +318,87 @@ def play_one_game(
 # ---------------------------------------------------------------------
 
 def _gather_replay_pool(replay_pool: Path) -> List[Path]:
-    """Return all .json.gz files under `replay_pool`. Filters out
-    non-2p replays via the index.jsonl when present (saves loading
-    files we can't simulate -- the sim is 2p-only)."""
+    """Return .json.gz files under `replay_pool` filtered to PvP
+    games where sides 1 and 2 are the actual players.
+
+    Why the filter exists: Wesnoth labels several non-PvP scenarios
+    as `2p_*` because they accept 2 human seats. Two notable
+    classes show up in the corpus:
+
+      - **Co-op survival (e.g. 2p_Dark_Forecast):** sides 1 and 2
+        are AI-controlled enemy waves with `faction=Custom`; the
+        humans play sides 3 and 4. Our sim runs select_action for
+        sides 1 and 2 only, so the policy spends the whole game
+        controlling the AI waves. Useless for training.
+      - **Caves of the Basilisk:** sides 1 and 2 are real PvP
+        players, side 3 is a neutral set of wandering creatures
+        (`faction=Custom` on side 3 only). KEEP these.
+
+    Cheap-correct filter: require the index.jsonl `factions` list
+    to have non-Custom entries at indices 0 and 1 (= sides 1 and 2
+    per insertion order). A 3-side Basilisk replay with
+    `factions=['Knalgan Alliance', 'Loyalists', 'Custom']` passes;
+    a 4-side Dark Forecast replay with
+    `factions=['Custom', 'Custom', 'Northerners', 'Loyalists']`
+    is rejected. Mirror matches like `['Undead', 'Undead']` pass
+    correctly.
+
+    Without index.jsonl, we fall back to the simple `2p` prefix
+    check on game_id (loose; will admit some co-op scenarios) and
+    log a warning so the operator knows.
+    """
     pool = Path(replay_pool)
     files = sorted(pool.glob("*.json.gz"))
     if not files:
         raise RuntimeError(f"No .json.gz files in {pool}")
-    # Filter to 2p where possible.
     idx_path = pool / "index.jsonl"
     if idx_path.exists():
         keep_names: set = set()
+        n_seen   = 0
+        n_dropped_prefix  = 0
+        n_dropped_factions = 0
         with idx_path.open() as f:
             for line in f:
                 try:
                     e = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                if e.get("game_id", "").startswith("2p"):
-                    keep_names.add(e.get("file", ""))
+                n_seen += 1
+                gid = e.get("game_id", "")
+                if not gid.startswith("2p"):
+                    n_dropped_prefix += 1
+                    continue
+                facs = e.get("factions") or []
+                # Sides 1 and 2 must be real PvP factions, not the
+                # "Custom" marker used by survival / event-driven AI
+                # sides. An empty faction list is also rejected --
+                # we can't verify the scenario is PvP without the
+                # data.
+                if (len(facs) < 2
+                        or facs[0] in ("Custom", "")
+                        or facs[1] in ("Custom", "")):
+                    n_dropped_factions += 1
+                    continue
+                keep_names.add(e.get("file", ""))
         if keep_names:
             files = [f for f in files if f.name in keep_names]
             if not files:
                 raise RuntimeError(
-                    f"index.jsonl filtered out every replay -- check "
-                    f"the 2p prefix logic")
-    log.info(f"replay pool: {len(files)} files in {pool}")
+                    "index.jsonl filtered out every replay -- check "
+                    "the PvP filter logic")
+            log.info(
+                f"replay pool: kept {len(files)}/{n_seen} PvP replays "
+                f"(dropped {n_dropped_prefix} non-2p prefix, "
+                f"{n_dropped_factions} co-op / survival with "
+                f"AI-faction sides 1-2)"
+            )
+            return files
+    log.warning(
+        f"replay pool: no index.jsonl in {pool}; using all "
+        f"{len(files)} .json.gz files unfiltered (will likely "
+        f"include co-op survival scenarios -- generate index.jsonl "
+        f"via tools/replay_extract.py for proper filtering)"
+    )
     return files
 
 
