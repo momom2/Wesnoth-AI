@@ -270,7 +270,7 @@ def random_setup(rng: random.Random) -> ScenarioSetup:
 def build_scenario_gamestate(
     setup: ScenarioSetup,
     *,
-    starting_gold: int = 100,
+    starting_gold: Optional[int] = None,
     base_income: int = 2,
     village_gold: int = 2,
     village_upkeep: int = 1,
@@ -284,6 +284,10 @@ def build_scenario_gamestate(
     `WesnothSim.__init__` via `_setup_scenario_events`. So the
     caller wraps the returned state in `WesnothSim(gs, scenario_id=...)`
     before stepping.
+
+    `starting_gold=None` (default): read each side's gold from the
+    scenario's [side] `gold=` attr (Arcanclave specifies 175;
+    Hamlets has none, falls back to 100). Pass an int to override.
 
     `experience_modifier=70` matches standard PvP defaults (each
     advance needs 70% of base XP). Other args mirror what
@@ -324,6 +328,40 @@ def build_scenario_gamestate(
             f"map for {setup.scenario_id} is missing player 1 or 2 "
             f"start markers: {starts}")
 
+    # Per-side gold from the scenario's [side] blocks. Arcanclave
+    # specifies gold=175; most maps don't, falling back to the
+    # `starting_gold` arg or 100.
+    side_gold: Dict[int, int] = {}
+    side_pre_villages: Dict[int, List[Position]] = {}
+    for s in mp.all("side"):
+        try:
+            sn = int(s.attrs.get("side", "0"))
+        except ValueError:
+            continue
+        if sn not in (1, 2):
+            continue
+        if "gold" in s.attrs:
+            try:
+                side_gold[sn] = int(s.attrs["gold"])
+            except ValueError:
+                pass
+        # Pre-owned villages from [village] subblocks. Wesnoth
+        # auto-captures these to the side at scenario start, which
+        # affects income from turn 1 onward.
+        for v in s.all("village"):
+            try:
+                vx = int(v.attrs.get("x", "0")) - 1
+                vy = int(v.attrs.get("y", "0")) - 1
+            except ValueError:
+                continue
+            side_pre_villages.setdefault(sn, []).append(
+                Position(x=vx, y=vy))
+
+    def _gold_for(sn: int) -> int:
+        if starting_gold is not None:
+            return starting_gold
+        return side_gold.get(sn, 100)
+
     # Build the dict that _build_initial_gamestate consumes. The keys
     # mirror what tools/replay_extract.py emits per replay.
     leader1_pos = starts[1]
@@ -350,16 +388,18 @@ def build_scenario_gamestate(
         {
             "side": 1,
             "faction": setup.faction1,
-            "gold": starting_gold,
+            "gold": _gold_for(1),
             "recruit": list(factions[setup.faction1].recruit),
             "base_income": base_income,
+            "nb_villages_controlled": len(side_pre_villages.get(1, [])),
         },
         {
             "side": 2,
             "faction": setup.faction2,
-            "gold": starting_gold,
+            "gold": _gold_for(2),
             "recruit": list(factions[setup.faction2].recruit),
             "base_income": base_income,
+            "nb_villages_controlled": len(side_pre_villages.get(2, [])),
         },
     ]
     data = {
@@ -378,4 +418,29 @@ def build_scenario_gamestate(
     gs.global_info.village_gold = village_gold
     gs.global_info.village_upkeep = village_upkeep
     gs.global_info.base_income = base_income
+
+    # `_build_initial_gamestate` hardcodes nb_villages_controlled=0,
+    # so pre-owned villages need a post-build patch. Critical for
+    # turn-1 income on scenarios like Arcanclave where side 2
+    # auto-owns 2 villages (`[side]/[village]` blocks).
+    for sn, positions in side_pre_villages.items():
+        if 1 <= sn <= len(gs.sides):
+            from dataclasses import replace as _replace
+            old = gs.sides[sn - 1]
+            gs.sides[sn - 1] = _replace(
+                old, nb_villages_controlled=len(positions))
+
+    # Stash pre-owned villages on global_info. The encoder doesn't
+    # currently use this, but the village ownership tracker
+    # (`_village_owner` map in global_info) is consulted by
+    # _capture_village to detect "revisit" vs "capture" when a unit
+    # walks onto a village. Marking these as owned at start avoids
+    # spurious "captured a village!" rewards on turn 1 if a unit
+    # walks onto a pre-owned village.
+    if side_pre_villages:
+        owner_map = {}
+        for sn, positions in side_pre_villages.items():
+            for p in positions:
+                owner_map[(p.x, p.y)] = sn
+        setattr(gs.global_info, "_village_owner", owner_map)
     return gs
