@@ -17,6 +17,36 @@ References are `path/file.py:line`. Each item is actionable on its own.
 
 ---
 
+## NEW since 2026-04-30 (post scenario-pivot)
+
+- [ ] 🔴 **`sim_to_replay` should build the bz2 from scratch, not
+  splice onto a source replay's bz2.** Today it inherits the
+  source replay's `[scenario]` (with that source's leaders +
+  factions) and just swaps in our `[replay]` commands. After
+  the scenario-pool pivot (2026-04-30), self-play games have
+  random factions/leaders that don't match the source bz2 --
+  the user observed exporting an "Undead vs Loyalists" sim run
+  and having Wesnoth load it as "Red Mage vs Deathblade" because
+  that's what the source Arcanclave bz2 had. Every command then
+  diverges from turn 0 onward.
+
+  Proper fix: emit the full Wesnoth save WML from
+  `tools.scenario_pool.build_scenario_gamestate`'s output +
+  `sim.command_history`, sourcing the `[scenario]` block from
+  `wesnoth_src/data/multiplayer/scenarios/2p_*.cfg`. No
+  `replays_raw/*.bz2` involvement.
+
+  Scope: needs `[savegame]` / `[snapshot]` outer wrappers,
+  `[multiplayer]` / `[era]` blocks, full per-side `[side]`
+  attrs, scenario `[unit]` blocks for any pre-placed units (CoB
+  petrified, etc.), `[time]` / `[music]` sections, then the
+  `[replay]` block with our commands. Multi-hour rewrite.
+
+  Until then, `tools/sim_demo_game.py` exports are unreliable
+  for validation. Self-play TRAINING is unaffected (no bz2
+  export in the training path; only the demo + audit paths
+  use sim_to_replay).
+
 ## NEW since 2026-04-29 review
 
 Items surfaced during the supervised-resume + self-play infra
