@@ -108,8 +108,16 @@ def _save_checkpoint(
     opt: torch.optim.Optimizer,
     step: int,
     pairs: int,
+    epoch: int = 0,
 ) -> None:
-    """Atomic-ish checkpoint write: save to .tmp then rename."""
+    """Atomic-ish checkpoint write: save to .tmp then rename.
+
+    `epoch` is the count of FULLY-COMPLETED epochs across the whole
+    chain (i.e. global, not per-run). Resume reads it as
+    `resumed_epoch` and starts the loop at `range(resumed_epoch,
+    epochs)`. Older checkpoints didn't carry this key; resume falls
+    back to counting per-epoch snapshot files when it's absent.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     torch.save({
@@ -122,6 +130,7 @@ def _save_checkpoint(
         "optimizer_state": opt.state_dict(),
         "supervised_step":  step,
         "supervised_pairs": pairs,
+        "supervised_epoch": epoch,
     }, tmp)
     import os
     os.replace(tmp, path)
@@ -831,6 +840,7 @@ def train(
     # behavior cloning doesn't require it.
     resumed_step = 0
     resumed_pairs = 0
+    resumed_epoch = 0
     if resume is not None and resume.exists():
         log.info(f"Resuming from {resume}")
         ckpt = torch.load(resume, map_location=device, weights_only=False)
@@ -868,28 +878,28 @@ def train(
                             f"re-accumulating momentum from scratch")
         resumed_step  = int(ckpt.get("supervised_step", 0))
         resumed_pairs = int(ckpt.get("supervised_pairs", 0))
-        log.info(f"  resumed at step={resumed_step} pairs={resumed_pairs}")
-        # Fast-forward the LR scheduler past the epochs already
-        # completed. We don't checkpoint the scheduler's state, so
-        # we infer "epochs done" from the saved per-epoch snapshots.
-        # Best-effort: if no `supervised_epoch{N}.pt` exists alongside
-        # the resumed file, assume 0 epochs done and start at the
-        # initial lr. Either way, scheduler.step() at end of each
-        # epoch will continue from there.
-        completed_epochs = 0
-        for n in range(epochs):
-            sibling = resume.with_name(
-                f"{resume.stem.replace('_epoch' + str(n), '')}_epoch{n}{resume.suffix}"
-            )
-            # Resume target is usually `supervised.pt` (rolling), and
-            # per-epoch snapshots live alongside as supervised_epoch0.pt
-            # etc. Probe for the highest existing epoch snapshot.
-            cand = resume.parent / f"supervised_epoch{n}.pt"
-            if cand.exists():
-                completed_epochs = n + 1
-        for _ in range(completed_epochs):
+        # Global epoch counter -- count of fully-completed epochs
+        # across the WHOLE chain (not just this link). New
+        # checkpoints carry it; older ones don't. Fall back to
+        # counting per-epoch snapshot files (the previous
+        # heuristic) when the key is missing.
+        resumed_epoch = int(ckpt.get("supervised_epoch", -1))
+        if resumed_epoch < 0:
+            resumed_epoch = 0
+            for n in range(epochs):
+                cand = resume.parent / f"supervised_epoch{n}.pt"
+                if cand.exists():
+                    resumed_epoch = n + 1
+        log.info(
+            f"  resumed at step={resumed_step} "
+            f"pairs={resumed_pairs} epoch={resumed_epoch}"
+        )
+        # Fast-forward the LR scheduler past completed epochs. We
+        # don't checkpoint the scheduler's state directly; we
+        # reconstruct it from the epoch counter at resume time.
+        for _ in range(resumed_epoch):
             lr_scheduler.step()
-        log.info(f"  LR scheduler advanced {completed_epochs} epochs; "
+        log.info(f"  LR scheduler advanced {resumed_epoch} epochs; "
                  f"current lr = {opt.param_groups[0]['lr']:.2e}")
 
     # Competitive-2p filter: reads index.jsonl entries and only keeps
@@ -978,7 +988,12 @@ def train(
         f"(device={device.type}, batched_forward={batched_forward})"
     )
 
-    for epoch in range(epochs):
+    # Loop counts GLOBAL epochs across the whole chain. After a
+    # walltime-cut and resume, this picks up at `resumed_epoch`
+    # rather than restarting from 0 -- so each link advances the
+    # global counter and per-epoch snapshot filenames don't
+    # collide between links.
+    for epoch in range(resumed_epoch, epochs):
         if stop: break
         random.shuffle(files)
         step = 0
@@ -1157,9 +1172,16 @@ def train(
                             f"wall={total_elapsed/60:.1f}m eta={eta}"
                         )
                     if global_step % ckpt_every == 0:
+                        # Mid-epoch periodic checkpoint: save the
+                        # GLOBAL completed-epoch count (= `epoch`,
+                        # since this epoch hasn't finished yet).
+                        # On a walltime-cut resume, the next link
+                        # will redo this epoch from the start --
+                        # cheaper than tracking mid-epoch resume
+                        # state and acceptable for behavior cloning.
                         _save_checkpoint(
                             checkpoint_out, model, encoder, opt,
-                            global_step, running_count,
+                            global_step, running_count, epoch=epoch,
                         )
                         log.info(f"  periodic checkpoint @ step={global_step}")
                     if max_pairs and running_count >= max_pairs:
@@ -1207,13 +1229,18 @@ def train(
         # in-situ evaluation while training continues into epoch-2.
         # The per-epoch file uses the canonical path's stem with
         # `_epochN` appended (e.g. supervised.pt → supervised_epoch1.pt).
+        # `epoch + 1` is the count of fully-completed epochs after
+        # this save (the loop just finished epoch `epoch`). Resume
+        # will read this back as `resumed_epoch` and start the next
+        # link at `range(resumed_epoch, epochs)`.
+        completed = epoch + 1
         _save_checkpoint(checkpoint_out, model, encoder, opt,
-                         global_step, running_count)
+                         global_step, running_count, epoch=completed)
         epoch_path = checkpoint_out.with_name(
             f"{checkpoint_out.stem}_epoch{epoch}{checkpoint_out.suffix}"
         )
         _save_checkpoint(epoch_path, model, encoder, opt,
-                         global_step, running_count)
+                         global_step, running_count, epoch=completed)
         log.info(f"Epoch {epoch} saved to {checkpoint_out} and {epoch_path.name}")
         # Advance the LR scheduler one cosine step. Done AFTER the
         # save so the saved optimizer state still has the lr that
