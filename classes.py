@@ -116,9 +116,32 @@ class Attack:
     is_ranged: bool
     weapon_specials: Set[AttackSpecial]
 
-@dataclass
+@dataclass(eq=False)
 class Unit:
-    """Complete unit information."""
+    """Complete unit information.
+
+    Equality + hash are based on (id, side) only -- the "logical
+    identity" of a unit on the board, not its current state. This
+    matters because Unit is the element type of `gs.map.units`, a
+    Python set, and our mutation pattern is "create a NEW Unit with
+    the changed fields, then `set.discard(old) + set.add(new)`":
+
+      - `__hash__((id, side))` makes the discard/add hit the right
+        bucket regardless of how many fields changed.
+      - `__eq__((id, side))` makes `discard(old)` actually find the
+        member even if `old` was *itself* mutated in place between
+        the original add and the discard. With dataclass auto-eq
+        (every field), such mutations would make `discard` silently
+        no-op and the next `add` would land BOTH old and new in the
+        set -- the cause of the historical "hex (0,0) occupied by
+        both 'u22' and 'u22'" sim invariant failures (verified
+        2026-04-30).
+
+    Field-level equality is never needed: callers compare unit IDs
+    explicitly when they need to (`u1.id == u2.id`), and
+    `state_key` hashes the full state when canonical content
+    comparison is required.
+    """
     # Identity
     id: str
     name: str
@@ -126,7 +149,7 @@ class Unit:
     side: int
     is_leader: bool
     position: Position
-    
+
     # Permanent stats
     max_hp: int
     max_moves: int
@@ -134,13 +157,13 @@ class Unit:
     cost: int
     alignment: Alignment
     levelup_names: List[str]
-    
+
     # Current state
     current_hp: int
     current_moves: int
     current_exp: int
     has_attacked: bool
-    
+
     # Combat
     attacks: List[Attack]
     resistances: List[float]
@@ -149,9 +172,14 @@ class Unit:
     abilities: Set[UnitAbility]
     traits: Set[UnitTrait]
     statuses: Set[UnitStatus]
-    
+
     def __hash__(self):
         return hash((self.id, self.side))
+
+    def __eq__(self, other):
+        if not isinstance(other, Unit):
+            return NotImplemented
+        return self.id == other.id and self.side == other.side
 
 @dataclass
 class Hex:
