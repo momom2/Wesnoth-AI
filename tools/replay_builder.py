@@ -340,6 +340,14 @@ def export_scenario_replay(
 ) -> None:
     """Build a Wesnoth-loadable .bz2 from `setup` + `sim` alone.
 
+    The [scenario] block in a replay is the TURN-1 STARTING state;
+    Wesnoth then applies the [replay] command stream to advance
+    forward. So we deterministically rebuild a fresh initial
+    GameState from `setup` for the scenario serialization rather
+    than using `sim.gs` (which has the final post-game state --
+    using it would emit final gold/villages/HP/etc. as the
+    starting values, divorced from the [replay] sequence).
+
     `setup` is the `tools.scenario_pool.ScenarioSetup` used to
     seed the sim. `sim` is the post-game `WesnothSim` (with a
     populated `command_history`). `out_path` is where the .bz2
@@ -368,7 +376,13 @@ def export_scenario_replay(
         raise RuntimeError(f"map not found: {map_path}")
     raw_map = map_path.read_text(encoding="utf-8", errors="replace")
 
-    text = _build_file_wml(setup, sim.gs, sim, raw_map, scenario_root)
+    # Fresh turn-1 GameState (deterministic given setup). This is
+    # what Wesnoth needs in the [scenario] block; it then applies
+    # sim.command_history to advance forward.
+    from tools.scenario_pool import build_scenario_gamestate
+    initial_gs = build_scenario_gamestate(setup)
+
+    text = _build_file_wml(setup, initial_gs, sim, raw_map, scenario_root)
 
     log.info(f"writing {out_path} "
              f"({len(sim.command_history)} commands, "
