@@ -1345,12 +1345,22 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         gs.map.units.add(spawned)
 
         # Deduct cost from side gold (use unit_db cost; fall back to 14).
+        # NO clamp at 0 -- mirrors Wesnoth's `team::spend_gold`
+        # (wesnoth_src/src/team.hpp uses bare `gold_ -= amount;`).
+        # Wesnoth allows negative gold from upkeep; recruits that
+        # would push gold negative are rejected upstream by
+        # `find_recruit_location` / wesnoth_sim._action_to_command's
+        # affordability gate, NOT here. Keeping a clamp here was a
+        # band-aid that hid bugs where an unaffordable recruit
+        # somehow slipped past the upstream gate (e.g., through a
+        # direct command_history injection path or a replay-recon
+        # bug). Negative gold post-recruit is now a loud signal.
         cost = int(_stats_for(unit_type).get("cost", 14))
         if 1 <= side <= len(gs.sides):
             s = gs.sides[side - 1]
             gs.sides[side - 1] = SideInfo(
                 player=s.player, recruits=s.recruits,
-                current_gold=max(0, s.current_gold - cost),
+                current_gold=s.current_gold - cost,
                 base_income=s.base_income,
                 nb_villages_controlled=s.nb_villages_controlled,
                 faction=s.faction,
