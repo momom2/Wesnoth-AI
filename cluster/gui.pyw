@@ -499,12 +499,59 @@ class App:
         )
 
     def _op_start_selfplay(self) -> None:
-        # Same idempotency story as supervised: harmless if a self-
-        # play chain is already running.
+        # Open the parameter panel; on Run, ssh to the cluster and
+        # sbatch with --export overrides for each knob. Idempotent
+        # against double-submit (run.sh start checks the recorded
+        # jobid against squeue).
+        if self._is_busy():
+            messagebox.showinfo("Busy", "Another operation is running.")
+            return
+        self._open_selfplay_dialog(
+            title="Self-play (cluster)",
+            on_run=self._run_cluster_selfplay,
+            cluster_mode=True,
+        )
+
+    def _run_cluster_selfplay(self, params: dict) -> None:
+        # Build sbatch --export string. Leaving a value out keeps
+        # the sbatch's hardcoded default; passing it overrides.
+        export_kvs = [
+            "ALL",   # inherit caller's env
+            f"ITERATIONS={params['iterations']}",
+            f"GAMES_PER_ITER={params['games_per_iter']}",
+            f"MAX_TURNS={params['max_turns']}",
+            f"WORKERS={params['workers']}",
+            f"SAVE_EVERY={params['save_every']}",
+            f"SEED={params['seed']}",
+        ]
+        if params["forced_faction"] == "(none / fully random)":
+            export_kvs.append("FORCED_FACTION=none")
+        else:
+            export_kvs.append(f"FORCED_FACTION={params['forced_faction']}")
+        if params["reward_config"]:
+            # Strip the project-root prefix so the path is correct
+            # cluster-side too.
+            rp = params["reward_config"]
+            try:
+                rp = str(Path(rp).resolve().relative_to(PROJECT_ROOT))
+            except ValueError:
+                pass  # absolute path stays as-is
+            export_kvs.append(f"REWARD_CONFIG={rp}")
+        # --export uses commas to separate KEY=VAL pairs. Quote the
+        # whole thing so shell metacharacters in values don't bite.
+        export_arg = ",".join(export_kvs)
+        # `--parsable` makes sbatch print just the jobid; we let
+        # run.sh continue handling that bookkeeping in normal flow,
+        # but here we sbatch directly so we can use --export.
+        remote_cmd = (
+            f"cd {REMOTE_PATH} && "
+            f"sbatch --export='{export_arg}' --parsable "
+            f"cluster/job_selfplay.sbatch | tee training/logs/selfplay.jobid"
+        )
         self._spawn(
-            ["ssh", REMOTE_HOST,
-             f"cd {REMOTE_PATH} && bash cluster/run.sh start selfplay"],
-            needs_password=True, label="start self-play job",
+            ["ssh", REMOTE_HOST, remote_cmd],
+            needs_password=True,
+            label=f"start self-play (cluster, {params['iterations']} iters)",
         )
 
     def _op_pull(self) -> None:
@@ -547,27 +594,186 @@ class App:
                         key=lambda p: p.stat().st_mtime, reverse=True)
         return any_pt[0] if any_pt else None
 
-    def _op_train_selfplay(self) -> None:
-        """Self-play TRAINING run via the in-process simulator.
-        Equivalent to `python tools/sim_self_play.py` with sensible
-        defaults; the model keeps learning from rollouts.
+    # Default-era factions for the GUI dropdown. Source-of-truth is
+    # tools/scenario_pool.load_factions(); we hardcode the names here
+    # so the GUI doesn't need to import the project at startup.
+    _FACTIONS = [
+        "(none / fully random)",
+        "Knalgan Alliance",
+        "Drakes",
+        "Loyalists",
+        "Northerners",
+        "Rebels",
+        "Undead",
+    ]
 
-        No live Wesnoth window -- the sim is headless. Logs stream to
-        the GUI text panel; checkpoints land in
-        `training/checkpoints/sim_selfplay.pt`."""
-        ckpt = self._autoselect_checkpoint()
+    def _op_train_selfplay(self) -> None:
+        """Open a parameter panel, then run sim_self_play.py with
+        the chosen flags. No live Wesnoth window -- the sim is
+        headless. Logs stream to the GUI text panel; checkpoints
+        land in `training/checkpoints/sim_selfplay.pt`."""
+        if self._is_busy():
+            messagebox.showinfo("Busy", "Another operation is running.")
+            return
+        self._open_selfplay_dialog(
+            title="Self-play (local)",
+            on_run=self._run_local_selfplay,
+            cluster_mode=False,
+        )
+
+    def _run_local_selfplay(self, params: dict) -> None:
+        """Build argv from the dialog's params dict and spawn
+        sim_self_play.py."""
+        ckpt = params["checkpoint"]
         argv: List[str] = [PYTHON, str(SCRIPT_SIM_SELFPLAY)]
-        if ckpt is not None:
+        if ckpt:
             argv += ["--checkpoint-in", str(ckpt)]
-            self._log(f"[selfplay] starting from checkpoint: {ckpt.name}")
+            self._log(f"[selfplay] starting from checkpoint: {Path(ckpt).name}")
         else:
             self._log(
-                "[selfplay] no supervised*.pt found under "
-                "training/checkpoints/. Pulling one from the cluster "
-                "first will give the policy a sensible starting point; "
-                "without one we'll train from scratch.")
+                "[selfplay] no checkpoint -- training from random init")
+        argv += [
+            "--iterations",     str(params["iterations"]),
+            "--games-per-iter", str(params["games_per_iter"]),
+            "--max-turns",      str(params["max_turns"]),
+            "--workers",        str(params["workers"]),
+            "--save-every",     str(params["save_every"]),
+            "--seed",           str(params["seed"]),
+        ]
+        if params["forced_faction"] == "(none / fully random)":
+            argv += ["--forced-faction", "none"]
+        else:
+            argv += ["--forced-faction", params["forced_faction"]]
+        if params["reward_config"]:
+            argv += ["--reward-config", str(params["reward_config"])]
         self._spawn(argv, needs_password=False,
-                    label="self-play (training, sim)")
+                    label=f"self-play (local, {params['iterations']} iters)")
+
+    def _open_selfplay_dialog(
+        self, *, title: str,
+        on_run, cluster_mode: bool,
+    ) -> None:
+        """Modal panel with knobs for every self-play parameter.
+        `on_run(params: dict)` is called when the user clicks Run.
+        `cluster_mode=True` adjusts defaults (more iterations,
+        more workers) and hides irrelevant knobs (no checkpoint
+        picker -- the sbatch's latest-ckpt logic owns that)."""
+        dlg = tk.Toplevel(self.root)
+        dlg.title(title)
+        dlg.transient(self.root)
+        dlg.grab_set()
+
+        # Defaults: tuned for typical local CPU vs cluster GPU runs.
+        defaults = {
+            "iterations":     1000 if cluster_mode else 10,
+            "games_per_iter":  8 if cluster_mode else 4,
+            "max_turns":     200 if cluster_mode else 200,
+            "workers":         6 if cluster_mode else 4,
+            "save_every":     5 if cluster_mode else 10,
+            "seed":            0,
+            "forced_faction": "Knalgan Alliance",
+            "reward_config": str(PROJECT_ROOT / "cluster" / "configs"
+                                  / "reward_selfplay.json"),
+        }
+
+        v_iters     = tk.IntVar(value=defaults["iterations"])
+        v_games     = tk.IntVar(value=defaults["games_per_iter"])
+        v_turns     = tk.IntVar(value=defaults["max_turns"])
+        v_workers   = tk.IntVar(value=defaults["workers"])
+        v_save      = tk.IntVar(value=defaults["save_every"])
+        v_seed      = tk.IntVar(value=defaults["seed"])
+        v_faction   = tk.StringVar(value=defaults["forced_faction"])
+        v_reward    = tk.StringVar(value=defaults["reward_config"])
+        v_ckpt      = tk.StringVar(value=str(self._autoselect_checkpoint() or ""))
+
+        def grid(label: str, widget, row: int, hint: str = ""):
+            tk.Label(dlg, text=label, anchor="e").grid(
+                row=row, column=0, padx=6, pady=3, sticky="e")
+            widget.grid(row=row, column=1, padx=6, pady=3, sticky="ew")
+            if hint:
+                tk.Label(dlg, text=hint, fg="gray").grid(
+                    row=row, column=2, padx=4, pady=3, sticky="w")
+
+        # Row 0: iteration count
+        grid("Iterations:",
+             tk.Spinbox(dlg, from_=1, to=10000, textvariable=v_iters, width=10),
+             0, "outer training-loop count")
+        grid("Games per iter:",
+             tk.Spinbox(dlg, from_=1, to=64, textvariable=v_games, width=10),
+             1, "rollouts before each train_step")
+        grid("Max turns:",
+             tk.Spinbox(dlg, from_=20, to=500, textvariable=v_turns, width=10),
+             2, "per-game turn cap")
+        grid("Workers:",
+             tk.Spinbox(dlg, from_=0, to=12, textvariable=v_workers, width=10),
+             3, "0 = serial, N = parallel rollouts")
+        grid("Save every (iters):",
+             tk.Spinbox(dlg, from_=1, to=100, textvariable=v_save, width=10),
+             4, "checkpoint write cadence")
+        grid("Seed:",
+             tk.Spinbox(dlg, from_=0, to=999999, textvariable=v_seed, width=10),
+             5, "RNG seed for reproducibility")
+        grid("Forced faction:",
+             tk.OptionMenu(dlg, v_faction, *self._FACTIONS),
+             6, "always present on at least one side")
+
+        # Reward config picker.
+        rew_frame = tk.Frame(dlg)
+        tk.Entry(rew_frame, textvariable=v_reward, width=40).pack(
+            side="left", fill="x", expand=True)
+        def _pick_reward():
+            p = filedialog.askopenfilename(
+                title="Pick reward config",
+                initialdir=str(PROJECT_ROOT / "cluster" / "configs"),
+                filetypes=[("JSON config", "*.json"), ("All", "*.*")],
+            )
+            if p:
+                v_reward.set(p)
+        tk.Button(rew_frame, text="...", width=3, command=_pick_reward).pack(
+            side="left", padx=(4, 0))
+        grid("Reward config:", rew_frame, 7, "")
+
+        # Checkpoint picker (LOCAL only -- cluster sbatch handles its
+        # own latest-ckpt logic).
+        if not cluster_mode:
+            ckpt_frame = tk.Frame(dlg)
+            tk.Entry(ckpt_frame, textvariable=v_ckpt, width=40).pack(
+                side="left", fill="x", expand=True)
+            def _pick_ckpt():
+                p = filedialog.askopenfilename(
+                    title="Pick starting checkpoint (or Cancel for random init)",
+                    initialdir=str(PROJECT_ROOT / "training" / "checkpoints"),
+                    filetypes=[("PyTorch checkpoint", "*.pt"), ("All", "*.*")],
+                )
+                if p:
+                    v_ckpt.set(p)
+            tk.Button(ckpt_frame, text="...", width=3,
+                      command=_pick_ckpt).pack(side="left", padx=(4, 0))
+            grid("Checkpoint:", ckpt_frame, 8,
+                 "blank = train from random init")
+
+        def on_ok():
+            params = {
+                "iterations":      v_iters.get(),
+                "games_per_iter":  v_games.get(),
+                "max_turns":       v_turns.get(),
+                "workers":         v_workers.get(),
+                "save_every":      v_save.get(),
+                "seed":            v_seed.get(),
+                "forced_faction":  v_faction.get(),
+                "reward_config":   v_reward.get().strip() or None,
+                "checkpoint":      v_ckpt.get().strip() or None,
+            }
+            dlg.destroy()
+            on_run(params)
+
+        btns = tk.Frame(dlg)
+        btns.grid(row=20, column=0, columnspan=3, pady=10)
+        tk.Button(btns, text="Cancel", width=10,
+                  command=dlg.destroy).pack(side="right", padx=4)
+        tk.Button(btns, text="Run", width=10,
+                  command=on_ok).pack(side="right", padx=4)
+        dlg.columnconfigure(1, weight=1)
 
     def _op_display_selfplay(self) -> None:
         """Watch ONE game with the loaded model: runs one full game

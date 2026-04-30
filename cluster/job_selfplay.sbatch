@@ -88,22 +88,41 @@ fi
 # --reward-config cluster/configs/reward_selfplay.json: tuned
 # defaults (see the file's _about field). Tweak the JSON between
 # chain links to retune without touching code.
-ITERATIONS=1000
-WORKERS=6
-GAMES_PER_ITER=8
-MAX_TURNS=60
+# Each knob accepts an env var override (sbatch --export=KEY=VAL).
+# The defaults below run if the operator submits without --export,
+# which matches the "Start self-play" button's behavior.
+ITERATIONS="${ITERATIONS:-1000}"
+WORKERS="${WORKERS:-6}"
+GAMES_PER_ITER="${GAMES_PER_ITER:-8}"
+MAX_TURNS="${MAX_TURNS:-200}"
+SAVE_EVERY="${SAVE_EVERY:-5}"
+SEED="${SEED:-0}"
+REWARD_CONFIG="${REWARD_CONFIG:-cluster/configs/reward_selfplay.json}"
+# FORCED_FACTION: empty = use sim_self_play module default
+# (Knalgan Alliance). "none" = explicit disable. Anything else =
+# lock to that faction.
+FORCED_FACTION_ARG=""
+if [ -n "${FORCED_FACTION:-}" ]; then
+    FORCED_FACTION_ARG="--forced-faction ${FORCED_FACTION}"
+fi
+
+echo "[job] params: iters=${ITERATIONS} games/iter=${GAMES_PER_ITER} " \
+     "max_turns=${MAX_TURNS} workers=${WORKERS} save_every=${SAVE_EVERY} " \
+     "seed=${SEED} forced_faction='${FORCED_FACTION:-(default)}' " \
+     "reward=${REWARD_CONFIG}"
 
 TRAINER_EXIT=0
 python -u tools/sim_self_play.py \
-    --replay-pool replays_dataset \
     --checkpoint-out "${SP_CKPT}" \
     --device cuda \
     --iterations ${ITERATIONS} \
     --games-per-iter ${GAMES_PER_ITER} \
     --max-turns ${MAX_TURNS} \
     --workers ${WORKERS} \
-    --save-every 5 \
-    --reward-config cluster/configs/reward_selfplay.json \
+    --save-every ${SAVE_EVERY} \
+    --seed ${SEED} \
+    --reward-config "${REWARD_CONFIG}" \
+    ${FORCED_FACTION_ARG} \
     ${CKPT_FLAG} || TRAINER_EXIT=$?
 
 echo "[job] trainer exit code: ${TRAINER_EXIT}"

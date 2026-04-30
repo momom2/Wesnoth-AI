@@ -525,6 +525,7 @@ def _play_one_game_safe(
 def _worker_loop(
     *, worker_id, policy, reward_fn, cost_lookup,
     max_turns, pvp_defaults, worker_rng, shared,
+    forced_faction=...,
 ):
     """Per-thread rollout loop. Each worker pulls a game index from
     `shared.next_game` (atomic under the master lock), assigns
@@ -539,7 +540,7 @@ def _worker_loop(
                 return
             g_idx = shared["next_game"]
             shared["next_game"] += 1
-        setup = random_setup(worker_rng)
+        setup = random_setup(worker_rng, forced_faction=forced_faction)
         game_label = (f"iter{shared['iter_idx']}_"
                       f"w{worker_id}_g{g_idx}")
         outcome = _play_one_game_safe(
@@ -566,6 +567,7 @@ def run_iteration(
     pvp_defaults:  Optional[PvPDefaults] = None,
     workers:       int = 0,
     train_at_end:  bool = True,
+    forced_faction: Optional[str] = ...,
 ) -> List[GameOutcome]:
     """Roll out `games_per_iter` games and call `train_step` once at
     the end. Returns the per-game outcomes for logging.
@@ -603,7 +605,7 @@ def run_iteration(
         # Serial path -- simplest, used for tests and smoke runs.
         from tools.scenario_pool import random_setup
         for g_idx in range(games_per_iter):
-            setup = random_setup(rng)
+            setup = random_setup(rng, forced_faction=forced_faction)
             game_label = f"iter{iter_idx}_g{g_idx}"
             outcome = _play_one_game_safe(
                 setup=setup, max_turns=max_turns,
@@ -636,6 +638,7 @@ def run_iteration(
                     reward_fn=reward_fn, cost_lookup=cost_lookup,
                     max_turns=max_turns, pvp_defaults=pvp_defaults,
                     worker_rng=worker_rng, shared=shared,
+                    forced_faction=forced_faction,
                 ),
                 daemon=True,
                 name=f"selfplay-w{w}",
@@ -762,6 +765,13 @@ def main(argv: List[str]) -> int:
                          "On CPU, ~30%% speedup at workers=4 (GIL "
                          "limits gains); on GPU, larger speedup as "
                          "forwards dispatch in parallel.")
+    ap.add_argument("--forced-faction", default=None,
+                    help="If set, every game has at least one side "
+                         "playing this faction. Pass 'none' to "
+                         "explicitly disable the module default "
+                         "(currently 'Knalgan Alliance'). Pass any "
+                         "default-era faction name (e.g. 'Drakes') "
+                         "to lock that faction instead.")
     args = ap.parse_args(argv[1:])
 
     logging.basicConfig(
@@ -835,6 +845,16 @@ def main(argv: List[str]) -> int:
     else:
         log.info("--no-map-settings: keeping source-replay settings")
 
+    # Translate the --forced-faction CLI string into the right value
+    # for random_setup: ... = "use module default", None = disabled,
+    # str = lock to that faction.
+    forced_faction_arg: object = ...
+    if args.forced_faction is not None:
+        if args.forced_faction.lower() == "none":
+            forced_faction_arg = None
+        else:
+            forced_faction_arg = args.forced_faction
+
     for it in range(args.iterations):
         run_iteration(
             policy, pool_files, reward_fn, cost_lookup,
@@ -844,6 +864,7 @@ def main(argv: List[str]) -> int:
             rng=rng,
             pvp_defaults=pvp_defaults,
             workers=args.workers,
+            forced_faction=forced_faction_arg,
         )
         if (it + 1) % args.save_every == 0 or (it + 1) == args.iterations:
             policy.save_checkpoint(args.checkpoint_out)

@@ -259,32 +259,41 @@ class ScenarioSetup:
 FORCED_FACTION: Optional[str] = "Knalgan Alliance"
 
 
-def random_setup(rng: random.Random) -> ScenarioSetup:
+def random_setup(
+    rng: random.Random,
+    *,
+    forced_faction: Optional[str] = ...,
+) -> ScenarioSetup:
     """Pick a random scenario + 2 (faction, leader) pairs.
 
-    Faction sampling honors `FORCED_FACTION` (currently locked to
-    Knalgan Alliance): one side is randomly chosen to play it,
-    the other samples uniformly from all 6 default-era factions.
-    Set FORCED_FACTION = None for fully-uniform per-side sampling.
+    `forced_faction`: if set to a faction name, one side is
+    randomly chosen to play it; the other samples uniformly from
+    all 6 default-era factions (mirrors still possible on that
+    side). Pass None for fully-uniform per-side sampling. The
+    sentinel `...` means "use the module-level FORCED_FACTION
+    default" -- used so callers that don't override don't have
+    to reach into the module to learn the default.
 
     Leaders are sampled from each faction's `random_leader=` pool,
     matching Wesnoth's `type=random` behavior.
     """
+    if forced_faction is ...:
+        forced_faction = FORCED_FACTION
     factions = load_factions()
     if not factions:
         raise RuntimeError("no factions loaded")
     scenario_id = rng.choice(LADDER_SCENARIO_IDS)
 
-    if FORCED_FACTION is not None and FORCED_FACTION in factions:
+    if forced_faction is not None and forced_faction in factions:
         # Pick which side gets the forced faction (50/50). The other
         # side samples uniformly from ALL factions, so mirrors still
         # occur ~1/6 of the time on that side.
         forced_side = rng.choice((1, 2))
         other_faction = rng.choice(list(factions.keys()))
         if forced_side == 1:
-            f1, f2 = FORCED_FACTION, other_faction
+            f1, f2 = forced_faction, other_faction
         else:
-            f1, f2 = other_faction, FORCED_FACTION
+            f1, f2 = other_faction, forced_faction
     else:
         f1 = rng.choice(list(factions.keys()))
         f2 = rng.choice(list(factions.keys()))
