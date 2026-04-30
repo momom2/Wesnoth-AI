@@ -474,24 +474,38 @@ def _gather_replay_pool(replay_pool: Path) -> List[Path]:
 # ---------------------------------------------------------------------
 
 def _play_one_game_safe(
-    *, replay, max_turns, pvp_defaults, policy, reward_fn,
+    *, setup, max_turns, pvp_defaults, policy, reward_fn,
     cost_lookup, game_label,
 ) -> Optional[GameOutcome]:
-    """Run one game end-to-end including replay load, per-game state
-    resets, and play_one_game. Catches exceptions, drops pending
-    transitions on crash, and returns None on any failure (vs an
-    outcome object on success).
+    """Run one game end-to-end from a `ScenarioSetup` (random
+    scenario + faction + leader picks). Catches exceptions, drops
+    pending transitions on crash, returns None on failure.
 
-    Pulled out into a helper so both the serial run_iteration path
-    and the parallel worker loop go through the same code, avoiding
-    drift between the two flows."""
+    Pre-pivot this used `WesnothSim.from_replay(<replay_path>)`.
+    Post-pivot (2026-04-30) it builds the GameState directly from
+    scenario .cfg + map + faction data via
+    `tools.scenario_pool.build_scenario_gamestate`. No replay
+    file involved. Scenario events fire in `WesnothSim.__init__`
+    (CoB neutrals, Aethermaw morph, etc.).
+    """
+    from tools.scenario_pool import build_scenario_gamestate
+    # Map pvp_defaults onto build_scenario_gamestate kwargs.
+    sg = (pvp_defaults.starting_gold if pvp_defaults else 100)
+    bi = (pvp_defaults.base_income   if pvp_defaults else 2)
+    vg = (pvp_defaults.village_gold  if pvp_defaults else 2)
+    vu = (pvp_defaults.village_support if pvp_defaults else 1)
+    em = (pvp_defaults.experience_modifier if pvp_defaults else 70)
     try:
-        sim = WesnothSim.from_replay(
-            replay, max_turns=max_turns,
-            pvp_defaults=pvp_defaults,
+        gs = build_scenario_gamestate(
+            setup,
+            starting_gold=sg, base_income=bi,
+            village_gold=vg, village_upkeep=vu,
+            experience_modifier=em,
         )
+        sim = WesnothSim(gs, scenario_id=setup.scenario_id,
+                         max_turns=max_turns)
     except Exception as e:
-        log.warning(f"skipping {replay.name}: {e}")
+        log.warning(f"skipping {setup.label()}: {e}")
         return None
     if hasattr(policy, "reset_game"):
         policy.reset_game(game_label)
@@ -509,25 +523,27 @@ def _play_one_game_safe(
 
 
 def _worker_loop(
-    *, worker_id, policy, pool_files, reward_fn, cost_lookup,
+    *, worker_id, policy, reward_fn, cost_lookup,
     max_turns, pvp_defaults, worker_rng, shared,
 ):
     """Per-thread rollout loop. Each worker pulls a game index from
     `shared.next_game` (atomic under the master lock), assigns
     itself a unique game_label, runs one game, appends the outcome
     to `shared.outcomes`. Stops when `next_game` would exceed
-    target_games."""
+    target_games. Uses scenario_pool.random_setup for the seed --
+    no replay pool involved."""
+    from tools.scenario_pool import random_setup
     while True:
         with shared["lock"]:
             if shared["next_game"] >= shared["target_games"]:
                 return
             g_idx = shared["next_game"]
             shared["next_game"] += 1
-        replay = worker_rng.choice(pool_files)
+        setup = random_setup(worker_rng)
         game_label = (f"iter{shared['iter_idx']}_"
                       f"w{worker_id}_g{g_idx}")
         outcome = _play_one_game_safe(
-            replay=replay, max_turns=max_turns,
+            setup=setup, max_turns=max_turns,
             pvp_defaults=pvp_defaults, policy=policy,
             reward_fn=reward_fn, cost_lookup=cost_lookup,
             game_label=game_label,
@@ -539,7 +555,7 @@ def _worker_loop(
 
 def run_iteration(
     policy:        TransformerPolicy,
-    pool_files:    List[Path],
+    pool_files:    Optional[List[Path]],   # legacy; ignored post-pivot
     reward_fn,
     cost_lookup:   Dict[str, int],
     *,
@@ -585,11 +601,12 @@ def run_iteration(
 
     if workers <= 0:
         # Serial path -- simplest, used for tests and smoke runs.
+        from tools.scenario_pool import random_setup
         for g_idx in range(games_per_iter):
-            replay = rng.choice(pool_files)
+            setup = random_setup(rng)
             game_label = f"iter{iter_idx}_g{g_idx}"
             outcome = _play_one_game_safe(
-                replay=replay, max_turns=max_turns,
+                setup=setup, max_turns=max_turns,
                 pvp_defaults=pvp_defaults, policy=policy,
                 reward_fn=reward_fn, cost_lookup=cost_lookup,
                 game_label=game_label,
@@ -615,7 +632,7 @@ def run_iteration(
             t = threading.Thread(
                 target=_worker_loop,
                 kwargs=dict(
-                    worker_id=w, policy=policy, pool_files=pool_files,
+                    worker_id=w, policy=policy,
                     reward_fn=reward_fn, cost_lookup=cost_lookup,
                     max_turns=max_turns, pvp_defaults=pvp_defaults,
                     worker_rng=worker_rng, shared=shared,
@@ -685,8 +702,11 @@ def main(argv: List[str]) -> int:
                     help="How many train_step iterations to run.")
     ap.add_argument("--games-per-iter", type=int, default=4,
                     help="Self-play games rolled out per train_step.")
-    ap.add_argument("--max-turns", type=int, default=40,
-                    help="Per-game turn cap (game ends in TIMEOUT past this).")
+    ap.add_argument("--max-turns", type=int, default=200,
+                    help="Per-game turn cap. Default 200 -- effectively "
+                         "no limit for normal PvP (most games end in "
+                         "20-40 turns by leader-kill). The sim's "
+                         "max_actions_per_side is the real safety net.")
     ap.add_argument("--save-every", type=int, default=10,
                     help="Save checkpoint every N iterations.")
     ap.add_argument("--seed", type=int, default=0,
@@ -751,8 +771,20 @@ def main(argv: List[str]) -> int:
     )
 
     rng = random.Random(args.seed)
-    pool_files = _gather_replay_pool(args.replay_pool)
+    # Self-play seeds are now scenarios + random factions/leaders
+    # (tools.scenario_pool), not replay starting states. The
+    # `--replay-pool` flag is retained for legacy callers but
+    # ignored. pool_files=None makes that explicit downstream.
+    pool_files = None
     cost_lookup = _recruit_cost_lookup()
+    # Eagerly load factions to surface any setup issue NOW rather
+    # than on the first worker thread.
+    from tools.scenario_pool import load_factions, LADDER_SCENARIO_IDS
+    factions = load_factions()
+    log.info(f"scenario pool: {len(LADDER_SCENARIO_IDS)} ladder maps "
+             f"x {len(factions)} factions = "
+             f"{len(LADDER_SCENARIO_IDS) * len(factions) ** 2} "
+             f"setup combinations (faction matchups with replacement)")
 
     import torch
     device = torch.device(args.device) if args.device else None

@@ -48,7 +48,11 @@ sys.path.insert(0, str(_ROOT / "tools"))
 from dummy_policy import DummyPolicy
 from rewards import WeightedReward
 from sim_self_play import (
-    GameOutcome, _gather_replay_pool, _recruit_cost_lookup, play_one_game,
+    GameOutcome, _recruit_cost_lookup, play_one_game,
+)
+from tools.scenario_pool import (
+    LADDER_SCENARIO_IDS, build_scenario_gamestate, load_factions,
+    random_setup,
 )
 from wesnoth_sim import PvPDefaults, WesnothSim
 
@@ -82,32 +86,31 @@ class _PolicyAdapter:
         pass
 
 
-def _pick_replay_pool(pool_dir: Path) -> List[Path]:
-    """Ladder-filtered replay pool via sim_self_play._gather_replay_pool
-    -- same 21-map whitelist self-play uses, so the smoke validates
-    the actual production pool not a wider proxy."""
-    try:
-        return _gather_replay_pool(pool_dir)
-    except Exception:
-        return []
-
-
 def _run_one_game(
     *,
-    replay: Path,
+    rng: random.Random,
     max_turns: int,
     pvp: PvPDefaults,
     cost_lookup: Dict[str, int],
     game_label: str,
 ) -> Tuple[Optional[GameOutcome], Optional[str]]:
-    """Build a sim from `replay`, run one game with DummyPolicy.
-    Returns (outcome, crash_message). Exactly one of the two is
-    None: outcome on success, crash message on failure."""
+    """Build a fresh GameState from a random scenario + factions,
+    run one game with DummyPolicy. Returns (outcome, crash_message).
+    Exactly one is None: outcome on success, crash on failure."""
+    setup = random_setup(rng)
     try:
-        sim = WesnothSim.from_replay(replay, max_turns=max_turns,
-                                     pvp_defaults=pvp)
+        gs = build_scenario_gamestate(
+            setup,
+            starting_gold=pvp.starting_gold,
+            base_income=pvp.base_income,
+            village_gold=pvp.village_gold,
+            village_upkeep=pvp.village_support,
+            experience_modifier=pvp.experience_modifier,
+        )
+        sim = WesnothSim(gs, scenario_id=setup.scenario_id,
+                         max_turns=max_turns)
     except Exception as e:
-        return None, f"replay-load: {e}"
+        return None, f"setup ({setup.label()}): {e}"
     policy = _PolicyAdapter(DummyPolicy())
     reward_fn = WeightedReward()
     try:
@@ -117,10 +120,7 @@ def _run_one_game(
         )
         return outcome, None
     except Exception as e:
-        # Distinguish sim invariant violations from other crashes;
-        # invariant text starts with "sim invariant:" by convention
-        # so we can taxonomize on it later.
-        return None, f"sim: {e}"
+        return None, f"sim ({setup.label()}): {e}"
 
 
 def _summarize(
@@ -204,9 +204,6 @@ def _write_csv(
 def main(argv: List[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--replay-pool", type=Path,
-                    default=Path("replays_dataset"),
-                    help="2p replay pool. Default: replays_dataset/.")
     ap.add_argument("--n-games", type=int, default=100,
                     help="Number of games to run. Default: 100.")
     ap.add_argument("--max-turns", type=int, default=40,
@@ -237,11 +234,12 @@ def main(argv: List[str]) -> int:
     # we collect them into the summary instead.
     logging.getLogger("sim_self_play").setLevel(logging.CRITICAL)
 
-    pool = _pick_replay_pool(args.replay_pool)
-    if not pool:
-        log.error(f"no 2p replays found under {args.replay_pool}")
-        return 2
-    log.info(f"replay pool: {len(pool)} 2p files in {args.replay_pool}")
+    factions = load_factions()
+    log.info(
+        f"scenario pool: {len(LADDER_SCENARIO_IDS)} ladder maps x "
+        f"{len(factions)} factions = "
+        f"{len(LADDER_SCENARIO_IDS) * len(factions)**2} setup combinations"
+    )
 
     pvp = PvPDefaults(
         starting_gold=args.starting_gold,
@@ -258,10 +256,9 @@ def main(argv: List[str]) -> int:
 
     if args.workers <= 1:
         for i in range(args.n_games):
-            replay = rng.choice(pool)
             label = f"smoke{i:04d}"
             outcome, crash = _run_one_game(
-                replay=replay, max_turns=args.max_turns,
+                rng=rng, max_turns=args.max_turns,
                 pvp=pvp, cost_lookup=cost_lookup, game_label=label,
             )
             if outcome is not None:
@@ -290,10 +287,9 @@ def main(argv: List[str]) -> int:
                         return
                     i = shared["next_idx"]
                     shared["next_idx"] += 1
-                replay = worker_rng.choice(pool)
                 label = f"smoke{i:04d}"
                 outcome, crash = _run_one_game(
-                    replay=replay, max_turns=args.max_turns,
+                    rng=worker_rng, max_turns=args.max_turns,
                     pvp=pvp, cost_lookup=cost_lookup, game_label=label,
                 )
                 with shared["lock"]:

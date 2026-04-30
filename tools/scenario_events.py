@@ -242,6 +242,16 @@ def load_scenario_wml(scenario_id: str) -> Optional[WMLNode]:
     base = scenario_id
     if base.startswith("multiplayer_"):
         base = base[len("multiplayer_"):]
+
+    # Known short-id → full-filename overrides. Some mainline
+    # scenarios pick a snappier WML `id=` than their filename
+    # (Caves of the Basilisk's id=multiplayer_Basilisk vs file
+    # 2p_Caves_of_the_Basilisk.cfg). Add new entries as discovered.
+    _BASE_OVERRIDES = {
+        "Basilisk": "Caves_of_the_Basilisk",
+    }
+    base = _BASE_OVERRIDES.get(base, base)
+
     candidate = SCENARIO_DIR / f"2p_{base}.cfg"
     if not candidate.exists():
         # Try without the 2p_ prefix (some scenarios use 4p_, 8p_, etc.)
