@@ -248,16 +248,47 @@ class ScenarioSetup:
         return f"{sid}:{self.faction1}({self.leader1})_vs_{self.faction2}({self.leader2})"
 
 
+# Faction that MUST appear on at least one side every game.
+# Set to None to fall back to fully-uniform faction sampling.
+# Currently locked to Knalgan Alliance per user request 2026-04-30:
+# every self-play game has at least one side playing Knalgan, so the
+# policy gets concentrated training as / against that faction. The
+# OTHER side samples uniformly from all 6 factions including
+# Knalgan, so Knalgan-vs-Knalgan mirror matches still happen
+# (~16.7% of games); cross-faction Knalgan matches are ~83.3%.
+FORCED_FACTION: Optional[str] = "Knalgan Alliance"
+
+
 def random_setup(rng: random.Random) -> ScenarioSetup:
-    """Pick a random scenario + 2 factions (with replacement -- mirror
-    matches are valid) + 2 leaders from each faction's
-    random_leader_pool."""
+    """Pick a random scenario + 2 (faction, leader) pairs.
+
+    Faction sampling honors `FORCED_FACTION` (currently locked to
+    Knalgan Alliance): one side is randomly chosen to play it,
+    the other samples uniformly from all 6 default-era factions.
+    Set FORCED_FACTION = None for fully-uniform per-side sampling.
+
+    Leaders are sampled from each faction's `random_leader=` pool,
+    matching Wesnoth's `type=random` behavior.
+    """
     factions = load_factions()
     if not factions:
         raise RuntimeError("no factions loaded")
     scenario_id = rng.choice(LADDER_SCENARIO_IDS)
-    f1 = rng.choice(list(factions.keys()))
-    f2 = rng.choice(list(factions.keys()))
+
+    if FORCED_FACTION is not None and FORCED_FACTION in factions:
+        # Pick which side gets the forced faction (50/50). The other
+        # side samples uniformly from ALL factions, so mirrors still
+        # occur ~1/6 of the time on that side.
+        forced_side = rng.choice((1, 2))
+        other_faction = rng.choice(list(factions.keys()))
+        if forced_side == 1:
+            f1, f2 = FORCED_FACTION, other_faction
+        else:
+            f1, f2 = other_faction, FORCED_FACTION
+    else:
+        f1 = rng.choice(list(factions.keys()))
+        f2 = rng.choice(list(factions.keys()))
+
     l1 = rng.choice(factions[f1].random_leader_pool)
     l2 = rng.choice(factions[f2].random_leader_pool)
     return ScenarioSetup(
