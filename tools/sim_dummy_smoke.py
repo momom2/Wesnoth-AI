@@ -47,7 +47,9 @@ sys.path.insert(0, str(_ROOT / "tools"))
 
 from dummy_policy import DummyPolicy
 from rewards import WeightedReward
-from sim_self_play import GameOutcome, _recruit_cost_lookup, play_one_game
+from sim_self_play import (
+    GameOutcome, _gather_replay_pool, _recruit_cost_lookup, play_one_game,
+)
 from wesnoth_sim import PvPDefaults, WesnothSim
 
 
@@ -81,27 +83,13 @@ class _PolicyAdapter:
 
 
 def _pick_replay_pool(pool_dir: Path) -> List[Path]:
-    """2p-filtered replay pool, mirroring sim_demo_game and
-    sim_self_play. Falls back to all .json.gz when there's no
-    index.jsonl."""
-    import json as _json
-    files = list(pool_dir.glob("*.json.gz"))
-    if not files:
+    """Ladder-filtered replay pool via sim_self_play._gather_replay_pool
+    -- same 21-map whitelist self-play uses, so the smoke validates
+    the actual production pool not a wider proxy."""
+    try:
+        return _gather_replay_pool(pool_dir)
+    except Exception:
         return []
-    idx = pool_dir / "index.jsonl"
-    if idx.exists():
-        keep: set = set()
-        with idx.open() as f:
-            for line in f:
-                try:
-                    e = _json.loads(line)
-                except _json.JSONDecodeError:
-                    continue
-                if e.get("game_id", "").startswith("2p"):
-                    keep.add(e.get("file", ""))
-        if keep:
-            files = [f for f in files if f.name in keep]
-    return files
 
 
 def _run_one_game(

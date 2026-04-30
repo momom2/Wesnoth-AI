@@ -317,35 +317,92 @@ def play_one_game(
 # Initial-state pool
 # ---------------------------------------------------------------------
 
+# Self-play seed pool: scenarios from the Ladder Era's three official
+# map packs (Competitive, Classic, Adventurous), pulled from
+# ~/Documents/My Games/Wesnoth1.18/data/add-ons/Ladder_Era/map_picker/
+# *.cfg (verified 2026-04-30). Their union covers 21 maps -- the
+# canonical "PvP-quality" 2p map list. Pickup games on the regular
+# multiplayer server use these scenario_ids directly (in default
+# era); games played through Ladder Era's random-pool picker get
+# the `_Ladder_Random` (or `_Ladder`) suffix that `_is_ladder_map`
+# strips below.
+#
+# Case-sensitivity matters: two scenarios use lowercase tokens
+# (`elensefar_courtyard`, `thousand_stings_garrison`); the rest are
+# CamelCase. Match what's in our index.jsonl exactly.
+_LADDER_MAP_SCENARIO_IDS: frozenset = frozenset({
+    # Competitive pack
+    "multiplayer_Basilisk",                # Caves of the Basilisk
+    "multiplayer_Clearing_Gushes",
+    "multiplayer_Fallenstar_Lake",
+    "multiplayer_Hamlets",
+    "multiplayer_Howling_Ghost_Badlands",
+    "multiplayer_Silverhead_Crossing",
+    "multiplayer_Sullas_Ruins",
+    "multiplayer_Swamp_of_Dread",
+    "multiplayer_The_Freelands",
+    "multiplayer_The_Walls_of_Pyrennis",
+    "multiplayer_Tombs_of_Kesorak",
+    "multiplayer_Weldyn_Channel",
+    # Classic pack additions (overlaps with Competitive otherwise)
+    "multiplayer_Den_of_Onis",
+    "multiplayer_Sablestone_Delta",
+    # Adventurous pack additions
+    "multiplayer_Aethermaw",
+    "multiplayer_Arcanclave_Citadel",
+    "multiplayer_elensefar_courtyard",
+    "multiplayer_Hellhole",
+    "multiplayer_Ruined_Passage",
+    "multiplayer_Ruphus_Isle",
+    "multiplayer_thousand_stings_garrison",
+})
+
+
+def _is_ladder_map(scenario_id: str) -> bool:
+    """True if `scenario_id` matches a Ladder Era map (any pack).
+    Tolerates `_Ladder_Random` and `_Ladder` suffixes the Ladder Era
+    add-on appends when a game is launched via its random-pool
+    picker (e.g. `multiplayer_Basilisk_Ladder_Random` ->
+    `multiplayer_Basilisk`)."""
+    s = scenario_id
+    for suffix in ("_Ladder_Random", "_Ladder"):
+        if s.endswith(suffix):
+            s = s[: -len(suffix)]
+            break
+    return s in _LADDER_MAP_SCENARIO_IDS
+
+
 def _gather_replay_pool(replay_pool: Path) -> List[Path]:
-    """Return .json.gz files under `replay_pool` filtered to PvP
-    games where sides 1 and 2 are the actual players.
+    """Return .json.gz files under `replay_pool` filtered to the
+    Ladder Era's 21-map PvP pool (Competitive + Classic +
+    Adventurous packs).
 
-    Why the filter exists: Wesnoth labels several non-PvP scenarios
-    as `2p_*` because they accept 2 human seats. Two notable
-    classes show up in the corpus:
+    Why this filter: replays in the corpus include
 
-      - **Co-op survival (e.g. 2p_Dark_Forecast):** sides 1 and 2
-        are AI-controlled enemy waves with `faction=Custom`; the
-        humans play sides 3 and 4. Our sim runs select_action for
-        sides 1 and 2 only, so the policy spends the whole game
-        controlling the AI waves. Useless for training.
-      - **Caves of the Basilisk:** sides 1 and 2 are real PvP
-        players, side 3 is a neutral set of wandering creatures
-        (`faction=Custom` on side 3 only). KEEP these.
+      - **Co-op survival** (e.g. multiplayer_2p_Dark_Forecast):
+        sides 1 and 2 are AI-controlled enemy waves; humans play
+        sides 3 and 4. The sim runs select_action for sides 1 and
+        2 only -> useless for PvP training.
+      - **Custom maps / niche scenarios:** scenarios that aren't on
+        any official PvP map list, with potentially weird stat
+        balance, custom WML events, or deviating starting golds.
+        Risk: noise.
+      - **Real PvP on the Ladder Era's 21 maps:** the standard
+        sanctioned PvP pool. KEEP.
 
-    Cheap-correct filter: require the index.jsonl `factions` list
-    to have non-Custom entries at indices 0 and 1 (= sides 1 and 2
-    per insertion order). A 3-side Basilisk replay with
-    `factions=['Knalgan Alliance', 'Loyalists', 'Custom']` passes;
-    a 4-side Dark Forecast replay with
-    `factions=['Custom', 'Custom', 'Northerners', 'Loyalists']`
-    is rejected. Mirror matches like `['Undead', 'Undead']` pass
-    correctly.
+    The Ladder Era add-on is the authoritative source for the
+    "PvP-quality" map list, since the human ladder community
+    explicitly curates it. Whitelisting against that list gives
+    self-play a clean, focused state distribution and matches what
+    we want the model to be good at.
 
-    Without index.jsonl, we fall back to the simple `2p` prefix
-    check on game_id (loose; will admit some co-op scenarios) and
-    log a warning so the operator knows.
+    Sanity check: also reject replays whose sides-1/2 factions are
+    `Custom` (survival mode marker) -- defense in depth in case a
+    scenario_id matches the whitelist but the game was somehow
+    re-routed.
+
+    Without index.jsonl, we fall back to using all .json.gz
+    unfiltered and warn loudly.
     """
     pool = Path(replay_pool)
     files = sorted(pool.glob("*.json.gz"))
@@ -354,8 +411,9 @@ def _gather_replay_pool(replay_pool: Path) -> List[Path]:
     idx_path = pool / "index.jsonl"
     if idx_path.exists():
         keep_names: set = set()
-        n_seen   = 0
-        n_dropped_prefix  = 0
+        per_map: dict = {}
+        n_seen = 0
+        n_dropped_scenario = 0
         n_dropped_factions = 0
         with idx_path.open() as f:
             for line in f:
@@ -364,39 +422,48 @@ def _gather_replay_pool(replay_pool: Path) -> List[Path]:
                 except json.JSONDecodeError:
                     continue
                 n_seen += 1
-                gid = e.get("game_id", "")
-                if not gid.startswith("2p"):
-                    n_dropped_prefix += 1
+                sid = e.get("scenario_id", "")
+                if not _is_ladder_map(sid):
+                    n_dropped_scenario += 1
                     continue
                 facs = e.get("factions") or []
-                # Sides 1 and 2 must be real PvP factions, not the
-                # "Custom" marker used by survival / event-driven AI
-                # sides. An empty faction list is also rejected --
-                # we can't verify the scenario is PvP without the
-                # data.
                 if (len(facs) < 2
                         or facs[0] in ("Custom", "")
                         or facs[1] in ("Custom", "")):
                     n_dropped_factions += 1
                     continue
                 keep_names.add(e.get("file", ""))
+                # Strip suffix for the per-map count so Ladder
+                # Random and plain forms aggregate.
+                base = sid
+                for suf in ("_Ladder_Random", "_Ladder"):
+                    if base.endswith(suf):
+                        base = base[: -len(suf)]
+                        break
+                per_map[base] = per_map.get(base, 0) + 1
         if keep_names:
             files = [f for f in files if f.name in keep_names]
             if not files:
                 raise RuntimeError(
                     "index.jsonl filtered out every replay -- check "
-                    "the PvP filter logic")
+                    "the ladder filter logic")
             log.info(
-                f"replay pool: kept {len(files)}/{n_seen} PvP replays "
-                f"(dropped {n_dropped_prefix} non-2p prefix, "
-                f"{n_dropped_factions} co-op / survival with "
-                f"AI-faction sides 1-2)"
+                f"replay pool: kept {len(files)}/{n_seen} ladder-map PvP "
+                f"replays (dropped {n_dropped_scenario} non-ladder "
+                f"scenarios, {n_dropped_factions} co-op / AI sides 1-2)"
+            )
+            log.info(
+                f"  per-map: " + ", ".join(
+                    f"{name.replace('multiplayer_', '')}={count}"
+                    for name, count in sorted(
+                        per_map.items(), key=lambda kv: -kv[1])
+                )
             )
             return files
     log.warning(
         f"replay pool: no index.jsonl in {pool}; using all "
         f"{len(files)} .json.gz files unfiltered (will likely "
-        f"include co-op survival scenarios -- generate index.jsonl "
+        f"include non-ladder scenarios -- generate index.jsonl "
         f"via tools/replay_extract.py for proper filtering)"
     )
     return files
