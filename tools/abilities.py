@@ -115,21 +115,49 @@ def leadership_bonus(unit: Unit, all_units: Iterable[Unit],
                      opponent_level: int) -> int:
     """Return the leadership-based damage bonus % for `unit`'s attacks.
 
-    Wesnoth's rule: for each adjacent same-side unit with the
-    `leadership` ability of level L > opponent_level, the bonus is
-    25% × (L − opponent_level). Bonuses don't stack across multiple
-    leaders; we take the highest.
+    Wesnoth's ABILITY_LEADERSHIP (data/core/macros/abilities.cfg:192):
+        [leadership]
+            value="(25 * (level - other.level))"
+            cumulative=no
+            affect_self=no
+            [affect_adjacent]
+                [filter] formula="level < other.level" [/filter]
+            [/affect_adjacent]
+        [/leadership]
+
+    Rules:
+      - Bonus = 25 × (leader.level − opponent.level), where opponent
+        is the unit being attacked.
+      - Buffed unit must be ADJACENT to the leader (not self), same
+        side, and STRICTLY LOWER level than the leader. The
+        lower-level filter is the `[filter] formula="level <
+        other.level"` part: same-level units are NOT buffed.
+      - `cumulative=no`: multiple adjacent leaders DON'T stack;
+        only the highest-level leader's bonus applies. Since the
+        bonus is monotonically increasing in leader.level, taking
+        the MAX over candidates is equivalent (lvl3 General gives
+        +50% vs lvl1 opp, lvl2 Lt only +25%, max = 50%).
+      - We don't track per-ability `level=` overrides; assume the
+        leadership ability's level equals the unit's level. True for
+        all default-era leaders (Lieutenant, Drake Flare, etc.).
     """
+    # Unit doesn't carry `level` directly; look it up from unit_stats.
+    # Lazy import to avoid circular deps.
+    from tools.replay_dataset import _stats_for
+    unit_level = int(_stats_for(unit.name).get("level", 1) or 1)
     best = 0
     for ally in _adjacent_units(all_units, unit.position.x, unit.position.y):
         if ally.side != unit.side or ally.id == unit.id:
             continue
         if "leadership" not in ally.abilities:
             continue
-        # We don't currently track per-ability levels; assume the
-        # ally's unit-level. Approximate but matches most cases since
-        # leadership ability scales with unit level by convention.
-        ally_level = getattr(ally, "level", 1) or 1
+        ally_level = int(_stats_for(ally.name).get("level", 1) or 1)
+        # Lower-level filter: the buffed unit (`unit`) must be
+        # STRICTLY lower-level than the leader.
+        if unit_level >= ally_level:
+            continue
+        # Bonus formula. Skip if it would be <= 0 (leader same-or-
+        # lower level than the opponent gives no bonus).
         if ally_level <= opponent_level:
             continue
         best = max(best, 25 * (ally_level - opponent_level))

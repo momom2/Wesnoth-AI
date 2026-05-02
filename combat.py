@@ -339,6 +339,19 @@ def _compute_battle_stats(
         cth = opp_unit.defense_pct
         if "marksman" in weapon.specials and is_attacker:
             cth = max(cth, 60)
+    # DEFLECT (data/core/macros/weapon_specials.cfg:95-104):
+    #   [chance_to_hit] id=deflect sub=10 cumulative=yes
+    #     active_on=defense apply_to=opponent
+    # When the OPPONENT's weapon is deflect-able and they're DEFENDING
+    # against our hit, our cth drops by 10. Cumulative across multiple
+    # deflect-tagged specials on the opp weapon (we treat it as a
+    # single -10 since no default-era weapon stacks). is_attacker
+    # here means OUR side is attacking; the opp weapon is the
+    # defender's. opp.deflect on the defender's weapon → -10 to our
+    # cth iff is_attacker.
+    if (is_attacker and opp_weapon is not None
+            and "deflect" in opp_weapon.specials):
+        cth -= 10
     cth = max(0, min(100, cth))
     if opp_unit.is_invulnerable:
         cth = 0
@@ -645,16 +658,28 @@ def _perform_hit(
     if dmg <= 0:
         return True
 
-    # Apply damage to target.
+    # Apply damage to target. Track damage_done = the actual amount of
+    # HP removed (= min(target.hp_pre, dmg)). Drains uses damage_done,
+    # NOT the raw weapon damage -- killing a 5-hp defender with a 13-dmg
+    # hit drains 5*0.5=2 hp, not 13*0.5=6 hp. Mirrors attack.cpp:1020:
+    #   damage_done = min(defender.hitpoints(), attacker.damage_)
+    target_hp_pre = target.hp
     target.hp -= dmg
     if target.hp < 0:
         target.hp = 0
+    damage_done = target_hp_pre - target.hp
 
-    # Drains: striker heals up to max_hp.
-    if striker_stats.drains and striker.hp > 0:
-        heal = max(1 - striker.hp,
-                   striker_stats.drain_constant + dmg * striker_stats.drain_percent // 100)
-        striker.hp = min(striker.max_hp, striker.hp + heal)
+    # Drains: striker heals damage_done * drain_percent / 100 + drain_const.
+    # Cap at max_hp; floor at 1 hp (negative drain can't kill).
+    # attack.cpp:1031-1040 (apply at 1145-1146 right after damage).
+    if striker_stats.drains and damage_done > 0:
+        heal = (damage_done * striker_stats.drain_percent // 100
+                + striker_stats.drain_constant)
+        # Cap first (matches Wesnoth's order):
+        heal = min(heal, striker.max_hp - striker.hp)
+        # Then floor: negative drain can't kill the striker.
+        heal = max(heal, 1 - striker.hp)
+        striker.hp += heal
 
     # Status effects (only when target survives).
     if target.hp > 0:

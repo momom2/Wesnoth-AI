@@ -150,7 +150,7 @@ def apply_pvp_defaults(gs: GameState, defaults: PvPDefaults) -> None:
 _MOVETYPE_COSTS_CACHE: Dict[str, dict] = {}
 
 
-def _movetype_costs(unit_type: str) -> dict:
+def _movetype_costs(unit_type: str, slowed: bool = False) -> dict:
     """Look up `{terrain_key: int_cost}` for a unit type. Returns an
     empty dict if not found (caller falls back to cost=1).
 
@@ -158,9 +158,15 @@ def _movetype_costs(unit_type: str) -> dict:
     scraper now emits as a fully merged table layering any
     `[movement_costs]` overrides on top of the movetype's defaults).
     Falls back to the raw movement_type table for older
-    `unit_stats.json` files predating that scraper change."""
-    if unit_type in _MOVETYPE_COSTS_CACHE:
-        return _MOVETYPE_COSTS_CACHE[unit_type]
+    `unit_stats.json` files predating that scraper change.
+
+    When `slowed=True`, every cost is doubled, EXCEPT UNREACHABLE
+    sentinels (>=99 stay >=99). Mirrors movetype.hpp:69-72:
+        return slowed && result != UNREACHABLE ? 2 * result : result;
+    """
+    cache_key = (unit_type, slowed)
+    if cache_key in _MOVETYPE_COSTS_CACHE:
+        return _MOVETYPE_COSTS_CACHE[cache_key]
     try:
         # Lazy import: replay_dataset's module-level _UNIT_DB load
         # already happens during sim init, so this is essentially
@@ -180,19 +186,23 @@ def _movetype_costs(unit_type: str) -> dict:
             mt = u.get("movement_type")
             costs = (movetypes.get(mt, {}).get("movement_costs", {})
                      if mt else {})
-        _MOVETYPE_COSTS_CACHE[unit_type] = costs
+        if slowed:
+            costs = {k: (v if v >= 99 else 2 * v) for k, v in costs.items()}
+        _MOVETYPE_COSTS_CACHE[cache_key] = costs
         return costs
     except Exception as e:
         log.debug(f"sim: movetype lookup failed for {unit_type!r}: {e}")
-        _MOVETYPE_COSTS_CACHE[unit_type] = {}
+        _MOVETYPE_COSTS_CACHE[cache_key] = {}
         return {}
 
 
 def _move_cost(unit, terrain_key: str) -> int:
     """How many MP does `unit` need to enter a hex of terrain
     `terrain_key`? Falls back to 1 if data is missing (matches the
-    sim's pre-existing flat-cost behavior)."""
-    costs = _movetype_costs(unit.name)
+    sim's pre-existing flat-cost behavior). Honors the `slowed`
+    status (doubles every cost except UNREACHABLE)."""
+    slowed = "slowed" in (getattr(unit, "statuses", set()) or set())
+    costs = _movetype_costs(unit.name, slowed=slowed)
     cost = costs.get(terrain_key, 1)
     # Wesnoth uses 99 as the impassable sentinel; anything >= 99 is
     # effectively unenterable.
@@ -218,13 +228,16 @@ def _move_cost_at_hex(unit, gs, x: int, y: int) -> int:
     from tools.terrain_resolver import mvt_cost as _resolve_mvt
     codes = getattr(gs.global_info, "_terrain_codes", {}) or {}
     code = codes.get((x, y))
+    # Honor "slowed" status: doubles each terrain cost (except
+    # UNREACHABLE). movetype.hpp:69-72.
+    slowed = "slowed" in (getattr(unit, "statuses", set()) or set())
     if not code:
         # No raw terrain code recorded for this hex (synthetic
         # tests, partial state). Fall through to the defense-keys
         # path which gives us a semantically-decent flat fallback.
         from replay_dataset import _terrain_keys_at
         keys = _terrain_keys_at(gs, x, y) or ["flat"]
-        costs = _movetype_costs(unit.name)
+        costs = _movetype_costs(unit.name, slowed=slowed)
         per_key = [int(costs.get(k, 1) or 1) for k in keys]
         return min(per_key) if per_key else 99
     # Strip "1 ", "2 " starting-position markers ("2 Ke" -> "Ke")
@@ -233,7 +246,7 @@ def _move_cost_at_hex(unit, gs, x: int, y: int) -> int:
     c = code
     if c[:1].isdigit() and c[1:2] == " ":
         c = c[2:]
-    return _resolve_mvt(c, _movetype_costs(unit.name))
+    return _resolve_mvt(c, _movetype_costs(unit.name, slowed=slowed))
 
 
 # ---------------------------------------------------------------------

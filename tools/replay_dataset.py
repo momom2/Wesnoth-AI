@@ -1399,18 +1399,43 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             dfd_statuses.add("slowed")
         if result.defender_poisoned:
             dfd_statuses.add("poisoned")
+        # Feeding (data/lua/feeding.lua): when a unit with the
+        # `feeding` ability kills another unit, the killer gains
+        # +1 max_hp AND +1 current_hp, UNLESS the victim has the
+        # `unplagueable` status (undead/mechanical/elemental). The
+        # bump is permanent (the in-Wesnoth implementation builds up
+        # via a [modifications][object] increase_total counter; for
+        # us it suffices to mutate max_hp/current_hp directly --
+        # nothing else reads the modification list).
+        att_feed_bump = (
+            result.defender_alive is False
+            and "feeding" in att.abilities
+            and not _is_unplagueable(dfd)
+        )
+        dfd_feed_bump = (
+            result.attacker_alive is False
+            and "feeding" in dfd.abilities
+            and not _is_unplagueable(att)
+        )
+
         if result.attacker_alive:
+            new_max = att.max_hp + (1 if att_feed_bump else 0)
+            new_hp = result.attacker_hp_after + (1 if att_feed_bump else 0)
             new_att = _replace_unit(gs, att,
                           has_attacked=True,
-                          current_hp=result.attacker_hp_after,
+                          max_hp=new_max,
+                          current_hp=new_hp,
                           current_exp=result.attacker_xp_after,
                           statuses=att_statuses)
             _maybe_advance_unit(gs, new_att)
         else:
             gs.map.units.discard(att)
         if result.defender_alive:
+            new_max = dfd.max_hp + (1 if dfd_feed_bump else 0)
+            new_hp = result.defender_hp_after + (1 if dfd_feed_bump else 0)
             new_dfd = _replace_unit(gs, dfd,
-                          current_hp=result.defender_hp_after,
+                          max_hp=new_max,
+                          current_hp=new_hp,
                           current_exp=result.defender_xp_after,
                           statuses=dfd_statuses)
             _maybe_advance_unit(gs, new_dfd)
