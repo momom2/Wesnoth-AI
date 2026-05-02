@@ -813,6 +813,24 @@ def extract_unit(node: Node, move_types: Dict[str, dict],
             if v != -999:
                 resistance[k] = v
 
+    # Per-unit [movement_costs] overrides layered on top of the
+    # movetype's defaults. Several units tweak specific terrain costs
+    # without changing movement_type entirely. Examples in 1.18.4:
+    #   Poacher       (smallfoot)    swamp_water=2  (vs default 3)
+    #   Trapper       (smallfoot)    swamp_water=1
+    #   Ranger        (smallfoot)    forest=1, swamp_water=2
+    #   Huntsman      (smallfoot)    forest=1, swamp_water=2
+    #   Footpad       (smallfoot)    swamp_water=2
+    # Without this merge, Poacher's diff_replay move on swamp goes
+    # cost=3 + ford=1 + forest=2 = 6 over a 5 MP budget and our sim
+    # rejects a move Wesnoth accepted (replays_dataset/0f056150f29d
+    # cmd 63 turn 4). Mirrors the [defense] handling above.
+    movement_costs = dict(mt.get("movement_costs", {k: 99 for k in TERRAINS}))
+    if _has_block(node, "movement_costs"):
+        for k, v in _table(node, "movement_costs", TERRAINS, -999).items():
+            if v != -999:
+                movement_costs[k] = v
+
     race_id = node.attrs.get("race", "")
     race_data = races.get(race_id, {"num_traits": 2,
                                     "ignore_global_traits": False,
@@ -873,10 +891,11 @@ def extract_unit(node: Node, move_types: Dict[str, dict],
             x.strip() for x in (node.attrs.get("advances_to", "") or "").split(",")
             if x.strip() and x.strip().lower() != "null"
         ],
-        "movement_type": mt_name,
-        "defense":       defense,
-        "resistance":    resistance,
-        "attacks":       extract_attacks(node, raw_text),
+        "movement_type":  mt_name,
+        "defense":        defense,
+        "resistance":     resistance,
+        "movement_costs": movement_costs,
+        "attacks":        extract_attacks(node, raw_text),
         "abilities":     extract_abilities(node, raw_text),
         "usage":         node.attrs.get("usage", ""),
         "traits":        trait_info,

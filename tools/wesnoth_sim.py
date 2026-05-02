@@ -152,7 +152,13 @@ _MOVETYPE_COSTS_CACHE: Dict[str, dict] = {}
 
 def _movetype_costs(unit_type: str) -> dict:
     """Look up `{terrain_key: int_cost}` for a unit type. Returns an
-    empty dict if not found (caller falls back to cost=1)."""
+    empty dict if not found (caller falls back to cost=1).
+
+    Prefers the unit-type's per-unit `movement_costs` (which the
+    scraper now emits as a fully merged table layering any
+    `[movement_costs]` overrides on top of the movetype's defaults).
+    Falls back to the raw movement_type table for older
+    `unit_stats.json` files predating that scraper change."""
     if unit_type in _MOVETYPE_COSTS_CACHE:
         return _MOVETYPE_COSTS_CACHE[unit_type]
     try:
@@ -167,8 +173,13 @@ def _movetype_costs(unit_type: str) -> dict:
         units = data.get("units", {})
         movetypes = data.get("movement_types", {})
         u = units.get(unit_type, {})
-        mt = u.get("movement_type")
-        costs = movetypes.get(mt, {}).get("movement_costs", {}) if mt else {}
+        # Per-unit merged costs take precedence; fall back to the
+        # movement_type's table for backward compat.
+        costs = u.get("movement_costs")
+        if not costs:
+            mt = u.get("movement_type")
+            costs = (movetypes.get(mt, {}).get("movement_costs", {})
+                     if mt else {})
         _MOVETYPE_COSTS_CACHE[unit_type] = costs
         return costs
     except Exception as e:
