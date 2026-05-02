@@ -674,12 +674,44 @@ def _terrain_keys_at(gs: GameState, x: int, y: int) -> List[str]:
     """Return the WML defense-table keys to evaluate for the hex at
     (x,y). Honors Wesnoth's `aliasof=` semantics: a Ford (Wwf) returns
     ['shallow_water', 'flat'] so callers can pick whichever defense is
-    best for the unit standing on it."""
+    best for the unit standing on it.
+
+    NOTE: callers that need authoritative defense_pct should use
+    `_terrain_def_pct(gs, x, y, def_table)` directly -- it walks the
+    terrain alias graph via terrain_resolver.def_pct, which handles
+    the FULL set of overlay codes (^Fms, ^Fp, etc.). This function
+    survives because some callers want a list-of-string keys for
+    encoder features and trait overrides."""
     codes_dict = getattr(gs.global_info, "_terrain_codes", {}) or {}
     code = codes_dict.get((x, y))
     if not code:
         return ["flat"]
     return _defense_keys_for_code(code)
+
+
+def _terrain_def_pct(gs: GameState, x: int, y: int,
+                     def_table: Dict[str, int]) -> int:
+    """Authoritative defense_pct for `def_table` (a unit's defense
+    map keyed by canonical terrain ids) on the hex at (x, y).
+
+    Routes through terrain_resolver.def_pct, which walks Wesnoth's
+    alias graph (per `terrain.cpp:208-244` / `movetype.cpp:276-369`)
+    and handles ALL composite codes including overlay codes the
+    hand-rolled `_OVERLAY_DEFENSE_KEYS` table doesn't list (^Fms /
+    ^Fmf / ^Fma summer/dwarven/morning forests, etc.). Falls back
+    to flat-defense (the unit's def_table['flat'] or 50) for hexes
+    with no recorded terrain code (synthetic tests, partial state)."""
+    from tools.terrain_resolver import def_pct as _resolve_def
+    codes_dict = getattr(gs.global_info, "_terrain_codes", {}) or {}
+    code = codes_dict.get((x, y))
+    if not code:
+        return int(def_table.get("flat", 50))
+    # Strip "1 ", "2 " starting-position markers ("2 Ke" -> "Ke")
+    # before resolving (placement hint, not part of terrain).
+    c = code
+    if c[:1].isdigit() and c[1:2] == " ":
+        c = c[2:]
+    return _resolve_def(c, def_table)
 
 
 def _terrain_at(gs: GameState, x: int, y: int) -> str:
@@ -762,7 +794,8 @@ def _lawful_bonus_at(gs: GameState, x: int, y: int, turn_number: int) -> int:
     return _lawful_bonus_for_turn(turn_number, start_offset)
 
 
-def _to_combat_unit(u: Unit, terrain_key) -> cb.CombatUnit:
+def _to_combat_unit(u: Unit, terrain_key,
+                    defense_pct: Optional[int] = None) -> cb.CombatUnit:
     """Convert our Unit dataclass + current terrain → CombatUnit
     snapshot consumable by combat.resolve_attack.
 
@@ -809,10 +842,17 @@ def _to_combat_unit(u: Unit, terrain_key) -> cb.CombatUnit:
     # Per-unit defense table if the unit has trait-applied overrides
     # (feral village=50). Falls back to the unit-type's static table.
     def_table = getattr(u, "_defense_table", None) or stats.get("defense", {})
-    keys = [terrain_key] if isinstance(terrain_key, str) else list(terrain_key)
-    if not keys:
-        keys = ["flat"]
-    defense_pct = min(int(def_table.get(k, 50)) for k in keys)
+    if defense_pct is None:
+        # Legacy path: caller passed terrain key(s) and we pick the
+        # min defense across them. This MISSES many overlay codes
+        # (^Fms / ^Fp / etc.) because _terrain_keys_at uses a hand-
+        # rolled allow-list. Prefer the `defense_pct=` kwarg path
+        # which is computed via terrain_resolver.def_pct (full
+        # alias-graph walk).
+        keys = [terrain_key] if isinstance(terrain_key, str) else list(terrain_key)
+        if not keys:
+            keys = ["flat"]
+        defense_pct = min(int(def_table.get(k, 50)) for k in keys)
     return cb.CombatUnit(
         side=u.side,
         hp=int(u.current_hp),
@@ -1256,9 +1296,20 @@ def _apply_command(gs: GameState, cmd: list) -> None:
 
         # Build CombatUnit snapshots using each unit's CURRENT terrain
         # for defense. (Attacker on its hex can be counter-attacked,
-        # so we pass its own terrain for its defense_pct.)
-        att_cu = _to_combat_unit(att, _terrain_keys_at(gs, att.position.x, att.position.y))
-        dfd_cu = _to_combat_unit(dfd, _terrain_keys_at(gs, dx, dy))
+        # so we pass its own terrain for its defense_pct.) Pass the
+        # alias-resolved defense_pct directly so we walk Wesnoth's
+        # full overlay graph (^Fms, ^Fp, etc.) instead of the hand-
+        # rolled `_OVERLAY_DEFENSE_KEYS` allow-list.
+        a_def_table = (getattr(att, "_defense_table", None)
+                       or _stats_for(att.name).get("defense", {}))
+        d_def_table = (getattr(dfd, "_defense_table", None)
+                       or _stats_for(dfd.name).get("defense", {}))
+        a_def_pct = _terrain_def_pct(gs, att.position.x, att.position.y, a_def_table)
+        d_def_pct = _terrain_def_pct(gs, dx, dy, d_def_table)
+        att_cu = _to_combat_unit(att, _terrain_keys_at(gs, att.position.x, att.position.y),
+                                 defense_pct=a_def_pct)
+        dfd_cu = _to_combat_unit(dfd, _terrain_keys_at(gs, dx, dy),
+                                 defense_pct=d_def_pct)
         # Defensive clamp: if our DB lacks weapons for this unit type
         # (e.g., a custom-era unit), fall back to weapon 0 to keep the
         # replay reconstruction running rather than crashing the loader.

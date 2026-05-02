@@ -196,10 +196,18 @@ def _terminal_cost(code: str, costs: Mapping[str, int],
 
 def _calc_value(code: str, costs: Mapping[str, int],
                 db: Dict[str, dict], *,
+                kind: str,
                 default: int, max_value: int, min_value: int,
                 high_is_good: bool, recurse: int = 0) -> int:
     """Generic Wesnoth `terrain_info::data::calc_value` port.
 
+    `kind`: "mvt_type" or "def_type" -- which alias list to walk.
+        For `^Fms` they differ: mvt_type=['-','_bas','Ft'] (PREFER
+        MAX cost over base+forest), def_type=['_bas','Ft'] (PREFER
+        MIN, best defense). Hardcoding either one was the bug -- a
+        Spearman on Gg^Fms was getting flat-defense=60 instead of
+        forest-defense=50 because the mvt_type list flipped the
+        prefer-direction.
     `default`: starting result when no aliases match (= max_value
         for movement, min_value for defense-MIN computation).
     `max_value` / `min_value`: clamps applied at the end and used
@@ -214,7 +222,7 @@ def _calc_value(code: str, costs: Mapping[str, int],
         log.warning(f"infinite alias recursion at {code!r}")
         return default
 
-    underlying = _get_underlying(code, "mvt_type", db)
+    underlying = _get_underlying(code, kind, db)
     if _is_indivisible(code, underlying):
         return _terminal_cost(code, costs, db, default)
 
@@ -236,6 +244,7 @@ def _calc_value(code: str, costs: Mapping[str, int],
             continue
         num = _calc_value(
             tok, costs, db,
+            kind=kind,
             default=default, max_value=max_value, min_value=min_value,
             high_is_good=high_is_good, recurse=recurse + 1,
         )
@@ -267,6 +276,7 @@ def mvt_cost(code: str, costs: Mapping[str, int]) -> int:
     db = load_terrain_db()
     return _calc_value(
         code, costs, db,
+        kind="mvt_type",
         default=UNREACHABLE_COST,
         max_value=UNREACHABLE_COST,
         min_value=1,
@@ -289,6 +299,7 @@ def def_pct(code: str, defenses: Mapping[str, int]) -> int:
     db = load_terrain_db()
     return _calc_value(
         code, defenses, db,
+        kind="def_type",
         default=100,             # worst possible (always hit) before any alias resolves
         max_value=100,
         min_value=0,
