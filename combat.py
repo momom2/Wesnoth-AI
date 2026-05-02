@@ -360,6 +360,32 @@ def _compute_battle_stats(
     # (full damage) when the unit's resistance table is missing the
     # key — matches Wesnoth's "no resistance entry" convention.
     resist = opp_unit.resistance.get(weapon.type, 100)
+
+    # STEADFAST ability: when the OPPONENT (the one being attacked,
+    # i.e., we're computing how much WE damage them) has steadfast and
+    # is DEFENDING (active_on=defense), their resistance bonus doubles,
+    # capped so resulting resistance >= 50 (i.e., damage taken >= 50%).
+    # WML at wesnoth_src/data/core/macros/abilities.cfg:
+    #   [resistance] id=steadfast multiply=2 max_value=50
+    #     [filter_base_value] greater_than=0 less_than=50
+    #     active_on=defense
+    # Filter: applies only if base bonus is in (0, 50) -- i.e., the
+    # unit has SOME resistance but not full immunity, and isn't weak.
+    # is_attacker here means SELF is attacking and we're computing
+    # damage SELF deals to opp. opp is the defender iff is_attacker
+    # is True. Steadfast on opp applies only when opp is defending,
+    # i.e., when is_attacker is True.
+    # Without this, a Dwarvish Guardsman (impact resist=80) takes
+    # 80% impact damage from a Heavy Infantryman's mace; with steadfast
+    # it should take 60%. Witnessed in replay 292008e8eac1 cmd 140
+    # turn 7: HI mace 12*80%=10 dmg/hit kills Guardsman at 20 hp; with
+    # steadfast 12*60%=7 dmg/hit, Guardsman ends at 6 hp and survives
+    # for cmd 141 -- which Wesnoth's recorded sequence confirms.
+    if "steadfast" in opp_unit.abilities and is_attacker:
+        base_bonus = 100 - resist
+        if 0 < base_bonus < 50:
+            new_bonus = min(50, base_bonus * 2)
+            resist = 100 - new_bonus
     resist_mult = max(0, resist)
 
     base_damage = weapon.damage

@@ -855,6 +855,11 @@ def _to_combat_unit(u: Unit, terrain_key,
         if not keys:
             keys = ["flat"]
         defense_pct = min(int(def_table.get(k, 50)) for k in keys)
+    # Pass through unit abilities so combat can consult them
+    # (steadfast doubles resistance when defending; future:
+    # illuminates, leadership, etc.). u.abilities is a set of ability
+    # IDs (e.g. {"steadfast"}).
+    abilities = list(u.abilities) if u.abilities else []
     return cb.CombatUnit(
         side=u.side,
         hp=int(u.current_hp),
@@ -868,6 +873,7 @@ def _to_combat_unit(u: Unit, terrain_key,
         defense_pct=defense_pct,
         is_slowed="slowed" in u.statuses,
         is_poisoned="poisoned" in u.statuses,
+        abilities=abilities,
     )
 
 
