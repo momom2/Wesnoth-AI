@@ -1031,8 +1031,10 @@ def main(argv: List[str]) -> int:
                 # shroud — encoder fidelity assumes side-only fog and
                 # we don't model permanent shroud-clearing. PvP default
                 # scenarios don't use shroud, so this is a pure safety
-                # net and shouldn't fire.
-                if re.search(r'shroud\s*=\s*"?(yes|true|1)"?', head_text):
+                # net and shouldn't fire. Match `^shroud=` only (not
+                # `auto_shroud=` or `mp_shroud=`).
+                if re.search(r'(?:^|\s)shroud\s*=\s*"?(yes|true|1)"?',
+                             head_text, re.M):
                     stats["files_skipped_shroud"] += 1; continue
 
                 # Full parse.

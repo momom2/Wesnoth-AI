@@ -87,16 +87,27 @@ _RE_BLOCK = re.compile(
     r"\[destination\][\s\S]*?x=(\d+)[\s\S]*?y=(\d+)[\s\S]*?\[/destination\]"
     r"[\s\S]*?\[/attack\]"
 )
-# Each mp_checkup block has data inline — Wesnoth wraps them in
-# [command dependent=yes][user_input name="mp_checkup"][data]...[/data].
-# In flat WML the data fields live as plain key=value lines.
+# Each mp_checkup block lives directly inside [command dependent=yes]:
+#   [command]
+#       dependent=yes
+#       from_side=N
+#       [mp_checkup]
+#           chance=N
+#           damage=N
+#           hits=yes/no
+#       [/mp_checkup]
+#   [/command]
+# Each combat strike produces TWO consecutive blocks:
+#   1. {chance, damage, hits}   (attack.cpp:1010)
+#   2. {dies}                    (attack.cpp:1105)
+# We capture the body of each [mp_checkup] block and pair them up.
 _RE_MP_CHECKUP = re.compile(
-    r'\[user_input\][^[]*?name="mp_checkup"[\s\S]*?\[data\]([\s\S]*?)\[/data\]'
+    r'\[mp_checkup\]([\s\S]*?)\[/mp_checkup\]'
 )
 
 
 def _parse_data_block(data_text: str) -> Dict[str, str]:
-    """Pull key=value pairs from a [data] sub-block."""
+    """Pull key=value pairs from an mp_checkup body."""
     out = {}
     for m in re.finditer(r'^\s*(\w+)\s*=\s*"?([^"\n]*)"?\s*$',
                          data_text, re.M):
@@ -105,11 +116,17 @@ def _parse_data_block(data_text: str) -> Dict[str, str]:
 
 
 def _open_replay(path: Path) -> str:
-    """Decompress a .bz2 (or read .wml plain) replay file."""
-    if path.suffix == ".bz2":
-        return bz2.open(path, "rt", encoding="utf-8",
-                        errors="replace").read()
-    return path.read_text(encoding="utf-8", errors="replace")
+    """Decompress a .bz2 / .gz (or read .wml plain) replay file.
+
+    Wesnoth uses .bz2 for sent replays and .gz for auto-saves. The
+    suffix isn't always reliable; sniff the magic bytes first."""
+    raw = path.read_bytes()
+    if raw[:2] == b"\x1f\x8b":   # gzip magic
+        import gzip
+        return gzip.decompress(raw).decode("utf-8", errors="replace")
+    if raw[:3] == b"BZh":       # bz2 magic
+        return bz2.decompress(raw).decode("utf-8", errors="replace")
+    return raw.decode("utf-8", errors="replace")
 
 
 def parse_replay(path: Path) -> List[AttackRecord]:

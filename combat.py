@@ -588,10 +588,17 @@ def resolve_attack(
         if a_stats.n_attacks <= 0 and (d_stats is None or d_stats.n_attacks <= 0):
             break
 
-    # XP awarding (attack.cpp:1474). Set even if combat ended with kill;
-    # `unit_killed` overrides the killer's XP to kill_xp.
+    # XP awarding (attack.cpp:1395-1400 unconditionally sets combat_xp
+    # for BOTH sides, regardless of whether the defender can counter):
+    #   a_.xp_ = combat_xp(d_.level())
+    #   d_.xp_ = combat_xp(a_.level())
+    # Then if a side dies, the SURVIVING side's xp gets overridden to
+    # kill_xp via unit_killed (attack.cpp:1474). For level-0 units,
+    # kill_xp is half (game_config::combat_xp returns level for combat
+    # and 8 * level for kills, with level-0 special-cased to 4 -- not
+    # the level/2 we had).
     a_xp_gain = COMBAT_EXPERIENCE * defender.level
-    d_xp_gain = COMBAT_EXPERIENCE * attacker.level if d_stats else 0
+    d_xp_gain = COMBAT_EXPERIENCE * attacker.level
     if defender.hp <= 0:
         defender.hp = 0
         a_xp_gain = (
@@ -608,11 +615,11 @@ def resolve_attack(
             KILL_EXPERIENCE * attacker.level
             if attacker.level
             else KILL_EXPERIENCE // 2
-        ) if d_stats else 0
+        )
 
     if attacker.hp > 0:
         attacker.experience += a_xp_gain
-    if defender.hp > 0 and d_stats is not None:
+    if defender.hp > 0:
         defender.experience += d_xp_gain
 
     return CombatResult(
