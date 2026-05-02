@@ -50,11 +50,12 @@ log = logging.getLogger("replay_dataset")
 _UNIT_STATS_PATH = Path(__file__).resolve().parent.parent / "unit_stats.json"
 _UNIT_DB: Dict[str, dict] = {}
 _MOVETYPE_DB: Dict[str, dict] = {}
+_RACE_DB: Dict[str, dict] = {}
 
 
 def _load_unit_db() -> None:
     """Load the scraped Wesnoth unit data on first access."""
-    global _UNIT_DB, _MOVETYPE_DB
+    global _UNIT_DB, _MOVETYPE_DB, _RACE_DB
     if _UNIT_DB:
         return
     try:
@@ -62,6 +63,7 @@ def _load_unit_db() -> None:
             data = json.load(f)
         _UNIT_DB     = data.get("units", {})
         _MOVETYPE_DB = data.get("movement_types", {})
+        _RACE_DB     = data.get("races", {})
         log.info(f"Loaded {len(_UNIT_DB)} unit types from unit_stats.json")
     except FileNotFoundError:
         log.warning(f"{_UNIT_STATS_PATH} not found; using fallback stats. "
@@ -1604,6 +1606,18 @@ def _spawn_plague_corpse(gs: GameState, dead: Unit,
     # plague special, not from the attacker.
     base_type = "Walking Corpse"
     variation = str(dead_stats.get("undead_variation", "")).strip()
+    if not variation:
+        # Per wesnoth_src/src/units/types.cpp:209-213, an empty
+        # `undead_variation` on the unit_type falls back to the
+        # race's default. Without this fallback, a Gryphon Rider
+        # (race=gryphon, unit undead_variation="") plagued into a
+        # plain "Walking Corpse" (smallfoot 4 MP, 18 hp) instead of
+        # "Walking Corpse:gryphon" (fly 5 MP, 21 hp), and subsequent
+        # moves of the corpse over hills cost differently from
+        # what Wesnoth records.
+        race_id = str(dead_stats.get("race", "")).strip()
+        race_data = _RACE_DB.get(race_id, {}) if race_id else {}
+        variation = str(race_data.get("undead_variation", "")).strip()
     spawn_type = f"{base_type}:{variation}" if variation else base_type
     if variation and spawn_type not in _UNIT_DB:
         # Variation table didn't include this id — fall back to base.

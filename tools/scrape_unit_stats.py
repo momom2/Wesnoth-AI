@@ -308,6 +308,15 @@ def extract_races(units_cfg: Path, macros: Dict[str, List[str]]) -> Dict[str, di
             "ignore_global_traits":
                 (n.attrs.get("ignore_global_traits", "no") or "no").lower()
                 in ("yes", "true", "1"),
+            # Race-level undead_variation default. Per types.cpp:209-213,
+            # when a unit's own undead_variation is empty, the engine
+            # falls back to the race's. This drives plague spawn type:
+            # a Gryphon Rider (race=gryphon, unit undead_variation="")
+            # leaves a "Walking Corpse:gryphon" corpse (fly mvt, 5 MP,
+            # 21 hp), not a base "Walking Corpse" (smallfoot, 4 MP,
+            # 18 hp). Used by _spawn_plague_corpse in replay_dataset.
+            "undead_variation":
+                (n.attrs.get("undead_variation", "") or "").strip(),
             # trait_macros filled below from raw text
             "trait_macros": [],
         }
