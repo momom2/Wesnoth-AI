@@ -1038,14 +1038,28 @@ def _build_legality_masks(
     # enumerate_legal_actions_with_priors hits the same encoded
     # state multiple times.
     pos_to_hex = encoded.pos_to_hex
+    # `occupancy`: 0=empty, 1=friendly, 2=attackable enemy, 3=inert
+    # (occupies a hex for movement/recruit purposes but cannot be
+    # attacked). Inert covers petrified scenery units (statues on
+    # Thousand Stings Garrison / Caves of the Basilisk) -- Wesnoth's
+    # mouse_events.cpp:753 sets `target_eligible &= !target_unit->
+    # incapacitated();` so a petrified unit is NOT a legal click-to-
+    # attack target. We mirror that here so the policy never picks a
+    # statue as an attack target.
     occupancy = np.zeros(H, dtype=np.int8)
     unit_at: Dict[Tuple[int, int], Unit] = {}
     for u in game_state.map.units:
         key = (u.position.x, u.position.y)
         unit_at[key] = u
         j = pos_to_hex.get(key)
-        if j is not None:
-            occupancy[j] = 1 if u.side == current_side else 2
+        if j is None:
+            continue
+        if u.side == current_side:
+            occupancy[j] = 1
+        elif "petrified" in (u.statuses or set()):
+            occupancy[j] = 3
+        else:
+            occupancy[j] = 2
 
     friendly_mask = occupancy == 1
     enemy_mask    = occupancy == 2

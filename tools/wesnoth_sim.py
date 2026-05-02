@@ -188,125 +188,41 @@ def _move_cost(unit, terrain_key: str) -> int:
     return int(cost) if cost is not None else 1
 
 
-# Overlays that affect MOVEMENT cost. There are two patterns in
-# wesnoth_src/data/core/terrain.cfg, with different semantics:
-#
-#   1. `mvt_alias=-,_bas,X` (MINUS marker + _bas): Wesnoth resolves
-#      as MAX(base_cost, X_cost). Forest, mushroom-grove, swamp
-#      overlays. Listed in `_OVERLAY_MOVEMENT_MAX`.
-#
-#   2. `mvt_alias=X` (no _bas) OR `aliasof=X` (no _bas): the overlay
-#      OVERRIDES the base for movement. Impassable walls (^Xo, ^Pr|,
-#      ^Pw|), bridges (^Br|), unwalkable embellishments (^Eqf, ^Qov).
-#      A bridge over water makes the hex walkable as flat -- the
-#      water cost is irrelevant -- so we can't just append "flat"
-#      and MAX, we must REPLACE. Listed in
-#      `_OVERLAY_MOVEMENT_OVERRIDE`.
-#
-# Without these, e.g. `Chw^Xo` (sunken-ruin castle with impassable
-# overlay) is read as castle+shallow_water (cost 1-3) instead of
-# impassable (99); the sim emits moves into walls that Wesnoth
-# rejects as "corrupt movement". Both tables mined from terrain.cfg
-# with the helper scripts in tools/wesnoth_sim.py's docstrings.
-
-_OVERLAY_MOVEMENT_MAX: Dict[str, List[str]] = {
-    # Forest variants (F*) all alias to "forest" for movement.
-    "Fp": ["forest"], "Fpa": ["forest"], "Ft": ["forest"],
-    "Ftr": ["forest"], "Ftd": ["forest"], "Ftp": ["forest"],
-    "Fts": ["forest"], "Fda": ["forest"], "Fdf": ["forest"],
-    "Fds": ["forest"], "Fdw": ["forest"], "Fet": ["forest"],
-    "Feta": ["forest"], "Fetd": ["forest"], "Feth": ["forest"],
-    "Fma": ["forest"], "Fmf": ["forest"], "Fms": ["forest"],
-    "Fmw": ["forest"],
-    # Mushroom grove variants → fungus for movement.
-    "Tf": ["fungus"], "Tfi": ["fungus"],
-    # Underground forest variants (Qhhf / Qhuf) → forest.
-    "Qhhf": ["forest"], "Qhuf": ["forest"],
-    # Desert / dust overlays.
-    "Dc": ["sand"], "Dr": ["hills"],
-    # Wreckage on water → swamp movement.
-    "Wkf": ["swamp_water"],
-    # Impassable mine/cave overlays (Xm/Xv) -- the impassable check
-    # in `_move_cost_at_hex` collapses these to 99.
-    "Xm": ["impassable"], "Xv": ["impassable"],
-}
-
-_OVERLAY_MOVEMENT_OVERRIDE: Dict[str, List[str]] = {
-    # Impassable wall overlays. ^Xo is "Impassable Overlay" (=Xt);
-    # ^Pr*, ^Pw* are gate / portal walls (rusty gate, wooden door);
-    # all override the base entirely. e.g. `Chw^Xo` (castle on
-    # water + wall) is impassable, NOT castle+water.
-    "Xo": ["impassable"],
-    "Pr|": ["impassable"], "Pr/": ["impassable"], "Pr\\": ["impassable"],
-    "Pw|": ["impassable"], "Pw/": ["impassable"], "Pw\\": ["impassable"],
-    # Unwalkable embellishments (chasm, gorge details). aliasof=Qt.
-    "Eqf": ["unwalkable"], "Eqp": ["unwalkable"],
-    "Qhux": ["unwalkable"], "Qov": ["unwalkable"],
-    # Bridges -- mvt_alias=Gt,Rt: walkable as flat regardless of
-    # what's underneath. A bridge over deep water is cost 1, not 99.
-    "Br|": ["flat"], "Br/": ["flat"], "Br\\": ["flat"],
-    # Underground fungus overlays that REPLACE base.
-    "Uf": ["fungus"], "Ufi": ["fungus"],
-}
-
-
 def _move_cost_at_hex(unit, gs, x: int, y: int) -> int:
-    """Resolve the movement cost for `unit` entering hex (x, y) per
-    Wesnoth's actual rules. Hexes with overlays (e.g. `Gs^Fp` =
-    grass+forest, `Mm^Xm` = mountain+impassable, `Re^Tf` =
-    road+fungus) have multiple underlying terrain keys, and the cost
-    depends on the overlay's `mvt_alias` MINUS marker (prefer-high).
-    For impassable / mine / unwalkable overlays Wesnoth picks the MAX
-    cost; for forest / fungus / similar movement-affecting overlays
-    likewise.
+    """Resolve the movement cost for `unit` entering hex (x, y).
 
-    Without this, our move-validator returns the cheapest underlier
-    and the sim emits moves Wesnoth rejects on playback as 'corrupt
-    movement' -- the unit's MP differs by the overlay-induced delta."""
-    # Pull the raw terrain code so we can apply movement-specific
-    # overlay rules (the existing defense-keys table doesn't include
-    # movement-only overlays like Tf=fungus).
+    Delegates to `tools.terrain_resolver.mvt_cost`, which scrapes
+    `wesnoth_src/data/core/terrain.cfg` into `terrain_db.json` and
+    walks the alias graph exactly as Wesnoth does (see
+    `wesnoth_src/src/movetype.cpp:276-369` for `calc_value` and
+    `wesnoth_src/src/terrain/terrain.cpp:208-244` + 334-377 for
+    composite construction). Replaces the prior hand-rolled
+    `_OVERLAY_MOVEMENT_OVERRIDE` / `_OVERLAY_MOVEMENT_MAX` tables,
+    which covered ~30 overlays out of 137+ and silently mispriced
+    every uncovered case.
+
+    See `docs/wesnoth_rules.md` ("Movement / mvt_alias resolution")
+    for the rule statement and source quotes.
+    """
+    from tools.terrain_resolver import mvt_cost as _resolve_mvt
     codes = getattr(gs.global_info, "_terrain_codes", {}) or {}
     code = codes.get((x, y))
-    keys: List[str]
     if not code:
-        # Fall back to the defense-keys path so we still get something
-        # sensible for synthetic scenarios where _terrain_codes wasn't
-        # populated.
+        # No raw terrain code recorded for this hex (synthetic
+        # tests, partial state). Fall through to the defense-keys
+        # path which gives us a semantically-decent flat fallback.
         from replay_dataset import _terrain_keys_at
         keys = _terrain_keys_at(gs, x, y) or ["flat"]
-    else:
-        from replay_dataset import _defense_keys_for_code
-        # Strip "1 ", "2 " starting-position markers like
-        # _parse_hex_code does, so codes like "2 Ke" resolve to "Ke".
-        c = code
-        if c[:1].isdigit() and c[1:2] == " ":
-            c = c[2:]
-        if "^" in c:
-            overlay = c.split("^", 1)[1]
-            if overlay in _OVERLAY_MOVEMENT_OVERRIDE:
-                # OVERRIDE-style overlay: bridge / wall / impassable
-                # gate. The base terrain is irrelevant for movement
-                # -- a bridge over deep water is walkable, an
-                # impassable wall on grass is impassable. Use the
-                # overlay's keys exclusively.
-                keys = list(_OVERLAY_MOVEMENT_OVERRIDE[overlay])
-            else:
-                # MAX-style overlay (forest/fungus/etc.) OR pure
-                # cosmetic overlay (Em/Es/Bs*): start from the base
-                # defense keys and append any extra MAX keys.
-                keys = list(_defense_keys_for_code(c))
-                for k in _OVERLAY_MOVEMENT_MAX.get(overlay, []):
-                    if k not in keys:
-                        keys.append(k)
-        else:
-            keys = list(_defense_keys_for_code(c))
-        if not keys:
-            keys = ["flat"]
-    if any(k in ("impassable", "unwalkable") for k in keys):
-        return 99
-    costs = _movetype_costs(unit.name)
-    return max(int(costs.get(k, 1) or 1) for k in keys)
+        costs = _movetype_costs(unit.name)
+        per_key = [int(costs.get(k, 1) or 1) for k in keys]
+        return min(per_key) if per_key else 99
+    # Strip "1 ", "2 " starting-position markers ("2 Ke" -> "Ke")
+    # before resolving; the marker is a placement hint, not part of
+    # the terrain code.
+    c = code
+    if c[:1].isdigit() and c[1:2] == " ":
+        c = c[2:]
+    return _resolve_mvt(c, _movetype_costs(unit.name))
 
 
 # ---------------------------------------------------------------------
@@ -539,12 +455,173 @@ class WesnothSim:
         out.command_history  = []   # forks don't track history
         return out
 
+    def _find_attack_hex(self, attacker, target) -> Optional[Position]:
+        """Pick a hex the attacker can move to and attack `target` from.
+
+        Returns the chosen attack hex (a neighbor of `target` reachable
+        from `attacker.position` within `attacker.current_moves`,
+        unoccupied, and walkable for the attacker), or None if no such
+        hex exists.
+
+        Why this helper: the policy emits attack actions with
+        `start_hex = unit's current position`. When `start_hex` isn't
+        adjacent to `target`, Wesnoth's replay engine rejects the
+        bare `[attack]` command (battle_context disables out-of-range
+        weapons; the attack handler then returns without consuming the
+        [random_seed] follow-up, and the next outer-loop iteration
+        errors with "found dependent command in replay while
+        is_synced=false"). So before recording an [attack], we have to
+        emit an explicit [move] putting the attacker on a neighbor of
+        the target hex -- mirroring what Wesnoth's UI does when the
+        player clicks an enemy from a non-adjacent unit.
+
+        Picks by lowest MP-cost-to-enter, with the attacker's own
+        current hex as a free fallback if it happens to be a neighbor
+        of `target` (i.e. attacker WAS adjacent and the caller's
+        adjacency check was wrong; defensive). Ties broken by
+        defense_pct (higher = better) so the attacker is more likely
+        to survive any counter-attack.
+        """
+        from tools.abilities import hex_neighbors
+        from replay_dataset import _stats_for
+
+        ax, ay = attacker.position.x, attacker.position.y
+        budget = attacker.current_moves
+        target_neighbors = set(hex_neighbors(target.x, target.y))
+        # Hex set for fast "in playable area" tests.
+        playable = {(h.position.x, h.position.y) for h in self.gs.map.hexes}
+        # Occupied hexes (excluding attacker -- it can return to its
+        # own hex if attacker is already adjacent).
+        occupied = {
+            (u.position.x, u.position.y)
+            for u in self.gs.map.units
+            if u is not attacker
+        }
+
+        # Dijkstra-lite: BFS over hexes reachable within MP budget.
+        # State: (cost_to_enter, x, y). We keep best cost per hex.
+        from heapq import heappush, heappop
+        best_cost: Dict[Tuple[int, int], int] = {(ax, ay): 0}
+        heap: List[Tuple[int, int, int]] = [(0, ax, ay)]
+        while heap:
+            cost, x, y = heappop(heap)
+            if cost > best_cost.get((x, y), 10**9):
+                continue
+            for nx, ny in hex_neighbors(x, y):
+                if (nx, ny) not in playable:
+                    continue
+                if (nx, ny) in occupied:
+                    continue
+                step_cost = _move_cost_at_hex(attacker, self.gs, nx, ny)
+                if step_cost >= 99:
+                    continue
+                new_cost = cost + step_cost
+                if new_cost > budget:
+                    continue
+                if new_cost < best_cost.get((nx, ny), 10**9):
+                    best_cost[(nx, ny)] = new_cost
+                    heappush(heap, (new_cost, nx, ny))
+
+        # Filter to reachable neighbors of target.
+        candidates = [
+            (cost, x, y) for (x, y), cost in best_cost.items()
+            if (x, y) in target_neighbors
+        ]
+        if not candidates:
+            return None
+        # Pick lowest cost; tiebreak by defense (higher defense_pct ->
+        # smaller `defense_pct` value in the unit's defenses table --
+        # lower number means HARDER to hit, see _to_combat_unit).
+        # We don't have a quick defense lookup here without rebuilding
+        # CombatUnit; cost-only is good enough for first cut.
+        candidates.sort(key=lambda c: c[0])
+        _, bx, by = candidates[0]
+        return Position(x=bx, y=by)
+
     def step(self, action: dict) -> bool:
         """Apply one action. Returns True if the game is over after
         this step. The action dict is the same shape the policy
         produces (see action_sampler.SampledAction.action)."""
         if self.done:
             return True
+
+        # Implicit move-to-attack: if the policy picked an attack on a
+        # target that the actor isn't adjacent to, plan a pre-move to a
+        # reachable attack hex and dispatch it via a nested step()
+        # call. Then continue with the (now-adjacent) attack. The
+        # policy's mask permits attacks within `current_moves + 1`
+        # hexes of an enemy (the +1 lets the actor cover one MP
+        # then strike), so this branch fires only on actions the mask
+        # already approved.
+        if action.get("type") == "attack":
+            from tools.abilities import hex_neighbors
+            start = action.get("start_hex")
+            target = action.get("target_hex")
+            if (start is not None and target is not None
+                and (target.x, target.y) not in hex_neighbors(start.x, start.y)):
+                # Locate the attacker and target units. If either is
+                # missing, the attack is illegal anyway -- fall through
+                # to _action_to_command to handle the rejection.
+                attacker = next(
+                    (u for u in self.gs.map.units
+                     if u.position.x == start.x and u.position.y == start.y
+                     and u.side == self.current_side), None)
+                defender = next(
+                    (u for u in self.gs.map.units
+                     if u.position.x == target.x and u.position.y == target.y),
+                    None)
+                if attacker is None or defender is None:
+                    # Stale action -- units moved / died. Drop it; the
+                    # outer loop will pick a fresh action next call.
+                    action = {"type": "end_turn"}
+                else:
+                    attack_hex = self._find_attack_hex(attacker, target)
+                    if attack_hex is None:
+                        # No reachable attack hex (path blocked by
+                        # statues, ZoC, terrain, etc.). The legality
+                        # mask permits attacks on hex_distance <= MP+1,
+                        # which doesn't account for path obstructions
+                        # -- so the policy occasionally picks attacks
+                        # on unreachable targets. Wesnoth's playback
+                        # would either reject or silently no-op,
+                        # leaving the [random_seed] follow-up
+                        # orphaned ("found dependent command in replay
+                        # while is_synced=false"). Fall back to
+                        # end_turn rather than emit a bogus [attack].
+                        log.debug(
+                            f"sim: attack {start.x},{start.y}->"
+                            f"{target.x},{target.y} unreachable; "
+                            f"ending turn")
+                        action = {"type": "end_turn"}
+                    else:
+                        # Dispatch the move first; if it produces a
+                        # game-over (e.g. capture-the-flag scenario),
+                        # propagate.
+                        if self.step({
+                            "type": "move",
+                            "start_hex": start,
+                            "target_hex": attack_hex,
+                        }):
+                            return True
+                        # Verify the move actually landed: ZoC / ambush
+                        # / village-capture stops can zero MP without
+                        # changing position, but the position update
+                        # always succeeds when _apply_command accepts
+                        # the move. If for any reason the attacker
+                        # didn't land on attack_hex, abort: the next
+                        # action_sampler call will pick a fresh action.
+                        moved = next(
+                            (u for u in self.gs.map.units
+                             if u.id == attacker.id
+                             and u.position.x == attack_hex.x
+                             and u.position.y == attack_hex.y), None)
+                        if moved is None:
+                            return self.done
+                        # Update the action to attack from the new hex.
+                        action = {
+                            **action,
+                            "start_hex": attack_hex,
+                        }
 
         side_now = self.gs.global_info.current_side
 
@@ -839,6 +916,14 @@ class WesnothSim:
             )
             if enemy is None:
                 continue
+            # Petrified (incapacitated) enemies emit no ZoC and can't
+            # ambush. unit.hpp:1352-1355 -> `emit_zoc_ && !incapacitated()`
+            # for ZoC, and incapacitated units have no abilities active
+            # (the hide-ability check uses live state). Without this
+            # filter, a unit walking past a statue would zero its MP
+            # (Giant Scorpion is level 2, would block movement).
+            if "petrified" in (enemy.statuses or set()):
+                continue
             # Ambush: hide ability with matching cover, not already
             # uncovered. Bypasses skirmisher.
             if (enemy.id not in uncovered
@@ -1114,6 +1199,20 @@ class WesnothSim:
             start: Position = action["start_hex"]
             target: Position = action["target_hex"]
             weapon = int(action.get("attack_index", 0))
+            # Defensive adjacency check. step() normally normalizes
+            # non-adjacent attack actions into a move + adjacent
+            # attack pair before reaching here, but if a future caller
+            # bypasses step() or my move-planning logic misses a case,
+            # emitting an [attack] from a non-adjacent source produces
+            # an invalid Wesnoth replay (battle_context disables
+            # out-of-range weapons; the [random_seed] follow-up
+            # orphans, errors with "found dependent command in replay
+            # while is_synced=false"). Reject rather than emit garbage.
+            if (target.x, target.y) not in hex_neighbors(start.x, start.y):
+                log.debug(
+                    f"sim: rejecting non-adjacent attack "
+                    f"{(start.x, start.y)}->{(target.x, target.y)}")
+                return None, None
             # Allocate a synced-RNG seed so combat damage rolls match
             # what Wesnoth replays back from the [random_seed]
             # follow-up command sim_to_replay emits. cmd[7] is the

@@ -13,6 +13,59 @@ readable/customizable strategies; cluster economy).
 - 🟡 **MED** — correctness drift, polish, nice-to-have
 - 🟢 **LOW** — cleanup, performance below noise floor
 
+---
+
+## NEW 2026-05-02 (post sim-fidelity sweep)
+
+- [ ] 🔴 **Combat damage divergence: cascade-class diff_replay
+  failures.** ~67/100 PvP replays still diverge after the
+  trait/HP/village fixes, almost all in cascade classes
+  (`attack:defender_missing`, `move:src_missing`,
+  `move:final_occupied`, `attack:attacker_missing`,
+  `move:path_enemy_blocking`). Spot-trace of one case
+  (Caves of the Basilisk, Skeleton attacks Horseman u20): our
+  sim computes 18 dmg dealt (Skeleton axe 7 × 0.8 blade resist
+  × 3 strikes = 18); Wesnoth seems to have killed the Horseman
+  (>30 dmg, since the next move lands on the Horseman's hex).
+  Possible causes:
+    - MTRng implementation drift (hits/misses differ given same seed)
+    - Strike count off (specials, swarm, berserk)
+    - Damage ordering when both units strike alternately
+    - Status effects (slow, poison) applied to wrong combatant
+    - Trait roll diverges so HP/dmg differ before the strike
+  Approach: pull Wesnoth's `[mp_checkup]/[result]` blocks for
+  attacks (they include each strike's hit/miss + final HPs) and
+  diff per-strike against our `combat.resolve_attack` outputs.
+
+- [ ] 🟠 **Re-extraction needs to complete on full
+  `replays_raw/`.** Started 2026-05-02 background. Walltime is
+  several hours on single-thread; consider parallelizing
+  `replay_extract.py` or running on the cluster. Until done,
+  `replays_dataset/` reflects partial state and tests may
+  pick non-PvP files (the test fixtures now filter via
+  index.jsonl).
+
+- [ ] 🟡 **`build_trait_info`: race-additional-traits doesn't
+  honor neutral-skip-fearless.** `wesnoth_src/src/units/types.cpp`
+  line 350: `if(alignment_ != neutral || t["id"] != "fearless")`.
+  Trolls have FEARLESS in race additional_traits; for chaotic
+  trolls the rule doesn't fire (default era), but a future era
+  with neutral trolls would mis-add fearless. Accept alignment
+  in `build_trait_info` and add the skip.
+
+- [ ] 🟡 **Per-gender unit-type traits not handled.** Black Horse
+  (Horse_Black.cfg) has `[male] {TRAIT_STRONG}` / `[female]
+  {TRAIT_FEARLESS}` — gender-specific pool entries. Our scraper
+  merges both genders' traits into a single pool. Not a
+  default-era PvP issue (Black Horse isn't recruitable), but
+  fidelity-relevant for any future Black-Horse-mod era.
+
+- [ ] 🟢 **`diff_replay` could surface combat HP per-strike**
+  to make cascade-class diagnosis easier. Currently it stops at
+  the first divergence; combat divergence should ideally compare
+  per-strike outcomes against the replay's `[mp_checkup]/[result]`
+  blocks rather than waiting for a state-level cascade.
+
 References are `path/file.py:line`. Each item is actionable on its own.
 
 ---

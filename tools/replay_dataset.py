@@ -122,7 +122,14 @@ _TERRAIN_BASE = {
     "Ss": Terrain.SWAMP, "Ds": Terrain.SAND,
     "Rr": Terrain.FLAT, "Re": Terrain.FLAT,
     "Ql": Terrain.CAVE, "Xu": Terrain.IMPASSABLE,
-    "Uu": Terrain.UNWALKABLE,
+    # `Uu` is "Cave Floor" (aliasof=Ut, the cave abstract). NOT
+    # unwalkable -- units walk into caves all the time. Mapping it to
+    # UNWALKABLE made every cave-floor hex impassable for our
+    # movement validator and broke recon on Caves of the Basilisk
+    # (multiple replays' turn-2 leader moves into the underground
+    # village `Uu^Vud` rejected as "impassable"). Same fix for
+    # `Uue` (earthy cave floor).
+    "Uu": Terrain.CAVE, "Uue": Terrain.CAVE,
     # Castle variants — Chr (river), Chw (water), Cha (snow), Chs (sand)
     # all behave as castles for combat (defense_pct from the unit's
     # `castle` defense entry). Caves of the Basilisk uses Cha; Aethermaw
@@ -162,7 +169,10 @@ _DEFENSE_KEYS_FOR_CODE: Dict[str, List[str]] = {
     "Rr":   ["flat"], "Re": ["flat"],
     "Ql":   ["cave"],
     "Xu":   ["impassable"], "Xv": ["impassable"], "Xm": ["impassable"],
-    "Uu":   ["unwalkable"],
+    # Cave floor (Uu / Uue) -- aliasof=Ut, defends/moves as cave.
+    # NOT unwalkable: cf. correction note above on the
+    # `_TERRAIN_FOR_CODE` mapping.
+    "Uu":   ["cave"], "Uue": ["cave"],
     "Ch":   ["castle"],
     "Cha":  ["castle", "frozen"],        # snowy castle = Ct | At
     "Chr":  ["castle"],                  # ruined castle = Ct
@@ -608,6 +618,48 @@ def _build_initial_gamestate(data: dict) -> GameState:
             list(data.get("starting_sides", [])))
     setattr(gs.global_info, "_scenario_id", data.get("scenario_id", ""))
     setattr(gs.global_info, "_experience_modifier", exp_mod)
+
+    # Pre-owned villages from the replay's [side]/[village] children
+    # (or scenario-pool's _village_owner). Apply BEFORE turn-1 income
+    # would be computed so the income/upkeep math at the first
+    # init_side(turn>1) sees the right village count. Wesnoth source:
+    # team::team(const config&) at wesnoth_src/src/team.cpp:208-217.
+    starting_villages = data.get("starting_villages", []) or []
+    owner_map: Dict[Tuple[int, int], int] = {}
+    side_increments: Dict[int, int] = {}
+    for v in starting_villages:
+        try:
+            vx = int(v["x"]); vy = int(v["y"]); vs = int(v["side"])
+        except (KeyError, ValueError, TypeError):
+            continue
+        if vs <= 0 or vs > len(gs.sides):
+            continue
+        owner_map[(vx, vy)] = vs
+        side_increments[vs] = side_increments.get(vs, 0) + 1
+    if owner_map:
+        # Mark VILLAGE modifier on each pre-owned hex so the encoder
+        # treats it as captured (matches what _capture_village does
+        # when a unit walks onto a village mid-game).
+        from classes import TerrainModifiers as _TM
+        for (vx, vy) in owner_map:
+            for h in gs.map.hexes:
+                if h.position.x == vx and h.position.y == vy:
+                    h.modifiers.add(_TM.VILLAGE)
+                    break
+        # Bump nb_villages_controlled per side.
+        for sn, n in side_increments.items():
+            old = gs.sides[sn - 1]
+            gs.sides[sn - 1] = SideInfo(
+                player=old.player, recruits=old.recruits,
+                current_gold=old.current_gold,
+                base_income=old.base_income,
+                nb_villages_controlled=old.nb_villages_controlled + n,
+                faction=old.faction,
+            )
+        # Stash the owner map so subsequent moves into these hexes
+        # don't double-credit ownership (the move-time _capture_village
+        # checks _village_owner before incrementing).
+        setattr(gs.global_info, "_village_owner", owner_map)
     return gs
 
 
@@ -1338,10 +1390,17 @@ def _apply_command(gs: GameState, cmd: list) -> None:
                                        game_id=gs.game_id,
                                        trait_seed_hex=trait_seed,
                                        exp_modifier=exp_mod)
-        # On spawn turn, recruits have 0 moves. _rebuild_unit
-        # preserves any `_`-prefixed setattr stash (e.g.
+        # On spawn turn, recruits have 0 moves AND 0 attacks --
+        # Wesnoth's `place_recruit` (wesnoth_src/src/actions/create.cpp
+        # :626-631) calls `set_movement(0, true)` AND `set_attacks(0)`
+        # when full_movement is false (always for normal recruits).
+        # We mirror that here: current_moves=0 and has_attacked=True,
+        # so the legality mask correctly excludes fresh recruits from
+        # both move and attack actions until next turn's init_side.
+        # _rebuild_unit preserves any `_`-prefixed setattr stash (e.g.
         # `_defense_table` for trait-modified defenses).
-        spawned = _rebuild_unit(new_unit, current_moves=0)
+        spawned = _rebuild_unit(new_unit, current_moves=0,
+                                has_attacked=True)
         gs.map.units.add(spawned)
 
         # Deduct cost from side gold (use unit_db cost; fall back to 14).
@@ -1544,6 +1603,25 @@ def _capture_village(gs: GameState, x: int, y: int, capturing_side: int) -> None
         gs.global_info, "_village_owner", None
     ) or {}
     prev_owner = owner_map.get((x, y), 0)
+
+    # Same-side revisit: no ownership change, no count update. Wesnoth's
+    # `actions::get_village` (game_board.cpp ~line 200, called from
+    # try_actual_movement / place_recruit) checks `village_owner ==
+    # side` and returns without touching team village lists when the
+    # mover already owns the village. Our pre-2026-05-02 code
+    # decremented the prev owner unconditionally then guarded the
+    # increment on `prev != capturing_side`, leaving a -1 net count
+    # whenever a unit walked back onto its own village. That dropped
+    # side 1's village count from 8 -> 6 mid-turn after two leader
+    # revisits and underpaid income by 4 gold/turn for several turns.
+    if prev_owner == capturing_side:
+        # Defensive: still mark the modifier so the encoder agrees with
+        # an explicit owned-village state, but skip the count math.
+        hex_obj.modifiers.add(TerrainModifiers.VILLAGE)
+        owner_map[(x, y)] = capturing_side  # idempotent
+        setattr(gs.global_info, "_village_owner", owner_map)
+        return
+
     owner_map[(x, y)] = capturing_side
     setattr(gs.global_info, "_village_owner", owner_map)
 
@@ -1560,7 +1638,7 @@ def _capture_village(gs: GameState, x: int, y: int, capturing_side: int) -> None
             nb_villages_controlled=max(0, s.nb_villages_controlled - 1),
             faction=s.faction,
         )
-    if 1 <= capturing_side <= len(gs.sides) and prev_owner != capturing_side:
+    if 1 <= capturing_side <= len(gs.sides):
         s = gs.sides[capturing_side - 1]
         gs.sides[capturing_side - 1] = SideInfo(
             player=s.player, recruits=s.recruits,

@@ -28,7 +28,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 
 TAG_OPEN_RE  = re.compile(r'^\s*\[([+]?[a-zA-Z_][a-zA-Z0-9_]*)\]\s*$')
@@ -383,15 +383,31 @@ def _scan_unit_trait_macros(node: Node, raw_text: str) -> List[str]:
     return out
 
 
-def build_trait_info(race_data: dict, unit_macros: List[str]) -> dict:
+def build_trait_info(race_data: dict, unit_macros: List[str], *,
+                     ignore_race_traits: bool = False) -> dict:
     """Combine race-level + unit-level trait macros into the per-unit
     trait pool that mirrors Wesnoth's `unit_type::possible_traits()`.
 
-    Order:
-      1. Global pool (strong/quick/intelligent/resilient) IF the race
-         doesn't have ignore_global_traits=yes.
-      2. Race-level macros in declaration order.
-      3. Unit-type macros in declaration order.
+    Source: `wesnoth_src/src/units/types.cpp:337-363`. The engine
+    builds the trait pool as:
+
+      1. Start with global traits (passed in by advance_to).
+      2. If `race->uses_global_traits()` is false: clear pool.
+      3. If `cfg["ignore_race_traits"]==yes` (unit-type level): clear
+         pool. Otherwise, add the race's `additional_traits`
+         (musthaves like undead/mechanical/feral; the `fearless`
+         skip for neutral-alignment units happens here).
+      4. Always: add unit-type's own [trait] children
+         (e.g. Dark Adept's inline {TRAIT_QUICK} {TRAIT_INTELLIGENT}
+         {TRAIT_RESILIENT}).
+
+    Critical: step 3 means the unit-type's `ignore_race_traits=yes`
+    flag REPLACES the entire global+race pool with the unit's own
+    list. Three units in 1.18.4 use this: Dark Adept (3-trait pool
+    quick/intelligent/resilient, NO strong), Bay Horse (Horse_Black),
+    Black Horse (Horse_Dark). Without this fix, our scraper gives
+    Dark Adept a 4-trait pool with strong, which makes seed-driven
+    trait rolls diverge from Wesnoth's behavior.
 
     Returns:
       {
@@ -400,8 +416,8 @@ def build_trait_info(race_data: dict, unit_macros: List[str]) -> dict:
         "pool":      [trait_id...],  # eligible for random pick
       }
     """
-    seen = set()
     musthave: List[str] = []
+    musthave_seen: Set[str] = set()
     pool: List[str] = []
 
     def add(macro_name: str) -> None:
@@ -409,27 +425,56 @@ def build_trait_info(race_data: dict, unit_macros: List[str]) -> dict:
         if info is None:
             return
         tid, avl = info
-        if tid in seen:
-            return
-        seen.add(tid)
         if avl == "musthave":
+            # Musthaves dedup -- adding the same musthave twice doesn't
+            # change unit behavior; we track them as a flat set on the
+            # unit. Wesnoth's `add_child` would create duplicate trait
+            # records, but the must-have phase of generate_traits skips
+            # already-applied IDs, so the effect is a single application.
+            if tid in musthave_seen:
+                return
+            musthave_seen.add(tid)
             musthave.append(tid)
         elif avl == "any":
+            # Random-pool traits: KEEP DUPS. Wesnoth's
+            # unit_type::build_full at types.cpp:337-363 calls
+            # `possible_traits_.add_child("trait", t)` once per occurrence
+            # in the global pool AND once per race additional_trait;
+            # config::add_child appends without dedup
+            # (wesnoth_src/src/config.cpp:442). The random-fill loop in
+            # generate_traits (unit.cpp:813-828) then iterates the WHOLE
+            # possible_traits list, building candidate_traits with
+            # duplicates -- which means trolls (race adds STRONG, QUICK,
+            # RESILIENT also in global pool) have those traits at 2/N
+            # probability instead of 1/N. Without preserving dups our
+            # seed-driven trait roll picks the wrong trait when the dup
+            # appears at the rolled index.
             pool.append(tid)
         # availability == "none" (or unknown) → skip
 
-    # Global traits if race doesn't ignore them.
-    if not race_data.get("ignore_global_traits", False):
-        for m in GLOBAL_TRAIT_MACROS:
+    if ignore_race_traits:
+        # types.cpp:346-347: `if(cfg["ignore_race_traits"].to_bool())
+        # possible_traits_.clear();` — wipe everything race-related
+        # (global pool was already added before this, but we never
+        # added it). Then add only the unit-type's own traits below.
+        pass
+    else:
+        # Global traits if race doesn't ignore them.
+        if not race_data.get("ignore_global_traits", False):
+            for m in GLOBAL_TRAIT_MACROS:
+                add(m)
+        # Race-level traits (e.g. {TRAIT_DEXTROUS} for elf,
+        # {TRAIT_HEALTHY} for dwarf, {TRAIT_UNDEAD} for undead,
+        # the four-trait pool {TRAIT_STRONG/QUICK/RESILIENT/FEARLESS}
+        # for trolls). Race additionals append on top of global, with
+        # duplicates preserved per the comment in `add` above.
+        for m in race_data.get("trait_macros", []):
             add(m)
 
-    # Race-level traits (e.g. {TRAIT_DEXTROUS} for elf, {TRAIT_HEALTHY}
-    # for dwarf, {TRAIT_UNDEAD} for undead).
-    for m in race_data.get("trait_macros", []):
-        add(m)
-
-    # Unit-type-level (e.g. {TRAIT_FERAL_MUSTHAVE} on bats,
-    # {TRAIT_FEARLESS_MUSTHAVE} on Walking Corpse).
+    # Unit-type-level macros (e.g. {TRAIT_FERAL_MUSTHAVE} on bats,
+    # {TRAIT_FEARLESS_MUSTHAVE} on Walking Corpse, and the inline
+    # {TRAIT_QUICK}/{TRAIT_INTELLIGENT}/{TRAIT_RESILIENT} on Dark
+    # Adept). Always added regardless of ignore_race_traits.
     for m in unit_macros:
         add(m)
 
@@ -773,7 +818,18 @@ def extract_unit(node: Node, move_types: Dict[str, dict],
                                     "ignore_global_traits": False,
                                     "trait_macros": []})
     unit_macros = _scan_unit_trait_macros(node, raw_text)
-    trait_info = build_trait_info(race_data, unit_macros)
+    # Wesnoth: unit-type level `ignore_race_traits=yes` clears the
+    # global+race pool, leaving only the unit's own [trait] children.
+    # 1.18.4 uses this on Dark Adept, Horse_Black (Bay Horse),
+    # Horse_Dark (Black Horse). See types.cpp:346-347.
+    ignore_race_traits = (
+        (node.attrs.get("ignore_race_traits", "no") or "no")
+        .strip().lower() in ("yes", "true", "1")
+    )
+    trait_info = build_trait_info(
+        race_data, unit_macros,
+        ignore_race_traits=ignore_race_traits,
+    )
 
     # Genders count matters for the synced-RNG accounting at recruit
     # time: `unit::init` calls `generate_gender(...)` before traits and

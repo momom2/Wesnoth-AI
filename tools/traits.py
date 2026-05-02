@@ -237,9 +237,26 @@ def roll_traits(unit_type: str, race: str, *,
     pool). Always pass `trait_info` from unit_stats.json when
     available.
 
-    Leaders: only musthaves apply. (User confirmed: leaders never get
-    random traits except undead/fearless/quick — but those are already
-    musthaves on the relevant unit-types in 1.18.4.)
+    Leaders: only musthaves, plus the default-era `quick_4mp_leaders`
+    auto-quick rule. See `docs/wesnoth_rules.md` for full source
+    citations:
+
+      - Random-trait skip: `wesnoth_src/src/units/unit.cpp:880-883`.
+        The candidate-trait pool is filtered by `!can_recruit() ||
+        avl == "any"`. For leaders (`can_recruit()=true`), only
+        traits with `availability="any"` are eligible — and NO
+        default-era trait has that attribute, so the pool is empty.
+
+      - Auto-quick: `wesnoth_src/data/multiplayer/eras.lua` +
+        `data/core/macros/multiplayer.cfg` `QUICK_4MP_LEADERS`
+        macro, included in `ERA_DEFAULT`. At prestart, every
+        `canrecruit=true` unit with `max_moves==4` gets the quick
+        trait added (and `moves`/`hitpoints` reset to max). Filter
+        is exact equality (==4), not <=4. We apply this in
+        `roll_traits` rather than as a post-pass so the trait flows
+        through `apply_traits_to_unit`'s standard +1 MP / -5% HP
+        application; functionally equivalent for leaders since the
+        trait is added before HP/MP get used in any decision.
     """
     if trait_info is not None:
         must = list(trait_info.get("musthave", []))
@@ -252,13 +269,36 @@ def roll_traits(unit_type: str, race: str, *,
     out = list(must)
 
     if is_leader:
-        # Leaders only get musthaves (per the user's rule).
+        # Auto-quick rule for base-4-MP leaders (eras.lua
+        # quick_4mp_leaders, always-on in default era). Filter is
+        # `max_moves == 4` AFTER must-haves are applied; in 1.18.4
+        # default era no must-have trait alters max_moves, so
+        # checking base_movement is equivalent. If a future era
+        # introduces an MP-altering musthave on a 4-MP leader, this
+        # check needs to move post-musthave-application.
+        if base_movement == 4 and "quick" not in out:
+            out.append("quick")
         return out
 
-    available = [t for t in pool if t not in out]
     n_random = max(0, target_total - len(out))
-    if n_random == 0 or not available:
+    if n_random == 0 or not pool:
         return out
+
+    # Wesnoth's `generate_traits` (unit.cpp:813-893) rebuilds
+    # candidate_traits each iteration by walking u_type.possible_traits()
+    # in order and skipping any trait already applied to the unit.
+    # Crucially, possible_traits CAN have DUPLICATES (e.g. trolls' race
+    # additional_traits include strong/quick/resilient which are also
+    # in the global pool — config::add_child appends without dedup,
+    # so each appears twice). The duplicates affect the random pick's
+    # probability distribution AND the seed-driven order: a roll of
+    # idx=3 over a deduped pool picks a different trait than over the
+    # WML-correct pool with dups.
+    #
+    # Match Wesnoth: keep `pool` with dups, on each iteration build
+    # `candidates` = [t for t in pool if t not in out] (dups preserved
+    # for traits not yet applied; ALL copies dropped once a trait
+    # makes it into out).
 
     if seed_hex:
         from combat import MTRng
@@ -274,11 +314,11 @@ def roll_traits(unit_type: str, race: str, *,
         if n_genders > 1:
             rng.get_next_random()
         for _ in range(n_random):
-            if not available:
+            candidates = [t for t in pool if t not in out]
+            if not candidates:
                 break
-            idx = rng.get_random_int(0, len(available) - 1)
-            out.append(available[idx])
-            available.pop(idx)
+            idx = rng.get_random_int(0, len(candidates) - 1)
+            out.append(candidates[idx])
     else:
         # Legacy fallback: hash-based deterministic pick. Won't match
         # what Wesnoth would have rolled, but keeps the supervised
@@ -287,12 +327,12 @@ def roll_traits(unit_type: str, race: str, *,
         # bit-exact path.
         h = int(hashlib.sha256(seed_token.encode()).hexdigest()[:16], 16)
         for _ in range(n_random):
-            if not available:
+            candidates = [t for t in pool if t not in out]
+            if not candidates:
                 break
-            idx = h % len(available)
-            out.append(available[idx])
-            available.pop(idx)
-            h //= max(1, len(available) + 1)
+            idx = h % len(candidates)
+            out.append(candidates[idx])
+            h //= max(1, len(candidates) + 1)
     return out
 
 
@@ -322,18 +362,48 @@ def apply_traits_to_unit(u: Unit, trait_ids: List[str], level: int = 1,
         if eff is None:
             continue
         traits_applied.add(tid)
-        # HP
+        # HP. Wesnoth's `unit::add_modification` applies each
+        # [effect] in declaration order via `apply_modifier(max_hp,
+        # increase_total)`, where `max_hp` is the CURRENT max
+        # (not the base). And `apply_modifier` for percent values
+        # uses `div100rounded` (round-half-away-from-zero with
+        # +50 bias), NOT Python's int() (truncate toward zero).
+        # See wesnoth_src/src/units/unit.cpp:2124-2153 +
+        # serialization/string_utils.cpp:395-408 +
+        # utils/math.hpp:38-41.
+        #
+        # Order-dependence: a Resilient-then-Quick Dark Adept gets
+        # 28 +5 = 33 → 33 -5% = 33 - div100rounded(165) = 33 - 2 = 31.
+        # A Quick-then-Resilient one gets 28 -5% = 28 - 1 = 27,
+        # then 27 + 5 = 32. Our trait_ids list is in pick order
+        # (matching Wesnoth's RNG-driven application order), so
+        # iterating it in order produces the correct result.
         max_hp += eff.hp_delta
         max_hp += eff.hp_per_level * max(1, level)
         if eff.hp_pct:
-            # Quick says -5% of max_hp, ROUNDED. Wesnoth uses int()
-            # truncation toward zero — match that.
-            max_hp += int(u.max_hp * eff.hp_pct / 100)
+            pct = int(eff.hp_pct)
+            raw = max_hp * pct
+            # div100rounded: round half away from zero, +50 bias.
+            if raw < 0:
+                delta = -(((-raw) + 50) // 100)
+            else:
+                delta = (raw + 50) // 100
+            max_hp += delta
         # Movement
         max_moves += eff.movement_delta
-        # XP
+        # XP. Same `apply_modifier` semantics as HP (Wesnoth's
+        # `apply_to=max_experience` handler, unit.cpp:2246-2248,
+        # calls `apply_modifier(max_experience_, increase, 1)`).
+        # Use running max_xp + div100rounded.
         if eff.xp_pct:
-            max_xp += int(u.max_exp * eff.xp_pct / 100)
+            pct = int(eff.xp_pct)
+            raw = max_xp * pct
+            if raw < 0:
+                delta = -(((-raw) + 50) // 100)
+            else:
+                delta = (raw + 50) // 100
+            max_xp += delta
+            max_xp = max(1, max_xp)   # apply_modifier minimum=1 here
         # Attack damage
         if eff.melee_dmg_delta or eff.ranged_dmg_delta:
             new_atks: List[Attack] = []

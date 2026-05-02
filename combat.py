@@ -366,7 +366,32 @@ def _compute_battle_stats(
     # backstab and charge are damage-doublers via specials.
     if backstab_active and "backstab" in weapon.specials and is_attacker:
         base_damage *= 2
-    if "charge" in weapon.specials:
+    # Charge: Wesnoth's [charge] special doubles damage on BOTH SIDES
+    # of the attack, but ONLY when the unit with charge is the
+    # ATTACKER (initiating). On a counter-attack the charge unit
+    # gets no bonus, and the opponent's lack of charge doesn't matter.
+    # Per `wesnoth_src/data/core/macros/special-notes.cfg` and the
+    # combat.cpp `[specials]` walker: the active set of specials is
+    # filtered by `attack_under_attack` — meaning charge applies only
+    # in the attack-side context.
+    #
+    # Concretely, for `Horseman attacks Dark Sorcerer`:
+    #   - Horseman's spear (charge) doubles → both Horseman and DS deal 2x.
+    #   - DS counter (no charge weapon) -- both still 2x via the
+    #     attacker's charge bringing the bonus into the round.
+    # And for `Skeleton attacks Horseman` (Horseman is defender):
+    #   - Horseman's spear has charge but Horseman is DEFENDING, so
+    #     charge doesn't fire. Neither side doubles.
+    #
+    # Our resolution: double if EITHER (a) self has charge AND self is
+    # attacker, OR (b) opp has charge AND opp is attacker (i.e., we're
+    # the defender and the attacker has charge).
+    self_charges = "charge" in weapon.specials
+    opp_charges = (opp_weapon is not None
+                   and "charge" in opp_weapon.specials)
+    charge_doubled = ((self_charges and is_attacker)
+                      or (opp_charges and not is_attacker))
+    if charge_doubled:
         base_damage *= 2
 
     damage_multiplier *= resist_mult

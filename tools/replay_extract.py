@@ -345,6 +345,27 @@ def build_initial_state(root: WMLNode) -> GameState:
             color=side_node.attrs.get("color", "").strip(),
         )
         gs.sides[side_num] = ss
+        # Pre-owned [village] children. The replay's [scenario] /
+        # [snapshot] / [replay_start] block embeds villages this
+        # side owned at the snapshot point; these contribute to
+        # turn-1 income and turn-2 upkeep support before any
+        # capture-during-play would. Without this, our reconstructor
+        # underpowers side-2 income on Clearing Gushes and
+        # similar maps where a village is bundled with the keep.
+        # Source: Wesnoth's `team::team(const config&)` reads
+        # `[village]` children and inserts each (x, y) into
+        # `villages_` -- see wesnoth_src/src/team.cpp:208-217.
+        for v_node in side_node.all("village"):
+            try:
+                vx = int(v_node.attrs.get("x", "0") or "0")
+                vy = int(v_node.attrs.get("y", "0") or "0")
+            except (ValueError, TypeError):
+                continue
+            if vx <= 0 or vy <= 0:
+                continue
+            # WML 1-indexed -> Python 0-indexed.
+            gs.villages_owned[(vx - 1, vy - 1)] = side_num
+
         # Leader unit(s) embedded in the side.
         nested_units = side_node.all("unit")
         for u_node in nested_units:
@@ -640,7 +661,14 @@ def extract_replay(path: Path) -> Optional[dict]:
     # time. Order: attacker-first, defender-second per Wesnoth's
     # attack_unit_and_advance.
     choose_queue: List[int] = []
-    for cmd in commands_node:
+    # Look ahead at the next command from inside the move handler so
+    # we can attach mp_checkup blocks (which Wesnoth emits as a
+    # SEPARATE [command dependent=yes] block right after the move,
+    # not as a child of the move's [command]). The look-ahead window
+    # is 3 commands; mp_checkup typically appears immediately after
+    # but server may interleave a [random_seed] block.
+    commands_list = list(commands_node)
+    for cmd_idx, cmd in enumerate(commands_list):
         # Server-emitted [random_seed] commands attach to the last
         # player command that needs randomness — recruit (for trait
         # rolling on non-musthave-only races) or attack.
@@ -696,19 +724,64 @@ def extract_replay(path: Path) -> Optional[dict]:
                 # mover sighted an enemy (skip_sighted="only_ally") or
                 # ZOC-stopped, the actual final hex is shorter than
                 # the path. The engine records that final hex in the
-                # following [checkup] [result] block as final_hex_x/y.
+                # following `[checkup]` or `[mp_checkup]` block --
+                # which name varies by replay (singleplayer / older
+                # replays use `[checkup]`; recent multiplayer replays
+                # use `[mp_checkup]`). Both have `[result]` children
+                # carrying `final_hex_x/y`.
                 final_x: Optional[int] = None
                 final_y: Optional[int] = None
-                checkup = cmd.first("checkup")
-                if checkup is not None:
-                    for r in checkup.all("result"):
+                # Wesnoth records the move's actual final hex in a
+                # `[checkup]` or `[mp_checkup]` block. The block can
+                # be either a CHILD of the move's [command] (older /
+                # singleplayer replays), OR a SEPARATE follow-up
+                # [command] right after (multiplayer replays:
+                # `[command] dependent="yes" [mp_checkup] ... [/mp_checkup]
+                # [/command]`). Search both locations.
+                def _read_final(node):
+                    if node is None:
+                        return None, None
+                    for r in node.all("result"):
                         if "final_hex_x" in r.attrs:
                             try:
-                                final_x = int(r.attrs.get("final_hex_x", 0))
-                                final_y = int(r.attrs.get("final_hex_y", 0))
+                                return (int(r.attrs.get("final_hex_x", 0)),
+                                        int(r.attrs.get("final_hex_y", 0)))
                             except ValueError:
                                 pass
-                            break
+                    if "final_hex_x" in node.attrs:
+                        try:
+                            return (int(node.attrs.get("final_hex_x", 0)),
+                                    int(node.attrs.get("final_hex_y", 0)))
+                        except ValueError:
+                            pass
+                    return None, None
+
+                checkup = cmd.first("checkup") or cmd.first("mp_checkup")
+                final_x, final_y = _read_final(checkup)
+                # If not found as child, look at the next [command] in
+                # the stream -- it often carries the mp_checkup block.
+                # Window of 3 commands to skip past intervening
+                # [random_seed] / [choose] blocks.
+                lookahead_idx = cmd_idx + 1
+                while (final_x is None
+                       and lookahead_idx < len(commands_list)
+                       and lookahead_idx <= cmd_idx + 3):
+                    nxt = commands_list[lookahead_idx]
+                    nxt_chk = nxt.first("checkup") or nxt.first("mp_checkup")
+                    if nxt_chk is not None:
+                        final_x, final_y = _read_final(nxt_chk)
+                        break
+                    # Skip if next command is a player action
+                    # (move/recruit/attack/end_turn/init_side); the
+                    # checkup must precede those.
+                    has_action = any(
+                        c.tag in ("move", "recruit", "attack",
+                                  "end_turn", "init_side", "recall")
+                        for c in nxt.children
+                    )
+                    if has_action:
+                        break
+                    lookahead_idx += 1
                 if xs and len(xs) == len(ys):
                     # If we got an explicit final_hex from [checkup] that
                     # disagrees with the path's last cell, truncate the
@@ -850,6 +923,15 @@ def extract_replay(path: Path) -> Optional[dict]:
         except ValueError:
             pass
 
+    # Pre-owned villages from [side] / [village] children. Stored
+    # as a list of {x, y, side} so the JSON-loader can apply them
+    # to GameState before turn-1 init. (Older extracts didn't carry
+    # this field; reconstructor treats absent as empty.)
+    starting_villages = [
+        {"x": x, "y": y, "side": side}
+        for (x, y), side in sorted(gs.villages_owned.items())
+    ]
+
     return {
         "game_id": path.stem,
         "scenario_id": gs.scenario_id,
@@ -863,6 +945,7 @@ def extract_replay(path: Path) -> Optional[dict]:
         "tod_start_index": tod_start_index,
         "starting_sides": starting_sides,
         "starting_units": starting_units,
+        "starting_villages": starting_villages,
         "commands": compact_commands,
     }
 
@@ -904,6 +987,16 @@ def main(argv: List[str]) -> int:
                 if 'era_id="default"' not in head_text \
                         and 'era_id="era_default"' not in head_text:
                     stats["files_skipped_era"] += 1; continue
+                # Drop campaign-style "multiplayer" replays. WC_II_2p
+                # and similar carry `era_id="era_default"` but layer
+                # custom map / heroes / mod resources on top, with
+                # 40+ recall-list units at WML (0, 0) that our
+                # extractor can't disambiguate from real placements.
+                # Test the top-level `campaign=` attr -- empty for
+                # true PvP, non-empty for campaign-style mp_campaigns.
+                m_camp = re.search(r'^campaign="([^"]+)"', head_text, re.MULTILINE)
+                if m_camp and m_camp.group(1).strip():
+                    stats["files_skipped_campaign"] += 1; continue
                 # Drop replays whose scenario or any [side] enables
                 # shroud — encoder fidelity assumes side-only fog and
                 # we don't model permanent shroud-clearing. PvP default

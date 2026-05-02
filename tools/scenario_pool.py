@@ -430,6 +430,68 @@ def build_scenario_gamestate(
             "is_leader": True,
         },
     ]
+
+    # Neutral / scenery units defined directly in the scenario .cfg's
+    # [side] blocks for sides >= 3. The mainline 2p maps that use this:
+    #
+    #   - Thousand Stings Garrison: side=3 controller=null, ~50 petrified
+    #     Giant Scorpion statues placed via UNIT_PETRIFY macros.
+    #   - Caves of the Basilisk: side 2..N as petrified former heroes
+    #     (also UNIT_PETRIFY style, named individuals).
+    #   - Aethermaw etc: similar scenery sides.
+    #
+    # Wesnoth spawns these from the .cfg at scenario start. Without
+    # them in our sim's GameState, the recruit-hex legality mask
+    # treats their hexes as empty -- the policy can pick e.g. (29, 12)
+    # on TSG, which is occupied by a statue, and Wesnoth then
+    # rejects the [recruit] command at replay-load with "found
+    # [recruit] command expecting user choice".
+    #
+    # We don't add a SideInfo for these sides: the sim rotates
+    # 1<->2 based on `len(gs.sides)`, and the statues are inert
+    # (petrified -> 0 moves, no attacks, has_attacked=True). Keeping
+    # them out of `starting_sides` avoids accidental side-3 turns;
+    # leaving them in `starting_units` (with side=3) is enough for
+    # `gs.map.units` to list them and the legality mask to see the
+    # hexes as occupied.
+    next_uid = 1000   # leave room above the leader uids; statues
+                      # don't need contiguous numbering.
+    for s in mp.all("side"):
+        try:
+            sn = int(s.attrs.get("side", "0"))
+        except ValueError:
+            continue
+        if sn in (1, 2):
+            continue
+        for u in s.all("unit"):
+            try:
+                ux_wml = int(u.attrs.get("x", "0"))
+                uy_wml = int(u.attrs.get("y", "0"))
+            except ValueError:
+                continue
+            if ux_wml <= 0 or uy_wml <= 0:
+                continue
+            utype = u.attrs.get("type", "").strip().strip('"')
+            if not utype:
+                continue
+            # [status] petrified=yes -> render as a petrified statue
+            # (no moves, no attacks, can't act).
+            petrified = False
+            status_node = u.first("status")
+            if status_node is not None:
+                pet_attr = status_node.attrs.get("petrified", "").strip().lower()
+                if pet_attr in ("yes", "true", "1"):
+                    petrified = True
+            starting_units.append({
+                "uid": next_uid,
+                "type": utype,
+                "side": sn,
+                "x": ux_wml - 1,        # 1-WML -> 0-internal
+                "y": uy_wml - 1,
+                "is_leader": False,
+                "petrified": petrified,
+            })
+            next_uid += 1
     starting_sides = [
         {
             "side": 1,

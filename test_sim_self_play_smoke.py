@@ -35,9 +35,40 @@ from rewards import (
 
 @pytest.fixture
 def small_replay() -> Path:
-    """Pick the lex-smallest replay in the dataset (deterministic)
-    so this test is reproducible and stays fast."""
-    cands = sorted(glob.glob("replays_dataset/*.json.gz"))
+    """Pick a small default-era 2p PvP replay (deterministic) so this
+    test is reproducible and stays fast.
+
+    Filter via index.jsonl to skip campaign / custom-era replays that
+    use different XP scaling and starting setups -- those break tests
+    that assume PvP defaults. When index.jsonl is missing (e.g.
+    mid-extraction), fall back to first lexical .json.gz.
+    """
+    import json as _json
+    try:
+        from tools.scenarios import is_competitive_2p
+    except ImportError:
+        is_competitive_2p = lambda s: True
+    PLAYER_FACTIONS = {"Drakes", "Knalgan Alliance", "Loyalists",
+                       "Northerners", "Rebels", "Undead"}
+    idx_path = Path("replays_dataset/index.jsonl")
+    cands: List[str] = []
+    if idx_path.exists():
+        with idx_path.open(encoding="utf-8") as f:
+            for line in f:
+                try:
+                    m = _json.loads(line)
+                except _json.JSONDecodeError:
+                    continue
+                if not is_competitive_2p(m.get("scenario_id", "")):
+                    continue
+                factions = m.get("factions", []) or []
+                players = [f for f in factions if f in PLAYER_FACTIONS]
+                non_players = [f for f in factions if f not in PLAYER_FACTIONS]
+                if len(players) != 2 or len(non_players) > 1:
+                    continue
+                cands.append(f"replays_dataset/{m['file']}")
+    if not cands:
+        cands = sorted(glob.glob("replays_dataset/*.json.gz"))
     if not cands:
         pytest.skip("no replays_dataset/ to bootstrap from")
     return Path(cands[0])

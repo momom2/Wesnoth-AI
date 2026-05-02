@@ -245,5 +245,27 @@ many line-coverage tests.
   what the engine actually does. When you'd otherwise hand-wave
   ("`income=` is probably an offset"), grep `wesnoth_src/src/` first
   and cite line numbers in comments / commits.
+- **`docs/wesnoth_rules.md` is the source-of-truth catalog.** Read
+  it BEFORE researching a Wesnoth rule from scratch — most
+  established rules are pinned there with verbatim source quotes.
+  When you establish a new rule (or correct an existing one), add
+  / edit the entry in `docs/wesnoth_rules.md`. Required: file:line
+  citation, verbatim quote of the enforcing code, and (when the
+  rule wasn't where you'd naively expect) a "why non-obvious" note.
+  Grep recipes and a file map for common Wesnoth-source questions
+  also live there. Treat the doc as a force multiplier: each rule
+  added saves the next exploration session hours, and the doc
+  prevents truth-drift across sessions.
+- **Wesnoth rules can live in C++, Lua, OR WML — search all three.**
+  Common gotcha: a rule we're hunting in `wesnoth_src/src/` is
+  actually in `wesnoth_src/data/multiplayer/eras.lua` or a WML
+  macro under `wesnoth_src/data/core/macros/`. After grepping `src/`,
+  always also grep `data/multiplayer/`, `data/core/macros/`,
+  `data/lua/`. Rules with a "post-pass" feel (applied after unit
+  setup) often hide in `[event]name=prestart` Lua callbacks.
+- **`changelog.md` is HISTORICAL — verify against current source.**
+  Old changelog entries describe behavior at THAT version, which
+  may have changed since. Cross-check any changelog quote against
+  the live `wesnoth_src/` code path before treating it as authority.
 - **Prefer removing over adding.** This codebase is recovering from
   bloat. When a feature is load-bearing, we'll re-add it with evidence.

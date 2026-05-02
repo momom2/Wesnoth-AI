@@ -244,6 +244,14 @@ def test_sim_recruit_on_occupied_hex_signals_retry():
     if not cands:
         pytest.skip("no replays_dataset/")
     sim = WesnothSim.from_replay(Path(cands[0]), max_turns=5)
+    # If the bootstrap replay was a custom-scenario with N>2 sides
+    # (e.g. QQ_UWS_race, WC_II_2p) where only side 1 has a leader,
+    # `WesnothSim.__init__` calls `_check_game_over` which sees a
+    # missing side-2 leader and sets `done=True` immediately. Reset
+    # so our manual setup below isn't no-op'd.
+    sim.done = False
+    sim.winner = 0
+    sim.ended_by = ""
     # Build a controlled scenario: leader on keep, fog-hidden enemy
     # on adjacent castle.
     gs = sim.gs

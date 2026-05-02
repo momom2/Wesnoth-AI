@@ -42,7 +42,9 @@ replays_dataset.old/
 # Build artifacts.
 wai_cluster_bundle.tar.gz
 unit_stats.json
+terrain_db.json
 tmp_scratch/
+test_replays_temp/
 
 # Tooling local config (Claude Code session metadata).
 .claude/
