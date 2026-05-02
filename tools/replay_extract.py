@@ -646,14 +646,32 @@ def extract_replay(path: Path) -> Optional[dict]:
     # action type + primitive args, small enough to gzip to kilobytes.
     #
     # We also need the [random_seed] following each combat for bit-exact
-    # reconstruction. In Wesnoth replays the player issues [attack],
-    # then the server emits a separate dependent [command] containing
-    # [random_seed] which carries the seed for that combat. We track
-    # the slot index of the most recent attack and back-fill it when
-    # the seed arrives.
+    # reconstruction. In Wesnoth replays the player issues an action
+    # that consumes RNG (recruit with trait roll, attack), then the
+    # server emits a separate dependent [command] containing
+    # [random_seed] which carries the seed Wesnoth USED for that
+    # action. The seed is in the WML stream IMMEDIATELY AFTER the
+    # action it describes (verified empirically against
+    # replays_raw/.../Freelands_93035.bz2: the [random_seed] block
+    # at line 1918 -- new_seed=58dda182, request_id=13 -- is the
+    # seed for the FIRST attack at line 1892, not for the recruit
+    # at line ~1300).
+    #
+    # Implementation: track the SINGLE most-recent slot awaiting a
+    # seed (whichever was added last -- recruit OR attack). The
+    # previous "prefer recruit over attack" logic was buggy: it
+    # mis-attributed a post-attack [random_seed] to a recruit
+    # earlier in the same turn, leaving the attack with no seed
+    # and breaking combat reconstruction from turn 1 onward.
     compact_commands: List[list] = []
-    last_attack_slot: Optional[int] = None      # index into compact_commands
-    last_recruit_slot: Optional[int] = None     # index into compact_commands
+    # last_action_slot: index into compact_commands.
+    # last_action_kind: "recruit" or "attack" -- which slot in the
+    # compact tuple to write to (recruits use slot 4, attacks slot 7).
+    last_action_slot: Optional[int] = None
+    last_action_kind: Optional[str] = None
+    # Most recent attack only -- used for [choose] (advancement
+    # picks) which always attach to attacks, never recruits.
+    last_attack_slot: Optional[int] = None
     # [choose] commands carry the index the player picked when a unit
     # advances and has multiple advances_to options. They appear after
     # the triggering attack as `dependent` server commands. We collect
@@ -669,24 +687,28 @@ def extract_replay(path: Path) -> Optional[dict]:
     # but server may interleave a [random_seed] block.
     commands_list = list(commands_node)
     for cmd_idx, cmd in enumerate(commands_list):
-        # Server-emitted [random_seed] commands attach to the last
-        # player command that needs randomness — recruit (for trait
-        # rolling on non-musthave-only races) or attack.
+        # Server-emitted [random_seed] commands attach to the most
+        # recent player action that consumed RNG (recruit with trait
+        # roll, or attack). The seed in the WML block is the seed
+        # Wesnoth USED for that action. Pure musthave-only recruits
+        # (undead/mechanical/elemental) don't trigger a [random_seed]
+        # because they need no random call -- so a [random_seed]
+        # following such a recruit will instead attach to the next
+        # action that consumed RNG (which, in our walker, means it
+        # gets back-filled into whichever slot is still awaiting one).
         for sub in cmd.children:
             if sub.tag == "random_seed":
                 seed_hex = sub.attrs.get("new_seed", "")
                 if not seed_hex:
                     continue
-                # Prefer the most recent recruit awaiting a seed. Wesnoth
-                # emits exactly ONE [random_seed] per non-undead recruit
-                # (race=undead/mechanical/elemental have only musthave
-                # traits and need no random call).
-                if last_recruit_slot is not None:
-                    compact_commands[last_recruit_slot][4] = seed_hex
-                    last_recruit_slot = None
-                elif last_attack_slot is not None:
-                    compact_commands[last_attack_slot][7] = seed_hex
-                    last_attack_slot = None
+                if last_action_slot is None:
+                    continue
+                if last_action_kind == "recruit":
+                    compact_commands[last_action_slot][4] = seed_hex
+                else:  # "attack"
+                    compact_commands[last_action_slot][7] = seed_hex
+                last_action_slot = None
+                last_action_kind = None
             elif sub.tag == "choose":
                 # Advancement choice picked by the player — append to
                 # the most recent attack's advancement-choice list.
@@ -830,7 +852,10 @@ def extract_replay(path: Path) -> Optional[dict]:
                     "attack", attacker_x, attacker_y,
                     defender_x, defender_y, weapon, d_weapon, "",
                 ])
-                last_attack_slot = len(compact_commands) - 1
+                slot = len(compact_commands) - 1
+                last_action_slot = slot
+                last_action_kind = "attack"
+                last_attack_slot = slot   # tracked separately for [choose]
                 break
             if t == "recruit":
                 unit_type = sub.attrs.get("type", "")
@@ -839,9 +864,14 @@ def extract_replay(path: Path) -> Optional[dict]:
                 ty = max(0, int(sub.attrs.get("y", 0) or 0) - 1)
                 # 5th slot reserved for the per-recruit trait seed,
                 # back-filled by the next [random_seed] command. May
-                # remain "" for undead/mechanical/elemental races.
+                # remain "" for undead/mechanical/elemental races
+                # whose musthave-only trait pool needs no random call
+                # (Wesnoth doesn't emit [random_seed] for those, so
+                # the slot stays "" and `last_action_slot` advances
+                # to the next RNG-consuming action below).
                 compact_commands.append(["recruit", unit_type, tx, ty, ""])
-                last_recruit_slot = len(compact_commands) - 1
+                last_action_slot = len(compact_commands) - 1
+                last_action_kind = "recruit"
                 break
             if t == "recall":
                 unit_id = sub.attrs.get("value", "")
