@@ -186,12 +186,48 @@ def _is_indivisible(code: str, underlying: List[str]) -> bool:
 
 def _terminal_cost(code: str, costs: Mapping[str, int],
                    db: Dict[str, dict], default: int) -> int:
-    """Resolve a terminal terrain to its cost via id lookup."""
+    """Resolve a terminal terrain to its cost via id lookup.
+    Returns abs() of stored value -- negative values mean "min cap"
+    semantics, handled by `_collect_neg_caps` separately."""
     entry = db.get(code)
     if not entry:
         return default
     terrain_id = entry["id"]
-    return int(costs.get(terrain_id, default))
+    val = costs.get(terrain_id, default)
+    return abs(int(val))
+
+
+def _collect_neg_caps(code: str, costs: Mapping[str, int],
+                      db: Dict[str, dict],
+                      kind: str, recurse: int = 0) -> int:
+    """Walk the same alias list as `_calc_value` and return the
+    largest abs() value among NEGATIVE entries in `costs`. These
+    are 'min cap' floors per Wesnoth's [defense] negative-value
+    convention (movetype.cpp::config_to_min). Returns 0 if no
+    negative entries are matched.
+
+    Concrete: feral Vampire Bat on Gg^Vc. Aliases: Gt(flat=40),
+    Vt(village=-50). flat is positive, village is -50 (cap).
+    abs(-50)=50 is the floor. After computing alias-min over
+    positives (40), we max with 50 -> def_pct = 50."""
+    if recurse > 100:
+        return 0
+    underlying = _get_underlying(code, kind, db)
+    if _is_indivisible(code, underlying):
+        entry = db.get(code)
+        if not entry:
+            return 0
+        terrain_id = entry["id"]
+        val = costs.get(terrain_id, 0)
+        return abs(int(val)) if int(val) < 0 else 0
+    best = 0
+    for tok in underlying:
+        if tok in (MARKER_PLUS, MARKER_MINUS):
+            continue
+        cap = _collect_neg_caps(tok, costs, db, kind, recurse + 1)
+        if cap > best:
+            best = cap
+    return best
 
 
 def _calc_value(code: str, costs: Mapping[str, int],
@@ -297,7 +333,7 @@ def def_pct(code: str, defenses: Mapping[str, int]) -> int:
     hit chance picked across aliases).
     """
     db = load_terrain_db()
-    return _calc_value(
+    base = _calc_value(
         code, defenses, db,
         kind="def_type",
         default=100,             # worst possible (always hit) before any alias resolves
@@ -305,6 +341,14 @@ def def_pct(code: str, defenses: Mapping[str, int]) -> int:
         min_value=0,
         high_is_good=False,
     )
+    # Honor negative-value caps (min floors on def_pct). For each
+    # negative entry in `defenses` whose terrain id appears in this
+    # code's alias list, the resulting def_pct must be at least that
+    # absolute value. See _collect_neg_caps for the rule.
+    neg_cap = _collect_neg_caps(code, defenses, db, kind="def_type")
+    if neg_cap > base:
+        return neg_cap
+    return base
 
 
 __all__ = [

@@ -860,6 +860,12 @@ def _to_combat_unit(u: Unit, terrain_key,
     # illuminates, leadership, etc.). u.abilities is a set of ability
     # IDs (e.g. {"steadfast"}).
     abilities = list(u.abilities) if u.abilities else []
+    # Fearless: from the trait pool. Affects combat_modifier (caps the
+    # ToD penalty at 0 -- chaotic-fearless or lawful-fearless units
+    # never lose damage from unfavourable time). Was being silently
+    # dropped in _to_combat_unit -- a Ghoul (musthave fearless)
+    # attacking at morning produced damage as if penalised by
+    # combat_modifier=-25, instead of 0 (capped).
     return cb.CombatUnit(
         side=u.side,
         hp=int(u.current_hp),
@@ -873,6 +879,7 @@ def _to_combat_unit(u: Unit, terrain_key,
         defense_pct=defense_pct,
         is_slowed="slowed" in u.statuses,
         is_poisoned="poisoned" in u.statuses,
+        is_fearless="fearless" in u.traits,
         abilities=abilities,
     )
 

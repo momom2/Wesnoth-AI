@@ -83,8 +83,12 @@ TRAITS: Dict[str, TraitEffect] = {
     # with both halves = 50). We carry that as a defense_overrides
     # entry so apply_traits_to_unit can stamp it on the unit's
     # defense table.
+    # Feral applies `village=-50 replace=yes`. The negative value
+    # means a min-CAP floor on def_pct (terrain_resolver honors
+    # the sign). Storing -50 (not 50) so the apply-traits stamp
+    # propagates the cap semantic to the unit's defense table.
     "feral":       TraitEffect(
-        defense_overrides=frozenset({("village", 50)}),
+        defense_overrides=frozenset({("village", -50)}),
     ),
     # Negative traits (Walking Corpse etc.)
     "weak":        TraitEffect(hp_delta=-1, melee_dmg_delta=-1),

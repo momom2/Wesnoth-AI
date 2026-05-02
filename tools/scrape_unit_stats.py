@@ -802,19 +802,26 @@ def extract_unit(node: Node, move_types: Dict[str, dict],
             if v != -999:
                 defense[k] = v
     # Wesnoth's [defense] uses negative values to indicate a defense
-    # CAP (movetype.cpp::config_to_min/config_to_max). The engine
-    # stores both `max_` and `min_` per-terrain and returns
-    # `max(min, max)` at lookup. Negative `-50` means: min=50, max=50,
-    # so the effective CTH is 50%. Positive 60 means: min=0, max=60,
-    # so effective CTH is 60. We just collapse to abs(v) — the cap
-    # interpretation is absorbed into the defense value itself, and
-    # any trait that overrides with `replace=yes` (e.g., feral village
-    # =-50) is applied at unit-creation time on top of this.
-    # Examples this catches:
-    #   mounted    forest = -70 → 70 (human cavalry CTH cap on forest)
-    #   fly        fungus = -70 → 70 (flyer CTH cap on fungus)
-    #   drakeglide cave   = -70 → 70 (Drake Glider cave cap)
-    defense = {k: abs(int(v)) for k, v in defense.items()}
+    # CAP/FLOOR on def_pct (movetype.cpp::config_to_min/config_to_max).
+    # The engine stores both `min_` (cap floor on def_pct) and `max_`
+    # (the normal value) per terrain. Effective def_pct on aliased
+    # terrain = max(cap_floor, alias_min(positive_values)).
+    #
+    # Negative `-50` means: when aliasing matches this terrain key,
+    # the resulting def_pct is AT LEAST 50 (i.e., the unit is at
+    # least 50% to be hit, regardless of base terrain). Positive 60
+    # means a normal value with no special cap.
+    #
+    # Concrete: feral Vampire Bat on Gg^Vc (grass village).
+    # Bat flat=40 (lizard movement), village=-50 (feral cap).
+    # Alias-min over [flat=40, village=50_abs] = 40.
+    # But village's negative sign means floor of 50 -> def_pct = 50.
+    # Without preserving the sign we'd return 40 = wrong CTH.
+    #
+    # We preserve negative values verbatim. The terrain_resolver
+    # checks the sign during def_pct lookup and applies the floor.
+    # `defense` keeps signs; positive: normal, negative: cap floor.
+    defense = {k: int(v) for k, v in defense.items()}
 
     resistance = dict(mt.get("resistance", {k: 100 for k in DAMAGE_TYPES}))
     if _has_block(node, "resistance"):
