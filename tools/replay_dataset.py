@@ -976,6 +976,13 @@ def _maybe_advance_unit(gs: GameState, u: Unit) -> Unit:
 
     new_stats = _stats_for(new_type)
     new_max_hp_base = int(new_stats.get("hitpoints", u.max_hp))
+    # Feeding bonus persists across advancement (Wesnoth tracks via
+    # [modifications][object] increase_total). A Necrophage with
+    # 5 fed kills, advancing to Ghast (base 36 hp), becomes a Ghast
+    # with 41 max_hp. We carry _feeding_count on the unit and
+    # re-apply here.
+    feeding_count = int(getattr(u, "_feeding_count", 0) or 0)
+    new_max_hp_base += feeding_count
     exp_mod = int(getattr(gs.global_info, "_experience_modifier", 100) or 100)
     new_max_xp_base = _scaled_max_exp(int(new_stats.get("experience", 50)), exp_mod)
     new_attacks_base = _attacks_from_stats(new_stats)
@@ -1402,11 +1409,15 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         # Feeding (data/lua/feeding.lua): when a unit with the
         # `feeding` ability kills another unit, the killer gains
         # +1 max_hp AND +1 current_hp, UNLESS the victim has the
-        # `unplagueable` status (undead/mechanical/elemental). The
-        # bump is permanent (the in-Wesnoth implementation builds up
-        # via a [modifications][object] increase_total counter; for
-        # us it suffices to mutate max_hp/current_hp directly --
-        # nothing else reads the modification list).
+        # `unplagueable` status (undead/mechanical/elemental).
+        #
+        # Cumulative count: Wesnoth tracks fed kills in the unit's
+        # [modifications][object] increase_total counter. The bonus
+        # PERSISTS across advancement -- a Necrophage that fed on N
+        # corpses becomes a Ghast at base_hp + N. We track the
+        # count via setattr `_feeding_count` on the Unit (similar
+        # to `_defense_table` for trait overrides); _maybe_advance_unit
+        # adds the count back to the new type's max_hp on advancement.
         att_feed_bump = (
             result.defender_alive is False
             and "feeding" in att.abilities
@@ -1427,6 +1438,9 @@ def _apply_command(gs: GameState, cmd: list) -> None:
                           current_hp=new_hp,
                           current_exp=result.attacker_xp_after,
                           statuses=att_statuses)
+            if att_feed_bump:
+                prev = int(getattr(new_att, "_feeding_count", 0) or 0)
+                setattr(new_att, "_feeding_count", prev + 1)
             _maybe_advance_unit(gs, new_att)
         else:
             gs.map.units.discard(att)
@@ -1438,6 +1452,9 @@ def _apply_command(gs: GameState, cmd: list) -> None:
                           current_hp=new_hp,
                           current_exp=result.defender_xp_after,
                           statuses=dfd_statuses)
+            if dfd_feed_bump:
+                prev = int(getattr(new_dfd, "_feeding_count", 0) or 0)
+                setattr(new_dfd, "_feeding_count", prev + 1)
             _maybe_advance_unit(gs, new_dfd)
         else:
             gs.map.units.discard(dfd)

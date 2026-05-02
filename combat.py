@@ -672,14 +672,22 @@ def _perform_hit(
     # Drains: striker heals damage_done * drain_percent / 100 + drain_const.
     # Cap at max_hp; floor at 1 hp (negative drain can't kill).
     # attack.cpp:1031-1040 (apply at 1145-1146 right after damage).
+    #
+    # Integer-math consequence: with default drain_percent=50, a hit
+    # for 1 dmg gives 1*50//100 = 0 -- drain does NOT heal on 1-dmg
+    # strikes (Wesnoth's drains_damage is int, same floor). The
+    # `if drains_damage > 0` guard at attack.cpp:1145 then skips the
+    # heal call entirely. We mirror this implicitly via `striker.hp +=
+    # heal` being a no-op when heal is 0.
     if striker_stats.drains and damage_done > 0:
         heal = (damage_done * striker_stats.drain_percent // 100
                 + striker_stats.drain_constant)
-        # Cap first (matches Wesnoth's order):
-        heal = min(heal, striker.max_hp - striker.hp)
-        # Then floor: negative drain can't kill the striker.
-        heal = max(heal, 1 - striker.hp)
-        striker.hp += heal
+        if heal != 0:
+            # Cap first (matches Wesnoth's order):
+            heal = min(heal, striker.max_hp - striker.hp)
+            # Then floor: negative drain can't kill the striker.
+            heal = max(heal, 1 - striker.hp)
+            striker.hp += heal
 
     # Status effects (only when target survives).
     if target.hp > 0:
