@@ -38,6 +38,11 @@ wesnoth_src/
 replays_raw/
 replays_dataset/
 replays_dataset.old/
+# Quarantined replays — produced by tools/purge_mod_replays.py for
+# games that use plan_unit_advance (a 1.18-stock UI mod we'll
+# eventually support). Restored if/when the sim learns the mechanic.
+replays_raw_set_aside/
+replays_dataset_set_aside/
 
 # Build artifacts.
 wai_cluster_bundle.tar.gz
