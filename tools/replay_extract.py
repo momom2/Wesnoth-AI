@@ -193,6 +193,10 @@ class SideState:
     faction: str = ""
     gold: int = 0
     village_income: int = 2
+    # Free upkeep per controlled village (Wesnoth WML `village_support`).
+    # Default 1 in vanilla. Reduces effective upkeep paid: net upkeep
+    # is `max(0, total_unit_levels - villages * village_support)`.
+    village_support: int = 1
     base_income: int = 2
     recruit_list: List[str] = field(default_factory=list)
     # Leader unit-type from the [side] block (Wesnoth's `type=` attr).
@@ -337,6 +341,8 @@ def build_initial_state(root: WMLNode) -> GameState:
             faction=side_node.attrs.get("faction", ""),
             gold=_safe_int(side_node.attrs.get("gold", 100), 100),
             village_income=_safe_int(side_node.attrs.get("village_gold", 2), 2),
+            village_support=_safe_int(
+                side_node.attrs.get("village_support", 1), 1),
             base_income=income_offset + 2,   # vanilla game_config::base_income
             recruit_list=[r.strip() for r in
                           (side_node.attrs.get("recruit", "") or "").split(",")
@@ -889,6 +895,7 @@ def extract_replay(path: Path) -> Optional[dict]:
             "side": s.side_num, "faction": s.faction, "gold": s.gold,
             "base_income": s.base_income,
             "village_income": s.village_income,
+            "village_support": s.village_support,
             "recruit": list(s.recruit_list),
             "leader_type": s.leader_type,
             "color": s.color,

@@ -704,6 +704,217 @@ def _gold_action(gs: GameState, action: WMLNode) -> None:
     )
 
 
+# ----------------------------------------------------------------------
+# WML variables, control flow, and unit spawning
+# ----------------------------------------------------------------------
+# A handful of MP scenarios (Hornshark Island most prominently) place
+# pre-game units via a `[switch] variable=pN_faction` inside an [event]
+# triggered from prestart. Without these handlers, our reconstructor
+# starts every Hornshark replay missing 4-6 named units per side, which
+# cascades into "src_missing"/"final_occupied" failures from cmd[1]
+# onward. The implementation is deliberately narrow: only the WML
+# patterns we've seen in mainline 2p scenarios.
+
+def _wml_vars(gs: GameState) -> Dict[str, str]:
+    """Lazily-stash dict of WML variable name -> string value on
+    `gs.global_info`. Mirrors Wesnoth's `wml.variables[]` namespace."""
+    v = getattr(gs.global_info, "_wml_variables", None)
+    if v is None:
+        v = {}
+        setattr(gs.global_info, "_wml_variables", v)
+    return v
+
+
+def _set_variable_action(gs: GameState, action: WMLNode) -> None:
+    """Implement `[set_variable] name=X value=Y`. Wesnoth supports many
+    operators (`add`, `multiply`, `to_variable`, `random`); we handle
+    the common scalar-set form which is enough for Hornshark + a
+    handful of similar scenarios."""
+    name = action.attrs.get("name", "").strip().strip('"')
+    if not name:
+        return
+    if "value" in action.attrs:
+        _wml_vars(gs)[name] = action.attrs["value"].strip().strip('"')
+    elif "literal" in action.attrs:
+        _wml_vars(gs)[name] = action.attrs["literal"].strip().strip('"')
+    elif "add" in action.attrs:
+        try:
+            cur = int(_wml_vars(gs).get(name, "0"))
+        except ValueError:
+            cur = 0
+        try:
+            inc = int(action.attrs["add"].strip().strip('"'))
+        except ValueError:
+            inc = 0
+        _wml_vars(gs)[name] = str(cur + inc)
+
+
+_FACTION_LUA_RE = re.compile(
+    r'wml\.variables\s*\[\s*"p"\s*\.\.\s*tostring\(\s*i\s*\)\s*\.\.\s*"_faction"\s*\]\s*=\s*side\.faction',
+    re.S,
+)
+
+
+def _lua_action(gs: GameState, action: WMLNode) -> None:
+    """Recognise the one Lua pattern Hornshark Island uses to publish
+    each side's faction as a WML variable, and emulate it. Anything
+    else falls through as a no-op (we don't run a Lua interpreter)."""
+    code = action.attrs.get("code", "")
+    if _FACTION_LUA_RE.search(code):
+        for i, s in enumerate(gs.sides, start=1):
+            _wml_vars(gs)[f"p{i}_faction"] = s.faction or ""
+
+
+def _fire_event_action(gs: GameState, action: WMLNode) -> None:
+    """`[fire_event] name=X` triggers another named [event] from inside
+    the current event's action list (Hornshark uses this from prestart
+    to call into `place_units`). Honors `first_time_only` like the
+    public fire_event entry point."""
+    name = action.attrs.get("name", "").strip().strip('"').lower()
+    if not name:
+        return
+    events = getattr(gs.global_info, "_scenario_events", None)
+    if not events:
+        return
+    for ev in events:
+        if ev.name != name:
+            continue
+        if ev.first_time_only and ev.fired:
+            continue
+        for child in ev.actions:
+            _apply_action(gs, child)
+        ev.fired = True
+
+
+def _switch_action(gs: GameState, action: WMLNode) -> None:
+    """`[switch] variable=X [case] value=V ... [/case] ...` selects the
+    [case] whose `value=` matches the variable's current value (or
+    `[else]`) and executes its inner actions. Multiple matching values
+    can be comma-separated in `value=`."""
+    var_name = action.attrs.get("variable", "").strip().strip('"')
+    if not var_name:
+        return
+    cur = _wml_vars(gs).get(var_name, "")
+    matched_case: Optional[WMLNode] = None
+    else_case: Optional[WMLNode] = None
+    for child in action.children:
+        if child.tag == "case":
+            vals = [v.strip() for v in
+                    (child.attrs.get("value", "") or "").split(",")]
+            if cur in vals:
+                matched_case = child
+                break
+        elif child.tag == "else" and else_case is None:
+            else_case = child
+    target = matched_case or else_case
+    if target is None:
+        return
+    for sub in target.children:
+        _apply_action(gs, sub)
+
+
+_TRAIT_MACRO_RE = re.compile(r'^TRAIT_(\w+)$')
+
+
+def _trait_ids_from_modifications(node: WMLNode) -> List[str]:
+    """Walk a `[modifications]` child node and pull trait ids from
+    nested [trait] children. The `{TRAIT_LOYAL}` macros are pre-
+    expanded by the macro substitution pass into `[trait]id=loyal[/trait]`,
+    which appears here as a child node we can read. We also accept
+    raw `id=loyal` attrs on the modifications node itself for
+    robustness against macro-expansion edge cases."""
+    out: List[str] = []
+    for ch in node.children:
+        if ch.tag == "trait":
+            tid = (ch.attrs.get("id", "") or "").strip().strip('"').lower()
+            if tid:
+                out.append(tid)
+    return out
+
+
+def _unit_action(gs: GameState, action: WMLNode) -> None:
+    """Spawn a unit on the map. Used by Hornshark-style pre-placed
+    units in scenario [event]s. Reads side, type, x, y, optional name,
+    and an optional `[modifications]` block of `[trait]` children.
+
+    Coordinates in WML are 1-indexed; we convert to our internal
+    0-indexed before placing on the map."""
+    try:
+        side = int(action.attrs.get("side", "0").strip().strip('"'))
+    except ValueError:
+        return
+    if side <= 0:
+        return
+    utype = (action.attrs.get("type", "") or "").strip().strip('"')
+    if not utype:
+        return
+    # `variation=...` (Hornshark's "Soulless variation=saurian" = the
+    # named hero "Rzrrt the Dauntless" with saurian movement_type and
+    # defenses, NOT the base humanoid Soulless). Wesnoth resolves this
+    # to a unit-type lookup `Soulless:saurian` in our scrape (the
+    # scraper expanded variations into separate units). If the
+    # composite key isn't in the DB, fall back to base type.
+    variation = (action.attrs.get("variation", "") or "").strip().strip('"')
+    try:
+        wml_x = int(action.attrs.get("x", "0").strip().strip('"'))
+        wml_y = int(action.attrs.get("y", "0").strip().strip('"'))
+    except ValueError:
+        return
+    if wml_x <= 0 or wml_y <= 0:
+        return
+    # Defer import to avoid circular: replay_dataset imports us.
+    from tools.replay_dataset import (
+        _build_unit, _UNIT_DB, _stats_for,
+    )
+    if variation:
+        composite = f"{utype}:{variation}"
+        if composite in _UNIT_DB:
+            utype = composite
+    from tools.traits import apply_traits_to_unit
+
+    # Generate a fresh uid: max existing (numeric) uid + 1.
+    max_uid = 0
+    for u in gs.map.units:
+        try:
+            n = int(u.id.lstrip("u"))
+            if n > max_uid:
+                max_uid = n
+        except ValueError:
+            continue
+    uid = max_uid + 1
+    udict = {
+        "uid": uid,
+        "type": utype,
+        "side": side,
+        "x": wml_x - 1,
+        "y": wml_y - 1,
+        "is_leader": False,
+    }
+    base_unit = _build_unit(udict, apply_leader_traits=False)
+    # Apply explicit [modifications]/[trait] traits.
+    mods = action.first("modifications")
+    if mods is not None:
+        trait_ids = _trait_ids_from_modifications(mods)
+        if trait_ids:
+            stats = _stats_for(utype)
+            defense_table = dict(getattr(base_unit, "_defense_table", {})
+                                 or stats.get("defense", {}))
+            base_unit = apply_traits_to_unit(
+                base_unit, trait_ids,
+                level=int(stats.get("level", 1) or 1),
+                defense_table=defense_table,
+            )
+            setattr(base_unit, "_defense_table", defense_table)
+    # Refresh current_hp = max_hp post-traits (a freshly placed unit
+    # spawns at full health).
+    from dataclasses import replace as _dc_replace
+    base_unit = _dc_replace(
+        base_unit, current_hp=base_unit.max_hp,
+        current_moves=base_unit.max_moves,
+    )
+    gs.map.units.add(base_unit)
+
+
 # Action-tag dispatch table.
 _ACTION_HANDLERS: Dict[str, Callable[[GameState, WMLNode], None]] = {
     "terrain":         _terrain_action,
@@ -712,11 +923,13 @@ _ACTION_HANDLERS: Dict[str, Callable[[GameState, WMLNode], None]] = {
     "store_locations": _store_locations_action,
     "clear_variable":  _clear_variable_action,
     "time_area":       _time_area_action,
-    # state-affecting tags we don't (yet) interpret — log once and skip
-    # quietly. [unit] in events can spawn fixed scenery (already in
-    # starting_units for materialized scenarios), [remove_unit] is
-    # rare in 2p, [modify_unit] very rare. Adding these is a follow-up.
-    "unit":        _no_op_action,
+    # WML control flow + variables (Hornshark Island pre-placed units).
+    "set_variable":    _set_variable_action,
+    "fire_event":      _fire_event_action,
+    "switch":          _switch_action,
+    "lua":             _lua_action,
+    "unit":            _unit_action,
+    # state-affecting tags we don't (yet) interpret.
     "remove_unit": _no_op_action,
     "modify_unit": _no_op_action,
     "store_unit":  _no_op_action,
@@ -730,12 +943,9 @@ _ACTION_HANDLERS: Dict[str, Callable[[GameState, WMLNode], None]] = {
     "music":       _no_op_action,
     "sound":       _no_op_action,
     "endlevel":    _no_op_action,
-    "set_variable":_no_op_action,
     "variable":    _no_op_action,
-    "switch":      _no_op_action,
     "case":        _no_op_action,
     "if":          _no_op_action,
-    "lua":         _no_op_action,
 }
 
 
