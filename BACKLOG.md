@@ -1,10 +1,9 @@
 # Project review — bugs and improvements
 
 Generated 2026-04-28 from a deep review of every major component.
-Refreshed 2026-04-29: many items closed by the supervised-resume +
-self-play infra + MCTS-prep sessions. Items are graded by impact
-on the project's stated goals (superhuman play via MCTS+self-play;
-readable/customizable strategies; cluster economy).
+Refreshed 2026-04-29 / 2026-05-02 / 2026-05-03. Items are graded by
+impact on the project's stated goals (superhuman play via
+MCTS+self-play; readable/customizable strategies; cluster economy).
 
 **Severity:**
 - 🔴 **CRIT** — silent corruption / wrong gradients / blocks a stated goal
@@ -15,35 +14,51 @@ readable/customizable strategies; cluster economy).
 
 ---
 
-## NEW 2026-05-02 (post sim-fidelity sweep)
+## NEW 2026-05-03 (post mod-purge + Hornshark sweep)
 
-- [ ] 🔴 **Combat damage divergence: cascade-class diff_replay
-  failures.** ~67/100 PvP replays still diverge after the
-  trait/HP/village fixes, almost all in cascade classes
-  (`attack:defender_missing`, `move:src_missing`,
-  `move:final_occupied`, `attack:attacker_missing`,
-  `move:path_enemy_blocking`). Spot-trace of one case
-  (Caves of the Basilisk, Skeleton attacks Horseman u20): our
-  sim computes 18 dmg dealt (Skeleton axe 7 × 0.8 blade resist
-  × 3 strikes = 18); Wesnoth seems to have killed the Horseman
-  (>30 dmg, since the next move lands on the Horseman's hex).
-  Possible causes:
-    - MTRng implementation drift (hits/misses differ given same seed)
-    - Strike count off (specials, swarm, berserk)
-    - Damage ordering when both units strike alternately
-    - Status effects (slow, poison) applied to wrong combatant
-    - Trait roll diverges so HP/dmg differ before the strike
-  Approach: pull Wesnoth's `[mp_checkup]/[result]` blocks for
-  attacks (they include each strike's hit/miss + final HPs) and
-  diff per-strike against our `combat.resolve_attack` outputs.
+**diff_replay clean rate: 91.05% on vanilla 2k sample (1821/2000).**
+Up from 87% at session start. Mod purge accounted for the bulk;
+village_gold extraction, AMLA queue pop, Hornshark Island
+[switch]/[unit] events, and move-path ambush truncation closed
+several smaller gaps. Remaining work:
 
-- [ ] 🟠 **Re-extraction needs to complete on full
-  `replays_raw/`.** Started 2026-05-02 background. Walltime is
-  several hours on single-thread; consider parallelizing
-  `replay_extract.py` or running on the cluster. Until done,
-  `replays_dataset/` reflects partial state and tests may
-  pick non-PvP files (the test fixtures now filter via
-  index.jsonl).
+- [ ] 🟠 **Mid-game replay extractor cmd-order anomaly.** ~90%
+  of 2p replays are saved at turn N (not turn 1). They embed
+  [replay_start] (fresh scenario template) plus [replay] commands
+  from turn 1 onwards, so replaying-from-turn-1 should "just
+  work." But our extractor produces inconsistent cmd streams
+  for some mid-game replays. Concrete case: Hornshark Turn 13
+  (`1643fdc46e00.json.gz`). Raw [replay] cmd[3] is move from
+  WML(25,3) by side 1 at turn 1; our dataset cmd[0] is a move
+  from 0-indexed (8,16) — a hex that didn't even hold a side-1
+  unit at turn 1. The move EXISTS in raw (position scan finds
+  it), just not as the first cmd. Cause unknown — chronological
+  reorder, drop, or insertion happening somewhere in
+  `replay_extract.py`. Worth a focused investigation: pick a
+  small mid-game replay, run extractor with verbose tracing,
+  diff against raw [replay] children list.
+
+- [ ] 🟡 **Recruit:insufficient_gold drift (18 / 2k).** 2-3 gold
+  off in late-game recruits. Hand-traced one Hornshark case
+  (`13d74cc4e0cc` cmd[115]); income calc, upkeep calc, recruit
+  costs all match my hand-calc. Wesnoth somehow had 2-3 more
+  gold. Could be a recruit cost discount we're missing
+  (some scenario `[modify_side]`), or a `[gold]` event firing
+  at a turn boundary we don't model.
+
+- [ ] 🟡 **Friendly_fire plague edge cases (4 / 2k).** All
+  involve Undead with plague. Concrete case: `0144f9c8e63a`
+  cmd[323]: WC kills Elvish Captain at (6,15), plague spawns
+  WC side 1; cmd[325]: side 1 unit attacks (6,15) — same-side.
+  Wesnoth's reality must have (6,15) as side-2. Without an
+  mp_checkup oracle (non-strict-sync replay) we can't
+  determine if our combat math 1-shotted a unit Wesnoth left
+  alive, or if there's a plague-trigger rule we're misreading.
+
+- [ ] 🟢 **Cascade-class failures (~136 / 2k).** No direct fix —
+  these flow from earlier sim-state drifts that we haven't
+  traced yet. Will fall out as the root-cause classes above
+  are closed.
 
 - [ ] 🟡 **`build_trait_info`: race-additional-traits doesn't
   honor neutral-skip-fearless.** `wesnoth_src/src/units/types.cpp`
@@ -67,6 +82,51 @@ readable/customizable strategies; cluster economy).
   blocks rather than waiting for a state-level cascade.
 
 References are `path/file.py:line`. Each item is actionable on its own.
+
+---
+
+## CLOSED 2026-05-03
+
+- [x] 🔴 **Combat damage divergence: cascade-class diff_replay
+  failures.** Was the headline problem at session start (~67/100
+  diverging). Root cause was **77.8% of `replays_raw/` carried
+  gameplay-affecting mods** — most prominently Biased RNG, which
+  smooths combat hit/miss to the expected value (so vanilla MTRng
+  with the same seed gives different per-strike hits). After
+  `tools/purge_mod_replays.py` deleted 132,838 mod-using replays
+  (keeping vanilla + cosmetic-only) and re-running on the
+  remainder, the post-87% gap mostly closed. Combat math itself
+  was already bit-exact (verified via [mp_checkup] from
+  strict-sync replays, 731/731 strikes).
+
+- [x] 🟠 **Re-extraction needs to complete on full
+  `replays_raw/`.** Done implicitly via the mod purge — only
+  vanilla replays remain, all already extracted to
+  `replays_dataset/`. 13,866 vanilla .json.gz survive.
+
+- [x] 🟠 **Hornshark Island pre-placed units.** Was failing
+  every Hornshark replay with src_missing on cmd[0]. Implemented
+  `[switch] / [case] / [fire_event] / [set_variable] / [lua] /
+  [unit]` action handlers in `scenario_events.py`. Recovered
+  ~120 Hornshark replays.
+
+- [x] 🟠 **village_gold extraction wired through.** Builder was
+  hardcoding 2; now reads from per-side `village_income`
+  (extracted from `[side] village_gold=` attribute). Also added
+  `village_support` extraction. Default Era uses 5/1; Hornshark
+  often 3/1; varies by host.
+
+- [x] 🟠 **AMLA emits [choose] value=N too.** Our
+  `_maybe_advance_unit` AMLA branch wasn't popping from
+  `_advance_choices`, so a stale value left in the queue would
+  be consumed by the NEXT unit's REAL advancement. Fixed; one
+  weapon_oob case resolved.
+
+- [x] 🟠 **Move-path ambush truncation.** Added in
+  `_apply_command` for "move": walk path, stop at first enemy
+  hex (with overlap-backoff for friendly path-passthrough),
+  zero remaining MP. Diff_replay's path_enemy_blocking check
+  removed (over-counted legitimate fog ambushes as sim bugs).
 
 ---
 

@@ -675,6 +675,30 @@ Leaders (`canrecruit=true`) and `loyal`-trait units don't contribute
 to upkeep. Verified at `wesnoth_src/src/units/unit.cpp:1746-1751`
 (`unit::upkeep` short-circuits on `can_recruit()`).
 
+### `village_gold` / `village_support` are PER-SIDE attributes, set by host
+
+`wesnoth_src/src/team.cpp:235-243`:
+```cpp
+const std::string& village_support = cfg["village_support"];
+if(village_support.empty()) {
+    support_per_village = game_config::village_support;  // default 1
+} else {
+    support_per_village = lexical_cast_default<int>(...);
+}
+```
+
+`village_gold=` is on the `[side]` block, not global. In MP, the
+host's game-options dialog sets it identically across all sides, but
+`replay_extract.py` MUST capture it per-side -- our
+`SideState.village_income` field reads `[side] village_gold` directly.
+Default Era uses **5** gold per village (not the historic 1). The
+host can also customize it. NOT reading the per-side value and
+defaulting to a hardcoded 2 was the cause of a multi-replay diff
+divergence (commit 2026-05-03, Den of Onis #14f7a7c1a17f).
+
+Same for `village_support=` (default 1, mainline always 1 but capture
+it for completeness — `SideState.village_support`).
+
 ---
 
 ## Replay structure
@@ -720,6 +744,132 @@ WML order in our exported replay must be: `[attack]` →
 ---
 
 ## Scenario events
+
+### Pre-placed units via `[switch] variable=pN_faction [case]` (Hornshark Island)
+
+Most MP maps spawn only leaders and let players recruit. **Hornshark
+Island is the prominent exception**: each side gets 4-7 named-or-
+anonymous pre-placed units chosen by the side's faction.
+
+`wesnoth_src/data/multiplayer/scenarios/2p_Hornshark_Island.cfg:65-499`:
+```
+[event] name=prestart
+    [lua]
+        code= << for i, side in ipairs(wesnoth.sides.find({})) do
+                    wml.variables["p" .. tostring(i) .. "_faction"] = side.faction
+                 end >>
+    [/lua]
+    [fire_event] name=place_units [/fire_event]
+[/event]
+
+[event] name=place_units
+    [switch] variable=p1_faction
+        [case] value=Drakes
+            [unit] side=1 type=Young Ogre x,y=24,4 ... [/unit]
+            [unit] side=1 type=Drake Fighter x,y=1,1 ... [/unit]
+            ...
+        [/case]
+        [case] value=Loyalists ... [/case]
+        ...
+        [else] ... [/else]   # fallback: monster grab-bag
+    [/switch]
+    [switch] variable=p2_faction ... [/switch]
+[/event]
+```
+
+Implementation cost in our reconstructor:
+
+  1. **`[set_variable] name=X value=Y`** — store on
+     `gs.global_info._wml_variables` dict.
+  2. **`[lua]` code= …** — we don't run a Lua interpreter; we just
+     pre-populate `pN_faction` from `gs.sides[i].faction` directly
+     in `_setup_scenario_events`. Robust to parser truncation of
+     the multi-line `<<...>>` literal. Other [lua] blocks no-op.
+  3. **`[fire_event] name=Y`** — find the named [event] in
+     `gs.global_info._scenario_events`, run its actions (honor
+     `first_time_only`).
+  4. **`[switch] variable=X [case] value=V`** — match `X`'s value
+     against each case's `value=` (comma-separated allowed),
+     fall through to `[else]` if no case matches.
+  5. **`[unit] side=N type=T x,y=X,Y [modifications]{TRAIT_…}…[/modifications]`** —
+     spawn fresh unit. Honor `variation=` by composite-key lookup
+     (e.g. `Soulless:saurian` for Hornshark Undead's named hero
+     "Rzrrt the Dauntless"). Apply `[trait]id=…` children from
+     `[modifications]` via `apply_traits_to_unit`. Walking-Corpse-
+     family variations (saurian/dwarf/...) get the variation's
+     movement_type and defenses, not the base humanoid's.
+
+After the prestart event chain runs, side N has all its faction-
+specific Hornshark units in addition to its leader.
+
+**Why non-obvious**: most pre-placed-unit conventions in Wesnoth
+use `[side]/[unit]` direct children (which Wesnoth's snapshot
+materializes into `starting_units` for us). Hornshark instead uses
+runtime event-driven spawning, which `replay_extract` cannot
+materialize at extract time -- it has to be re-fired by our
+`scenario_events.py` interpreter at `_setup_scenario_events` time.
+
+### AMLA also emits `[choose] value=N`, must pop the queue
+
+`wesnoth_src/src/actions/advancement.cpp:296`:
+```cpp
+config selected = mp_sync::get_user_choice("choose",
+    unit_advancement_choice(params.loc_, ...), side_for);
+```
+
+`get_user_choice` is called regardless of how many advancement
+options exist. For AMLA (After-Maximum-Level-Advancement), the
+unit has only one (default) "advancement" — the +3 max_hp full-
+heal — but Wesnoth STILL goes through the choose machinery.
+The replay records `[choose] value=0`.
+
+If our reconstructor doesn't pop the queue on AMLA, that stale
+value=0 stays around and gets consumed by the NEXT unit's REAL
+advancement, picking advances_to[0] instead of the choice the
+replay actually recorded. **Found via Goblin Pillager misadvance**:
+replay `1b43dd9087ae` cmd[1071]: Troll Rocklobber AMLA, value=0
+left in queue. cmd[1084]: Wolf Rider's slot[8]=[1] pushed →
+queue=[0,1]. Pop → advance to advances_to[0] = Goblin Knight
+instead of advances_to[1] = Goblin Pillager. cmd[1098]: replay
+expects weapon idx 1 (Pillager has 3 attacks), but Goblin Knight
+has only 1 attack → `weapon_oob`.
+
+Fix: pop one entry from `_advance_choices` in `_maybe_advance_unit`'s
+AMLA branch, even though we don't use the value (AMLA has no
+advances_to to index into).
+
+### Move-path ambush truncation: replay records FULL planned path
+
+`wesnoth_src/src/actions/move.cpp` (`move_unit_internal`): when a
+unit's planned path crosses a hex held by an enemy that the moving
+side couldn't see (fog), the engine STOPS the unit at the hex
+BEFORE the enemy and zeros remaining MP. The replay records the
+FULL planned path as `[move] x="..." y="..."`, but the engine
+truncated it during play.
+
+Reconstruction implications:
+
+  - `_apply_command` for "move" must walk the path step-by-step
+    and stop at the first enemy-occupied hex. If it just teleports
+    to the final hex, two units may overlap (the stationary enemy
+    and the truncated mover at a clear hex).
+  - The truncation point must itself be empty. If a friendly unit
+    is on the truncation hex (path was planned through friendlies,
+    which is legal per pathfind.cpp:779-786), back off to the
+    previous hex.
+  - Set `current_moves = 0` on truncation -- a fog-ambushed unit
+    has no MP left.
+
+  - `diff_replay`'s precondition check should NOT flag mid-path
+    enemies as a divergence -- in real Wesnoth this is a
+    legitimate fog ambush. Without per-side fog tracking we can't
+    distinguish "fog ambush" from "stale state cascade", so we
+    accept all and let the truncation mirror Wesnoth's behavior.
+    Cascades surface later as `final_occupied` / `src_missing`.
+
+For non-strict-sync replays the `[mp_checkup]` block carries no
+per-step truncation data, so this ambush rule must run at apply
+time, not at extract time.
 
 ### Petrified scenery via `random_traits=no` in `[side]`
 
@@ -778,6 +928,41 @@ recorded `[random_seed]` blocks. So you can't directly read traits
 from a replay's [scenario] block. To check what traits a real
 leader had, look at the rolled-trait outcome through gameplay
 (e.g. observed MP suggests `quick` was rolled).
+
+### Pitfall 6: 78% of `replays_raw/` carry mods that change game rules
+
+A scan of `replays_raw/` (2026-05-03, ~207k replays) found 161,669
+files (77.8%) with at least one `[modification] addon_id="..."`
+block. Most-common mods that change combat / XP / recruit math:
+
+  - `plan_unit_advance` (126k) — UI-then-gameplay: lets players
+    pre-pick advancement options that fire even when the unit
+    levels up off-turn. **Set-aside**, not deletable: 1.18-stock
+    feature, eventually addressable.
+  - `Rav_XP_Mod` (66k), `XP_Modification` (11k), `XP_Bank_Mod` (8k) —
+    modify XP requirements / banking. Combat XP math diverges.
+  - `RandomRecruits` (26k) — randomizes recruit list. Recruit
+    decisions diverge.
+  - `Ageless_Era`, `Ladder_Era`, `War_of_Legends`, `Reign_of_the_Lords`,
+    `LotI_Era` — alternate eras. Different units, factions,
+    abilities. Cannot reconstruct without scraping their unit DB.
+  - `Biased_RNG_in_MP` (772) — smooths combat hit/miss to the
+    expected value. With same seed, vanilla MTRng gives different
+    per-strike hits, so combat trajectories diverge from turn 1.
+    **Most poisoned cases of post-combat-bit-exact divergence.**
+
+**Truly cosmetic** (safe to keep):
+  - `Color_Modification`, `Rav_Color_Mod` — player team color only.
+  - `Bloody_Mod_PSR` — blood splash overlay.
+
+**Triage tool**: `tools/purge_mod_replays.py`. Three buckets:
+keep / set_aside / purge. Run with `--apply` to actually delete +
+move + reconcile `index.jsonl`. Dry-run by default.
+
+The mod blind-spot does NOT affect self-play training — that runs
+vanilla→vanilla. It only hurts our ability to score against real-game
+corpora (diff_replay clean rate). After purging, the corpus is 22%
+of original size but uniformly vanilla.
 
 ---
 
