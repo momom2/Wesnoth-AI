@@ -590,6 +590,20 @@ def _build_initial_gamestate(data: dict) -> GameState:
     size_x = max((h.position.x for h in hexes), default=0) + 1
     size_y = max((h.position.y for h in hexes), default=0) + 1
 
+    # Wesnoth stores `village_gold` (gold per village per turn) and
+    # `village_support` (free upkeep per village) per [side]. In MP
+    # they're always equal across sides (they're set by the host's
+    # game options, not per-player). Read from side[0]'s extracted
+    # values; fall back to vanilla defaults (1 / 1) only if the
+    # replay header didn't have them at all (very old extractions).
+    starting_sides_data = data.get("starting_sides", [])
+    if starting_sides_data:
+        first_side = starting_sides_data[0]
+        village_gold = first_side.get("village_income", 2)
+        village_support = first_side.get("village_support", 1)
+    else:
+        village_gold = 2
+        village_support = 1
     gs = GameState(
         game_id=data.get("game_id", "?"),
         map=Map(size_x=size_x, size_y=size_y,
@@ -597,8 +611,8 @@ def _build_initial_gamestate(data: dict) -> GameState:
                 hexes=hexes, units=units),
         global_info=GlobalInfo(
             current_side=current_side, turn_number=0,
-            time_of_day=_tod_for_turn(1), village_gold=2,
-            village_upkeep=1, base_income=2,
+            time_of_day=_tod_for_turn(1), village_gold=village_gold,
+            village_upkeep=village_support, base_income=2,
         ),
         sides=sides,
     )
@@ -946,6 +960,22 @@ def _maybe_advance_unit(gs: GameState, u: Unit) -> Unit:
         # Max level — Wesnoth fires AMLA (after-max-level advancement)
         # which restores HP and grants +3 max_hp. We approximate as
         # +3 max_hp + heal to full + reset XP.
+        #
+        # AMLA still goes through `mp_sync::get_user_choice("choose",
+        # ...)` in `advance_unit_at` (advancement.cpp:296), so the
+        # replay emits a `[choose] value=N` block even when there's
+        # only one (default) AMLA option. We MUST pop one entry from
+        # the advance-choice queue here, otherwise an AMLA leaves a
+        # stale choice that the NEXT unit's real advancement will
+        # consume — picking advances_to[stale_value] instead of the
+        # actually-recorded value. (Found via Goblin Pillager
+        # mis-advanced to Goblin Knight, replay 1b43dd9087ae cmd[1071]
+        # AMLA dropped value=0, then cmd[1084]'s value=1 got pushed
+        # behind it; Wolf Rider then advanced with value=0.)
+        pending = list(getattr(gs.global_info, "_advance_choices", []) or [])
+        if pending:
+            pending.pop(0)
+            setattr(gs.global_info, "_advance_choices", pending)
         new_max_hp = u.max_hp + 3
         return _replace_unit(
             gs, u,
@@ -1268,7 +1298,7 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         # 4th slot is the from_side (added in newer extracts). Older
         # extracts omit it; treat as 0 (no filter) for backward compat.
         from_side = cmd[3] if len(cmd) > 3 else 0
-        sx, sy, tx, ty = xs[0], ys[0], xs[-1], ys[-1]
+        sx, sy = xs[0], ys[0]
         # Match the unit at the source hex of the SAME side as the
         # player who issued the move. Without this filter, a stale
         # unit from a previous bug can get moved instead of the real
@@ -1281,12 +1311,66 @@ def _apply_command(gs: GameState, cmd: list) -> None:
                     break
         if unit is None:
             return
+        # Ambush truncation: replays record the FULL planned path. If
+        # the path crosses a hex held by an enemy, Wesnoth's
+        # `actions::execute_move` stops the unit at the hex before
+        # the enemy and zeros remaining MP (revealed-enemy ambush;
+        # see `actions/move.cpp::move_unit_internal`). For non-strict-
+        # sync replays the [mp_checkup] block carries no per-step
+        # data so our extractor can't truncate at extract time --
+        # we have to do it here, mirroring Wesnoth's runtime rule.
+        # If the FIRST step is enemy-occupied, abort the move
+        # entirely (this only happens in cascade scenarios where
+        # our sim already has the wrong unit at the wrong place;
+        # silently dropping is the same as Wesnoth's "the unit
+        # stayed put" outcome of a fully-blocked move).
+        truncate_idx = len(xs) - 1
+        for j in range(1, len(xs)):
+            blocker = None
+            for u in gs.map.units:
+                if u.position.x == xs[j] and u.position.y == ys[j]:
+                    blocker = u
+                    break
+            if blocker is not None and blocker.side != unit.side:
+                truncate_idx = j - 1
+                break
+        # If the truncation point itself is occupied (by a friendly
+        # unit on the path; not a blocker), back off until we find a
+        # clear hex. This prevents creating two units on the same
+        # hex (invariant:hex_double_occupied) — a real Wesnoth ambush
+        # always lands on an empty hex because the path itself was
+        # planned as walkable, with friendlies treated as
+        # passthrough but never as the *final* target.
+        while truncate_idx > 0:
+            occ = None
+            for u in gs.map.units:
+                if u is unit:
+                    continue
+                if (u.position.x == xs[truncate_idx]
+                        and u.position.y == ys[truncate_idx]):
+                    occ = u
+                    break
+            if occ is None:
+                break
+            truncate_idx -= 1
+        if truncate_idx < 1:
+            # Source-only "move" — no actual movement. Skip rather
+            # than placing the unit on top of itself.
+            return
+        tx, ty = xs[truncate_idx], ys[truncate_idx]
         new_statuses = set(unit.statuses)
         new_statuses.discard("resting")
+        # Wesnoth's ambush also zeros remaining MP. Mirror by
+        # setting current_moves to 0 if we truncated; otherwise
+        # subtract the step count.
+        if truncate_idx < len(xs) - 1:
+            new_moves = 0
+        else:
+            new_moves = max(0, unit.current_moves - (len(xs) - 1))
         moved = _replace_unit(
             gs, unit,
             position=Position(x=tx, y=ty),
-            current_moves=max(0, unit.current_moves - (len(xs) - 1)),
+            current_moves=new_moves,
             statuses=new_statuses,
         )
         if _terrain_at(gs, tx, ty) == "village":
@@ -1902,6 +1986,17 @@ def _setup_scenario_events(gs: GameState, scenario_id: str):
     from tools.scenario_events import collect_events
     events = collect_events(root)
     setattr(gs.global_info, "_scenario_events", events)
+    # Pre-populate WML variables for `pN_faction` so scenarios that
+    # rely on them (Hornshark Island's [switch] variable=p1_faction)
+    # work even when the actual `[lua]` block setting them is too
+    # truncated by our parser to match. The convention is set by
+    # `data/multiplayer/scenarios/2p_Hornshark_Island.cfg:69-71` and
+    # uses 1-indexed side numbers. Harmless for scenarios that don't
+    # consume these variables.
+    wml_vars: Dict[str, str] = {}
+    for i, s in enumerate(gs.sides, start=1):
+        wml_vars[f"p{i}_faction"] = s.faction or ""
+    setattr(gs.global_info, "_wml_variables", wml_vars)
     if events:
         fire_event(gs, events, "prestart")
         fire_event(gs, events, "start")

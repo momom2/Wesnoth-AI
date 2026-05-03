@@ -255,10 +255,20 @@ def _check_move(gs: GameState, cmd: list) -> Optional[Tuple[str, str]]:
             return ("move:final_occupied",
                     f"final hex ({cx},{cy}) occupied by {other.id} "
                     f"side={other.side}")
-        if other.side != unit.side:
-            return ("move:path_enemy_blocking",
-                    f"step {i}: ({cx},{cy}) occupied by enemy "
-                    f"{other.id} side={other.side}")
+        # Mid-path enemy: in Wesnoth this is a FOG AMBUSH — the moving
+        # player committed a multi-step plan into a fog-of-war hex
+        # that turned out to hold an enemy. The engine truncates the
+        # move at the step before. Replays record the FULL planned
+        # path. We can't distinguish "fog ambush" from "stale state"
+        # without per-side fog tracking (we don't have it), so we
+        # ASSUME ambush and let _apply_command truncate the move at
+        # apply time (mirroring Wesnoth's runtime behavior). Don't
+        # return a divergence here — that would over-count
+        # legitimate Wesnoth behavior as sim bugs.
+        # NOTE: if our sim wrongly placed the enemy at this hex
+        # (cascade), the truncated move will end at the wrong place,
+        # which usually surfaces as a later final_occupied or
+        # src_missing — those we DO flag.
     # MP cost.
     total_cost = 0
     for i in range(1, len(xs)):
