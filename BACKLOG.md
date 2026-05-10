@@ -6,19 +6,21 @@ Refreshed 2026-04-29 / 2026-05-02 / 2026-05-03 / 2026-05-04 /
 goals (superhuman play via MCTS+self-play; readable/customizable
 strategies; cluster economy).
 
-## Current state at a glance (2026-05-10)
+## Current state at a glance (2026-05-11)
 
 - **Simulator is the production training path.** `tools/wesnoth_sim.py`
   is bit-exact for combat (731/731 strikes verified vs `[mp_checkup]`
   oracle). Full-replay `diff_replay --filter-2p` clean rate
-  **99.93% (5,482/5,486)** on the freshly extracted competitive-2p
-  corpus (2026-05-11 sweep). The 16 → 4 reduction since 2026-05-10
+  **99.945% (5,483/5,486)** on the freshly extracted competitive-2p
+  corpus (2026-05-11 sweep). The 16 → 3 reduction since 2026-05-10
   came from chasing specific cases one by one — multi-tier
   advancement, surrender-drop heuristic refinement to handle
-  takeover-controller `skip_sighted="all"` false-positives, and
-  five quarantines (1 corrupted, 1 debug-tool-using, 3 Dunefolk-
-  player-faction replays the classifier missed). 4 residuals
-  remain.
+  takeover-controller `skip_sighted="all"` false-positives,
+  suffix-redo dedup for save-mid-move replays (Fallenstar Lake),
+  and five quarantines (1 corrupted, 1 debug-tool-using, 3 Dunefolk-
+  player-faction replays the classifier missed). 3 residuals remain:
+  2 gold-drift cases (Hamlets t34, Sablestone t8) and 1
+  attack-defender-missing (Ruined Passage t9).
 - **Self-play training pipeline ready.** `tools/sim_self_play.py`
   drives REINFORCE+baseline by default, AlphaZero-style MCTS via
   `--mcts`. Cluster job + GUI controls in place.
