@@ -25,6 +25,40 @@ strategies; cluster economy).
 - **Live Wesnoth IPC** retained for `--display` and
   `tools/eval_vs_builtin.py`; not used for training.
 
+> **2026-05-10 finding: dataset .json.gz files are stale, simulator
+> is cleaner than the headline number suggests.** The May-4 Stages
+> 1–21 sweep brought combat/scenario fidelity to bit-exact;
+> `replay_extract.py` was further fixed on 2026-05-08 to concatenate
+> all `[replay]` blocks for snapshot saves (the May-4 number didn't
+> reflect that fix on the dataset side). The dataset's `.json.gz`
+> files were last regenerated 2026-05-02 and are stale relative to
+> both fixes.
+>
+> Empirical confirmation: ran `diff_replay --filter-2p` on full
+> `replays_dataset/` (3941 replays) → 44 divergences across 34
+> unique failing replays. ALL 34 are mid-game snapshot saves (every
+> single one has `Turn_N` in its name, 0 from-scratch saves fail).
+> Re-extracted 28 of those 34 (6 source bz2s missing — moved to
+> set-aside / mod purge) with the current `extract_replay.py` and
+> re-ran diff_replay: **28/28 clean, 0 divergences**.
+>
+> Conclusion: simulator is at-or-near 100% clean on competitive-2p
+> corpus when the dataset is freshly extracted. The 1.12% residual
+> is a stale-dataset artifact, not a sim bug. Action item below.
+
+- [ ] 🟠 **Re-extract `replays_dataset/` against current
+  `replay_extract.py`** (2026-05-10). The .json.gz files predate
+  both the May-4 trait/scenario-event sweep AND the May-8
+  multi-block-concat fix for snapshot saves. Surgical re-extract
+  on a 28-replay sample showed every "sim divergence" was a
+  stale-dataset artifact. A full re-run on the ~14k vanilla
+  corpus should bring `diff_replay --filter-2p` clean rate from
+  98.88% to ~100% and let real residual sim bugs (if any) surface
+  without noise. Risk: re-extraction is single-process slow; ~14k
+  replays at a few seconds each is multi-hour. Cost: a few hours
+  of CPU. Reward: high-confidence clean baseline before any
+  further sim-fidelity work.
+
 See the **MCTS readiness scorecard** (refreshed 2026-05-10) further
 down for a per-capability checklist.
 
