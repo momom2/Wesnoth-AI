@@ -32,58 +32,98 @@ Most replays in `replays_raw/` are from 1.18.x clients; pin
 accordingly. If a replay's `[scenario] version=` says something
 other than 1.18.x, scrape from that version's tag instead.
 
-## Current status (2026-04-23)
+## Current status (2026-05-10)
 
-**The Python ↔ Wesnoth pipeline has never delivered a single game
-state.** Every run in `logs/` ends with `Timeout waiting for state`. The
-stdout-based state channel does not work on Windows under
-`subprocess.Popen(..., stdout=PIPE)`. Unblocking this is the top
-priority; everything else (training signal, model design, scaling) is
-downstream of it.
+**The simulator is the production training path.** `tools/wesnoth_sim.py`
+is a pure-Python headless reimplementation of Wesnoth 1.18.4's game
+logic, cluster-portable and ~1000× faster than driving a Wesnoth
+subprocess. Combat math is bit-exact verified (731/731 strikes
+matched against `[mp_checkup]` oracle on strict-sync replays);
+full-replay reconstruction at 98.57% clean on the 4,841-replay
+competitive-2p corpus after the Stages 1–21 fidelity sweep
+(documented under BACKLOG.md).
 
-The model, encoder, replay buffer, training step, reward shaping, and
-multi-process harness all work in isolation on synthetic data, but none
-of that matters until the IPC link is live.
+**Self-play training is end-to-end ready.** `tools/sim_self_play.py`
+drives self-play in the simulator with either REINFORCE or MCTS
+(`--mcts` flag, AlphaZero-style PUCT + virtual loss + transposition
+table). The cluster job (`cluster/job_selfplay.sbatch`) runs on
+ENSTA-l40s, auto-resumes from `sim_selfplay.pt` or warm-starts
+from the highest `supervised_epoch*.pt`. GUI controls in
+`cluster/gui.pyw`.
+
+**Distributional value head + cliffness signal landed 2026-05-10.**
+C51 head (K=51 atoms, `[V_MIN, V_MAX] = [-1, +1]`) replaces the
+prior tanh-bounded scalar value. `output.cliffness = std(Z(s))`
+exposes the network's per-state value uncertainty. Two MCTS
+consumers are wired but default OFF pending calibration: Bayesian-
+precision bootstrap weighting in `_backup`, and adaptive sim budget
+based on root cliffness. Always-on root-cliffness debug log
+collects distributions for tuning.
+
+**The live-Wesnoth IPC bridge (`main.py` + `game_manager.py` +
+`wesnoth_interface.py`) still works** but is no longer the primary
+training path. Kept in-tree for `--display` (watch a trained model
+play in Wesnoth's GUI) and the `tools/eval_vs_builtin.py` harness
+that pits us against Wesnoth's RCA AI.
 
 ## Architecture
 
-### Two sides of a bridge
+### Two paths that share encoder + model + trainer
 
-**Python side (orchestrator + learner):**
-- `main.py` — entry point, setup checks, launcher.
-- `game_manager.py` — runs N Wesnoth games in parallel, owns the model,
-  replay buffer, and trainer.
-- `wesnoth_interface.py` — one Wesnoth process per game; reads state,
-  writes actions.
-- `state_converter.py` — Wesnoth data format → `GameState`.
-- `state_encodings.py` — `GameState` → tensors.
-- `transformer.py` — policy/value network.
-- `action_selector.py` — samples action from logits; minimal legality
-  filtering (will tighten).
-- `training.py` — policy + value loss, AdamW.
-- `classes.py` — `GameState`, `Unit`, `Hex`, `Map`, `Experience`, etc.
-- `constants.py` — all tunables (paths, hyperparameters, terrain codes).
+**Production path: in-process simulator (cluster + most local work).**
+- `tools/wesnoth_sim.py` — pure-Python game logic. Reuses the
+  replay-reconstruction machinery from `tools/replay_dataset.py`
+  (which is bit-exact against Wesnoth via `[mp_checkup]` oracle on
+  combat); just swaps the data source from "WML command stream"
+  to "policy queries."
+- `tools/sim_self_play.py` — self-play training entry point. Drives
+  N games per iteration through `WesnothSim`, calls `policy.observe`
+  for shaping rewards, applies one gradient update per iteration via
+  `policy.train_step`. `--mcts` flag swaps in `MCTSPolicy`.
+- `tools/scenario_pool.py` / `tools/scenarios.py` — scenario
+  randomization for training (Ladder Era 21-map whitelist, faction
+  randomization with optional `--forced-faction` lock).
+- `tools/mcts.py` / `tools/mcts_policy.py` — MCTS implementation
+  and the MCTSPolicy adapter that wraps TransformerPolicy.
+- `cluster/job_selfplay.sbatch` / `cluster/gui.pyw` — cluster
+  orchestration + Tk GUI.
 
-**Wesnoth side (add-on at `add-ons/wesnoth_ai/`):**
-- `_main.cfg` loads the scenario.
-- `ai_config.cfg` wires two Lua candidate actions into Wesnoth's AI:
-  one to send state, one to poll for and execute an action.
-- `scenarios/training_scenario.cfg` — 2p_Caves_of_the_Basilisk,
-  Knalgan vs Drakes, both sides `controller=ai`, both using our CAs.
-- `lua/state_collector.lua` — serializes units, hexes, fog, sides.
-- `lua/ca_state_sender.lua` — runs `state_collector`, emits the state.
-- `lua/ca_action_executor.lua` — blocks until a new action arrives,
-  then dispatches.
-- `lua/action_executor.lua` — move / attack / recruit / recall /
-  end_turn, using the Wesnoth `ai.*` API.
+**Live-Wesnoth path (display, eval, but NOT cluster training).**
+- `main.py` — entry point for the bridge path. `--display` watches
+  a trained model play; `--check-setup` verifies the Wesnoth + add-on
+  install link.
+- `game_manager.py` — runs N Wesnoth subprocesses in parallel.
+- `wesnoth_interface.py` — one Wesnoth process per game; state
+  channel uses `std_print` → log-file tail (CA-blacklist bypass via
+  custom Lua AI stage in Phase 2b); actions written atomically as
+  `action.lua` and read via `wesnoth.read_file`.
+- `add-ons/wesnoth_ai/` — Lua side: `lua/state_collector.lua`,
+  `lua/turn_stage.lua` (custom AI stage replacing default RCA so
+  failed actions don't blacklist the CA), `lua/action_executor.lua`,
+  `lua/json_encoder.lua`. `scenarios/training_scenario.cfg`.
+- `tools/eval_vs_builtin.py` — pits the trained model against
+  Wesnoth's default RCA AI across a (map × matchup × side-swap)
+  matrix; uses the bridge path because we need real RCA on the
+  opponent side.
 
-### IPC (to be revisited in Phase 1)
-
-Today: state via **stdout** with `===WML_STATE_BEGIN===` markers;
-actions via a **Lua file** that Wesnoth's CA polls every 50 ms.
-The stdout half is the one that does not work. The target replacement
-is probably file-based for both directions, or `wesnoth --plugin` if its
-Windows story is cleaner.
+**Shared by both paths:**
+- `classes.py` — `GameState`, `Unit`, `Hex`, `Map`, `SideInfo`,
+  `state_key`.
+- `encoder.py` — `GameState` → tensors (per-unit, per-hex, recruit
+  phantom features, global features).
+- `model.py` — `WesnothModel` transformer with distributional C51
+  value head; emits `ModelOutput(actor_logits, type_logits,
+  target_logits, weapon_logits, value, value_logits, cliffness, ...)`.
+- `action_sampler.py` — legal-action enumeration with priors;
+  combat-oracle attack-bias on target logits.
+- `transformer_policy.py` — Policy adapter (`select_action`,
+  `observe`, `train_step`, `save_checkpoint`, `finalize_game`).
+- `trainer.py` — REINFORCE + value baseline (`step`) and
+  AlphaZero-style soft-target distillation (`step_mcts`); both
+  use the categorical CE value loss against C51 atom projections.
+- `rewards.py` / `cluster/configs/reward_selfplay.json` — shaping
+  reward (terminal ±1, gold/damage/village deltas, per-turn penalty,
+  unit-type bonuses, turn-conditional bonuses).
 
 ### Coordinates
 
@@ -113,17 +153,29 @@ in data/config, not buried in network weights or scattered constants.
 When you add a new behavior, ask: "could a modder flip this without
 touching model code?"
 
-### 4. Python and Wesnoth speak through a narrow waist
-All state crosses the bridge as one well-defined serialization, all
-actions as one well-defined schema. Keep the Lua side dumb: collect
-state, execute actions, no game-logic decisions. Keep the Python side
-agnostic to IPC details (one `read_state()` / `send_action()` call).
+### 4. Simulator parity is bit-exact for combat
+The simulator's combat math is verified against Wesnoth's own
+`[mp_checkup]` oracle on strict-sync replays (731/731 strikes
+matched). Any sim change that touches combat, healing, or
+advancement must keep that parity. `tools/diff_replay.py` is the
+regression check (runs the simulator over a corpus, compares
+against the recorded WML command stream); aim to keep clean rate
+≥98.5% on competitive-2p. New scenario events go in
+`tools/scenario_events.py`; new abilities in `tools/abilities.py`;
+both with citations to `wesnoth_src/` file:line.
+
+When live Wesnoth is in the loop (display, eval), the same
+narrow-waist principle applies: state crosses the bridge as one
+well-defined serialization, actions as one schema, Lua side stays
+dumb. But that path is no longer how training data is generated.
 
 ### 5. Failures are visible
-Wesnoth hangs are the default failure mode of this system. Any
-Python-side wait must have a finite timeout and log which stage timed
-out. Lua errors must reach Python's log, not die silently inside a
-`pcall`.
+Both paths log timeouts and stage-of-failure. The simulator returns
+typed errors (e.g. `"recruit:insufficient_gold"`) that
+`sim_self_play.py` surfaces in the per-game summary. The bridge
+path (display, eval) wraps any Python wait in a finite timeout and
+logs which stage timed out; Lua errors reach the Python log, not
+silently die inside a `pcall`.
 
 ### 6. Legality mask = pure function of OBSERVABLE STATE
 The action sampler's "legality mask" answers exactly one question:
@@ -223,6 +275,17 @@ many line-coverage tests.
 
 ### Guidelines
 - Run `pytest` after changes.
+- **Never run more than one pytest invocation at a time.** Each
+  pytest spawns a Python process that imports torch + the model;
+  parallel runs balloon memory (5+ GB per process) and a stuck
+  test compounds the problem. Wait for each command to fully
+  return (foreground) before launching the next. If a test
+  hangs, kill the process before starting another — don't queue
+  a second behind it. No "let me also kick off X while we wait"
+  patterns. (Lesson from 2026-05-10: four parallel pytest jobs
+  stuck on a hanging `_select_one` loop produced multiple
+  multi-GB zombie Python processes that locked up the user's
+  machine.)
 - Use `constants.py` values in assertions (not hardcoded duplicates).
 - Never weaken a test without explicit user confirmation. A failing
   test is a signal — find the root cause first.
@@ -245,6 +308,17 @@ many line-coverage tests.
   what the engine actually does. When you'd otherwise hand-wave
   ("`income=` is probably an offset"), grep `wesnoth_src/src/` first
   and cite line numbers in comments / commits.
+- **Don't assert without checking.** This applies to factual claims
+  about Wesnoth (rules, mechanics, unit stats) AND to claims about
+  our own code ("the function does X", "this list covers all cases",
+  "the heuristic always fires correctly"). If you find yourself about
+  to write a confident-sounding sentence in a commit message, code
+  comment, or message to the user, pause: have you actually verified
+  the claim with a grep / read / test? If not, either verify first OR
+  hedge the language ("I believe X holds because Y; not yet verified").
+  Especially: when listing a closed set ("the three races that get
+  undrainable are undead, mechanical, elemental"), grep the source for
+  the relevant marker and confirm the count matches before publishing.
 - **`docs/wesnoth_rules.md` is the source-of-truth catalog.** Read
   it BEFORE researching a Wesnoth rule from scratch — most
   established rules are pinned there with verbatim source quotes.
@@ -267,5 +341,26 @@ many line-coverage tests.
   Old changelog entries describe behavior at THAT version, which
   may have changed since. Cross-check any changelog quote against
   the live `wesnoth_src/` code path before treating it as authority.
+- **`docs/design_constants.md` catalogues DERIVED numerical
+  constants** (not arbitrary tuning knobs). Anything with a
+  derivation — math, measurement, fixed external standard —
+  belongs there rather than buried in a one-line code comment.
+  When you find yourself writing "where does this 0.577 come
+  from?" or "why exactly 51 atoms?", the rationale belongs in
+  `docs/design_constants.md`; cite it from the code with a short
+  comment + cross-reference. Pure tuning knobs (learning rate,
+  c_puct, etc.) stay in `constants.py` with their own comment
+  block — those aren't derived, they're picked, and the picking
+  rationale (which may be "AlphaZero paper" or "experiment
+  pending") stays nearby.
+- **Magic-number principle, more generally:** if a number's
+  origin isn't obvious from its name or its surrounding
+  comment, the reader will eventually waste time deriving it
+  again. Either rename it (`PRIOR_VAR_UNIFORM_M1_P1`), comment
+  it inline (1-2 lines, no math), or — for anything more
+  involved — write it up in `docs/design_constants.md` and
+  cross-reference. Same principle applies to thresholds,
+  bucket sizes, atom counts, normalizers, anything where
+  someone could reasonably ask "why exactly that value?".
 - **Prefer removing over adding.** This codebase is recovering from
   bloat. When a feature is load-bearing, we'll re-add it with evidence.

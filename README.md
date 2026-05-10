@@ -11,87 +11,176 @@ Two goals shape the design:
    in network weights — a modder should be able to flip a behavior
    without touching the model.
 
-## Status
+## Status (2026-05-10)
 
-- The Python ↔ Wesnoth IPC works. Self-play games run end-to-end at
-  ~150 games/hour with 4 parallel processes.
-- Supervised pre-training (behavior cloning of 5,399 1.18.x human
-  replays) is currently running on the ENSTA Mesogip cluster (NVIDIA
-  L40S). The trained encoder+model is `--resume`-compatible with the
-  self-play path.
-- Random-init self-play stalled in a "never finds combat" local
-  optimum. Warm-starting from the supervised checkpoint should
-  unblock that.
+- **Simulator-driven self-play is the production training path.**
+  `tools/wesnoth_sim.py` is a pure-Python reimplementation of
+  Wesnoth 1.18.4's game logic — bit-exact for combat (731/731
+  strikes verified via `[mp_checkup]` oracle on strict-sync
+  replays), 98.57% diff_replay clean rate on the 4,841-replay
+  competitive-2p corpus. ~1000× faster than driving Wesnoth as
+  a subprocess and trivially cluster-portable.
+- **Self-play training entry point: `python tools/sim_self_play.py`.**
+  Drives N games per iteration through `WesnothSim`, applies
+  REINFORCE+baseline gradient updates. `--mcts` flag swaps in
+  AlphaZero-style PUCT search. Cluster job:
+  `cluster/job_selfplay.sbatch` (ENSTA-l40s, auto-resume from
+  `sim_selfplay.pt` or warm-start from the highest
+  `supervised_epoch*.pt`).
+- **Distributional value head + cliffness signal landed
+  2026-05-10.** C51 head over [-1, +1], `output.cliffness =
+  std(Z(s))` published per forward. Bayesian-precision bootstrap
+  weighting and adaptive sim budget framework are wired but
+  default OFF pending calibration.
+- **Supervised pre-training** (behavior cloning of 1.18.x human
+  replays) ran on ENSTA Mesogip; checkpoints `supervised.pt`,
+  `supervised_epoch3.pt` available locally. Used as the warm-start
+  for self-play.
+- **The live-Wesnoth IPC path** (`python main.py`,
+  `wesnoth_interface.py`, Lua bridge) still works (Phase 2b
+  resolved the CA blacklist via custom Lua AI stage) but is no
+  longer the training path — it stays for `--display` (watching
+  a trained model play in Wesnoth's GUI) and the
+  `tools/eval_vs_builtin.py` harness against Wesnoth's RCA AI.
 
 ## Layout
 
 ```
 wesnoth_src/                 1.18.4-pinned Wesnoth source (read-only)
-add-ons/wesnoth_ai/          Lua side of the bridge — junctioned into
-                             Wesnoth's userdata at first run
+add-ons/wesnoth_ai/          Lua side of the live-Wesnoth bridge
+                             (display + eval only, NOT training).
+                             Junctioned into Wesnoth's userdata at
+                             first run.
    _main.cfg                 add-on entry point
-   scenarios/training_scenario_mp.cfg
+   scenarios/training_scenario.cfg
    lua/state_collector.lua   serializes WML state into a framed block
-   lua/turn_stage.lua        custom AI turn stage (replaces default)
-classes.py                   GameState, Unit, Hex, Map, ...
+   lua/turn_stage.lua        custom AI turn stage (replaces default RCA)
+   lua/action_executor.lua   move/attack/recruit/recall/end_turn dispatcher
+   lua/json_encoder.lua      WML → JSON for the state channel
+classes.py                   GameState, Unit, Hex, Map, state_key
 constants.py                 paths, hyperparameters, IPC tunables
-state_converter.py           Wesnoth WML → GameState (and back)
-encoder.py                   GameState → tensors (per-actor / per-hex)
-model.py                     transformer policy/value network
-action_sampler.py            sample legal action from logits
-trainer.py                   REINFORCE + value baseline + entropy
-transformer_policy.py        Policy implementation (rollout + train)
-dummy_policy.py              random-action baseline
+encoder.py                   GameState → tensors (per-unit / per-hex /
+                             recruit phantom features / global)
+model.py                     transformer policy + C51 distributional
+                             value head; cliffness = std(Z(s))
+action_sampler.py            enumerate_legal_actions_with_priors,
+                             predict_priors (factored), combat-oracle
+                             attack-bias on target logits
+trainer.py                   REINFORCE+baseline (step) and AlphaZero
+                             soft-target distillation (step_mcts);
+                             both use categorical CE value loss
+transformer_policy.py        Policy adapter (select_action / observe /
+                             train_step / save_checkpoint / finalize_game)
+dummy_policy.py              scripted-baseline policy
 policy.py                    Policy protocol + name registry
-game_manager.py              N parallel games, per-step reward feed
-wesnoth_interface.py         one Wesnoth subprocess per game
 rewards.py                   StepDelta + WeightedReward shaping
-main.py                      entry point (`python main.py --help`)
+state_converter.py           Wesnoth WML → GameState (bridge path only)
+game_manager.py              N parallel Wesnoth subprocesses (bridge)
+wesnoth_interface.py         one Wesnoth subprocess per game (bridge)
+main.py                      bridge-path entry point (display + eval;
+                             NOT training. Use sim_self_play.py for
+                             training.)
 tools/
+   wesnoth_sim.py            **PURE-PYTHON SIMULATOR** — production
+                             training data source. Bit-exact for combat.
+   sim_self_play.py          **SELF-PLAY ENTRY POINT.** REINFORCE
+                             default; --mcts for AlphaZero-style search.
+   sim_demo_game.py          one-game inference + bz2 export (display)
+   sim_dummy_smoke.py        pre-flight pipeline check
+   sim_to_replay.py          export sim trajectories to .bz2 replays
+   mcts.py                   AlphaZero-style MCTS (PUCT, virtual loss,
+                             transposition table, cliffness consumers)
+   mcts_policy.py            MCTSPolicy adapter wrapping TransformerPolicy
+   scenario_pool.py          random scenario+faction selection for training
+   scenarios.py              auto-derived 2p competitive scenario allowlist
    replay_extract.py         raw bz2 replays → tagged JSON corpus
-   replay_dataset.py         tagged JSON → (state, action) training pairs
+   replay_dataset.py         tagged JSON → (state, action) training pairs;
+                             also the bit-exact replay-reconstruction
+                             machinery the simulator reuses
+   replay_builder.py         build .bz2 replays from sim trajectories
+   scenario_events.py        scenario [event] dispatch (Hornshark
+                             pre-placed units, AMLA [choose] queue, etc.)
    supervised_train.py       behavior-cloning pre-training
    scrape_unit_stats.py      wesnoth_src → unit_stats.json
-   scenarios.py              auto-derived 2p competitive scenario list
-   traits.py, abilities.py   trait / ability engine (capped defenses, etc.)
+   scrape_terrain.py         wesnoth_src → terrain_db.json
+   terrain_resolver.py       runtime terrain / movement / defense lookups
+   traits.py, abilities.py   trait / ability engine (capped defenses,
+                             leadership, drain, steadfast, plague, etc.)
    combat.py, combat_oracle.py
                              bit-exact combat simulation (replay parity)
    fog.py                    visibility BFS (per-unit vision range)
-   filter_replays.py         dataset selection helpers
+   diff_replay.py            sim-vs-Wesnoth replay regression check
+   diff_combat_strike.py     per-strike vs Wesnoth [mp_checkup] oracle
+   verify_mp_checkup.py      parse [mp_checkup] from strict-sync .bz2
+   eval_vs_builtin.py        bridge-path eval vs Wesnoth's RCA AI
+   eval_runner.py / eval_scenarios.py
+                             eval harness (Wilson CIs, per-faction grid)
    download_replays.py       scraper for the 1.18.x replay server
+   filter_replays.py         dataset selection helpers
+   purge_mod_replays.py      purge mod-using replays (e.g. Biased RNG)
 cluster/                     SLURM scripts for ENSTA Mesogip
    build_bundle.ps1          tarball the project for upload
    setup.sh                  venv + torch+CUDA on a fresh login node
    run.sh                    sbatch wrapper (start/status/tail/stop)
-   job.sbatch                the actual training job (auto-resume + chain)
+   job.sbatch                supervised pre-training job
+   job_selfplay.sbatch       SELF-PLAY training job (the production
+                             training path on the cluster)
+   sync.ps1                  push code-only updates without re-shipping
+                             the corpus; -Mode supervised|selfplay
+   pull_checkpoint.ps1       pull trained .pt files back to the laptop
+   gui.pyw / gui.bat         Tk GUI for cluster + local ops
+   configs/                  reward_selfplay.json, action_type_weights.json
    RUNBOOK.md                step-by-step deployment guide
+docs/
+   wesnoth_rules.md          authoritative catalog of Wesnoth-engine
+                             rules (combat rounding, traits, abilities,
+                             terrain alias resolution, etc.) with
+                             verbatim source citations
+   design_constants.md       derived numerical constants (e.g.
+                             cliffness_max = 1/√3) — read this when
+                             you wonder where a magic number came from
 training/
    checkpoints/              .pt files (supervised + self-play)
    replays/                  per-game logs from self-play
-replays_raw/                 207k bz2 replays (gitignored, ~5GB)
-replays_dataset/             53k extracted JSON.gz replays (~390MB)
+   logs/                     SLURM job logs
+benchmarks/                  bench_mcts_tt.py, bench_sim_throughput.py
+replays_raw/                 source .bz2 replays (gitignored)
+replays_dataset/             extracted JSON.gz replays (gitignored)
 unit_stats.json              scraped from wesnoth_src — rebuild on
                              Wesnoth version bump
+terrain_db.json              terrain/defense/move-cost tables, scraped
 ```
 
 ## Architecture in one paragraph
 
-Wesnoth is a closed game on Windows: no headless mode that we could get
-working, no stdout from a piped subprocess (it's a GUI-subsystem
-binary), no `io` in the Lua sandbox. Each game is a real Wesnoth
-process running our scenario; a custom Lua AI stage publishes state
-by `std_print()`-ing a framed block (Wesnoth routes this to
-`<userdata>/logs/wesnoth-*.out.log`); Python tails that file. For
-actions, Python writes `action.lua` atomically with a monotonic seq;
-Lua reads it via `wesnoth.read_file` and ignores stale seqs. See
-`wesnoth_interface.py`'s docstring for the gory details.
+The simulator (`tools/wesnoth_sim.py`) is a pure-Python
+reimplementation of Wesnoth 1.18.4's game logic, sharing the
+bit-exact replay-reconstruction machinery from
+`tools/replay_dataset.py`. Self-play training
+(`tools/sim_self_play.py`) drives N games per iteration through the
+simulator with both sides controlled by the same policy, then
+applies one gradient update via `policy.train_step`. Combat math is
+verified bit-exact against Wesnoth's `[mp_checkup]` oracle on
+strict-sync replays; full-replay reconstruction at 98.57% clean on
+the competitive-2p corpus.
 
-The model is a transformer over tokenized state (per-unit + per-hex
-embeddings + global features). One forward produces actor logits over
-"unit slots + recruit slots + end-turn", target logits over the hex
-grid, and weapon logits per attack candidate. `action_sampler.py`
-samples a legal triple. The same forward also produces a value
-estimate used as the REINFORCE baseline.
+The model is a transformer over tokenized state (per-unit, per-hex,
+recruit-phantom, global features). One forward produces actor logits
+over "unit slots + recruit slots + end-turn", per-actor type logits
+(ATTACK / MOVE), target logits over the hex grid, weapon logits per
+attack candidate, plus a categorical (C51) value distribution over
+51 atoms in [-1, +1]. The mean of that distribution is the value
+estimate (used as REINFORCE baseline); its standard deviation is
+exposed as `cliffness` (used by the MCTS bootstrap-weighting +
+adaptive-budget consumers, off by default).
+
+The live-Wesnoth IPC bridge (`main.py` + `game_manager.py` +
+`wesnoth_interface.py` + `add-ons/wesnoth_ai/`) is kept for the
+`--display` mode and the `eval_vs_builtin` harness, but is no
+longer the training path. Wesnoth on Windows is a GUI-subsystem
+binary (no piped stdout), the Lua sandbox forbids `io`, and Linux
+headless mode wasn't workable on the cluster — all of which were
+the original motivations for the simulator pivot.
 
 ## Setup
 
@@ -118,39 +207,96 @@ Wesnoth's userdata to `add-ons/wesnoth_ai/` is in place.
 
 ## Self-play
 
-Self-play training runs N parallel Wesnoth processes, both sides AI,
-both controlled by the same policy.
+Self-play training runs in the in-process Python simulator
+(`tools/wesnoth_sim.py`). Both sides are driven by the same policy.
+Cluster-portable, ~1000× faster than driving real Wesnoth, and the
+combat math is bit-exact verified against Wesnoth's `[mp_checkup]`
+oracle.
+
+### Local
 
 ```powershell
-# Random-baseline self-play (no learning — verifies the bridge):
-python main.py --policy dummy --games 4
+# Trainable transformer, warm-started from supervised checkpoint:
+python tools/sim_self_play.py `
+    --checkpoint-in training/checkpoints/supervised_epoch3.pt `
+    --checkpoint-out training/checkpoints/sim_selfplay.pt `
+    --iterations 50 --games-per-iter 8 --max-turns 60 `
+    --reward-config cluster/configs/reward_selfplay.json
 
-# Trainable transformer, fresh init:
-python main.py --policy transformer --games 4
+# AlphaZero-style MCTS (added 2026-05). PUCT search per move,
+# soft-target distillation against visit-count distributions:
+python tools/sim_self_play.py `
+    --checkpoint-in training/checkpoints/supervised_epoch3.pt `
+    --checkpoint-out training/checkpoints/sim_selfplay.pt `
+    --mcts --mcts-sims 50 --mcts-c-puct 1.5 `
+    --iterations 50 --games-per-iter 8 --max-turns 60
 
-# Resume from a checkpoint (e.g. the supervised warm-start):
-python main.py --policy transformer --resume training/checkpoints/supervised.pt --games 4
-
-# Or pick the latest periodic self-play checkpoint automatically:
-python main.py --policy transformer --resume latest --games 4
+# Random-baseline (no learning — pre-flight pipeline check):
+python tools/sim_dummy_smoke.py
 ```
 
 Useful flags:
-  - `--games N` — parallelism. CPU-bound. 4 is the practical max on
-    typical desktops; 1 trades throughput for faster gradient updates
-    (see the per-step CPU contention discussion in
-    `transformer_policy.py`).
-  - `--check-setup` — verify the install link, exit.
+  - `--workers N` — rollout worker threads. CPU-bound. Cluster
+    default is 6 (8 CPUs allocated, 1 main + 1 OS slack + 6 rollouts).
+  - `--mcts` — enable AlphaZero-style search. Per-step shaping
+    rewards are silently ignored in MCTS mode (only terminal z is
+    distilled).
+  - `--forced-faction "Knalgan Alliance"` — lock at least one side
+    to a given default-era faction. Empty string = use the
+    sim_self_play module default; `none` = explicit disable.
+  - `--reward-config PATH` — JSON file defining shaping reward
+    weights. See `cluster/configs/reward_selfplay.json` for the
+    canonical template (terminal ±1, gold/damage/village deltas,
+    per-turn penalty, unit-type bonuses, turn-conditional bonuses).
 
-What to watch for in the logs:
+### Cluster (ENSTA Mesogip)
+
+```bash
+# Submit one self-play training link (~3h55 walltime):
+bash cluster/run.sh start selfplay
+
+# With overrides via env-var passthrough:
+sbatch --export=USE_MCTS=1,MCTS_SIMS=50,GAMES_PER_ITER=4 \
+       cluster/job_selfplay.sbatch
+
+# Stop the chain:
+touch training/checkpoints/selfplay_done.flag
+
+# Sync local code changes + continue:
+powershell -ExecutionPolicy Bypass -File cluster/sync.ps1 -Mode selfplay
+bash cluster/run.sh continue selfplay
 ```
-Game G done: turn=N outcome=timeout | s1 acts=A(inv=I) mv=M atk=T rec=R(Gg) ...
-Stats: games=100 entropy=7.17 avg_loss=... wins=3 timeouts=97 ...
+
+The job auto-resumes from `sim_selfplay.pt` if present, else
+warm-starts from the highest `supervised_epoch*.pt`, else from
+`supervised.pt`, else from random init (warning, not error).
+
+### What to watch for in the logs
+
 ```
-`atk=` is the load-bearing number. If it stays at 0 after a few
-hundred games of fresh-init training, you're stuck in the
-"never finds combat" local optimum — warm-start from a supervised
-checkpoint instead.
+[iter 042] games=8 wins/draws/losses=3/0/5 timeouts=0
+           mean_return=0.18 entropy=4.21 grad_norm=0.83
+           policy_loss=0.42 value_loss=0.31
+mcts: root cliffness=0.34 (adaptive=off, n_sims=50)
+```
+
+`mean_return` and `wins/draws/losses` are the headline numbers.
+`mcts: root cliffness=...` (when MCTS is on) is always logged at
+debug level so you can collect distributions for tuning the
+adaptive sim budget later.
+
+### Live-Wesnoth bridge (display only, NOT training)
+
+```powershell
+# Watch a trained model play in Wesnoth's GUI:
+python main.py --policy transformer --display `
+    --resume training/checkpoints/supervised_epoch3.pt
+```
+
+The bridge path (`main.py` + `game_manager.py`) used to be the
+training path before the simulator pivot. It's kept for `--display`
+and for `tools/eval_vs_builtin.py` (which needs Wesnoth's RCA AI
+on the opponent side).
 
 ## Supervised pre-training (behavior cloning)
 
@@ -212,14 +358,18 @@ On the cluster:
 ```bash
 mkdir -p ~/wesnoth-ai && cd ~/wesnoth-ai
 tar -xzf ~/wai_cluster_bundle.tar.gz
-bash cluster/setup.sh        # ~2 min: venv + torch+CUDA + sanity check
-bash cluster/run.sh start    # sbatch the job; auto-chains across walltime
-bash cluster/run.sh status   # squeue + last 15 log lines + GPU info
-bash cluster/run.sh tail     # follow the live SLURM log
-bash cluster/run.sh stop     # scancel the recorded job id
+bash cluster/setup.sh                  # ~2 min: venv + torch+CUDA + sanity check
+bash cluster/run.sh start supervised   # sbatch the supervised job
+bash cluster/run.sh status             # squeue + last 15 log lines + GPU info
+bash cluster/run.sh tail               # follow the live SLURM log
+bash cluster/run.sh stop               # scancel the recorded job id
 ```
 
-The job (`cluster/job.sbatch`):
+(`cluster/run.sh` is polymorphic: `start supervised` for behavior
+cloning, `start selfplay` for self-play, `continue {supervised,
+selfplay}` for the next chain link after the previous one ended.)
+
+The supervised job (`cluster/job.sbatch`):
 - Runs on `ENSTA-l40s` with 1 GPU, 8 CPUs, 32GB RAM.
 - Walltime 03:55:00 — under the student-QoS 4h cap.
 - `--workers 6`: 6 prefetch subprocesses run `encode_raw` (CPU-bound,
@@ -229,10 +379,18 @@ The job (`cluster/job.sbatch`):
   (pre-seeded from `unit_stats.json`); out-of-vocab unit types hit
   the overflow embedding row.
 - Auto-resumes from `training/checkpoints/supervised.pt` if present.
-- Auto-chains a follow-up job when the trainer ends cleanly OR via
-  SIGTERM (143 = walltime hit), unless `done.flag` exists.
-- `done.flag` is created when `supervised_epoch9.pt` shows up — i.e.
-  all 10 epochs completed.
+- No automatic chain — the operator continues each link manually
+  via `bash cluster/run.sh continue supervised` or the GUI's
+  "Sync + Continue" button. (Earlier auto-chain didn't survive
+  walltime kills reliably; a manual continue also gives the
+  operator a chance to drop fixes between links.)
+- `done.flag` (touched manually) stops the chain.
+
+The self-play job (`cluster/job_selfplay.sbatch`) follows the same
+pattern: no auto-chain, manual continue, env-var overrides for
+`USE_MCTS` / `MCTS_SIMS` / `MCTS_C_PUCT` / `MCTS_BATCH_SIZE` /
+`GAMES_PER_ITER` / `MAX_TURNS` / `WORKERS` / `SAVE_EVERY` / `SEED`
+/ `FORCED_FACTION` / `REWARD_CONFIG`.
 
 Pull the trained checkpoint back when an epoch finishes:
 ```powershell
@@ -249,31 +407,32 @@ powershell -ExecutionPolicy Bypass -File cluster\pull_checkpoint.ps1 -Rolling
 powershell -ExecutionPolicy Bypass -File cluster\pull_checkpoint.ps1 -Epoch 3
 ```
 
-Then launch self-play locally with the pulled checkpoint. There are
-two distinct modes:
+Then continue training locally OR watch a game in Wesnoth's GUI:
 
 ```powershell
-# TRAINING mode -- N parallel games (default 4), 10x turbo, no
-# animations, the transformer keeps learning from rollouts.
-powershell -ExecutionPolicy Bypass -File run_self_play.ps1
+# Continue self-play training locally (simulator-driven, fast):
+python tools/sim_self_play.py `
+    --checkpoint-in training/checkpoints/supervised_epoch3.pt `
+    --checkpoint-out training/checkpoints/sim_selfplay.pt `
+    --iterations 10 --games-per-iter 8
 
-# DISPLAY mode -- ONE Wesnoth window, 2x turbo, animations on,
-# training disabled. For watching a trained model play.
+# OR: watch ONE game in Wesnoth's GUI (bridge path, animations on,
+# training disabled):
 powershell -ExecutionPolicy Bypass -File run_self_play.ps1 -Display
 
-# Specific checkpoint:
+# Specific checkpoint for the display:
 powershell -ExecutionPolicy Bypass -File run_self_play.ps1 `
     -Checkpoint training\checkpoints\supervised_epoch3.pt -Display
 ```
 
-Internally the modes differ in three places:
-- Wesnoth scenario: `ai_training` (no anims, 10x turbo) vs
-  `ai_display` (animations, 2x turbo). The Lua side picks prefs by
-  inspecting `wesnoth.current.scenario`.
-- `--games` value: training default is 4, display forces 1.
-- Trainer flags: display passes `--display` which sets
-  `eval_mode=True` in `GameManager`, skipping `train_step`,
-  `observe`, and checkpoint saves.
+`run_self_play.ps1` is the bridge-path launcher — it spins up real
+Wesnoth processes via `python main.py`. It supports both `-Display`
+(one GUI window, 2x turbo, training off) and a `TRAINING` mode (N
+parallel Wesnoth windows, 10x turbo, training on). The TRAINING
+mode predates the simulator pivot and is mostly a curiosity now;
+`tools/sim_self_play.py` is faster and produces the same gradient
+updates. Use `run_self_play.ps1 -Display` when you want to watch
+the trained model play in Wesnoth's GUI.
 
 ## Evaluating against Wesnoth's built-in AI
 

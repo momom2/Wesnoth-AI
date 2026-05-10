@@ -1,9 +1,32 @@
 # Project review — bugs and improvements
 
 Generated 2026-04-28 from a deep review of every major component.
-Refreshed 2026-04-29 / 2026-05-02 / 2026-05-03. Items are graded by
-impact on the project's stated goals (superhuman play via
-MCTS+self-play; readable/customizable strategies; cluster economy).
+Refreshed 2026-04-29 / 2026-05-02 / 2026-05-03 / 2026-05-04 /
+2026-05-10. Items are graded by impact on the project's stated
+goals (superhuman play via MCTS+self-play; readable/customizable
+strategies; cluster economy).
+
+## Current state at a glance (2026-05-10)
+
+- **Simulator is the production training path.** `tools/wesnoth_sim.py`
+  is bit-exact for combat (731/731 strikes verified vs `[mp_checkup]`
+  oracle). Full-replay `diff_replay` clean rate **98.57%** on the
+  4,841-replay competitive-2p corpus after the Stages 1–21 sweep
+  (2026-05-04). Residual ~1.4% is mostly cascade failures from
+  earlier divergences + a few mid-game `[snapshot]` extractor edge
+  cases.
+- **Self-play training pipeline ready.** `tools/sim_self_play.py`
+  drives REINFORCE+baseline by default, AlphaZero-style MCTS via
+  `--mcts`. Cluster job + GUI controls in place.
+- **Distributional value head + cliffness landed 2026-05-10.**
+  K=51 atom C51 head over [-1, +1]. Cliffness signal published.
+  Bayesian-precision bootstrap weighting + adaptive sim budget
+  framework wired but default OFF pending calibration.
+- **Live Wesnoth IPC** retained for `--display` and
+  `tools/eval_vs_builtin.py`; not used for training.
+
+See the **MCTS readiness scorecard** (refreshed 2026-05-10) further
+down for a per-capability checklist.
 
 **Severity:**
 - 🔴 **CRIT** — silent corruption / wrong gradients / blocks a stated goal
@@ -16,27 +39,958 @@ MCTS+self-play; readable/customizable strategies; cluster economy).
 
 ## NEW 2026-05-03 (post mod-purge + Hornshark sweep)
 
+> **NOTE 2026-05-10:** The 91.05% headline below is HISTORICAL —
+> it's the snapshot at end of 2026-05-03 work. Stages 1–21
+> (entries dated 2026-05-04, see further down) brought the clean
+> rate to **98.57%** on the 4,841-replay competitive-2p corpus.
+> Use that as the current authoritative number.
+
 **diff_replay clean rate: 91.05% on vanilla 2k sample (1821/2000).**
 Up from 87% at session start. Mod purge accounted for the bulk;
 village_gold extraction, AMLA queue pop, Hornshark Island
 [switch]/[unit] events, and move-path ambush truncation closed
 several smaller gaps. Remaining work:
 
-- [ ] 🟠 **Mid-game replay extractor cmd-order anomaly.** ~90%
-  of 2p replays are saved at turn N (not turn 1). They embed
-  [replay_start] (fresh scenario template) plus [replay] commands
-  from turn 1 onwards, so replaying-from-turn-1 should "just
-  work." But our extractor produces inconsistent cmd streams
-  for some mid-game replays. Concrete case: Hornshark Turn 13
-  (`1643fdc46e00.json.gz`). Raw [replay] cmd[3] is move from
-  WML(25,3) by side 1 at turn 1; our dataset cmd[0] is a move
-  from 0-indexed (8,16) — a hex that didn't even hold a side-1
-  unit at turn 1. The move EXISTS in raw (position scan finds
-  it), just not as the first cmd. Cause unknown — chronological
-  reorder, drop, or insertion happening somewhere in
-  `replay_extract.py`. Worth a focused investigation: pick a
-  small mid-game replay, run extractor with verbose tracing,
-  diff against raw [replay] children list.
+- [x] 🟠 **Mid-game replay extractor anomaly: FIXED 2026-05-03
+  in TWO stages.** The bug had two distinct flavors of the same
+  underlying issue (mishandling Wesnoth's save file format).
+
+  **Stage 1: cmd-order anomaly via wrong [replay] block selection.**
+  Continuation saves (Wesnoth save file taken AT turn N, not
+  from-scratch replays) carry TWO top-level `[replay]` blocks.
+  The first is the from-turn-1 command stream (cmd[0]=[start],
+  cmd[1]=[init_side side_number=1 ...]); the second is the
+  post-save-point stream (starts directly with [move] mid-turn).
+  The previous `max(replays, key=len)` heuristic in
+  `replay_extract.py` picked only the LARGER of the two — for a
+  Turn-5 save with sizes (62, 67), that's the post-save block.
+  We then ran those Turn-5+ commands against `[replay_start]`
+  (the canonical Turn-1 state with only leaders + scenery), and
+  cmd[0] would src_missing on a hex held by a unit recruited
+  during turns 1-4.
+  
+  Concrete case nailing it down:
+  `2p__Caves_of_the_Basilisk_Turn_5_(120166).bz2`. Two `[replay]`
+  blocks: 62 cmds (turn 1-4 history) + 67 cmds (turn 5 onwards).
+  Old `max()` → second block, cmd[0]=move from (23,7), [replay_start]
+  state had no unit there → src_missing.
+  
+  Fix: concatenate ALL `[replay]` blocks in document order. The
+  empty-shell `(0, N)` case still works (0 contribution); the
+  continuation `(62, 67)` case now produces a 129-cmd from-turn-1
+  trajectory aligned with `[replay_start]`. Applied to
+  `extract_replay` (compact-format path used by training) and
+  `extract_pairs` (debug-format).
+  
+  **Stage 2: save-mid-action duplicate.** After Stage 1
+  concatenation, a NEW failure mode surfaced: `recruit:target_
+  occupied` at low cmd indices (avg cmd[79], 4 cases in
+  competitive whitelist) plus residual cascade. Root cause:
+  when Wesnoth saves DURING a player's turn (after the player
+  issued an RNG-consuming action like recruit-with-traits or
+  attack, but before the synced engine processed the
+  [random_seed] follow-up), the save flushes the unfinished
+  action to the END of [replay][i] WITHOUT its seed. On load,
+  Wesnoth re-emits the same action (or a replacement, if the
+  player undid + re-issued) at the START of [replay][i+1] WITH
+  proper seeds. Naive concatenation thus emits both — the
+  unfinished one (no seed) plus the redo (with seed) — and
+  later commands that target the now-double-occupied hex break.
+
+  Concrete examples:
+    - 2p__Caves_of_the_Basilisk_Turn_16_(7251).bz2:
+      [0] last cmd: [recruit] Fencer (18,5), no seed
+      [1] cmd[0]: [recruit] Fencer (18,5)
+      [1] cmd[1]: [random_seed] for the redo
+    - 2p__Weldyn_Channel_Turn_14_(157907).bz2:
+      [0] last cmd: [recruit] Dwarvish Thunderer (17,4), no seed
+      [1] cmd[1]: [recruit] Dwarvish Fighter (17,4) -- player
+                  undid + re-recruited a different unit type
+
+  Fix: at each block-boundary cmd_idx, after processing the last
+  command of block i, if `last_action_slot` is still set (meaning
+  the trailing recruit/attack didn't get its seed within block i),
+  drop that compact entry. Block i+1 will redo it properly.
+
+  **Stage 3: REVERTED 2026-05-03.** I had removed `diff_replay`'s
+  `gold < cost` recruit pre-check on the (incorrect) theory that
+  Wesnoth's synced engine doesn't gate recruits on gold. User
+  clarified this was wrong: Wesnoth's UI gate
+  (`menu_events.cpp:327`) blocks insufficient-gold recruits at
+  issue time, so a recorded recruit ALWAYS had gold >= cost in
+  Wesnoth's reality. Negative gold only arises from
+  upkeep/income, NOT from recruits. The 21 cases I flagged as
+  "false positives" were actually real gold-tracker drift bugs
+  (1-2g off between our sim and Wesnoth). Revert restores the
+  check as a hard divergence flag. The +12 clean rate I
+  attributed to Stage 3 was illusory; those 12 replays still
+  have the same underlying gold-drift bug, the check is just
+  visible again.
+
+  **Stage 2 heuristic tightened (2026-05-03 audit).** The first
+  iteration of the trailer-drop unconditionally dropped any
+  recruit/attack at end of block i with no `[random_seed]` in
+  block i. That was unsafe for musthave-only-trait recruits
+  (75 default-era unit types: all undead, mechanical, elemental
+  -- Ghoul, Skeleton, Walking Corpse, etc.) which legitimately
+  COMPLETE without emitting a seed.
+  Audit (`tools/verify_trailer_drop.py`) on a 500-replay sample
+  found 0 false drops in practice (the 3 dropper-fires were all
+  unfinished attacks), but the risk class was real. Tightened:
+  ATTACKS still drop unconditionally (always emit seed when
+  complete); RECRUITS only drop if the next block's first
+  player action redoes the same recruit (same type+coords or
+  same hex with different type = undo+different-recruit).
+  Verified again on the same 500-sample: still 0 false drops,
+  same 3 legitimate attack drops.
+
+  **Stage 5: plague reanimation on counter-attack kill (NEW
+  2026-05-03).** Built `tools/diff_unit_counter.py` which
+  parses `[checkup] [result] next_unit_id` per command and
+  compares against our sim's monotonic counter (instrumented
+  in replay_dataset / scenario_events). Sweep across 347
+  failing competitive-2p replays surfaced 40 cases of
+  delta=-1 (sim missed a unit creation Wesnoth made) plus 1
+  case of delta=-2.
+  Concrete repro: `2p__Sablestone_Delta_Turn_16_(121180).bz2`
+  cmd[220] -- Heavy Infantryman (HP=6) attacks Walking Corpse
+  (HP=4, plague-impact); WC counter-strikes kill the
+  Infantryman; Wesnoth spawns a side-2 Walking Corpse at the
+  attacker's hex (15,12). Our sim was leaving the hex empty.
+  Root cause: `combat.py`'s plague-spawn flag only set when
+  defender died (a_stats.plague check), never when attacker
+  died from defender's plague counter. `replay_dataset.py`'s
+  attacker-died branch (`gs.map.units.discard(att)`) had no
+  plague-spawn handling at all.
+  Fix: added `plague_spawned_attacker_died` field to
+  CombatResult; combat.py sets it when attacker dies AND
+  defender has plague special; replay_dataset.py spawns the
+  WC at att's hex on dfd's side via the existing
+  `_spawn_plague_corpse` helper. The helper already enforces
+  plague eligibility (not unplagueable, not on village), so
+  the same restrictions apply as the offensive direction.
+  Feeding ability is already symmetric in our sim
+  (att_feed_bump and dfd_feed_bump both at
+  replay_dataset.py:1530-1534) -- no fix needed there.
+  Verified on the Sablestone case: unit-counter divergence
+  resolved (sim now matches Wesnoth post-cmd[220]).
+
+  **Stage 3 REVERTED (per user correction 2026-05-03).** I had
+  removed `diff_replay`'s `gold < cost` recruit pre-check on
+  the (incorrect) theory that Wesnoth's synced engine doesn't
+  gate recruits on gold. User clarified: Wesnoth's UI gate
+  (`menu_events.cpp:327`) blocks insufficient-gold recruits at
+  issue time, so a recorded recruit ALWAYS had gold >= cost in
+  Wesnoth's reality. Negative gold only arises from
+  upkeep/income, NOT from recruits. The 21 cases I'd flagged
+  as "false positives" were real gold-tracker drift bugs (1-2g
+  off between our sim and Wesnoth). Reverted; check restored
+  as a hard divergence flag.
+
+  **Stage 4: level-0 trait HP off-by-one (NEW 2026-05-03).**
+  After Stages 1-3 the residual was dominated by combat-state
+  drift. Built `tools/diff_move_final_hex.py` (parses the older
+  `[checkup] [result] final_hex_x/y` data that 99.5% of replays
+  carry — gives Wesnoth's authoritative move endpoint per
+  command). On the first concrete failing case
+  (`2p__Caves_of_the_Basilisk_Turn_12_(20917).bz2`), traced
+  to a move that wouldn't fit because a unit our sim hadn't
+  killed was still in the destination hex. Sim said the unit
+  had 1 HP after the attack; Wesnoth said dead. Combat math
+  is bit-exact, so the divergence had to be in starting HP.
+
+  Root cause: `tools/traits.py:386` had
+  `max_hp += eff.hp_per_level * max(1, level)`. Wesnoth's
+  resilient and healthy traits use `[effect] times=per level
+  increase_total=1` which multiplies by RAW level (level 0 →
+  +0). Our `max(1, level)` was giving level-0 units (Vampire
+  Bat, Walking Corpse, Mudcrawler, Skeleton Footprint, etc.)
+  an extra +1 HP from those traits. A level-0 Vampire Bat
+  with feral+resilient should be 16+4=20 HP; we were giving
+  21 HP. That extra 1 HP was the difference between dying
+  and surviving the kind of 4×5=20-damage attacks that hit
+  bats often. Fix: drop the `max(1, ...)`. Verified vs
+  `wesnoth_src/data/core/macros/traits.cfg` TRAIT_RESILIENT
+  / TRAIT_HEALTHY.
+
+  Verification (competitive-2p subset of 23-map Ladder Era
+  whitelist, ~4,863 replays):
+
+  | Metric              | Pre-fix | S1      | S1+2    | S1-3    | All 4   |
+  |---------------------|--------:|--------:|--------:|--------:|--------:|
+  | Clean rate          | 89.98%  | 91.34%  | 91.80%  | 92.04%  |**92.86%**|
+  | first_cmd_anomaly   |     88  |      0  |      0  |      0  |      0  |
+  | near_start_anomaly  |     20  |      0  |      0  |      0  |      0  |
+  | mid_replay_src_miss |    108  |    116  |    115  |    116  |    108  |
+  | other               |    271  |    305  |    284  |    271  |    239  |
+
+  Net: +141 fully-clean training trajectories per pass
+  (+2.88pp in clean rate). The fixes also recovered ~1,200
+  extractable replays vs the stale pre-fix dataset (15,067
+  vs 13,866 .json.gz).
+
+  **Stage 6: drain heals from undrainable targets (NEW
+  2026-05-03, found via user GUI playback).** User loaded
+  2p__Caves_of_the_Basilisk_Turn_11_(93641).bz2 in Wesnoth's
+  replay viewer and reported Ghost u35's actual per-turn HP.
+  Their trace had the Ghost at 7 HP entering its final combat
+  (so a Skeleton's 12-max-damage WOULD kill it). Our sim had
+  the Ghost at 18 HP -- healed to full by drain attacks against
+  undead targets that should NOT heal.
+  Bug: `combat.py:_perform_hit` checked only
+  `striker_stats.drains and damage_done > 0` — never gated on
+  the target being drainable. Wesnoth's
+  `wesnoth_src/data/core/macros/traits.cfg` (verified by grep)
+  has exactly 3 musthave traits adding `undrainable`:
+  TRAIT_UNDEAD, TRAIT_MECHANICAL, TRAIT_ELEMENTAL — each via
+  `[effect] apply_to=status add=undrainable`. Wesnoth's
+  `attack.cpp` checks `opp.get_state("undrainable")` before
+  healing.
+  Fix: added `is_undrainable` field to `combat.CombatUnit`,
+  populated in `tools/replay_dataset.py:_to_combat_unit` from
+  the unit's statuses + `_UNPLAGUEABLE_TRAITS` set (same trait
+  set applies to drain/poison/plague — Wesnoth's three
+  musthaves add all three statuses together). Drain heal now
+  skipped when `target.is_undrainable`. Verified: post-fix,
+  Ghost u35's HP trajectory in our sim matches user's Wesnoth
+  observation exactly (18 → 10 → 7).
+  Note: feeding ability uses the same eligibility filter
+  (already in place in our sim).
+
+  **Stage 7: poison applied to unpoisonable targets (NEW
+  2026-05-03).** After Stage 6 the Basilisk Ghoul case still
+  failed at a different cmd. Tracing u39 Ghoul's HP history
+  showed it taking 8 HP/init_side from the `poisoned` status
+  starting at cmd[155] — but Ghouls are undead (unpoisonable)
+  and Wesnoth's reality didn't poison them. Bug: `combat.py`'s
+  poison-application at line 747 (`if striker_stats.poisons
+  and not target.is_poisoned: target.is_poisoned = True`)
+  never checked the target's `unpoisonable` status. Wesnoth's
+  `attack.cpp:1057` gates poison via
+  `opp.get_state("unpoisonable")`. The trait macros for
+  TRAIT_UNDEAD / TRAIT_MECHANICAL / TRAIT_ELEMENTAL all add
+  `unpoisonable` (verified via grep in
+  `wesnoth_src/data/core/macros/traits.cfg` — exactly 3 traits
+  in 1.18.4, same set as undrainable / unplagueable). Fix:
+  added `is_unpoisonable` field to `combat.CombatUnit`,
+  populated in `_to_combat_unit` from the unit's statuses +
+  `_UNPLAGUEABLE_TRAITS` set, and gated the poison-status
+  apply at combat.py:747 on `not target.is_unpoisonable`.
+  Sub-corpus result: 86/88 → 87/88 (+1 clean replay).
+
+  **Stage 8: scraper attack-specials name collision (NEW
+  2026-05-03, devious!).** With Stages 1-7 in place, the
+  500-replay sub-corpus was at 87/88 (one residual on
+  2p__Cynsaun_Battlefield_Turn_33_(94735).bz2). User loaded
+  the replay in Wesnoth GUI and reported the actual damage
+  trace: Drake Arbiter dealt 24 dmg in cmd[1105] (= 2 hits),
+  but our sim only got 1 hit. With the same RNG seed and
+  CTH=60% on both sides, the only way the sequence diverges
+  is if the strike ORDER differs.
+  Tracing: Wesnoth's Drake Arbiter has two `[attack]` blocks
+  both named `halberd` -- a blade one (no firststrike) and
+  a pierce one (with firststrike). Our scraper's
+  `_scan_attack_special_macros` matched attacks by `name=`
+  only, so the pierce halberd's firststrike macro leaked
+  into the blade halberd's specials list. At cmd[1105]:
+    - Wesnoth: only defender (Spearman) has firststrike on
+      its melee weapon -> Spearman strikes first, Drake
+      strikes 2nd-and-4th-and-6th (rolls 5, 35, 92 with
+      seed 7d3e8dc8) -> 2 hits.
+    - Our sim: BOTH have firststrike (buggy LUT) -> attacker
+      first per Wesnoth's rule, Drake strikes 1st-3rd-5th
+      (rolls 72, 24, 82) -> 1 hit.
+  Same RNG sequence, different strike order, different
+  hits.
+  Fix: rewrote the macro scanner as
+  `_scan_attack_special_macros_by_index`, walking `[attack]`
+  blocks in source order and returning one specials list per
+  block, indexed positionally instead of by name. The old
+  `_scan_attack_special_macros` is preserved for any external
+  callers but no longer used by `extract_attacks`.
+  Re-scrape `unit_stats.json`. Sub-corpus result: 87/88 →
+  **88/88 = 100% clean**.
+
+  **Stage 9: leadership bonus formula wrong (NEW 2026-05-03,
+  found via user GUI trace).** Leadership formula was
+  `25 * (leader.level - opponent.level)`, doubling the bonus.
+  Should be `25 * (leader.level - buffed_unit.level)`. The
+  Wesnoth macro string `value="(25 * (level - other.level))"`
+  is ambiguous, but the English description on the same macro
+  is explicit: "All adjacent lower-level units from the same
+  side deal 25% more damage for each difference in level."
+  The "difference in level" is between the LEADER and the
+  BUFFED UNIT — the opponent's level is irrelevant.
+  Concrete repro:
+  2p__Hornshark_Island_Turn_12_(112807).bz2 cmd[96]: Mage
+  (lvl 1) adjacent to Lieutenant (lvl 2) attacking Vampire
+  Bat (lvl 0). User GUI replay showed Mage's per-strike
+  damage = 7 (= 7 base × 0.75 ToD-night-lawful × 1.25
+  leadership = 6.5625 → 7 round-half-toward-base). Our sim
+  was computing 7 × 0.75 × 1.50 = 7.875 → 8 — wait actually
+  9 (`7 × 1.0 + 25%-50% = 9` after rounding via integer
+  `+50% −25% = +25%` then `7 × 1.25 = 8.75 → 9`). With 3
+  strikes our sim killed the Bat (max 27 dmg vs hp=15) when
+  Wesnoth left it at hp=1 (2 hits × 7 dmg = 14, 15-14=1).
+  The Bat surviving at hp=1 in Wesnoth lets the next-cmd's
+  Bowman attack succeed; in our sim the Bat was already
+  dead, triggering attack:defender_missing. Fix: corrected
+  the formula to `25 * (ally_level - unit_level)`.
+  Verified: Mage's per-strike damage in our sim now 7 (was 9),
+  leadership bonus 25% (was 50%). Full-corpus impact:
+  95.43% → 95.97% (+0.54pp, +26 clean replays).
+
+  **Stage 10: trailer-drop missed undone-recruit-then-end-turn
+  (NEW 2026-05-03).** While investigating
+  2p__Silverhead_Crossing_Turn_31_(127303).bz2 cmd[45]
+  recruit:target_occupied at WML (4,12), found that block 0 of
+  the raw replay ended with: ..., move, move, recruit Elvish
+  Fighter (4,12) NO_SEED, end_turn, init_side. The recruit was
+  issued, undone, then the player ended the turn. Wesnoth's
+  reality has the recruit cancelled (no unit at (4,12)). Our
+  Stage 2 trailer-drop heuristic only fired when the unfinished
+  recruit was the LITERAL LAST entry in compact_commands; here
+  the recruit is followed by end_turn + init_side so my pop
+  didn't fire. The duplicate recruit at (4,12) (block 0 zombie
+  + block 1 redo) blocked the legitimate later recruit.
+  Fix: relaxed the "must be tail" check. Drop the trailer at
+  `compact_commands[last_action_slot]` (NOT the literal tail);
+  for recruits, additionally allow drop when an end_turn /
+  init_side follows the unfinished recruit within the same block
+  (signals an undone-and-ended-turn pattern). Verified: the
+  Silverhead duplicate Elvish Fighter at (3,11) is gone in
+  re-extracted output.
+
+  **Corrupt-gold purge (NEW 2026-05-03).** User identified that
+  some recruit:insufficient_gold cases are caused by player-edited
+  or different-patch replays which Wesnoth itself desyncs on
+  (Hornshark Turn 2 and Den_of_Onis Turn 2 verified). Built
+  `tools/purge_corrupt_gold_replays.py` to move flagged replays to
+  `replays_raw_review_gold/` for human review (NOT auto-delete).
+  Default mode is dry-run. 105 raw replays moved with `--apply`
+  (18 were competitive-2p).
+
+  **Full-corpus result after Stages 1-11 + corrupt-gold purge**
+  (competitive-2p, 4,845 replays after purge):
+
+  | Metric              | Pre-S1 | After S5 | After S8 | After S10 | **All 11** |
+  |---------------------|------------:|---------:|---------:|----------:|---------:|
+  | Clean rate          |     89.98%  |  92.93%  |  95.43%  |   96.22%  | **97.50%**|
+  | first_cmd anomaly   |         88  |       0  |        0 |        0  |        0 |
+  | near_start anomaly  |         20  |       0  |        0 |        0  |        0 |
+  | mid_replay_src_miss |        108  |     115  |       58 |       59  |       38 |
+  | other               |        271  |     239  |      164 |      124  |       83 |
+
+  **Stage 12: trailer-drop for save-mid-recruit when redo isn't
+  block i+1's action #0 (NEW 2026-05-04).** Stage 2's heuristic
+  only checked block i+1's FIRST player action for a same-hex/
+  same-type recruit. But save-mid-recruit can manifest as
+  "block[i] tail recruit (no seed) → block[i+1] starts with a
+  move/move/move, THEN re-recruits at the same hex". The
+  intervening moves were the player relocating units before
+  re-issuing the recruit on load.
+  Concrete repro: 2p__Weldyn_Channel_Turn_14_(157907).bz2.
+  Block[0] tail = recruit Dwarvish Thunderer (16,3) no-seed.
+  Block[1] cmd[0] = move, cmd[1] = recruit Dwarvish Fighter
+  (16,3) (undo+replace at same hex, different type). The first-
+  action sig pointed at the move, conditions (a)/(b) checked
+  only the first action -> trailer kept, src_missing cascade
+  at compact[83].
+  Fix: extend the boundary metadata to include all recruit
+  hexes used in block i+1 BEFORE its first end_turn/init_side
+  (= recruits the same player issues during the resumed turn).
+  Add condition (d): trailer hex matches any of those = drop.
+  Cutoff matters -- without it, the heuristic dropped legitimate
+  musthave-only-race recruit completions (no seed needed for
+  Ghoul / Walking Corpse / etc.) when later turns happened to
+  recruit at the same vacated hex. Concrete near-regression:
+  2p__Aethermaw_Turn_18_(100985).bz2 -- block[0] tail = Ghoul
+  (27,16) legitimately completed (musthave-only); block[1]
+  starts with end_turn, then on later turns recruits Troll
+  Whelp/Ghoul/Ghost at (27,16) after the original Ghoul moved.
+  The end_turn cutoff filters those out.
+
+  **Stage 13: musthave-only-race guard on trailer-drop condition
+  (c) (NEW 2026-05-04, large fix).** Stage 10's condition (c)
+  drops the trailer recruit if it's followed by `end_turn` /
+  `init_side` within block i (= recruit issued, then turn ended,
+  no [random_seed] follow-up = "must have been undone").
+  But musthave-only races (Undead, Mechanical, Elemental — 75
+  default-era unit types: Skeleton Archer, Ghoul, Walking Corpse,
+  Vampire Bat, Dark Adept, etc.) NEVER emit a [random_seed] for
+  recruits, regardless of completion. So a legitimately-completed
+  Skeleton Archer recruit at end-of-turn looks identical to an
+  undone one and got falsely dropped.
+  Concrete: 2p__Caves_of_the_Basilisk_Turn_17_(10379).bz2.
+  Side 2's turn 1 recruits FOUR Undead at the end of block[0]:
+  Ghoul, Skeleton Archer x3. The first three survived because
+  `last_action_slot` got overwritten by each successive recruit.
+  The FOURTH (Skeleton Archer at (24,20)) was the trailing slot
+  at the boundary; condition (c) saw end_turn after it and
+  dropped it. Then cmd[27]'s side-2 move from (23,19) found no
+  unit -> src_missing, breaking the entire replay.
+  Affects every Undead-side-2 (or Mechanical/Elemental) replay
+  where the player ended their turn with a recruit as the last
+  RNG-tracked action -- the most common pattern in Caves of the
+  Basilisk and other Undead-popular maps.
+  Fix: gate condition (c) on `_recruit_consumes_rng(trailer_type)`.
+  For musthave-only types, no-seed is normal -> don't drop.
+
+  **Final full-corpus result after Stages 1-13** (competitive-2p,
+  4,843 replays after one more OOS-corrupt purge):
+
+  | Metric              | After S10 | After S11 | After S12 | **All 13** |
+  |---------------------|----------:|----------:|----------:|---------:|
+  | Clean rate          |    96.22% |    97.50% |    97.46% | **97.71%**|
+  | mid_replay_src_miss |        59 |        38 |        39 |       30 |
+  | other               |       124 |        83 |        84 |       81 |
+
+  Stage 13 net: +11 replays clean (4721 -> 4732). The dropped
+  fix space is mostly Caves-of-the-Basilisk-style cases where
+  undead recruits got false-dropped at block boundaries.
+
+  **Stage 14: defense-cap signs stripped at scrape time (NEW
+  2026-05-04, devastating).** Wesnoth's `[defense]` blocks use
+  NEGATIVE values to indicate CAPS (floors on to-be-hit, =
+  ceilings on defense). E.g. `mounted` movetype has
+  `forest=-70` meaning "Horseman has at MOST 30% defense on any
+  forest-aliased terrain". The cap matters for composite hexes
+  (`Gg^Fet`, `Gg^Fp`, etc.) where naive min-over-aliases would
+  pick the better-of-base-and-overlay (60 flat vs |70| forest)
+  and bypass the forest cap entirely.
+  `tools/scrape_unit_stats.py` was applying `abs(int(v))` at
+  the movetype layer (line 531) AND at the unit-variation layer
+  (line 863), stripping the negative sign and losing the cap.
+  Variants: terrain_resolver had `_collect_neg_caps` logic to
+  handle preserved caps, but the caps weren't preserved at
+  scrape time. Affected EVERY unit with a movetype-level cap
+  (mounted forest, fly fungus, etc.) on any composite terrain
+  in the corpus.
+  Concrete repro: 2p__Weldyn_Channel_Turn_23_(40663).bz2 cmd[66]
+  Horseman vs Ghost on Gg^Fet. Without cap: 60% to-be-hit ->
+  Ghost CTH 60 -> all retaliations miss in our sim. With cap:
+  70% to-be-hit -> Ghost CTH 70 -> Ghost's 3rd strike (roll 63)
+  hits, drains 3 HP, Ghost survives at 11 HP (matches user's
+  GUI trace). Without the fix, our sim killed Ghost ~3 turns
+  early and broke the entire downstream replay.
+  Fix: preserve negative-cap signs in scrape_unit_stats at
+  both the movetype-level and unit-variation-level. Re-scrape
+  unit_stats.json. Combat reads at runtime, no re-extraction
+  needed.
+
+  **Final full-corpus result after Stages 1-14** (competitive-2p,
+  4,843 replays):
+
+  | Metric              | After S11 | After S13 | **All 14** |
+  |---------------------|----------:|----------:|---------:|
+  | Clean rate          |    97.50% |    97.71% | **98.39%**|
+  | mid_replay_src_miss |        38 |        30 |       20 |
+  | other               |        83 |        81 |       58 |
+
+  Stage 14 net: +33 replays clean (4732 -> 4765). The largest
+  single-stage improvement of the session, second only to the
+  Stage 1+2 trailer-drop work.
+
+  Total session improvement: **+8.41pp clean rate** (89.98% ->
+  98.39%), ~410 additional clean training trajectories. Plus
+  105 corrupt-gold replays + 2 OOS-corrupt replays + 1 non-vanilla-
+  RNG replay quarantined for review.
+
+  **Stage 16: scraper variation movement_costs override (NEW
+  2026-05-04).** `tools/scrape_unit_stats.py:extract_variations`
+  was applying `[defense]` and `[resistance]` overrides for
+  unit variations but missed `[movement_costs]`. The most
+  consequential miss is the Walking Corpse:bat variation, which
+  overrides cave/fungus/deep_water from the base `fly` movetype
+  (3/3/1) to (1/1/1). Without the override, our sim treated
+  bat-corpses on mushroom groves as cost-3 entries, rejecting
+  legitimate moves through Hornshark Island's central mushroom
+  patches as `mp_insufficient`.
+  Concrete repro: 2p__Hornshark_Island_Turn_7_(135535) cmd[188]
+  -- Walking Corpse:bat path from (24,18) through Tb^Tf
+  (mushroom grove) to (25,13). Pre-fix path cost 7 > moves 5.
+  Post-fix path cost 5 = moves 5, valid.
+  Fix: scrape `[movement_costs]` from variation children, layer
+  on top of the variation's chosen movetype defaults.
+
+  **Final full-corpus result after Stages 1-16** (competitive-2p,
+  4,843 replays):
+
+  | Metric              | After S14 | **All 16** |
+  |---------------------|----------:|---------:|
+  | Clean rate          |    98.39% | **98.41%**|
+  | mid_replay_src_miss |        20 |       21 |
+  | other               |        58 |       56 |
+
+  Stage 16 net: +1 replay clean. Modest but real fidelity fix
+  affecting any future Walking Corpse:bat / Soulless:bat /
+  similar variation corpse-bat encounter on cave / fungus
+  hexes. (Stage 15 [+time] still deferred.)
+
+  Total session improvement: **+8.43pp clean rate** (89.98% ->
+  98.41%), ~411 additional clean training trajectories.
+
+  **Stage 17: WML `[+tag]` semantics in parser (NEW 2026-05-04).**
+  Wesnoth's `[+tag]` WML form has CONTEXT-DEPENDENT semantics:
+  - For sequence-children (`[+time]` inside `[time_area]`): APPEND
+    a new entry to the cycle. Tombs of Kesorak's illuminated area
+    has 6 macro-expanded `[time]` blocks plus 4 `[+time]` overrides,
+    forming a 10-entry cycle. On illuminated hexes, turns 6-9 stay
+    at `lawful_bonus=25` (DAY) while the rest of the map cycles
+    through Second Watch / First Watch.
+  - For singleton-children (`[+unit]` inside `[side]`): MERGE
+    attrs+children into the latest preceding sibling of the same
+    tag. Caves of the Basilisk's `{UNIT_PETRIFY ... } [+unit]
+    description=... [/unit]` adds the inscription text to the
+    just-placed petrified statue rather than spawning a phantom.
+
+  Implementation: `parse_wml` now recognizes `[+tag]` separately
+  and tags the resulting `WMLNode` with `_is_plus_form=True`. A
+  post-parse pass (`_resolve_plus_forms`) walks each node's
+  children and applies APPEND for tags in `_PLUS_APPEND_TAGS`
+  ({"time"}) and MERGE otherwise.
+
+  Verified: Tombs of Kesorak time_area now parses 10 entries
+  (was 6 before); Caves of the Basilisk has 15 [unit] children
+  in side 3 (was 30 with naive append); Sullas Ruins 5 [unit]
+  children. Both originally-targeted Tombs cmd[184] cases
+  (0c7c71f64449, 3403628eaedc) now clean.
+
+  Trade-off: 4 different Tombs replays became non-clean as the
+  fidelity-correct ToD shift exposed deeper bugs that were
+  previously masked. Net: 4766 -> 4764 clean (-2). The fix is
+  fidelity-correct -- the new residuals are real bugs we'll
+  surface and fix in a follow-up pass.
+
+  **Stage 18: save-mid-move duplicate trailer-drop (NEW
+  2026-05-04).** Analog of Stage 12 but for moves instead of
+  recruits. When Wesnoth saves IMMEDIATELY after a move
+  completes, the move's [checkup] result IS recorded in
+  block[i] (move was committed). On load, the engine still
+  re-emits the SAME move at block[i+1]'s start with another
+  completed [checkup]. Concatenating both made our sim try to
+  move the same unit twice -- the second attempt fails
+  src_missing because the unit is already at the destination.
+  Concrete: 2p__The_Freelands_Turn_18_(170491).bz2 -- block[0]
+  tail = move (12,15)->(14,18), checkup with result; block[1]
+  cmd[0] = same move, checkup with result. Compact[187] and
+  compact[188] were both the same move; cmd[188] failed.
+  Fix: track `last_move_slot` in addition to `last_action_slot`
+  during compact emission. At each block boundary, if the
+  trailer move's path matches block[i+1]'s first action sig,
+  drop the trailer.
+
+  **Final full-corpus result after Stages 1-18** (competitive-2p,
+  4,841 replays after re-extraction):
+
+  | Metric              | After S16 | After S17 | **All 18** |
+  |---------------------|----------:|----------:|---------:|
+  | Clean rate          |    98.41% |    98.37% | **98.39%**|
+  | mid_replay_src_miss |        21 |        21 |       18 |
+  | other               |        56 |        58 |       60 |
+
+  Stages 17+18 net effect on the *headline* number is roughly
+  flat (small Tombs/Hornshark trade-offs balance out), but the
+  underlying simulator is now genuinely correct for [+time]
+  illuminated zones AND save-mid-move duplicates -- two real
+  Wesnoth WML/replay quirks we were silently tolerating before.
+
+  **Stage 19: scenario `[object]` handler + combat weapon-specials
+  union (NEW 2026-05-04).** Two-part fix surfaced by Hornshark
+  Island Turn 11 (140989):
+  (a) Hornshark's `MODIFY_BOWMAN` macro emits a top-level
+  `[object]` inside a prestart event that grants `firststrike`
+  to the bow attack of the side-1 Bowman at (0,0) and side-2
+  Bowman at (27,23). We weren't dispatching `[object]` actions.
+  Added `_object_action` to scenario_events that walks
+  [filter]/[effect]/[set_specials] and merges new weapon
+  specials onto the targeted unit's matching attack.
+  (b) `tools/replay_dataset.py:_to_combat_unit` was reading
+  weapon specials from BASE unit-stats only, losing any
+  scenario-applied modifications. Fixed to union base specials
+  with the unit's per-attack `weapon_specials`.
+  Without this, Hornshark Bowman fired without firststrike,
+  alternating combat order rolled 2 of 3 retaliation strikes
+  hitting Elvish Archer at cmd[73] (rolls 25, 28 < CTH 30) for
+  12 dmg. With firststrike, defender-first reorders RNG: only
+  1 of (rolls 42, 12, 93) hits at CTH 30 → 6 dmg, matching
+  user's GUI trace.
+
+  **Final full-corpus result after Stages 1-19** (competitive-2p,
+  4,841 replays):
+
+  | Metric              | After S18 | **All 19** |
+  |---------------------|----------:|---------:|
+  | Clean rate          |    98.39% | **98.49%**|
+  | mid_replay_src_miss |        18 |       19 |
+  | other               |        60 |       54 |
+
+  Stage 19 net: +5 replays clean. Mostly Hornshark Island
+  cases where a Bowman retaliation dictates downstream
+  combat outcomes.
+
+  Total session improvement: **+8.51pp clean rate** (89.98% ->
+  98.49%), ~417 additional clean training trajectories.
+
+  **Stage 20: full `[effect]` apply_to vocabulary + custom-trait
+  effect dispatch (NEW 2026-05-04).** Extended Stage 19's
+  `_object_action` to handle every `apply_to` form used in 2p
+  ladder scenarios via a shared `_apply_effect_to_unit` helper:
+    - `apply_to=attack` with `increase_attacks=N`,
+      `increase_damage=N`, `[set_specials]`, `range=` filter;
+      mirrors Wesnoth's `apply_modifier` for percent-or-int
+      increase strings.
+    - `apply_to=new_attack` (Silverhead Crossing's "evil eye"
+      ranged arcane on side-3 boss).
+    - `apply_to=remove_attacks` (Thousand Stings statues).
+    - `apply_to=hitpoints` `increase_total=` / `set=` /
+      `heal_full=yes`.
+    - `apply_to=movement` `set=` / `increase=`.
+    - `apply_to=status add=`/`remove=`.
+    - Cosmetic forms (ellipse, image_mod, overlay, profile,
+      new_animation, halo, zoc) silently no-op.
+  `_unit_action` also walks `[modifications]/[trait]/[effect]`
+  for CUSTOM traits (id NOT in our named TRAITS registry --
+  loyal/quick/resilient/strong/intelligent are already
+  fully handled by `apply_traits_to_unit`; double-applying
+  their [effect]s would stack +HP / +movement bonuses). The
+  guard caught a regression where Hornshark Sergeants and
+  Drake Fighters lost 1 movement to double-applied resilient.
+  Custom traits like Caves of the Basilisk's `id=remove_hp`
+  (drops max_hp -100% to make statues 1 HP) are now applied.
+  And `[status] petrified=yes` on placed units routes to the
+  petrified status flag, with movement/attacks zeroed (so
+  scenario-event-spawned statues, if any, behave like
+  [replay_start]-extracted ones).
+
+  **Final full-corpus result after Stages 1-20** (competitive-2p,
+  4,841 replays):
+
+  | Metric              | After S19 | **All 20** |
+  |---------------------|----------:|---------:|
+  | Clean rate          |    98.49% | **98.53%**|
+  | mid_replay_src_miss |        19 |       20 |
+  | other               |        54 |       51 |
+
+  Stage 20 net: +2 replays clean. The headline gain is small
+  because the affected scenarios (Basilisk/Sullas/Thousand
+  Stings statues; Silverhead evil-eye boss) place their
+  modified units via `[replay_start]` -- already extracted
+  with the final stats baked in -- so the effects are mostly
+  redundant. The new dispatch matters for replays where
+  scenario events SPAWN modified units mid-game (Hornshark's
+  faction-specific heroes via `[switch] -> [unit]` are the
+  current canonical example, but they only use named traits).
+
+  Total session improvement: **+8.55pp clean rate** (89.98% ->
+  98.53%), ~419 additional clean training trajectories.
+
+  **Stage 21: scenario_events level-0 trait HP fix (NEW
+  2026-05-04).** `_unit_action` was passing
+  `level=int(stats.get("level", 1) or 1)` to
+  `apply_traits_to_unit`. For level-0 units (Walking Corpse,
+  Vampire Bat, Mudcrawler, statue side-3 units), the inner
+  `stats.get("level", 1)` correctly returns 0 -- but `0 or 1`
+  evaluates to 1 because 0 is falsy in Python. So our trait
+  application thought the unit was level-1 and applied
+  resilient's `hp_per_level=1` extra HP, giving level-0
+  Walking Corpses 22 HP instead of 21.
+  Defeats Stage 4's earlier fix on the same axis (which was
+  for the recruit path; this is the scenario-event placement
+  path, separate code).
+  Concrete: 2p_Hornshark_Island.cfg places Walking
+  Corpse:saurian (uu8) with TRAIT_STRONG + TRAIT_RESILIENT.
+  Base hp 16 + 4 (resilient) + 1*level (with bug, +1; correct,
+  0) + 1 (strong) = 22 (buggy) or 21 (correct). Young Ogre
+  (uu3) with strong trait deals 6*1.10 = 7 dmg per hit; max
+  3 hits = 21 dmg. With buggy 22 HP, uu8 always survives at
+  1 HP and blocks subsequent moves to (21,13). With correct
+  21 HP, 3 hits kill uu8 outright -- matching Wesnoth.
+  Fix: separate the int conversion from the falsy-check.
+
+  **Final full-corpus result after Stages 1-21** (competitive-2p,
+  4,841 replays):
+
+  | Metric              | After S20 | **All 21** |
+  |---------------------|----------:|---------:|
+  | Clean rate          |    98.53% | **98.57%**|
+  | mid_replay_src_miss |        20 |       19 |
+  | other               |        51 |       50 |
+
+  Stage 21 net: +2 replays clean (Hornshark Walking Corpse
+  saurian survival cases). The fix is fidelity-correct and
+  matches Wesnoth's level-0-no-per-level-bonus rule.
+
+  Total session improvement: **+8.59pp clean rate** (89.98% ->
+  98.57%), ~421 additional clean training trajectories. Plus
+  108 corrupt/OOS/non-vanilla-RNG replays quarantined for
+  human review.
+
+  **Stage 22: leadership level-0 falsy-coercion bug (NEW
+  2026-05-04).** Same Python falsy-coercion antipattern as
+  Stage 21 but in `tools/abilities.py:leadership_bonus`:
+  `int(_stats_for(unit.name).get("level", 1) or 1)` coerced
+  level-0 units to level-1, undercounting the leadership
+  bonus for level-0 buffed units.
+  Wesnoth's leadership formula:
+    bonus = 25 * (leader.level - buffed_unit.level)
+  For a Lieutenant (level 2) adjacent to a Woodsman (level 0),
+  the bonus is 25 * (2 - 0) = +50%. Our bug computed
+  25 * (2 - 1) = +25%, halving the boost.
+  Concrete: 2p_Hornshark_Island Turn 11 (113429) cmd[147] --
+  side-1 Lieutenant (uu1) is adjacent to Woodsman (uu7); when
+  uu7 retaliates against uu19 Thief's attack, leadership
+  should boost retaliation damage by +50% (4 base * 1.50 *
+  pierce_resist = 6 dmg/hit), but our buggy +25% gave 5/hit.
+  uu19 ended at hp 1 in our sim instead of dying outright,
+  blocking subsequent side-1 moves to (4,11).
+  Fix: replace `or 1` with a try/except float-to-int that
+  preserves 0.
+
+  **Final full-corpus result after Stages 1-22** (competitive-2p,
+  4,841 replays):
+
+  | Metric              | After S21 | **All 22** |
+  |---------------------|----------:|---------:|
+  | Clean rate          |    98.57% | **98.78%**|
+  | mid_replay_src_miss |        19 |       15 |
+  | other               |        50 |       44 |
+
+  Stage 22 net: **+10 replays clean** (4772 -> 4782). Mostly
+  Hornshark cases where level-0 hero retaliations were
+  under-buffed by leadership.
+
+  Total session improvement: **+8.80pp clean rate** (89.98% ->
+  98.78%), ~431 additional clean training trajectories.
+
+  **Stage 23: revert [+time] APPEND to MERGE — match Wesnoth's
+  actual `[+element]` semantics (NEW 2026-05-04).** Stage 17
+  defaulted [+time] to APPEND in `_PLUS_APPEND_TAGS = {"time"}`.
+  But re-reading Wesnoth source `parser.cpp:217-242`, `[+element]`
+  unconditionally re-opens the LAST same-named element in the
+  parent for field/child merging -- it does NOT append a new
+  element. Tombs of Kesorak's illuminated `[time_area]` is thus
+  a 6-entry cycle (not 10), with each `[+time]` overriding the
+  preceding macro-expanded `[time]`'s image+lawful_bonus.
+  Concrete: Tombs Turn 16 (32287) cmd[136] -- side-2 Mage on
+  illuminated WML(22,23) at turn 7. With MERGE 6-cycle: idx 0 =
+  bright_dawn lawful=25, Mage 7 base * 1.25 = 9 dmg/hit -> uu13
+  Spearman dies in cmd[136], reducing side-1 upkeep by 1 at
+  the next init_side, and the cmd[154] Spearman recruit (cost
+  14) succeeds with 14g (vs 13g in our pre-fix sim).
+  Trade-off: +4 (Tombs gold drift cases) -2 (Tombs Turn 22
+  cmd[184] cases that benefited from APPEND's stretched cycle).
+  Net: +2 clean replays.
+
+  **Final full-corpus result after Stages 1-23** (competitive-2p,
+  4,841 replays):
+
+  | Metric              | After S22 | **All 23** |
+  |---------------------|----------:|---------:|
+  | Clean rate          |    98.78% | **98.82%**|
+  | mid_replay_src_miss |        15 |       15 |
+  | other               |        44 |       42 |
+
+  Total session improvement: **+8.84pp clean rate** (89.98% ->
+  98.82%), ~433 additional clean training trajectories.
+
+  **Stage 24: scenario_events `_unit_action` honors
+  experience_modifier (NEW 2026-05-04, MAJOR).** For
+  scenario-event-placed heroes, `_unit_action` was calling
+  `_build_unit(udict, apply_leader_traits=False)` without
+  passing exp_modifier, so max_exp defaulted to base. Wesnoth
+  applies the scenario's `experience_modifier` (typically 70
+  for ladder) to ALL units' xp-to-advance, so a Skeleton's
+  base xp=39 becomes 27. Without the fix, Hornshark's Sorrek
+  hero stayed Skeleton (max_exp=39, never reached) when
+  Wesnoth had it advance to Deathblade at xp=27. Deathblade's
+  +1 movement (6 vs 5) made downstream multi-hex moves valid
+  in Wesnoth that we rejected as `mp_insufficient`.
+  Concrete repro: 2p_Hornshark_Island_Turn_12_(103721)
+  cmd[311] -- Sorrek 6-cost path move. In Wesnoth: Deathblade
+  (6 MP), fits. In our sim: Skeleton (5 MP), `path cost=6 >
+  current_moves=5`.
+  Fix: read `gs.global_info._experience_modifier` and forward
+  to `_build_unit`.
+
+  **Final full-corpus result after Stages 1-24** (competitive-2p,
+  4,841 replays):
+
+  | Metric              | After S23 | **All 24** |
+  |---------------------|----------:|---------:|
+  | Clean rate          |    98.82% | **99.13%**|
+  | mid_replay_src_miss |        15 |       11 |
+  | other               |        42 |       31 |
+
+  Stage 24 net: **+17 replays clean** in a single one-line fix.
+  Mostly Hornshark Island heroes that should have advanced.
+
+  Total session improvement: **+9.15pp clean rate** (89.98% ->
+  99.13%), ~450 additional clean training trajectories.
+
+  **Remaining residuals (~59 cases at 98.82%):** All are deep
+  combat-state cascades where one earlier combat had the wrong
+  outcome and propagated forward (e.g. uu19 Thief at hp 1 vs hp
+  0 → blocks a downstream move; uu28 not advancing because of
+  a missed kill XP; Skeleton mp_insufficient with cost==max+1).
+  These are not addressable by systemic fixes — each requires
+  a per-replay GUI trace from the user to identify the exact
+  diverging combat. The tool support (`dump_unit_states.py`,
+  `diff_unit_counter.py`, `diff_move_final_hex.py`) is in
+  place; the path forward is human-in-the-loop per-residual
+  triage.
+
+  Per-scenario breakdown:
+  - Hornshark Island: 22 (mostly hero combat cascades)
+  - Ruphus Isle: 15 (mostly OOS-corrupt at cmd[84] hex (8,14);
+    1 already confirmed/purged)
+  - Other 11 scenarios: 16 single-replay cascades.
+
+  Per-kind breakdown:
+  - attack:defender_missing: 23
+  - move:final_occupied: 14
+  - move:src_missing: 10
+  - attack:attacker_missing: 4
+  - attack:friendly_fire: 3
+  - move:mp_insufficient: 2 (potential pathfinder edge case)
+  - recruit:insufficient_gold: 2 (gold drift cascades)
+  - attack:weapon_oob: 1 (advancement-XP cascade — unit didn't
+    advance to Sorceress in our sim)
+
+  **Stage 11: advancement should clear poisoned/slowed/petrified/
+  stunned (NEW 2026-05-04, found via user GUI trace).** Wesnoth's
+  `actions/advancement.cpp:319-326` (`get_advanced_unit`) calls
+  `heal_fully()` then explicitly:
+    new_unit->set_state(unit::STATE_POISONED, false);
+    new_unit->set_state(unit::STATE_SLOWED, false);
+    new_unit->set_state(unit::STATE_PETRIFIED, false);
+  Our `tools/replay_dataset.py:_maybe_advance_unit` was building
+  the advanced unit with `_replace_unit(...)` and NOT passing a
+  fresh `statuses=...` set, so the old unit's statuses persisted
+  across advancement. Concrete repro:
+  2p__Ruphus_Isle_Turn_18_(213496).bz2 -- a Gryphon Rider was
+  poisoned by a Ghoul on turn 9, kept the poison status when
+  advancing to Gryphon Master mid-fight at cmd[275], and then
+  took -8 HP/turn from poison-tick across multiple init_sides,
+  dropping the Master's HP from full 48 to ~12 by turn 16. In
+  the broken state, the Master's hp was so low that the Ghoul's
+  counter-attack at cmd[353] killed it (+16 kill XP), advancing
+  the Ghoul to Necrophage; Wesnoth's Master was at full HP, the
+  Ghoul didn't kill it, and the Ghoul stayed a Ghoul (XP 14 → 16,
+  cap 21 = 30 × 70% experience_modifier).
+  Fix: explicitly drop the four statuses from the new unit's
+  status set during advancement. User clarification 2026-05-04:
+  "All negative conditions are cleared on levelup (poisoned,
+  slowed, stunned, etc.)" -- added `stunned` per user, even
+  though Wesnoth's source enumerates only the three above.
+  Verified on Ruphus Isle: u20 stays a Ghoul (hp=3/33,
+  xp=16/21 entering cmd[355]) -- exactly matches user's GUI
+  HP/XP trace.
+
+  **Full-corpus validation after Stages 6-8** (competitive-2p,
+  4,863 replays):
+
+  | Metric              | Pre-session | After S5 | After S8 |
+  |---------------------|------------:|---------:|---------:|
+  | Clean rate          |     89.98%  |  92.93%  |**95.43%**|
+  | first_cmd anomaly   |         88  |       0  |        0 |
+  | near_start anomaly  |         20  |       0  |        0 |
+  | mid_replay_src_miss |        108  |     115  |       58 |
+  | other               |        271  |     239  |      164 |
+
+  Total +5.45pp clean rate from session start. The 222 residual
+  cases on the full corpus didn't appear in the random 500-replay
+  sub-corpus -- next iteration would re-seed the sub-corpus to
+  surface them.
+
+  **Stage 5 finding (no fix banked): residual is mid-game
+  cumulative drift, not early-turn bugs.** Searched the full
+  competitive-2p corpus for ANY move divergence at turn ≤ 3
+  using the new `tools/diff_move_final_hex.py` oracle.
+  **Zero hits.** Every diverging move is at turn ≥ 4,
+  confirming:
+    - Initial-state extraction is correct (turn 1 plays match)
+    - Move-truncation logic (path occupancy / friendly
+      passthrough / fog ambush) is correct (turn 2-3 multi-hex
+      moves match)
+    - Trait HP / per-recruit RNG is correct (Stage 4 fix held)
+    - Combat math is bit-exact (verified directly via 29/29
+      strict-sync sample)
+  
+  What's left must be **per-turn effects accumulating drift**:
+  healing/poison/regeneration at init_side, advancement /
+  AMLA edge cases, or specific weapon-special interactions
+  (drain over-heal cap, swarm strike-count, slow MP doubling)
+  that combine to cause one HP off across many turns.
+
+  Concrete drilldown attempted: Aethermaw Turn 11 (db34f98ea361)
+  has a Ghost u5 attacked 3x at (35,22) over 4 commands, surviving
+  in our sim but dying in Wesnoth's reality. Ghost is level-1,
+  so the level-0 trait fix doesn't apply. No strict-sync
+  `[mp_checkup]` data for this replay, so per-strike combat
+  comparison is impossible — root cause requires either
+  hand-tracing combat or strict-sync replay generation.
+
+  **Path forward (when prioritized — Stage 6+):**
+    1. Generate strict-sync replays via `tools/make_strict_replay.py`
+       (already exists but needs a Wesnoth runtime to validate).
+    2. Build a parser for the older `[checkup] [result]
+       next_unit_id / random_calls` counters — drift in either
+       is a precise root-cause signal across all 99.5% non-strict
+       replays.
+    3. Audit healing/poison/advancement per-turn effects against
+       Wesnoth source.
+
+  **Residual 7.96% non-clean breakdown** (387 cases):
+    - 133 attack:defender_missing (avg cmd[328])
+    - 126 move:final_occupied (avg cmd[363])
+    - 116 mid_replay_src_missing (avg cmd[312])
+    - 37 attack:attacker_missing (avg cmd[446])
+    - 6 attack:friendly_fire (plague-side bug, BACKLOG-tracked)
+    - <10 each: misc
+
+  These are NOT combat-math drift: ran `tools/diff_combat_strike`
+  on the only competitive-2p strict-sync replay we have
+  (`2p__Arcanclave_Citadel_Turn_11_(93570).bz2`), got
+  29/29 attacks bit-exact match, zero divergences. Combined
+  with prior 731/731 verification this is strong evidence
+  combat math is correct. Residual divergences must come from:
+    (a) Movement edge cases (ZoC, ambush, multi-hex paths,
+        terrain alias bugs)
+    (b) Healing/poison/regenerate/cures interactions
+    (c) Advancement / AMLA edge cases
+    (d) Scenario-event handlers (prestart unit placements
+        beyond Hornshark's [switch]/[case], turn-N events)
+    (e) Plague side tracking
+    (f) Cumulative state drift from any of the above
+
+  **Limit of this iteration:** Per-case investigation needs
+  oracle data we don't have. Of 1,001 sampled raw replays:
+  5 (0.5%) have strict-sync `[mp_checkup]` data; 993 have
+  only the older `[checkup]` format which carries `next_unit_id`
+  and `random_calls` counters but NOT per-strike combat data.
+  Individual cases require ~30-60min manual tracing each.
+
+  **Path forward (when prioritized):**
+    1. Build a parser for the older `[checkup]` format —
+       compare per-command `next_unit_id` and `random_calls`
+       against our sim's counters. A drift in either is a
+       precise root-cause indicator.
+    2. Audit Hamlets, Silverhead, The_Freelands, Weldyn_Channel
+       scenario.cfg files for prestart events not currently
+       modeled by `tools/scenario_events.py`.
+    3. Hand-trace 3-5 attack:defender_missing cases to
+       categorize (combat? movement? healing?).
+
+  Tooling added: `tools/check_first_cmd_anomaly.py` — classifies
+  first-divergence per replay by cmd_index and kind, with
+  `--filter-competitive-2p` to scope to the training whitelist.
+  Useful for any future regression in extractor behavior.
+
+  Re-extracted output lives in `replays_dataset_reextract3/`
+  pending operator decision to swap it in for `replays_dataset/`
+  (the active training input). Old `replays_dataset/` reflects
+  pre-fix extraction; one `mv` away from picking up the fix.
 
 - [ ] 🟡 **Recruit:insufficient_gold drift (18 / 2k).** 2-3 gold
   off in late-game recruits. Hand-traced one Hornshark case
@@ -60,13 +1014,18 @@ several smaller gaps. Remaining work:
   traced yet. Will fall out as the root-cause classes above
   are closed.
 
-- [ ] 🟡 **`build_trait_info`: race-additional-traits doesn't
-  honor neutral-skip-fearless.** `wesnoth_src/src/units/types.cpp`
-  line 350: `if(alignment_ != neutral || t["id"] != "fearless")`.
-  Trolls have FEARLESS in race additional_traits; for chaotic
-  trolls the rule doesn't fire (default era), but a future era
-  with neutral trolls would mis-add fearless. Accept alignment
-  in `build_trait_info` and add the skip.
+- [x] 🟡 **`build_trait_info`: race-additional-traits skips
+  fearless for neutral units** (DONE 2026-05-03). `build_trait_info`
+  now accepts `alignment=` and the race-additionals loop passes
+  `skip_fearless=is_neutral`. The skip is keyed on trait `id`
+  (matching the C++ `t["id"] != "fearless"` check at
+  `wesnoth_src/src/units/types.cpp:350`), not macro name, so it
+  catches both `TRAIT_FEARLESS` and any race that introduces
+  fearless under a different macro alias. Default-era trolls are
+  chaotic so dormant for ladder play; activates for hypothetical
+  neutral-troll eras and any future race that adds fearless.
+  Re-run `python tools/scrape_unit_stats.py wesnoth_src
+  unit_stats.json` to refresh the snapshot.
 
 - [ ] 🟡 **Per-gender unit-type traits not handled.** Black Horse
   (Horse_Black.cfg) has `[male] {TRAIT_STRONG}` / `[female]
@@ -80,6 +1039,44 @@ several smaller gaps. Remaining work:
   the first divergence; combat divergence should ideally compare
   per-strike outcomes against the replay's `[mp_checkup]/[result]`
   blocks rather than waiting for a state-level cascade.
+
+- [ ] 🟠 **Encoder runs at batch_size=1** (`encoder.py`,
+  Phase 3.2 deferred). Trainer re-forwards every transition
+  individually; on GPU this leaves kernels under-amortized.
+  Padding states to fixed max-hex-count and batching 4-8
+  transitions per forward would unlock 2-4x training throughput
+  on the cluster. Largest single performance lever currently
+  visible. Estimated 1-2 weeks (needs padding logic + batch dim
+  handling through encoder + model). Now-unblocked since the
+  re-forward / value-head split landed.
+
+- [ ] 🟡 **`action_sampler.py:1113` swallows
+  `expected_attack_net_damage` exceptions silently**, returning
+  `net=0.0` for any failure. A subtle combat-LUT bug would
+  manifest as the policy losing all attack bias rather than
+  raising. At minimum log the unit-pair on first occurrence per
+  process; better, narrow the except to the specific exception
+  classes the helper actually raises (KeyError on missing
+  resistance / IndexError on weapon idx). Same pattern at
+  `encoder.py:851` for `_recruit_features_for` -- silent
+  fallback to default stats hides a stale unit_stats.json.
+
+- [ ] 🟡 **End-to-end replay round-trip test missing.** Take a
+  real replay, run the simulator's reconstruction, re-export
+  the command stream via `sim_to_replay`, then diff WML
+  token-by-token against source. This is the strongest possible
+  regression net for the bit-exactness work and isn't yet in
+  pytest. Currently we rely on the offline `tools/diff_replay.py`
+  sweep which the operator runs ad-hoc. Blocked on
+  `sim_to_replay` rebuilding the bz2 from scratch (already a
+  tracked item below) -- once that lands, wire as a single
+  pytest case parameterized over a small fixture corpus.
+
+- [ ] 🟢 **Optional `[checkup]` debug emission in `sim_to_replay`**
+  (already tracked under exporter section). Promote: cheapest
+  diagnostic possible for OOS / cascade-class debugging since
+  Wesnoth would name the exact diverging strike. Worth doing
+  before next OOS hunt.
 
 References are `path/file.py:line`. Each item is actionable on its own.
 
@@ -165,18 +1162,13 @@ References are `path/file.py:line`. Each item is actionable on its own.
 Items surfaced during the supervised-resume + self-play infra
 sessions that aren't in the original review.
 
-- [ ] 🟠 **Sim invariant bug: hex (0,0) duplicate Unit instances**
-  (`tools/wesnoth_sim.py:988`). Triggers on standard
-  `replays_dataset/*.json.gz` partway into self-play games. Two
-  distinct `Unit` dataclass instances landing in the SAME `set`
-  because `Unit.__hash__ = hash((id, side))` while auto-generated
-  `__eq__` covers all fields, so a `dataclasses.replace`-style
-  mutation pattern can land BOTH old and new in the set
-  simultaneously. Probably in `_apply_command` (move / attack /
-  recruit) -- discard old happens AFTER add new somewhere, OR a
-  unit gets replaced without the old being discarded first. ~5 of
-  8 short games on the standard fixture crash. Spawned as a
-  separate task. Workaround in tests: filter to 2-side replays.
+- [x] 🟠 **Sim invariant bug: hex (0,0) duplicate Unit instances**
+  (DONE 2026-04-30, commit 2bb7f00). Fixed by giving `Unit` an
+  explicit `__eq__` matching `__hash__` on `(id, side)` only
+  (classes.py:179-182, with `@dataclass(eq=False)` to suppress
+  auto-eq). Now `discard(old) + add(new)` correctly hits the same
+  set bucket whichever order the caller uses, and we can't have
+  both old and new resident simultaneously.
 
 - [ ] 🟠 **MCTS tree-search proper** -- now unblocked by the
   predict_priors / value-head / soft-target / recruit-enrichment
@@ -607,6 +1599,51 @@ replay export.
   type is implicit). HOLD intentionally not modeled (see
   CLAUDE.md).
 
+- [ ] 🟡 **Cliffness adaptive sim budget — calibration pending**
+  (2026-05-10). The framework is wired in `tools/mcts.py`
+  (`MCTSConfig.adaptive_sim_budget`, `n_simulations_min`,
+  `n_simulations_max`, `cliffness_max=0.577` ≈ 1/√3, the std of
+  the continuous uniform on [-1, +1]; the discrete uniform on
+  K=51 atoms matches it to 3 decimal places — see
+  `test_distributional_value.test_cliffness_high_when_distribution_spread`).
+  Defaults `n_simulations_min=100, n_simulations_max=400` are
+  uncalibrated and shipped OFF (`adaptive_sim_budget=False`).
+  Linear interpolation shape is one of several plausible
+  schedules — multiplicative, quadratic, step, time-budget all
+  defensible. Plan: log root cliffness during a few self-play
+  runs (`mcts: root cliffness=...` debug line is always-on
+  regardless of the flag), look at the empirical distribution,
+  THEN pick a schedule. Without that calibration the choice is
+  guesswork; early-training distributions are likely uniformly
+  high and would pin the budget at `n_max` everywhere — a slowdown
+  with no win. Until calibrated, callers should leave
+  `adaptive_sim_budget=False`. Once we have empirical data, the
+  schedule can be picked + hyperparameters defaulted intelligently.
+
+- [ ] 🟡 **Cliffness similarity-hashing TT (lossy / soft TT)**
+  (2026-05-10, deferred from the cliffness consumer pass). The
+  exact-match TT in `tools/mcts.py` only fires when `state_key`
+  collides exactly. In Wesnoth this hits ~0.4% per the
+  `bench_mcts_tt.py` measurement: HP, MP, gold, village
+  ownership all change every action, so true collisions are
+  rare beyond intra-turn move-reorderings. A lossy hash
+  (e.g. drop exact HP and bucket; ignore MP for end-of-turn
+  states; ignore gold deltas under a threshold) would let
+  "approximately equal" states share value estimates — the
+  similarity error introduced by the lossy hash is exactly what
+  cliffness should gate (high cliffness = state value is
+  sensitive to small differences = don't transfer; low
+  cliffness = transfer is safe). Was tried first as
+  cliffness-gated EXACT TT, which was incoherent (exact
+  matches ARE the same state, no error to gate); reverted
+  2026-05-10. Re-attempt will need: (a) a real similarity hash
+  (which fields drop, how to bucket continuous values like
+  HP/MP/gold), (b) what to share when fingerprints collide
+  (Q values? visit counts? prior-blended subtree?), (c) how to
+  blend cached vs fresh leaf-v under cliffness. Each is its
+  own design question; the whole feature is a separate project
+  rather than a flag.
+
 - [ ] 🟡 **`register_names` mutates encoder vocab during rollout**
   (`encoder.py:289`). On checkpoint resume with a never-before-seen unit
   type, the new id may collide with an embedding row. Pre-seed from
@@ -916,7 +1953,7 @@ collected here:
 
 ---
 
-## MCTS readiness scorecard (refreshed 2026-04-29)
+## MCTS readiness scorecard (refreshed 2026-05-10)
 
 | Capability | Status | Notes |
 |---|---|---|
@@ -925,10 +1962,19 @@ collected here:
 | Forward inference | ✅ predict_priors API + LegalActionPrior enumeration | action_sampler.py |
 | Visit-count target | ✅ Trainer.step_mcts + factored CE loss | trainer.py |
 | Determinism | ✅ via request_seed(N) counter + tests | test_sim_determinism.py |
-| Branching cost | ⚠️ ~25-50 evals/sec single-thread | batched leaf eval still TODO |
-| Bounded value | ✅ tanh + return clamp | model.py + trainer.value_clip=1.0 |
+| Branching cost | ✅ batched leaf eval via virtual loss | tools/mcts.py |
+| Bounded value | ✅ distributional C51 head (K=51 atoms, [-1,+1]) | model.py + test_distributional_value.py |
 | Recruit token signal | ✅ phantom-unit features | encoder.py |
-| Tree-search loop | ❌ not yet implemented | next milestone |
+| Tree-search loop | ✅ implemented + tested | tools/mcts.py + test_mcts.py |
+| Turns-vs-actions sign-flip | ✅ `parent.side == leaf_side` per edge | test_mcts.py 5 cases |
+| Wired into self-play loop | ✅ MCTSPolicy + `--mcts` flag + GUI toggle | tools/sim_self_play.py + cluster/gui.pyw |
+| Transposition table | ✅ exact-match per-search TT | tools/mcts.py + test_mcts.py + bench |
+| Cliffness signal | ✅ `output.cliffness = std(Z(s))` published | test_distributional_value.py |
+| Cliffness bootstrap weighting | ✅ Bayesian-precision shrink in _backup (off by default, alpha=0) | test_mcts_cliffness.py |
+| Cliffness adaptive sim budget | ✅ framework wired (off by default, n_min/n_max uncalibrated) | test_mcts_cliffness.py |
+| Cliffness similarity-hashing TT | ❌ deferred (own design project; needs lossy hash) | this BACKLOG entry |
+| Cliffness empirical calibration | ❌ root-cliffness debug log on, but no histogram collected yet | next milestone |
+| MCTS-vs-REINFORCE comparative eval | ❌ not run | downstream of calibration |
 
 ---
 
