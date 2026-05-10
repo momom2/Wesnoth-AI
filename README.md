@@ -17,9 +17,11 @@ Two goals shape the design:
   `tools/wesnoth_sim.py` is a pure-Python reimplementation of
   Wesnoth 1.18.4's game logic — bit-exact for combat (731/731
   strikes verified via `[mp_checkup]` oracle on strict-sync
-  replays), 98.57% diff_replay clean rate on the 4,841-replay
-  competitive-2p corpus. ~1000× faster than driving Wesnoth as
-  a subprocess and trivially cluster-portable.
+  replays), **99.58% `diff_replay` clean rate on the freshly-
+  extracted 5,490-replay competitive-2p corpus** (2026-05-10
+  sweep, 23 residual divergences flagged for follow-up).
+  ~1000× faster than driving Wesnoth as a subprocess and
+  trivially cluster-portable.
 - **Self-play training entry point: `python tools/sim_self_play.py`.**
   Drives N games per iteration through `WesnothSim`, applies
   REINFORCE+baseline gradient updates. `--mcts` flag swaps in
@@ -144,8 +146,30 @@ training/
    replays/                  per-game logs from self-play
    logs/                     SLURM job logs
 benchmarks/                  bench_mcts_tt.py, bench_sim_throughput.py
-replays_raw/                 source .bz2 replays (gitignored)
-replays_dataset/             extracted JSON.gz replays (gitignored)
+replays_raw/                 source .bz2 replays (gitignored, ~46k vanilla)
+replays_raw_set_aside/       .bz2 replays whose only mod is plan_unit_advance
+                             (gitignored, ~28k)
+replays_dataset/             6,224 extracted .json.gz replays — strictly
+                             default-era 2p, competitive, vanilla map,
+                             no mods. The supervised + sim-self-play
+                             training corpus. Refreshed 2026-05-10
+                             via `tools/sort_replays.py`. Index in
+                             `index.jsonl` carries `mods` and `bucket`
+                             fields per record.
+replays_dataset_quarantine/  Everything else from the source bz2s,
+                             classified by criterion (gitignored):
+   modded/<mod_id>/            Replays carrying any [modification] or
+                               active_mods= entry. Per-mod folders;
+                               currently:
+                                 plan_unit_advance/   24,327 (UI mod)
+                                 Color_Modification/     172 (cosmetic)
+                                 Rav_Color_Mod/           34 (cosmetic)
+   non_2p/                     37,110 — multi-side / non-default-era
+                               (Dunefolk, World-Conquest-II Custom,
+                               etc.) / campaign-stage replays.
+   non_vanilla_map/              887 — 2p default-era replays on
+                               non-mainline scenarios (random map,
+                               user maps).
 unit_stats.json              scraped from wesnoth_src — rebuild on
                              Wesnoth version bump
 terrain_db.json              terrain/defense/move-cost tables, scraped

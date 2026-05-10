@@ -10,11 +10,12 @@ strategies; cluster economy).
 
 - **Simulator is the production training path.** `tools/wesnoth_sim.py`
   is bit-exact for combat (731/731 strikes verified vs `[mp_checkup]`
-  oracle). Full-replay `diff_replay` clean rate **98.57%** on the
-  4,841-replay competitive-2p corpus after the Stages 1–21 sweep
-  (2026-05-04). Residual ~1.4% is mostly cascade failures from
-  earlier divergences + a few mid-game `[snapshot]` extractor edge
-  cases.
+  oracle). Full-replay `diff_replay --filter-2p` clean rate
+  **99.58% (5,467/5,490)** on the freshly extracted 6,224-replay
+  competitive-2p corpus (2026-05-10 re-extraction via
+  `tools/sort_replays.py`). 23 residual divergences are real sim
+  signal worth chasing; per-bucket breakdown in the dataset-refresh
+  block below.
 - **Self-play training pipeline ready.** `tools/sim_self_play.py`
   drives REINFORCE+baseline by default, AlphaZero-style MCTS via
   `--mcts`. Cluster job + GUI controls in place.
@@ -25,39 +26,57 @@ strategies; cluster economy).
 - **Live Wesnoth IPC** retained for `--display` and
   `tools/eval_vs_builtin.py`; not used for training.
 
-> **2026-05-10 finding: dataset .json.gz files are stale, simulator
-> is cleaner than the headline number suggests.** The May-4 Stages
-> 1–21 sweep brought combat/scenario fidelity to bit-exact;
-> `replay_extract.py` was further fixed on 2026-05-08 to concatenate
-> all `[replay]` blocks for snapshot saves (the May-4 number didn't
-> reflect that fix on the dataset side). The dataset's `.json.gz`
-> files were last regenerated 2026-05-02 and are stale relative to
-> both fixes.
+> **2026-05-10 finding: dataset was stale (now refreshed).** The
+> May-4 Stages 1–21 sweep brought combat/scenario fidelity to
+> bit-exact; `replay_extract.py` was further fixed on 2026-05-08
+> to concatenate all `[replay]` blocks for snapshot saves. The
+> dataset's `.json.gz` files were last regenerated 2026-05-02 and
+> were stale relative to both fixes. Investigation flow:
 >
-> Empirical confirmation: ran `diff_replay --filter-2p` on full
-> `replays_dataset/` (3941 replays) → 44 divergences across 34
-> unique failing replays. ALL 34 are mid-game snapshot saves (every
-> single one has `Turn_N` in its name, 0 from-scratch saves fail).
-> Re-extracted 28 of those 34 (6 source bz2s missing — moved to
-> set-aside / mod purge) with the current `extract_replay.py` and
-> re-ran diff_replay: **28/28 clean, 0 divergences**.
+> 1. Ran `diff_replay --filter-2p` on stale `replays_dataset/`
+>    (3941 replays) → 44 divergences across 34 unique failing
+>    replays. ALL 34 were mid-game snapshot saves.
+> 2. Surgical re-extract of 28 of those 34 (6 source bz2s
+>    missing — moved to set-aside / mod purge) → 28/28 clean.
+>    Confirmed extraction bug, not sim bug.
+> 3. Built `tools/sort_replays.py` (parallel extract + classify
+>    + bucket) and ran it on FULL `replays_raw/` (45,971) +
+>    `replays_raw_set_aside/` (28,477) = 74,448 inputs. Sort:
+>      - `replays_dataset/` (competitive_2p): **6,224**
+>      - `replays_dataset_quarantine/modded/<mod>/`: 24,533
+>          - plan_unit_advance: 24,327 (UI mod, set-aside)
+>          - Color_Modification: 172 (cosmetic)
+>          - Rav_Color_Mod: 34 (cosmetic)
+>      - `replays_dataset_quarantine/non_2p/`: 37,110
+>      - `replays_dataset_quarantine/non_vanilla_map/`: 887
+>      - extract_failed (no payload written): 5,694
+> 4. Re-ran `diff_replay --filter-2p` on the new
+>    `replays_dataset/`: **5,467/5,490 clean = 99.58%**. Down
+>    from 44 divergences to 23 — and the residuals are now real
+>    sim signal rather than extraction noise.
 >
-> Conclusion: simulator is at-or-near 100% clean on competitive-2p
-> corpus when the dataset is freshly extracted. The 1.12% residual
-> is a stale-dataset artifact, not a sim bug. Action item below.
+> Old `replays_dataset/` archived to
+> `replays_dataset.old.pre-2026-05-10/` for one-version rollback.
 
-- [ ] 🟠 **Re-extract `replays_dataset/` against current
-  `replay_extract.py`** (2026-05-10). The .json.gz files predate
-  both the May-4 trait/scenario-event sweep AND the May-8
-  multi-block-concat fix for snapshot saves. Surgical re-extract
-  on a 28-replay sample showed every "sim divergence" was a
-  stale-dataset artifact. A full re-run on the ~14k vanilla
-  corpus should bring `diff_replay --filter-2p` clean rate from
-  98.88% to ~100% and let real residual sim bugs (if any) surface
-  without noise. Risk: re-extraction is single-process slow; ~14k
-  replays at a few seconds each is multi-hour. Cost: a few hours
-  of CPU. Reward: high-confidence clean baseline before any
-  further sim-fidelity work.
+- [x] 🟠 **Re-extract `replays_dataset/` against current
+  `replay_extract.py`** (DONE 2026-05-10). See block above.
+
+- [ ] 🟡 **Investigate the 23 residual `diff_replay` divergences
+  on the fresh corpus** (2026-05-10). Now that the stale-extraction
+  noise is gone, these are real sim signal. Notable groupings:
+    - 6× `move:final_occupied` (cascade-class — earlier divergence
+      leaves a unit on the destination).
+    - 3× `recruit:target_occupied` ALL at cmd[6] turn=1, target
+      (11,5), occupied by `u7` side=1: same systematic bug across
+      three different replays. Likely a turn-1 setup divergence.
+    - 3× `move:path_non_adjacent` at step 1 with very-distant
+      endpoints (e.g. (6,10)→(20,4), (27,15)→(11,14)). Smells like
+      teleport-ability units the extractor isn't handling.
+    - 3× `attack:defender_missing`, 2× `move:src_missing`, 2×
+      `attack:weapon_oob`, 2× `recruit:insufficient_gold` (real
+      gold drift cases, possibly cascade), 1× `move:mp_insufficient`.
+  Each of the systematic ones is worth chasing; the cascade-class
+  failures likely resolve once the underlying bug is fixed.
 
 See the **MCTS readiness scorecard** (refreshed 2026-05-10) further
 down for a per-capability checklist.
