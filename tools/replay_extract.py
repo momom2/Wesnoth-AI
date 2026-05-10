@@ -1197,6 +1197,41 @@ def extract_replay(path: Path) -> Optional[dict]:
                         # Skip the duplicate, keep last_move_slot
                         # pointing at the original.
                         break
+                    # Suffix-redo dedup: detect the save-mid-move
+                    # pattern where the trailer recorded the FULL
+                    # intended path (with empty [checkup]) and the
+                    # block-i+1 redo records a SHORTER path
+                    # starting from where the unit actually got at
+                    # save time. The trailer's full path is correct
+                    # in expectation -- the unit ends up at the
+                    # redo's destination, so applying the trailer
+                    # alone leaves the sim in the right state. The
+                    # redo would src_missing in our sim (the unit
+                    # is already at the destination).
+                    # Concrete: 2p__Fallenstar_Lake_Turn_13_(29090)
+                    # block 0 tail x=22,21,20,19,19,18,17,17
+                    # y=16,16,15,15,14,13,13,12 (empty [checkup],
+                    # mid-move save); block 1 cmd[0] x=20,19,19,18,
+                    # 17,17 y=15,15,14,13,13,12 (full [checkup],
+                    # completed). The redo path equals the trailer
+                    # path[2:] exactly; mid-replay snapshot shows
+                    # the Vampire Bat at WML (20,15), 2 hexes into
+                    # the journey. The exact-match drop logic at
+                    # the boundary doesn't catch this -- redo
+                    # paths in save-mid-action are STRICT SUFFIXES,
+                    # not exact duplicates. Detect that here and
+                    # skip the redo emit. Constrained to same-side
+                    # and strict-suffix to keep the rule narrow.
+                    if (compact_commands
+                            and compact_commands[-1][0] == "move"
+                            and compact_commands[-1][3] == from_side):
+                        prev_xs = compact_commands[-1][1]
+                        prev_ys = compact_commands[-1][2]
+                        n = len(xs)
+                        if (n < len(prev_xs)
+                                and prev_xs[-n:] == xs
+                                and prev_ys[-n:] == ys):
+                            break
                     compact_commands.append(new_move)
                     last_move_slot = len(compact_commands) - 1
                 break
