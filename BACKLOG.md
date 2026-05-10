@@ -11,11 +11,12 @@ strategies; cluster economy).
 - **Simulator is the production training path.** `tools/wesnoth_sim.py`
   is bit-exact for combat (731/731 strikes verified vs `[mp_checkup]`
   oracle). Full-replay `diff_replay --filter-2p` clean rate
-  **99.58% (5,467/5,490)** on the freshly extracted 6,224-replay
+  **99.65% (5,471/5,490)** on the freshly extracted 6,224-replay
   competitive-2p corpus (2026-05-10 re-extraction via
-  `tools/sort_replays.py`). 23 residual divergences are real sim
-  signal worth chasing; per-bucket breakdown in the dataset-refresh
-  block below.
+  `tools/sort_replays.py`, after the intra-block undone-recruit
+  fix in `replay_extract.py`). 19 residual divergences are real
+  sim signal worth chasing; per-bucket breakdown in the
+  dataset-refresh block below.
 - **Self-play training pipeline ready.** `tools/sim_self_play.py`
   drives REINFORCE+baseline by default, AlphaZero-style MCTS via
   `--mcts`. Cluster job + GUI controls in place.
@@ -61,20 +62,36 @@ strategies; cluster economy).
 - [x] 🟠 **Re-extract `replays_dataset/` against current
   `replay_extract.py`** (DONE 2026-05-10). See block above.
 
-- [ ] 🟡 **Investigate the 23 residual `diff_replay` divergences
-  on the fresh corpus** (2026-05-10). Now that the stale-extraction
-  noise is gone, these are real sim signal. Notable groupings:
+- [x] 🟡 **Investigated 3× recruit:target_occupied at (11,5)** (DONE
+  2026-05-10, commits 71fb35c + e8c677a). Three Hamlets replays
+  all failing the same way at cmd[6] turn=1 traced to an intra-
+  turn undo+redo: the player issued `recruit Horseman (12,6)`,
+  undid it, re-issued `recruit Heavy Infantryman (12,6)` in the
+  same [replay] block. Cross-block trailer-drop logic didn't apply
+  (no save in between). Fix: in `replay_extract.py`, when
+  emitting a recruit, peek at its [checkup]; if empty AND no
+  [random_seed] follows in 1-3 commands BEFORE another player
+  action, treat as undone and skip. First-attempt fix dropped
+  Sablestone-style legitimate recruits; second-attempt fix had
+  a no-RNG short-circuit that dropped Wose recruits incorrectly.
+  Final universal rule: trust seed-or-checkup-result regardless
+  of unit's RNG classification. New clean rate: 99.65% (was
+  99.58%), with the 3 (11,5) cases gone and 1 attacker_missing
+  also resolved.
+
+- [ ] 🟡 **Investigate the 19 residual `diff_replay` divergences
+  on the fresh corpus** (2026-05-10). Notable groupings:
     - 6× `move:final_occupied` (cascade-class — earlier divergence
       leaves a unit on the destination).
-    - 3× `recruit:target_occupied` ALL at cmd[6] turn=1, target
-      (11,5), occupied by `u7` side=1: same systematic bug across
-      three different replays. Likely a turn-1 setup divergence.
-    - 3× `move:path_non_adjacent` at step 1 with very-distant
-      endpoints (e.g. (6,10)→(20,4), (27,15)→(11,14)). Smells like
-      teleport-ability units the extractor isn't handling.
-    - 3× `attack:defender_missing`, 2× `move:src_missing`, 2×
-      `attack:weapon_oob`, 2× `recruit:insufficient_gold` (real
-      gold drift cases, possibly cascade), 1× `move:mp_insufficient`.
+    - 3× `attack:defender_missing`, 3× `move:path_non_adjacent`
+      with very-distant step-1 endpoints (e.g. (6,10)→(20,4),
+      (17,17)→(17,22), (27,15)→(11,14)). Smells like teleport-
+      ability units the extractor isn't handling.
+    - 2× `attack:weapon_oob` (weapon idx 1 on a 1-attack unit —
+      the unit lost an attack via [effect] and the extractor
+      didn't handle the modification?).
+    - 2× `move:src_missing`, 2× `recruit:insufficient_gold` (real
+      gold drift), 1× `move:mp_insufficient`.
   Each of the systematic ones is worth chasing; the cascade-class
   failures likely resolve once the underlying bug is fixed.
 
