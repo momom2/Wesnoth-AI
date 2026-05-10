@@ -890,21 +890,69 @@ def _unit_action(gs: GameState, action: WMLNode) -> None:
         "y": wml_y - 1,
         "is_leader": False,
     }
-    base_unit = _build_unit(udict, apply_leader_traits=False)
+    # Honor the scenario's experience_modifier (default 100; common
+    # ladder games run at 70%). Without this, scenario-event-placed
+    # heroes (Hornshark Island's Sorrek/Rukhos Skeleton, the Drake
+    # Fighter "Rawffus", etc.) keep their base max_exp and don't
+    # advance at the same xp threshold real recruits hit. Concrete:
+    # 2p_Hornshark_Island_Turn_12_(103721) cmd[311]: Skeleton "Sorrek"
+    # advanced to Deathblade (movement=6) on turn 9 in Wesnoth at
+    # xp=31/27 (39 * 0.7 = 27), but our sim kept him at Skeleton with
+    # xp=31/39 because exp_modifier defaulted to 100 — Deathblade's 6
+    # MP would have made the 6-cost path on turn 11 valid.
+    exp_mod = int(getattr(gs.global_info, "_experience_modifier", 100) or 100)
+    base_unit = _build_unit(udict, apply_leader_traits=False,
+                            exp_modifier=exp_mod)
+    # Pull `musthave` traits from the unit type's stats. Soulless,
+    # Walking Corpse, Vampire Bat, and other undead/mechanical/elemental
+    # units have musthave=['undead', 'fearless'] (or 'mechanical' /
+    # 'elemental') that the type macros guarantee. _build_unit gives us
+    # an empty trait set; we must merge musthaves before processing
+    # the [modifications] block so the resulting trait set matches what
+    # Wesnoth would have post-`new_unit_construction`. Concrete:
+    # 2p__Hornshark_Island_Turn_10_(176667).bz2 cmd[234] -- a preplaced
+    # Soulless:dwarf attacks a poisoned Elvish Archer at hp 12 in day
+    # ToD (lawful=+25). Without `fearless`, chaotic Soulless dmg = 7 *
+    # 0.75 = 5; with fearless, dmg = 7 (no penalty). 2 hits at 7 = 14
+    # kills the archer (and plagues it); 2 hits at 5 = 10 leaves the
+    # archer at hp=2 in our sim, surviving until turn 9 cmd[257] when
+    # u28 Mage tries to attack the now-empty hex and sees friendly
+    # fire on the still-living archer.
+    stats = _stats_for(utype)
+    musthave_ids = list((stats.get("traits", {}) or {}).get("musthave", []) or [])
     # Apply explicit [modifications]/[trait] traits.
     mods = action.first("modifications")
-    if mods is not None:
-        trait_ids = _trait_ids_from_modifications(mods)
-        if trait_ids:
-            stats = _stats_for(utype)
-            defense_table = dict(getattr(base_unit, "_defense_table", {})
-                                 or stats.get("defense", {}))
-            base_unit = apply_traits_to_unit(
-                base_unit, trait_ids,
-                level=int(stats.get("level", 1) or 1),
-                defense_table=defense_table,
-            )
-            setattr(base_unit, "_defense_table", defense_table)
+    explicit_ids = _trait_ids_from_modifications(mods) if mods is not None else []
+    # Merge musthave + explicit; deduplicate while preserving order.
+    seen = set()
+    trait_ids = []
+    for tid in list(musthave_ids) + list(explicit_ids):
+        if tid not in seen:
+            trait_ids.append(tid)
+            seen.add(tid)
+    if trait_ids:
+        defense_table = dict(getattr(base_unit, "_defense_table", {})
+                             or stats.get("defense", {}))
+        # `stats.get("level", 1) or 1` was wrongly coercing level-0
+        # (Walking Corpse / Vampire Bat / Mudcrawler / statue side-3
+        # units) to 1 because 0 is falsy. That defeated Stage 4's fix
+        # and gave level-0 units +1 HP per resilient/healthy. Use the
+        # raw level instead.
+        lvl_raw = stats.get("level", 1)
+        try:
+            lvl = int(lvl_raw)
+        except (TypeError, ValueError):
+            lvl = 1
+        base_unit = apply_traits_to_unit(
+            base_unit, trait_ids, level=lvl,
+            defense_table=defense_table,
+        )
+        setattr(base_unit, "_defense_table", defense_table)
+        # Preserve trait order through advancement. For preplaced
+        # units, the order comes from the [modifications]/[trait]
+        # children's document order in the scenario WML (musthave
+        # traits first, then explicit ones).
+        setattr(base_unit, "_trait_order", list(trait_ids))
     # Refresh current_hp = max_hp post-traits (a freshly placed unit
     # spawns at full health).
     from dataclasses import replace as _dc_replace
@@ -912,7 +960,298 @@ def _unit_action(gs: GameState, action: WMLNode) -> None:
         base_unit, current_hp=base_unit.max_hp,
         current_moves=base_unit.max_moves,
     )
+    # Apply CUSTOM trait [effect]s (NOT named traits already handled
+    # by apply_traits_to_unit). Examples: Caves of the Basilisk's
+    # `id=remove_hp` trait whose [effect]s drop hp/movement to make
+    # statues 1-HP non-actors, or Sullas Ruins' identical setup. These
+    # are NOT in our TRAITS registry; their behaviour lives entirely
+    # in the [trait]'s [effect] children.
+    # Skip named traits (loyal/quick/resilient/strong/intelligent/etc.)
+    # whose [effect]s are already applied by `apply_traits_to_unit` --
+    # double-applying them caused Hornshark Sergeants/Drake Fighters
+    # to lose 1 movement (resilient + quick stack incorrectly).
+    if mods is not None:
+        from tools.traits import TRAITS as _NAMED_TRAITS
+        for trait_node in mods.all("trait"):
+            tid = (trait_node.attrs.get("id", "") or "").strip().strip('"').lower()
+            if tid in _NAMED_TRAITS:
+                continue
+            for eff in trait_node.all("effect"):
+                _apply_effect_to_unit(base_unit, eff)
+    # Apply petrified status from `[status] petrified=yes`.
+    status_node = action.first("status")
+    if status_node is not None:
+        petr = (status_node.attrs.get("petrified", "") or "").strip().lower()
+        if petr in ("yes", "true", "1"):
+            new_st = set(base_unit.statuses); new_st.add("petrified")
+            base_unit = _dc_replace(base_unit, statuses=new_st,
+                                    current_moves=0, has_attacked=True,
+                                    attacks=[])
+    # Apply [abilities] block from the [unit] action. Hornshark Island's
+    # preplaced Mermaid Initiates have `[abilities] {ABILITY_HEALS}
+    # [/abilities]` granting heals_4, and the Soulless heroes get
+    # `{ABILITY_AMBUSH}`. Without parsing this block, the preplaced
+    # Mermaid doesn't heal adjacent allies at init_side, causing the
+    # turn-7 Elvish Scout to enter turn 8 at hp=26 instead of 30 (and
+    # die to a 14-dmg/strike Spearman attack). Map [tag]→canonical id
+    # via the same convention scrape_unit_stats uses.
+    abil_node = action.first("abilities")
+    if abil_node is not None:
+        # Tag-name → canonical id used by tools/abilities.py and combat.
+        # Mirrors the result of scrape_unit_stats's ABILITY_MACROS for
+        # the post-macro-expansion form (each macro emits [heals],
+        # [hides], [leadership], etc. as children).
+        _TAG_TO_ABILITY = {
+            "heals": None,             # value-dependent: heals_4 or heals_8
+            "regenerate": "regenerate",
+            "cures": "cures",
+            "leadership": "leadership",
+            "skirmisher": "skirmisher",
+            "illuminates": "illuminates",
+            "teleport": "teleport",
+            "hides": "ambush",         # ABILITY_AMBUSH expands to [hides]
+            "feeding": "feeding",
+            "steadfast": "steadfast",
+        }
+        new_abilities = set(base_unit.abilities)
+        for child in abil_node.children:
+            tag = child.tag
+            if tag == "heals":
+                # ABILITY_HEALS expands to [heals] value=4. ABILITY_HEALS_8
+                # / ABILITY_EXTRA_HEAL expand to [heals] value=8.
+                try:
+                    val = int((child.attrs.get("value", "4") or "4").strip().strip('"'))
+                except (TypeError, ValueError):
+                    val = 4
+                new_abilities.add("heals_8" if val >= 8 else "heals_4")
+            elif tag in _TAG_TO_ABILITY:
+                aid = _TAG_TO_ABILITY[tag]
+                if aid:
+                    new_abilities.add(aid)
+        if new_abilities != base_unit.abilities:
+            base_unit = _dc_replace(base_unit, abilities=new_abilities)
     gs.map.units.add(base_unit)
+    # Bump Wesnoth's monotonic next_unit_id counter — Wesnoth's
+    # prestart [unit] events also assign sequential uids.
+    cur = int(getattr(gs.global_info, "_next_uid_counter", 1) or 1)
+    setattr(gs.global_info, "_next_uid_counter", cur + 1)
+
+
+def _parse_increase(raw: str, base: int) -> int:
+    """Mirror Wesnoth's `apply_modifier(base, increase_str)` for a
+    single integer value. Accepts plain ints (`-1`, `2`) and percent
+    strings (`-100%`, `50%`). Falls back to 0 on malformed input.
+
+    For percent values Wesnoth's `apply_modifier` uses
+    `div100rounded(base * pct)` (round-half-away-from-zero with +50
+    bias); plain ints just add.
+    """
+    s = (raw or "").strip().strip('"')
+    if not s:
+        return 0
+    if s.endswith("%"):
+        try:
+            pct = int(s[:-1])
+        except ValueError:
+            return 0
+        raw_v = base * pct
+        if raw_v < 0:
+            return -(((-raw_v) + 50) // 100)
+        return (raw_v + 50) // 100
+    try:
+        return int(s)
+    except ValueError:
+        return 0
+
+
+def _apply_effect_to_unit(u, eff: WMLNode) -> None:
+    """Apply a single `[effect]` block's mutation to one unit, in
+    place. Supports the apply_to forms used by 2p ladder scenarios
+    (Hornshark Island, Caves of the Basilisk, Sullas Ruins,
+    Silverhead Crossing, Thousand Stings Garrison):
+
+      - `apply_to=attack [+ range= +/-/set_specials/increase_attacks/
+                         increase_damage/set_attack_weight]`
+      - `apply_to=new_attack` (add a new Attack)
+      - `apply_to=remove_attacks` (clear all attacks)
+      - `apply_to=hitpoints` (increase_total, set)
+      - `apply_to=movement` (set, increase)
+      - `apply_to=status` (add named status flag)
+      - `apply_to=ellipse` / `image_mod` / `overlay` / `profile`
+        / `new_animation`: cosmetic, no-op.
+    """
+    apply_to = (eff.attrs.get("apply_to", "") or "").strip().strip('"')
+    from classes import Attack
+    from combat import DAMAGE_TYPES
+    from dataclasses import replace as _dc_replace
+
+    if apply_to == "attack":
+        weapon_range = (eff.attrs.get("range", "") or "").strip().strip('"')
+        weapon_name = (eff.attrs.get("name", "") or "").strip().strip('"')
+        ss = eff.first("set_specials")
+        new_specials = {ch.tag for ch in ss.children} if ss is not None else set()
+        inc_attacks_raw = eff.attrs.get("increase_attacks", "")
+        inc_damage_raw  = eff.attrs.get("increase_damage", "")
+        new_attacks = []
+        for atk in u.attacks:
+            match = True
+            if weapon_range:
+                if weapon_range == "ranged" and not atk.is_ranged:
+                    match = False
+                elif weapon_range == "melee" and atk.is_ranged:
+                    match = False
+            # `name=` matches the weapon's display name. Our `Attack`
+            # doesn't carry a name, so we can't filter by name here;
+            # if a name filter is given, only fall back to range.
+            # (Default-era 2p [object]s in scope don't filter by name
+            # alone -- always with range -- so this is safe.)
+            if match:
+                new_dmg = atk.damage_per_strike + _parse_increase(
+                    inc_damage_raw, atk.damage_per_strike)
+                new_n = atk.number_strikes + _parse_increase(
+                    inc_attacks_raw, atk.number_strikes)
+                new_dmg = max(0, new_dmg)
+                new_n = max(0, new_n)
+                merged_specials = set(atk.weapon_specials) | new_specials
+                new_attacks.append(Attack(
+                    type_id=atk.type_id,
+                    number_strikes=new_n,
+                    damage_per_strike=new_dmg,
+                    is_ranged=atk.is_ranged,
+                    weapon_specials=merged_specials,
+                ))
+            else:
+                new_attacks.append(atk)
+        u.attacks = new_attacks
+        return
+
+    if apply_to == "new_attack":
+        wrange = (eff.attrs.get("range", "") or "melee").strip().strip('"')
+        wtype  = (eff.attrs.get("type", "") or "blade").strip().strip('"')
+        try:
+            damage = int((eff.attrs.get("damage", "0") or "0").strip().strip('"'))
+        except ValueError:
+            damage = 0
+        try:
+            number = int((eff.attrs.get("number", "1") or "1").strip().strip('"'))
+        except ValueError:
+            number = 1
+        ss = eff.first("specials") or eff.first("set_specials")
+        specials = {ch.tag for ch in ss.children} if ss is not None else set()
+        # Map type string -> DamageType enum index.
+        try:
+            type_id_idx = DAMAGE_TYPES.index(wtype.lower())
+        except ValueError:
+            type_id_idx = 0  # fallback to blade
+        from classes import DamageType
+        try:
+            type_id = list(DamageType)[type_id_idx]
+        except (ValueError, IndexError):
+            type_id = list(DamageType)[0]
+        u.attacks = list(u.attacks) + [Attack(
+            type_id=type_id,
+            number_strikes=number,
+            damage_per_strike=damage,
+            is_ranged=(wrange == "ranged"),
+            weapon_specials=specials,
+        )]
+        return
+
+    if apply_to == "remove_attacks":
+        u.attacks = []
+        return
+
+    if apply_to == "hitpoints":
+        inc_raw = eff.attrs.get("increase_total", "")
+        if inc_raw:
+            delta = _parse_increase(inc_raw, u.max_hp)
+            new_max = max(1, u.max_hp + delta)
+            new_cur = max(1, min(u.current_hp + delta, new_max))
+            u.max_hp = new_max
+            u.current_hp = new_cur
+        set_raw = eff.attrs.get("set", "")
+        if set_raw:
+            try:
+                v = int(set_raw)
+                u.current_hp = max(1, min(v, u.max_hp))
+            except ValueError:
+                pass
+        heal_raw = eff.attrs.get("heal_full", "")
+        if (heal_raw or "").strip().lower() in ("yes", "true", "1"):
+            u.current_hp = u.max_hp
+        return
+
+    if apply_to == "movement":
+        set_raw = eff.attrs.get("set", "")
+        inc_raw = eff.attrs.get("increase", "")
+        if set_raw:
+            try:
+                u.max_moves = max(0, int(set_raw))
+                u.current_moves = min(u.current_moves, u.max_moves)
+            except ValueError:
+                pass
+        elif inc_raw:
+            u.max_moves = max(0, u.max_moves + _parse_increase(
+                inc_raw, u.max_moves))
+            u.current_moves = min(u.current_moves, u.max_moves)
+        return
+
+    if apply_to == "status":
+        # `[effect] apply_to=status add=poisoned [/effect]` style.
+        add = (eff.attrs.get("add", "") or "").strip().strip('"')
+        rem = (eff.attrs.get("remove", "") or "").strip().strip('"')
+        if add:
+            new_st = set(u.statuses); new_st.add(add); u.statuses = new_st
+        if rem and rem in u.statuses:
+            new_st = set(u.statuses); new_st.discard(rem); u.statuses = new_st
+        return
+
+    # apply_to in {ellipse, image_mod, overlay, profile, new_animation,
+    # halo, zoc} are cosmetic / display-only -- silently ignored.
+
+
+def _object_action(gs: GameState, action: WMLNode) -> None:
+    """Handle a top-level [object] block (Wesnoth's mid-event unit
+    modifier). The [object] declares a [filter] (which units to
+    affect) and one or more [effect] blocks (what to change).
+
+    Routes each [effect] through `_apply_effect_to_unit`, which
+    handles the apply_to forms used by 2p ladder scenarios
+    (Hornshark Island, Silverhead Crossing, Thousand Stings
+    Garrison, Caves of the Basilisk, Sullas Ruins).
+    """
+    filt = action.first("filter")
+    if filt is None:
+        return
+    # Resolve the filter's hex set.
+    map_w, map_h = gs.map.size_x, gs.map.size_y
+    wml_hexes = _resolve_xy_attr(
+        filt.attrs.get("x", ""), filt.attrs.get("y", ""),
+        map_w, map_h,
+    )
+    py_hexes = {(wx - 1, wy - 1) for (wx, wy) in wml_hexes
+                if 0 < wx <= map_w and 0 < wy <= map_h}
+    type_filter = (filt.attrs.get("type", "") or "").strip().strip('"')
+    side_filter_raw = (filt.attrs.get("side", "") or "").strip().strip('"')
+    try:
+        side_filter = int(side_filter_raw) if side_filter_raw else 0
+    except ValueError:
+        side_filter = 0
+
+    targets = []
+    for u in gs.map.units:
+        if py_hexes and (u.position.x, u.position.y) not in py_hexes:
+            continue
+        if type_filter and u.name != type_filter:
+            continue
+        if side_filter and u.side != side_filter:
+            continue
+        targets.append(u)
+    if not targets:
+        return
+    for eff in action.all("effect"):
+        for u in targets:
+            _apply_effect_to_unit(u, eff)
 
 
 # Action-tag dispatch table.
@@ -923,6 +1262,7 @@ _ACTION_HANDLERS: Dict[str, Callable[[GameState, WMLNode], None]] = {
     "store_locations": _store_locations_action,
     "clear_variable":  _clear_variable_action,
     "time_area":       _time_area_action,
+    "object":          _object_action,
     # WML control flow + variables (Hornshark Island pre-placed units).
     "set_variable":    _set_variable_action,
     "fire_event":      _fire_event_action,

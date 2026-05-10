@@ -66,6 +66,10 @@ from rewards import hex_distance
 
 log = logging.getLogger("action_sampler")
 
+# Warn-once dedup for combat-oracle exceptions, keyed by
+# (attacker_type, defender_type). See use site below for rationale.
+_ORACLE_WARN_SEEN: Dict[Tuple[str, str], bool] = {}
+
 
 # Combat-oracle alpha schedule. See constants.py for full
 # explanation. The TARGET alpha shifts attack-target logits
@@ -1110,7 +1114,21 @@ def _build_legality_masks(
                         continue
                     try:
                         net = expected_attack_net_damage(u, enemy_u)
-                    except Exception:
+                    except (AttributeError, IndexError, TypeError, ValueError) as exc:
+                        # Narrow to plausible bug shapes: malformed Unit
+                        # (missing attacks/resistances/current_hp), bad
+                        # weapon_index, or non-numeric stat. Anything else
+                        # (KeyboardInterrupt, MemoryError) propagates so
+                        # we don't mask a real failure as zero attack bias.
+                        # Warn-once per (attacker_type, defender_type)
+                        # so a real bug is loud, not silent.
+                        if not _ORACLE_WARN_SEEN.get((u.name, enemy_u.name)):
+                            _ORACLE_WARN_SEEN[(u.name, enemy_u.name)] = True
+                            log.warning(
+                                "expected_attack_net_damage(%s vs %s) raised %s: %s; "
+                                "falling back to 0.0 attack bias for this pair",
+                                u.name, enemy_u.name, type(exc).__name__, exc,
+                            )
                         net = 0.0
                     attack_bias_np[i, j] = target_alpha * net
                     if net > best_score:

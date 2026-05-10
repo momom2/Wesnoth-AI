@@ -338,6 +338,16 @@ def _check_recruit(gs: GameState, cmd: list) -> Optional[Tuple[str, str]]:
         return ("recruit:type_not_in_list",
                 f"'{unit_type}' not in side {side_now}.recruits="
                 f"{side_info.recruits}")
+    # Wesnoth GATES recruits on gold >= cost. The UI gate in
+    # `menu_handler::can_recruit` (menu_events.cpp:327) blocks the
+    # player at issue time. Even though the synced engine path
+    # (place_recruit -> team::spend_gold) doesn't re-check, the UI
+    # gate means a successful recruit recorded in a replay always
+    # had gold >= cost in Wesnoth's reality. Negative gold only
+    # arises from upkeep/income at init_side, not from recruits.
+    # So if our sim's gold < cost when the replay records the
+    # recruit, our gold tracker has DRIFTED from Wesnoth's --
+    # this is a real bug worth surfacing as a hard divergence.
     cost = int(_stats_for(unit_type).get("cost", 14))
     if side_info.current_gold < cost:
         return ("recruit:insufficient_gold",

@@ -402,6 +402,140 @@ and the attacker's strikes proceed normally. Our combat resolver
 must skip the counter-attack when defender is petrified (we already
 do this in `tools/replay_dataset.py`).
 
+### Chance-to-hit formula uses `accuracy` and `parry`
+
+`wesnoth_src/src/actions/attack.cpp:168-169`:
+```cpp
+signed int cth = opp.defense_modifier(...) + weapon->accuracy()
+    - (opp_weapon ? opp_weapon->parry() : 0);
+```
+clamped to [0, 100]; THEN the `marksman` (60) / `magical` (70)
+specials apply as floors via `weapon->composite_value(...)`.
+
+`accuracy=N` and `parry=N` are NUMERIC attrs on the `[attack]`
+block, distinct from the named `[specials]` macros. Default era
+1.18.4 uses them on exactly one weapon — Elvish Champion sword
+(`accuracy=10`). That makes them easy to miss when scraping;
+when missed, the Champion's 5-strike sword effectively misses 10%
+more often than reality.
+
+**Why non-obvious**: every other CTH adjustment in default era
+goes through a `[specials]` macro (`marksman`, `magical`, `feeding`,
+`charge`, etc.), so it's natural to assume the scrape only needs
+to track the [specials] children. The numeric `accuracy` / `parry`
+attrs sit directly on `[attack]` and require their own scrape path.
+
+`tools/scrape_unit_stats.py::extract_attacks` reads them; see
+`combat.py::_compute_battle_stats` for the CTH application
+(adds before the marksman/magical floor). Test:
+`test_combat_rules.py::test_accuracy_adds_to_cth`.
+
+### Illuminate is a terrain-light modifier, not an ally aura
+
+`wesnoth_src/src/tod_manager.cpp:237-262` (in
+`get_illuminated_time_of_day`):
+```cpp
+std::array<map_location, 7> locs;
+locs[0] = loc;
+get_adjacent_tiles(loc, locs.data() + 1);
+for(std::size_t i = 0; i < locs.size(); ++i) {
+    const auto itor = units.find(locs[i]);
+    if(itor != units.end() && !itor->incapacitated()) {
+        unit_ability_list illum = itor->get_abilities("illuminates");
+        if(!illum.empty()) { ... record this value ... }
+    }
+}
+```
+The 7-hex scan visits every unit in `loc` + the 6 adjacent hexes
+**without filtering by side**. An enemy Mage of Light at the
+attacked hex still illuminates the attacker, lifting the attacker's
+lawful_bonus from −25 (first_watch) to 0 (dusk-equivalent).
+
+**Why non-obvious**: the WML description ("any units adjacent to
+this unit will fight as if it were dusk when it is night") doesn't
+mention the side filter, but it's intuitive to think of illuminate
+as buffing your team. The engine treats it as an environmental
+ToD shift instead — adjacent enemies retaliating into the
+illuminated hex feel the same boost.
+
+Witnessed in `2p__Hamlets_Turn_20_(41655)` cmd[731]: Merman
+Netcaster (lawful) striking a side-2 Mage of Light at first_watch.
+Without the area-illumination credit, the Netcaster's club did
+5/hit (lawful −25%) instead of 7/hit, leaving the MoL at 4 hp
+where Wesnoth had it dead. Cascade: cmd[760] attacker_missing.
+
+`tools/abilities.py::illuminate_step` no longer filters by side.
+Test: `test_combat_rules.py::test_illuminate_lights_enemy_too`.
+
+### AMLA grants +3 max_hp, +20% max_experience, AND clears poisoned/slowed
+
+`wesnoth_src/data/core/macros/amla.cfg:4-30` (`AMLA_DEFAULT`):
+```
+[advancement]
+    strict_amla=yes
+    max_times=100
+    [effect]
+        apply_to=hitpoints
+        increase_total=3
+        heal_full=yes
+    [/effect]
+    [effect]
+        apply_to=max_experience
+        increase=20%
+    [/effect]
+    [effect] apply_to=status remove=poisoned [/effect]
+    [effect] apply_to=status remove=slowed [/effect]
+[/advancement]
+```
+
+The `+20%` on `max_experience` COMPOUNDS across AMLAs — each AMLA
+fires after the unit reaches the now-larger threshold, so the
+sequence is `36 → 43 → 52 → 63 → ...` for a Sharpshooter base 150
+under `experience_modifier=30` and intelligent trait. The 20%
+modifier rounds half-up via `apply_modifier` (`+50` bias before
+`/100`): `int(36*20+50)//100 = 7` so `36 → 43`.
+
+**Why non-obvious**: skipping the `max_experience` increase looks
+harmless — the unit just AMLAs more often than it should. But
+each extra AMLA full-heals the unit via `heal_full=yes`, so combats
+that should have killed the unit instead leave it healthy at full
+hp. We hit this in `2p__Weldyn_Channel_Turn_26_(53914)`: a
+Sharpshooter that should have died to an Arch Mage's fire was
+saved by a spurious 2nd AMLA mid-combat that healed 40→60 hp.
+
+`tools/replay_dataset.py::_maybe_advance_unit` (AMLA branch).
+Tests: `test_combat_rules.py::test_amla_increases_max_exp_20pct`,
+`test_amla_clears_slowed`.
+
+### Walking Corpse variations preserve parent unit's `[resistance]` overrides
+
+In Wesnoth, when a `[unit_type]` has a child `[variation] inherit=yes`
+that switches `movement_type=...`, the variation effectively
+re-applies the parent unit's own `[resistance]` / `[defense]` /
+`[movement_costs]` overrides on top of the new movetype's defaults.
+
+Example: Walking Corpse base unit declares `[resistance] arcane=140`.
+The mounted variation switches to `movement_type=mounted` (which has
+arcane=90 by default). The mounted variant inherits the parent's
+arcane=140 override despite the movetype switch — Wesnoth does this
+implicitly because `inherit=yes` copies the parent cfg into the
+variation cfg before the engine resolves resistances.
+
+**Why non-obvious**: an early read of `extract_variations` looks
+correct — pull the new movetype's defaults, layer the variation's
+own overrides. But the parent's overrides are silently dropped
+unless re-applied. Plague-spawn cascades: a Cavalryman killed by
+plague becomes Walking Corpse:mounted; if our sim has its arcane
+at 90 instead of 140, every faerie-fire / lightbeam attack on
+that mounted corpse does ~64% the damage Wesnoth actually deals.
+
+`tools/scrape_unit_stats.py::extract_variations` re-extracts the
+parent unit's explicit [resistance]/[defense]/[movement_costs]
+blocks and layers them on top of the new movetype's defaults.
+Variation-level overrides still win on top of those.
+Tests: `test_combat_rules.py::test_wc_mounted_preserves_arcane_140`,
+`test_wc_scorpion_variation_overrides_win`.
+
 ---
 
 ## Units, traits, leaders

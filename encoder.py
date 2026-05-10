@@ -820,6 +820,7 @@ def _unit_features(u: Unit) -> List[float]:
 # spawn turn, 0 XP); is_leader=False, has_attacked=False.
 
 _RECRUIT_STATS_CACHE: Dict[str, np.ndarray] = {}
+_RECRUIT_DB_WARN_FIRED: bool = False  # one-shot flag for unit-DB load fallback
 _FALLBACK_RECRUIT_STATS = {
     "hitpoints": 33, "moves": 5, "experience": 50, "cost": 14,
     "alignment": "neutral",
@@ -844,11 +845,26 @@ def _recruit_features_for(unit_type: str) -> np.ndarray:
         return cached
     # Lazy import: tools.replay_dataset already loads the unit DB on
     # first access; reuse it rather than re-parsing the JSON.
+    # Narrow except: legitimate failures here are the lazy import
+    # itself (ImportError -- tools/ not on path) or the unit-db load
+    # propagating an OS / JSON error past replay_dataset's
+    # FileNotFoundError handler. Anything else is a bug we want loud.
     try:
         from tools.replay_dataset import _stats_for, _load_unit_db
         _load_unit_db()
         stats = _stats_for(unit_type)
-    except Exception:
+    except (ImportError, OSError, ValueError) as exc:
+        # ValueError covers json.JSONDecodeError (subclass) for a
+        # corrupt unit_stats.json. Warn once -- if this fires every
+        # encoding call we'd flood logs.
+        if not _RECRUIT_DB_WARN_FIRED:
+            globals()["_RECRUIT_DB_WARN_FIRED"] = True
+            log.warning(
+                "Falling back to default recruit stats for %s: %s: %s. "
+                "All recruit feature embeddings will use FALLBACK values "
+                "until unit_stats.json is fixed.",
+                unit_type, type(exc).__name__, exc,
+            )
         stats = _FALLBACK_RECRUIT_STATS
     max_hp = float(stats.get("hitpoints", 33))
     max_mv = float(stats.get("moves", 5))

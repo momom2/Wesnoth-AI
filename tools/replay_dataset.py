@@ -559,6 +559,18 @@ def _build_recruit_unit(unit_type: str, side: int, x: int, y: int,
                                level=int(stats.get("level", 1)),
                                defense_table=defense_table)
     setattr(out, "_defense_table", defense_table)
+    # Preserve trait roll order. Wesnoth applies trait [effect]s in
+    # the order they were rolled at recruit time and PRESERVES that
+    # order across advancement (via [modifications]/[trait] children
+    # being kept in document order). Since `Unit.traits` is a set,
+    # we stash the ordered list separately so `_maybe_advance_unit`
+    # can re-apply traits in the same order on level-up.
+    # Verified by user: "Wesnoth does not always apply Resilient
+    # then Quick. It applies traits in the order in which they're
+    # rolled (and preserves the order on advancement), which
+    # sometimes makes Resilient Quick Adepts with 31 max hp, and
+    # sometimes Quick Resilient ones with 32."
+    setattr(out, "_trait_order", list(trait_ids))
     return out
 
 
@@ -634,6 +646,19 @@ def _build_initial_gamestate(data: dict) -> GameState:
             list(data.get("starting_sides", [])))
     setattr(gs.global_info, "_scenario_id", data.get("scenario_id", ""))
     setattr(gs.global_info, "_experience_modifier", exp_mod)
+    # Wesnoth's monotonic next_unit_id counter — increments on EVERY
+    # unit creation (recruit, plague spawn, scenario [unit] event,
+    # advancement that creates a new uid? — actually advancement
+    # mutates the existing uid, so doesn't bump). Doesn't decrement
+    # on death. Used by `tools/diff_unit_counter.py` to detect
+    # missing/extra unit creations against Wesnoth's `[checkup]
+    # [result] next_unit_id` field. Initialized to (max starting
+    # uid) + 1 to mirror Wesnoth's post-prestart state.
+    initial_max_uid = 0
+    for u in units:
+        if u.id.startswith("u") and u.id[1:].isdigit():
+            initial_max_uid = max(initial_max_uid, int(u.id[1:]))
+    setattr(gs.global_info, "_next_uid_counter", initial_max_uid + 1)
 
     # Pre-owned villages from the replay's [side]/[village] children
     # (or scenario-pool's _village_owner). Apply BEFORE turn-1 income
@@ -730,42 +755,64 @@ def _terrain_def_pct(gs: GameState, x: int, y: int,
     return _resolve_def(c, def_table)
 
 
+# Cached at module scope: terrain priority order is fixed.
+_TERRAIN_PREF_ORDER = (
+    (Terrain.VILLAGE, "village"),
+    (Terrain.CASTLE,  "castle"),
+    (Terrain.FOREST,  "forest"),
+    (Terrain.HILLS,   "hills"),
+    (Terrain.MOUNTAINS, "mountains"),
+    (Terrain.SWAMP,   "swamp_water"),
+    (Terrain.SAND,    "sand"),
+    (Terrain.SHALLOWWATER, "shallow_water"),
+    (Terrain.DEEPWATER, "deep_water"),
+    (Terrain.FROZEN,  "frozen"),
+    (Terrain.CAVE,    "cave"),
+    (Terrain.UNWALKABLE, "unwalkable"),
+    (Terrain.IMPASSABLE, "impassable"),
+    (Terrain.FLAT,    "flat"),
+)
+
+
+def _hex_lookup(gs: GameState):
+    """Return `(by_xy_hex, by_xy_wml)` — two dicts indexing
+    `gs.map.hexes` by `(x, y)`. Built once per gs.map.hexes identity
+    and stashed on `gs.global_info`. Hexes are aliased across
+    deepcopies in self-play (see `Map.__deepcopy__` fast-path), so
+    the cache survives branching. Scenario terrain mutators (Aethermaw
+    morph, [modify_terrain] events) must invalidate the cache by
+    `delattr(gs.global_info, "_hex_lookup_cache_id")` before further
+    `_terrain_at` / `_capture_village` calls.
+
+    Replaces two ~O(N_hexes) `next((h for h in gs.map.hexes if ...))`
+    scans that together accounted for ~40% of replay-walk wall-clock.
+    """
+    info = gs.global_info
+    cache_key = id(gs.map.hexes)
+    if getattr(info, "_hex_lookup_cache_id", -1) != cache_key:
+        by_xy_hex: Dict[Tuple[int, int], object] = {}
+        by_xy_wml: Dict[Tuple[int, int], str] = {}
+        for h in gs.map.hexes:
+            xy = (h.position.x, h.position.y)
+            by_xy_hex[xy] = h
+            tts = h.terrain_types
+            wml = "flat"
+            for pref, key in _TERRAIN_PREF_ORDER:
+                if pref in tts:
+                    wml = key
+                    break
+            by_xy_wml[xy] = wml
+        setattr(info, "_hex_lookup_cache_id", cache_key)
+        setattr(info, "_hex_lookup_by_xy", by_xy_hex)
+        setattr(info, "_hex_lookup_by_wml", by_xy_wml)
+    return info._hex_lookup_by_xy, info._hex_lookup_by_wml
+
+
 def _terrain_at(gs: GameState, x: int, y: int) -> str:
     """Return a Wesnoth-WML terrain key (e.g. 'forest', 'flat',
     'village') for the hex at (x, y), defaulting to 'flat' if missing
-    from our parsed hex set or carrying an unmapped Terrain enum."""
-    hex_obj = next(
-        (h for h in gs.map.hexes if h.position.x == x and h.position.y == y),
-        None,
-    )
-    if hex_obj is None:
-        return "flat"
-    # Pick the most informative terrain: village > castle > forest > base.
-    tts = hex_obj.terrain_types
-    name_map = {
-        Terrain.VILLAGE: "village",
-        Terrain.CASTLE:  "castle",
-        Terrain.FOREST:  "forest",
-        Terrain.HILLS:   "hills",
-        Terrain.MOUNTAINS: "mountains",
-        Terrain.SWAMP:   "swamp_water",
-        Terrain.SAND:    "sand",
-        Terrain.SHALLOWWATER: "shallow_water",
-        Terrain.DEEPWATER: "deep_water",
-        Terrain.FROZEN:  "frozen",
-        Terrain.CAVE:    "cave",
-        Terrain.UNWALKABLE: "unwalkable",
-        Terrain.IMPASSABLE: "impassable",
-        Terrain.FLAT:    "flat",
-    }
-    for pref in (Terrain.VILLAGE, Terrain.CASTLE, Terrain.FOREST,
-                 Terrain.HILLS, Terrain.MOUNTAINS, Terrain.SWAMP,
-                 Terrain.SAND, Terrain.SHALLOWWATER, Terrain.DEEPWATER,
-                 Terrain.FROZEN, Terrain.CAVE, Terrain.UNWALKABLE,
-                 Terrain.IMPASSABLE, Terrain.FLAT):
-        if pref in tts:
-            return name_map[pref]
-    return "flat"
+    from our parsed hex set."""
+    return _hex_lookup(gs)[1].get((x, y), "flat")
 
 
 def _tod_cycle_index(turn_number: int, start_offset: int = 0) -> int:
@@ -796,6 +843,19 @@ def _lawful_bonus_at(gs: GameState, x: int, y: int, turn_number: int) -> int:
     underground keeps, etc.) — those override the global ToD cycle on
     their hexes, and the override has its own per-position cycle.
     Falls back to the default 6-step cycle when no [time_area] applies.
+
+    On top of the base ToD, applies terrain-level light bonus per
+    `terrain.hpp:132`: the campfire overlay (^Ecf), wallfire (^Efs),
+    icicle (^Ii), eldritch fire (^Ebn) and similar "lit" overlays
+    add +25 to lawful_bonus and CLAMP via max_light / min_light --
+    e.g. ^Ecf with max=min=25 fixes the hex's lawful_bonus to exactly
+    25 regardless of base ToD. Without this, a Poacher on Rrc^Ecf
+    at Tombs of Kesorak's illuminated zone takes +25% chaotic-night
+    damage instead of -25% chaotic-day, killing units that should
+    survive (witnessed in 2p__Tombs_of_Kesorak_Turn_*_(208025) at
+    cmd[138]: Poacher retal-bow dmg should be 3 (4*0.75) but our
+    sim computed 4 (4*1.0), the cumulative drift over later attacks
+    killed the Dark Adept which Wesnoth keeps alive).
     """
     start_offset = int(getattr(gs.global_info, "_tod_start_offset", 0) or 0)
     areas = getattr(gs.global_info, "_time_areas", None)
@@ -806,8 +866,22 @@ def _lawful_bonus_at(gs: GameState, x: int, y: int, turn_number: int) -> int:
             # so a random-start-time scenario sees the area cycle in
             # the right phase relative to the global one.
             idx = (max(1, turn_number) - 1 + start_offset) % len(cycle)
-            return int(cycle[idx])
-    return _lawful_bonus_for_turn(turn_number, start_offset)
+            base = int(cycle[idx])
+        else:
+            base = _lawful_bonus_for_turn(turn_number, start_offset)
+    else:
+        base = _lawful_bonus_for_turn(turn_number, start_offset)
+    # Apply terrain light_bonus: bounded_add(base, light, max_light,
+    # min_light). The result is the unit's effective lawful_bonus.
+    codes = getattr(gs.global_info, "_terrain_codes", {}) or {}
+    code = codes.get((x, y))
+    if code:
+        # Strip the "1 ", "2 " starting-position markers.
+        if code[:1].isdigit() and code[1:2] == " ":
+            code = code[2:]
+        from tools.terrain_resolver import terrain_light_bonus
+        return terrain_light_bonus(code, base)
+    return base
 
 
 def _to_combat_unit(u: Unit, terrain_key,
@@ -832,18 +906,31 @@ def _to_combat_unit(u: Unit, terrain_key,
     base_attacks = stats.get("attacks", [])
     weapons = []
     for i, ua in enumerate(u.attacks):
-        # Match name / specials / range / type from base stats by index.
+        # Match name / range / type from base stats by index.
         if i < len(base_attacks):
             atk_stat = base_attacks[i]
             name = atk_stat.get("name", "?")
             wtype = atk_stat.get("type", "blade")
             wrange = atk_stat.get("range", "melee")
-            specials = list(atk_stat.get("specials", []))
+            base_specials = set(atk_stat.get("specials", []))
+            accuracy = int(atk_stat.get("accuracy", 0) or 0)
+            parry = int(atk_stat.get("parry", 0) or 0)
         else:
             name = "?"
             wtype = _DT_ENUM_TO_NAME.get(ua.type_id, "blade")
             wrange = "ranged" if ua.is_ranged else "melee"
-            specials = list(ua.weapon_specials) if ua.weapon_specials else []
+            base_specials = set()
+            accuracy = 0
+            parry = 0
+        # UNION of base specials and the unit's per-attack modifications.
+        # Scenario [object] handlers (e.g. Hornshark Island's
+        # MODIFY_BOWMAN granting `firststrike` to the bow) write their
+        # additions to `ua.weapon_specials`. Without unioning here, the
+        # modifications get silently dropped at combat time because
+        # `_to_combat_unit` was reading specials from the BASE unit
+        # stats only.
+        unit_specials = set(ua.weapon_specials) if ua.weapon_specials else set()
+        specials = list(base_specials | unit_specials)
         weapons.append(cb.Weapon(
             name=name,
             damage=int(ua.damage_per_strike),  # trait-adjusted
@@ -851,6 +938,8 @@ def _to_combat_unit(u: Unit, terrain_key,
             range=wrange,
             type=wtype,
             specials=specials,
+            accuracy=accuracy,
+            parry=parry,
         ))
     if not weapons:
         weapons.append(cb.Weapon("none", 1, 1, "melee", "blade", []))
@@ -880,6 +969,20 @@ def _to_combat_unit(u: Unit, terrain_key,
     # dropped in _to_combat_unit -- a Ghoul (musthave fearless)
     # attacking at morning produced damage as if penalised by
     # combat_modifier=-25, instead of 0 (capped).
+    # is_undrainable: an opponent of a drain weapon doesn't heal the
+    # striker if the opponent is undead/mechanical/elemental. We check
+    # both the explicit status (set by some scenery [unit]s) AND the
+    # musthave trait set since the TRAIT_{UNDEAD,MECHANICAL,ELEMENTAL}
+    # macros add the status implicitly. Same eligibility logic as
+    # _is_unplagueable.
+    is_undrainable = (
+        "undrainable" in u.statuses
+        or bool(set(u.traits) & _UNPLAGUEABLE_TRAITS)
+    )
+    is_unpoisonable = (
+        "unpoisonable" in u.statuses
+        or bool(set(u.traits) & _UNPLAGUEABLE_TRAITS)
+    )
     return cb.CombatUnit(
         side=u.side,
         hp=int(u.current_hp),
@@ -895,6 +998,8 @@ def _to_combat_unit(u: Unit, terrain_key,
         is_poisoned="poisoned" in u.statuses,
         is_fearless="fearless" in u.traits,
         abilities=abilities,
+        is_undrainable=is_undrainable,
+        is_unpoisonable=is_unpoisonable,
     )
 
 
@@ -977,11 +1082,41 @@ def _maybe_advance_unit(gs: GameState, u: Unit) -> Unit:
             pending.pop(0)
             setattr(gs.global_info, "_advance_choices", pending)
         new_max_hp = u.max_hp + 3
+        # AMLA_DEFAULT (data/core/macros/amla.cfg) effects:
+        #   [effect] apply_to=hitpoints   increase_total=3 heal_full=yes
+        #   [effect] apply_to=max_experience increase=20%
+        #   [effect] apply_to=status      remove=poisoned
+        #   [effect] apply_to=status      remove=slowed
+        # The +20% on max_experience COMPOUNDS across AMLAs (each fires
+        # after the unit reaches the now-larger threshold), so a unit
+        # that AMLAs once at xp=36 → max_xp=43; if it AMLAs again,
+        # 43 → 43 + div100rounded(43*20) = 43 + 9 = 52; etc.
+        # Wesnoth's `apply_modifier(value, "20%")` rounds half up via
+        # div100rounded: (n+50)//100. For 36*20=720 → (720+50)//100 = 7,
+        # so max_xp += 7 → 43. (units/unit.cpp:2247.)
+        # Without this increase, our sim AMLAs the same unit at every
+        # +36 xp instead of {36, 43, 52, …}, so a Sharpshooter that
+        # should AMLA only once over a game ends up AMLAing twice and
+        # full-healing back to max — masking what should be a kill.
+        # Witnessed 2026-05-08 against
+        # 2p__Weldyn_Channel_Turn_26_(53914): u33 Sharpshooter took its
+        # 1st AMLA at t15 s1 (cmd[478], correctly), then a 2nd AMLA at
+        # t18 s1 cmd[553] healed it 40→60 hp; that healing made the
+        # Arch Mage's cmd[554] fire (60→24, max 4*12 dmg) survivable
+        # in our sim. With the +20% increase, max_xp goes 36→43 after
+        # the 1st AMLA, the 2nd AMLA never fires (xp=36 < 43), and the
+        # Arch Mage's cmd[554] correctly kills the Sharpshooter.
+        new_max_exp = u.max_exp + (u.max_exp * 20 + 50) // 100
+        new_statuses = set(u.statuses)
+        new_statuses.discard("poisoned")
+        new_statuses.discard("slowed")
         return _replace_unit(
             gs, u,
             max_hp=new_max_hp,
             current_hp=new_max_hp,
+            max_exp=new_max_exp,
             current_exp=max(0, u.current_exp - u.max_exp),
+            statuses=new_statuses,
         )
     # Pick the choice — pop from the per-attack queue if available
     # (replay [choose] commands push integer indices here, in
@@ -1041,6 +1176,26 @@ def _maybe_advance_unit(gs: GameState, u: Unit) -> Unit:
     # stats on advancement and re-applies trait modifications; clearing
     # u.traits here forces apply_traits_to_unit to re-walk the deltas
     # cleanly.
+    # Clear poisoned/slowed/petrified on advancement. Wesnoth's
+    # `get_advanced_unit` in actions/advancement.cpp:319-326 calls
+    # heal_fully() then set_state(POISONED, SLOWED, PETRIFIED, false)
+    # right after `advance_to`. Other statuses (resting,
+    # unplagueable/unpoisonable/undrainable, variation tags) carry
+    # over -- they're inherent to the unit type or the turn cycle.
+    # Without this clear, a unit poisoned BEFORE advancement keeps
+    # taking -8 HP/turn after the advance, despite Wesnoth saying it
+    # should be cured. Concrete repro:
+    # 2p__Ruphus_Isle_Turn_18_(213496).bz2 -- Gryphon Rider u17 was
+    # poisoned by a Ghoul, advanced to Gryphon Master, our sim kept
+    # the poison ticking, drained the Master to hp=4/48 by turn 16
+    # so its turn-16 attack on the Ghoul let the Ghoul kill it in
+    # counter, advancing the Ghoul to Necrophage; in Wesnoth the
+    # Master was at full HP, didn't die, and the Ghoul stayed a Ghoul.
+    new_statuses = set(u.statuses)
+    new_statuses.discard("poisoned")
+    new_statuses.discard("slowed")
+    new_statuses.discard("petrified")
+    new_statuses.discard("stunned")
     fresh = _replace_unit(
         gs, u,
         name=new_type,
@@ -1058,6 +1213,7 @@ def _maybe_advance_unit(gs: GameState, u: Unit) -> Unit:
         defenses=defenses,
         abilities=set(new_stats.get("abilities", [])),
         traits=set(),
+        statuses=new_statuses,
     )
     # Build the new defense table from the advanced unit-type, then
     # let trait re-application stamp `feral` village=50 etc. back on
@@ -1065,7 +1221,31 @@ def _maybe_advance_unit(gs: GameState, u: Unit) -> Unit:
     # combat post-advancement reads from the right table.
     advanced_def_table = dict(new_stats.get("defense", {}))
     setattr(fresh, "_defense_table", advanced_def_table)
-    trait_ids = list(u.traits)
+    # Wesnoth applies trait [effect]s in the order they were rolled
+    # at recruit time and PRESERVES that order through advancement
+    # (the [modifications]/[trait] children stay in document order).
+    # We stash `_trait_order` on the unit at recruit time
+    # (`_build_recruit_unit`) and on preplaced [unit] events so we
+    # can replay the same order here. Since hp_pct applies on top of
+    # the running max_hp, order matters: a Resilient-then-Quick
+    # Dark Adept gets 28 +5 = 33 → -2 (quick -5% of 33) = 31;
+    # a Quick-then-Resilient one gets 28 -1 = 27 → +5 = 32.
+    # Falls back to set iteration when `_trait_order` is missing
+    # (e.g., units imported from older saves) -- the result will be
+    # implementation-defined but at least every code path applies
+    # ALL traits.
+    trait_order = getattr(u, "_trait_order", None)
+    if trait_order:
+        # Filter to traits actually present (defensive — unit could
+        # have lost a trait somehow, or gained one not in the order).
+        trait_set = set(u.traits)
+        trait_ids = [t for t in trait_order if t in trait_set]
+        # Append any traits not in the recorded order at the end.
+        for t in trait_set:
+            if t not in trait_order:
+                trait_ids.append(t)
+    else:
+        trait_ids = list(u.traits)
     if trait_ids:
         from tools.traits import apply_traits_to_unit
         advanced = apply_traits_to_unit(
@@ -1073,6 +1253,10 @@ def _maybe_advance_unit(gs: GameState, u: Unit) -> Unit:
             defense_table=advanced_def_table,
         )
         setattr(advanced, "_defense_table", advanced_def_table)
+        # Preserve trait order on the advanced unit so subsequent
+        # advancements (AMLA, Master at Arms, etc.) also re-apply in
+        # the same order.
+        setattr(advanced, "_trait_order", list(trait_ids))
         gs.map.units.discard(fresh)
         gs.map.units.add(advanced)
         return advanced
@@ -1141,7 +1325,19 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         #   4. After healing, set resting=True for all side-N units
         #      (Wesnoth does this in play_controller.cpp:548 right
         #      after calculate_healing).
-        from tools.abilities import healer_heal_amount, adjacent_curer
+        from tools.abilities import (
+            healer_heal_amount, adjacent_curer, build_pos_index,
+        )
+        from tools.terrain_resolver import terrain_heals
+        codes_dict = getattr(gs.global_info, "_terrain_codes", {}) or {}
+        # init_side queries adjacency O(N_units) times within a single
+        # snapshot of gs.map.units (we read here, mutate the
+        # `new_units` set independently). Build the position index
+        # once and pass it down to skip 2*N_units linear scans.
+        # ~73% of all _adjacent_units calls in a typical replay walk
+        # land in this loop, so the saving is the biggest non-RNG
+        # win after the terrain cache.
+        pos_idx = build_pos_index(gs.map.units)
         new_units = set()
         for u in gs.map.units:
             if u.side != side:
@@ -1149,11 +1345,19 @@ def _apply_command(gs: GameState, cmd: list) -> None:
 
             stats = _stats_for(u.name)
             abilities = set(u.abilities) | set(stats.get("abilities", []))
-            terrain = _terrain_at(gs, u.position.x, u.position.y)
-            on_village = (terrain == "village")
+            # Terrain-provided healing: villages all use heals=8, but
+            # the oasis overlay (^Do) is heals=8 too WITHOUT being a
+            # village. wesnoth_src/src/actions/heal.cpp routes both
+            # the +HP branch and the poison-cure branch through
+            # `map().gives_healing(loc)` -- so any heals>0 hex cures
+            # poison just like a village. We capture that here.
+            raw_code = codes_dict.get((u.position.x, u.position.y), "")
+            if raw_code and raw_code[:1].isdigit() and raw_code[1:2] == " ":
+                raw_code = raw_code[2:]
+            terrain_heal_amt = terrain_heals(raw_code) if raw_code else 0
             has_regen = "regenerate" in abilities
-            healer_amt = healer_heal_amount(u, gs.map.units)
-            has_curer = adjacent_curer(u, gs.map.units)
+            healer_amt = healer_heal_amount(u, gs.map.units, pos_index=pos_idx)
+            has_curer = adjacent_curer(u, gs.map.units, pos_index=pos_idx)
             poisoned = "poisoned" in u.statuses
             new_statuses = set(u.statuses)
 
@@ -1168,8 +1372,8 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             if not poisoned:
                 # MAX of available healing sources, NOT sum.
                 main_heal = 0
-                if on_village:
-                    main_heal = max(main_heal, cb.VILLAGE_HEAL)
+                if terrain_heal_amt > 0:
+                    main_heal = max(main_heal, terrain_heal_amt)
                 if has_regen:
                     main_heal = max(main_heal, cb.REGENERATE_AMOUNT)
                 main_heal = max(main_heal, healer_amt)
@@ -1178,7 +1382,7 @@ def _apply_command(gs: GameState, cmd: list) -> None:
                 # poison_progress: village/regen=cure → CURE; adjacent
                 # healer (heals+4/+8 without cures) → SLOW; otherwise
                 # NORMAL.
-                if on_village or has_regen or has_curer:
+                if terrain_heal_amt > 0 or has_regen or has_curer:
                     curing = "cure"
                 elif healer_amt > 0:
                     curing = "slow"
@@ -1400,6 +1604,22 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         if att is None or dfd is None:
             return
 
+        # Disconnect-mid-attack handling: if the recorded [attack]
+        # block has no [random_seed] following it (extractor stores
+        # this as seed_hex == "") AND the attacker has at least one
+        # strike, the attack didn't actually consume any RNG -- this
+        # means it was aborted in Wesnoth (most often a player
+        # disconnect during the attack: 8 saves of the same
+        # 2p__Ruphus_Isle_Turn_*_(102…) game show "Gieko has
+        # disconnected" right between the move and the [attack],
+        # the attack records empty [checkup][/checkup], and no
+        # [random_seed] follows; subsequent commands proceed as if
+        # the attack was a no-op). Empty-seed attacks are rare
+        # (~2/500 replays in our corpus), so the conservative skip
+        # only affects this disconnect class.
+        if not seed_hex:
+            return
+
         # Build CombatUnit snapshots using each unit's CURRENT terrain
         # for defense. (Attacker on its hex can be counter-attacked,
         # so we pass its own terrain for its defense_pct.) Pass the
@@ -1450,10 +1670,29 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         turn = gs.global_info.turn_number
         a_base = _lawful_bonus_at(gs, att.position.x, att.position.y, turn)
         d_base = _lawful_bonus_at(gs, dx, dy, turn)
-        a_illum = 25 * illuminate_step(att, gs.map.units)
-        d_illum = 25 * illuminate_step(dfd, gs.map.units)
-        a_lawful = max(-25, min(25, a_base + a_illum))
-        d_lawful = max(-25, min(25, d_base + d_illum))
+        # Unit-illumination ([illuminates] ability, value=25 max_value=25)
+        # is applied via Wesnoth's asymmetric bounded_add ON TOP of
+        # the terrain-light-modified `a_base` / `d_base`. Per
+        # `tod_manager.cpp:265-281`, the per-illuminator effect is
+        # `bounded_add(terrain_light, 25, max_value=25, min_value=0)`,
+        # then `best_result = max(terrain_light, illum_result)` (when
+        # !net_darker, i.e., positive illumination).
+        # Matches `bounded_add` semantics: for positive increment,
+        #   result = min(base + 25, max(base, 25))
+        # so when base >= 25 the result is `base` (illumination
+        # cannot exceed terrain_light when terrain_light is already
+        # at/above the illuminate cap). At day on lava (a_base=35),
+        # this preserves 35 instead of dropping to 25 -- the old
+        # additive `min(25, base+25)` cap incorrectly clamped down.
+        # Edge case (rare in 2p corpus) but correctness-relevant.
+        def _apply_illum(base: int, has_illum: bool) -> int:
+            if not has_illum:
+                return base
+            # bounded_add(base, 25, max_sum=25, min_sum=0); positive
+            # branch: min(base+25, max(base, 25)).
+            return min(base + 25, max(base, 25))
+        a_lawful = _apply_illum(a_base, illuminate_step(att, gs.map.units) > 0)
+        d_lawful = _apply_illum(d_base, illuminate_step(dfd, gs.map.units) > 0)
 
         # Backstab: active when there's an enemy of the defender on
         # the hex opposite the attacker. Symmetric for the counter-
@@ -1535,6 +1774,17 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             _maybe_advance_unit(gs, new_att)
         else:
             gs.map.units.discard(att)
+            # Plague reverse-direction: defender's plague counter
+            # killed attacker -> spawn WC for DEFENDER's side at
+            # ATTACKER's hex. Wesnoth's plague triggers on any kill
+            # by a plague-flagged weapon, regardless of which side
+            # launched the killing strike. See combat.py for the
+            # corresponding flag.
+            if (getattr(result, "plague_spawned_attacker_died", False)
+                    and dfd in gs.map.units):
+                _spawn_plague_corpse(gs, att,
+                                     attacker_side=dfd.side,
+                                     attacker_name=dfd.name)
         if result.defender_alive:
             new_max = dfd.max_hp + (1 if dfd_feed_bump else 0)
             new_hp = result.defender_hp_after + (1 if dfd_feed_bump else 0)
@@ -1594,6 +1844,10 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         spawned = _rebuild_unit(new_unit, current_moves=0,
                                 has_attacked=True)
         gs.map.units.add(spawned)
+        # Bump Wesnoth's monotonic next_unit_id counter (see
+        # _build_initial_gamestate setup).
+        cur = int(getattr(gs.global_info, "_next_uid_counter", 1) or 1)
+        setattr(gs.global_info, "_next_uid_counter", cur + 1)
 
         # Deduct cost from side gold (use unit_db cost; fall back to 14).
         # NO clamp at 0 -- mirrors Wesnoth's `team::spend_gold`
@@ -1788,6 +2042,10 @@ def _spawn_plague_corpse(gs: GameState, dead: Unit,
         statuses=new_statuses,
     )
     gs.map.units.add(spawned)
+    # Bump Wesnoth's monotonic next_unit_id counter (plague spawn
+    # creates a fresh uid in Wesnoth too).
+    cur = int(getattr(gs.global_info, "_next_uid_counter", 1) or 1)
+    setattr(gs.global_info, "_next_uid_counter", cur + 1)
 
 
 def _capture_village(gs: GameState, x: int, y: int, capturing_side: int) -> None:
@@ -1795,10 +2053,8 @@ def _capture_village(gs: GameState, x: int, y: int, capturing_side: int) -> None
     update side village counts. We track ownership via a per-game
     `_village_owner: Dict[(x,y) -> side]` we stash on gs.global_info
     (lightweight; survives within iter_replay_pairs)."""
-    hex_obj = next(
-        (h for h in gs.map.hexes if h.position.x == x and h.position.y == y),
-        None,
-    )
+    by_xy_hex, _ = _hex_lookup(gs)
+    hex_obj = by_xy_hex.get((x, y))
     if hex_obj is None:
         return
 

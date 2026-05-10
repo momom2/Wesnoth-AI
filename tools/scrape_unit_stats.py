@@ -393,7 +393,8 @@ def _scan_unit_trait_macros(node: Node, raw_text: str) -> List[str]:
 
 
 def build_trait_info(race_data: dict, unit_macros: List[str], *,
-                     ignore_race_traits: bool = False) -> dict:
+                     ignore_race_traits: bool = False,
+                     alignment: str = "neutral") -> dict:
     """Combine race-level + unit-level trait macros into the per-unit
     trait pool that mirrors Wesnoth's `unit_type::possible_traits()`.
 
@@ -404,8 +405,12 @@ def build_trait_info(race_data: dict, unit_macros: List[str], *,
       2. If `race->uses_global_traits()` is false: clear pool.
       3. If `cfg["ignore_race_traits"]==yes` (unit-type level): clear
          pool. Otherwise, add the race's `additional_traits`
-         (musthaves like undead/mechanical/feral; the `fearless`
-         skip for neutral-alignment units happens here).
+         AND skip `fearless` if the unit is neutral-aligned
+         (types.cpp:350: `if(alignment_ != neutral ||
+         t["id"] != "fearless")`). The skip exists because fearless
+         only matters for time-of-day-aligned units; on a neutral
+         unit it's a dead trait and the engine omits it from the
+         random pool.
       4. Always: add unit-type's own [trait] children
          (e.g. Dark Adept's inline {TRAIT_QUICK} {TRAIT_INTELLIGENT}
          {TRAIT_RESILIENT}).
@@ -428,12 +433,19 @@ def build_trait_info(race_data: dict, unit_macros: List[str], *,
     musthave: List[str] = []
     musthave_seen: Set[str] = set()
     pool: List[str] = []
+    is_neutral = (alignment or "neutral").strip().lower() == "neutral"
 
-    def add(macro_name: str) -> None:
+    def add(macro_name: str, *, skip_fearless: bool = False) -> None:
         info = TRAIT_MACROS.get(macro_name)
         if info is None:
             return
         tid, avl = info
+        if skip_fearless and tid == "fearless":
+            # types.cpp:350: the engine skips fearless from race
+            # additional_traits when the unit is neutral. Match by
+            # trait id, not macro name, to mirror the C++ check
+            # `t["id"] != "fearless"`.
+            return
         if avl == "musthave":
             # Musthaves dedup -- adding the same musthave twice doesn't
             # change unit behavior; we track them as a flat set on the
@@ -477,8 +489,13 @@ def build_trait_info(race_data: dict, unit_macros: List[str], *,
         # the four-trait pool {TRAIT_STRONG/QUICK/RESILIENT/FEARLESS}
         # for trolls). Race additionals append on top of global, with
         # duplicates preserved per the comment in `add` above.
+        # Pass skip_fearless=is_neutral to mirror types.cpp:350: the
+        # engine omits fearless from race-additional pool for neutral
+        # units (default-era trolls are chaotic, so this is dormant
+        # for ladder play; matters for hypothetical neutral-troll
+        # eras and for any future race that adds fearless).
         for m in race_data.get("trait_macros", []):
-            add(m)
+            add(m, skip_fearless=is_neutral)
 
     # Unit-type-level macros (e.g. {TRAIT_FERAL_MUSTHAVE} on bats,
     # {TRAIT_FEARLESS_MUSTHAVE} on Walking Corpse, and the inline
@@ -507,11 +524,21 @@ def extract_movetypes(units_cfg: Path, macros: Dict[str, List[str]]) -> Dict[str
         if n.tag == "movetype":
             name = n.attrs.get("name", "?")
             raw_defense = _table(n, "defense", TERRAINS, 100)
-            # Collapse negative-as-cap to abs value at the movetype
-            # layer too (mounted forest=-70, fly fungus=-70, etc.).
-            # Unit-level overrides happen in extract_unit and follow
-            # the same convention.
-            defense = {k: abs(int(v)) for k, v in raw_defense.items()}
+            # PRESERVE the negative sign at the movetype layer.
+            # Wesnoth uses negative defense values as CAPS (floor on
+            # to-be-hit). E.g. mounted's `forest=-70` means "70%
+            # to-be-hit minimum on any forest-aliased terrain". The
+            # cap matters for composite terrains (Gg^Fet, Gg^Fp,
+            # etc.) where naive min-over-aliases would pick the
+            # flat value (60) and bypass the forest cap. The
+            # terrain_resolver's `_collect_neg_caps` walks the
+            # alias tree and applies these floors AFTER the alias
+            # min, only if the negative entry is preserved here.
+            # Stripping the sign was a Stage-14 bug -- 2026-05-04
+            # caught via Weldyn Channel Turn 23 (40663): Horseman
+            # on Gg^Fet had 40% def instead of 30%, drains
+            # retaliation missed where it should have hit.
+            defense = {k: int(v) for k, v in raw_defense.items()}
             out[name] = {
                 "name": name,
                 "defense":     defense,
@@ -559,6 +586,19 @@ def extract_attacks(node: Node, raw_text: str = "") -> List[dict]:
          these aren't WML tags so we have to re-scan the raw text.
     """
     out = []
+    # Some unit types have MULTIPLE [attack] blocks with the same
+    # `name=` but different damage type / range (e.g. Drake Arbiter
+    # has two halberd attacks: a blade-melee and a pierce-melee).
+    # _scan_attack_special_macros disambiguated by name only,
+    # so a `firststrike` macro inside the pierce-halberd's
+    # [specials] block leaked into the blade-halberd entry too.
+    # Pre-scrape macros once per unit, keyed by (name, type, range,
+    # damage, number) so collisions can't happen.
+    macros_by_attack = (
+        _scan_attack_special_macros_by_index(raw_text)
+        if raw_text else []
+    )
+    attack_idx = 0
     for c in node.children:
         if c.tag != "attack":
             continue
@@ -573,10 +613,12 @@ def extract_attacks(node: Node, raw_text: str = "") -> List[dict]:
             for sc in sp.children:
                 if sc.tag not in specials:
                     specials.append(sc.tag)
-        # 3. macro invocations inside [specials] block — re-scan source
-        if raw_text:
-            atk_name = c.attrs.get("name", "")
-            for sp_id in _scan_attack_special_macros(raw_text, atk_name):
+        # 3. macro invocations inside [specials] block — match by
+        # attack INDEX (position among [attack] blocks). The text
+        # scanner walks [attack] blocks in source order, same as
+        # this loop walks node children.
+        if attack_idx < len(macros_by_attack):
+            for sp_id in macros_by_attack[attack_idx]:
                 if sp_id not in specials:
                     specials.append(sp_id)
         out.append({
@@ -585,8 +627,71 @@ def extract_attacks(node: Node, raw_text: str = "") -> List[dict]:
             "range":   c.attrs.get("range", "melee"),
             "damage":  int(c.attrs.get("damage", 0) or 0),
             "number":  int(c.attrs.get("number", 1) or 1),
+            # `accuracy` / `parry` are direct numeric attrs on
+            # [attack] (units/attack_type.cpp:87-90). They feed
+            # the CTH formula at attack.cpp:168-169:
+            #     cth = defender_defense_modifier
+            #         + attacker.weapon.accuracy
+            #         - defender.weapon.parry      (if defender retaliates)
+            # then clamped to [0, 100].
+            # Default era examples in 1.18.4: Elvish Champion sword
+            # (accuracy=10), Marksman/Sharpshooter NOT here (those use
+            # the marksman SPECIAL, not accuracy attr). Without these,
+            # the Champion's sword effectively misses 10% more often
+            # than reality. Witnessed 2026-05-08 in
+            # 2p__Den_of_Onis_Turn_65_(135596) cmd[1161]: 5-strike
+            # sword vs Troll Whelp on grass (40 cth + 10 accuracy =
+            # 50 cth) lands 4 hits in Wesnoth (24 dmg, kills) vs 3
+            # hits in our sim (18 dmg, leaves Troll Whelp alive).
+            "accuracy": int(c.attrs.get("accuracy", 0) or 0),
+            "parry":    int(c.attrs.get("parry", 0) or 0),
             "specials": specials,
         })
+        attack_idx += 1
+    return out
+
+
+def _scan_attack_special_macros_by_index(raw_text: str) -> List[List[str]]:
+    """Walk [attack] blocks in source order; for each, return the list
+    of WEAPON_SPECIAL_X macro ids found inside its [specials] block.
+    Returns one list per [attack] block (same order as the parser
+    visits attack children). Replaces the old name-based scanner
+    which collided when two attacks shared a `name=` (Drake Arbiter
+    has two halberd attacks; the firststrike macro on the pierce
+    halberd was leaking into the blade halberd entry, breaking
+    cmd-1105 combat in
+    2p__Cynsaun_Battlefield_Turn_33_(94735).bz2)."""
+    out: List[List[str]] = []
+    in_attack = False
+    in_specials = False
+    cur: List[str] = []
+    for line in raw_text.splitlines():
+        m_open  = TAG_OPEN_RE.match(line)
+        m_close = TAG_CLOSE_RE.match(line)
+        if m_open:
+            tag = m_open.group(1)
+            if tag == "attack" and not in_attack:
+                in_attack = True
+                cur = []
+            elif tag == "specials" and in_attack:
+                in_specials = True
+            continue
+        if m_close:
+            tag = m_close.group(1)
+            if tag == "specials":
+                in_specials = False
+            elif tag == "attack" and in_attack:
+                out.append(cur)
+                cur = []
+                in_attack = False
+                in_specials = False
+            continue
+        if in_attack and in_specials:
+            inv = re.match(r'^\s*\{(WEAPON_SPECIAL_\w+)(?:\s+[^}]*)?\}\s*$', line)
+            if inv:
+                sp_id = WEAPON_SPECIAL_MACROS.get(inv.group(1))
+                if sp_id and sp_id not in cur:
+                    cur.append(sp_id)
     return out
 
 
@@ -722,7 +827,42 @@ def extract_variations(node: Node, parent_stats: dict,
     `inherit=yes` (the typical case) means the variation starts from
     parent_stats and applies its own overrides. We don't try to model
     `inherit=no`; none of the default-era variations use it.
+
+    NB: parent_stats["resistance"] etc. are already merged (movetype
+    defaults + unit overrides), so when a variation switches to a
+    different movetype we can't reconstruct the parent's explicit
+    overrides from parent_stats alone. We re-extract the parent unit's
+    own [resistance]/[defense]/[movement_costs] blocks from `node`
+    here so they layer correctly on the new movetype's defaults.
+    Witnessed 2026-05-08: Walking Corpse:mounted (mounted movetype
+    arcane=90) was losing the parent WC's `[resistance] arcane=140`
+    override, computing arcane resistance 0.9 instead of 1.4. That
+    cut faerie-fire damage in half on mounted corpses, leaving u30
+    in 75a38b573ef6 alive at hp=7 instead of dropping to ≤3 at
+    cmd[351], which then cascaded into the Shaman missing the
+    cmd[371] retaliation kill XP and never advancing to Sorceress
+    by cmd[510] (weapon_oob).
     """
+    # Parent unit's explicit override blocks (applied AFTER new_mt
+    # defaults inside the variation loop below).
+    parent_resist_overrides: Dict[str, int] = {}
+    if _has_block(node, "resistance"):
+        for k, v_ in _table(node, "resistance",
+                            DAMAGE_TYPES, -999).items():
+            if v_ != -999:
+                parent_resist_overrides[k] = v_
+    parent_defense_overrides: Dict[str, int] = {}
+    if _has_block(node, "defense"):
+        for k, v_ in _table(node, "defense", TERRAINS, -999).items():
+            if v_ != -999:
+                parent_defense_overrides[k] = int(v_)
+    parent_mc_overrides: Dict[str, int] = {}
+    if _has_block(node, "movement_costs"):
+        for k, v_ in _table(node, "movement_costs",
+                            TERRAINS, -999).items():
+            if v_ != -999:
+                parent_mc_overrides[k] = int(v_)
+
     out: Dict[str, dict] = {}
     for child in node.children:
         if child.tag != "variation":
@@ -767,20 +907,45 @@ def extract_variations(node: Node, parent_stats: dict,
                                   parent_stats.get("defense", {})))
         resistance = dict(new_mt.get("resistance",
                                      parent_stats.get("resistance", {})))
+        movement_costs = dict(new_mt.get("movement_costs",
+                                         parent_stats.get("movement_costs", {})))
+        # Layer parent unit's explicit overrides on top of the new
+        # movetype's defaults — these survive an `inherit=yes`
+        # variation that switches movetypes.
+        for k, val in parent_resist_overrides.items():
+            resistance[k] = val
+        for k, val in parent_defense_overrides.items():
+            defense[k] = val
+        for k, val in parent_mc_overrides.items():
+            movement_costs[k] = val
         # Variation's own [defense] / [resistance] / [movement_costs]
         # overlay on top of the chosen movetype's defaults.
         if _has_block(child, "defense"):
             for k, val in _table(child, "defense", TERRAINS, -999).items():
                 if val != -999:
                     defense[k] = val
-        defense = {k: abs(int(v_)) for k, v_ in defense.items()}
+        # Preserve negative-as-cap signs (see movetype scraper
+        # comment for full rationale).
+        defense = {k: int(v_) for k, v_ in defense.items()}
         if _has_block(child, "resistance"):
             for k, val in _table(child, "resistance",
                                  DAMAGE_TYPES, -999).items():
                 if val != -999:
                     resistance[k] = val
+        # Variation-level [movement_costs] override (e.g. Walking
+        # Corpse:bat overrides cave/fungus to 1, deep_water to 1
+        # — making bat-corpses faster on those than the base `fly`
+        # movetype). Without this override, our DB used the base
+        # movetype's costs and rejected legitimate moves through
+        # mushroom groves on Hornshark Island as "mp_insufficient".
+        if _has_block(child, "movement_costs"):
+            for k, val in _table(child, "movement_costs",
+                                 TERRAINS, -999).items():
+                if val != -999:
+                    movement_costs[k] = int(val)
         v["defense"] = defense
         v["resistance"] = resistance
+        v["movement_costs"] = movement_costs
         # Attacks: variation [attack] blocks REPLACE parent's attacks.
         # If no [attack] child, fall through to parent's attacks.
         v_attacks = extract_attacks(child)   # raw_text not used for variation specials
@@ -860,9 +1025,11 @@ def extract_unit(node: Node, move_types: Dict[str, dict],
         (node.attrs.get("ignore_race_traits", "no") or "no")
         .strip().lower() in ("yes", "true", "1")
     )
+    alignment_attr = (node.attrs.get("alignment", "neutral") or "neutral")
     trait_info = build_trait_info(
         race_data, unit_macros,
         ignore_race_traits=ignore_race_traits,
+        alignment=alignment_attr,
     )
 
     # Genders count matters for the synced-RNG accounting at recruit

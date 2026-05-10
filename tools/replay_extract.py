@@ -49,7 +49,31 @@ log = logging.getLogger("replay_extract")
 # --------------------------------------------------------------------
 
 TAG_OPEN_RE  = re.compile(r'^\s*\[([a-zA-Z_][a-zA-Z0-9_]*)\]\s*$')
+# `[+tag]` is Wesnoth's "merge with last preceding tag of same name" form.
+# We capture it as a regular tag (drop the `+` prefix) but mark
+# `_is_plus_form=True` so a post-parse pass can apply context-dependent
+# semantics: APPEND for sequence parents (e.g. [time] inside [time_area]
+# extends the cycle on Tombs of Kesorak / Elensefar Courtyard), MERGE
+# for singleton parents (e.g. [+unit] inside [side] adds descriptions
+# to the petrified statues in Caves of the Basilisk / Sullas Ruins
+# without spawning phantom units).
+TAG_OPEN_PLUS_RE = re.compile(r'^\s*\[\+([a-zA-Z_][a-zA-Z0-9_]*)\]\s*$')
 TAG_CLOSE_RE = re.compile(r'^\s*\[/([a-zA-Z_][a-zA-Z0-9_]*)\]\s*$')
+
+# Tags that, when prefixed with `[+]`, should APPEND a new child rather
+# than merge into the preceding sibling. Wesnoth's actual `[+element]`
+# behavior in `wesnoth_src/src/serialization/parser.cpp:217-242` is
+# always MERGE: it finds the LAST [element] of same name in the parent
+# and reopens it for field/child insertion. We keep this set empty so
+# all `[+tag]` uses go through the MERGE branch by default; if a
+# specific tag in a future scenario truly needs APPEND semantics, add
+# it here explicitly. Audit 2026-05-04: the Tombs of Kesorak [+time]
+# blocks merge into the preceding [time], producing a 6-entry cycle
+# where each "bright X" entry overrides only the image (and re-asserts
+# the same lawful_bonus the macro already set). Stage 17 originally had
+# {"time"} which gave the wrong cycle and broke Mage damage on Tombs
+# illuminated hexes at turn 7 (off-by-1 dmg per strike).
+_PLUS_APPEND_TAGS: set = set()
 # Values may be quoted "..." or bare 123 / true / false. We handle both.
 KEY_RE = re.compile(r'^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.*?)\s*$')
 # Multi-line string values in WML are quoted and may span lines, closing
@@ -59,12 +83,16 @@ KEY_RE = re.compile(r'^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.*?)\s*$')
 
 class WMLNode:
     """A WML tag instance: attributes + ordered children (also WMLNodes)."""
-    __slots__ = ("tag", "attrs", "children")
+    __slots__ = ("tag", "attrs", "children", "_is_plus_form")
 
-    def __init__(self, tag: str):
+    def __init__(self, tag: str, is_plus_form: bool = False):
         self.tag: str = tag
         self.attrs: Dict[str, str] = {}
         self.children: List["WMLNode"] = []
+        # True if this node was parsed from `[+tag]` syntax. The
+        # post-parse merge pass uses this to decide whether to merge
+        # this node into its preceding sibling (Wesnoth's `[+]` rule).
+        self._is_plus_form: bool = is_plus_form
 
     def first(self, tag: str) -> Optional["WMLNode"]:
         for c in self.children:
@@ -137,6 +165,16 @@ def parse_wml(text: str) -> WMLNode:
             stack.append(node)
             i += 1; continue
 
+        # `[+tag]` form — captured separately so a post-parse pass can
+        # merge into the preceding sibling (or append, depending on
+        # context).
+        m = TAG_OPEN_PLUS_RE.match(line)
+        if m:
+            node = WMLNode(m.group(1), is_plus_form=True)
+            stack[-1].children.append(node)
+            stack.append(node)
+            i += 1; continue
+
         m = TAG_CLOSE_RE.match(line)
         if m:
             if stack and stack[-1].tag == m.group(1):
@@ -158,7 +196,66 @@ def parse_wml(text: str) -> WMLNode:
                 val = "\n".join(parts)
             stack[-1].attrs[key] = _strip_quotes(val)
         i += 1
+
+    _resolve_plus_forms(root)
     return root
+
+
+def _resolve_plus_forms(node: WMLNode) -> None:
+    """Apply Wesnoth's `[+tag]` semantics across `node`'s descendants.
+
+    For each child marked `_is_plus_form=True`:
+      - If `tag` is in `_PLUS_APPEND_TAGS` (e.g. `time`): keep as a
+        new sibling (append semantics — extends the cycle in
+        [time_area]).
+      - Otherwise: find the most recent preceding sibling with the
+        same tag and MERGE this node's attrs+children into it
+        (Wesnoth's standard `[+]` rule). If no preceding sibling
+        of that tag exists, leave the node in place (treat as a
+        fresh tag).
+
+    Concrete cases this handles:
+      - Tombs of Kesorak / Elensefar Courtyard `[time_area]`:
+        each `[+time]` extends the per-hex ToD cycle from the 6
+        macro-expanded entries to 10, so turn 6 on illuminated hexes
+        keeps `lawful_bonus=25` (DAY) instead of falling through to
+        `secondwatch` (lawful_bonus=-25).
+      - Caves of the Basilisk / Sullas Ruins petrified statues:
+        `{UNIT_PETRIFY ...} [+unit] description=... [/unit]` adds
+        the description text to the just-placed [unit] instead of
+        spawning a phantom (description-only) unit alongside it.
+    """
+    # Recurse first so child-of-child plus forms resolve before we
+    # touch this node's children list.
+    for c in node.children:
+        _resolve_plus_forms(c)
+    new_children: List[WMLNode] = []
+    for c in node.children:
+        if not c._is_plus_form:
+            new_children.append(c)
+            continue
+        if c.tag in _PLUS_APPEND_TAGS:
+            # Append semantics: keep as a fresh sibling. Strip the
+            # marker so downstream code treats it as a regular tag.
+            c._is_plus_form = False
+            new_children.append(c)
+            continue
+        # Merge semantics: find the latest preceding sibling with
+        # same tag and fold attrs+children into it.
+        target: Optional[WMLNode] = None
+        for prev in reversed(new_children):
+            if prev.tag == c.tag:
+                target = prev
+                break
+        if target is None:
+            # No preceding sibling -- treat as fresh tag.
+            c._is_plus_form = False
+            new_children.append(c)
+            continue
+        target.attrs.update(c.attrs)
+        target.children.extend(c.children)
+        # `c` is dropped (not appended).
+    node.children = new_children
 
 
 def parse_replay_file(path: Path) -> WMLNode:
@@ -258,13 +355,18 @@ _DEFAULT_UNIT = {"max_hp": 33, "max_moves": 5, "is_leader": False}
 
 # Lazily-populated from unit_stats.json (scraped from Wesnoth source).
 _UNIT_DB_CACHE: Dict[str, dict] = {}
+# Set of unit types whose recruit consumes NO RNG (musthave-only trait
+# pool, e.g. all undead / mechanical / elemental). Wesnoth never emits
+# `[random_seed]` for these recruits, so an empty seed slot in our
+# compact stream does NOT mean the recruit was unfinished.
+_RECRUIT_NO_RNG_TYPES: set = set()
 
 
 def _unit_stats(unit_type: str) -> dict:
     """Return {max_hp, max_moves, is_leader} for a unit type. Loads from
     unit_stats.json (scraped from Wesnoth source) on first call; falls
     back to _DEFAULT_UNIT for unknown types (e.g. Ladder Era variants)."""
-    global _UNIT_DB_CACHE
+    global _UNIT_DB_CACHE, _RECRUIT_NO_RNG_TYPES
     if not _UNIT_DB_CACHE:
         try:
             db_path = Path(__file__).resolve().parent.parent / "unit_stats.json"
@@ -276,9 +378,26 @@ def _unit_stats(unit_type: str) -> dict:
                     "max_moves": int(v.get("moves", 5)),
                     "is_leader": False,
                 }
+                ti = v.get("traits") or {}
+                # No-RNG recruit: empty random pool, OR num_traits
+                # equals len(musthave). Wesnoth's recruit code only
+                # rolls when there are random slots to fill.
+                pool = list(ti.get("pool") or [])
+                musthave = list(ti.get("musthave") or [])
+                num_traits = int(ti.get("num_traits") or 0)
+                if not pool or num_traits <= len(musthave):
+                    _RECRUIT_NO_RNG_TYPES.add(k)
         except FileNotFoundError:
             pass  # silently fall back
     return _UNIT_DB_CACHE.get(unit_type, dict(_DEFAULT_UNIT))
+
+
+def _recruit_consumes_rng(unit_type: str) -> bool:
+    """True iff Wesnoth emits a `[random_seed]` command after recruiting
+    this unit type. False for undead/mechanical/elemental (musthave-only
+    trait pool)."""
+    _unit_stats(unit_type)  # populate cache
+    return unit_type not in _RECRUIT_NO_RNG_TYPES
 
 
 def _parse_map_starting_positions(map_data: str) -> Dict[int, Tuple[int, int]]:
@@ -592,11 +711,13 @@ def extract_pairs(path: Path) -> List[dict]:
     root = parse_replay_file(path)
     gs = build_initial_state(root)
 
+    # Concatenate all [replay] blocks; see extract_replay for rationale.
     replays = root.all("replay")
-    replay = max(replays, key=lambda r: len(r.all("command")), default=None)
-    if replay is None:
+    if not replays:
         return []
-    commands = replay.all("command")
+    commands: List = []
+    for r in replays:
+        commands.extend(r.all("command"))
     if not commands:
         return []
 
@@ -624,6 +745,61 @@ def extract_pairs(path: Path) -> List[dict]:
     return out
 
 
+def _first_player_action_sig(cmd_nodes) -> Optional[Tuple]:
+    """Return a content-signature for the first player action across
+    a list of [command] nodes. Used by the trailer-drop heuristic
+    to detect duplicates between block i's last action and block
+    i+1's first action."""
+    for cmd in cmd_nodes:
+        for sub in cmd.children:
+            t = sub.tag
+            if t == "init_side":
+                return ("init_side", sub.attrs.get("side_number", ""))
+            if t == "end_turn":
+                return ("end_turn",)
+            if t == "move":
+                return ("move", sub.attrs.get("x", ""), sub.attrs.get("y", ""))
+            if t == "attack":
+                src = sub.first("source")
+                dst = sub.first("destination")
+                if src is None or dst is None:
+                    return None
+                return ("attack",
+                        int(src.attrs.get("x", 0) or 0) - 1,
+                        int(src.attrs.get("y", 0) or 0) - 1,
+                        int(dst.attrs.get("x", 0) or 0) - 1,
+                        int(dst.attrs.get("y", 0) or 0) - 1,
+                        int(sub.attrs.get("weapon", 0) or 0))
+            if t == "recruit":
+                return ("recruit",
+                        sub.attrs.get("type", ""),
+                        int(sub.attrs.get("x", 0) or 0) - 1,
+                        int(sub.attrs.get("y", 0) or 0) - 1)
+            if t == "recall":
+                return ("recall",
+                        sub.attrs.get("value", ""),
+                        int(sub.attrs.get("x", 0) or 0) - 1,
+                        int(sub.attrs.get("y", 0) or 0) - 1)
+    return None
+
+
+def _compact_action_sig(compact_entry) -> Optional[Tuple]:
+    """Mirror of `_first_player_action_sig` for our compact-format
+    entries; used at the boundary to compare a dropped trailer
+    against the next block's redo."""
+    if not compact_entry:
+        return None
+    kind = compact_entry[0]
+    if kind == "attack":
+        # ['attack', ax, ay, dx, dy, a_weapon, d_weapon, seed, ...]
+        return ("attack", compact_entry[1], compact_entry[2],
+                compact_entry[3], compact_entry[4], compact_entry[5])
+    if kind == "recruit":
+        # ['recruit', unit_type, tx, ty, seed]
+        return ("recruit", compact_entry[1], compact_entry[2], compact_entry[3])
+    return None
+
+
 def extract_replay(path: Path) -> Optional[dict]:
     """Parse one replay file into a compact per-game dict.
 
@@ -636,15 +812,104 @@ def extract_replay(path: Path) -> Optional[dict]:
     """
     root = parse_replay_file(path)
     gs = build_initial_state(root)
-    # A Wesnoth save typically has TWO [replay] blocks: an empty one at
-    # the top carrying just an [upload_log], and the real one further
-    # down with the actual command sequence. Pick the non-empty one
-    # (largest by command count); first() returns the upload_log shell.
+    # A Wesnoth save can have MULTIPLE [replay] blocks at the top
+    # level. Two patterns we've observed:
+    #
+    #   1. Pure replay (or from-scratch save): one empty [replay]
+    #      shell carrying just [upload_log], plus one real block
+    #      with all commands from turn 1 onwards. Sizes look like
+    #      (0, N).
+    #   2. Continuation save: TWO non-empty blocks. The first holds
+    #      commands from turn 1 to the save point (init_side/start
+    #      at cmd[0]); the second holds commands from the save
+    #      point onwards (a fresh action like [move] at cmd[0],
+    #      no leading init_side because the save was taken
+    #      mid-turn). Sizes like (62, 67) on a Turn-5 save.
+    #
+    # The OLD `max(...)` heuristic picked only the largest block.
+    # For continuation saves that meant we'd take the post-save
+    # block (which expects the snapshot state, not [replay_start])
+    # and feed it into a state initialized from [replay_start] —
+    # producing src_missing on the very first move. Concrete case:
+    # 2p__Caves_of_the_Basilisk_Turn_5_(120166).bz2; cmd[0] is a
+    # move from (23,7) but [replay_start] only has 2 leaders +
+    # 15 petrified statues at the canonical positions.
+    #
+    # Fix: concatenate ALL [replay] blocks in document order. The
+    # result is the full turn-1-onwards trajectory matching
+    # [replay_start]. The empty-shell case still works because an
+    # empty block contributes 0 commands. Tested 2026-05-03
+    # against 23-map ladder corpus.
     replays = root.all("replay")
-    replay = max(replays, key=lambda r: len(r.all("command")), default=None)
-    if replay is None:
+    if not replays:
         return None
-    commands_node = replay.all("command")
+    commands_node: List = []
+    # Track the cmd_idx at the END of each non-last block, so the
+    # main loop can detect block boundaries and drop unfinished
+    # trailing actions. See "save-mid-action duplicate" handling
+    # below.
+    block_boundary_indices: List[int] = []
+    # For each boundary, also record the FIRST player action of
+    # the next block (as a content-signature). The dropper uses
+    # this to distinguish "save-mid-recruit" (next-block first
+    # action == this trailer == duplicate, drop) from "completed
+    # musthave-only recruit, then save" (next-block first action
+    # is something else, keep).
+    boundary_next_first_action: dict = {}
+    # Also collect ALL recruit hexes used in block i+1 (0-indexed).
+    # The save-mid-recruit redo is not always the FIRST action of
+    # block i+1 (the player can move first, then re-recruit). If
+    # block i+1 contains a recruit at the same hex as the trailer,
+    # that's the redo — drop the trailer regardless of whether the
+    # redo is action #0. Concrete:
+    # 2p__Weldyn_Channel_Turn_14_(157907).bz2: block[0] tail is a
+    # recruit Dwarvish Thunderer at (16,3) with no seed; block[1]
+    # cmd[0] is a move, cmd[1] is the redo recruit Dwarvish Fighter
+    # at (16,3). The first-action sig pointed at the move, so the
+    # trailer wasn't dropped.
+    boundary_next_recruit_hexes: dict = {}
+    for ridx, r in enumerate(replays):
+        block_cmds = r.all("command")
+        commands_node.extend(block_cmds)
+        if ridx < len(replays) - 1 and block_cmds:
+            boundary_idx = len(commands_node) - 1
+            block_boundary_indices.append(boundary_idx)
+            # Find first player-action sig in block ridx+1.
+            next_block_cmds = (replays[ridx + 1].all("command")
+                               if ridx + 1 < len(replays) else [])
+            sig = _first_player_action_sig(next_block_cmds)
+            boundary_next_first_action[boundary_idx] = sig
+            # Index recruit hexes in block ridx+1 used BEFORE the
+            # first `end_turn` / `init_side` -- those are recruits
+            # the SAME player issues during the resumed turn. A
+            # save-mid-recruit redo happens here. Recruits after
+            # end_turn are by a different (or later) turn -- the
+            # original trailer (if it was a completed musthave-only
+            # recruit) lives there until the unit moves/dies and
+            # someone re-recruits at the same hex; mustn't confuse
+            # THAT for a redo.
+            # False-positive without this filter (Stage 12 audit):
+            # 2p__Aethermaw_Turn_18_(100985).bz2 -- block[0] tail is
+            # a Ghoul (musthave-only, no seed) at (27,16). Block[1]
+            # starts with end_turn (the player ended their turn on
+            # load), then on later turns recruits Troll Whelp /
+            # Ghoul / Ghost at (27,16) after the original Ghoul
+            # moves. Without the end_turn cutoff, condition (d) fired
+            # and dropped a legitimately-completed recruit.
+            recruit_hexes: set = set()
+            for cmd in next_block_cmds:
+                stop = False
+                for sub in cmd.children:
+                    if sub.tag in ("end_turn", "init_side"):
+                        stop = True
+                        break
+                    if sub.tag == "recruit":
+                        rx = int(sub.attrs.get("x", 0) or 0) - 1
+                        ry = int(sub.attrs.get("y", 0) or 0) - 1
+                        recruit_hexes.add((rx, ry))
+                if stop:
+                    break
+            boundary_next_recruit_hexes[boundary_idx] = recruit_hexes
     if not commands_node:
         return None
 
@@ -675,6 +940,12 @@ def extract_replay(path: Path) -> Optional[dict]:
     # compact tuple to write to (recruits use slot 4, attacks slot 7).
     last_action_slot: Optional[int] = None
     last_action_kind: Optional[str] = None
+    # Track the most-recent compact slot for moves (separate from
+    # `last_action_slot` because moves don't consume RNG and so don't
+    # need seed back-fill, but we still want to detect save-mid-move
+    # duplicates at block boundaries — see Stage 18 / boundary check
+    # below).
+    last_move_slot: Optional[int] = None
     # Most recent attack only -- used for [choose] (advancement
     # picks) which always attach to attacks, never recruits.
     last_attack_slot: Optional[int] = None
@@ -692,6 +963,37 @@ def extract_replay(path: Path) -> Optional[dict]:
     # is 3 commands; mp_checkup typically appears immediately after
     # but server may interleave a [random_seed] block.
     commands_list = list(commands_node)
+    # Save-mid-action duplicate handling. When Wesnoth saves DURING
+    # a player's turn (after the player issued an RNG-consuming
+    # action like recruit-with-traits or attack, but before the
+    # synced engine processed the [random_seed] follow-up), the
+    # save flushes the unfinished action to the end of [replay][i]
+    # WITHOUT its seed. On load, Wesnoth re-emits the same action
+    # (or a replacement, if the player undid + re-issued) at the
+    # start of [replay][i+1] WITH proper seeds.
+    #
+    # Concrete cases:
+    #   - 2p__Caves_of_the_Basilisk_Turn_16_(7251).bz2:
+    #     [replay][0] last cmd: [recruit] Fencer (18,5), no seed
+    #     [replay][1] cmd[0]:   [recruit] Fencer (18,5)
+    #     [replay][1] cmd[1]:   [random_seed] for the redo
+    #   - 2p__Weldyn_Channel_Turn_14_(157907).bz2:
+    #     [replay][0] last cmd: [recruit] Thunderer (17,4), no seed
+    #     [replay][1] cmd[1]:   [recruit] Fighter (17,4) -- player
+    #                           undid + re-recruited a different unit
+    #
+    # If we naively concat all blocks, the unfinished trailing
+    # action from block i ends up duplicated (same hex, sometimes
+    # same unit type, sometimes a stale type that conflicts with
+    # the redo). Either way it produces recruit:target_occupied
+    # at extract time.
+    #
+    # Fix: at each block-boundary cmd_idx, after processing the
+    # last command of block i, if `last_action_slot` is still set
+    # (meaning the trailing recruit/attack didn't get its seed
+    # within block i), DROP that compact entry -- it represents
+    # an unfinished action that block i+1 will redo properly.
+    boundary_set = set(block_boundary_indices)
     for cmd_idx, cmd in enumerate(commands_list):
         # Server-emitted [random_seed] commands attach to the most
         # recent player action that consumed RNG (recruit with trait
@@ -834,7 +1136,33 @@ def extract_replay(path: Path) -> Optional[dict]:
                     ys = [max(0, y - 1) for y in ys]
                     # 4th slot reserved for from_side (matched against
                     # the moving unit's side at apply time).
-                    compact_commands.append(["move", xs, ys, from_side])
+                    new_move = ["move", xs, ys, from_side]
+                    # In-block consecutive-duplicate dedup: if the
+                    # most recent compact entry is an EXACT duplicate
+                    # of this move (same path, same side), drop this
+                    # one. Wesnoth emits a duplicate move when a player
+                    # surrender (or other server-injected event)
+                    # interrupts the action stream and the same move
+                    # gets re-recorded on the resume side. Concrete:
+                    # 2p__Caves_of_the_Basilisk_Turn_22_(227794).bz2
+                    # cmd[336] move (12,13,14)(19,20,19) is followed
+                    # by [surrender][/surrender] + [speak]"ok" +
+                    # [rename] (async), then the SAME move is emitted
+                    # again at cmd[337]. Wesnoth replays the second as
+                    # a no-op (the unit is already at the destination)
+                    # but our extractor was treating it as a new move,
+                    # producing src_missing on a vanished source hex.
+                    # Restrict to in-block dedup (don't conflict with
+                    # cross-block trailer-drop logic, which uses
+                    # `last_move_slot` separately): just compare to
+                    # the previous compact entry directly.
+                    if (compact_commands
+                            and compact_commands[-1] == new_move):
+                        # Skip the duplicate, keep last_move_slot
+                        # pointing at the original.
+                        break
+                    compact_commands.append(new_move)
+                    last_move_slot = len(compact_commands) - 1
                 break
             if t == "attack":
                 # In 1.18 replays the [attack] command's positions live
@@ -885,6 +1213,247 @@ def extract_replay(path: Path) -> Optional[dict]:
                 ty = max(0, int(sub.attrs.get("y", 0) or 0) - 1)
                 compact_commands.append(["recall", unit_id, tx, ty])
                 break
+            if t == "surrender":
+                # When a player surrenders mid-turn AFTER being taken
+                # over by another player or AI (the takeover speak
+                # appears BEFORE the in-flight move), Wesnoth's replay
+                # engine effectively undoes that last move: the move's
+                # [checkup] block is recorded as if it executed, but
+                # the post-surrender state — driven by the AI/takeover
+                # player who continues with skip_sighted="all" — assumes
+                # the move did NOT happen.
+                #
+                # Distinguishing fingerprint: the very next [move] AFTER
+                # `[surrender]` uses `skip_sighted="all"`. Normal moves
+                # use `skip_sighted="only_ally"` or omit the attr; only
+                # AI-driven / engine-replayed moves set "all".
+                #
+                # Without this drop, the surrendered side ends up with
+                # the unit at the moved-to hex in our sim while Wesnoth
+                # has it back at the source. Cascades into either
+                # final_occupied (something else tries to enter the
+                # moved-to hex) or src_missing (something tries to
+                # move from the source hex which our sim has empty).
+                #
+                # Verified 2026-05-08 against:
+                #   - 2p__Weldyn_Channel_Turn_30_(205235): cmd[488]
+                #     side-1 Gryphon Rider (23,1)→(23,6); surrender;
+                #     cmd[489] side-1 move skip_sighted="all". cmd[502]
+                #     side-2 Dark Adept move to (23,6) failed
+                #     (final_occupied) until cmd[488] dropped.
+                #   - 2p__Thousand_Stings_Garrison_Turn_54_(148817):
+                #     cmd[693] side-1 (12,14)→(10,15); surrender;
+                #     cmd[694] side-1 skip_sighted="all" (12,14)→(18,11)
+                #     failed (src_missing) until cmd[693] dropped.
+                # NEGATIVE control: 2p__Hornshark_Island_Turn_14_
+                # (109842) has [surrender] right after a normal move,
+                # but the takeover speak comes AFTER the move (player
+                # said "gg wp" then surrendered without leaving an
+                # in-flight action). The post-surrender [move] does
+                # NOT carry skip_sighted="all", so the move was real
+                # and must be kept. The skip_sighted check correctly
+                # discriminates this case.
+                drop_pre = False
+                la_idx = cmd_idx + 1
+                while la_idx < len(commands_list):
+                    nxt = commands_list[la_idx]
+                    saw_action = False
+                    for nsub in nxt.children:
+                        if nsub.tag == "move":
+                            saw_action = True
+                            if nsub.attrs.get("skip_sighted", "") == "all":
+                                drop_pre = True
+                            break
+                        if nsub.tag in ("attack", "recruit", "recall",
+                                        "init_side", "end_turn"):
+                            saw_action = True
+                            break
+                    if saw_action:
+                        break
+                    la_idx += 1
+                if (drop_pre
+                        and last_move_slot is not None
+                        and last_move_slot == len(compact_commands) - 1
+                        and compact_commands[last_move_slot][0] == "move"):
+                    compact_commands.pop(last_move_slot)
+                    # Adjust slot trackers.
+                    if (last_action_slot is not None
+                            and last_action_slot >= last_move_slot):
+                        last_action_slot = (None if last_action_slot
+                                            == last_move_slot
+                                            else last_action_slot - 1)
+                    if (last_attack_slot is not None
+                            and last_attack_slot >= last_move_slot):
+                        last_attack_slot = (None if last_attack_slot
+                                            == last_move_slot
+                                            else last_attack_slot - 1)
+                    last_move_slot = None
+                break
+
+        # Block-boundary check: if this cmd_idx is the last command
+        # of a non-final [replay] block AND we have an unfinished
+        # RNG-consuming action awaiting its seed, decide whether to
+        # drop. See "Save-mid-action duplicate handling" above.
+        #
+        # TIGHTENED HEURISTIC (2026-05-03 audit):
+        #   - ATTACKS always emit a [random_seed] when complete (per
+        #     strike). So an attack at block-i's tail with no seed
+        #     is ALWAYS unfinished -- safe to drop unconditionally.
+        #   - RECRUITS may legitimately complete WITHOUT a seed when
+        #     the unit type's trait pool is empty (musthave-only
+        #     races: undead/mechanical/elemental). For those, "no
+        #     seed" doesn't mean unfinished -- it means the engine
+        #     didn't need to roll. To avoid dropping legitimately-
+        #     completed recruits, only drop a recruit-trailer if its
+        #     content matches the FIRST player action of block i+1
+        #     (= save-mid-recruit redo). If next-block first action
+        #     differs, keep the recruit.
+        #
+        # Verification: tools/verify_trailer_drop.py audited 500
+        # raw replays; all 3 dropper-fires were attacks with
+        # legitimate undo/redo on load (block-1 first action was a
+        # different action). No false-drop musthave-recruit cases
+        # surfaced in that sample, but the risk is real -- 75
+        # default-era unit types (Ghoul, Skeleton, Walking Corpse,
+        # etc.) are musthave-only.
+        if cmd_idx in boundary_set and last_action_slot is not None:
+            # The unfinished trailer is at compact index
+            # `last_action_slot`. It might NOT be the literal last
+            # entry of compact_commands -- player actions like
+            # `end_turn` and `init_side` (which are not RNG-consuming
+            # so don't update last_action_slot) can be appended after
+            # an undone recruit. Concrete: a player issues a recruit,
+            # undoes it, issues end_turn -- the replay records the
+            # undone recruit followed by end_turn, init_side. Pre-fix
+            # we required the trailer to be the very last entry,
+            # missing the undone-recruit-then-end-turn case.
+            # 2p__Silverhead_Crossing_Turn_31_(127303).bz2 cmd[26]
+            # is the canonical example.
+            trailer = compact_commands[last_action_slot]
+            next_first = boundary_next_first_action.get(cmd_idx)
+            trailer_kind = trailer[0]
+            should_drop = False
+            if trailer_kind == "attack":
+                # Attacks ALWAYS need RNG; no-seed = unfinished.
+                should_drop = True
+            elif trailer_kind == "recruit":
+                # Drop only if (a) next block redoes the same recruit
+                # at the same hex, OR (b) next block has a recruit at
+                # the SAME hex with a DIFFERENT type (undo + replace),
+                # OR (c) the trailer recruit is followed in the SAME
+                # block by `end_turn` / `init_side` -- meaning the
+                # recruit was issued then undone before end-of-turn,
+                # so it never completed in Wesnoth's reality. The
+                # third condition catches the Silverhead case where
+                # block 1 doesn't redo the recruit at all (its first
+                # action is unrelated).
+                trailer_sig = _compact_action_sig(trailer)
+                if (next_first is not None
+                        and next_first[0] == "recruit"
+                        and trailer_sig is not None
+                        and trailer_sig[1:] == next_first[1:]):
+                    should_drop = True
+                elif (next_first is not None
+                        and next_first[0] == "recruit"
+                        and trailer_sig is not None
+                        and trailer_sig[2:] == next_first[2:]):
+                    # Same (x, y), different type => undo+replace.
+                    should_drop = True
+                else:
+                    # Check (c): is the recruit followed by an
+                    # end_turn / init_side WITHIN this same block?
+                    # If so, it was undone (Wesnoth processes the
+                    # recruit, applies undo, the recruit cmd remains
+                    # in the [replay] but no [random_seed] follow-up
+                    # was emitted because the engine never finalized
+                    # the trait roll).
+                    # GUARD: skip this check for musthave-only races
+                    # (Undead/Mechanical/Elemental) -- those NEVER
+                    # emit a [random_seed] regardless of completion,
+                    # so "no seed" doesn't imply unfinished. Without
+                    # this guard, a legitimately-completed Skeleton
+                    # Archer / Ghoul / Walking Corpse recruit at the
+                    # end of side 2's turn 1 (followed by end_turn)
+                    # gets dropped on every Caves of the Basilisk
+                    # replay where side 2 plays Undead.
+                    # Concrete: 2p__Caves_of_the_Basilisk_Turn_17_(10379).bz2
+                    # block[0] cmd[23] = recruit Skeleton Archer (24,20),
+                    # legitimately completed; gets dropped, then
+                    # cmd[27]'s move from (23,19) src_missing.
+                    trailer_type = trailer[1] if len(trailer) > 1 else ""
+                    if _recruit_consumes_rng(trailer_type):
+                        for follower in compact_commands[last_action_slot + 1:]:
+                            if follower and follower[0] in ("end_turn", "init_side"):
+                                should_drop = True
+                                break
+                    # Check (d): does block i+1 contain ANY recruit
+                    # at the same hex (x, y) — possibly after one or
+                    # more moves? The redo isn't required to be the
+                    # first action of i+1. Same-hex recruit in i+1 =
+                    # save-mid-recruit redo, drop the trailer.
+                    if (not should_drop and trailer_sig is not None):
+                        trailer_hex = (trailer_sig[2], trailer_sig[3])
+                        next_hexes = boundary_next_recruit_hexes.get(
+                            cmd_idx, set())
+                        if trailer_hex in next_hexes:
+                            should_drop = True
+            if should_drop:
+                # Remove the trailer at last_action_slot (NOT
+                # necessarily the tail; subsequent end_turn /
+                # init_side stay).
+                compact_commands.pop(last_action_slot)
+                # last_attack_slot may need adjustment.
+                if last_attack_slot is not None:
+                    if last_attack_slot == last_action_slot:
+                        last_attack_slot = None
+                    elif last_attack_slot > last_action_slot:
+                        last_attack_slot -= 1
+                # last_move_slot may need similar adjustment.
+                if last_move_slot is not None:
+                    if last_move_slot == last_action_slot:
+                        last_move_slot = None
+                    elif last_move_slot > last_action_slot:
+                        last_move_slot -= 1
+            last_action_slot = None
+            last_action_kind = None
+
+        # Stage 18: save-mid-move duplicate. When Wesnoth saves
+        # right after a move completes, the move's [checkup] result
+        # IS recorded in block[i] (move was committed). On load,
+        # the engine re-emits the same move at block[i+1]'s start
+        # WITH another completed [checkup]. Concatenating both
+        # makes our sim try to move the same unit twice -- the
+        # second attempt fails because the unit is already at the
+        # destination (the source hex is now empty).
+        # Concrete: 2p__The_Freelands_Turn_18_(170491).bz2: block[0]
+        # tail = move (12,15)->(14,18), checkup with result;
+        # block[1] cmd[0] = same move, checkup with result; our
+        # extractor emits both, second move src_missing at (12,15).
+        # Fix: at the boundary, if last_move_slot points to a move
+        # whose source/path matches block[i+1]'s first action's
+        # move, drop the trailer move.
+        if (cmd_idx in boundary_set
+                and last_move_slot is not None
+                and last_move_slot < len(compact_commands)):
+            trailer_move = compact_commands[last_move_slot]
+            next_first = boundary_next_first_action.get(cmd_idx)
+            if (trailer_move and trailer_move[0] == "move"
+                    and next_first is not None
+                    and next_first[0] == "move"):
+                # `_first_player_action_sig` for moves returns
+                # ("move", x_attr, y_attr) where x_attr/y_attr are
+                # the FULL WML strings (1-indexed, comma-joined).
+                # Convert the trailer's compact (0-indexed lists)
+                # back to WML strings to compare.
+                xs_wml = ",".join(str(x + 1) for x in trailer_move[1])
+                ys_wml = ",".join(str(y + 1) for y in trailer_move[2])
+                if (next_first[1] == xs_wml
+                        and next_first[2] == ys_wml):
+                    compact_commands.pop(last_move_slot)
+                    if (last_attack_slot is not None
+                            and last_attack_slot > last_move_slot):
+                        last_attack_slot -= 1
+            last_move_slot = None
 
     if not compact_commands:
         return None

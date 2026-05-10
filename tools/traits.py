@@ -383,7 +383,23 @@ def apply_traits_to_unit(u: Unit, trait_ids: List[str], level: int = 1,
         # (matching Wesnoth's RNG-driven application order), so
         # iterating it in order produces the correct result.
         max_hp += eff.hp_delta
-        max_hp += eff.hp_per_level * max(1, level)
+        # The Wesnoth `times=per level` modifier multiplies by raw
+        # level, NOT max(1, level). Level-0 units (Vampire Bat,
+        # Walking Corpse, Mudcrawler, etc.) skip the per-level
+        # bonus entirely. The previous max(1, level) gave them an
+        # extra +1 HP for resilient / healthy that Wesnoth doesn't.
+        # Concretely: a level-0 Vampire Bat with feral+resilient
+        # has 16 + 4 = 20 HP in Wesnoth (level=0 contributes 0),
+        # but our sim was giving 16 + 4 + 1 = 21. The 1-HP gap
+        # caused mid-game combat divergences (Naga Fighter's
+        # 4×5=20 max damage just barely fails to kill 21-HP bat
+        # in our sim, but kills the 20-HP bat in Wesnoth — see
+        # 2p__Caves_of_the_Basilisk_Turn_12_(20917).bz2 cmd[57]).
+        # Verified vs wesnoth_src/data/core/macros/traits.cfg:
+        # TRAIT_RESILIENT and TRAIT_HEALTHY both use a
+        # `[effect] times=per level increase_total=1` block, which
+        # the engine multiplies by exact level.
+        max_hp += eff.hp_per_level * level
         if eff.hp_pct:
             pct = int(eff.hp_pct)
             raw = max_hp * pct

@@ -192,6 +192,34 @@ class TerrainEntry:
     default_base: str = ""
     hidden: bool = False
     is_overlay: bool = False                 # `string` starts with "^"
+    # `heals=N` on the [terrain_type]: amount the hex heals a unit
+    # parked on it per init_side. Villages all use 8; the oasis
+    # overlay (^Do) is heals=8 and behaves like a village for
+    # healing/poison-cure purposes (per heal.cpp::poison_progress
+    # and heal_amount, both of which call map().gives_healing).
+    # Critically, oasis is NOT a village (no capture, no income).
+    # Default 0 = no terrain-based healing.
+    heals: int = 0
+    # `light=N` on the [terrain_type]: hex-level illumination bonus
+    # added to the base ToD lawful_bonus. Per terrain.hpp:132
+    # `light_bonus(base) = bounded_add(base, light_modification_,
+    # max_light_, min_light_)`. The campfire overlay (^Ecf) has
+    # light=25 with max_light/min_light defaulting to 25, which
+    # CLAMPS lawful_bonus to exactly 25 on that hex regardless of
+    # base ToD. Used in tod_manager::get_illuminated_time_of_day
+    # before applying unit illumination effects.
+    # Composite (base+overlay): light = base.light + overlay.light,
+    # max_light = max(base.max_light, overlay.max_light),
+    # min_light = min(base.min_light, overlay.min_light).
+    # Default 0/0/0.
+    light: int = 0
+    max_light: int = 0
+    min_light: int = 0
+    # True when the terrain.cfg explicitly set max_light or min_light
+    # (vs taking the default = light value). Composition needs to
+    # know whether to use the inherited light or the explicit cap.
+    has_max_light: bool = False
+    has_min_light: bool = False
 
     @property
     def mvt_type(self) -> List[str]:
@@ -223,6 +251,10 @@ class TerrainEntry:
             "is_overlay":    self.is_overlay,
             "mvt_type":      self.mvt_type,
             "def_type":      self.def_type,
+            "heals":         self.heals,
+            "light":         self.light,
+            "max_light":     self.max_light,
+            "min_light":     self.min_light,
         }
 
 
@@ -243,6 +275,21 @@ def parse_terrain_cfg(path: Path = _TERRAIN_CFG) -> Dict[str, TerrainEntry]:
         s = attrs.get("string", "").strip()
         if not s:
             continue   # malformed; skip
+        try:
+            heals_v = int(attrs.get("heals", "0").strip() or "0")
+        except (TypeError, ValueError):
+            heals_v = 0
+        def _int_or(default):
+            def f(s):
+                try: return int(s.strip())
+                except (TypeError, ValueError, AttributeError): return default
+            return f
+        light_v = _int_or(0)(attrs.get("light", "0"))
+        # max_light / min_light default to the light value when absent.
+        has_max = "max_light" in attrs
+        has_min = "min_light" in attrs
+        max_light_v = _int_or(light_v)(attrs.get("max_light", str(light_v))) if has_max else light_v
+        min_light_v = _int_or(light_v)(attrs.get("min_light", str(light_v))) if has_min else light_v
         entry = TerrainEntry(
             string=s,
             id=attrs.get("id", "").strip(),
@@ -252,6 +299,12 @@ def parse_terrain_cfg(path: Path = _TERRAIN_CFG) -> Dict[str, TerrainEntry]:
             default_base=attrs.get("default_base", "").strip(),
             hidden=attrs.get("hidden", "").strip().lower() in ("yes", "true", "1"),
             is_overlay=s.startswith("^"),
+            heals=heals_v,
+            light=light_v,
+            max_light=max_light_v,
+            min_light=min_light_v,
+            has_max_light=has_max,
+            has_min_light=has_min,
         )
         entries[s] = entry
     return entries

@@ -244,6 +244,17 @@ class Weapon:
     range: str                  # "melee" / "ranged"
     type: str                   # "blade" / "pierce" / ...
     specials: List[str] = field(default_factory=list)
+    # `accuracy` / `parry` are signed CTH adjustments per
+    # attack.cpp:168-169:
+    #     cth = defender.defense_modifier(terrain)
+    #         + attacker.weapon.accuracy
+    #         - defender.weapon.parry  (only when defender retaliates)
+    # Then clamped to [0, 100]. Distinct from the `marksman` /
+    # `magical` SPECIALS, which apply floors of 60 / 70 to cth.
+    # Default era only uses these on a few weapons (Elvish Champion
+    # sword: accuracy=10).
+    accuracy: int = 0
+    parry: int = 0
 
 
 @dataclass
@@ -273,6 +284,19 @@ class CombatUnit:
     is_fearless:    bool = False
     has_firststrike:bool = False      # convenience copy from chosen weapon
     abilities:      List[str] = field(default_factory=list)
+    # Drain/poison/plague/feeding all share the same target-eligibility
+    # filter: undead, mechanical, and elemental units block these
+    # life-draining effects. Wesnoth gates each via the target's
+    # "undrainable" / "unpoisonable" / "unplagueable" status which the
+    # TRAIT_{UNDEAD,MECHANICAL,ELEMENTAL} macros apply via
+    # `[effect] apply_to=status add=...`. The three are always set
+    # together by the trait macros (verified against
+    # wesnoth_src/data/core/macros/traits.cfg) but Wesnoth's engine
+    # checks each status separately at the call site, so we keep them
+    # separate here too — a future scenario [unit] override could set
+    # one without the others.
+    is_undrainable: bool = False
+    is_unpoisonable: bool = False
 
 
 # =====================================================================
@@ -337,6 +361,23 @@ def _compute_battle_stats(
         # returns the % chance an attacker hits the defender on its
         # current terrain — same number as the WML [defense] block).
         cth = opp_unit.defense_pct
+        # `accuracy` / `parry` numeric attrs on [attack] adjust cth
+        # before the marksman/magical floors apply. Per
+        # attack.cpp:168-169:
+        #     cth = defender.defense_modifier(terrain)
+        #         + attacker.weapon.accuracy
+        #         - defender.weapon.parry  (only when defender weapon)
+        # then clamped to [0, 100]. Default era's only user is the
+        # Elvish Champion sword (accuracy=10). Without this term, the
+        # Champion's 5-strike sword effectively misses 10% more often
+        # than reality. Witnessed 2026-05-08 in
+        # 2p__Den_of_Onis_Turn_65_(135596) cmd[1161]: 5-strike sword
+        # vs Troll Whelp on grass should land 4 hits (24 dmg, kill)
+        # but our sim landed 3 (18 dmg, leaves the Whelp alive,
+        # cascading into cmd[1164] move:final_occupied).
+        cth += weapon.accuracy
+        if opp_weapon is not None:
+            cth -= opp_weapon.parry
         if "marksman" in weapon.specials and is_attacker:
             cth = max(cth, 60)
     # DEFLECT (data/core/macros/weapon_specials.cfg:95-104):
@@ -493,7 +534,15 @@ class CombatResult:
     attacker_poisoned: bool
     attacker_slowed:   bool
     plague_spawned:    bool
-    rng_calls_used:    int
+    # When True, the dying side is the ATTACKER (defender's plague
+    # kill); a Walking Corpse should spawn on the DEFENDER's side
+    # at the ATTACKER's hex. When False (and plague_spawned), the
+    # standard direction applies (attacker killed defender; corpse
+    # on attacker's side at defender's hex). Both flags can be set
+    # if both sides have plague AND both die in the same combat —
+    # see replay_dataset's plague handler for resolution.
+    plague_spawned_attacker_died: bool = False
+    rng_calls_used:    int = 0
 
 
 def resolve_attack(
@@ -609,6 +658,7 @@ def resolve_attack(
         # Plague: spawn a Walking Corpse for attacker's side.
         if a_stats.plague:
             plague_spawned = True
+    plague_spawned_attacker_died = False
     if attacker.hp <= 0:
         attacker.hp = 0
         d_xp_gain = (
@@ -616,6 +666,21 @@ def resolve_attack(
             if attacker.level
             else KILL_EXPERIENCE // 2
         )
+        # Defender's plague counter killed the attacker: spawn a
+        # Walking Corpse for DEFENDER's side at the ATTACKER's hex.
+        # Wesnoth's plague isn't direction-specific — it triggers on
+        # ANY kill by a plague-flagged weapon (attack.cpp:1287 doesn't
+        # care which side launched the strike). Only the attacker
+        # case was being handled here, dropping the WC on
+        # counter-kills. Concrete repro:
+        # 2p__Sablestone_Delta_Turn_16_(121180).bz2 cmd[220]:
+        # Heavy Infantryman (HP=6) attacks Walking Corpse (HP=4 with
+        # plague-impact); WC counter strikes hit and kill the
+        # attacker; Wesnoth spawns a side-2 WC at the attacker's
+        # hex (15,12), our sim was leaving (15,12) empty. Detected
+        # via tools/diff_unit_counter.py 2026-05-03.
+        if d_stats is not None and d_stats.plague:
+            plague_spawned_attacker_died = True
 
     if attacker.hp > 0:
         attacker.experience += a_xp_gain
@@ -637,6 +702,7 @@ def resolve_attack(
         attacker_poisoned=attacker.is_poisoned,
         attacker_slowed=attacker.is_slowed,
         plague_spawned=plague_spawned,
+        plague_spawned_attacker_died=plague_spawned_attacker_died,
         rng_calls_used=rng.calls - starting_calls,
     )
 
@@ -686,7 +752,19 @@ def _perform_hit(
     # `if drains_damage > 0` guard at attack.cpp:1145 then skips the
     # heal call entirely. We mirror this implicitly via `striker.hp +=
     # heal` being a no-op when heal is 0.
-    if striker_stats.drains and damage_done > 0:
+    # Drain only heals from drainable targets. Undead/mechanical/
+    # elemental targets carry the `undrainable` status (set by the
+    # corresponding musthave trait at scrape time); the heal step
+    # is skipped entirely for those. Mirrors Wesnoth's
+    # `opp.get_state("undrainable")` gate at attack.cpp:1023-1031.
+    # User-reported repro 2026-05-03:
+    # 2p__Caves_of_the_Basilisk_Turn_11_(93641).bz2 cmd[132]:
+    # Ghost (drain) attacks Walking Corpse (undead/undrainable).
+    # Wesnoth: Ghost takes counter damage but doesn't heal from the
+    # drain. Our sim was healing the Ghost back to full, leaving it
+    # alive through subsequent combats Wesnoth had killed it in.
+    if (striker_stats.drains and damage_done > 0
+            and not target.is_undrainable):
         heal = (damage_done * striker_stats.drain_percent // 100
                 + striker_stats.drain_constant)
         if heal != 0:
@@ -698,7 +776,21 @@ def _perform_hit(
 
     # Status effects (only when target survives).
     if target.hp > 0:
-        if striker_stats.poisons and not target.is_poisoned:
+        # Poison only applies if the target isn't already poisoned AND
+        # isn't immune. Wesnoth gates via `opp.get_state("unpoisonable")`
+        # before adding the poison status (attack.cpp:1057). Without
+        # this check our sim was poisoning undead/mechanical/elemental
+        # targets, which then took 8 HP/turn from the per-turn poison
+        # damage tick — concrete repro at
+        # 2p__Caves_of_the_Basilisk_Turn_11_(93641).bz2 cmd[155]:
+        # a side-2 Vampire Bat poison-attack against side-1 Ghoul
+        # (undead/unpoisonable) marked the Ghoul poisoned, and over
+        # the next several init_side firings our sim drained 16 HP
+        # from a unit Wesnoth left at full strength. (Bats have a
+        # poison melee attack — discovered via user's GUI HP trace
+        # comparison after Stage 6 drain fix.)
+        if (striker_stats.poisons and not target.is_poisoned
+                and not target.is_unpoisonable):
             target.is_poisoned = True
         if striker_stats.slows and not target.is_slowed:
             target.is_slowed = True

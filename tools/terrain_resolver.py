@@ -351,8 +351,95 @@ def def_pct(code: str, defenses: Mapping[str, int]) -> int:
     return base
 
 
+def terrain_heals(code: str) -> int:
+    """Per-turn healing the hex at `code` provides (+8 for villages
+    and oasis, 0 elsewhere).
+
+    Mirrors `wesnoth_src/src/terrain/terrain.cpp:230` for composite
+    terrain: `heals_(std::max<int>(base.heals_, overlay.heals_))`.
+    For non-composite terrain it's the entry's own `heals` value.
+
+    The `^Do` (oasis) overlay is the non-village case: heals=8 but
+    NOT a village (no capture, no income, no team ownership).
+    Wesnoth's `heal.cpp` calls `map().gives_healing(loc)` which
+    returns this exact int -- the same path is used for the +HP
+    branch AND the poison-cure branch, so an oasis cures poison
+    just like a village.
+    """
+    db = load_terrain_db()
+    base, _, overlay = code.partition("^")
+    base_heals = int((db.get(base) or {}).get("heals", 0) or 0)
+    if overlay:
+        overlay_key = "^" + overlay
+        overlay_heals = int((db.get(overlay_key) or {}).get("heals", 0) or 0)
+    else:
+        overlay_heals = 0
+    return max(base_heals, overlay_heals)
+
+
+def terrain_light_bonus(code: str, base: int) -> int:
+    """Apply the hex's terrain-level illumination to `base` lawful_bonus.
+
+    Mirrors `wesnoth_src/src/terrain/terrain.hpp:132`:
+        light_bonus(base) = bounded_add(base, light_modification_,
+                                        max_light_, min_light_)
+
+    Composite (base+overlay) per terrain.cpp:230:
+        light_modification = base.light + overlay.light
+        max_light = max(base.max_light, overlay.max_light)
+        min_light = min(base.min_light, overlay.min_light)
+
+    Wesnoth's bounded_add (utils/math.hpp:38) is ASYMMETRIC:
+
+        if (increment >= 0)  return min(base + increment,
+                                        max(base, max_sum));
+        else                 return max(base + increment,
+                                        min(base, min_sum));
+
+    Positive light (lava chasm Ql, campfire ^Ecf, etc.): ADDS to base
+    capped UPWARD at max_sum but never reduces base below itself. So
+    Ql (light=25, max_light=35) at base=-25 first_watch yields
+    bounded_add(-25, 25, 35, …) = min(0, max(-25, 35)) = min(0, 35)
+    = 0 (NOT 25 -- the lava brightens by one step, doesn't fix to 25).
+    Whereas ^Ecf (light=25, max_light=25) at base=0 dawn yields
+    bounded_add(0, 25, 25, …) = min(25, max(0, 25)) = 25 (the
+    max_light=25 cap forces the result to exactly 25 here, but only
+    because the base+light=25 is at the cap).
+
+    Negative light (^Edp dim/poison?, etc.): SUBTRACTS from base
+    floored DOWNWARD at min_sum but never raises base above itself.
+
+    Composite default: when min_light or max_light isn't explicitly
+    set in the cfg, Wesnoth defaults each to `light` (so no min/max
+    cfg means light==max==min, fully fixing to base+light). Our scrape
+    captures `has_max_light` / `has_min_light` flags but currently
+    only the magnitude needs differ -- the bounded_add itself encodes
+    the cap correctly.
+
+    Returns `base` unchanged when the terrain has no light/max/min.
+    """
+    db = load_terrain_db()
+    base_str, _, overlay = code.partition("^")
+    b = db.get(base_str) or {}
+    o = db.get("^" + overlay) if overlay else None
+    light = int(b.get("light", 0) or 0)
+    max_l = int(b.get("max_light", 0) or 0)
+    min_l = int(b.get("min_light", 0) or 0)
+    if o:
+        light += int(o.get("light", 0) or 0)
+        max_l = max(max_l, int(o.get("max_light", 0) or 0))
+        min_l = min(min_l, int(o.get("min_light", 0) or 0))
+    if light == 0 and max_l == 0 and min_l == 0:
+        return base
+    # bounded_add: asymmetric per Wesnoth's utils/math.hpp:38.
+    if light >= 0:
+        return min(base + light, max(base, max_l))
+    else:
+        return max(base + light, min(base, min_l))
+
+
 __all__ = [
     "MARKER_PLUS", "MARKER_MINUS", "MARKER_BASE", "UNREACHABLE_COST",
     "load_terrain_db", "merge_alias_lists",
-    "mvt_cost", "def_pct",
+    "mvt_cost", "def_pct", "terrain_heals", "terrain_light_bonus",
 ]
