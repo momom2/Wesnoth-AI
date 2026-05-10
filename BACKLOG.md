@@ -11,11 +11,12 @@ strategies; cluster economy).
 - **Simulator is the production training path.** `tools/wesnoth_sim.py`
   is bit-exact for combat (731/731 strikes verified vs `[mp_checkup]`
   oracle). Full-replay `diff_replay --filter-2p` clean rate
-  **99.71% (5,474/5,490)** on the freshly extracted 6,224-replay
+  **99.85% (5,482/5,490)** on the freshly extracted 6,224-replay
   competitive-2p corpus (2026-05-10 re-extraction via
   `tools/sort_replays.py`, after the intra-block undone-recruit
-  fix + teleport-ability + cross-block-lookahead fixes). 16
-  residual divergences are real sim signal worth chasing.
+  fix + teleport-ability + cross-block-lookahead fixes + the
+  multi-advancement fix in `_maybe_advance_unit`). 8 residual
+  divergences are real sim signal worth chasing.
 - **Self-play training pipeline ready.** `tools/sim_self_play.py`
   drives REINFORCE+baseline by default, AlphaZero-style MCTS via
   `--mcts`. Cluster job + GUI controls in place.
@@ -95,19 +96,29 @@ strategies; cluster economy).
        block-boundary guard to the lookahead. Cleared 1 case
        (Hamlets turn 25).
 
-- [ ] 🟡 **Investigate the 16 residual `diff_replay` divergences
-  on the fresh corpus** (2026-05-10). Notable groupings:
-    - 6× `move:final_occupied` (cascade-class — earlier divergence
-      leaves a unit on the destination).
+- [x] 🟡 **Multi-advancement (HI→ST→IM in one combat)** (DONE
+  2026-05-11, commit 7f5d3bf). `_maybe_advance_unit` was a single
+  advancement step; Wesnoth's `advance_unit_at` LOOPS while
+  carryover XP still meets the next-tier threshold. A low-level
+  unit killing a high-level enemy can advance multiple tiers in
+  one combat, especially at low experience_modifier (30 in this
+  scenario) and with the intelligent trait (-20% threshold).
+  Pre-fix, our sim stopped at intermediate tier, mismatching
+  weapon damage / HP / MP for the rest of the game. Found via
+  2p__Den_of_Onis_Turn_37_(114612) where Heavy Infantryman u67
+  killed Dwarvish Dragonguard u46 at turn 27 s2 -> should chain
+  HI→ST→IM but stopped at ST. Cleared 8 residual divergences
+  (6× move:final_occupied cascades + 2× attack:weapon_oob + 1×
+  move:mp_insufficient).
+
+- [ ] 🟡 **Investigate the 8 residual `diff_replay` divergences
+  on the fresh corpus** (2026-05-11, post multi-advance fix).
+  Notable groupings:
+    - 3× `recruit:insufficient_gold` (real gold drift —
+      Hornshark / Sablestone / something else).
     - 3× `attack:defender_missing` (likely cascade or
       scenario-event-spawned units).
-    - 2× `attack:weapon_oob` (weapon idx 1 on a 1-attack unit —
-      the unit lost an attack via [effect] and the extractor
-      didn't handle the modification?).
-    - 2× `move:src_missing`, 2× `recruit:insufficient_gold` (real
-      gold drift), 1× `move:mp_insufficient`.
-  Each of the systematic ones is worth chasing; the cascade-class
-  failures likely resolve once the underlying bug is fixed.
+    - 2× `move:src_missing`.
 
 See the **MCTS readiness scorecard** (refreshed 2026-05-10) further
 down for a per-capability checklist.
