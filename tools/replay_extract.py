@@ -1092,10 +1092,46 @@ def extract_replay(path: Path) -> Optional[dict]:
                 # the stream -- it often carries the mp_checkup block.
                 # Window of 3 commands to skip past intervening
                 # [random_seed] / [choose] blocks.
+                #
+                # IMPORTANT: don't cross [replay] block boundaries.
+                # When a player issues a move at the end of block i
+                # then disconnects (or saves the game mid-action),
+                # the [checkup] is empty. Block i+1's first action
+                # is the player's redo on resume, which carries its
+                # OWN [mp_checkup] with a DIFFERENT final_hex.
+                # Without the boundary guard, the lookahead would
+                # adopt block i+1's final_hex as block i's move's
+                # destination, producing a non-adjacent fake step.
+                # Concrete:
+                # 2p__Hamlets_Turn_25_(201985).bz2 block 0 last cmd
+                # is [move] x="18,17,16" y="18,18,17" with empty
+                # [checkup]; block 1 cmd[0] is the redo
+                # x="22,21,20,19,18,18" y="24,25,24,25,24,23" whose
+                # final_hex is (18,23) WML = (17,22) 0-indexed.
+                # Cross-block lookahead pre-fix produced
+                # ["move", [17,17], [17,22], 2] for the trailer —
+                # the (17,22) coming from the OTHER move's
+                # mp_checkup. Then diff_replay flagged the fake
+                # 5-hex jump as path_non_adjacent.
+                # The trailer-drop pass below catches this case
+                # for moves once we've stopped polluting the
+                # destination via lookahead.
                 lookahead_idx = cmd_idx + 1
+                # Boundary guard: if cmd_idx is at-or-past the last
+                # boundary index (= last cmd of block before the
+                # final block), the lookahead is already in the
+                # final block and unbounded. Otherwise cap it at
+                # the next boundary.
+                next_block_boundary = None
+                for b in block_boundary_indices:
+                    if cmd_idx <= b:
+                        next_block_boundary = b
+                        break
                 while (final_x is None
                        and lookahead_idx < len(commands_list)
-                       and lookahead_idx <= cmd_idx + 3):
+                       and lookahead_idx <= cmd_idx + 3
+                       and (next_block_boundary is None
+                            or lookahead_idx <= next_block_boundary)):
                     nxt = commands_list[lookahead_idx]
                     nxt_chk = nxt.first("checkup") or nxt.first("mp_checkup")
                     if nxt_chk is not None:

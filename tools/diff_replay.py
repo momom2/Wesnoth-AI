@@ -194,51 +194,57 @@ def _check_move(gs: GameState, cmd: list) -> Optional[Tuple[str, str]]:
                     f" expected side={from_side}")
         return ("move:src_missing",
                 f"no unit at ({sx},{sy}) for side={from_side}")
-    # Teleport short-circuit: a unit with the `teleport` ability can
-    # path between any two empty villages owned by its side at cost 1.
-    # The replay records this as a 2-hex move whose endpoints are
-    # non-adjacent. Validate per the WML at
-    # data/core/macros/abilities.cfg ABILITY_TELEPORT [tunnel]:
-    # source and target hexes are both own-side villages, and the
-    # target is empty (`not unit` filter on target).
-    if (len(xs) == 2 and "teleport" in unit.abilities
-            and (xs[1], ys[1]) not in hex_neighbors(xs[0], ys[0])):
-        sx2, sy2 = xs[0], ys[0]
-        tx2, ty2 = xs[1], ys[1]
-        # Both endpoints must be village hexes (have VILLAGE modifier).
-        s_is_v = TerrainModifiers.VILLAGE in _hex_modifiers(gs, sx2, sy2)
-        t_is_v = TerrainModifiers.VILLAGE in _hex_modifiers(gs, tx2, ty2)
-        if not (s_is_v and t_is_v):
-            return ("move:teleport_not_villages",
-                    f"teleport endpoints not both villages: src=({sx2},{sy2}) "
-                    f"village={s_is_v}, dst=({tx2},{ty2}) village={t_is_v}")
-        # Both villages must be owned by the moving unit's side.
-        owner_map = (getattr(gs.global_info, "_village_owner", {}) or {})
-        s_own = owner_map.get((sx2, sy2)) == unit.side
-        t_own = owner_map.get((tx2, ty2)) == unit.side
-        if not (s_own and t_own):
-            return ("move:teleport_not_owned",
-                    f"teleport requires own villages: "
-                    f"src_owner={owner_map.get((sx2, sy2))}, "
-                    f"dst_owner={owner_map.get((tx2, ty2))}, side={unit.side}")
-        # Target hex must be empty (the source has the unit itself).
-        occupant = _unit_at(gs, tx2, ty2)
-        if occupant is not None:
-            return ("move:teleport_target_occupied",
-                    f"teleport target ({tx2},{ty2}) occupied by {occupant.id}")
-        # Cost = 1 MP. unit must have at least 1.
-        if unit.current_moves < 1:
-            return ("move:mp_insufficient",
-                    f"{unit.id} ({unit.name}): teleport needs 1 MP, "
-                    f"current_moves={unit.current_moves}")
-        return None
-    # Path adjacency.
+    # Path adjacency, with teleport allowance.
+    #
+    # A unit with the `teleport` ability can jump between own-side
+    # villages at cost 1 MP per jump (per
+    # data/core/macros/abilities.cfg ABILITY_TELEPORT [tunnel]).
+    # The replay records each teleport as a SINGLE non-adjacent
+    # step within a move's path. The teleport may appear at any
+    # position in the path -- before walks, between walks, after
+    # walks -- whatever the player did with their remaining MP.
+    # Concrete cases observed in the corpus:
+    #   - 2p__Howling_Ghost_Badlands_Turn_21_(38787).bz2 cmd[379]
+    #     is a pure 2-hex teleport (27,15) -> (11,14).
+    #   - 2p__Hamlets_Turn_12_(206115).bz2 cmd[257] path
+    #     (6,10) -> (20,4) -> (20,5): teleport then walk.
+    #   - 2p__Hamlets_Turn_12_(206115).bz2 cmd[258] path
+    #     (20,5) -> (20,4) -> (6,10) -> (6,9): walk, teleport, walk.
+    #
+    # For each step, accept if adjacent OR (unit has teleport AND
+    # both endpoints are own-side villages). Teleport-endpoint
+    # occupancy is checked by the path-occupancy pass below
+    # uniformly with the rest of the path. MP budget isn't
+    # tracked precisely here (each step charges 1 in the existing
+    # MP pre-check below); a Silver Mage's 5 MP supports up to 5
+    # teleports + walks, which is more than enough for the
+    # observed corpus.
+    has_teleport = "teleport" in unit.abilities
+    owner_map = (getattr(gs.global_info, "_village_owner", {}) or {})
     for i in range(1, len(xs)):
         px, py = xs[i - 1], ys[i - 1]
         cx, cy = xs[i], ys[i]
-        if (cx, cy) not in hex_neighbors(px, py):
+        if (cx, cy) in hex_neighbors(px, py):
+            continue
+        # Non-adjacent step: must be a teleport.
+        if not has_teleport:
             return ("move:path_non_adjacent",
                     f"step {i}: ({px},{py})->({cx},{cy}) not adjacent")
+        s_is_v = TerrainModifiers.VILLAGE in _hex_modifiers(gs, px, py)
+        t_is_v = TerrainModifiers.VILLAGE in _hex_modifiers(gs, cx, cy)
+        if not (s_is_v and t_is_v):
+            return ("move:teleport_not_villages",
+                    f"teleport step {i} endpoints not both villages: "
+                    f"src=({px},{py}) village={s_is_v}, "
+                    f"dst=({cx},{cy}) village={t_is_v}")
+        s_own = owner_map.get((px, py)) == unit.side
+        t_own = owner_map.get((cx, cy)) == unit.side
+        if not (s_own and t_own):
+            return ("move:teleport_not_owned",
+                    f"teleport step {i} requires own villages: "
+                    f"src_owner={owner_map.get((px, py))}, "
+                    f"dst_owner={owner_map.get((cx, cy))}, "
+                    f"side={unit.side}")
     # Path occupancy. Wesnoth's `pathfind.cpp:779-786`: friendly units
     # are PASSABLE (with a tiny 1-unit defense subcost preference), only
     # enemies block. So intermediate path hexes can be friend-occupied;
