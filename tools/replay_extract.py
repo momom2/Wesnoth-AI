@@ -1192,41 +1192,103 @@ def extract_replay(path: Path) -> Optional[dict]:
                 last_attack_slot = slot   # tracked separately for [choose]
                 break
             if t == "recruit":
-                # Intra-block undo+redo detection. A finalized recruit
-                # has [checkup] containing [result] with checksum +
-                # next_unit_id. An UNDONE recruit (player picked a
-                # unit, undid before commit, picked something else at
-                # the same hex) has an empty [checkup] -- no [result]
-                # inside, no follow-up [random_seed] either. The
-                # cross-block trailer-drop logic below catches the
-                # save-on-undone-recruit boundary case; this catches
-                # the WITHIN-block case where the player undoes and
-                # re-recruits in the same turn.
+                # Intra-block undo+redo detection. Wesnoth replays
+                # use TWO different finalization patterns for
+                # recruits:
                 #
-                # Concrete: 2p__Hamlets_Turn_23_(179126).bz2 turn 1:
-                # cmd[5] = recruit Horseman (12,6) with [checkup][/checkup]
-                # then a server [speak], then cmd[6] = recruit Heavy
-                # Infantryman (12,6) with [checkup][result]checksum=...
-                # [/result][/checkup] and [random_seed] follow-up.
-                # Pre-fix our extractor emitted both as completed,
-                # producing recruit:target_occupied at cmd[6] (sim
-                # had a Horseman occupying (11,5) when Wesnoth had
-                # never finalized it). Three replays in the
-                # competitive-2p corpus hit the same canned-opener
-                # pattern.
+                #   (A) [checkup][result]checksum=...,next_unit_id=...
+                #       [/result][/checkup] — Hamlets-style, full
+                #       checksum baked in.
+                #   (B) [checkup][/checkup] (empty), followed by a
+                #       separate [command] dependent="yes"
+                #       [random_seed]new_seed=...[/random_seed]
+                #       [/command] — Sablestone-style, completion
+                #       signaled by the seed alone.
                 #
-                # GUARD: musthave-only races (undead/mechanical/
-                # elemental) NEVER consume RNG for trait rolls, but
-                # they DO emit a [checkup] with [result] when finalized.
-                # So "empty checkup" is still the right signal regardless
-                # of race -- no special-case needed here.
+                # An UNDONE recruit (player picked a unit, undid
+                # before commit, re-recruited at the same hex with a
+                # different type or didn't re-recruit at all) has:
+                #   - [checkup][/checkup] empty AND
+                #   - NO follow-up [random_seed] (or follows only
+                #     after another player action, meaning the seed
+                #     belongs to that next action).
+                #
+                # For musthave-only races (undead / mechanical /
+                # elemental — `_recruit_consumes_rng` returns False),
+                # there's NEVER a [random_seed] regardless. So
+                # for those, the signal is purely [checkup] empty.
+                # Completed musthave recruits use pattern (A).
+                #
+                # Pre-fix: extractor emitted EVERY recruit as
+                # completed regardless of [checkup] state. That
+                # passed for Sablestone-style replays (no undones
+                # in the failing samples) but missed the Hamlets
+                # canned-opener bug.
+                #
+                # First fix attempt (a6d2fcd): "skip if [checkup]
+                # is empty" — over-aggressive, dropped legitimate
+                # Sablestone-style recruits. Caused a regression
+                # from 23 divergences to 5249 (every Loyalist /
+                # default-era turn-2 move src_missing because the
+                # turn-1 recruits were silently dropped).
+                #
+                # The cross-block trailer-drop logic below catches
+                # the save-on-undone-recruit boundary case; this
+                # block handles the WITHIN-block case (player
+                # undoes and re-recruits in the same turn, no save
+                # in between).
                 checkup = cmd.first("checkup") or cmd.first("mp_checkup")
-                if checkup is not None and checkup.first("result") is None:
-                    # Undone. Don't emit the recruit, don't update
-                    # last_action_slot (no seed will arrive for
-                    # this; the next finalized action gets its slot
-                    # back-filled cleanly).
-                    break
+                checkup_empty = (checkup is not None
+                                 and checkup.first("result") is None)
+                if checkup_empty:
+                    unit_type_for_check = sub.attrs.get("type", "")
+                    needs_rng = _recruit_consumes_rng(unit_type_for_check)
+                    is_undone = False
+                    if not needs_rng:
+                        # Musthave-only race + empty [checkup] =
+                        # undone (pattern A is the only completion
+                        # signal for these races, and we don't see
+                        # it).
+                        is_undone = True
+                    else:
+                        # RNG-race + empty [checkup]. Look ahead
+                        # for a [random_seed] BEFORE any next
+                        # player action. If found -> Sablestone-
+                        # style completion (keep). If not ->
+                        # undone (drop).
+                        # Window of 3 commands matches the
+                        # existing checkup-lookahead used for
+                        # move final_hex back-fill.
+                        has_seed = False
+                        la = cmd_idx + 1
+                        while la < min(cmd_idx + 4,
+                                       len(commands_list)):
+                            nxt = commands_list[la]
+                            stop = False
+                            for nsub in nxt.children:
+                                if (nsub.tag == "random_seed"
+                                        and nsub.attrs.get(
+                                            "new_seed", "")):
+                                    has_seed = True
+                                    stop = True
+                                    break
+                                if nsub.tag in ("move", "attack",
+                                                "recruit", "recall",
+                                                "end_turn",
+                                                "init_side"):
+                                    # Any player action before a
+                                    # seed means the seed (if any
+                                    # later) belongs to that
+                                    # action, not us.
+                                    stop = True
+                                    break
+                            if stop:
+                                break
+                            la += 1
+                        is_undone = not has_seed
+                    if is_undone:
+                        # Don't emit, don't update last_action_slot.
+                        break
                 unit_type = sub.attrs.get("type", "")
                 # Convert WML 1-indexed → Python 0-indexed.
                 tx = max(0, int(sub.attrs.get("x", 0) or 0) - 1)
