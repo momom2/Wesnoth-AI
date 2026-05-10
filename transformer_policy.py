@@ -61,10 +61,22 @@ class TransformerPolicy:
 
     def __init__(
         self,
-        d_model: int = 128,
-        num_layers: int = 3,
-        num_heads: int = 4,
-        d_ff: int = 256,
+        # Default arch sized for self-play training on the cluster
+        # GPU (L40s, 40 GB). 26M params puts us in the lower band of
+        # AlphaZero-class capacity (~46M). We started at 0.54M
+        # (d=128, L=3, H=4, ff=256) for fast supervised iteration on
+        # a laptop CPU; once self-play moved to the cluster we scaled
+        # ~50× in one step rather than hand-titrating intermediate
+        # sizes — see the model-size analysis in BACKLOG / session
+        # log of 2026-05-09. The supervised checkpoint at the old
+        # arch is incompatible (load_checkpoint raises on
+        # `_arch` mismatch); self-play starts from random init and
+        # rebuilds. Cluster CPU/laptop callers can still pass the
+        # smaller config explicitly via kwargs.
+        d_model: int = 512,
+        num_layers: int = 8,
+        num_heads: int = 8,
+        d_ff: int = 2048,
         device=None,
         trainer_config: Optional[TrainerConfig] = None,
     ):
@@ -226,6 +238,7 @@ class TransformerPolicy:
         game_state: GameState,
         *,
         game_label: str = "default",
+        sim=None,
     ) -> Dict:
         """Forward pass + sample + record pending Transition.
 
@@ -382,6 +395,13 @@ class TransformerPolicy:
                 stale = [k for k in self._last_state_id if k[0] == game_label]
                 for k in stale:
                     del self._last_state_id[k]
+
+    def finalize_game(self, game_label: str, winner: int) -> None:
+        """No-op for REINFORCE. The MCTS-mode policy wrapper
+        (`tools.mcts_policy.MCTSPolicy`) overrides this to seal
+        per-game `MCTSExperience` lists with the terminal-z derived
+        from `winner`. Defining it here as a no-op lets the rollout
+        loop call it unconditionally without `hasattr`-checking."""
 
     def train_step(self) -> TrainStats:
         """Apply one gradient update over queued trajectories.

@@ -29,6 +29,7 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from encoder import EncodedState
 
@@ -36,6 +37,26 @@ from encoder import EncodedState
 # How many attack slots per unit the weapon head predicts. Wesnoth
 # units have 1–4 attacks typically; MAX_ATTACKS=4 covers them.
 MAX_ATTACKS = 4
+
+# Distributional value head (C51 / categorical-K). The head emits a
+# softmax over K bins on a fixed support [V_MIN, V_MAX]; the scalar
+# value the rest of the codebase reads is the distribution's mean,
+# and `cliffness = std(Z(s))` is the same distribution's spread.
+# Both come "for free" from one head with one categorical-CE loss
+# (training is implicit: noisy returns → wider distribution →
+# higher std). See trainer.py::_project_returns_to_atoms for the
+# loss-side projection.
+#
+# The support is fixed to match the trainer's existing `value_clip`
+# range. If you raise value_clip above 1.0, widen V_MIN/V_MAX
+# accordingly or returns clip to the support edges and lose
+# resolution.
+#
+# K=51 is the Bellemare et al. (2017) default. With our [-1, +1]
+# range that's 0.04 / bin — plenty of resolution.
+VALUE_N_ATOMS = 51
+VALUE_V_MIN   = -1.0
+VALUE_V_MAX   = +1.0
 
 
 # Token-kind tags added to every stream so the transformer can tell
@@ -130,7 +151,15 @@ class ModelOutput:
                                  #                   non-UNIT actors.
     target_logits: torch.Tensor  # [1, A, H]         pick a hex per actor
     weapon_logits: torch.Tensor  # [1, A, MAX_ATTACKS]
-    value:         torch.Tensor  # [1, 1]
+    value:         torch.Tensor  # [1, 1]            mean of value distribution
+    # Distributional value head outputs (categorical over K atoms).
+    # Trainer's value loss reads `value_logits`; rollout / MCTS read
+    # `value` (the mean). `cliffness` is the std of the predicted
+    # distribution at this state -- a heteroscedastic uncertainty
+    # estimate that comes for free from the categorical head and
+    # marks states where small perturbations imply big value swings.
+    value_logits:  torch.Tensor  # [1, K]            raw softmax logits
+    cliffness:     torch.Tensor  # [1, 1]            std(Z(s))
     num_units:     int
     num_recruits:  int
 
@@ -209,21 +238,32 @@ class WesnothModel(nn.Module):
             nn.Linear(d_model, d_model), nn.GELU(),
             nn.Linear(d_model, max_attacks),
         )
-        # Value head: reads ONLY the global [CLS] token. Earlier
-        # versions mean-pooled over all ~1750 token positions, which
-        # diluted any global signal by 1700× and forced the network
-        # to learn "ignore most of your input" via gradient pressure
-        # alone. The global token is built specifically to carry
-        # state-summary signal (turn number, gold, ToD), so reading
-        # just it gives the value head the cleanest input.
-        # Output is `tanh`-bounded to [-1, +1] so it stays well-scaled
-        # against AlphaZero-style ±1 terminal returns regardless of
-        # which shaping weights the reward function happens to have
-        # this run. Trainer normalizes returns to the same range.
-        self.value_head     = nn.Sequential(
+        # Distributional value head (C51-style categorical). Reads
+        # the contextualized [CLS] global token (built specifically
+        # to carry state-summary signal); earlier mean-pooled
+        # variants diluted by 1700× over all token positions.
+        #
+        # The head outputs raw logits over K bins on fixed support
+        # [V_MIN, V_MAX]; softmax in `forward` produces a probability
+        # distribution Z(s). The scalar value the rest of the
+        # codebase reads is `E[Z(s)]`. Cliffness — a free
+        # heteroscedastic uncertainty estimate — is `std(Z(s))`.
+        #
+        # No `tanh`: the bin support is bounded by construction;
+        # softmax can't put mass outside [V_MIN, V_MAX]. Categorical
+        # CE in the trainer (vs. MSE on a tanh scalar) trains both
+        # the distribution mean AND its spread — wider returns at a
+        # state push the network toward a wider predicted
+        # distribution.
+        self.value_head = nn.Sequential(
             nn.Linear(d_model, d_model), nn.GELU(),
-            nn.Linear(d_model, 1),
-            nn.Tanh(),
+            nn.Linear(d_model, VALUE_N_ATOMS),
+        )
+        # Bin support, registered as a buffer so it (a) saves with
+        # the checkpoint and (b) moves with `.to(device)`.
+        self.register_buffer(
+            "_value_atoms",
+            torch.linspace(VALUE_V_MIN, VALUE_V_MAX, VALUE_N_ATOMS),
         )
 
     def forward(self, encoded: "EncodedState") -> ModelOutput:
@@ -291,11 +331,19 @@ class WesnothModel(nn.Module):
 
         weapon_logits = self.weapon_head(actor_ctx)  # [1, A, max_attacks]
 
-        # Read the contextualized global token (it has attended over
-        # every other token via the encoder; carries the cleanest
-        # global-state summary). Squeeze the seq dim so the head sees
-        # [1, d].
-        value = self.value_head(global_ctx.squeeze(1))  # [1, 1]
+        # Distributional value head: read the contextualized global
+        # token, emit K logits over the bin support, derive scalar
+        # mean (`value`) and std (`cliffness`) from the resulting
+        # distribution. Trainer uses `value_logits` directly for the
+        # categorical-CE loss; rollout/MCTS read `value` and
+        # `cliffness`.
+        value_logits = self.value_head(global_ctx.squeeze(1))     # [B, K]
+        value_probs  = F.softmax(value_logits, dim=-1)            # [B, K]
+        atoms = self._value_atoms                                 # [K]
+        value = (value_probs * atoms).sum(dim=-1, keepdim=True)   # [B, 1]
+        var_v = ((value_probs * atoms.pow(2)).sum(dim=-1, keepdim=True)
+                 - value.pow(2)).clamp_min(0)
+        cliffness = var_v.sqrt()                                  # [B, 1]
 
         # Diagnostic marginal: aggregated probability of each leaf-
         # action-type across the whole actor distribution. Useful for
@@ -312,6 +360,8 @@ class WesnothModel(nn.Module):
             target_logits=target_logits,
             weapon_logits=weapon_logits,
             value=value,
+            value_logits=value_logits,
+            cliffness=cliffness,
             num_units=U,
             num_recruits=R,
             marginal_type_logits=marginal_type_logits,
@@ -401,9 +451,17 @@ class WesnothModel(nn.Module):
         end_turn_ctx_b = x[:, H_max + U_max + R_max + 1 :
                               H_max + U_max + R_max + 2]              # [B, 1, d]
 
-        # Value head reads the contextualized global token (one per
-        # sample). Same head as the single-sample path.
-        value_b = self.value_head(global_ctx_b.squeeze(1))            # [B, 1]
+        # Distributional value head — same logic as single-sample
+        # path. Mirror the field-set: per-sample we hand back
+        # `value_logits` (raw, [K]), `value` (mean, [1]), and
+        # `cliffness` (std, [1]).
+        value_logits_b = self.value_head(global_ctx_b.squeeze(1))     # [B, K]
+        value_probs_b  = F.softmax(value_logits_b, dim=-1)            # [B, K]
+        atoms_b = self._value_atoms                                   # [K]
+        value_b = (value_probs_b * atoms_b).sum(dim=-1, keepdim=True) # [B, 1]
+        var_v_b = ((value_probs_b * atoms_b.pow(2)).sum(dim=-1, keepdim=True)
+                   - value_b.pow(2)).clamp_min(0)
+        cliffness_b = var_v_b.sqrt()                                  # [B, 1]
 
         # Heads applied to the padded streams once each — replaces the
         # old per-sample loop that called actor_head / target_q_proj /
@@ -479,7 +537,9 @@ class WesnothModel(nn.Module):
                 end_type_b[b:b+1],
             ], dim=1)  # [1, A_b, T]
 
-            value_sample = value_b[b:b+1]  # [1, 1]
+            value_sample = value_b[b:b+1]                  # [1, 1]
+            value_logits_sample = value_logits_b[b:b+1]    # [1, K]
+            cliffness_sample = cliffness_b[b:b+1]          # [1, 1]
 
             marginal_type_logits = _compute_marginal_type_logits(
                 actor_logits, type_logits, U_b, R_b, device,
@@ -492,6 +552,8 @@ class WesnothModel(nn.Module):
                 target_logits=target_logits,
                 weapon_logits=weapon_logits,
                 value=value_sample,
+                value_logits=value_logits_sample,
+                cliffness=cliffness_sample,
                 num_units=U_b,
                 num_recruits=R_b,
                 marginal_type_logits=marginal_type_logits,

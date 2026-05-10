@@ -176,7 +176,7 @@ def play_one_game(
         #      replaces sim.gs.map.units / sides / global_info, so a
         #      saved reference IS pre; the live sim.gs IS post.
         pre_state = copy.deepcopy(sim.gs)
-        action = policy.select_action(pre_state, game_label=game_label)
+        action = policy.select_action(pre_state, game_label=game_label, sim=sim)
 
         # Recruit-rejection retry loop. Per the legality-mask
         # contract (CLAUDE.md): a recruit attempt on a hex that the
@@ -216,7 +216,7 @@ def play_one_game(
             # just the tail" API on the policy.
             policy.observe(game_label, acting_side, 0.0, done=False)
             pre_state = copy.deepcopy(sim.gs)
-            action = policy.select_action(pre_state, game_label=game_label)
+            action = policy.select_action(pre_state, game_label=game_label, sim=sim)
         atype = action.get("type", "end_turn")
         if atype == "recruit":
             unit_type = action.get("unit_type", "")
@@ -300,6 +300,13 @@ def play_one_game(
             side1_reward += terminal_r
         elif side == 2:
             side2_reward += terminal_r
+
+    # MCTS-mode hook: REINFORCE policy is a no-op here; the MCTS
+    # wrapper (tools.mcts_policy.MCTSPolicy) drains its per-game
+    # `_pending` into the trainer queue with the terminal z derived
+    # from `winner`. Defined as a no-op on TransformerPolicy so the
+    # call is unconditional.
+    policy.finalize_game(game_label, sim.winner)
 
     return GameOutcome(
         game_label=game_label,
@@ -772,6 +779,32 @@ def main(argv: List[str]) -> int:
                          "(currently 'Knalgan Alliance'). Pass any "
                          "default-era faction name (e.g. 'Drakes') "
                          "to lock that faction instead.")
+    # MCTS-mode flags. Default OFF: the existing REINFORCE path runs.
+    # When --mcts is set, action selection runs an AlphaZero-style
+    # tree search and the trainer minimizes CE against visit-count
+    # distributions instead of policy gradient. Per-step shaping
+    # rewards are silently ignored in MCTS mode (AlphaZero distills
+    # the terminal z onto every visited state); --reward-config is
+    # still parsed so REINFORCE / MCTS configs can share JSON files.
+    ap.add_argument("--mcts", action="store_true",
+                    help="Use MCTS for action selection instead of "
+                         "raw policy sampling. Adds N_sim model "
+                         "forwards per move (much slower per game) "
+                         "in exchange for better policy targets.")
+    ap.add_argument("--mcts-sims", type=int, default=50,
+                    help="Number of MCTS simulations per move "
+                         "(--mcts only). 50 is a reasonable "
+                         "starting budget; AlphaZero used 800 for "
+                         "chess, but Wesnoth's branching factor and "
+                         "model-forward latency push us to fewer "
+                         "sims early in development.")
+    ap.add_argument("--mcts-c-puct", type=float, default=1.5,
+                    help="PUCT exploration constant (--mcts only).")
+    ap.add_argument("--mcts-batch-size", type=int, default=1,
+                    help="Batched leaf evaluation (--mcts only). "
+                         "B=1 on CPU; B=8-32 amortizes kernel "
+                         "launch on GPU but our forward already "
+                         "dominates so the gain is modest.")
     args = ap.parse_args(argv[1:])
 
     logging.basicConfig(
@@ -801,9 +834,45 @@ def main(argv: List[str]) -> int:
     policy = TransformerPolicy(device=device)
     if args.checkpoint_in and args.checkpoint_in.exists():
         log.info(f"loading checkpoint {args.checkpoint_in}")
-        policy.load_checkpoint(args.checkpoint_in)
+        try:
+            policy.load_checkpoint(args.checkpoint_in)
+        except RuntimeError as e:
+            # Arch mismatch (e.g., default size bumped from 0.5M to
+            # 26M without re-warmstarting). load_checkpoint raises a
+            # RuntimeError with "arch mismatch" prefix; treat that as
+            # "start fresh" rather than aborting the job — chain
+            # links survive across model-size changes that way.
+            if "arch mismatch" in str(e).lower():
+                log.warning(
+                    f"checkpoint {args.checkpoint_in} has incompatible "
+                    f"arch ({e}); discarding and training from random "
+                    f"init."
+                )
+            else:
+                raise
     else:
         log.warning("no input checkpoint -- training from random init")
+
+    # Optional MCTS wrapper: replaces raw policy sampling with an
+    # AlphaZero-style tree search. Same duck-typed
+    # `select_action` / `observe` / `finalize_game` / `train_step`
+    # interface as the underlying TransformerPolicy, so the rollout
+    # loop doesn't branch.
+    if args.mcts:
+        from tools.mcts import MCTSConfig
+        from tools.mcts_policy import MCTSPolicy
+        mcts_cfg = MCTSConfig(
+            n_simulations=args.mcts_sims,
+            c_puct=args.mcts_c_puct,
+            batch_size=args.mcts_batch_size,
+        )
+        log.info(
+            f"MCTS mode enabled: sims={mcts_cfg.n_simulations} "
+            f"c_puct={mcts_cfg.c_puct} batch_size={mcts_cfg.batch_size}. "
+            f"--reward-config is ignored in MCTS mode (AlphaZero "
+            f"distills terminal z, not shaping rewards)."
+        )
+        policy = MCTSPolicy(policy, mcts_cfg)
 
     # Optional opener wrapper: scripts the first K decisions per
     # game-side, then delegates to the learned policy. Forwarding to
@@ -855,8 +924,16 @@ def main(argv: List[str]) -> int:
         else:
             forced_faction_arg = args.forced_faction
 
+    # Trip if N iterations in a row produce zero games. The most
+    # common cause is missing data files (terrain_db.json,
+    # unit_stats.json) — every scenario gets skipped silently and
+    # the trainer happily burns walltime on empty iters with
+    # `loss=0.0000`. Observed 2026-05-09 in selfplay job 17834
+    # which "completed" 999 iters of 0 games. Fail fast instead.
+    DEAD_ITER_LIMIT = 5
+    consecutive_dead = 0
     for it in range(args.iterations):
-        run_iteration(
+        outcomes = run_iteration(
             policy, pool_files, reward_fn, cost_lookup,
             iter_idx=it,
             games_per_iter=args.games_per_iter,
@@ -866,6 +943,19 @@ def main(argv: List[str]) -> int:
             workers=args.workers,
             forced_faction=forced_faction_arg,
         )
+        if not outcomes:
+            consecutive_dead += 1
+            if consecutive_dead >= DEAD_ITER_LIMIT:
+                log.error(
+                    f"{DEAD_ITER_LIMIT} consecutive iterations rolled "
+                    f"zero games. Likely cause: missing scrape file "
+                    f"(terrain_db.json / unit_stats.json) or scenario "
+                    f"setup error. Aborting; check earlier WARNING "
+                    f"logs for the underlying skip reason."
+                )
+                return 3
+        else:
+            consecutive_dead = 0
         if (it + 1) % args.save_every == 0 or (it + 1) == args.iterations:
             policy.save_checkpoint(args.checkpoint_out)
     return 0

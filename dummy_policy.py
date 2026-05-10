@@ -70,8 +70,12 @@ class DummyPolicy:
         game_state: GameState,
         *,
         game_label: str = "default",
+        sim=None,
     ) -> Dict:
-        # game_label unused — this policy is stateless.
+        # game_label + sim unused — this policy is stateless. `sim`
+        # accepted only to match the policy contract (MCTSPolicy
+        # wraps a TransformerPolicy and reads sim for tree search;
+        # DummyPolicy ignores it).
         current_side = game_state.global_info.current_side
         # Stable iteration order: gs.map.units is a Python set with
         # hash-randomized iteration, which made dummy runs non-

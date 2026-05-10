@@ -101,15 +101,37 @@ REWARD_CONFIG="${REWARD_CONFIG:-cluster/configs/reward_selfplay.json}"
 # FORCED_FACTION: empty = use sim_self_play module default
 # (Knalgan Alliance). "none" = explicit disable. Anything else =
 # lock to that faction.
-FORCED_FACTION_ARG=""
+#
+# Default-era faction names contain a space ("Knalgan Alliance"),
+# so we MUST pass the value as a single argv token. A flat string
+# `FORCED_FACTION_ARG="--forced-faction ${FORCED_FACTION}"`
+# expanded unquoted at the call site word-splits on the space and
+# argparse sees "Alliance" as a stray positional ("unrecognized
+# arguments: Alliance"). Use a bash array so the space-containing
+# value stays a single token through expansion.
+FORCED_FACTION_ARGS=()
 if [ -n "${FORCED_FACTION:-}" ]; then
-    FORCED_FACTION_ARG="--forced-faction ${FORCED_FACTION}"
+    FORCED_FACTION_ARGS=(--forced-faction "${FORCED_FACTION}")
+fi
+
+# MCTS overrides. USE_MCTS={1,true} flips action selection to
+# AlphaZero-style tree search: `MCTS_SIMS` simulations per move,
+# `MCTS_C_PUCT` exploration constant, `MCTS_BATCH_SIZE` for
+# batched leaf eval. Defaults match the sim_self_play.py CLI
+# defaults; per-step shaping reward is ignored in MCTS mode.
+MCTS_ARGS=()
+if [ "${USE_MCTS:-0}" = "1" ] || [ "${USE_MCTS:-}" = "true" ]; then
+    MCTS_ARGS=(--mcts
+               --mcts-sims     "${MCTS_SIMS:-50}"
+               --mcts-c-puct   "${MCTS_C_PUCT:-1.5}"
+               --mcts-batch-size "${MCTS_BATCH_SIZE:-1}")
 fi
 
 echo "[job] params: iters=${ITERATIONS} games/iter=${GAMES_PER_ITER} " \
      "max_turns=${MAX_TURNS} workers=${WORKERS} save_every=${SAVE_EVERY} " \
      "seed=${SEED} forced_faction='${FORCED_FACTION:-(default)}' " \
-     "reward=${REWARD_CONFIG}"
+     "reward=${REWARD_CONFIG} " \
+     "mcts=${USE_MCTS:-0} (sims=${MCTS_SIMS:-50}, c_puct=${MCTS_C_PUCT:-1.5})"
 
 TRAINER_EXIT=0
 python -u tools/sim_self_play.py \
@@ -122,7 +144,8 @@ python -u tools/sim_self_play.py \
     --save-every ${SAVE_EVERY} \
     --seed ${SEED} \
     --reward-config "${REWARD_CONFIG}" \
-    ${FORCED_FACTION_ARG} \
+    "${FORCED_FACTION_ARGS[@]}" \
+    "${MCTS_ARGS[@]}" \
     ${CKPT_FLAG} || TRAINER_EXIT=$?
 
 echo "[job] trainer exit code: ${TRAINER_EXIT}"

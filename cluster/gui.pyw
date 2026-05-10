@@ -82,6 +82,36 @@ EVAL_SCRIPT          = PROJECT_ROOT / "tools" / "eval_vs_builtin.py"
 REMOTE_HOST = "mesogip_outside"
 REMOTE_PATH = "~/wesnoth-ai"
 
+# Persistent location for "last-picked dialog values become the new
+# defaults" behavior. Per-user under ~/.wesnoth_ai/ rather than in
+# the project tree so it survives bundle re-extracts on the cluster
+# AND doesn't show up in git diffs. Schema: top-level dict keyed by
+# dialog name ("selfplay_cluster", "selfplay_local"), each value a
+# dict of param-name -> serializable value.
+GUI_STATE_PATH = Path.home() / ".wesnoth_ai" / "gui_state.json"
+
+
+def _load_gui_state() -> dict:
+    """Best-effort: a corrupt / missing file just returns {}. The
+    dialog code falls back to its hardcoded defaults for any missing
+    keys, so a wiped state file doesn't break the GUI."""
+    try:
+        with GUI_STATE_PATH.open(encoding="utf-8") as f:
+            import json as _json
+            return _json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_gui_state(state: dict) -> None:
+    try:
+        GUI_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        import json as _json
+        with GUI_STATE_PATH.open("w", encoding="utf-8") as f:
+            _json.dump(state, f, indent=2)
+    except OSError:
+        pass  # don't crash the GUI on disk errors
+
 
 # ---------------------------------------------------------------------
 # Subprocess + askpass plumbing
@@ -235,8 +265,14 @@ class App:
                   width=14, command=self._op_status).pack(side="left", padx=4)
         tk.Button(row1, text="Sync code",
                   width=14, command=self._op_sync).pack(side="left", padx=4)
-        tk.Button(row1, text="Sync + Continue",
-                  width=14, command=self._op_sync_continue).pack(side="left", padx=4)
+        tk.Button(row1, text="Sync + Continue (sup.)",
+                  width=22,
+                  command=self._op_sync_continue_supervised).pack(
+                      side="left", padx=4)
+        tk.Button(row1, text="Sync + Continue (self-play)",
+                  width=24,
+                  command=self._op_sync_continue_selfplay).pack(
+                      side="left", padx=4)
         tk.Button(row1, text="Check budget",
                   width=14, command=self._op_budget).pack(side="left", padx=4)
         # Start-job row. `cluster/run.sh start <mode>` refuses to
@@ -253,6 +289,20 @@ class App:
                   width=18,
                   command=self._op_start_selfplay).pack(side="left", padx=4)
         tk.Label(row_start, text="(no-op if already running)",
+                 fg="gray").pack(side="left", padx=4)
+        # Stop-job row. Each button maps to `bash cluster/run.sh
+        # stop <mode>`, which scancels the recorded job id and
+        # clears the local jobid file. Safe no-op if nothing's
+        # running (run.sh's stop checks squeue first and prints
+        # "no running ${mode} job" without erroring).
+        row_stop = tk.Frame(cluster_frame); row_stop.pack(fill="x", padx=4, pady=4)
+        tk.Button(row_stop, text="Stop supervised",
+                  width=18,
+                  command=self._op_stop_supervised).pack(side="left", padx=4)
+        tk.Button(row_stop, text="Stop self-play",
+                  width=18,
+                  command=self._op_stop_selfplay).pack(side="left", padx=4)
+        tk.Label(row_stop, text="(scancel the cluster job)",
                  fg="gray").pack(side="left", padx=4)
         row2 = tk.Frame(cluster_frame); row2.pack(fill="x", padx=4, pady=4)
         tk.Label(row2, text="Pull checkpoint  epoch:").pack(side="left", padx=4)
@@ -470,13 +520,25 @@ class App:
         self._spawn(self._ps(SCRIPT_SYNC),
                     needs_password=True, label="sync code")
 
-    def _op_sync_continue(self) -> None:
+    def _op_sync_continue_supervised(self) -> None:
         # sync + scancel running supervised job + sbatch a fresh
         # one that auto-resumes from the latest checkpoint. This
         # is the post-walltime workflow now that auto-resubmission
         # has been removed (operator-initiated chain links).
-        self._spawn(self._ps(SCRIPT_SYNC, "-Continue"),
-                    needs_password=True, label="sync code + continue")
+        self._spawn(self._ps(SCRIPT_SYNC, "-Continue",
+                             "-Mode", "supervised"),
+                    needs_password=True,
+                    label="sync code + continue (supervised)")
+
+    def _op_sync_continue_selfplay(self) -> None:
+        # Same as above but targets the self-play job. Added once
+        # the simulator was correct enough to use as the primary
+        # training environment; self-play is the post-supervised
+        # workflow.
+        self._spawn(self._ps(SCRIPT_SYNC, "-Continue",
+                             "-Mode", "selfplay"),
+                    needs_password=True,
+                    label="sync code + continue (self-play)")
 
     def _op_budget(self) -> None:
         # `bash cluster/run.sh budget` prints squeue + today's
@@ -496,6 +558,27 @@ class App:
             ["ssh", REMOTE_HOST,
              f"cd {REMOTE_PATH} && bash cluster/run.sh start supervised"],
             needs_password=True, label="start supervised job",
+        )
+
+    def _op_stop_supervised(self) -> None:
+        # `run.sh stop supervised` scancels the recorded supervised
+        # jobid (best-effort: silent no-op if no job is running).
+        # Distinct from the "Cancel running op" button at the
+        # bottom of the GUI, which only cancels the LOCAL ssh/scp
+        # subprocess driving the current op — it doesn't touch the
+        # cluster.
+        self._spawn(
+            ["ssh", REMOTE_HOST,
+             f"cd {REMOTE_PATH} && bash cluster/run.sh stop supervised"],
+            needs_password=True, label="stop supervised cluster job",
+        )
+
+    def _op_stop_selfplay(self) -> None:
+        # Same as above for the self-play job.
+        self._spawn(
+            ["ssh", REMOTE_HOST,
+             f"cd {REMOTE_PATH} && bash cluster/run.sh stop selfplay"],
+            needs_password=True, label="stop self-play cluster job",
         )
 
     def _op_start_selfplay(self) -> None:
@@ -530,13 +613,31 @@ class App:
             export_kvs.append(f"FORCED_FACTION={params['forced_faction']}")
         if params["reward_config"]:
             # Strip the project-root prefix so the path is correct
-            # cluster-side too.
+            # cluster-side too. ALWAYS use POSIX separators in the
+            # transmitted string -- Path.relative_to(...) returns a
+            # WindowsPath here, and `str()` of that yields
+            # `cluster\configs\reward_selfplay.json`. The cluster is
+            # Linux and can't open backslash-separated paths
+            # (FileNotFoundError, observed 2026-05-09 when the first
+            # cross-platform self-play submission landed). `.as_posix()`
+            # forces forward slashes regardless of the local OS.
             rp = params["reward_config"]
             try:
-                rp = str(Path(rp).resolve().relative_to(PROJECT_ROOT))
+                rp_path = Path(rp).resolve().relative_to(PROJECT_ROOT)
             except ValueError:
-                pass  # absolute path stays as-is
-            export_kvs.append(f"REWARD_CONFIG={rp}")
+                # absolute / unrelated path: still normalize separators.
+                rp_path = Path(rp)
+            export_kvs.append(f"REWARD_CONFIG={rp_path.as_posix()}")
+        # MCTS knobs. Off by default (REINFORCE training); when
+        # checked, the sbatch's USE_MCTS branch flips action
+        # selection to AlphaZero-style search. Send the numeric
+        # knobs only when MCTS is on -- saves four lines of noise
+        # in the [job] params echo when REINFORCE is active.
+        if params.get("use_mcts"):
+            export_kvs.append("USE_MCTS=1")
+            export_kvs.append(f"MCTS_SIMS={params['mcts_sims']}")
+            export_kvs.append(f"MCTS_C_PUCT={params['mcts_c_puct']}")
+            export_kvs.append(f"MCTS_BATCH_SIZE={params['mcts_batch_size']}")
         # --export uses commas to separate KEY=VAL pairs. Quote the
         # whole thing so shell metacharacters in values don't bite.
         export_arg = ",".join(export_kvs)
@@ -646,6 +747,17 @@ class App:
             argv += ["--forced-faction", params["forced_faction"]]
         if params["reward_config"]:
             argv += ["--reward-config", str(params["reward_config"])]
+        if params.get("use_mcts"):
+            argv += [
+                "--mcts",
+                "--mcts-sims",       str(params["mcts_sims"]),
+                "--mcts-c-puct",     str(params["mcts_c_puct"]),
+                "--mcts-batch-size", str(params["mcts_batch_size"]),
+            ]
+            self._log(
+                f"[selfplay] MCTS enabled: "
+                f"{params['mcts_sims']} sims/move, "
+                f"c_puct={params['mcts_c_puct']}")
         self._spawn(argv, needs_password=False,
                     label=f"self-play (local, {params['iterations']} iters)")
 
@@ -657,13 +769,23 @@ class App:
         `on_run(params: dict)` is called when the user clicks Run.
         `cluster_mode=True` adjusts defaults (more iterations,
         more workers) and hides irrelevant knobs (no checkpoint
-        picker -- the sbatch's latest-ckpt logic owns that)."""
+        picker -- the sbatch's latest-ckpt logic owns that).
+
+        Defaults precedence (highest first):
+          1. Last-picked values for THIS dialog instance, persisted to
+             `~/.wesnoth_ai/gui_state.json` on Run.
+          2. Hardcoded baseline (cluster_mode-tuned).
+        Missing keys fall through to baseline so adding a new field
+        doesn't break a stale state file.
+        """
         dlg = tk.Toplevel(self.root)
         dlg.title(title)
         dlg.transient(self.root)
         dlg.grab_set()
 
-        # Defaults: tuned for typical local CPU vs cluster GPU runs.
+        dialog_key = "selfplay_cluster" if cluster_mode else "selfplay_local"
+
+        # Hardcoded baseline.
         defaults = {
             "iterations":     1000 if cluster_mode else 10,
             "games_per_iter":  8 if cluster_mode else 4,
@@ -674,7 +796,19 @@ class App:
             "forced_faction": "Knalgan Alliance",
             "reward_config": str(PROJECT_ROOT / "cluster" / "configs"
                                   / "reward_selfplay.json"),
+            # MCTS knobs default to OFF / paper-ish values. Toggling
+            # the checkbox in the UI flips the action-selection
+            # algorithm the cluster sbatch picks via USE_MCTS=1.
+            "use_mcts":       False,
+            "mcts_sims":      50,
+            "mcts_c_puct":    1.5,
+            "mcts_batch_size": 1,
         }
+        # Layer persisted user-picked values on top.
+        persisted = _load_gui_state().get(dialog_key, {})
+        for k, v in persisted.items():
+            if k in defaults:
+                defaults[k] = v
 
         v_iters     = tk.IntVar(value=defaults["iterations"])
         v_games     = tk.IntVar(value=defaults["games_per_iter"])
@@ -685,6 +819,10 @@ class App:
         v_faction   = tk.StringVar(value=defaults["forced_faction"])
         v_reward    = tk.StringVar(value=defaults["reward_config"])
         v_ckpt      = tk.StringVar(value=str(self._autoselect_checkpoint() or ""))
+        v_use_mcts  = tk.BooleanVar(value=bool(defaults["use_mcts"]))
+        v_mcts_sims = tk.IntVar(value=int(defaults["mcts_sims"]))
+        v_mcts_cpuct= tk.DoubleVar(value=float(defaults["mcts_c_puct"]))
+        v_mcts_bs   = tk.IntVar(value=int(defaults["mcts_batch_size"]))
 
         def grid(label: str, widget, row: int, hint: str = ""):
             tk.Label(dlg, text=label, anchor="e").grid(
@@ -717,10 +855,12 @@ class App:
              tk.OptionMenu(dlg, v_faction, *self._FACTIONS),
              6, "always present on at least one side")
 
-        # Reward config picker.
+        # Reward config picker. Greyed out when MCTS is enabled
+        # (AlphaZero distills the terminal z, ignoring shaping
+        # rewards) -- see the trace below the MCTS checkbox.
         rew_frame = tk.Frame(dlg)
-        tk.Entry(rew_frame, textvariable=v_reward, width=40).pack(
-            side="left", fill="x", expand=True)
+        rew_entry = tk.Entry(rew_frame, textvariable=v_reward, width=40)
+        rew_entry.pack(side="left", fill="x", expand=True)
         def _pick_reward():
             p = filedialog.askopenfilename(
                 title="Pick reward config",
@@ -729,9 +869,50 @@ class App:
             )
             if p:
                 v_reward.set(p)
-        tk.Button(rew_frame, text="...", width=3, command=_pick_reward).pack(
-            side="left", padx=(4, 0))
-        grid("Reward config:", rew_frame, 7, "")
+        rew_btn = tk.Button(rew_frame, text="...", width=3,
+                            command=_pick_reward)
+        rew_btn.pack(side="left", padx=(4, 0))
+        rew_label = tk.Label(dlg, text="Reward config:", anchor="e")
+        rew_label.grid(row=7, column=0, padx=6, pady=3, sticky="e")
+        rew_frame.grid(row=7, column=1, padx=6, pady=3, sticky="ew")
+        rew_hint = tk.Label(dlg, text="(unused in MCTS mode)", fg="gray")
+        rew_hint.grid(row=7, column=2, padx=4, pady=3, sticky="w")
+
+        # MCTS row. Off by default (REINFORCE training); checking
+        # the box flips the cluster sbatch's USE_MCTS flag, which
+        # in turn passes `--mcts --mcts-sims N --mcts-c-puct C` to
+        # sim_self_play.py. Reward config is silently unused in
+        # MCTS mode (AlphaZero distills terminal z, not shaping).
+        mcts_frame = tk.Frame(dlg)
+        tk.Checkbutton(mcts_frame, text="Use MCTS",
+                       variable=v_use_mcts).pack(side="left")
+        tk.Label(mcts_frame, text="  sims:").pack(side="left")
+        tk.Spinbox(mcts_frame, from_=1, to=2000, textvariable=v_mcts_sims,
+                   width=6).pack(side="left", padx=2)
+        tk.Label(mcts_frame, text="  c_puct:").pack(side="left")
+        tk.Spinbox(mcts_frame, from_=0.1, to=5.0, increment=0.1,
+                   textvariable=v_mcts_cpuct, width=5).pack(
+                       side="left", padx=2)
+        tk.Label(mcts_frame, text="  batch:").pack(side="left")
+        tk.Spinbox(mcts_frame, from_=1, to=64, textvariable=v_mcts_bs,
+                   width=4).pack(side="left", padx=2)
+        grid("MCTS:", mcts_frame, 9,
+             "off=REINFORCE; on=AlphaZero-style search")
+
+        # Grey out the reward-config widgets when MCTS is on. The
+        # trace fires whenever the checkbox flips and on dialog open
+        # (we call it once explicitly below to seed the initial
+        # state). Disabling the widgets is purely cosmetic --
+        # `_run_cluster_selfplay` / `_run_local_selfplay` already
+        # ignore reward_config in MCTS mode -- but it's a clear
+        # visual cue that the field doesn't matter then.
+        def _sync_reward_enabled(*_args):
+            state = "disabled" if v_use_mcts.get() else "normal"
+            rew_entry.configure(state=state)
+            rew_btn.configure(state=state)
+            rew_label.configure(fg="gray" if v_use_mcts.get() else "black")
+        v_use_mcts.trace_add("write", _sync_reward_enabled)
+        _sync_reward_enabled()
 
         # Checkpoint picker (LOCAL only -- cluster sbatch handles its
         # own latest-ckpt logic).
@@ -763,7 +944,20 @@ class App:
                 "forced_faction":  v_faction.get(),
                 "reward_config":   v_reward.get().strip() or None,
                 "checkpoint":      v_ckpt.get().strip() or None,
+                "use_mcts":        bool(v_use_mcts.get()),
+                "mcts_sims":       int(v_mcts_sims.get()),
+                "mcts_c_puct":     float(v_mcts_cpuct.get()),
+                "mcts_batch_size": int(v_mcts_bs.get()),
             }
+            # Persist user-picked values as the new defaults for
+            # the next dialog open. Stash everything except
+            # `checkpoint` (that's a one-shot path picker; we always
+            # autoselect freshest .pt next time).
+            persistable = {k: v for k, v in params.items()
+                           if k != "checkpoint"}
+            state = _load_gui_state()
+            state[dialog_key] = persistable
+            _save_gui_state(state)
             dlg.destroy()
             on_run(params)
 

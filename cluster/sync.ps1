@@ -24,13 +24,15 @@
 # Flags:
 #   -DryRun       List what would be sent, don't connect to the cluster.
 #   -Continue     After extracting, run `bash cluster/run.sh continue
-#                 supervised`: scancel any running supervised job and
-#                 sbatch a fresh one that auto-resumes from the latest
+#                 <mode>`: scancel any running ${mode} job and sbatch
+#                 a fresh one that auto-resumes from the latest
 #                 checkpoint. Replaces the old `-Restart` flag (which
 #                 only made sense alongside the chain auto-resubmit
 #                 logic, since removed). Use after a walltime hit when
 #                 you want the next link to start right away with the
 #                 just-synced code.
+#   -Mode         Which job mode `-Continue` targets: `supervised`
+#                 (default, backward-compat) or `selfplay`.
 #   -RemoteHost   ssh alias to use. Default: mesogip_outside.
 #   -RemotePath   Project root on the cluster. Default: ~/wesnoth-ai.
 #
@@ -44,6 +46,8 @@
 param(
     [switch]$Continue,
     [switch]$DryRun,
+    [ValidateSet('supervised', 'selfplay')]
+    [string]$Mode = 'supervised',
     [string]$RemoteHost = 'mesogip_outside',
     [string]$RemotePath = '~/wesnoth-ai'
 )
@@ -95,11 +99,17 @@ if (Test-Path 'cluster/configs') {
                      ForEach-Object { "cluster/configs/$($_.Name)" })
 }
 
-# unit_stats.json is part of the static corpus shipped via build_bundle,
-# but if it's been re-scraped (Wesnoth version bump) it needs to ride
-# along. Cheap to send (~250KB) so always include if present.
+# Static-corpus JSON files. Both are part of the build_bundle, but
+# they're re-scraped any time wesnoth_src/ moves (version bump,
+# terrain.cfg edit) and need to ride along on incremental syncs.
+# Cheap to send (~250KB + ~110KB) so always include if present.
+# Without terrain_db.json the cluster's `tools/scenario_pool.py`
+# silently skips every scenario at self-play start with
+# "terrain_db.json not found at project root" -- observed
+# 2026-05-09 in selfplay job 17834.
 $extras = @()
 if (Test-Path 'unit_stats.json') { $extras += 'unit_stats.json' }
+if (Test-Path 'terrain_db.json') { $extras += 'terrain_db.json' }
 
 $paths = $rootPy + $toolsPy + $clusterFiles + $configFiles + $extras
 
@@ -156,10 +166,13 @@ $remoteCmd += "echo '[sync] checksums ok' && "
 $remoteCmd += "rm -f $sumPathInArchive"
 
 if ($Continue) {
-    # run.sh continue scancels any running supervised job (if there
-    # is one) and submits a fresh sbatch that auto-resumes from the
-    # latest checkpoint. Replaces the old -Restart flag.
-    $remoteCmd += " && bash cluster/run.sh continue supervised"
+    # run.sh continue <mode> scancels any running ${mode} job (if
+    # there is one) and submits a fresh sbatch that auto-resumes from
+    # the latest checkpoint. Replaces the old -Restart flag. Mode
+    # defaults to 'supervised' for backward compat; pass -Mode
+    # selfplay to chain self-play instead (added 2026-05-08 once
+    # self-play became the primary training workflow).
+    $remoteCmd += " && bash cluster/run.sh continue $Mode"
 }
 
 Write-Host ""

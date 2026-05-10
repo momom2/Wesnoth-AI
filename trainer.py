@@ -340,6 +340,7 @@ class Trainer:
 
                 chunk_log_probs: List[torch.Tensor] = []
                 chunk_values:    List[torch.Tensor] = []
+                chunk_value_logits: List[torch.Tensor] = []
                 chunk_entropies: List[torch.Tensor] = []
                 for t, encoded, output in zip(chunk, encoded_chunk, outputs):
                     lp, ent = reforward_logprob_entropy(
@@ -351,10 +352,13 @@ class Trainer:
                     )
                     chunk_log_probs.append(lp)
                     chunk_values.append(output.value.squeeze())
+                    # value_logits is [1, K]; squeeze the leading 1.
+                    chunk_value_logits.append(output.value_logits.squeeze(0))
                     chunk_entropies.append(ent)
 
                 lp_t  = torch.stack(chunk_log_probs)
                 val_t = torch.stack(chunk_values)
+                vl_t  = torch.stack(chunk_value_logits)   # [L, K]
                 ent_t = torch.stack(chunk_entropies)
                 adv_t = advantages[start:start + L]
                 ret_t = returns_t[start:start + L]
@@ -362,7 +366,13 @@ class Trainer:
                 # Mean-style losses, scaled by L/N so summing across
                 # chunks matches the old .mean() over all N.
                 policy_loss  = -(lp_t * adv_t).sum() / N
-                value_loss   = F.mse_loss(val_t, ret_t, reduction='sum') / N
+                # Distributional value loss: categorical CE between
+                # predicted Z(s) and the bin-projection of the
+                # (clipped) MC return. `ret_t` was already clipped
+                # by `value_clip` earlier in this method, so it
+                # falls inside the [V_MIN, V_MAX] support.
+                atoms = self.model._value_atoms
+                value_loss = _categorical_value_loss(vl_t, ret_t, atoms) / N
                 entropy_term = ent_t.sum() / N
 
                 chunk_loss = (
@@ -379,7 +389,7 @@ class Trainer:
                 # Drop references before the next chunk so the previous
                 # chunk's graph + activations can be reclaimed even if
                 # DML's allocator holds onto buffers.
-                del chunk_log_probs, chunk_values, chunk_entropies
+                del chunk_log_probs, chunk_values, chunk_entropies, chunk_value_logits
                 del lp_t, val_t, ent_t, adv_t, ret_t
                 del encoded_chunk, outputs, chunk_loss
 
@@ -422,6 +432,52 @@ def _compute_returns(traj: List[Transition], gamma: float) -> List[float]:
         out.append(G)
     out.reverse()
     return out
+
+
+def _project_returns_to_atoms(
+    returns: torch.Tensor, atoms: torch.Tensor,
+) -> torch.Tensor:
+    """Project a batch of scalar return targets onto a categorical
+    distribution over `atoms`. Returns shape `[B, K]`.
+
+    Linear interpolation between adjacent bins, per the "categorical
+    algorithm" of C51 (Bellemare et al. 2017, Algorithm 1). For
+    return r at the boundary between atom_l and atom_(l+1), mass
+    splits proportionally; at an exact atom, mass=1 sits on it.
+    Returns outside [atom_0, atom_K-1] are clamped to the support
+    edges (consistent with the trainer's existing `value_clip`).
+
+    The trainer uses this to convert (clipped) MC returns into the
+    target distribution for the categorical-CE loss against the
+    distributional value head.
+    """
+    B = returns.shape[0]
+    K = atoms.shape[0]
+    delta = atoms[1] - atoms[0]
+    # Clamp to [V_MIN, V_MAX] so b lands inside [0, K-1].
+    r = returns.clamp(atoms[0].item(), atoms[-1].item())
+    b = (r - atoms[0]) / delta            # [B], real-valued in [0, K-1]
+    l = b.floor().long().clamp(0, K - 2)  # [B], lower-bin index, room above
+    weight_l = (l.float() + 1) - b        # [B], mass on bin l
+    weight_u = b - l.float()              # [B], mass on bin l+1
+    target = torch.zeros(B, K, device=returns.device, dtype=atoms.dtype)
+    target.scatter_add_(1, l.unsqueeze(1), weight_l.unsqueeze(1))
+    target.scatter_add_(1, (l + 1).unsqueeze(1), weight_u.unsqueeze(1))
+    return target
+
+
+def _categorical_value_loss(
+    value_logits: torch.Tensor,    # [B, K] raw head logits
+    returns:      torch.Tensor,    # [B] scalar targets (already clipped)
+    atoms:        torch.Tensor,    # [K] bin support
+) -> torch.Tensor:
+    """Cross-entropy between the predicted distribution Z(s) and the
+    projected target distribution. Sum-reduced over the batch (the
+    trainer's chunk loop divides by N to match the old .mean()
+    semantics)."""
+    target_dist = _project_returns_to_atoms(returns, atoms)         # [B, K]
+    log_probs = torch.nn.functional.log_softmax(value_logits, dim=-1)
+    return -(target_dist * log_probs).sum()
 
 
 # =====================================================================
@@ -655,6 +711,7 @@ def _trainer_step_mcts(
 
         chunk_policy_losses: List[torch.Tensor] = []
         chunk_values: List[torch.Tensor] = []
+        chunk_value_logits: List[torch.Tensor] = []
         for e, encoded, output in zip(chunk, encoded_chunk, outputs):
             policy_loss, total_v, mean_actor_nlp = (
                 _mcts_factored_policy_loss(
@@ -663,13 +720,20 @@ def _trainer_step_mcts(
             )
             chunk_policy_losses.append(policy_loss)
             chunk_values.append(output.value.squeeze())
+            chunk_value_logits.append(output.value_logits.squeeze(0))
             sum_total_visits += total_v
             sum_actor_nlp_weighted += mean_actor_nlp * total_v
 
         policy_loss_t = torch.stack(chunk_policy_losses).sum() / N
         val_t = torch.stack(chunk_values)
+        vl_t  = torch.stack(chunk_value_logits)
         z_t   = zs[start:start + L]
-        value_loss = F.mse_loss(val_t, z_t, reduction='sum') / N
+        # Distributional value loss: categorical CE on the projected
+        # terminal-z target (z ∈ {-1, 0, +1} for win/draw/loss),
+        # consistent with the REINFORCE path. `zs` was already
+        # clipped to [V_MIN, V_MAX] by the value_clip block above.
+        atoms = self.model._value_atoms
+        value_loss = _categorical_value_loss(vl_t, z_t, atoms) / N
 
         chunk_loss = (
             policy_loss_t

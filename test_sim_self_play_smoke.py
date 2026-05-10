@@ -77,13 +77,18 @@ def small_replay() -> Path:
 def _wrap_dummy() -> "object":
     """Wrap DummyPolicy with the trainable-protocol no-op stubs that
     sim_self_play's harness calls (observe / drop_pending /
-    train_step / save_checkpoint). Returns the wrapped object."""
+    train_step / save_checkpoint / finalize_game). Returns the
+    wrapped object."""
     from dummy_policy import DummyPolicy
     p = DummyPolicy()
     p.observe = lambda *a, **kw: None
     p.drop_pending = lambda *a, **kw: None
     p.train_step = lambda *a, **kw: _NoStats()
     p.save_checkpoint = lambda *a, **kw: None
+    # finalize_game was added 2026-05 with the MCTS path; vanilla
+    # REINFORCE policies treat it as a no-op (no per-game state to
+    # flush). DummyPolicy doesn't implement it natively.
+    p.finalize_game = lambda *a, **kw: None
     return p
 
 
@@ -111,13 +116,20 @@ def test_one_game_emits_observe_per_step(small_replay):
         def __init__(self):
             self.selects: List[Dict] = []
             self.observes: List[tuple] = []
-        def select_action(self, gs, *, game_label="default"):
+        def select_action(self, gs, *, game_label="default", sim=None):
+            # `sim` accepted (and ignored) to match the policy
+            # contract; MCTSPolicy reads it, REINFORCE-style
+            # policies don't.
             self.selects.append({"side": gs.global_info.current_side,
                                  "turn": gs.global_info.turn_number})
             return {"type": "end_turn"}
         def observe(self, game_label, side, reward, done):
             self.observes.append((game_label, side, reward, done))
         def drop_pending(self, game_label):
+            pass
+        def finalize_game(self, game_label, winner):
+            # Per-game flush hook (added 2026-05 for MCTSPolicy);
+            # REINFORCE-style stubs are no-ops.
             pass
 
     sim = WesnothSim.from_replay(small_replay, max_turns=4)

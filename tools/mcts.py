@@ -19,11 +19,24 @@ Design choices:
     more sim steps with a fast random policy. Trades some accuracy
     for tree depth.
 
-  - **No transposition table** (yet). Each path through the tree
-    creates fresh MCTSNode objects even when state_key collides
-    with a node visited earlier via another path. classes.state_key
-    is in place for a future optimization; profiling will say
-    whether it's worth the extra dict / hashmap traffic.
+  - **Transposition table** (default ON). When two paths converge
+    on the same `state_key(gs)`, share a single MCTSNode. Visit
+    counts and Q-values then reflect every path that reached the
+    state. Empirical hit rate on Wesnoth states is low (~0.4% at
+    20 sims/move) because per-action mutations to HP/MP/villages
+    keep state_keys unique; the win comes mostly from intra-turn
+    move-reordering convergence.
+
+  - **Cliffness-scaled bootstrap weighting** (opt-in). On backup,
+    scale a non-terminal leaf's `v` by
+    `1 - cliffness_bootstrap_alpha * cliffness/cliffness_max` so
+    high-cliffness leaves contribute less to ancestor Q-values.
+    Terminal leaves are unaffected (their value is exact).
+
+  - **Cliffness-driven adaptive sim budget** (opt-in). After root
+    expansion, scale total sims between `n_simulations_min` and
+    `n_simulations_max` based on root cliffness. Spend more
+    compute when the network is uncertain about the position.
 
   - **Sign convention**: the model's value head is "from
     current_side's perspective". Each leaf's value is the leaf's
@@ -71,7 +84,7 @@ import math
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -85,7 +98,7 @@ from action_sampler import (
     LegalActionPrior,
     enumerate_legal_actions_with_priors,
 )
-from classes import GameState
+from classes import GameState, state_key
 from encoder import GameStateEncoder
 from model import WesnothModel
 from wesnoth_sim import WesnothSim
@@ -150,6 +163,62 @@ class MCTSConfig:
     # 1 is plenty.
     virtual_loss:     float = 1.0
 
+    # Transposition table: when two paths converge on the same
+    # `state_key(gs)`, share a single MCTSNode rather than building
+    # two parallel subtrees. Visit counts and Q-values then reflect
+    # ALL paths that reached the state, which is the correct PUCT
+    # semantic ("N(s) = total visits to state s"). The TT is built
+    # fresh per `mcts_search` call (cleared between root searches),
+    # so memory is bounded by states-explored-per-search.
+    #
+    # In Wesnoth this hits whenever within-turn action ordering is
+    # commutative (move A then move B vs move B then move A both
+    # reach the same end-of-turn state). Default ON; toggle off to
+    # benchmark the win or to debug a suspect tree.
+    use_transposition_table: bool = True
+
+    # ----- Cliffness consumers (all default off; enable per-search) -----
+    #
+    # Cliffness = std(Z(s)), the spread of the categorical value
+    # distribution the network predicts. A low value means the
+    # network is committing to a definite outcome at this state;
+    # high means it admits the value is uncertain. We expose two
+    # knobs that let a search take that signal into account:
+    #
+    # 1. BOOTSTRAP WEIGHTING: on backup, shrink a non-terminal
+    #    leaf's v contribution toward 0 by treating it as a noisy
+    #    estimate with variance = cliffness². The Bayesian-optimal
+    #    blend toward the prior (uniform on [-1, +1], variance
+    #    1/3) is
+    #        scale = sigma_prior_sq / (sigma_prior_sq + cliffness²)
+    #    Terminal leaves bypass this -- their value is exact.
+    #    `cliffness_bootstrap_alpha` is a multiplier on the
+    #    cliffness² term; alpha=1.0 is the Bayes-optimal default,
+    #    alpha=0 disables shrinkage entirely.
+    #
+    # 2. ADAPTIVE SIM BUDGET: after root expansion, override
+    #    `n_simulations` to interpolate between
+    #    `n_simulations_min` and `n_simulations_max` based on
+    #    root cliffness. Spend more sims at uncertain positions.
+    #    Default OFF: the linear-interp shape is uncalibrated --
+    #    we want to log root cliffness on real positions before
+    #    picking a schedule.
+    #
+    # `cliffness_max` is the normalizer for the adaptive budget.
+    # See the constant definition near `_value_atoms` in model.py
+    # (and BACKLOG.md "Cliffness magic number 0.577") for the
+    # full derivation; in short: 1/sqrt(3) is the std of the
+    # continuous uniform on [-1, +1], and the discrete uniform
+    # on K=51 atoms matches it to 3 decimal places. Above that
+    # the network is saying "any outcome possible".
+    cliffness_bootstrap_alpha:     float = 0.0
+
+    adaptive_sim_budget:           bool  = False
+    n_simulations_min:             int   = 100
+    n_simulations_max:             int   = 400
+
+    cliffness_max:                 float = 0.577
+
 
 # ---------------------------------------------------------------------
 # Tree structures
@@ -183,7 +252,9 @@ class MCTSNode:
     """One game state in the search tree. Owns its sim fork so
     multiple branches don't interfere."""
     __slots__ = ("sim", "side", "edges", "is_terminal",
-                 "expanded", "_total_visits")
+                 "expanded", "_total_visits",
+                 "tt_hits", "tt_misses",
+                 "cliffness")
 
     def __init__(self, sim: WesnothSim):
         self.sim:           WesnothSim   = sim
@@ -192,6 +263,16 @@ class MCTSNode:
         self.is_terminal:   bool         = sim.done
         self.expanded:      bool         = False
         self._total_visits: int          = 0
+        # TT stats are populated only on the ROOT node returned by
+        # mcts_search (default 0 elsewhere); see the search loop.
+        self.tt_hits:       int          = 0
+        self.tt_misses:     int          = 0
+        # std(Z(s)) from the network's distributional value head.
+        # Set during _expand / _populate_leaf. Stays at 0 for
+        # terminal leaves and unexpanded nodes (we have no
+        # network estimate for those, but cliffness=0 = "exact"
+        # is the right semantic — terminal values are exact).
+        self.cliffness:     float        = 0.0
 
 
 # ---------------------------------------------------------------------
@@ -225,6 +306,7 @@ def _expand(
         priors = enumerate_legal_actions_with_priors(
             encoded, output, node.sim.gs)
         v = float(output.value.squeeze().item())
+        node.cliffness = float(output.cliffness.squeeze().item())
     if not priors:
         # No legal actions left -- treat the node as terminal with
         # neutral value. Shouldn't happen on real maps (end_turn is
@@ -279,16 +361,27 @@ def _add_dirichlet_noise(
 # ---------------------------------------------------------------------
 
 def _select_one(
-    root:         MCTSNode,
-    c_puct:       float,
-    virtual_loss: float,
+    root:           MCTSNode,
+    c_puct:         float,
+    virtual_loss:   float,
+    transpositions: Optional[Dict[int, "MCTSNode"]] = None,
+    stats:          Optional[Dict[str, int]] = None,
 ) -> Tuple[MCTSNode, List[Tuple[MCTSNode, MCTSEdge]]]:
     """Walk down from root picking PUCT-best edges. Lazy-create
     child nodes by forking the parent sim and applying the edge's
     action. Apply virtual loss to each selected edge so the next
     parallel selection in the same batch is biased away from this
     path. Returns (leaf, path) where path is the list of
-    (parent_node, edge_taken) pairs; backup walks it in reverse."""
+    (parent_node, edge_taken) pairs; backup walks it in reverse.
+
+    If `transpositions` is provided, the table is consulted before
+    creating a new child: if `state_key(child_sim.gs)` already maps
+    to a node, that node is shared (multiple edges from different
+    parents point at the same MCTSNode). Visit counts and Q-values
+    on the shared node's outgoing edges then reflect every path
+    that reached the state. Backup is unaffected -- it walks the
+    edges of the path, not the nodes themselves.
+    """
     path: List[Tuple[MCTSNode, MCTSEdge]] = []
     node = root
     while node.expanded and not node.is_terminal:
@@ -302,7 +395,29 @@ def _select_one(
                 child_sim.done = True
                 child_sim.winner = 0
                 child_sim.ended_by = "step_error"
-            edge.child = MCTSNode(child_sim)
+            # Transposition lookup: if another path already reached
+            # this state, share its MCTSNode. Skip the lookup for
+            # error-marked sims (state_key on a malformed gs would
+            # itself raise, and there's nothing useful to share
+            # with anyway).
+            if (transpositions is not None and not child_sim.done) or (
+                transpositions is not None and child_sim.done
+                and child_sim.ended_by != "step_error"
+            ):
+                key = state_key(child_sim.gs)
+                cached = transpositions.get(key)
+                if cached is not None:
+                    edge.child = cached
+                    if stats is not None:
+                        stats["hits"] = stats.get("hits", 0) + 1
+                else:
+                    new_child = MCTSNode(child_sim)
+                    transpositions[key] = new_child
+                    edge.child = new_child
+                    if stats is not None:
+                        stats["misses"] = stats.get("misses", 0) + 1
+            else:
+                edge.child = MCTSNode(child_sim)
         # Apply virtual loss BEFORE descending so the next
         # parallel selection in the same batch sees an edge that
         # currently looks bad (q drops, PUCT score drops). Real
@@ -316,15 +431,67 @@ def _select_one(
     return node, path
 
 
+# Variance of the prior distribution over outcomes, used as
+# σ²_prior in the Bayesian-precision bootstrap shrinkage. We
+# treat the prior over v as uniform on [V_MIN, V_MAX] = [-1, +1],
+# whose variance is (V_MAX - V_MIN)² / 12 = 4/12 = 1/3.
+# Choice of "uniform" prior matches what a freshly-initialized
+# C51 head would output (uniform logits → uniform softmax →
+# uniform distribution over atoms): the value-head's max-entropy
+# state is the natural "I know nothing" prior.
+_BOOTSTRAP_PRIOR_VAR = 1.0 / 3.0
+
+
 def _backup(
-    path:         List[Tuple[MCTSNode, MCTSEdge]],
-    v:            float,
-    leaf_side:    int,
-    virtual_loss: float,
+    path:                List[Tuple[MCTSNode, MCTSEdge]],
+    v:                   float,
+    leaf_side:           int,
+    virtual_loss:        float,
+    leaf_cliffness:      float = 0.0,
+    bootstrap_alpha:     float = 0.0,
+    leaf_is_terminal:    bool  = False,
 ) -> None:
     """Walk the path in reverse, undoing virtual loss and adding the
     real visit. `v` is from `leaf_side`'s perspective; flip per edge
-    when the parent's side differs."""
+    when the parent's side differs.
+
+    If `bootstrap_alpha > 0` AND the leaf is non-terminal, treat
+    `v` as a noisy estimate of the true value with variance
+    `bootstrap_alpha * cliffness²` (cliffness IS the std of the
+    network's predicted value distribution, so cliffness² is its
+    variance — the network is already telling us its own
+    uncertainty). The Bayesian-optimal blend toward the prior
+    (uniform on [-1, +1], variance 1/3) is
+
+        scale = sigma_prior² / (sigma_prior² + alpha * cliffness²)
+
+    At cliffness=0 the scale is 1 (full trust); at cliffness=∞
+    the scale is 0 (full shrink to prior). At alpha=1 this is the
+    Bayes-optimal posterior mean under the variance assumption;
+    alpha lets the caller dial overall aggressiveness.
+
+    Linear-schedule alternative (which is what we shipped first
+    before reasoning through the Bayesian form): scale linearly
+    from 1 at cliffness=0 to 0 at cliffness=cliffness_max. Strictly
+    more aggressive than Bayesian at every cliffness > 0 and not
+    grounded in any specific assumption about value noise; the
+    Bayesian form has zero free hyperparameters once you accept
+    the prior. See BACKLOG.md for the comparison table.
+
+    Terminal leaves bypass shrinkage: their value is the true
+    game outcome, not a network estimate, and cliffness is
+    meaningless there.
+
+    Visit counts (`edge.n_visits`, `parent._total_visits`) always
+    increment by 1 regardless of cliffness — visits are about
+    PUCT exploration credit, which is independent of how much we
+    trust the value backed up. Only `w_value` is scaled."""
+    if bootstrap_alpha > 0 and not leaf_is_terminal:
+        var_v = bootstrap_alpha * (leaf_cliffness ** 2)
+        scale = _BOOTSTRAP_PRIOR_VAR / (_BOOTSTRAP_PRIOR_VAR + var_v)
+        v_eff = v * scale
+    else:
+        v_eff = v
     for parent, edge in reversed(path):
         if virtual_loss > 0:
             edge.n_visits -= virtual_loss
@@ -332,7 +499,27 @@ def _backup(
             parent._total_visits -= virtual_loss
         edge.n_visits += 1
         parent._total_visits += 1
-        edge.w_value += v if parent.side == leaf_side else -v
+        edge.w_value += v_eff if parent.side == leaf_side else -v_eff
+
+
+def _adaptive_n_sims(config: MCTSConfig, root_cliffness: float) -> int:
+    """How many simulations the search should run given the root
+    state's cliffness. When `config.adaptive_sim_budget` is False,
+    this is just `config.n_simulations` (the caller's request).
+    Otherwise it's a linear interpolation from
+    `n_simulations_min` (cliffness=0) to `n_simulations_max`
+    (cliffness >= `cliffness_max`).
+
+    Pulled out as a helper so it can be unit-tested without a
+    full search; called once per `mcts_search` invocation."""
+    if not config.adaptive_sim_budget:
+        return config.n_simulations
+    norm = min(1.0, max(0.0,
+                        root_cliffness / max(1e-6, config.cliffness_max)))
+    return int(round(
+        config.n_simulations_min
+        + norm * (config.n_simulations_max - config.n_simulations_min)
+    ))
 
 
 def _populate_leaf(
@@ -342,7 +529,10 @@ def _populate_leaf(
 ) -> float:
     """Build the leaf's edges from the model's enumerated priors and
     return v from leaf.side's perspective. Mirrors the post-forward
-    half of `_expand`."""
+    half of `_expand`. Also records the network's cliffness on the
+    leaf node so the backup phase can downweight unreliable
+    bootstraps."""
+    leaf.cliffness = float(output.cliffness.squeeze().item())
     priors = enumerate_legal_actions_with_priors(
         encoded, output, leaf.sim.gs)
     if not priors:
@@ -385,12 +575,47 @@ def mcts_search(
     root_sim = sim.fork()
     root = MCTSNode(root_sim)
 
+    # Per-search transposition table. Built fresh and dropped at
+    # function exit -- a stale TT across searches would carry
+    # outdated visit counts after the live game advances. Bounded
+    # in size by states-explored-this-search (worst case ~n_sims).
+    transpositions: Optional[Dict[int, MCTSNode]] = (
+        {state_key(root_sim.gs): root}
+        if config.use_transposition_table else None
+    )
+    # TT instrumentation: hit/miss counts surface as attrs on the
+    # returned root so callers can audit whether the table is
+    # actually saving work. Wesnoth's per-action state mutations
+    # (MP/HP/villages) make true collisions rare in practice;
+    # intra-turn move-reorderings are the main source.
+    tt_stats: Dict[str, int] = {"hits": 0, "misses": 0}
+
     # Initial expand at root + optional Dirichlet noise on the priors.
-    # Always serial (single state to evaluate at the start).
+    # Always serial (single state to evaluate at the start). Reads
+    # the network's cliffness as a side-effect, which we then use
+    # for the adaptive sim budget.
     _expand(root, model, encoder)
     if config.add_root_noise and root.edges:
         _add_dirichlet_noise(root, config.dirichlet_alpha,
                              config.dirichlet_eps, rng)
+
+    # ----- Adaptive sim budget ---------------------------------------
+    # Override n_simulations based on root cliffness. Linear
+    # interpolation from n_min (cliffness=0, network confident) to
+    # n_max (cliffness >= cliffness_max, network maxed-out
+    # uncertain). Default OFF -- when off, n_simulations stays
+    # whatever the caller asked for.
+    n_sims = _adaptive_n_sims(config, root.cliffness)
+    # Always log root cliffness (cheap; callers want this even
+    # when adaptive_sim_budget is off, so they can decide what
+    # an empirically reasonable budget schedule would look like
+    # before flipping the switch). Surfaces on the returned
+    # root via `root.cliffness` for programmatic consumers.
+    log.debug(
+        f"mcts: root cliffness={root.cliffness:.3f} "
+        f"(adaptive={'on' if config.adaptive_sim_budget else 'off'}, "
+        f"n_sims={n_sims})"
+    )
 
     deadline = (_time.perf_counter() + config.time_budget
                 if config.time_budget is not None else None)
@@ -399,14 +624,14 @@ def mcts_search(
     V_LOSS = float(config.virtual_loss) if B > 1 else 0.0
     sims_done = 0
 
-    while sims_done < config.n_simulations:
+    while sims_done < n_sims:
         if deadline is not None and _time.perf_counter() > deadline:
-            log.info(f"mcts: stopping at {sims_done}/{config.n_simulations} "
+            log.info(f"mcts: stopping at {sims_done}/{n_sims} "
                      f"(time budget hit)")
             break
 
         # How many sims to run in this batch.
-        n_this_batch = min(B, config.n_simulations - sims_done)
+        n_this_batch = min(B, n_sims - sims_done)
 
         # ----- Phase 1: select leaves --------------------------------
         # Each iteration descends from root via PUCT, applying virtual
@@ -415,11 +640,24 @@ def mcts_search(
         # accumulate in `pending` for batched forward.
         pending: List[Tuple[MCTSNode, List[Tuple[MCTSNode, MCTSEdge]]]] = []
         for _ in range(n_this_batch):
-            leaf, path = _select_one(root, config.c_puct, V_LOSS)
+            leaf, path = _select_one(
+                root, config.c_puct, V_LOSS,
+                transpositions=transpositions,
+                stats=tt_stats,
+            )
             if leaf.is_terminal:
                 # Immediate backup -- no model forward needed.
+                # Terminal v is exact; bootstrap weighting must be
+                # disabled for this path (cliffness has no meaning
+                # at a terminal, and we shouldn't shrink an exact
+                # outcome anyway).
                 v = _terminal_value(leaf.sim, leaf.side)
-                _backup(path, v, leaf.side, V_LOSS)
+                _backup(
+                    path, v, leaf.side, V_LOSS,
+                    leaf_cliffness=0.0,
+                    bootstrap_alpha=0.0,
+                    leaf_is_terminal=True,
+                )
                 sims_done += 1
             else:
                 pending.append((leaf, path))
@@ -442,6 +680,8 @@ def mcts_search(
                 outputs = model.forward_batch(encoded_list)
 
             # Build edges + record value per unique leaf.
+            # _populate_leaf also stamps cliffness onto the leaf
+            # node, which the backup phase below reads.
             leaf_values: Dict[int, float] = {}
             for leaf, encoded, output in zip(
                     unique_list, encoded_list, outputs):
@@ -450,9 +690,28 @@ def mcts_search(
             # Backup all pending paths (each may share or own its leaf).
             for leaf, path in pending:
                 v = leaf_values[id(leaf)]
-                _backup(path, v, leaf.side, V_LOSS)
+                _backup(
+                    path, v, leaf.side, V_LOSS,
+                    leaf_cliffness=leaf.cliffness,
+                    bootstrap_alpha=config.cliffness_bootstrap_alpha,
+                    leaf_is_terminal=leaf.is_terminal,
+                )
                 sims_done += 1
 
+    # Surface TT stats on the returned root so callers (test code,
+    # logging in sim_self_play) can decide whether the table is
+    # actually pulling its weight. Setattr on a __slots__ class
+    # would fail, so we add the slot at MCTSNode definition; if
+    # this is on the slots-free fallback path, the attribute
+    # assignment just lands in __dict__.
+    root.tt_hits = tt_stats["hits"]
+    root.tt_misses = tt_stats["misses"]
+    if tt_stats["hits"] + tt_stats["misses"] > 0:
+        log.debug(
+            f"mcts: TT hits={tt_stats['hits']} "
+            f"misses={tt_stats['misses']} "
+            f"hit_rate={tt_stats['hits'] / max(1, tt_stats['hits'] + tt_stats['misses']):.1%}"
+        )
     return root
 
 
