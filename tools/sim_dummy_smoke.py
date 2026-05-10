@@ -67,13 +67,18 @@ class _PolicyAdapter:
     `play_one_game` calls `observe(label, side, reward, done)` per
     step and `drop_pending(label)` on crash; DummyPolicy has neither
     because it doesn't accumulate trajectories. The adapter no-ops
-    both, plus `reset_game`.
+    those, plus `reset_game` and `finalize_game`.
+
+    `select_action` accepts `sim=None` to match the policy contract
+    (MCTSPolicy reads it for tree search; scripted policies ignore
+    it). Pre-2026-05 the kwarg didn't exist; the adapter must
+    accept it now or play_one_game crashes on every game.
     """
 
     def __init__(self, base):
         self.base = base
 
-    def select_action(self, game_state, *, game_label="default"):
+    def select_action(self, game_state, *, game_label="default", sim=None):
         return self.base.select_action(game_state, game_label=game_label)
 
     def observe(self, *_args, **_kwargs) -> None:
@@ -83,6 +88,11 @@ class _PolicyAdapter:
         pass
 
     def reset_game(self, *_args, **_kwargs) -> None:
+        pass
+
+    def finalize_game(self, *_args, **_kwargs) -> None:
+        # Per-game flush hook (added 2026-05 with the MCTS path);
+        # scripted policies have no per-game state to flush.
         pass
 
 
