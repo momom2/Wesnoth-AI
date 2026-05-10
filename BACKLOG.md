@@ -11,12 +11,14 @@ strategies; cluster economy).
 - **Simulator is the production training path.** `tools/wesnoth_sim.py`
   is bit-exact for combat (731/731 strikes verified vs `[mp_checkup]`
   oracle). Full-replay `diff_replay --filter-2p` clean rate
-  **99.85% (5,482/5,490)** on the freshly extracted 6,224-replay
-  competitive-2p corpus (2026-05-10 re-extraction via
-  `tools/sort_replays.py`, after the intra-block undone-recruit
-  fix + teleport-ability + cross-block-lookahead fixes + the
-  multi-advancement fix in `_maybe_advance_unit`). 8 residual
-  divergences are real sim signal worth chasing.
+  **99.93% (5,482/5,486)** on the freshly extracted competitive-2p
+  corpus (2026-05-11 sweep). The 16 → 4 reduction since 2026-05-10
+  came from chasing specific cases one by one — multi-tier
+  advancement, surrender-drop heuristic refinement to handle
+  takeover-controller `skip_sighted="all"` false-positives, and
+  five quarantines (1 corrupted, 1 debug-tool-using, 3 Dunefolk-
+  player-faction replays the classifier missed). 4 residuals
+  remain.
 - **Self-play training pipeline ready.** `tools/sim_self_play.py`
   drives REINFORCE+baseline by default, AlphaZero-style MCTS via
   `--mcts`. Cluster job + GUI controls in place.
