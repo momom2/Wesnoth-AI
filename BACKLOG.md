@@ -11,12 +11,11 @@ strategies; cluster economy).
 - **Simulator is the production training path.** `tools/wesnoth_sim.py`
   is bit-exact for combat (731/731 strikes verified vs `[mp_checkup]`
   oracle). Full-replay `diff_replay --filter-2p` clean rate
-  **99.65% (5,471/5,490)** on the freshly extracted 6,224-replay
+  **99.71% (5,474/5,490)** on the freshly extracted 6,224-replay
   competitive-2p corpus (2026-05-10 re-extraction via
   `tools/sort_replays.py`, after the intra-block undone-recruit
-  fix in `replay_extract.py`). 19 residual divergences are real
-  sim signal worth chasing; per-bucket breakdown in the
-  dataset-refresh block below.
+  fix + teleport-ability + cross-block-lookahead fixes). 16
+  residual divergences are real sim signal worth chasing.
 - **Self-play training pipeline ready.** `tools/sim_self_play.py`
   drives REINFORCE+baseline by default, AlphaZero-style MCTS via
   `--mcts`. Cluster job + GUI controls in place.
@@ -79,14 +78,29 @@ strategies; cluster economy).
   99.58%), with the 3 (11,5) cases gone and 1 attacker_missing
   also resolved.
 
-- [ ] 🟡 **Investigate the 19 residual `diff_replay` divergences
+- [x] 🟡 **Investigated the 3× path_non_adjacent residuals** (DONE
+  2026-05-10, commit d3e85ab). Two distinct root causes:
+    1. **Teleport-ability handling.** `tools/diff_replay.py`
+       short-circuited only `len(xs) == 2` pure teleport moves;
+       Wesnoth records walk + teleport + walk as a single move
+       with the teleport at any step. New rule: each non-adjacent
+       step accepted iff unit has `teleport` ability AND both
+       endpoints are own-side villages. Cleared 2 cases (Howling
+       Ghost Badlands turn 21, Hamlets turn 12 cmds 257+258).
+    2. **Cross-block lookahead bug.** When a move at end of
+       [replay] block i had empty [checkup], the extractor's
+       3-cmd lookahead found block i+1's first action's
+       [mp_checkup] and adopted ITS final_hex as block i's move
+       destination, producing a fake non-adjacent step. Added
+       block-boundary guard to the lookahead. Cleared 1 case
+       (Hamlets turn 25).
+
+- [ ] 🟡 **Investigate the 16 residual `diff_replay` divergences
   on the fresh corpus** (2026-05-10). Notable groupings:
     - 6× `move:final_occupied` (cascade-class — earlier divergence
       leaves a unit on the destination).
-    - 3× `attack:defender_missing`, 3× `move:path_non_adjacent`
-      with very-distant step-1 endpoints (e.g. (6,10)→(20,4),
-      (17,17)→(17,22), (27,15)→(11,14)). Smells like teleport-
-      ability units the extractor isn't handling.
+    - 3× `attack:defender_missing` (likely cascade or
+      scenario-event-spawned units).
     - 2× `attack:weapon_oob` (weapon idx 1 on a 1-attack unit —
       the unit lost an attack via [effect] and the extractor
       didn't handle the modification?).

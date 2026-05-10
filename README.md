@@ -17,9 +17,9 @@ Two goals shape the design:
   `tools/wesnoth_sim.py` is a pure-Python reimplementation of
   Wesnoth 1.18.4's game logic — bit-exact for combat (731/731
   strikes verified via `[mp_checkup]` oracle on strict-sync
-  replays), **99.65% `diff_replay` clean rate on the freshly-
+  replays), **99.71% `diff_replay` clean rate on the freshly-
   extracted 5,490-replay competitive-2p corpus** (2026-05-10
-  sweep, 19 residual divergences flagged for follow-up).
+  sweep, 16 residual divergences flagged for follow-up).
   ~1000× faster than driving Wesnoth as a subprocess and
   trivially cluster-portable.
 - **Self-play training entry point: `python tools/sim_self_play.py`.**
