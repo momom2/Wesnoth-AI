@@ -1192,6 +1192,41 @@ def extract_replay(path: Path) -> Optional[dict]:
                 last_attack_slot = slot   # tracked separately for [choose]
                 break
             if t == "recruit":
+                # Intra-block undo+redo detection. A finalized recruit
+                # has [checkup] containing [result] with checksum +
+                # next_unit_id. An UNDONE recruit (player picked a
+                # unit, undid before commit, picked something else at
+                # the same hex) has an empty [checkup] -- no [result]
+                # inside, no follow-up [random_seed] either. The
+                # cross-block trailer-drop logic below catches the
+                # save-on-undone-recruit boundary case; this catches
+                # the WITHIN-block case where the player undoes and
+                # re-recruits in the same turn.
+                #
+                # Concrete: 2p__Hamlets_Turn_23_(179126).bz2 turn 1:
+                # cmd[5] = recruit Horseman (12,6) with [checkup][/checkup]
+                # then a server [speak], then cmd[6] = recruit Heavy
+                # Infantryman (12,6) with [checkup][result]checksum=...
+                # [/result][/checkup] and [random_seed] follow-up.
+                # Pre-fix our extractor emitted both as completed,
+                # producing recruit:target_occupied at cmd[6] (sim
+                # had a Horseman occupying (11,5) when Wesnoth had
+                # never finalized it). Three replays in the
+                # competitive-2p corpus hit the same canned-opener
+                # pattern.
+                #
+                # GUARD: musthave-only races (undead/mechanical/
+                # elemental) NEVER consume RNG for trait rolls, but
+                # they DO emit a [checkup] with [result] when finalized.
+                # So "empty checkup" is still the right signal regardless
+                # of race -- no special-case needed here.
+                checkup = cmd.first("checkup") or cmd.first("mp_checkup")
+                if checkup is not None and checkup.first("result") is None:
+                    # Undone. Don't emit the recruit, don't update
+                    # last_action_slot (no seed will arrive for
+                    # this; the next finalized action gets its slot
+                    # back-filled cleanly).
+                    break
                 unit_type = sub.attrs.get("type", "")
                 # Convert WML 1-indexed → Python 0-indexed.
                 tx = max(0, int(sub.attrs.get("x", 0) or 0) - 1)
