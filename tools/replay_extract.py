@@ -1397,6 +1397,22 @@ def extract_replay(path: Path) -> Optional[dict]:
                 # NOT carry skip_sighted="all", so the move was real
                 # and must be kept. The skip_sighted check correctly
                 # discriminates this case.
+                #
+                # NEGATIVE control #2: 2p__Silverhead_Crossing_Turn_25_
+                # (2082). Player JoJo42 became an observer and
+                # erichbschulz1 took over side 1; JoJo42 then
+                # "surrendered" (the lobby leave event, not an
+                # in-flight action). The pre-surrender move had a
+                # FULL [checkup][result]final_hex_x=10 final_hex_y=20
+                # -- it was COMPLETED in Wesnoth. The takeover
+                # controller's first move used skip_sighted="all" as
+                # default. The original skip_sighted heuristic alone
+                # would wrongly drop the completed move. Added check:
+                # also require the pre-surrender move's [checkup] to
+                # be EMPTY (no [result] inside) — that's the "undone"
+                # signal. Full [checkup] means the move was finalized
+                # in Wesnoth and must NOT be dropped, regardless of
+                # what the next move's skip_sighted says.
                 drop_pre = False
                 la_idx = cmd_idx + 1
                 while la_idx < len(commands_list):
@@ -1415,6 +1431,26 @@ def extract_replay(path: Path) -> Optional[dict]:
                     if saw_action:
                         break
                     la_idx += 1
+                # Pre-surrender move's [checkup] inspection. Walk
+                # backwards through commands_list to find the most
+                # recent [command] containing a [move] (skipping
+                # [speak] / [rename] / etc.). If that move's [checkup]
+                # contains [result] => completed in Wesnoth => don't
+                # drop. Empty [checkup] => undone => keep the
+                # skip_sighted-based drop logic.
+                if drop_pre:
+                    back_idx = cmd_idx - 1
+                    while back_idx >= 0:
+                        prev_cmd = commands_list[back_idx]
+                        prev_move = prev_cmd.first("move")
+                        if prev_move is not None:
+                            chk = (prev_cmd.first("checkup")
+                                   or prev_cmd.first("mp_checkup"))
+                            if (chk is not None
+                                    and chk.first("result") is not None):
+                                drop_pre = False
+                            break
+                        back_idx -= 1
                 if (drop_pre
                         and last_move_slot is not None
                         and last_move_slot == len(compact_commands) - 1
