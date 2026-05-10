@@ -1241,53 +1241,64 @@ def extract_replay(path: Path) -> Optional[dict]:
                 checkup_empty = (checkup is not None
                                  and checkup.first("result") is None)
                 if checkup_empty:
-                    unit_type_for_check = sub.attrs.get("type", "")
-                    needs_rng = _recruit_consumes_rng(unit_type_for_check)
-                    is_undone = False
-                    if not needs_rng:
-                        # Musthave-only race + empty [checkup] =
-                        # undone (pattern A is the only completion
-                        # signal for these races, and we don't see
-                        # it).
-                        is_undone = True
-                    else:
-                        # RNG-race + empty [checkup]. Look ahead
-                        # for a [random_seed] BEFORE any next
-                        # player action. If found -> Sablestone-
-                        # style completion (keep). If not ->
-                        # undone (drop).
-                        # Window of 3 commands matches the
-                        # existing checkup-lookahead used for
-                        # move final_hex back-fill.
-                        has_seed = False
-                        la = cmd_idx + 1
-                        while la < min(cmd_idx + 4,
-                                       len(commands_list)):
-                            nxt = commands_list[la]
-                            stop = False
-                            for nsub in nxt.children:
-                                if (nsub.tag == "random_seed"
-                                        and nsub.attrs.get(
-                                            "new_seed", "")):
-                                    has_seed = True
-                                    stop = True
-                                    break
-                                if nsub.tag in ("move", "attack",
-                                                "recruit", "recall",
-                                                "end_turn",
-                                                "init_side"):
-                                    # Any player action before a
-                                    # seed means the seed (if any
-                                    # later) belongs to that
-                                    # action, not us.
-                                    stop = True
-                                    break
-                            if stop:
+                    # Universal "completed?" check:
+                    #   - Pattern A (full checkup with [result]) is
+                    #     handled by checkup_empty being False above.
+                    #   - Pattern B (empty checkup + following
+                    #     [random_seed]) is handled here. A seed in
+                    #     the next 1-3 commands BEFORE any other
+                    #     player action means Wesnoth committed RNG
+                    #     state to this recruit — i.e., finalized.
+                    #
+                    # Earlier draft of this fix conditioned the
+                    # lookahead on `_recruit_consumes_rng(unit_type)`
+                    # ("musthave-only races never get a seed, so
+                    # empty-checkup + musthave-only = undone").
+                    # That's wrong: our scraper marks Wose as no-RNG
+                    # because `num_traits=0`, but Wesnoth STILL
+                    # emits a [random_seed] for Wose recruits in
+                    # practice (probably for unit gender/name
+                    # rolling). Concrete:
+                    # 2p__Ruphus_Isle_Turn_10_(230115).bz2 turn 9
+                    # has a Wose recruit at (12,10) with empty
+                    # checkup AND a following [random_seed]; Wose
+                    # was the player's actual finalized choice
+                    # after an Elvish Archer at the same hex moved
+                    # away earlier. Pre-fix our extractor dropped
+                    # the Wose, leaving (11,9) empty in our sim
+                    # while Wesnoth had it occupied — cascade-class
+                    # src_missing on every turn-10 move from there.
+                    #
+                    # The lookahead trusts the seed regardless of
+                    # what `_recruit_consumes_rng` thinks.
+                    has_seed = False
+                    la = cmd_idx + 1
+                    while la < min(cmd_idx + 4, len(commands_list)):
+                        nxt = commands_list[la]
+                        stop = False
+                        for nsub in nxt.children:
+                            if (nsub.tag == "random_seed"
+                                    and nsub.attrs.get(
+                                        "new_seed", "")):
+                                has_seed = True
+                                stop = True
                                 break
-                            la += 1
-                        is_undone = not has_seed
-                    if is_undone:
-                        # Don't emit, don't update last_action_slot.
+                            if nsub.tag in ("move", "attack",
+                                            "recruit", "recall",
+                                            "end_turn",
+                                            "init_side"):
+                                # Any player action before a seed
+                                # means the seed (if any later)
+                                # belongs to that action, not us.
+                                stop = True
+                                break
+                        if stop:
+                            break
+                        la += 1
+                    if not has_seed:
+                        # Empty checkup AND no seed in window =
+                        # undone. Don't emit, don't update
+                        # last_action_slot.
                         break
                 unit_type = sub.attrs.get("type", "")
                 # Convert WML 1-indexed → Python 0-indexed.
