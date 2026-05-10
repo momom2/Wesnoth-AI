@@ -1056,9 +1056,36 @@ def _maybe_advance_unit(gs: GameState, u: Unit) -> Unit:
         existing traits + apply new musthaves).
       - If the unit is at the highest level (no `advances_to`), no
         advance happens.
+      - **DOUBLE / MULTI advancement.** If after advancing the new
+        unit's carryover XP still meets the next-tier threshold,
+        Wesnoth advances AGAIN in the same `advance_unit_at` call
+        (and pops the next `[choose]` for the second tier). Loops
+        until current_exp < max_exp. This is how a low-XP Heavy
+        Infantryman can kill a level-3 unit at experience_modifier=30
+        and finish the combat as an Iron Mauler in a single
+        advancement chain. Concrete repro: 2p__Den_of_Onis_Turn_37_
+        (114612) cmd[890] turn 27 side 2 — Heavy Infantryman with
+        intelligent trait (XP threshold 10) and 3 XP, kills u46
+        Dwarvish Dragonguard for +24 XP -> total 27, advance HI→ST
+        (carryover 17 ≥ ST threshold 16 with intelligent), advance
+        ST→IM (carryover 1). Pre-this-fix our sim stopped at Shock
+        Trooper, leaving u46's turn 28 attacker class mismatched
+        (sim:ShockTrooper deals 14 dmg vs Wesnoth:IronMauler 20),
+        u46 survived at 4 HP instead of dying, blocking (15,9)
+        through turn 29.
     """
-    if u.current_exp < u.max_exp:
-        return u
+    while u.current_exp >= u.max_exp:
+        u = _advance_unit_once(gs, u)
+        if u is None:
+            return None  # type: ignore[return-value]
+    return u
+
+
+def _advance_unit_once(gs: GameState, u: Unit) -> Unit:
+    """Apply exactly one advancement step to `u` (either a real
+    type advance or an AMLA), returning the new unit. Pulled out
+    of `_maybe_advance_unit` so the multi-advance loop reads
+    cleanly. Caller is responsible for the XP-threshold check."""
     stats = _stats_for(u.name)
     targets = list(stats.get("advances_to", []))
     if not targets:
