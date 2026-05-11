@@ -801,7 +801,32 @@ def main(argv: List[str]) -> int:
 
     import torch
     device = torch.device(args.device) if args.device else None
-    policy = TransformerPolicy(device=device)
+
+    # When warm-starting from a checkpoint with non-default arch
+    # (e.g. supervised_epoch3.pt at d_model=128 while
+    # TransformerPolicy's default is d_model=512), build the policy
+    # at the SAVED arch so load_checkpoint can resume weights
+    # rather than discarding everything and starting from random
+    # init. The cluster job's chain logic relies on this -- losing
+    # the warm-start every iteration would burn cluster time.
+    arch_kwargs: Dict[str, int] = {}
+    if args.checkpoint_in and args.checkpoint_in.exists():
+        try:
+            raw = torch.load(args.checkpoint_in, map_location="cpu",
+                             weights_only=False)
+            saved_arch = raw.get("arch", {}) or {}
+            for k in ("d_model", "num_layers", "num_heads", "d_ff"):
+                if k in saved_arch:
+                    arch_kwargs[k] = int(saved_arch[k])
+            if arch_kwargs:
+                log.info(f"warm-start arch from checkpoint: {arch_kwargs}")
+        except Exception as e:
+            log.warning(
+                f"couldn't peek arch from {args.checkpoint_in}: {e!r}; "
+                f"falling back to TransformerPolicy defaults"
+            )
+
+    policy = TransformerPolicy(device=device, **arch_kwargs)
     if args.checkpoint_in and args.checkpoint_in.exists():
         log.info(f"loading checkpoint {args.checkpoint_in}")
         try:
