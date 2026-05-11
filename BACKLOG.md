@@ -1706,25 +1706,28 @@ replay export.
   CLAUDE.md).
 
 - [ ] 🟡 **Cliffness adaptive sim budget — calibration pending**
-  (2026-05-10). The framework is wired in `tools/mcts.py`
-  (`MCTSConfig.adaptive_sim_budget`, `n_simulations_min`,
-  `n_simulations_max`, `cliffness_max=0.577` ≈ 1/√3, the std of
-  the continuous uniform on [-1, +1]; the discrete uniform on
-  K=51 atoms matches it to 3 decimal places — see
+  (2026-05-10, updated 2026-05-11). The framework is wired in
+  `tools/mcts.py` (`MCTSConfig.adaptive_sim_budget`,
+  `n_simulations_min`, `n_simulations_max`, `cliffness_max=0.577`
+  ≈ 1/√3, the std of the continuous uniform on [-1, +1]; the
+  discrete uniform on K=51 atoms matches it to 3 decimal places
+  — see
   `test_distributional_value.test_cliffness_high_when_distribution_spread`).
   Defaults `n_simulations_min=100, n_simulations_max=400` are
   uncalibrated and shipped OFF (`adaptive_sim_budget=False`).
-  Linear interpolation shape is one of several plausible
-  schedules — multiplicative, quadratic, step, time-budget all
-  defensible. Plan: log root cliffness during a few self-play
-  runs (`mcts: root cliffness=...` debug line is always-on
-  regardless of the flag), look at the empirical distribution,
-  THEN pick a schedule. Without that calibration the choice is
-  guesswork; early-training distributions are likely uniformly
-  high and would pin the budget at `n_max` everywhere — a slowdown
-  with no win. Until calibrated, callers should leave
-  `adaptive_sim_budget=False`. Once we have empirical data, the
-  schedule can be picked + hyperparameters defaulted intelligently.
+  Collection tool landed 2026-05-11: `tools/collect_cliffness.py`
+  walks a sample of real replays, computes cliffness per decision
+  step, and writes a percentile/histogram report to
+  `docs/cliffness_calibration.md` plus calibration recommendations.
+  **Blocked on a C51-trained checkpoint** -- all existing
+  checkpoints (`supervised_epoch3.pt`, `sim_selfplay.pt`,
+  `checkpoint_*.pt`) predate the C51 head landing 2026-05-10 and
+  have a 1-scalar value head; the tool falls back to a random
+  C51-head init in that case, producing only the uniform-prior
+  baseline (clusters tight around 0.59, exactly the predicted
+  uniform std). Re-run after the next supervised or self-play
+  cycle finishes with the C51 head trained. Until calibrated,
+  callers should leave `adaptive_sim_budget=False`.
 
 - [ ] 🟡 **Cliffness similarity-hashing TT (lossy / soft TT)**
   (2026-05-10, deferred from the cliffness consumer pass). The
@@ -2093,7 +2096,7 @@ collected here:
 | Cliffness bootstrap weighting | ✅ Bayesian-precision shrink in _backup (off by default, alpha=0) | test_mcts_cliffness.py |
 | Cliffness adaptive sim budget | ✅ framework wired (off by default, n_min/n_max uncalibrated) | test_mcts_cliffness.py |
 | Cliffness similarity-hashing TT | ❌ deferred (own design project; needs lossy hash) | this BACKLOG entry |
-| Cliffness empirical calibration | ❌ root-cliffness debug log on, but no histogram collected yet | next milestone |
+| Cliffness empirical calibration | ⚠️ collection tool landed (`tools/collect_cliffness.py`, `docs/cliffness_calibration.md`); first real data needs a C51-trained checkpoint | blocks on training cycle |
 | MCTS-vs-REINFORCE comparative eval | ❌ not run | downstream of calibration |
 
 ---
