@@ -101,12 +101,27 @@ def _wml_for_command(rc: RecordedCommand,
     comes next); it's derived from the history by `_build_replay_wml`.
     """
     if rc.kind == "init_side":
+        # Empty `[checkup]` ack: real Wesnoth saves emit a
+        # `[result] next_unit_id=N random_calls=0` here, but an
+        # empty block is sufficient for non-strict-sync replays
+        # (oos_debug=no) -- Wesnoth recomputes next_unit_id during
+        # playback. See `wesnoth_src/src/replay.cpp:871` for the
+        # "expecting a user choice" error path: scenarios with
+        # rich [scenario] events (Aethermaw morph triggers,
+        # CoB / TSG halo placements) fire user_choice during
+        # playback and require the ack here even when the empty
+        # form is fine. Hamlets / Clearing Gushes don't trip
+        # this on a minimal save WITHOUT the [checkup] because
+        # their [scenario] doesn't enter the synced path until
+        # the first player action.
         side_n = rc.cmd[1]
         return (
             "\t[command]\n"
             "\t\t[init_side]\n"
             f"\t\t\tside_number={side_n}\n"
             "\t\t[/init_side]\n"
+            "\t\t[checkup]\n"
+            "\t\t[/checkup]\n"
             "\t[/command]\n"
         )
 
@@ -127,11 +142,16 @@ def _wml_for_command(rc: RecordedCommand,
         # `next_side` if it has explicit history info, but the
         # default (side+1) is what Wesnoth expects.
         nxt = next_side if next_side is not None else rc.side + 1
+        # Note: end_turn uses `[checkup1]` (NOT `[checkup]`) per
+        # Wesnoth's convention -- the suffix differentiates the
+        # end-of-turn checkup result from in-turn action checkups.
         return (
             "\t[command]\n"
             "\t\t[end_turn]\n"
             f"\t\t\tnext_player_number={nxt}\n"
             "\t\t[/end_turn]\n"
+            "\t\t[checkup1]\n"
+            "\t\t[/checkup1]\n"
             "\t[/command]\n"
         )
 
@@ -148,6 +168,8 @@ def _wml_for_command(rc: RecordedCommand,
             f"\t\t\tx=\"{xs1}\"\n"
             f"\t\t\ty=\"{ys1}\"\n"
             "\t\t[/move]\n"
+            "\t\t[checkup]\n"
+            "\t\t[/checkup]\n"
             "\t[/command]\n"
         )
 
@@ -171,11 +193,24 @@ def _wml_for_command(rc: RecordedCommand,
             f"\t\t\t\ty={dy + 1}\n"
             "\t\t\t[/destination]\n"
             "\t\t[/attack]\n"
+            "\t\t[checkup]\n"
+            "\t\t[/checkup]\n"
             "\t[/command]\n"
         )
 
     if rc.kind == "recruit":
         # cmd = ["recruit", unit_type, tx, ty, trait_seed]
+        # Wesnoth's replay processor enters a "synced context" when a
+        # player action requires a user_choice (here: the trait roll
+        # for the new unit). It expects a `[checkup]` block as the
+        # ack -- even empty, in non-strict-sync replays. Without it,
+        # the next [random_seed] dependent command fires the
+        # "found [recruit] command in replay expecting a user
+        # choice" error path (wesnoth_src/src/replay.cpp:871) on
+        # scenarios that have a fully expanded [scenario] tree
+        # (Aethermaw, CoB, TSG). Hamlets / Clearing Gushes saves
+        # happened to work without it because their [scenario]
+        # didn't ALSO trigger synced state during prestart.
         unit_type = _wml_quote(str(rc.cmd[1]))
         tx, ty = rc.cmd[2], rc.cmd[3]
         leader_pos = rc.extras.get("leader_pos", (tx, ty))
@@ -192,6 +227,8 @@ def _wml_for_command(rc: RecordedCommand,
             f"\t\t\t\ty={ly + 1}\n"
             "\t\t\t[/from]\n"
             "\t\t[/recruit]\n"
+            "\t\t[checkup]\n"
+            "\t\t[/checkup]\n"
             "\t[/command]\n"
         )
 
@@ -213,6 +250,8 @@ def _wml_for_command(rc: RecordedCommand,
             f"\t\t\t\ty={ly + 1}\n"
             "\t\t\t[/from]\n"
             "\t\t[/recall]\n"
+            "\t\t[checkup]\n"
+            "\t\t[/checkup]\n"
             "\t[/command]\n"
         )
 

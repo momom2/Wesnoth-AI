@@ -488,4 +488,43 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 			code=" wesnoth.require(""multiplayer/eras.lua"").turns_over_advantage() "
 		[/lua]
 	[/event]
+[side]
+
+		allow_changes=no
+		allow_player=no
+		canrecruit=no
+		chose_random=no
+		color="black"
+		controller="null"
+		controller_lock=yes
+		disallow_observers=yes
+		faction="Custom"
+		faction_lock=yes
+#textdomain wesnoth
+		faction_name=_"Custom"
+		fog=yes
+		gold=100
+		hidden=yes
+		income=0
+		is_host=no
+		is_local=no
+		leader_lock=yes
+		no_leader=yes
+		shroud=no
+		side=3
+		team_lock=yes
+		team_name="nani"
+		user_team_name="wesnoth-multiplayerteamname^Shapeshifter"
+		village_gold=2
+		village_support=1
+		[unit]
+#textdomain wesnoth-multiplayer
+			name=_"Nani the Shapeshifter"
+			type="Tentacle of the Deep"
+			x=1
+			y=1
+		[/unit]
+		[default_faction]
+		[/default_faction]
+	[/side]
 [/scenario]

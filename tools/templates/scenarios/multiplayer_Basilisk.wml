@@ -411,4 +411,540 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 			code=" wesnoth.require(""multiplayer/eras.lua"").turns_over_advantage() "
 		[/lua]
 	[/event]
+[side]
+
+		allow_changes=no
+		allow_player=no
+		canrecruit=no
+		chose_random=no
+		color="black"
+		controller="null"
+		controller_lock=yes
+		disallow_observers=yes
+		faction="Custom"
+		faction_lock=yes
+#textdomain wesnoth
+		faction_name=_"Custom"
+		fog=yes
+		gold=100
+		gold_lock=yes
+		hidden=yes
+		income=0
+		income_lock=yes
+		is_host=no
+		is_local=no
+		leader_lock=yes
+		no_leader=yes
+		shroud=no
+		side=3
+		team_lock=yes
+		team_name="statues"
+		user_team_name="wesnoth-multiplayerteamname^Statues"
+		village_gold=2
+		village_support=1
+		[unit]
+#textdomain wesnoth-multiplayer
+			description=_"The winds of the dark sky blew so cold,
+The moon was high, the night was old,
+Brave was the drake that dared forsake
+His home to steal the Basiliskâ€™s gold.
+
+On that dark night, the skies so churned,
+He disregarded what he had learned,
+Foolish but brave, to the Basiliskâ€™s cave,
+He flew, and the fire within him burned.
+
+Alas, that fire burns no more,
+For the Basilisk, with one mighty roar,
+Chilled him to the bone, and he turned to stone,
+And so he stays forevermore.
+
+The winds of the sky blow so cold,
+The years pass by, the days are old,
+Here stands that drake, who dared forsake
+His home to steal the Basiliskâ€™s gold.
+(inscribed by Flametrooper)"
+			name=""
+			random_traits=no
+			type="Sky Drake"
+			unrenamable=yes
+			x=27
+			y=14
+			[status]
+				petrified=yes
+			[/status]
+			[modifications]
+				[trait]
+					id="remove_hp"
+					[effect]
+						apply_to="hitpoints"
+						increase_total="-100%"
+					[/effect]
+					[effect]
+						apply_to="movement"
+						set=0
+					[/effect]
+					[effect]
+						apply_to="ellipse"
+						ellipse="none"
+					[/effect]
+				[/trait]
+			[/modifications]
+		[/unit]
+		[unit]
+			description=_"Xikkrisx of Syrsszk was a powerful Saurian warrior, sent to this region by the Elders of the Rysssrylosszkk Clan (translation: â€œThe Hunts-Foes-In-Boiling-Rivers Clanâ€�). The Elders were preparing to make war on a human outpost, and were in great need of the powerful magics of Oxsrrsk, a Saurian Mystic who had last been seen heading in the direction of Ruaskkolin Lake. Xikkrisx found the petrified body of Oxsrrsk, along with a carefully bound scroll that had apparently been dropped into a small crevice in the cave floor. He opened the scroll and read a brief passage from the middle of the text: â€œAfter he was bound and cast from the Upper World, Chakâ€™ksoâ€™s enraged spirit sought release, and was able to exert a corrupting influence on certain regions of the Upper World, channeled through â€˜pathways of stoneâ€™ that extend from the surface into the depths of the Under Reaches. This rage altered the eggs of great lizards, shaping their bodies and spirits into implements of Chakâ€™ksoâ€™s hatred.â€� Confused, Xikkrisx fixed his attention on the task at hand. Thinking that perhaps the Elders could find some way to restore Oxsrrsk, he began the long and strenuous task of hauling the statue back to the domain of the Rysssrylosszkk Clan. Exhausted, and not having traveled far from the lake, Xikkrisx set the statue down inside of a small cave, and lay down to rest. He was awoken by a bone-chilling roar."
+			facing="sw"
+			name=_"Xikkrisx"
+			random_traits=no
+			type="Saurian Flanker"
+			unrenamable=yes
+			x=40
+			y=8
+			[status]
+				petrified=yes
+			[/status]
+			[modifications]
+				[trait]
+					id="remove_hp"
+					[effect]
+						apply_to="hitpoints"
+						increase_total="-100%"
+					[/effect]
+					[effect]
+						apply_to="movement"
+						set=0
+					[/effect]
+					[effect]
+						apply_to="ellipse"
+						ellipse="none"
+					[/effect]
+				[/trait]
+			[/modifications]
+		[/unit]
+		[unit]
+			description=_"Oxsrrsk was a powerful Saurian Oracle, who had, in a raid against the rival Xraxss Clan, acquired (from the vaults of the now-dead Oracle Hesx-Rzzak) a most fascinating scroll. The scroll was entitled â€œNeyâ€™yks of the Granite Gaze,â€� and told of a creature known as the â€œChakâ€™kso Neyâ€™yks,â€� a name which, in an ancient saurian tongue, meant â€œEldest Child of Chakâ€™kso.â€� Chakâ€™kso was believed to have been a powerful demigod of the Under Reaches, described as a â€˜great demon of the earthâ€™ in the Elvish Histories. According to these histories, Chakâ€™kso had once sought to transform all life on the planet to stone; so great was his hatred for creatures of flesh. He was ultimately defeated and bound by powerful magics, but in the centuries following his banishment (to a realm far below the surface of the world) a new breed of creature began appearing in the Histories, a breed with the ability to turn any being of flesh into stone. There was a period when these Basilisks (as they came to be known) wreaked havoc on the world of the living, turning thousands to stone. One by one, and at great cost, the Basilisks were defeated. All, it would seem, but one; the Basilisk known as â€œThe Neyâ€™yks,â€� or â€œThe Eldest Child,â€� in the modern tongue. Supremely convinced of his ability to locate and bind this powerful creature into his service, Oxsrrsk set out on his journey..."
+			facing="sw"
+			name=_"Oxsrrsk"
+			random_traits=no
+			type="Saurian Oracle"
+			unrenamable=yes
+			x=39
+			y=8
+			[status]
+				petrified=yes
+			[/status]
+			[modifications]
+				[trait]
+					id="remove_hp"
+					[effect]
+						apply_to="hitpoints"
+						increase_total="-100%"
+					[/effect]
+					[effect]
+						apply_to="movement"
+						set=0
+					[/effect]
+					[effect]
+						apply_to="ellipse"
+						ellipse="none"
+					[/effect]
+				[/trait]
+			[/modifications]
+		[/unit]
+		[unit]
+			description=_"Slim of Stature, dexterous Hands
+â€” Seven Stones and Eleven
+Left his Foes so slim a Chance
+â€” Seven Stones and Eleven
+Marksman known as Dragonbane
+â€™mongst the Statues here was slain
+â€” Seven Stones â€” and the Elven
+(inscribed by Gauteamus)"
+			name=""
+			random_traits=no
+			type="Elvish Marksman"
+			unrenamable=yes
+			x=2
+			y=11
+			[status]
+				petrified=yes
+			[/status]
+			[modifications]
+				[trait]
+					id="remove_hp"
+					[effect]
+						apply_to="hitpoints"
+						increase_total="-100%"
+					[/effect]
+					[effect]
+						apply_to="movement"
+						set=0
+					[/effect]
+					[effect]
+						apply_to="ellipse"
+						ellipse="none"
+					[/effect]
+				[/trait]
+			[/modifications]
+		[/unit]
+		[unit]
+			description=_"Blum Duk was renowned among his goblin clan for having tamed one of the Dire Wolves of the mountains, and he had the courage to match. His leadership and skills alone were what kept the areaâ€™s goblins alive despite human and elvish menaces. Rumor had it that his wolf had slain fifty men and a hundred Elves.
+
+Thus, when he heard of the awful monster that was inhabiting the area, it was only natural that he ride out alone to face it. All the other goblins expected him to slay the creature easily and drag back its carcass to feast on.
+
+He was in for quite a shock. As soon as he saw the Basilisk, Blum Duk cowered in fright. He tried to wheel his wolf around to run away, but it wouldnâ€™t move. As the creature stalked towards him, he screamed his last words: Good Gog, dog, are yer legs made of stone?!
+(inscribed by Elvish Pillager)"
+			name=_"Blum Duk"
+			random_traits=no
+			type="Direwolf Rider"
+			unrenamable=yes
+			x=8
+			y=18
+			[status]
+				petrified=yes
+			[/status]
+			[modifications]
+				[trait]
+					id="remove_hp"
+					[effect]
+						apply_to="hitpoints"
+						increase_total="-100%"
+					[/effect]
+					[effect]
+						apply_to="movement"
+						set=0
+					[/effect]
+					[effect]
+						apply_to="ellipse"
+						ellipse="none"
+					[/effect]
+				[/trait]
+			[/modifications]
+		[/unit]
+		[unit]
+			description=_"Rah Ihn Mar, Champion of the Burning Hills, made his way to the Ruaskkolin Lake region in pursuit of the Elvish Hero Terowydlithrol, known among Elves as â€˜The Dragonbaneâ€™. It was said that Terowydlithrol had killed a Dragon of Fire that threatened an Elvish village, and initiated a â€˜counterattackâ€™ in which some 37 Drakes, camping in a nearby ravine and believed to be in allegiance with the Dragon, were slaughtered. Knowing that these Drakes were innocent, Rah Ihn Mar came to Ruaskkolin Lake to hunt down and slay Terowydlithrol, who had been seen entering the region but a day ago. Burning for vengeance, Rah Ihn Mar began the hunt..."
+			name=_"Rah Ihn Mar"
+			random_traits=no
+			type="Armageddon Drake"
+			unrenamable=yes
+			x=8
+			y=13
+			[status]
+				petrified=yes
+			[/status]
+			[modifications]
+				[trait]
+					id="remove_hp"
+					[effect]
+						apply_to="hitpoints"
+						increase_total="-100%"
+					[/effect]
+					[effect]
+						apply_to="movement"
+						set=0
+					[/effect]
+					[effect]
+						apply_to="ellipse"
+						ellipse="none"
+					[/effect]
+				[/trait]
+			[/modifications]
+		[/unit]
+		[unit]
+			description=_"He had lived there for ages upon ages, in the depths of the water, preying upon the various fish and frogs and merfolk that entered his domain. It was his lake, no otherâ€™s, and though it was not large, he was its master. Then, the Basilisk came, and looked into the Serpentâ€™s eyes. And the Serpent had not died, but it was no longer alive. Thus the new lord of the lake had arrived.
+(inscribed by Turin)"
+			facing="sw"
+			name=_"Turinâ€™s Monster of the Lake"
+			random_traits=no
+			type="Sea Serpent"
+			unrenamable=yes
+			x=22
+			y=12
+			[status]
+				petrified=yes
+			[/status]
+			[modifications]
+				[trait]
+					id="remove_hp"
+					[effect]
+						apply_to="hitpoints"
+						increase_total="-100%"
+					[/effect]
+					[effect]
+						apply_to="movement"
+						set=0
+					[/effect]
+					[effect]
+						apply_to="ellipse"
+						ellipse="none"
+					[/effect]
+				[/trait]
+			[/modifications]
+		[/unit]
+		[unit]
+			description=_"It would seem that no one knows the tale of this brave spider.
+(inscribed by WinnerA)"
+			facing="sw"
+			name=_"The Spider"
+			random_traits=no
+			type="Giant Spider"
+			unrenamable=yes
+			x=37
+			y=17
+			[status]
+				petrified=yes
+			[/status]
+			[modifications]
+				[trait]
+					id="remove_hp"
+					[effect]
+						apply_to="hitpoints"
+						increase_total="-100%"
+					[/effect]
+					[effect]
+						apply_to="movement"
+						set=0
+					[/effect]
+					[effect]
+						apply_to="ellipse"
+						ellipse="none"
+					[/effect]
+				[/trait]
+			[/modifications]
+		[/unit]
+		[unit]
+			description=_"The tale of this unlucky highwayman is yet to be told.
+(inscribed by WinnerB)"
+			facing="sw"
+			name=""
+			random_traits=no
+			type="Highwayman"
+			unrenamable=yes
+			x=5
+			y=8
+			[status]
+				petrified=yes
+			[/status]
+			[modifications]
+				[trait]
+					id="remove_hp"
+					[effect]
+						apply_to="hitpoints"
+						increase_total="-100%"
+					[/effect]
+					[effect]
+						apply_to="movement"
+						set=0
+					[/effect]
+					[effect]
+						apply_to="ellipse"
+						ellipse="none"
+					[/effect]
+				[/trait]
+			[/modifications]
+		[/unit]
+		[unit]
+			description=_"A brave hero of Wesnothâ€™s Golden Age, this great rider and commander of men came to this evil place while on a raid against the orcs. Caught unaware by the foul creatures, many of his fellows were killed, but he fought valiantly, slaying many a foe. But alas! The foul Basilisk turned him to stone even as he slew the last orc. Now all that is left is a stark reminder of his once great bearing and strength.
+(inscribed by Fynmiir)"
+			facing="sw"
+			name=""
+			random_traits=no
+			type="Grand Knight"
+			unrenamable=yes
+			x=25
+			y=14
+			[status]
+				petrified=yes
+			[/status]
+			[modifications]
+				[trait]
+					id="remove_hp"
+					[effect]
+						apply_to="hitpoints"
+						increase_total="-100%"
+					[/effect]
+					[effect]
+						apply_to="movement"
+						set=0
+					[/effect]
+					[effect]
+						apply_to="ellipse"
+						ellipse="none"
+					[/effect]
+				[/trait]
+			[/modifications]
+		[/unit]
+		[unit]
+			description=_"Bramwythl the Wose was always considered a slow, taciturn fellow, even by other woses. More than any other wose, he enjoyed simply standing alone in the sun, arms upraised, admiring the beauty of the empty sky. Once, even, he confided in a fellow that his greatest wish was to be able to bask forever in the sunâ€™s glory.
+
+However, not long after, the local wose community heard of the approach of a horrible monster, powerful enough to easily destroy the few woses that lived in the area. They quickly moved off (quickly for woses, anyway), but Bramwythl was left behind â€” in their haste, no one had remembered to find him and tell him of the danger.
+
+He was taken quite unawares by the Basilisk, and turned to stone before he even recognized the beast. His petrified form still stands there today, warmed by the sunâ€™s rays, under an open sky. His greatest wish has been granted.
+(inscribed by Elvish Pillager)"
+			name=_"Bramwythl"
+			random_traits=no
+			type="Elder Wose"
+			unrenamable=yes
+			x=34
+			y=6
+			[status]
+				petrified=yes
+			[/status]
+			[modifications]
+				[trait]
+					id="remove_hp"
+					[effect]
+						apply_to="hitpoints"
+						increase_total="-100%"
+					[/effect]
+					[effect]
+						apply_to="movement"
+						set=0
+					[/effect]
+					[effect]
+						apply_to="ellipse"
+						ellipse="none"
+					[/effect]
+				[/trait]
+			[/modifications]
+		[/unit]
+		[unit]
+			description=_"General Talael Ryndoc came to this place to fight a duel with the Grand Marshal Aethec Corryn, but the two men never found one another."
+			facing="sw"
+			name=_"Talael Ryndoc"
+			random_traits=no
+			type="Iron Mauler"
+			unrenamable=yes
+			x=34
+			y=11
+			[status]
+				petrified=yes
+			[/status]
+			[modifications]
+				[trait]
+					id="remove_hp"
+					[effect]
+						apply_to="hitpoints"
+						increase_total="-100%"
+					[/effect]
+					[effect]
+						apply_to="movement"
+						set=0
+					[/effect]
+					[effect]
+						apply_to="ellipse"
+						ellipse="none"
+					[/effect]
+				[/trait]
+			[/modifications]
+		[/unit]
+		[unit]
+			description=_"The last words spoken by Grand Marshal Aethec Corryn: â€œTalael Ryndoc! I am through searching for you! I shall make my way back to Haldricâ€™s Hall, and inform the court that you were too much of a coward to attend our duel! Your disgrace shall be more agonizing than the death Iâ€™d have given you!â€�
+
+Perhaps he should not have shouted quite so loudly..."
+			facing="sw"
+			name=_"Aethec Corryn"
+			random_traits=no
+			type="Grand Marshal"
+			unrenamable=yes
+			x=15
+			y=11
+			[status]
+				petrified=yes
+			[/status]
+			[modifications]
+				[trait]
+					id="remove_hp"
+					[effect]
+						apply_to="hitpoints"
+						increase_total="-100%"
+					[/effect]
+					[effect]
+						apply_to="movement"
+						set=0
+					[/effect]
+					[effect]
+						apply_to="ellipse"
+						ellipse="none"
+					[/effect]
+				[/trait]
+			[/modifications]
+		[/unit]
+		[unit]
+			description=_"This brave warrior, known as Rilhon among the Naga, heard tell of a fabulous treasure that had been lost in these watery cavesâ€” a spear whose head was said to have been fashioned from the tooth of Chakâ€™kso Neyâ€™yks, an Elder Basilisk slain long ago by the Elvish hero, Eloralduil. According to the legend, the weapon rested somewhere on the bottom of this very lake (Ruaskkolin Lake, named for a well-known Sea Serpent who made it his home). Having prepared himself for battle with the Serpent, Rilhon met with two rather large surprises. The first was the petrified form of Ruaskkolin the Serpent. The second was the very-much-alive Chakâ€™kso Neyâ€™yks, who was, oddly enough, in possession of all of his teeth.
+(inscribed by Paterson)"
+			name=_"Rilhon"
+			random_traits=no
+			type="Naga Myrmidon"
+			unrenamable=yes
+			x=20
+			y=12
+			[status]
+				petrified=yes
+			[/status]
+			[modifications]
+				[trait]
+					id="remove_hp"
+					[effect]
+						apply_to="hitpoints"
+						increase_total="-100%"
+					[/effect]
+					[effect]
+						apply_to="movement"
+						set=0
+					[/effect]
+					[effect]
+						apply_to="ellipse"
+						ellipse="none"
+					[/effect]
+				[/trait]
+			[/modifications]
+		[/unit]
+		[unit]
+			description=_"Through waves and rocky channels
+blue and white
+she pulled and pushed the tides
+and taught the fishes how to speak to planets
+silver green
+with magic
+running from her spirit into skins of kelp and shells of snails
+a twisting of her tail and hands
+she sent her songs to run on pin-tipped legs about the sands
+and now
+and now the strangest pause
+for years and years
+she hasnâ€™t moved her eyes
+
+(inscribed by MJQ)"
+			facing="sw"
+			name=""
+			random_traits=no
+			type="Mermaid Siren"
+			unrenamable=yes
+			x=17
+			y=11
+			[status]
+				petrified=yes
+			[/status]
+			[modifications]
+				[trait]
+					id="remove_hp"
+					[effect]
+						apply_to="hitpoints"
+						increase_total="-100%"
+					[/effect]
+					[effect]
+						apply_to="movement"
+						set=0
+					[/effect]
+					[effect]
+						apply_to="ellipse"
+						ellipse="none"
+					[/effect]
+				[/trait]
+			[/modifications]
+		[/unit]
+		[default_faction]
+		[/default_faction]
+	[/side]
 [/scenario]

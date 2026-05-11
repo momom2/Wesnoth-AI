@@ -107,17 +107,44 @@ def _extract_scenario_block(text: str) -> Optional[str]:
     return text[start:end_idx + len("[/scenario]")]
 
 
-def _strip_side_blocks(scenario_block: str) -> str:
-    """Remove every `[side]...[/side]` sub-block from the [scenario]
-    text. The runtime emitter inserts fresh per-side blocks rendered
-    from sim state; the source bz2's sides reflect that particular
-    game's factions/leaders/gold, which would override the sim's
-    setup on Wesnoth playback."""
-    return re.sub(
-        r"\[side\][\s\S]*?\[/side\]\s*",
-        "",
-        scenario_block,
-    )
+def _strip_player_side_blocks(scenario_block: str) -> str:
+    """Remove `[side]...[/side]` sub-blocks for PLAYER sides (1 and 2)
+    only. The runtime emitter inserts fresh per-game [side] blocks
+    for sides 1+2 with sim-chosen factions/leaders/gold; replacing
+    those is the whole point.
+
+    SCENERY SIDES (side 3+) MUST be preserved. Several ladder maps
+    use a neutral third side to hold pre-placed petrified-unit
+    statues:
+      - Caves of the Basilisk: 15 petrified victims on side 3
+      - Thousand Stings Garrison: 66 frozen scorpions on side 3
+      - Sullas Ruins: 5 stone-statue mages on side 3
+    These units are scenery -- they don't move, attack, or
+    participate in gameplay -- but they MUST be on the map for the
+    scenario to render correctly. If we stripped them, the maps
+    would load without their iconic decorations and (more
+    importantly) the playback engine would let units walk through
+    hex positions the statues are supposed to block.
+    """
+    def _is_player_side(m: "re.Match") -> bool:
+        body = m.group(0)
+        sn = re.search(r'^\s*side\s*=\s*"?(\d+)"?', body, re.MULTILINE)
+        if sn is None:
+            return False
+        return int(sn.group(1)) in (1, 2)
+
+    out: list = []
+    last = 0
+    for m in re.finditer(r"\[side\][\s\S]*?\[/side\]\s*", scenario_block):
+        if _is_player_side(m):
+            out.append(scenario_block[last:m.start()])
+            last = m.end()
+    out.append(scenario_block[last:])
+    return "".join(out)
+
+
+# Back-compat alias for any older test imports.
+_strip_side_blocks = _strip_player_side_blocks
 
 
 def _extract_one(scenario_id: str) -> Dict[str, str]:
@@ -134,7 +161,7 @@ def _extract_one(scenario_id: str) -> Dict[str, str]:
     block = _extract_scenario_block(text)
     if block is None:
         return {"status": "no-scenario", "source": src.name}
-    stripped = _strip_side_blocks(block)
+    stripped = _strip_player_side_blocks(block)
     return {"status": "ok", "source": src.name, "template": stripped}
 
 

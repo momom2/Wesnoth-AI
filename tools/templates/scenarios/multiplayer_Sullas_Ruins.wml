@@ -417,4 +417,200 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 			code=" wesnoth.require(""multiplayer/eras.lua"").turns_over_advantage() "
 		[/lua]
 	[/event]
+[side]
+
+		allow_changes=no
+		allow_player=no
+		canrecruit=no
+		chose_random=no
+		color="black"
+		controller="null"
+		controller_lock=yes
+		disallow_observers=yes
+		faction="Custom"
+		faction_lock=yes
+#textdomain wesnoth
+		faction_name=_"Custom"
+		fog=yes
+		gold=100
+		gold_lock=yes
+		hidden=yes
+		income=0
+		income_lock=yes
+		is_host=no
+		is_local=no
+		leader_lock=yes
+		no_leader=yes
+		shroud=no
+		side=3
+		team_lock=yes
+		team_name="statues"
+		user_team_name="wesnoth-multiplayerteamname^Statues"
+		village_gold=2
+		village_support=1
+		[unit]
+#textdomain wesnoth-multiplayer
+			description=_"A stone-carved likeness of Sulla the Great, also known as Sulla the Just, Sulla the Tyrant, Empress of the Sinking Tower, Lady of the Walking Glacier, Sulla the Incinerator, Sulla the Proud and Sulla the Righteous."
+			facing="se"
+			gender="female"
+			name=_"Statue of Sulla"
+			random_traits=no
+			type="Great Mage"
+			unrenamable=yes
+			x=18
+			y=15
+			[status]
+				petrified=yes
+			[/status]
+			[modifications]
+				[trait]
+					description=_"This is a sculpture made of stone."
+					id="remove_hp"
+					name=_"statue"
+					[effect]
+						apply_to="hitpoints"
+						increase_total="-100%"
+					[/effect]
+					[effect]
+						apply_to="movement"
+						set=0
+					[/effect]
+					[effect]
+						apply_to="ellipse"
+						ellipse="none"
+					[/effect]
+				[/trait]
+			[/modifications]
+		[/unit]
+		[unit]
+			description=_"A stone-carved likeness of Lhun-dup, Servant of Sulla."
+			facing="sw"
+			name=_"Statue of Lhun-dup"
+			random_traits=no
+			type="Yeti"
+			unrenamable=yes
+			x=20
+			y=11
+			[status]
+				petrified=yes
+			[/status]
+			[modifications]
+				[trait]
+					description=_"This is a sculpture made of stone."
+					id="remove_hp"
+					name=_"statue"
+					[effect]
+						apply_to="hitpoints"
+						increase_total="-100%"
+					[/effect]
+					[effect]
+						apply_to="movement"
+						set=0
+					[/effect]
+					[effect]
+						apply_to="ellipse"
+						ellipse="none"
+					[/effect]
+				[/trait]
+			[/modifications]
+		[/unit]
+		[unit]
+			description=_"A stone-carved likeness of Ri-nzen, Servant of Sulla."
+			facing="sw"
+			name=_"Statue of Ri-nzen"
+			random_traits=no
+			type="Yeti"
+			unrenamable=yes
+			x=23
+			y=15
+			[status]
+				petrified=yes
+			[/status]
+			[modifications]
+				[trait]
+					description=_"This is a sculpture made of stone."
+					id="remove_hp"
+					name=_"statue"
+					[effect]
+						apply_to="hitpoints"
+						increase_total="-100%"
+					[/effect]
+					[effect]
+						apply_to="movement"
+						set=0
+					[/effect]
+					[effect]
+						apply_to="ellipse"
+						ellipse="none"
+					[/effect]
+				[/trait]
+			[/modifications]
+		[/unit]
+		[unit]
+			description=_"A stone-carved likeness of Ten-zin, Servant of Sulla."
+			facing="se"
+			name=_"Statue of Ten-zin"
+			random_traits=no
+			type="Yeti"
+			unrenamable=yes
+			x=13
+			y=16
+			[status]
+				petrified=yes
+			[/status]
+			[modifications]
+				[trait]
+					description=_"This is a sculpture made of stone."
+					id="remove_hp"
+					name=_"statue"
+					[effect]
+						apply_to="hitpoints"
+						increase_total="-100%"
+					[/effect]
+					[effect]
+						apply_to="movement"
+						set=0
+					[/effect]
+					[effect]
+						apply_to="ellipse"
+						ellipse="none"
+					[/effect]
+				[/trait]
+			[/modifications]
+		[/unit]
+		[unit]
+			description=_"A stone-carved likeness of Lo-bsang, Servant of Sulla."
+			facing="se"
+			name=_"Statue of Lo-bsang"
+			random_traits=no
+			type="Yeti"
+			unrenamable=yes
+			x=16
+			y=19
+			[status]
+				petrified=yes
+			[/status]
+			[modifications]
+				[trait]
+					description=_"This is a sculpture made of stone."
+					id="remove_hp"
+					name=_"statue"
+					[effect]
+						apply_to="hitpoints"
+						increase_total="-100%"
+					[/effect]
+					[effect]
+						apply_to="movement"
+						set=0
+					[/effect]
+					[effect]
+						apply_to="ellipse"
+						ellipse="none"
+					[/effect]
+				[/trait]
+			[/modifications]
+		[/unit]
+		[default_faction]
+		[/default_faction]
+	[/side]
 [/scenario]

@@ -249,6 +249,46 @@ def test_aethermaw_emit_carries_morph_events(tmp_path):
     )
 
 
+def test_emit_preserves_scenery_side_units(tmp_path):
+    """Scenery sides (side 3+) carry pre-placed statues / decorations
+    that several ladder maps depend on: Caves of the Basilisk's 15
+    petrified victims, Thousand Stings Garrison's 66 frozen
+    scorpions, Sullas Ruins' 5 stone-mage statues. The
+    `_strip_player_side_blocks` extractor must KEEP these (it strips
+    only sides 1+2 -- the player sides we replace at emit time).
+    Without the scenery side, Wesnoth playback renders the maps
+    without their iconic statues and lets units walk through hexes
+    that should be blocked.
+    """
+    from tools.replay_extract import parse_replay_file
+    cases = {
+        "multiplayer_Basilisk":                  ("Petrified Basilisk's victims", 10),
+        "multiplayer_thousand_stings_garrison":  ("TSG statues",                  30),
+        "multiplayer_Sullas_Ruins":              ("Sulla's stone mages",          3),
+    }
+    for sid, (label, min_units) in cases.items():
+        sim = _build_sim_for(sid)
+        out = tmp_path / f"{sid}.bz2"
+        export_replay_from_scratch(sim, out)
+        root = parse_replay_file(out)
+        scn = root.first("scenario")
+        sides = scn.all("side")
+        # Player sides 1+2 (rendered by our emitter) + at least one
+        # scenery side 3+.
+        scenery_sides = [s for s in sides
+                         if int(s.attrs.get("side", 0)) >= 3]
+        assert scenery_sides, (
+            f"{sid} ({label}): no scenery side 3+ in emitted save -- "
+            f"statues won't render in Wesnoth playback"
+        )
+        scenery_units = sum(
+            len(s.all("unit")) for s in scenery_sides)
+        assert scenery_units >= min_units, (
+            f"{sid} ({label}): scenery side has only {scenery_units} "
+            f"units, expected at least {min_units}"
+        )
+
+
 def test_emit_preserves_top_level_block_structure(tmp_path):
     """Splicing must not run two top-level blocks onto one line:
     `[/scenario][carryover_sides_start]` would be unparseable.
