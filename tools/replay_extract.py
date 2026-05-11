@@ -1243,6 +1243,37 @@ def extract_replay(path: Path) -> Optional[dict]:
                 dst = sub.first("destination")
                 if src is None or dst is None:
                     break
+                # Save-mid-attack detection: a [checkup] block that has
+                # SOME strike [result]s but NO trailing
+                # `next_unit_id` / `random_calls` sentinel signals an
+                # attack interrupted before completion (save mid-strike,
+                # disconnect during a long attack). In Wesnoth's reality
+                # the attack did NOT resolve -- the engine discards the
+                # partial roll on load and the attacker remains
+                # ready-to-attack. The next [replay] block typically
+                # contains either the redo or different actions
+                # entirely; the partial-checkup attack itself must be
+                # dropped or sim will apply phantom damage that kills
+                # units Wesnoth left alive.
+                # Concrete: 2p__Ruined_Passage_Turn_14_(14678) block 0
+                # tail attack Elvish Marksman (27,7)→(28,7) on Drake
+                # Flare with 1 partial strike result
+                # (chance=70 damage=0 hits=no) and no next_unit_id;
+                # sim applied the attack with its full strike count and
+                # killed the Drake Flare (62→0 over the three turn-9
+                # attacks); cmd[504] in the next block then targeted
+                # that-still-alive defender, producing defender_missing.
+                # NOTE: an EMPTY [checkup] (results=0) is NOT this
+                # pattern -- block-i+1 replay-resume attacks routinely
+                # carry empty checkups (the engine doesn't re-record on
+                # replay) and DO apply normally. The signal is strictly
+                # `results>0 AND no next_unit_id`.
+                chk = cmd.first("checkup") or cmd.first("mp_checkup")
+                if chk is not None:
+                    results = chk.all("result")
+                    if results and not any(
+                            "next_unit_id" in r.attrs for r in results):
+                        break
                 # Convert WML 1-indexed → Python 0-indexed.
                 attacker_x = max(0, int(src.attrs.get("x", 0) or 0) - 1)
                 attacker_y = max(0, int(src.attrs.get("y", 0) or 0) - 1)
