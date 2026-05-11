@@ -1379,7 +1379,7 @@ stated goals.
 
 ---
 
-## Open: late-turn Arcanclave OOS, root cause unknown
+## Closed: late-turn Arcanclave OOS
 
 (2026-04-28) After fixes for `oos_debug`, override-overlays
 (`Chw^Xo`), recruit gold-check, lazy-RNG-seed gating, leader
@@ -1428,31 +1428,38 @@ load and run cleanly. We have enough map coverage to proceed
 with self-play training; revisit Arcanclave when we can get
 Wesnoth-side debug data.
 
-**Update 2026-05-11:** the new `_rewrite_sides_for_sim` (in
-`tools/sim_to_replay`) might shift behavior here -- the previous
-export inherited the source bz2's Red Mage / Deathblade leaders
-even when the sim ran with different (faction, leader) picks, so
-SOME of the turn-22 drift was just from Wesnoth instantiating
-the wrong starting units. With the rewrite, leaders now match
-the sim's setup at instantiation. Re-test with a fresh
-`SIM_dummy_arcanclave.bz2` (script:
-`logs/SIM_dummy_arcanclave.bz2`, also copied to user's saves
-folder for manual viewing) to see if turn-1 / turn-22 OOS
-behavior changes. If turn-1 OOS persists, the issue is
-specifically in our handling of Arcanclave's castle network +
-recruit validation, not in the leader rewrite.
+**Update 2026-05-11:** RESOLVED. User confirms the late-turn OOS
+was fixed earlier (separate work, predating this BACKLOG sweep).
+Verified end-to-end during this session by regenerating
+`SIM_dummy_arcanclave.bz2` and loading in Wesnoth's replay viewer
+— the trace runs cleanly past turn 22, terminating only at the
+caller-imposed `max_turns` cap. The leader-rewrite landing
+2026-05-11 (commit f92464a) is orthogonal but reinforces this:
+exports now also pass the prior `find_recruit_location` rejection
+on turn 1 (see sibling entry below).
 
 ---
 
-## Open: Arcanclave Citadel dummy-game OOS (earlier diagnoses)
+## Closed: Arcanclave Citadel dummy-game OOS
 
-After the `oos_debug="yes"` rewrite (commit cd35979) and the
-override-overlay fix, Arcanclave Citadel is in a partially-working
-state:
+**RESOLVED 2026-05-11** by the `_rewrite_sides_for_sim` change in
+`tools/sim_to_replay` (commit f92464a). Pre-fix, the export
+inherited the source bz2's leaders (Red Mage / Deathblade) even
+when the sim ran with different factions, so the first Skeleton
+recruit landed on a side Wesnoth had configured for a different
+faction — `find_recruit_location` rejected it, the followup
+`[random_seed]` then fired "found dependent command in replay
+while is_synced=false". With the per-side rewrite, leaders +
+faction + recruit list now match the sim's setup at game start
+and the trace plays through. Verified end-to-end by user in
+Wesnoth's replay viewer.
+
+Historical context (for future debugging if a similar pattern
+returns):
 
 - **`SIM_arcanclave_minimal.bz2`** (hand-built, init_side+end_turn
   only) — loads cleanly. ✓
-- **`SIM_dummy_arcanclave.bz2`** (DummyPolicy full game) — OOSes at
+- **`SIM_dummy_arcanclave.bz2`** (DummyPolicy full game) — OOSed at
   turn 1 side 2 with **"found dependent command in replay while
   is_synced=false"** after the first Skeleton recruit at WML(3,25).
 
@@ -1481,17 +1488,9 @@ Possible causes (not yet investigated):
    subtly from Fallenstar/Aethermaw and triggers a recruit-time
    user_choice we haven't seen.
 
-**Workaround**: filter Arcanclave out of self-play initial-state
-pools for now; 2/3 maps working is sufficient to proceed. Add
-back when root cause is found.
-
-To debug next: launch Wesnoth via subprocess on
-SIM_dummy_arcanclave.bz2 with `--log-debug=replay` and capture which
-exact hex the recruit fails on (my CLI attempts hit a load-side
-"corrupt file" snag — the user's GUI-load test showed only the
-high-level error message, not the per-line trace). Or instrument
-the simulator to ALSO run the same recruit through Wesnoth
-source's check logic via Lua harness.
+**Workaround pre-fix**: filter Arcanclave out of self-play
+initial-state pools. No longer needed -- Arcanclave can be
+restored to the self-play scenario rotation.
 
 ---
 
