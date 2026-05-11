@@ -1428,6 +1428,20 @@ load and run cleanly. We have enough map coverage to proceed
 with self-play training; revisit Arcanclave when we can get
 Wesnoth-side debug data.
 
+**Update 2026-05-11:** the new `_rewrite_sides_for_sim` (in
+`tools/sim_to_replay`) might shift behavior here -- the previous
+export inherited the source bz2's Red Mage / Deathblade leaders
+even when the sim ran with different (faction, leader) picks, so
+SOME of the turn-22 drift was just from Wesnoth instantiating
+the wrong starting units. With the rewrite, leaders now match
+the sim's setup at instantiation. Re-test with a fresh
+`SIM_dummy_arcanclave.bz2` (script:
+`logs/SIM_dummy_arcanclave.bz2`, also copied to user's saves
+folder for manual viewing) to see if turn-1 / turn-22 OOS
+behavior changes. If turn-1 OOS persists, the issue is
+specifically in our handling of Arcanclave's castle network +
+recruit validation, not in the leader rewrite.
+
 ---
 
 ## Open: Arcanclave Citadel dummy-game OOS (earlier diagnoses)
