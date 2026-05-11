@@ -53,7 +53,7 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
 # Make project root importable when run as a script.
 _THIS = Path(__file__).resolve()
@@ -646,6 +646,459 @@ def _rewrite_pvp_settings(text: str, defaults: PvPDefaults) -> str:
         text,
     )
     return text
+
+
+# ---------------------------------------------------------------------
+# From-scratch save composition
+# ---------------------------------------------------------------------
+#
+# Goal: emit a Wesnoth-loadable .bz2 from `sim` + scenario_id ALONE,
+# without splicing onto any `replays_raw/*.bz2`. The output is byte-for-
+# byte compatible with what Wesnoth's "Multiplayer -> Create Game" path
+# produces: top-level scalars + empty initial [replay] + [scenario]
+# (with full map_data + sides + ToD + music) + [carryover_sides_start]
+# + [multiplayer] + [statistics] + [era] (default-era expansion) +
+# [replay] (our commands).
+#
+# Strategy: most of the boilerplate (era expansion, ToD schedule, music
+# playlist, prestart trait macros, top-level scalars) is identical
+# across all 2p default-era scenarios. We carry it as a one-shot
+# template under `tools/templates/`, extracted once from a known-good
+# strict-sync Wesnoth save. Per-scenario emission swaps in:
+#   - scenario_id + description + display name (from the .cfg)
+#   - map_data (inlined from the referenced .map file)
+#   - [side] blocks rendered from sim state
+#   - [replay] block from sim.command_history
+#
+# This removes the dependency on `replays_raw/`: as long as the
+# wesnoth_src checkout has the scenario .cfg + .map, we can export.
+
+_TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
+_SCAFFOLD_PATH = _TEMPLATES_DIR / "wesnoth_save_scaffold.wml"
+_SCENARIO_TAIL_PATH = _TEMPLATES_DIR / "wesnoth_scenario_tail.wml"
+_WESNOTH_SRC = Path(__file__).resolve().parent.parent / "wesnoth_src"
+_SCENARIO_DIR = _WESNOTH_SRC / "data" / "multiplayer" / "scenarios"
+_MAPS_DIR = _WESNOTH_SRC / "data" / "multiplayer" / "maps"
+
+
+def _read_template(path: Path) -> str:
+    """Read a `tools/templates/*.wml` file, dropping `^# ...` comment
+    lines we added at extraction time (those would confuse Wesnoth's
+    WML parser which uses `#` only for `#textdomain` / `#define`
+    directives at line start). Wesnoth's actual comment marker is
+    a leading `#` outside macro-definition context, but since we don't
+    know the parser's tolerance, strip them defensively."""
+    text = path.read_text(encoding="utf-8")
+    out_lines = []
+    for line in text.splitlines(keepends=True):
+        # Drop our own annotation comments (lines starting with `# `).
+        # Keep `#textdomain` directives -- those are real WML.
+        if line.startswith("# "):
+            continue
+        out_lines.append(line)
+    return "".join(out_lines)
+
+
+_CFG_BY_SCENARIO_ID_CACHE: Dict[str, Path] = {}
+
+
+def _scenario_cfg_path(scenario_id: str) -> Optional[Path]:
+    """Find `wesnoth_src/data/multiplayer/scenarios/*.cfg` whose
+    `[multiplayer] id=` matches `scenario_id`.
+
+    The id-to-filename mapping is mostly mechanical (strip
+    `multiplayer_` -> prepend `2p_`), but Wesnoth doesn't enforce it:
+    Caves of the Basilisk's file is `2p_Caves_of_the_Basilisk.cfg`
+    yet its scenario id is `multiplayer_Basilisk`. Case can also
+    diverge (Elensefar Courtyard's id is lowercase, filename is
+    CamelCase). The robust lookup is: parse each .cfg's top-level
+    `id=`, match against `scenario_id` exactly. Cached after the
+    first call.
+    """
+    if not scenario_id.startswith("multiplayer_"):
+        return None
+    if not _CFG_BY_SCENARIO_ID_CACHE:
+        # Populate cache from every 2p_*.cfg.
+        for cfg in _SCENARIO_DIR.glob("2p_*.cfg"):
+            try:
+                text = cfg.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            # First `id=multiplayer_*` wins (top-level [multiplayer]).
+            m = re.search(
+                r'^\s*id\s*=\s*"?(multiplayer_[A-Za-z0-9_]+)"?\s*$',
+                text, re.MULTILINE,
+            )
+            if m:
+                _CFG_BY_SCENARIO_ID_CACHE[m.group(1)] = cfg
+    return _CFG_BY_SCENARIO_ID_CACHE.get(scenario_id)
+
+
+def _scrape_scenario_metadata(cfg_path: Path) -> Dict[str, str]:
+    """Read a `2p_*.cfg` and pull out the fields we need to emit:
+    description, name, id, map_file. Wesnoth's WML attributes can use
+    either `attr=value` or `attr="value"`; we accept both and strip
+    quotes. Multi-line description strings (joined via `+` and
+    enclosed in `_"..."`) collapse to the first quoted run, which
+    is sufficient for our save's `description=` attr.
+    """
+    text = cfg_path.read_text(encoding="utf-8", errors="replace")
+    out: Dict[str, str] = {}
+    for key in ("id", "name", "description", "map_file"):
+        # Wesnoth WML formats the relevant attrs in three shapes:
+        #   key=value             (unquoted, e.g. id=multiplayer_Foo)
+        #   key="value"           (quoted)
+        #   key= _ "value"        (translatable; space + `_` before quote)
+        # The third is most common for `name=` and `description=`.
+        # Build a regex tolerant of all three.
+        m = re.search(
+            rf'^\s*{key}\s*=\s*_?\s*"([^"]*)"\s*$',
+            text, re.MULTILINE,
+        )
+        if m is None:
+            # Unquoted form.
+            m = re.search(
+                rf'^\s*{key}\s*=\s*([^"\n]+?)\s*$',
+                text, re.MULTILINE,
+            )
+        if m:
+            out[key] = m.group(1).strip()
+    return out
+
+
+def _load_map_data(map_file_attr: str) -> str:
+    """Resolve a `map_file=multiplayer/maps/2p_<Name>.map` reference
+    to the actual map contents (inlined into [scenario]'s map_data=).
+
+    Wesnoth's `map_file=` is repo-relative to `wesnoth_src/data/`,
+    so we resolve under there."""
+    rel = map_file_attr.strip().strip('"').lstrip("/")
+    # `multiplayer/maps/2p_*.map` -> `wesnoth_src/data/multiplayer/maps/...`
+    abs_path = _WESNOTH_SRC / "data" / rel
+    if not abs_path.exists():
+        raise FileNotFoundError(
+            f"map file not found at {abs_path} "
+            f"(map_file attr was {map_file_attr!r})"
+        )
+    return abs_path.read_text(encoding="utf-8")
+
+
+def _render_side_block(
+    side_num:    int,
+    leader_type: str,
+    keep_x:      int,
+    keep_y:      int,
+    faction:     str,
+    recruit:     List[str],
+    gold:        int,
+    village_gold: int,
+    village_support: int,
+    color:       str,
+    team_name:   str,
+    user_team_name: str,
+    pre_placed_villages: List[Tuple[int, int]] = (),
+) -> str:
+    """Render one `[side]...[/side]` block. Mirrors what Wesnoth emits
+    for a fresh-game save: a top-level type= for the leader (Wesnoth
+    instantiates from the unit-type at game start) plus the side-
+    level economy/faction/recruit attrs. A `random_traits=yes` flag
+    on the leader unit ensures Wesnoth rolls traits via the synced
+    RNG at scenario start, matching the seeds in our [replay]."""
+    parts = ["[side]"]
+    parts += [
+        f'\tallow_changes="yes"',
+        f'\tallow_player="yes"',
+        f'\tcanrecruit="yes"',
+        f'\tchose_random="no"',
+        f'\tcolor="{color}"',
+        f'\tcontroller="human"',
+        f'\tcurrent_player="Sim Player {side_num}"',
+        f'\tfaction="{faction}"',
+        f'\tfaction_name="{faction}"',
+        f'\tfog="no"',  # PvP default ladder has fog off
+        f'\tgold="{gold}"',
+        f'\tincome="0"',
+        f'\tis_host="{"yes" if side_num == 1 else "no"}"',
+        f'\tis_local="yes"',
+        f'\tname="Sim Player {side_num}"',
+        f'\tplayer_id="sim_player_{side_num}"',
+        f'\trecruit="{",".join(recruit)}"',
+        f'\tshroud="no"',
+        f'\tside="{side_num}"',
+        f'\tteam_name="{team_name}"',
+        f'\ttype="{leader_type}"',
+        f'\tuser_team_name="{user_team_name}"',
+        f'\tvillage_gold="{village_gold}"',
+        f'\tvillage_support="{village_support}"',
+    ]
+    # Pre-placed villages (some scenarios reserve hexes for sides).
+    for vx, vy in pre_placed_villages:
+        parts.append("\t[village]")
+        parts.append(f"\t\tx={vx}")
+        parts.append(f"\t\ty={vy}")
+        parts.append("\t[/village]")
+    # No explicit [unit] block: Wesnoth instantiates the leader from
+    # the [side]'s `type=` attr at scenario start, placing it on the
+    # map's `<N> K*` keep marker. Trait roll uses the synced RNG so
+    # it'll match our [replay] commands as long as `random_traits=yes`
+    # is the era default (which it is for default era). Matches the
+    # shape Wesnoth itself writes in its initial save files (verified
+    # against tests/fixtures/strict_sync_hamlets_t9.bz2).
+    parts.append("[/side]")
+    _ = (keep_x, keep_y)  # unused now -- kept in API for future use
+    return "\n".join(parts) + "\n"
+
+
+def _color_for_side(side_num: int) -> Tuple[str, str, str]:
+    """Wesnoth's default side-color / team-name conventions.
+    (color, team_name, user_team_name). Side 1 = red/north,
+    side 2 = blue/south. Mirrors the in-tree 2p_*.cfg defaults
+    (Hamlets uses north/south; others vary, but these names are
+    cosmetic for replay playback)."""
+    if side_num == 1:
+        return ("red", "north", "wesnoth-multiplayerteamname^North")
+    return ("blue", "south", "wesnoth-multiplayerteamname^South")
+
+
+def _scrape_map_keep_positions(map_data: str) -> Dict[int, Tuple[int, int]]:
+    """Find per-side starting keep positions in a map's terrain grid.
+    Each tile may be prefixed with `<N> ` (e.g. `1 Kh`, `2 Kud`) to
+    mark side N's starting keep. WML coords are 1-indexed.
+
+    Returns side_num -> (x, y). Map's first row is y=1, first col is
+    x=1. Tiles are comma-separated; rows are newline-separated.
+    Missing side -> not in the map -> caller errors loudly.
+    """
+    out: Dict[int, Tuple[int, int]] = {}
+    rows = [r for r in map_data.splitlines() if r.strip()]
+    for y, row in enumerate(rows, start=1):
+        tiles = [t.strip() for t in row.split(",")]
+        for x, tile in enumerate(tiles, start=1):
+            # Match "<N> <code>" prefix where <N> is the side number.
+            m = re.match(r'^(\d+)\s+(.+)$', tile)
+            if m:
+                side = int(m.group(1))
+                if side not in out:
+                    out[side] = (x, y)
+    return out
+
+
+def _scrape_scenario_starting_gold(cfg_path: Path) -> Dict[int, int]:
+    """Walk a `2p_*.cfg` for per-side `gold=N` attrs. Some scenarios
+    (Arcanclave, Weldyn Channel) override the default 100 starting
+    gold; we need the scenario-defined value to populate the save's
+    `[side] gold=` attr correctly. Without it Wesnoth would show
+    the wrong starting gold when the replay viewer renders turn 1.
+
+    Returns side_num -> gold. Sides without an explicit `gold=`
+    don't appear in the map; callers fall back to 100 (Wesnoth's
+    default starting gold for `mp_use_map_settings=yes`).
+    """
+    text = cfg_path.read_text(encoding="utf-8", errors="replace")
+    out: Dict[int, int] = {}
+    side_re = re.compile(r'\[side\]([\s\S]*?)\[/side\]')
+    for sm in side_re.finditer(text):
+        body = sm.group(1)
+        sn_m = re.search(r'^\s*side\s*=\s*(\d+)', body, re.MULTILINE)
+        gd_m = re.search(r'^\s*gold\s*=\s*(\d+)', body, re.MULTILINE)
+        if sn_m and gd_m:
+            out[int(sn_m.group(1))] = int(gd_m.group(1))
+    return out
+
+
+def _scrape_scenario_villages(cfg_path: Path) -> Dict[int, List[Tuple[int, int]]]:
+    """Walk a `2p_*.cfg` scenario file and pull out per-side pre-placed
+    `[village] x=N y=N [/village]` entries. Used by Hamlets, Sablestone,
+    Arcanclave, and a few others that grant a side a starting village
+    via the .cfg [side] block.
+
+    Returns side_num -> list of (x, y) WML coords (1-indexed).
+    """
+    text = cfg_path.read_text(encoding="utf-8", errors="replace")
+    out: Dict[int, List[Tuple[int, int]]] = {1: [], 2: []}
+    # Walk per-[side] block.
+    side_re = re.compile(r'\[side\]([\s\S]*?)\[/side\]')
+    village_re = re.compile(r'\[village\][\s\S]*?x\s*=\s*(\d+)[\s\S]*?y\s*=\s*(\d+)[\s\S]*?\[/village\]')
+    for sm in side_re.finditer(text):
+        body = sm.group(1)
+        sn_m = re.search(r'^\s*side\s*=\s*(\d+)', body, re.MULTILINE)
+        if not sn_m:
+            continue
+        sn = int(sn_m.group(1))
+        if sn not in out:
+            out[sn] = []
+        for vm in village_re.finditer(body):
+            out[sn].append((int(vm.group(1)), int(vm.group(2))))
+    return out
+
+
+def build_save_wml(
+    sim:          WesnothSim,
+    *,
+    pvp_defaults: Optional[PvPDefaults] = None,
+) -> str:
+    """Compose a complete Wesnoth save WML string for the sim's game.
+
+    Inputs: `sim.scenario_id` selects the scenario template (from
+    wesnoth_src). `sim.gs` selects per-side leader / faction /
+    recruit / starting gold. `sim.command_history` becomes the
+    [replay] block.
+
+    No source bz2 is read. The only external dependencies are:
+      - tools/templates/wesnoth_save_scaffold.wml (extracted once)
+      - tools/templates/wesnoth_scenario_tail.wml (extracted once)
+      - wesnoth_src/data/multiplayer/scenarios/2p_<Name>.cfg
+      - wesnoth_src/data/multiplayer/maps/2p_<Name>.map
+    """
+    scenario_id = sim.scenario_id
+    cfg_path = _scenario_cfg_path(scenario_id)
+    if cfg_path is None:
+        raise RuntimeError(
+            f"no wesnoth_src .cfg found for scenario_id={scenario_id!r}; "
+            f"checked {_SCENARIO_DIR}"
+        )
+
+    scen_meta = _scrape_scenario_metadata(cfg_path)
+    scen_name = scen_meta.get("name", scenario_id)
+    scen_desc = scen_meta.get("description", "")
+    map_file  = scen_meta.get("map_file", "")
+    if not map_file:
+        raise RuntimeError(
+            f"{cfg_path.name}: no map_file= attr; cannot inline map_data"
+        )
+    map_data = _load_map_data(map_file)
+
+    pvp = pvp_defaults or PvPDefaults()
+    exp_mod        = pvp.experience_modifier
+    village_gold   = pvp.village_gold
+    village_support = pvp.village_support
+
+    # Pre-placed villages per side (Hamlets, Sablestone, Arcanclave).
+    village_map = _scrape_scenario_villages(cfg_path)
+    # Per-side starting gold from the .cfg; falls back to PvP default
+    # 100 when the scenario doesn't specify.
+    cfg_gold = _scrape_scenario_starting_gold(cfg_path)
+    # Per-side keep positions from the map (`1 Kh`, `2 Kud` markers).
+    # Authoritative initial leader position regardless of sim state.
+    keep_pos = _scrape_map_keep_positions(map_data)
+
+    # ---- per-side blocks rendered from scenario + sim state ----
+    # Leaders / factions / recruits / starting-gold reflect the sim's
+    # INITIAL configuration. Wesnoth's playback engine plays the
+    # [replay] forward from this initial state, so the [side] gold=
+    # must be the starting gold (not the sim's current end-of-game
+    # gold).
+    side_blocks: List[str] = []
+    leaders = {u.side: u for u in sim.gs.map.units if u.is_leader}
+    for i, side_info in enumerate(sim.gs.sides, start=1):
+        leader = leaders.get(i)
+        if leader is None:
+            raise RuntimeError(
+                f"sim has no leader for side {i}; cannot emit [side]")
+        # Keep position from the map (1-indexed WML coords). If the
+        # map doesn't have a marker for this side, fall back to the
+        # sim's leader position (0-indexed -> 1-indexed conversion).
+        if i in keep_pos:
+            keep_x, keep_y = keep_pos[i]
+        else:
+            keep_x = leader.position.x + 1
+            keep_y = leader.position.y + 1
+        # Starting gold: .cfg value if present, else PvP default.
+        starting_gold = cfg_gold.get(i, pvp.starting_gold)
+        color, team_name, user_team_name = _color_for_side(i)
+        side_blocks.append(_render_side_block(
+            side_num=i,
+            leader_type=leader.name,
+            keep_x=keep_x, keep_y=keep_y,
+            faction=side_info.faction or "Custom",
+            recruit=list(side_info.recruits or []),
+            gold=starting_gold,
+            village_gold=village_gold,
+            village_support=village_support,
+            color=color,
+            team_name=team_name,
+            user_team_name=user_team_name,
+            pre_placed_villages=village_map.get(i, []),
+        ))
+
+    # ---- compose [scenario] block ----
+    scenario_tail = _read_template(_SCENARIO_TAIL_PATH)
+    scenario_block_parts = [
+        "[scenario]",
+        f'description="{_wml_quote(scen_desc)}"',
+        f'experience_modifier="{exp_mod}"',
+        'has_mod_events="yes"',
+        f'id="{scenario_id}"',
+        'loaded_resources=""',
+        f'map_data="{map_data.rstrip()}\n"',
+        f'map_file="{map_file}"',
+        f'name="{_wml_quote(scen_name)}"',
+        'objectives="<big>Victory:</big>\n<span color=\'#00ff00\'>• Defeat the enemy leader(s)</span>"',
+        'random_start_time="no"',
+        'turns="-1"',
+        # Then the ToD schedule + music + prestart events tail.
+        scenario_tail.rstrip(),
+        # Then per-side blocks.
+        *side_blocks,
+        "[/scenario]",
+    ]
+    scenario_block = "\n".join(scenario_block_parts) + "\n"
+
+    # ---- compose the rest from the scaffold ----
+    scaffold = _read_template(_SCAFFOLD_PATH)
+    # Substitute placeholders.
+    import random
+    rng_seed = f"{random.randint(0, 0xffffffff):08x}"
+    label = f"Sim Replay - {scen_name}"
+    scaffold = (scaffold
+        .replace("%LABEL%", _wml_quote(label))
+        .replace("%SCENARIO_ID%", scenario_id)
+        .replace("%SCENARIO_NAME%", _wml_quote(scen_name))
+        .replace("%EXP_MOD%", str(exp_mod))
+        .replace("%VILLAGE_GOLD%", str(village_gold))
+        .replace("%VILLAGE_SUPPORT%", str(village_support))
+        .replace("%RANDOM_SEED%", rng_seed)
+    )
+
+    # The scaffold is ordered: prelude + empty [replay] + carryover +
+    # multiplayer + statistics + era. We need to insert the [scenario]
+    # block BETWEEN the empty [replay] and [carryover_sides_start].
+    insert_after = scaffold.find("[/replay]") + len("[/replay]\n")
+    save = (scaffold[:insert_after]
+            + scenario_block
+            + scaffold[insert_after:])
+
+    # Append the actual replay commands at the end.
+    replay_block = _build_replay_wml(sim.command_history)
+    save = save.rstrip() + "\n" + replay_block
+    return save
+
+
+def export_replay_from_scratch(
+    sim:      WesnothSim,
+    out_path: Path,
+    *,
+    pvp_defaults: Optional[PvPDefaults] = None,
+) -> None:
+    """Compose a Wesnoth-loadable .bz2 from sim state + scenario_id
+    alone (no `replays_raw/*.bz2` dependency). Writes the result to
+    `out_path`. The output should be loadable via Wesnoth's
+    File -> Load Game -> Replays panel.
+
+    Use this instead of `export_replay` when you don't have a matching
+    source .bz2 OR when the sim's factions/leaders/scenario differ
+    from any source you'd otherwise splice onto.
+    """
+    save_wml = build_save_wml(sim, pvp_defaults=pvp_defaults)
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    log.info(
+        f"writing {out_path} from scratch "
+        f"({len(sim.command_history)} commands, "
+        f"{len(save_wml)} chars of WML)"
+    )
+    with bz2.open(out_path, "wt", encoding="utf-8") as f:
+        f.write(save_wml)
 
 
 def export_replay(

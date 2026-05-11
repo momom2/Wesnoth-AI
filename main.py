@@ -9,12 +9,9 @@ Responsibilities:
 """
 
 import argparse
-import asyncio
 import os
-import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
 
 # Windows `cmd` defaults stdout to cp1252, which can't encode the ✓
 # characters our setup banners use. Reconfigure to UTF-8 so the script
@@ -33,7 +30,6 @@ from constants import (
     GAMES_PATH,
     LOGS_PATH,
     LUA_PATH,
-    NUM_PARALLEL_GAMES,
     REPLAYS_PATH,
     SCENARIOS_PATH,
     WESNOTH_LOGS_PATH,
@@ -240,47 +236,40 @@ def check_setup() -> bool:
     return True
 
 
-def _resolve_resume_path(spec: str) -> Optional[Path]:
-    """Resolve --resume argument to an existing checkpoint file, or None
-    on error (error printed to stdout)."""
-    if spec == "latest":
-        candidates = sorted(
-            CHECKPOINTS_PATH.glob("checkpoint_*.pt"),
-            # Sort numerically: checkpoint_900 > checkpoint_100 > checkpoint_90.
-            key=lambda p: int(p.stem.split("_", 1)[1]) if p.stem.split("_", 1)[1].isdigit() else -1,
-        )
-        if not candidates:
-            print(f"ERROR: --resume latest: no checkpoints in {CHECKPOINTS_PATH}")
-            return None
-        return candidates[-1]
-    path = Path(spec)
-    if not path.exists():
-        print(f"ERROR: --resume path does not exist: {path}")
-        return None
-    return path
-
-
 def main() -> int:
-    # Import `policy` eagerly so --help can show the registered choices.
-    import policy
+    """Setup + maintenance CLI for the live-Wesnoth eval pipeline.
 
-    parser = argparse.ArgumentParser(description="Wesnoth AI Training")
-    parser.add_argument(
-        "--games",
-        type=int,
-        default=NUM_PARALLEL_GAMES,
-        help=f"Number of parallel games (default: {NUM_PARALLEL_GAMES})",
-    )
-    parser.add_argument(
-        "--policy",
-        choices=policy.available(),
-        default="dummy",
-        help="Which policy drives the AI sides (default: dummy).",
+    The training path migrated to the in-process simulator on
+    2026-04-29 (`tools/sim_self_play.py`); the live-Wesnoth IPC
+    training path + `--display` mode were retired 2026-05-11.
+    What's left in main.py:
+
+      - `--check-setup`: verify Wesnoth + add-on install link.
+        Still useful because `tools/eval_vs_builtin.py` drives
+        real Wesnoth subprocesses for evaluation against the
+        built-in RCA AI.
+      - `--clean-games`: sweep stale per-game state-channel dirs
+        the live-Wesnoth Lua side can't clean (sandbox excludes
+        `os.remove`).
+
+    To run a self-play training cycle, use
+    `tools/sim_self_play.py` (or `cluster/run.sh start selfplay`
+    via the GUI).
+    To watch a trained model play, use `tools/sim_demo_game.py`
+    (exports a Wesnoth-loadable .bz2 the GUI can replay).
+    """
+    parser = argparse.ArgumentParser(
+        description=(
+            "Wesnoth AI setup / maintenance CLI. Training itself "
+            "runs via tools/sim_self_play.py; demos via "
+            "tools/sim_demo_game.py."
+        )
     )
     parser.add_argument(
         "--check-setup",
         action="store_true",
-        help="Verify setup (including add-on install) and exit.",
+        help="Verify Wesnoth + add-on install link, then exit. "
+             "Required before any live-Wesnoth eval run.",
     )
     parser.add_argument(
         "--clean-games",
@@ -291,29 +280,6 @@ def main() -> int:
             "Wesnoth processes, then exit. Equivalent to the "
             "auto-clean pass inside --check-setup but doesn't run "
             "the rest of the setup verification."
-        ),
-    )
-    parser.add_argument(
-        "--resume",
-        type=str,
-        default=None,
-        metavar="PATH_OR_LATEST",
-        help=(
-            "Resume a trainable policy from a checkpoint. Pass 'latest' to "
-            "auto-pick the newest checkpoint_*.pt in training/checkpoints/, "
-            "or an explicit path. Silently ignored for non-trainable policies."
-        ),
-    )
-    parser.add_argument(
-        "--display",
-        action="store_true",
-        help=(
-            "Watch ONE game with animations on (2x turbo) instead of "
-            "training. Forces --games 1, switches Wesnoth to the "
-            "ai_display scenario, and disables train_step / "
-            "checkpointing / observe so the loaded policy is treated "
-            "as read-only. Pair with --policy transformer --resume "
-            "<ckpt> to demo a trained model."
         ),
     )
     args = parser.parse_args()
@@ -327,61 +293,17 @@ def main() -> int:
         return 1
 
     if args.check_setup:
-        print("\nSetup check complete. Run without --check-setup to start training.")
+        print("\nSetup check complete.")
         return 0
 
-    # Import late so a misconfigured environment doesn't crash the
-    # setup-check path with unrelated import errors.
-    from game_manager import GameManager
-
-    # --display overrides --games and --policy to a sensible default
-    # for "watch ONE game with the trained model". User can still pass
-    # --games / --policy explicitly to combine flags, but the common
-    # case (`python main.py --display --resume <ckpt>`) just works.
-    if args.display:
-        if args.games != NUM_PARALLEL_GAMES and args.games != 1:
-            print(f"NOTE: --display forces 1 game (you passed --games {args.games}).")
-        args.games = 1
-        scenario_id = "ai_display"
-        eval_mode = True
-        mode_msg = "DISPLAY mode (no training, 2x turbo, animations on)"
-    else:
-        scenario_id = "ai_training"
-        eval_mode = False
-        mode_msg = "TRAINING mode"
-
-    print(f"\nStarting: {args.games} parallel games, policy={args.policy}")
-    print(f"  {mode_msg} (scenario={scenario_id})")
-    print("Press Ctrl+C to stop.\n")
-
-    policy_obj = policy.get_policy(args.policy)
-    if args.resume is not None:
-        loader = getattr(policy_obj, "load_checkpoint", None)
-        if loader is None:
-            print(f"NOTE: policy '{args.policy}' is not checkpoint-loadable; "
-                  f"ignoring --resume.")
-        else:
-            ckpt_path = _resolve_resume_path(args.resume)
-            if ckpt_path is None:
-                return 1
-            loader(ckpt_path)
-            print(f"✓ Resumed from {ckpt_path.name}")
-
-    manager = GameManager(
-        num_games=args.games,
-        policy=policy_obj,
-        scenario_id=scenario_id,
-        eval_mode=eval_mode,
+    # No more training path here; redirect the user.
+    print(
+        "\nNothing to do. To run a training cycle:\n"
+        "  python tools/sim_self_play.py [--mcts] [...]\n"
+        "  (or `cluster/run.sh start selfplay`)\n"
+        "\nTo watch a trained model play one game:\n"
+        "  python tools/sim_demo_game.py [--scenario multiplayer_*]\n"
     )
-    try:
-        asyncio.run(manager.run_training())
-    except KeyboardInterrupt:
-        print("\n\nTraining stopped by user. Checkpoint saved.")
-    except Exception as e:
-        print(f"\n\nERROR: {e}")
-        import traceback
-        traceback.print_exc()
-        return 1
     return 0
 
 

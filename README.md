@@ -38,12 +38,13 @@ Two goals shape the design:
   replays) ran on ENSTA Mesogip; checkpoints `supervised.pt`,
   `supervised_epoch3.pt` available locally. Used as the warm-start
   for self-play.
-- **The live-Wesnoth IPC path** (`python main.py`,
-  `wesnoth_interface.py`, Lua bridge) still works (Phase 2b
-  resolved the CA blacklist via custom Lua AI stage) but is no
-  longer the training path — it stays for `--display` (watching
-  a trained model play in Wesnoth's GUI) and the
-  `tools/eval_vs_builtin.py` harness against Wesnoth's RCA AI.
+- **The live-Wesnoth IPC path** (`wesnoth_interface.py`, Lua
+  bridge) is retained only for `tools/eval_vs_builtin.py` (pits
+  the trained model against Wesnoth's RCA AI). The training-via-
+  subprocess path (`game_manager.py`) and live-watch `--display`
+  mode were both retired 2026-05-11; demos now run via
+  `tools/sim_demo_game.py` which exports a Wesnoth-loadable
+  `.bz2` for the GUI's replay viewer.
 
 ## Layout
 
@@ -76,12 +77,12 @@ transformer_policy.py        Policy adapter (select_action / observe /
 dummy_policy.py              scripted-baseline policy
 policy.py                    Policy protocol + name registry
 rewards.py                   StepDelta + WeightedReward shaping
-state_converter.py           Wesnoth WML → GameState (bridge path only)
-game_manager.py              N parallel Wesnoth subprocesses (bridge)
-wesnoth_interface.py         one Wesnoth subprocess per game (bridge)
-main.py                      bridge-path entry point (display + eval;
-                             NOT training. Use sim_self_play.py for
-                             training.)
+state_converter.py           Wesnoth WML → GameState (eval bridge)
+wesnoth_interface.py         one Wesnoth subprocess per eval game
+main.py                      setup / maintenance CLI
+                             (--check-setup, --clean-games).
+                             Training is via tools/sim_self_play.py;
+                             demos via tools/sim_demo_game.py.
 tools/
    wesnoth_sim.py            **PURE-PYTHON SIMULATOR** — production
                              training data source. Bit-exact for combat.
@@ -198,13 +199,16 @@ estimate (used as REINFORCE baseline); its standard deviation is
 exposed as `cliffness` (used by the MCTS bootstrap-weighting +
 adaptive-budget consumers, off by default).
 
-The live-Wesnoth IPC bridge (`main.py` + `game_manager.py` +
-`wesnoth_interface.py` + `add-ons/wesnoth_ai/`) is kept for the
-`--display` mode and the `eval_vs_builtin` harness, but is no
-longer the training path. Wesnoth on Windows is a GUI-subsystem
-binary (no piped stdout), the Lua sandbox forbids `io`, and Linux
-headless mode wasn't workable on the cluster — all of which were
-the original motivations for the simulator pivot.
+The live-Wesnoth IPC bridge (`wesnoth_interface.py` +
+`add-ons/wesnoth_ai/`) is now kept only for `eval_vs_builtin.py`
+(pits the trained model against Wesnoth's RCA AI). The
+training-via-subprocess path (`game_manager.py`) and live-watch
+`--display` mode were both retired 2026-05-11; the
+`tools/sim_demo_game.py` + Wesnoth-replay-viewer combo covers
+the demo case. Wesnoth on Windows is a GUI-subsystem binary (no
+piped stdout), the Lua sandbox forbids `io`, and Linux headless
+mode wasn't workable on the cluster — all of which were the
+original motivations for the simulator pivot.
 
 ## Setup
 
@@ -309,18 +313,30 @@ mcts: root cliffness=0.34 (adaptive=off, n_sims=50)
 debug level so you can collect distributions for tuning the
 adaptive sim budget later.
 
-### Live-Wesnoth bridge (display only, NOT training)
+### Watch a trained model play one game
 
 ```powershell
-# Watch a trained model play in Wesnoth's GUI:
-python main.py --policy transformer --display `
-    --resume training/checkpoints/supervised_epoch3.pt
+# Auto-picks the latest supervised*.pt checkpoint, plays one game
+# headlessly via the sim, exports a Wesnoth-loadable .bz2, copies
+# it into your Wesnoth saves dir (visible under File -> Load Game).
+python tools/sim_demo_game.py
+
+# Force a specific scenario:
+python tools/sim_demo_game.py --scenario multiplayer_Hamlets
 ```
 
-The bridge path (`main.py` + `game_manager.py`) used to be the
-training path before the simulator pivot. It's kept for `--display`
-and for `tools/eval_vs_builtin.py` (which needs Wesnoth's RCA AI
-on the opponent side).
+The `.bz2` is composed entirely from `wesnoth_src/` + the sim's
+command history -- no source replay needed. Works for any of the
+21 Ladder Era maps.
+
+### Live-Wesnoth eval (against Wesnoth's RCA AI)
+
+```powershell
+# Pit the trained model against Wesnoth's built-in RCA across a
+# (map x matchup x side-swap) matrix. Uses real Wesnoth subprocesses
+# via the eval bridge.
+python tools/eval_vs_builtin.py --resume <ckpt>
+```
 
 ## Supervised pre-training (behavior cloning)
 

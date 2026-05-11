@@ -63,6 +63,7 @@ sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
 from classes import GameState
+from tools.scenario_pool import LADDER_SCENARIO_IDS
 from rewards import (
     OUTCOME_DRAW, OUTCOME_LOSS, OUTCOME_ONGOING, OUTCOME_TIMEOUT, OUTCOME_WIN,
     StepDelta, WeightedReward, compute_delta, load_reward_config,
@@ -324,45 +325,14 @@ def play_one_game(
 # Initial-state pool
 # ---------------------------------------------------------------------
 
-# Self-play seed pool: scenarios from the Ladder Era's three official
-# map packs (Competitive, Classic, Adventurous), pulled from
-# ~/Documents/My Games/Wesnoth1.18/data/add-ons/Ladder_Era/map_picker/
-# *.cfg (verified 2026-04-30). Their union covers 21 maps -- the
-# canonical "PvP-quality" 2p map list. Pickup games on the regular
-# multiplayer server use these scenario_ids directly (in default
-# era); games played through Ladder Era's random-pool picker get
-# the `_Ladder_Random` (or `_Ladder`) suffix that `_is_ladder_map`
-# strips below.
-#
-# Case-sensitivity matters: two scenarios use lowercase tokens
-# (`elensefar_courtyard`, `thousand_stings_garrison`); the rest are
-# CamelCase. Match what's in our index.jsonl exactly.
-_LADDER_MAP_SCENARIO_IDS: frozenset = frozenset({
-    # Competitive pack
-    "multiplayer_Basilisk",                # Caves of the Basilisk
-    "multiplayer_Clearing_Gushes",
-    "multiplayer_Fallenstar_Lake",
-    "multiplayer_Hamlets",
-    "multiplayer_Howling_Ghost_Badlands",
-    "multiplayer_Silverhead_Crossing",
-    "multiplayer_Sullas_Ruins",
-    "multiplayer_Swamp_of_Dread",
-    "multiplayer_The_Freelands",
-    "multiplayer_The_Walls_of_Pyrennis",
-    "multiplayer_Tombs_of_Kesorak",
-    "multiplayer_Weldyn_Channel",
-    # Classic pack additions (overlaps with Competitive otherwise)
-    "multiplayer_Den_of_Onis",
-    "multiplayer_Sablestone_Delta",
-    # Adventurous pack additions
-    "multiplayer_Aethermaw",
-    "multiplayer_Arcanclave_Citadel",
-    "multiplayer_elensefar_courtyard",
-    "multiplayer_Hellhole",
-    "multiplayer_Ruined_Passage",
-    "multiplayer_Ruphus_Isle",
-    "multiplayer_thousand_stings_garrison",
-})
+# Self-play seed pool: union of the Ladder Era's three official map
+# packs (Competitive + Classic + Adventurous, 21 scenarios total).
+# Pulled from the single source-of-truth list in scenario_pool so
+# the same canonical set drives both scenario sampling
+# (`random_setup`) and replay-corpus filtering (`_is_ladder_map`).
+# Wesnoth-side canonical IDs are verified case-exact against
+# `wesnoth_src/data/multiplayer/scenarios/2p_*.cfg`.
+_LADDER_MAP_SCENARIO_IDS: frozenset = frozenset(LADDER_SCENARIO_IDS)
 
 
 def _is_ladder_map(scenario_id: str) -> bool:

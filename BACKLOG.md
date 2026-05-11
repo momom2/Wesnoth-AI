@@ -51,9 +51,7 @@ Six items remain open, all of them deliberate non-bug work:
 | 5 | `WesnothSim.from_replay_at_turn(target_turn)` | DESIGN (mid-game restarts for curriculum) |
 | 6 | Mini-scenarios for training specific capabilities | DESIGN (curriculum mix) |
 
-Plus two USER-DECISION items pending: keep or drop `main.py
---display` + `game_manager.py` now that bz2-replay-export
-covers the same use case.
+_2026-05-11: user-decision items resolved -- both dropped._
 
 > **2026-05-10 finding: dataset was stale (now refreshed).** The
 > May-4 Stages 1–21 sweep brought combat/scenario fidelity to
@@ -2067,22 +2065,17 @@ weight. Eval still needs real Wesnoth, so be cautious.
   `turn_stage.lua`, `json_encoder.lua` — eval pipeline.
 - `_main.cfg`, `ai_config.cfg`, `training_scenario.cfg`, `eval/*.cfg`.
 
-### CONDITIONAL (awaiting operator call -- do not delete without user OK)
+### DELETED 2026-05-11 (user-approved)
 
-- [?] 🟡 **`game_manager.py`** — only entered via `main.py`'s
-  training / display path. The training path migrated to the
-  simulator (`tools/sim_self_play.py`) 2026-04-29; display path
-  is the only remaining consumer. If `--display` goes, this can
-  go too. **User decision: keep `--display` for live-watch, or
-  drop it now that `tools/sim_to_replay.py` + Wesnoth's replay
-  viewer covers the same use case?**
-
-- [?] 🟡 **`main.py --display` mode +
-  `training_scenario_display.cfg`** — only useful for watching a
-  trained model in real Wesnoth with animations. Same question
-  as above. The simulator demo path produces bz2 replays the
-  Wesnoth GUI plays back (no live policy hookup, but otherwise
-  equivalent for visual inspection).
+- [x] 🟡 **`game_manager.py`** — deleted. Live-Wesnoth training
+  via subprocess pool was retired when self-play migrated to the
+  in-process simulator (2026-04-29). No remaining importers.
+- [x] 🟡 **`main.py --display` + `training_scenario_display.cfg`**
+  — deleted. Replaced by `tools/sim_demo_game.py` which exports
+  a Wesnoth-loadable `.bz2` (via
+  `sim_to_replay.export_replay_from_scratch`) the GUI plays back
+  in the replay viewer with full animations. main.py is now a
+  setup-only CLI (`--check-setup`, `--clean-games`).
 
 ---
 

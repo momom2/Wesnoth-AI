@@ -60,11 +60,13 @@ precision bootstrap weighting in `_backup`, and adaptive sim budget
 based on root cliffness. Always-on root-cliffness debug log
 collects distributions for tuning.
 
-**The live-Wesnoth IPC bridge (`main.py` + `game_manager.py` +
-`wesnoth_interface.py`) still works** but is no longer the primary
-training path. Kept in-tree for `--display` (watch a trained model
-play in Wesnoth's GUI) and the `tools/eval_vs_builtin.py` harness
-that pits us against Wesnoth's RCA AI.
+**The live-Wesnoth IPC bridge is now eval-only.** `game_manager.py`
+and `main.py --display` were retired 2026-05-11; `tools/sim_demo_game.py`
++ `tools/sim_to_replay.export_replay_from_scratch` cover the demo
+case by exporting a Wesnoth-loadable `.bz2`. The only remaining live-
+Wesnoth consumer is `tools/eval_vs_builtin.py` (via `tools/eval_runner.py`
++ `wesnoth_interface.py`), which needs real Wesnoth subprocesses to
+pit the trained model against the built-in RCA AI.
 
 ## Architecture
 
@@ -88,23 +90,24 @@ that pits us against Wesnoth's RCA AI.
 - `cluster/job_selfplay.sbatch` / `cluster/gui.pyw` — cluster
   orchestration + Tk GUI.
 
-**Live-Wesnoth path (display, eval, but NOT cluster training).**
-- `main.py` — entry point for the bridge path. `--display` watches
-  a trained model play; `--check-setup` verifies the Wesnoth + add-on
-  install link.
-- `game_manager.py` — runs N Wesnoth subprocesses in parallel.
-- `wesnoth_interface.py` — one Wesnoth process per game; state
+**Live-Wesnoth path (eval only).**
+- `main.py` — setup / maintenance CLI (`--check-setup`,
+  `--clean-games`). No longer drives training or `--display`.
+- `wesnoth_interface.py` — one Wesnoth process per eval game; state
   channel uses `std_print` → log-file tail (CA-blacklist bypass via
-  custom Lua AI stage in Phase 2b); actions written atomically as
-  `action.lua` and read via `wesnoth.read_file`.
+  custom Lua AI stage); actions written atomically as `action.lua`
+  and read via `wesnoth.read_file`.
 - `add-ons/wesnoth_ai/` — Lua side: `lua/state_collector.lua`,
   `lua/turn_stage.lua` (custom AI stage replacing default RCA so
   failed actions don't blacklist the CA), `lua/action_executor.lua`,
   `lua/json_encoder.lua`. `scenarios/training_scenario.cfg`.
-- `tools/eval_vs_builtin.py` — pits the trained model against
-  Wesnoth's default RCA AI across a (map × matchup × side-swap)
-  matrix; uses the bridge path because we need real RCA on the
-  opponent side.
+- `tools/eval_vs_builtin.py` + `tools/eval_runner.py` — pits the
+  trained model against Wesnoth's default RCA AI across a
+  (map × matchup × side-swap) matrix.
+- `tools/sim_demo_game.py` — headless one-game demo via the sim;
+  exports a Wesnoth-loadable `.bz2` via
+  `sim_to_replay.export_replay_from_scratch` (composes save WML
+  from `wesnoth_src/` templates, no replays_raw/ dependency).
 
 **Shared by both paths:**
 - `classes.py` — `GameState`, `Unit`, `Hex`, `Map`, `SideInfo`,

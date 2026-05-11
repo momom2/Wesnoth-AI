@@ -114,10 +114,17 @@ def main(argv) -> int:
     ap.add_argument("--checkpoint", type=Path, default=None,
                     help="Model checkpoint .pt. Default: freshest "
                          "supervised*.pt under training/checkpoints/.")
-    ap.add_argument("--replay-pool", type=Path,
-                    default=Path("replays_dataset"),
-                    help="Pool of .json.gz replays to seed the initial "
-                         "state from. Default: replays_dataset/.")
+    ap.add_argument("--replay-pool", type=Path, default=None,
+                    help="Optional pool of .json.gz replays to seed the "
+                         "initial state from. If omitted, uses the "
+                         "from-scratch scenario builder (random ladder "
+                         "scenario + random factions/leaders from the "
+                         "Default era). Pass a directory to instead "
+                         "sample initial state from a real replay.")
+    ap.add_argument("--scenario", type=str, default=None,
+                    help="When using the from-scratch path, force this "
+                         "scenario_id (e.g. multiplayer_Hamlets). "
+                         "Default: random from the 21-map ladder pool.")
     ap.add_argument("--out", type=Path, default=None,
                     help="Output .bz2 path. Default: "
                          "logs/sim_demo_<UTC>.bz2.")
@@ -162,44 +169,94 @@ def main(argv) -> int:
         log.error(f"checkpoint not found: {ckpt}")
         return 2
 
-    # 2. Pick a seed replay to bootstrap from
+    # 2. Build the initial GameState.
     rng = random.Random(args.seed if args.seed is not None
                         else int(time.time()))
-    seed_replay = _pick_replay_seed(args.replay_pool, rng)
-    if seed_replay is None:
-        log.error(f"no .json.gz replays under {args.replay_pool}")
-        return 2
-    log.info(f"seed replay: {seed_replay.name}")
-
-    # 3. Locate the matching .bz2 (sim_to_replay needs the source bz2
-    #    to splice the demo replay's commands into the original
-    #    [scenario] block).
-    src_bz2 = find_source_bz2(seed_replay)
-    if src_bz2 is None:
-        log.error(
-            f"could not auto-locate the .bz2 matching {seed_replay}. "
-            f"Pick a different --replay-pool entry or check that "
-            f"replays_raw/ has the matching source.")
-        return 2
-    log.info(f"source bz2:  {src_bz2}")
-
-    # 4. Build the sim with PvP defaults so the playback uses standard
-    #    2p economy / experience rules regardless of the source replay's
-    #    host-customized settings.
     pvp = PvPDefaults(
         starting_gold=args.starting_gold,
         village_gold=args.village_gold,
         village_support=args.village_support,
         experience_modifier=args.exp_modifier,
     )
-    sim = WesnothSim.from_replay(
-        seed_replay, max_turns=args.max_turns, pvp_defaults=pvp,
-    )
+    from_scratch = args.replay_pool is None
+    if from_scratch:
+        # From-scratch path: pick a ladder scenario + random factions/
+        # leaders and build the GameState directly from wesnoth_src.
+        # No source bz2 needed -- export_replay_from_scratch composes
+        # the save WML from templates + the .cfg + .map.
+        from tools.scenario_pool import (
+            random_setup, build_scenario_gamestate, ScenarioSetup,
+            load_factions, LADDER_SCENARIO_IDS,
+        )
+        if args.scenario:
+            if args.scenario not in LADDER_SCENARIO_IDS:
+                log.warning(
+                    f"--scenario {args.scenario!r} not in "
+                    f"LADDER_SCENARIO_IDS; proceeding anyway")
+            # Build a ScenarioSetup with random factions on that map.
+            factions = load_factions()
+            fnames = list(factions.keys())
+            f1 = rng.choice(fnames)
+            f2 = rng.choice(fnames)
+            setup = ScenarioSetup(
+                scenario_id=args.scenario,
+                faction1=f1,
+                leader1=rng.choice(factions[f1].random_leader_pool),
+                faction2=f2,
+                leader2=rng.choice(factions[f2].random_leader_pool),
+            )
+        else:
+            setup = random_setup(rng)
+        log.info(
+            f"from-scratch setup: scenario={setup.scenario_id} "
+            f"factions={setup.faction1} vs {setup.faction2} "
+            f"leaders={setup.leader1} / {setup.leader2}")
+        gs = build_scenario_gamestate(
+            setup,
+            base_income=pvp.base_income,
+            village_gold=pvp.village_gold,
+            village_upkeep=pvp.village_support,
+            experience_modifier=pvp.experience_modifier,
+        )
+        sim = WesnothSim(gs, scenario_id=setup.scenario_id,
+                         max_turns=args.max_turns)
+        src_bz2 = None  # unused in the from-scratch path
+    else:
+        seed_replay = _pick_replay_seed(args.replay_pool, rng)
+        if seed_replay is None:
+            log.error(f"no .json.gz replays under {args.replay_pool}")
+            return 2
+        log.info(f"seed replay: {seed_replay.name}")
+        src_bz2 = find_source_bz2(seed_replay)
+        if src_bz2 is None:
+            log.error(
+                f"could not auto-locate the .bz2 matching {seed_replay}. "
+                f"Pick a different --replay-pool entry, check that "
+                f"replays_raw/ has the matching source, or drop "
+                f"--replay-pool to use the from-scratch path.")
+            return 2
+        log.info(f"source bz2:  {src_bz2}")
+        sim = WesnothSim.from_replay(
+            seed_replay, max_turns=args.max_turns, pvp_defaults=pvp,
+        )
 
     # 5. Load the policy + drive the game. We use TransformerPolicy
     #    with training off (no gradient updates, no replay buffer
     #    growth) so this is pure inference.
-    policy = TransformerPolicy()
+    # Peek the checkpoint's saved arch and build a matching
+    # TransformerPolicy. `load_checkpoint` refuses to load across
+    # mismatched d_model / num_layers / num_heads / d_ff so we
+    # construct the right shape up front rather than catch a
+    # mid-load exception. Same pattern as tools/collect_cliffness.py.
+    import torch as _torch
+    _raw = _torch.load(ckpt, map_location="cpu", weights_only=False)
+    _arch = _raw.get("arch", {})
+    policy = TransformerPolicy(
+        d_model=int(_arch.get("d_model", 512)),
+        num_layers=int(_arch.get("num_layers", 6)),
+        num_heads=int(_arch.get("num_heads", 8)),
+        d_ff=int(_arch.get("d_ff", 2048)),
+    )
     policy.load_checkpoint(ckpt)
     log.info("running one game (this is headless -- progress in stderr)...")
     t0 = time.perf_counter()
@@ -236,8 +293,14 @@ def main(argv) -> int:
         out_path = args.out
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    export_replay(sim, source_bz2=src_bz2, out_path=out_path,
-                  pvp_defaults=pvp)
+    if src_bz2 is None:
+        # From-scratch path: no source bz2 to splice; compose the
+        # whole save WML from templates + scenario .cfg.
+        from tools.sim_to_replay import export_replay_from_scratch
+        export_replay_from_scratch(sim, out_path, pvp_defaults=pvp)
+    else:
+        export_replay(sim, source_bz2=src_bz2, out_path=out_path,
+                      pvp_defaults=pvp)
     log.info(f"wrote {out_path}")
 
     # Copy into Wesnoth's saves dir so the file shows up under

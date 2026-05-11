@@ -586,8 +586,34 @@ class TransformerPolicy:
                     f"partial loading -- rebuild the policy with the "
                     f"saved arch instead."
                 )
+        # Pre-C51 checkpoints (pre-2026-05-10) saved a 1-scalar
+        # value head; current model has the 51-atom C51 head. The
+        # tensors are shape-incompatible -- strip them from the
+        # checkpoint's state_dict so the rest loads, and let
+        # `strict=False`'s missing-key path surface the value-head
+        # gap (which the EXPECTED_MISSING_KEYS_BY_LABEL whitelist
+        # acknowledges below). Without this, every legacy
+        # checkpoint resume errors with "size mismatch for
+        # value_head.2.weight" and the partial-load contract is
+        # meaningless. ENCODER state is unaffected.
+        model_state = dict(ckpt["model_state"])
+        if not strict:
+            vh_w = model_state.get("value_head.2.weight", None)
+            if vh_w is not None and vh_w.shape[0] == 1:
+                # Pre-C51 scalar head -- drop both bias + weight.
+                self._logger.warning(
+                    "checkpoint predates the C51 value head "
+                    "(scalar value_head); partial-load keeps the "
+                    "trunk + actor head but the value head is "
+                    "left at random C51 init. Cliffness output "
+                    "is uncalibrated until re-training picks up "
+                    "the C51 head."
+                )
+                model_state.pop("value_head.2.weight", None)
+                model_state.pop("value_head.2.bias", None)
+
         model_res = self._model.load_state_dict(
-            ckpt["model_state"], strict=strict)
+            model_state, strict=strict)
         encoder_res = self._encoder.load_state_dict(
             ckpt["encoder_state"], strict=strict)
         if not strict:
@@ -608,13 +634,15 @@ class TransformerPolicy:
             # catch it.
             EXPECTED_MISSING_KEYS_BY_LABEL = {
                 "model": {
-                    # Pre-action-type-head checkpoints have a 2-class
-                    # type head missing.
+                    # Per-actor action-type head landed 2026-04-28 (C.1).
+                    # Pre-C.1 checkpoints had a single-layer linear:
+                    "type_head.weight", "type_head.bias",
+                    # Post-C.1 the head is a 2-layer MLP:
                     "type_head.0.weight", "type_head.0.bias",
                     "type_head.2.weight", "type_head.2.bias",
                     # Distributional value head atoms (C51 landed
                     # 2026-05-10; pre-C51 checkpoints have a 1-scalar
-                    # value_head and we partial-load).
+                    # value_head and we partial-load):
                     "value_head.2.weight", "value_head.2.bias",
                     "_value_atoms",
                 },

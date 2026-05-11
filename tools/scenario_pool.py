@@ -50,13 +50,21 @@ log = logging.getLogger("scenario_pool")
 # Verified 2026-04-30.
 # ---------------------------------------------------------------------
 
+# Authoritative ladder map list -- the union of every official map
+# pool (Ladder Era's Competitive + Classic + Adventurous packs).
+# IDs are case-EXACT against wesnoth_src/data/multiplayer/scenarios/
+# 2p_*.cfg's `[multiplayer] id=` (verified 2026-05-11): two scenarios
+# use lowercase tokens (Elensefar Courtyard, Thousand Stings Garrison),
+# the rest are CamelCase. Other modules that filter against this set
+# (sim_self_play._is_ladder_map, etc.) consume this constant rather
+# than re-defining their own copies -- single source of truth.
 LADDER_SCENARIO_IDS: List[str] = [
     "multiplayer_Aethermaw",
     "multiplayer_Arcanclave_Citadel",
     "multiplayer_Basilisk",                   # Caves of the Basilisk
     "multiplayer_Clearing_Gushes",
     "multiplayer_Den_of_Onis",
-    "multiplayer_Elensefar_Courtyard",        # case-corrected for .cfg lookup
+    "multiplayer_elensefar_courtyard",
     "multiplayer_Fallenstar_Lake",
     "multiplayer_Hamlets",
     "multiplayer_Hellhole",
@@ -69,7 +77,7 @@ LADDER_SCENARIO_IDS: List[str] = [
     "multiplayer_Swamp_of_Dread",
     "multiplayer_The_Freelands",
     "multiplayer_The_Walls_of_Pyrennis",
-    "multiplayer_Thousand_Stings_Garrison",   # case-corrected
+    "multiplayer_thousand_stings_garrison",
     "multiplayer_Tombs_of_Kesorak",
     "multiplayer_Weldyn_Channel",
 ]
