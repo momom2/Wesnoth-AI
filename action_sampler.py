@@ -1200,7 +1200,16 @@ def _build_legality_masks(
                 rejected_hexes=rejected,
             )
             if recruit_hex_row.any():
-                recruit_is_ours_np = encoded.recruit_is_ours.detach().cpu().numpy()[0]
+                # Prefer the zero-copy numpy view the encoder
+                # stashed at encode time (`recruit_is_ours_np`);
+                # fall back to a device hop for callers that build
+                # EncodedState by hand without setting the field.
+                if encoded.recruit_is_ours_np is not None:
+                    recruit_is_ours_np = encoded.recruit_is_ours_np
+                else:
+                    recruit_is_ours_np = (
+                        encoded.recruit_is_ours.detach().cpu().numpy()[0]
+                    )
                 # Lazy import to avoid a circular dep at module-load
                 # time (action_sampler is imported from many places
                 # and tools/wesnoth_sim ultimately imports

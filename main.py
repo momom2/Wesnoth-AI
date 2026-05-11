@@ -136,6 +136,43 @@ def _create_link(source: Path, link: Path) -> bool:
     return True
 
 
+def _prune_stale_game_dirs(games_path) -> int:
+    """Remove per-game state-channel dirs (`g<rand>/`) left behind by
+    previous Wesnoth processes.
+
+    Each parallel training game lives under `games_path/g<10-digit>/`.
+    The Wesnoth-side Lua writes JSON state there via `std_print` and
+    has no way to clean up (sandbox has no `os.remove`). Without
+    auto-cleanup these dirs accumulate to the thousands -- gitignored
+    so they don't pollute commits, but they bloat inode count and
+    slow `git status` / shell tab-completion in the parent dir.
+
+    Returns the count of removed dirs. Failures (open file handles,
+    permission issues) are tolerated -- we log and skip rather than
+    propagate.
+    """
+    import shutil
+    if not games_path.exists():
+        return 0
+    n = 0
+    for child in games_path.iterdir():
+        # Only target the `g<digits>` pattern -- don't blow away any
+        # other content a user may have placed in the dir manually.
+        if not child.is_dir():
+            continue
+        name = child.name
+        if not (name.startswith("g") and name[1:].isdigit()):
+            continue
+        try:
+            shutil.rmtree(child, ignore_errors=False)
+            n += 1
+        except OSError as e:
+            # Ignore -- usually a Wesnoth process still holds a
+            # handle, or filesystem race. We'll try again next run.
+            print(f"  (skipped {child.name}: {e})")
+    return n
+
+
 def check_setup() -> bool:
     """Verify everything needed before we launch Wesnoth."""
     print("Checking setup...")
@@ -151,6 +188,18 @@ def check_setup() -> bool:
 
     for dir_path in [LOGS_PATH, CHECKPOINTS_PATH, REPLAYS_PATH, GAMES_PATH]:
         dir_path.mkdir(parents=True, exist_ok=True)
+
+    # Auto-clean stale per-game state-channel dirs. Each parallel
+    # game writes state JSON under `GAMES_PATH/g<rand>/`; turn_stage.lua
+    # can't delete them (Lua sandbox has no `os.remove`), so they
+    # accumulate. After ~thousands of training games this inflates
+    # inode count without serving any purpose -- the dir contents
+    # are only meaningful for the duration of the game that wrote
+    # them. Sweep here at startup so the directory stays tidy.
+    n_cleaned = _prune_stale_game_dirs(GAMES_PATH)
+    if n_cleaned:
+        print(f"✓ Cleaned {n_cleaned} stale g<NN> game-state dir(s)")
+
     print(f"✓ Project dirs ready")
 
     # turn_stage.lua is the active AI stage (custom Lua engine that
@@ -234,6 +283,17 @@ def main() -> int:
         help="Verify setup (including add-on install) and exit.",
     )
     parser.add_argument(
+        "--clean-games",
+        action="store_true",
+        help=(
+            "Sweep per-game state-channel dirs "
+            "(add-ons/wesnoth_ai/games/g*/) left behind by previous "
+            "Wesnoth processes, then exit. Equivalent to the "
+            "auto-clean pass inside --check-setup but doesn't run "
+            "the rest of the setup verification."
+        ),
+    )
+    parser.add_argument(
         "--resume",
         type=str,
         default=None,
@@ -257,6 +317,11 @@ def main() -> int:
         ),
     )
     args = parser.parse_args()
+
+    if args.clean_games:
+        n = _prune_stale_game_dirs(GAMES_PATH)
+        print(f"Removed {n} stale g<NN> game-state dir(s) from {GAMES_PATH}")
+        return 0
 
     if not check_setup():
         return 1

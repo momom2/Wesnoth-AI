@@ -305,6 +305,17 @@ class WeightedReward:
     # moves contributes ~-0.2.
     leader_move_penalty:  float = -0.01
 
+    # Optional (turn_lo, turn_hi) inclusive range that restricts
+    # `leader_move_penalty` to specific turns. None (default) means
+    # ALWAYS apply -- backwards-compatible. A typical mid-game config
+    # might use `(1, 15)` to discourage early-game leader wandering
+    # but stop punishing endgame leader maneuvers (when the keep is
+    # secure and the leader needs to participate in attacks). The
+    # comparison is `lo <= delta.turn <= hi`; either bound may be
+    # `None` to leave that side open (e.g. `(None, 15)` for "only
+    # turns 1-15", `(20, None)` for "turn 20 onward").
+    leader_move_penalty_turn_range: Optional[Tuple[Optional[int], Optional[int]]] = None
+
     # Flat contribution for actions Wesnoth/sim silently rejected
     # (state didn't change). Negative default added after the
     # overnight run showed the policy spamming ~500 invalid
@@ -365,7 +376,16 @@ class WeightedReward:
         r += self.unit_recruited_cost * delta.unit_recruited_cost
         r += self.per_turn_penalty
         if delta.leader_moved:
-            r += self.leader_move_penalty
+            tr = self.leader_move_penalty_turn_range
+            apply_penalty = True
+            if tr is not None:
+                lo, hi = tr
+                if lo is not None and delta.turn < lo:
+                    apply_penalty = False
+                if hi is not None and delta.turn > hi:
+                    apply_penalty = False
+            if apply_penalty:
+                r += self.leader_move_penalty
         if delta.invalid_action:
             r += self.invalid_action_penalty
         r += self.min_enemy_distance_penalty * delta.min_enemy_distance

@@ -595,9 +595,40 @@ class TransformerPolicy:
             # _IncompatibleKeys named-tuple with `missing_keys` and
             # `unexpected_keys` attributes; both empty means a clean
             # load.
+            #
+            # EXPECTED_MISSING_KEYS_BY_LABEL holds the *known*
+            # additions across the model since the oldest checkpoint
+            # version we still resume from. Anything missing outside
+            # this set is a SILENT regression -- something we added
+            # to the model without bumping the checkpoint format,
+            # which would silently degrade behavior on resume.
+            # Treat as a warning rather than an error to keep
+            # research velocity (a new layer pre-training-cycle is
+            # fine), but log loudly enough that a CI grep would
+            # catch it.
+            EXPECTED_MISSING_KEYS_BY_LABEL = {
+                "model": {
+                    # Pre-action-type-head checkpoints have a 2-class
+                    # type head missing.
+                    "type_head.0.weight", "type_head.0.bias",
+                    "type_head.2.weight", "type_head.2.bias",
+                    # Distributional value head atoms (C51 landed
+                    # 2026-05-10; pre-C51 checkpoints have a 1-scalar
+                    # value_head and we partial-load).
+                    "value_head.2.weight", "value_head.2.bias",
+                    "_value_atoms",
+                },
+                "encoder": {
+                    # Dynamic hex flags (recruit_rejected etc.)
+                    # landed after the encoder was originally shipped.
+                    "dynamic_flag_proj.weight",
+                },
+            }
             for label, res in (("model", model_res), ("encoder", encoder_res)):
                 miss = list(getattr(res, "missing_keys", []) or [])
                 extra = list(getattr(res, "unexpected_keys", []) or [])
+                expected = EXPECTED_MISSING_KEYS_BY_LABEL.get(label, set())
+                unexpected_missing = [k for k in miss if k not in expected]
                 if miss or extra:
                     self._logger.warning(
                         f"partial {label} load: {len(miss)} missing key(s), "
@@ -605,6 +636,18 @@ class TransformerPolicy:
                         f"{miss[:5]}{'...' if len(miss) > 5 else ''}. "
                         f"Unexpected: {extra[:5]}"
                         f"{'...' if len(extra) > 5 else ''}.")
+                if unexpected_missing:
+                    self._logger.error(
+                        f"UNEXPECTED missing {label} keys (not in the "
+                        f"known-additions whitelist): {unexpected_missing}. "
+                        f"This likely means a new layer was added to "
+                        f"the model without bumping the checkpoint "
+                        f"format -- resumed training silently uses "
+                        f"random-init weights for these params. If "
+                        f"this is intentional, add the keys to "
+                        f"EXPECTED_MISSING_KEYS_BY_LABEL in "
+                        f"transformer_policy.load_checkpoint."
+                    )
         self._encoder.unit_type_to_id = dict(ckpt["unit_type_to_id"])
         # Faction vocab — present in checkpoints saved after faction
         # conditioning landed. Older checkpoints lack it; fall back to

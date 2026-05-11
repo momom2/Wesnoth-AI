@@ -156,6 +156,16 @@ class EncodedState:
     global_token:   torch.Tensor           # [1, 1, d_model]
     end_turn_token: torch.Tensor           # [1, 1, d_model]
 
+    # Cached numpy view of recruit_is_ours. Populated alongside the
+    # tensor field at encode time; the sampler reads this rather
+    # than doing `.detach().cpu().numpy()` per decision. Saves the
+    # device hop (~25 µs on GPU, ~5 µs on CPU) at the sampler's
+    # innermost loop, which fires once per recruit-eligible state.
+    # Default `None` keeps backwards compatibility -- callers that
+    # build EncodedState by hand still work; the sampler falls back
+    # to the device hop when this field is missing.
+    recruit_is_ours_np: Optional[np.ndarray] = None
+
 
 # ---------------------------------------------------------------------
 # Two-phase encoding split
@@ -330,6 +340,24 @@ class GameStateEncoder(nn.Module):
         )
         return self.encode_from_raw(raw)
 
+    def freeze_vocab(self) -> None:
+        """Lock `unit_type_to_id` / `faction_to_id` so future
+        `register_names` calls cannot add new entries. Any new name
+        encountered after freeze fires a one-shot warning (per name)
+        and the encoding path's clamp falls back to the overflow
+        bucket. Call this after pretrain so a regression that
+        introduces a new unit type during self-play is loud rather
+        than silently aliased.
+
+        Idempotent. To re-open (e.g. when fine-tuning on a new era),
+        set `self._vocab_frozen = False` directly.
+        """
+        self._vocab_frozen = True
+        log.info(
+            f"encoder vocab frozen at {len(self.unit_type_to_id)} unit "
+            f"types and {len(self.faction_to_id)} factions"
+        )
+
     def register_names(self, game_state: GameState) -> None:
         """Grow `unit_type_to_id` / `faction_to_id` for any name we
         haven't seen before. Pure dict mutation, no torch — safe to
@@ -346,11 +374,31 @@ class GameStateEncoder(nn.Module):
         `register_names` is generally not called -- the trainer
         freezes the vocab after pretrain and worker processes only
         consume the saved dict.
+
+        Freeze: callers can `freeze_vocab()` post-pretrain so that
+        any subsequent new name fires a per-name warning instead of
+        being silently added (would shift embedding ids and
+        invalidate the checkpoint).
         """
         type_to_id = self.unit_type_to_id
         cap = MAX_UNIT_TYPES
+        frozen = getattr(self, "_vocab_frozen", False)
+        seen_new = getattr(self, "_warned_new_name", None)
+        if seen_new is None:
+            seen_new = set()
+            self._warned_new_name = seen_new
         for u in game_state.map.units:
             if u.name not in type_to_id:
+                if frozen:
+                    if u.name not in seen_new:
+                        seen_new.add(u.name)
+                        log.warning(
+                            f"encoder vocab is frozen but encountered new "
+                            f"unit type {u.name!r}; aliasing to overflow "
+                            f"bucket id {cap - 1}. Either pre-seed before "
+                            f"freeze or unfreeze + retrain."
+                        )
+                    continue
                 if len(type_to_id) >= cap:
                     if not getattr(self, "_warned_type_overflow", False):
                         log.warning(
@@ -369,6 +417,15 @@ class GameStateEncoder(nn.Module):
         faction_to_id = self.faction_to_id
         for s in game_state.sides:
             if s.faction not in faction_to_id:
+                if frozen:
+                    key = f"<faction>{s.faction}"
+                    if key not in seen_new:
+                        seen_new.add(key)
+                        log.warning(
+                            f"encoder vocab frozen; new faction "
+                            f"{s.faction!r} aliasing to overflow."
+                        )
+                    continue
                 if len(faction_to_id) >= MAX_FACTIONS:
                     if not getattr(self, "_warned_faction_overflow", False):
                         log.warning(
@@ -379,6 +436,14 @@ class GameStateEncoder(nn.Module):
                 faction_to_id[s.faction] = len(faction_to_id)
             for r in s.recruits:
                 if r not in type_to_id:
+                    if frozen:
+                        if r not in seen_new:
+                            seen_new.add(r)
+                            log.warning(
+                                f"encoder vocab frozen; new recruit type "
+                                f"{r!r} aliasing to overflow."
+                            )
+                        continue
                     if len(type_to_id) >= cap:
                         # Already warned above on the unit pass; quiet
                         # here to avoid log-spam on a single state.
@@ -518,6 +583,7 @@ class GameStateEncoder(nn.Module):
             recruit_types=raw.recruit_types,
             global_token=global_token,
             end_turn_token=self.end_turn_token.view(1, 1, -1),
+            recruit_is_ours_np=raw.recruit_is_ours,  # zero-copy view
         )
 
     def encode_from_raw_batch(
@@ -673,6 +739,7 @@ class GameStateEncoder(nn.Module):
                 recruit_types=raw.recruit_types,
                 global_token=global_emb[b:b + 1].unsqueeze(1),  # [1, 1, d]
                 end_turn_token=end_turn_token,
+                recruit_is_ours_np=raw.recruit_is_ours,
             ))
         return results
 

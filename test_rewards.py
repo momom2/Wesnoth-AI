@@ -352,6 +352,63 @@ def test_weighted_reward_leader_move_penalty_is_charged_once():
     assert rf(delta) == pytest.approx(0.01 * 14 + (-0.05))
 
 
+def test_leader_move_penalty_turn_range_excludes_outside_window():
+    """When `leader_move_penalty_turn_range=(5, 15)` is set, the
+    penalty fires only for turns 5-15 inclusive. Earlier and later
+    leader moves contribute nothing (only the gold-killed term)."""
+    rf = WeightedReward(
+        gold_killed_delta=0.01, leader_move_penalty=-0.05,
+        leader_move_penalty_turn_range=(5, 15),
+        terminal_win=0, terminal_loss=0, terminal_draw=0,
+        terminal_timeout=0, village_delta=0, damage_dealt=0,
+        unit_recruited_cost=0, per_turn_penalty=0,
+        invalid_action_penalty=0, min_enemy_distance_penalty=0,
+    )
+    common = dict(side=1, action_type="move", leader_moved=True)
+    # Before window: penalty skipped.
+    d_pre = StepDelta(turn=4, **common)
+    assert rf(d_pre) == pytest.approx(0.0)
+    # In window (low end).
+    d_lo = StepDelta(turn=5, **common)
+    assert rf(d_lo) == pytest.approx(-0.05)
+    # In window (mid).
+    d_mid = StepDelta(turn=10, **common)
+    assert rf(d_mid) == pytest.approx(-0.05)
+    # In window (high end).
+    d_hi = StepDelta(turn=15, **common)
+    assert rf(d_hi) == pytest.approx(-0.05)
+    # After window: skipped.
+    d_post = StepDelta(turn=16, **common)
+    assert rf(d_post) == pytest.approx(0.0)
+
+
+def test_leader_move_penalty_turn_range_open_ended():
+    """`(None, 10)` = no lower bound; `(10, None)` = no upper bound."""
+    rf_early = WeightedReward(
+        leader_move_penalty=-0.05,
+        leader_move_penalty_turn_range=(None, 10),
+        terminal_win=0, terminal_loss=0, terminal_draw=0,
+        terminal_timeout=0, gold_killed_delta=0, village_delta=0,
+        damage_dealt=0, unit_recruited_cost=0, per_turn_penalty=0,
+        invalid_action_penalty=0, min_enemy_distance_penalty=0,
+    )
+    rf_late = WeightedReward(
+        leader_move_penalty=-0.05,
+        leader_move_penalty_turn_range=(10, None),
+        terminal_win=0, terminal_loss=0, terminal_draw=0,
+        terminal_timeout=0, gold_killed_delta=0, village_delta=0,
+        damage_dealt=0, unit_recruited_cost=0, per_turn_penalty=0,
+        invalid_action_penalty=0, min_enemy_distance_penalty=0,
+    )
+    common = dict(side=1, action_type="move", leader_moved=True)
+    # Early fires for turn 1, skips for turn 11.
+    assert rf_early(StepDelta(turn=1, **common)) == pytest.approx(-0.05)
+    assert rf_early(StepDelta(turn=11, **common)) == pytest.approx(0.0)
+    # Late skips for turn 9, fires for turn 11.
+    assert rf_late(StepDelta(turn=9, **common)) == pytest.approx(0.0)
+    assert rf_late(StepDelta(turn=11, **common)) == pytest.approx(-0.05)
+
+
 def test_weighted_reward_invalid_action_penalty():
     """Default `invalid_action_penalty=-0.001` fires when
     invalid_action is True. With 500 invalid actions we get -0.5 --

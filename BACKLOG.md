@@ -1146,37 +1146,32 @@ several smaller gaps. Remaining work:
   per-strike outcomes against the replay's `[mp_checkup]/[result]`
   blocks rather than waiting for a state-level cascade.
 
-- [ ] 🟠 **Encoder runs at batch_size=1** (`encoder.py`,
-  Phase 3.2 deferred). Trainer re-forwards every transition
-  individually; on GPU this leaves kernels under-amortized.
-  Padding states to fixed max-hex-count and batching 4-8
-  transitions per forward would unlock 2-4x training throughput
-  on the cluster. Largest single performance lever currently
-  visible. Estimated 1-2 weeks (needs padding logic + batch dim
-  handling through encoder + model). Now-unblocked since the
-  re-forward / value-head split landed.
+- [x] 🟠 **Encoder runs at batch_size=1** (DONE 2026-05-11, commit
+  ad359ae). `encode_from_raw_batch` fuses the 19+ embedding /
+  projection calls per state across a chunk of B states via
+  `np.concatenate` + `torch.split`. Trainer's two PPO-style passes
+  (no_grad value pass + gradient pass) and `_trainer_step_mcts`
+  all use the batched path. Parity verified by
+  `test_encoder_batch.test_encode_from_raw_batch_parity` with
+  `torch.allclose(atol=1e-5)`. Default `train_batch_size=1` keeps
+  the batched path a no-op until the operator bumps it.
 
-- [ ] 🟡 **`action_sampler.py:1113` swallows
-  `expected_attack_net_damage` exceptions silently**, returning
-  `net=0.0` for any failure. A subtle combat-LUT bug would
-  manifest as the policy losing all attack bias rather than
-  raising. At minimum log the unit-pair on first occurrence per
-  process; better, narrow the except to the specific exception
-  classes the helper actually raises (KeyError on missing
-  resistance / IndexError on weapon idx). Same pattern at
-  `encoder.py:851` for `_recruit_features_for` -- silent
-  fallback to default stats hides a stale unit_stats.json.
+- [x] 🟡 **Silent exception fallbacks logged-once** (DONE
+  pre-2026-05-11). Both `action_sampler.py` (the
+  `expected_attack_net_damage` try/except) and `encoder.py`
+  (`_recruit_features_for` try/except) now narrow to the specific
+  exception classes that signal "malformed Unit / stale DB" and
+  log a warn-once per (attacker, defender) pair / per process.
+  Anything else (KeyboardInterrupt, MemoryError) propagates.
 
-- [ ] 🟡 **End-to-end replay round-trip test missing.** Take a
-  real replay, run the simulator's reconstruction, re-export
-  the command stream via `sim_to_replay`, then diff WML
-  token-by-token against source. This is the strongest possible
-  regression net for the bit-exactness work and isn't yet in
-  pytest. Currently we rely on the offline `tools/diff_replay.py`
-  sweep which the operator runs ad-hoc. Blocked on
-  `sim_to_replay` rebuilding the bz2 from scratch (already a
-  tracked item below) -- once that lands, wire as a single
-  pytest case parameterized over a small fixture corpus.
+- [x] 🟡 **End-to-end replay round-trip test** (DONE 2026-05-11,
+  commit ea2f105). `test_replay_round_trip.py` covers extract ->
+  build sim with synthesized `command_history` -> `export_replay`
+  -> re-extract; assertions are field-aware (kind / coords /
+  targets must match exactly; seeds and `[choose]` payloads
+  tolerated as cosmetic). The strict-sync Hamlets fixture is the
+  corpus. Three cases: fixture present, extract idempotence,
+  full round-trip.
 
 - [ ] 🟢 **Optional `[checkup]` debug emission in `sim_to_replay`**
   (already tracked under exporter section). Promote: cheapest
@@ -1282,19 +1277,28 @@ sessions that aren't in the original review.
   set bucket whichever order the caller uses, and we can't have
   both old and new resident simultaneously.
 
-- [ ] 🟠 **MCTS tree-search proper** -- now unblocked by the
-  predict_priors / value-head / soft-target / recruit-enrichment
-  quartet. `tools/mcts.py` already exists; PUCT selection,
-  Dirichlet root noise, batched leaf eval are the remaining
-  engineering. Estimated 1-2 weeks per project_state roadmap.
+- [x] 🟠 **MCTS tree-search proper** (DONE pre-2026-05-11 across
+  several commits; see scorecard for the per-capability list).
+  PUCT selection, Dirichlet root noise, batched leaf eval via
+  virtual loss, transposition table, soft-target trainer step,
+  cliffness signal -- all wired and tested in `tools/mcts.py`
+  + `tools/mcts_policy.py` + `test_mcts.py`. Remaining work is
+  calibration (cliffness empirical histogram, adaptive sim-budget
+  schedule, MCTS-vs-REINFORCE comparative eval) which has its
+  tooling landed (`tools/collect_cliffness.py`,
+  `tools/eval_mcts_vs_reinforce.py`) but is blocked on a fresh
+  C51-trained checkpoint.
 
-- [ ] 🟢 **Diagnostic in supervised resume**: list missing-key
-  set in a structured way so a regression that adds a SECOND
-  unexpected missing key (beyond `type_head.*` and
-  `dynamic_flag_proj.weight`) is loud, not just a warning the
-  operator might miss. Today the warning lists keys but no
-  whitelist of "expected missing"; one-line addition: assert
-  that `set(missing) ⊆ EXPECTED_NEW_KEYS` else hard-error.
+- [x] 🟢 **Diagnostic in supervised resume — expected-missing
+  whitelist** (DONE 2026-05-11). `load_checkpoint` now
+  cross-references each label's missing keys against a per-label
+  `EXPECTED_MISSING_KEYS_BY_LABEL` whitelist (`type_head.*`,
+  `value_head.2.*`, `_value_atoms`, `dynamic_flag_proj.weight`).
+  The same WARNING-level dump fires as before, but anything
+  outside the whitelist additionally fires at ERROR level with a
+  clear "new layer was added without bumping checkpoint format"
+  message + remediation instructions. CI greps for "UNEXPECTED
+  missing" catch the regression.
 
 ## TOP PRIORITIES (rank-ordered)
 
@@ -1530,7 +1534,14 @@ replay export.
   plague (Ant Queen -> Giant Ant Egg via PLAGUE_TYPE macro) is not
   modeled -- mainline 2p doesn't use it.
 
-- [ ] 🟠 **Combat damage seed alignment is correct today** but verify with
+- [x] 🟠 **Combat damage seed alignment regression test** (DONE
+  2026-05-11, commit d9dcd86). `test_combat_seed_alignment.py`
+  pins the chain bit-exact on `tests/fixtures/strict_sync_hamlets_t9.bz2`
+  (29 attacks, ~750 strikes); every chance / hits / damage / dies
+  value matches Wesnoth's `[mp_checkup]` ground truth. Original
+  text retained below for context:
+
+  ~~Combat damage seed alignment is correct today~~ but verify with
   a smoke test once the model attacks meaningfully. Each attack:
   `_action_to_command` (`tools/wesnoth_sim.py:586`) allocates one
   `request_seed(N)`; the exporter emits the same hex via `[random_seed]
@@ -1666,9 +1677,9 @@ replay export.
   for both even and odd columns (covers the odd-q parity edge case
   from the docstring), long-range row/column.
 
-- [ ] 🟡 **End-to-end round-trip test**: take a real replay, run our
-  recon, re-export from `command_history`, diff WML token-stream
-  against source. Hard regression net for the bit-exactness work.
+- [x] 🟡 **End-to-end round-trip test** (DONE 2026-05-11, commit
+  ea2f105 -- see `test_replay_round_trip.py`). Duplicate of the
+  entry under the simulator section; kept here as a back-reference.
 
 ---
 
@@ -1772,14 +1783,20 @@ replay export.
   own design question; the whole feature is a separate project
   rather than a flag.
 
-- [ ] 🟡 **`register_names` mutates encoder vocab during rollout**
-  (`encoder.py:289`). On checkpoint resume with a never-before-seen unit
-  type, the new id may collide with an embedding row. Pre-seed from
-  `tools/scrape_unit_stats.py` output and freeze post-pretrain (warn if
-  a new type shows up). PARTIAL (2026-04-28): vocab overflow now
-  warns once per (unit-type / faction) on registration, surfacing
-  the silent encode-time clamp at the source. Pre-seeding from
-  scrape + freeze still TODO.
+- [x] 🟡 **`register_names` freeze + new-name warning** (DONE
+  2026-05-11). Added `GameStateEncoder.freeze_vocab()` plus the
+  paired per-name warn-once path in `register_names`: post-freeze,
+  any new unit type / faction / recruit name fires a one-shot
+  WARNING and is aliased to the overflow bucket rather than added
+  to the dict (which would shift downstream ids and break the
+  saved checkpoint). Tests in `test_encoder_vocab_freeze.py` (4
+  cases): vocab grows when unfrozen, new types blocked + warned
+  when frozen, one warning per name (not flood), faction freeze
+  also enforced. Pre-seeding from `tools/scrape_unit_stats.py` is
+  still a follow-up but is now a non-blocking operator decision
+  (call `freeze_vocab()` whenever the operator considers the
+  vocab stable; pre-seed before that call for full pre-train
+  coverage).
 
 - [x] 🟡 **MAX_UNIT_TYPES overflow documented** (DONE 2026-04-28).
   Encoder.py docstring spells out: 200 covers default era + typical
@@ -1812,9 +1829,14 @@ replay export.
   -- reusing them in Pass 2 would zero the gradient. Suite went
   ~36s → ~33s.
 
-- [ ] 🟢 **`recruit_is_ours.detach().cpu().numpy()[0]`** every decision
-  (`action_sampler.py:499`). Crosses device boundary for a tiny tensor.
-  Add the numpy version to `EncodedState` and reuse.
+- [x] 🟢 **`recruit_is_ours` device hop eliminated** (DONE
+  2026-05-11). Added `EncodedState.recruit_is_ours_np` -- a
+  zero-copy view of the same numpy array `RawEncoded` already
+  holds. Both `encode_from_raw` and `encode_from_raw_batch`
+  populate it. The sampler reads the np view directly; the old
+  `.detach().cpu().numpy()` path stays as a fallback for callers
+  that build EncodedState by hand. Saves ~25 µs per recruit-
+  eligible decision on GPU.
 
 ### Stability / safety
 
@@ -1959,10 +1981,14 @@ curriculum hook.
   unknown unit type. Prevents the policy from learning to spam an
   unknown unit type that scored zero gold-cost shaping.
 
-- [ ] 🟢 **`leader_move_penalty` is unconditional** (`rewards.py:149`).
-  Promote it to a `TurnConditionalBonus` so it can be turn-bounded
-  (currently penalizes ALL leader moves, even necessary ones in
-  endgame).
+- [x] 🟢 **`leader_move_penalty` turn-bounded** (DONE 2026-05-11).
+  Added `WeightedReward.leader_move_penalty_turn_range:
+  Optional[Tuple[Optional[int], Optional[int]]]`. `None` (default)
+  applies the penalty on every leader-move step (back-compat).
+  `(lo, hi)` restricts to inclusive `lo <= turn <= hi`; either
+  bound may be `None` for open-ended on that side
+  (e.g. `(None, 15)` = "only turns 1-15"). Tests in
+  `test_rewards.py` (2 cases): closed window + open-ended.
 
 ---
 
@@ -1981,10 +2007,13 @@ weight. Eval still needs real Wesnoth, so be cautious.
   (2026-04-29, commit d01f671). `_main.cfg`'s pointer comment
   also dropped.
 
-- [ ] 🟢 **Auto-clean `add-ons/wesnoth_ai/games/g*/` dirs**. 1983 stale
-  dirs locally (gitignored, but inode pressure). `turn_stage.lua` can't
-  delete (Lua sandbox excludes `os.remove`). Add a Python cleanup pass
-  in `main.py:check_setup` or at `WesnothGame` finalization.
+- [x] 🟢 **Auto-clean `add-ons/wesnoth_ai/games/g*/` dirs** (DONE
+  2026-05-11). `main.py:_prune_stale_game_dirs` sweeps the `g<NN>`
+  per-game state-channel dirs that Lua can't clean. Wired into
+  `check_setup` (auto on startup) and as a standalone CLI
+  `python main.py --clean-games`. Match pattern restricts to
+  `g\d+` so manual artifacts aren't touched. First run cleared
+  60 stale dirs locally.
 
 ### KEEP (still load-bearing)
 
