@@ -68,13 +68,14 @@ PYTHON     = sys.executable  # the same interpreter running the GUI
 SCRIPT_SYNC          = CLUSTER_DIR / "sync.ps1"
 SCRIPT_PULL          = CLUSTER_DIR / "pull_checkpoint.ps1"
 # Self-play + one-game demo run via the in-process Wesnoth simulator
-# (`tools/sim_self_play.py` / `tools/sim_demo_game.py`). The old
-# `run_self_play.ps1` -> `python main.py --policy transformer` path
-# went through the Wesnoth subprocess pipeline (see project_state.md
-# in MEMORY: that pipeline has never delivered a single game state on
-# this Windows install). The simulator is bit-exact for the maps in
-# the test set and ~1000x faster, so both training-mode and watch-one-
-# game functionality come from there now.
+# (`tools/sim_self_play.py` / `tools/sim_demo_game.py`). The legacy
+# subprocess-driven path through `main.py --display` / `game_manager.py`
+# was retired 2026-05-11 (game_manager + the --display flag were
+# removed entirely). The simulator is bit-exact against Wesnoth for
+# combat strikes (731/731 verified) and full-replay reconstruction
+# (100% on the 5,484-replay competitive-2p corpus), ~1000x faster
+# than driving a Wesnoth subprocess, and from-scratch save export
+# produces Wesnoth-loadable .bz2 replays for visual inspection.
 SCRIPT_SIM_SELFPLAY  = PROJECT_ROOT / "tools" / "sim_self_play.py"
 SCRIPT_SIM_DEMO      = PROJECT_ROOT / "tools" / "sim_demo_game.py"
 EVAL_SCRIPT          = PROJECT_ROOT / "tools" / "eval_vs_builtin.py"
@@ -681,9 +682,9 @@ class App:
 
     def _autoselect_checkpoint(self) -> Optional[Path]:
         """Pick the freshest `supervised*.pt` (or any .pt) under
-        `training/checkpoints/`. Mirrors the old run_self_play.ps1
-        auto-pick so users coming from the cluster pull workflow keep
-        the zero-config feel."""
+        `training/checkpoints/`. So users coming from the cluster
+        pull workflow keep the zero-config feel -- right after
+        Pull, both the Train and Display buttons just work."""
         ckpt_dir = PROJECT_ROOT / "training" / "checkpoints"
         if not ckpt_dir.is_dir():
             return None
@@ -733,6 +734,15 @@ class App:
         else:
             self._log(
                 "[selfplay] no checkpoint -- training from random init")
+        # sim_self_play.py defaults --checkpoint-out to
+        # training/checkpoints/sim_selfplay.pt. Surface that in the
+        # output panel so the operator knows where the trained
+        # weights will appear (otherwise it's an invisible side
+        # effect of the run).
+        self._log(
+            "[selfplay] checkpoint will be saved to "
+            "training/checkpoints/sim_selfplay.pt"
+        )
         argv += [
             "--iterations",     str(params["iterations"]),
             "--games-per-iter", str(params["games_per_iter"]),

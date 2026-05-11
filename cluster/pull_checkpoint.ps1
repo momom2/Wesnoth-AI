@@ -104,6 +104,8 @@ Move-Item -LiteralPath $tmpFull -Destination $localFull -Force
 $size = (Get-Item $localFull).Length
 Write-Host ("[pull] done: {0} ({1:N1} MB)" -f $localFull, ($size / 1MB))
 Write-Host ""
-Write-Host "[pull] try in self-play with:"
-Write-Host "  powershell -ExecutionPolicy Bypass -File run_self_play.ps1 -Checkpoint `"$localFull`""
-Write-Host "  (or just run_self_play.ps1 with no args -- it auto-picks the freshest *.pt)"
+Write-Host "[pull] try locally with:"
+Write-Host "  python tools/sim_self_play.py --checkpoint-in `"$localFull`""
+Write-Host "  python tools/sim_demo_game.py    # one-game demo -> Wesnoth-loadable .bz2"
+Write-Host "  (or use the GUI's 'Train (self-play)' / 'Display 1 game' buttons --"
+Write-Host "   both auto-pick the freshest *.pt under training\checkpoints\)"
