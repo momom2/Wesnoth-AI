@@ -2041,10 +2041,24 @@ The current tests exercise the dead Wesnoth-IPC path, not the live sim
 pipeline (per `CLAUDE.md`). Many high-value test gaps surfaced above;
 collected here:
 
-- [ ] 🟠 Sim determinism (sim).
-- [ ] 🟠 Reward unit tests (`compute_delta` over hand-built pairs).
-- [ ] 🟠 Replay round-trip (recon → re-emit → diff against source WML).
-- [ ] 🟡 `hex_distance` parity edges.
+- [x] 🟠 **Sim determinism (sim)** (DONE pre-2026-05-11,
+  `test_sim_determinism.py`, 4 cases): two runs from the same
+  replay produce identical state_key trajectories; command
+  history is byte-identical; RNG-counter advances consistently;
+  `WesnothSim.fork()` doesn't perturb the parent's RNG counter.
+- [x] 🟠 **Reward unit tests (`compute_delta` over hand-built
+  pairs)** (DONE pre-2026-05-11, `test_rewards.py`, 58 cases):
+  every `StepDelta` field exercised in isolation via hand-built
+  (prev, new) GameState pairs; WeightedReward outcome terms,
+  gold-killed signed-diff, leader-move-penalty charged once,
+  invalid-action penalty, distance-scaling; `hex_distance`
+  identity / symmetry / adjacency / long-range; visible-effect
+  predicate on position / hp / has_attacked flips.
+- [x] 🟠 **Replay round-trip (recon → re-emit → diff)** (DONE
+  2026-05-11, `test_replay_round_trip.py`, see entry below).
+- [x] 🟡 **`hex_distance` parity edges** (DONE pre-2026-05-11,
+  4 cases in `test_rewards.py`: identity / symmetry / adjacency /
+  long-range — covers the odd-row parity offset).
 - [x] 🟡 **state_key fuzz** (DONE 2026-04-28). New
   `test_state_key.py` (16 cases): discrimination on every
   meaningful field (HP/MP/XP/position/has_attacked/status/gold/

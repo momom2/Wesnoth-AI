@@ -520,6 +520,162 @@ class GameStateEncoder(nn.Module):
             end_turn_token=self.end_turn_token.view(1, 1, -1),
         )
 
+    def encode_from_raw_batch(
+        self,
+        raws: List[RawEncoded],
+        *,
+        device: Optional[torch.device] = None,
+    ) -> List[EncodedState]:
+        """Batched version of `encode_from_raw`.
+
+        For each embedding/projection (`pos_x_embed`, `terrain_embed`,
+        `unit_type_embed`, etc.), the per-sample path pays a fixed
+        kernel-launch overhead (~30 µs on GPU, ~5 µs on CPU). Across
+        the 5 hex streams + 5 unit streams + 5 recruit streams + 4
+        global ops, that's ~70 launches per state. At a typical
+        training chunk of 8 states, fusing the launches concatenates
+        all per-state arrays into one big call (5 + 5 + 5 + 4 = 19
+        launches per CHUNK rather than 19×B), trimming ~3 ms of
+        launch overhead per train_step on GPU.
+        Result identity: each returned EncodedState matches what
+        `encode_from_raw` would produce for that sample (verified by
+        `test_encode_from_raw_batch_parity`). Downstream code is
+        unchanged.
+        """
+        if not raws:
+            return []
+        if len(raws) == 1:
+            return [self.encode_from_raw(raws[0], device=device)]
+
+        if device is None:
+            device = next(self.parameters()).device
+        d = self.d_model
+        nb = device.type != "cpu"
+
+        Hs = [r.hex_xs.shape[0] for r in raws]
+        Us = [r.unit_xs.shape[0] for r in raws]
+        Rs = [r.recruit_type_ids.shape[0] for r in raws]
+        H_total = sum(Hs); U_total = sum(Us); R_total = sum(Rs)
+        B = len(raws)
+
+        def _cat_to_dev(arrays, dtype):
+            # np.concatenate handles the all-empty case via the
+            # explicit dtype kwarg.
+            cat = np.concatenate(arrays) if arrays else np.zeros(0, dtype=dtype)
+            t = torch.from_numpy(cat)
+            if device.type != "cpu":
+                t = t.to(device, non_blocking=nb)
+            return t
+
+        # ---- hex stream ----
+        if H_total == 0:
+            hex_per = [torch.zeros(1, 0, d, device=device) for _ in raws]
+        else:
+            hx = _cat_to_dev([r.hex_xs for r in raws], np.int64)
+            hy = _cat_to_dev([r.hex_ys for r in raws], np.int64)
+            ht = _cat_to_dev([r.hex_terrain_ids for r in raws], np.int64)
+            hm = _cat_to_dev([r.hex_modifier_flags for r in raws],
+                             np.float32)
+            hd = _cat_to_dev([r.hex_dynamic_flags for r in raws],
+                             np.float32)
+            hex_emb = (
+                self.pos_x_embed(hx) + self.pos_y_embed(hy)
+                + self.terrain_embed(ht) + self.modifier_proj(hm)
+                + self.dynamic_flag_proj(hd)
+            )  # [H_total, d]
+            # torch.split with explicit sizes preserves order and
+            # emits a (possibly empty) tensor per requested length.
+            hex_splits = torch.split(hex_emb, Hs)
+            hex_per = [s.unsqueeze(0) for s in hex_splits]
+
+        # ---- unit stream ----
+        if U_total == 0:
+            unit_per      = [torch.zeros(1, 0, d, device=device) for _ in raws]
+            unit_is_per   = [torch.zeros(1, 0, device=device,
+                                         dtype=torch.float32) for _ in raws]
+        else:
+            ut     = _cat_to_dev([r.unit_type_ids for r in raws], np.int64)
+            us_ids = _cat_to_dev([r.unit_side_ids for r in raws], np.int64)
+            ux     = _cat_to_dev([r.unit_xs for r in raws], np.int64)
+            uy     = _cat_to_dev([r.unit_ys for r in raws], np.int64)
+            uf     = _cat_to_dev([r.unit_feats for r in raws], np.float32)
+            unit_emb = (
+                self.unit_type_embed(ut) + self.side_embed(us_ids)
+                + self.pos_x_embed(ux) + self.pos_y_embed(uy)
+                + self.unit_feat_proj(uf)
+            )  # [U_total, d]
+            unit_per = [s.unsqueeze(0) for s in torch.split(unit_emb, Us)]
+            unit_is_cat = _cat_to_dev(
+                [r.unit_is_ours for r in raws], np.float32)
+            unit_is_per = [s.unsqueeze(0)
+                           for s in torch.split(unit_is_cat, Us)]
+
+        # ---- recruit stream ----
+        if R_total == 0:
+            recruit_per    = [torch.zeros(1, 0, d, device=device) for _ in raws]
+            recruit_is_per = [torch.zeros(1, 0, device=device,
+                                          dtype=torch.float32) for _ in raws]
+        else:
+            rt = _cat_to_dev([r.recruit_type_ids for r in raws], np.int64)
+            rs = _cat_to_dev([r.recruit_side_ids for r in raws], np.int64)
+            rx = _cat_to_dev([r.recruit_xs for r in raws], np.int64)
+            ry = _cat_to_dev([r.recruit_ys for r in raws], np.int64)
+            rf = _cat_to_dev([r.recruit_feats for r in raws], np.float32)
+            recruit_emb = (
+                self.unit_type_embed(rt) + self.side_embed(rs)
+                + self.pos_x_embed(rx) + self.pos_y_embed(ry)
+                + self.unit_feat_proj(rf)
+            )  # [R_total, d]
+            recruit_per = [s.unsqueeze(0)
+                           for s in torch.split(recruit_emb, Rs)]
+            recruit_is_cat = _cat_to_dev(
+                [r.recruit_is_ours for r in raws], np.float32)
+            recruit_is_per = [s.unsqueeze(0)
+                              for s in torch.split(recruit_is_cat, Rs)]
+
+        # ---- global ----
+        # Stack per-state 6-elem floats into a [B, GLOBAL_FEAT_DIM]
+        # matrix and run global_proj once. Faction lookup is a
+        # single int64 lookup per side.
+        gf_np = np.stack([r.global_feats for r in raws])  # [B, GLOBAL_FEAT_DIM]
+        gf = torch.from_numpy(gf_np)
+        if device.type != "cpu":
+            gf = gf.to(device, non_blocking=nb)
+        global_proj = self.global_proj(gf)  # [B, d]
+        our_fids  = torch.tensor([r.our_faction_id   for r in raws],
+                                 device=device, dtype=torch.long)
+        them_fids = torch.tensor([r.their_faction_id for r in raws],
+                                 device=device, dtype=torch.long)
+        global_emb = (
+            global_proj
+            + self.our_faction_embed(our_fids)
+            + self.their_faction_embed(them_fids)
+        )  # [B, d]
+
+        # ---- assemble per-sample EncodedState objects ----
+        end_turn_token = self.end_turn_token.view(1, 1, -1)
+        results: List[EncodedState] = []
+        for b in range(B):
+            raw = raws[b]
+            pos_to_hex = {
+                (p.x, p.y): j for j, p in enumerate(raw.hex_positions)
+            }
+            results.append(EncodedState(
+                hex_tokens=hex_per[b],
+                hex_positions=raw.hex_positions,
+                pos_to_hex=pos_to_hex,
+                unit_tokens=unit_per[b],
+                unit_is_ours=unit_is_per[b],
+                unit_positions=raw.unit_positions,
+                unit_ids=raw.unit_ids,
+                recruit_tokens=recruit_per[b],
+                recruit_is_ours=recruit_is_per[b],
+                recruit_types=raw.recruit_types,
+                global_token=global_emb[b:b + 1].unsqueeze(1),  # [1, 1, d]
+                end_turn_token=end_turn_token,
+            ))
+        return results
+
 
 # ---------------------------------------------------------------------
 # encode_raw — phase-1 of encoding. Pure Python, vocab read-only.

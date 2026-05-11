@@ -310,8 +310,8 @@ class Trainer:
             with torch.no_grad():
                 for start in range(0, N, B):
                     raw_chunk = raw_cache[start:start + B]
-                    encoded_chunk = [self.encoder.encode_from_raw(r)
-                                     for r in raw_chunk]
+                    encoded_chunk = self.encoder.encode_from_raw_batch(
+                        raw_chunk)
                     outputs = self.model.forward_batch(encoded_chunk)
                     for output in outputs:
                         values_np.append(float(output.value.squeeze().item()))
@@ -334,8 +334,8 @@ class Trainer:
                 chunk = flat[start:start + B]
                 L = len(chunk)
                 raw_chunk = raw_cache[start:start + B]
-                encoded_chunk = [self.encoder.encode_from_raw(r)
-                                 for r in raw_chunk]
+                encoded_chunk = self.encoder.encode_from_raw_batch(
+                    raw_chunk)
                 outputs = self.model.forward_batch(encoded_chunk)
 
                 chunk_log_probs: List[torch.Tensor] = []
@@ -706,7 +706,7 @@ def _trainer_step_mcts(
         chunk = experiences[start:start + B]
         L = len(chunk)
         raw_chunk = raw_cache[start:start + B]
-        encoded_chunk = [self.encoder.encode_from_raw(r) for r in raw_chunk]
+        encoded_chunk = self.encoder.encode_from_raw_batch(raw_chunk)
         outputs = self.model.forward_batch(encoded_chunk)
 
         chunk_policy_losses: List[torch.Tensor] = []
