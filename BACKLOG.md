@@ -116,14 +116,26 @@ strategies; cluster economy).
   (6× move:final_occupied cascades + 2× attack:weapon_oob + 1×
   move:mp_insufficient).
 
-- [ ] 🟡 **Investigate the 8 residual `diff_replay` divergences
-  on the fresh corpus** (2026-05-11, post multi-advance fix).
-  Notable groupings:
-    - 3× `recruit:insufficient_gold` (real gold drift —
-      Hornshark / Sablestone / something else).
-    - 3× `attack:defender_missing` (likely cascade or
-      scenario-event-spawned units).
-    - 2× `move:src_missing`.
+- [x] 🟡 **Investigate the 8 residual `diff_replay` divergences
+  on the fresh corpus** (DONE 2026-05-11). Sweep through all
+  residuals one-by-one with manual replay-viewer verification:
+    - **Fixed in code:**
+      - Suffix-redo dedup for save-mid-move (commit b64922f) —
+        Fallenstar Lake t6.
+      - Partial-checkup-attack drop for save-mid-attack (commit
+        abe7834) — Ruined Passage t9.
+      - Surrender-drop heuristic checkup-aware refinement
+        (commit 9715b72) — Silverhead Crossing takeover case.
+      - Multi-advancement loop (commit 7f5d3bf, above) —
+        Den of Onis HI→ST→IM chain.
+    - **Quarantined as unverifiable from corrupted source**
+      (7 total this sweep, moved to
+      `replays_dataset_quarantine/`): 3 corrupted (Hamlets t67,
+      Hamlets t70, Sablestone Delta t16), 1 debug-tool-using
+      (Howling Ghost Badlands), 3 Dunefolk-player-faction the
+      classifier missed.
+  Final: **100% diff_replay clean (5,484/5,484)** on the
+  competitive-2p corpus.
 
 See the **MCTS readiness scorecard** (refreshed 2026-05-10) further
 down for a per-capability checklist.
@@ -1092,27 +1104,21 @@ several smaller gaps. Remaining work:
   (the active training input). Old `replays_dataset/` reflects
   pre-fix extraction; one `mv` away from picking up the fix.
 
-- [ ] 🟡 **Recruit:insufficient_gold drift (18 / 2k).** 2-3 gold
-  off in late-game recruits. Hand-traced one Hornshark case
-  (`13d74cc4e0cc` cmd[115]); income calc, upkeep calc, recruit
-  costs all match my hand-calc. Wesnoth somehow had 2-3 more
-  gold. Could be a recruit cost discount we're missing
-  (some scenario `[modify_side]`), or a `[gold]` event firing
-  at a turn boundary we don't model.
+- [x] 🟡 **Recruit:insufficient_gold drift (18 / 2k → 0).** SUPERSEDED
+  by the 2026-05-11 fidelity sweep. The 2 final residual gold-drift
+  cases on the fresh competitive-2p corpus (Hamlets t34, Sablestone
+  Delta t8) both verified as **corrupted replays** in Wesnoth's
+  replay viewer; quarantined rather than fixed in code. No gold-
+  drift cases remain on the current 5,484-replay corpus.
 
-- [ ] 🟡 **Friendly_fire plague edge cases (4 / 2k).** All
-  involve Undead with plague. Concrete case: `0144f9c8e63a`
-  cmd[323]: WC kills Elvish Captain at (6,15), plague spawns
-  WC side 1; cmd[325]: side 1 unit attacks (6,15) — same-side.
-  Wesnoth's reality must have (6,15) as side-2. Without an
-  mp_checkup oracle (non-strict-sync replay) we can't
-  determine if our combat math 1-shotted a unit Wesnoth left
-  alive, or if there's a plague-trigger rule we're misreading.
+- [x] 🟡 **Friendly_fire plague edge cases (4 / 2k → 0).** SUPERSEDED
+  by the 2026-05-11 fidelity sweep. No friendly-fire plague residuals
+  on the current 5,484-replay corpus (the Stages 1–21 plague-event
+  fixes + the multi-advancement / surrender-drop / suffix-redo /
+  partial-checkup-attack fixes resolved everything else).
 
-- [ ] 🟢 **Cascade-class failures (~136 / 2k).** No direct fix —
-  these flow from earlier sim-state drifts that we haven't
-  traced yet. Will fall out as the root-cause classes above
-  are closed.
+- [x] 🟢 **Cascade-class failures (~136 / 2k → 0).** SUPERSEDED by
+  the 2026-05-11 fidelity sweep — all root causes closed.
 
 - [x] 🟡 **`build_trait_info`: race-additional-traits skips
   fearless for neutral units** (DONE 2026-05-03). `build_trait_info`
