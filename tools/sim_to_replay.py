@@ -459,6 +459,141 @@ def _find_final_replay_block(text: str) -> Optional[tuple]:
     return (last_open_match.start(), close_match.end())
 
 
+def _rewrite_sides_for_sim(text: str, sim: "WesnothSim") -> str:
+    """Rewrite each `[side]...[/side]` so the SOURCE bz2's faction /
+    leader / recruit list match the SIM's actual setup.
+
+    Why this matters (the bug the BACKLOG flagged 2026-04-30):
+    `sim_to_replay` splices our `[replay]` block into a source `.bz2`
+    template. After the 2026-04-30 scenario-pool pivot, sim factions
+    are randomized at game start — they no longer match whatever
+    factions the source replay happened to have. Without this
+    rewrite, Wesnoth's playback instantiates the SOURCE's leaders
+    (e.g. Red Mage / Deathblade for Arcanclave) and every recruit
+    in our `[replay]` then mismatches (Drake Burner from a side
+    Wesnoth thinks recruits human-Loyalist units, etc.).
+
+    Per-side rewrites:
+      - top-level `type="<leader unit type>"` (the type attr on
+        `[side]` itself, distinct from the `[unit]`-level type)
+      - `faction="<faction name>"` and `faction_name="<same>"`
+      - `recruit="<comma-joined list>"`
+      - the leader `[unit]` sub-block (we identify it via
+        `canrecruit=yes` and replace its contents with a minimal
+        block that lets Wesnoth re-roll the leader from scratch at
+        the keep position). Other `[unit]` blocks inside the side
+        (scenario-pre-placed scenery / petrified units / etc.) are
+        preserved.
+
+    Keep position: stolen from the original leader `[unit]`'s `x=`
+    / `y=` so we don't move the leader. The 2p_*.cfg [side] keep
+    positions are fixed per scenario, so this is invariant.
+    """
+    # Build per-side info from the sim. Leader position comes from
+    # the live game state -- if the sim has already started, the
+    # leader may have moved, but for replay export we want the
+    # INITIAL keep position. Fall back to the live position; for
+    # demo exports the sim is run from a fresh state anyway.
+    side_leader: dict = {}
+    for u in sim.gs.map.units:
+        if u.is_leader:
+            side_leader[u.side] = (u.name, u.position.x, u.position.y)
+    side_meta: dict = {}
+    for i, s in enumerate(sim.gs.sides, start=1):
+        # SideInfo is a flat dataclass; the list position is the
+        # side number (1-indexed in WML, 1-indexed here for parity).
+        side_num = getattr(s, "side_num", i)
+        side_meta[side_num] = {
+            "faction": s.faction or "",
+            "recruit": ",".join(s.recruits or []),
+        }
+
+    if not side_leader:
+        # Nothing to rewrite (sim has no leaders -- pathological).
+        return text
+
+    def rewrite_one_side(m: "re.Match") -> str:
+        block = m.group(0)
+        # Wesnoth replays inconsistently quote attrs -- the
+        # `side="1"` form (with quotes) appears in saves that went
+        # through Wesnoth's save/load cycle, while `side=1` (unquoted)
+        # appears in hand-built configs and some scenarios. Accept
+        # both forms; otherwise the rewrite would silently no-op on
+        # quoted sources.
+        side_m = re.search(
+            r'^\s*side=\"?(\d+)\"?\s*$', block, re.MULTILINE)
+        if side_m is None:
+            return block
+        side_num = int(side_m.group(1))
+        leader = side_leader.get(side_num)
+        if leader is None:
+            return block
+        leader_type, _, _ = leader
+        meta = side_meta.get(side_num, {"faction": "", "recruit": ""})
+
+        # Top-level [side] attrs. `type=` is on the [side] tag itself
+        # (Wesnoth uses it to populate the leader when no [unit] is
+        # provided); always overwrite.
+        block = re.sub(
+            r'^(\s*)type=\"?[^\"\n]*\"?',
+            rf'\1type="{leader_type}"',
+            block, count=1, flags=re.MULTILINE,
+        )
+        if meta["faction"]:
+            block = re.sub(
+                r'^(\s*)faction=\"?[^\"\n]*\"?',
+                rf'\1faction="{meta["faction"]}"',
+                block, count=1, flags=re.MULTILINE,
+            )
+            block = re.sub(
+                r'^(\s*)faction_name=\"?[^\"\n]*\"?',
+                rf'\1faction_name="{meta["faction"]}"',
+                block, count=1, flags=re.MULTILINE,
+            )
+        if meta["recruit"]:
+            block = re.sub(
+                r'^(\s*)recruit=\"?[^\"\n]*\"?',
+                rf'\1recruit="{meta["recruit"]}"',
+                block, count=1, flags=re.MULTILINE,
+            )
+
+        # Locate the leader [unit] block (identified by canrecruit=yes
+        # somewhere in its body). Replace its body with a minimal
+        # leader stub at the source's keep position; scenario-placed
+        # NON-leader units stay untouched.
+        unit_re = re.compile(r'\[unit\][\s\S]*?\[/unit\]')
+        def maybe_rewrite_unit(um: "re.Match") -> str:
+            ubody = um.group(0)
+            if 'canrecruit=yes' not in ubody and 'canrecruit="yes"' not in ubody:
+                return ubody  # not the leader
+            # Pull x/y from the original block -- it's the keep
+            # position, scenario-invariant per side.
+            x_m = re.search(r'^\s*x=\"?(\d+)\"?', ubody, re.MULTILINE)
+            y_m = re.search(r'^\s*y=\"?(\d+)\"?', ubody, re.MULTILINE)
+            if not x_m or not y_m:
+                return ubody  # unparseable; leave it
+            kx, ky = x_m.group(1), y_m.group(1)
+            # Build a minimal leader [unit] block. Wesnoth will roll
+            # traits + HP + attacks from the unit_type definition at
+            # game start. `random_traits=yes` lets the trait gen run
+            # via the synced RNG (matching the seeds in our [replay]
+            # block).
+            return (
+                "[unit]\n"
+                f'    type="{leader_type}"\n'
+                f"    side={side_num}\n"
+                f"    x={kx}\n"
+                f"    y={ky}\n"
+                "    canrecruit=yes\n"
+                "    random_traits=yes\n"
+                "[/unit]"
+            )
+        block = unit_re.sub(maybe_rewrite_unit, block)
+        return block
+
+    return re.sub(r'\[side\][\s\S]*?\[/side\]', rewrite_one_side, text)
+
+
 def _rewrite_pvp_settings(text: str, defaults: PvPDefaults) -> str:
     """Rewrite the source bz2's [scenario] / [side] / [multiplayer]
     blocks so Wesnoth's playback uses the same PvP settings the sim
@@ -583,6 +718,12 @@ def export_replay(
     )
     if pvp_defaults is not None:
         text = _rewrite_pvp_settings(text, pvp_defaults)
+    # ALWAYS rewrite sides to match the sim's leaders / factions /
+    # recruit lists. Post 2026-04-30 scenario-pool sampling, the sim
+    # picks factions independently of the source replay's; without
+    # this rewrite, Wesnoth's playback would instantiate the source's
+    # original leaders and OOS at the first action.
+    text = _rewrite_sides_for_sim(text, sim)
     span = _find_final_replay_block(text)  # re-locate after edits
     start, end = span
 

@@ -1235,33 +1235,39 @@ References are `path/file.py:line`. Each item is actionable on its own.
 
 ## NEW since 2026-04-30 (post scenario-pivot)
 
-- [ ] 🔴 **`sim_to_replay` should build the bz2 from scratch, not
-  splice onto a source replay's bz2.** Today it inherits the
-  source replay's `[scenario]` (with that source's leaders +
-  factions) and just swaps in our `[replay]` commands. After
-  the scenario-pool pivot (2026-04-30), self-play games have
-  random factions/leaders that don't match the source bz2 --
-  the user observed exporting an "Undead vs Loyalists" sim run
-  and having Wesnoth load it as "Red Mage vs Deathblade" because
-  that's what the source Arcanclave bz2 had. Every command then
-  diverges from turn 0 onward.
+- [x] 🟠 **`sim_to_replay` side-rewrite** (DONE 2026-05-11,
+  pragmatic fix in lieu of the full from-scratch rewrite). Adds
+  `_rewrite_sides_for_sim` that, given a source bz2 and a sim
+  with potentially different (faction, leader, recruit_list) per
+  side, rewrites each `[side]`'s top-level `type=` / `faction=` /
+  `faction_name=` / `recruit=` attrs AND its `[unit
+  canrecruit=yes]` sub-block (when present) to match the sim's
+  setup. Other `[unit]` sub-blocks (scenario-pre-placed scenery,
+  CoB petrified, Hornshark pre-placed units, etc.) stay
+  untouched. Tests in `test_sim_to_replay_rewrite.py` (5 cases):
+  leader override per layout (fresh-game vs snapshot), faction +
+  recruit attrs updated, `[replay]` block left intact,
+  idempotence. Now `tools/sim_demo_game.py` exports work for any
+  (scenario, faction, leader) combo regardless of the source
+  bz2's original setup.
 
-  Proper fix: emit the full Wesnoth save WML from
-  `tools.scenario_pool.build_scenario_gamestate`'s output +
-  `sim.command_history`, sourcing the `[scenario]` block from
-  `wesnoth_src/data/multiplayer/scenarios/2p_*.cfg`. No
-  `replays_raw/*.bz2` involvement.
+- [ ] 🟢 **Full from-scratch `sim_to_replay` rewrite (deferred).**
+  The pragmatic side-rewrite above closes the immediate user-
+  reported failure (Drakes vs Undead exported through Arcanclave
+  bz2 instantiating as Red Mage / Deathblade). A complete
+  from-scratch rewrite -- emit `[snapshot]` / `[multiplayer]` /
+  `[era]` outer wrappers from `wesnoth_src` templates + our
+  `sim.command_history` with no source bz2 involvement -- remains
+  worth doing for full source-independence and clean
+  Arcanclave / CoB / Hornshark scenario exports. Multi-hour
+  rewrite; not blocking. Until then, `sim_to_replay` requires a
+  source bz2 of the matching `scenario_id`; the side-rewrite
+  handles everything else.
 
-  Scope: needs `[savegame]` / `[snapshot]` outer wrappers,
-  `[multiplayer]` / `[era]` blocks, full per-side `[side]`
-  attrs, scenario `[unit]` blocks for any pre-placed units (CoB
-  petrified, etc.), `[time]` / `[music]` sections, then the
-  `[replay]` block with our commands. Multi-hour rewrite.
-
-  Until then, `tools/sim_demo_game.py` exports are unreliable
-  for validation. Self-play TRAINING is unaffected (no bz2
-  export in the training path; only the demo + audit paths
-  use sim_to_replay).
+  Until then (deferred full rewrite), `sim_demo_game.py` exports
+  work for any source-matched scenario_id but lose any
+  source-specific extras. Self-play TRAINING is unaffected (no
+  bz2 export in the training path).
 
 ## NEW since 2026-04-29 review
 
