@@ -11,17 +11,17 @@ strategies; cluster economy).
 - **Simulator is the production training path.** `tools/wesnoth_sim.py`
   is bit-exact for combat (731/731 strikes verified vs `[mp_checkup]`
   oracle). Full-replay `diff_replay --filter-2p` clean rate
-  **99.982% (5,484/5,485)** on the freshly extracted competitive-2p
-  corpus (2026-05-11 sweep). The 16 → 1 reduction since 2026-05-10
+  **100% (5,484/5,484)** on the freshly extracted competitive-2p
+  corpus (2026-05-11 sweep). The 16 → 0 reduction since 2026-05-10
   came from chasing specific cases one by one — multi-tier
   advancement, surrender-drop heuristic refinement to handle
   takeover-controller `skip_sighted="all"` false-positives,
   suffix-redo dedup for save-mid-move replays (Fallenstar Lake),
   partial-checkup-attack drop for save-mid-attack replays (Ruined
-  Passage), and six quarantines (2 corrupted including Sablestone
-  Delta, 1 debug-tool-using, 3 Dunefolk-player-faction replays the
-  classifier missed). The 1 residual is the Hamlets t34 gold drift
-  (sim 1 gold short — under investigation).
+  Passage), and seven quarantines for replays a human cannot
+  verifiably reconstruct from (3 corrupted including Sablestone
+  Delta + Hamlets t67, 1 debug-tool-using, 3 Dunefolk-player-faction
+  replays the classifier missed). No residual divergences.
 - **Self-play training pipeline ready.** `tools/sim_self_play.py`
   drives REINFORCE+baseline by default, AlphaZero-style MCTS via
   `--mcts`. Cluster job + GUI controls in place.
