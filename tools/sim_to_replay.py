@@ -1077,24 +1077,34 @@ def build_save_wml(
         ))
 
     # ---- compose [scenario] block: template + injected [side]s ----
-    # The template ends with `[/scenario]`. Splice our [side] blocks
-    # in just before that close so they're inside the [scenario] body.
+    # Splice ordering matters: Wesnoth processes [side] blocks IN
+    # ORDER and assumes side 1 first, then 2, then any scenery
+    # sides (3+). If our player sides 1+2 came AFTER the template's
+    # scenery side 3, side 2's leader wouldn't spawn correctly on
+    # Wesnoth playback (CoB / TSG / Sullas Ruins -- the maps with
+    # neutral scenery sides).
+    #
+    # Splice at the position of the first remaining [side] in the
+    # template (which is the scenery side after _strip_player_side_blocks);
+    # or, if there is no scenery side, just before [/scenario].
     # Newlines are load-bearing: the WML parser is line-based and
     # treats `[/scenario][carryover_sides_start]` (or similar
-    # back-to-back) as one unparseable line, dropping the second
-    # block. Normalize: ensure the scenario block ENDS with exactly
-    # one trailing `\n` so the next top-level block starts on its
-    # own line in the spliced output.
+    # back-to-back) as one unparseable line.
     close_idx = template_body.rfind("[/scenario]")
     if close_idx < 0:
         raise RuntimeError(
             f"template {template_path.name} missing [/scenario]")
+    first_side_m = re.search(r'^\[side\]', template_body, re.MULTILINE)
+    insert_idx = (first_side_m.start()
+                  if first_side_m is not None
+                  else close_idx)
     side_text = "".join(side_blocks)
     if side_text and not side_text.endswith("\n"):
         side_text += "\n"
     scenario_block = (
-        template_body[:close_idx]
+        template_body[:insert_idx]
         + side_text
+        + template_body[insert_idx:close_idx]
         + "[/scenario]\n"
     )
     scen_name = scenario_id  # fallback if template parse fails

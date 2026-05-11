@@ -249,6 +249,32 @@ def test_aethermaw_emit_carries_morph_events(tmp_path):
     )
 
 
+def test_emit_side_order_is_ascending(tmp_path):
+    """Wesnoth processes [side] blocks in order and expects them
+    in ascending side-number order (side=1, side=2, side=3, ...).
+    If we splice our player sides AFTER the template's scenery side
+    (which was the bug user reported -- CoB and TSG side 2 leader
+    failing to spawn), the order becomes (3, 1, 2) and Wesnoth
+    drops side 2.
+
+    Regression: for every map with a scenery side, verify the
+    emitted side order is monotonically ascending."""
+    from tools.replay_extract import parse_replay_file
+    for sid in ("multiplayer_Basilisk",
+                "multiplayer_thousand_stings_garrison",
+                "multiplayer_Sullas_Ruins"):
+        sim = _build_sim_for(sid)
+        out = tmp_path / f"{sid}.bz2"
+        export_replay_from_scratch(sim, out)
+        root = parse_replay_file(out)
+        scn = root.first("scenario")
+        side_nums = [int(s.attrs.get("side", 0)) for s in scn.all("side")]
+        assert side_nums == sorted(side_nums), (
+            f"{sid}: [side] blocks out of order: {side_nums}; "
+            f"Wesnoth requires ascending side numbers"
+        )
+
+
 def test_emit_preserves_scenery_side_units(tmp_path):
     """Scenery sides (side 3+) carry pre-placed statues / decorations
     that several ladder maps depend on: Caves of the Basilisk's 15
