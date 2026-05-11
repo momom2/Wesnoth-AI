@@ -667,6 +667,37 @@ def run_iteration(
 # CLI
 # ---------------------------------------------------------------------
 
+def _parse_time_budget(spec: Optional[str]) -> Optional[int]:
+    """Parse a wall-time budget string into seconds. Accepts:
+
+      - None / empty -> None (no budget)
+      - raw integer seconds:        "13800"
+      - MM:SS:                      "50:00"      (50 minutes)
+      - HH:MM:SS:                   "03:50:00"   (3h 50m)
+
+    Returns the budget in integer seconds, or None when the input is
+    None / empty. Raises ValueError on a malformed spec so the
+    caller can fail loudly rather than silently disabling the
+    budget.
+    """
+    if not spec:
+        return None
+    s = spec.strip()
+    if ":" in s:
+        parts = s.split(":")
+        if len(parts) == 2:
+            mm, ss = parts
+            return int(mm) * 60 + int(ss)
+        if len(parts) == 3:
+            hh, mm, ss = parts
+            return int(hh) * 3600 + int(mm) * 60 + int(ss)
+        raise ValueError(
+            f"--time-budget {spec!r}: expected 'HH:MM:SS', 'MM:SS', "
+            f"or integer seconds"
+        )
+    return int(s)
+
+
 def main(argv: List[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -679,7 +710,21 @@ def main(argv: List[str]) -> int:
                     default=Path("training/checkpoints/sim_selfplay.pt"),
                     help="Where to write checkpoints.")
     ap.add_argument("--iterations", type=int, default=10,
-                    help="How many train_step iterations to run.")
+                    help="Hard ceiling on train_step iterations. When "
+                         "`--time-budget` is set, this is mostly a "
+                         "safety cap -- the time budget will normally "
+                         "exit first.")
+    ap.add_argument("--time-budget", type=str, default=None,
+                    help="Stop after this much elapsed wall time, "
+                         "saving a final checkpoint before exit. "
+                         "Accepts 'HH:MM:SS', 'MM:SS', or a raw "
+                         "integer of seconds (e.g. '03:50:00' = "
+                         "13800 = 3h50m). On cluster jobs this is "
+                         "the right way to bound runtime -- pair with "
+                         "a large --iterations ceiling so the time "
+                         "budget is the practical exit. Leave None "
+                         "(default) to run until --iterations runs "
+                         "out or the operator kills the process.")
     ap.add_argument("--games-per-iter", type=int, default=4,
                     help="Self-play games rolled out per train_step.")
     ap.add_argument("--max-turns", type=int, default=200,
@@ -919,6 +964,22 @@ def main(argv: List[str]) -> int:
         else:
             forced_faction_arg = args.forced_faction
 
+    # Parse --time-budget once. Wall-time exit lets cluster jobs run
+    # for "as much as SLURM will give me, minus a couple minutes of
+    # headroom to save the checkpoint" rather than guessing how many
+    # iterations fit in a walltime window.
+    time_budget_s = _parse_time_budget(args.time_budget)
+    t_start = time.perf_counter()
+    if time_budget_s is not None:
+        log.info(
+            f"time-budget: {time_budget_s} s "
+            f"({time_budget_s // 3600:02d}:"
+            f"{(time_budget_s % 3600) // 60:02d}:"
+            f"{time_budget_s % 60:02d} HH:MM:SS); will save + exit "
+            f"after the first iteration that finishes past this "
+            f"mark. --iterations is a ceiling only."
+        )
+
     # Trip if N iterations in a row produce zero games. The most
     # common cause is missing data files (terrain_db.json,
     # unit_stats.json) — every scenario gets skipped silently and
@@ -951,8 +1012,29 @@ def main(argv: List[str]) -> int:
                 return 3
         else:
             consecutive_dead = 0
-        if (it + 1) % args.save_every == 0 or (it + 1) == args.iterations:
+        # Time-budget early exit. Check AFTER the iteration finishes
+        # rather than mid-iteration: a partial iteration's gradient
+        # update wouldn't have happened yet, so cutting mid-iter
+        # would waste the rollout work AND the loop's invariant
+        # (every emitted "iter K done" message reflects a completed
+        # train_step) would break. Save a checkpoint at the natural
+        # save-every cadence below, then break.
+        elapsed = time.perf_counter() - t_start
+        time_budget_exceeded = (
+            time_budget_s is not None and elapsed >= time_budget_s
+        )
+        if (it + 1) % args.save_every == 0 \
+                or (it + 1) == args.iterations \
+                or time_budget_exceeded:
             policy.save_checkpoint(args.checkpoint_out)
+        if time_budget_exceeded:
+            log.info(
+                f"time-budget exhausted ({elapsed:.0f}s >= "
+                f"{time_budget_s}s) after iter {it + 1}; "
+                f"checkpoint saved, exiting cleanly so the next "
+                f"chain link can pick up where this one left off."
+            )
+            break
     return 0
 
 

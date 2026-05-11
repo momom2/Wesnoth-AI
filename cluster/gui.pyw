@@ -608,6 +608,13 @@ class App:
             f"SAVE_EVERY={params['save_every']}",
             f"SEED={params['seed']}",
         ]
+        # Time budget is the primary cluster-job exit criterion;
+        # the sbatch defaults to TIME_BUDGET=03:50:00. Forward
+        # the dialog value when non-empty so the operator can
+        # tighten it for short test runs without re-editing the
+        # sbatch.
+        if params.get("time_budget"):
+            export_kvs.append(f"TIME_BUDGET={params['time_budget']}")
         if params["forced_faction"] == "(none / fully random)":
             export_kvs.append("FORCED_FACTION=none")
         else:
@@ -751,6 +758,11 @@ class App:
             "--save-every",     str(params["save_every"]),
             "--seed",           str(params["seed"]),
         ]
+        if params.get("time_budget"):
+            argv += ["--time-budget", str(params["time_budget"])]
+            self._log(
+                f"[selfplay] time-budget: {params['time_budget']} "
+                f"(loop exits with a saved checkpoint when elapsed)")
         if params["forced_faction"] == "(none / fully random)":
             argv += ["--forced-faction", "none"]
         else:
@@ -795,9 +807,17 @@ class App:
 
         dialog_key = "selfplay_cluster" if cluster_mode else "selfplay_local"
 
-        # Hardcoded baseline.
+        # Hardcoded baseline. `iterations` is a safety ceiling now;
+        # `time_budget` is the real exit on cluster jobs (the
+        # sim_self_play loop saves a final checkpoint when the budget
+        # is exhausted, so wall-time replaces iter-count as the
+        # primary stopping criterion). Cluster default 03:50:00
+        # matches job_selfplay.sbatch's TIME_BUDGET default (5min
+        # headroom under the 03:55:00 SLURM walltime). Local default
+        # empty = no time budget (operator-driven runs).
         defaults = {
-            "iterations":     1000 if cluster_mode else 10,
+            "iterations":   100000 if cluster_mode else 10,
+            "time_budget":  ("03:50:00" if cluster_mode else ""),
             "games_per_iter":  8 if cluster_mode else 4,
             "max_turns":     200 if cluster_mode else 200,
             "workers":         6 if cluster_mode else 4,
@@ -821,6 +841,7 @@ class App:
                 defaults[k] = v
 
         v_iters     = tk.IntVar(value=defaults["iterations"])
+        v_tbudget   = tk.StringVar(value=defaults["time_budget"])
         v_games     = tk.IntVar(value=defaults["games_per_iter"])
         v_turns     = tk.IntVar(value=defaults["max_turns"])
         v_workers   = tk.IntVar(value=defaults["workers"])
@@ -842,28 +863,33 @@ class App:
                 tk.Label(dlg, text=hint, fg="gray").grid(
                     row=row, column=2, padx=4, pady=3, sticky="w")
 
-        # Row 0: iteration count
+        # Row 0: iteration count (safety ceiling; time budget is the
+        # primary exit on cluster jobs).
         grid("Iterations:",
-             tk.Spinbox(dlg, from_=1, to=10000, textvariable=v_iters, width=10),
-             0, "outer training-loop count")
+             tk.Spinbox(dlg, from_=1, to=1000000,
+                        textvariable=v_iters, width=10),
+             0, "safety ceiling (time-budget wins normally)")
+        grid("Time budget:",
+             tk.Entry(dlg, textvariable=v_tbudget, width=10),
+             1, "HH:MM:SS or seconds; empty = no time limit")
         grid("Games per iter:",
              tk.Spinbox(dlg, from_=1, to=64, textvariable=v_games, width=10),
-             1, "rollouts before each train_step")
+             2, "rollouts before each train_step")
         grid("Max turns:",
              tk.Spinbox(dlg, from_=20, to=500, textvariable=v_turns, width=10),
-             2, "per-game turn cap")
+             3, "per-game turn cap")
         grid("Workers:",
              tk.Spinbox(dlg, from_=0, to=12, textvariable=v_workers, width=10),
-             3, "0 = serial, N = parallel rollouts")
+             4, "0 = serial, N = parallel rollouts")
         grid("Save every (iters):",
              tk.Spinbox(dlg, from_=1, to=100, textvariable=v_save, width=10),
-             4, "checkpoint write cadence")
+             5, "checkpoint write cadence")
         grid("Seed:",
              tk.Spinbox(dlg, from_=0, to=999999, textvariable=v_seed, width=10),
-             5, "RNG seed for reproducibility")
+             6, "RNG seed for reproducibility")
         grid("Forced faction:",
              tk.OptionMenu(dlg, v_faction, *self._FACTIONS),
-             6, "always present on at least one side")
+             7, "always present on at least one side")
 
         # Reward config picker. Greyed out when MCTS is enabled
         # (AlphaZero distills the terminal z, ignoring shaping
@@ -883,10 +909,10 @@ class App:
                             command=_pick_reward)
         rew_btn.pack(side="left", padx=(4, 0))
         rew_label = tk.Label(dlg, text="Reward config:", anchor="e")
-        rew_label.grid(row=7, column=0, padx=6, pady=3, sticky="e")
-        rew_frame.grid(row=7, column=1, padx=6, pady=3, sticky="ew")
+        rew_label.grid(row=8, column=0, padx=6, pady=3, sticky="e")
+        rew_frame.grid(row=8, column=1, padx=6, pady=3, sticky="ew")
         rew_hint = tk.Label(dlg, text="(unused in MCTS mode)", fg="gray")
-        rew_hint.grid(row=7, column=2, padx=4, pady=3, sticky="w")
+        rew_hint.grid(row=8, column=2, padx=4, pady=3, sticky="w")
 
         # MCTS row. Off by default (REINFORCE training); checking
         # the box flips the cluster sbatch's USE_MCTS flag, which
@@ -906,7 +932,7 @@ class App:
         tk.Label(mcts_frame, text="  batch:").pack(side="left")
         tk.Spinbox(mcts_frame, from_=1, to=64, textvariable=v_mcts_bs,
                    width=4).pack(side="left", padx=2)
-        grid("MCTS:", mcts_frame, 9,
+        grid("MCTS:", mcts_frame, 10,
              "off=REINFORCE; on=AlphaZero-style search")
 
         # Grey out the reward-config widgets when MCTS is on. The
@@ -940,12 +966,13 @@ class App:
                     v_ckpt.set(p)
             tk.Button(ckpt_frame, text="...", width=3,
                       command=_pick_ckpt).pack(side="left", padx=(4, 0))
-            grid("Checkpoint:", ckpt_frame, 8,
+            grid("Checkpoint:", ckpt_frame, 9,
                  "blank = train from random init")
 
         def on_ok():
             params = {
                 "iterations":      v_iters.get(),
+                "time_budget":     v_tbudget.get().strip(),
                 "games_per_iter":  v_games.get(),
                 "max_turns":       v_turns.get(),
                 "workers":         v_workers.get(),

@@ -71,15 +71,26 @@ fi
 # GPU the forward happens off-thread (cuda kernels), so workers
 # overlap with one another's encode steps.
 #
-# --iterations 1000: a large finite ceiling. Walltime cuts us off
-# well before this (single iter is seconds-to-minutes); the chain
-# resubmits from the latest checkpoint. Setting this huge means
-# we never naturally terminate; only the manual `selfplay_done.flag`
-# below stops the chain.
+# --iterations 100000: a very large safety ceiling. The real exit
+# criterion is --time-budget below: the trainer saves a final
+# checkpoint when wall-time is exhausted, so SIGTERM from SLURM
+# is no longer the loop-exit mechanism. The chain resubmits from
+# the saved checkpoint via `bash cluster/run.sh continue selfplay`
+# (or the GUI's "Sync + Continue" button); only the manual
+# `selfplay_done.flag` stops the chain entirely.
 #
-# --save-every 5: checkpoint every 5 iterations. Balances "lose
-# little on SIGTERM" against "don't thrash the disk". A walltime
-# kill mid-iteration loses at most ~5 iterations of progress.
+# --time-budget 03:50:00: 3h50m. Walltime ceiling above is 03:55:00,
+# so this leaves 5min headroom for the trainer to save + exit
+# cleanly, well before SLURM hard-kills the process. With the old
+# iter-based bound, walltime kills mid-iteration could lose up to
+# `save-every` iterations of progress -- now the loop exits at
+# its own checkpoint boundary so worst-case loss is one iteration
+# of rollout.
+#
+# --save-every 5: checkpoint every 5 iterations. Now mostly
+# defensive (matters only if the process is force-killed mid-iter,
+# e.g. operator hits Stop). Time-budget exit always saves before
+# return.
 #
 # --max-turns 60: standard 2p Wesnoth games rarely run past turn 60
 # and most decide by turn 40. Cap at 60 so a stuck game doesn't
@@ -91,7 +102,8 @@ fi
 # Each knob accepts an env var override (sbatch --export=KEY=VAL).
 # The defaults below run if the operator submits without --export,
 # which matches the "Start self-play" button's behavior.
-ITERATIONS="${ITERATIONS:-1000}"
+ITERATIONS="${ITERATIONS:-100000}"
+TIME_BUDGET="${TIME_BUDGET:-03:50:00}"
 WORKERS="${WORKERS:-6}"
 GAMES_PER_ITER="${GAMES_PER_ITER:-8}"
 MAX_TURNS="${MAX_TURNS:-200}"
@@ -127,9 +139,10 @@ if [ "${USE_MCTS:-0}" = "1" ] || [ "${USE_MCTS:-}" = "true" ]; then
                --mcts-batch-size "${MCTS_BATCH_SIZE:-1}")
 fi
 
-echo "[job] params: iters=${ITERATIONS} games/iter=${GAMES_PER_ITER} " \
-     "max_turns=${MAX_TURNS} workers=${WORKERS} save_every=${SAVE_EVERY} " \
-     "seed=${SEED} forced_faction='${FORCED_FACTION:-(default)}' " \
+echo "[job] params: iters=${ITERATIONS} time_budget=${TIME_BUDGET} " \
+     "games/iter=${GAMES_PER_ITER} max_turns=${MAX_TURNS} " \
+     "workers=${WORKERS} save_every=${SAVE_EVERY} seed=${SEED} " \
+     "forced_faction='${FORCED_FACTION:-(default)}' " \
      "reward=${REWARD_CONFIG} " \
      "mcts=${USE_MCTS:-0} (sims=${MCTS_SIMS:-50}, c_puct=${MCTS_C_PUCT:-1.5})"
 
@@ -138,6 +151,7 @@ python -u tools/sim_self_play.py \
     --checkpoint-out "${SP_CKPT}" \
     --device cuda \
     --iterations ${ITERATIONS} \
+    --time-budget "${TIME_BUDGET}" \
     --games-per-iter ${GAMES_PER_ITER} \
     --max-turns ${MAX_TURNS} \
     --workers ${WORKERS} \
