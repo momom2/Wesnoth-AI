@@ -29,8 +29,31 @@ strategies; cluster economy).
   K=51 atom C51 head over [-1, +1]. Cliffness signal published.
   Bayesian-precision bootstrap weighting + adaptive sim budget
   framework wired but default OFF pending calibration.
+- **Calibration tooling landed 2026-05-11.**
+  `tools/collect_cliffness.py` + `tools/eval_mcts_vs_reinforce.py`
+  emit the histogram + head-to-head reports `docs/cliffness_calibration.md`
+  and `docs/mcts_vs_reinforce_eval.md`. Both surface a CAVEAT
+  block when the checkpoint predates the C51 head -- real
+  numbers blocked on the next training cycle.
 - **Live Wesnoth IPC** retained for `--display` and
   `tools/eval_vs_builtin.py`; not used for training.
+
+### Open-items tally after the 2026-05-11 cleanup sweep
+
+Six items remain open, all of them deliberate non-bug work:
+
+| # | Item | Status |
+|---|---|---|
+| 1 | Full from-scratch `sim_to_replay` rewrite | DEFERRED -- the pragmatic side-rewrite (commit f92464a) covers the user-reported failure mode; full rewrite is source-independence polish, not blocking. |
+| 2 | Cliffness empirical calibration | BLOCKED on training cycle |
+| 3 | Cliffness similarity-hashing TT (lossy / soft TT) | DESIGN PROJECT (own initiative, not a bug) |
+| 4 | Replay-corpus filter (rating / faction / scenario triplet) | DESIGN (training-data quality lever) |
+| 5 | `WesnothSim.from_replay_at_turn(target_turn)` | DESIGN (mid-game restarts for curriculum) |
+| 6 | Mini-scenarios for training specific capabilities | DESIGN (curriculum mix) |
+
+Plus two USER-DECISION items pending: keep or drop `main.py
+--display` + `game_manager.py` now that bz2-replay-export
+covers the same use case.
 
 > **2026-05-10 finding: dataset was stale (now refreshed).** The
 > May-4 Stages 1–21 sweep brought combat/scenario fidelity to
@@ -1133,18 +1156,27 @@ several smaller gaps. Remaining work:
   Re-run `python tools/scrape_unit_stats.py wesnoth_src
   unit_stats.json` to refresh the snapshot.
 
-- [ ] 🟡 **Per-gender unit-type traits not handled.** Black Horse
-  (Horse_Black.cfg) has `[male] {TRAIT_STRONG}` / `[female]
-  {TRAIT_FEARLESS}` — gender-specific pool entries. Our scraper
-  merges both genders' traits into a single pool. Not a
-  default-era PvP issue (Black Horse isn't recruitable), but
-  fidelity-relevant for any future Black-Horse-mod era.
+- [~] 🟢 **Per-gender unit-type traits — out of current scope.**
+  Black Horse (Horse_Black.cfg) has `[male] {TRAIT_STRONG}` /
+  `[female] {TRAIT_FEARLESS}` -- gender-specific pool entries.
+  Our scraper merges both genders' traits into a single pool.
+  Default-era PvP doesn't include Black Horse in any recruit
+  list (verified by grepping `wesnoth_src/data/multiplayer/factions/`)
+  so this never fires on the training corpus. Marked as
+  scope-bounded: re-open if/when we add an era where a
+  gender-distinct-traits unit becomes recruitable.
 
-- [ ] 🟢 **`diff_replay` could surface combat HP per-strike**
-  to make cascade-class diagnosis easier. Currently it stops at
-  the first divergence; combat divergence should ideally compare
-  per-strike outcomes against the replay's `[mp_checkup]/[result]`
-  blocks rather than waiting for a state-level cascade.
+- [x] 🟢 **Per-strike combat diff** — SUPERSEDED by
+  `tools/diff_combat_strike.py` (already in the tree before this
+  BACKLOG sweep). That tool walks any strict-sync replay's
+  `[mp_checkup]/[result]` blocks and reports the first per-strike
+  mismatch against our combat resolver bit-exactly. `diff_replay`
+  is for STATE-level divergence (cascade-class diagnosis); the
+  two tools are intentionally separated since their domain
+  (strict-sync only vs all replays) and semantics (per-strike
+  vs per-command) differ. Wire-up by piggybacking onto
+  `test_combat_seed_alignment.py` so the bit-exact contract is
+  also CI-enforced as of 2026-05-11.
 
 - [x] 🟠 **Encoder runs at batch_size=1** (DONE 2026-05-11, commit
   ad359ae). `encode_from_raw_batch` fuses the 19+ embedding /
@@ -1173,10 +1205,11 @@ several smaller gaps. Remaining work:
   corpus. Three cases: fixture present, extract idempotence,
   full round-trip.
 
-- [ ] 🟢 **Optional `[checkup]` debug emission in `sim_to_replay`**
-  (already tracked under exporter section). Promote: cheapest
-  diagnostic possible for OOS / cascade-class debugging since
-  Wesnoth would name the exact diverging strike. Worth doing
+- [~] 🟢 **Optional `[checkup]` debug emission in `sim_to_replay`**
+  -- on hold (was: "cheapest diagnostic for OOS / cascade-class
+  debugging since Wesnoth would name the exact diverging strike").
+  Both Arcanclave OOSes (the main motivating case) are now
+  resolved, so the diagnostic has no immediate consumer. Worth doing
   before next OOS hunt.
 
 References are `path/file.py:line`. Each item is actionable on its own.
@@ -1559,21 +1592,25 @@ replay export.
   720 (gender) and `generate_traits` use the synced `generator`. Our
   trait code is correct as-is.
 
-- [ ] 🟡 **Move command always emits 2-hex paths**
-  (`tools/wesnoth_sim.py:570-573`, `tools/sim_to_replay.py:108-118`).
-  Today the policy can only emit adjacent moves so this works, but
-  Wesnoth replay stores full multi-hex paths and fires `enter_hex`
-  events on intermediate hexes. Document the invariant; if we ever
-  expose multi-hex moves to the policy, the recon engine will follow
-  the straight-line interpretation (sometimes wrong) and miss
-  enter_hex events on custom maps.
+- [x] 🟡 **Move command 2-hex path invariant documented + asserted**
+  (DONE 2026-05-11). `_action_to_command` now has a block-comment
+  spelling out the single-step invariant + the migration steps for
+  when multi-hex paths get exposed (action dict gets a `path` field;
+  validate each step's adjacency + MP cost; emit full WML path).
+  Hard assertion fires if a future caller passes `action["path"]`
+  without the supporting plumbing, turning the silent-degradation
+  failure mode into a loud `NotImplementedError`. Today the policy
+  + sampler only emit adjacent moves, so the assertion is dormant
+  insurance; will surface immediately if the contract is broken.
 
-- [ ] 🟡 **Fog and shroud are not updated post-move/attack**
-  (`tools/replay_dataset.py`). Default 2p has fog/shroud disabled so
-  this is moot for the current eval set, but exporting on a fogged
-  scenario will OOS on the first move that "should have" cleared fog.
-  Audit: grep a real `replays_raw/*.bz2` for `[clear_shroud_uncovers_unit]`
-  to confirm whether 2p replays carry these dependents.
+- [~] 🟡 **Fog/shroud post-move updates -- out of current scope.**
+  Audited 2026-05-11: 0/50 randomly-sampled competitive-2p replays
+  carry `[clear_shroud_uncovers_unit]` dependents. Default 2p has
+  fog effectively disabled, so the sim's no-fog-update behavior
+  produces clean state reconstruction across the full corpus
+  (100% `diff_replay` clean -- see the headline at the top).
+  Re-open when we add a fogged scenario to the rotation or expose
+  fog visibility to the encoder; today neither is queued.
 
 - [x] 🟡 **Fog hexes retained in encoder** (DONE 2026-04-28). The
   encoder previously dropped `gs.map.fog` hexes from the hex token
@@ -1646,9 +1683,11 @@ replay export.
   Old `errors="ignore"` could shift offsets by dropping bytes,
   breaking the [replay]-block splice silently.
 
-- [ ] 🟢 **Optional `[checkup]` debug emission** — let the user flip a
-  flag and emit `attacker_hp/defender_hp` checkup blocks so OOS
-  divergences point at the exact diverging strike. Cheap diagnostic.
+- [~] 🟢 **Optional `[checkup]` debug emission** -- on hold; see
+  the duplicate entry under the simulator section. Both Arcanclave
+  OOSes resolved, so the diagnostic has no immediate consumer.
+  Re-open if a new OOS appears and root-causing it via
+  Python-side audit is too slow.
 
 ### Tests
 
@@ -1869,10 +1908,14 @@ replay export.
   2026-04-28). action_sampler now imports the constant; "pacifist"
   / "berserker" tuning is a config flip in one place.
 
-- [ ] 🟢 **Combat-oracle bias only on attacks, not on moves**
-  (`action_sampler.py:467`). Adding move-toward-good-attack-position
-  bias would help unorthodox-strategy training. Infrastructure already
-  there.
+- [~] 🟢 **Combat-oracle bias on moves — feature, not a bug.**
+  Today the oracle biases attack target_logits only; biasing
+  move target_logits toward hexes that *would enable* a good
+  attack next step is a feature addition (training-quality
+  lever), not a correctness fix. Out of scope for the cleanup
+  pass; re-open when we have empirical evidence the policy is
+  failing to set up favorable attacks despite winning the
+  attack-choice when it gets there.
 
 - [x] 🟢 **`DEFAULT_FACTIONS` lives in constants.py** (DONE
   2026-04-28). Encoder re-exports `_DEFAULT_FACTIONS` from
@@ -2024,16 +2067,22 @@ weight. Eval still needs real Wesnoth, so be cautious.
   `turn_stage.lua`, `json_encoder.lua` — eval pipeline.
 - `_main.cfg`, `ai_config.cfg`, `training_scenario.cfg`, `eval/*.cfg`.
 
-### CONDITIONAL
+### CONDITIONAL (awaiting operator call -- do not delete without user OK)
 
-- [ ] 🟡 **`game_manager.py`** — only entered via `main.py`'s training
-  /display path. If `main.py --display` is no longer wanted (we have
-  bz2 replay export now), DELETABLE.
+- [?] 🟡 **`game_manager.py`** — only entered via `main.py`'s
+  training / display path. The training path migrated to the
+  simulator (`tools/sim_self_play.py`) 2026-04-29; display path
+  is the only remaining consumer. If `--display` goes, this can
+  go too. **User decision: keep `--display` for live-watch, or
+  drop it now that `tools/sim_to_replay.py` + Wesnoth's replay
+  viewer covers the same use case?**
 
-- [ ] 🟡 **`main.py --display` mode + `training_scenario_display.cfg`** —
-  only useful for watching a trained model in real Wesnoth. Replaced by
-  `tools/sim_to_replay.py` + Wesnoth's GUI replay viewer. KEEP if you
-  value live-watch; DELETABLE otherwise.
+- [?] 🟡 **`main.py --display` mode +
+  `training_scenario_display.cfg`** — only useful for watching a
+  trained model in real Wesnoth with animations. Same question
+  as above. The simulator demo path produces bz2 replays the
+  Wesnoth GUI plays back (no live policy hookup, but otherwise
+  equivalent for visual inspection).
 
 ---
 

@@ -1179,6 +1179,29 @@ class WesnothSim:
         if atype == "move":
             start: Position = action["start_hex"]
             target: Position = action["target_hex"]
+            # Move-action invariant: actions only carry (start, target)
+            # hex pairs -- single-step moves. The policy's mask
+            # restricts moves to adjacent hexes, and Wesnoth replays
+            # we EXTRACT can carry multi-hex paths (replay_extract
+            # preserves them), but the SIM doesn't model multi-hex
+            # action dicts. If a future change exposes multi-step
+            # moves to the policy:
+            #   1. The action dict gains a `path: List[Position]`
+            #      field (or similar) -- assert below catches the
+            #      transition.
+            #   2. `_action_to_command` would need to validate each
+            #      step's adjacency + MP cost and emit the full
+            #      path in the WML, including firing enter_hex
+            #      events for scenarios that depend on them.
+            #   3. sim_to_replay's `_wml_for_command` would need to
+            #      emit the full path verbatim.
+            if "path" in action:
+                raise NotImplementedError(
+                    "multi-step `path` field in move action dict "
+                    "not supported by the sim yet; see invariant "
+                    "comment in _action_to_command. Pass a single "
+                    "(start_hex, target_hex) pair instead."
+                )
             # Validate the move is legal: target must be a hex
             # neighbor of start, the source must hold one of OUR
             # units, and the unit must have enough MP to ENTER the
