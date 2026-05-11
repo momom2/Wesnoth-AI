@@ -2097,7 +2097,8 @@ collected here:
 | Cliffness adaptive sim budget | ✅ framework wired (off by default, n_min/n_max uncalibrated) | test_mcts_cliffness.py |
 | Cliffness similarity-hashing TT | ❌ deferred (own design project; needs lossy hash) | this BACKLOG entry |
 | Cliffness empirical calibration | ⚠️ collection tool landed (`tools/collect_cliffness.py`, `docs/cliffness_calibration.md`); first real data needs a C51-trained checkpoint | blocks on training cycle |
-| MCTS-vs-REINFORCE comparative eval | ❌ not run | downstream of calibration |
+| MCTS-vs-REINFORCE comparative eval | ⚠️ harness landed (`tools/eval_mcts_vs_reinforce.py`, `docs/mcts_vs_reinforce_eval.md`); pre-C51 + passive-supervised checkpoint produces 10/10 draws (caveat in report); needs trained C51 checkpoint | blocks on training cycle |
+| MCTS-vs-REINFORCE comparative eval | ⚠️ moved up (see above) | --- |
 
 ---
 
