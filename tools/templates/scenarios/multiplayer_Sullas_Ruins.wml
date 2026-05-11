@@ -1,0 +1,420 @@
+# Per-scenario [scenario] template for from-scratch save
+# WML emission. Extracted from a real Wesnoth save (after
+# the engine expanded macros + scenario events). All
+# [side] sub-blocks stripped at extraction; the runtime
+# emitter (tools/sim_to_replay.build_save_wml) inserts
+# fresh [side] blocks per game from sim state.
+#
+# Source: replays_raw/.../2p__Sullas_Ruins_Turn_39_(95694).bz2
+# Regenerate via: python tools/extract_scenario_templates.py
+[scenario]
+description="Flooded by the seas and battered by the winter elements, only ruins, water and ice now remain in the shadow of this once mighty empire."
+experience_modifier="70"
+has_mod_events="yes"
+id="multiplayer_Sullas_Ruins"
+loaded_resources=""
+map_data="_off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr
+_off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr
+_off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr
+_off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, Mm, Gs^Fet, Hh, Hh, Gs, Gs, Rb, Mm^Vhh, 2 Ke, Gs^Fp, Ce, Gs^Fp, Wwf, Mm, Gs^Fet, Gs^Fp, Gs, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr
+_off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, Hh, Mm, Gs, Gs, Rb, Ce, Ke, Ce, Rb, Gs, Gs, Ce, Ce, Wwf, Ke, Hh, Ce, Hh, Rb, Rb, Gs^Fp, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr
+_off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, Wwf, Gs, Wwf, Gs^Fet, Gs, Rb, Hh, Rb, Gs^Fp, Mm, Gs^Fp, Rb, Gs^Vht, Gs, Wwf, Wwf, Wwf, Ce, Wwf, Ce, Ce, Gs, Wwf, Wwf, Gs, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr
+_off^_usr, _off^_usr, _off^_usr, _off^_usr, Gs^Fp, Hh, Gs, Wwf, Chw, Wwf, Wwf, Mm, Gs, Gs, Ww, Ww, Ww, Hh, Wwf, Wwf, Rb, Gs^Fp, Gs, Wwf, Gs, Wwf, Wwf, Wwf, Mm, Gs^Fp, Gs, Gs^Fet, Hh, _off^_usr, _off^_usr, _off^_usr, _off^_usr
+_off^_usr, _off^_usr, _off^_usr, Mm, Gs, Gs, Gs, Rr, Gs, Gs, Gs^Vht, Wwf, Wwf, Chw, Chr, Wo, Ww, Mm, Wwf, Hh, Gs, Rb, Ss^Vhs, Gs, Rb, Gs, Gs, Gs, Gs, Hh, Gs, Gs, Wwf, Mm, _off^_usr, _off^_usr, _off^_usr
+_off^_usr, _off^_usr, _off^_usr, Gs^Fp, Rb, Gs, Gs, Gs, Gs, Rb, Hh, Rr, Wwf, Khr, Rr, Chw, Wwf, Wwf, Gs, Gs, Gs, Rb, Gs^Fp, Hh, Rb, Gs, Ss^Vhs, Gs, Khr, Gs, Gs, Wwf, Gs^Fp, Wwf, _off^_usr, _off^_usr, _off^_usr
+_off^_usr, _off^_usr, _off^_usr, Gs, Chw, Rb, Gs, Gs, Mm, Rb, Gs, Gs, Gs, Wwf, Wwf, Wwf, Ww, Ww, Gs, Gs, Gs, Gs, Hh, Mm, Gs, Ww, Wo, Ww, Chw, Wwf, Wwf, Wwf, Gs^Fp, Hh, _off^_usr, _off^_usr, _off^_usr
+_off^_usr, _off^_usr, _off^_usr, Hh, Gs, Gs, Wwf, Rr, Wwf, Gs, Wwf, Rr, Gs, Gs^Fp, Gs, Gs, Ww, Gs, Ss^Vhs, Gs^Fp, Chw, Gs, Gs, Gs, Wwf, Ww, Ww, Ww, Chw, Chw, Gs, Gs, Gs, Gs, _off^_usr, _off^_usr, _off^_usr
+_off^_usr, _off^_usr, _off^_usr, Gs, Gs, Gs, Rr, Wo, Wo, Chw, Chw, Wwf, Gs^Vht, Gs, Gs, Ww, Gs, Gs, Gs, Hh, Gs, Chw, Gs, Gs^Vht, Gs^Fp, Wwf, Gs, Wwf, Wwf, Rr, Gs, Gs, Mm, Wo, _off^_usr, _off^_usr, _off^_usr
+_off^_usr, _off^_usr, _off^_usr, Mm, Hh, Gs, Gs, Wwf, Gs, Rr, Mm, Gs, Gs, Gs^Fp, Gs, Ww, Wwf, Gs, Wwf, Gs, Rr, Gs, Gs, Gs, Wwf, Wwf, Gs, Gs, Gs^Fet, Wwf, Wwf, Gs, Wwf, Hh, _off^_usr, _off^_usr, _off^_usr
+_off^_usr, _off^_usr, _off^_usr, Hh, Gs^Fp, Gs, Gs, Gs, Gs^Fp, Gs, Gs, Rb, Rb, Gs, Wwf, Wwf, Ai, Wwf, Chw, Wwf, Wwf, Rr, Wwf, Wwf, Mm, Hh, Gs^Fp, Rb, Rb, Hh, Gs, Wwf, Gs^Fp, Wwf, _off^_usr, _off^_usr, _off^_usr
+_off^_usr, _off^_usr, _off^_usr, Wo, Chw, Gs, Gs, Gs, Gs, Gs^Fet, Gs, Hh, Rb, Hh, Wwf, Aa, Aa^Fpa, Ha, Aa^Fpa, Ai, Wwf, Wo, Gs, Gs^Fp, Rb, Gs, Rb, Chw, Chw, Rb, Gs, Gs, Rr, Hh, _off^_usr, _off^_usr, _off^_usr
+_off^_usr, _off^_usr, _off^_usr, Mm, Rr, Gs, Gs, Gs, Rr, Gs, Chw, Chw, Chw, Gs, Chw, Wwf, Ha, Ms, Khr, Ha^Fpa, Ha, Wwf, Chw, Gs, Chw, Chw, Rb, Rb, Gs, Rb, Gs, Gs, Hh, Mm, _off^_usr, _off^_usr, _off^_usr
+_off^_usr, _off^_usr, _off^_usr, Gs^Fet, Gs, Gs, Gs, Rr, Chw, Rb, Rb, Rb, Rb, Gs, Gs, Wwf, Wwf, Ha^Fpa, Aa^Fpa, Ms, Aa^Fpa, Wwf, Wwf, Gs, Rb, Rb, Hh, Gs, Gs^Fp, Gs, Gs, Gs, Gs^Fet, Wo, _off^_usr, _off^_usr, _off^_usr
+_off^_usr, _off^_usr, _off^_usr, Wwf, Wwf, Wwf, Wwf, Gs^Fp, Hh, Chw, Gs, Hh, Mm, Gs^Fp, Wwf, Wo, Wwf, Ai, Chw, Ha, Ai, Aa, Wwf, Hh, Rb, Hh, Wwf, Rb, Hh, Gs, Gs, Gs, Rb, Chw, _off^_usr, _off^_usr, _off^_usr
+_off^_usr, _off^_usr, _off^_usr, Hh, Gs, Gs, Gs, Wwf, Wwf, Gs, Wwf, Wwf, Wwf, Wwf, Gs, Rr, Rr, Wwf, Wwf, Wwf, Wwf, Wwf, Gs, Rb, Gs^Fp, Gs, Wwf, Mm, Wwf, Gs, Wwf, Rr, Gs, Rb, _off^_usr, _off^_usr, _off^_usr
+_off^_usr, _off^_usr, _off^_usr, Wo, Rb, Gs^Fp, Gs^Vht, Gs, Chw, Chw, Ww, Ww, Ww, Gs, Gs, Gs, Gs, Gs, Gs, Gs, Gs, Ww, Gs, Rb, Rb, Gs^Vht, Gs, Chw, Chw, Wo, Wo, Wwf, Rr, Gs, _off^_usr, _off^_usr, _off^_usr
+_off^_usr, _off^_usr, _off^_usr, Gs, Hh, Rb, Gs, Gs, Rr, Chw, Ww, Wo, Ww, Wwf, Gs, Chw, Chw, Hh, Ss^Vhs, Gs, Ww, Ww, Gs, Gs, Rb, Rb, Gs, Rr, Gs^Fet, Gs, Gs, Rr, Chw, Gs^Fp, _off^_usr, _off^_usr, _off^_usr
+_off^_usr, _off^_usr, _off^_usr, Mm, Gs^Fp, Gs, Gs, Gs, Gs, Khr, Wwf, Ss^Vhs, Gs, Gs, Gs, Gs, Gs, Gs^Fp, Gs, Gs, Ww, Gs, Gs^Fp, Gs, Gs^Fp, Rb, Rb, Gs, Mm, Gs^Fp, Gs, Gs, Gs, Gs, _off^_usr, _off^_usr, _off^_usr
+_off^_usr, _off^_usr, _off^_usr, Wwf, Wwf, Gs, Wwf, Wwf, Wwf, Wwf, Rr, Gs, Mm, Hh, Gs^Fp, Mm, Gs, Gs, Wwf, Wwf, Wwf, Ww, Wwf, Wwf, Wwf, Hh, Gs, Rb, Gs, Gs, Gs, Gs, Gs^Fp, Hh, _off^_usr, _off^_usr, _off^_usr
+_off^_usr, _off^_usr, _off^_usr, Gs, Rr, Wwf, Gs, Gs, Gs, Rr, Gs, Gs, Gs, Hh, Ss^Vhs, Rb, Rb, Gs, Wwf, Gs, Gs^Fp, Wwf, Chw, Rr, Khr, Wwf, Wwf, Hh, Gs, Gs, Gs, Gs, Gs, Gs^Fp, _off^_usr, _off^_usr, _off^_usr
+_off^_usr, _off^_usr, _off^_usr, Hh, Gs^Fet, Rr, Gs, Gs, Gs, Rr, Chw, Gs, Gs^Fp, Gs, Rb, Rb, Hh, Mm, Wwf, Hh, Wwf, Ww, Wo, Chr, Chw, Rr, Wwf, Gs^Vht, Gs, Gs, Wwf, Gs, Hh, Hh, _off^_usr, _off^_usr, _off^_usr
+_off^_usr, _off^_usr, _off^_usr, Mm, Gs^Fp, Gs, Gs, Gs, Wwf, Gs, Wwf, Ww, Wwf, Hh, Wwf, Gs, Gs, Wwf, Gs^Vht, Hh, Gs, Ww, Ww, Ww, Gs, Mm, Gs, Wwf, Wwf, Wwf, Gs, Wwf, Wwf, Mm, _off^_usr, _off^_usr, _off^_usr
+_off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, Gs, Wwf, Wwf, Hh, Wwf, Gs^Fp, Gs, Gs, Wwf, Gs, Wwf, Wwf, Wwf, Gs^Fp, Gs, Rb, Mm, Gs, Gs^Fp, Gs, Hh, Gs, Gs, Hh, Gs, Gs, Gs, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr
+_off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, Mm, Hh, Rb, Rb, Gs, Rb, Mm, Hh, Ke, Wwf, Gs, Gs, Gs, Gs, Rb, Gs, Ke, Gs, Gs, Hh, Rb, Mm, Gs^Fp, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr
+_off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, Mm, Gs^Fp, Rb, Ce, Ce, Ce, Ce, Wwf, Mm, Ce, 1 Ke, Ce, Mm^Vhh, Hh, Ce, Ce, Rb, Gs^Fp, Gs^Fp, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr
+_off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, Gs^Fet, _off^_usr, Gs^Fp, _off^_usr, Wwf, _off^_usr, Hh, _off^_usr, Gs^Fet, _off^_usr, Gs^Fp, _off^_usr, Mm, _off^_usr, Rb, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr
+_off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr
+_off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr
+"
+map_file="multiplayer/maps/2p_Sullas_Ruins.map"
+name="2p â€” Sullaâ€™s Ruins"
+objectives="<big>ÐŸÐ¾Ð±ÐµÐ´Ð°:</big>
+<span color='#00ff00'>â€¢ Ð£Ð±ÐµÐ¹Ñ‚Ðµ Ð»Ð¸Ð´ÐµÑ€Ð°(Ð¾Ð²) Ð¿Ñ€Ð¾Ñ‚Ð¸Ð²Ð½Ð¸ÐºÐ°</span>"
+random_start_time="no"
+turns="-1"
+[time]
+
+		blue=0
+		green=-15
+		id="dawn"
+		image="misc/time-schedules/default/schedule-dawn.png"
+#textdomain wesnoth-help
+		name=_"Dawn"
+		red=-25
+		sound="ambient/morning.ogg"
+	[/time]
+[time]
+
+		id="morning"
+		image="misc/time-schedules/default/schedule-morning.png"
+		lawful_bonus=25
+		name=_"Morning"
+	[/time]
+[time]
+
+		id="afternoon"
+		image="misc/time-schedules/default/schedule-afternoon.png"
+		lawful_bonus=25
+		name=_"Afternoon"
+	[/time]
+[time]
+
+		blue=-35
+		green=-20
+		id="dusk"
+		image="misc/time-schedules/default/schedule-dusk.png"
+		name=_"Dusk"
+		red=10
+		sound="ambient/night.ogg"
+	[/time]
+[time]
+
+		blue=-13
+		green=-45
+		id="first_watch"
+		image="misc/time-schedules/default/schedule-firstwatch.png"
+		lawful_bonus=-25
+		name=_"First Watch"
+		red=-75
+	[/time]
+[time]
+
+		blue=-13
+		green=-45
+		id="second_watch"
+		image="misc/time-schedules/default/schedule-secondwatch.png"
+		lawful_bonus=-25
+		name=_"Second Watch"
+		red=-75
+	[/time]
+[music]
+
+		ms_before=12000
+		name="knolls.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="wanderer.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="battle.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="transience.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="the_king_is_dead.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="knalgan_theme.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="the_city_falls.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="nunc_dimittis.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="revelation.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="loyalists.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="breaking_the_chains.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="elvish-theme.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="legends_of_the_north.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="traveling_minstrels.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="underground.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="vengeful.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="frantic.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="the_dangerous_symphony.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="heroes_rite.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="suspense.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="the_deep_path.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="siege_of_laurelmor.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="casualties_of_war.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="silvan_sanctuary.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="battle-epic.ogg"
+	[/music]
+[event]
+
+		name="prestart"
+		[music]
+			ms_before=12000
+			name="knolls.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="wanderer.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="battle.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="transience.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="the_king_is_dead.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="knalgan_theme.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="the_city_falls.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="nunc_dimittis.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="revelation.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="loyalists.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="breaking_the_chains.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="elvish-theme.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="legends_of_the_north.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="traveling_minstrels.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="underground.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="vengeful.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="frantic.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="the_dangerous_symphony.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="heroes_rite.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="suspense.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="the_deep_path.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="siege_of_laurelmor.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="casualties_of_war.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="silvan_sanctuary.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="battle-epic.ogg"
+		[/music]
+	[/event]
+[event]
+
+		name="prestart"
+		[lua]
+			code=" wesnoth.require(""multiplayer/eras.lua"").quick_4mp_leaders(...) "
+			[args]
+				[trait]
+					female_name=_"female^quick"
+					help_text=_"<italic>text='Quick'</italic> units have 1 extra movement point, but 5% less hitpoints than usual." +
+						_"
+
+Quick is the most noticeable trait, particularly in slower moving units such as trolls or heavy infantry. Units with the quick trait often have greatly increased mobility in rough terrain, which can be important to consider when deploying your forces. Also, quick units arenâ€™t quite as tough as units without this trait and are subsequently less good at holding contested positions."
+					id="quick"
+					male_name=_"quick"
+					[effect]
+						apply_to="movement"
+						increase=1
+					[/effect]
+					[effect]
+						apply_to="hitpoints"
+						increase_total="-5%"
+					[/effect]
+				[/trait]
+			[/args]
+		[/lua]
+	[/event]
+[event]
+
+		name="time over"
+		[lua]
+			code=" wesnoth.require(""multiplayer/eras.lua"").turns_over_advantage() "
+		[/lua]
+	[/event]
+[/scenario]

@@ -215,6 +215,57 @@ def test_all_21_ladder_maps_emit_without_error(tmp_path):
     assert not failures, "\n".join(failures)
 
 
+def test_aethermaw_emit_carries_morph_events(tmp_path):
+    """Aethermaw morphs terrain on turns 4-6 via [event] name='side N
+    turn M' blocks defined in the scenario .cfg. The per-scenario
+    template extraction must propagate those events into our emitted
+    save -- otherwise Wesnoth playback wouldn't mutate the map and
+    the recorded sim commands (which moved through morphed hexes)
+    would src_missing or final_occupied.
+
+    Concrete check: count [event] sub-blocks in the emitted
+    [scenario]. Aethermaw has 13 events total in the post-expansion
+    save (3 prestart + 10 turn-keyed). Below 10 means morph events
+    didn't propagate.
+    """
+    from tools.replay_extract import parse_replay_file
+    sim = _build_sim_for("multiplayer_Aethermaw")
+    out_path = tmp_path / "test.bz2"
+    export_replay_from_scratch(sim, out_path)
+    root = parse_replay_file(out_path)
+    scn = root.first("scenario")
+    events = scn.all("event")
+    assert len(events) >= 10, (
+        f"Aethermaw save missing morph events: only {len(events)} "
+        f"[event] blocks in [scenario]; expected at least 10 "
+        f"(3 prestart + 7 side-N-turn-M morph triggers)"
+    )
+    # At least one of the events must contain a [terrain] action
+    # (the actual morph instruction).
+    terrain_events = [e for e in events if e.first("terrain")]
+    assert terrain_events, (
+        "no [event] block carries a [terrain] mutation -- Aethermaw "
+        "morph won't fire during Wesnoth playback"
+    )
+
+
+def test_emit_preserves_top_level_block_structure(tmp_path):
+    """Splicing must not run two top-level blocks onto one line:
+    `[/scenario][carryover_sides_start]` would be unparseable.
+    Verify the emitted save has exactly the 7 top-level blocks we
+    expect, in order."""
+    from tools.replay_extract import parse_replay_file
+    sim = _build_sim_for("multiplayer_Aethermaw")
+    out_path = tmp_path / "test.bz2"
+    export_replay_from_scratch(sim, out_path)
+    root = parse_replay_file(out_path)
+    top = [c.tag for c in root.children]
+    assert top == [
+        "replay", "scenario", "carryover_sides_start",
+        "multiplayer", "statistics", "era", "replay",
+    ], f"top-level structure regressed: {top}"
+
+
 def test_scrape_starting_gold_arcanclave():
     """Direct unit test for the .cfg gold scraper. Arcanclave
     specifies 175 per side; Hamlets specifies neither."""

@@ -1,0 +1,422 @@
+# Per-scenario [scenario] template for from-scratch save
+# WML emission. Extracted from a real Wesnoth save (after
+# the engine expanded macros + scenario events). All
+# [side] sub-blocks stripped at extraction; the runtime
+# emitter (tools/sim_to_replay.build_save_wml) inserts
+# fresh [side] blocks per game from sim state.
+#
+# Source: replays_raw/.../2p__Clearing_Gushes_Turn_11_(93590).bz2
+# Regenerate via: python tools/extract_scenario_templates.py
+[scenario]
+description="The banks of the Great River make for some of the most fertile land in all the known world. The spring and summer bring floods all along its length, making the soil rich and providing bountiful harvests each autumn. The Kingdom of Wesnoth has turned this land into the engine of their wealth and prosperity â€” making it the target of countless raids and attacks. The rigorous discipline and organization of Wesnothâ€™s armies are in no small part driven by a constant need to patrol and defend these prosperous lands."
+experience_modifier="70"
+has_mod_events="yes"
+id="multiplayer_Clearing_Gushes"
+loaded_resources=""
+map_data="Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Wwf, Wwf, Gll^Fdf, Gs, Rr, Ss, Wwf, Ww^Ewl, Ww, Wo, Wo, Wo, Wo
+Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Wwf, Wwg, Wwf, Gs, Rr, Rr, Gs, Gs, Wwf, Ww^Ewl, Wo, Wo, Wo, Wo, Wo
+Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Md, Hhd^Fmf, Ss, Wwf, Wwf, Gs, Rr, Gs, Chs, Ss, Wwf, Ww, Wo, Wo, Wo, Wo, Wo
+Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Md, Hhd^Dr, Ss, Ss, Gll^Fdf, Hhd^Dr, Rr, Wwf^Bsb/, Wwf, Gll^Fdf, Hhd^Dr, Ss^Bw\r, Wwf^Bw\r, Ww, Wo, Wo, Wo, Wo, Wo
+Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Mm^Xm, Mm^Xm, Chs, Hhd^Dr, Ss, Gll^Fdf, Gs, Gs^Es, Rr, Rr, Rr, Wwf, Wwf, Wwf, Wo, Wo^Bw\r, Ww, Wo, Wo, Wo, Wo
+Xv, Xv, Xv, Xv, Xv, Xv, Gll^Fdf, Gll^Fdf, Hhd^Dr, Hhd^Dr, Ss, Chs, Gs, Gs, Rr, Rr, Rb^Eff, Rb, Rb^Vh, Rr, Rr, Wwf^Fdf, Wo, Wwf^Bw|, Wwf, Ww, Mm^Xm, Wo, Wo
+Xv, Xv, Xv, Xv, Ss, Hhd^Dr, Rb^Gvs, Gll^Fdf, Gll^Fdf, Ss, Gll^Vl, Hhd^Fmf, Rr, Rr, Rb^Eff, Rb^Eff, Rb^Gvs, Rb^Gvs, Rb^Gvs, Rb^Eff, Rb^Eff, Chw, Chw, Rr, Wwf, Gll^Fdf, Hhd^Dr, Mm^Xm, Mm^Xm
+Xv, Xv, Hhd^Dr, Gll^Fdf, Rb^Gvs, Rb^Gvs, Rb^Gvs, Rb^Gvs, Gll^Fdf, Ss, Ce, Ce, Rb^Eff, Rb^Eff, Rb^Gvs, Rb^Gvs, Rb^Gvs, Rb^Gvs, Rb^Gvs, Rb^Gvs, Rb^Gvs, Rb^Eff, Wwf^Es, Hhd^Dr, Wwf, Gs, Gll^Es, Mm, Mm^Xm
+Mm^Xm, Hhd^Dr, Gll^Fdf, Rb^Gvs, Rb^Gvs, Rb^Vct, Rb^Eff, Rb^Eff, Ce, Ce, Rb^Eff, Re^Fdf, Hhd^Dr, Rb^Eff, Gll^Fdf, Rb^Gvs, Rb^Gvs, Hhd^Fmf, Tb^Tf, Rb^Gvs, Ss, Wwf, Wwf, Wwf, Wwf, Gs, Gll^Es, Hhd^Dr, Md
+Mm^Eff, Mm, Rb^Gvs, Rb^Gvs, Rb^Eff, Rb, Rr, Ket, Hhd^Eff, Rb^Eff, Rb^Gvs, Rb^Eff, Rb^Eff, Ss, Ss, Rb^Eff, Rb^Eff, Mm^Xm, Md, Gll^Fdf, Wwf, Wwf, Wwf, Wwr, Wwf, Gll^Fdf, Gll^Fmf, Hhd^Dr, Md
+Gll^Fdf, Rb^Eff, Rb^Vhr, Rb^Eff, Wwf, Rr, Wwf, Rb, Mm^Xm, Hhd^Gvs, Rb^Gvs, Rb^Gvs, Rb^Gvs, Rb^Eff, Rp, Gs, Gs^Es, Mm^Xm, Mm^Xm, Tb^Tf, Wwf, Gs, Gll^Fdf, Rr, Rr, Wwf, Wwf, Hhd^Dr, Md
+Ss, Gll, Gs, Gs, Gs, Wwf, Ce, Wwf, Wwf, Rb^Eff, Rb^Eff, Rb^Gvs, Md, Hhd^Fmf, Hhd^Vhh, Rp, Rp, Hhd^Dr, Mm^Xm, Hhd^Dr, Wwf, Gs, Gll, Gll^Tf, Hhd^Dr, Rr, Wwf, Hhd^Fmf, Hhd^Fmf
+Hhd^Fmf, Hhd^Fmf, Rb^Eff, Rb^Eff, 2 Ket^Eff, Ce, Gs, Gs, Gll^Fdf, Wwf^Es, Hhd^Dr, Tb^Tf, Rp^Em, Rp, Wwf, Wwf, Wwf, Chr, Ww^Bw\r, Ww, Ww, Gs, Gs, Gll^Es, Gll^Es, Rr, Wwf, Wwf, Wwf
+Hhd^Eff, Rb^Eff, Rb^Gvs, Rb^Gvs, Ce, Rb^Eff, Rb^Eff, Gll^Tf, Gll^Fdf, Wwf, Wwf, Mm^Xm, Wog, Wog^Bw|r, Ww, Gs, Gs, Wwf, Wwf, Hh^Fdf, Wwf, Gs, Wwf, Gs, Gs, Rp^Vhc, Wwf, Wwf, Wwf
+Gll^Fdf, Rb^Gvs, Rb^Gvs, Rb^Gvs, Rb^Gvs, Rb^Gvs, Rb^Gvs, Mm^Xm, Hhd^Dr, Wwf, Wwf, Wog, Tb^Tf, Wog^Bw|r, Wwf, Gs, Gs, Ww, Wwf, Wwr, Wwr, Wwf, Md, Wwf, Wwf, Wwf, Gs, Wwf, Ww
+Hhd^Dr, Hhd^Gvs, Rb^Vct, Rb^Gvs, Rb^Gvs, Rb^Gvs, Rb^Gvs, Rb^Gvs, Rb^Eff, Ss^Vhs, Wwf, Wwf, Gll^Tf, Gs, Gs, Mm^Xm, Wwf, Wwf, Gs, Wwf, Mm^Xm, Wwr, Mm^Xm, Hh^Fdf, Rb^Eff, Rb^Eff, Rb^Eff, Gll^Fdf, Ss
+Gll^Fdf, Gll^Fdf, Rb^Gvs, Rb^Gvs, Rb^Gvs, Hhd^Gvs, Ce, Rb^Eff, Gll^Fdf, Wwf, Wwf, Gs^Em, Hhd^Dr, Gll^Fmf, Wwf, Wwr, Hhd^Dr, Gs^Es, Wwf, Chw, Gll^Fdf, Gs, Ce, Rb^Eff, Rb^Gvs, Rb^Gvs, Rb^Gvs, Hhd^Eff, Gll^Fdf
+Ss, Hhd^Eff, Rb^Eff, Rb^Gvs, Rb^Eff, Rb^Eff, Mm^Xm, Gs, Mm^Xm, Chw, Gs, Gs^Es, Wwf, Wwr, Gs, Gll^Fmf, Gll^Tf, Gs, Wwf, Wwf, Rb^Eff, Rb^Eff, Rb^Gvs, Hhd^Gvs, Rb^Gvs, Rb^Gvs, Rb^Vct, Gll^Fdf, Hhd^Dr
+Ww, Gll^Fdf, Gs, Rb^Eff, Wwf, Hhd^Fmf, Md, Wwr, Wwr, Wwf, Wwf, Wwf, Gs, Mm^Xm, Wwf, Gs^Em, Tb^Tf, Wwf, Wwf, Ss^Vhs, Hhd^Dr, Rb^Gvs, Rb^Gvs, Rb^Gvs, Rb^Gvs, Rb^Gvs, Rb^Gvs, Hhd^Gvs, Gs^Fdf
+Wwf, Wwf, Wwf, Wwf, Gs, Wwf, Wwf, Wwf, Wwf, Wwr, Wwf, Ww, Gs, Gs, Ww, Wog^Bw|r, Wog, Wog, Wwf, Wwf, Gll^Fdf, Mm^Xm, Rb^Eff, Rb^Gvs, Ce, Rb^Gvs, Rb^Gvs, Rb^Gvs, Hhd^Eff
+Wwf, Wwf, Wwf, Rp^Vhc, Gll, Gs, Gs, Gs, Ww, Hhd^Fmf, Ww^Bw\, Wwf, Wwf, Gs, Wwf, Wog^Bw|, Rp^Em, Mm^Xm, Hhd^Dr, Wwf, Gll^Fdf, Gll^Tf, Gs, Rb^Eff, 1 Ket^Eff, Rb^Gvs, Rb^Eff, Rb^Eff, Gll^Fdf
+Hhd^Fmf, Wwf, Wwf, Rr, Hhd^Dr, Gll^Es, Gll, Gs, Wwf, Ww, Mm^Xm, Chr, Rp, Wwf, Hhd^Vhh, Rp, Mm, Tb^Tf, Rb^Eff, Wwf^Es, Wwf, Gs, Ce, Ce, Gs, Rb^Eff, Gs, Hhd^Fmf, Ss
+Mm, Hhd^Fmf, Wwf, Rr, Rr, Gll^Tf, Re^Fdf, Gs, Wwf, Hhd^Dr, Mm^Xm, Hhd^Dr, Gs^Es, Rp, Rp, Hhd^Fmf, Rb^Gvs, Rb^Gvs, Rb^Gvs, Rb^Eff, Mm^Xm, Wwf, Wwf, Wwf, Wwf, Gs, Rb^Vhr, Gll, Gll^Fdf
+Mm, Hhd^Dr, Gll^Fdf, Wwf, Wwf, Rr, Rr, Gs, Wwf, Tb^Tf, Md, Mm^Xm, Rb^Eff, Gs, Ss, Rb^Eff, Rb^Eff, Rb^Gvs, Rb^Gvs, Hhd^Gvs, Hhd^Eff, Rb, Rr, Rr, Rb^Eff, Rb^Eff, Rb^Gvs, Rb^Eff, Mm^Eff
+Mm^Xm, Hhd^Dr, Gll^Es, Gll^Fdf, Wwf, Wwr, Wwf, Wwf, Ss, Gd^Fdf, Tb^Tf, Mm^Xm, Rb^Gvs, Rb^Eff, Gll^Fdf, Ss, Hhd^Dr, Rb^Eff, Rb, Rb^Eff, Ce, Ket, Rb^Eff, Rb, Rb^Gvs, Rb^Gvs, Gll^Fdf, Md, Mm^Xm
+Mm^Xm, Hhd^Dr, Gll^Es, Gs, Wwf, Wwf, Wwf^Es, Wwf, Rb^Gvs, Rb^Gvs, Rb^Gvs, Hhd^Fmf, Rb^Gvs, Rb^Gvs, Rb^Gvs, Rb^Eff, Rb^Eff, Gll^Fdf, Ce, Ce, Gll^Fdf, Rb^Eff, Rb^Gvs, Rb^Vct, Rb^Gvs, Rb^Gvs, Hhd^Dr, Hhd^Dr, Xv
+Mm^Xm, Md, Hhd^Dr, Gs, Wwf, Hhd^Dr, Chw, Rb^Eff, Rb^Eff, Rb^Gvs, Rb^Gvs, Rb^Gvs, Rb^Gvs, Rb^Gvs, Rb, Rb^Eff, Rr, Ce, Gll^Vl, Ss, Gll^Fdf, Rb^Gvs, Rb^Gvs, Rb^Gvs, Ss, Gd^Fdf, Xv, Xv, Xv
+Wo, Mm^Xm, Mm^Xm, Gll^Fdf, Wwf, Rr, Wo, Chw, Rr, Rb^Eff, Rb^Vh, Rb^Gvs, Rb^Eff, Rb^Eff, Rr, Rr, Gs, Hhd^Fmf, Ss, Ss, Hhd^Dr, Gll^Fdf, Gll^Fdf, Hhd^Dr, Xv, Xv, Xv, Xv, Xv
+Wo, Wo, Wo, Chw, Ww, Wwf^Bw|r, Wo, Wwf^Fdf, Wwf, Rr, Rr, Rb, Rr, Rr, Gs, Gs, Ss, Chs, Chs, Hhd^Dr, Mm^Xm, Gll^Fdf, Xv, Xv, Xv, Xv, Xv, Xv, Xv
+Wo, Wo, Wo, Wo, Wo, Wo^Bw|r, Wwf^Bw\, Wwf, Hhd^Dr, Wwf, Wwf, Rr, Rr, Gs^Es, Gll^Fdf, Gll^Fdf, Ss, Hhd^Dr, Mm^Xm, Mm^Xm, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv
+Wo, Wo, Wo, Wo, Wo, Ww, Wwf, Ss^Bw\, Chs, Gll^Fdf, Rr, Wwf^Bsb/, Wwf, Hhd^Dr, Ss, Ss, Md, Hhd^Dr, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv
+Wo, Wo, Wo, Wo, Wo, Ww^Ewl, Wwf, Ss, Gs, Gs, Rr, Gs, Wwf, Wwf, Wwf, Hhd^Fmf, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv
+Wo, Wo, Wo, Wo, Wo, Ww^Ewl, Wwf, Gs, Rr, Rr, Gll^Fdf, Gs, Wwf, Wwg, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv, Xv
+"
+map_file="multiplayer/maps/2p_Clearing_Gushes.map"
+mp_village_gold="2"
+name="2p â€” Clearing Gushes"
+objectives="<big>Victory:</big>
+<span color='#00ff00'>â€¢ Defeat enemy leader(s)</span>"
+random_start_time="no"
+turns="-1"
+[time]
+
+		blue=0
+		green=-15
+		id="dawn"
+		image="misc/time-schedules/default/schedule-dawn.png"
+#textdomain wesnoth-help
+		name=_"Dawn"
+		red=-25
+		sound="ambient/morning.ogg"
+	[/time]
+[time]
+
+		id="morning"
+		image="misc/time-schedules/default/schedule-morning.png"
+		lawful_bonus=25
+		name=_"Morning"
+	[/time]
+[time]
+
+		id="afternoon"
+		image="misc/time-schedules/default/schedule-afternoon.png"
+		lawful_bonus=25
+		name=_"Afternoon"
+	[/time]
+[time]
+
+		blue=-35
+		green=-20
+		id="dusk"
+		image="misc/time-schedules/default/schedule-dusk.png"
+		name=_"Dusk"
+		red=10
+		sound="ambient/night.ogg"
+	[/time]
+[time]
+
+		blue=-13
+		green=-45
+		id="first_watch"
+		image="misc/time-schedules/default/schedule-firstwatch.png"
+		lawful_bonus=-25
+		name=_"First Watch"
+		red=-75
+	[/time]
+[time]
+
+		blue=-13
+		green=-45
+		id="second_watch"
+		image="misc/time-schedules/default/schedule-secondwatch.png"
+		lawful_bonus=-25
+		name=_"Second Watch"
+		red=-75
+	[/time]
+[music]
+
+		ms_before=12000
+		name="knolls.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="wanderer.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="battle.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="transience.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="the_king_is_dead.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="knalgan_theme.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="the_city_falls.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="nunc_dimittis.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="revelation.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="loyalists.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="breaking_the_chains.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="elvish-theme.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="legends_of_the_north.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="traveling_minstrels.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="underground.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="vengeful.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="frantic.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="the_dangerous_symphony.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="heroes_rite.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="suspense.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="the_deep_path.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="siege_of_laurelmor.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="casualties_of_war.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="silvan_sanctuary.ogg"
+	[/music]
+[music]
+
+		append=yes
+		ms_before=12000
+		name="battle-epic.ogg"
+	[/music]
+[event]
+
+		name="prestart"
+		[music]
+			ms_before=12000
+			name="knolls.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="wanderer.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="battle.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="transience.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="the_king_is_dead.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="knalgan_theme.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="the_city_falls.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="nunc_dimittis.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="revelation.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="loyalists.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="breaking_the_chains.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="elvish-theme.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="legends_of_the_north.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="traveling_minstrels.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="underground.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="vengeful.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="frantic.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="the_dangerous_symphony.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="heroes_rite.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="suspense.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="the_deep_path.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="siege_of_laurelmor.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="casualties_of_war.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="silvan_sanctuary.ogg"
+		[/music]
+		[music]
+			append=yes
+			ms_before=12000
+			name="battle-epic.ogg"
+		[/music]
+	[/event]
+[event]
+
+		name="prestart"
+		[lua]
+			code=" wesnoth.require(""multiplayer/eras.lua"").quick_4mp_leaders(...) "
+			[args]
+				[trait]
+					female_name=_"female^quick"
+					help_text=_"<italic>text='Quick'</italic> units have 1 extra movement point, but 5% less hitpoints than usual." +
+						_"
+
+Quick is the most noticeable trait, particularly in slower moving units such as trolls or heavy infantry. Units with the quick trait often have greatly increased mobility in rough terrain, which can be important to consider when deploying your forces. Also, quick units arenâ€™t quite as tough as units without this trait and are subsequently less good at holding contested positions."
+					id="quick"
+					male_name=_"quick"
+					[effect]
+						apply_to="movement"
+						increase=1
+					[/effect]
+					[effect]
+						apply_to="hitpoints"
+						increase_total="-5%"
+					[/effect]
+				[/trait]
+			[/args]
+		[/lua]
+	[/event]
+[event]
+
+		name="time over"
+		[lua]
+			code=" wesnoth.require(""multiplayer/eras.lua"").turns_over_advantage() "
+		[/lua]
+	[/event]
+[/scenario]
