@@ -535,17 +535,28 @@ def enumerate_legal_actions_with_priors(
     num_units = output.num_units
     actor_valid_row = masks.actor_valid[0]   # [A] float
 
+    # Bulk-copy the per-actor tensors to Python lists ONCE. Reading
+    # tensor elements one at a time inside the loops below
+    # (`t[i].item()`) costs a tensor-index op + a device sync per
+    # element; profiling (2026-06-11, MCTS @25 sims) showed 4.28M
+    # `.item()` calls eating ~13% of search wall-clock and the
+    # surrounding tensor indexing far more -- enumeration was 2.6x
+    # the model forward. `.tolist()` is one bulk transfer.
+    actor_p_l     = actor_p.tolist()
+    actor_kind_l  = actor_kind.tolist()
+    actor_valid_l = actor_valid_row.tolist()
+
     out: List[LegalActionPrior] = []
     for actor_idx in range(A):
         # Skip actors the legality mask filtered out -- their masked
         # logit was -inf, so their softmax probability is 0 too. The
         # explicit skip is just to avoid the per-target inner loop.
-        if float(actor_valid_row[actor_idx].item()) == 0.0:
+        if actor_valid_l[actor_idx] == 0.0:
             continue
-        p_actor = float(actor_p[actor_idx].item())
+        p_actor = actor_p_l[actor_idx]
         if p_actor <= 0.0:
             continue
-        kind = int(actor_kind[actor_idx].item())
+        kind = int(actor_kind_l[actor_idx])
 
         if kind == ActorKind.END_TURN:
             out.append(LegalActionPrior(
@@ -565,8 +576,7 @@ def enumerate_legal_actions_with_priors(
                 continue
             target_p = F.softmax(target_logits, dim=-1)  # [H]
             recruit_type = encoded.recruit_types[actor_idx - num_units]
-            for target_idx in range(target_p.shape[0]):
-                p_t = float(target_p[target_idx].item())
+            for target_idx, p_t in enumerate(target_p.tolist()):
                 if p_t <= 0.0:
                     continue
                 target_pos = encoded.hex_positions[target_idx]
@@ -594,17 +604,17 @@ def enumerate_legal_actions_with_priors(
         )
         if type_logits.numel() == 0:
             continue
-        type_p = F.softmax(type_logits, dim=-1)  # [T]
+        type_p = F.softmax(type_logits, dim=-1).tolist()  # [T]
 
         # Pre-compute weapon distribution once for this unit (used
         # for all ATTACK targets).
         weapon_p = None
         if num_attacks > 0:
             weapon_logits = _masked_weapon_logits(output, actor_idx, num_attacks)
-            weapon_p = F.softmax(weapon_logits, dim=-1)
+            weapon_p = F.softmax(weapon_logits, dim=-1).tolist()
 
         # ATTACK branch.
-        p_attack = float(type_p[UnitActionType.ATTACK].item())
+        p_attack = type_p[UnitActionType.ATTACK]
         if p_attack > 0.0 and num_attacks > 0:
             attack_target_logits = _masked_target_logits_from_row(
                 output, masks.target_valid_attack[actor_idx], actor_idx,
@@ -612,14 +622,13 @@ def enumerate_legal_actions_with_priors(
             )
             if attack_target_logits.numel() > 0:
                 attack_target_p = F.softmax(attack_target_logits, dim=-1)
-                for target_idx in range(attack_target_p.shape[0]):
-                    p_t = float(attack_target_p[target_idx].item())
+                for target_idx, p_t in enumerate(attack_target_p.tolist()):
                     if p_t <= 0.0:
                         continue
                     target_pos = encoded.hex_positions[target_idx]
                     joint_atype = p_actor * p_attack * p_t
                     for weapon_idx in range(num_attacks):
-                        p_w = float(weapon_p[weapon_idx].item())
+                        p_w = weapon_p[weapon_idx]
                         if p_w <= 0.0:
                             continue
                         out.append(LegalActionPrior(
@@ -637,7 +646,7 @@ def enumerate_legal_actions_with_priors(
                         ))
 
         # MOVE branch.
-        p_move = float(type_p[UnitActionType.MOVE].item())
+        p_move = type_p[UnitActionType.MOVE]
         if p_move > 0.0:
             move_target_logits = _masked_target_logits_from_row(
                 output, masks.target_valid_move[actor_idx], actor_idx,
@@ -645,8 +654,7 @@ def enumerate_legal_actions_with_priors(
             )
             if move_target_logits.numel() > 0:
                 move_target_p = F.softmax(move_target_logits, dim=-1)
-                for target_idx in range(move_target_p.shape[0]):
-                    p_t = float(move_target_p[target_idx].item())
+                for target_idx, p_t in enumerate(move_target_p.tolist()):
                     if p_t <= 0.0:
                         continue
                     target_pos = encoded.hex_positions[target_idx]
