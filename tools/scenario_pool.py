@@ -83,6 +83,45 @@ LADDER_SCENARIO_IDS: List[str] = [
 ]
 
 
+# Engagement-curriculum subset: 1v1 scenarios from the Mini Maps
+# Collection add-on (vendored under wesnoth_src/data/add-ons/
+# Mini_Maps_Collection/). These maps are TINY (35-273 cells vs the
+# smallest Ladder map's 690), so leaders start ~5-15 hexes apart
+# and engagement happens by turn 3-5. Standard mainline 1v1 economy
+# constraints (each side gets the gold the scenario specifies, no
+# income); fast skirmishes.
+#
+# Use case: 2026-05-16 diagnosis showed the policy plateaus at ~1%
+# attack rate on the Ladder pool regardless of reward magnitude.
+# Hypothesis: the long-march exploration problem dominates on
+# larger maps; constraining to mini maps removes that barrier
+# almost entirely. Turn on via the `--mini-maps` flag
+# (sim_self_play.py) or MINI_MAPS=1 (cluster sbatch).
+#
+# Selected (1v1 scenarios only, 2 player sides + optional scenery):
+#   2p_mini                          8x6 = 48 cells
+#   2p_mini_edited                   8x8 = 64 cells
+#   enclave_micro_isar               9x7 = 63 cells
+#   Modified_Tiny_Close_Relation     7x5 = 35 cells   (smallest!)
+#   around_mini                      11x13 = 143 cells
+#   enclave_mini_fallenstar_1v1      13x13 = 169 cells
+#   enclave_small_fallenstar_1v1     21x13 = 273 cells
+#   Benji_Autumn_Siege_small         18x12 = 216 cells
+#
+# Excluded: 2v2 / 3v3 / FFA scenarios (>2 player sides — our self-
+# play infrastructure is 1v1 only), and `oasis_mini` (5-side FFA).
+MINI_MAP_SCENARIO_IDS: List[str] = [
+    "2p_mini",
+    "2p_mini_edited",
+    "around_mini",
+    "enclave_micro_isar",
+    "enclave_mini_fallenstar_1v1",
+    "enclave_small_fallenstar_1v1",
+    "Modified_Tiny_Close_Relation",
+    "Benji_Autumn_Siege_small",
+]
+
+
 # ---------------------------------------------------------------------
 # Default era factions
 # ---------------------------------------------------------------------
@@ -277,6 +316,8 @@ def random_setup(
     rng: random.Random,
     *,
     forced_faction: Optional[str] = ...,
+    mini_maps: bool = False,
+    mini_ratio: float = 0.0,
 ) -> ScenarioSetup:
     """Pick a random scenario + 2 (faction, leader) pairs.
 
@@ -288,6 +329,22 @@ def random_setup(
     default" -- used so callers that don't override don't have
     to reach into the module to learn the default.
 
+    `mini_maps`: when True, sample only from the 5-map subset in
+    MINI_MAP_SCENARIO_IDS (smallest Ladder maps, ~700-870 cells).
+    Used for the engagement-curriculum phase -- restrict to maps
+    where leaders start ~12-15 hexes apart so the policy gradient
+    has a chance to discover engagement before the long-march
+    cost dominates. Default False = full 21-map pool.
+
+    `mini_ratio`: in [0, 1]. When `mini_maps=False`, this is the
+    probability that THIS call samples from the mini pool instead
+    of the ladder pool. Used to MIX mini and ladder scenarios in
+    one training run -- a `mini_ratio=0.3` mix gives the policy
+    ~30% mini-map games (cheap engagement training signal) and
+    ~70% ladder-map games (the real production distribution) per
+    iter. When `mini_maps=True`, this parameter is ignored
+    (already 100% mini).
+
     Leaders are sampled from each faction's `random_leader=` pool,
     matching Wesnoth's `type=random` behavior.
     """
@@ -296,7 +353,17 @@ def random_setup(
     factions = load_factions()
     if not factions:
         raise RuntimeError("no factions loaded")
-    scenario_id = rng.choice(LADDER_SCENARIO_IDS)
+    # Resolve which pool to sample from this call. `mini_maps=True`
+    # is the legacy "100% mini" toggle (preserved for backwards
+    # compat); otherwise `mini_ratio` controls the per-call
+    # probability of picking mini over ladder.
+    if mini_maps:
+        scenario_pool = MINI_MAP_SCENARIO_IDS
+    elif mini_ratio > 0.0 and rng.random() < mini_ratio:
+        scenario_pool = MINI_MAP_SCENARIO_IDS
+    else:
+        scenario_pool = LADDER_SCENARIO_IDS
+    scenario_id = rng.choice(scenario_pool)
 
     if forced_faction is not None and forced_faction in factions:
         # Pick which side gets the forced faction (50/50). The other
@@ -365,13 +432,30 @@ def build_scenario_gamestate(
             f"scenario {setup.scenario_id} has no [multiplayer] / "
             f"[scenario] block")
     map_file_attr = mp.attrs.get("map_file", "").strip().strip('"')
-    if not map_file_attr:
-        raise RuntimeError(
-            f"scenario {setup.scenario_id} has no map_file attr")
-
-    # Resolve map path.
+    map_data_attr = mp.attrs.get("map_data", "").strip().strip('"')
     project_root = Path(__file__).resolve().parent.parent
-    map_path = (project_root / "wesnoth_src" / "data" / map_file_attr)
+    map_path: Optional[Path] = None
+    if map_file_attr:
+        # Standard mainline form: map_file=multiplayer/maps/<name>.map
+        # Resolves under wesnoth_src/data/.
+        map_path = project_root / "wesnoth_src" / "data" / map_file_attr
+    elif map_data_attr:
+        # Add-on form: map_data="{~add-ons/<pkg>/maps/<name>.map}".
+        # The {...} syntax is Wesnoth's preprocessor file-inclusion;
+        # `~add-ons/` resolves to <userdata>/data/add-ons/ on a real
+        # Wesnoth install. We vendored the relevant add-on under
+        # wesnoth_src/data/add-ons/, so the same path string maps
+        # cleanly to our tree by stripping the leading `~`.
+        import re as _re
+        m = _re.match(r"\s*\{\s*~?([^}]+?)\s*\}\s*", map_data_attr)
+        if m:
+            relpath = m.group(1).lstrip("/")
+            # Standard prefix: "add-ons/<pkg>/..." -> wesnoth_src/data/add-ons/...
+            map_path = project_root / "wesnoth_src" / "data" / relpath
+    if map_path is None:
+        raise RuntimeError(
+            f"scenario {setup.scenario_id} has no map_file or "
+            f"resolvable map_data attr")
     if not map_path.is_file():
         raise RuntimeError(f"map file not found: {map_path}")
     raw_map = map_path.read_text(encoding="utf-8", errors="replace")

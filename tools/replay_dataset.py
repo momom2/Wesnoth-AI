@@ -1308,6 +1308,13 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         # that bounced last time we tried is worth attempting again.
         if hasattr(gs.global_info, "_recruit_rejected_hexes"):
             gs.global_info._recruit_rejected_hexes = set()
+        # Move-rejection history follows the same per-turn rule:
+        # cleared at init_side so the new acting side starts fresh.
+        # A hex that bounced our previous turn's move (fog-hidden
+        # enemy at the time) may have cleared since then -- the
+        # enemy may have moved, or we may have new sight on it.
+        if hasattr(gs.global_info, "_move_rejected_hexes"):
+            gs.global_info._move_rejected_hexes = set()
         # Turn counter: increment on every init_side(1). Initial state
         # has turn_number=0 (pre-game), so the very first init_side(1)
         # bumps to 1 (Turn 1), matching Wesnoth's UI numbering.

@@ -86,6 +86,72 @@ class StepDelta:
     # units (no meaningful distance to compute).
     min_enemy_distance: int = 0
 
+    # Fraction of the map currently visible to `side` after this
+    # step's action lands. Computed in `compute_delta` from a fresh
+    # per-side visibility scan; range [0, 1]. Used by
+    # `WeightedReward.fog_reveal_weight` to pay a continuous
+    # per-step shaping reward proportional to how much of the map
+    # the side can see right now.
+    #
+    # Why "currently visible" rather than "newly revealed": continuous
+    # payment with the trainer's gamma discount handles all the
+    # right incentives automatically. Reveal-and-hold contributes
+    # the full target weight over the game's discounted horizon;
+    # reveal-then-lose-sight-then-re-reveal loses exactly
+    # `(1-gamma)*gamma^n` of the weight share per hex per missed
+    # step (the user's stated intent, 2026-05-17). No explicit
+    # anti-oscillation bookkeeping is needed: a hex only pays
+    # when it's visible right now, and the discount factor on the
+    # missed-step payments is the natural penalty.
+    visible_fraction: float = 0.0
+
+    # Positive per-step delta in our minimum MP-cost to reach a hex
+    # adjacent to the enemy leader (i.e., an attack-from position).
+    # Specifically: max(0, prev_min_mp - new_min_mp). A delta of +3
+    # means our closest non-leader unit closed by 3 MP this step;
+    # since terrain costs are 1 for flat, 2 for forest, 3 for hills,
+    # etc., the MP delta accounts for "going around an obstacle"
+    # being not actually closer in path-cost terms even if hex
+    # distance shrinks.
+    #
+    # Negative deltas (we retreated) clamp to 0 -- this term ONLY
+    # rewards closing. Pair with `approach_enemy_leader_per_mp` in
+    # WeightedReward. Computed via terrain-aware Dijkstra from
+    # adjacent-to-leader hexes outward; see
+    # `_min_mp_to_enemy_leader`.
+    #
+    # Renamed 2026-05-20 from `closing_to_enemy_leader` (hex-distance
+    # delta) per user observation that going around passable
+    # obstacles wasn't credited under the old metric. The new
+    # metric correctly rewards routing around a mountain when that
+    # path is actually cheaper.
+    closing_to_enemy_leader_mp: int = 0
+
+    # Fraction of total non-leader MP that went unused at end_turn.
+    # 0.0 means "the acting side used every MP available across all
+    # non-leader units"; 1.0 means "no non-leader unit moved at all
+    # this turn." Fires only on end_turn for the acting side; 0 for
+    # every other action.
+    #
+    # Why non-leader only: the leader has its own incentive to stay
+    # on the keep (recruiting), so we don't want to pressure it to
+    # walk every turn. The metric uses a FRACTION (not absolute
+    # count) so recruiting more units doesn't increase the
+    # per-step penalty -- a side with 10 non-leaders that uses 50%
+    # of MP and a side with 5 non-leaders that uses 50% of MP pay
+    # the same penalty per end_turn. No anti-recruit pressure.
+    #
+    # Why end_turn only: the penalty incentivizes USING MP within
+    # the turn. Once end_turn fires, leftover MP is forfeited; the
+    # signal needs to land then, not on intermediate actions where
+    # the side may still spend more MP before ending the turn.
+    #
+    # Pair with `unused_mp_penalty` in WeightedReward (negative
+    # value). User intent (2026-05-20): incentivize the policy to
+    # actually move units forward rather than letting them sit on
+    # half-walked routes.
+    unused_mp_fraction: float = 0.0
+
     # Unit types newly appeared on `side` this step (i.e. successful
     # recruits). Empty tuple unless action_type=='recruit' and Wesnoth
     # accepted the recruit. Used by `WeightedReward.unit_type_bonuses`
@@ -324,12 +390,129 @@ class WeightedReward:
 
     # Per-step contribution proportional to the minimum hex
     # distance between any friendly unit and any enemy unit.
-    # Negative default pushes the policy toward "send at least ONE
-    # unit to the enemy's zone" rather than camping at base.
-    # -0.0001 * 12 * ~500 actions ~= -0.6 for a game that never
-    # closes -- roughly the payoff of a small kill, so closing is
-    # clearly worth it.
+    # SUPERSEDED by `approach_enemy_leader_per_hex` (delta form)
+    # in 2026-05-13's tuning pass. The absolute-distance penalty
+    # fires every step at full magnitude and accumulates over the
+    # whole game (200+ actions); aggressive values saturate the
+    # C51 value support [-1, +1] and collapse mean_return to the
+    # clip, killing the policy gradient. Default left at the
+    # near-zero pre-2026-05-12 magnitude for backwards
+    # compatibility; recommended setting in JSON configs is 0.0.
     min_enemy_distance_penalty: float = -0.0001
+
+    # Fog-reveal shaping reward, continuous-payment form.
+    #
+    # Semantics: `fog_reveal_weight` is the TOTAL discounted return
+    # contribution earned by exploring the entire map immediately
+    # and keeping all hexes visible for the rest of the game. The
+    # per-step payment is `(1 - fog_reveal_gamma) * weight *
+    # visible_fraction`, and the geometric series of those
+    # payments at full sustained visibility sums to `weight` over
+    # an infinite-horizon game (approaches `weight` for long
+    # finite games; ~99% of weight by step 460 at gamma=0.99).
+    #
+    # Anti-oscillation is automatic: a hex only contributes reward
+    # while it's currently visible, so toggling visibility just
+    # forfeits the missed-step shares. A hex visible at every step
+    # except step n loses exactly `(1-gamma) * weight * (1/H) *
+    # gamma^n` of the target weight -- matches the user's stated
+    # contract (2026-05-17).
+    #
+    # `fog_reveal_gamma` MUST match the trainer's gamma for the
+    # "weight = total" identity to hold. Default 0.99 matches
+    # `TrainerConfig.gamma`. If you ever tune the trainer's
+    # gamma, mirror it here.
+    #
+    # Off by default (0.0). Recommended starting value when
+    # enabling: 0.3 (comparable to a string of kills, well below
+    # the ±1.0 terminal signal). Bump if exploration isn't
+    # emerging; cut if the policy explores instead of fighting.
+    #
+    # Intent: incentivize early-game exploration on maps where
+    # the enemy starts beyond sight (ladder), so the policy
+    # learns to spread units instead of camping the keep.
+    # Mini-maps barely contribute (vision saturates in ~2 turns)
+    # so this term is near-zero there -- it specifically targets
+    # the long-march regime mini-maps don't exercise.
+    fog_reveal_weight: float = 0.0
+    fog_reveal_gamma:  float = 0.99
+
+    # Per-MP closing-cost reward: weight × max(0, prev_mp - new_mp),
+    # where `mp` is the minimum MP cost for any of our non-leaders
+    # to walk to a hex adjacent to the enemy leader. Terrain-aware:
+    # crossing a forest hex pays 2 MP, mountain 3 MP, etc., so this
+    # metric credits "routed around an obstacle" the same as "walked
+    # straight" when the path cost was actually equivalent. Old
+    # `approach_enemy_leader_per_hex` (hex distance) penalized
+    # routing around passable obstacles even when MP-equivalent.
+    #
+    # ONLY positive (closing) is rewarded; retreating is 0, never a
+    # penalty (avoids odd gradient signs when the policy retreats
+    # to set up a flank).
+    #
+    # BOUNDED total contribution: per game, max sum is the MP
+    # equivalent of the starting separation (typically 20-50 MP on
+    # ladder maps). At weight 0.01, cumulative ceiling is ~0.2-0.5,
+    # well inside C51 [-1, +1].
+    #
+    # See `_min_mp_to_enemy_leader` for the metric. The enemy
+    # leader's position is god-view (deliberate fog-of-war breach,
+    # documented at the helper).
+    approach_enemy_leader_per_mp: float = 0.0
+
+    # Per-end_turn penalty proportional to unused non-leader MP
+    # (StepDelta.unused_mp_fraction). Negative by convention; a
+    # value of -0.05 means "a turn where 100% of non-leader MP was
+    # wasted contributes -0.05 to that step's reward." Reward
+    # contribution = unused_mp_penalty * unused_mp_fraction; only
+    # fires on end_turn steps.
+    #
+    # Magnitude guidance: with 200 turns/game and 50% unused MP
+    # average, a weight of -0.005 yields ~-0.5 cumulative per side
+    # per game. Match against terminal_win = +1.0 means "fully
+    # wasting MP for a whole game is half as bad as losing."
+    # Default -0.002 to start conservatively.
+    #
+    # Off by default (0.0) so existing reward configs are unchanged.
+    # Intent: pressure the policy to ACTUALLY MOVE units toward
+    # action rather than leaving them at half-walked routes
+    # (observed 2026-05-20: closest_approach drifts upward, units
+    # don't push toward the enemy keep). Excludes the leader so
+    # this doesn't fight the keep-stay-for-recruit dynamic.
+    unused_mp_penalty: float = 0.0
+
+    # When True, `gold_killed_delta` rewards ONLY the gold-value of
+    # enemy units we killed -- ignoring our own losses. Default False
+    # preserves the original "net P&L" semantics
+    # (enemy_gold_lost - our_gold_lost).
+    #
+    # Why this knob exists (added 2026-05-14): the 17839 run showed
+    # the policy initially learned to attack (peaked at 8% on iter
+    # 99), then REGRESSED to 0% attacks by iter 210 because at low
+    # skill our retaliation losses dominate kills, making attacks
+    # net-negative under symmetric gold_killed. The asymmetric form
+    # ("only credit kills, ignore losses") removes the disincentive
+    # to engage; terminal_win/loss still encodes "we got crushed"
+    # at game end, so the overall reward landscape isn't pathological.
+    gold_killed_one_sided: bool = False
+
+    # Flat reward per attack action attempted (regardless of
+    # damage outcome). Encourages exploration of engagement even
+    # when individual attacks miss or get killed in retaliation.
+    # Bounded: ~30 attacks/game at 10% attack rate × this weight =
+    # ~0.06 cumulative at the default 0.002.
+    #
+    # Skipped when delta.invalid_action is True (the sim rejected
+    # the attack -- usually a fog edge case). We don't reward
+    # "tried to attack a thing that doesn't exist."
+    #
+    # Why this knob exists: gradient-wise, the gradient signal
+    # for "attack" only fires if attack appears at all in a
+    # trajectory. Once the policy converges to attack% ~= 0, the
+    # signal goes to zero and the policy can't recover. A flat
+    # per-attempt bonus keeps the "attack" branch alive in the
+    # gradient even when the network's attack-prob is low.
+    attack_attempt_bonus: float = 0.0
 
     # Customizability hooks (default empty -- keep behavior identical
     # to pre-2026-04-28 unless the user opts in).
@@ -348,6 +531,21 @@ class WeightedReward:
     # __post_init__ so dataclass copies don't share the dict.
     _fired_once: Dict[Tuple[str, int, str], bool] = field(
         default_factory=dict, repr=False, compare=False)
+
+    # Optional per-component reward accumulator. When the trainer
+    # sets this to a dict (per side), `__call__` adds each
+    # component's contribution into it under a stable key
+    # (e.g., "gold_killed", "approach_mp", "fog_reveal"). At the
+    # end of an iter, the trainer reads these out, writes to
+    # trainer_history.csv, and zeros the dict.
+    #
+    # Default None = no accumulation = no overhead. Cost when
+    # set: one dict-update per non-zero component (~5-10 updates
+    # per call, ~1 µs each on cpython) ≈ ~10 µs per call. Over
+    # 4000 reward calls per iter that's ~40 ms -- well under
+    # 0.1% of an iter's cost.
+    _component_acc: Optional[Dict[str, float]] = field(
+        default=None, repr=False, compare=False)
 
     def reset_game_state(self, game_label: str = "") -> None:
         """Clear once-per-game bookkeeping for `game_label`. Call this
@@ -370,11 +568,48 @@ class WeightedReward:
         # match the effective contribution one-to-one (audited
         # 2026-04-29 against earlier "subtract penalties" convention,
         # which inverted JSON sign vs effect and was confusing).
-        r  = self.gold_killed_delta * (delta.enemy_gold_lost - delta.our_gold_lost)
-        r += self.village_delta     * (delta.villages_gained - delta.villages_lost)
-        r += self.damage_dealt      * delta.enemy_hp_lost
-        r += self.unit_recruited_cost * delta.unit_recruited_cost
-        r += self.per_turn_penalty
+        #
+        # Per-component accumulator (optional): when self._component_acc
+        # is set (trainer-controlled), each contribution is also
+        # added under a stable key. Keeps the running totals per
+        # iter so trainer_history.csv can report what's actually
+        # firing (debugging recruit-underuse / atk%-collapse).
+        acc = self._component_acc
+
+        # gold_killed contribution. Symmetric mode (default) credits
+        # (enemy_kills - our_losses) -- accurate P&L but at low policy
+        # skill the our_losses term dominates and disincentivizes
+        # engagement. One-sided mode rewards only enemy kills; terminal
+        # win/loss still encodes "we got crushed" at game end so the
+        # overall landscape stays correct.
+        if self.gold_killed_one_sided:
+            c = self.gold_killed_delta * delta.enemy_gold_lost
+        else:
+            c = self.gold_killed_delta * (delta.enemy_gold_lost - delta.our_gold_lost)
+        r = c
+        if acc is not None and c:
+            acc["gold_killed"] = acc.get("gold_killed", 0.0) + c
+
+        c = self.village_delta * (delta.villages_gained - delta.villages_lost)
+        r += c
+        if acc is not None and c:
+            acc["village_delta"] = acc.get("village_delta", 0.0) + c
+
+        c = self.damage_dealt * delta.enemy_hp_lost
+        r += c
+        if acc is not None and c:
+            acc["damage_dealt"] = acc.get("damage_dealt", 0.0) + c
+
+        c = self.unit_recruited_cost * delta.unit_recruited_cost
+        r += c
+        if acc is not None and c:
+            acc["unit_recruited_cost"] = acc.get("unit_recruited_cost", 0.0) + c
+
+        c = self.per_turn_penalty
+        r += c
+        if acc is not None and c:
+            acc["per_turn_penalty"] = acc.get("per_turn_penalty", 0.0) + c
+
         if delta.leader_moved:
             tr = self.leader_move_penalty_turn_range
             apply_penalty = True
@@ -385,10 +620,64 @@ class WeightedReward:
                 if hi is not None and delta.turn > hi:
                     apply_penalty = False
             if apply_penalty:
-                r += self.leader_move_penalty
+                c = self.leader_move_penalty
+                r += c
+                if acc is not None and c:
+                    acc["leader_move_penalty"] = acc.get("leader_move_penalty", 0.0) + c
+
         if delta.invalid_action:
-            r += self.invalid_action_penalty
-        r += self.min_enemy_distance_penalty * delta.min_enemy_distance
+            c = self.invalid_action_penalty
+            r += c
+            if acc is not None and c:
+                acc["invalid_action"] = acc.get("invalid_action", 0.0) + c
+
+        c = self.min_enemy_distance_penalty * delta.min_enemy_distance
+        r += c
+        if acc is not None and c:
+            acc["min_enemy_distance"] = acc.get("min_enemy_distance", 0.0) + c
+
+        # Closing-distance reward. Bounded: a per-step cap of "moved
+        # how much closer this step" times the (small) weight, summed
+        # only when delta is positive. Total contribution per game is
+        # bounded by the map diameter ~30-40 hexes × weight.
+        if delta.closing_to_enemy_leader_mp > 0:
+            c = (self.approach_enemy_leader_per_mp
+                 * delta.closing_to_enemy_leader_mp)
+            r += c
+            if acc is not None and c:
+                acc["approach_mp"] = acc.get("approach_mp", 0.0) + c
+
+        # Unused-MP penalty (end_turn only). delta.unused_mp_fraction
+        # is computed in compute_delta and is non-zero only on
+        # end_turn steps. The product is the per-step contribution.
+        if self.unused_mp_penalty and delta.unused_mp_fraction:
+            c = self.unused_mp_penalty * delta.unused_mp_fraction
+            r += c
+            if acc is not None and c:
+                acc["unused_mp"] = acc.get("unused_mp", 0.0) + c
+        # Fog-reveal: continuous per-step payment proportional to
+        # current visible fraction. Geometric series of these
+        # payments at full sustained visibility approaches
+        # `fog_reveal_weight` (the total target). See WeightedReward
+        # docstring for the math.
+        if self.fog_reveal_weight and delta.visible_fraction:
+            c = ((1.0 - self.fog_reveal_gamma)
+                 * self.fog_reveal_weight
+                 * delta.visible_fraction)
+            r += c
+            if acc is not None and c:
+                acc["fog_reveal"] = acc.get("fog_reveal", 0.0) + c
+        # Per-attempt attack bonus. Fires on every VALID attack
+        # action. Keeps the "attack" gradient signal alive even when
+        # the policy's attack-prob has shrunk to ~0 -- gives the
+        # network a small constant pull back toward engagement.
+        # Invalid attacks (sim rejected, fog edge case) don't count.
+        if (delta.action_type == "attack" and not delta.invalid_action
+                and self.attack_attempt_bonus):
+            c = self.attack_attempt_bonus
+            r += c
+            if acc is not None and c:
+                acc["attack_attempt"] = acc.get("attack_attempt", 0.0) + c
 
         # Per-unit-type recruit bonuses. Iterate the list (small in
         # practice; <10 typical configurations) and accumulate
@@ -396,11 +685,16 @@ class WeightedReward:
         # a future trainer batches recruits, so we count occurrences
         # via the list intersection rather than a single bool.
         if self.unit_type_bonuses and delta.units_recruited:
+            ut_total = 0.0
             for bonus in self.unit_type_bonuses:
                 count = sum(1 for u in delta.units_recruited
                             if u == bonus.unit_type)
                 if count:
-                    r += bonus.weight * count
+                    ut_total += bonus.weight * count
+            if ut_total:
+                r += ut_total
+                if acc is not None:
+                    acc["unit_type_bonus"] = acc.get("unit_type_bonus", 0.0) + ut_total
 
         # Turn-conditional bonuses. Need post_state for the predicate;
         # if absent (e.g. test-builder StepDelta or compute_delta
@@ -422,18 +716,28 @@ class WeightedReward:
                     fired = False
                 if fired:
                     r += bonus.weight
+                    if acc is not None:
+                        acc["turn_cond_bonus"] = acc.get("turn_cond_bonus", 0.0) + bonus.weight
                     if bonus.once:
                         self._fired_once[(delta.game_label,
                                           delta.side, bonus.name)] = True
 
         if delta.outcome == OUTCOME_WIN:
             r += self.terminal_win
+            if acc is not None:
+                acc["terminal"] = acc.get("terminal", 0.0) + self.terminal_win
         elif delta.outcome == OUTCOME_LOSS:
             r += self.terminal_loss
+            if acc is not None:
+                acc["terminal"] = acc.get("terminal", 0.0) + self.terminal_loss
         elif delta.outcome == OUTCOME_DRAW:
             r += self.terminal_draw
+            if acc is not None and self.terminal_draw:
+                acc["terminal"] = acc.get("terminal", 0.0) + self.terminal_draw
         elif delta.outcome == OUTCOME_TIMEOUT:
             r += self.terminal_timeout
+            if acc is not None and self.terminal_timeout:
+                acc["terminal"] = acc.get("terminal", 0.0) + self.terminal_timeout
         # OUTCOME_ONGOING: no terminal contribution
 
         return r
@@ -454,6 +758,16 @@ def hex_distance(a_x: int, a_y: int, b_x: int, b_y: int) -> int:
        (b_even and not a_even and b_y <= a_y):
         vpenalty = 1
     return max(hd, abs(a_y - b_y) + hd // 2 + vpenalty)
+
+
+# Visibility helpers extracted to `visibility.py` so encoder,
+# action_sampler, and rewards share one implementation of the
+# fog-of-war contract. Local module-level aliases preserve the
+# (now thin) namespace consumers used to import.
+from visibility import (visible_fraction_for as _visible_fraction,
+                        visible_hexes_for as _compute_visible_hexes,
+                        sight_radius_for as _sight_radius_for)
+__all__ = (_visible_fraction, _compute_visible_hexes, _sight_radius_for)  # quiet linters
 
 
 def _action_had_visible_effect(
@@ -492,6 +806,251 @@ def _action_had_visible_effect(
                     != new_state.sides[idx].nb_villages_controlled):
                 return True
     return False
+
+
+def _min_dist_to_enemy_leader(state: GameState, our_side: int) -> Optional[int]:
+    """Min hex distance from any of `our_side`'s NON-LEADER units to
+    any OTHER side's leader. Returns None when the metric is
+    undefined: either we have no non-leader units (can't close
+    without an army), or there's no opposing leader (already won/lost).
+
+    ─────────────────────────────────────────────────────────────────
+    DELIBERATE FOG-OF-WAR BREACH (audited 2026-05-20)
+    ─────────────────────────────────────────────────────────────────
+    This function reads the enemy leader's position from
+    `state.map.units`, which is god-view in the sim. The encoder
+    + action_sampler are fog-filtered (visibility.py), so the policy
+    never sees enemy unit tokens it shouldn't — but the SCALAR REWARD
+    derived from this position IS exposed to the policy via
+    `policy.observe(reward)`. The policy can correlate "action a in
+    state s produced reward r" across episodes to infer rough enemy
+    leader direction.
+
+    This is intentional: without a directional gradient, exploration
+    rewards alone don't bias the policy toward enemy encounter (see
+    BACKLOG / 2026-05-20 log analysis). The trade-off is accepted.
+
+    Note for future work: if we ever decide to remove the breach,
+    candidates are (a) only fire the closing reward when at least
+    one our-side unit has the enemy leader's hex inside its sight
+    disc (turns the reward off in fog, but kills the directional
+    gradient too); (b) replace with a distance-to-enemy-KEEP metric
+    (the keep's terrain is genuinely observable, no breach); (c)
+    remove the reward entirely and rely on combat / village
+    deltas to provide gradient once units close enough to interact.
+    The "no breach" rewrite isn't free — option (b) gives the same
+    directional signal at the cost of slightly weaker grading (the
+    keep position is fixed; the enemy leader may roam, which we'd
+    no longer pressure against).
+    ─────────────────────────────────────────────────────────────────
+
+    Why non-leader: same reasoning as `_min_enemy_distance`. We don't
+    want to reward walking our OWN leader at the enemy — the leader
+    needs to stay near the keep to recruit. The signal we want is
+    "send recruits to attack the enemy leader," which is exactly
+    "non-leader of mine -> their leader."
+
+    Why None (not 0): a delta of `prev - new` is only meaningful when
+    BOTH samples are real distances. If either side is missing units
+    needed for the metric, the delta is meaningless and we want to
+    skip the reward for this step, not award `prev - 0 = prev`.
+    """
+    # Enemy leaders: any side != our_side that has an is_leader unit.
+    # In 2p ladder play this is always exactly one unit (side 1 vs 2);
+    # the loop tolerates >2-side scenery maps just in case.
+    enemy_leaders = [u for u in state.map.units
+                     if u.side != our_side and u.is_leader]
+    if not enemy_leaders:
+        return None
+    non_leaders = [u for u in state.map.units
+                   if u.side == our_side and not u.is_leader]
+    if not non_leaders:
+        return None
+    best = None
+    for u in non_leaders:
+        for e in enemy_leaders:
+            d = hex_distance(u.position.x, u.position.y,
+                             e.position.x, e.position.y)
+            if best is None or d < best:
+                best = d
+    return best
+
+
+# ---------------------------------------------------------------------
+# MP-cost metric (Dijkstra with terrain-aware costs).
+#
+# Replaces the hex-distance metric for the closing-to-enemy-leader
+# reward. The user observation (2026-05-20): a unit may need to go
+# around a passable obstacle (e.g., a mountain range with one pass)
+# to actually approach the enemy leader; in that case hex distance
+# overstates the true closing because some intermediate hexes cost
+# more MP. The MP-cost metric uses Wesnoth's actual terrain costs
+# via _move_cost_at_hex, so "1 MP closer" always means "the unit
+# really did spend ~1 MP and is genuinely 1 step nearer."
+#
+# Inherits the same deliberate fog-of-war breach as
+# _min_dist_to_enemy_leader (see that function's docstring).
+# ---------------------------------------------------------------------
+
+# Cache for the per-(terrain, unit-type, target) Dijkstra dist field.
+# Within a game, the map terrain is stable, the enemy leader's hex
+# is mostly stable (it doesn't move every step), and we typically
+# have 1-3 unique non-leader unit types. So once a state's dist field
+# is computed, the next ~hundreds of states reuse it. ~99% cache hit
+# rate observed in profiling; without the cache, this adds ~16s per
+# training iter; with it, ~0.5s.
+#
+# Key: (id(state.global_info._terrain_codes), unit_name, target_xy).
+# `id()` of the terrain_codes dict is a stable per-game proxy --
+# different games re-build the dict, so cache entries from a prior
+# game naturally become unreachable. The cache is bounded to prevent
+# unbounded growth across many games.
+_MP_DIST_CACHE: Dict[Tuple, Dict[Tuple[int, int], int]] = {}
+_MP_DIST_CACHE_MAX = 256
+
+
+def _dijkstra_mp_field_to_adjacent(
+    state: GameState, template_unit, target_xy: Tuple[int, int],
+) -> Optional[Dict[Tuple[int, int], int]]:
+    """Compute (or fetch from cache) the dict mapping each hex coord
+    (x, y) on the map to the minimum MP cost for a unit with
+    `template_unit`'s movement profile, starting at (x, y), to reach
+    a hex adjacent to `target_xy`. The unit STOPS adjacent to the
+    target; it doesn't enter the target's hex (matching Wesnoth
+    attack mechanics).
+
+    Returns None if the target's hex isn't on the map. Hexes the
+    template cannot reach are simply absent from the returned dict
+    (caller treats absence as "unreachable, no reward").
+
+    Algorithm: multi-source Dijkstra-from-outward. Sources are all
+    hexes adjacent to `target_xy` (the attack-from positions).
+    Edge relaxation: when processing hex u and relaxing to neighbor
+    v, the edge weight is the MP cost for the template to ENTER u
+    (because in the actual path v→u→...→adjacent(T), the unit pays
+    cost(u) when stepping into u from v). The target_xy itself is
+    excluded from the propagation graph.
+
+    Cached on (terrain identity, unit name, target). Subsequent
+    calls within the same game hit the cache cleanly.
+    """
+    import heapq
+    from tools.wesnoth_sim import _move_cost_at_hex
+    from tools.abilities import hex_neighbors
+
+    terrain = getattr(state.global_info, "_terrain_codes", None)
+    terrain_id = id(terrain) if terrain else id(state.map.hexes)
+    cache_key = (terrain_id, template_unit.name, target_xy)
+    cached = _MP_DIST_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    on_map = {(h.position.x, h.position.y) for h in state.map.hexes}
+    if target_xy not in on_map:
+        return None
+
+    # Sources: hexes adjacent to target_xy that are on the map.
+    sources = [(nx, ny) for nx, ny in hex_neighbors(*target_xy)
+               if (nx, ny) in on_map]
+    if not sources:
+        return None
+
+    UNREACHABLE = 99
+    dist: Dict[Tuple[int, int], int] = {s: 0 for s in sources}
+    pq: List[Tuple[int, int, int]] = [(0, sx, sy) for sx, sy in sources]
+    heapq.heapify(pq)
+    # Pre-fetch into a local for tight-loop speed.
+    move_cost = _move_cost_at_hex
+    while pq:
+        cost, x, y = heapq.heappop(pq)
+        if cost > dist[(x, y)]:
+            continue
+        # Cost to ENTER (x, y) for a unit walking from a neighbor
+        # toward target. This is the edge weight when relaxing
+        # (x, y) -> any neighbor in the outward search.
+        step_out = move_cost(template_unit, state, x, y)
+        if step_out >= UNREACHABLE:
+            # Can't step OUT of (x, y) toward target (i.e., can't
+            # enter (x, y) from a neighbor in the forward direction).
+            # Don't relax outgoing edges. (x, y) itself remains
+            # reachable with the cost we already recorded for it.
+            continue
+        for nx, ny in hex_neighbors(x, y):
+            if (nx, ny) not in on_map:
+                continue
+            if (nx, ny) == target_xy:
+                # The unit STOPS adjacent to T; doesn't path through it.
+                continue
+            new_cost = cost + step_out
+            if new_cost < dist.get((nx, ny), UNREACHABLE):
+                dist[(nx, ny)] = new_cost
+                heapq.heappush(pq, (new_cost, nx, ny))
+
+    # Crude size-bounded LRU: clear-on-fill. Acceptable because the
+    # cache is dominated by within-game hits; a clear is cheap and
+    # only fires when a new game has built up enough entries to
+    # exceed the cap, which means the previous game's entries are
+    # already stale.
+    if len(_MP_DIST_CACHE) >= _MP_DIST_CACHE_MAX:
+        _MP_DIST_CACHE.clear()
+    _MP_DIST_CACHE[cache_key] = dist
+    return dist
+
+
+def _min_mp_to_enemy_leader(
+    state: GameState, our_side: int,
+) -> Optional[int]:
+    """Min MP cost for any of our_side's non-leader units to walk
+    to a hex adjacent to the enemy leader. Terrain-aware via
+    `tools.wesnoth_sim._move_cost_at_hex`.
+
+    The same fog-of-war breach as `_min_dist_to_enemy_leader`
+    applies: this function reads the enemy leader's position from
+    god-view. See that helper's docstring for the rationale and
+    the audit trail.
+
+    Returns None when the metric is undefined (no enemy leader, no
+    own non-leaders, or every non-leader's path to the leader is
+    blocked).
+
+    Non-leader-only for the same reason as the hex-distance
+    metric: we want to incentivize "send your army at theirs,"
+    not "walk the leader off the keep." See `_min_dist_to_enemy_leader`
+    for the full argument.
+    """
+    enemy_leaders = [u for u in state.map.units
+                     if u.side != our_side and u.is_leader]
+    if not enemy_leaders:
+        return None
+    non_leaders = [u for u in state.map.units
+                   if u.side == our_side and not u.is_leader]
+    if not non_leaders:
+        return None
+
+    # Group non-leaders by unit name (== movement type for our
+    # purposes: same Wesnoth unit type means same movement_costs).
+    # We compute one Dijkstra per (unit-type, enemy-leader-position)
+    # pair, then look up each non-leader's current hex.
+    by_name: Dict[str, list] = {}
+    for u in non_leaders:
+        by_name.setdefault(u.name, []).append(u)
+
+    best: Optional[int] = None
+    for e in enemy_leaders:
+        target_xy = (e.position.x, e.position.y)
+        for u_name, group in by_name.items():
+            template = group[0]
+            dist_field = _dijkstra_mp_field_to_adjacent(
+                state, template, target_xy)
+            if dist_field is None:
+                continue
+            for u in group:
+                d = dist_field.get((u.position.x, u.position.y))
+                if d is None:
+                    continue
+                if best is None or d < best:
+                    best = d
+    return best
 
 
 def _min_enemy_distance(state: GameState, our_side: int) -> int:
@@ -601,6 +1160,59 @@ def compute_delta(
     # just transitioned into — a penalty on "still far away" after this
     # action.
     delta.min_enemy_distance = _min_enemy_distance(new_state, acting_side)
+
+    # Current-visibility fraction for the continuous fog-reveal
+    # shaping reward. Always computed (~µs); the reward consumes
+    # it via `WeightedReward.fog_reveal_weight × (1-gamma) ×
+    # visible_fraction`. No bookkeeping needed on global_info --
+    # each step's visibility is a pure function of the current
+    # unit positions, recomputed fresh.
+    delta.visible_fraction = _visible_fraction(new_state, acting_side)
+
+    # Closing-MP delta. Compute the min-MP-cost-to-reach-the-enemy-
+    # leader from ANY of our non-leader units BEFORE and AFTER this
+    # step; the delta is `max(0, prev_mp - new_mp)` (only credit
+    # closing). `_min_mp_to_enemy_leader` returns None when the
+    # metric is undefined (no enemy leader, no own non-leaders, or
+    # all paths blocked) -- we treat those steps as 0-delta. The
+    # prev_state==None branch below handles game start.
+    if prev_state is not None:
+        prev_mp = _min_mp_to_enemy_leader(prev_state, acting_side)
+        new_mp = _min_mp_to_enemy_leader(new_state, acting_side)
+        if prev_mp is not None and new_mp is not None:
+            closing = prev_mp - new_mp
+            if closing > 0:
+                delta.closing_to_enemy_leader_mp = closing
+
+    # Unused-MP fraction at end_turn. Computed from prev_state (the
+    # acting side's MPs just before they ended their turn -- the
+    # new_state has already swapped to the next side and reset MPs
+    # via init_side). Only non-leader units count; the leader has
+    # its own keep-stay incentive and shouldn't contribute to this
+    # penalty.
+    #
+    # Fraction = sum(non_leader.current_moves) / sum(non_leader.max_moves).
+    # Bounded [0, 1]. 0 means "we used every MP," 1 means "no
+    # non-leader moved at all this turn." When there are no
+    # non-leaders, the metric is undefined; we leave it at 0 (no
+    # penalty when there's nobody to move).
+    if (action_type == "end_turn"
+            and prev_state is not None):
+        total_max = 0
+        total_cur = 0
+        for u in prev_state.map.units:
+            if u.side != acting_side or u.is_leader:
+                continue
+            mm = int(getattr(u, "max_moves", 0) or 0)
+            if mm <= 0:
+                continue
+            total_max += mm
+            total_cur += int(getattr(u, "current_moves", 0) or 0)
+        if total_max > 0:
+            # Clamp into [0, 1] defensively in case current_moves
+            # > max_moves from a healing-effect / scenario event.
+            frac = max(0.0, min(1.0, total_cur / total_max))
+            delta.unused_mp_fraction = frac
 
     if prev_state is None:
         return delta

@@ -105,6 +105,22 @@ def _load_checkpoint(
         d_model=d_model, num_layers=num_layers,
         num_heads=num_heads, d_ff=d_ff,
     ).to(device)
+    # Pre-C51 partial-load: pre-2026-05-10 checkpoints have a scalar
+    # value_head.2 (shape [1, d_model]) while the current
+    # WesnothModel has C51's [K_ATOMS, d_model]. strict=False alone
+    # does NOT save us -- size mismatches raise regardless of strict
+    # mode -- so we strip those keys explicitly. Mirrors the strip
+    # in transformer_policy.load_checkpoint. Without this the eval
+    # crashes on the size mismatch instead of warm-starting cleanly.
+    model_state = dict(ckpt["model_state"])
+    for k in ("value_head.2.weight", "value_head.2.bias"):
+        tensor = model_state.get(k)
+        if tensor is not None and tensor.shape[0] == 1:
+            del model_state[k]
+            log.warning(f"  model: stripping pre-C51 scalar {k} "
+                        f"(shape={tuple(tensor.shape)}); value head "
+                        f"loads at random C51 init")
+
     # strict=False so a checkpoint saved before an architecture-additive
     # change (e.g. C.1's type_head, the dynamic_flag_proj column) still
     # evaluates -- the missing modules just keep their random init,
@@ -114,7 +130,7 @@ def _load_checkpoint(
     # Surface the missing/unexpected keys so a real arch divergence
     # (vs an expected-additive new head) is visible at a glance.
     m_missing, m_unexpected = model.load_state_dict(
-        ckpt["model_state"], strict=False)
+        model_state, strict=False)
     if m_missing:
         log.warning(f"  model: {len(m_missing)} missing key(s) "
                     f"(random init, expected after additive arch "
@@ -352,8 +368,10 @@ def main(argv: List[str]) -> int:
                          "side runs autonomously inside Wesnoth and "
                          "can take a while between our turns, "
                          "especially when GUI animations are on.")
-    ap.add_argument("--device", type=str, default="cpu",
-                    help="torch device (default cpu).")
+    ap.add_argument("--device", type=str, default="auto",
+                    help="Torch device. 'auto' = DML (discrete) > "
+                         "CUDA > CPU. Pass 'cpu' / 'cuda' / 'dml' "
+                         "to force.")
     ap.add_argument("--save-json", type=Path, default=None,
                     help="Write structured results to PATH.json.")
     ap.add_argument("--limit", type=int, default=0,
@@ -365,7 +383,9 @@ def main(argv: List[str]) -> int:
         return 1
 
     # -- 1. Load model + encoder --
-    device = torch.device(args.device)
+    from tools.device_select import select_inference_device, describe_device
+    device = select_inference_device(args.device)
+    log.info(f"device: {describe_device(device)}")
     encoder, model = _load_checkpoint(args.checkpoint, device)
     converter = StateConverter()
 

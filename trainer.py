@@ -44,6 +44,7 @@ from action_sampler import (
     reforward_logprob_entropy,
 )
 from classes import GameState
+from device import dml_sync, is_dml
 from encoder import encode_raw
 
 
@@ -205,6 +206,16 @@ class Trainer:
         if not flat:
             return TrainStats()
 
+        # DML mitigation #1: drain any command-list residue left over
+        # from the rollout phase BEFORE the first train_step transfer.
+        # Rollout's 6 worker threads can leave thousands of small
+        # forward + .to() ops queued; without this flush the very
+        # first encode_from_raw_batch transfer hits a queue that's
+        # already too deep for the AMD driver, crashing with
+        # "device suspended". `dml_sync` is a no-op on CPU/CUDA so
+        # this is free everywhere except DML. See device.py.
+        dml_sync(self.device or next(self.model.parameters()).device)
+
         # Cap the number of transitions we process — for overlong
         # training batches, subsample to bound peak compute.
         #
@@ -306,6 +317,17 @@ class Trainer:
             ]
 
             # --- Pass 1: values without grad ----------------------------
+            # DML mitigation #2: periodic command-list flush inside
+            # the chunk loop. On DML the per-chunk `.item()` call at
+            # the inner `values_np.append(...)` line already syncs
+            # the queue once per chunk -- that's our flush, free of
+            # charge. (On CUDA it forces a small overhead but we
+            # only get here at B=1; the chunk count is N which is
+            # the number of transitions, ~3000 on a typical iter.
+            # If this is the bottleneck on CUDA, sub-batch into
+            # bigger Bs in TrainerConfig.) Logging the natural
+            # sync rather than adding a redundant one.
+            on_dml = is_dml(dev)
             values_np: List[float] = []
             with torch.no_grad():
                 for start in range(0, N, B):

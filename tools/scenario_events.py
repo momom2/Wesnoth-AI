@@ -233,7 +233,15 @@ def load_scenario_wml(scenario_id: str) -> Optional[WMLNode]:
     """Find and parse the scenario .cfg matching `scenario_id`. Returns
     the parsed root node (with a [multiplayer] or [scenario] child),
     or None if unmappable. `scenario_id` should match the WML id like
-    "multiplayer_Aethermaw" or "multiplayer_Den_of_Onis"."""
+    "multiplayer_Aethermaw", "multiplayer_Den_of_Onis", or for
+    vendored add-on scenarios the raw id like "2p_mini" or
+    "Modified_Tiny_Close_Relation".
+
+    Search order:
+      1. wesnoth_src/data/multiplayer/scenarios/  (core 2p ladder)
+      2. wesnoth_src/data/add-ons/<pkg>/scenarios/  (vendored add-ons,
+         currently just Mini_Maps_Collection)
+    """
     global _CORE_MACROS_CACHE
     if not SCENARIO_DIR.exists():
         return None
@@ -260,6 +268,45 @@ def load_scenario_wml(scenario_id: str) -> Optional[WMLNode]:
             if alt.exists():
                 candidate = alt; break
         else:
+            candidate = None  # fall through to add-on search
+    # Add-on fallback: scan vendored add-ons under
+    # wesnoth_src/data/add-ons/<pkg>/scenarios/. Mini-map scenarios
+    # often have raw ids like "2p_mini" or "Modified_Tiny_Close_Relation"
+    # that don't match either prefix convention; look up by both
+    # filename and by the [multiplayer]/[scenario] id attribute.
+    if candidate is None or not candidate.exists():
+        ADDONS_DIR = SCENARIO_DIR.parent.parent / "add-ons"
+        if ADDONS_DIR.is_dir():
+            for addon in ADDONS_DIR.iterdir():
+                sc_dir = addon / "scenarios"
+                if not sc_dir.is_dir(): continue
+                # First try filename matches (faster).
+                for fname in (f"{scenario_id}.cfg",
+                              f"{base}.cfg",
+                              f"2p_{base}.cfg"):
+                    p = sc_dir / fname
+                    if p.is_file():
+                        candidate = p; break
+                if candidate is not None and candidate.is_file():
+                    break
+                # Fall through: scan every .cfg's id= attribute.
+                # Add-on scenarios often pick non-filename-matching ids
+                # (e.g. file Modified_Close_Relation.cfg has
+                # id=Modified_Tiny_Close_Relation).
+                import re as _re
+                for p in sc_dir.glob("*.cfg"):
+                    try:
+                        head = p.read_text(encoding="utf-8",
+                                           errors="ignore")[:2000]
+                    except OSError: continue
+                    m = _re.search(r"^\s*id\s*=\s*(\S+)\s*$",
+                                   head, _re.MULTILINE)
+                    if m and m.group(1).strip() == scenario_id:
+                        candidate = p
+                        break
+                if candidate is not None and candidate.is_file():
+                    break
+        if candidate is None or not candidate.is_file():
             return None
 
     if _CORE_MACROS_CACHE is None:

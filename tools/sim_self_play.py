@@ -55,18 +55,18 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 # Make project root importable when run as a script.
 _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
-from classes import GameState
+from classes import GameState, Unit
 from tools.scenario_pool import LADDER_SCENARIO_IDS
 from rewards import (
     OUTCOME_DRAW, OUTCOME_LOSS, OUTCOME_ONGOING, OUTCOME_TIMEOUT, OUTCOME_WIN,
-    StepDelta, WeightedReward, compute_delta, load_reward_config,
+    StepDelta, WeightedReward, compute_delta, hex_distance, load_reward_config,
 )
 from transformer_policy import TransformerPolicy
 from wesnoth_sim import PvPDefaults, SimResult, WesnothSim
@@ -92,6 +92,39 @@ class GameOutcome:
     side2_actions:  int
     side1_reward:   float        # cumulative shaping + terminal for side 1
     side2_reward:   float
+    # Action-type tallies across both sides; keys are the strings
+    # action_sampler emits ("recruit", "move", "attack", "end_turn").
+    # Used by run_iteration() to print an action histogram so the
+    # operator can see at a glance what the policy is actually doing
+    # (e.g. "97% recruit + end_turn, 0% attack" = the no-kills signal).
+    action_counts:  Dict[str, int]
+    # Living-unit counts at game end, per side. A useful "did the
+    # game actually decide something" metric -- a draw with 20+ units
+    # alive on each side is a different failure mode from a draw
+    # with both armies wiped out.
+    side1_units_end: int
+    side2_units_end: int
+    # Min hex distance any of THIS side's units ever got to the
+    # OPPOSING side's leader across the whole game. None when the
+    # opposing leader was never present (rare; usually means the
+    # game ended on a leader-kill before this side acted). The
+    # smaller, the more threatening: 1 = adjacent (attack range);
+    # >10 = the army never closed on the leader. This is the
+    # headline no-kills signal in the trainer log.
+    side1_closest_approach: Optional[int]
+    side2_closest_approach: Optional[int]
+    # Econ diagnostics (added 2026-05-20 for recruit-underuse
+    # investigation). end_gold_* = gold each side had when the game
+    # ended -- if persistently high, the policy could afford more
+    # units but isn't choosing them. n_recruits_* = total successful
+    # recruits; n_recruit_attempts_* = total recruit picks
+    # (including bounces). Bounces = attempts - successes.
+    side1_end_gold: int = 0
+    side2_end_gold: int = 0
+    n_recruits_s1: int = 0
+    n_recruits_s2: int = 0
+    n_recruit_attempts_s1: int = 0
+    n_recruit_attempts_s2: int = 0
 
 
 def _outcome_for(winner: int, ended_by: str, side: int) -> str:
@@ -121,6 +154,57 @@ def _recruit_cost_lookup() -> Dict[str, int]:
 # One game's rollout
 # ---------------------------------------------------------------------
 
+def _leader_of(gs: GameState, side: int) -> Optional[Unit]:
+    """First is_leader=True unit for `side`, or None if the leader
+    is dead / hasn't been placed yet. Shared with
+    `tools/diagnose_selfplay.py` (which imports this)."""
+    for u in gs.map.units:
+        if u.side == side and u.is_leader:
+            return u
+    return None
+
+
+def _update_closest_approach(
+    gs: GameState, current: Dict[int, Optional[int]],
+) -> None:
+    """For sides 1 and 2 present on the board, compute min hex
+    distance from any of that side's units to the OPPOSING side's
+    leader. Update `current[side]` to the running minimum.
+
+    Symmetric: both sides are sampled every state regardless of
+    whose turn it is, so the metric captures "did this side's
+    army ever get close to the enemy leader" across the whole
+    game, not just on its turns.
+
+    O(N_units) per call; with ~10-30 units per state and one call
+    per action (~200 actions/game) this is ~3% overhead on a
+    typical iter -- worth it for a metric that's the headline
+    diagnostic for the no-kills problem.
+    """
+    # Cache leader positions for sides 1 and 2 up front.
+    leader_pos: Dict[int, Tuple[int, int]] = {}
+    for s in (1, 2):
+        leader = _leader_of(gs, s)
+        if leader is not None:
+            leader_pos[s] = (leader.position.x, leader.position.y)
+    for my_side in (1, 2):
+        # Find the enemy leader's position (the OTHER player-side).
+        other = 2 if my_side == 1 else 1
+        if other not in leader_pos:
+            continue
+        ex, ey = leader_pos[other]
+        my_units = [u for u in gs.map.units if u.side == my_side]
+        if not my_units:
+            continue
+        local_min = min(
+            hex_distance(u.position.x, u.position.y, ex, ey)
+            for u in my_units
+        )
+        prev = current.get(my_side)
+        if prev is None or local_min < prev:
+            current[my_side] = local_min
+
+
 def _would_recruit_bounce(action: Dict, gs: "GameState") -> bool:
     """True if `action` is a recruit on a hex the SIM (god-view)
     knows is occupied. The action sampler's mask only knows visible
@@ -143,6 +227,64 @@ def _would_recruit_bounce(action: Dict, gs: "GameState") -> bool:
     return False
 
 
+def _would_move_bounce_on_fog(action: Dict, gs: "GameState") -> bool:
+    """True if `action` is a MOVE onto a hex the sim's god-view
+    knows is occupied by a unit invisible to the acting side.
+
+    Why this case is special: with the fog-of-war filter
+    (visibility.py + encoder.py), enemy units in fog don't appear
+    in the sampler's enemy_mask -- the target hex looks empty to
+    the policy. The sim still rejects the move (Wesnoth never
+    allows stacking) and, without this pre-check, the rejection
+    would be treated as an illegal-shaped action and consume the
+    side's turn via the end_turn fallback (wesnoth_sim.py step()).
+
+    Fair-information principle: the policy picked a hex that
+    LOOKED legal given everything it could see. Punishing it for
+    information it didn't have would violate the legality-mask
+    contract in CLAUDE.md. Instead, the harness anticipates the
+    bounce, marks the hex in `_move_rejected_hexes` (mirrored
+    into hex_dynamic_flags bit 1 by the encoder), and re-decides
+    -- same shape as the recruit-rejection retry.
+
+    NOT a bounce-on-fog (these are policy bugs that should still
+    cost the turn or trip the invalid_action signal):
+      * Move onto a hex occupied by a VISIBLE enemy or friendly.
+        Visible occupancy already maps to enemy_mask=1 or
+        occupancy=1 in the legality mask, so the policy
+        shouldn't have picked it. If it did, that's the model
+        being wrong on visible state -- not fair information.
+      * Move onto a non-neighbour hex / from a unit that has no
+        MP / etc. Those checks happen earlier in
+        _action_to_command and return None outright.
+
+    Cheap: linear over gs.map.units, fires only on move actions.
+    """
+    if action.get("type") != "move":
+        return False
+    tgt = action.get("target_hex")
+    if tgt is None:
+        return False
+    current_side = gs.global_info.current_side
+    # Find the unit at the target (if any). If it's invisible to
+    # the acting side, the bounce qualifies as fair-information.
+    occupant = None
+    for u in gs.map.units:
+        if u.position.x == tgt.x and u.position.y == tgt.y:
+            occupant = u
+            break
+    if occupant is None:
+        return False
+    if occupant.side == current_side:
+        # Friendly already-occupied. The policy can see its own
+        # units -- not a fog bounce.
+        return False
+    # Enemy unit. Is it visible to the acting side?
+    from visibility import units_visible_to
+    visible_ids = {id(u) for u in units_visible_to(gs, current_side)}
+    return id(occupant) not in visible_ids
+
+
 def play_one_game(
     sim:         WesnothSim,
     policy:      TransformerPolicy,
@@ -155,6 +297,28 @@ def play_one_game(
     policy.observe at each step. Returns the per-game summary."""
     side1_reward = 0.0
     side2_reward = 0.0
+    # Action-type histogram across both sides. We tally on the
+    # pre-bounce-retry action (the one sim.step accepted), so a
+    # rejected-recruit-then-different-pick lands as a single entry
+    # under the picked type -- the histogram reflects what the sim
+    # actually did, not what the model first guessed.
+    action_counts: Dict[str, int] = {}
+    # Recruit diagnostics for the per-iter recruit-underuse audit.
+    # n_recruits_per_side counts SUCCESSFUL recruits (state changed,
+    # unit appeared); n_recruit_attempts counts every recruit action
+    # the policy attempted (including bounced ones). Difference =
+    # bounces (god-view occupied hex). Compared against gold-at-
+    # end-of-game to answer "could the policy have afforded more
+    # recruits but chose not to?".
+    n_recruits_per_side: Dict[int, int] = {1: 0, 2: 0}
+    n_recruit_attempts_per_side: Dict[int, int] = {1: 0, 2: 0}
+    # Per-side closest-approach tracker, updated after every sim.step
+    # (and seeded from the initial state below). Surfaces as the
+    # headline no-kills metric in the iter log.
+    closest_approach: Dict[int, Optional[int]] = {}
+    # Seed with the starting position so a game that ends before any
+    # side acts (rare) still has a measurement.
+    _update_closest_approach(sim.gs, closest_approach)
     # Populated lazily as each side acts. We don't pre-seed (1, 2)
     # because the sim handles N-side replays (some have 3+ declared
     # sides) and we want every side that called select_action to
@@ -218,6 +382,34 @@ def play_one_game(
             policy.observe(game_label, acting_side, 0.0, done=False)
             pre_state = copy.deepcopy(sim.gs)
             action = policy.select_action(pre_state, game_label=game_label, sim=sim)
+
+        # Same mechanic for MOVE onto a fog-hidden enemy hex.
+        # Fair-information contract: the hex looked empty to the
+        # policy (the enemy unit was filtered out of the encoder's
+        # tokens by visibility.units_visible_to), so the bounce
+        # isn't punishable. Mark the hex in `_move_rejected_hexes`,
+        # observe(reward=0) to drop the rejected Transition tail,
+        # and re-decide. Loop bound: each bounce adds one hex to
+        # the per-turn rejection set; the legality mask blacklists
+        # it; the move-target choice space shrinks monotonically
+        # within the turn. (Worst case the policy exhausts its
+        # legal moves and picks attack / end_turn instead.)
+        while _would_move_bounce_on_fog(action, sim.gs):
+            tgt = action["target_hex"]
+            move_rejected = (
+                getattr(sim.gs.global_info,
+                        "_move_rejected_hexes", None) or set()
+            )
+            move_rejected.add((tgt.x, tgt.y))
+            setattr(sim.gs.global_info,
+                    "_move_rejected_hexes", move_rejected)
+            log.debug(
+                f"move rejected: ({tgt.x},{tgt.y}) (god-view "
+                f"occupied by fog-hidden enemy); re-deciding "
+                f"with hex blacklisted")
+            policy.observe(game_label, acting_side, 0.0, done=False)
+            pre_state = copy.deepcopy(sim.gs)
+            action = policy.select_action(pre_state, game_label=game_label, sim=sim)
         atype = action.get("type", "end_turn")
         if atype == "recruit":
             unit_type = action.get("unit_type", "")
@@ -245,6 +437,20 @@ def play_one_game(
             recruit_cost = 0
 
         sim.step(action)
+        action_counts[atype] = action_counts.get(atype, 0) + 1
+        _update_closest_approach(sim.gs, closest_approach)
+
+        # Recruit diagnostics: did this recruit attempt actually
+        # produce a new unit? `delta.units_recruited` populates
+        # below from compute_delta. For now, count the attempt
+        # (any recruit-typed action that reached sim.step). A
+        # bounced fog/occupied recruit went through the retry
+        # loop above and is NOT in this branch -- so attempts
+        # here are non-bounced; successes get counted when the
+        # delta is computed.
+        if atype == "recruit":
+            n_recruit_attempts_per_side[acting_side] = (
+                n_recruit_attempts_per_side.get(acting_side, 0) + 1)
 
         # Per-step shaping reward only -- no terminal contribution
         # here. Terminal reward is added per side after the loop so
@@ -266,6 +472,13 @@ def play_one_game(
             attach_post_state=attach_post,
         )
         step_r = reward_fn(delta)
+        # Count successful recruits (state delta confirms a unit
+        # appeared). units_recruited is a tuple of names; empty
+        # if the recruit didn't actually land.
+        if atype == "recruit" and delta.units_recruited:
+            n_recruits_per_side[acting_side] = (
+                n_recruits_per_side.get(acting_side, 0)
+                + len(delta.units_recruited))
         policy.observe(game_label, acting_side, step_r, done=False)
         last_acting_side[acting_side] = True
         if acting_side == 1:
@@ -309,6 +522,26 @@ def play_one_game(
     # call is unconditional.
     policy.finalize_game(game_label, sim.winner)
 
+    # Living-unit counts at game end. Counts every unit on the
+    # final-state board belonging to each side -- includes leaders.
+    # A side-1 win normally leaves side2_units_end at >0 (the leader
+    # died, surviving units don't matter) but useful: a draw with
+    # 30 units alive on each side is "two armies sat around" while
+    # a draw with 2 units alive is "they wiped each other out".
+    s1_units_end = 0
+    s2_units_end = 0
+    for u in sim.gs.map.units:
+        if u.side == 1:
+            s1_units_end += 1
+        elif u.side == 2:
+            s2_units_end += 1
+
+    # End-of-game gold per side. Defensive against scenarios with
+    # missing sides[] entries (test fixtures).
+    s1_gold = (int(sim.gs.sides[0].current_gold)
+               if sim.gs.sides else 0)
+    s2_gold = (int(sim.gs.sides[1].current_gold)
+               if sim.gs.sides and len(sim.gs.sides) >= 2 else 0)
     return GameOutcome(
         game_label=game_label,
         winner=sim.winner,
@@ -318,6 +551,17 @@ def play_one_game(
         side2_actions=sim._actions_by_side.get(2, 0),
         side1_reward=side1_reward,
         side2_reward=side2_reward,
+        action_counts=action_counts,
+        side1_units_end=s1_units_end,
+        side2_units_end=s2_units_end,
+        side1_closest_approach=closest_approach.get(1),
+        side2_closest_approach=closest_approach.get(2),
+        side1_end_gold=s1_gold,
+        side2_end_gold=s2_gold,
+        n_recruits_s1=n_recruits_per_side.get(1, 0),
+        n_recruits_s2=n_recruits_per_side.get(2, 0),
+        n_recruit_attempts_s1=n_recruit_attempts_per_side.get(1, 0),
+        n_recruit_attempts_s2=n_recruit_attempts_per_side.get(2, 0),
     )
 
 
@@ -503,6 +747,8 @@ def _worker_loop(
     *, worker_id, policy, reward_fn, cost_lookup,
     max_turns, pvp_defaults, worker_rng, shared,
     forced_faction=...,
+    mini_maps=False,
+    mini_ratio: float = 0.0,
 ):
     """Per-thread rollout loop. Each worker pulls a game index from
     `shared.next_game` (atomic under the master lock), assigns
@@ -517,7 +763,8 @@ def _worker_loop(
                 return
             g_idx = shared["next_game"]
             shared["next_game"] += 1
-        setup = random_setup(worker_rng, forced_faction=forced_faction)
+        setup = random_setup(worker_rng, forced_faction=forced_faction,
+                             mini_maps=mini_maps, mini_ratio=mini_ratio)
         game_label = (f"iter{shared['iter_idx']}_"
                       f"w{worker_id}_g{g_idx}")
         outcome = _play_one_game_safe(
@@ -545,6 +792,9 @@ def run_iteration(
     workers:       int = 0,
     train_at_end:  bool = True,
     forced_faction: Optional[str] = ...,
+    mini_maps:     bool = False,
+    mini_ratio:    float = 0.0,
+    snapshot_sink: Optional[Callable[[Dict], None]] = None,
 ) -> List[GameOutcome]:
     """Roll out `games_per_iter` games and call `train_step` once at
     the end. Returns the per-game outcomes for logging.
@@ -578,11 +828,21 @@ def run_iteration(
     outcomes: List[GameOutcome] = []
     t0 = time.perf_counter()
 
+    # Reset the per-component reward accumulator at the start of the
+    # iter. WeightedReward (if that's the reward_fn) accumulates per
+    # component into _component_acc; we read it out at iter end and
+    # log to trainer_history. No-op for non-WeightedReward callers
+    # (custom reward fns are free to not expose this attribute).
+    if hasattr(reward_fn, "_component_acc"):
+        reward_fn._component_acc = {}
+
     if workers <= 0:
         # Serial path -- simplest, used for tests and smoke runs.
         from tools.scenario_pool import random_setup
         for g_idx in range(games_per_iter):
-            setup = random_setup(rng, forced_faction=forced_faction)
+            setup = random_setup(rng, forced_faction=forced_faction,
+                                 mini_maps=mini_maps,
+                                 mini_ratio=mini_ratio)
             game_label = f"iter{iter_idx}_g{g_idx}"
             outcome = _play_one_game_safe(
                 setup=setup, max_turns=max_turns,
@@ -616,6 +876,8 @@ def run_iteration(
                     max_turns=max_turns, pvp_defaults=pvp_defaults,
                     worker_rng=worker_rng, shared=shared,
                     forced_faction=forced_faction,
+                    mini_maps=mini_maps,
+                    mini_ratio=mini_ratio,
                 ),
                 daemon=True,
                 name=f"selfplay-w{w}",
@@ -648,24 +910,264 @@ def run_iteration(
         f"draws/timeouts={draws}; mean_reward s1={avg_r1:+.3f} s2={avg_r2:+.3f}"
     )
 
+    # Behavioral diagnostics: action histogram + mean turns/game +
+    # mean living units per side at game end. These three numbers
+    # are the headline indicator of the no-kills problem: if the
+    # histogram shows recruit + end_turn dominate and units_end is
+    # high for both sides, the policy is "build forever, never
+    # engage". A healthy training trajectory should see attack% rise
+    # over iterations, mean_turns drop (decisive games end sooner),
+    # and units_end skew toward the winner.
+    # Computed below; declared up front so the train_at_end block can
+    # write a CSV row regardless of whether outcomes were produced.
+    action_pcts: Dict[str, float] = {k: 0.0 for k in
+                                     ("recruit", "move", "attack",
+                                      "end_turn", "other")}
+    mean_turns: float = 0.0
+    mean_u1: float = 0.0
+    mean_u2: float = 0.0
+    mean_ca1: Optional[float] = None
+    mean_ca2: Optional[float] = None
+    if outcomes:
+        # Sum per-type tallies across games.
+        totals: Dict[str, int] = {}
+        for o in outcomes:
+            for k, v in o.action_counts.items():
+                totals[k] = totals.get(k, 0) + v
+        total_actions = max(sum(totals.values()), 1)
+        # Stable order so it's grep-able across runs; "other" sweeps
+        # up anything that isn't one of the four known categories.
+        known = ["recruit", "move", "attack", "end_turn"]
+        for k in known:
+            action_pcts[k] = 100.0 * totals.get(k, 0) / total_actions
+        other = sum(v for k, v in totals.items() if k not in known)
+        action_pcts["other"] = 100.0 * other / total_actions
+        parts = [f"{k}={action_pcts[k]:.0f}%" for k in known]
+        if other:
+            parts.append(f"other={action_pcts['other']:.0f}%")
+        mean_turns = n_turns / len(outcomes)
+        mean_u1 = sum(o.side1_units_end for o in outcomes) / len(outcomes)
+        mean_u2 = sum(o.side2_units_end for o in outcomes) / len(outcomes)
+        # Closest-approach: average over games that have a value
+        # (a game where this side's leader never met any opposing
+        # unit returns None and is excluded). Smaller is more
+        # threatening; high values across iterations = no-kills.
+        ca1_vals = [o.side1_closest_approach for o in outcomes
+                    if o.side1_closest_approach is not None]
+        ca2_vals = [o.side2_closest_approach for o in outcomes
+                    if o.side2_closest_approach is not None]
+        if ca1_vals: mean_ca1 = sum(ca1_vals) / len(ca1_vals)
+        if ca2_vals: mean_ca2 = sum(ca2_vals) / len(ca2_vals)
+        ca_str = (f"  closest_approach s1="
+                  f"{f'{mean_ca1:.1f}' if mean_ca1 is not None else 'n/a'}"
+                  f" s2="
+                  f"{f'{mean_ca2:.1f}' if mean_ca2 is not None else 'n/a'}")
+        log.info(
+            f"iter {iter_idx}: actions[{', '.join(parts)}] "
+            f"mean_turns={mean_turns:.1f} "
+            f"mean_units_end s1={mean_u1:.1f} s2={mean_u2:.1f}"
+            f"{ca_str}"
+        )
+
+    train_stats = None
     if train_at_end:
         # One gradient step over all queued trajectories.
         train_t0 = time.perf_counter()
-        stats = policy.train_step()
+        train_stats = policy.train_step()
         train_dt = time.perf_counter() - train_t0
         log.info(
             f"iter {iter_idx}: train_step in {train_dt:.1f}s "
-            f"trajectories={stats.n_trajectories} transitions={stats.n_transitions} "
-            f"loss={stats.total_loss:.4f} policy={stats.policy_loss:.4f} "
-            f"value={stats.value_loss:.4f} entropy={stats.entropy:.4f} "
-            f"mean_return={stats.mean_return:+.3f} grad_norm={stats.grad_norm:.3f}"
+            f"trajectories={train_stats.n_trajectories} transitions={train_stats.n_transitions} "
+            f"loss={train_stats.total_loss:.4f} policy={train_stats.policy_loss:.4f} "
+            f"value={train_stats.value_loss:.4f} entropy={train_stats.entropy:.4f} "
+            f"mean_return={train_stats.mean_return:+.3f} grad_norm={train_stats.grad_norm:.3f}"
         )
+
+    # Optional snapshot sink: the main loop passes a callable that
+    # appends a CSV row to disk. Tests don't pass one, so this is
+    # a no-op there. Keeping the return type a plain List[GameOutcome]
+    # avoids touching every test that asserts on it.
+    if snapshot_sink is not None:
+        # Econ aggregates across all games this iter.
+        mean_end_gold_s1 = (
+            sum(o.side1_end_gold for o in outcomes) / len(outcomes)
+            if outcomes else 0.0)
+        mean_end_gold_s2 = (
+            sum(o.side2_end_gold for o in outcomes) / len(outcomes)
+            if outcomes else 0.0)
+        n_recruits_s1 = sum(o.n_recruits_s1 for o in outcomes)
+        n_recruits_s2 = sum(o.n_recruits_s2 for o in outcomes)
+        n_recruit_attempts_s1 = sum(o.n_recruit_attempts_s1 for o in outcomes)
+        n_recruit_attempts_s2 = sum(o.n_recruit_attempts_s2 for o in outcomes)
+        # Per-component reward sums (read+snapshot, then leave on
+        # reward_fn for any other consumer; the next iter resets).
+        reward_components = dict(
+            getattr(reward_fn, "_component_acc", None) or {})
+        log.info(
+            f"iter {iter_idx}: econ "
+            f"mean_end_gold s1={mean_end_gold_s1:.1f} s2={mean_end_gold_s2:.1f}; "
+            f"recruits s1={n_recruits_s1}(of {n_recruit_attempts_s1}) "
+            f"s2={n_recruits_s2}(of {n_recruit_attempts_s2})"
+        )
+        if reward_components:
+            comp_str = ", ".join(
+                f"{k}={v:+.3f}" for k, v in sorted(
+                    reward_components.items(), key=lambda kv: -abs(kv[1])))
+            log.info(f"iter {iter_idx}: reward components -- {comp_str}")
+        snapshot_sink({
+            "iter":                iter_idx,
+            "n_games":             len(outcomes),
+            "rollout_seconds":     rollout_dt,
+            "n_actions":           n_actions,
+            "mean_turns":          mean_turns,
+            "s1_wins":             s1_wins,
+            "s2_wins":             s2_wins,
+            "draws":               draws,
+            "action_recruit_pct":  action_pcts["recruit"],
+            "action_move_pct":     action_pcts["move"],
+            "action_attack_pct":   action_pcts["attack"],
+            "action_end_turn_pct": action_pcts["end_turn"],
+            "action_other_pct":    action_pcts["other"],
+            "mean_units_end_s1":   mean_u1,
+            "mean_units_end_s2":   mean_u2,
+            "closest_approach_s1": mean_ca1,
+            "closest_approach_s2": mean_ca2,
+            "train_stats":         train_stats,
+            # Per-component reward + econ diagnostics.
+            "reward_components":   reward_components,
+            "mean_end_gold_s1":    mean_end_gold_s1,
+            "mean_end_gold_s2":    mean_end_gold_s2,
+            "n_recruits_s1":       n_recruits_s1,
+            "n_recruits_s2":       n_recruits_s2,
+            "n_recruit_attempts_s1": n_recruit_attempts_s1,
+            "n_recruit_attempts_s2": n_recruit_attempts_s2,
+        })
     return outcomes
 
 
 # ---------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------
+
+class _TrainerHistoryCSV:
+    """Lazy CSV writer for per-iter training stats. Writes the header
+    on the first row so the file is self-describing.
+
+    Columns are stable across iters (every per-game / per-iter
+    diagnostic the operator might want to plot over time). When a
+    field is None (e.g. closest-approach with no living units to
+    measure) we emit an empty cell so pandas reads it as NaN.
+
+    Atomic-ish: each row is one append, line-buffered. A crash
+    mid-row would truncate to a partial line that pandas / awk
+    would skip cleanly.
+    """
+
+    # Stable column order. Adding new columns at the end is
+    # backwards-compatible (older pandas reads will just see fewer
+    # columns); reordering or removing columns is a breaking change.
+    # Stable per-component reward column names. Match the keys
+    # WeightedReward.__call__ writes into its `_component_acc`.
+    # Aggregated across all games in the iter and across both sides.
+    # Empty cells (= 0) mean that component didn't fire this iter.
+    _REWARD_COMPONENT_KEYS = (
+        "gold_killed", "village_delta", "damage_dealt",
+        "unit_recruited_cost", "per_turn_penalty",
+        "leader_move_penalty", "invalid_action",
+        "min_enemy_distance", "approach_mp", "unused_mp",
+        "fog_reveal", "attack_attempt", "unit_type_bonus",
+        "turn_cond_bonus", "terminal",
+    )
+
+    # Per-side mean gold / recruits at end of game, for diagnosing
+    # recruit-underuse. mean_end_gold_s1 = "side 1 ended its game
+    # with X gold left on average" -- if high, the policy is not
+    # spending. n_recruits_s1 = "total successful recruits by side 1
+    # across all games this iter."
+    _ECON_KEYS = (
+        "mean_end_gold_s1", "mean_end_gold_s2",
+        "n_recruits_s1", "n_recruits_s2",
+        "n_recruit_attempts_s1", "n_recruit_attempts_s2",
+    )
+
+    COLUMNS = [
+        "iter", "timestamp", "n_games", "rollout_seconds",
+        "n_actions", "mean_turns",
+        "s1_wins", "s2_wins", "draws",
+        "action_recruit_pct", "action_move_pct",
+        "action_attack_pct", "action_end_turn_pct",
+        "action_other_pct",
+        "mean_units_end_s1", "mean_units_end_s2",
+        "closest_approach_s1", "closest_approach_s2",
+        "train_n_trajectories", "train_n_transitions",
+        "train_loss", "train_policy_loss", "train_value_loss",
+        "train_entropy", "train_mean_return", "train_grad_norm",
+    ] + [f"r_{k}" for k in _REWARD_COMPONENT_KEYS] + list(_ECON_KEYS)
+
+    def __init__(self, path: Path):
+        self.path = path
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        # Open in append mode; write header only if file is empty
+        # (or doesn't exist). Line buffering (buffering=1) so each
+        # row is flushed; cluster jobs that get walltime-killed
+        # leave the partial CSV recoverable.
+        write_header = (not self.path.exists()
+                        or self.path.stat().st_size == 0)
+        self._f = self.path.open("a", encoding="utf-8",
+                                 newline="", buffering=1)
+        import csv as _csv
+        self._writer = _csv.DictWriter(self._f, fieldnames=self.COLUMNS,
+                                       extrasaction="ignore")
+        if write_header:
+            self._writer.writeheader()
+
+    def append(self, snapshot: Dict) -> None:
+        import datetime as _dt
+        row = dict(snapshot)
+        row["timestamp"] = _dt.datetime.now().isoformat(timespec="seconds")
+        ts = snapshot.get("train_stats")
+        if ts is not None:
+            row["train_n_trajectories"] = ts.n_trajectories
+            row["train_n_transitions"]  = ts.n_transitions
+            row["train_loss"]           = ts.total_loss
+            row["train_policy_loss"]    = ts.policy_loss
+            row["train_value_loss"]     = ts.value_loss
+            row["train_entropy"]        = ts.entropy
+            row["train_mean_return"]    = ts.mean_return
+            row["train_grad_norm"]      = ts.grad_norm
+        # Per-component reward sums (from WeightedReward._component_acc).
+        acc = snapshot.get("reward_components") or {}
+        for k in self._REWARD_COMPONENT_KEYS:
+            v = acc.get(k)
+            if v is not None:
+                row[f"r_{k}"] = v
+        # Econ diagnostics for recruit-underuse investigation.
+        for k in self._ECON_KEYS:
+            v = snapshot.get(k)
+            if v is not None:
+                row[k] = v
+        # `extrasaction="ignore"` drops the `train_stats` object
+        # itself; csv would otherwise stringify it as the repr.
+        self._writer.writerow(row)
+
+    def close(self) -> None:
+        try:
+            self._f.close()
+        except OSError:
+            pass
+
+
+def _default_history_csv() -> Path:
+    """Default path for the per-iter CSV. SLURM jobs get a unique
+    file per job so chain links don't overwrite each other; local
+    runs share one rolling `trainer_history_local.csv` so iterating
+    locally accumulates."""
+    import os as _os
+    jobid = _os.environ.get("SLURM_JOB_ID")
+    name = (f"trainer_history_{jobid}.csv" if jobid
+            else "trainer_history_local.csv")
+    return Path("training/logs") / name
+
 
 def _parse_time_budget(spec: Optional[str]) -> Optional[int]:
     """Parse a wall-time budget string into seconds. Accepts:
@@ -714,6 +1216,13 @@ def main(argv: List[str]) -> int:
                          "`--time-budget` is set, this is mostly a "
                          "safety cap -- the time budget will normally "
                          "exit first.")
+    ap.add_argument("--trainer-history-csv", type=Path, default=None,
+                    help="Path to append one CSV row per iter with "
+                         "rollout + train stats. Default: "
+                         "training/logs/trainer_history_<SLURM_JOB_ID>.csv "
+                         "on cluster, training/logs/trainer_history_"
+                         "local.csv otherwise. Pass an empty string "
+                         "(--trainer-history-csv='') to disable.")
     ap.add_argument("--time-budget", type=str, default=None,
                     help="Stop after this much elapsed wall time, "
                          "saving a final checkpoint before exit. "
@@ -774,9 +1283,13 @@ def main(argv: List[str]) -> int:
                          f"Default: no opener; the model controls "
                          f"every decision from turn 1.")
     ap.add_argument("--device", default=None,
-                    help="Torch device for the policy (e.g. 'cuda', "
-                         "'cuda:0', 'cpu'). Default: TransformerPolicy "
-                         "picks CPU. Pass 'cuda' on the cluster.")
+                    help="Torch device for the policy. Accepts "
+                         "'cuda' (cluster), 'cpu', 'dml' (local "
+                         "AMD/Intel GPU via DirectML -- ~4x CPU "
+                         "speed on the RX 6600 since the scatter "
+                         "backward fix), or 'auto' (DML > CUDA > "
+                         "CPU). Default None lets TransformerPolicy "
+                         "pick (CPU).")
     ap.add_argument("--workers", type=int, default=0,
                     help="Rollout worker threads per iteration. 0 "
                          "(default) = serial on the main thread. "
@@ -794,6 +1307,26 @@ def main(argv: List[str]) -> int:
                          "(currently 'Knalgan Alliance'). Pass any "
                          "default-era faction name (e.g. 'Drakes') "
                          "to lock that faction instead.")
+    ap.add_argument("--mini-maps", action="store_true",
+                    help="Restrict scenario sampling to the smallest "
+                         "5 Ladder maps (Sablestone Delta, Weldyn "
+                         "Channel, Den of Onis, Swamp of Dread, "
+                         "Hamlets). Cells per map: 690-870 vs the "
+                         "full pool's 690-2352. Used for the "
+                         "engagement-curriculum phase: leaders "
+                         "start ~12-15 hexes apart, so the policy "
+                         "can discover engagement before the "
+                         "long-march cost dominates. See "
+                         "scenario_pool.MINI_MAP_SCENARIO_IDS.")
+    ap.add_argument("--mini-ratio", type=float, default=0.0,
+                    help="Fraction of games per iter that sample from "
+                         "the mini-maps pool (rest go to ladder). "
+                         "Range [0, 1]. Used to MIX mini and ladder "
+                         "in one run -- e.g. 0.3 = ~30%% mini for "
+                         "engagement gradient, 70%% ladder for the "
+                         "production distribution. Ignored when "
+                         "--mini-maps is also set (already 100%% "
+                         "mini). Default 0.0 = pure ladder.")
     # MCTS-mode flags. Default OFF: the existing REINFORCE path runs.
     # When --mcts is set, action selection runs an AlphaZero-style
     # tree search and the trainer minimizes CE against visit-count
@@ -837,15 +1370,27 @@ def main(argv: List[str]) -> int:
     cost_lookup = _recruit_cost_lookup()
     # Eagerly load factions to surface any setup issue NOW rather
     # than on the first worker thread.
-    from tools.scenario_pool import load_factions, LADDER_SCENARIO_IDS
+    from tools.scenario_pool import (load_factions, LADDER_SCENARIO_IDS,
+                                     MINI_MAP_SCENARIO_IDS)
     factions = load_factions()
-    log.info(f"scenario pool: {len(LADDER_SCENARIO_IDS)} ladder maps "
+    active_pool = (MINI_MAP_SCENARIO_IDS if args.mini_maps
+                   else LADDER_SCENARIO_IDS)
+    pool_label = "mini-maps" if args.mini_maps else "ladder"
+    log.info(f"scenario pool: {len(active_pool)} {pool_label} maps "
              f"x {len(factions)} factions = "
-             f"{len(LADDER_SCENARIO_IDS) * len(factions) ** 2} "
+             f"{len(active_pool) * len(factions) ** 2} "
              f"setup combinations (faction matchups with replacement)")
+    if args.mini_maps:
+        log.info(f"  mini-maps active: {', '.join(active_pool)}")
 
     import torch
-    device = torch.device(args.device) if args.device else None
+    if args.device in ("auto", "dml", "directml"):
+        # Route through the helper so DML's `privateuseone:N` device
+        # object (not a valid torch.device string) is resolved.
+        from tools.device_select import select_inference_device
+        device = select_inference_device(args.device)
+    else:
+        device = torch.device(args.device) if args.device else None
 
     # When warm-starting from a checkpoint with non-default arch
     # (e.g. supervised_epoch3.pt at d_model=128 while
@@ -980,12 +1525,53 @@ def main(argv: List[str]) -> int:
             f"mark. --iterations is a ceiling only."
         )
 
+    # Trainer history CSV. Empty string disables; None falls back
+    # to the default per-job path. The writer is line-buffered so a
+    # walltime-killed job leaves a recoverable file.
+    history_csv: Optional[_TrainerHistoryCSV] = None
+    csv_arg = args.trainer_history_csv
+    if csv_arg is None:
+        csv_path = _default_history_csv()
+    elif str(csv_arg) == "":
+        csv_path = None
+    else:
+        csv_path = csv_arg
+    if csv_path is not None:
+        try:
+            history_csv = _TrainerHistoryCSV(csv_path)
+            log.info(f"trainer history CSV: {csv_path}")
+        except OSError as e:
+            log.warning(f"couldn't open trainer history CSV "
+                        f"{csv_path}: {e}; continuing without")
+
     # Trip if N iterations in a row produce zero games. The most
     # common cause is missing data files (terrain_db.json,
     # unit_stats.json) — every scenario gets skipped silently and
     # the trainer happily burns walltime on empty iters with
     # `loss=0.0000`. Observed 2026-05-09 in selfplay job 17834
     # which "completed" 999 iters of 0 games. Fail fast instead.
+    # Graceful-cancel sentinel: fixed canonical path so writer (GUI)
+    # and reader (here) agree regardless of where args.checkpoint_out
+    # points. The GUI's "Stop training (save)" button writes a file
+    # at this path; the loop below polls for it after each iter.
+    # Living at training/checkpoints/ because that's where every
+    # other training-state file lives.
+    _CANCEL_SENTINEL = (Path("training") / "checkpoints"
+                        / ".cancel_local")
+    # Clear any leftover sentinel from a previous run that didn't
+    # clean up (e.g. force-killed after detecting but before
+    # removing). Without this, a fresh training would detect the
+    # stale sentinel at iter 0 and exit immediately, leaving the
+    # operator confused about why their run "finished" with no
+    # progress.
+    if _CANCEL_SENTINEL.exists():
+        try:
+            _CANCEL_SENTINEL.unlink()
+            log.info(f"cleared stale graceful-cancel sentinel "
+                     f"({_CANCEL_SENTINEL})")
+        except OSError:
+            pass
+
     DEAD_ITER_LIMIT = 5
     consecutive_dead = 0
     for it in range(args.iterations):
@@ -998,6 +1584,9 @@ def main(argv: List[str]) -> int:
             pvp_defaults=pvp_defaults,
             workers=args.workers,
             forced_faction=forced_faction_arg,
+            mini_maps=args.mini_maps,
+            mini_ratio=max(0.0, min(1.0, float(args.mini_ratio))),
+            snapshot_sink=(history_csv.append if history_csv else None),
         )
         if not outcomes:
             consecutive_dead += 1
@@ -1023,10 +1612,32 @@ def main(argv: List[str]) -> int:
         time_budget_exceeded = (
             time_budget_s is not None and elapsed >= time_budget_s
         )
+        # Graceful-cancel sentinel: the GUI's "Stop training (save)"
+        # button writes this file. We detect it between iters,
+        # save, delete the sentinel (so a re-launch doesn't
+        # immediately exit), and break out of the loop. Worst-case
+        # latency = one iteration of rollout. Symmetric with the
+        # time-budget exit -- both want "save what you've got and
+        # stop cleanly" semantics.
+        cancel_requested = _CANCEL_SENTINEL.exists()
         if (it + 1) % args.save_every == 0 \
                 or (it + 1) == args.iterations \
-                or time_budget_exceeded:
+                or time_budget_exceeded \
+                or cancel_requested:
             policy.save_checkpoint(args.checkpoint_out)
+        if cancel_requested:
+            log.info(
+                f"graceful-cancel sentinel detected at "
+                f"{_CANCEL_SENTINEL}; checkpoint saved at iter "
+                f"{it + 1}, exiting cleanly.")
+            try:
+                _CANCEL_SENTINEL.unlink()
+            except OSError as e:
+                log.warning(f"couldn't remove sentinel "
+                            f"{_CANCEL_SENTINEL}: {e}; next "
+                            f"training run will exit immediately "
+                            f"unless you delete it manually.")
+            break
         if time_budget_exceeded:
             log.info(
                 f"time-budget exhausted ({elapsed:.0f}s >= "
@@ -1035,6 +1646,8 @@ def main(argv: List[str]) -> int:
                 f"chain link can pick up where this one left off."
             )
             break
+    if history_csv is not None:
+        history_csv.close()
     return 0
 
 

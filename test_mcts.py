@@ -420,6 +420,13 @@ def test_transposition_shares_node_across_paths():
             self.gs = _mk_gs()
 
     root_sim = _StubSim()
+    # The root must hash differently from the canonical child state.
+    # In a real game step() always progresses the state (MP spent,
+    # turn counter advances), so a child can never share an ancestor's
+    # state_key. If root collided with the children here, the TT would
+    # resolve the root's own child back to root and _select_one would
+    # descend the root→root self-loop forever.
+    root_sim.gs.global_info.turn_number = 2
     root = MCTSNode(root_sim)
     # Root must be marked expanded so _select_one descends.
     root.expanded = True

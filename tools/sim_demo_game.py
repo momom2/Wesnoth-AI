@@ -144,6 +144,9 @@ def main(argv) -> int:
     ap.add_argument("--village-gold", type=int, default=2)
     ap.add_argument("--village-support", type=int, default=1)
     ap.add_argument("--exp-modifier", type=int, default=70)
+    ap.add_argument("--device", default="auto",
+                    help="Torch device. 'auto' = DML (discrete) > "
+                         "CUDA > CPU.")
     ap.add_argument("--log-level", default="INFO",
                     choices=["DEBUG", "INFO", "WARNING"])
     args = ap.parse_args(argv[1:])
@@ -249,9 +252,13 @@ def main(argv) -> int:
     # construct the right shape up front rather than catch a
     # mid-load exception. Same pattern as tools/collect_cliffness.py.
     import torch as _torch
+    from tools.device_select import select_inference_device, describe_device
+    _device = select_inference_device(args.device)
+    log.info(f"device: {describe_device(_device)}")
     _raw = _torch.load(ckpt, map_location="cpu", weights_only=False)
     _arch = _raw.get("arch", {})
     policy = TransformerPolicy(
+        device=_device,
         d_model=int(_arch.get("d_model", 512)),
         num_layers=int(_arch.get("num_layers", 6)),
         num_heads=int(_arch.get("num_heads", 8)),

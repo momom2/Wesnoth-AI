@@ -103,14 +103,20 @@ class TransformerPolicy:
         self._logger = logging.getLogger("transformer_policy")
         self._logger.info(f"TransformerPolicy device: {describe(self._device)}")
 
-        # Batch size: DML likes B≥4 (amortizes kernel launch) but our
-        # runs OOM/TDR above B=4 at seq=1622. CPU prefers B=1 (batched
-        # MHA doesn't speed up; see trainer.py config note). Keep the
-        # auto-select so if we opt into DML for rollout it picks 4,
-        # and CPU stays at 1.
+        # Batch size: empirically DML at B=4 crashes the AMD driver
+        # ("GPU device instance has been suspended") on the first
+        # train_step. Ablation 2026-05-16: B=3 also crashes; B=2 is
+        # stable across multiple runs and ~40% faster on train_step
+        # than B=1. Sweet spot at B=2 -- big enough to amortize some
+        # of DML's per-kernel-launch overhead, small enough that
+        # the per-chunk command-list growth stays under whatever
+        # internal limit trips the AMD driver. CPU stays at B=1
+        # (batched MHA doesn't speed up on these shapes; see
+        # trainer.py config note). CUDA gets the larger batch via
+        # the explicit `trainer_config` arg used by the cluster job.
         if trainer_config is None:
             is_dml = "privateuseone" in str(self._device)
-            trainer_config = TrainerConfig(train_batch_size=4 if is_dml else 1)
+            trainer_config = TrainerConfig(train_batch_size=2 if is_dml else 1)
 
         self._encoder = GameStateEncoder(d_model=d_model).to(self._device)
         self._model = WesnothModel(
@@ -482,7 +488,12 @@ class TransformerPolicy:
         if dropped_trajs:
             msg += (f" (dropped {dropped_trajs} stale trajectories / "
                     f"{dropped_trans} transitions to bound queue)")
-        self._logger.info(msg)
+        # DEBUG: the "rolled N games" line in sim_self_play.run_iteration
+        # already conveys this for the cluster log path. Keep this
+        # available for low-level debugging without polluting steady-
+        # state logs (one line per iter * thousands of iters = MB of
+        # log noise we'd then have to prune via cleanup.py).
+        self._logger.debug(msg)
 
         if not taken:
             return TrainStats()
@@ -520,7 +531,12 @@ class TransformerPolicy:
         n_transitions_total = trans_count
         queue = taken  # for the log line below
         dt = time.perf_counter() - t0
-        self._logger.info(
+        # DEBUG: duplicates the `train_step in N.Ns trajectories=...
+        # loss=...` line in sim_self_play.run_iteration that the
+        # cluster log already carries. Keep as DEBUG so direct
+        # train_step callers (tests, ad-hoc scripts that don't go
+        # through run_iteration) can opt in with --log-level DEBUG.
+        self._logger.debug(
             "train_step done in %.2fs: "
             "%d trajectories / %d transitions "
             "(of %d queued, capped by trainer) "
@@ -575,7 +591,19 @@ class TransformerPolicy:
         truncate; `_arch` mismatch is always a hard error.
         """
         path = Path(path)
-        ckpt = torch.load(path, map_location=self._device, weights_only=False)
+        # Load to CPU first, then move tensors to the model's device
+        # via load_state_dict + .to(...). torch.load's `map_location`
+        # path is broken on torch-directml 0.2.5: it passes a
+        # torch.device to torch_directml.device() which expects an
+        # int index -> `TypeError: '>=' not supported between
+        # instances of 'torch.device' and 'int'`. CPU-first avoids
+        # the whole DML map_location code path; the subsequent
+        # load_state_dict transfers tensors to the model's actual
+        # device (already on DML if that's what we picked). Slightly
+        # slower (one extra CPU->device copy) but the alternative is
+        # a torch-directml crash. Re-evaluate when torch-directml
+        # ships a fix.
+        ckpt = torch.load(path, map_location="cpu", weights_only=False)
         saved_arch = ckpt.get("arch", {})
         for k, v in self._arch.items():
             if saved_arch.get(k) != v:
@@ -597,6 +625,7 @@ class TransformerPolicy:
         # value_head.2.weight" and the partial-load contract is
         # meaningless. ENCODER state is unaffected.
         model_state = dict(ckpt["model_state"])
+        pre_c51 = False
         if not strict:
             vh_w = model_state.get("value_head.2.weight", None)
             if vh_w is not None and vh_w.shape[0] == 1:
@@ -611,6 +640,7 @@ class TransformerPolicy:
                 )
                 model_state.pop("value_head.2.weight", None)
                 model_state.pop("value_head.2.bias", None)
+                pre_c51 = True
 
         model_res = self._model.load_state_dict(
             model_state, strict=strict)
@@ -682,7 +712,7 @@ class TransformerPolicy:
         # the encoder's default-seeded vocab so names still resolve.
         if "faction_to_id" in ckpt:
             self._encoder.faction_to_id = dict(ckpt["faction_to_id"])
-        if "optimizer_state" in ckpt:
+        if "optimizer_state" in ckpt and not pre_c51:
             try:
                 self._trainer.optimizer.load_state_dict(ckpt["optimizer_state"])
             except Exception as e:
@@ -690,6 +720,23 @@ class TransformerPolicy:
                     f"Couldn't restore optimizer state: {e}. Training "
                     f"will re-accumulate momentum from scratch."
                 )
+        elif pre_c51:
+            # Pre-C51 checkpoints carry AdamW exp_avg / exp_avg_sq
+            # for the scalar value_head.2 ([1, d_model]); blindly
+            # loading them into the C51 head's optimizer slot
+            # ([K_ATOMS, d_model]) doesn't fail at load time but
+            # crashes on the first optimizer.step()'s broadcast
+            # (RuntimeError: output with shape [1, 128] doesn't
+            # match the broadcast shape [51, 128]). Safer to skip
+            # the whole optimizer state and let AdamW initialize
+            # fresh momentum buffers at C51 shape. Cost: one warm-
+            # up's worth of momentum lost; trivial vs the train
+            # crash. (Surfaced by tools/profile_selfplay.py.)
+            self._logger.warning(
+                "skipping optimizer-state restore on pre-C51 "
+                "checkpoint (shape mismatch would crash AdamW "
+                "on first step); momentum re-accumulates from "
+                "scratch.")
         # Decision counter -- absent on pre-C.3 checkpoints; default 0
         # there means the alpha schedule starts fresh on resume from
         # an old checkpoint, which is fine (the model just gets full

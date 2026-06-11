@@ -65,6 +65,7 @@ NUM_SIDE_CODES  = 2     # 0 = ours (current_side), 1 = theirs
 # mods can override in one place. Empty string is reserved for
 # "unknown/unset" -> id 0.
 from constants import DEFAULT_FACTIONS as _DEFAULT_FACTIONS
+from visibility import units_visible_to
 
 # Per-hex STATIC multi-hot: (village, keep, castle). Static = doesn't
 # change during a game (or only changes via village-capture, which
@@ -84,6 +85,17 @@ NUM_HEX_MODIFIERS = 3
 #   0: recruit_rejected -- this hex bounced a recruit attempt this
 #                          turn (cleared at init_side). See the
 #                          legality-mask contract in CLAUDE.md.
+#
+# Move-bounce (fog-hidden enemy) rejection is tracked on
+# `global_info._move_rejected_hexes` (parallel to the recruit set)
+# but intentionally NOT mirrored into a dynamic_flag bit. The
+# action_sampler's legality mask zeros out those hexes from the
+# move_row so the policy literally can't re-pick them; the
+# observation-level signal (a token bit) would only duplicate
+# information the mask already encodes. Keeping
+# NUM_HEX_DYNAMIC_FLAGS=1 preserves checkpoint compatibility for
+# the dynamic_flag_proj weight (avoids a backward-incompat shape
+# change in load_checkpoint).
 NUM_HEX_DYNAMIC_FLAGS = 1
 
 # Per-unit numerical features. Order MATTERS — changing it requires
@@ -475,6 +487,8 @@ class GameStateEncoder(nn.Module):
         d = self.d_model
         # `non_blocking=True` lets the H2D copy overlap with whatever
         # the device was already doing. Harmless on CPU (no-op).
+        # Kept True on DML after the ablation -- see the matching
+        # comment in encode_from_raw_batch.
         nb = device.type != "cpu"
 
         def _to_dev(arr_or_tensor):
@@ -616,6 +630,14 @@ class GameStateEncoder(nn.Module):
         if device is None:
             device = next(self.parameters()).device
         d = self.d_model
+        # Async H2D transfers via non_blocking=True. On DML the queue
+        # can grow unbounded; we used to force this False as a
+        # mitigation but it cost ~2× DML speed. The ablation showed
+        # that the train_step crash was driven mainly by the
+        # B=4 backward path + lack of rollout-to-train_step sync,
+        # not by the async transfers themselves. Keeping nb=True
+        # here; stability comes from `train_batch_size=1` +
+        # `dml_sync` at the start of `trainer.step` (see device.py).
         nb = device.type != "cpu"
 
         Hs = [r.hex_xs.shape[0] for r in raws]
@@ -814,6 +836,10 @@ def encode_raw(
     # Per-turn rejection set (hexes a previous recruit attempt
     # bounced this turn). Stashed on global_info by the harness;
     # absent on fresh states. See CLAUDE.md legality-mask contract.
+    # The parallel `_move_rejected_hexes` set (move-bounce on a
+    # fog-hidden enemy) is consumed by the action_sampler's
+    # legality mask, NOT mirrored into the encoder -- a token bit
+    # would duplicate the mask's hard constraint.
     rejected_hexes = (
         getattr(game_state.global_info, "_recruit_rejected_hexes", None)
         or set()
@@ -863,8 +889,20 @@ def encode_raw(
                 hex_dynamic_flags_np[i, 0] = 1.0
 
     # ---- units ----
+    # Fog-of-war filter: the policy must only see units that the
+    # current side could see in real Wesnoth. The sim runs god-
+    # view internally (combat math etc. need ground truth), but
+    # for the encoder's observation we MUST filter -- otherwise
+    # the policy learns to use enemy positions it wouldn't have
+    # access to at deploy time. `units_visible_to` honors the
+    # three Wesnoth rules: own units always visible; enemy units
+    # outside the side's sight discs hidden; enemy units with an
+    # active hide-cover ability (ambush/concealment/submerge/
+    # nightstalk) hidden until uncovered (sim manages the
+    # `_uncovered_units` set per ambush-trigger). See
+    # `visibility.py` for the full contract.
     units = sorted(
-        game_state.map.units,
+        units_visible_to(game_state, current_side),
         key=lambda u: (u.position.y, u.position.x, u.id),
     )
     U = len(units)
@@ -891,15 +929,25 @@ def encode_raw(
         unit_feats_np[i] = _unit_features(u)
 
     # ---- recruits ----
-    # Pre-compute each side's leader keep position so recruit tokens
-    # carry a meaningful "where would I spawn?" coordinate. If a side
-    # has no leader (it's been killed but the side isn't formally
-    # eliminated), fall back to (0, 0) -- the recruit is unreachable
-    # anyway, the legality mask will hide it.
-    side_leader_xy: Dict[int, Tuple[int, int]] = {}
+    # Fog-of-war filter: only the CURRENT side's recruit phantoms
+    # are emitted. In real Wesnoth a player never sees the enemy's
+    # recruit list (or even confirms which units they CAN recruit
+    # until one appears on the board). Previously we emitted
+    # phantoms for every side -- a fog leak on two counts:
+    #   1. The recruit type ids leaked which faction the enemy
+    #      picked (visible to humans from the lobby anyway, but
+    #      the policy shouldn't get a free token for it).
+    #   2. The phantom's positional coords (lx, ly) leaked the
+    #      enemy LEADER's keep coordinates -- god-view info that
+    #      Wesnoth's fog hides until you scout it.
+    # Looking up the current side's leader is straightforward;
+    # we no longer need a per-side dict because we only need OUR
+    # leader's position to coord-anchor OUR recruit phantoms.
+    own_leader_xy: Tuple[int, int] = (0, 0)
     for u in game_state.map.units:
-        if u.is_leader and u.side not in side_leader_xy:
-            side_leader_xy[u.side] = (u.position.x, u.position.y)
+        if u.is_leader and u.side == current_side:
+            own_leader_xy = (u.position.x, u.position.y)
+            break
     recruit_types: List[str] = []
     recruit_is_ours: List[float] = []
     recruit_type_ids: List[int]  = []
@@ -907,18 +955,20 @@ def encode_raw(
     recruit_xs: List[int] = []
     recruit_ys: List[int] = []
     recruit_feats_rows: List[np.ndarray] = []
-    for side_idx, side_info in enumerate(sides, start=1):
-        is_ours = side_idx == current_side
-        lx, ly = side_leader_xy.get(side_idx, (0, 0))
+    # Emit recruit phantoms ONLY for the current side. Enemy
+    # recruit lists are fog-hidden per Wesnoth's UI contract.
+    if 0 < current_side <= len(sides):
+        side_info = sides[current_side - 1]
+        lx, ly = own_leader_xy
         lx_clamped = 0 if lx < 0 else (MAP_LIMIT if lx > MAP_LIMIT else lx)
         ly_clamped = 0 if ly < 0 else (MAP_LIMIT if ly > MAP_LIMIT else ly)
         for name in side_info.recruits:
             recruit_types.append(name)
-            recruit_is_ours.append(1.0 if is_ours else 0.0)
+            recruit_is_ours.append(1.0)
             recruit_type_ids.append(
                 min(type_to_id.get(name, type_overflow), type_overflow)
             )
-            recruit_side_ids.append(0 if is_ours else 1)
+            recruit_side_ids.append(0)   # 0 = ours
             recruit_xs.append(lx_clamped)
             recruit_ys.append(ly_clamped)
             recruit_feats_rows.append(_recruit_features_for(name))

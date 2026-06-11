@@ -1050,9 +1050,32 @@ def _build_legality_masks(
     # incapacitated();` so a petrified unit is NOT a legal click-to-
     # attack target. We mirror that here so the policy never picks a
     # statue as an attack target.
+    # Fog-of-war filter for occupancy/enemy_mask: hidden enemies
+    # are treated as empty hexes for legality purposes. This
+    # matches Wesnoth's behavior -- you can attempt to MOVE into
+    # a fog-hidden hex (the engine reveals the enemy on contact
+    # and may stop your unit), but you cannot click-to-attack a
+    # unit you can't see. The CLAUDE.md legality-mask contract:
+    # "what the policy can validly attempt given the information
+    # it has observed."
+    #
+    # Visible-set is computed once and used for both the unit_at
+    # dict (combat-oracle priors below need actual enemy refs;
+    # we only emit refs for visible enemies) and the occupancy
+    # array. Hidden enemies don't appear in either.
+    from visibility import units_visible_to as _units_visible_to
+    visible_unit_ids = {id(u) for u in _units_visible_to(
+        game_state, current_side)}
     occupancy = np.zeros(H, dtype=np.int8)
     unit_at: Dict[Tuple[int, int], Unit] = {}
     for u in game_state.map.units:
+        if u.side != current_side and id(u) not in visible_unit_ids:
+            # Hidden enemy: leave occupancy=0 and DON'T add to
+            # unit_at. The hex looks empty to the legality mask;
+            # the policy may attempt to move into it; the sim
+            # bounces / reveals on contact when it executes the
+            # action.
+            continue
         key = (u.position.x, u.position.y)
         unit_at[key] = u
         j = pos_to_hex.get(key)
@@ -1095,6 +1118,23 @@ def _build_legality_masks(
         attack_row = np.zeros(H, dtype=bool)
         if can_move:
             move_row = empty_mask & ~self_mask & (dist <= moves)
+            # Per-turn move-rejection set: hexes that bounced an
+            # earlier move this turn because the sim's god-view said
+            # they were occupied by a unit invisible to the acting
+            # side. The bounce isn't the policy's fault (fair-
+            # information principle) but we DO want to stop offering
+            # the hex as legal -- the policy has now observed
+            # "there's something there" via hex_dynamic_flags bit 1.
+            # Mirrors the recruit-rejected mechanism. Cleared at
+            # init_side; see replay_dataset._apply_command.
+            move_rej_hexes = getattr(
+                game_state.global_info, "_move_rejected_hexes",
+                None) or set()
+            if move_rej_hexes:
+                for hex_idx, (hx, hy) in enumerate(
+                        zip(hex_xs, hex_ys)):
+                    if (int(hx), int(hy)) in move_rej_hexes:
+                        move_row[hex_idx] = False
         if can_attack:
             attack_row = enemy_mask & (dist <= moves + 1)
             # Combat-oracle priors: for each valid attack target, score

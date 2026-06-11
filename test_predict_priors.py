@@ -216,14 +216,24 @@ def test_target_recruit_sums_to_one_for_recruit_actor():
 # ---------------------------------------------------------------------
 
 def test_illegal_actor_has_zero_mass():
-    """Side-2 units / leader can't act on side-1's turn -> their
-    actor mass is zero (ownership masking)."""
+    """Side-2 units that are visible to side-1 still appear in the
+    encoder's unit_ids -- and the actor mask should zero them out
+    because it isn't their turn.
+
+    Per the fog-of-war contract (visibility.py + encoder.py), enemy
+    units OUTSIDE side-1's sight discs are filtered out of unit_ids
+    entirely, so they never appear as slots to mask. That's a
+    stronger guarantee than the actor mask alone, so we only assert
+    here on the visible enemy `u2` (at (4,3) adjacent to u1). ldr2
+    at (8,8) is fog-hidden from side 1 and absent from unit_ids by
+    construction -- no slot to check, no failure mode to test.
+    """
     gs, encoded, out = _build()
     priors = predict_priors(out, encoded, gs)
     u2_slot = encoded.unit_ids.index("u2")
-    ldr2_slot = encoded.unit_ids.index("ldr2")
-    assert float(priors.actor[0, u2_slot].item())   < 1e-9
-    assert float(priors.actor[0, ldr2_slot].item()) < 1e-9
+    assert float(priors.actor[0, u2_slot].item()) < 1e-9
+    # Fog-hidden enemies have no slot at all: stronger contract.
+    assert "ldr2" not in encoded.unit_ids
 
 
 def test_illegal_attack_target_has_zero_mass():
