@@ -102,6 +102,7 @@ from classes import GameState, state_key
 from encoder import GameStateEncoder
 from model import WesnothModel
 from wesnoth_sim import WesnothSim
+from draw_tiebreak import DrawTiebreakConfig, draw_tiebreak_z
 
 
 log = logging.getLogger("mcts")
@@ -162,6 +163,15 @@ class MCTSConfig:
     # 1; AlphaGo Zero used 3. With a small-to-medium batch_size,
     # 1 is plenty.
     virtual_loss:     float = 1.0
+
+    # Material tiebreaker for drawn terminals (see
+    # tools/draw_tiebreak.py): a turn-cap draw at a search horizon
+    # scores by village/gold/unit-value differential in
+    # (-cap, +cap) instead of a flat 0, so PUCT prefers
+    # material-ahead lines even before the policy can win outright,
+    # and the value head's z targets carry gradient in drawn games.
+    # None disables (legacy z=0 draws).
+    draw_tiebreak: Optional[DrawTiebreakConfig] = None
 
     # First-play urgency (FPU): the Q used in PUCT for an edge that
     # has never been visited. AlphaZero's Q=0 init is fine when
@@ -316,10 +326,18 @@ class MCTSNode:
 # Core operations
 # ---------------------------------------------------------------------
 
-def _terminal_value(sim: WesnothSim, side: int) -> float:
-    """v(terminal_state) from `side`'s perspective.
-    Wesnoth ties / timeouts: 0. Win: +1. Loss: -1."""
+def _terminal_value(
+    sim:  WesnothSim,
+    side: int,
+    tiebreak: Optional[DrawTiebreakConfig] = None,
+) -> float:
+    """v(terminal_state) from `side`'s perspective. Win: +1.
+    Loss: -1. Ties / turn-cap timeouts: 0, or the material
+    differential in (-cap, +cap) when `tiebreak` is configured
+    (see tools/draw_tiebreak.py)."""
     if sim.winner == 0:
+        if tiebreak is not None:
+            return draw_tiebreak_z(sim.gs, side, tiebreak)
         return 0.0
     return 1.0 if sim.winner == side else -1.0
 
@@ -328,6 +346,7 @@ def _expand(
     node: MCTSNode,
     model: WesnothModel,
     encoder: GameStateEncoder,
+    tiebreak: Optional[DrawTiebreakConfig] = None,
 ) -> float:
     """Forward the model on `node.sim.gs`, build edges from the
     legal-action priors, return v(s) from node.side's perspective.
@@ -336,7 +355,7 @@ def _expand(
     (saves a model forward)."""
     if node.is_terminal:
         node.expanded = True
-        return _terminal_value(node.sim, node.side)
+        return _terminal_value(node.sim, node.side, tiebreak)
     with torch.no_grad():
         encoded = encoder.encode(node.sim.gs)
         output = model(encoded)
@@ -652,7 +671,7 @@ def mcts_search(
     # Always serial (single state to evaluate at the start). Reads
     # the network's cliffness as a side-effect, which we then use
     # for the adaptive sim budget.
-    _expand(root, model, encoder)
+    _expand(root, model, encoder, tiebreak=config.draw_tiebreak)
     if config.add_root_noise and root.edges:
         _add_dirichlet_noise(root, config.dirichlet_alpha,
                              config.dirichlet_eps, rng)
@@ -715,7 +734,8 @@ def mcts_search(
                 # disabled for this path (cliffness has no meaning
                 # at a terminal, and we shouldn't shrink an exact
                 # outcome anyway).
-                v = _terminal_value(leaf.sim, leaf.side)
+                v = _terminal_value(leaf.sim, leaf.side,
+                                    config.draw_tiebreak)
                 _backup(
                     path, v, leaf.side, V_LOSS,
                     leaf_cliffness=0.0,

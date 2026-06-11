@@ -130,7 +130,12 @@ class OpenerPolicy:
         game_state: GameState,
         *,
         game_label: str = "default",
+        **kwargs,
     ) -> Dict:
+        # `**kwargs` forwards policy-specific extras untouched --
+        # notably MCTSPolicy's required `sim=` (the live sim handle
+        # the search forks). Without the passthrough, opener + MCTS
+        # raised TypeError on the first decision.
         side = game_state.global_info.current_side
         if side in self._opener.sides:
             key = (game_label, side)
@@ -148,7 +153,8 @@ class OpenerPolicy:
                 # leader isn't on the keep yet). Fall through to base
                 # WITHOUT advancing the cursor; we'll retry this
                 # opener-step next decision.
-        return self._base.select_action(game_state, game_label=game_label)
+        return self._base.select_action(game_state, game_label=game_label,
+                                        **kwargs)
 
     # ------------------------------------------------------------------
     # Per-game lifecycle
@@ -175,6 +181,14 @@ class OpenerPolicy:
 
     def drop_pending(self, *args, **kwargs):
         fn = getattr(self._base, "drop_pending", None)
+        if fn is not None:
+            return fn(*args, **kwargs)
+
+    def finalize_game(self, *args, **kwargs):
+        # The rollout loop calls this unconditionally at game end;
+        # not forwarding it crashed every --opener run with an
+        # AttributeError (latent since finalize_game landed 2026-05).
+        fn = getattr(self._base, "finalize_game", None)
         if fn is not None:
             return fn(*args, **kwargs)
 

@@ -402,11 +402,13 @@ class TransformerPolicy:
                 for k in stale:
                     del self._last_state_id[k]
 
-    def finalize_game(self, game_label: str, winner: int) -> None:
+    def finalize_game(self, game_label: str, winner: int,
+                      final_gs=None) -> None:
         """No-op for REINFORCE. The MCTS-mode policy wrapper
         (`tools.mcts_policy.MCTSPolicy`) overrides this to seal
         per-game `MCTSExperience` lists with the terminal-z derived
-        from `winner`. Defining it here as a no-op lets the rollout
+        from `winner` (and, for draws, the material tiebreak score
+        of `final_gs`). Defining it here as a no-op lets the rollout
         loop call it unconditionally without `hasattr`-checking."""
 
     def train_step(self) -> TrainStats:

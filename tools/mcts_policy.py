@@ -42,6 +42,7 @@ import numpy as np
 
 from classes import GameState
 from trainer import MCTSExperience, TrainStats
+from tools.draw_tiebreak import draw_tiebreak_z
 from tools.mcts import (
     MCTSConfig, mcts_search, extract_visit_counts, best_action,
     sample_action,
@@ -153,16 +154,32 @@ class MCTSPolicy:
         (not just per-side done flags). Treat this as a no-op."""
         # Intentionally empty.
 
-    def finalize_game(self, game_label: str, winner: int) -> None:
+    def finalize_game(self, game_label: str, winner: int,
+                      final_gs: Optional[GameState] = None) -> None:
         """Drain `_pending[game_label]` into `_queue` with one
         `MCTSExperience` per recorded state. `winner == 0` means
-        draw/timeout (z=0). Called from `_run_one_game` after the
-        per-side terminal observes."""
+        draw/timeout: z is 0, or the material tiebreaker score of
+        the FINAL state when `MCTSConfig.draw_tiebreak` is set --
+        the same function the search applies at turn-cap terminals,
+        so targets and search horizon agree. `final_gs` is the
+        game's actual end state (passed by the rollout loop); if
+        absent we fall back to the last recorded pre-action state,
+        which trails the true final state by one action."""
         with self._lock:
             states = self._pending.pop(game_label, [])
+        tiebreak = self._mcts_config.draw_tiebreak
+        if winner == 0 and tiebreak is not None and final_gs is None \
+                and states:
+            final_gs = states[-1].gs
+            log.debug(
+                f"finalize_game({game_label!r}): no final_gs passed; "
+                f"tiebreak scored on the last pre-action state")
         for s in states:
             if winner == 0:
-                z = 0.0
+                if tiebreak is not None and final_gs is not None:
+                    z = draw_tiebreak_z(final_gs, s.side, tiebreak)
+                else:
+                    z = 0.0
             elif winner == s.side:
                 z = +1.0
             else:

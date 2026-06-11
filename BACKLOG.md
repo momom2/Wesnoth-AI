@@ -41,9 +41,10 @@ Baseline profile on the recovery laptop (CPU, 25 sims):
 forward + 14ms encode. Enumeration was 2.6x the forward, mostly
 4.28M per-element `.item()` reads (fixed below). REINFORCE-side:
 reward shaping's `_min_mp_to_enemy_leader` Dijkstra costs ~30-40%
-of rollout wall-clock (2.3M `_move_cost_at_hex` calls/iter) —
-options (semantics tradeoff, needs user pick): per-turn field
-cache, hex-distance approximation, or leave (MCTS mode unaffected).
+of rollout wall-clock (2.3M `_move_cost_at_hex` calls/iter).
+User decision (2026-06-11): cache the MP field, invalidate when
+own units or the enemy leader move; do NOT substitute
+hex-distance (fraught). Low priority — MCTS mode doesn't pay it.
 
 - [x] 🔴 **FPU (first-play urgency)** (DONE 2026-06-11). Q=0 init
   made every unvisited edge outrank the best move in losing
@@ -56,17 +57,26 @@ cache, hex-distance approximation, or leave (MCTS mode unaffected).
 - [x] 🔴 **Vectorize `enumerate_legal_actions_with_priors`**
   (DONE 2026-06-11). Bulk `.tolist()` instead of per-element
   `.item()`/tensor indexing in the actor/target/weapon loops.
-- [ ] 🔴 **Terminal-z tiebreaker for draws.** 100% of games draw at
-  the turn cap → every MCTS value target is z=0 → value head
-  learns nothing → PUCT starved. Config-driven secondary signal
-  (e.g. material/gold differential mapped to z ∈ (-0.3, +0.3)),
-  and/or shorter --max-turns curriculum so leaderkill is reachable.
-  THE blocker for MCTS self-play producing signal.
-- [ ] 🟠 **Tree reuse across decisions.** Each move rebuilds the
-  tree; reusing the played child's subtree multiplies effective
-  sims, especially intra-turn (same side moves many times).
-  Invalidate on opponent-side transitions if fog makes reuse
-  unsound (sim is god-view inside search — check first).
+- [x] 🔴 **Terminal-z tiebreaker for draws** (DONE 2026-06-11,
+  user-approved composition: village + gold + unit-value-by-cost
+  differentials). `tools/draw_tiebreak.py` +
+  `configs/draw_tiebreak.json`; applied BOTH at search turn-cap
+  terminals (`_terminal_value`) and trainer z targets
+  (`finalize_game`), z_draw = cap·tanh(Δscore/scale), cap 0.3.
+  `--draw-tiebreak-cap 0` disables. Curriculum (--max-turns)
+  still recommended alongside.
+- [ ] 🟠 **Tree reuse across decisions.** User concern (2026-06-11):
+  random combat makes child subtrees stale — the search's attack
+  edge froze ONE sampled RNG outcome, the live game rolls another.
+  Proposed safe rule: STATE-KEY-CHECKED reuse — after the live
+  sim steps, reuse the played edge's subtree iff
+  state_key(live gs) == state_key(searched child gs). Deterministic
+  actions (moves/end_turn, vast majority intra-turn) match and
+  reuse; combat almost never matches and auto-discards. Zero
+  unsoundness. Related deeper issue: single-sample determinization
+  of chance nodes inside the search itself (Antonoglou et al. 2022
+  stochastic-MuZero chance nodes, or expected-value backup via the
+  combat oracle) — discuss before building.
 - [ ] 🟠 **Gumbel AlphaZero root selection** (Danihelka et al.
   2022): sequential halving + Gumbel-Top-k at the root; provable
   policy improvement at 16-32 sims, removes Dirichlet/temperature

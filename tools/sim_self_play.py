@@ -520,7 +520,7 @@ def play_one_game(
     # `_pending` into the trainer queue with the terminal z derived
     # from `winner`. Defined as a no-op on TransformerPolicy so the
     # call is unconditional.
-    policy.finalize_game(game_label, sim.winner)
+    policy.finalize_game(game_label, sim.winner, final_gs=sim.gs)
 
     # Living-unit counts at game end. Counts every unit on the
     # final-state board belonging to each side -- includes leaders.
@@ -1368,6 +1368,16 @@ def main(argv: List[str]) -> int:
                     help="How many decisions per game are sampled "
                          "proportional to visits^(1/tau) before "
                          "switching to argmax-visits.")
+    ap.add_argument("--draw-tiebreak-cap", type=float, default=0.3,
+                    help="MCTS draws score by material differential "
+                         "(villages + gold + unit value) in "
+                         "(-cap, +cap) instead of a flat z=0, both "
+                         "at search turn-cap terminals and in the "
+                         "trainer's z target. <=0 disables. See "
+                         "configs/draw_tiebreak.json.")
+    ap.add_argument("--draw-tiebreak-config", type=Path, default=None,
+                    help="JSON overriding the draw-tiebreak weights "
+                         "(takes precedence over --draw-tiebreak-cap).")
     args = ap.parse_args(argv[1:])
 
     logging.basicConfig(
@@ -1459,8 +1469,16 @@ def main(argv: List[str]) -> int:
     # interface as the underlying TransformerPolicy, so the rollout
     # loop doesn't branch.
     if args.mcts:
+        from tools.draw_tiebreak import DrawTiebreakConfig
         from tools.mcts import MCTSConfig
         from tools.mcts_policy import MCTSPolicy
+        if args.draw_tiebreak_config is not None:
+            tiebreak = DrawTiebreakConfig.from_json(
+                args.draw_tiebreak_config)
+        elif args.draw_tiebreak_cap > 0:
+            tiebreak = DrawTiebreakConfig(cap=args.draw_tiebreak_cap)
+        else:
+            tiebreak = None
         mcts_cfg = MCTSConfig(
             n_simulations=args.mcts_sims,
             c_puct=args.mcts_c_puct,
@@ -1469,12 +1487,15 @@ def main(argv: List[str]) -> int:
                            else args.mcts_fpu_reduction),
             temperature=args.mcts_temperature,
             temperature_decisions=args.mcts_temperature_decisions,
+            draw_tiebreak=tiebreak,
         )
         log.info(
             f"MCTS mode enabled: sims={mcts_cfg.n_simulations} "
             f"c_puct={mcts_cfg.c_puct} batch_size={mcts_cfg.batch_size} "
             f"fpu={mcts_cfg.fpu_reduction} "
-            f"tau={mcts_cfg.temperature}x{mcts_cfg.temperature_decisions}. "
+            f"tau={mcts_cfg.temperature}x{mcts_cfg.temperature_decisions} "
+            f"draw_tiebreak_cap="
+            f"{tiebreak.cap if tiebreak else 'off'}. "
             f"--reward-config is ignored in MCTS mode (AlphaZero "
             f"distills terminal z, not shaping rewards)."
         )
