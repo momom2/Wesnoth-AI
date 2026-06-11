@@ -23,12 +23,45 @@ local state_collector = wesnoth.require("~add-ons/wesnoth_ai/lua/state_collector
 local action_handler  = wesnoth.require("~add-ons/wesnoth_ai/lua/action_executor.lua")
 local json            = wesnoth.require("~add-ons/wesnoth_ai/lua/json_encoder.lua")
 
+-- Training-mode preference overrides. Executed once per Wesnoth process
+-- at module-load time. These are what turn a single action from
+-- ~150ms (combat animation + unit walk cycle + SDL_Delay) into
+-- something closer to the engine's actual compute time.
+--
+-- Setters confirmed in 1.18's src/scripting/lua_preferences.cpp
+-- (generic key/value bindings for src/preferences/general.cpp keys).
+-- `--nodelay` on the command line covers the SDL_Delay short-circuit
+-- but not the display-pump animations; these keys handle the rest.
+--
+-- Wrapped in pcall so a future Wesnoth that drops one of these keys
+-- doesn't take the whole training run down — we'd just run slower.
+local function set_training_prefs()
+    local function try(k, v)
+        pcall(function() wesnoth.preferences[k] = v end)
+    end
+    try("turbo", true)
+    try("turbo_speed", 10.0)
+    try("animate_map", false)
+    try("animate_water", false)
+    try("idle_anim", false)
+    try("show_combat", false)
+    try("scroll_to_action", false)
+end
+set_training_prefs()
+
 local M = {}
 
 local FRAME_BEGIN = "===WESNOTH_AI_STATE_BEGIN==="
 local FRAME_END   = "===WESNOTH_AI_STATE_END==="
 
-local POLL_MS    = 50       -- how often to check for a fresh action
+-- Lowered from 50ms after profiling: the 50ms poll added ~25ms avg
+-- latency per action, which at ~5 actions/s × 4 games ≈ 20% of wall
+-- time spent just waiting on the polling granularity. 10ms gives
+-- ~5ms avg wait and is still well below the ~20ms policy-decide time,
+-- so Lua never wastes cycles past what Python needs to produce an
+-- action. Cost: Wesnoth's event loop runs ~5× as often (all idle
+-- pumps), but that's negligible on CPU.
+local POLL_MS    = 10       -- how often to check for a fresh action
 local TIMEOUT_MS = 30000    -- how long we'll wait for Python per action
 
 local function action_path(game_id)
@@ -44,8 +77,17 @@ local function leaders_alive()
     return s1, s2
 end
 
+-- Track whether this Wesnoth process has already emitted a full map
+-- frame. Module-level so it persists across all side-turns and all
+-- actions within a single process. Each training game spawns a fresh
+-- Wesnoth process (see wesnoth_interface.start_wesnoth), so the flag
+-- resets naturally between games.
+local full_frame_emitted = false
+
 local function emit_state(game_id, turn, side_number)
-    local state = state_collector.collect_game_state(side_number, game_id)
+    local include_map = not full_frame_emitted
+    local state = state_collector.collect_game_state(side_number, game_id, include_map)
+    full_frame_emitted = true
     local s1, s2 = leaders_alive()
     if not (s1 and s2) then
         state.game_over = true

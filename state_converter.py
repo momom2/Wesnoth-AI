@@ -111,6 +111,17 @@ class StateConverter:
         # Create unit type to ID mapping (shared across all games)
         self.unit_type_to_id = {}
         self.next_unit_id = 0
+        # Per-game cache of static map data, populated on "full" frames
+        # and reused on "delta" frames. Keyed by game_id so parallel
+        # games don't clobber each other. Shape:
+        #   { game_id: {
+        #       'hex_raw':    list of raw hex dicts (keeps cost linear),
+        #       'mask':       Set[Position] (0-indexed),
+        #   } }
+        # Rebuilding Hex objects each frame (with current village-owner
+        # modifier overlaid) is still cheap and sidesteps aliasing
+        # concerns with prev-state references held in game_manager.
+        self._static_map: Dict[str, Dict] = {}
     
     def get_unit_type_id(self, unit_type_name: str) -> int:
         """Get or create ID for unit type."""
@@ -265,14 +276,20 @@ class StateConverter:
         return terrains
     
     def convert_hex(self, hex_data: Dict) -> Hex:
-        """Convert hex from parsed data to Hex object."""
+        """Convert hex from parsed data to Hex object.
+
+        Kept for tests and any caller that passes a full hex dict (which
+        may still carry a legacy 'village' modifier). New protocol emits
+        only static modifiers in hex_data and overlays village ownership
+        separately — see `_hex_with_village`.
+        """
         # Convert coordinates
         x, y = self.wesnoth_to_python_coords(hex_data['x'], hex_data['y'])
         position = Position(x=x, y=y)
-        
+
         terrain_code = hex_data.get('full_code', 'Gg')
         terrain_types = self.parse_terrain_code(terrain_code)
-        
+
         # Convert modifiers
         modifiers = set()
         modifiers_list = hex_data.get('modifiers', [])
@@ -284,12 +301,46 @@ class StateConverter:
                     modifiers.add(TerrainModifiers.KEEP)
                 elif mod_name == 'castle':
                     modifiers.add(TerrainModifiers.CASTLE)
-        
+
         return Hex(
             position=position,
             terrain_types=terrain_types,
             modifiers=modifiers
         )
+
+    def _hex_with_village(self, hex_data: Dict, owned_set: Set) -> Hex:
+        """Build a Hex from cached raw-hex dict, overlaying the VILLAGE
+        modifier iff this position is currently owned per villages_owned.
+
+        owned_set is a set of (wesnoth_x, wesnoth_y) tuples.
+        """
+        w_x, w_y = hex_data['x'], hex_data['y']
+        terrain_code = hex_data.get('full_code', 'Gg')
+        terrain_types = self.parse_terrain_code(terrain_code)
+
+        modifiers = set()
+        for mod_name in hex_data.get('modifiers', ()):
+            if mod_name == 'keep':
+                modifiers.add(TerrainModifiers.KEEP)
+            elif mod_name == 'castle':
+                modifiers.add(TerrainModifiers.CASTLE)
+            # New protocol: Lua never emits 'village' here. Tolerate it
+            # anyway (legacy payloads) by dropping through — see
+            # full ownership overlay below.
+        if (w_x, w_y) in owned_set:
+            modifiers.add(TerrainModifiers.VILLAGE)
+
+        return Hex(
+            position=Position(x=w_x - 1, y=w_y - 1),
+            terrain_types=terrain_types,
+            modifiers=modifiers,
+        )
+
+    def forget_game(self, game_id: str) -> None:
+        """Drop the cached static map for a finished game. Called from
+        game_manager when a game is torn down, so cache doesn't grow
+        unboundedly over a long training run (each game_id is unique)."""
+        self._static_map.pop(game_id, None)
     
     def convert_payload_to_game_state(self, payload: str) -> GameState:
         """Parse the JSON state payload emitted by the Lua state_collector
@@ -298,16 +349,60 @@ class StateConverter:
         Accepts a JSON string. We used to accept WML and hand-parse it;
         that was replaced when Wesnoth's `wml.tostring` proved too strict
         about table shape and the hand-rolled parser too brittle.
+
+        Frame protocol:
+          * `frame_type="full"` carries the static hex + off-board mask
+            lists. We cache them.
+          * `frame_type="delta"` omits both. We use the cached data.
+          * Village ownership is emitted every frame as a small
+            `villages_owned` map and overlaid on Hex.modifiers on the fly;
+            that keeps the VILLAGE modifier fresh without needing the
+            full hex list.
         """
         data = json.loads(payload)
 
         map_data = data['map']
-        hexes = set(self.convert_hex(h) for h in map_data.get('hexes', []))
+        game_id = data.get('game_id', 'unknown')
+        frame_type = data.get('frame_type', 'full')
+
+        # Full frame (or first frame from a game we haven't seen):
+        # populate the static-map cache.
+        raw_hexes = map_data.get('hexes')
+        raw_mask = map_data.get('mask')
+        if frame_type == 'full' or game_id not in self._static_map:
+            if not raw_hexes or raw_mask is None:
+                # Delta frame from an unknown game — no cache to fall
+                # back on. Treat as a protocol error; caller sees an
+                # empty GameState rather than a crash.
+                self._static_map[game_id] = {'hex_raw': [], 'mask': set()}
+            else:
+                self._static_map[game_id] = {
+                    'hex_raw': raw_hexes,
+                    'mask': set(Position(x=pos['x'] - 1, y=pos['y'] - 1)
+                                for pos in raw_mask),
+                }
+
+        cached = self._static_map[game_id]
+        villages_owned_raw = map_data.get('villages_owned') or {}
+        # Parse once: set of (w_x, w_y) Wesnoth-coord tuples that are
+        # currently owned villages. Used to decide whether each cached
+        # hex gets a VILLAGE modifier this frame.
+        owned_set = set()
+        for key in villages_owned_raw.keys():
+            try:
+                sx, sy = key.split(',')
+                owned_set.add((int(sx), int(sy)))
+            except (ValueError, KeyError):
+                continue
+
+        hexes = set(
+            self._hex_with_village(h, owned_set)
+            for h in cached['hex_raw']
+        )
+        mask = cached['mask']
         units = set(self.convert_unit(u) for u in map_data.get('units', []))
         fog = set(Position(x=pos['x'] - 1, y=pos['y'] - 1)
                   for pos in map_data.get('fog', []))
-        mask = set(Position(x=pos['x'] - 1, y=pos['y'] - 1)
-                   for pos in map_data.get('mask', []))
         
         # Create map
         game_map = Map(
@@ -348,7 +443,12 @@ class StateConverter:
                 recruits=recruits,
                 current_gold=side_data.get('gold', 0),
                 base_income=side_data.get('base_income', 0),
-                nb_villages_controlled=side_data.get('num_villages', 0)
+                nb_villages_controlled=side_data.get('num_villages', 0),
+                # Lua emits `faction` when it can read it off the side
+                # (see state_collector.lua). Falls back to "" for
+                # scenarios where the API doesn't expose it — encoder
+                # handles empty string as "unknown" faction.
+                faction=side_data.get('faction', '') or '',
             )
             sides.append(side_info)
         

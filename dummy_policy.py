@@ -53,9 +53,11 @@ _BOOTSTRAP_UNITS = 3
 # starting-keep layouts on 2p_Caves_of_the_Basilisk.
 _CASTLE_SEARCH_RADIUS = 3
 
-# Cartesian neighborhood (not true hex axial adjacency).
-_ADJACENT_OFFSETS = [(1, 0), (-1, 0), (0, 1), (0, -1),
-                     (1, 1), (-1, -1), (1, -1), (-1, 1)]
+# Hex adjacency (offset/odd-q layout) -- imported from tools.abilities
+# so the dummy policy can't generate moves that exist in Cartesian
+# space but not on Wesnoth's hex grid (Wesnoth's replay engine
+# rejects those as 'corrupt movement').
+from tools.abilities import hex_neighbors as _hex_neighbors
 
 
 class DummyPolicy:
@@ -68,10 +70,22 @@ class DummyPolicy:
         game_state: GameState,
         *,
         game_label: str = "default",
+        sim=None,
     ) -> Dict:
-        # game_label unused — this policy is stateless.
+        # game_label + sim unused — this policy is stateless. `sim`
+        # accepted only to match the policy contract (MCTSPolicy
+        # wraps a TransformerPolicy and reads sim for tree search;
+        # DummyPolicy ignores it).
         current_side = game_state.global_info.current_side
-        my_units = [u for u in game_state.map.units if u.side == current_side]
+        # Stable iteration order: gs.map.units is a Python set with
+        # hash-randomized iteration, which made dummy runs non-
+        # deterministic across processes. Sorting by unit id keeps
+        # the same export reproducible from one run to the next so
+        # users can re-test specific failure modes.
+        my_units = sorted(
+            (u for u in game_state.map.units if u.side == current_side),
+            key=lambda u: u.id,
+        )
         leader = next((u for u in my_units if u.is_leader), None)
         if leader is None:
             return {'type': 'end_turn'}
@@ -159,8 +173,7 @@ class DummyPolicy:
     ) -> Optional[Position]:
         on_map = {(h.position.x, h.position.y) for h in game_state.map.hexes}
         occupied = {(u.position.x, u.position.y) for u in game_state.map.units}
-        for dx, dy in _ADJACENT_OFFSETS:
-            nx, ny = pos.x + dx, pos.y + dy
+        for nx, ny in _hex_neighbors(pos.x, pos.y):
             if (nx, ny) in on_map and (nx, ny) not in occupied:
                 return Position(nx, ny)
         return None

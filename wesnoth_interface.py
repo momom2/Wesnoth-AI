@@ -24,6 +24,7 @@ import itertools
 import logging
 import os
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Dict, Optional
@@ -37,6 +38,91 @@ from constants import (
     WESNOTH_LOGS_PATH,
     WESNOTH_PATH,
 )
+
+# ---------------------------------------------------------------------
+# Windows-only: keep newly-spawned Wesnoth windows from stealing focus.
+# ---------------------------------------------------------------------
+#
+# STARTUPINFO.wShowWindow = SW_SHOWNOACTIVATE (4) is supposed to do
+# this, but SDL2 (Wesnoth's window-system layer) doesn't seem to honor
+# the hint -- it calls ShowWindow(SW_SHOW) explicitly during window
+# creation, which clobbers our request. Net result: every new Wesnoth
+# window pops to the top of the Z-order and momentarily snags the
+# user's attention, especially during a 60-game eval where windows
+# cycle every minute or two.
+#
+# Workaround: after Popen, spawn a tiny watcher thread that polls
+# EnumWindows for top-level windows owned by Wesnoth's PID. As soon
+# as it finds one, it calls SetWindowPos(HWND_BOTTOM, ...) to push
+# the window to the back of the Z-order without activating it. The
+# window stays on screen (the user can still see/click it), but is
+# now behind whatever was foreground -- so the user keeps their
+# focus and visual context. One-shot per process: once we've pushed
+# at least one window, we stop polling.
+
+if os.name == "nt":
+    import ctypes
+    from ctypes import wintypes
+
+    _user32 = ctypes.windll.user32
+    _SW_SHOWMINNOACTIVE = 7  # minimized + don't activate another window
+    _SW_SHOWMINIMIZED   = 2  # synonym used in STARTUPINFO context
+
+    _EnumWindowsProc = ctypes.WINFUNCTYPE(
+        ctypes.c_bool, wintypes.HWND, wintypes.LPARAM,
+    )
+
+    def _minimize_pid_windows(pid: int) -> int:
+        """Walk all top-level windows; for each visible one owned by
+        `pid`, minimize it without activating another window. Returns
+        the count of windows minimized."""
+        count = [0]
+
+        def _cb(hwnd, _lparam):
+            out_pid = wintypes.DWORD()
+            _user32.GetWindowThreadProcessId(hwnd, ctypes.byref(out_pid))
+            if out_pid.value == pid and _user32.IsWindowVisible(hwnd):
+                # SW_SHOWMINNOACTIVE: animates the window down to the
+                # taskbar without bringing the next top-level window
+                # to the foreground. Visually faster than SetWindowPos
+                # to HWND_BOTTOM (no compositor "shove-to-back"
+                # animation -- just the minimize animation, which on
+                # most machines is the fastest of the show-state
+                # transitions).
+                _user32.ShowWindow(hwnd, _SW_SHOWMINNOACTIVE)
+                count[0] += 1
+            return True   # keep enumerating
+
+        _user32.EnumWindows(_EnumWindowsProc(_cb), 0)
+        return count[0]
+
+    def _pin_to_background(pid: int, log: logging.Logger) -> None:
+        """Run in a daemon thread. Wait up to 10s for Wesnoth's window
+        to appear, then minimize it. Stops polling as soon as one
+        window has been minimized -- in `--test` mode Wesnoth only
+        has one main top-level window per process. Combined with
+        STARTUPINFO.wShowWindow=SW_SHOWMINNOACTIVE in start_wesnoth,
+        this catches both honoring-app and ignoring-app cases (SDL2
+        ignores the hint; this thread is the fallback)."""
+        deadline = time.time() + 10.0
+        while time.time() < deadline:
+            try:
+                if _minimize_pid_windows(pid) > 0:
+                    return
+            except Exception as e:
+                log.debug(f"pin-to-background failed: {e}")
+                return
+            time.sleep(0.05)   # tighter poll: we want to catch the
+                               # window at first paint and minimize it
+                               # before the user sees it linger
+
+else:
+    def _pin_to_background(pid: int, log: logging.Logger) -> None:
+        """Posix no-op stub -- Wesnoth is launched from Linux/Mac
+        under different focus-mgmt rules and no equivalent intervention
+        is needed locally; the cluster doesn't run Wesnoth at all."""
+        return
+
 
 # Must match the constants in ca_state_sender.lua
 FRAME_BEGIN = "===WESNOTH_AI_STATE_BEGIN==="
@@ -64,9 +150,19 @@ class WesnothGame:
     Wesnoth-side game_id.
     """
 
-    def __init__(self, label: str, scenario_path: Path):
+    def __init__(
+        self,
+        label: str,
+        scenario_path: Path,
+        scenario_id: str = "ai_training",
+    ):
         self.label = label
         self.scenario_path = scenario_path
+        # `scenario_id` selects which [test] scenario `--test` launches.
+        # Default `ai_training` is the self-play / training scenario.
+        # Eval harness passes per-game ids like
+        # `eval_2p_caves_drakes_vs_loyalists_s1`.
+        self.scenario_id = scenario_id
         self.logger = logging.getLogger(f"wesnoth_{label}")
 
         # Assigned by adopt_game_id() when the first state frame lands.
@@ -86,6 +182,9 @@ class WesnothGame:
         self.is_running = False
         self.game_over = False
         self.winner: Optional[int] = None
+        # Set by terminate() so read_state can distinguish a real crash
+        # from our own shutdown when it observes process exit.
+        self._terminated_by_us = False
 
     def adopt_game_id(self, game_id: str) -> None:
         """Called once, after the first state frame, to lock in the
@@ -125,7 +224,11 @@ class WesnothGame:
         to a console anyway. Lua-originated output reaches us via
         <userdata>/logs/wesnoth-*.out.log.
         """
-        cmd = [str(WESNOTH_PATH), "--test", "ai_training"]
+        # --nodelay short-circuits SDL_Delay inside the animation loop
+        # (verified in 1.18 src/units/animation.cpp); combined with the
+        # turbo/animate_map prefs set in lua/turn_stage.lua this takes
+        # most of the animation time out of the per-action wait.
+        cmd = [str(WESNOTH_PATH), "--nodelay", "--test", self.scenario_id]
 
         # Snapshot the set of existing .out.log files. When the Wesnoth
         # subprocess starts writing its own log, it'll appear as a NEW
@@ -140,14 +243,41 @@ class WesnothGame:
             )
         self._launch_time = time.time() - 0.5
 
+        # On Windows, ask the OS to start Wesnoth with its main window
+        # MINIMIZED (SW_SHOWMINNOACTIVE = 7). SDL2's window-creation
+        # path appears to ignore this hint and shows the window
+        # normally anyway, but the post-launch _pin_to_background
+        # watcher catches that case and minimizes the window as soon
+        # as it appears. Setting the hint also covers the case where
+        # SDL DOES honor it -- the polling thread then sees the
+        # window already minimized and exits without doing anything.
+        startupinfo = None
+        if os.name == "nt":
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = 7   # SW_SHOWMINNOACTIVE
+
         self.logger.info(f"Starting Wesnoth: {' '.join(cmd)}")
         self.process = subprocess.Popen(
             cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            startupinfo=startupinfo,
         )
         self.is_running = True
         self.logger.info(f"Wesnoth started (PID {self.process.pid})")
+
+        # Background watcher: minimizes Wesnoth's window as soon as
+        # it appears. STARTUPINFO.wShowWindow=SW_SHOWMINNOACTIVE alone
+        # wasn't enough -- SDL2 calls ShowWindow(SW_SHOW) explicitly
+        # during window creation and clobbers our request. The watcher
+        # tightly polls EnumWindows for ~10s and ShowWindow(SW_SHOWMINNOACTIVE)s
+        # the first matching window, then exits.
+        threading.Thread(
+            target=_pin_to_background,
+            args=(self.process.pid, self.logger),
+            daemon=True,
+        ).start()
 
     def _find_out_log(self) -> Optional[Path]:
         """Find the .out.log file Wesnoth opened for this process.
@@ -230,10 +360,18 @@ class WesnothGame:
                 return frame
 
             if self.process is not None and self.process.poll() is not None:
-                self.logger.warning(
-                    f"Wesnoth exited (returncode={self.process.returncode}) "
-                    f"before state arrived"
-                )
+                # Suppress the warning if we're the ones who killed it
+                # (shutdown path): that's expected, not a crash.
+                if self._terminated_by_us:
+                    self.logger.debug(
+                        f"Wesnoth exited (returncode={self.process.returncode}) "
+                        f"during our shutdown before state arrived"
+                    )
+                else:
+                    self.logger.warning(
+                        f"Wesnoth exited (returncode={self.process.returncode}) "
+                        f"before state arrived"
+                    )
                 # Drain any last bytes in case the frame landed just before exit.
                 self._log_buffer += self._read_new_log_content()
                 return self._extract_state_frame()
@@ -325,10 +463,27 @@ class WesnothGame:
         return self.game_over
 
     def terminate(self) -> None:
+        self._terminated_by_us = True
         if self.process and self.process.poll() is None:
             self.logger.info(f"Terminating Wesnoth (PID {self.process.pid})")
             try:
-                self.process.terminate()
+                # Wesnoth on Windows under `--test` often spawns a
+                # game-window child process that survives the launcher.
+                # `proc.terminate()` only signals the immediate child,
+                # leaving the visible Wesnoth window alive as an orphan
+                # (parented to System after the launcher exits). Walk
+                # the tree with taskkill /T /F so the actual game
+                # process dies too. Mirrors the GUI Cancel-button fix.
+                if os.name == "nt":
+                    subprocess.run(
+                        ["taskkill", "/T", "/F", "/PID", str(self.process.pid)],
+                        capture_output=True, timeout=5,
+                        creationflags=subprocess.CREATE_NO_WINDOW,  # type: ignore[attr-defined]
+                    )
+                    # taskkill sets exit codes via /F; the wait below
+                    # picks up the launcher's exit either way.
+                else:
+                    self.process.terminate()
                 self.process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 self.process.kill()

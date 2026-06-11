@@ -1,0 +1,38 @@
+         48643834 function calls (47632370 primitive calls) in 104.103 seconds
+
+   Ordered by: cumulative time
+   List reduced from 804 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       18    0.000    0.000   78.307    4.350 threading.py:1115(join)
+       18    0.000    0.000   78.307    4.350 threading.py:1153(_wait_for_tstate_lock)
+ 3478/771    0.423    0.000   77.419    0.100 transformer_policy.py:361(observe)
+        3    0.000    0.000   49.789   16.596 sim_self_play.py:640(run_iteration)
+     18/3    0.000    0.000   49.786   16.595 threading.py:1016(_bootstrap)
+     18/3    0.000    0.000   49.786   16.595 threading.py:1056(_bootstrap_inner)
+     18/3    0.001    0.000   49.786   16.595 threading.py:999(run)
+     18/3    0.004    0.000   49.786   16.595 sim_self_play.py:608(_worker_loop)
+     24/3    0.002    0.000   49.786   16.595 sim_self_play.py:559(_play_one_game_safe)
+     23/3    0.029    0.001   49.785   16.595 sim_self_play.py:218(play_one_game)
+       99    0.144    0.001   49.506    0.500 subprocess.py:506(run)
+      112    0.079    0.001   35.209    0.314 {method 'write' of '_io.TextIOWrapper' objects}
+ 3432/766    0.180    0.000   34.623    0.045 transformer_policy.py:236(select_action)
+600600/236808    0.787    0.000   31.637    0.000 module.py:1732(_wrapped_call_impl)
+600600/236808    1.157    0.000   31.300    0.000 module.py:1740(_call_impl)
+    10296    2.003    0.000   29.405    0.003 model.py:269(forward)
+     3432    0.018    0.000   20.919    0.006 _tensor.py:525(backward)
+     3432    0.017    0.000   20.496    0.006 __init__.py:242(backward)
+     3432    0.012    0.000   20.309    0.006 graph.py:816(_engine_run_backward)
+     3432   20.295    0.006   20.295    0.006 {method 'run_backward' of 'torch._C._EngineBase' objects}
+     6864    7.396    0.001   17.931    0.003 encoder.py:765(encode_raw)
+    10296    4.110    0.000   17.598    0.002 encoder.py:453(encode_from_raw)
+    10296    0.177    0.000   17.248    0.002 transformer.py:384(forward)
+    30888    1.439    0.000   16.772    0.001 transformer.py:750(forward)
+       99    0.117    0.001   16.128    0.163 subprocess.py:1165(communicate)
+     6864    0.050    0.000   14.950    0.002 model.py:375(forward_batch)
+     3432    0.207    0.000   12.819    0.004 encoder.py:327(encode)
+  620/279    0.335    0.001   11.352    0.041 {method 'acquire' of '_thread.lock' objects}
+     3432    0.348    0.000   10.379    0.003 action_sampler.py:214(sample_action)
+        3    0.016    0.005    9.468    3.156 transformer_policy.py:406(train_step)
+
+

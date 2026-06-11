@@ -25,6 +25,11 @@ logs/
 training/checkpoints/
 training/replays/
 add-ons/wesnoth_ai/games/
+tmp_scratch/
+
+# Vendored Wesnoth source checkout (pinned to 1.18.4; see CLAUDE.md).
+# Managed as its own git checkout, never committed to this repo.
+wesnoth_src/
 
 # Wesnoth debugging dumps (anywhere in the tree)
 *.log

@@ -1,0 +1,38 @@
+         433579993 function calls (429542277 primitive calls) in 197.442 seconds
+
+   Ordered by: cumulative time
+   List reduced from 808 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       18    0.000    0.000  148.080    8.227 threading.py:1115(join)
+       18    0.000    0.000  148.079    8.227 threading.py:1153(_wait_for_tstate_lock)
+ 3796/788    0.430    0.000  141.988    0.180 transformer_policy.py:367(observe)
+  200/199    0.158    0.001  139.703    0.702 {method 'write' of '_io.TextIOWrapper' objects}
+      187    0.216    0.001  122.381    0.654 subprocess.py:506(run)
+        3    0.000    0.000  114.375   38.125 sim_self_play.py:728(run_iteration)
+     18/3    0.000    0.000  114.371   38.124 threading.py:1016(_bootstrap)
+     18/3    0.001    0.000  114.371   38.124 threading.py:1056(_bootstrap_inner)
+     18/3    0.000    0.000  114.371   38.124 threading.py:999(run)
+     18/3    0.005    0.000  114.370   38.123 sim_self_play.py:694(_worker_loop)
+     24/3    0.001    0.000  114.370   38.123 sim_self_play.py:645(_play_one_game_safe)
+     24/3    0.025    0.001  114.370   38.123 sim_self_play.py:276(play_one_game)
+18740/18077   16.558    0.001  106.554    0.006 visibility.py:137(visible_hexes_for)
+91670215/88740651   42.514    0.000   95.992    0.000 visibility.py:121(_hex_distance)
+    14992    0.642    0.000   75.359    0.005 visibility.py:231(units_visible_to)
+     3748    0.790    0.000   68.874    0.018 encoder.py:339(encode)
+     7496    6.637    0.001   59.777    0.008 encoder.py:787(encode_raw)
+     3748    0.403    0.000   51.835    0.014 rewards.py:740(compute_delta)
+     3748    0.260    0.000   47.826    0.013 visibility.py:172(visible_fraction_for)
+     7496    1.527    0.000   41.216    0.005 action_sampler.py:986(_build_legality_masks)
+    11244    4.484    0.000   35.820    0.003 encoder.py:465(encode_from_raw)
+      187    0.123    0.001   33.758    0.181 subprocess.py:807(__init__)
+655900/258612    0.776    0.000   32.432    0.000 module.py:1732(_wrapped_call_impl)
+655900/258612    1.122    0.000   31.626    0.000 module.py:1740(_call_impl)
+     3748    0.328    0.000   31.545    0.008 action_sampler.py:214(sample_action)
+   191148    2.057    0.000   29.239    0.000 encoder.py:494(_to_dev)
+    11244    2.024    0.000   29.151    0.003 model.py:269(forward)
+     3748    0.018    0.000   23.478    0.006 _tensor.py:525(backward)
+     3748    0.020    0.000   22.840    0.006 __init__.py:242(backward)
+     3748    0.015    0.000   22.659    0.006 graph.py:816(_engine_run_backward)
+
+

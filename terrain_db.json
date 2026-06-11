@@ -1,0 +1,6759 @@
+{
+  "Wog": {
+    "string": "Wog",
+    "id": "deep_water_gray",
+    "aliasof": [
+      "Wdt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Wdt"
+    ],
+    "def_type": [
+      "Wdt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Wo": {
+    "string": "Wo",
+    "id": "deep_water_medium",
+    "aliasof": [
+      "Wdt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Wdt"
+    ],
+    "def_type": [
+      "Wdt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Wot": {
+    "string": "Wot",
+    "id": "deep_water_tropical",
+    "aliasof": [
+      "Wdt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Wdt"
+    ],
+    "def_type": [
+      "Wdt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Wwg": {
+    "string": "Wwg",
+    "id": "gray_tropical_water",
+    "aliasof": [
+      "Wst"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Wst"
+    ],
+    "def_type": [
+      "Wst"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Ww": {
+    "string": "Ww",
+    "id": "medium_shallow_water",
+    "aliasof": [
+      "Wst"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Wst"
+    ],
+    "def_type": [
+      "Wst"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Wwt": {
+    "string": "Wwt",
+    "id": "tropical_water",
+    "aliasof": [
+      "Wst"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Wst"
+    ],
+    "def_type": [
+      "Wst"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Wwf": {
+    "string": "Wwf",
+    "id": "ford",
+    "aliasof": [
+      "Gt",
+      "Wst"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Gt",
+      "Wst"
+    ],
+    "def_type": [
+      "Gt",
+      "Wst"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Wwrg": {
+    "string": "Wwrg",
+    "id": "gray_reef",
+    "aliasof": [
+      "Wrt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Wrt"
+    ],
+    "def_type": [
+      "Wrt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Wwr": {
+    "string": "Wwr",
+    "id": "medium_reef",
+    "aliasof": [
+      "Wrt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Wrt"
+    ],
+    "def_type": [
+      "Wrt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Wwrt": {
+    "string": "Wwrt",
+    "id": "tropical_reef",
+    "aliasof": [
+      "Wrt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Wrt"
+    ],
+    "def_type": [
+      "Wrt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Wkf": {
+    "string": "^Wkf",
+    "id": "sea_kelp",
+    "aliasof": [
+      "_bas",
+      "St"
+    ],
+    "mvt_alias": [
+      "-",
+      "_bas",
+      "St"
+    ],
+    "def_alias": [],
+    "default_base": "Ww",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "-",
+      "_bas",
+      "St"
+    ],
+    "def_type": [
+      "_bas",
+      "St"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Ss": {
+    "string": "Ss",
+    "id": "swamp_water_reed",
+    "aliasof": [
+      "St"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "St"
+    ],
+    "def_type": [
+      "St"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Sm": {
+    "string": "Sm",
+    "id": "quagmire",
+    "aliasof": [
+      "St"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "St"
+    ],
+    "def_type": [
+      "St"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Gg": {
+    "string": "Gg",
+    "id": "grassland",
+    "aliasof": [
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Gt"
+    ],
+    "def_type": [
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Gs": {
+    "string": "Gs",
+    "id": "savanna",
+    "aliasof": [
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Gt"
+    ],
+    "def_type": [
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Gd": {
+    "string": "Gd",
+    "id": "grass_dry",
+    "aliasof": [
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Gt"
+    ],
+    "def_type": [
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Gll": {
+    "string": "Gll",
+    "id": "leaf_litter",
+    "aliasof": [
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Gt"
+    ],
+    "def_type": [
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Rb": {
+    "string": "Rb",
+    "id": "dirt_dark",
+    "aliasof": [
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Gt"
+    ],
+    "def_type": [
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Re": {
+    "string": "Re",
+    "id": "dirt",
+    "aliasof": [
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Gt"
+    ],
+    "def_type": [
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Rd": {
+    "string": "Rd",
+    "id": "dirt_dry",
+    "aliasof": [
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Gt"
+    ],
+    "def_type": [
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Rr": {
+    "string": "Rr",
+    "id": "road",
+    "aliasof": [
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Gt"
+    ],
+    "def_type": [
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Rrc": {
+    "string": "Rrc",
+    "id": "road_clean",
+    "aliasof": [
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Gt"
+    ],
+    "def_type": [
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Rrd": {
+    "string": "Rrd",
+    "id": "road_desert",
+    "aliasof": [
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Gt"
+    ],
+    "def_type": [
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Rp": {
+    "string": "Rp",
+    "id": "stone_path",
+    "aliasof": [
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Gt"
+    ],
+    "def_type": [
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Rra": {
+    "string": "Rra",
+    "id": "road_icy",
+    "aliasof": [
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Gt"
+    ],
+    "def_type": [
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Ai": {
+    "string": "Ai",
+    "id": "ice",
+    "aliasof": [
+      "At"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "At"
+    ],
+    "def_type": [
+      "At"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Aa": {
+    "string": "Aa",
+    "id": "snow",
+    "aliasof": [
+      "At"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "At"
+    ],
+    "def_type": [
+      "At"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Dd": {
+    "string": "Dd",
+    "id": "desert",
+    "aliasof": [
+      "Dt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Dt"
+    ],
+    "def_type": [
+      "Dt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Ds": {
+    "string": "Ds",
+    "id": "sand_beach",
+    "aliasof": [
+      "Dt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Dt"
+    ],
+    "def_type": [
+      "Dt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Do": {
+    "string": "^Do",
+    "id": "oasis",
+    "aliasof": [
+      "Dt"
+    ],
+    "mvt_alias": [
+      "_bas"
+    ],
+    "def_alias": [
+      "_bas"
+    ],
+    "default_base": "Dd",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 8,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Dr": {
+    "string": "^Dr",
+    "id": "sand_rubble",
+    "aliasof": [
+      "_bas",
+      "Ht"
+    ],
+    "mvt_alias": [
+      "-",
+      "_bas",
+      "Ht"
+    ],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "-",
+      "_bas",
+      "Ht"
+    ],
+    "def_type": [
+      "_bas",
+      "Ht"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Dc": {
+    "string": "^Dc",
+    "id": "crater",
+    "aliasof": [
+      "Dt"
+    ],
+    "mvt_alias": [
+      "-",
+      "_bas",
+      "Dt"
+    ],
+    "def_alias": [],
+    "default_base": "Dd",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "-",
+      "_bas",
+      "Dt"
+    ],
+    "def_type": [
+      "Dt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Efm": {
+    "string": "^Efm",
+    "id": "flowers_mixed",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Gvs": {
+    "string": "^Gvs",
+    "id": "farm",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Es": {
+    "string": "^Es",
+    "id": "stones_small",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Esa": {
+    "string": "^Esa",
+    "id": "snowbits_small",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Em": {
+    "string": "^Em",
+    "id": "mushrooms_small",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Emf": {
+    "string": "^Emf",
+    "id": "mushrooms_farm",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Edp": {
+    "string": "^Edp",
+    "id": "desert_plants",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Edpp": {
+    "string": "^Edpp",
+    "id": "desert_plants_sans_bones",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Wm": {
+    "string": "^Wm",
+    "id": "windmill",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Ecf": {
+    "string": "^Ecf",
+    "id": "campfire",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 25,
+    "max_light": 25,
+    "min_light": 25
+  },
+  "^Efs": {
+    "string": "^Efs",
+    "id": "wallfire",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 25,
+    "max_light": 25,
+    "min_light": 25
+  },
+  "^Eb": {
+    "string": "^Eb",
+    "id": "brazier",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Ebn": {
+    "string": "^Ebn",
+    "id": "brazier-lit",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 25,
+    "max_light": 25,
+    "min_light": 25
+  },
+  "^Eff": {
+    "string": "^Eff",
+    "id": "fence",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Eqf": {
+    "string": "^Eqf",
+    "id": "fence_iron",
+    "aliasof": [
+      "Qt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "Qt"
+    ],
+    "def_type": [
+      "Qt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Eqp": {
+    "string": "^Eqp",
+    "id": "fence_palisade",
+    "aliasof": [
+      "Qt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "Qt"
+    ],
+    "def_type": [
+      "Qt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Esd": {
+    "string": "^Esd",
+    "id": "sand_drifts",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Ewl": {
+    "string": "^Ewl",
+    "id": "water-lilies",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Ww",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Ewf": {
+    "string": "^Ewf",
+    "id": "water-lilies-flower",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Ww",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Ewsh": {
+    "string": "^Ewsh",
+    "id": "seashells",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Ds",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Edt": {
+    "string": "^Edt",
+    "id": "detritus_trash",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Edb": {
+    "string": "^Edb",
+    "id": "detritus_bones",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Exw": {
+    "string": "^Exw",
+    "id": "wall_windows",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Fet": {
+    "string": "^Fet",
+    "id": "great_tree",
+    "aliasof": [
+      "_bas",
+      "Ft"
+    ],
+    "mvt_alias": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_alias": [],
+    "default_base": "Gg",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_type": [
+      "_bas",
+      "Ft"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Feta": {
+    "string": "^Feta",
+    "id": "great_tree_snowy",
+    "aliasof": [
+      "_bas",
+      "Ft"
+    ],
+    "mvt_alias": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_alias": [],
+    "default_base": "Aa",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_type": [
+      "_bas",
+      "Ft"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Fetd": {
+    "string": "^Fetd",
+    "id": "great_tree_dead",
+    "aliasof": [
+      "_bas",
+      "Ft"
+    ],
+    "mvt_alias": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_alias": [],
+    "default_base": "Gd",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_type": [
+      "_bas",
+      "Ft"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Feth": {
+    "string": "^Feth",
+    "id": "great_tree_dead_oak",
+    "aliasof": [
+      "_bas",
+      "Ft"
+    ],
+    "mvt_alias": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_alias": [],
+    "default_base": "Gll",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_type": [
+      "_bas",
+      "Ft"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Ft": {
+    "string": "^Ft",
+    "id": "tropical_forest",
+    "aliasof": [
+      "_bas",
+      "Ft"
+    ],
+    "mvt_alias": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_alias": [],
+    "default_base": "Gs",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_type": [
+      "_bas",
+      "Ft"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Ftr": {
+    "string": "^Ftr",
+    "id": "rainforest",
+    "aliasof": [
+      "_bas",
+      "Ft"
+    ],
+    "mvt_alias": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_alias": [],
+    "default_base": "Gll",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_type": [
+      "_bas",
+      "Ft"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Ftd": {
+    "string": "^Ftd",
+    "id": "palm_desert_forest",
+    "aliasof": [
+      "_bas",
+      "Ft"
+    ],
+    "mvt_alias": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_alias": [],
+    "default_base": "Dd",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_type": [
+      "_bas",
+      "Ft"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Ftp": {
+    "string": "^Ftp",
+    "id": "palm_forest",
+    "aliasof": [
+      "_bas",
+      "Ft"
+    ],
+    "mvt_alias": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_alias": [],
+    "default_base": "Gs",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_type": [
+      "_bas",
+      "Ft"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Fts": {
+    "string": "^Fts",
+    "id": "savanna_forest",
+    "aliasof": [
+      "_bas",
+      "Ft"
+    ],
+    "mvt_alias": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_alias": [],
+    "default_base": "Gd",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_type": [
+      "_bas",
+      "Ft"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Fp": {
+    "string": "^Fp",
+    "id": "pine_forest",
+    "aliasof": [
+      "_bas",
+      "Ft"
+    ],
+    "mvt_alias": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_alias": [],
+    "default_base": "Gll",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_type": [
+      "_bas",
+      "Ft"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Fpa": {
+    "string": "^Fpa",
+    "id": "snow_forest",
+    "aliasof": [
+      "_bas",
+      "At",
+      "Ft"
+    ],
+    "mvt_alias": [
+      "-",
+      "_bas",
+      "At",
+      "Ft"
+    ],
+    "def_alias": [],
+    "default_base": "Aa",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "-",
+      "_bas",
+      "At",
+      "Ft"
+    ],
+    "def_type": [
+      "_bas",
+      "At",
+      "Ft"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Fds": {
+    "string": "^Fds",
+    "id": "deciduous_forest_summer",
+    "aliasof": [
+      "_bas",
+      "Ft"
+    ],
+    "mvt_alias": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_alias": [],
+    "default_base": "Gs",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_type": [
+      "_bas",
+      "Ft"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Fdf": {
+    "string": "^Fdf",
+    "id": "deciduous_forest_fall",
+    "aliasof": [
+      "_bas",
+      "Ft"
+    ],
+    "mvt_alias": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_alias": [],
+    "default_base": "Gll",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_type": [
+      "_bas",
+      "Ft"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Fdw": {
+    "string": "^Fdw",
+    "id": "deciduous_forest_winter",
+    "aliasof": [
+      "_bas",
+      "Ft"
+    ],
+    "mvt_alias": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_alias": [],
+    "default_base": "Gll",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_type": [
+      "_bas",
+      "Ft"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Fda": {
+    "string": "^Fda",
+    "id": "deciduous_forest_winter_snow",
+    "aliasof": [
+      "_bas",
+      "At",
+      "Ft"
+    ],
+    "mvt_alias": [
+      "-",
+      "_bas",
+      "At",
+      "Ft"
+    ],
+    "def_alias": [],
+    "default_base": "Aa",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "-",
+      "_bas",
+      "At",
+      "Ft"
+    ],
+    "def_type": [
+      "_bas",
+      "At",
+      "Ft"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Fms": {
+    "string": "^Fms",
+    "id": "mixed_forest_summer",
+    "aliasof": [
+      "_bas",
+      "Ft"
+    ],
+    "mvt_alias": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_alias": [],
+    "default_base": "Gs",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_type": [
+      "_bas",
+      "Ft"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Fmf": {
+    "string": "^Fmf",
+    "id": "mixed_forest_fall",
+    "aliasof": [
+      "_bas",
+      "Ft"
+    ],
+    "mvt_alias": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_alias": [],
+    "default_base": "Gll",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_type": [
+      "_bas",
+      "Ft"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Fmw": {
+    "string": "^Fmw",
+    "id": "mixed_forest_winter",
+    "aliasof": [
+      "_bas",
+      "Ft"
+    ],
+    "mvt_alias": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_alias": [],
+    "default_base": "Gll",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_type": [
+      "_bas",
+      "Ft"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Fma": {
+    "string": "^Fma",
+    "id": "mixed_forest_winter_snow",
+    "aliasof": [
+      "_bas",
+      "At",
+      "Ft"
+    ],
+    "mvt_alias": [
+      "-",
+      "_bas",
+      "At",
+      "Ft"
+    ],
+    "def_alias": [],
+    "default_base": "Aa",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "-",
+      "_bas",
+      "At",
+      "Ft"
+    ],
+    "def_type": [
+      "_bas",
+      "At",
+      "Ft"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Hh": {
+    "string": "Hh",
+    "id": "hills_regular",
+    "aliasof": [
+      "Ht"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ht"
+    ],
+    "def_type": [
+      "Ht"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Hhd": {
+    "string": "Hhd",
+    "id": "hills_dry",
+    "aliasof": [
+      "Ht"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ht"
+    ],
+    "def_type": [
+      "Ht"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Hd": {
+    "string": "Hd",
+    "id": "desert_hills",
+    "aliasof": [
+      "Dt",
+      "Ht"
+    ],
+    "mvt_alias": [
+      "-",
+      "Dt",
+      "Ht"
+    ],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "-",
+      "Dt",
+      "Ht"
+    ],
+    "def_type": [
+      "Dt",
+      "Ht"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Ha": {
+    "string": "Ha",
+    "id": "snow_hills",
+    "aliasof": [
+      "At",
+      "Ht"
+    ],
+    "mvt_alias": [
+      "-",
+      "At",
+      "Ht"
+    ],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "-",
+      "At",
+      "Ht"
+    ],
+    "def_type": [
+      "At",
+      "Ht"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Mm": {
+    "string": "Mm",
+    "id": "regular_mountains",
+    "aliasof": [
+      "Mt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Mt"
+    ],
+    "def_type": [
+      "Mt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Md": {
+    "string": "Md",
+    "id": "dry_mountains",
+    "aliasof": [
+      "Mt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Mt"
+    ],
+    "def_type": [
+      "Mt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Ms": {
+    "string": "Ms",
+    "id": "snow_mountains",
+    "aliasof": [
+      "At",
+      "Mt"
+    ],
+    "mvt_alias": [
+      "-",
+      "At",
+      "Mt"
+    ],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "-",
+      "At",
+      "Mt"
+    ],
+    "def_type": [
+      "At",
+      "Mt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Mdd": {
+    "string": "Mdd",
+    "id": "desert_mountains",
+    "aliasof": [
+      "Mt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Mt"
+    ],
+    "def_type": [
+      "Mt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Isr": {
+    "string": "Isr",
+    "id": "regular_stone_floor",
+    "aliasof": [
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Gt"
+    ],
+    "def_type": [
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Isa": {
+    "string": "Isa",
+    "id": "ancient_stone_floor",
+    "aliasof": [
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Gt"
+    ],
+    "def_type": [
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Isc": {
+    "string": "Isc",
+    "id": "rug_floor",
+    "aliasof": [
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Gt"
+    ],
+    "def_type": [
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Iwc": {
+    "string": "Iwc",
+    "id": "rug2_floor",
+    "aliasof": [
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Gt"
+    ],
+    "def_type": [
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Urc": {
+    "string": "Urc",
+    "id": "rug3_floor",
+    "aliasof": [
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Gt"
+    ],
+    "def_type": [
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Iwr": {
+    "string": "Iwr",
+    "id": "wood_floor",
+    "aliasof": [
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Gt"
+    ],
+    "def_type": [
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Iwo": {
+    "string": "Iwo",
+    "id": "old_wood_floor",
+    "aliasof": [
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Gt"
+    ],
+    "def_type": [
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Ii": {
+    "string": "^Ii",
+    "id": "lit",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 25,
+    "max_light": 25,
+    "min_light": 25
+  },
+  "Uu": {
+    "string": "Uu",
+    "id": "cave_floor",
+    "aliasof": [
+      "Ut"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ut"
+    ],
+    "def_type": [
+      "Ut"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Uue": {
+    "string": "Uue",
+    "id": "cave_earthy",
+    "aliasof": [
+      "Ut"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ut"
+    ],
+    "def_type": [
+      "Ut"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Urb": {
+    "string": "Urb",
+    "id": "flagstones_dark",
+    "aliasof": [
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Gt"
+    ],
+    "def_type": [
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Ur": {
+    "string": "Ur",
+    "id": "cave_path",
+    "aliasof": [
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Gt"
+    ],
+    "def_type": [
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Uf": {
+    "string": "^Uf",
+    "id": "fungus_grove_old",
+    "aliasof": [
+      "Tt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Uu",
+    "hidden": true,
+    "is_overlay": true,
+    "mvt_type": [
+      "Tt"
+    ],
+    "def_type": [
+      "Tt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Ufi": {
+    "string": "^Ufi",
+    "id": "fungus_beam_old",
+    "aliasof": [
+      "Tt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Uu",
+    "hidden": true,
+    "is_overlay": true,
+    "mvt_type": [
+      "Tt"
+    ],
+    "def_type": [
+      "Tt"
+    ],
+    "heals": 0,
+    "light": 25,
+    "max_light": 25,
+    "min_light": 25
+  },
+  "^Tf": {
+    "string": "^Tf",
+    "id": "fungus_grove",
+    "aliasof": [
+      "_bas",
+      "Tt"
+    ],
+    "mvt_alias": [
+      "-",
+      "_bas",
+      "Tt"
+    ],
+    "def_alias": [],
+    "default_base": "Tb",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "-",
+      "_bas",
+      "Tt"
+    ],
+    "def_type": [
+      "_bas",
+      "Tt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Tfi": {
+    "string": "^Tfi",
+    "id": "fungus_beam",
+    "aliasof": [
+      "_bas",
+      "Tt"
+    ],
+    "mvt_alias": [
+      "-",
+      "_bas",
+      "Tt"
+    ],
+    "def_alias": [],
+    "default_base": "Tb",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "-",
+      "_bas",
+      "Tt"
+    ],
+    "def_type": [
+      "_bas",
+      "Tt"
+    ],
+    "heals": 0,
+    "light": 25,
+    "max_light": 25,
+    "min_light": 25
+  },
+  "Tb": {
+    "string": "Tb",
+    "id": "fungus_floor",
+    "aliasof": [
+      "Tt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Tt"
+    ],
+    "def_type": [
+      "Tt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Uh": {
+    "string": "Uh",
+    "id": "rocky_cave",
+    "aliasof": [
+      "Ut",
+      "Ht"
+    ],
+    "mvt_alias": [
+      "-",
+      "Ut",
+      "Ht"
+    ],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "-",
+      "Ut",
+      "Ht"
+    ],
+    "def_type": [
+      "Ut",
+      "Ht"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Uhe": {
+    "string": "Uhe",
+    "id": "earthy_rocky_cave",
+    "aliasof": [
+      "Ut",
+      "Ht"
+    ],
+    "mvt_alias": [
+      "-",
+      "Ut",
+      "Ht"
+    ],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "-",
+      "Ut",
+      "Ht"
+    ],
+    "def_type": [
+      "Ut",
+      "Ht"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Br|": {
+    "string": "^Br|",
+    "id": "mine_rails",
+    "aliasof": [
+      "_bas",
+      "Rt"
+    ],
+    "mvt_alias": [
+      "Gt",
+      "Rt"
+    ],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "Gt",
+      "Rt"
+    ],
+    "def_type": [
+      "_bas",
+      "Rt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Br/": {
+    "string": "^Br/",
+    "id": "mine_railsdiag1",
+    "aliasof": [
+      "_bas",
+      "Rt"
+    ],
+    "mvt_alias": [
+      "Gt",
+      "Rt"
+    ],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "Gt",
+      "Rt"
+    ],
+    "def_type": [
+      "_bas",
+      "Rt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Br\\": {
+    "string": "^Br\\",
+    "id": "mine_railsdiag2",
+    "aliasof": [
+      "_bas",
+      "Rt"
+    ],
+    "mvt_alias": [
+      "Gt",
+      "Rt"
+    ],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "Gt",
+      "Rt"
+    ],
+    "def_type": [
+      "_bas",
+      "Rt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Qhh": {
+    "string": "^Qhh",
+    "id": "high_border",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Qhu": {
+    "string": "^Qhu",
+    "id": "high_canyon",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Qhux": {
+    "string": "^Qhux",
+    "id": "high_canyon_obst",
+    "aliasof": [
+      "Qt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "Qt"
+    ],
+    "def_type": [
+      "Qt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Qhhf": {
+    "string": "^Qhhf",
+    "id": "high_border_woods",
+    "aliasof": [
+      "_bas",
+      "Ft"
+    ],
+    "mvt_alias": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_type": [
+      "_bas",
+      "Ft"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Qhuf": {
+    "string": "^Qhuf",
+    "id": "high_canyon_woods",
+    "aliasof": [
+      "_bas",
+      "Ft"
+    ],
+    "mvt_alias": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "-",
+      "_bas",
+      "Ft"
+    ],
+    "def_type": [
+      "_bas",
+      "Ft"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Qxu": {
+    "string": "Qxu",
+    "id": "canyon",
+    "aliasof": [
+      "Qt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Qt"
+    ],
+    "def_type": [
+      "Qt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Qxe": {
+    "string": "Qxe",
+    "id": "chasm_earthy",
+    "aliasof": [
+      "Qt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Qt"
+    ],
+    "def_type": [
+      "Qt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Qxua": {
+    "string": "Qxua",
+    "id": "abyss",
+    "aliasof": [
+      "Qt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Qt"
+    ],
+    "def_type": [
+      "Qt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Ql": {
+    "string": "Ql",
+    "id": "lava_chasm",
+    "aliasof": [
+      "Qt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Qt"
+    ],
+    "def_type": [
+      "Qt"
+    ],
+    "heals": 0,
+    "light": 25,
+    "max_light": 35,
+    "min_light": 25
+  },
+  "Qlf": {
+    "string": "Qlf",
+    "id": "lava",
+    "aliasof": [
+      "Qt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Qt"
+    ],
+    "def_type": [
+      "Qt"
+    ],
+    "heals": 0,
+    "light": 25,
+    "max_light": 35,
+    "min_light": 25
+  },
+  "Mv": {
+    "string": "Mv",
+    "id": "volcano",
+    "aliasof": [
+      "Qt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Qt"
+    ],
+    "def_type": [
+      "Qt"
+    ],
+    "heals": 0,
+    "light": 25,
+    "max_light": 35,
+    "min_light": 25
+  },
+  "Mm^Xm": {
+    "string": "Mm^Xm",
+    "id": "cloud",
+    "aliasof": [
+      "-",
+      "Mt",
+      "Xt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "-",
+      "Mt",
+      "Xt"
+    ],
+    "def_type": [
+      "-",
+      "Mt",
+      "Xt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Md^Xm": {
+    "string": "Md^Xm",
+    "id": "cloud_dry",
+    "aliasof": [
+      "-",
+      "Mt",
+      "Xt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "-",
+      "Mt",
+      "Xt"
+    ],
+    "def_type": [
+      "-",
+      "Mt",
+      "Xt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Ms^Xm": {
+    "string": "Ms^Xm",
+    "id": "cloud_snow",
+    "aliasof": [
+      "-",
+      "Mt",
+      "Xt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "-",
+      "Mt",
+      "Xt"
+    ],
+    "def_type": [
+      "-",
+      "Mt",
+      "Xt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Mdd^Xm": {
+    "string": "Mdd^Xm",
+    "id": "cloud_desert",
+    "aliasof": [
+      "-",
+      "Mt",
+      "Xt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "-",
+      "Mt",
+      "Xt"
+    ],
+    "def_type": [
+      "-",
+      "Mt",
+      "Xt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Xu": {
+    "string": "Xu",
+    "id": "cavewall",
+    "aliasof": [
+      "Xt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Xt"
+    ],
+    "def_type": [
+      "Xt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Xuc": {
+    "string": "Xuc",
+    "id": "minewall",
+    "aliasof": [
+      "Xt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Xt"
+    ],
+    "def_type": [
+      "Xt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Xue": {
+    "string": "Xue",
+    "id": "cavewall_earthy",
+    "aliasof": [
+      "Xt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Xt"
+    ],
+    "def_type": [
+      "Xt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Xur": {
+    "string": "Xur",
+    "id": "cavewall_damaged",
+    "aliasof": [
+      "Xt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Xt"
+    ],
+    "def_type": [
+      "Xt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Xuf": {
+    "string": "Xuf",
+    "id": "wall_hedge",
+    "aliasof": [
+      "Xt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Xt"
+    ],
+    "def_type": [
+      "Xt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Xuce": {
+    "string": "Xuce",
+    "id": "cavewall_earthy_hewn",
+    "aliasof": [
+      "Xt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": true,
+    "is_overlay": false,
+    "mvt_type": [
+      "Xt"
+    ],
+    "def_type": [
+      "Xt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Xos": {
+    "string": "Xos",
+    "id": "wall_stone",
+    "aliasof": [
+      "Xt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Xt"
+    ],
+    "def_type": [
+      "Xt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Xol": {
+    "string": "Xol",
+    "id": "wall_stone_lit",
+    "aliasof": [
+      "Xt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": true,
+    "is_overlay": false,
+    "mvt_type": [
+      "Xt"
+    ],
+    "def_type": [
+      "Xt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Xom": {
+    "string": "Xom",
+    "id": "wall_stone_mine",
+    "aliasof": [
+      "Xt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Xt"
+    ],
+    "def_type": [
+      "Xt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Xoi": {
+    "string": "Xoi",
+    "id": "wall_stone_white",
+    "aliasof": [
+      "Xt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Xt"
+    ],
+    "def_type": [
+      "Xt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Xoc": {
+    "string": "Xoc",
+    "id": "wall_stone_clean",
+    "aliasof": [
+      "Xt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Xt"
+    ],
+    "def_type": [
+      "Xt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Xoa": {
+    "string": "Xoa",
+    "id": "wall_stone_ancient",
+    "aliasof": [
+      "Xt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Xt"
+    ],
+    "def_type": [
+      "Xt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Xot": {
+    "string": "Xot",
+    "id": "wall_stone_tomb",
+    "aliasof": [
+      "Xt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Xt"
+    ],
+    "def_type": [
+      "Xt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Xof": {
+    "string": "Xof",
+    "id": "wall_stone_overgrown",
+    "aliasof": [
+      "Xt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Xt"
+    ],
+    "def_type": [
+      "Xt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Xor": {
+    "string": "Xor",
+    "id": "wall_stone_damaged",
+    "aliasof": [
+      "Xt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Xt"
+    ],
+    "def_type": [
+      "Xt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Exos": {
+    "string": "Exos",
+    "id": "wall_stone_ruins",
+    "aliasof": [
+      "Gt",
+      "Ut"
+    ],
+    "mvt_alias": [
+      "-",
+      "Gt",
+      "Ut"
+    ],
+    "def_alias": [
+      "-",
+      "Gt",
+      "Ut"
+    ],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "-",
+      "Gt",
+      "Ut"
+    ],
+    "def_type": [
+      "-",
+      "Gt",
+      "Ut"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Pr\\": {
+    "string": "^Pr\\",
+    "id": "portal_gate_rusty_sw",
+    "aliasof": [
+      "_bas",
+      "Xt"
+    ],
+    "mvt_alias": [
+      "Xt"
+    ],
+    "def_alias": [],
+    "default_base": "Rr",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "Xt"
+    ],
+    "def_type": [
+      "_bas",
+      "Xt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Pr/": {
+    "string": "^Pr/",
+    "id": "portal_gate_rusty_se",
+    "aliasof": [
+      "_bas",
+      "Xt"
+    ],
+    "mvt_alias": [
+      "Xt"
+    ],
+    "def_alias": [],
+    "default_base": "Rr",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "Xt"
+    ],
+    "def_type": [
+      "_bas",
+      "Xt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Pr|": {
+    "string": "^Pr|",
+    "id": "portal_gate_rusty_n",
+    "aliasof": [
+      "_bas",
+      "Xt"
+    ],
+    "mvt_alias": [
+      "Xt"
+    ],
+    "def_alias": [],
+    "default_base": "Rr",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "Xt"
+    ],
+    "def_type": [
+      "_bas",
+      "Xt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Pw\\": {
+    "string": "^Pw\\",
+    "id": "portal_door_wooden_sw",
+    "aliasof": [
+      "_bas",
+      "Xt"
+    ],
+    "mvt_alias": [
+      "Xt"
+    ],
+    "def_alias": [],
+    "default_base": "Rr",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "Xt"
+    ],
+    "def_type": [
+      "_bas",
+      "Xt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Pw/": {
+    "string": "^Pw/",
+    "id": "portal_door_wooden_se",
+    "aliasof": [
+      "_bas",
+      "Xt"
+    ],
+    "mvt_alias": [
+      "Xt"
+    ],
+    "def_alias": [],
+    "default_base": "Rr",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "Xt"
+    ],
+    "def_type": [
+      "_bas",
+      "Xt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Pw|": {
+    "string": "^Pw|",
+    "id": "portal_door_wooden_n",
+    "aliasof": [
+      "_bas",
+      "Xt"
+    ],
+    "mvt_alias": [
+      "Xt"
+    ],
+    "def_alias": [],
+    "default_base": "Rr",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "Xt"
+    ],
+    "def_type": [
+      "_bas",
+      "Xt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Pr\\o": {
+    "string": "^Pr\\o",
+    "id": "portal_gate_rusty_open_sw",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Rr",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Pr/o": {
+    "string": "^Pr/o",
+    "id": "portal_gate_rusty_open_se",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Rr",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Pr|o": {
+    "string": "^Pr|o",
+    "id": "portal_gate_rusty_open_n",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Rr",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Pw\\o": {
+    "string": "^Pw\\o",
+    "id": "portal_door_wooden_open_sw",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Rr",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Pw/o": {
+    "string": "^Pw/o",
+    "id": "portal_door_wooden_open_se",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Rr",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Pw|o": {
+    "string": "^Pw|o",
+    "id": "portal_door_wooden_open_n",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Rr",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Xo": {
+    "string": "^Xo",
+    "id": "impassable_overlay",
+    "aliasof": [
+      "_bas",
+      "Xt"
+    ],
+    "mvt_alias": [
+      "Xt"
+    ],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "Xt"
+    ],
+    "def_type": [
+      "_bas",
+      "Xt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Qov": {
+    "string": "^Qov",
+    "id": "unwalkable_overlay",
+    "aliasof": [
+      "_bas",
+      "Qt"
+    ],
+    "mvt_alias": [
+      "Qt"
+    ],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "Qt"
+    ],
+    "def_type": [
+      "_bas",
+      "Qt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Xv": {
+    "string": "Xv",
+    "id": "void",
+    "aliasof": [
+      "Xt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Xt"
+    ],
+    "def_type": [
+      "Xt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Vda": {
+    "string": "^Vda",
+    "id": "desert_village",
+    "aliasof": [
+      "_bas",
+      "Vt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Dd",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Vt"
+    ],
+    "def_type": [
+      "_bas",
+      "Vt"
+    ],
+    "heals": 8,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Vdr": {
+    "string": "^Vdr",
+    "id": "desert_village_ruin",
+    "aliasof": [
+      "_bas",
+      "Vt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Dd",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Vt"
+    ],
+    "def_type": [
+      "_bas",
+      "Vt"
+    ],
+    "heals": 8,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Vdt": {
+    "string": "^Vdt",
+    "id": "desert_village_tent",
+    "aliasof": [
+      "_bas",
+      "Vt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Dd",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Vt"
+    ],
+    "def_type": [
+      "_bas",
+      "Vt"
+    ],
+    "heals": 8,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Vct": {
+    "string": "^Vct",
+    "id": "camp_village",
+    "aliasof": [
+      "_bas",
+      "Vt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Re",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Vt"
+    ],
+    "def_type": [
+      "_bas",
+      "Vt"
+    ],
+    "heals": 8,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Vo": {
+    "string": "^Vo",
+    "id": "orcish_village",
+    "aliasof": [
+      "_bas",
+      "Vt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Gd",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Vt"
+    ],
+    "def_type": [
+      "_bas",
+      "Vt"
+    ],
+    "heals": 8,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Voa": {
+    "string": "^Voa",
+    "id": "orcish_snow_village",
+    "aliasof": [
+      "_bas",
+      "Vt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Aa",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Vt"
+    ],
+    "def_type": [
+      "_bas",
+      "Vt"
+    ],
+    "heals": 8,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Vea": {
+    "string": "^Vea",
+    "id": "elven_snow_village",
+    "aliasof": [
+      "_bas",
+      "Vt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Aa",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Vt"
+    ],
+    "def_type": [
+      "_bas",
+      "Vt"
+    ],
+    "heals": 8,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Ve": {
+    "string": "^Ve",
+    "id": "elven_village",
+    "aliasof": [
+      "_bas",
+      "Vt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Gg",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Vt"
+    ],
+    "def_type": [
+      "_bas",
+      "Vt"
+    ],
+    "heals": 8,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Vh": {
+    "string": "^Vh",
+    "id": "human_village",
+    "aliasof": [
+      "_bas",
+      "Vt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Gs",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Vt"
+    ],
+    "def_type": [
+      "_bas",
+      "Vt"
+    ],
+    "heals": 8,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Vha": {
+    "string": "^Vha",
+    "id": "snow_village",
+    "aliasof": [
+      "_bas",
+      "Vt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Aa",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Vt"
+    ],
+    "def_type": [
+      "_bas",
+      "Vt"
+    ],
+    "heals": 8,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Vhr": {
+    "string": "^Vhr",
+    "id": "human_village_ruin",
+    "aliasof": [
+      "_bas",
+      "Vt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Gd",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Vt"
+    ],
+    "def_type": [
+      "_bas",
+      "Vt"
+    ],
+    "heals": 8,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Vhc": {
+    "string": "^Vhc",
+    "id": "city_village",
+    "aliasof": [
+      "_bas",
+      "Vt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Rr",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Vt"
+    ],
+    "def_type": [
+      "_bas",
+      "Vt"
+    ],
+    "heals": 8,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Vwm": {
+    "string": "^Vwm",
+    "id": "windmill_village",
+    "aliasof": [
+      "_bas",
+      "Vt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Gg",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Vt"
+    ],
+    "def_type": [
+      "_bas",
+      "Vt"
+    ],
+    "heals": 8,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Vhca": {
+    "string": "^Vhca",
+    "id": "city_village_wno",
+    "aliasof": [
+      "_bas",
+      "Vt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Rrc",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Vt"
+    ],
+    "def_type": [
+      "_bas",
+      "Vt"
+    ],
+    "heals": 8,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Vhcr": {
+    "string": "^Vhcr",
+    "id": "city_village_ruin",
+    "aliasof": [
+      "_bas",
+      "Vt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Rp",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Vt"
+    ],
+    "def_type": [
+      "_bas",
+      "Vt"
+    ],
+    "heals": 8,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Vhh": {
+    "string": "^Vhh",
+    "id": "hill_village",
+    "aliasof": [
+      "_bas",
+      "Vt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Hh",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Vt"
+    ],
+    "def_type": [
+      "_bas",
+      "Vt"
+    ],
+    "heals": 8,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Vhha": {
+    "string": "^Vhha",
+    "id": "snow-hill_village",
+    "aliasof": [
+      "_bas",
+      "Vt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Ha",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Vt"
+    ],
+    "def_type": [
+      "_bas",
+      "Vt"
+    ],
+    "heals": 8,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Vhhr": {
+    "string": "^Vhhr",
+    "id": "hill_village_ruin",
+    "aliasof": [
+      "_bas",
+      "Vt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Hhd",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Vt"
+    ],
+    "def_type": [
+      "_bas",
+      "Vt"
+    ],
+    "heals": 8,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Vht": {
+    "string": "^Vht",
+    "id": "tropical_forest_village",
+    "aliasof": [
+      "_bas",
+      "Vt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Gs",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Vt"
+    ],
+    "def_type": [
+      "_bas",
+      "Vt"
+    ],
+    "heals": 8,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Vd": {
+    "string": "^Vd",
+    "id": "drake_village",
+    "aliasof": [
+      "_bas",
+      "Vt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Rr",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Vt"
+    ],
+    "def_type": [
+      "_bas",
+      "Vt"
+    ],
+    "heals": 8,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Vka": {
+    "string": "^Vka",
+    "id": "drake_snow_village",
+    "aliasof": [
+      "_bas",
+      "Vt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Aa",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Vt"
+    ],
+    "def_type": [
+      "_bas",
+      "Vt"
+    ],
+    "heals": 8,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Vu": {
+    "string": "^Vu",
+    "id": "underground_village",
+    "aliasof": [
+      "_bas",
+      "Vt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Uu",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Vt"
+    ],
+    "def_type": [
+      "_bas",
+      "Vt"
+    ],
+    "heals": 8,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Vud": {
+    "string": "^Vud",
+    "id": "dwarven_village",
+    "aliasof": [
+      "_bas",
+      "Vt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Uu",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Vt"
+    ],
+    "def_type": [
+      "_bas",
+      "Vt"
+    ],
+    "heals": 8,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Vc": {
+    "string": "^Vc",
+    "id": "hut_village",
+    "aliasof": [
+      "_bas",
+      "Vt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Gs",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Vt"
+    ],
+    "def_type": [
+      "_bas",
+      "Vt"
+    ],
+    "heals": 8,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Vca": {
+    "string": "^Vca",
+    "id": "hut_snow_village",
+    "aliasof": [
+      "_bas",
+      "Vt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Aa",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Vt"
+    ],
+    "def_type": [
+      "_bas",
+      "Vt"
+    ],
+    "heals": 8,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Vl": {
+    "string": "^Vl",
+    "id": "logcabin_village",
+    "aliasof": [
+      "_bas",
+      "Vt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Gs",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Vt"
+    ],
+    "def_type": [
+      "_bas",
+      "Vt"
+    ],
+    "heals": 8,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Vla": {
+    "string": "^Vla",
+    "id": "logcabin_snow_village",
+    "aliasof": [
+      "_bas",
+      "Vt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Aa",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Vt"
+    ],
+    "def_type": [
+      "_bas",
+      "Vt"
+    ],
+    "heals": 8,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Vaa": {
+    "string": "^Vaa",
+    "id": "igloo",
+    "aliasof": [
+      "_bas",
+      "Vt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Aa",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Vt"
+    ],
+    "def_type": [
+      "_bas",
+      "Vt"
+    ],
+    "heals": 8,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Vhs": {
+    "string": "^Vhs",
+    "id": "swamp_village",
+    "aliasof": [
+      "_bas",
+      "Vt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Ss",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Vt"
+    ],
+    "def_type": [
+      "_bas",
+      "Vt"
+    ],
+    "heals": 8,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Vm": {
+    "string": "^Vm",
+    "id": "mermen-village",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Ww",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 8,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Vov": {
+    "string": "^Vov",
+    "id": "village_overlay",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 8,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Ce": {
+    "string": "Ce",
+    "id": "encampment",
+    "aliasof": [
+      "Ct"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct"
+    ],
+    "def_type": [
+      "Ct"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Cer": {
+    "string": "Cer",
+    "id": "encampment_ruin",
+    "aliasof": [
+      "Ct"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct"
+    ],
+    "def_type": [
+      "Ct"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Cea": {
+    "string": "Cea",
+    "id": "encampment_snow",
+    "aliasof": [
+      "Ct",
+      "At"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct",
+      "At"
+    ],
+    "def_type": [
+      "Ct",
+      "At"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Co": {
+    "string": "Co",
+    "id": "orcish_fort",
+    "aliasof": [
+      "Ct"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct"
+    ],
+    "def_type": [
+      "Ct"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Coa": {
+    "string": "Coa",
+    "id": "snow_orcish_fort",
+    "aliasof": [
+      "Ct",
+      "At"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct",
+      "At"
+    ],
+    "def_type": [
+      "Ct",
+      "At"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Ch": {
+    "string": "Ch",
+    "id": "human_castle",
+    "aliasof": [
+      "Ct"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct"
+    ],
+    "def_type": [
+      "Ct"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Cha": {
+    "string": "Cha",
+    "id": "snow_castle",
+    "aliasof": [
+      "Ct",
+      "At"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct",
+      "At"
+    ],
+    "def_type": [
+      "Ct",
+      "At"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Cv": {
+    "string": "Cv",
+    "id": "elven_castle",
+    "aliasof": [
+      "Ct"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct"
+    ],
+    "def_type": [
+      "Ct"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Cvr": {
+    "string": "Cvr",
+    "id": "elven_castle_ruin",
+    "aliasof": [
+      "Ct"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct"
+    ],
+    "def_type": [
+      "Ct"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Cva": {
+    "string": "Cva",
+    "id": "elven_castle_winter",
+    "aliasof": [
+      "Ct"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct"
+    ],
+    "def_type": [
+      "Ct"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Cud": {
+    "string": "Cud",
+    "id": "dwarven_castle",
+    "aliasof": [
+      "Ct"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct"
+    ],
+    "def_type": [
+      "Ct"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Cf": {
+    "string": "Cf",
+    "id": "dwarven_castle2",
+    "aliasof": [
+      "Ct"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct"
+    ],
+    "def_type": [
+      "Ct"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Cfr": {
+    "string": "Cfr",
+    "id": "dwarven_castle_ruin",
+    "aliasof": [
+      "Ct"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct"
+    ],
+    "def_type": [
+      "Ct"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Cfa": {
+    "string": "Cfa",
+    "id": "dwarven_castle_winter",
+    "aliasof": [
+      "Ct"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct"
+    ],
+    "def_type": [
+      "Ct"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Chr": {
+    "string": "Chr",
+    "id": "ruin",
+    "aliasof": [
+      "Ct"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct"
+    ],
+    "def_type": [
+      "Ct"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Chw": {
+    "string": "Chw",
+    "id": "sunkenruin",
+    "aliasof": [
+      "Ct",
+      "Wst"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct",
+      "Wst"
+    ],
+    "def_type": [
+      "Ct",
+      "Wst"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Chs": {
+    "string": "Chs",
+    "id": "swampruin",
+    "aliasof": [
+      "Ct",
+      "St"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct",
+      "St"
+    ],
+    "def_type": [
+      "Ct",
+      "St"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Cd": {
+    "string": "Cd",
+    "id": "sand_castle",
+    "aliasof": [
+      "Ct"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct"
+    ],
+    "def_type": [
+      "Ct"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Cdr": {
+    "string": "Cdr",
+    "id": "sand_castle_ruin",
+    "aliasof": [
+      "Ct"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct"
+    ],
+    "def_type": [
+      "Ct"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Cte": {
+    "string": "Cte",
+    "id": "troll_encampment",
+    "aliasof": [
+      "Ct"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct"
+    ],
+    "def_type": [
+      "Ct"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Cme": {
+    "string": "Cme",
+    "id": "aquatic_camp",
+    "aliasof": [
+      "Ct",
+      "Wrt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct",
+      "Wrt"
+    ],
+    "def_type": [
+      "Ct",
+      "Wrt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Cm": {
+    "string": "Cm",
+    "id": "aquatic_castle",
+    "aliasof": [
+      "Ct",
+      "Wrt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct",
+      "Wrt"
+    ],
+    "def_type": [
+      "Ct",
+      "Wrt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Ke": {
+    "string": "Ke",
+    "id": "encampment_keep",
+    "aliasof": [
+      "Ct"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct"
+    ],
+    "def_type": [
+      "Ct"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Ker": {
+    "string": "Ker",
+    "id": "encampment_ruin_keep",
+    "aliasof": [
+      "Ct"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct"
+    ],
+    "def_type": [
+      "Ct"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Ket": {
+    "string": "Ket",
+    "id": "encampment_keep_tall",
+    "aliasof": [
+      "Ct"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct"
+    ],
+    "def_type": [
+      "Ct"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Kea": {
+    "string": "Kea",
+    "id": "encampment_snow_keep",
+    "aliasof": [
+      "Ct",
+      "At"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct",
+      "At"
+    ],
+    "def_type": [
+      "Ct",
+      "At"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Ko": {
+    "string": "Ko",
+    "id": "orcish_keep",
+    "aliasof": [
+      "Ct"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct"
+    ],
+    "def_type": [
+      "Ct"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Koa": {
+    "string": "Koa",
+    "id": "snow_orcish_keep",
+    "aliasof": [
+      "Ct",
+      "At"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct",
+      "At"
+    ],
+    "def_type": [
+      "Ct",
+      "At"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Kh": {
+    "string": "Kh",
+    "id": "human_keep",
+    "aliasof": [
+      "Ct"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct"
+    ],
+    "def_type": [
+      "Ct"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Kha": {
+    "string": "Kha",
+    "id": "snow_keep",
+    "aliasof": [
+      "Ct",
+      "At"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct",
+      "At"
+    ],
+    "def_type": [
+      "Ct",
+      "At"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Kv": {
+    "string": "Kv",
+    "id": "elven_keep",
+    "aliasof": [
+      "Ct"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct"
+    ],
+    "def_type": [
+      "Ct"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Kvr": {
+    "string": "Kvr",
+    "id": "elven_keep_ruin",
+    "aliasof": [
+      "Ct"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct"
+    ],
+    "def_type": [
+      "Ct"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Kva": {
+    "string": "Kva",
+    "id": "elven_keep_winter",
+    "aliasof": [
+      "Ct"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct"
+    ],
+    "def_type": [
+      "Ct"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Kud": {
+    "string": "Kud",
+    "id": "dwarven_keep",
+    "aliasof": [
+      "Ct"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct"
+    ],
+    "def_type": [
+      "Ct"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Kf": {
+    "string": "Kf",
+    "id": "dwarven_keep2",
+    "aliasof": [
+      "Ct"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct"
+    ],
+    "def_type": [
+      "Ct"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Kfr": {
+    "string": "Kfr",
+    "id": "dwarven_keep_ruin",
+    "aliasof": [
+      "Ct"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct"
+    ],
+    "def_type": [
+      "Ct"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Kfa": {
+    "string": "Kfa",
+    "id": "dwarven_keep_winter",
+    "aliasof": [
+      "Ct"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct"
+    ],
+    "def_type": [
+      "Ct"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Khr": {
+    "string": "Khr",
+    "id": "ruined_keep",
+    "aliasof": [
+      "Ct"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct"
+    ],
+    "def_type": [
+      "Ct"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Khw": {
+    "string": "Khw",
+    "id": "sunken_keep",
+    "aliasof": [
+      "Ct",
+      "Wst"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct",
+      "Wst"
+    ],
+    "def_type": [
+      "Ct",
+      "Wst"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Khs": {
+    "string": "Khs",
+    "id": "swamp_keep",
+    "aliasof": [
+      "Ct",
+      "St"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct",
+      "St"
+    ],
+    "def_type": [
+      "Ct",
+      "St"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Kd": {
+    "string": "Kd",
+    "id": "desert_keep",
+    "aliasof": [
+      "Ct"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct"
+    ],
+    "def_type": [
+      "Ct"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Kdr": {
+    "string": "Kdr",
+    "id": "desert_keep_ruined",
+    "aliasof": [
+      "Ct"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct"
+    ],
+    "def_type": [
+      "Ct"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Kme": {
+    "string": "Kme",
+    "id": "merman_campkeep",
+    "aliasof": [
+      "Ct",
+      "Wrt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct",
+      "Wrt"
+    ],
+    "def_type": [
+      "Ct",
+      "Wrt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Kte": {
+    "string": "Kte",
+    "id": "troll_campkeep",
+    "aliasof": [
+      "Ct"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct"
+    ],
+    "def_type": [
+      "Ct"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Km": {
+    "string": "Km",
+    "id": "merman_castlekeep",
+    "aliasof": [
+      "Ct",
+      "Wrt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct",
+      "Wrt"
+    ],
+    "def_type": [
+      "Ct",
+      "Wrt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Cov": {
+    "string": "^Cov",
+    "id": "castle_overlay",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Kov": {
+    "string": "^Kov",
+    "id": "keep_overlay",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Bw|": {
+    "string": "^Bw|",
+    "id": "bridge",
+    "aliasof": [
+      "_bas",
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Gt"
+    ],
+    "def_type": [
+      "_bas",
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Bw/": {
+    "string": "^Bw/",
+    "id": "bridgediag1",
+    "aliasof": [
+      "_bas",
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Gt"
+    ],
+    "def_type": [
+      "_bas",
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Bw\\": {
+    "string": "^Bw\\",
+    "id": "bridgediag2",
+    "aliasof": [
+      "_bas",
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Gt"
+    ],
+    "def_type": [
+      "_bas",
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Bw|r": {
+    "string": "^Bw|r",
+    "id": "rotbridge",
+    "aliasof": [
+      "_bas",
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Gt"
+    ],
+    "def_type": [
+      "_bas",
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Bw/r": {
+    "string": "^Bw/r",
+    "id": "rotbridgediag1",
+    "aliasof": [
+      "_bas",
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Gt"
+    ],
+    "def_type": [
+      "_bas",
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Bw\\r": {
+    "string": "^Bw\\r",
+    "id": "rotbridgediag2",
+    "aliasof": [
+      "_bas",
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Gt"
+    ],
+    "def_type": [
+      "_bas",
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Bsb|": {
+    "string": "^Bsb|",
+    "id": "stone_bridge",
+    "aliasof": [
+      "_bas",
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Gt"
+    ],
+    "def_type": [
+      "_bas",
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Bsb\\": {
+    "string": "^Bsb\\",
+    "id": "stone_bridgediag1",
+    "aliasof": [
+      "_bas",
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Gt"
+    ],
+    "def_type": [
+      "_bas",
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Bsb/": {
+    "string": "^Bsb/",
+    "id": "stone_bridgediag2",
+    "aliasof": [
+      "_bas",
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Gt"
+    ],
+    "def_type": [
+      "_bas",
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Bsa|": {
+    "string": "^Bsa|",
+    "id": "snow_stone_bridge",
+    "aliasof": [
+      "_bas",
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Gt"
+    ],
+    "def_type": [
+      "_bas",
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Bsa\\": {
+    "string": "^Bsa\\",
+    "id": "snow_stone_bridgediag1",
+    "aliasof": [
+      "_bas",
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Gt"
+    ],
+    "def_type": [
+      "_bas",
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Bsa/": {
+    "string": "^Bsa/",
+    "id": "snow_stone_bridgediag2",
+    "aliasof": [
+      "_bas",
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Gt"
+    ],
+    "def_type": [
+      "_bas",
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Bs|": {
+    "string": "^Bs|",
+    "id": "bridgechasm",
+    "aliasof": [
+      "Ut",
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Qxu",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "Ut",
+      "_bas"
+    ],
+    "def_type": [
+      "Ut",
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Bs/": {
+    "string": "^Bs/",
+    "id": "bridgechasmdiag1",
+    "aliasof": [
+      "Ut",
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Qxu",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "Ut",
+      "_bas"
+    ],
+    "def_type": [
+      "Ut",
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Bs\\": {
+    "string": "^Bs\\",
+    "id": "bridgechasmdiag2",
+    "aliasof": [
+      "Ut",
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Qxu",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "Ut",
+      "_bas"
+    ],
+    "def_type": [
+      "Ut",
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Bh\\": {
+    "string": "^Bh\\",
+    "id": "hangingbridgediag1",
+    "aliasof": [
+      "_bas",
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Qxu",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Gt"
+    ],
+    "def_type": [
+      "_bas",
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Bh/": {
+    "string": "^Bh/",
+    "id": "hangingbridgediag2",
+    "aliasof": [
+      "_bas",
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Qxu",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Gt"
+    ],
+    "def_type": [
+      "_bas",
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Bh|": {
+    "string": "^Bh|",
+    "id": "hangingbridge",
+    "aliasof": [
+      "_bas",
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Qxu",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Gt"
+    ],
+    "def_type": [
+      "_bas",
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Bcx\\": {
+    "string": "^Bcx\\",
+    "id": "stonechasmbridgediag1",
+    "aliasof": [
+      "_bas",
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Qxu",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Gt"
+    ],
+    "def_type": [
+      "_bas",
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Bcx/": {
+    "string": "^Bcx/",
+    "id": "stonechasmbridgediag2",
+    "aliasof": [
+      "_bas",
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Qxu",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Gt"
+    ],
+    "def_type": [
+      "_bas",
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Bcx|": {
+    "string": "^Bcx|",
+    "id": "stonechasmbridge",
+    "aliasof": [
+      "_bas",
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Qxu",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Gt"
+    ],
+    "def_type": [
+      "_bas",
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Bp\\": {
+    "string": "^Bp\\",
+    "id": "plankbridgediag1",
+    "aliasof": [
+      "_bas",
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Qxu",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Gt"
+    ],
+    "def_type": [
+      "_bas",
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Bp/": {
+    "string": "^Bp/",
+    "id": "plankbridgediag2",
+    "aliasof": [
+      "_bas",
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Qxu",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Gt"
+    ],
+    "def_type": [
+      "_bas",
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Bp|": {
+    "string": "^Bp|",
+    "id": "plankbridge",
+    "aliasof": [
+      "_bas",
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "Qxu",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas",
+      "Gt"
+    ],
+    "def_type": [
+      "_bas",
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^_mh": {
+    "string": "^_mh",
+    "id": "mark_high",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^_mhh": {
+    "string": "^_mhh",
+    "id": "mark_high2",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^_ml": {
+    "string": "^_ml",
+    "id": "mark_low",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^_mll": {
+    "string": "^_mll",
+    "id": "mark_low2",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "_off^_usr": {
+    "string": "_off^_usr",
+    "id": "off_map",
+    "aliasof": [],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "_off^_usr"
+    ],
+    "def_type": [
+      "_off^_usr"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^_fme": {
+    "string": "^_fme",
+    "id": "off_map2",
+    "aliasof": [],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "^_fme"
+    ],
+    "def_type": [
+      "^_fme"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^Xxxx": {
+    "string": "^Xxxx",
+    "id": "overlay_artplaceholder",
+    "aliasof": [
+      "_bas"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "_bas"
+    ],
+    "def_type": [
+      "_bas"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "_s": {
+    "string": "_s",
+    "id": "shroud",
+    "aliasof": [],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": true,
+    "is_overlay": false,
+    "mvt_type": [
+      "_s"
+    ],
+    "def_type": [
+      "_s"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "^_s": {
+    "string": "^_s",
+    "id": "fake_shroud_overlay",
+    "aliasof": [],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": true,
+    "mvt_type": [
+      "^_s"
+    ],
+    "def_type": [
+      "^_s"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "_f": {
+    "string": "_f",
+    "id": "fog",
+    "aliasof": [],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": false,
+    "is_overlay": false,
+    "mvt_type": [
+      "_f"
+    ],
+    "def_type": [
+      "_f"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Tt": {
+    "string": "Tt",
+    "id": "fungus",
+    "aliasof": [],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": true,
+    "is_overlay": false,
+    "mvt_type": [
+      "Tt"
+    ],
+    "def_type": [
+      "Tt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Ut": {
+    "string": "Ut",
+    "id": "cave",
+    "aliasof": [],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": true,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ut"
+    ],
+    "def_type": [
+      "Ut"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Dt": {
+    "string": "Dt",
+    "id": "sand",
+    "aliasof": [],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": true,
+    "is_overlay": false,
+    "mvt_type": [
+      "Dt"
+    ],
+    "def_type": [
+      "Dt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Wrt": {
+    "string": "Wrt",
+    "id": "reef",
+    "aliasof": [],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": true,
+    "is_overlay": false,
+    "mvt_type": [
+      "Wrt"
+    ],
+    "def_type": [
+      "Wrt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Ht": {
+    "string": "Ht",
+    "id": "hills",
+    "aliasof": [],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": true,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ht"
+    ],
+    "def_type": [
+      "Ht"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "St": {
+    "string": "St",
+    "id": "swamp_water",
+    "aliasof": [],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": true,
+    "is_overlay": false,
+    "mvt_type": [
+      "St"
+    ],
+    "def_type": [
+      "St"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Wst": {
+    "string": "Wst",
+    "id": "shallow_water",
+    "aliasof": [],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": true,
+    "is_overlay": false,
+    "mvt_type": [
+      "Wst"
+    ],
+    "def_type": [
+      "Wst"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Ct": {
+    "string": "Ct",
+    "id": "castle",
+    "aliasof": [],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": true,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ct"
+    ],
+    "def_type": [
+      "Ct"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Mt": {
+    "string": "Mt",
+    "id": "mountains",
+    "aliasof": [],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": true,
+    "is_overlay": false,
+    "mvt_type": [
+      "Mt"
+    ],
+    "def_type": [
+      "Mt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Wdt": {
+    "string": "Wdt",
+    "id": "deep_water",
+    "aliasof": [],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": true,
+    "is_overlay": false,
+    "mvt_type": [
+      "Wdt"
+    ],
+    "def_type": [
+      "Wdt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Gt": {
+    "string": "Gt",
+    "id": "flat",
+    "aliasof": [],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": true,
+    "is_overlay": false,
+    "mvt_type": [
+      "Gt"
+    ],
+    "def_type": [
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Ft": {
+    "string": "Ft",
+    "id": "forest",
+    "aliasof": [],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": true,
+    "is_overlay": false,
+    "mvt_type": [
+      "Ft"
+    ],
+    "def_type": [
+      "Ft"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "At": {
+    "string": "At",
+    "id": "frozen",
+    "aliasof": [],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": true,
+    "is_overlay": false,
+    "mvt_type": [
+      "At"
+    ],
+    "def_type": [
+      "At"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Vt": {
+    "string": "Vt",
+    "id": "village",
+    "aliasof": [],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": true,
+    "is_overlay": false,
+    "mvt_type": [
+      "Vt"
+    ],
+    "def_type": [
+      "Vt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Xt": {
+    "string": "Xt",
+    "id": "impassable",
+    "aliasof": [],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": true,
+    "is_overlay": false,
+    "mvt_type": [
+      "Xt"
+    ],
+    "def_type": [
+      "Xt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Qt": {
+    "string": "Qt",
+    "id": "unwalkable",
+    "aliasof": [],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": true,
+    "is_overlay": false,
+    "mvt_type": [
+      "Qt"
+    ],
+    "def_type": [
+      "Qt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Rt": {
+    "string": "Rt",
+    "id": "rails",
+    "aliasof": [],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": true,
+    "is_overlay": false,
+    "mvt_type": [
+      "Rt"
+    ],
+    "def_type": [
+      "Rt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Irs": {
+    "string": "Irs",
+    "id": "regular_stone_floor_deprecated",
+    "aliasof": [
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": true,
+    "is_overlay": false,
+    "mvt_type": [
+      "Gt"
+    ],
+    "def_type": [
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Ias": {
+    "string": "Ias",
+    "id": "ancient_stone_floor_deprecated",
+    "aliasof": [
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": true,
+    "is_overlay": false,
+    "mvt_type": [
+      "Gt"
+    ],
+    "def_type": [
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Icr": {
+    "string": "Icr",
+    "id": "rug_floor_deprecated",
+    "aliasof": [
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": true,
+    "is_overlay": false,
+    "mvt_type": [
+      "Gt"
+    ],
+    "def_type": [
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Icn": {
+    "string": "Icn",
+    "id": "rug2_floor_deprecated",
+    "aliasof": [
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": true,
+    "is_overlay": false,
+    "mvt_type": [
+      "Gt"
+    ],
+    "def_type": [
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  },
+  "Ior": {
+    "string": "Ior",
+    "id": "old_wood_floor_deprecated",
+    "aliasof": [
+      "Gt"
+    ],
+    "mvt_alias": [],
+    "def_alias": [],
+    "default_base": "",
+    "hidden": true,
+    "is_overlay": false,
+    "mvt_type": [
+      "Gt"
+    ],
+    "def_type": [
+      "Gt"
+    ],
+    "heals": 0,
+    "light": 0,
+    "max_light": 0,
+    "min_light": 0
+  }
+}

@@ -1,0 +1,2415 @@
+"""Replay-based supervised-training dataset for Wesnoth AI.
+
+Loads the compact per-replay .json.gz files produced by
+`replay_extract.py` and yields `(GameState, action_indices)` pairs by
+replaying each game forward.
+
+`GameState` matches the exact shape our encoder expects (see
+classes.py / encoder.py), so the encoder we use for self-play can
+also train on this data without modification.
+
+`action_indices` is a small dict of slot indices the model's heads
+should predict:
+  {"actor_idx":  int, "target_idx": int|None, "weapon_idx": int|None,
+   "action_type": "move"|"attack"|"recruit"|"recall"|"end_turn"}
+
+The indices correspond to the slot ordering the encoder produces for
+the given state — computed by re-running the encoder's ordering rules
+here at dataset-load time. If we ever change the encoder's sort, the
+same rule change has to land here too.
+
+CLI: `python tools/replay_dataset.py replays_dataset`
+prints a summary of the first N replays.
+"""
+
+from __future__ import annotations
+
+import gzip
+import json
+import logging
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, Iterator, List, Optional, Tuple
+
+# Re-use existing game-state dataclasses.
+from classes import (
+    Alignment as AlignmentEnum, Attack, DamageType, GameState, GlobalInfo,
+    Hex, Map, Position, SideInfo, Terrain, TerrainModifiers, Unit,
+)
+import combat as cb
+
+
+log = logging.getLogger("replay_dataset")
+
+
+# ---------------------------------------------------------------------
+# Unit-type stats database (scraped from Wesnoth source)
+# ---------------------------------------------------------------------
+
+_UNIT_STATS_PATH = Path(__file__).resolve().parent.parent / "unit_stats.json"
+_UNIT_DB: Dict[str, dict] = {}
+_MOVETYPE_DB: Dict[str, dict] = {}
+_RACE_DB: Dict[str, dict] = {}
+
+
+def _load_unit_db() -> None:
+    """Load the scraped Wesnoth unit data on first access."""
+    global _UNIT_DB, _MOVETYPE_DB, _RACE_DB
+    if _UNIT_DB:
+        return
+    try:
+        with _UNIT_STATS_PATH.open(encoding="utf-8") as f:
+            data = json.load(f)
+        _UNIT_DB     = data.get("units", {})
+        _MOVETYPE_DB = data.get("movement_types", {})
+        _RACE_DB     = data.get("races", {})
+        log.info(f"Loaded {len(_UNIT_DB)} unit types from unit_stats.json")
+    except FileNotFoundError:
+        log.warning(f"{_UNIT_STATS_PATH} not found; using fallback stats. "
+                    f"Run `python tools/scrape_unit_stats.py wesnoth_src "
+                    f"unit_stats.json` to fix.")
+
+
+# Map our DamageType enum ↔ Wesnoth WML names so we can look up
+# resistances stored in unit_stats.json.
+_DT_NAME_TO_ENUM = {
+    "blade":  DamageType.SLASH,
+    "pierce": DamageType.PIERCE,
+    "impact": DamageType.IMPACT,
+    "fire":   DamageType.FIRE,
+    "cold":   DamageType.COLD,
+    "arcane": DamageType.ARCANE,
+}
+_DT_ENUM_TO_NAME = {v: k for k, v in _DT_NAME_TO_ENUM.items()}
+# Order matches the resistances list-of-floats in Unit (see classes.py).
+_DT_ORDER = [DamageType.SLASH, DamageType.PIERCE, DamageType.IMPACT,
+             DamageType.FIRE,  DamageType.COLD,   DamageType.ARCANE]
+_DT_NAMES_ORDERED = ["blade", "pierce", "impact", "fire", "cold", "arcane"]
+
+
+_FALLBACK_STATS = {
+    "hitpoints": 33, "moves": 5, "experience": 50, "cost": 14,
+    "alignment": "neutral", "level": 1, "advances_to": [],
+    "attacks": [{"name": "blade", "type": "blade", "range": "melee",
+                 "damage": 5, "number": 2, "specials": []}],
+    "defense":    {t: 50 for t in cb.DAMAGE_TYPES + ["flat", "forest", "hills"]},
+    "resistance": {t: 100 for t in cb.DAMAGE_TYPES},
+    "abilities":  [],
+}
+
+
+def _stats_for(unit_type: str) -> dict:
+    """Look up unit-type stats; fall back to defaults for unknown types
+    (we'd rather train on approximate stats than crash on a custom unit
+    name)."""
+    _load_unit_db()
+    return _UNIT_DB.get(unit_type, _FALLBACK_STATS)
+
+
+# ---------------------------------------------------------------------
+# Map/hex-code parsing
+# ---------------------------------------------------------------------
+
+# Same mapping as state_converter.TERRAIN_BASE_MAP — keep in sync.
+_TERRAIN_BASE = {
+    "Aa": Terrain.FROZEN, "Gg": Terrain.FLAT, "Gs": Terrain.FLAT,
+    "Gd": Terrain.FLAT, "Hh": Terrain.HILLS, "Ha": Terrain.HILLS,
+    "Mm": Terrain.MOUNTAINS, "Ms": Terrain.MOUNTAINS, "Md": Terrain.MOUNTAINS,
+    # Water variants — all share the SHALLOWWATER defense table for our
+    # purposes (Wwf=ford, Wwt=tropical, Wwr=river, Wwg=algae, etc.).
+    "Ww": Terrain.SHALLOWWATER, "Wwf": Terrain.SHALLOWWATER,
+    "Wwt": Terrain.SHALLOWWATER, "Wwr": Terrain.SHALLOWWATER,
+    "Wwg": Terrain.SHALLOWWATER, "Wo": Terrain.DEEPWATER,
+    "Ss": Terrain.SWAMP, "Ds": Terrain.SAND,
+    "Rr": Terrain.FLAT, "Re": Terrain.FLAT,
+    "Ql": Terrain.CAVE, "Xu": Terrain.IMPASSABLE,
+    # `Uu` is "Cave Floor" (aliasof=Ut, the cave abstract). NOT
+    # unwalkable -- units walk into caves all the time. Mapping it to
+    # UNWALKABLE made every cave-floor hex impassable for our
+    # movement validator and broke recon on Caves of the Basilisk
+    # (multiple replays' turn-2 leader moves into the underground
+    # village `Uu^Vud` rejected as "impassable"). Same fix for
+    # `Uue` (earthy cave floor).
+    "Uu": Terrain.CAVE, "Uue": Terrain.CAVE,
+    # Castle variants — Chr (river), Chw (water), Cha (snow), Chs (sand)
+    # all behave as castles for combat (defense_pct from the unit's
+    # `castle` defense entry). Caves of the Basilisk uses Cha; Aethermaw
+    # uses Chw / Chw^Xo when the barrier morphs into walkable castles.
+    "Ch": Terrain.CASTLE, "Cha": Terrain.CASTLE,
+    "Chr": Terrain.CASTLE, "Chs": Terrain.CASTLE, "Chw": Terrain.CASTLE,
+    # Off-board placeholder. Aethermaw initially fences the central
+    # passageway with `_off^_usr`; T4-T6 [terrain] events convert those
+    # cells to Wwf/Chw and they become playable. We include them in the
+    # hex set so the events have something to update — without this,
+    # units later traversing those hexes get the default `flat` terrain
+    # and combat defense math goes wrong (a Merman Hunter on Wwf has
+    # 60% defense; on `flat` only 30%).
+    "_off": Terrain.IMPASSABLE,
+}
+
+
+# Alias terrains: Wesnoth's `aliasof=Gt, Wst` etc. tells the engine
+# "treat this terrain as both grass AND shallow_water for defense /
+# movement, picking whichever is best for the unit on it." We mirror
+# that by mapping each WML terrain code to the LIST of canonical WML
+# defense keys it should be evaluated against. Defense is then the
+# minimum (best) over the list. From wesnoth_src/data/core/terrain.cfg.
+_DEFENSE_KEYS_FOR_CODE: Dict[str, List[str]] = {
+    "Aa":   ["frozen"],
+    "Gg":   ["flat"], "Gs": ["flat"], "Gd": ["flat"],
+    "Hh":   ["hills"], "Ha": ["hills"],
+    "Mm":   ["mountains"], "Ms": ["mountains"], "Md": ["mountains"],
+    "Ww":   ["shallow_water"],
+    "Wwf":  ["shallow_water", "flat"],   # Ford = Wst | Gt
+    "Wwt":  ["shallow_water"],
+    "Wwr":  ["shallow_water"],
+    "Wwg":  ["shallow_water"],
+    "Wo":   ["deep_water"],
+    "Ss":   ["swamp_water"],
+    "Ds":   ["sand"],
+    "Rr":   ["flat"], "Re": ["flat"],
+    "Ql":   ["cave"],
+    "Xu":   ["impassable"], "Xv": ["impassable"], "Xm": ["impassable"],
+    # Cave floor (Uu / Uue) -- aliasof=Ut, defends/moves as cave.
+    # NOT unwalkable: cf. correction note above on the
+    # `_TERRAIN_FOR_CODE` mapping.
+    "Uu":   ["cave"], "Uue": ["cave"],
+    "Ch":   ["castle"],
+    "Cha":  ["castle", "frozen"],        # snowy castle = Ct | At
+    "Chr":  ["castle"],                  # ruined castle = Ct
+    "Chs":  ["castle"],
+    "Chw":  ["castle", "shallow_water"], # sunken castle = Ct | Wst
+    "Cd":   ["castle"], "Kd": ["castle"], "Kh": ["castle"], "Ko": ["castle"],
+    "Hhd":  ["hills"], "Mv": ["mountains"],
+    "Tb":   ["flat"], "Iwr": ["flat"],
+    "Rb":   ["flat"],
+    "Wwt": ["shallow_water"],
+    "Qxua": ["unwalkable"], "Qxu":  ["unwalkable"], "Wog": ["deep_water"],
+    "Qlf":  ["cave"], "Md":   ["mountains"],
+    "_off": ["impassable"],
+}
+
+
+# Overlay codes (the part after `^` in 'Re^Fmf') and their defense
+# keys. An overlay typically REPLACES the base for defense purposes
+# (forest overlay on grass → use forest defense, not grass) but the
+# rule isn't universal: village overlays add the village defense
+# alongside the base, not replace it. We model the conservative
+# interpretation: overlay keys EXTEND the base's defense-key list,
+# and defense_pct is the min (best) over the union.
+_OVERLAY_DEFENSE_KEYS: Dict[str, List[str]] = {
+    # Forest overlays — Fp/Fpa/Ftr/Fma/Fda/Fmf/Fdf/Fet etc. all read
+    # as "forest" for defense.
+    "Fp":  ["forest"], "Fpa": ["forest"], "Ftr": ["forest"],
+    "Fma": ["forest"], "Fda": ["forest"], "Fmf": ["forest"],
+    "Fdf": ["forest"], "Fet": ["forest"], "Ft":  ["forest"],
+    "Fds": ["forest"],
+    # Village overlays — defender uses VILLAGE defense.
+    "Vh":  ["village"], "Vhc": ["village"], "Vhh": ["village"],
+    "Vhs": ["village"], "Vct": ["village"], "Vc":  ["village"],
+    "Vd":  ["village"], "Vda": ["village"], "Vdt": ["village"],
+    "Vm":  ["village"], "Vmd": ["village"], "Vmw": ["village"],
+    "Vo":  ["village"], "Vot": ["village"], "Vov": ["village"],
+    "Vu":  ["village"], "Vud": ["village"], "Vu_a": ["village"],
+    "Vwm": ["village"], "Vwh": ["village"], "Vws": ["village"],
+    "Vd1": ["village"], "Vh1": ["village"], "Vc1": ["village"],
+    "Gvs": ["village"],
+    # Castle overlays.
+    "Xo":  ["castle"],
+    # Misc structural overlays — leave the base alone.
+    "Em":  [], "Edp": [], "Eh":  [], "Es":  [],
+    "Bsb\\": [], "Bsb/": [], "Bs\\": [], "Bs/": [], "Bs|": [],
+    "Tf":  [], "Tu":  [], "Th":  [],
+    "Xm":  ["impassable"], "Xv":  ["impassable"],
+}
+
+
+def _defense_keys_for_code(code: str) -> List[str]:
+    """Return the canonical WML defense-table keys for a Wesnoth
+    terrain code (handles `^` overlays and `aliasof=` aliases).
+
+    Examples:
+      'Wwf'        → ['shallow_water', 'flat']  (Ford = Wst | Gt)
+      'Re^Fmf'     → ['forest']                 (forest overlay on road)
+      'Aa^Vha'     → ['frozen', 'village']      (snow + village)
+      'Hh^Vhh'     → ['hills', 'village']       (hills + village)
+
+    Falls back to ['flat'] for unknown codes."""
+    base = code
+    overlay = ""
+    if "^" in code:
+        base, overlay = code.split("^", 1)
+    base_keys = _DEFENSE_KEYS_FOR_CODE.get(base)
+    if base_keys is None:
+        # Single-letter-prefix fallback for unknown codes.
+        base_keys = ["flat"]
+    keys = list(base_keys)
+    if overlay:
+        ov_keys = _OVERLAY_DEFENSE_KEYS.get(overlay, [])
+        # Forest/village overlays REPLACE the base for the purpose of
+        # defense — a forest on grass is forest, a village on hills is
+        # village. We append their keys so callers can min() over the
+        # union; for a unit with better forest defense than grass
+        # defense, forest wins.
+        for k in ov_keys:
+            if k not in keys:
+                keys.append(k)
+    return keys
+
+
+def _parse_hex_code(code: str) -> Tuple[set, set]:
+    """Return (terrain_types, static_modifiers) for one hex code like
+    'Hh^Fms' or 'Gg^Vh'."""
+    terrains: set = set()
+    modifiers: set = set()
+    if "^" in code:
+        base, overlay = code.split("^", 1)
+    else:
+        base, overlay = code, ""
+    terrains.add(_TERRAIN_BASE.get(base, Terrain.FLAT))
+    if "V" in overlay:
+        terrains.add(Terrain.VILLAGE)
+    if "F" in overlay:
+        terrains.add(Terrain.FOREST)
+    # Keep/castle — track as modifiers (static property of the tile).
+    if "K" in overlay or "K" in base:
+        modifiers.add(TerrainModifiers.KEEP)
+        terrains.add(Terrain.CASTLE)
+    if "C" in base or "C" in overlay:
+        modifiers.add(TerrainModifiers.CASTLE)
+        terrains.add(Terrain.CASTLE)
+    return terrains, modifiers
+
+
+def parse_terrain_codes(map_data: str) -> Dict[Tuple[int, int], str]:
+    """Return a dict from playable (x, y) → full WML terrain code
+    INCLUDING overlay (e.g., 'Re^Fmf'). The overlay matters for
+    defense — `Re^Fmf` is "road overlaid with mixed forest" which a
+    unit treats as forest, not flat. `_defense_keys_for_code` resolves
+    the full code to the list of defense keys (handling Wesnoth's
+    `aliasof=` semantics; the unit's defense_pct is the BEST/min over
+    those keys). Coords are 0-indexed (border-stripped)."""
+    out: Dict[Tuple[int, int], str] = {}
+    rows = [r for r in map_data.splitlines() if r.strip()]
+    if not rows:
+        return out
+    border = 1
+    for y_with_border, row in enumerate(rows):
+        if y_with_border < border or y_with_border >= len(rows) - border:
+            continue
+        cells = [c.strip() for c in row.split(",")]
+        for x_with_border, cell in enumerate(cells):
+            if x_with_border < border or x_with_border >= len(cells) - border:
+                continue
+            if not cell:
+                continue
+            if cell[:1].isdigit() and cell[1:2] == " ":
+                cell = cell[2:]
+            out[(x_with_border - border, y_with_border - border)] = cell
+    return out
+
+
+def parse_map_data(map_data: str) -> List[Hex]:
+    """Split the row-major `map_data` string into a list of Hex.
+
+    The WML map_data format is comma-separated rows of hex codes,
+    one line per row, Y-major. Wesnoth maps include a 1-hex border
+    around the playable area (see `wesnoth_src/src/map/map.hpp`:
+    `border_size = 1`). The .map / map_data string therefore has its
+    first/last row and first/last column as border padding.
+
+    We strip the border and produce Hex objects at 0-indexed coordinates
+    that align with Wesnoth's INTERNAL coordinates: hex at
+    Position(0,0) corresponds to WML (1,1) (the first playable hex,
+    file row 1 col 1). The dumper then emits WML by adding 1 again.
+    """
+    out: List[Hex] = []
+    rows = [r for r in map_data.splitlines() if r.strip()]
+    if not rows:
+        return out
+    border = 1
+    for y_with_border, row in enumerate(rows):
+        # Skip the first and last border row.
+        if y_with_border < border or y_with_border >= len(rows) - border:
+            continue
+        cells = [c.strip() for c in row.split(",")]
+        for x_with_border, cell in enumerate(cells):
+            # Skip border columns.
+            if x_with_border < border or x_with_border >= len(cells) - border:
+                continue
+            if not cell:
+                continue
+            # Strip leading "1 " or "2 " starting-position markers.
+            if cell[:1].isdigit() and cell[1:2] == " ":
+                cell = cell[2:]
+            # `_off^_usr` (and other `_off*` codes) mark off-board cells
+            # that scenarios may convert to playable terrain via [terrain]
+            # events. Include them with an IMPASSABLE marker so events
+            # have a Hex to update; otherwise post-event combat on those
+            # hexes uses the default `flat` and gets defense wrong.
+            terr, mods = _parse_hex_code(cell)
+            # Subtract the border offset so internal coords are 0-indexed
+            # from the first playable hex.
+            out.append(Hex(
+                position=Position(x=x_with_border - border,
+                                  y=y_with_border - border),
+                terrain_types=terr,
+                modifiers=mods,
+            ))
+    return out
+
+
+# ---------------------------------------------------------------------
+# Replay → GameState reconstruction
+# ---------------------------------------------------------------------
+
+@dataclass
+class ActionIndices:
+    """Observed-action → model-head target indices.
+
+    actor_idx is an index into (unit_slots + recruit_slots + end_turn),
+    the same ordering the encoder produces. target_idx is an index
+    into hex_positions. weapon_idx is an attack-slot index (0..3).
+    type_idx is the UnitActionType (ATTACK/MOVE) for unit actors,
+    None for recruit / end_turn / legacy. Derived at extract time
+    from action_type:
+      "attack" -> 0 (UnitActionType.ATTACK)
+      "move"   -> 1 (UnitActionType.MOVE)
+      else     -> None
+    """
+    action_type: str
+    actor_idx:   int
+    target_idx:  Optional[int]  = None
+    weapon_idx:  Optional[int]  = None
+    type_idx:    Optional[int]  = None
+
+
+def _alignment_from_str(s: str) -> AlignmentEnum:
+    return {
+        "lawful":  AlignmentEnum.LAWFUL,
+        "neutral": AlignmentEnum.NEUTRAL,
+        "chaotic": AlignmentEnum.CHAOTIC,
+        "liminal": AlignmentEnum.LIMINAL,
+    }.get((s or "").lower(), AlignmentEnum.NEUTRAL)
+
+
+def _attacks_from_stats(stats: dict) -> List[Attack]:
+    out: List[Attack] = []
+    for a in stats.get("attacks", []):
+        dt = _DT_NAME_TO_ENUM.get(a.get("type", "blade"), DamageType.SLASH)
+        out.append(Attack(
+            type_id=dt,
+            number_strikes=int(a.get("number", 1)),
+            damage_per_strike=int(a.get("damage", 1)),
+            is_ranged=(a.get("range") == "ranged"),
+            weapon_specials=set(),  # specials carried in stats["attacks"][i]["specials"]
+                                    # — combat.py handles them by name look-up
+        ))
+    if not out:
+        out.append(Attack(DamageType.SLASH, 1, 1, False, set()))
+    return out
+
+
+def _scaled_max_exp(base_exp: int, exp_modifier: int) -> int:
+    """Port of `unit_type::experience_needed(true)` from
+    src/units/types.cpp:
+        int exp = (experience_needed_ * experience_modifier + 50) / 100;
+        if (exp < 1) exp = 1;
+    `experience_modifier` is a per-game setting (default 100, common
+    values 30/50/70). Replays carry it in [multiplayer]
+    experience_modifier=. Affects EVERY unit's xp-to-advance.
+    """
+    return max(1, (int(base_exp) * int(exp_modifier) + 50) // 100)
+
+
+def _build_unit(u: dict, apply_leader_traits: bool = False,
+                game_id: str = "", exp_modifier: int = 100) -> Unit:
+    """Reconstruct a Unit dataclass from the extractor's starting_units
+    entry, supplemented with stats from `unit_stats.json` for the
+    fields we know are needed by the combat pipeline (resistances,
+    alignment, level, max_experience, attacks).
+
+    Replay's `[unit]` block in `[replay_start]` carries hp/max_hp/etc
+    for the leader; for everyone else we lean on the stats DB.
+
+    When `apply_leader_traits=True` and the unit is a leader, applies
+    the user-stated leader-trait rule (no traits except race-musthaves
+    and "quick" for ≤4-mp leaders).
+    """
+    stats = _stats_for(u["type"])
+    max_hp     = u.get("max_hp",     int(stats.get("hitpoints", 33)))
+    max_moves  = u.get("max_moves",  int(stats.get("moves",     5)))
+    base_max_exp = int(stats.get("experience", 50))
+    max_exp    = u.get("max_exp",    _scaled_max_exp(base_max_exp, exp_modifier))
+    cost       = u.get("cost",       int(stats.get("cost",      14)))
+
+    # Resistances list aligned with DamageType enum order; values are
+    # fractions (0.0 = no special resistance, 0.5 = 50% damage taken,
+    # i.e. WML resistance=50). Wesnoth's WML stores percentages where
+    # 100 = "takes full damage"; we convert to "fraction reduction":
+    #   fraction = 1 - (100 - resist) / 100 = resist/100 - ?? — actually
+    # we store the raw percent so combat.py's resistance logic can use
+    # it directly. (combat.py expects Dict[str,int] of percent.)
+    res = stats.get("resistance", {})
+    resistances = [float(res.get(name, 100)) / 100.0 for name in _DT_NAMES_ORDERED]
+
+    # Defense per terrain — needed for combat. Stored as a list aligned
+    # with the terrain order in classes.py (we keep the same convention
+    # as state_converter for cross-compat).
+    terrain_keys = [
+        "castle", "cave", "deep_water", "flat", "forest", "frozen",
+        "fungus", "hills", "mountains", "reef", "sand", "shallow_water",
+        "swamp_water", "village",
+    ]
+    def_table = stats.get("defense", {})
+    defenses = [float(def_table.get(t, 50)) / 100.0 for t in terrain_keys]
+
+    # Petrified statues (Thousand Stings Garrison) keep their unit
+    # type for visualization but lose attacks/movement/HP-display per
+    # the UNIT_PETRIFY scenario macro. We mirror that by tagging them
+    # `petrified` in statuses; the combat handler then forces no
+    # counter-attack when defending. We also zero out moves so the
+    # encoder doesn't think they can act.
+    petrified = bool(u.get("petrified", False))
+    initial_statuses: set = {"petrified"} if petrified else set()
+    base = Unit(
+        id=f"u{u['uid']}",
+        name=u["type"],
+        name_id=0,
+        side=u["side"],
+        is_leader=u.get("is_leader", False),
+        position=Position(x=u["x"], y=u["y"]),
+        max_hp=max_hp,
+        max_moves=0 if petrified else max_moves,
+        max_exp=max_exp,
+        cost=cost,
+        alignment=_alignment_from_str(stats.get("alignment", "neutral")),
+        levelup_names=list(stats.get("advances_to", [])),
+        current_hp=u.get("hp", max_hp),
+        current_moves=0 if petrified else max_moves,
+        current_exp=0,
+        has_attacked=petrified,         # statues never act
+        attacks=[] if petrified else _attacks_from_stats(stats),
+        resistances=resistances,
+        defenses=defenses,
+        movement_costs=[1] * 14,
+        abilities=set() if petrified else set(stats.get("abilities", [])),
+        traits=set(),
+        statuses=initial_statuses,
+    )
+    # Build a per-unit defense table starting from the unit-type's
+    # cap-collapsed values (scraper already merged movetype + unit
+    # [defense] entries). Traits like `feral` mutate this in-place
+    # via apply_traits_to_unit's defense_overrides hook. Stashed on
+    # the Unit via setattr so combat can pick it up without us
+    # changing classes.py.
+    defense_table = dict(stats.get("defense", {}))
+    setattr(base, "_defense_table", defense_table)
+    if apply_leader_traits and base.is_leader:
+        from tools.traits import roll_traits, apply_traits_to_unit
+        race = stats.get("race", "")
+        trait_ids = roll_traits(
+            u["type"], race,
+            seed_token=f"{game_id}:leader{u['side']}:{u['type']}",
+            is_leader=True,
+            base_movement=int(stats.get("moves", 5)),
+            trait_info=stats.get("traits"),
+        )
+        if trait_ids:
+            base = apply_traits_to_unit(
+                base, trait_ids,
+                level=int(stats.get("level", 1)),
+                defense_table=defense_table,
+            )
+            setattr(base, "_defense_table", defense_table)
+    return base
+
+
+def _build_recruit_unit(unit_type: str, side: int, x: int, y: int,
+                        next_uid: int, game_id: str = "",
+                        trait_seed_hex: str = "",
+                        exp_modifier: int = 100) -> Unit:
+    """Spawn a fresh recruit with the trait roll Wesnoth used.
+
+    `trait_seed_hex` is the per-recruit `[random_seed]` from the
+    replay (back-filled by replay_extract). For undead/mechanical/
+    elemental recruits this is the empty string — those races have
+    only musthave traits and don't consume a seed.
+    """
+    base = _build_unit({
+        "uid": next_uid, "type": unit_type, "side": side,
+        "x": x, "y": y, "is_leader": False,
+    }, exp_modifier=exp_modifier)
+    from tools.traits import roll_traits, apply_traits_to_unit
+    stats = _stats_for(unit_type)
+    race = stats.get("race", "")
+    trait_ids = roll_traits(
+        unit_type, race,
+        seed_hex=trait_seed_hex,
+        seed_token=f"{game_id}:u{next_uid}:{unit_type}",
+        is_leader=False,
+        base_movement=int(stats.get("moves", 5)),
+        trait_info=stats.get("traits"),
+        n_genders=int(stats.get("n_genders", 1)),
+    )
+    defense_table = dict(getattr(base, "_defense_table", None) or
+                         stats.get("defense", {}))
+    out = apply_traits_to_unit(base, trait_ids,
+                               level=int(stats.get("level", 1)),
+                               defense_table=defense_table)
+    setattr(out, "_defense_table", defense_table)
+    # Preserve trait roll order. Wesnoth applies trait [effect]s in
+    # the order they were rolled at recruit time and PRESERVES that
+    # order across advancement (via [modifications]/[trait] children
+    # being kept in document order). Since `Unit.traits` is a set,
+    # we stash the ordered list separately so `_maybe_advance_unit`
+    # can re-apply traits in the same order on level-up.
+    # Verified by user: "Wesnoth does not always apply Resilient
+    # then Quick. It applies traits in the order in which they're
+    # rolled (and preserves the order on advancement), which
+    # sometimes makes Resilient Quick Adepts with 31 max hp, and
+    # sometimes Quick Resilient ones with 32."
+    setattr(out, "_trait_order", list(trait_ids))
+    return out
+
+
+def _build_initial_gamestate(data: dict) -> GameState:
+    raw_map = data.get("map_data", "")
+    hexes = set(parse_map_data(raw_map))
+    terrain_codes = parse_terrain_codes(raw_map)
+    game_id = data.get("game_id", "")
+    exp_mod = int(data.get("experience_modifier", 100) or 100)
+    units = {
+        _build_unit(u, apply_leader_traits=True, game_id=game_id,
+                    exp_modifier=exp_mod)
+        for u in data.get("starting_units", [])
+    }
+    sides = [
+        SideInfo(
+            player=f"Side {s['side']}",
+            recruits=list(s.get("recruit", [])),
+            current_gold=s.get("gold", 100),
+            base_income=s.get("base_income", 2),
+            nb_villages_controlled=0,
+            # Faction name for encoder conditioning. Persisted in the
+            # per-replay json.gz by replay_extract.extract_replay.
+            faction=s.get("faction", ""),
+        )
+        for s in data.get("starting_sides", [])
+    ]
+    current_side = 1
+    size_x = max((h.position.x for h in hexes), default=0) + 1
+    size_y = max((h.position.y for h in hexes), default=0) + 1
+
+    # Wesnoth stores `village_gold` (gold per village per turn) and
+    # `village_support` (free upkeep per village) per [side]. In MP
+    # they're always equal across sides (they're set by the host's
+    # game options, not per-player). Read from side[0]'s extracted
+    # values; fall back to vanilla defaults (1 / 1) only if the
+    # replay header didn't have them at all (very old extractions).
+    starting_sides_data = data.get("starting_sides", [])
+    if starting_sides_data:
+        first_side = starting_sides_data[0]
+        village_gold = first_side.get("village_income", 2)
+        village_support = first_side.get("village_support", 1)
+    else:
+        village_gold = 2
+        village_support = 1
+    gs = GameState(
+        game_id=data.get("game_id", "?"),
+        map=Map(size_x=size_x, size_y=size_y,
+                mask=set(), fog=set(),
+                hexes=hexes, units=units),
+        global_info=GlobalInfo(
+            current_side=current_side, turn_number=0,
+            time_of_day=_tod_for_turn(1), village_gold=village_gold,
+            village_upkeep=village_support, base_income=2,
+        ),
+        sides=sides,
+    )
+    # Stash the raw replay metadata for tools that need pixel-exact
+    # round-tripping (the save-state dumper uses these to avoid
+    # re-rendering the map and to recover side leader-types). These
+    # attributes are not part of the encoder contract — purely a
+    # pass-through for tools that have the original .json.gz on hand.
+    setattr(gs.global_info, "_raw_map_data", data.get("map_data", ""))
+    setattr(gs.global_info, "_terrain_codes", terrain_codes)
+    # ToD start offset for random_start_time scenarios. 0 means turn-1
+    # is dawn (the default 2p case). Other values shift the cycle so
+    # that turn-1 reads as e.g. afternoon (offset=2) — matching the
+    # server-side `tod_manager::resolve_random` decision recorded in
+    # the replay's [scenario] / [replay_start] `current_time` attr.
+    setattr(gs.global_info, "_tod_start_offset",
+            int(data.get("tod_start_index", 0) or 0))
+    setattr(gs.global_info, "_raw_starting_sides",
+            list(data.get("starting_sides", [])))
+    setattr(gs.global_info, "_scenario_id", data.get("scenario_id", ""))
+    setattr(gs.global_info, "_experience_modifier", exp_mod)
+    # Wesnoth's monotonic next_unit_id counter — increments on EVERY
+    # unit creation (recruit, plague spawn, scenario [unit] event,
+    # advancement that creates a new uid? — actually advancement
+    # mutates the existing uid, so doesn't bump). Doesn't decrement
+    # on death. Used by `tools/diff_unit_counter.py` to detect
+    # missing/extra unit creations against Wesnoth's `[checkup]
+    # [result] next_unit_id` field. Initialized to (max starting
+    # uid) + 1 to mirror Wesnoth's post-prestart state.
+    initial_max_uid = 0
+    for u in units:
+        if u.id.startswith("u") and u.id[1:].isdigit():
+            initial_max_uid = max(initial_max_uid, int(u.id[1:]))
+    setattr(gs.global_info, "_next_uid_counter", initial_max_uid + 1)
+
+    # Pre-owned villages from the replay's [side]/[village] children
+    # (or scenario-pool's _village_owner). Apply BEFORE turn-1 income
+    # would be computed so the income/upkeep math at the first
+    # init_side(turn>1) sees the right village count. Wesnoth source:
+    # team::team(const config&) at wesnoth_src/src/team.cpp:208-217.
+    starting_villages = data.get("starting_villages", []) or []
+    owner_map: Dict[Tuple[int, int], int] = {}
+    side_increments: Dict[int, int] = {}
+    for v in starting_villages:
+        try:
+            vx = int(v["x"]); vy = int(v["y"]); vs = int(v["side"])
+        except (KeyError, ValueError, TypeError):
+            continue
+        if vs <= 0 or vs > len(gs.sides):
+            continue
+        owner_map[(vx, vy)] = vs
+        side_increments[vs] = side_increments.get(vs, 0) + 1
+    if owner_map:
+        # Mark VILLAGE modifier on each pre-owned hex so the encoder
+        # treats it as captured (matches what _capture_village does
+        # when a unit walks onto a village mid-game).
+        from classes import TerrainModifiers as _TM
+        for (vx, vy) in owner_map:
+            for h in gs.map.hexes:
+                if h.position.x == vx and h.position.y == vy:
+                    h.modifiers.add(_TM.VILLAGE)
+                    break
+        # Bump nb_villages_controlled per side.
+        for sn, n in side_increments.items():
+            old = gs.sides[sn - 1]
+            gs.sides[sn - 1] = SideInfo(
+                player=old.player, recruits=old.recruits,
+                current_gold=old.current_gold,
+                base_income=old.base_income,
+                nb_villages_controlled=old.nb_villages_controlled + n,
+                faction=old.faction,
+            )
+        # Stash the owner map so subsequent moves into these hexes
+        # don't double-credit ownership (the move-time _capture_village
+        # checks _village_owner before incrementing).
+        setattr(gs.global_info, "_village_owner", owner_map)
+    return gs
+
+
+def _find_unit_at(gs: GameState, x: int, y: int) -> Optional[Unit]:
+    for u in gs.map.units:
+        if u.position.x == x and u.position.y == y:
+            return u
+    return None
+
+
+def _terrain_keys_at(gs: GameState, x: int, y: int) -> List[str]:
+    """Return the WML defense-table keys to evaluate for the hex at
+    (x,y). Honors Wesnoth's `aliasof=` semantics: a Ford (Wwf) returns
+    ['shallow_water', 'flat'] so callers can pick whichever defense is
+    best for the unit standing on it.
+
+    NOTE: callers that need authoritative defense_pct should use
+    `_terrain_def_pct(gs, x, y, def_table)` directly -- it walks the
+    terrain alias graph via terrain_resolver.def_pct, which handles
+    the FULL set of overlay codes (^Fms, ^Fp, etc.). This function
+    survives because some callers want a list-of-string keys for
+    encoder features and trait overrides."""
+    codes_dict = getattr(gs.global_info, "_terrain_codes", {}) or {}
+    code = codes_dict.get((x, y))
+    if not code:
+        return ["flat"]
+    return _defense_keys_for_code(code)
+
+
+def _terrain_def_pct(gs: GameState, x: int, y: int,
+                     def_table: Dict[str, int]) -> int:
+    """Authoritative defense_pct for `def_table` (a unit's defense
+    map keyed by canonical terrain ids) on the hex at (x, y).
+
+    Routes through terrain_resolver.def_pct, which walks Wesnoth's
+    alias graph (per `terrain.cpp:208-244` / `movetype.cpp:276-369`)
+    and handles ALL composite codes including overlay codes the
+    hand-rolled `_OVERLAY_DEFENSE_KEYS` table doesn't list (^Fms /
+    ^Fmf / ^Fma summer/dwarven/morning forests, etc.). Falls back
+    to flat-defense (the unit's def_table['flat'] or 50) for hexes
+    with no recorded terrain code (synthetic tests, partial state)."""
+    from tools.terrain_resolver import def_pct as _resolve_def
+    codes_dict = getattr(gs.global_info, "_terrain_codes", {}) or {}
+    code = codes_dict.get((x, y))
+    if not code:
+        return int(def_table.get("flat", 50))
+    # Strip "1 ", "2 " starting-position markers ("2 Ke" -> "Ke")
+    # before resolving (placement hint, not part of terrain).
+    c = code
+    if c[:1].isdigit() and c[1:2] == " ":
+        c = c[2:]
+    return _resolve_def(c, def_table)
+
+
+# Cached at module scope: terrain priority order is fixed.
+_TERRAIN_PREF_ORDER = (
+    (Terrain.VILLAGE, "village"),
+    (Terrain.CASTLE,  "castle"),
+    (Terrain.FOREST,  "forest"),
+    (Terrain.HILLS,   "hills"),
+    (Terrain.MOUNTAINS, "mountains"),
+    (Terrain.SWAMP,   "swamp_water"),
+    (Terrain.SAND,    "sand"),
+    (Terrain.SHALLOWWATER, "shallow_water"),
+    (Terrain.DEEPWATER, "deep_water"),
+    (Terrain.FROZEN,  "frozen"),
+    (Terrain.CAVE,    "cave"),
+    (Terrain.UNWALKABLE, "unwalkable"),
+    (Terrain.IMPASSABLE, "impassable"),
+    (Terrain.FLAT,    "flat"),
+)
+
+
+def _hex_lookup(gs: GameState):
+    """Return `(by_xy_hex, by_xy_wml)` — two dicts indexing
+    `gs.map.hexes` by `(x, y)`. Built once per gs.map.hexes identity
+    and stashed on `gs.global_info`. Hexes are aliased across
+    deepcopies in self-play (see `Map.__deepcopy__` fast-path), so
+    the cache survives branching. Scenario terrain mutators (Aethermaw
+    morph, [modify_terrain] events) must invalidate the cache by
+    `delattr(gs.global_info, "_hex_lookup_cache_id")` before further
+    `_terrain_at` / `_capture_village` calls.
+
+    Replaces two ~O(N_hexes) `next((h for h in gs.map.hexes if ...))`
+    scans that together accounted for ~40% of replay-walk wall-clock.
+    """
+    info = gs.global_info
+    cache_key = id(gs.map.hexes)
+    if getattr(info, "_hex_lookup_cache_id", -1) != cache_key:
+        by_xy_hex: Dict[Tuple[int, int], object] = {}
+        by_xy_wml: Dict[Tuple[int, int], str] = {}
+        for h in gs.map.hexes:
+            xy = (h.position.x, h.position.y)
+            by_xy_hex[xy] = h
+            tts = h.terrain_types
+            wml = "flat"
+            for pref, key in _TERRAIN_PREF_ORDER:
+                if pref in tts:
+                    wml = key
+                    break
+            by_xy_wml[xy] = wml
+        setattr(info, "_hex_lookup_cache_id", cache_key)
+        setattr(info, "_hex_lookup_by_xy", by_xy_hex)
+        setattr(info, "_hex_lookup_by_wml", by_xy_wml)
+    return info._hex_lookup_by_xy, info._hex_lookup_by_wml
+
+
+def _terrain_at(gs: GameState, x: int, y: int) -> str:
+    """Return a Wesnoth-WML terrain key (e.g. 'forest', 'flat',
+    'village') for the hex at (x, y), defaulting to 'flat' if missing
+    from our parsed hex set."""
+    return _hex_lookup(gs)[1].get((x, y), "flat")
+
+
+def _tod_cycle_index(turn_number: int, start_offset: int = 0) -> int:
+    """Compute the cycle index (0..5) for `turn_number` given a starting
+    offset. `start_offset` defaults to 0 (turn 1 = dawn). For replays
+    with `random_start_time=yes` resolved server-side, the offset
+    encodes which ToD the server picked."""
+    return (max(1, turn_number) - 1 + max(0, start_offset)) % 6
+
+
+def _lawful_bonus_for_turn(turn_number: int, start_offset: int = 0) -> int:
+    """Default 6-step ToD cycle: dawn(0), morning(+25), afternoon(+25),
+    dusk(0), first_watch(-25), second_watch(-25). `start_offset`
+    handles random-start-time scenarios where turn-1 is not dawn."""
+    return cb.TOD_DEFAULT_CYCLE[_tod_cycle_index(turn_number, start_offset)][1]
+
+
+def _tod_for_turn(turn_number: int, start_offset: int = 0) -> str:
+    """Return the Wesnoth ToD name (dawn / morning / afternoon / dusk /
+    first_watch / second_watch) for the given 1-indexed turn. Honors
+    `start_offset` for random_start_time scenarios."""
+    return cb.TOD_DEFAULT_CYCLE[_tod_cycle_index(turn_number, start_offset)][0]
+
+
+def _lawful_bonus_at(gs: GameState, x: int, y: int, turn_number: int) -> int:
+    """Per-hex lawful_bonus. Honors scenario-defined [time_area] zones
+    (Tombs of Kesorak's dark/illuminated regions, Elensefar Courtyard's
+    underground keeps, etc.) — those override the global ToD cycle on
+    their hexes, and the override has its own per-position cycle.
+    Falls back to the default 6-step cycle when no [time_area] applies.
+
+    On top of the base ToD, applies terrain-level light bonus per
+    `terrain.hpp:132`: the campfire overlay (^Ecf), wallfire (^Efs),
+    icicle (^Ii), eldritch fire (^Ebn) and similar "lit" overlays
+    add +25 to lawful_bonus and CLAMP via max_light / min_light --
+    e.g. ^Ecf with max=min=25 fixes the hex's lawful_bonus to exactly
+    25 regardless of base ToD. Without this, a Poacher on Rrc^Ecf
+    at Tombs of Kesorak's illuminated zone takes +25% chaotic-night
+    damage instead of -25% chaotic-day, killing units that should
+    survive (witnessed in 2p__Tombs_of_Kesorak_Turn_*_(208025) at
+    cmd[138]: Poacher retal-bow dmg should be 3 (4*0.75) but our
+    sim computed 4 (4*1.0), the cumulative drift over later attacks
+    killed the Dark Adept which Wesnoth keeps alive).
+    """
+    start_offset = int(getattr(gs.global_info, "_tod_start_offset", 0) or 0)
+    areas = getattr(gs.global_info, "_time_areas", None)
+    if areas:
+        cycle = areas.get((x, y))
+        if cycle:
+            # Area cycles index from turn 1 too — apply the same offset
+            # so a random-start-time scenario sees the area cycle in
+            # the right phase relative to the global one.
+            idx = (max(1, turn_number) - 1 + start_offset) % len(cycle)
+            base = int(cycle[idx])
+        else:
+            base = _lawful_bonus_for_turn(turn_number, start_offset)
+    else:
+        base = _lawful_bonus_for_turn(turn_number, start_offset)
+    # Apply terrain light_bonus: bounded_add(base, light, max_light,
+    # min_light). The result is the unit's effective lawful_bonus.
+    codes = getattr(gs.global_info, "_terrain_codes", {}) or {}
+    code = codes.get((x, y))
+    if code:
+        # Strip the "1 ", "2 " starting-position markers.
+        if code[:1].isdigit() and code[1:2] == " ":
+            code = code[2:]
+        from tools.terrain_resolver import terrain_light_bonus
+        return terrain_light_bonus(code, base)
+    return base
+
+
+def _to_combat_unit(u: Unit, terrain_key,
+                    defense_pct: Optional[int] = None) -> cb.CombatUnit:
+    """Convert our Unit dataclass + current terrain → CombatUnit
+    snapshot consumable by combat.resolve_attack.
+
+    `terrain_key` may be a single string OR a list of strings — pass a
+    list for aliased terrains (e.g., Wwf=Ford resolves to
+    ['shallow_water', 'flat']). The unit's defense_pct is then the
+    BEST (minimum) over the listed keys, matching Wesnoth's `aliasof=`
+    semantics where a Drake on a Ford takes the better of its grass
+    (70) or shallow-water (80) defense.
+
+    Weapons are taken from `u.attacks`, NOT base stats — so traits
+    that modify damage (strong: +1 melee, dextrous: +1 ranged, weak:
+    -1 melee) are reflected. We pull the name / specials list from
+    base stats by ALIGNMENT to u.attacks (same index, since
+    `_attacks_from_stats` and trait application both preserve order).
+    """
+    stats = _stats_for(u.name)
+    base_attacks = stats.get("attacks", [])
+    weapons = []
+    for i, ua in enumerate(u.attacks):
+        # Match name / range / type from base stats by index.
+        if i < len(base_attacks):
+            atk_stat = base_attacks[i]
+            name = atk_stat.get("name", "?")
+            wtype = atk_stat.get("type", "blade")
+            wrange = atk_stat.get("range", "melee")
+            base_specials = set(atk_stat.get("specials", []))
+            accuracy = int(atk_stat.get("accuracy", 0) or 0)
+            parry = int(atk_stat.get("parry", 0) or 0)
+        else:
+            name = "?"
+            wtype = _DT_ENUM_TO_NAME.get(ua.type_id, "blade")
+            wrange = "ranged" if ua.is_ranged else "melee"
+            base_specials = set()
+            accuracy = 0
+            parry = 0
+        # UNION of base specials and the unit's per-attack modifications.
+        # Scenario [object] handlers (e.g. Hornshark Island's
+        # MODIFY_BOWMAN granting `firststrike` to the bow) write their
+        # additions to `ua.weapon_specials`. Without unioning here, the
+        # modifications get silently dropped at combat time because
+        # `_to_combat_unit` was reading specials from the BASE unit
+        # stats only.
+        unit_specials = set(ua.weapon_specials) if ua.weapon_specials else set()
+        specials = list(base_specials | unit_specials)
+        weapons.append(cb.Weapon(
+            name=name,
+            damage=int(ua.damage_per_strike),  # trait-adjusted
+            number=int(ua.number_strikes),
+            range=wrange,
+            type=wtype,
+            specials=specials,
+            accuracy=accuracy,
+            parry=parry,
+        ))
+    if not weapons:
+        weapons.append(cb.Weapon("none", 1, 1, "melee", "blade", []))
+    res = stats.get("resistance", {})
+    # Per-unit defense table if the unit has trait-applied overrides
+    # (feral village=50). Falls back to the unit-type's static table.
+    def_table = getattr(u, "_defense_table", None) or stats.get("defense", {})
+    if defense_pct is None:
+        # Legacy path: caller passed terrain key(s) and we pick the
+        # min defense across them. This MISSES many overlay codes
+        # (^Fms / ^Fp / etc.) because _terrain_keys_at uses a hand-
+        # rolled allow-list. Prefer the `defense_pct=` kwarg path
+        # which is computed via terrain_resolver.def_pct (full
+        # alias-graph walk).
+        keys = [terrain_key] if isinstance(terrain_key, str) else list(terrain_key)
+        if not keys:
+            keys = ["flat"]
+        defense_pct = min(int(def_table.get(k, 50)) for k in keys)
+    # Pass through unit abilities so combat can consult them
+    # (steadfast doubles resistance when defending; future:
+    # illuminates, leadership, etc.). u.abilities is a set of ability
+    # IDs (e.g. {"steadfast"}).
+    abilities = list(u.abilities) if u.abilities else []
+    # Fearless: from the trait pool. Affects combat_modifier (caps the
+    # ToD penalty at 0 -- chaotic-fearless or lawful-fearless units
+    # never lose damage from unfavourable time). Was being silently
+    # dropped in _to_combat_unit -- a Ghoul (musthave fearless)
+    # attacking at morning produced damage as if penalised by
+    # combat_modifier=-25, instead of 0 (capped).
+    # is_undrainable: an opponent of a drain weapon doesn't heal the
+    # striker if the opponent is undead/mechanical/elemental. We check
+    # both the explicit status (set by some scenery [unit]s) AND the
+    # musthave trait set since the TRAIT_{UNDEAD,MECHANICAL,ELEMENTAL}
+    # macros add the status implicitly. Same eligibility logic as
+    # _is_unplagueable.
+    is_undrainable = (
+        "undrainable" in u.statuses
+        or bool(set(u.traits) & _UNPLAGUEABLE_TRAITS)
+    )
+    is_unpoisonable = (
+        "unpoisonable" in u.statuses
+        or bool(set(u.traits) & _UNPLAGUEABLE_TRAITS)
+    )
+    return cb.CombatUnit(
+        side=u.side,
+        hp=int(u.current_hp),
+        max_hp=int(u.max_hp),
+        level=int(stats.get("level", 1)),
+        experience=int(u.current_exp),
+        max_experience=int(u.max_exp),
+        alignment=cb.alignment_from_str(stats.get("alignment", "neutral")),
+        weapons=weapons,
+        resistance={dt: int(res.get(dt, 100)) for dt in cb.DAMAGE_TYPES},
+        defense_pct=defense_pct,
+        is_slowed="slowed" in u.statuses,
+        is_poisoned="poisoned" in u.statuses,
+        is_fearless="fearless" in u.traits,
+        abilities=abilities,
+        is_undrainable=is_undrainable,
+        is_unpoisonable=is_unpoisonable,
+    )
+
+
+def _rebuild_unit(unit: Unit, **changes) -> Unit:
+    """Return a NEW Unit copy of `unit` with `**changes` applied to
+    the dataclass fields, preserving any `_`-prefixed setattr stash
+    (e.g. `_defense_table`). Pure -- doesn't touch any GameState.
+
+    Why a separate helper from `_replace_unit`: spawn paths build a
+    fresh Unit (recruit, plague corpse) and then need to apply
+    final-state overrides (e.g. `current_moves=0`, `has_attacked=True`)
+    while keeping the FRESHLY-built stash. _replace_unit is for the
+    in-place modify-existing case (`old` is already on the map and
+    its stash should carry forward). Both go through this helper to
+    consolidate the "preserve _-stash" pattern that several open-
+    coded sites used to repeat verbatim.
+    """
+    base_fields = {
+        k: v for k, v in unit.__dict__.items() if not k.startswith("_")
+    }
+    new = Unit(**{**base_fields, **changes})
+    for k, v in unit.__dict__.items():
+        if k.startswith("_"):
+            setattr(new, k, v)
+    return new
+
+
+def _replace_unit(gs: GameState, old: Unit, **changes) -> Unit:
+    """Replace `old` in gs.map.units with a new Unit carrying changed
+    fields. Returns the replacement (or the original on no-op).
+
+    Any non-dataclass attributes stashed via setattr (e.g.,
+    `_defense_table` for trait-modified defense tables) are copied
+    forward. Without this, every combat round would silently drop
+    feral's village=50 override.
+    """
+    new = _rebuild_unit(old, **changes)
+    gs.map.units.discard(old)
+    gs.map.units.add(new)
+    return new
+
+
+def _maybe_advance_unit(gs: GameState, u: Unit) -> Unit:
+    """Port of Wesnoth's advance_unit_at: when a unit's XP reaches its
+    max_experience, advance it to the next type. The replay's [choose]
+    commands carry the player's pick when there are multiple
+    advancement options; we apply them via _apply_advancement_choice
+    when those fire. Otherwise, default to advances_to[0].
+
+    Wesnoth rules:
+      - HP heals to the new max_hp on advancement.
+      - XP carries over the excess (current_exp - max_exp).
+      - The unit gains all musthave traits of the new type (we keep
+        existing traits + apply new musthaves).
+      - If the unit is at the highest level (no `advances_to`), no
+        advance happens.
+      - **DOUBLE / MULTI advancement.** If after advancing the new
+        unit's carryover XP still meets the next-tier threshold,
+        Wesnoth advances AGAIN in the same `advance_unit_at` call
+        (and pops the next `[choose]` for the second tier). Loops
+        until current_exp < max_exp. This is how a low-XP Heavy
+        Infantryman can kill a level-3 unit at experience_modifier=30
+        and finish the combat as an Iron Mauler in a single
+        advancement chain. Concrete repro: 2p__Den_of_Onis_Turn_37_
+        (114612) cmd[890] turn 27 side 2 — Heavy Infantryman with
+        intelligent trait (XP threshold 10) and 3 XP, kills u46
+        Dwarvish Dragonguard for +24 XP -> total 27, advance HI→ST
+        (carryover 17 ≥ ST threshold 16 with intelligent), advance
+        ST→IM (carryover 1). Pre-this-fix our sim stopped at Shock
+        Trooper, leaving u46's turn 28 attacker class mismatched
+        (sim:ShockTrooper deals 14 dmg vs Wesnoth:IronMauler 20),
+        u46 survived at 4 HP instead of dying, blocking (15,9)
+        through turn 29.
+    """
+    while u.current_exp >= u.max_exp:
+        u = _advance_unit_once(gs, u)
+        if u is None:
+            return None  # type: ignore[return-value]
+    return u
+
+
+def _advance_unit_once(gs: GameState, u: Unit) -> Unit:
+    """Apply exactly one advancement step to `u` (either a real
+    type advance or an AMLA), returning the new unit. Pulled out
+    of `_maybe_advance_unit` so the multi-advance loop reads
+    cleanly. Caller is responsible for the XP-threshold check."""
+    stats = _stats_for(u.name)
+    targets = list(stats.get("advances_to", []))
+    if not targets:
+        # Max level — Wesnoth fires AMLA (after-max-level advancement)
+        # which restores HP and grants +3 max_hp. We approximate as
+        # +3 max_hp + heal to full + reset XP.
+        #
+        # AMLA still goes through `mp_sync::get_user_choice("choose",
+        # ...)` in `advance_unit_at` (advancement.cpp:296), so the
+        # replay emits a `[choose] value=N` block even when there's
+        # only one (default) AMLA option. We MUST pop one entry from
+        # the advance-choice queue here, otherwise an AMLA leaves a
+        # stale choice that the NEXT unit's real advancement will
+        # consume — picking advances_to[stale_value] instead of the
+        # actually-recorded value. (Found via Goblin Pillager
+        # mis-advanced to Goblin Knight, replay 1b43dd9087ae cmd[1071]
+        # AMLA dropped value=0, then cmd[1084]'s value=1 got pushed
+        # behind it; Wolf Rider then advanced with value=0.)
+        pending = list(getattr(gs.global_info, "_advance_choices", []) or [])
+        if pending:
+            pending.pop(0)
+            setattr(gs.global_info, "_advance_choices", pending)
+        new_max_hp = u.max_hp + 3
+        # AMLA_DEFAULT (data/core/macros/amla.cfg) effects:
+        #   [effect] apply_to=hitpoints   increase_total=3 heal_full=yes
+        #   [effect] apply_to=max_experience increase=20%
+        #   [effect] apply_to=status      remove=poisoned
+        #   [effect] apply_to=status      remove=slowed
+        # The +20% on max_experience COMPOUNDS across AMLAs (each fires
+        # after the unit reaches the now-larger threshold), so a unit
+        # that AMLAs once at xp=36 → max_xp=43; if it AMLAs again,
+        # 43 → 43 + div100rounded(43*20) = 43 + 9 = 52; etc.
+        # Wesnoth's `apply_modifier(value, "20%")` rounds half up via
+        # div100rounded: (n+50)//100. For 36*20=720 → (720+50)//100 = 7,
+        # so max_xp += 7 → 43. (units/unit.cpp:2247.)
+        # Without this increase, our sim AMLAs the same unit at every
+        # +36 xp instead of {36, 43, 52, …}, so a Sharpshooter that
+        # should AMLA only once over a game ends up AMLAing twice and
+        # full-healing back to max — masking what should be a kill.
+        # Witnessed 2026-05-08 against
+        # 2p__Weldyn_Channel_Turn_26_(53914): u33 Sharpshooter took its
+        # 1st AMLA at t15 s1 (cmd[478], correctly), then a 2nd AMLA at
+        # t18 s1 cmd[553] healed it 40→60 hp; that healing made the
+        # Arch Mage's cmd[554] fire (60→24, max 4*12 dmg) survivable
+        # in our sim. With the +20% increase, max_xp goes 36→43 after
+        # the 1st AMLA, the 2nd AMLA never fires (xp=36 < 43), and the
+        # Arch Mage's cmd[554] correctly kills the Sharpshooter.
+        new_max_exp = u.max_exp + (u.max_exp * 20 + 50) // 100
+        new_statuses = set(u.statuses)
+        new_statuses.discard("poisoned")
+        new_statuses.discard("slowed")
+        return _replace_unit(
+            gs, u,
+            max_hp=new_max_hp,
+            current_hp=new_max_hp,
+            max_exp=new_max_exp,
+            current_exp=max(0, u.current_exp - u.max_exp),
+            statuses=new_statuses,
+        )
+    # Pick the choice — pop from the per-attack queue if available
+    # (replay [choose] commands push integer indices here, in
+    # attacker-first / defender-second order per Wesnoth's
+    # attack_unit_and_advance).
+    pending = list(getattr(gs.global_info, "_advance_choices", []) or [])
+    if pending:
+        choice = pending.pop(0)
+        if isinstance(choice, int) and 0 <= choice < len(targets):
+            new_type = targets[choice]
+        elif isinstance(choice, str) and choice in targets:
+            new_type = choice
+        else:
+            new_type = targets[0]
+    else:
+        new_type = targets[0]
+    # Variation persistence: a "Walking Corpse:mounted" advances to
+    # "Soulless:mounted" if Soulless defines the same variation. This
+    # mirrors Wesnoth's `unit::advance_to` which copies the source's
+    # variation across when the destination has it. Falls back to the
+    # base advances_to entry if no matching variation exists.
+    if ":" in u.name:
+        _, src_var = u.name.split(":", 1)
+        if src_var:
+            candidate = f"{new_type}:{src_var}"
+            if candidate in _UNIT_DB:
+                new_type = candidate
+    setattr(gs.global_info, "_advance_choices", pending)
+
+    new_stats = _stats_for(new_type)
+    new_max_hp_base = int(new_stats.get("hitpoints", u.max_hp))
+    # Feeding bonus persists across advancement (Wesnoth tracks via
+    # [modifications][object] increase_total). A Necrophage with
+    # 5 fed kills, advancing to Ghast (base 36 hp), becomes a Ghast
+    # with 41 max_hp. We carry _feeding_count on the unit and
+    # re-apply here.
+    feeding_count = int(getattr(u, "_feeding_count", 0) or 0)
+    new_max_hp_base += feeding_count
+    exp_mod = int(getattr(gs.global_info, "_experience_modifier", 100) or 100)
+    new_max_xp_base = _scaled_max_exp(int(new_stats.get("experience", 50)), exp_mod)
+    new_attacks_base = _attacks_from_stats(new_stats)
+    new_max_moves_base = int(new_stats.get("moves", u.max_moves))
+    new_level = int(new_stats.get("level", 1))
+    res = new_stats.get("resistance", {})
+    resistances = [float(res.get(name, 100)) / 100.0 for name in _DT_NAMES_ORDERED]
+    terrain_keys = [
+        "castle", "cave", "deep_water", "flat", "forest", "frozen",
+        "fungus", "hills", "mountains", "reef", "sand", "shallow_water",
+        "swamp_water", "village",
+    ]
+    def_table = new_stats.get("defense", {})
+    defenses = [float(def_table.get(t, 50)) / 100.0 for t in terrain_keys]
+
+    # Build a "fresh base" unit at the new type — traits are re-applied
+    # below so percentage modifiers (quick -5% HP, intelligent -20% XP)
+    # use the new type's base stats, not the old type's. Wesnoth recomputes
+    # stats on advancement and re-applies trait modifications; clearing
+    # u.traits here forces apply_traits_to_unit to re-walk the deltas
+    # cleanly.
+    # Clear poisoned/slowed/petrified on advancement. Wesnoth's
+    # `get_advanced_unit` in actions/advancement.cpp:319-326 calls
+    # heal_fully() then set_state(POISONED, SLOWED, PETRIFIED, false)
+    # right after `advance_to`. Other statuses (resting,
+    # unplagueable/unpoisonable/undrainable, variation tags) carry
+    # over -- they're inherent to the unit type or the turn cycle.
+    # Without this clear, a unit poisoned BEFORE advancement keeps
+    # taking -8 HP/turn after the advance, despite Wesnoth saying it
+    # should be cured. Concrete repro:
+    # 2p__Ruphus_Isle_Turn_18_(213496).bz2 -- Gryphon Rider u17 was
+    # poisoned by a Ghoul, advanced to Gryphon Master, our sim kept
+    # the poison ticking, drained the Master to hp=4/48 by turn 16
+    # so its turn-16 attack on the Ghoul let the Ghoul kill it in
+    # counter, advancing the Ghoul to Necrophage; in Wesnoth the
+    # Master was at full HP, didn't die, and the Ghoul stayed a Ghoul.
+    new_statuses = set(u.statuses)
+    new_statuses.discard("poisoned")
+    new_statuses.discard("slowed")
+    new_statuses.discard("petrified")
+    new_statuses.discard("stunned")
+    fresh = _replace_unit(
+        gs, u,
+        name=new_type,
+        max_hp=new_max_hp_base,
+        current_hp=new_max_hp_base,      # full heal on advancement
+        max_exp=new_max_xp_base,
+        current_exp=max(0, u.current_exp - u.max_exp),
+        max_moves=new_max_moves_base,
+        current_moves=min(u.current_moves, new_max_moves_base),
+        cost=int(new_stats.get("cost", u.cost or 14)),
+        alignment=_alignment_from_str(new_stats.get("alignment", "neutral")),
+        levelup_names=list(new_stats.get("advances_to", [])),
+        attacks=new_attacks_base,
+        resistances=resistances,
+        defenses=defenses,
+        abilities=set(new_stats.get("abilities", [])),
+        traits=set(),
+        statuses=new_statuses,
+    )
+    # Build the new defense table from the advanced unit-type, then
+    # let trait re-application stamp `feral` village=50 etc. back on
+    # top — same hook used at recruit time. Stash on the unit so
+    # combat post-advancement reads from the right table.
+    advanced_def_table = dict(new_stats.get("defense", {}))
+    setattr(fresh, "_defense_table", advanced_def_table)
+    # Wesnoth applies trait [effect]s in the order they were rolled
+    # at recruit time and PRESERVES that order through advancement
+    # (the [modifications]/[trait] children stay in document order).
+    # We stash `_trait_order` on the unit at recruit time
+    # (`_build_recruit_unit`) and on preplaced [unit] events so we
+    # can replay the same order here. Since hp_pct applies on top of
+    # the running max_hp, order matters: a Resilient-then-Quick
+    # Dark Adept gets 28 +5 = 33 → -2 (quick -5% of 33) = 31;
+    # a Quick-then-Resilient one gets 28 -1 = 27 → +5 = 32.
+    # Falls back to set iteration when `_trait_order` is missing
+    # (e.g., units imported from older saves) -- the result will be
+    # implementation-defined but at least every code path applies
+    # ALL traits.
+    trait_order = getattr(u, "_trait_order", None)
+    if trait_order:
+        # Filter to traits actually present (defensive — unit could
+        # have lost a trait somehow, or gained one not in the order).
+        trait_set = set(u.traits)
+        trait_ids = [t for t in trait_order if t in trait_set]
+        # Append any traits not in the recorded order at the end.
+        for t in trait_set:
+            if t not in trait_order:
+                trait_ids.append(t)
+    else:
+        trait_ids = list(u.traits)
+    if trait_ids:
+        from tools.traits import apply_traits_to_unit
+        advanced = apply_traits_to_unit(
+            fresh, trait_ids, level=new_level,
+            defense_table=advanced_def_table,
+        )
+        setattr(advanced, "_defense_table", advanced_def_table)
+        # Preserve trait order on the advanced unit so subsequent
+        # advancements (AMLA, Master at Arms, etc.) also re-apply in
+        # the same order.
+        setattr(advanced, "_trait_order", list(trait_ids))
+        gs.map.units.discard(fresh)
+        gs.map.units.add(advanced)
+        return advanced
+    return fresh
+
+
+def _apply_command(gs: GameState, cmd: list) -> None:
+    """Mutate GameState by applying one replay command (compact format
+    from replay_extract.extract_replay)."""
+    if not cmd:
+        return
+    kind = cmd[0]
+
+    if kind == "init_side":
+        side = cmd[1]
+        gs.global_info.current_side = side
+        # Per-turn rejection history clears at init_side. Per the
+        # legality-mask contract (CLAUDE.md): rejection history is
+        # part of the OBSERVABLE STATE and is scoped to the current
+        # side's turn. Clearing here means each side starts its turn
+        # with a fresh slate -- the enemy might've moved, so a hex
+        # that bounced last time we tried is worth attempting again.
+        if hasattr(gs.global_info, "_recruit_rejected_hexes"):
+            gs.global_info._recruit_rejected_hexes = set()
+        # Move-rejection history follows the same per-turn rule:
+        # cleared at init_side so the new acting side starts fresh.
+        # A hex that bounced our previous turn's move (fog-hidden
+        # enemy at the time) may have cleared since then -- the
+        # enemy may have moved, or we may have new sight on it.
+        if hasattr(gs.global_info, "_move_rejected_hexes"):
+            gs.global_info._move_rejected_hexes = set()
+        # Turn counter: increment on every init_side(1). Initial state
+        # has turn_number=0 (pre-game), so the very first init_side(1)
+        # bumps to 1 (Turn 1), matching Wesnoth's UI numbering.
+        if side == 1:
+            gs.global_info.turn_number += 1
+            # ToD advances with the turn (default 6-step cycle). Update
+            # so encoded states / save dumps / combat reads see the
+            # correct lawful_bonus and ToD name. Side-2 init_side keeps
+            # the current ToD — Wesnoth changes ToD only between turns.
+            tod_offset = int(
+                getattr(gs.global_info, "_tod_start_offset", 0) or 0
+            )
+            gs.global_info.time_of_day = _tod_for_turn(
+                gs.global_info.turn_number, tod_offset
+            )
+        # Fire scenario-script side/turn events for whichever scenario
+        # we're in. For Aethermaw this morphs impassable terrain into
+        # water at side N turn 4/5/6.
+        _fire_turn_events(gs, side, gs.global_info.turn_number)
+
+        # Apply per-turn healing for `side`'s units. Direct port of
+        # Wesnoth's wesnoth_src/src/actions/heal.cpp::calculate_healing.
+        #
+        # Algorithm:
+        #   1. Rest heal: +2 if patient.resting OR patient.is_healthy
+        #      (resting is True iff the unit didn't move or fight on
+        #      its previous turn — set via the `resting` status by us
+        #      below).
+        #   2. Main healing branch:
+        #      - If NOT poisoned: healing += max(village_heal,
+        #        regen_value, max_adjacent_healer_value).
+        #        (`update_healing` in heal.cpp keeps the MAX across
+        #        sources, so multiple +4 healers don't stack and a
+        #        +4 healer adjacent to a unit on a village still gives
+        #        only the +8 village heal.)
+        #      - If poisoned: poison_progress() classifies the cure
+        #        situation:
+        #          POISON_CURE  → poison cleared, NO main healing
+        #          POISON_SLOW  → no poison damage, NO main healing
+        #          POISON_NORMAL → -8 HP (only on patient's own turn)
+        #   3. Cap healing to [-current_hp+1, max_hp - current_hp].
+        #   4. After healing, set resting=True for all side-N units
+        #      (Wesnoth does this in play_controller.cpp:548 right
+        #      after calculate_healing).
+        from tools.abilities import (
+            healer_heal_amount, adjacent_curer, build_pos_index,
+        )
+        from tools.terrain_resolver import terrain_heals
+        codes_dict = getattr(gs.global_info, "_terrain_codes", {}) or {}
+        # init_side queries adjacency O(N_units) times within a single
+        # snapshot of gs.map.units (we read here, mutate the
+        # `new_units` set independently). Build the position index
+        # once and pass it down to skip 2*N_units linear scans.
+        # ~73% of all _adjacent_units calls in a typical replay walk
+        # land in this loop, so the saving is the biggest non-RNG
+        # win after the terrain cache.
+        pos_idx = build_pos_index(gs.map.units)
+        new_units = set()
+        for u in gs.map.units:
+            if u.side != side:
+                new_units.add(u); continue
+
+            stats = _stats_for(u.name)
+            abilities = set(u.abilities) | set(stats.get("abilities", []))
+            # Terrain-provided healing: villages all use heals=8, but
+            # the oasis overlay (^Do) is heals=8 too WITHOUT being a
+            # village. wesnoth_src/src/actions/heal.cpp routes both
+            # the +HP branch and the poison-cure branch through
+            # `map().gives_healing(loc)` -- so any heals>0 hex cures
+            # poison just like a village. We capture that here.
+            raw_code = codes_dict.get((u.position.x, u.position.y), "")
+            if raw_code and raw_code[:1].isdigit() and raw_code[1:2] == " ":
+                raw_code = raw_code[2:]
+            terrain_heal_amt = terrain_heals(raw_code) if raw_code else 0
+            has_regen = "regenerate" in abilities
+            healer_amt = healer_heal_amount(u, gs.map.units, pos_index=pos_idx)
+            has_curer = adjacent_curer(u, gs.map.units, pos_index=pos_idx)
+            poisoned = "poisoned" in u.statuses
+            new_statuses = set(u.statuses)
+
+            # --- step 1: rest heal --------------------------------------
+            rest_eligible = (
+                "resting" in u.statuses or "healthy" in u.traits
+            )
+            healing = cb.REST_HEAL_AMOUNT if rest_eligible else 0
+
+            # --- step 2: main healing / poison interaction --------------
+            cure_poison = False
+            if not poisoned:
+                # MAX of available healing sources, NOT sum.
+                main_heal = 0
+                if terrain_heal_amt > 0:
+                    main_heal = max(main_heal, terrain_heal_amt)
+                if has_regen:
+                    main_heal = max(main_heal, cb.REGENERATE_AMOUNT)
+                main_heal = max(main_heal, healer_amt)
+                healing += main_heal
+            else:
+                # poison_progress: village/regen=cure → CURE; adjacent
+                # healer (heals+4/+8 without cures) → SLOW; otherwise
+                # NORMAL.
+                if terrain_heal_amt > 0 or has_regen or has_curer:
+                    curing = "cure"
+                elif healer_amt > 0:
+                    curing = "slow"
+                else:
+                    curing = "normal"
+
+                if curing == "cure":
+                    cure_poison = True
+                    # No main healing, no poison damage. Rest heal
+                    # stays (added before).
+                elif curing == "slow":
+                    # Heal and poison cancel — neither effect on HP.
+                    # Rest heal stays.
+                    pass
+                else:  # normal
+                    # Poison damage only applies on patient's own turn,
+                    # which is exactly init_side(side) for side=patient.side
+                    # — already guaranteed by our outer `if u.side != side` check.
+                    healing -= cb.POISON_AMOUNT
+
+            # --- step 3: cap to [-current_hp+1, max_hp - current_hp] ----
+            max_heal = max(0, u.max_hp - u.current_hp)
+            min_heal = min(0, 1 - u.current_hp)
+            if healing < min_heal:
+                healing = min_heal
+            elif healing > max_heal:
+                healing = max_heal
+
+            new_hp = u.current_hp + healing
+            if cure_poison:
+                new_statuses.discard("poisoned")
+
+            # NOTE: slowed clears at end_turn (NOT here). Wesnoth's
+            # `unit::end_turn()` (units/unit.cpp:1284) does
+            # `set_state(STATE_SLOWED, false)`, called once per unit by
+            # `game_board::end_turn(side)` when that side's turn ends.
+            # That means a unit slowed during the enemy's turn keeps
+            # the slow active throughout its OWN next turn, and only
+            # drops it at end_turn — exactly the window where the
+            # halved damage matters.
+
+            # --- step 4: post-healing, set resting=True -----------------
+            # (will be cleared again by move/attack during the upcoming
+            # turn). Subsequent moves and attacks discard "resting".
+            new_statuses.add("resting")
+            healed = _rebuild_unit(
+                u,
+                current_moves=u.max_moves,
+                has_attacked=False,
+                current_hp=new_hp,
+                statuses=new_statuses,
+            )
+            new_units.add(healed)
+        gs.map.units = new_units
+
+        # Income & upkeep — direct port of play_controller.cpp:524-534
+        # (only fires when turn > 1, matching Wesnoth's "no income on
+        # the first side turn" rule).
+        #   income  = base_income + villages_owned * village_gold
+        #   upkeep  = sum(unit.level for non-loyal units of side)
+        #   support = villages_owned * village_support
+        #   net     = +income − max(0, upkeep − support)
+        if (1 <= side <= len(gs.sides)
+                and gs.global_info.turn_number > 1):
+            s = gs.sides[side - 1]
+            owned = s.nb_villages_controlled
+            village_gold = gs.global_info.village_gold or 2
+            village_support = gs.global_info.village_upkeep or 1
+            income = s.base_income + owned * village_gold
+            upkeep = 0
+            for u in gs.map.units:
+                if u.side != side:
+                    continue
+                # Leaders never contribute to upkeep, regardless of
+                # whether they have the `loyal` trait. Verified in
+                # wesnoth_src/src/units/unit.cpp:1746-1751
+                # (`unit::upkeep` short-circuits on `can_recruit()`).
+                # Without this, our income is short by leader.level
+                # gold per turn -- compounding to ~30g over a 30-turn
+                # game and biasing the policy toward smaller armies.
+                if u.is_leader:
+                    continue
+                if "loyal" in u.traits:
+                    continue
+                u_stats = _stats_for(u.name)
+                upkeep += int(u_stats.get("level", 1))
+            support = owned * village_support
+            net_upkeep = max(0, upkeep - support)
+            new_gold = s.current_gold + income - net_upkeep
+            gs.sides[side - 1] = SideInfo(
+                player=s.player, recruits=s.recruits,
+                current_gold=new_gold, base_income=s.base_income,
+                nb_villages_controlled=owned, faction=s.faction,
+            )
+        return
+
+    if kind == "end_turn":
+        # Port of game_board::end_turn(side) → unit::end_turn() per
+        # unit on the ending side. Currently we only need it for
+        # clearing the SLOWED state — Wesnoth keeps slow active
+        # throughout the slowed unit's own turn and drops it only at
+        # the very end. (resting/has_attacked are managed elsewhere.)
+        ending_side = gs.global_info.current_side
+        new_units = set()
+        for u in gs.map.units:
+            if u.side != ending_side or "slowed" not in u.statuses:
+                new_units.add(u); continue
+            new_statuses = set(u.statuses)
+            new_statuses.discard("slowed")
+            unslowed = _rebuild_unit(u, statuses=new_statuses)
+            new_units.add(unslowed)
+        gs.map.units = new_units
+        return
+
+    if kind == "move":
+        xs, ys = cmd[1], cmd[2]
+        # 4th slot is the from_side (added in newer extracts). Older
+        # extracts omit it; treat as 0 (no filter) for backward compat.
+        from_side = cmd[3] if len(cmd) > 3 else 0
+        sx, sy = xs[0], ys[0]
+        # Match the unit at the source hex of the SAME side as the
+        # player who issued the move. Without this filter, a stale
+        # unit from a previous bug can get moved instead of the real
+        # moving unit.
+        unit = None
+        for u in gs.map.units:
+            if u.position.x == sx and u.position.y == sy:
+                if from_side == 0 or u.side == from_side:
+                    unit = u
+                    break
+        if unit is None:
+            return
+        # Ambush truncation: replays record the FULL planned path. If
+        # the path crosses a hex held by an enemy, Wesnoth's
+        # `actions::execute_move` stops the unit at the hex before
+        # the enemy and zeros remaining MP (revealed-enemy ambush;
+        # see `actions/move.cpp::move_unit_internal`). For non-strict-
+        # sync replays the [mp_checkup] block carries no per-step
+        # data so our extractor can't truncate at extract time --
+        # we have to do it here, mirroring Wesnoth's runtime rule.
+        # If the FIRST step is enemy-occupied, abort the move
+        # entirely (this only happens in cascade scenarios where
+        # our sim already has the wrong unit at the wrong place;
+        # silently dropping is the same as Wesnoth's "the unit
+        # stayed put" outcome of a fully-blocked move).
+        truncate_idx = len(xs) - 1
+        for j in range(1, len(xs)):
+            blocker = None
+            for u in gs.map.units:
+                if u.position.x == xs[j] and u.position.y == ys[j]:
+                    blocker = u
+                    break
+            if blocker is not None and blocker.side != unit.side:
+                truncate_idx = j - 1
+                break
+        # If the truncation point itself is occupied (by a friendly
+        # unit on the path; not a blocker), back off until we find a
+        # clear hex. This prevents creating two units on the same
+        # hex (invariant:hex_double_occupied) — a real Wesnoth ambush
+        # always lands on an empty hex because the path itself was
+        # planned as walkable, with friendlies treated as
+        # passthrough but never as the *final* target.
+        while truncate_idx > 0:
+            occ = None
+            for u in gs.map.units:
+                if u is unit:
+                    continue
+                if (u.position.x == xs[truncate_idx]
+                        and u.position.y == ys[truncate_idx]):
+                    occ = u
+                    break
+            if occ is None:
+                break
+            truncate_idx -= 1
+        if truncate_idx < 1:
+            # Source-only "move" — no actual movement. Skip rather
+            # than placing the unit on top of itself.
+            return
+        tx, ty = xs[truncate_idx], ys[truncate_idx]
+        new_statuses = set(unit.statuses)
+        new_statuses.discard("resting")
+        # Wesnoth's ambush also zeros remaining MP. Mirror by
+        # setting current_moves to 0 if we truncated; otherwise
+        # subtract the step count.
+        if truncate_idx < len(xs) - 1:
+            new_moves = 0
+        else:
+            new_moves = max(0, unit.current_moves - (len(xs) - 1))
+        moved = _replace_unit(
+            gs, unit,
+            position=Position(x=tx, y=ty),
+            current_moves=new_moves,
+            statuses=new_statuses,
+        )
+        if _terrain_at(gs, tx, ty) == "village":
+            _capture_village(gs, tx, ty, moved.side)
+        return
+
+    if kind == "attack":
+        # Compact format: ["attack", ax, ay, dx, dy, a_weapon,
+        #                  d_weapon, seed_hex, [choose_indices]?]
+        ax, ay, dx, dy, a_weapon = cmd[1], cmd[2], cmd[3], cmd[4], cmd[5]
+        d_weapon = cmd[6] if len(cmd) > 6 else -1
+        seed_hex = cmd[7] if len(cmd) > 7 else ""
+        choices  = list(cmd[8]) if len(cmd) > 8 else []
+        # Push the choices onto the advance-choice queue. The unit-type
+        # name from advances_to[choice_idx] will be resolved by
+        # _maybe_advance_unit.
+        if choices:
+            existing = list(getattr(gs.global_info, "_advance_choices", []) or [])
+            # Convert each choice index → unit-type name. We don't know
+            # which advance_to list applies (attacker's vs defender's)
+            # at queue time; resolution happens lazily via the index.
+            existing.extend(choices)
+            setattr(gs.global_info, "_advance_choices", existing)
+
+        att = _find_unit_at(gs, ax, ay)
+        dfd = _find_unit_at(gs, dx, dy)
+        if att is None or dfd is None:
+            return
+
+        # Disconnect-mid-attack handling: if the recorded [attack]
+        # block has no [random_seed] following it (extractor stores
+        # this as seed_hex == "") AND the attacker has at least one
+        # strike, the attack didn't actually consume any RNG -- this
+        # means it was aborted in Wesnoth (most often a player
+        # disconnect during the attack: 8 saves of the same
+        # 2p__Ruphus_Isle_Turn_*_(102…) game show "Gieko has
+        # disconnected" right between the move and the [attack],
+        # the attack records empty [checkup][/checkup], and no
+        # [random_seed] follows; subsequent commands proceed as if
+        # the attack was a no-op). Empty-seed attacks are rare
+        # (~2/500 replays in our corpus), so the conservative skip
+        # only affects this disconnect class.
+        if not seed_hex:
+            return
+
+        # Build CombatUnit snapshots using each unit's CURRENT terrain
+        # for defense. (Attacker on its hex can be counter-attacked,
+        # so we pass its own terrain for its defense_pct.) Pass the
+        # alias-resolved defense_pct directly so we walk Wesnoth's
+        # full overlay graph (^Fms, ^Fp, etc.) instead of the hand-
+        # rolled `_OVERLAY_DEFENSE_KEYS` allow-list.
+        a_def_table = (getattr(att, "_defense_table", None)
+                       or _stats_for(att.name).get("defense", {}))
+        d_def_table = (getattr(dfd, "_defense_table", None)
+                       or _stats_for(dfd.name).get("defense", {}))
+        a_def_pct = _terrain_def_pct(gs, att.position.x, att.position.y, a_def_table)
+        d_def_pct = _terrain_def_pct(gs, dx, dy, d_def_table)
+        att_cu = _to_combat_unit(att, _terrain_keys_at(gs, att.position.x, att.position.y),
+                                 defense_pct=a_def_pct)
+        dfd_cu = _to_combat_unit(dfd, _terrain_keys_at(gs, dx, dy),
+                                 defense_pct=d_def_pct)
+        # Defensive clamp: if our DB lacks weapons for this unit type
+        # (e.g., a custom-era unit), fall back to weapon 0 to keep the
+        # replay reconstruction running rather than crashing the loader.
+        if a_weapon >= len(att_cu.weapons):
+            a_weapon = 0
+        if d_weapon >= 0 and d_weapon >= len(dfd_cu.weapons):
+            d_weapon = 0
+        # Petrified defenders can't counter-attack — the UNIT_PETRIFY
+        # macro strips their attacks. Force d_weapon = -1 so combat
+        # treats this as a one-sided strike. (Wesnoth's attack code
+        # checks `defender->attacks().empty()` before counter-attack.)
+        if "petrified" in dfd.statuses:
+            d_weapon = -1
+
+        # Adjacency-based effects: leadership, illuminate, backstab.
+        from tools.abilities import (
+            leadership_bonus, illuminate_step, is_backstab_active,
+        )
+        a_stats_db = _stats_for(att.name)
+        d_stats_db = _stats_for(dfd.name)
+        a_level = int(a_stats_db.get("level", 1))
+        d_level = int(d_stats_db.get("level", 1))
+
+        a_leadership = leadership_bonus(att, gs.map.units, opponent_level=d_level)
+        d_leadership = leadership_bonus(dfd, gs.map.units, opponent_level=a_level)
+
+        # Illuminate shifts ToD by +25 (bumps lawful_bonus). We compute
+        # per-side using each combatant's own hex — both for the
+        # adjacent-illuminate ability AND for scenario [time_area]
+        # overrides (Tombs of Kesorak's permanent dark/illuminated
+        # zones, Elensefar Courtyard's underground keeps).
+        turn = gs.global_info.turn_number
+        a_base = _lawful_bonus_at(gs, att.position.x, att.position.y, turn)
+        d_base = _lawful_bonus_at(gs, dx, dy, turn)
+        # Unit-illumination ([illuminates] ability, value=25 max_value=25)
+        # is applied via Wesnoth's asymmetric bounded_add ON TOP of
+        # the terrain-light-modified `a_base` / `d_base`. Per
+        # `tod_manager.cpp:265-281`, the per-illuminator effect is
+        # `bounded_add(terrain_light, 25, max_value=25, min_value=0)`,
+        # then `best_result = max(terrain_light, illum_result)` (when
+        # !net_darker, i.e., positive illumination).
+        # Matches `bounded_add` semantics: for positive increment,
+        #   result = min(base + 25, max(base, 25))
+        # so when base >= 25 the result is `base` (illumination
+        # cannot exceed terrain_light when terrain_light is already
+        # at/above the illuminate cap). At day on lava (a_base=35),
+        # this preserves 35 instead of dropping to 25 -- the old
+        # additive `min(25, base+25)` cap incorrectly clamped down.
+        # Edge case (rare in 2p corpus) but correctness-relevant.
+        def _apply_illum(base: int, has_illum: bool) -> int:
+            if not has_illum:
+                return base
+            # bounded_add(base, 25, max_sum=25, min_sum=0); positive
+            # branch: min(base+25, max(base, 25)).
+            return min(base + 25, max(base, 25))
+        a_lawful = _apply_illum(a_base, illuminate_step(att, gs.map.units) > 0)
+        d_lawful = _apply_illum(d_base, illuminate_step(dfd, gs.map.units) > 0)
+
+        # Backstab: active when there's an enemy of the defender on
+        # the hex opposite the attacker. Symmetric for the counter-
+        # attack (a backstab-flagged defender weapon hitting the
+        # attacker also needs an enemy of the attacker opposite from
+        # the defender — usually irrelevant, but supported).
+        a_backstab = is_backstab_active(att, dfd, gs.map.units)
+        d_backstab = is_backstab_active(dfd, att, gs.map.units)
+
+        rng = cb.MTRng(seed_hex) if seed_hex else cb.MTRng("00000000")
+        result = cb.resolve_attack(
+            att_cu, dfd_cu,
+            a_weapon_idx=a_weapon,
+            d_weapon_idx=d_weapon if d_weapon >= 0 else None,
+            a_lawful_bonus=a_lawful,
+            d_lawful_bonus=d_lawful,
+            a_leadership_bonus=a_leadership,
+            d_leadership_bonus=d_leadership,
+            a_backstab_active=a_backstab,
+            d_backstab_active=d_backstab,
+            rng=rng,
+        )
+
+        # Write outcomes back to gs. has_attacked True for attacker;
+        # HP/XP from the result; remove dead units. Both combatants
+        # also lose the `resting` status (Wesnoth's attack.cpp:1279-80
+        # calls `set_resting(false)` on both unit_info refs).
+        # Slow/poison flags from the result must be PROPAGATED back to
+        # the Unit's statuses set — combat resolved them on a CombatUnit
+        # snapshot but we own the persistent state. Without this the
+        # next turn's combat sees the unit as un-slowed and damage math
+        # diverges (e.g., a slowed Drake firing at a Wose deals 4 dmg
+        # per hit instead of 9, letting the Wose live one extra turn).
+        att_statuses = set(att.statuses); att_statuses.discard("resting")
+        dfd_statuses = set(dfd.statuses); dfd_statuses.discard("resting")
+        if result.attacker_slowed:
+            att_statuses.add("slowed")
+        if result.attacker_poisoned:
+            att_statuses.add("poisoned")
+        if result.defender_slowed:
+            dfd_statuses.add("slowed")
+        if result.defender_poisoned:
+            dfd_statuses.add("poisoned")
+        # Feeding (data/lua/feeding.lua): when a unit with the
+        # `feeding` ability kills another unit, the killer gains
+        # +1 max_hp AND +1 current_hp, UNLESS the victim has the
+        # `unplagueable` status (undead/mechanical/elemental).
+        #
+        # Cumulative count: Wesnoth tracks fed kills in the unit's
+        # [modifications][object] increase_total counter. The bonus
+        # PERSISTS across advancement -- a Necrophage that fed on N
+        # corpses becomes a Ghast at base_hp + N. We track the
+        # count via setattr `_feeding_count` on the Unit (similar
+        # to `_defense_table` for trait overrides); _maybe_advance_unit
+        # adds the count back to the new type's max_hp on advancement.
+        att_feed_bump = (
+            result.defender_alive is False
+            and "feeding" in att.abilities
+            and not _is_unplagueable(dfd)
+        )
+        dfd_feed_bump = (
+            result.attacker_alive is False
+            and "feeding" in dfd.abilities
+            and not _is_unplagueable(att)
+        )
+
+        if result.attacker_alive:
+            new_max = att.max_hp + (1 if att_feed_bump else 0)
+            new_hp = result.attacker_hp_after + (1 if att_feed_bump else 0)
+            new_att = _replace_unit(gs, att,
+                          has_attacked=True,
+                          max_hp=new_max,
+                          current_hp=new_hp,
+                          current_exp=result.attacker_xp_after,
+                          statuses=att_statuses)
+            if att_feed_bump:
+                prev = int(getattr(new_att, "_feeding_count", 0) or 0)
+                setattr(new_att, "_feeding_count", prev + 1)
+            _maybe_advance_unit(gs, new_att)
+        else:
+            gs.map.units.discard(att)
+            # Plague reverse-direction: defender's plague counter
+            # killed attacker -> spawn WC for DEFENDER's side at
+            # ATTACKER's hex. Wesnoth's plague triggers on any kill
+            # by a plague-flagged weapon, regardless of which side
+            # launched the killing strike. See combat.py for the
+            # corresponding flag.
+            if (getattr(result, "plague_spawned_attacker_died", False)
+                    and dfd in gs.map.units):
+                _spawn_plague_corpse(gs, att,
+                                     attacker_side=dfd.side,
+                                     attacker_name=dfd.name)
+        if result.defender_alive:
+            new_max = dfd.max_hp + (1 if dfd_feed_bump else 0)
+            new_hp = result.defender_hp_after + (1 if dfd_feed_bump else 0)
+            new_dfd = _replace_unit(gs, dfd,
+                          max_hp=new_max,
+                          current_hp=new_hp,
+                          current_exp=result.defender_xp_after,
+                          statuses=dfd_statuses)
+            if dfd_feed_bump:
+                prev = int(getattr(new_dfd, "_feeding_count", 0) or 0)
+                setattr(new_dfd, "_feeding_count", prev + 1)
+            _maybe_advance_unit(gs, new_dfd)
+        else:
+            gs.map.units.discard(dfd)
+            # Plague: a kill by a [plague] weapon raises a Walking
+            # Corpse (the default plague_type) on the dead unit's hex,
+            # side=attacker. Wesnoth restricts it to "plague-able"
+            # races: not undead, not mechanical, not elemental — those
+            # set status `unplagueable` indirectly via [resistance] or
+            # via the unit's `not_living` flag. We check race only
+            # (sufficient for default-era 2p).
+            if result.plague_spawned and att in gs.map.units:
+                # `attacker_name` is no longer used (default-era plague
+                # always spawns Walking Corpse regardless of attacker)
+                # but kept as a forward-compat hook for custom plague
+                # specials that override `type=`. See _spawn_plague_corpse.
+                _spawn_plague_corpse(gs, dfd,
+                                     attacker_side=att.side,
+                                     attacker_name=att.name)
+        return
+
+    if kind == "recruit":
+        unit_type = cmd[1]
+        tx, ty = cmd[2], cmd[3]
+        # Slot 4 holds the per-recruit trait seed when extracted from
+        # the replay's [random_seed] command (empty for undead/etc.).
+        trait_seed = cmd[4] if len(cmd) > 4 else ""
+        side = gs.global_info.current_side
+        next_uid = (max(
+            (int(u.id[1:]) for u in gs.map.units if u.id.startswith("u") and u.id[1:].isdigit()),
+            default=0,
+        ) + 1)
+        exp_mod = int(getattr(gs.global_info, "_experience_modifier", 100) or 100)
+        new_unit = _build_recruit_unit(unit_type, side, tx, ty, next_uid,
+                                       game_id=gs.game_id,
+                                       trait_seed_hex=trait_seed,
+                                       exp_modifier=exp_mod)
+        # On spawn turn, recruits have 0 moves AND 0 attacks --
+        # Wesnoth's `place_recruit` (wesnoth_src/src/actions/create.cpp
+        # :626-631) calls `set_movement(0, true)` AND `set_attacks(0)`
+        # when full_movement is false (always for normal recruits).
+        # We mirror that here: current_moves=0 and has_attacked=True,
+        # so the legality mask correctly excludes fresh recruits from
+        # both move and attack actions until next turn's init_side.
+        # _rebuild_unit preserves any `_`-prefixed setattr stash (e.g.
+        # `_defense_table` for trait-modified defenses).
+        spawned = _rebuild_unit(new_unit, current_moves=0,
+                                has_attacked=True)
+        gs.map.units.add(spawned)
+        # Bump Wesnoth's monotonic next_unit_id counter (see
+        # _build_initial_gamestate setup).
+        cur = int(getattr(gs.global_info, "_next_uid_counter", 1) or 1)
+        setattr(gs.global_info, "_next_uid_counter", cur + 1)
+
+        # Deduct cost from side gold (use unit_db cost; fall back to 14).
+        # NO clamp at 0 -- mirrors Wesnoth's `team::spend_gold`
+        # (wesnoth_src/src/team.hpp uses bare `gold_ -= amount;`).
+        # Wesnoth allows negative gold from upkeep; recruits that
+        # would push gold negative are rejected upstream by
+        # `find_recruit_location` / wesnoth_sim._action_to_command's
+        # affordability gate, NOT here. Keeping a clamp here was a
+        # band-aid that hid bugs where an unaffordable recruit
+        # somehow slipped past the upstream gate (e.g., through a
+        # direct command_history injection path or a replay-recon
+        # bug). Negative gold post-recruit is now a loud signal.
+        cost = int(_stats_for(unit_type).get("cost", 14))
+        if 1 <= side <= len(gs.sides):
+            s = gs.sides[side - 1]
+            gs.sides[side - 1] = SideInfo(
+                player=s.player, recruits=s.recruits,
+                current_gold=s.current_gold - cost,
+                base_income=s.base_income,
+                nb_villages_controlled=s.nb_villages_controlled,
+                faction=s.faction,
+            )
+        return
+
+    if kind == "recall":
+        # PvP shouldn't include recall actions (the user's
+        # statement: 2026-04-28). When we encounter one in the
+        # supervised corpus we want to (a) NOT silently no-op
+        # because that hides a real data quality issue, but (b)
+        # not crash the recon either because lots of other
+        # transitions in the same replay may still be useful.
+        # Compromise: log an ERROR with full context and stash
+        # the recall on `gs.global_info._recall_log` so callers
+        # (specifically `tools/flag_replays_with_recalls.py`) can
+        # collect the affected replays for inspection / removal.
+        unit_id = cmd[1] if len(cmd) > 1 else "<unknown>"
+        tx = cmd[2] if len(cmd) > 2 else -1
+        ty = cmd[3] if len(cmd) > 3 else -1
+        side = gs.global_info.current_side
+        turn = gs.global_info.turn_number
+        log.error(
+            f"recall in PvP replay {gs.game_id!r} "
+            f"(turn={turn}, side={side}, unit_id={unit_id!r}, "
+            f"hex=({tx},{ty})). "
+            f"Run tools/flag_replays_with_recalls.py to surface for "
+            f"inspection / removal from the supervised corpus."
+        )
+        recall_log = list(getattr(gs.global_info, "_recall_log", []) or [])
+        recall_log.append({
+            "turn": turn, "side": side,
+            "unit_id": unit_id, "x": tx, "y": ty,
+        })
+        setattr(gs.global_info, "_recall_log", recall_log)
+        setattr(gs.global_info, "_has_recall", True)
+        return
+
+
+# Traits that grant the `unplagueable` status (also `unpoisonable`,
+# `undrainable`). From wesnoth_src/data/core/macros/traits.cfg —
+# {TRAIT_UNDEAD}, {TRAIT_MECHANICAL}, {TRAIT_ELEMENTAL} all add these
+# statuses via [effect] apply_to=status.
+_UNPLAGUEABLE_TRAITS = {"undead", "mechanical", "elemental"}
+
+
+def _is_unplagueable(unit: Unit) -> bool:
+    """Mirror Wesnoth's `opp.get_state("unplagueable")` check. A unit
+    is unplagueable if (a) it carries the `unplagueable` status (set
+    explicitly on some statue/scenery [unit]s) or (b) it has the
+    undead / mechanical / elemental musthave trait — those traits
+    apply_to=status add=unplagueable in core/macros/traits.cfg."""
+    if "unplagueable" in unit.statuses:
+        return True
+    return bool(set(unit.traits) & _UNPLAGUEABLE_TRAITS)
+
+
+def _spawn_plague_corpse(gs: GameState, dead: Unit,
+                         attacker_side: int,
+                         attacker_name: str) -> None:
+    """Spawn a Walking Corpse for `attacker_side` on `dead.position`.
+    Direct port of Wesnoth's plague-reanimation logic in
+    src/actions/attack.cpp:1287. Eligibility:
+
+      1. Killed unit's hex is NOT a village (Wesnoth: `!is_village`).
+      2. Killed unit isn't `unplagueable` (undead / mechanical /
+         elemental trait, or explicit status).
+      3. Killed unit's `undead_variation != "null"` — Mudcrawlers and
+         Jinns explicitly opt out of being raised.
+      4. Attacker's plague special is present (caller already filtered
+         on `result.plague_spawned`).
+
+    Type and variation (default era):
+      - The plague special's `type=` attribute determines what's
+        spawned. WEAPON_SPECIAL_PLAGUE (weapon_specials.cfg:47-57)
+        hardcodes `type=Walking Corpse`, so EVERY default-era plague
+        kill spawns a Walking Corpse -- whether the attacker was a
+        Walking Corpse, Soulless, Necromancer, or any variation of
+        them. The attacker's own type is irrelevant.
+        attack.cpp:159-164 only falls back to `attacker.parent_id`
+        when the special's `type=` is empty, which never happens for
+        the canned macro.
+      - The killed unit's `undead_variation` is applied as a
+        [variation] modification on the spawn (attack.cpp:1299-1306),
+        picking the right Walking Corpse flavor (Mounted, Drake,
+        Wose, etc.). The attacker's variation never propagates.
+      - Variations have different stats. We approximate by spawning
+        "Walking Corpse:<variation>" if that composite key exists in
+        the unit DB, falling back to base "Walking Corpse" otherwise.
+        Statuses carry `variation:<name>` as a tag for downstream code.
+
+    Custom-era plague (Ant Queen -> Giant Ant Egg via
+    WEAPON_SPECIAL_PLAGUE_TYPE) is NOT modeled here. Mainline 2p
+    ladder doesn't use those units. If we ever do, thread the
+    `plague_type` from combat.AttackResult (combat.py:296 already
+    has the field) through the call chain.
+
+    Fresh corpse: full HP, 0 XP, 0 moves, has_attacked=True
+    (Wesnoth sets `attacks=0`/`movement=0` so it can't act this turn).
+    """
+    # Eligibility checks.
+    if _is_unplagueable(dead):
+        return
+    dead_stats = _stats_for(dead.name)
+    if str(dead_stats.get("undead_variation", "")).lower() == "null":
+        return
+    if _terrain_at(gs, dead.position.x, dead.position.y) == "village":
+        return
+
+    # Resolve the spawn type. Verified against
+    # wesnoth_src/data/core/macros/weapon_specials.cfg:47-57:
+    # WEAPON_SPECIAL_PLAGUE hardcodes `type=Walking Corpse`. In
+    # attack.cpp:159-164 the plague_type is read from the special's
+    # `type=` attribute first; only if that's empty does it fall back
+    # to `u.type().parent_id()`. Because the default macro always
+    # sets `type=Walking Corpse`, EVERY default-era plague kill spawns
+    # a Walking Corpse -- the attacker's own type (WC, Soulless,
+    # Necromancer, ANY variation thereof) is irrelevant to the spawn.
+    #
+    # Caveat: WEAPON_SPECIAL_PLAGUE_TYPE is a parameterized macro that
+    # lets a unit specify a different spawn type (e.g. Ant Queen ->
+    # Giant Ant Egg). Mainline 2p ladder doesn't use those units; if
+    # we ever do, we'd thread the plague_type from the combat
+    # resolver (combat.py:296 already has the field) through to here.
+    # For now we hardcode the default-era result.
+    #
+    # Variation: the killed unit's `undead_variation` is applied as a
+    # `[variation]` modification (attack.cpp:1299-1306) regardless of
+    # what type was spawned. The attacker's variation never
+    # propagates -- it can't, because the spawn type comes from the
+    # plague special, not from the attacker.
+    base_type = "Walking Corpse"
+    variation = str(dead_stats.get("undead_variation", "")).strip()
+    if not variation:
+        # Per wesnoth_src/src/units/types.cpp:209-213, an empty
+        # `undead_variation` on the unit_type falls back to the
+        # race's default. Without this fallback, a Gryphon Rider
+        # (race=gryphon, unit undead_variation="") plagued into a
+        # plain "Walking Corpse" (smallfoot 4 MP, 18 hp) instead of
+        # "Walking Corpse:gryphon" (fly 5 MP, 21 hp), and subsequent
+        # moves of the corpse over hills cost differently from
+        # what Wesnoth records.
+        race_id = str(dead_stats.get("race", "")).strip()
+        race_data = _RACE_DB.get(race_id, {}) if race_id else {}
+        variation = str(race_data.get("undead_variation", "")).strip()
+    spawn_type = f"{base_type}:{variation}" if variation else base_type
+    if variation and spawn_type not in _UNIT_DB:
+        # Variation table didn't include this id — fall back to base.
+        # Logged once per missing variation so we can tighten up later.
+        log.debug(f"plague: no variation '{variation}' for {base_type}; using base")
+        spawn_type = base_type
+
+    next_uid = (max(
+        (int(u.id[1:]) for u in gs.map.units if u.id.startswith("u") and u.id[1:].isdigit()),
+        default=0,
+    ) + 1)
+    exp_mod = int(getattr(gs.global_info, "_experience_modifier", 100) or 100)
+    corpse = _build_recruit_unit(
+        spawn_type,
+        side=attacker_side,
+        x=dead.position.x, y=dead.position.y,
+        next_uid=next_uid,
+        game_id=gs.game_id,
+        trait_seed_hex="",
+        exp_modifier=exp_mod,
+    )
+    new_statuses = set(corpse.statuses)
+    if variation:
+        new_statuses.add(f"variation:{variation}")
+    spawned = _rebuild_unit(
+        corpse,
+        current_moves=0,
+        has_attacked=True,
+        statuses=new_statuses,
+    )
+    gs.map.units.add(spawned)
+    # Bump Wesnoth's monotonic next_unit_id counter (plague spawn
+    # creates a fresh uid in Wesnoth too).
+    cur = int(getattr(gs.global_info, "_next_uid_counter", 1) or 1)
+    setattr(gs.global_info, "_next_uid_counter", cur + 1)
+
+
+def _capture_village(gs: GameState, x: int, y: int, capturing_side: int) -> None:
+    """Mark the village at (x,y) as belonging to `capturing_side` and
+    update side village counts. We track ownership via a per-game
+    `_village_owner: Dict[(x,y) -> side]` we stash on gs.global_info
+    (lightweight; survives within iter_replay_pairs)."""
+    by_xy_hex, _ = _hex_lookup(gs)
+    hex_obj = by_xy_hex.get((x, y))
+    if hex_obj is None:
+        return
+
+    # Per-replay village-owner map. Lazy-initialize on first call.
+    owner_map: Dict[Tuple[int, int], int] = getattr(
+        gs.global_info, "_village_owner", None
+    ) or {}
+    prev_owner = owner_map.get((x, y), 0)
+
+    # Same-side revisit: no ownership change, no count update. Wesnoth's
+    # `actions::get_village` (game_board.cpp ~line 200, called from
+    # try_actual_movement / place_recruit) checks `village_owner ==
+    # side` and returns without touching team village lists when the
+    # mover already owns the village. Our pre-2026-05-02 code
+    # decremented the prev owner unconditionally then guarded the
+    # increment on `prev != capturing_side`, leaving a -1 net count
+    # whenever a unit walked back onto its own village. That dropped
+    # side 1's village count from 8 -> 6 mid-turn after two leader
+    # revisits and underpaid income by 4 gold/turn for several turns.
+    if prev_owner == capturing_side:
+        # Defensive: still mark the modifier so the encoder agrees with
+        # an explicit owned-village state, but skip the count math.
+        hex_obj.modifiers.add(TerrainModifiers.VILLAGE)
+        owner_map[(x, y)] = capturing_side  # idempotent
+        setattr(gs.global_info, "_village_owner", owner_map)
+        return
+
+    owner_map[(x, y)] = capturing_side
+    setattr(gs.global_info, "_village_owner", owner_map)
+
+    # Mark static modifier so encoder sees a "owned" village.
+    hex_obj.modifiers.add(TerrainModifiers.VILLAGE)
+
+    # Decrement old owner's count (if any), increment new.
+    if prev_owner and 1 <= prev_owner <= len(gs.sides):
+        s = gs.sides[prev_owner - 1]
+        gs.sides[prev_owner - 1] = SideInfo(
+            player=s.player, recruits=s.recruits,
+            current_gold=s.current_gold,
+            base_income=s.base_income,
+            nb_villages_controlled=max(0, s.nb_villages_controlled - 1),
+            faction=s.faction,
+        )
+    if 1 <= capturing_side <= len(gs.sides):
+        s = gs.sides[capturing_side - 1]
+        gs.sides[capturing_side - 1] = SideInfo(
+            player=s.player, recruits=s.recruits,
+            current_gold=s.current_gold,
+            base_income=s.base_income,
+            nb_villages_controlled=s.nb_villages_controlled + 1,
+            faction=s.faction,
+        )
+
+
+def _action_indices(gs: GameState, cmd: list) -> Optional[ActionIndices]:
+    """Convert a compact replay command into slot indices the model's
+    heads should predict.
+
+    Returns None for commands that aren't player policy actions
+    (init_side, etc.). Actor/target ordering MATCHES the encoder's
+    sort: units sorted by (y, x, id), then recruits.
+    """
+    if not cmd:
+        return None
+    kind = cmd[0]
+
+    # Helper: produce the encoder-aligned unit list for the current side.
+    current_side = gs.global_info.current_side
+    units_sorted = sorted(
+        gs.map.units,
+        key=lambda u: (u.position.y, u.position.x, u.id),
+    )
+
+    # Hex ordering: encoder sorts hexes by (y, x) row-major. Same here.
+    hex_positions = sorted(
+        (h.position for h in gs.map.hexes),
+        key=lambda p: (p.y, p.x),
+    )
+    pos_to_hex_idx = {(p.x, p.y): i for i, p in enumerate(hex_positions)}
+
+    if kind == "end_turn":
+        # Last actor slot = end_turn sentinel.
+        end_idx = len(units_sorted) + sum(
+            len(s.recruits) for s in gs.sides
+        )
+        return ActionIndices("end_turn", actor_idx=end_idx)
+
+    if kind == "move":
+        xs, ys = cmd[1], cmd[2]
+        sx, sy = xs[0], ys[0]
+        tx, ty = xs[-1], ys[-1]
+        # Find actor = the unit at (sx, sy).
+        actor = None
+        for i, u in enumerate(units_sorted):
+            if u.position.x == sx and u.position.y == sy and u.side == current_side:
+                actor = i; break
+        if actor is None:
+            return None
+        target = pos_to_hex_idx.get((tx, ty))
+        if target is None:
+            return None
+        # type_idx=1 (MOVE) for the action-type head; lazy import
+        # of model.UnitActionType to avoid a hard dep cycle (model
+        # already imports replay_dataset transitively via the
+        # encoder).
+        from model import UnitActionType
+        return ActionIndices("move", actor_idx=actor, target_idx=target,
+                             type_idx=UnitActionType.MOVE)
+
+    if kind == "attack":
+        ax, ay, dx, dy, weapon = cmd[1], cmd[2], cmd[3], cmd[4], cmd[5]
+        actor = None
+        for i, u in enumerate(units_sorted):
+            if u.position.x == ax and u.position.y == ay and u.side == current_side:
+                actor = i; break
+        if actor is None:
+            return None
+        target = pos_to_hex_idx.get((dx, dy))
+        if target is None:
+            return None
+        from model import UnitActionType
+        return ActionIndices("attack", actor_idx=actor,
+                             target_idx=target, weapon_idx=weapon,
+                             type_idx=UnitActionType.ATTACK)
+
+    if kind == "recruit":
+        unit_type = cmd[1]
+        tx, ty = cmd[2], cmd[3]
+        # Recruit actor slots come after all units, ordered by encoder
+        # rules (iterate sides in order, then their recruit list).
+        offset = len(units_sorted)
+        actor = None
+        for side_idx, side_info in enumerate(gs.sides, start=1):
+            for r_name in side_info.recruits:
+                if side_idx == current_side and r_name == unit_type:
+                    actor = offset
+                    break
+                offset += 1
+            if actor is not None:
+                break
+        if actor is None:
+            return None
+        target = pos_to_hex_idx.get((tx, ty))
+        if target is None:
+            return None
+        return ActionIndices("recruit", actor_idx=actor, target_idx=target)
+
+    # recall / init_side / unknown → skip.
+    return None
+
+
+# ---------------------------------------------------------------------
+# Public Iterator
+# ---------------------------------------------------------------------
+
+def _setup_scenario_events(gs: GameState, scenario_id: str):
+    """Load scenario WML for `scenario_id` (if present in our wesnoth_src
+    tree) and stash the event list on `gs.global_info` for use during
+    command application. Fires `prestart` and `start` events immediately
+    (these run before turn 1 in Wesnoth). Also processes any top-level
+    [time_area] blocks (e.g., Tombs of Kesorak's dark/illuminated zones)
+    so per-hex lawful_bonus overrides are in place before turn 1.
+    """
+    try:
+        from tools.scenario_events import (
+            load_events_for_scenario, load_scenario_wml,
+            fire_event, setup_static_time_areas,
+        )
+    except ImportError:
+        # If scenario_events isn't importable for some reason, silently
+        # skip — the reconstruction still runs, just without events.
+        return
+    if not scenario_id:
+        setattr(gs.global_info, "_scenario_events", [])
+        return
+    root = load_scenario_wml(scenario_id)
+    if root is None:
+        setattr(gs.global_info, "_scenario_events", [])
+        return
+    # Top-level [time_area]s (declared outside any event) apply from
+    # game start. Must run BEFORE prestart events — Elensefar's prestart
+    # event itself contains a [time_area] (see scenario_events.py
+    # _time_area_action), and we don't want order-of-events to flip.
+    setup_static_time_areas(gs, root)
+    from tools.scenario_events import collect_events
+    events = collect_events(root)
+    setattr(gs.global_info, "_scenario_events", events)
+    # Pre-populate WML variables for `pN_faction` so scenarios that
+    # rely on them (Hornshark Island's [switch] variable=p1_faction)
+    # work even when the actual `[lua]` block setting them is too
+    # truncated by our parser to match. The convention is set by
+    # `data/multiplayer/scenarios/2p_Hornshark_Island.cfg:69-71` and
+    # uses 1-indexed side numbers. Harmless for scenarios that don't
+    # consume these variables.
+    wml_vars: Dict[str, str] = {}
+    for i, s in enumerate(gs.sides, start=1):
+        wml_vars[f"p{i}_faction"] = s.faction or ""
+    setattr(gs.global_info, "_wml_variables", wml_vars)
+    if events:
+        fire_event(gs, events, "prestart")
+        fire_event(gs, events, "start")
+
+
+def _fire_turn_events(gs: GameState, side: int, turn: int) -> None:
+    """Fire the side/turn events Wesnoth would dispatch at this moment.
+    Triggers we recognize: 'side N turn M', 'turn M', 'new turn'.
+    """
+    events = getattr(gs.global_info, "_scenario_events", None)
+    if not events:
+        return
+    from tools.scenario_events import fire_event
+    fire_event(gs, events, f"side {side} turn {turn}")
+    fire_event(gs, events, f"turn {turn}")
+    fire_event(gs, events, "new turn")
+    fire_event(gs, events, "side turn")
+
+
+def iter_replay_pairs(gz_path: Path) -> Iterator[Tuple[GameState, ActionIndices]]:
+    """Yield (state_before, action_indices) for each player command
+    in one .json.gz replay."""
+    with gzip.open(gz_path, "rt", encoding="utf-8") as f:
+        data = json.load(f)
+    gs = _build_initial_gamestate(data)
+    _setup_scenario_events(gs, data.get("scenario_id", ""))
+    for cmd in data.get("commands", []):
+        ai = _action_indices(gs, cmd)
+        if ai is not None:
+            yield gs, ai
+        _apply_command(gs, cmd)
+
+
+def iter_replay_pairs_with_state(gz_path: Path
+                                 ) -> Iterator[Tuple[GameState, Optional[ActionIndices]]]:
+    """Like iter_replay_pairs but yields the running state for EVERY
+    command (including init_side / recall) and yields the FINAL state
+    after the last command. Useful for tools that want to inspect or
+    dump the state at any point in the replay (e.g. save-state dumper)."""
+    with gzip.open(gz_path, "rt", encoding="utf-8") as f:
+        data = json.load(f)
+    gs = _build_initial_gamestate(data)
+    _setup_scenario_events(gs, data.get("scenario_id", ""))
+    for cmd in data.get("commands", []):
+        ai = _action_indices(gs, cmd)
+        yield gs, ai
+        _apply_command(gs, cmd)
+    # One more yield with the post-final state for "give me the end".
+    yield gs, None
+
+
+def iter_dataset(dataset_dir: Path) -> Iterator[Tuple[GameState, ActionIndices]]:
+    """Walk every replay in `dataset_dir` and yield all pairs.
+
+    Order: file-sorted (stable). Caller can shuffle at file-granularity
+    by shuffling the glob result.
+    """
+    for gz in sorted(dataset_dir.glob("*.json.gz")):
+        try:
+            yield from iter_replay_pairs(gz)
+        except Exception as e:
+            log.warning(f"{gz.name}: {e}")
+
+
+def filter_competitive_2p(dataset_dir: Path) -> List[Path]:
+    """Return only replay files whose (scenario_id, factions) pass the
+    competitive-2p filter. Reads each replay's index.jsonl line first
+    (cheap) — avoids decompressing the full .json.gz unless it passes
+    the cheap checks.
+    """
+    # Import here to keep replay_dataset importable even if tools/ isn't
+    # on sys.path (the main training entry point does the insert).
+    from scenarios import is_competitive_2p
+
+    PLAYER_FACTIONS = {"Drakes", "Knalgan Alliance", "Rebels",
+                       "Loyalists", "Northerners", "Undead"}
+    index_path = dataset_dir / "index.jsonl"
+    if not index_path.exists():
+        log.warning(f"{index_path} not found; scanning all .json.gz instead")
+        return sorted(dataset_dir.glob("*.json.gz"))
+
+    import json as _json
+    kept: List[Path] = []
+    for line in index_path.open(encoding="utf-8"):
+        meta = _json.loads(line)
+        if not is_competitive_2p(meta.get("scenario_id", "")):
+            continue
+        factions = meta.get("factions", [])
+        players = [f for f in factions if f in PLAYER_FACTIONS]
+        non_players = [f for f in factions if f not in PLAYER_FACTIONS]
+        if len(players) != 2 or len(non_players) > 1:
+            continue
+        kept.append(dataset_dir / meta["file"])
+    return kept
+
+
+# ---------------------------------------------------------------------
+# CLI — sanity-check summary
+# ---------------------------------------------------------------------
+
+def main(argv: List[str]) -> int:
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    if len(argv) != 2:
+        print("usage: replay_dataset.py DATASET_DIR"); return 2
+    d = Path(argv[1])
+    n_files = 0; n_pairs = 0
+    type_counts: Dict[str, int] = {}
+    for gz in sorted(d.glob("*.json.gz")):
+        n_files += 1
+        try:
+            for _state, ai in iter_replay_pairs(gz):
+                n_pairs += 1
+                type_counts[ai.action_type] = type_counts.get(ai.action_type, 0) + 1
+        except Exception as e:
+            log.warning(f"  skip {gz.name}: {e}")
+        if n_files % 100 == 0:
+            print(f"  {n_files} files  {n_pairs} pairs  types={type_counts}")
+        if n_files >= 500:
+            break
+    print(f"\nDone. {n_files} files, {n_pairs} pairs")
+    print(f"Action-type distribution: {type_counts}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

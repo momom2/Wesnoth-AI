@@ -77,4 +77,80 @@ CHECKPOINT_FREQUENCY = 100
 ACTION_FILE_NAME       = "action.lua"
 STATE_TIMEOUT_SECONDS  = 30.0
 ACTION_TIMEOUT_SECONDS = 30.0
-STATE_POLL_INTERVAL    = 0.05
+STATE_POLL_INTERVAL    = 0.01   # lowered from 0.05 — Python's 50 ms tick
+                                # added an avg 25 ms tail to every
+                                # read_state. 10 ms cuts that to ~5 ms
+                                # and matches the Lua-side POLL_MS.
+
+# ----------------------------------------------------------------------
+# Encoder feature normalization
+# ----------------------------------------------------------------------
+# Each scalar feature is divided by its NORM constant before being
+# concatenated into the unit / global token. The NORMs are chosen so
+# default-era values land in the [0, ~1] range (the transformer's
+# input scale). Override at config-time to support custom eras whose
+# unit costs / HP exceed these (a cost-200 unit feeds in as 2.5 with
+# the default COST_NORM=80; clipping is fine but you might want to
+# tune COST_NORM up so the spread of cost values is more uniform).
+
+HP_NORM       = 80.0    # full Walking-Corpse's HP =~22; ladder Drake max =~70
+MOVES_NORM    = 10.0    # ladder caps around 7 (Wolf Rider with quick)
+EXP_NORM      = 150.0   # 4-level units (e.g. Lich) need ~150 XP to AMLA
+COST_NORM     = 80.0    # ladder caps around 60 (Yeti, Lich)
+GOLD_NORM     = 500.0   # default-era 2p starts at 100; 500 covers
+                        # late-game gold accumulation
+INCOME_NORM   = 50.0
+VILLAGES_NORM = 30.0    # large 4p maps; 2p ladder caps ~15
+TURN_NORM     = 60.0    # default 2p ladder turn limit ~30, 60 for safety
+
+# Combat-oracle biases. Two channels:
+#
+#   - TARGET_ALPHA: scales the per-target attack-bias added to the
+#     hex-target logits when the policy chose ATTACK. Raises priors
+#     for high expected-damage targets. 0.1 = moderate; 0 = off.
+#   - TYPE_ALPHA: scales the per-actor "raise P(ATTACK | actor)"
+#     bias added to the type_logits[ATTACK] when ANY reachable
+#     enemy gives positive expected net damage. The aggregator is
+#     `max_j(net_score[actor, j])` -- "you have at least one
+#     profitable attack available, consider attacking."
+#
+# Both biases anneal multiplicatively over training: at the start
+# of supervised training they're at full strength, by horizon end
+# they're at 10% strength (configurable floor below). The policy's
+# learned logits dominate after horizon; the oracle is just a
+# warm-start prior. See action_sampler.combat_alphas_at().
+COMBAT_TARGET_ALPHA = 0.1
+COMBAT_TYPE_ALPHA   = 0.1
+# Backwards-compat alias (used by the rare external caller); the
+# canonical names are the two above.
+COMBAT_LOGIT_ALPHA = COMBAT_TARGET_ALPHA
+
+# Anneal horizon (per-Python-decision count) over which the alphas
+# decay from their configured value to ANNEAL_FLOOR_FRACTION × the
+# configured value. 1M decisions ≈ a significant chunk of supervised
+# training (5000 self-play games × 200 decisions/game), so the
+# annealing reaches the floor late in training. Set to 0 to disable
+# annealing (alphas stay at the configured value forever).
+COMBAT_ANNEAL_HORIZON     = 1_000_000
+# Minimum multiplier on the configured alphas at horizon end. 0.1 =
+# the bias persists at 10% strength forever (a small nudge that's
+# still useful late-training when the model has its own preferences).
+COMBAT_ANNEAL_FLOOR_FRACTION = 0.1
+
+# Pre-seeded faction vocab. The encoder pre-binds these to specific
+# embedding rows so cross-replay supervised training stays
+# consistent (a state that happens to feed Rebels first wouldn't
+# alone determine its row). Empty string is reserved for
+# "unknown / unset" -> id 0; the six default-era factions follow.
+# Era mods can extend the list (the encoder's `MAX_FACTIONS=32`
+# bound leaves headroom). Order MATTERS for backwards compatibility
+# with saved checkpoints; appending is safe, reordering is not.
+DEFAULT_FACTIONS = (
+    "",
+    "Drakes",
+    "Knalgan Alliance",
+    "Rebels",
+    "Loyalists",
+    "Northerners",
+    "Undead",
+)

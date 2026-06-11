@@ -1,0 +1,38 @@
+         48643834 function calls (47632370 primitive calls) in 104.103 seconds
+
+   Ordered by: internal time
+   List reduced from 804 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+     3432   20.295    0.006   20.295    0.006 {method 'run_backward' of 'torch._C._EngineBase' objects}
+   257400    8.958    0.000    8.960    0.000 {built-in method torch._C._nn.linear}
+     6864    7.396    0.001   17.931    0.003 encoder.py:765(encode_raw)
+   233566    4.466    0.000    4.468    0.000 {method 'to' of 'torch._C.TensorBase' objects}
+    10296    4.110    0.000   17.598    0.002 encoder.py:453(encode_from_raw)
+   133848    3.127    0.000    3.129    0.000 {built-in method torch.embedding}
+    13827    2.509    0.000    3.549    0.000 {built-in method builtins.sorted}
+    10296    2.003    0.000   29.405    0.003 model.py:269(forward)
+    61776    1.894    0.000    1.894    0.000 {built-in method torch.layer_norm}
+     5528    1.792    0.000    1.874    0.000 action_sampler.py:1274(_recruit_hex_mask)
+  6380180    1.612    0.000    2.335    0.000 enum.py:202(__get__)
+     6864    1.539    0.000    7.975    0.001 action_sampler.py:986(_build_legality_masks)
+    84439    1.468    0.000    1.468    0.000 {method 'sum' of 'torch._C.TensorBase' objects}
+    30888    1.439    0.000    1.439    0.000 {built-in method torch._C._nn.scaled_dot_product_attention}
+    30888    1.439    0.000   16.772    0.001 transformer.py:750(forward)
+    40744    1.345    0.000    1.345    0.000 {built-in method torch.tensor}
+600600/236808    1.157    0.000   31.300    0.000 module.py:1740(_call_impl)
+    51480    1.034    0.000    1.104    0.000 model.py:278(with_kind)
+  6304884    1.011    0.000    1.011    0.000 encoder.py:809(<lambda>)
+    50499    0.982    0.000    0.982    0.000 {method 'item' of 'torch._C.TensorBase' objects}
+    10296    0.969    0.000    2.394    0.000 model.py:93(_compute_marginal_type_logits)
+    32850    0.926    0.000    1.090    0.000 action_sampler.py:1243(_hex_distance_vec)
+    61776    0.889    0.000    0.889    0.000 {method 'contiguous' of 'torch._C.TensorBase' objects}
+600600/236808    0.787    0.000   31.637    0.000 module.py:1732(_wrapped_call_impl)
+    19680    0.785    0.000    0.785    0.000 {method 'masked_fill' of 'torch._C.TensorBase' objects}
+    27456    0.740    0.000    0.740    0.000 {built-in method torch.cat}
+  1503216    0.734    0.000    0.734    0.000 module.py:1918(__getattr__)
+  6380180    0.724    0.000    0.724    0.000 enum.py:1292(value)
+     9847    0.692    0.000    2.237    0.000 action_sampler.py:125(_sample_from_logits)
+  5874552    0.677    0.000    0.677    0.000 {built-in method builtins.iter}
+
+

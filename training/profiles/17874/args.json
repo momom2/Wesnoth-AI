@@ -1,0 +1,19 @@
+{
+  "checkpoint": "training/checkpoints/sim_selfplay.pt",
+  "iterations": "3",
+  "warmup_iterations": "1",
+  "games_per_iter": "8",
+  "max_turns": "60",
+  "workers": "6",
+  "device": "cuda",
+  "reward_config": "cluster/configs/reward_selfplay.json",
+  "forced_faction": "None",
+  "seed": "0",
+  "mcts": "False",
+  "mcts_sims": "50",
+  "mcts_c_puct": "1.5",
+  "torch_profile": "True",
+  "nvidia_smi_interval": "1.0",
+  "output_dir": "training/profiles/17874",
+  "log_level": "INFO"
+}

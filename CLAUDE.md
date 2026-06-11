@@ -12,10 +12,27 @@ behind config is preferred to code that gates behavior behind weights.
 - **Language:** Python 3.11+
 - **ML:** PyTorch
 - **Game:** Wesnoth 1.18.x (Steam install on Windows)
-- **Run:** `python main.py` (see `--help`)
+- **Run:** training via `python tools/sim_self_play.py`; demos via
+  `python tools/sim_demo_game.py`; live-Wesnoth setup checks via
+  `python main.py --check-setup`
 - **Test:** `pytest` (tests are Python-only; they exercise the WML
   parser and Lua-file generation with synthetic data — they do NOT spin
   up real Wesnoth)
+
+### Wesnoth source pinning
+
+`wesnoth_src/` MUST stay on the **1.18.4 tag** (`git checkout 1.18.4` in
+that directory). Wesnoth's `master` branch is 1.19.x development and
+unit stats DRIFT between releases — e.g., in master the Ghoul gained
+a `[resistance] pierce=90` override that doesn't exist in 1.18.4
+(where pierce inherits 70 from the gruefoot movement_type). Using
+master's stats made our combat reconstruction overdamage units that
+should have lived. Re-run `python tools/scrape_unit_stats.py
+wesnoth_src unit_stats.json` after any version change.
+
+Most replays in `replays_raw/` are from 1.18.x clients; pin
+accordingly. If a replay's `[scenario] version=` says something
+other than 1.18.x, scrape from that version's tag instead.
 
 ## Current status (2026-04-23)
 
@@ -41,24 +58,28 @@ of that matters until the IPC link is live.
 - `wesnoth_interface.py` — one Wesnoth process per game; reads state,
   writes actions.
 - `state_converter.py` — Wesnoth data format → `GameState`.
-- `state_encodings.py` — `GameState` → tensors.
-- `transformer.py` — policy/value network.
-- `action_selector.py` — samples action from logits; minimal legality
+- `encoder.py` — `GameState` → tensors.
+- `model.py` — transformer policy/value network (factored heads).
+- `transformer_policy.py` — `Policy` implementation wrapping the model;
+  rollout buffer + training hooks.
+- `action_sampler.py` — samples action from logits; minimal legality
   filtering (will tighten).
-- `training.py` — policy + value loss, AdamW.
+- `trainer.py` — policy + value loss, AdamW.
 - `classes.py` — `GameState`, `Unit`, `Hex`, `Map`, `Experience`, etc.
 - `constants.py` — all tunables (paths, hyperparameters, terrain codes).
 
 **Wesnoth side (add-on at `add-ons/wesnoth_ai/`):**
 - `_main.cfg` loads the scenario.
-- `ai_config.cfg` wires two Lua candidate actions into Wesnoth's AI:
-  one to send state, one to poll for and execute an action.
+- `ai_config.cfg` installs `turn_stage.lua` as each side's Lua AI
+  engine with a single custom stage (not candidate actions — a custom
+  stage is exempt from the RCA blacklist-on-failure rule).
 - `scenarios/training_scenario.cfg` — 2p_Caves_of_the_Basilisk,
-  Knalgan vs Drakes, both sides `controller=ai`, both using our CAs.
+  Knalgan vs Drakes, both sides `controller=ai`, both using our
+  `[ai]` block.
 - `lua/state_collector.lua` — serializes units, hexes, fog, sides.
-- `lua/ca_state_sender.lua` — runs `state_collector`, emits the state.
-- `lua/ca_action_executor.lua` — blocks until a new action arrives,
-  then dispatches.
+- `lua/turn_stage.lua` — per-turn loop: emits state frames, polls for
+  a fresh `action.lua`, dispatches it, repeats until end_turn.
+- `lua/json_encoder.lua` — minimal JSON encoder for the Lua sandbox.
 - `lua/action_executor.lua` — move / attack / recruit / recall /
   end_turn, using the Wesnoth `ai.*` API.
 

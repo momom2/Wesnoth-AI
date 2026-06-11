@@ -1,0 +1,36 @@
+========================================================================
+Self-play profile  (3 iters, 278.6s wall)
+========================================================================
+
+Checkpoint:     training/checkpoints/sim_selfplay.pt
+Workers:        6
+Games per iter: 8
+Max turns:      60
+MCTS:           off (REINFORCE)
+Device:         cuda
+
+Phase wall-clock seconds per iter:
+  phase                    mean_s      pct
+  rollout_seconds          38.125    57.9%
+  train_step_seconds       27.726    42.1%
+  TOTAL                    65.851   100.0%
+
+Per-iter detail (see phase_timing.csv):
+  iter rollout_seconds train_step_seconds
+     0     35.569     23.892
+     1     37.971     28.892
+     2     40.836     30.392
+
+Top callers (also see cprofile_cumulative.txt / cprofile_self.txt):
+  cprofile.prof loads in snakeviz: `pip install snakeviz && snakeviz cprofile.prof`
+
+GPU utilization (over 216 samples):
+  mean   =   8.3%
+  median =   3.0%
+  max    =  38.0%
+  min    =   0.0%
+GPU memory used (MiB):
+  mean   =      708
+  max    =      739
+
+========================================================================

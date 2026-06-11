@@ -7,3 +7,7 @@
 # the user's RX 6600 (RDNA 2 / gfx1032), so DirectML is the path.
 # See memory/user_gpu_setup.md for device-picker notes.
 torch-directml>=0.2.5
+
+# Used by encoder/action_sampler/combat and the test suite.
+numpy
+pytest

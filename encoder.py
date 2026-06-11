@@ -23,6 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
+import numpy as np
 import torch
 import torch.nn as nn
 
@@ -42,13 +43,60 @@ from classes import (
 # ---------------------------------------------------------------------
 
 MAX_MAP_SIZE    = 128   # covers every mainline MP map with headroom
-MAX_UNIT_TYPES  = 200   # # distinct unit type names we can embed
+# # distinct unit type names we can embed in one model. Default 200
+# is enough for the full default-era roster (~50 units across 6
+# factions) plus typical custom-era expansions. Overflow:
+# `register_names` (encoder.py) clamps the (200+1)-th type seen to
+# id 199, aliasing it with whatever happened to land at id 199 first
+# -- a silent data-quality issue rather than an error. Watch the
+# encoder's overflow log on first epoch of supervised training; if
+# it fires, re-train with a larger MAX_UNIT_TYPES (changing it
+# requires a fresh model -- the embedding row count is baked in).
+MAX_UNIT_TYPES  = 200
+MAX_FACTIONS    = 32    # default era has 6; supervised corpus adds a
+                        # handful ("Custom", era-specific, "") — 32
+                        # leaves room for growth.
 NUM_TERRAINS    = max(Terrain) + 1       # 14 enum values today
 NUM_ALIGNMENTS  = max(Alignment) + 1     # 4
 NUM_SIDE_CODES  = 2     # 0 = ours (current_side), 1 = theirs
 
-# Per-hex multi-hot: (village, keep, castle).
+
+# Pre-seeded faction vocab. Re-exported from constants.py so era
+# mods can override in one place. Empty string is reserved for
+# "unknown/unset" -> id 0.
+from constants import DEFAULT_FACTIONS as _DEFAULT_FACTIONS
+from visibility import units_visible_to
+
+# Per-hex STATIC multi-hot: (village, keep, castle). Static = doesn't
+# change during a game (or only changes via village-capture, which
+# is captured by the village bit being side-agnostic).
 NUM_HEX_MODIFIERS = 3
+
+# Per-hex DYNAMIC features that DO change within a turn / decision.
+# Separate from the static modifiers so:
+#   (a) old checkpoints' modifier_proj (3-input Linear) loads
+#       unchanged via `strict=False`, while the new dynamic_flag_proj
+#       initializes fresh;
+#   (b) future per-hex dynamic flags (e.g. "attacked-from last turn",
+#       "ZoC'd by us", ...) can extend NUM_HEX_DYNAMIC_FLAGS without
+#       breaking either projection.
+#
+# Currently:
+#   0: recruit_rejected -- this hex bounced a recruit attempt this
+#                          turn (cleared at init_side). See the
+#                          legality-mask contract in CLAUDE.md.
+#
+# Move-bounce (fog-hidden enemy) rejection is tracked on
+# `global_info._move_rejected_hexes` (parallel to the recruit set)
+# but intentionally NOT mirrored into a dynamic_flag bit. The
+# action_sampler's legality mask zeros out those hexes from the
+# move_row so the policy literally can't re-pick them; the
+# observation-level signal (a token bit) would only duplicate
+# information the mask already encodes. Keeping
+# NUM_HEX_DYNAMIC_FLAGS=1 preserves checkpoint compatibility for
+# the dynamic_flag_proj weight (avoids a backward-incompat shape
+# change in load_checkpoint).
+NUM_HEX_DYNAMIC_FLAGS = 1
 
 # Per-unit numerical features. Order MATTERS — changing it requires
 # a retrain (the Linear weights are positional).
@@ -74,15 +122,17 @@ UNIT_FEAT_DIM         = UNIT_NUMERIC_FEATS + UNIT_ALIGNMENT_ONEHOT  # 13
 #   5: their_villages / VILLAGES_NORM
 GLOBAL_FEAT_DIM = 6
 
-# Normalization divisors. Rough upper bounds for each quantity.
-HP_NORM       = 80.0
-MOVES_NORM    = 10.0
-EXP_NORM      = 150.0
-COST_NORM     = 80.0
-GOLD_NORM     = 500.0
-INCOME_NORM   = 50.0
-VILLAGES_NORM = 30.0
-TURN_NORM     = 60.0
+# Normalization divisors. Re-exported from `constants.py` so era
+# mods can override them in one place; see the comment block in
+# constants.py for scale rationale.
+from constants import (
+    HP_NORM, MOVES_NORM, EXP_NORM, COST_NORM,
+    GOLD_NORM, INCOME_NORM, VILLAGES_NORM, TURN_NORM,
+)
+
+
+import logging
+log = logging.getLogger("encoder")
 
 
 @dataclass
@@ -97,6 +147,11 @@ class EncodedState:
 
     hex_tokens:     torch.Tensor           # [1, H, d_model]
     hex_positions:  List[Position]         # len H
+    # `(x, y) -> j` map. Cached once at encode time so callers like
+    # action_sampler._build_legality_masks don't rebuild it per
+    # decision. Saves a few ms on busy mid-game states with ~250
+    # visible hexes; matters for MCTS rollouts.
+    pos_to_hex:     "Dict[tuple, int]"     # mapping over hex_positions
     # Note: we only emit on-board hexes, so no hex_mask is needed in
     # Phase 3.1. When Phase 3.2 pads to a fixed H across a batch, add
     # a mask.
@@ -113,6 +168,104 @@ class EncodedState:
     global_token:   torch.Tensor           # [1, 1, d_model]
     end_turn_token: torch.Tensor           # [1, 1, d_model]
 
+    # Cached numpy view of recruit_is_ours. Populated alongside the
+    # tensor field at encode time; the sampler reads this rather
+    # than doing `.detach().cpu().numpy()` per decision. Saves the
+    # device hop (~25 µs on GPU, ~5 µs on CPU) at the sampler's
+    # innermost loop, which fires once per recruit-eligible state.
+    # Default `None` keeps backwards compatibility -- callers that
+    # build EncodedState by hand still work; the sampler falls back
+    # to the device hop when this field is missing.
+    recruit_is_ours_np: Optional[np.ndarray] = None
+
+
+# ---------------------------------------------------------------------
+# Two-phase encoding split
+# ---------------------------------------------------------------------
+#
+# encode() does two distinct things: (1) walk the GameState graph and
+# build lists of integer indices and float feature vectors, (2) feed
+# those through nn.Embedding/nn.Linear to produce learned tensors.
+#
+# Phase (1) is pure Python and dominates step time when the model
+# itself is fast (e.g. on a CUDA GPU). Splitting it out as a free
+# function — `encode_raw` — that takes the vocab dicts read-only lets
+# worker processes do (1) ahead of time, while the main process keeps
+# (2) where the trainable parameters live.
+#
+# `RawEncoded` carries the result of (1): plain Python lists, ints,
+# floats, strings, and Position named tuples. It pickles cheaply, so
+# crossing a multiprocessing.Queue boundary is fast.
+#
+# Backwards compat: GameStateEncoder.encode(game_state) still exists
+# and behaves identically — it grows vocab on demand and runs both
+# phases in sequence.
+#
+# Vocab discipline for workers: when the encoder's vocab is frozen
+# (e.g., shared with workers), `encode_raw` falls back to the
+# overflow bucket (MAX_*-1) for unseen names rather than mutating
+# the dict. New names then collide there until the next training run
+# pre-seeds the vocab.
+
+@dataclass
+class RawEncoded:
+    """Pure-Python representation of an encoded GameState.
+
+    No torch, no nn parameters — picklable for cross-process transport.
+    Convert to an `EncodedState` via `GameStateEncoder.encode_from_raw`.
+
+    Bulk per-hex / per-unit / per-recruit fields are numpy arrays so
+    the trainer-side `encode_from_raw` can use `torch.from_numpy`
+    (~3 µs per call, no copy on CPU) instead of `torch.tensor(list, ...)`
+    (~500 µs per call, includes a Python-side list → C-array conversion
+    and a fresh allocation). Workers pay the np.asarray cost off the
+    critical path (it's hidden behind whatever GPU work the main thread
+    is doing on the previous batch).
+
+    `*_positions` and `*_ids` / `*_types` stay as Python objects:
+    they're only used by the action sampler downstream as plain Python
+    addresses into game-state, never as tensor inputs.
+    """
+
+    # Per-hex stream (variable H).
+    hex_positions:      List["Position"]
+    hex_xs:             np.ndarray          # int64 [H]
+    hex_ys:             np.ndarray          # int64 [H]
+    hex_terrain_ids:    np.ndarray          # int64 [H]
+    hex_modifier_flags: np.ndarray          # float32 [H, NUM_HEX_MODIFIERS]
+    hex_dynamic_flags:  np.ndarray          # float32 [H, NUM_HEX_DYNAMIC_FLAGS]
+
+    # Per-unit stream (variable U).
+    unit_positions:  List["Position"]
+    unit_ids:        List[str]
+    unit_is_ours:    np.ndarray             # float32 [U]
+    unit_type_ids:   np.ndarray             # int64 [U]; clamped to MAX-1
+    unit_side_ids:   np.ndarray             # int64 [U]; 0 = ours, 1 = theirs
+    unit_xs:         np.ndarray             # int64 [U]
+    unit_ys:         np.ndarray             # int64 [U]
+    unit_feats:      np.ndarray             # float32 [U, UNIT_FEAT_DIM]
+
+    # Per-recruit stream (variable R). Each recruit is treated as a
+    # phantom unit at its leader's keep, so the actor head can
+    # discriminate recruit options by cost / hp / alignment / etc.
+    # rather than only by type+side. Without these the sampler
+    # collapses all of "our" recruits onto a single embedding cluster
+    # and never learns which to pick. recruit_xs/ys = leader's keep
+    # of the recruit's side; recruit_feats = `_unit_features` of a
+    # full-HP / 0-MP / 0-XP / non-leader phantom of that type.
+    recruit_types:    List[str]
+    recruit_is_ours:  np.ndarray            # float32 [R]
+    recruit_type_ids: np.ndarray            # int64 [R]
+    recruit_side_ids: np.ndarray            # int64 [R]
+    recruit_xs:       np.ndarray            # int64 [R]
+    recruit_ys:       np.ndarray            # int64 [R]
+    recruit_feats:    np.ndarray            # float32 [R, UNIT_FEAT_DIM]
+
+    # Global features.
+    global_feats:     np.ndarray            # float32 [GLOBAL_FEAT_DIM]
+    our_faction_id:   int
+    their_faction_id: int
+
 
 class GameStateEncoder(nn.Module):
     """Learned embedder: GameState → EncodedState."""
@@ -121,6 +274,7 @@ class GameStateEncoder(nn.Module):
         self,
         d_model: int = 128,
         unit_type_to_id: Optional[Dict[str, int]] = None,
+        faction_to_id: Optional[Dict[str, int]] = None,
     ):
         super().__init__()
         self.d_model = d_model
@@ -136,9 +290,23 @@ class GameStateEncoder(nn.Module):
             unit_type_to_id if unit_type_to_id is not None else {}
         )
 
+        # Faction vocab. Pre-seeded with the 6 default factions plus
+        # "" (unknown). Growing on demand for custom/era-specific
+        # factions encountered during supervised training. Load-time
+        # restore from checkpoint keeps id assignments stable.
+        if faction_to_id is not None:
+            self.faction_to_id: Dict[str, int] = dict(faction_to_id)
+        else:
+            self.faction_to_id = {f: i for i, f in enumerate(_DEFAULT_FACTIONS)}
+
         # --- hex embeddings -------------------------------------------
         self.terrain_embed  = nn.Embedding(NUM_TERRAINS, d_model)
         self.modifier_proj  = nn.Linear(NUM_HEX_MODIFIERS, d_model, bias=False)
+        # Dynamic flags (e.g. recruit_rejected) live in their own
+        # projection -- old checkpoints lacking this Linear initialize
+        # it from scratch under load_checkpoint(strict=False); the
+        # static modifier projection above is unaffected.
+        self.dynamic_flag_proj = nn.Linear(NUM_HEX_DYNAMIC_FLAGS, d_model, bias=False)
 
         # --- shared position embeddings --------------------------------
         self.pos_x_embed = nn.Embedding(MAX_MAP_SIZE, d_model)
@@ -152,6 +320,16 @@ class GameStateEncoder(nn.Module):
         # --- global ---------------------------------------------------
         self.global_proj = nn.Linear(GLOBAL_FEAT_DIM, d_model)
 
+        # --- faction embeddings ---------------------------------------
+        # Separate embed tables for "our" and "their" faction so the
+        # model can learn a conditioning distinction (Drakes-as-us
+        # plays differently than Drakes-as-them). Small init so
+        # untrained faction tokens don't swamp the global_token.
+        self.our_faction_embed   = nn.Embedding(MAX_FACTIONS, d_model)
+        self.their_faction_embed = nn.Embedding(MAX_FACTIONS, d_model)
+        nn.init.normal_(self.our_faction_embed.weight,   std=0.02)
+        nn.init.normal_(self.their_faction_embed.weight, std=0.02)
+
         # --- end_turn sentinel ----------------------------------------
         # Small init so it doesn't dominate the softmax at step 0.
         self.end_turn_token = nn.Parameter(torch.randn(d_model) * 0.02)
@@ -159,194 +337,700 @@ class GameStateEncoder(nn.Module):
     # ----- public API --------------------------------------------------
 
     def encode(self, game_state: GameState) -> EncodedState:
-        """Build an EncodedState for one GameState."""
-        device = next(self.parameters()).device
-        current_side = game_state.global_info.current_side
+        """Build an EncodedState for one GameState.
 
-        hex_tokens, hex_positions = self._encode_hexes(game_state, device)
-        unit_tokens, unit_is_ours, unit_positions, unit_ids = (
-            self._encode_units(game_state, current_side, device)
+        Convenience entry point: registers any new names into the
+        encoder's vocab, runs `encode_raw` against the (now-grown)
+        dicts, and finalizes the tensors via `encode_from_raw`. This
+        is the call self-play and tests use.
+        """
+        self.register_names(game_state)
+        raw = encode_raw(
+            game_state,
+            type_to_id=self.unit_type_to_id,
+            faction_to_id=self.faction_to_id,
         )
-        recruit_tokens, recruit_is_ours, recruit_types = (
-            self._encode_recruits(game_state, current_side, device)
+        return self.encode_from_raw(raw)
+
+    def freeze_vocab(self) -> None:
+        """Lock `unit_type_to_id` / `faction_to_id` so future
+        `register_names` calls cannot add new entries. Any new name
+        encountered after freeze fires a one-shot warning (per name)
+        and the encoding path's clamp falls back to the overflow
+        bucket. Call this after pretrain so a regression that
+        introduces a new unit type during self-play is loud rather
+        than silently aliased.
+
+        Idempotent. To re-open (e.g. when fine-tuning on a new era),
+        set `self._vocab_frozen = False` directly.
+        """
+        self._vocab_frozen = True
+        log.info(
+            f"encoder vocab frozen at {len(self.unit_type_to_id)} unit "
+            f"types and {len(self.faction_to_id)} factions"
         )
-        global_token = self._encode_global(game_state, current_side, device)
+
+    def register_names(self, game_state: GameState) -> None:
+        """Grow `unit_type_to_id` / `faction_to_id` for any name we
+        haven't seen before. Pure dict mutation, no torch — safe to
+        call before the encoder's parameters are touched.
+
+        Workers should NOT call this: their dicts are read-only views.
+
+        Capacity: when `unit_type_to_id` reaches `MAX_UNIT_TYPES - 1`
+        slots, every additional new type gets clamped to id
+        `MAX_UNIT_TYPES - 1` in `encode_from_raw`. The clamp is
+        silent on the encode path; we surface it here at registration
+        time with a warning so it's visible during pretrain
+        (when new types are most likely to appear). At inference,
+        `register_names` is generally not called -- the trainer
+        freezes the vocab after pretrain and worker processes only
+        consume the saved dict.
+
+        Freeze: callers can `freeze_vocab()` post-pretrain so that
+        any subsequent new name fires a per-name warning instead of
+        being silently added (would shift embedding ids and
+        invalidate the checkpoint).
+        """
+        type_to_id = self.unit_type_to_id
+        cap = MAX_UNIT_TYPES
+        frozen = getattr(self, "_vocab_frozen", False)
+        seen_new = getattr(self, "_warned_new_name", None)
+        if seen_new is None:
+            seen_new = set()
+            self._warned_new_name = seen_new
+        for u in game_state.map.units:
+            if u.name not in type_to_id:
+                if frozen:
+                    if u.name not in seen_new:
+                        seen_new.add(u.name)
+                        log.warning(
+                            f"encoder vocab is frozen but encountered new "
+                            f"unit type {u.name!r}; aliasing to overflow "
+                            f"bucket id {cap - 1}. Either pre-seed before "
+                            f"freeze or unfreeze + retrain."
+                        )
+                    continue
+                if len(type_to_id) >= cap:
+                    if not getattr(self, "_warned_type_overflow", False):
+                        log.warning(
+                            f"unit_type vocab full (MAX_UNIT_TYPES={cap}); "
+                            f"new types like {u.name!r} will alias id "
+                            f"{cap - 1}. Pre-seed via "
+                            f"tools/scrape_unit_stats.py + load on encoder "
+                            f"init, OR re-train with a larger MAX_UNIT_TYPES."
+                        )
+                        self._warned_type_overflow = True
+                    # Don't add the new entry; the encode path's
+                    # `min(get(name, overflow), overflow)` clamp does
+                    # the right thing without a phantom dict slot.
+                    continue
+                type_to_id[u.name] = len(type_to_id)
+        faction_to_id = self.faction_to_id
+        for s in game_state.sides:
+            if s.faction not in faction_to_id:
+                if frozen:
+                    key = f"<faction>{s.faction}"
+                    if key not in seen_new:
+                        seen_new.add(key)
+                        log.warning(
+                            f"encoder vocab frozen; new faction "
+                            f"{s.faction!r} aliasing to overflow."
+                        )
+                    continue
+                if len(faction_to_id) >= MAX_FACTIONS:
+                    if not getattr(self, "_warned_faction_overflow", False):
+                        log.warning(
+                            f"faction vocab full (MAX_FACTIONS={MAX_FACTIONS}); "
+                            f"new faction {s.faction!r} aliasing.")
+                        self._warned_faction_overflow = True
+                    continue
+                faction_to_id[s.faction] = len(faction_to_id)
+            for r in s.recruits:
+                if r not in type_to_id:
+                    if frozen:
+                        if r not in seen_new:
+                            seen_new.add(r)
+                            log.warning(
+                                f"encoder vocab frozen; new recruit type "
+                                f"{r!r} aliasing to overflow."
+                            )
+                        continue
+                    if len(type_to_id) >= cap:
+                        # Already warned above on the unit pass; quiet
+                        # here to avoid log-spam on a single state.
+                        continue
+                    type_to_id[r] = len(type_to_id)
+
+    def encode_from_raw(
+        self,
+        raw: RawEncoded,
+        *,
+        device: Optional[torch.device] = None,
+    ) -> EncodedState:
+        """Finalize a `RawEncoded` into an `EncodedState`.
+
+        This is the half that touches learned parameters — embeddings
+        and linear projections. It must run on the process that owns
+        the encoder's parameters (the trainer / inference main).
+
+        Hot-path note: bulk fields go through `torch.from_numpy(...)`
+        (~3 µs, zero-copy on CPU) plus an optional `.to(device)` for
+        the GPU case (single coalesced memcpy per array). The previous
+        version used `torch.tensor(python_list, ...)` which paid an
+        extra ~500 µs per call iterating the Python list. With ~12
+        such calls per pair the savings dominate the trainer's
+        main-thread budget once workers prefetch encode_raw.
+        """
+        if device is None:
+            device = next(self.parameters()).device
+        d = self.d_model
+        # `non_blocking=True` lets the H2D copy overlap with whatever
+        # the device was already doing. Harmless on CPU (no-op).
+        # Kept True on DML after the ablation -- see the matching
+        # comment in encode_from_raw_batch.
+        nb = device.type != "cpu"
+
+        def _to_dev(arr_or_tensor):
+            t = torch.from_numpy(arr_or_tensor)
+            if device.type != "cpu":
+                t = t.to(device, non_blocking=nb)
+            return t
+
+        # ---- hexes ----
+        H = raw.hex_xs.shape[0]
+        if H == 0:
+            hex_tokens = torch.zeros(1, 0, d, device=device)
+        else:
+            hx = _to_dev(raw.hex_xs)
+            hy = _to_dev(raw.hex_ys)
+            ht = _to_dev(raw.hex_terrain_ids)
+            hm = _to_dev(raw.hex_modifier_flags)
+            hd = _to_dev(raw.hex_dynamic_flags)
+            hex_tokens = (
+                self.pos_x_embed(hx)
+                + self.pos_y_embed(hy)
+                + self.terrain_embed(ht)
+                + self.modifier_proj(hm)
+                + self.dynamic_flag_proj(hd)
+            ).unsqueeze(0)  # [1, H, d]
+
+        # ---- units ----
+        U = raw.unit_xs.shape[0]
+        if U == 0:
+            unit_tokens  = torch.zeros(1, 0, d, device=device)
+            unit_is_ours = torch.zeros(1, 0, device=device, dtype=torch.float32)
+        else:
+            ut = _to_dev(raw.unit_type_ids)
+            us_ids = _to_dev(raw.unit_side_ids)
+            ux = _to_dev(raw.unit_xs)
+            uy = _to_dev(raw.unit_ys)
+            uf = _to_dev(raw.unit_feats)
+            unit_tokens = (
+                self.unit_type_embed(ut)
+                + self.side_embed(us_ids)
+                + self.pos_x_embed(ux)
+                + self.pos_y_embed(uy)
+                + self.unit_feat_proj(uf)
+            ).unsqueeze(0)  # [1, U, d]
+            unit_is_ours = _to_dev(raw.unit_is_ours).unsqueeze(0)
+
+        # ---- recruits ----
+        R = raw.recruit_type_ids.shape[0]
+        if R == 0:
+            recruit_tokens  = torch.zeros(1, 0, d, device=device)
+            recruit_is_ours = torch.zeros(1, 0, device=device, dtype=torch.float32)
+        else:
+            rt = _to_dev(raw.recruit_type_ids)
+            rs = _to_dev(raw.recruit_side_ids)
+            rx = _to_dev(raw.recruit_xs)
+            ry = _to_dev(raw.recruit_ys)
+            rf = _to_dev(raw.recruit_feats)
+            # Recruit token now mirrors the unit token's structure: type
+            # + side + position (leader's keep) + per-unit features.
+            # Sharing `unit_feat_proj` and the position embeds with real
+            # units lets the actor head treat "would-be Dwarvish
+            # Fighter at our keep" the same way as "Dwarvish Fighter
+            # standing here", so the recruit decision conditions on
+            # the same numeric features the model uses everywhere
+            # else. Closes the under-specification gap that drove
+            # "model never recruits" in earlier supervised eval.
+            recruit_tokens = (
+                self.unit_type_embed(rt)
+                + self.side_embed(rs)
+                + self.pos_x_embed(rx)
+                + self.pos_y_embed(ry)
+                + self.unit_feat_proj(rf)
+            ).unsqueeze(0)  # [1, R, d]
+            recruit_is_ours = _to_dev(raw.recruit_is_ours).unsqueeze(0)
+
+        # ---- global ----
+        # 6-element float vector + two ints — small enough that
+        # torch.tensor scalar paths are fine; from_numpy on a 6-element
+        # array would be a wash.
+        gf = torch.from_numpy(raw.global_feats).unsqueeze(0)
+        if device.type != "cpu":
+            gf = gf.to(device, non_blocking=nb)
+        emb = self.global_proj(gf)
+        our_fid  = torch.tensor([raw.our_faction_id],  device=device, dtype=torch.long)
+        them_fid = torch.tensor([raw.their_faction_id], device=device, dtype=torch.long)
+        emb = emb + self.our_faction_embed(our_fid) + self.their_faction_embed(them_fid)
+        global_token = emb.unsqueeze(0)  # [1, 1, d]
+
+        # Pre-compute (x, y) -> hex index map for downstream sampler
+        # legality checks. Saves rebuilding it per-decision in
+        # action_sampler._build_legality_masks.
+        pos_to_hex = {
+            (p.x, p.y): j for j, p in enumerate(raw.hex_positions)
+        }
 
         return EncodedState(
             hex_tokens=hex_tokens,
-            hex_positions=hex_positions,
+            hex_positions=raw.hex_positions,
+            pos_to_hex=pos_to_hex,
             unit_tokens=unit_tokens,
             unit_is_ours=unit_is_ours,
-            unit_positions=unit_positions,
-            unit_ids=unit_ids,
+            unit_positions=raw.unit_positions,
+            unit_ids=raw.unit_ids,
             recruit_tokens=recruit_tokens,
             recruit_is_ours=recruit_is_ours,
-            recruit_types=recruit_types,
+            recruit_types=raw.recruit_types,
             global_token=global_token,
             end_turn_token=self.end_turn_token.view(1, 1, -1),
+            recruit_is_ours_np=raw.recruit_is_ours,  # zero-copy view
         )
 
-    # ----- internals ---------------------------------------------------
+    def encode_from_raw_batch(
+        self,
+        raws: List[RawEncoded],
+        *,
+        device: Optional[torch.device] = None,
+    ) -> List[EncodedState]:
+        """Batched version of `encode_from_raw`.
 
-    def _name_id(self, name: str) -> int:
-        """Map a unit-type name to a stable small int, growing on demand.
-
-        Clamped to ``MAX_UNIT_TYPES - 1`` so an out-of-vocabulary type
-        doesn't blow up the embedding table. Collisions on overflow are
-        acceptable — the AI just treats rare types as "the overflow
-        type". Retrain with a bigger table if this starts to bite.
+        For each embedding/projection (`pos_x_embed`, `terrain_embed`,
+        `unit_type_embed`, etc.), the per-sample path pays a fixed
+        kernel-launch overhead (~30 µs on GPU, ~5 µs on CPU). Across
+        the 5 hex streams + 5 unit streams + 5 recruit streams + 4
+        global ops, that's ~70 launches per state. At a typical
+        training chunk of 8 states, fusing the launches concatenates
+        all per-state arrays into one big call (5 + 5 + 5 + 4 = 19
+        launches per CHUNK rather than 19×B), trimming ~3 ms of
+        launch overhead per train_step on GPU.
+        Result identity: each returned EncodedState matches what
+        `encode_from_raw` would produce for that sample (verified by
+        `test_encode_from_raw_batch_parity`). Downstream code is
+        unchanged.
         """
-        if name not in self.unit_type_to_id:
-            self.unit_type_to_id[name] = len(self.unit_type_to_id)
-        idx = self.unit_type_to_id[name]
-        return min(idx, MAX_UNIT_TYPES - 1)
+        if not raws:
+            return []
+        if len(raws) == 1:
+            return [self.encode_from_raw(raws[0], device=device)]
 
-    def _clamp_pos(self, v: int) -> int:
-        return max(0, min(v, MAX_MAP_SIZE - 1))
+        if device is None:
+            device = next(self.parameters()).device
+        d = self.d_model
+        # Async H2D transfers via non_blocking=True. On DML the queue
+        # can grow unbounded; we used to force this False as a
+        # mitigation but it cost ~2× DML speed. The ablation showed
+        # that the train_step crash was driven mainly by the
+        # B=4 backward path + lack of rollout-to-train_step sync,
+        # not by the async transfers themselves. Keeping nb=True
+        # here; stability comes from `train_batch_size=1` +
+        # `dml_sync` at the start of `trainer.step` (see device.py).
+        nb = device.type != "cpu"
 
-    def _encode_hexes(self, game_state: GameState, device):
-        # Row-major sort so hex_positions has a predictable order.
-        hexes = sorted(
-            game_state.map.hexes,
-            key=lambda h: (h.position.y, h.position.x),
+        Hs = [r.hex_xs.shape[0] for r in raws]
+        Us = [r.unit_xs.shape[0] for r in raws]
+        Rs = [r.recruit_type_ids.shape[0] for r in raws]
+        H_total = sum(Hs); U_total = sum(Us); R_total = sum(Rs)
+        B = len(raws)
+
+        def _cat_to_dev(arrays, dtype):
+            # np.concatenate handles the all-empty case via the
+            # explicit dtype kwarg.
+            cat = np.concatenate(arrays) if arrays else np.zeros(0, dtype=dtype)
+            t = torch.from_numpy(cat)
+            if device.type != "cpu":
+                t = t.to(device, non_blocking=nb)
+            return t
+
+        # ---- hex stream ----
+        if H_total == 0:
+            hex_per = [torch.zeros(1, 0, d, device=device) for _ in raws]
+        else:
+            hx = _cat_to_dev([r.hex_xs for r in raws], np.int64)
+            hy = _cat_to_dev([r.hex_ys for r in raws], np.int64)
+            ht = _cat_to_dev([r.hex_terrain_ids for r in raws], np.int64)
+            hm = _cat_to_dev([r.hex_modifier_flags for r in raws],
+                             np.float32)
+            hd = _cat_to_dev([r.hex_dynamic_flags for r in raws],
+                             np.float32)
+            hex_emb = (
+                self.pos_x_embed(hx) + self.pos_y_embed(hy)
+                + self.terrain_embed(ht) + self.modifier_proj(hm)
+                + self.dynamic_flag_proj(hd)
+            )  # [H_total, d]
+            # torch.split with explicit sizes preserves order and
+            # emits a (possibly empty) tensor per requested length.
+            hex_splits = torch.split(hex_emb, Hs)
+            hex_per = [s.unsqueeze(0) for s in hex_splits]
+
+        # ---- unit stream ----
+        if U_total == 0:
+            unit_per      = [torch.zeros(1, 0, d, device=device) for _ in raws]
+            unit_is_per   = [torch.zeros(1, 0, device=device,
+                                         dtype=torch.float32) for _ in raws]
+        else:
+            ut     = _cat_to_dev([r.unit_type_ids for r in raws], np.int64)
+            us_ids = _cat_to_dev([r.unit_side_ids for r in raws], np.int64)
+            ux     = _cat_to_dev([r.unit_xs for r in raws], np.int64)
+            uy     = _cat_to_dev([r.unit_ys for r in raws], np.int64)
+            uf     = _cat_to_dev([r.unit_feats for r in raws], np.float32)
+            unit_emb = (
+                self.unit_type_embed(ut) + self.side_embed(us_ids)
+                + self.pos_x_embed(ux) + self.pos_y_embed(uy)
+                + self.unit_feat_proj(uf)
+            )  # [U_total, d]
+            unit_per = [s.unsqueeze(0) for s in torch.split(unit_emb, Us)]
+            unit_is_cat = _cat_to_dev(
+                [r.unit_is_ours for r in raws], np.float32)
+            unit_is_per = [s.unsqueeze(0)
+                           for s in torch.split(unit_is_cat, Us)]
+
+        # ---- recruit stream ----
+        if R_total == 0:
+            recruit_per    = [torch.zeros(1, 0, d, device=device) for _ in raws]
+            recruit_is_per = [torch.zeros(1, 0, device=device,
+                                          dtype=torch.float32) for _ in raws]
+        else:
+            rt = _cat_to_dev([r.recruit_type_ids for r in raws], np.int64)
+            rs = _cat_to_dev([r.recruit_side_ids for r in raws], np.int64)
+            rx = _cat_to_dev([r.recruit_xs for r in raws], np.int64)
+            ry = _cat_to_dev([r.recruit_ys for r in raws], np.int64)
+            rf = _cat_to_dev([r.recruit_feats for r in raws], np.float32)
+            recruit_emb = (
+                self.unit_type_embed(rt) + self.side_embed(rs)
+                + self.pos_x_embed(rx) + self.pos_y_embed(ry)
+                + self.unit_feat_proj(rf)
+            )  # [R_total, d]
+            recruit_per = [s.unsqueeze(0)
+                           for s in torch.split(recruit_emb, Rs)]
+            recruit_is_cat = _cat_to_dev(
+                [r.recruit_is_ours for r in raws], np.float32)
+            recruit_is_per = [s.unsqueeze(0)
+                              for s in torch.split(recruit_is_cat, Rs)]
+
+        # ---- global ----
+        # Stack per-state 6-elem floats into a [B, GLOBAL_FEAT_DIM]
+        # matrix and run global_proj once. Faction lookup is a
+        # single int64 lookup per side.
+        gf_np = np.stack([r.global_feats for r in raws])  # [B, GLOBAL_FEAT_DIM]
+        gf = torch.from_numpy(gf_np)
+        if device.type != "cpu":
+            gf = gf.to(device, non_blocking=nb)
+        global_proj = self.global_proj(gf)  # [B, d]
+        our_fids  = torch.tensor([r.our_faction_id   for r in raws],
+                                 device=device, dtype=torch.long)
+        them_fids = torch.tensor([r.their_faction_id for r in raws],
+                                 device=device, dtype=torch.long)
+        global_emb = (
+            global_proj
+            + self.our_faction_embed(our_fids)
+            + self.their_faction_embed(them_fids)
+        )  # [B, d]
+
+        # ---- assemble per-sample EncodedState objects ----
+        end_turn_token = self.end_turn_token.view(1, 1, -1)
+        results: List[EncodedState] = []
+        for b in range(B):
+            raw = raws[b]
+            pos_to_hex = {
+                (p.x, p.y): j for j, p in enumerate(raw.hex_positions)
+            }
+            results.append(EncodedState(
+                hex_tokens=hex_per[b],
+                hex_positions=raw.hex_positions,
+                pos_to_hex=pos_to_hex,
+                unit_tokens=unit_per[b],
+                unit_is_ours=unit_is_per[b],
+                unit_positions=raw.unit_positions,
+                unit_ids=raw.unit_ids,
+                recruit_tokens=recruit_per[b],
+                recruit_is_ours=recruit_is_per[b],
+                recruit_types=raw.recruit_types,
+                global_token=global_emb[b:b + 1].unsqueeze(1),  # [1, 1, d]
+                end_turn_token=end_turn_token,
+                recruit_is_ours_np=raw.recruit_is_ours,
+            ))
+        return results
+
+
+# ---------------------------------------------------------------------
+# encode_raw — phase-1 of encoding. Pure Python, vocab read-only.
+# ---------------------------------------------------------------------
+
+def _clamp_pos(v: int) -> int:
+    return max(0, min(v, MAX_MAP_SIZE - 1))
+
+
+def _lookup_id(name: str, table: Dict[str, int], maxn: int) -> int:
+    """Read-only vocab lookup. Out-of-vocab → overflow bucket (maxn-1).
+
+    Mirrors the clamping behavior of the old `_name_id` / `_faction_id`
+    methods, but never mutates the dict — safe to call from worker
+    processes that share a frozen view of the vocab.
+    """
+    return min(table.get(name, maxn - 1), maxn - 1)
+
+
+def encode_raw(
+    game_state: GameState,
+    *,
+    type_to_id: Dict[str, int],
+    faction_to_id: Dict[str, int],
+) -> RawEncoded:
+    """Build a `RawEncoded` from a GameState using read-only vocab.
+
+    Self-contained: no torch, no nn modules, no GPU. The result is
+    picklable, so workers can call this and ship results back to the
+    trainer over a multiprocessing queue.
+
+    The caller is responsible for keeping `type_to_id` / `faction_to_id`
+    in sync between workers and the encoder owning the embedding tables
+    — typically by pre-seeding before spawning workers and never
+    growing during training.
+
+    Output bulk fields are numpy arrays (int64 / float32) so the
+    trainer's `encode_from_raw` can wrap them with `torch.from_numpy`
+    in zero-copy O(1) time. The np.asarray calls here run in the
+    worker process and are hidden behind the main thread's GPU work.
+    """
+    current_side = game_state.global_info.current_side
+    sides = game_state.sides
+    MAP_LIMIT = MAX_MAP_SIZE - 1   # avoid attribute lookup in tight loops
+
+    # ---- hexes ----
+    # Fog hexes are RETAINED. Wesnoth's fog of war hides UNITS on a
+    # hex from sides that don't have vision there, but the TERRAIN
+    # is still visible (the player saw the map at scenario start).
+    # Dropping fog hexes from our hex token stream silently makes
+    # them ineligible for the recruit hex mask (the BFS over the
+    # leader's castle network would skip them) -- so the policy
+    # could never attempt to recruit on fog castle hexes, even
+    # though Wesnoth would happily accept the attempt and bounce
+    # only if an enemy is actually there. Per the legality-mask
+    # contract in CLAUDE.md, we want fog hexes attemptable; the
+    # rejection-history feature handles the bounce case.
+    #
+    # We DON'T need to filter units in fog -- Wesnoth's state
+    # collector already excludes invisible enemy units from
+    # `gs.map.units` for the side we're encoding for, so any
+    # hidden unit isn't in the input we see anyway.
+    hexes = sorted(game_state.map.hexes,
+                   key=lambda h: (h.position.y, h.position.x))
+
+    hex_positions = [h.position for h in hexes]
+    H = len(hex_positions)
+
+    # Per-turn rejection set (hexes a previous recruit attempt
+    # bounced this turn). Stashed on global_info by the harness;
+    # absent on fresh states. See CLAUDE.md legality-mask contract.
+    # The parallel `_move_rejected_hexes` set (move-bounce on a
+    # fog-hidden enemy) is consumed by the action_sampler's
+    # legality mask, NOT mirrored into the encoder -- a token bit
+    # would duplicate the mask's hard constraint.
+    rejected_hexes = (
+        getattr(game_state.global_info, "_recruit_rejected_hexes", None)
+        or set()
+    )
+
+    if H == 0:
+        hex_xs_np = np.empty(0, dtype=np.int64)
+        hex_ys_np = np.empty(0, dtype=np.int64)
+        hex_terrain_ids_np = np.empty(0, dtype=np.int64)
+        hex_modifier_flags_np = np.empty((0, NUM_HEX_MODIFIERS), dtype=np.float32)
+        hex_dynamic_flags_np = np.empty((0, NUM_HEX_DYNAMIC_FLAGS), dtype=np.float32)
+    else:
+        # Inline the clamp + terrain/modifier extraction in tight loops
+        # to skip per-call Python-frame overhead. _clamp_pos/_first_terrain_id
+        # are still defined as standalone helpers for clarity / unit tests;
+        # we just don't call them per-hex.
+        hex_xs_np          = np.empty(H, dtype=np.int64)
+        hex_ys_np          = np.empty(H, dtype=np.int64)
+        hex_terrain_ids_np = np.empty(H, dtype=np.int64)
+        hex_modifier_flags_np = np.zeros((H, NUM_HEX_MODIFIERS), dtype=np.float32)
+        hex_dynamic_flags_np = np.zeros((H, NUM_HEX_DYNAMIC_FLAGS), dtype=np.float32)
+        terrain_village = Terrain.VILLAGE
+        terrain_castle  = Terrain.CASTLE
+        terrain_flat_v  = Terrain.FLAT.value
+        mod_village = TerrainModifiers.VILLAGE
+        mod_keep    = TerrainModifiers.KEEP
+        mod_castle  = TerrainModifiers.CASTLE
+        for i, h in enumerate(hexes):
+            p = h.position
+            hex_xs_np[i] = 0 if p.x < 0 else (MAP_LIMIT if p.x > MAP_LIMIT else p.x)
+            hex_ys_np[i] = 0 if p.y < 0 else (MAP_LIMIT if p.y > MAP_LIMIT else p.y)
+            tt = h.terrain_types
+            if not tt:
+                hex_terrain_ids_np[i] = terrain_flat_v
+            elif terrain_village in tt:
+                hex_terrain_ids_np[i] = terrain_village.value
+            elif terrain_castle in tt:
+                hex_terrain_ids_np[i] = terrain_castle.value
+            else:
+                hex_terrain_ids_np[i] = next(iter(tt)).value
+            mods = h.modifiers
+            if mod_village in mods: hex_modifier_flags_np[i, 0] = 1.0
+            if mod_keep    in mods: hex_modifier_flags_np[i, 1] = 1.0
+            if mod_castle  in mods: hex_modifier_flags_np[i, 2] = 1.0
+            # Dynamic flag: recruit-rejected this turn.
+            if (p.x, p.y) in rejected_hexes:
+                hex_dynamic_flags_np[i, 0] = 1.0
+
+    # ---- units ----
+    # Fog-of-war filter: the policy must only see units that the
+    # current side could see in real Wesnoth. The sim runs god-
+    # view internally (combat math etc. need ground truth), but
+    # for the encoder's observation we MUST filter -- otherwise
+    # the policy learns to use enemy positions it wouldn't have
+    # access to at deploy time. `units_visible_to` honors the
+    # three Wesnoth rules: own units always visible; enemy units
+    # outside the side's sight discs hidden; enemy units with an
+    # active hide-cover ability (ambush/concealment/submerge/
+    # nightstalk) hidden until uncovered (sim manages the
+    # `_uncovered_units` set per ambush-trigger). See
+    # `visibility.py` for the full contract.
+    units = sorted(
+        units_visible_to(game_state, current_side),
+        key=lambda u: (u.position.y, u.position.x, u.id),
+    )
+    U = len(units)
+    unit_positions = [u.position for u in units]
+    unit_ids       = [u.id for u in units]
+
+    unit_is_ours_np  = np.empty(U, dtype=np.float32)
+    unit_type_ids_np = np.empty(U, dtype=np.int64)
+    unit_side_ids_np = np.empty(U, dtype=np.int64)
+    unit_xs_np       = np.empty(U, dtype=np.int64)
+    unit_ys_np       = np.empty(U, dtype=np.int64)
+    unit_feats_np    = np.empty((U, UNIT_FEAT_DIM), dtype=np.float32)
+    type_overflow    = MAX_UNIT_TYPES - 1
+    for i, u in enumerate(units):
+        is_ours = u.side == current_side
+        unit_is_ours_np[i]  = 1.0 if is_ours else 0.0
+        unit_side_ids_np[i] = 0 if is_ours else 1
+        unit_type_ids_np[i] = min(
+            type_to_id.get(u.name, type_overflow), type_overflow
         )
-        positions = [h.position for h in hexes]
-        if not hexes:
-            return (
-                torch.zeros(1, 0, self.d_model, device=device),
-                positions,
+        ux, uy = u.position.x, u.position.y
+        unit_xs_np[i] = 0 if ux < 0 else (MAP_LIMIT if ux > MAP_LIMIT else ux)
+        unit_ys_np[i] = 0 if uy < 0 else (MAP_LIMIT if uy > MAP_LIMIT else uy)
+        unit_feats_np[i] = _unit_features(u)
+
+    # ---- recruits ----
+    # Fog-of-war filter: only the CURRENT side's recruit phantoms
+    # are emitted. In real Wesnoth a player never sees the enemy's
+    # recruit list (or even confirms which units they CAN recruit
+    # until one appears on the board). Previously we emitted
+    # phantoms for every side -- a fog leak on two counts:
+    #   1. The recruit type ids leaked which faction the enemy
+    #      picked (visible to humans from the lobby anyway, but
+    #      the policy shouldn't get a free token for it).
+    #   2. The phantom's positional coords (lx, ly) leaked the
+    #      enemy LEADER's keep coordinates -- god-view info that
+    #      Wesnoth's fog hides until you scout it.
+    # Looking up the current side's leader is straightforward;
+    # we no longer need a per-side dict because we only need OUR
+    # leader's position to coord-anchor OUR recruit phantoms.
+    own_leader_xy: Tuple[int, int] = (0, 0)
+    for u in game_state.map.units:
+        if u.is_leader and u.side == current_side:
+            own_leader_xy = (u.position.x, u.position.y)
+            break
+    recruit_types: List[str] = []
+    recruit_is_ours: List[float] = []
+    recruit_type_ids: List[int]  = []
+    recruit_side_ids: List[int]  = []
+    recruit_xs: List[int] = []
+    recruit_ys: List[int] = []
+    recruit_feats_rows: List[np.ndarray] = []
+    # Emit recruit phantoms ONLY for the current side. Enemy
+    # recruit lists are fog-hidden per Wesnoth's UI contract.
+    if 0 < current_side <= len(sides):
+        side_info = sides[current_side - 1]
+        lx, ly = own_leader_xy
+        lx_clamped = 0 if lx < 0 else (MAP_LIMIT if lx > MAP_LIMIT else lx)
+        ly_clamped = 0 if ly < 0 else (MAP_LIMIT if ly > MAP_LIMIT else ly)
+        for name in side_info.recruits:
+            recruit_types.append(name)
+            recruit_is_ours.append(1.0)
+            recruit_type_ids.append(
+                min(type_to_id.get(name, type_overflow), type_overflow)
             )
+            recruit_side_ids.append(0)   # 0 = ours
+            recruit_xs.append(lx_clamped)
+            recruit_ys.append(ly_clamped)
+            recruit_feats_rows.append(_recruit_features_for(name))
+    recruit_is_ours_np  = np.asarray(recruit_is_ours,  dtype=np.float32)
+    recruit_type_ids_np = np.asarray(recruit_type_ids, dtype=np.int64)
+    recruit_side_ids_np = np.asarray(recruit_side_ids, dtype=np.int64)
+    recruit_xs_np       = np.asarray(recruit_xs,       dtype=np.int64)
+    recruit_ys_np       = np.asarray(recruit_ys,       dtype=np.int64)
+    if recruit_feats_rows:
+        recruit_feats_np = np.stack(recruit_feats_rows, axis=0)
+    else:
+        recruit_feats_np = np.zeros((0, UNIT_FEAT_DIM), dtype=np.float32)
 
-        xs = torch.tensor(
-            [self._clamp_pos(p.x) for p in positions],
-            device=device, dtype=torch.long,
-        )
-        ys = torch.tensor(
-            [self._clamp_pos(p.y) for p in positions],
-            device=device, dtype=torch.long,
-        )
-        pos_emb = self.pos_x_embed(xs) + self.pos_y_embed(ys)  # [H, d]
+    # ---- global ----
+    gi = game_state.global_info
+    us_idx = current_side - 1
+    them_idx = 1 - us_idx if len(sides) == 2 else us_idx  # 2p assumption
+    our_gold       = sides[us_idx].current_gold if 0 <= us_idx < len(sides) else 0
+    our_income     = sides[us_idx].base_income  if 0 <= us_idx < len(sides) else 0
+    our_villages   = sides[us_idx].nb_villages_controlled if 0 <= us_idx < len(sides) else 0
+    their_villages = sides[them_idx].nb_villages_controlled if 0 <= them_idx < len(sides) else 0
 
-        terr_ids = torch.tensor(
-            [_first_terrain_id(h.terrain_types) for h in hexes],
-            device=device, dtype=torch.long,
-        )
-        terr_emb = self.terrain_embed(terr_ids)  # [H, d]
+    global_feats_np = np.array([
+        gi.turn_number / TURN_NORM,
+        (current_side - 1.5) * 2.0,   # 1 → -1, 2 → +1
+        our_gold       / GOLD_NORM,
+        our_income     / INCOME_NORM,
+        our_villages   / VILLAGES_NORM,
+        their_villages / VILLAGES_NORM,
+    ], dtype=np.float32)
 
-        mod_flags = torch.tensor(
-            [_modifier_flags(h.modifiers) for h in hexes],
-            device=device, dtype=torch.float32,
-        )  # [H, 3]
-        mod_emb = self.modifier_proj(mod_flags)  # [H, d]
+    our_fac  = sides[us_idx].faction   if 0 <= us_idx   < len(sides) else ""
+    them_fac = sides[them_idx].faction if 0 <= them_idx < len(sides) else ""
+    our_faction_id   = _lookup_id(our_fac,  faction_to_id, MAX_FACTIONS)
+    their_faction_id = _lookup_id(them_fac, faction_to_id, MAX_FACTIONS)
 
-        tokens = (pos_emb + terr_emb + mod_emb).unsqueeze(0)  # [1, H, d]
-        return tokens, positions
-
-    def _encode_units(self, game_state: GameState, current_side: int, device):
-        units = sorted(
-            game_state.map.units,
-            key=lambda u: (u.position.y, u.position.x, u.id),
-        )
-        if not units:
-            return (
-                torch.zeros(1, 0, self.d_model, device=device),
-                torch.zeros(1, 0, device=device, dtype=torch.float32),
-                [], [],
-            )
-
-        positions = [u.position for u in units]
-        ids = [u.id for u in units]
-        is_ours = [1.0 if u.side == current_side else 0.0 for u in units]
-
-        # Use OUR name→id map (self.unit_type_to_id), not Unit.name_id
-        # — see class docstring for why.
-        type_ids = torch.tensor(
-            [self._name_id(u.name) for u in units],
-            device=device, dtype=torch.long,
-        )
-        type_emb = self.unit_type_embed(type_ids)  # [U, d]
-
-        side_ids = torch.tensor(
-            [0 if u.side == current_side else 1 for u in units],
-            device=device, dtype=torch.long,
-        )
-        side_emb = self.side_embed(side_ids)  # [U, d]
-
-        xs = torch.tensor([self._clamp_pos(u.position.x) for u in units],
-                          device=device, dtype=torch.long)
-        ys = torch.tensor([self._clamp_pos(u.position.y) for u in units],
-                          device=device, dtype=torch.long)
-        pos_emb = self.pos_x_embed(xs) + self.pos_y_embed(ys)  # [U, d]
-
-        feats = torch.tensor(
-            [_unit_features(u) for u in units],
-            device=device, dtype=torch.float32,
-        )  # [U, UNIT_FEAT_DIM]
-        feat_emb = self.unit_feat_proj(feats)  # [U, d]
-
-        tokens = (type_emb + side_emb + pos_emb + feat_emb).unsqueeze(0)
-        is_ours_t = torch.tensor(is_ours, device=device,
-                                 dtype=torch.float32).unsqueeze(0)
-        return tokens, is_ours_t, positions, ids
-
-    def _encode_recruits(self, game_state: GameState, current_side: int, device):
-        entries = []  # (name, side)
-        for side_idx, side_info in enumerate(game_state.sides, start=1):
-            for name in side_info.recruits:
-                entries.append((name, side_idx))
-
-        if not entries:
-            return (
-                torch.zeros(1, 0, self.d_model, device=device),
-                torch.zeros(1, 0, device=device, dtype=torch.float32),
-                [],
-            )
-
-        recruit_types = [name for name, _ in entries]
-        is_ours = [1.0 if s == current_side else 0.0 for _, s in entries]
-
-        type_ids = torch.tensor(
-            [self._name_id(name) for name, _ in entries],
-            device=device, dtype=torch.long,
-        )
-        type_emb = self.unit_type_embed(type_ids)
-
-        side_ids = torch.tensor(
-            [0 if s == current_side else 1 for _, s in entries],
-            device=device, dtype=torch.long,
-        )
-        side_emb = self.side_embed(side_ids)
-
-        # Recruit tokens have no position — they live in the keep
-        # abstractly. They also don't have the per-unit numerical
-        # features (HP/moves/...), because no instance exists yet.
-        tokens = (type_emb + side_emb).unsqueeze(0)
-        is_ours_t = torch.tensor(is_ours, device=device,
-                                 dtype=torch.float32).unsqueeze(0)
-        return tokens, is_ours_t, recruit_types
-
-    def _encode_global(self, game_state: GameState, current_side: int, device):
-        gi = game_state.global_info
-        sides = game_state.sides
-        us_idx = current_side - 1
-        them_idx = 1 - us_idx if len(sides) == 2 else us_idx  # 2p assumption
-
-        our_gold         = sides[us_idx].current_gold if 0 <= us_idx < len(sides) else 0
-        our_income       = sides[us_idx].base_income  if 0 <= us_idx < len(sides) else 0
-        our_villages     = sides[us_idx].nb_villages_controlled if 0 <= us_idx < len(sides) else 0
-        their_villages   = sides[them_idx].nb_villages_controlled if 0 <= them_idx < len(sides) else 0
-
-        feats = torch.tensor([[
-            gi.turn_number / TURN_NORM,
-            (current_side - 1.5) * 2.0,   # 1 → -1, 2 → +1
-            our_gold / GOLD_NORM,
-            our_income / INCOME_NORM,
-            our_villages / VILLAGES_NORM,
-            their_villages / VILLAGES_NORM,
-        ]], device=device, dtype=torch.float32)
-
-        emb = self.global_proj(feats)  # [1, d_model]
-        return emb.unsqueeze(0)        # [1, 1, d_model]
+    return RawEncoded(
+        hex_positions=hex_positions,
+        hex_xs=hex_xs_np,
+        hex_ys=hex_ys_np,
+        hex_terrain_ids=hex_terrain_ids_np,
+        hex_modifier_flags=hex_modifier_flags_np,
+        hex_dynamic_flags=hex_dynamic_flags_np,
+        unit_positions=unit_positions,
+        unit_ids=unit_ids,
+        unit_is_ours=unit_is_ours_np,
+        unit_type_ids=unit_type_ids_np,
+        unit_side_ids=unit_side_ids_np,
+        unit_xs=unit_xs_np,
+        unit_ys=unit_ys_np,
+        unit_feats=unit_feats_np,
+        recruit_types=recruit_types,
+        recruit_is_ours=recruit_is_ours_np,
+        recruit_type_ids=recruit_type_ids_np,
+        recruit_side_ids=recruit_side_ids_np,
+        recruit_xs=recruit_xs_np,
+        recruit_ys=recruit_ys_np,
+        recruit_feats=recruit_feats_np,
+        global_feats=global_feats_np,
+        our_faction_id=our_faction_id,
+        their_faction_id=their_faction_id,
+    )
 
 
 # ---------------------------------------------------------------------
@@ -395,3 +1079,85 @@ def _unit_features(u: Unit) -> List[float]:
     alignment_onehot = [0.0] * NUM_ALIGNMENTS
     alignment_onehot[u.alignment.value] = 1.0
     return numeric + alignment_onehot
+
+
+# ---------------------------------------------------------------------
+# Recruit phantom-unit features
+# ---------------------------------------------------------------------
+# A "recruit option" doesn't have a Unit instance until it's spawned,
+# but we want the same feature vector shape `_unit_features` produces
+# so the model treats recruits and on-board units consistently. Build a
+# phantom feature vector from the unit-stats DB (scraped from
+# wesnoth_src). HP / moves / xp / cost / alignment all come from the
+# stats; current_* fields are spawn defaults (full HP, 0 MP since
+# spawn turn, 0 XP); is_leader=False, has_attacked=False.
+
+_RECRUIT_STATS_CACHE: Dict[str, np.ndarray] = {}
+_RECRUIT_DB_WARN_FIRED: bool = False  # one-shot flag for unit-DB load fallback
+_FALLBACK_RECRUIT_STATS = {
+    "hitpoints": 33, "moves": 5, "experience": 50, "cost": 14,
+    "alignment": "neutral",
+}
+
+
+def _alignment_value(name: str) -> int:
+    """Map an alignment string to the Alignment enum's int value.
+    Mirrors what classes.Alignment uses."""
+    n = (name or "neutral").lower()
+    # Order matches classes.Alignment: NEUTRAL, LAWFUL, CHAOTIC, LIMINAL.
+    table = {"neutral": 0, "lawful": 1, "chaotic": 2, "liminal": 3}
+    return table.get(n, 0)
+
+
+def _recruit_features_for(unit_type: str) -> np.ndarray:
+    """Return a [UNIT_FEAT_DIM] float32 phantom feature vector for
+    a recruit option of `unit_type`. Cached to avoid re-reading the
+    stats DB on every encoding call."""
+    cached = _RECRUIT_STATS_CACHE.get(unit_type)
+    if cached is not None:
+        return cached
+    # Lazy import: tools.replay_dataset already loads the unit DB on
+    # first access; reuse it rather than re-parsing the JSON.
+    # Narrow except: legitimate failures here are the lazy import
+    # itself (ImportError -- tools/ not on path) or the unit-db load
+    # propagating an OS / JSON error past replay_dataset's
+    # FileNotFoundError handler. Anything else is a bug we want loud.
+    try:
+        from tools.replay_dataset import _stats_for, _load_unit_db
+        _load_unit_db()
+        stats = _stats_for(unit_type)
+    except (ImportError, OSError, ValueError) as exc:
+        # ValueError covers json.JSONDecodeError (subclass) for a
+        # corrupt unit_stats.json. Warn once -- if this fires every
+        # encoding call we'd flood logs.
+        if not _RECRUIT_DB_WARN_FIRED:
+            globals()["_RECRUIT_DB_WARN_FIRED"] = True
+            log.warning(
+                "Falling back to default recruit stats for %s: %s: %s. "
+                "All recruit feature embeddings will use FALLBACK values "
+                "until unit_stats.json is fixed.",
+                unit_type, type(exc).__name__, exc,
+            )
+        stats = _FALLBACK_RECRUIT_STATS
+    max_hp = float(stats.get("hitpoints", 33))
+    max_mv = float(stats.get("moves", 5))
+    max_xp = float(stats.get("experience", 50))
+    cost   = float(stats.get("cost", 14))
+    align  = _alignment_value(stats.get("alignment", "neutral"))
+
+    numeric = [
+        max_hp / HP_NORM,
+        1.0,                      # current_hp = max on spawn
+        max_mv / MOVES_NORM,
+        0.0,                      # current_moves = 0 on spawn turn
+        max_xp / EXP_NORM,
+        0.0,                      # current_exp = 0
+        cost / COST_NORM,
+        0.0,                      # is_leader = False
+        0.0,                      # has_attacked = False
+    ]
+    alignment_onehot = [0.0] * NUM_ALIGNMENTS
+    alignment_onehot[align] = 1.0
+    out = np.asarray(numeric + alignment_onehot, dtype=np.float32)
+    _RECRUIT_STATS_CACHE[unit_type] = out
+    return out
