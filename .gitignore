@@ -22,9 +22,17 @@ Thumbs.db
 
 # Project runtime artifacts (regenerated on each run)
 logs/
-training/checkpoints/
 training/profiles/
 training/replays/
+
+# Trained checkpoints + their learning-curve CSVs are deliberately
+# TRACKED: months of training are not regenerable and the 2026-06
+# machine loss proved local-only copies aren't safe. Keep the
+# runtime stop-flag and job logs out.
+training/checkpoints/done.flag
+!training/logs/
+training/logs/*
+!training/logs/trainer_history_*.csv
 add-ons/wesnoth_ai/games/
 add-ons/wesnoth_ai/scenarios/eval/
 
