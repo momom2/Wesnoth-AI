@@ -34,6 +34,52 @@ strategies; cluster economy).
   infinite-loop stub bug. `main.py` missing `import subprocess`.
   Full suite: 234 passed / 21 skipped (corpus-dependent).
 
+## MCTS effectiveness roadmap (2026-06-11, profiling-driven)
+
+Baseline profile on the recovery laptop (CPU, 25 sims):
+~180ms/simulation = 118ms legal-action enumeration + 44ms model
+forward + 14ms encode. Enumeration was 2.6x the forward, mostly
+4.28M per-element `.item()` reads (fixed below). REINFORCE-side:
+reward shaping's `_min_mp_to_enemy_leader` Dijkstra costs ~30-40%
+of rollout wall-clock (2.3M `_move_cost_at_hex` calls/iter) —
+options (semantics tradeoff, needs user pick): per-turn field
+cache, hex-distance approximation, or leave (MCTS mode unaffected).
+
+- [x] 🔴 **FPU (first-play urgency)** (DONE 2026-06-11). Q=0 init
+  made every unvisited edge outrank the best move in losing
+  positions → breadth-1 sweep at small budgets. Now
+  clamp(parent_value - 0.25), no reduction at noised root
+  (KataGo convention).
+- [x] 🔴 **Temperature sampling at root** (DONE 2026-06-11).
+  Self-play played argmax-visits from move 1 → near-deterministic
+  games. Now visits^(1/tau) for first 30 decisions (AlphaZero).
+- [x] 🔴 **Vectorize `enumerate_legal_actions_with_priors`**
+  (DONE 2026-06-11). Bulk `.tolist()` instead of per-element
+  `.item()`/tensor indexing in the actor/target/weapon loops.
+- [ ] 🔴 **Terminal-z tiebreaker for draws.** 100% of games draw at
+  the turn cap → every MCTS value target is z=0 → value head
+  learns nothing → PUCT starved. Config-driven secondary signal
+  (e.g. material/gold differential mapped to z ∈ (-0.3, +0.3)),
+  and/or shorter --max-turns curriculum so leaderkill is reachable.
+  THE blocker for MCTS self-play producing signal.
+- [ ] 🟠 **Tree reuse across decisions.** Each move rebuilds the
+  tree; reusing the played child's subtree multiplies effective
+  sims, especially intra-turn (same side moves many times).
+  Invalidate on opponent-side transitions if fog makes reuse
+  unsound (sim is god-view inside search — check first).
+- [ ] 🟠 **Gumbel AlphaZero root selection** (Danihelka et al.
+  2022): sequential halving + Gumbel-Top-k at the root; provable
+  policy improvement at 16-32 sims, removes Dirichlet/temperature
+  knobs. The right fit for few-sims × many-actions.
+- [ ] 🟡 **Playout-cap randomization** (KataGo): most self-play
+  moves get a tiny budget, a random subset gets full budget and
+  produces policy targets — 3-10x more games per GPU-hour.
+- [ ] 🟡 **Batched leaf evaluation on GPU** once new compute
+  lands (`--mcts-batch-size 8-32`; wired, CPU-pessimal today).
+- [ ] 🟡 TT hit rate is 0.0% at 25 sims (bench 2026-06-11) —
+  re-bench after tree reuse; if still ~0, consider removing the
+  table (CLAUDE.md: prefer removing).
+
 ## Current state at a glance (2026-05-11)
 
 - **Simulator is the production training path.** `tools/wesnoth_sim.py`
