@@ -60,8 +60,7 @@ log = logging.getLogger("sim_demo_game")
 
 def _autoselect_checkpoint(root: Path) -> Optional[Path]:
     """Return the freshest `supervised*.pt` (or any .pt) in `root` by
-    modification time. Mirrors the .ps1 auto-pick logic so users
-    coming from `cluster/gui.pyw` get the same convenience."""
+    modification time."""
     if not root.is_dir():
         return None
     pts = sorted(root.glob("supervised*.pt"),
@@ -164,8 +163,8 @@ def main(argv) -> int:
         if ckpt is None:
             log.error(
                 "no checkpoint passed and none found under "
-                "training/checkpoints/. Pull one from the cluster first "
-                "(cluster/pull_checkpoint.ps1) or pass --checkpoint.")
+                "training/checkpoints/. Train one via "
+                "tools/sim_self_play.py or pass --checkpoint.")
             return 2
         log.info(f"auto-picked checkpoint: {ckpt}")
     if not ckpt.exists():

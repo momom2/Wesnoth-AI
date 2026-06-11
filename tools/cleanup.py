@@ -1,11 +1,11 @@
 """Comprehensive training-tree cleanup.
 
-Runs the same on local and cluster trees. Three jobs in one script:
+Three jobs in one script:
 
   1. ARCHIVE the rolling self-play checkpoint into a timestamped
      snapshot whenever the freshest existing snapshot is older than
      `--archive-stride-hours`. This is how we get a history -- the
-     cluster job otherwise just overwrites `sim_selfplay.pt` every
+     training loop otherwise just overwrites `sim_selfplay.pt` every
      `--save-every` iters and prior states are lost.
 
   2. APPLY TIERED RETENTION to those snapshots. The retention curve
@@ -22,9 +22,9 @@ Runs the same on local and cluster trees. Three jobs in one script:
   3. PRUNE the inert artifacts that aren't snapshots: legacy
      pre-pivot supervised step checkpoints (`checkpoint_<N>.pt`),
      `.bak` files, all-but-freshest `supervised_epoch*.pt` (the
-     sbatch's warm-start logic only ever reads the highest-N one),
+     warm-start logic only ever reads the highest-N one),
      stale demo `.bz2` replays under `logs/` (default keep 5
-     freshest), and old SLURM log files under `training/logs/`
+     freshest), and old job log files under `training/logs/`
      (default keep 10 freshest per prefix).
 
 Files we NEVER touch:
@@ -33,7 +33,7 @@ Files we NEVER touch:
   - `training/checkpoints/supervised_epoch<MAX>.pt` (idem -- newest)
   - The most recent `slurm-*.log` and `selfplay-slurm-*.log`
   - The most recent N demo .bz2 (--keep-demos, default 5)
-  - Anything outside the configured local / cluster trees
+  - Anything outside the configured training tree
   - `replays_raw/` (the corpus, used by template extraction)
   - `replays_dataset/` (used by tests)
 
@@ -48,10 +48,9 @@ Usage:
     python tools/cleanup.py --only checkpoints --yes
     python tools/cleanup.py --only logs --yes
 
-Wired into `cluster/job_selfplay.sbatch`'s tail so every chain link
-takes one archive snapshot (if stride met) and prunes old files
-automatically. Idempotent -- safe to run any time, including
-back-to-back.
+Run it after (or alongside) long training sessions to take archive
+snapshots and prune old files. Idempotent -- safe to run any time,
+including back-to-back.
 """
 
 from __future__ import annotations

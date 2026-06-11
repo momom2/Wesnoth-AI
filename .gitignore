@@ -23,6 +23,7 @@ Thumbs.db
 # Project runtime artifacts (regenerated on each run)
 logs/
 training/checkpoints/
+training/profiles/
 training/replays/
 add-ons/wesnoth_ai/games/
 add-ons/wesnoth_ai/scenarios/eval/
@@ -45,7 +46,6 @@ replays_raw_set_aside/
 replays_dataset_set_aside/
 
 # Build artifacts.
-wai_cluster_bundle.tar.gz
 unit_stats.json
 terrain_db.json
 tmp_scratch/

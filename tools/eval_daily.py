@@ -2,12 +2,11 @@
 
 Picks the freshest self-play checkpoint, runs a quick eval against
 Wesnoth's built-in RCA AI, and appends one row to a rolling CSV +
-markdown history. Wired into the daily cluster-pull workflow:
+markdown history. Daily workflow:
 
-    1. cluster trains overnight                           [cluster]
-    2. pull_checkpoint.ps1 fetches sim_selfplay.pt        [local]
-    3. eval_daily.py runs a 30-game preset against RCA    [local, this]
-    4. operator inspects training/eval_history.md          [local]
+    1. sim_self_play.py trains (overnight / in the background)
+    2. eval_daily.py runs a 30-game preset against RCA    [this]
+    3. operator inspects training/eval_history.md
 
 The eval itself goes through `tools/eval_vs_builtin.py` -- this script
 just wraps it with sensible "daily quick read" defaults (a small map
@@ -241,7 +240,7 @@ PRESETS = SIM_PRESETS
 
 def _pick_latest_checkpoint(ckpt_dir: Path) -> Optional[Path]:
     """Pick the freshest self-play .pt under `ckpt_dir`. Prefers
-    `sim_selfplay.pt` (the rolling cluster-pull target) if present;
+    `sim_selfplay.pt` (the rolling self-play target) if present;
     falls back to the highest-mtime *.pt. Returns None if none found
     so the caller can warn instead of crashing."""
     sp = ckpt_dir / "sim_selfplay.pt"
@@ -477,8 +476,8 @@ def main(argv: List[str]) -> int:
     else:
         ckpt = _pick_latest_checkpoint(args.ckpt_dir)
         if ckpt is None:
-            log.error(f"no checkpoints under {args.ckpt_dir} -- run "
-                      f"cluster/pull_checkpoint.ps1 first, or pass "
+            log.error(f"no checkpoints under {args.ckpt_dir} -- train "
+                      f"one via tools/sim_self_play.py first, or pass "
                       f"--checkpoint explicitly")
             return 1
         log.info(f"auto-picked checkpoint: {ckpt}")
@@ -490,9 +489,8 @@ def main(argv: List[str]) -> int:
     presets = _presets_for(args.backend)
     # Pick python.exe for the child even if WE were launched via
     # pythonw.exe -- pythonw's NUL stdio handles get inherited and
-    # silently crash subprocess output paths (the cluster/gui.pyw
-    # caller does the same swap, but a direct `pythonw eval_daily.py`
-    # invocation by anyone else would still bite).
+    # silently crash subprocess output paths (a direct
+    # `pythonw eval_daily.py` invocation would bite without this).
     py_exe = sys.executable
     if os.name == "nt":
         _d, _b = os.path.split(py_exe)

@@ -254,8 +254,7 @@ def main() -> int:
         `os.remove`).
 
     To run a self-play training cycle, use
-    `tools/sim_self_play.py` (or `cluster/run.sh start selfplay`
-    via the GUI).
+    `tools/sim_self_play.py`.
     To watch a trained model play, use `tools/sim_demo_game.py`
     (exports a Wesnoth-loadable .bz2 the GUI can replay).
     """
@@ -301,7 +300,6 @@ def main() -> int:
     print(
         "\nNothing to do. To run a training cycle:\n"
         "  python tools/sim_self_play.py [--mcts] [...]\n"
-        "  (or `cluster/run.sh start selfplay`)\n"
         "\nTo watch a trained model play one game:\n"
         "  python tools/sim_demo_game.py [--scenario multiplayer_*]\n"
     )

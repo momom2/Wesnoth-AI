@@ -14,7 +14,7 @@ Usage:
 
     python tools/compute_action_type_weights.py
         [--replays-dir replays_dataset]
-        [--out cluster/configs/action_type_weights.json]
+        [--out configs/action_type_weights.json]
 
 Output format (JSON):
 
@@ -124,8 +124,8 @@ def main(argv: List[str]) -> int:
                     default=Path("replays_dataset"),
                     help="Directory of .json.gz replays. Default: replays_dataset/")
     ap.add_argument("--out", type=Path,
-                    default=Path("cluster/configs/action_type_weights.json"),
-                    help="Output JSON path. Default: cluster/configs/action_type_weights.json")
+                    default=Path("configs/action_type_weights.json"),
+                    help="Output JSON path. Default: configs/action_type_weights.json")
     ap.add_argument("--max-files", type=int, default=0,
                     help="Cap on files scanned (0 = no cap; for quick dev iterations).")
     ap.add_argument("--ignore-recall", dest="ignore_recall",

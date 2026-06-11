@@ -6,6 +6,34 @@ Refreshed 2026-04-29 / 2026-05-02 / 2026-05-03 / 2026-05-04 /
 goals (superhuman play via MCTS+self-play; readable/customizable
 strategies; cluster economy).
 
+## Update (2026-06-11): machine loss, recovery, cluster decommission
+
+- The previous machine failed in early June; the project was
+  recovered onto a new machine. Local git was a stale April
+  snapshot — reconciled against origin/main (which was 152 commits
+  ahead) with the recovered post-push work (May 13-21: visibility.py
+  module, reward/trainer/encoder iterations, several new tools)
+  landed on top. Pre-reconciliation disk state preserved on the
+  `recovery-snapshot` branch.
+- **The ENSTA Mesogip cluster is permanently inaccessible.** All
+  cluster infrastructure (`cluster/`: sbatch jobs, sync/pull
+  scripts, Tk GUI, runbook) removed; configs relocated to
+  `configs/`. Training is local-only until new compute is chosen.
+- **Lost with the machine:** `replays_raw/` and `replays_dataset/`
+  (re-downloadable via `tools/download_replays.py` + re-extract;
+  ~21 tests skip until then), `wesnoth_src/`'s git metadata and
+  `src/` tree (data/ survived; re-clone at tag 1.18.4 to restore
+  the verifiable pin). Checkpoints survived (through 2026-05-21,
+  latest sim_selfplay at decision_step 5.68M) and are now tracked
+  in-repo so they can't be lost again.
+- **Fixed during recovery:** `test_round_trip_preserves_commands`
+  had been red since ccc7d82 (empty [checkup] acks made completed
+  seedless recruits look undone to the extractor; sim-emitted saves
+  now carry `generated_by="wesnoth_ai_sim"` and the extractor
+  trusts completion for them). test_mcts transposition test had an
+  infinite-loop stub bug. `main.py` missing `import subprocess`.
+  Full suite: 234 passed / 21 skipped (corpus-dependent).
+
 ## Current state at a glance (2026-05-11)
 
 - **Simulator is the production training path.** `tools/wesnoth_sim.py`

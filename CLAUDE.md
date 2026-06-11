@@ -12,7 +12,9 @@ behind config is preferred to code that gates behavior behind weights.
 - **Language:** Python 3.11+
 - **ML:** PyTorch
 - **Game:** Wesnoth 1.18.x (Steam install on Windows)
-- **Run:** `python main.py` (see `--help`)
+- **Run:** training via `python tools/sim_self_play.py`; demos via
+  `python tools/sim_demo_game.py`; live-Wesnoth setup checks via
+  `python main.py --check-setup`
 - **Test:** `pytest` (tests are Python-only; they exercise the WML
   parser and Lua-file generation with synthetic data — they do NOT spin
   up real Wesnoth)
@@ -32,11 +34,20 @@ Most replays in `replays_raw/` are from 1.18.x clients; pin
 accordingly. If a replay's `[scenario] version=` says something
 other than 1.18.x, scrape from that version's tag instead.
 
-## Current status (2026-05-10)
+## Current status (2026-06-11)
+
+**Training is local-only.** The ENSTA Mesogip cluster is permanently
+inaccessible (2026-06); all SLURM/sync/GUI infrastructure was removed
+(history: `cluster/` up to commit 8a31ea1, plus the
+`recovery-snapshot` branch). Reward/weight configs moved to
+`configs/`. The project was recovered onto a new machine 2026-06-11;
+`replays_raw/` and `replays_dataset/` did not survive and must be
+re-downloaded via `tools/download_replays.py` + re-extracted
+(~21 tests skip until then).
 
 **The simulator is the production training path.** `tools/wesnoth_sim.py`
 is a pure-Python headless reimplementation of Wesnoth 1.18.4's game
-logic, cluster-portable and ~1000× faster than driving a Wesnoth
+logic, ~1000× faster than driving a Wesnoth
 subprocess. Combat math is bit-exact verified (731/731 strikes
 matched against `[mp_checkup]` oracle on strict-sync replays);
 full-replay reconstruction at 98.57% clean on the 4,841-replay
@@ -46,10 +57,9 @@ competitive-2p corpus after the Stages 1–21 fidelity sweep
 **Self-play training is end-to-end ready.** `tools/sim_self_play.py`
 drives self-play in the simulator with either REINFORCE or MCTS
 (`--mcts` flag, AlphaZero-style PUCT + virtual loss + transposition
-table). The cluster job (`cluster/job_selfplay.sbatch`) runs on
-ENSTA-l40s, auto-resumes from `sim_selfplay.pt` or warm-starts
-from the highest `supervised_epoch*.pt`. GUI controls in
-`cluster/gui.pyw`.
+table). Auto-resumes from `sim_selfplay.pt` or warm-starts from the
+highest `supervised_epoch*.pt`. Checkpoints through 2026-05-21
+(latest at decision_step 5.68M) live in `training/checkpoints/`.
 
 **Distributional value head + cliffness signal landed 2026-05-10.**
 C51 head (K=51 atoms, `[V_MIN, V_MAX] = [-1, +1]`) replaces the
@@ -72,7 +82,7 @@ pit the trained model against the built-in RCA AI.
 
 ### Two paths that share encoder + model + trainer
 
-**Production path: in-process simulator (cluster + most local work).**
+**Production path: in-process simulator.**
 - `tools/wesnoth_sim.py` — pure-Python game logic. Reuses the
   replay-reconstruction machinery from `tools/replay_dataset.py`
   (which is bit-exact against Wesnoth via `[mp_checkup]` oracle on
@@ -87,8 +97,6 @@ pit the trained model against the built-in RCA AI.
   randomization with optional `--forced-faction` lock).
 - `tools/mcts.py` / `tools/mcts_policy.py` — MCTS implementation
   and the MCTSPolicy adapter that wraps TransformerPolicy.
-- `cluster/job_selfplay.sbatch` / `cluster/gui.pyw` — cluster
-  orchestration + Tk GUI.
 
 **Live-Wesnoth path (eval only).**
 - `main.py` — setup / maintenance CLI (`--check-setup`,
@@ -124,7 +132,7 @@ pit the trained model against the built-in RCA AI.
 - `trainer.py` — REINFORCE + value baseline (`step`) and
   AlphaZero-style soft-target distillation (`step_mcts`); both
   use the categorical CE value loss against C51 atom projections.
-- `rewards.py` / `cluster/configs/reward_selfplay.json` — shaping
+- `rewards.py` / `configs/reward_selfplay.json` — shaping
   reward (terminal ±1, gold/damage/village deltas, per-turn penalty,
   unit-type bonuses, turn-conditional bonuses).
 

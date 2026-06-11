@@ -51,9 +51,6 @@ Usage:
     python tools/profile_selfplay.py --iterations 3 --games-per-iter 8
     python tools/profile_selfplay.py --torch-profile --workers 6
     python tools/profile_selfplay.py --output-dir training/profiles/exp1
-
-Cluster invocation (typical):
-    sbatch cluster/job_profile.sbatch
 """
 
 from __future__ import annotations
