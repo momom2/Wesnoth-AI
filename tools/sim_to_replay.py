@@ -1239,6 +1239,14 @@ def export_replay(
         count=1,
         flags=re.MULTILINE,
     )
+    # Mark the rewritten save as sim-emitted (same marker the
+    # from-scratch scaffold carries). replay_extract.py keys on this
+    # to skip the undone-command heuristics: our [replay] block is
+    # rebuilt from sim.command_history, which records only executed
+    # commands -- no undos or saves-mid-action can occur. Wesnoth
+    # ignores unknown top-level save attributes.
+    if not text.startswith('generated_by="wesnoth_ai_sim"'):
+        text = 'generated_by="wesnoth_ai_sim"\n' + text
     if pvp_defaults is not None:
         text = _rewrite_pvp_settings(text, pvp_defaults)
     # ALWAYS rewrite sides to match the sim's leaders / factions /

@@ -811,6 +811,21 @@ def extract_replay(path: Path) -> Optional[dict]:
     Returns None if the file has no player commands (just a save game).
     """
     root = parse_replay_file(path)
+    # Saves emitted by tools/sim_to_replay carry this marker (set in
+    # the from-scratch scaffold and injected by the rewrite path).
+    # Their command streams come from sim.command_history, which
+    # records only EXECUTED commands -- undos and saves-mid-action
+    # cannot occur. The undone/interruption heuristics below must not
+    # fire on them. Concretely: seedless recruits (musthave-only
+    # races -- undead/mechanical/elemental) are emitted with an EMPTY
+    # [checkup] ack, because faking Wesnoth's pattern-A
+    # `[result]checksum=...` would fail the engine's
+    # `real_data == expected_data` comparison during playback
+    # (synced_checkup.cpp) -- so for sim saves, empty-checkup recruits
+    # are completed, not undone.
+    generated_by_sim = (
+        root.attrs.get("generated_by", "") == "wesnoth_ai_sim"
+    )
     gs = build_initial_state(root)
     # A Wesnoth save can have MULTIPLE [replay] blocks at the top
     # level. Two patterns we've observed:
@@ -1342,7 +1357,12 @@ def extract_replay(path: Path) -> Optional[dict]:
                 checkup = cmd.first("checkup") or cmd.first("mp_checkup")
                 checkup_empty = (checkup is not None
                                  and checkup.first("result") is None)
-                if checkup_empty:
+                # Sim-emitted saves: empty checkup is the normal
+                # encoding for completed seedless recruits (see the
+                # `generated_by_sim` note at the top of this
+                # function); the undone-recruit heuristic is for
+                # real Wesnoth replays only.
+                if checkup_empty and not generated_by_sim:
                     # Universal "completed?" check:
                     #   - Pattern A (full checkup with [result]) is
                     #     handled by checkup_empty being False above.

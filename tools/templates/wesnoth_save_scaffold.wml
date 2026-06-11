@@ -17,6 +17,12 @@ end_text=""
 end_text_duration="0"
 era_define=""
 era_id="era_default"
+# Marker for replay_extract.py: this save was emitted by
+# tools/sim_to_replay (its command stream contains only executed
+# commands, never undos), so extraction must not apply the
+# undone-command heuristics that real Wesnoth replays need.
+# Wesnoth itself ignores unknown top-level save attributes.
+generated_by="wesnoth_ai_sim"
 label="%LABEL%"
 mod_defines=""
 mp_game_title="%LABEL%"
