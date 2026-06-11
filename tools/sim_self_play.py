@@ -1353,6 +1353,21 @@ def main(argv: List[str]) -> int:
                          "B=1 on CPU; B=8-32 amortizes kernel "
                          "launch on GPU but our forward already "
                          "dominates so the gain is modest.")
+    ap.add_argument("--mcts-fpu-reduction", type=float, default=0.25,
+                    help="First-play urgency: unvisited edges score "
+                         "as (parent value - this) instead of 0, so "
+                         "small sim budgets deepen instead of "
+                         "sweeping every legal action once. "
+                         "Negative value disables (legacy Q=0).")
+    ap.add_argument("--mcts-temperature", type=float, default=1.0,
+                    help="Root sampling temperature for the first "
+                         "--mcts-temperature-decisions of each game "
+                         "(AlphaZero tau). <=0 = always argmax.")
+    ap.add_argument("--mcts-temperature-decisions", type=int,
+                    default=30,
+                    help="How many decisions per game are sampled "
+                         "proportional to visits^(1/tau) before "
+                         "switching to argmax-visits.")
     args = ap.parse_args(argv[1:])
 
     logging.basicConfig(
@@ -1450,10 +1465,16 @@ def main(argv: List[str]) -> int:
             n_simulations=args.mcts_sims,
             c_puct=args.mcts_c_puct,
             batch_size=args.mcts_batch_size,
+            fpu_reduction=(None if args.mcts_fpu_reduction < 0
+                           else args.mcts_fpu_reduction),
+            temperature=args.mcts_temperature,
+            temperature_decisions=args.mcts_temperature_decisions,
         )
         log.info(
             f"MCTS mode enabled: sims={mcts_cfg.n_simulations} "
-            f"c_puct={mcts_cfg.c_puct} batch_size={mcts_cfg.batch_size}. "
+            f"c_puct={mcts_cfg.c_puct} batch_size={mcts_cfg.batch_size} "
+            f"fpu={mcts_cfg.fpu_reduction} "
+            f"tau={mcts_cfg.temperature}x{mcts_cfg.temperature_decisions}. "
             f"--reward-config is ignored in MCTS mode (AlphaZero "
             f"distills terminal z, not shaping rewards)."
         )

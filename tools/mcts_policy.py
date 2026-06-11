@@ -38,10 +38,13 @@ import threading
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
+import numpy as np
+
 from classes import GameState
 from trainer import MCTSExperience, TrainStats
 from tools.mcts import (
     MCTSConfig, mcts_search, extract_visit_counts, best_action,
+    sample_action,
 )
 
 
@@ -76,6 +79,11 @@ class MCTSPolicy:
         # `train_step` and handed to `trainer.step_mcts`.
         self._queue: List[MCTSExperience] = []
         self._lock = threading.Lock()
+        # RNG for temperature sampling at the root (AlphaZero's
+        # tau=1 phase). Unseeded like mcts_search's noise RNG --
+        # self-play data generation wants diversity, not
+        # reproducibility; tests construct their own Generator.
+        self._rng = np.random.default_rng()
         # `_inference_*` already exist on base — under the lock used
         # by base's snapshot. We just borrow them. mcts_search runs
         # `torch.no_grad()` internally so concurrent gradient steps
@@ -106,7 +114,18 @@ class MCTSPolicy:
             self._inference_encoder,
             self._mcts_config,
         )
-        action = best_action(root)
+        # AlphaZero exploration schedule: sample proportional to
+        # visit counts for the first `temperature_decisions`
+        # decisions of each game, argmax afterwards. The decision
+        # index is exactly how many states this game has already
+        # recorded.
+        with self._lock:
+            decision_idx = len(self._pending.get(game_label, ()))
+        if decision_idx < self._mcts_config.temperature_decisions:
+            action = sample_action(
+                root, self._mcts_config.temperature, self._rng)
+        else:
+            action = best_action(root)
         if action is None:
             # No legal action and no terminal — pathological state.
             # The base policy's select_action would have raised; we

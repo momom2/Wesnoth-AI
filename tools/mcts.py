@@ -163,6 +163,38 @@ class MCTSConfig:
     # 1 is plenty.
     virtual_loss:     float = 1.0
 
+    # First-play urgency (FPU): the Q used in PUCT for an edge that
+    # has never been visited. AlphaZero's Q=0 init is fine when
+    # values hover near 0, but in a clearly losing position (all
+    # visited Q < 0) it makes every UNVISITED edge look better than
+    # the best known move, so the search degenerates into a one-visit
+    # sweep of all 100-200 legal actions and never deepens -- fatal
+    # at our 25-100 sim budgets. KataGo / Leela instead initialize
+    # an unvisited edge to (parent value - reduction): "assume an
+    # unexplored child is slightly worse than the position itself".
+    # 0.25 follows Leela's default; KataGo's paper ("Accelerating
+    # Self-Play Learning in Go", Wu 2020, sec 5.1) reports the same
+    # shape. Set to None to restore the legacy Q=0 init.
+    fpu_reduction:    Optional[float] = 0.25
+    # FPU at the ROOT when Dirichlet noise is on: noise exists to
+    # force exploration of dismissed actions, and a root FPU penalty
+    # would cancel it (KataGo applies no root FPU reduction with
+    # noise for this reason). 0.0 = unvisited root edges score at
+    # parent value, letting noise-boosted priors actually win a
+    # visit.
+    root_fpu_reduction: float = 0.0
+
+    # Action selection at the root during SELF-PLAY: for the first
+    # `temperature_decisions` decisions of each game, sample an
+    # action proportional to visit_count^(1/temperature) instead of
+    # argmax-visits (AlphaZero's tau=1 for the first 30 moves).
+    # Without it self-play games are near-deterministic (root noise
+    # is the only diversity source) and the data distribution
+    # collapses. After the threshold, argmax. Consumed by
+    # MCTSPolicy, not mcts_search itself.
+    temperature:           float = 1.0
+    temperature_decisions: int   = 30
+
     # Transposition table: when two paths converge on the same
     # `state_key(gs)`, share a single MCTSNode rather than building
     # two parallel subtrees. Visit counts and Q-values then reflect
@@ -254,7 +286,7 @@ class MCTSNode:
     __slots__ = ("sim", "side", "edges", "is_terminal",
                  "expanded", "_total_visits",
                  "tt_hits", "tt_misses",
-                 "cliffness")
+                 "cliffness", "value")
 
     def __init__(self, sim: WesnothSim):
         self.sim:           WesnothSim   = sim
@@ -273,6 +305,11 @@ class MCTSNode:
         # network estimate for those, but cliffness=0 = "exact"
         # is the right semantic — terminal values are exact).
         self.cliffness:     float        = 0.0
+        # Network value estimate v(s) from this node's own side's
+        # perspective, stamped at expansion. Used as the FPU anchor
+        # for this node's unvisited edges. 0.0 for terminal /
+        # unexpanded nodes.
+        self.value:         float        = 0.0
 
 
 # ---------------------------------------------------------------------
@@ -320,19 +357,36 @@ def _expand(
     priors.sort(key=lambda p: -p.prior)
     node.edges = [MCTSEdge(p) for p in priors]
     node.expanded = True
+    node.value = v
     return v
 
 
-def _puct_select(node: MCTSNode, c_puct: float) -> MCTSEdge:
+def _puct_select(
+    node:   MCTSNode,
+    c_puct: float,
+    fpu_reduction: Optional[float] = None,
+) -> MCTSEdge:
     """Pick the edge maximizing
         U(s,a) = Q(s,a) + c_puct * P(s,a) * sqrt(sum_b N(s,b)) / (1 + N(s,a))
-    AlphaZero's standard PUCT score. Initial Q is 0 for unvisited
-    edges, so the first few selections track P (the prior) closely."""
+    AlphaZero's standard PUCT score.
+
+    Unvisited edges score with first-play urgency when
+    `fpu_reduction` is set: Q_init = clamp(node.value - reduction)
+    -- "an unexplored child is probably a bit worse than the
+    position itself". With the legacy `None`, Q_init = 0, which in
+    losing positions ranks every unexplored action above the best
+    known one and flattens the search into a breadth-1 sweep (see
+    MCTSConfig.fpu_reduction)."""
     sqrt_total = math.sqrt(max(1, node._total_visits))
+    if fpu_reduction is None:
+        q_init = 0.0
+    else:
+        q_init = max(-1.0, min(1.0, node.value - fpu_reduction))
     best_edge: Optional[MCTSEdge] = None
     best_score = -float("inf")
     for edge in node.edges:
-        u = (edge.q_value
+        q = q_init if edge.n_visits == 0 else edge.q_value
+        u = (q
              + c_puct * edge.prior * sqrt_total / (1 + edge.n_visits))
         if u > best_score:
             best_score = u
@@ -366,6 +420,8 @@ def _select_one(
     virtual_loss:   float,
     transpositions: Optional[Dict[int, "MCTSNode"]] = None,
     stats:          Optional[Dict[str, int]] = None,
+    fpu_reduction:      Optional[float] = None,
+    root_fpu_reduction: Optional[float] = None,
 ) -> Tuple[MCTSNode, List[Tuple[MCTSNode, MCTSEdge]]]:
     """Walk down from root picking PUCT-best edges. Lazy-create
     child nodes by forking the parent sim and applying the edge's
@@ -385,7 +441,8 @@ def _select_one(
     path: List[Tuple[MCTSNode, MCTSEdge]] = []
     node = root
     while node.expanded and not node.is_terminal:
-        edge = _puct_select(node, c_puct)
+        fpu = root_fpu_reduction if node is root else fpu_reduction
+        edge = _puct_select(node, c_puct, fpu)
         if edge.child is None:
             child_sim = node.sim.fork()
             try:
@@ -542,7 +599,8 @@ def _populate_leaf(
     priors.sort(key=lambda p: -p.prior)
     leaf.edges = [MCTSEdge(p) for p in priors]
     leaf.expanded = True
-    return float(output.value.squeeze().item())
+    leaf.value = float(output.value.squeeze().item())
+    return leaf.value
 
 
 def mcts_search(
@@ -644,6 +702,12 @@ def mcts_search(
                 root, config.c_puct, V_LOSS,
                 transpositions=transpositions,
                 stats=tt_stats,
+                fpu_reduction=config.fpu_reduction,
+                root_fpu_reduction=(
+                    config.root_fpu_reduction
+                    if (config.add_root_noise
+                        and config.fpu_reduction is not None)
+                    else config.fpu_reduction),
             )
             if leaf.is_terminal:
                 # Immediate backup -- no model forward needed.
@@ -745,3 +809,34 @@ def best_action(root: MCTSNode) -> Optional[dict]:
         return None
     best = max(root.edges, key=lambda e: e.n_visits)
     return best.action if best.n_visits > 0 else None
+
+
+def sample_action(
+    root:        MCTSNode,
+    temperature: float,
+    rng:         Optional[np.random.Generator] = None,
+) -> Optional[dict]:
+    """Sample a root action with probability proportional to
+    visit_count^(1/temperature). AlphaZero plays this way for the
+    first ~30 moves of each SELF-PLAY game (tau=1) so the data
+    distribution doesn't collapse onto one deterministic line of
+    play, then switches to argmax (`best_action`). temperature <= 0
+    is treated as argmax.
+
+    Only visited edges participate (an unvisited edge carries no
+    search evidence)."""
+    if temperature <= 0.0:
+        return best_action(root)
+    if rng is None:
+        rng = np.random.default_rng()
+    visited = [e for e in root.edges if e.n_visits > 0]
+    if not visited:
+        return None
+    counts = np.array([float(e.n_visits) for e in visited])
+    # visits^(1/tau) in log space to dodge overflow at low tau.
+    logits = np.log(counts) / temperature
+    logits -= logits.max()
+    probs = np.exp(logits)
+    probs /= probs.sum()
+    idx = int(rng.choice(len(visited), p=probs))
+    return visited[idx].action

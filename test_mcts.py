@@ -560,3 +560,90 @@ def test_mcts_self_play_smoke(tmp_path):
     assert ckpt_out.exists(), (
         f"expected checkpoint at {ckpt_out}, not present after run"
     )
+
+
+# ---------------------------------------------------------------------
+# First-play urgency (FPU)
+# ---------------------------------------------------------------------
+
+def test_fpu_unvisited_q_is_parent_value_minus_reduction():
+    """In a losing position (node.value < 0), the legacy Q=0 init
+    ranks every unvisited edge above the best visited one, so small
+    sim budgets sweep instead of deepening. With fpu_reduction set,
+    an unvisited edge scores at (parent value - reduction) and a
+    decent visited move wins. c_puct is tiny so the Q term dominates
+    and the test isolates the init value."""
+    node = _make_node(side=1)
+    node.value = -0.6           # network: this position is bad for us
+    visited = _attach(node, _make_node(side=2), prior=0.5)
+    visited.n_visits = 1
+    visited.w_value = -0.5      # q = -0.5: least-bad known move
+    unvisited = _attach(node, _make_node(side=2), prior=0.5)
+    node._total_visits = 1
+
+    # Legacy: unvisited q_init=0 beats q=-0.5.
+    assert _puct_select(node, c_puct=0.01) is unvisited
+    # FPU: unvisited q_init = -0.6 - 0.25 = -0.85 loses to -0.5.
+    assert _puct_select(node, c_puct=0.01, fpu_reduction=0.25) is visited
+
+
+def test_fpu_q_init_clamped_to_value_range():
+    """node.value - reduction below -1 clamps to -1 (values live in
+    [-1, +1]; an init outside the range would distort PUCT)."""
+    node = _make_node(side=1)
+    node.value = -0.95
+    visited = _attach(node, _make_node(side=2), prior=0.5)
+    visited.n_visits = 1
+    visited.w_value = -0.999    # q = -0.999: nearly-lost move
+    unvisited = _attach(node, _make_node(side=2), prior=0.5)
+    node._total_visits = 1
+    # q_init = clamp(-0.95 - 0.25) = -1.0 < -0.999 -> visited wins.
+    assert _puct_select(node, c_puct=0.001, fpu_reduction=0.25) is visited
+
+
+# ---------------------------------------------------------------------
+# Root temperature sampling
+# ---------------------------------------------------------------------
+
+def _root_with_visits(*visit_counts):
+    """Root whose i-th edge has action {"id": i} and the given visit
+    count."""
+    import numpy as _np
+    from tools.mcts import sample_action  # noqa: F401  (import check)
+    root = _make_node(side=1)
+    for i, n in enumerate(visit_counts):
+        e = _attach(root, _make_node(side=2), prior=1.0 / len(visit_counts))
+        e.action = {"id": i}
+        e.n_visits = n
+        root._total_visits += n
+    return root
+
+
+def test_sample_action_tau1_is_proportional_to_visits():
+    import numpy as np
+    from tools.mcts import sample_action
+    root = _root_with_visits(90, 10)
+    rng = np.random.default_rng(7)
+    draws = [sample_action(root, 1.0, rng)["id"] for _ in range(2000)]
+    frac0 = draws.count(0) / len(draws)
+    # Expected 0.9; allow generous sampling slack.
+    assert 0.85 <= frac0 <= 0.95, frac0
+    assert draws.count(1) > 0
+
+
+def test_sample_action_zero_temperature_is_argmax():
+    import numpy as np
+    from tools.mcts import sample_action, best_action
+    root = _root_with_visits(3, 42, 1)
+    rng = np.random.default_rng(0)
+    for _ in range(20):
+        assert sample_action(root, 0.0, rng) == best_action(root)
+
+
+def test_sample_action_never_returns_unvisited():
+    import numpy as np
+    from tools.mcts import sample_action
+    root = _root_with_visits(5, 0)
+    rng = np.random.default_rng(3)
+    for _ in range(200):
+        assert sample_action(root, 1.0, rng)["id"] == 0
