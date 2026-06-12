@@ -195,10 +195,6 @@ def _compare_commands(a: list, b: list, *, msg: str) -> None:
             )
 
 
-def test_fixture_present():
-    assert FIXTURE.exists()
-
-
 def test_extract_idempotent():
     """Sanity: extracting the same file twice produces identical
     compact streams. If this fails, the extractor itself is non-

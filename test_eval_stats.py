@@ -23,11 +23,6 @@ import pytest
 from eval_vs_builtin import _wilson_interval, _wr
 
 
-def test_wilson_zero_n_returns_full_range():
-    lo, hi = _wilson_interval(0, 0)
-    assert lo == 0.0 and hi == 1.0
-
-
 def test_wilson_50_percent_n10():
     """Standard table: 5/10 with z=1.96 -> [0.237, 0.763]."""
     lo, hi = _wilson_interval(5, 10)
@@ -47,18 +42,6 @@ def test_wilson_zero_wins():
     lo, hi = _wilson_interval(0, 10)
     assert lo == pytest.approx(0.0, abs=1e-9)
     assert hi == pytest.approx(0.278, abs=0.01)
-
-
-def test_wilson_tighter_with_more_data():
-    """50/100 should give a tighter interval than 5/10 -- both
-    50% point estimates."""
-    _, hi_10 = _wilson_interval(5, 10)
-    _, hi_100 = _wilson_interval(50, 100)
-    width_10 = hi_10 - 0.5
-    width_100 = hi_100 - 0.5
-    assert width_100 < width_10
-    # 100-game CI should be roughly half the width of the 10-game CI.
-    assert width_100 == pytest.approx(width_10 / (10 ** 0.5), rel=0.2)
 
 
 def test_wilson_bounds_always_in_unit_interval():

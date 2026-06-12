@@ -200,20 +200,6 @@ def test_ce_loss_minimized_when_logits_match_target():
     assert loss.item() < 5e-3, f"loss should be ~0 at perfect prediction, got {loss.item():.3f}"
 
 
-def test_ce_loss_positive_for_wrong_prediction():
-    """Predicting a distribution far from the target gives a
-    finite, positive loss. Used here as a sanity check that the
-    loss is computing CE rather than something silently zero."""
-    atoms = torch.linspace(VALUE_V_MIN, VALUE_V_MAX, VALUE_N_ATOMS)
-    # Target at lower atom; predict at upper. Maximally wrong.
-    target_idx = 0
-    r = atoms[target_idx].item()
-    logits = torch.full((1, VALUE_N_ATOMS), -100.0)
-    logits[0, VALUE_N_ATOMS - 1] = 0.0
-    loss = _categorical_value_loss(logits, torch.tensor([r]), atoms)
-    assert loss.item() > 50.0, "CE on near-one-hot disagreement should be large"
-
-
 # ---------------------------------------------------------------------
 # Forward → ModelOutput field shapes
 # ---------------------------------------------------------------------

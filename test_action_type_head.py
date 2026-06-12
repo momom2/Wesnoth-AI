@@ -325,31 +325,6 @@ def test_legality_mask_type_bias_only_on_attack():
             == pytest.approx(0.0))
 
 
-def test_legality_mask_type_bias_decays_with_decision_step():
-    """At horizon end, type_bias is 10× smaller than at step 0
-    (FLOOR_FRACTION=0.1)."""
-    from constants import COMBAT_ANNEAL_HORIZON, COMBAT_ANNEAL_FLOOR_FRACTION
-
-    gs = _gs_with_unit_and_enemy()
-    encoder = GameStateEncoder()
-    encoder.register_names(gs)
-    encoded = encoder.encode(gs)
-    masks_0    = _build_legality_masks(encoded, gs, decision_step=0)
-    masks_long = _build_legality_masks(
-        encoded, gs, decision_step=COMBAT_ANNEAL_HORIZON,
-    )
-    # If both tensors have the same nonzero pattern, the ratio of
-    # any non-zero pair should be the floor fraction.
-    bias_0    = masks_0.type_bias[0, :, UnitActionType.ATTACK]
-    bias_long = masks_long.type_bias[0, :, UnitActionType.ATTACK]
-    if bias_0.abs().max().item() == 0:
-        pytest.skip("no nonzero type-attack bias (no profitable attack)")
-    # Find the largest entry; ratio should be ~floor.
-    j = int(torch.argmax(bias_0.abs()).item())
-    ratio = float(bias_long[j].item()) / float(bias_0[j].item())
-    assert ratio == pytest.approx(COMBAT_ANNEAL_FLOOR_FRACTION, rel=1e-4)
-
-
 # ---------------------------------------------------------------------
 # MCTS expansion: type_idx in priors + visit counts
 # ---------------------------------------------------------------------

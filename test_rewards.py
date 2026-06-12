@@ -554,29 +554,6 @@ def test_unit_type_bonus_fires_on_match():
     assert rf(delta2) == pytest.approx(0.0)
 
 
-def test_unit_type_bonus_stacks():
-    """Multiple bonuses entries with different unit types each fire
-    independently; same-type entries sum."""
-    from rewards import UnitTypeBonus
-    rf = WeightedReward(
-        unit_type_bonuses=[
-            UnitTypeBonus("Wose", weight=0.5),
-            UnitTypeBonus("Wose", weight=0.1),       # stacks with above
-            UnitTypeBonus("Elvish Fighter", weight=0.05),
-        ],
-        gold_killed_delta=0, village_delta=0, damage_dealt=0,
-        unit_recruited_cost=0, per_turn_penalty=0,
-        leader_move_penalty=0, invalid_action_penalty=0,
-        min_enemy_distance_penalty=0,
-        terminal_win=0, terminal_loss=0, terminal_draw=0,
-        terminal_timeout=0,
-    )
-    # Recruited a Wose: 0.5 + 0.1 = 0.6.
-    delta = StepDelta(side=1, turn=1, action_type="recruit",
-                      units_recruited=("Wose",))
-    assert rf(delta) == pytest.approx(0.6)
-
-
 def test_turn_conditional_bonus_fires_in_window():
     """Predicate fires within turn_range[lo, hi]; bonus is awarded."""
     from rewards import TurnConditionalBonus

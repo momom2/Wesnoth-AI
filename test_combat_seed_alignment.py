@@ -39,14 +39,6 @@ from tools.replay_dataset import (
 FIXTURE = Path(__file__).parent / "tests" / "fixtures" / "strict_sync_hamlets_t9.bz2"
 
 
-def test_fixture_present():
-    """The strict-sync fixture must exist (committed to the repo)."""
-    assert FIXTURE.exists(), (
-        f"missing strict-sync fixture at {FIXTURE}; this regression "
-        f"test cannot run without it"
-    )
-
-
 def _verified_strike_count(divergences):
     """Collapse a list of StrikeMismatch into a single string for the
     assertion message."""

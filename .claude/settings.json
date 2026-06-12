@@ -1,0 +1,18 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "powershell",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"$env:CLAUDE_PROJECT_DIR\\.claude\\hooks\\check_recursive_delete.ps1\"",
+            "timeout": 20,
+            "statusMessage": "Checking delete command for link safety"
+          }
+        ]
+      }
+    ]
+  }
+}

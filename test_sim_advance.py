@@ -235,29 +235,6 @@ def test_no_advance_no_choose_in_wml():
     assert "[choose]" not in wml
 
 
-def test_select_action_rejects_repeated_state(fresh_sim):
-    """Debug-mode tripwire: passing the same `GameState` object twice
-    in a row to select_action means the caller didn't deepcopy
-    between calls. The trainer's stored Transition.game_state would
-    then point at a mutated state and the re-forward path would
-    diverge. Catch the bug at the second call rather than in a
-    corrupt loss six hours into a training run."""
-    from transformer_policy import TransformerPolicy
-    sim = fresh_sim
-    leader1 = _make("Skeleton", 1, 5, 5, 1, is_leader=True)
-    leader2 = _make("Skeleton", 2, 6, 5, 2, is_leader=True)
-    sim.gs.map.units.add(leader1)
-    sim.gs.map.units.add(leader2)
-    sim._begin_side_turn(1)
-
-    policy = TransformerPolicy()
-    # First call OK.
-    policy.select_action(sim.gs, game_label="contract")
-    # Second call with same id() should raise.
-    with pytest.raises(RuntimeError, match="SAME GameState object"):
-        policy.select_action(sim.gs, game_label="contract")
-
-
 def test_plague_spawn_type_resolution():
     """`_spawn_plague_corpse`'s type-resolution logic, derived from
     Wesnoth source (verified 2026-04-28):

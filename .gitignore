@@ -59,5 +59,9 @@ terrain_db.json
 tmp_scratch/
 test_replays_temp/
 
-# Tooling local config (Claude Code session metadata).
-.claude/
+# Tooling local config (Claude Code session metadata) -- but DO
+# track the shared project settings + hooks (the recursive-delete
+# safety guard lives there).
+.claude/*
+!.claude/settings.json
+!.claude/hooks/

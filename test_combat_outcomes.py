@@ -179,3 +179,45 @@ def test_mcts_edge_exact_outcome_bookkeeping():
                     chance_nodes=True, sample_rng=rng,
                     exact_outcomes=True)
     assert len(edge.children) == n_children_before
+
+
+def test_selfplay_attack_resolves_counter_and_retaliates():
+    """Regression for the retaliation-free self-play bug (fixed
+    2026-06-12): the sim used to emit d_weapon=-1, which
+    resolve_attack maps to None = NO counter-attack, while Wesnoth
+    playback of the exported replay AUTO-SELECTS a counter
+    (battle_context::choose_defender_weapon on -1) -- silent
+    sim-vs-playback divergence that empty [checkup] blocks never
+    surface. The emitted command must carry a concrete counter
+    index whenever the defender has a matching-range weapon, and
+    the attacker must actually take damage in some outcomes."""
+    sim, action = _engineered_fight()
+    att = next(u for u in sim.gs.map.units
+               if u.position is action["start_hex"])
+    dfd = next(u for u in sim.gs.map.units
+               if u.position is action["target_hex"])
+    a_ranged = att.attacks[action["attack_index"]].is_ranged
+    if not any(w.is_ranged == a_ranged for w in dfd.attacks):
+        pytest.skip("defender has no matching-range counter here")
+
+    hp0 = att.current_hp
+    damaged = 0
+    for i in range(40):
+        f = sim.fork()
+        f._seed_salt = f"retal-{i}"
+        f.step(action)
+        assert f.command_history, "attack command must be recorded"
+        cmd = f.command_history[-1].cmd
+        assert cmd[0] == "attack"
+        assert cmd[6] >= 0, (
+            "self-play attack must carry a concrete defender weapon "
+            "index (d_weapon=-1 means NO retaliation in our resolver "
+            "but AUTO-retaliation in Wesnoth playback)"
+        )
+        a2 = next((u for u in f.gs.map.units if u.id == att.id), None)
+        if a2 is None or a2.current_hp < hp0:
+            damaged += 1
+    assert damaged > 0, (
+        "across 40 independent rolls the defender never landed a "
+        "counter-strike -- retaliation is not being applied"
+    )

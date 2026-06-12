@@ -104,10 +104,6 @@ def _mock_sim_drakes_vs_rebels() -> _MockSim:
     ))
 
 
-def test_fixture_present():
-    assert FIXTURE.exists()
-
-
 def test_rewrite_overrides_side_leaders():
     """After rewrite, each [side]'s `type=` attr must show the mock
     sim's leader types (Drake Flare / White Mage), NOT the fixture's

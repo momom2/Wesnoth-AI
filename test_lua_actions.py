@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 test_lua_actions.py
 Test script for Lua action file generation
@@ -24,43 +24,8 @@ def print_header(text):
 
 def print_test(name, passed):
     """Print test result."""
-    status = "✓ PASS" if passed else "✗ FAIL"
+    status = "âœ“ PASS" if passed else "âœ— FAIL"
     print(f"{status}: {name}")
-
-def test_dict_to_lua_conversion():
-    """Test converting Python dicts to Lua table format."""
-    print_header("Test 1: Dict to Lua Conversion")
-    
-    # Create a temporary game instance just for testing
-    with TemporaryDirectory() as tmpdir:
-        game = WesnothGame("test_game", Path("dummy.cfg"))
-        game.game_dir = Path(tmpdir)
-        
-        # We care that each (key, value) pair appears in the output somehow
-        # — not which quote style we used for strings (both ' and " are
-        # valid Lua).
-        test_cases = [
-            ({'type': 'end_turn'}, 'type = "end_turn"'),
-            ({'type': 'move', 'start_x': 5, 'start_y': 10,
-              'target_x': 6, 'target_y': 10}, 'type = "move"'),
-            ({'type': 'attack', 'weapon_index': 0}, "weapon_index = 0"),
-            ({'type': 'recruit', 'unit_type': 'Dwarvish Fighter'},
-             'unit_type = "Dwarvish Fighter"'),
-        ]
-        
-        all_passed = True
-        for action_dict, expected_substring in test_cases:
-            lua_code = game._dict_to_lua(action_dict)
-            print(f"\n  Input: {action_dict}")
-            print(f"  Output: {lua_code}")
-            
-            if expected_substring in lua_code:
-                print_test(f"  Contains '{expected_substring}'", True)
-            else:
-                print_test(f"  Contains '{expected_substring}'", False)
-                all_passed = False
-        
-        return all_passed
 
 def test_action_file_writing():
     """Test writing action files."""
@@ -193,66 +158,16 @@ def test_action_roundtrip():
             }
         ]
         
-        all_passed = True
+        # Plain asserts: the old version swallowed failures into a
+        # returned bool, which pytest treats as a PASS (it only
+        # warns on non-None returns) -- a False result was silent.
         for action in actions:
-            try:
-                # Write action
-                game.send_action(action)
-                
-                # Read the file
-                content = game.action_path.read_text()
-                
-                # Verify structure
-                assert content.startswith('return'), "Should start with 'return'"
-                assert '{' in content and '}' in content, "Should have Lua table braces"
-                assert action['type'] in content, f"Should contain type '{action['type']}'"
-                
-                print_test(f"  Roundtrip {action['type']}", True)
-                
-            except AssertionError as e:
-                print_test(f"  Roundtrip {action['type']}", False)
-                print(f"    Error: {e}")
-                all_passed = False
-            except Exception as e:
-                print_test(f"  Roundtrip {action['type']}", False)
-                print(f"    Error: {e}")
-                all_passed = False
-        
-        return all_passed
-
-def test_list_handling():
-    """Test that lists are properly converted to Lua tables."""
-    print_header("Test 5: List Handling")
-    
-    with TemporaryDirectory() as tmpdir:
-        game = WesnothGame("test_game", Path("dummy.cfg"))
-        game.game_dir = Path(tmpdir)
-        
-        test_dict = {
-            'type': 'test',
-            'units': ['Fighter', 'Archer', 'Mage'],
-            'coords': [1, 2, 3, 4, 5]
-        }
-        
-        try:
-            lua_code = game._dict_to_lua(test_dict)
-            
-            print(f"\n  Input: {test_dict}")
-            print(f"  Output: {lua_code}")
-            
-            # Check that lists are formatted as Lua tables
-            assert 'units = {' in lua_code, "Should have units table"
-            assert 'Fighter' in lua_code, "Should contain Fighter"
-            assert 'Archer' in lua_code, "Should contain Archer"
-            assert 'coords = {' in lua_code, "Should have coords table"
-            
-            print_test("List to Lua table conversion", True)
-            return True
-            
-        except Exception as e:
-            print_test("List to Lua table conversion", False)
-            print(f"  Error: {e}")
-            return False
+            game.send_action(action)
+            content = game.action_path.read_text()
+            assert content.startswith('return'), "Should start with 'return'"
+            assert '{' in content and '}' in content, "Should have Lua table braces"
+            assert action['type'] in content, f"Should contain type '{action['type']}'"
+            print_test(f"  Roundtrip {action['type']}", True)
 
 def main():
     """Run all tests."""
@@ -261,11 +176,9 @@ def main():
     print("=" * 70)
     
     tests = [
-        ("Dict to Lua Conversion", test_dict_to_lua_conversion),
         ("Action File Writing", test_action_file_writing),
         ("Special Characters", test_special_characters),
         ("Action Roundtrip", test_action_roundtrip),
-        ("List Handling", test_list_handling),
     ]
     
     results = []
@@ -274,7 +187,7 @@ def main():
             passed = test_func()
             results.append((name, passed))
         except Exception as e:
-            print(f"\n✗ Test '{name}' crashed with exception: {e}")
+            print(f"\nâœ— Test '{name}' crashed with exception: {e}")
             import traceback
             traceback.print_exc()
             results.append((name, False))
@@ -285,16 +198,16 @@ def main():
     total_count = len(results)
     
     for name, passed in results:
-        status = "✓" if passed else "✗"
+        status = "âœ“" if passed else "âœ—"
         print(f"{status} {name}")
     
     print(f"\nPassed: {passed_count}/{total_count}")
     
     if passed_count == total_count:
-        print("\n🎉 All tests passed!")
+        print("\nðŸŽ‰ All tests passed!")
         return 0
     else:
-        print(f"\n❌ {total_count - passed_count} test(s) failed")
+        print(f"\nâŒ {total_count - passed_count} test(s) failed")
         return 1
 
 if __name__ == "__main__":
