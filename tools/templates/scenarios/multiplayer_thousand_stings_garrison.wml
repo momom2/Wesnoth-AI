@@ -1,19 +1,21 @@
 # Per-scenario [scenario] template for from-scratch save
-# WML emission. Extracted from a real Wesnoth save (after
-# the engine expanded macros + scenario events). All
-# [side] sub-blocks stripped at extraction; the runtime
-# emitter (tools/sim_to_replay.build_save_wml) inserts
-# fresh [side] blocks per game from sim state.
+# WML emission. Built from the game's own scenario .cfg by
+# Wesnoth's own preprocessor (see
+# tools/build_scenario_templates.py). [side] 1/2 stripped
+# at build; the runtime emitter (sim_to_replay.build_save_wml)
+# inserts fresh [side] blocks per game from sim state.
 #
-# Source: replays_raw/.../2p__Thousand_Stings_Garrison_Turn_14_(98823).bz2
-# Regenerate via: python tools/extract_scenario_templates.py
+# Source: wesnoth_src/data/multiplayer/scenarios (game cfg, game preprocessor)
+# Regenerate via: python tools/build_scenario_templates.py
 [scenario]
-description="A strange place. Designed by Doc Paterson."
+turns="-1"
 experience_modifier="70"
 has_mod_events="yes"
-id="multiplayer_thousand_stings_garrison"
 loaded_resources=""
-map_data="Mm^Xm, Mm^Xm, Mm^Xm, Mm^Xm, Mm^Xm, Mm^Xm, Wwf, Mm^Xm, Hh, Wwf, Re, Re^Fms, Hh^Fms, Mm, Hh^Fms, Re^Fms, Re, Re, Wwf, Rr, Hh^Fp, Mm, Mm^Xm, Mm, Hh^Fms, Mm, Mm^Xo, Mm^Xo, Mm^Xo, Mm^Xo, Mm
+objectives="<big>Victory:</big>\n<span color='#00ff00'>&#8226; Defeat enemy leader(s)</span>"
+	description="A strange place. Designed by Doc Paterson."
+	id="multiplayer_thousand_stings_garrison"
+	map_data="Mm^Xm, Mm^Xm, Mm^Xm, Mm^Xm, Mm^Xm, Mm^Xm, Wwf, Mm^Xm, Hh, Wwf, Re, Re^Fms, Hh^Fms, Mm, Hh^Fms, Re^Fms, Re, Re, Wwf, Rr, Hh^Fp, Mm, Mm^Xm, Mm, Hh^Fms, Mm, Mm^Xo, Mm^Xo, Mm^Xo, Mm^Xo, Mm
 Hh, Mm^Xm, Hh^Fms, Mm^Xm, Hh, Mm^Xm, Re^Fms, Wwf, Wwf, Wwf, Wwf, Re, Hh, Mm^Xm, Ch, Re, Wwf, Wwf, Rr, Rr, Rr, Mm^Xm, Kh, Mm^Xm, Rr, Rr, Rr^Tf, Mm^Xo, Mm^Xo, Mm^Xo, Mm
 Hh^Fp, Mm, Rr, Hh, Tb^Tf, Kh, Re, Re, Re, Re, Re, Wwf, Wwf, Ch, Wwf, Wwf, Rr, Rr, Ch^Ecf, Rr, Ch^Ecf, Rr, Ch^Ecf, Rr, Ch^Ecf, Rr, Ch^Ecf, Ch, 2 Kh, Mm^Xo, Mm
 Re^Fms, Re^Fp, Re, Rr^Vd, Re, Re, Re, Re, Re^Fp, Mm, Hh^Fms, Wwf, Re^Tf, Wwf, Rr, Wwf, Ss^Vhs, Ch^Ecf, Ch, Ch^Ecf, Ww, Ch^Ecf, Rr, Ch^Ecf, Rr, Ch^Ecf, Re, Ch, Ch, Ch^Ecf, Wwf
@@ -39,220 +41,183 @@ Wwf, Ch^Ecf, Wwf, Wwf, Re, Re, Re, Rr^Vd, Rr, Hh^Fms, Hh, Ww, Wo, Wwf, Wwf, Rr, 
 Wwf, Ch^Ecf, Ch, Re, Re, Re, Rr, Rr, Rr, Mm, Ww, Ww, Ch, Kh, Ss^Vhs, Rr, Rr, Re, Re^Tf, Wwf, Hh^Fms, Hh, Re^Fms, Re, Re, Re, Re, Re, Re, Re, Re^Fms
 Mm^Xo, Ch^Ecf, 1 Kh, Ch, Ch^Ecf, Ch^Ecf, Ch^Ecf, Ch^Ecf, Ch^Ecf, Ch^Ecf, Ch^Ecf, Ch^Ecf, Ch^Ecf, Ch^Ecf, Rr, Wwf, Wwf, Wwf, Wwf, Wwf, Re, Mm, Re, Re, Re, Re, Tb^Tf, Rr^Vd, Rr, Re^Fp, Hh^Fp
 Mm, Mm^Xo, Mm^Xo, Ch, Rr^Tf, Rr, Rr, Rr, Kh, Rr, Rr, Rr, Rr, Rr, Wwf, Wwf, Ch, Ch, Hh, Wwf, Wwf, Re, Wwf, Re, Re^Fms, Kh, Hh, Hh, Hh^Fms, Mm, Hh
-Mm, Mm^Xo, Mm, Mm^Xo, Mm^Xo, Mm^Xo, Mm, Mm^Xm, Mm^Xm, Mm^Xm, Mm^Xm, Wwf, Wwf, Wwf, Mm^Xm, Re^Fp, Mm, Mm^Xm, Hh^Fms, Re^Fms, Re^Fms, Wwf, Hh, Wwf, Wwf, Hh^Fms, Mm^Xm, Mm^Xm, Mm^Xm, Mm^Xm, Mm^Xm
-"
-map_file="multiplayer/maps/2p_Thousand_Stings_Garrison.map"
-name="2p â€” Thousand Stings Garrison"
-objectives="<big>Victory:</big>
-<span color='#00ff00'>â€¢ Defeat enemy leader(s)</span>"
-random_start_time="no"
-turns="-1"
-[time]
-
+Mm, Mm^Xo, Mm, Mm^Xo, Mm^Xo, Mm^Xo, Mm, Mm^Xm, Mm^Xm, Mm^Xm, Mm^Xm, Wwf, Wwf, Wwf, Mm^Xm, Re^Fp, Mm, Mm^Xm, Hh^Fms, Re^Fms, Re^Fms, Wwf, Hh, Wwf, Wwf, Hh^Fms, Mm^Xm, Mm^Xm, Mm^Xm, Mm^Xm, Mm^Xm"
+	map_file="multiplayer/maps/2p_Thousand_Stings_Garrison.map"
+	name="2p — Thousand Stings Garrison"
+	random_start_time=no
+	[time]
 		blue=0
 		green=-15
 		id="dawn"
 		image="misc/time-schedules/default/schedule-dawn.png"
-#textdomain wesnoth-help
-		name=_"Dawn"
+		name="Dawn"
 		red=-25
 		sound="ambient/morning.ogg"
 	[/time]
-[time]
-
+	[time]
 		id="morning"
 		image="misc/time-schedules/default/schedule-morning.png"
 		lawful_bonus=25
-		name=_"Morning"
+		name="Morning"
 	[/time]
-[time]
-
+	[time]
 		id="afternoon"
 		image="misc/time-schedules/default/schedule-afternoon.png"
 		lawful_bonus=25
-		name=_"Afternoon"
+		name="Afternoon"
 	[/time]
-[time]
-
+	[time]
 		blue=-35
 		green=-20
 		id="dusk"
 		image="misc/time-schedules/default/schedule-dusk.png"
-		name=_"Dusk"
+		name="Dusk"
 		red=10
 		sound="ambient/night.ogg"
 	[/time]
-[time]
-
+	[time]
 		blue=-13
 		green=-45
 		id="first_watch"
 		image="misc/time-schedules/default/schedule-firstwatch.png"
 		lawful_bonus=-25
-		name=_"First Watch"
+		name="First Watch"
 		red=-75
 	[/time]
-[time]
-
+	[time]
 		blue=-13
 		green=-45
 		id="second_watch"
 		image="misc/time-schedules/default/schedule-secondwatch.png"
 		lawful_bonus=-25
-		name=_"Second Watch"
+		name="Second Watch"
 		red=-75
 	[/time]
-[music]
-
+	[music]
 		ms_before=12000
 		name="knolls.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="wanderer.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="battle.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="transience.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="the_king_is_dead.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="knalgan_theme.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="the_city_falls.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="nunc_dimittis.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="revelation.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="loyalists.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="breaking_the_chains.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="elvish-theme.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="legends_of_the_north.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="traveling_minstrels.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="underground.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="vengeful.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="frantic.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="the_dangerous_symphony.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="heroes_rite.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="suspense.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="the_deep_path.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="siege_of_laurelmor.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="casualties_of_war.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="silvan_sanctuary.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="battle-epic.ogg"
 	[/music]
-[event]
-
+	[event]
 		name="prestart"
 		[music]
 			ms_before=12000
@@ -379,75 +344,29 @@ turns="-1"
 			name="battle-epic.ogg"
 		[/music]
 	[/event]
-[event]
-
-		name="prestart"
-		[lua]
-			code=" wesnoth.require(""multiplayer/eras.lua"").quick_4mp_leaders(...) "
-			[args]
-				[trait]
-					female_name=_"female^quick"
-					help_text=_"<italic>text='Quick'</italic> units have 1 extra movement point, but 5% less hitpoints than usual." +
-						_"
-
-Quick is the most noticeable trait, particularly in slower moving units such as trolls or heavy infantry. Units with the quick trait often have greatly increased mobility in rough terrain, which can be important to consider when deploying your forces. Also, quick units arenâ€™t quite as tough as units without this trait and are subsequently less good at holding contested positions."
-					id="quick"
-					male_name=_"quick"
-					[effect]
-						apply_to="movement"
-						increase=1
-					[/effect]
-					[effect]
-						apply_to="hitpoints"
-						increase_total="-5%"
-					[/effect]
-				[/trait]
-			[/args]
-		[/lua]
-	[/event]
-[event]
-
-		name="time over"
-		[lua]
-			code=" wesnoth.require(""multiplayer/eras.lua"").turns_over_advantage() "
-		[/lua]
-	[/event]
 [side]
-
-		allow_changes=no
 		allow_player=no
 		canrecruit=no
-		chose_random=no
 		color="black"
 		controller="null"
 		controller_lock=yes
 		disallow_observers=yes
-		faction="Custom"
 		faction_lock=yes
-#textdomain wesnoth
-		faction_name=_"Custom"
-		fog=yes
 		gold=0
 		gold_lock=yes
 		hidden=yes
 		income=-2
 		income_lock=yes
-		is_host=no
-		is_local=no
 		leader_lock=yes
 		no_leader=yes
-		shroud=no
 		side=3
 		team_lock=yes
 		team_name="statues"
-		user_team_name="wesnoth-multiplayerteamname^Statues"
-		village_gold=2
-		village_support=1
+		user_team_name="teamname^Statues"
 		[unit]
 			description=""
 			facing="sw"
-#textdomain wesnoth-multiplayer
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -479,7 +398,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="sw"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -511,7 +430,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="sw"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -543,7 +462,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="sw"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -575,7 +494,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="sw"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -607,7 +526,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="sw"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -639,7 +558,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="sw"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -671,7 +590,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="sw"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -703,7 +622,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="sw"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -735,7 +654,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="sw"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -767,7 +686,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="sw"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -799,7 +718,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="sw"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -831,7 +750,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="sw"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -863,7 +782,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="sw"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -895,7 +814,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="sw"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -927,7 +846,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="sw"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -959,7 +878,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="sw"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -991,7 +910,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="sw"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -1023,7 +942,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="sw"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -1055,7 +974,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="sw"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -1087,7 +1006,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="sw"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -1119,7 +1038,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="sw"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -1151,7 +1070,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="sw"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -1183,7 +1102,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="se"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -1215,7 +1134,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="se"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -1247,7 +1166,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="se"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -1279,7 +1198,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="se"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -1311,7 +1230,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="se"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -1343,7 +1262,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="se"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -1375,7 +1294,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="se"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -1407,7 +1326,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="se"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -1439,7 +1358,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="se"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -1471,7 +1390,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="se"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -1503,7 +1422,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="sw"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -1535,7 +1454,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="sw"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -1567,7 +1486,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="sw"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -1599,7 +1518,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="sw"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -1631,7 +1550,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="sw"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -1663,7 +1582,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="sw"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -1695,7 +1614,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="sw"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -1727,7 +1646,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="sw"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -1759,7 +1678,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="sw"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -1791,7 +1710,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="sw"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -1823,7 +1742,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="se"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -1855,7 +1774,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="se"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -1887,7 +1806,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="se"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -1919,7 +1838,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="se"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -1951,7 +1870,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="se"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -1983,7 +1902,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="se"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -2015,7 +1934,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="se"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -2047,7 +1966,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="se"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -2079,7 +1998,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="se"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -2111,7 +2030,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="se"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -2143,7 +2062,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="se"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -2175,7 +2094,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="se"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -2207,7 +2126,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="se"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -2239,7 +2158,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="se"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -2271,7 +2190,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="se"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -2303,7 +2222,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="se"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -2335,7 +2254,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="se"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -2367,7 +2286,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="se"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -2399,7 +2318,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="se"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -2431,7 +2350,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="se"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -2463,7 +2382,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="se"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -2495,7 +2414,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="se"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -2527,7 +2446,7 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 		[unit]
 			description=""
 			facing="se"
-			name=_"Statue"
+			name="Statue"
 			random_traits=no
 			type="Giant Scorpion"
 			unrenamable=yes
@@ -2556,7 +2475,38 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 				[/object]
 			[/modifications]
 		[/unit]
-		[default_faction]
-		[/default_faction]
-	[/side]
+[/side]
+[event]
+
+		name="prestart"
+		[lua]
+			code=" wesnoth.require(""multiplayer/eras.lua"").quick_4mp_leaders(...) "
+			[args]
+				[trait]
+					female_name=_"female^quick"
+					help_text=_"<italic>text='Quick'</italic> units have 1 extra movement point, but 5% less hitpoints than usual." +
+						_"
+
+Quick is the most noticeable trait, particularly in slower moving units such as trolls or heavy infantry. Units with the quick trait often have greatly increased mobility in rough terrain, which can be important to consider when deploying your forces. Also, quick units aren’t quite as tough as units without this trait and are subsequently less good at holding contested positions."
+					id="quick"
+					male_name=_"quick"
+					[effect]
+						apply_to="movement"
+						increase=1
+					[/effect]
+					[effect]
+						apply_to="hitpoints"
+						increase_total="-5%"
+					[/effect]
+				[/trait]
+			[/args]
+		[/lua]
+	[/event]
+[event]
+
+		name="time over"
+		[lua]
+			code=" wesnoth.require(""multiplayer/eras.lua"").turns_over_advantage() "
+		[/lua]
+	[/event]
 [/scenario]

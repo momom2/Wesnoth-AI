@@ -1,19 +1,21 @@
 # Per-scenario [scenario] template for from-scratch save
-# WML emission. Extracted from a real Wesnoth save (after
-# the engine expanded macros + scenario events). All
-# [side] sub-blocks stripped at extraction; the runtime
-# emitter (tools/sim_to_replay.build_save_wml) inserts
-# fresh [side] blocks per game from sim state.
+# WML emission. Built from the game's own scenario .cfg by
+# Wesnoth's own preprocessor (see
+# tools/build_scenario_templates.py). [side] 1/2 stripped
+# at build; the runtime emitter (sim_to_replay.build_save_wml)
+# inserts fresh [side] blocks per game from sim state.
 #
-# Source: replays_raw/.../2p__Sablestone_Delta_Turn_12_(94075).bz2
-# Regenerate via: python tools/extract_scenario_templates.py
+# Source: wesnoth_src/data/multiplayer/scenarios (game cfg, game preprocessor)
+# Regenerate via: python tools/build_scenario_templates.py
 [scenario]
-description="Two armies collide on this disjointed coastal landscape of hidden caves and jagged rivers."
+turns="-1"
 experience_modifier="70"
 has_mod_events="yes"
-id="multiplayer_Sablestone_Delta"
 loaded_resources=""
-map_data="Ss, Gs, Gs, Gs, Ss, Ss, Ss, Ss, Gs, Gs, Gs, Ss, Ss, Gs, Gs, Gs, Ww, Ww, Gs, Uh, Xu, Xu, Xu
+objectives="<big>Victory:</big>\n<span color='#00ff00'>&#8226; Defeat enemy leader(s)</span>"
+	description="Two armies collide on this disjointed coastal landscape of hidden caves and jagged rivers."
+	id="multiplayer_Sablestone_Delta"
+	map_data="Ss, Gs, Gs, Gs, Ss, Ss, Ss, Ss, Gs, Gs, Gs, Ss, Ss, Gs, Gs, Gs, Ww, Ww, Gs, Uh, Xu, Xu, Xu
 Gs, Gs^Ft, Gs^Ft, Ss, Ss, Ss, 1 Gs^Ft, Ss, Ss, Gs, Gs, Gs^Ft, Gs, Ss^Vhs, Gs, Gs^Ft, Ww, Ww, Gs^Ft, Uh, Xu, Xu, Xu
 Ww, Ww, Gs, Gs, Gs, Gs, Gs, Ss, Gs, Ss, Gs, Gs, Gs, Gs, Ww, Gs, Gs, Gs, Gs, Tb^Tf, Uu^Vu, Xu, Xu
 Xu, Xu, Gs, Ww, Ww, Ww, Ww, Gs, Kud, Gs, Ww, Ww, Ww, Ww, Gs, Gs, Ww, Gs, Xu, Rb, Rb, Cud, Ss
@@ -42,220 +44,183 @@ Cud, Cud, Uu^Vu, Rb, Gs, Gs, Gs, Gs, Ww, Ww, Gs, Ww, Gs, Gs, Gs, Gs, Gs, Ww, Gs,
 Xu, Xu, Xu, Tb^Tf, Gs^Ft, Gs, Ww, Gs, Gs, Gs, Gs, Gs, Gs, Ss, Ss, Ss, Gs, Gs, Ss, Gs, Gs^Ft, Ww, Ww
 Xu, Xu, Xu, Uh, Xu, Ww, Gs^Ft, Gs, Ss, Ss^Vhs, Ss, Gs^Ft, Gs, Gs, Ss, Gs, Gs^Ft, Ss, Ss, Ss, Ss, Uh, Uh
 Ww, Ww, Ww, Xu, Xu, Xu, Ss, Gs, Ss, Xu, Xu, Xu, Ss, Ss, Gs, Xu, Xu, Xu, Xu, Gs^Ft, Ss, Xu, Xu
-Ww, Ww, Ww, Xu, Xu, Xu, Ss, Xu, Ss, Xu, Xu, Xu, Ss, Ss, Gs, Xu, Xu, Xu, Xu, Gs, Ss, Xu, Xu
-"
-map_file="multiplayer/maps/2p_Sablestone_Delta.map"
-name="2p â€” Sablestone Delta"
-objectives="<big>Vittoria:</big>
-<span color='#00ff00'>â€¢ Sconfiggi il condottiero nemico (o i condottieri nemici)</span>"
-random_start_time="no"
-turns="-1"
-[time]
-
+Ww, Ww, Ww, Xu, Xu, Xu, Ss, Xu, Ss, Xu, Xu, Xu, Ss, Ss, Gs, Xu, Xu, Xu, Xu, Gs, Ss, Xu, Xu"
+	map_file="multiplayer/maps/2p_Sablestone_Delta.map"
+	name="2p — Sablestone Delta"
+	random_start_time=no
+	[time]
 		blue=0
 		green=-15
 		id="dawn"
 		image="misc/time-schedules/default/schedule-dawn.png"
-#textdomain wesnoth-help
-		name=_"Dawn"
+		name="Dawn"
 		red=-25
 		sound="ambient/morning.ogg"
 	[/time]
-[time]
-
+	[time]
 		id="morning"
 		image="misc/time-schedules/default/schedule-morning.png"
 		lawful_bonus=25
-		name=_"Morning"
+		name="Morning"
 	[/time]
-[time]
-
+	[time]
 		id="afternoon"
 		image="misc/time-schedules/default/schedule-afternoon.png"
 		lawful_bonus=25
-		name=_"Afternoon"
+		name="Afternoon"
 	[/time]
-[time]
-
+	[time]
 		blue=-35
 		green=-20
 		id="dusk"
 		image="misc/time-schedules/default/schedule-dusk.png"
-		name=_"Dusk"
+		name="Dusk"
 		red=10
 		sound="ambient/night.ogg"
 	[/time]
-[time]
-
+	[time]
 		blue=-13
 		green=-45
 		id="first_watch"
 		image="misc/time-schedules/default/schedule-firstwatch.png"
 		lawful_bonus=-25
-		name=_"First Watch"
+		name="First Watch"
 		red=-75
 	[/time]
-[time]
-
+	[time]
 		blue=-13
 		green=-45
 		id="second_watch"
 		image="misc/time-schedules/default/schedule-secondwatch.png"
 		lawful_bonus=-25
-		name=_"Second Watch"
+		name="Second Watch"
 		red=-75
 	[/time]
-[music]
-
+	[music]
 		ms_before=12000
 		name="knolls.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="wanderer.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="battle.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="transience.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="the_king_is_dead.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="knalgan_theme.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="the_city_falls.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="nunc_dimittis.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="revelation.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="loyalists.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="breaking_the_chains.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="elvish-theme.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="legends_of_the_north.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="traveling_minstrels.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="underground.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="vengeful.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="frantic.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="the_dangerous_symphony.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="heroes_rite.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="suspense.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="the_deep_path.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="siege_of_laurelmor.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="casualties_of_war.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="silvan_sanctuary.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="battle-epic.ogg"
 	[/music]
-[event]
-
+	[event]
 		name="prestart"
 		[music]
 			ms_before=12000
@@ -393,7 +358,7 @@ turns="-1"
 					help_text=_"<italic>text='Quick'</italic> units have 1 extra movement point, but 5% less hitpoints than usual." +
 						_"
 
-Quick is the most noticeable trait, particularly in slower moving units such as trolls or heavy infantry. Units with the quick trait often have greatly increased mobility in rough terrain, which can be important to consider when deploying your forces. Also, quick units arenâ€™t quite as tough as units without this trait and are subsequently less good at holding contested positions."
+Quick is the most noticeable trait, particularly in slower moving units such as trolls or heavy infantry. Units with the quick trait often have greatly increased mobility in rough terrain, which can be important to consider when deploying your forces. Also, quick units aren’t quite as tough as units without this trait and are subsequently less good at holding contested positions."
 					id="quick"
 					male_name=_"quick"
 					[effect]

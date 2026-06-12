@@ -1,19 +1,21 @@
 # Per-scenario [scenario] template for from-scratch save
-# WML emission. Extracted from a real Wesnoth save (after
-# the engine expanded macros + scenario events). All
-# [side] sub-blocks stripped at extraction; the runtime
-# emitter (tools/sim_to_replay.build_save_wml) inserts
-# fresh [side] blocks per game from sim state.
+# WML emission. Built from the game's own scenario .cfg by
+# Wesnoth's own preprocessor (see
+# tools/build_scenario_templates.py). [side] 1/2 stripped
+# at build; the runtime emitter (sim_to_replay.build_save_wml)
+# inserts fresh [side] blocks per game from sim state.
 #
-# Source: replays_raw/.../2p__Silverhead_Crossing_Turn_19_(98991).bz2
-# Regenerate via: python tools/extract_scenario_templates.py
+# Source: wesnoth_src/data/multiplayer/scenarios (game cfg, game preprocessor)
+# Regenerate via: python tools/build_scenario_templates.py
 [scenario]
-description="Players must traverse all manner of terrain in pursuit of victory on this multi-fronted duel map."
+turns="-1"
 experience_modifier="70"
 has_mod_events="yes"
-id="multiplayer_Silverhead_Crossing"
 loaded_resources=""
-map_data="Wo, Wo, Wo, Wo, Wo, Wo, Wo, Wo, Wo, Wo, Wo, Wo, Wo, Ww, Ww, Wo, Xu, Wo, Ww, Ww, Wo, Wo, Wo, Wo, Wo, Wo, Wo, Wo, Wo, Wo, Wo
+objectives="<big>Victory:</big>\n<span color='#00ff00'>&#8226; Defeat enemy leader(s)</span>"
+	description="Players must traverse all manner of terrain in pursuit of victory on this multi-fronted duel map."
+	id="multiplayer_Silverhead_Crossing"
+	map_data="Wo, Wo, Wo, Wo, Wo, Wo, Wo, Wo, Wo, Wo, Wo, Wo, Wo, Ww, Ww, Wo, Xu, Wo, Ww, Ww, Wo, Wo, Wo, Wo, Wo, Wo, Wo, Wo, Wo, Wo, Wo
 Wo, Wo, Wo, Wo, Wo, Wo, Wo, Wo, Ww, Wo, Ww, Ww, Ww, Ww, Uh, Xu, Uh, Xu, Xu, Ww, Hh, Wo, Ww, Wo, Wo, Wo, Wo, Wo, Wo, Wo, Wo
 Wo, Wo, Wo, Wo, Wo, Wo, Wo, Ww, Ww, Ww, Gs^Fp, Ww, Xu, Xu, Gs^Fp, Tb^Tf, Gg, Tb^Tf, Uh, Gs^Fp, Mm, Gg^Fet, Ww, Ww, Ww, Ww, Ww, Wo, Ww, Wo, Wo
 Wo, Wo, Wo, Wo, Wo, Wo, Ww, Ww, Hh, Gs, Gs^Efm, Gg, Gg, Uh, Gg, Gg^Efm, Wo, Gg, Gg, Gs^Efm, Gs, Gs, Gs, Gs^Fp, Hh, Mm, Gs^Fms, Ww, Ww, Wo, Wo
@@ -44,220 +46,183 @@ Xu, Xu, Xu, Xu, Xu, Xu, Xu, Rrc, Wwf, Chw, Wwf, Rrc, Ur, Xu, Xu, Wwf, Xu, Xu, Ur
 Xu, Xu, Xu, Xu, Xu, Xu, Xu, Wwf, Xu, Xu, Rrc, Rrc, Wwf, Uh, Wwf, Wwf, Wwf, Tb^Tf, Wwf, Rrc, Rrc, Rrc, Rrc, Wwf, Xu, Xu, Xu, Xu, Xu, Xu, Xu
 Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Wo, Wwf, Ur, Chw, Wwf, Wwf, Wo, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu
 Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Ur, Wo, Uh, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu
-Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Wo, Wo, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu
-"
-map_file="multiplayer/maps/2p_Silverhead_Crossing.map"
-name="2p â€” Silverhead Crossing"
-objectives="<big>ÐŸÐ¾Ð±ÐµÐ´Ð°:</big>
-<span color='#00ff00'>â€¢ Ð£Ð±ÐµÐ¹Ñ‚Ðµ Ð»Ð¸Ð´ÐµÑ€Ð°(Ð¾Ð²) Ð¿Ñ€Ð¾Ñ‚Ð¸Ð²Ð½Ð¸ÐºÐ°</span>"
-random_start_time="no"
-turns="-1"
-[time]
-
+Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Wo, Wo, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu"
+	map_file="multiplayer/maps/2p_Silverhead_Crossing.map"
+	name="2p — Silverhead Crossing"
+	random_start_time=no
+	[time]
 		blue=0
 		green=-15
 		id="dawn"
 		image="misc/time-schedules/default/schedule-dawn.png"
-#textdomain wesnoth-help
-		name=_"Dawn"
+		name="Dawn"
 		red=-25
 		sound="ambient/morning.ogg"
 	[/time]
-[time]
-
+	[time]
 		id="morning"
 		image="misc/time-schedules/default/schedule-morning.png"
 		lawful_bonus=25
-		name=_"Morning"
+		name="Morning"
 	[/time]
-[time]
-
+	[time]
 		id="afternoon"
 		image="misc/time-schedules/default/schedule-afternoon.png"
 		lawful_bonus=25
-		name=_"Afternoon"
+		name="Afternoon"
 	[/time]
-[time]
-
+	[time]
 		blue=-35
 		green=-20
 		id="dusk"
 		image="misc/time-schedules/default/schedule-dusk.png"
-		name=_"Dusk"
+		name="Dusk"
 		red=10
 		sound="ambient/night.ogg"
 	[/time]
-[time]
-
+	[time]
 		blue=-13
 		green=-45
 		id="first_watch"
 		image="misc/time-schedules/default/schedule-firstwatch.png"
 		lawful_bonus=-25
-		name=_"First Watch"
+		name="First Watch"
 		red=-75
 	[/time]
-[time]
-
+	[time]
 		blue=-13
 		green=-45
 		id="second_watch"
 		image="misc/time-schedules/default/schedule-secondwatch.png"
 		lawful_bonus=-25
-		name=_"Second Watch"
+		name="Second Watch"
 		red=-75
 	[/time]
-[music]
-
+	[music]
 		ms_before=12000
 		name="knolls.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="wanderer.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="battle.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="transience.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="the_king_is_dead.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="knalgan_theme.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="the_city_falls.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="nunc_dimittis.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="revelation.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="loyalists.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="breaking_the_chains.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="elvish-theme.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="legends_of_the_north.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="traveling_minstrels.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="underground.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="vengeful.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="frantic.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="the_dangerous_symphony.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="heroes_rite.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="suspense.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="the_deep_path.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="siege_of_laurelmor.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="casualties_of_war.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="silvan_sanctuary.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="battle-epic.ogg"
 	[/music]
-[event]
-
+	[event]
 		name="prestart"
 		[music]
 			ms_before=12000
@@ -384,15 +349,35 @@ turns="-1"
 			name="battle-epic.ogg"
 		[/music]
 	[/event]
-[event]
-
+[side]
+		allow_player=no
+		canrecruit=no
+		color="black"
+		controller="null"
+		controller_lock=yes
+		disallow_observers=yes
+		faction_lock=yes
+		hidden=yes
+		leader_lock=yes
+		no_leader=yes
+		side=3
+		team_lock=yes
+		team_name="nani"
+		user_team_name="teamname^Shapeshifter"
+		[unit]
+			name="Nani the Shapeshifter"
+			type="Tentacle of the Deep"
+			x=1
+			y=1
+		[/unit]
+[/side]
+	[event]
 		first_time_only=no
 		name="side 3 turn"
 		[end_turn]
 		[/end_turn]
 	[/event]
-[event]
-
+	[event]
 		name="prestart"
 		[object]
 			silent=yes
@@ -409,8 +394,7 @@ turns="-1"
 			[effect]
 				apply_to="new_attack"
 				damage=100
-#textdomain wesnoth-multiplayer
-				description=_"evil eye"
+				description="evil eye"
 				icon="attacks/gaze.png"
 				name="evil eye"
 				number=1
@@ -419,11 +403,10 @@ turns="-1"
 				[specials]
 					[chance_to_hit]
 						cumulative=no
-#textdomain wesnoth-help
-						description=_"This attack always has a 70% chance to hit regardless of the defensive ability of the unit being attacked."
+						description="This attack always has a 70% chance to hit regardless of the defensive ability of the unit being attacked."
 						id="magical"
-						name=_"magical"
-						special_note=_"This unit has magical attacks, which always have a high chance of hitting an opponent."
+						name="magical"
+						special_note="This unit has magical attacks, which always have a high chance of hitting an opponent."
 						value=70
 					[/chance_to_hit]
 				[/specials]
@@ -433,13 +416,13 @@ turns="-1"
 				[abilities]
 					[hides]
 						affect_self=yes
-						description=_"This unit can hide in deep water, and remain undetected by its enemies.
+						description="This unit can hide in deep water, and remain undetected by its enemies.
 
 Enemy units cannot see this unit while it is in deep water, except if they have units next to it. Any enemy unit that first discovers this unit immediately loses all its remaining movement."
-						female_name=_"female^submerge"
+						female_name="female^submerge"
 						id="submerge"
-						name=_"submerge"
-						special_note=_"This unit can move unseen in deep water, requiring no air from the surface."
+						name="submerge"
+						special_note="This unit can move unseen in deep water, requiring no air from the surface."
 						[filter]
 							[filter_location]
 								terrain="Wo*^*"
@@ -466,7 +449,7 @@ Enemy units cannot see this unit while it is in deep water, except if they have 
 					help_text=_"<italic>text='Quick'</italic> units have 1 extra movement point, but 5% less hitpoints than usual." +
 						_"
 
-Quick is the most noticeable trait, particularly in slower moving units such as trolls or heavy infantry. Units with the quick trait often have greatly increased mobility in rough terrain, which can be important to consider when deploying your forces. Also, quick units arenâ€™t quite as tough as units without this trait and are subsequently less good at holding contested positions."
+Quick is the most noticeable trait, particularly in slower moving units such as trolls or heavy infantry. Units with the quick trait often have greatly increased mobility in rough terrain, which can be important to consider when deploying your forces. Also, quick units aren’t quite as tough as units without this trait and are subsequently less good at holding contested positions."
 					id="quick"
 					male_name=_"quick"
 					[effect]
@@ -488,43 +471,4 @@ Quick is the most noticeable trait, particularly in slower moving units such as 
 			code=" wesnoth.require(""multiplayer/eras.lua"").turns_over_advantage() "
 		[/lua]
 	[/event]
-[side]
-
-		allow_changes=no
-		allow_player=no
-		canrecruit=no
-		chose_random=no
-		color="black"
-		controller="null"
-		controller_lock=yes
-		disallow_observers=yes
-		faction="Custom"
-		faction_lock=yes
-#textdomain wesnoth
-		faction_name=_"Custom"
-		fog=yes
-		gold=100
-		hidden=yes
-		income=0
-		is_host=no
-		is_local=no
-		leader_lock=yes
-		no_leader=yes
-		shroud=no
-		side=3
-		team_lock=yes
-		team_name="nani"
-		user_team_name="wesnoth-multiplayerteamname^Shapeshifter"
-		village_gold=2
-		village_support=1
-		[unit]
-#textdomain wesnoth-multiplayer
-			name=_"Nani the Shapeshifter"
-			type="Tentacle of the Deep"
-			x=1
-			y=1
-		[/unit]
-		[default_faction]
-		[/default_faction]
-	[/side]
 [/scenario]

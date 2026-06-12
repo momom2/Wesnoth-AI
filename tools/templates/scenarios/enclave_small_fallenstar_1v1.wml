@@ -5,45 +5,32 @@
 # at build; the runtime emitter (sim_to_replay.build_save_wml)
 # inserts fresh [side] blocks per game from sim state.
 #
-# Source: wesnoth_src/data/multiplayer/scenarios (game cfg, game preprocessor)
+# Source: Mini_Maps_Collection add-on (game cfg, game preprocessor)
 # Regenerate via: python tools/build_scenario_templates.py
 [scenario]
-turns="-1"
-experience_modifier="70"
 has_mod_events="yes"
 loaded_resources=""
 objectives="<big>Victory:</big>\n<span color='#00ff00'>&#8226; Defeat enemy leader(s)</span>"
-	description="This most unusual of caves was once known as the Chamber of Laughing Devils, and was the inner citadel of the Kah Ruuk Oni. The Kah Ruuk were a wicked and cunning race of man-eating demons, who terrorized the people of the Eastern Lands for nearly four hundred years, before vanishing from Irdya without a trace. Since that time, many factions have vied for dominion over the Den of Onis, hoping to unlock the strange and mysterious magics of its creators."
-	id="multiplayer_Den_of_Onis"
-	map_data="Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Ql, Ql, Ql, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu
-Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Ql, Ql, Ql, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu
-Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Ur, 2 Kud, Uu, Ql, Ql, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu
-Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Uh^Emf, Wwf, Wwf, Rd, Rd, Cud, Ur, Tb^Tf, Ur^Emf, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu
-Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Ur, Uu^Vu, Wwf, Wwf, Rd, Cud, Cud, Ur, Ur, Hh, Ss, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu
-Xu, Xu, Xu, Xu, Xu, Xu, Rd, Xu, Wwf, Rd, Rd, Ur, Ur, Wwf, Wwf, Rd, Rd, Cud, Rp, Gs^Fp, Ss^Vhs, Ss, Rp, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu
-Xu, Xu, Xu, Xu, Ur, Ur, Ur, Rd, Rd, Wwf, Rd, Mm, Ur, Ur, Ur^Fp, Ur^Fp, Uh, Rd, Rd, Rp, Wwf, Rp, Hh, Rp, Uu^Vu, Xu, Xu, Xu, Xu, Xu, Xu
-Xu, Xu, Xu, Ql, Tb^Tf, Xu, Ur, Xu, Xu, Wwf, Wwf, Rd, Ql, Ql, Ur, Tb^Tf, Ur, Rd, Rd, Hh, Gs^Fp, Rp, Xu, Rp, Wwf, Xu, Xu, Xu, Xu, Xu, Xu
-Xu, Xu, Xu, Xu, Rd, Gs^Fp, Rd, Ur, Xu, Ww, Ww, Xu, Xu, Xu, Uu^Vu, Ur, Rd, Rd, Rd, Rd, Rd, Rd, Xu, Xu, Rp, Xu, Xu, Xu, Xu, Xu, Xu
-Xu, Xu, Ql, Xu, Rd, Uu^Vu, Xu, Rd, Xu, Ww, Wwf, Uh, Rd, Rd, Rd, Ur^Fp, Uh, Rd, Rp, Mm, Wwf, Ss^Vhs, Rp, Rp, Gs^Fp, Xu, Xu, Xu, Xu, Xu, Xu
-Xu, Xu, Xu, Rp, Xu, Xu, Uh, Gs^Fp, Xu, Wwf, Mm, Wwf, Rd^Tf, Hh^Fp, Hh, Rd, Rd, Rd, Rp, Hh, Wwf, Rp, Xu, Xu, Uh, Xu, Xu, Xu, Xu, Xu, Xu
-Xu, Xu, Wwf, Wwf, Gs^Fp, Rd, Rd, Tb^Tf, Xu, Wwf, Wwf, Wwf, Ww, Ww, Hh, Rp, Rd, Rd, Rr^Tf, Gs^Fp, Hh, Wwf, Xu, Rp, Rd, Tb^Tf, Xu, Xu, Xu, Xu, Xu
-Xu, Rp, Wwf, Rp, Rp, Rd, Xu, Ur, Xu, Wwf, Rr, Ww, Rp, Gs^Fp, Rp, Rp, Rd, Rd, Rd, Gs^Fp, Rp, Wwf, Uh, Gs^Fp, Rd, Rd, Uh, Xu, Wo, Xu, Xu
-Xu, Xu, Wo, Ww, Uh, Uh, Rd, Xu, Uh, Wwf, Rp, Rp, Rd, Rp, Rd, Rd, Rp, Rp, Rp, Rp, Rr, Wwf, Xu, Xu, Xu, Uh, Rp, Ww, Wwf, Xu, Xu
-Xu, Xu, Xu, Xu, Xu, Rd, Rd, Gs^Fp, Xu, Wwf, Hh, Gs^Fp, Rr^Tf, Rd, Rd, Rp, Hh, Gs^Fp, Ww, Ww, Wwf, Wwf, Xu, Rd, Rd, Rd, Gs^Fp, Rp, Wwf, Rp, Xu
-Xu, Xu, Xu, Xu, Xu, Tb^Tf, Uh, Rp, Xu, Wwf, Wwf, Gs^Fp, Rp, Rd, Rd, Rp, Hh, Ww, Rd^Tf, Wwf, Mm, Wwf, Xu, Tb^Tf, Uh, Rd, Xu, Wwf, Xu, Xu, Xu
-Xu, Xu, Xu, Xu, Xu, Xu, Gs^Fp, Xu, Rp, Rp, Wwf, Hh, Rp, Rd, Uh, Rd, Rd, Hh^Fp, Rd, Wwf, Wwf, Wwf, Xu, Gs^Fp, Xu, Xu, Rd, Rd, Ql, Xu, Xu
-Xu, Xu, Xu, Xu, Xu, Xu, Rp, Rp, Xu, Ss^Vhs, Rd, Mm, Rd, Rd, Rd, Ur^Fp, Uu^Vu, Rd, Xu, Uh, Ww, Ww, Xu, Rd, Rd, Uu^Vu, Rd, Xu, Xu, Xu, Xu
-Xu, Xu, Xu, Xu, Xu, Xu, Wwf, Xu, Xu, Rd, Rd^Fp, Rd, Rd, Rd, Ur, Ur, Ur, Xu, Ql, Xu, Wwf, Ww, Xu, Ur, Ur, Gs^Fp, Tb^Tf, Xu, Xu, Xu, Xu
-Xu, Xu, Xu, Xu, Xu, Xu, Uu^Vu, Rp, Hh, Rp, Wwf, Hh, Rd, Rd, Uh, Tb^Tf, Ur^Fp, Ql, Ur, Rd, Rd, Wwf, Rd, Xu, Ur, Xu, Ur, Ql, Xu, Xu, Xu
-Xu, Xu, Xu, Xu, Xu, Xu, Xu, Rp, Rp, Rp, Ss^Vhs, Rp, Rp, Rd, Rd, Ur^Fp, Wwf, Ur, Ur, Mm, Rd, Wwf, Wwf, Rd, Rd, Ur, Xu, Xu, Xu, Xu, Xu
-Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Ss, Ss, Gs^Fp, Ur, Cud, Cud, Rd, Rd, Wwf, Wwf, Ur, Ur, Rd, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu
-Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Hh, Ur^Emf, Ur, Ur, Cud, Rd, Wwf, Wwf, Uu^Vu, Uh^Emf, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu
-Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Ql, Tb^Tf, Uu, Cud, Ur, Rd, Xu, Wwf, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu
-Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Ql, Ql, 1 Kud, Ql, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu
-Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Ql, Ql, Ql, Ql, Ql, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu"
-	map_file="multiplayer/maps/2p_Den_of_Onis.map"
-	name="2p — Den of Onis"
-	random_start_time=no
+	description="Small Fallenstar. By enclave."
+	experience_modifier="70%"
+	id="enclave_small_fallenstar_1v1"
+	map_data="Wwf, Wwf, Gg, Md^Xm, Md^Xm, Md^Xm, Md^Xm, Gg, Wwf, Md^Xm, Md^Xm, Md^Xm, Wwf, Gg, Md^Xm, Mm, Md^Xm, Md^Xm, Gg, Wwf, Wwf
+Gg, Wwf, Gs^Vh, Gg, Hh, Gg^Efm, Hh, Gg^Tf, Wwf, Wwf, Ce, Wwf, Wwf, Gg^Tf, Hh, Gg, Hh, Gg, Gs^Vh, Wwf, Gg
+Gg, Gg, Wwf, Wwf, Gg, Gg, Gg, Gg, Gg, Gg, Wwf, Gg, Gg, Gg^Efm, Gg, Gg, Gg, Wwf, Wwf, Gg, Gg
+Md^Xm, Gg, Gg, Gg, Wwf, Wwf, Gg, Ce, Gg, Gg, Wwf, Gg, Gg, Ce, Gg, Wwf, Wwf, Gg, Gg, Gg, Md^Xm
+Gg, Gg, Gg, Gg, Gg, Wwf, Gg, Gs^Fp, Gs^Fp, Wwf, Wwf, Wwf, Gs^Fp, Gs^Fp, Gg, Wwf, Gg, Gg, Gg, Gg, Gg
+Gg, Re, Hh, Gg, Ss^Vhs, Gg, Wwf, Wwf, Wwf, Wwf, Hh, Wwf, Wwf, Wwf, Wwf, Gg^Efm, Ss^Vhs, Gg, Hh, Re, Gg
+Re, Gs^Fp, Hh^Fp, Gs, Gs, Gg, Gg, Hh, Mm, Ce, Wwf, Ce, Mm, Hh, Gg, Gg, Gs, Gs, Hh^Fp, Gs^Fp, Re
+Md^Xm, Gg, Gs, Re^Tf, Gg, Gg, Gg, Gg^Efm, Hh^Tf, Wwf, Wwf, Wwf, Hh^Tf, Gg, Gg, Gg, Gg, Re^Tf, Gs, Gg, Md^Xm
+Md^Xm, Gg, Hh, Mm, Re, Gg^Ve, Gg, Wwf, Wwf, Gs^Fp, Ww, Gs^Fp, Wwf, Wwf, Gg, Gg^Ve, Re, Mm, Hh, Gg, Md^Xm
+Gg, Gg, Hh, Gs^Fp, Gg, Wwf, Wwf, Gg, Gg, Gs, Wwf, Gs, Gs, Gg, Wwf, Wwf, Gg, Gs^Fp, Hh, Gg, Gg
+Gg, Gs^Fp, Gg, Gg, Gg, Wwf, Gg, Gg, Gg, Gs, Wwf, Gs, Gg, Gg, Gg, Wwf, Gg, Gg, Gs, Gs^Fp, Gs
+Md^Xm, Chw, 1 Khw, Chw, Chw, Gg, Gg, Mm, Gs, Hh, Wwf, Hh, Gs, Mm, Gg, Gg, Chw, Chw, 2 Khw, Chw, Md^Xm
+Ce, Md^Xm, Re, Gg, Gg, Md^Xm, Md^Xm, Mm^Xm, Mm^Xm, Wwf, Wwf, Wwf, Mm^Xm, Mm^Xm, Md^Xm, Md^Xm, Gg, Gg, Re, Md^Xm, Ce
+"
+	name="2p - Small Fallenstar"
+	random_start_time=yes
+	turns=-1
 	[time]
 		blue=0
 		green=-15
@@ -343,21 +330,162 @@ Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Xu, Ql, Ql, Ql, Ql, Ql, Xu, Xu, 
 			name="battle-epic.ogg"
 		[/music]
 	[/event]
-	[item]
-		image="items/burial.png"
-		x=15
-		y=13
-	[/item]
-	[item]
-		image="items/burial.png"
-		x=26
-		y=16
-	[/item]
-	[item]
-		image="items/burial.png"
-		x=4
-		y=9
-	[/item]
+[side]
+		allow_player=false
+		controller="ai"
+		fog=no
+		gold=0
+		id="mini_isar_monsters"
+		income=0
+		no_leader=yes
+		shroud=no
+		side=3
+		team_name="Monsters"
+		village_gold=0
+		[ai]
+			aggression=0.3
+			caution=0.5
+			village_value=2
+		[/ai]
+[/side]
+	[event]
+		name="prestart"
+		[objectives]
+			side=0
+			summary="Small Fallenstar. By enclave.
+Part of Mini Isar Map Pack.
+"
+			[objective]
+				condition="win"
+				description="Defeat enemy leaders.
+"
+			[/objective]
+			[objective]
+				condition="lose"
+				description="The death of your leaders.
+"
+			[/objective]
+		[/objectives]
+	[/event]
+	[event]
+		first_time_only=yes
+		name="turn 1"
+		[unit]
+			generate_name=yes
+			random_gender=yes
+			random_traits=yes
+			role="monster"
+			side=3
+			type="Tentacle of the Deep"
+			x=10
+			y=3
+			[modifications]
+				[trait]
+					description="Zero upkeep"
+					female_name="female^loyal"
+					help_text="<italic>text='Loyal'</italic> units don’t incur upkeep. Most units incur an upkeep cost at the end of every turn, which is equal to their level. Loyal units do not incur this cost." +
+						"
+
+During campaigns, certain units may opt to join the player’s forces of their own volition. These units are marked with the loyal trait. Although they may require payment to be recalled, they never incur any upkeep costs. This can make them invaluable during a long campaign, when gold is in short supply. This trait is never given to recruited units, so it may be unwise to dismiss such units or to send them to a foolish death."
+					id="loyal"
+					male_name="loyal"
+					[effect]
+						apply_to="loyal"
+					[/effect]
+					[effect]
+						add="misc/loyal-icon.png"
+						apply_to="overlay"
+					[/effect]
+				[/trait]
+			[/modifications]
+		[/unit]
+		[unit]
+			generate_name=yes
+			random_gender=yes
+			random_traits=yes
+			role="monster"
+			side=3
+			type="Tentacle of the Deep"
+			x=10
+			y=7
+			[modifications]
+				[trait]
+					description="Zero upkeep"
+					female_name="female^loyal"
+					help_text="<italic>text='Loyal'</italic> units don’t incur upkeep. Most units incur an upkeep cost at the end of every turn, which is equal to their level. Loyal units do not incur this cost." +
+						"
+
+During campaigns, certain units may opt to join the player’s forces of their own volition. These units are marked with the loyal trait. Although they may require payment to be recalled, they never incur any upkeep costs. This can make them invaluable during a long campaign, when gold is in short supply. This trait is never given to recruited units, so it may be unwise to dismiss such units or to send them to a foolish death."
+					id="loyal"
+					male_name="loyal"
+					[effect]
+						apply_to="loyal"
+					[/effect]
+					[effect]
+						add="misc/loyal-icon.png"
+						apply_to="overlay"
+					[/effect]
+				[/trait]
+			[/modifications]
+		[/unit]
+		[unit]
+			generate_name=yes
+			random_gender=yes
+			random_traits=yes
+			role="monster"
+			side=3
+			type="Tentacle of the Deep"
+			x=10
+			y=10
+			[modifications]
+				[trait]
+					description="Zero upkeep"
+					female_name="female^loyal"
+					help_text="<italic>text='Loyal'</italic> units don’t incur upkeep. Most units incur an upkeep cost at the end of every turn, which is equal to their level. Loyal units do not incur this cost." +
+						"
+
+During campaigns, certain units may opt to join the player’s forces of their own volition. These units are marked with the loyal trait. Although they may require payment to be recalled, they never incur any upkeep costs. This can make them invaluable during a long campaign, when gold is in short supply. This trait is never given to recruited units, so it may be unwise to dismiss such units or to send them to a foolish death."
+					id="loyal"
+					male_name="loyal"
+					[effect]
+						apply_to="loyal"
+					[/effect]
+					[effect]
+						add="misc/loyal-icon.png"
+						apply_to="overlay"
+					[/effect]
+				[/trait]
+			[/modifications]
+		[/unit]
+	[/event]
+	[event]
+		first_time_only=no
+		id="mi_turnrefresh1"
+		name="turn refresh"
+		[store_unit]
+			kill=yes
+			variable="MODIFY_UNIT_store"
+			[filter]
+				role="monster"
+			[/filter]
+		[/store_unit]
+		[foreach]
+			array="MODIFY_UNIT_store"
+			[do]
+				[set_variable]
+					name="this_item.moves"
+					value=0
+				[/set_variable]
+				[unstore_unit]
+					find_vacant=no
+					variable="this_item"
+				[/unstore_unit]
+			[/do]
+		[/foreach]
+		[clear_variable]
+			name="MODIFY_UNIT_store"
+		[/clear_variable]
+	[/event]
 [event]
 
 		name="prestart"

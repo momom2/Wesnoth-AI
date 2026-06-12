@@ -1,19 +1,21 @@
 # Per-scenario [scenario] template for from-scratch save
-# WML emission. Extracted from a real Wesnoth save (after
-# the engine expanded macros + scenario events). All
-# [side] sub-blocks stripped at extraction; the runtime
-# emitter (tools/sim_to_replay.build_save_wml) inserts
-# fresh [side] blocks per game from sim state.
+# WML emission. Built from the game's own scenario .cfg by
+# Wesnoth's own preprocessor (see
+# tools/build_scenario_templates.py). [side] 1/2 stripped
+# at build; the runtime emitter (sim_to_replay.build_save_wml)
+# inserts fresh [side] blocks per game from sim state.
 #
-# Source: replays_raw/.../2p__The_Walls_of_Pyrennis_Turn_13_(98569).bz2
-# Regenerate via: python tools/extract_scenario_templates.py
+# Source: wesnoth_src/data/multiplayer/scenarios (game cfg, game preprocessor)
+# Regenerate via: python tools/build_scenario_templates.py
 [scenario]
-description="When the orcish hordes first began arriving in droves on the Great Continent, one intrepid ruler by the name of Iron-King Olgor set about first uniting the bickering orcish tribes. He sought to conquer the whole of the Continent under the rule of orcs, and commanded the construction of the immense fortress of Pyrennis as a monument to his power. But it was this very citadel that was his undoing â€” his vassals, unwilling to finish building without their destined conquest complete, turned on Olgor and slayed him, scattering the orcish hosts for centuries to come. The walls of Pyrennis have proved astoundingly indestructible both to time and war â€” that is, what scattered segments of it were actually completed."
+turns="-1"
 experience_modifier="70"
 has_mod_events="yes"
-id="multiplayer_The_Walls_of_Pyrennis"
 loaded_resources=""
-map_data="Ms, Ms, Ms, Ms, Ms, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Wwg, Wwg, Wwg, Wwg
+objectives="<big>Victory:</big>\n<span color='#00ff00'>&#8226; Defeat enemy leader(s)</span>"
+	description="When the orcish hordes first began arriving in droves on the Great Continent, one intrepid ruler by the name of Iron-King Olgor set about first uniting the bickering orcish tribes. He sought to conquer the whole of the Continent under the rule of orcs, and commanded the construction of the immense fortress of Pyrennis as a monument to his power. But it was this very citadel that was his undoing — his vassals, unwilling to finish building without their destined conquest complete, turned on Olgor and slayed him, scattering the orcish hosts for centuries to come. The walls of Pyrennis have proved astoundingly indestructible both to time and war — that is, what scattered segments of it were actually completed."
+	id="multiplayer_The_Walls_of_Pyrennis"
+	map_data="Ms, Ms, Ms, Ms, Ms, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Wwg, Wwg, Wwg, Wwg
 Ms, Ms^Xm, Ms^Xm, Ms^Xm, Hhd^Fdw, Hhd^Fmw, Rd, Re, Re^Efm, Rb, Hhd, Re^Fmw, Rr, Rr, Koa^Xo, Rr, Re, Re, Rd, Rd^Esd, Rd, Rd, Rr, Rd, Rr, Rd, Rd, Re, Rb^Efm, Rb, Wwg, Wwg, Wwg
 Re, Md, Rb^Fdw, Hhd, Re, Re^Fmw, Hhd, Rd, Rd, Re, Rd, Rd^Fdw, Rr, Koa^Xo, Rr, Rr, Rd, Rd, Rd^Efm, Rd^Voa, Rd, Rr, Koa^Xo, Rr, Koa^Xo, Rr, Rr, Re^Fdw, Sm, Re, Wwg^Bw\, Wwg, Re
 Re, Re^Fdw, Hhd, Rb^Fmw, Rb, Re^Voa, Rr, Rr, Rr, Rd, Re^Tf, Rd, Rd, Rr, Rd, Rd, Wwf, Wwf, Wwf, Wwf, Wwf, Rr, Rr, Koa^Xo, Koa^Xo, Koa^Xo, Rr, Hhd, Wog, Wwg, Wwrg, Re, Re
@@ -40,221 +42,184 @@ Re, Wwf, Wwrg, Wwg, Wog, Wwf, Rr, Rr, Koa^Xo, Rr, Rr, Hhd^Fmw, Wwf, Rd^Efm, Wwf,
 Re, Re, Wwg^Bw\, Wwg, Sm, Hhd, Rr, Koa^Xo, Koa^Xo, Koa^Xo, Koa^Xo, Rr, Rd, Wwf, Rd^Efm, Wwf, Rd, Rd, Rr, Rr, Rr, Rd, Rd, Rd, Rd, Rr, Hhd, Re^Voa, Re, Rb^Fmw, Rb^Fdw, Re^Fdw, Re
 Wwg, Wwg, Wwg, Re, Rb^Efm, Re^Fdw, Rd, Rr, Rr, Rr, Rr, Rr, Rd, Rd^Voa, Rd, Rd, Re, Rr, Koa^Xo, Koa^Xo, Rr, Rd^Fdw, Hhd, Re, Re^Efm, Rd, Rd, Re^Fmw, Hhd^Fp, Hhd, Ms^Xm, Md, Ms
 Wwg, Wwg, Re^_fme, Rb, Re^_fme, Re, Re^_fme, Rd, Re^_fme, Rd, Re^_fme, Rd, Re^_fme, Rd^Esd, Re^_fme, Re, Re^_fme, Rr, Re^_fme, Rr, Re^_fme, Re^Fmw, Re^_fme, Rb, Re^_fme, Re, Re^_fme, Hhd^Fmw, Re^_fme, Ms^Xm, Ms^_fme, Ms^Xm, Ms
-Wwg, Wwg, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Ms, Ms, Ms, Ms, Ms
-"
-map_file="multiplayer/maps/2p_The_Walls_of_Pyrennis.map"
-mp_village_gold="2"
-name="2p â€” The Walls of Pyrennis"
-objectives="<big>Victory:</big>
-<span color='#00ff00'>â€¢ Defeat enemy leader(s)</span>"
-random_start_time="no"
-turns="-1"
-[time]
-
+Wwg, Wwg, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Re, Ms, Ms, Ms, Ms, Ms"
+	map_file="multiplayer/maps/2p_The_Walls_of_Pyrennis.map"
+	mp_village_gold=2
+	name="2p — The Walls of Pyrennis"
+	random_start_time=no
+	[time]
 		blue=0
 		green=-15
 		id="dawn"
 		image="misc/time-schedules/default/schedule-dawn.png"
-#textdomain wesnoth-help
-		name=_"Dawn"
+		name="Dawn"
 		red=-25
 		sound="ambient/morning.ogg"
 	[/time]
-[time]
-
+	[time]
 		id="morning"
 		image="misc/time-schedules/default/schedule-morning.png"
 		lawful_bonus=25
-		name=_"Morning"
+		name="Morning"
 	[/time]
-[time]
-
+	[time]
 		id="afternoon"
 		image="misc/time-schedules/default/schedule-afternoon.png"
 		lawful_bonus=25
-		name=_"Afternoon"
+		name="Afternoon"
 	[/time]
-[time]
-
+	[time]
 		blue=-35
 		green=-20
 		id="dusk"
 		image="misc/time-schedules/default/schedule-dusk.png"
-		name=_"Dusk"
+		name="Dusk"
 		red=10
 		sound="ambient/night.ogg"
 	[/time]
-[time]
-
+	[time]
 		blue=-13
 		green=-45
 		id="first_watch"
 		image="misc/time-schedules/default/schedule-firstwatch.png"
 		lawful_bonus=-25
-		name=_"First Watch"
+		name="First Watch"
 		red=-75
 	[/time]
-[time]
-
+	[time]
 		blue=-13
 		green=-45
 		id="second_watch"
 		image="misc/time-schedules/default/schedule-secondwatch.png"
 		lawful_bonus=-25
-		name=_"Second Watch"
+		name="Second Watch"
 		red=-75
 	[/time]
-[music]
-
+	[music]
 		ms_before=12000
 		name="knolls.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="wanderer.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="battle.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="transience.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="the_king_is_dead.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="knalgan_theme.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="the_city_falls.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="nunc_dimittis.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="revelation.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="loyalists.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="breaking_the_chains.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="elvish-theme.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="legends_of_the_north.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="traveling_minstrels.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="underground.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="vengeful.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="frantic.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="the_dangerous_symphony.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="heroes_rite.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="suspense.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="the_deep_path.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="siege_of_laurelmor.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="casualties_of_war.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="silvan_sanctuary.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="battle-epic.ogg"
 	[/music]
-[event]
-
+	[event]
 		name="prestart"
 		[music]
 			ms_before=12000
@@ -381,116 +346,97 @@ turns="-1"
 			name="battle-epic.ogg"
 		[/music]
 	[/event]
-[item]
-
+	[item]
 		image="scenery/icepack-1.png"
 		x=13
 		y=10
 	[/item]
-[item]
-
+	[item]
 		image="scenery/icepack-1.png"
 		x=19
 		y=17
 	[/item]
-[item]
-
+	[item]
 		image="scenery/icepack-1.png"
 		x=17
 		y=10
 	[/item]
-[item]
-
+	[item]
 		image="scenery/icepack-1.png"
 		x=15
 		y=17
 	[/item]
-[item]
-
+	[item]
 		image="scenery/icepack-1.png"
 		x=26
 		y=4
 	[/item]
-[item]
-
+	[item]
 		image="scenery/icepack-1.png"
 		x=6
 		y=22
 	[/item]
-[item]
-
+	[item]
 		image="scenery/icepack-1.png"
 		x=25
 		y=11
 	[/item]
-[item]
-
+	[item]
 		image="scenery/icepack-1.png"
 		x=7
 		y=16
 	[/item]
-[item]
-
+	[item]
 		image="scenery/icepack-1.png"
 		x=9
 		y=7
 	[/item]
-[item]
-
+	[item]
 		image="scenery/icepack-1.png"
 		x=23
 		y=20
 	[/item]
-[item]
-
+	[item]
 		image="scenery/icepack-1.png"
 		x=19
 		y=3
 	[/item]
-[item]
-
+	[item]
 		image="scenery/icepack-1.png"
 		x=13
 		y=24
 	[/item]
-[item]
-
+	[item]
 		image="scenery/icepack-1.png"
 		x=9
 		y=11
 	[/item]
-[item]
-
+	[item]
 		image="scenery/icepack-1.png"
 		x=23
 		y=16
 	[/item]
-[item]
-
+	[item]
 		image="scenery/icepack-1.png"
 		x=4
 		y=14
 	[/item]
-[item]
-
+	[item]
 		image="scenery/icepack-1.png"
 		x=28
 		y=12
 	[/item]
-[item]
-
+	[item]
 		image="scenery/icepack-1.png"
 		x=31
 		y=1
 	[/item]
-[item]
-
+	[item]
 		image="scenery/icepack-1.png"
 		x=1
 		y=26
 	[/item]
-[terrain_graphics]
-
+	[terrain_graphics]
 		[tile]
 			type="Koa^Xo"
 			x=0
@@ -512,7 +458,7 @@ turns="-1"
 					help_text=_"<italic>text='Quick'</italic> units have 1 extra movement point, but 5% less hitpoints than usual." +
 						_"
 
-Quick is the most noticeable trait, particularly in slower moving units such as trolls or heavy infantry. Units with the quick trait often have greatly increased mobility in rough terrain, which can be important to consider when deploying your forces. Also, quick units arenâ€™t quite as tough as units without this trait and are subsequently less good at holding contested positions."
+Quick is the most noticeable trait, particularly in slower moving units such as trolls or heavy infantry. Units with the quick trait often have greatly increased mobility in rough terrain, which can be important to consider when deploying your forces. Also, quick units aren’t quite as tough as units without this trait and are subsequently less good at holding contested positions."
 					id="quick"
 					male_name=_"quick"
 					[effect]

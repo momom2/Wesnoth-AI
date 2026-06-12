@@ -1,19 +1,21 @@
 # Per-scenario [scenario] template for from-scratch save
-# WML emission. Extracted from a real Wesnoth save (after
-# the engine expanded macros + scenario events). All
-# [side] sub-blocks stripped at extraction; the runtime
-# emitter (tools/sim_to_replay.build_save_wml) inserts
-# fresh [side] blocks per game from sim state.
+# WML emission. Built from the game's own scenario .cfg by
+# Wesnoth's own preprocessor (see
+# tools/build_scenario_templates.py). [side] 1/2 stripped
+# at build; the runtime emitter (sim_to_replay.build_save_wml)
+# inserts fresh [side] blocks per game from sim state.
 #
-# Source: replays_raw/.../2p__Tombs_of_Kesorak_Turn_15_(93565).bz2
-# Regenerate via: python tools/extract_scenario_templates.py
+# Source: wesnoth_src/data/multiplayer/scenarios (game cfg, game preprocessor)
+# Regenerate via: python tools/build_scenario_templates.py
 [scenario]
-description="Hundreds of years ago, the defeated Sorcerer Kesorak was entombed here, along with a number of his followers. An unholy chill now encircles the tombs, and many believe that the voice of Kesorak can still be heard, whispering amongst the withered trees of this barren landscape. Unconcerned by their gloomy surroundings, your leaders have chosen this place to clash."
+turns="-1"
 experience_modifier="70"
 has_mod_events="yes"
-id="multiplayer_Tombs_of_Kesorak"
 loaded_resources=""
-map_data="Urb, Xos, Xos, Urb, Urb, Xos, Tb^Tf, Rrc, Wwf, Wwf, Rrc, Rrc, Xos, Md, Hhd, Rrc, Wwf, Rrc, Rrc, Gd, Gd, Hhd^Fmf, Hhd, Xos, Xos, Urb, Urb, Xos, Xos, Xos, Xos, Xos, Xos, Xos, Xos, Xos, Xos, Hhd, Md
+objectives="<big>Victory:</big>\n<span color='#00ff00'>&#8226; Defeat enemy leader(s)</span>"
+	description="Hundreds of years ago, the defeated Sorcerer Kesorak was entombed here, along with a number of his followers. An unholy chill now encircles the tombs, and many believe that the voice of Kesorak can still be heard, whispering amongst the withered trees of this barren landscape. Unconcerned by their gloomy surroundings, your leaders have chosen this place to clash."
+	id="multiplayer_Tombs_of_Kesorak"
+	map_data="Urb, Xos, Xos, Urb, Urb, Xos, Tb^Tf, Rrc, Wwf, Wwf, Rrc, Rrc, Xos, Md, Hhd, Rrc, Wwf, Rrc, Rrc, Gd, Gd, Hhd^Fmf, Hhd, Xos, Xos, Urb, Urb, Xos, Xos, Xos, Xos, Xos, Xos, Xos, Xos, Xos, Xos, Hhd, Md
 Xos, Urb, Urb, Xos, Gd, Gd^Fmw, Rrc^Vo, Rrc, Wwf, Rrc, Urb, Urb, Urb, Tb^Tf, Gd^Fetd, Rrc, Rrc, Wwf, Wwf, Rrc, Gd, Gd, Gd, Tb^Tf, Gd, Rrc, Rrc, Urb, Coa, Coa, Xos, Urb, Xos, Urb, Xos, Hhd, Hhd^Fetd, Hhd, Hhd
 Xos, Xos, Gd, Gd, Rrc, Rrc, Wwf, Wwf, Xos, Xos, Urb, Xos, Xos, Coa, Gd, Gd, Rrc, Rrc^Ecf, Wwf, Rrc, Rrc, Hhd, Hhd^Fmw, Gd^Vo, Gd, Gd, Gd, Rrc, Gd^Fmw, Coa, Gd, Gd, Gd, Gd, Hhd, Md, Gd^Fmw, Gd^Fmf, Rrc
 Hhd, Xos, Gd^Tf, Gd, Rrc, Wwf, Ai, Ai, Urb, Urb, Urb, Urb, Coa, Coa, Rrc, Rrc, Wwf, Wwf, Rrc, Wwf, Wwf, Rrc, Hhd, Gd, Gd, Gd, Ko, Gd, Gd, Gd, Gd, Gd, Gd, Gd, Gd^Fmf, Hhd, Rrc, Rrc, Wwf
@@ -37,220 +39,183 @@ Wwf, Wwf, Rrc, Md, Gd^Fmf, Gd, Gd, Hhd^Fmw, Gd, Gd^Tf, Gd, Gd, Ko, Co, Gd, Gd, H
 Rrc, Rrc, Gd^Fmw, Hhd, Hhd, Gd, Gd, Gd, Gd, Gd, Gd^Fmw, Gd, Gd, Gd, Gd, Gd, Hhd^Fmw, Rrc, Rrc, Wwf, Wwf, Wwf, Rrc, Rrc, Gd, Coa, Xos, Urb, Urb, Urb, Xos, Ai, Wwf, Wwf, Rrc, Gd, Gd, Xos, Xos
 Md, Gd^Fmf, Hhd^Fetd, Md, Xos, Gd, Xos, Gd, Xos, Coa, Coa, Rrc, Rrc, Gd, Gd, Gd^Vo, Gd, Hhd, Gd, Rrc, Wwf, Rrc^Ecf, Rrc, Gd, Gd^Fetd, Coa, Urb, Xos, Urb, Xos, Wwf, Wwf, Rrc^Vo, Rrc, Gd, Gd, Xos, Urb, Urb
 Hhd, Hhd, Hhd, Hhd, Xos, Urb, Xos, Urb, Xos, Coa, Xos, Urb, Urb, Rrc, Xos, Tb^Tf, Gd, Gd, Gd, Rrc, Rrc, Wwf, Wwf, Rrc, Hhd, Tb^Tf, Xos, Urb, Rrc, Rrc, Wwf, Rrc, Gd, Gd^Fmf, Gd, Gd, Urb, Xos, Xos
-Hhd, Md, Hhd, Xos, Xos, Xos, Xos, Xos, Xos, Xos, Xos, Xos, Xos, Urb, Urb, Xos, Hhd, Hhd^Fmf, Gd^Fetd, Gd, Gd, Rrc, Wwf, Rrc, Gd, Md, Rrc, Rrc, Wwf, Wwf, Rrc, Rrc, Md, Hhd, Urb, Xos, Xos, Urb, Urb
-"
-map_file="multiplayer/maps/2p_Tombs_of_Kesorak.map"
-name="2p â€” Tombs of Kesorak"
-objectives="<big>Victory:</big>
-<span color='#00ff00'>â€¢ Defeat enemy leader(s)</span>"
-random_start_time="no"
-turns="-1"
-[time]
-
+Hhd, Md, Hhd, Xos, Xos, Xos, Xos, Xos, Xos, Xos, Xos, Xos, Xos, Urb, Urb, Xos, Hhd, Hhd^Fmf, Gd^Fetd, Gd, Gd, Rrc, Wwf, Rrc, Gd, Md, Rrc, Rrc, Wwf, Wwf, Rrc, Rrc, Md, Hhd, Urb, Xos, Xos, Urb, Urb"
+	map_file="multiplayer/maps/2p_Tombs_of_Kesorak.map"
+	name="2p — Tombs of Kesorak"
+	random_start_time=no
+	[time]
 		blue=0
 		green=-15
 		id="dawn"
 		image="misc/time-schedules/default/schedule-dawn.png"
-#textdomain wesnoth-help
-		name=_"Dawn"
+		name="Dawn"
 		red=-25
 		sound="ambient/morning.ogg"
 	[/time]
-[time]
-
+	[time]
 		id="morning"
 		image="misc/time-schedules/default/schedule-morning.png"
 		lawful_bonus=25
-		name=_"Morning"
+		name="Morning"
 	[/time]
-[time]
-
+	[time]
 		id="afternoon"
 		image="misc/time-schedules/default/schedule-afternoon.png"
 		lawful_bonus=25
-		name=_"Afternoon"
+		name="Afternoon"
 	[/time]
-[time]
-
+	[time]
 		blue=-35
 		green=-20
 		id="dusk"
 		image="misc/time-schedules/default/schedule-dusk.png"
-		name=_"Dusk"
+		name="Dusk"
 		red=10
 		sound="ambient/night.ogg"
 	[/time]
-[time]
-
+	[time]
 		blue=-13
 		green=-45
 		id="first_watch"
 		image="misc/time-schedules/default/schedule-firstwatch.png"
 		lawful_bonus=-25
-		name=_"First Watch"
+		name="First Watch"
 		red=-75
 	[/time]
-[time]
-
+	[time]
 		blue=-13
 		green=-45
 		id="second_watch"
 		image="misc/time-schedules/default/schedule-secondwatch.png"
 		lawful_bonus=-25
-		name=_"Second Watch"
+		name="Second Watch"
 		red=-75
 	[/time]
-[music]
-
+	[music]
 		ms_before=12000
 		name="knolls.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="wanderer.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="battle.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="transience.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="the_king_is_dead.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="knalgan_theme.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="the_city_falls.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="nunc_dimittis.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="revelation.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="loyalists.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="breaking_the_chains.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="elvish-theme.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="legends_of_the_north.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="traveling_minstrels.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="underground.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="vengeful.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="frantic.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="the_dangerous_symphony.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="heroes_rite.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="suspense.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="the_deep_path.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="siege_of_laurelmor.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="casualties_of_war.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="silvan_sanctuary.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="battle-epic.ogg"
 	[/music]
-[event]
-
+	[event]
 		name="prestart"
 		[music]
 			ms_before=12000
@@ -377,8 +342,7 @@ turns="-1"
 			name="battle-epic.ogg"
 		[/music]
 	[/event]
-[time_area]
-
+	[time_area]
 		x="9,10,28,29"
 		y="4,3,20,20"
 		[time]
@@ -387,7 +351,7 @@ turns="-1"
 			id="second_watch"
 			image="misc/time-schedules/default/schedule-dawn.png~BLIT(misc/tod-dark.png)"
 			lawful_bonus=-25
-			name=_"Second Watch"
+			name="Second Watch"
 			red=-75
 		[/time]
 		[time]
@@ -396,7 +360,7 @@ turns="-1"
 			id="dusk"
 			image="misc/time-schedules/default/schedule-morning.png~BLIT(misc/tod-dark.png)"
 			lawful_bonus=0
-			name=_"Dusk"
+			name="Dusk"
 			red=10
 			sound="ambient/night.ogg"
 		[/time]
@@ -406,7 +370,7 @@ turns="-1"
 			id="dusk"
 			image="misc/time-schedules/default/schedule-afternoon.png~BLIT(misc/tod-dark.png)"
 			lawful_bonus=0
-			name=_"Dusk"
+			name="Dusk"
 			red=10
 			sound="ambient/night.ogg"
 		[/time]
@@ -416,7 +380,7 @@ turns="-1"
 			id="first_watch"
 			image="misc/time-schedules/default/schedule-dusk.png~BLIT(misc/tod-dark.png)"
 			lawful_bonus=-25
-			name=_"First Watch"
+			name="First Watch"
 			red=-75
 		[/time]
 		[time]
@@ -425,7 +389,7 @@ turns="-1"
 			id="first_watch"
 			image="misc/time-schedules/default/schedule-firstwatch.png"
 			lawful_bonus=-25
-			name=_"First Watch"
+			name="First Watch"
 			red=-75
 		[/time]
 		[time]
@@ -434,37 +398,36 @@ turns="-1"
 			id="second_watch"
 			image="misc/time-schedules/default/schedule-secondwatch.png"
 			lawful_bonus=-25
-			name=_"Second Watch"
+			name="Second Watch"
 			red=-75
 		[/time]
 	[/time_area]
-[time_area]
-
+	[time_area]
 		x="17,15,23,21"
 		y="2,7,17,22"
 		[time]
 			id="morning"
 			image="misc/time-schedules/default/schedule-dawn.png~BLIT(misc/tod-bright.png)"
 			lawful_bonus=25
-			name=_"Morning"
+			name="Morning"
 		[/time]
 		[time]
 			id="morning"
 			image="misc/time-schedules/default/schedule-morning.png"
 			lawful_bonus=25
-			name=_"Morning"
+			name="Morning"
 		[/time]
 		[time]
 			id="afternoon"
 			image="misc/time-schedules/default/schedule-afternoon.png"
 			lawful_bonus=25
-			name=_"Afternoon"
+			name="Afternoon"
 		[/time]
 		[time]
 			id="afternoon"
 			image="misc/time-schedules/default/schedule-dusk.png~BLIT(misc/tod-bright.png)"
 			lawful_bonus=25
-			name=_"Afternoon"
+			name="Afternoon"
 		[/time]
 		[time]
 			blue=-35
@@ -472,7 +435,7 @@ turns="-1"
 			id="dusk"
 			image="misc/time-schedules/default/schedule-firstwatch.png~BLIT(misc/tod-bright.png)"
 			lawful_bonus=0
-			name=_"Dusk"
+			name="Dusk"
 			red=10
 			sound="ambient/night.ogg"
 		[/time]
@@ -482,13 +445,12 @@ turns="-1"
 			id="dusk"
 			image="misc/time-schedules/default/schedule-secondwatch.png~BLIT(misc/tod-bright.png)"
 			lawful_bonus=0
-			name=_"Dusk"
+			name="Dusk"
 			red=10
 			sound="ambient/night.ogg"
 		[/time]
 	[/time_area]
-[time_area]
-
+	[time_area]
 		x=19
 		y=12
 		[time]
@@ -497,78 +459,66 @@ turns="-1"
 			id="first_watch"
 			image="misc/time-schedules/after-the-fall/6shortdark.png"
 			lawful_bonus=-25
-			name=_"First Watch"
+			name="First Watch"
 			red=-85
 		[/time]
 	[/time_area]
-[item]
-
+	[item]
 		image="items/coffin-closed.png"
 		x=19
 		y=12
 	[/item]
-[item]
-
+	[item]
 		image="scenery/monolith2.png"
 		x=19
 		y=11
 	[/item]
-[item]
-
+	[item]
 		image="scenery/monolith2.png"
 		x=20
 		y=12
 	[/item]
-[item]
-
+	[item]
 		image="scenery/monolith2.png"
 		x=18
 		y=12
 	[/item]
-[item]
-
+	[item]
 		image="scenery/monolith1.png"
 		x=18
 		y=11
 	[/item]
-[item]
-
+	[item]
 		image="scenery/monolith1.png"
 		x=20
 		y=11
 	[/item]
-[item]
-
+	[item]
 		image="scenery/monolith1.png"
 		x=19
 		y=13
 	[/item]
-[item]
-
+	[item]
 		halo="halo/fire-aura.png~SCALE(108,108)~O(50%)"
 		x=23
 		y=17
 	[/item]
-[item]
-
+	[item]
 		halo="halo/fire-aura.png~SCALE(108,108)~O(50%)"
 		x=15
 		y=7
 	[/item]
-[item]
-
+	[item]
 		halo="halo/fire-aura.png~SCALE(108,108)~O(50%)"
 		x=21
 		y=22
 	[/item]
-[item]
-
+	[item]
 		halo="halo/fire-aura.png~SCALE(108,108)~O(50%)"
 		x=17
 		y=2
 	[/item]
-[terrain_graphics]
-
+	[terrain_graphics]
 		x=28
 		y=20
 		[tile]
@@ -577,8 +527,7 @@ turns="-1"
 			y=0
 		[/tile]
 	[/terrain_graphics]
-[terrain_graphics]
-
+	[terrain_graphics]
 		map="
 , *
 * , *
@@ -595,8 +544,7 @@ turns="-1"
 			name="../scenery/mausoleum[01~18].png:140"
 		[/image]
 	[/terrain_graphics]
-[terrain_graphics]
-
+	[terrain_graphics]
 		x=29
 		y=20
 		[tile]
@@ -605,8 +553,7 @@ turns="-1"
 			y=0
 		[/tile]
 	[/terrain_graphics]
-[terrain_graphics]
-
+	[terrain_graphics]
 		map="
 , *
 * , *
@@ -623,8 +570,7 @@ turns="-1"
 			name="../scenery/mausoleum[01~18].png:140"
 		[/image]
 	[/terrain_graphics]
-[terrain_graphics]
-
+	[terrain_graphics]
 		x=9
 		y=4
 		[tile]
@@ -633,8 +579,7 @@ turns="-1"
 			y=0
 		[/tile]
 	[/terrain_graphics]
-[terrain_graphics]
-
+	[terrain_graphics]
 		map="
 , *
 * , *
@@ -651,8 +596,7 @@ turns="-1"
 			name="../scenery/mausoleum[01~18].png:140"
 		[/image]
 	[/terrain_graphics]
-[terrain_graphics]
-
+	[terrain_graphics]
 		x=10
 		y=3
 		[tile]
@@ -661,8 +605,7 @@ turns="-1"
 			y=0
 		[/tile]
 	[/terrain_graphics]
-[terrain_graphics]
-
+	[terrain_graphics]
 		map="
 , *
 * , *
@@ -679,20 +622,18 @@ turns="-1"
 			name="../scenery/mausoleum[01~18].png:140"
 		[/image]
 	[/terrain_graphics]
-[event]
-
+	[event]
 		name="prestart"
 		[objectives]
 			[objective]
 				condition="win"
-#textdomain wesnoth-multiplayer
-				description=_"Defeat the enemy leader"
+				description="Defeat the enemy leader"
 			[/objective]
 			[note]
-				description=_"The map contains mausoleums and campfires that shift the time of the day by one step toward night and day, respectively."
+				description="The map contains mausoleums and campfires that shift the time of the day by one step toward night and day, respectively."
 			[/note]
 			[note]
-				description=_"The tile in the centre, which contains the casket of the titular necromancer, is always covered in pitch black fog."
+				description="The tile in the centre, which contains the casket of the titular necromancer, is always covered in pitch black fog."
 			[/note]
 		[/objectives]
 	[/event]
@@ -703,12 +644,11 @@ turns="-1"
 			code=" wesnoth.require(""multiplayer/eras.lua"").quick_4mp_leaders(...) "
 			[args]
 				[trait]
-#textdomain wesnoth-help
 					female_name=_"female^quick"
 					help_text=_"<italic>text='Quick'</italic> units have 1 extra movement point, but 5% less hitpoints than usual." +
 						_"
 
-Quick is the most noticeable trait, particularly in slower moving units such as trolls or heavy infantry. Units with the quick trait often have greatly increased mobility in rough terrain, which can be important to consider when deploying your forces. Also, quick units arenâ€™t quite as tough as units without this trait and are subsequently less good at holding contested positions."
+Quick is the most noticeable trait, particularly in slower moving units such as trolls or heavy infantry. Units with the quick trait often have greatly increased mobility in rough terrain, which can be important to consider when deploying your forces. Also, quick units aren’t quite as tough as units without this trait and are subsequently less good at holding contested positions."
 					id="quick"
 					male_name=_"quick"
 					[effect]

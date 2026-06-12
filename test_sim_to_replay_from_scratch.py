@@ -341,3 +341,24 @@ def test_scrape_starting_gold_arcanclave():
     ham = _scrape_scenario_starting_gold(
         _scenario_cfg_path("multiplayer_Hamlets"))
     assert ham == {}, ham
+
+
+def test_all_mini_maps_emit_without_error(tmp_path):
+    """Same guarantee as the 21-ladder-map test, for the tactical-
+    training mini pool (Mini Maps Collection add-on). Mini templates
+    can ONLY come from tools/build_scenario_templates.py (the game's
+    own cfg + the game's own preprocessor) -- no human replays exist
+    for these scenarios, so the retired replay-extraction path never
+    covered them."""
+    from tools.scenario_pool import MINI_MAP_SCENARIO_IDS
+    load_factions()
+    failures = []
+    for sid in MINI_MAP_SCENARIO_IDS:
+        try:
+            sim = _build_sim_for(sid)
+            out = tmp_path / f"{sid}.bz2"
+            export_replay_from_scratch(sim, out)
+            assert out.exists() and out.stat().st_size > 500
+        except Exception as e:
+            failures.append(f"{sid}: {type(e).__name__}: {e}")
+    assert not failures, "\n".join(failures)

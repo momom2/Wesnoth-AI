@@ -34,6 +34,34 @@ strategies; cluster economy).
   infinite-loop stub bug. `main.py` missing `import subprocess`.
   Full suite: 234 passed / 21 skipped (corpus-dependent).
 
+## Update (2026-06-12): templates from cfg; corpus retired; mini pool restored
+
+- [x] **Templates now built from the game's own .cfg via the game's
+  own preprocessor** (`tools/build_scenario_templates.py`, replacing
+  the retired replays_raw-based extractor — user preference, and
+  mandatory since the corpus is gone). All 29 templates regenerated:
+  21 ladder + 8 Mini Maps Collection. Fixes replay-derived defects:
+  Russian objectives + mojibake em-dash in multiplayer_Hamlets.
+  Mini templates make tactical-training games exportable to the
+  replay viewer for the first time (no human replays exist for
+  them). Requires the add-on installed in BOTH wesnoth_src/data/
+  add-ons/ (vendored) and userdata (preprocessor `~add-ons`
+  resolution): https://files.wesnoth.org/addons/1.18/Mini_Maps_Collection.tar.bz2
+- **Corpus permanently retired** (user decision): replays_raw /
+  replays_dataset will NOT be re-downloaded; supervised training is
+  legacy-only. Consequence: the ~19 corpus-skipped tests will skip
+  forever — candidates for rewrite (bootstrap from scenario_pool
+  from-scratch games instead of corpus replays) or deletion; they
+  guard live sim code (advancement, determinism, parallel
+  rollouts), so rewrite is preferred. Decision pending.
+- **Mini training pool restored**: the Mini Maps Collection add-on
+  (lost with wesnoth_src) re-downloaded from the official 1.18
+  add-on server; all 8 MINI_MAP_SCENARIO_IDS build + emit. Trainable
+  pools: ladder (regular) + mini (tactical curriculum), mixed via
+  `--mini-maps` / `--mini-ratio` (sim_self_play).
+- Open: `scrape_terrain.py` ignores its output-path argument (writes
+  to project root unconditionally) — harmless today, fix sometime.
+
 ## MCTS effectiveness roadmap (2026-06-11, profiling-driven)
 
 Baseline profile on the recovery laptop (CPU, 25 sims):

@@ -1,19 +1,21 @@
 # Per-scenario [scenario] template for from-scratch save
-# WML emission. Extracted from a real Wesnoth save (after
-# the engine expanded macros + scenario events). All
-# [side] sub-blocks stripped at extraction; the runtime
-# emitter (tools/sim_to_replay.build_save_wml) inserts
-# fresh [side] blocks per game from sim state.
+# WML emission. Built from the game's own scenario .cfg by
+# Wesnoth's own preprocessor (see
+# tools/build_scenario_templates.py). [side] 1/2 stripped
+# at build; the runtime emitter (sim_to_replay.build_save_wml)
+# inserts fresh [side] blocks per game from sim state.
 #
-# Source: replays_raw/.../2p__Arcanclave_Citadel_Turn_11_(93570).bz2
-# Regenerate via: python tools/extract_scenario_templates.py
+# Source: wesnoth_src/data/multiplayer/scenarios (game cfg, game preprocessor)
+# Regenerate via: python tools/build_scenario_templates.py
 [scenario]
-description="Long ago, countless centuries before the time of Haldric, and far beyond the easternmost reaches of Lintanir Forest, great and terrible wars were fought. The records tell of a powerful battle-mage, a brilliant tactician and practitioner of the arcane arts, who had been given the title of Dauntless by his followers. At the battle of Arcanclave, Dauntless and his armies did battle with a savage race of sorcerer-demons known as the Kah Ruuk. Surrounded by tens of thousands of Kah Ruuk, Dauntless used his magic to summon a powerful earth elemental (who, for unknown reasons, owed Dauntless a debt of gratitude). The elemental raised great stones from deep within the earth, forming them, in mere moments, into the walls and battlements of a massive fortress. Thousands of Kah Ruuk perished in their attempt to overrun Arcanclave Citadel, and Dauntless and his men were victorious that day. More than one thousand years later, the Warrior-Queen Cynsaun the First drove a clan of necromancers from the ruins of Arcanclave Citadel, and, in the years that followed, converted the region into a military stronghold. It is rumored that several powerful artifacts, remnants from the reign of the Great Mage Dauntless, may yet remain hidden, lost somewhere within the granite and obsidian walls of Arcanclave Citadel. Designed by Doc Paterson."
+turns="-1"
 experience_modifier="70"
 has_mod_events="yes"
-id="multiplayer_Arcanclave_Citadel"
 loaded_resources=""
-map_data="Rr, Gg, Gg, Hh, Hh, Hh^Fds, Hh^Fms, Rr, Rr, Wwf, Wwf, Ww, Wwf, Ww, Ww, Ww, Ww, Ww, Ww, Wwf, Gg, Gg, Gs^Fms, Gs^Fp, Hh^Fds, Hh^Fms, Mm, Hh^Fms, Gg^Fp, Gg, Rr, Rr, Hh^Fp, Hh, Wwf, Wwf, Ww, Wo, Wo, Wo, Ww, Wwf, Wwf, Gg, Hh, Mm, Hh, Gg, Gg
+objectives="<big>Victory:</big>\n<span color='#00ff00'>&#8226; Defeat enemy leader(s)</span>"
+	description="Long ago, countless centuries before the time of Haldric, and far beyond the easternmost reaches of Lintanir Forest, great and terrible wars were fought. The records tell of a powerful battle-mage, a brilliant tactician and practitioner of the arcane arts, who had been given the title of Dauntless by his followers. At the battle of Arcanclave, Dauntless and his armies did battle with a savage race of sorcerer-demons known as the Kah Ruuk. Surrounded by tens of thousands of Kah Ruuk, Dauntless used his magic to summon a powerful earth elemental (who, for unknown reasons, owed Dauntless a debt of gratitude). The elemental raised great stones from deep within the earth, forming them, in mere moments, into the walls and battlements of a massive fortress. Thousands of Kah Ruuk perished in their attempt to overrun Arcanclave Citadel, and Dauntless and his men were victorious that day. More than one thousand years later, the Warrior-Queen Cynsaun the First drove a clan of necromancers from the ruins of Arcanclave Citadel, and, in the years that followed, converted the region into a military stronghold. It is rumored that several powerful artifacts, remnants from the reign of the Great Mage Dauntless, may yet remain hidden, lost somewhere within the granite and obsidian walls of Arcanclave Citadel. Designed by Doc Paterson."
+	id="multiplayer_Arcanclave_Citadel"
+	map_data="Rr, Gg, Gg, Hh, Hh, Hh^Fds, Hh^Fms, Rr, Rr, Wwf, Wwf, Ww, Wwf, Ww, Ww, Ww, Ww, Ww, Ww, Wwf, Gg, Gg, Gs^Fms, Gs^Fp, Hh^Fds, Hh^Fms, Mm, Hh^Fms, Gg^Fp, Gg, Rr, Rr, Hh^Fp, Hh, Wwf, Wwf, Ww, Wo, Wo, Wo, Ww, Wwf, Wwf, Gg, Hh, Mm, Hh, Gg, Gg
 Hh, Rr, Rr, Gg, Gs^Fds, Mm, Mm, Mm, Gg^Fms, Rr, Rr, Wwf, Gg, Wwf, Wwf, Ww, Wwf, Ww, Wwf, Wwf, Gs^Fms, Gg^Fp, Hh, Mm, Hh, Gs^Fds, Gg, Gg, Rr, Rr, Gg, Hh, Gg, Mm, Wwf, Ww, Wo, Wo, Wo, Wo, Ww, Wwf, Gg, Gs^Fms, Gs, Hh^Fp, Gs, Gs^Fds, Gs^Fds
 Gg^Fet, Gg, Rr, Gg, Gg, Hh, Gs, Hh^Fp, Gg, Gg, Rr, Gg, Hh^Fms, Gg, Gg, Wwf, Mm, Wwf, Gg, Gg, Gg, Gg^Efm, Gg, Hh^Fms, Rr, Gg, Rr, Rr, Tb^Tf, Gs, Gs^Fms, Gg, Wwf, Wwf, Ww, Ww, Wo, Wo, Ww, Ww, Wwf, Wwf, Hh^Fms, Gg^Efm, Gg^Efm, Gs, Gg, Gg, Gg
 Mm, Gg^Fp, Hh^Fds, Rr, Rr, Gg, Gg, Gg, Gg, Gg, Rr, Gg^Fms, Hh, Gg^Efm, Gg, Gs^Tf, Gs^Fp, Hh, Hh, Gg^Fet, Gg, Gg^Tf, Rr, Rr, Gg, Rr, Gg^Fet, Mm, Hh, Hh, Tb^Tf, Wwf, Ww, Ww, Wo, Wo, Wo, Ww, Wwf, Wwf, Mm, Mm, Mm, Gs^Fp, Hh, Hh, Gg^Fet, Gg, Gg
@@ -60,220 +62,183 @@ Rr, Rr, Gg, Rr, Gg^Efm, Hh, Gs^Fp, Hh, Gs^Fds, Gg^Tf, Wwf, Wwf, Ww, Wwf, Ww, Ww,
 Gg, Gg, Gs^Fp, Gg^Fms, Hh, Gg^Tf, Mm, Mm, Mm, Hh, Wwf, Ww, Wo, Ww, Wo, Ww, Ww, Wwf, Tb^Tf, Gs, Hh, Gg^Fms, Gg^Fp, Gg, Gg, Gg^Efm, Rr, Rr, Gg, Gg^Efm, Hh, Mm, Gg^Fet, Gg^Efm, Gg, Gg, Hh, Gg, Gg, Rr, Rr, Gg^Efm, Rr, Gg^Vc, Gg, Gg^Efm, Hh^Fp, Hh, Hh
 Gg, Gs, Gs, Hh, Gg^Efm, Gs^Fms, Hh^Fms, Mm, Wwf, Wwf, Ww, Ww, Wo, Wo, Ww, Ww, Wwf, Wwf, Gg^Fp, Hh, Tb^Tf, Mm, Rr, Gg, Rr, Rr, Gg, Gg^Tf, Gg, Gg^Fms, Wwf, Hh, Mm, Gg^Tf, Gg, Gg, Hh^Fms, Gg^Fms, Gs, Gg, Gg, Rr, Gg, Rr, Rr, Gg, Gg, Gs^Fms, Gs
 Hh, Gg, Gg, Gg, Gg, Gg^Efm, Gg, Wwf, Ww, Ww, Wo, Wo, Wo, Ww, Wwf, Wwf, Gg, Gg, Gg, Gg, Rr, Rr, Gg, Rr, Hh, Hh^Fms, Hh, Gg, Gg^Fp, Wwf, Ww, Wwf, Wwf, Wwf, Wwf, Gg, Gg, Gs, Gg, Gs, Gg^Fp, Hh^Fms, Mm, Hh, Gg^Fms, Rr, Gg, Gs, Gg
-Gs^Fp, Hh, Mm, Hh^Fds, Gs^Fp, Hh, Wwf, Wwf, Ww, Wo, Wo, Wo, Wo, Ww, Wwf, Mm, Hh^Fms, Hh, Rr, Rr, Hh^Fds, Mm, Hh^Fds, Gg^Fms, Gg^Fet, Mm, Gg^Tf, Gg^Fms, Wwf, Wwf, Ww, Ww, Ww, Ww, Ww, Wwf, Wwf, Wwf, Wwf, Gg, Gg^Fms, Mm, Mm, Mm, Tb^Tf, Rr, Tb^Tf, Gg^Efm, Gg^Fet
-"
-map_file="multiplayer/maps/2p_Arcanclave_Citadel.map"
-name="2p â€” Arcanclave Citadel"
-objectives="<big>ÐŸÐ¾Ð±ÐµÐ´Ð°:</big>
-<span color='#00ff00'>â€¢ Ð£Ð±ÐµÐ¹Ñ‚Ðµ Ð»Ð¸Ð´ÐµÑ€Ð°(Ð¾Ð²) Ð¿Ñ€Ð¾Ñ‚Ð¸Ð²Ð½Ð¸ÐºÐ°</span>"
-random_start_time="no"
-turns="-1"
-[time]
-
+Gs^Fp, Hh, Mm, Hh^Fds, Gs^Fp, Hh, Wwf, Wwf, Ww, Wo, Wo, Wo, Wo, Ww, Wwf, Mm, Hh^Fms, Hh, Rr, Rr, Hh^Fds, Mm, Hh^Fds, Gg^Fms, Gg^Fet, Mm, Gg^Tf, Gg^Fms, Wwf, Wwf, Ww, Ww, Ww, Ww, Ww, Wwf, Wwf, Wwf, Wwf, Gg, Gg^Fms, Mm, Mm, Mm, Tb^Tf, Rr, Tb^Tf, Gg^Efm, Gg^Fet"
+	map_file="multiplayer/maps/2p_Arcanclave_Citadel.map"
+	name="2p — Arcanclave Citadel"
+	random_start_time=no
+	[time]
 		blue=0
 		green=-15
 		id="dawn"
 		image="misc/time-schedules/default/schedule-dawn.png"
-#textdomain wesnoth-help
-		name=_"Dawn"
+		name="Dawn"
 		red=-25
 		sound="ambient/morning.ogg"
 	[/time]
-[time]
-
+	[time]
 		id="morning"
 		image="misc/time-schedules/default/schedule-morning.png"
 		lawful_bonus=25
-		name=_"Morning"
+		name="Morning"
 	[/time]
-[time]
-
+	[time]
 		id="afternoon"
 		image="misc/time-schedules/default/schedule-afternoon.png"
 		lawful_bonus=25
-		name=_"Afternoon"
+		name="Afternoon"
 	[/time]
-[time]
-
+	[time]
 		blue=-35
 		green=-20
 		id="dusk"
 		image="misc/time-schedules/default/schedule-dusk.png"
-		name=_"Dusk"
+		name="Dusk"
 		red=10
 		sound="ambient/night.ogg"
 	[/time]
-[time]
-
+	[time]
 		blue=-13
 		green=-45
 		id="first_watch"
 		image="misc/time-schedules/default/schedule-firstwatch.png"
 		lawful_bonus=-25
-		name=_"First Watch"
+		name="First Watch"
 		red=-75
 	[/time]
-[time]
-
+	[time]
 		blue=-13
 		green=-45
 		id="second_watch"
 		image="misc/time-schedules/default/schedule-secondwatch.png"
 		lawful_bonus=-25
-		name=_"Second Watch"
+		name="Second Watch"
 		red=-75
 	[/time]
-[music]
-
+	[music]
 		ms_before=12000
 		name="knolls.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="wanderer.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="battle.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="transience.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="the_king_is_dead.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="knalgan_theme.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="the_city_falls.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="nunc_dimittis.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="revelation.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="loyalists.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="breaking_the_chains.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="elvish-theme.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="legends_of_the_north.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="traveling_minstrels.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="underground.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="vengeful.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="frantic.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="the_dangerous_symphony.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="heroes_rite.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="suspense.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="the_deep_path.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="siege_of_laurelmor.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="casualties_of_war.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="silvan_sanctuary.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="battle-epic.ogg"
 	[/music]
-[event]
-
+	[event]
 		name="prestart"
 		[music]
 			ms_before=12000
@@ -411,7 +376,7 @@ turns="-1"
 					help_text=_"<italic>text='Quick'</italic> units have 1 extra movement point, but 5% less hitpoints than usual." +
 						_"
 
-Quick is the most noticeable trait, particularly in slower moving units such as trolls or heavy infantry. Units with the quick trait often have greatly increased mobility in rough terrain, which can be important to consider when deploying your forces. Also, quick units arenâ€™t quite as tough as units without this trait and are subsequently less good at holding contested positions."
+Quick is the most noticeable trait, particularly in slower moving units such as trolls or heavy infantry. Units with the quick trait often have greatly increased mobility in rough terrain, which can be important to consider when deploying your forces. Also, quick units aren’t quite as tough as units without this trait and are subsequently less good at holding contested positions."
 					id="quick"
 					male_name=_"quick"
 					[effect]

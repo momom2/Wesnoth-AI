@@ -1,19 +1,21 @@
 # Per-scenario [scenario] template for from-scratch save
-# WML emission. Extracted from a real Wesnoth save (after
-# the engine expanded macros + scenario events). All
-# [side] sub-blocks stripped at extraction; the runtime
-# emitter (tools/sim_to_replay.build_save_wml) inserts
-# fresh [side] blocks per game from sim state.
+# WML emission. Built from the game's own scenario .cfg by
+# Wesnoth's own preprocessor (see
+# tools/build_scenario_templates.py). [side] 1/2 stripped
+# at build; the runtime emitter (sim_to_replay.build_save_wml)
+# inserts fresh [side] blocks per game from sim state.
 #
-# Source: replays_raw/.../2p__Elensefar_Courtyard_Turn_14_(93792).bz2
-# Regenerate via: python tools/extract_scenario_templates.py
+# Source: wesnoth_src/data/multiplayer/scenarios (game cfg, game preprocessor)
+# Regenerate via: python tools/build_scenario_templates.py
 [scenario]
-description="Fight through corridors and gardens, and dominate the eastern courtyard of what used to be the glorious city of Elensefar."
+turns="-1"
 experience_modifier="70"
 has_mod_events="yes"
-id="multiplayer_elensefar_courtyard"
 loaded_resources=""
-map_data="_off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, Gg, Gg, Gs^Fms, Gg^Efm, Gg^Efm, Gg, Gg, Gg, Gg, Gg, Gg, Xos, Xos, Rp, Rr, Rr, Rr, Rr, Rr, Xos, Xos, Gs^Fmw, Gs^Fmf, Gs^Fdw, Gs^Fmf, Gs^Fmw, Ss, Ss
+objectives="<big>Victory:</big>\n<span color='#00ff00'>&#8226; Defeat enemy leader(s)</span>"
+	description="Fight through corridors and gardens, and dominate the eastern courtyard of what used to be the glorious city of Elensefar."
+	id="multiplayer_elensefar_courtyard"
+	map_data="_off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, Gg, Gg, Gs^Fms, Gg^Efm, Gg^Efm, Gg, Gg, Gg, Gg, Gg, Gg, Xos, Xos, Rp, Rr, Rr, Rr, Rr, Rr, Xos, Xos, Gs^Fmw, Gs^Fmf, Gs^Fdw, Gs^Fmf, Gs^Fmw, Ss, Ss
 _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, Hh, Gg, Gg^Efm, Gg^Efm, Gs^Fmf, Gs^Fmf, Gs^Fds, Gs^Fms, Gg, Gg, Xos, Xos, Xos, Gg, Gg, Xos, Xos, Rp, Rp, Rr, Rp, Rr, Rr, Xos, Xos, Gs^Fmw, Gs^Fdw, Ss, Gs^Fdf, Ss
 _off^_usr, _off^_usr, _off^_usr, _off^_usr, Ww, _off^_usr, Hh^Fms, Ww, Ww, Hh, Gg^Efm, Gg^Efm, Gs^Fms, Gs^Fms, Gg, Gg, Rr^Vd, Gg, Gg^Efm, Cv^Xo, Gg^Efm, Gg, Gg^Efm, Gg, Gs, Rp, Hh^Fmw, Rp, Rr, Rr, Rr, Gg^Efm, Xos, Gs^Fms, Gs^Fmw, Ss, Gs^Fdw, Ss
 _off^_usr, _off^_usr, _off^_usr, Wo, Ww^Bw\, Ww, Gs^Fmf, Hh, Hh, Ww, Wwf, Wwf, Gg, Gg, Re, Re, Re, Re, Re, Gg, Gg, Gg^Efm, Cv, Gg, Gg, Gs, Gs, Xos, Rp, Rr, Rr, Rr, Xos, Gg, Rd, Gg, Gg, Gs^Fdw
@@ -40,220 +42,183 @@ _off^_usr, Rr, Xos, Xos, Gg, Gg, Gs^Fmf, Gg^Efm, Gs^Fmf, Gg, Gg^Efm, Rr, Rp, Gg^
 _off^_usr, _off^_usr, _off^_usr, Gg^Efm, Re^Gvs, Re^Gvs, Re^Gvs, Gs^Fms, Gs^Fmf, Gs^Fds, Gg^Efm, Gg^Efm, Gg, Re, Re, Gg, Rr^Vd, Gg^Efm, Re, Re, Gg^Efm, Gg^Efm, Gg, Gg^Efm, Gs^Fms, Gg, Gs, Gs, Rp, Rp, Rr, Rd, Xos, Gg, Re^Gvs, Re^Gvs, Re^Gvs, Re^Gvs
 _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, Re^Gvs, Re^Gvs, Re^Gvs, Gg^Efm, Gs^Fms, Gg^Efm, Gg, Gg, Gg, Gg, Re, Rp, Rp, Gg^Efm, Gg^Efm, Cv^Xo, Gg^Efm, Gg^Efm, Gs^Fds, Gs^Fmf, Gs, Rr, Xos, Rr, Rr, Gs^Efm, Gs, Xos, Gg, Re^Gvs, Re^Gvs, Re^Gvs, Re^Gvs
 _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, Gg^Wm, _off^_usr, Re^Gvs, Re^Gvs, Gg^Efm, Gs^Fmf, Gs^Fms, Rr, Gg^Efm, Rr, Gg^Efm, Gg^Efm, Xos, Xos, Xos, Gg, Hh^Fds, Xos, Rp, Rp, Rp, Rp, Rr, Rp, Rp, Xos, Gg, Re^Gvs, Gg^Wm, Re^Gvs, Re^Gvs
-_off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, Gg^Efm, Rr, Rr, Rr, Rr, Rr, Rr, Rr, Gg^Efm, Gg^Efm, Gg, Xos, Xos, Rp, Rr, Rr, Rr, Rr, Rp, Xos, Xos, Gg, Gg, Re^Gvs, Re^Gvs, Re^Gvs, Re^Gvs
-"
-map_file="multiplayer/maps/2p_Elensefar_Courtyard.map"
-name="2p â€” Elensefar Courtyard"
-objectives="<big>Victory:</big>
-<span color='#00ff00'>â€¢ Defeat enemy leader(s)</span>"
-random_start_time="no"
-turns="-1"
-[time]
-
+_off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, _off^_usr, Gg^Efm, Rr, Rr, Rr, Rr, Rr, Rr, Rr, Gg^Efm, Gg^Efm, Gg, Xos, Xos, Rp, Rr, Rr, Rr, Rr, Rp, Xos, Xos, Gg, Gg, Re^Gvs, Re^Gvs, Re^Gvs, Re^Gvs"
+	map_file="multiplayer/maps/2p_Elensefar_Courtyard.map"
+	name="2p — Elensefar Courtyard"
+	random_start_time=no
+	[time]
 		blue=0
 		green=-15
 		id="dawn"
 		image="misc/time-schedules/default/schedule-dawn.png"
-#textdomain wesnoth-help
-		name=_"Dawn"
+		name="Dawn"
 		red=-25
 		sound="ambient/morning.ogg"
 	[/time]
-[time]
-
+	[time]
 		id="morning"
 		image="misc/time-schedules/default/schedule-morning.png"
 		lawful_bonus=25
-		name=_"Morning"
+		name="Morning"
 	[/time]
-[time]
-
+	[time]
 		id="afternoon"
 		image="misc/time-schedules/default/schedule-afternoon.png"
 		lawful_bonus=25
-		name=_"Afternoon"
+		name="Afternoon"
 	[/time]
-[time]
-
+	[time]
 		blue=-35
 		green=-20
 		id="dusk"
 		image="misc/time-schedules/default/schedule-dusk.png"
-		name=_"Dusk"
+		name="Dusk"
 		red=10
 		sound="ambient/night.ogg"
 	[/time]
-[time]
-
+	[time]
 		blue=-13
 		green=-45
 		id="first_watch"
 		image="misc/time-schedules/default/schedule-firstwatch.png"
 		lawful_bonus=-25
-		name=_"First Watch"
+		name="First Watch"
 		red=-75
 	[/time]
-[time]
-
+	[time]
 		blue=-13
 		green=-45
 		id="second_watch"
 		image="misc/time-schedules/default/schedule-secondwatch.png"
 		lawful_bonus=-25
-		name=_"Second Watch"
+		name="Second Watch"
 		red=-75
 	[/time]
-[music]
-
+	[music]
 		ms_before=12000
 		name="knolls.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="wanderer.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="battle.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="transience.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="the_king_is_dead.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="knalgan_theme.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="the_city_falls.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="nunc_dimittis.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="revelation.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="loyalists.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="breaking_the_chains.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="elvish-theme.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="legends_of_the_north.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="traveling_minstrels.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="underground.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="vengeful.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="frantic.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="the_dangerous_symphony.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="heroes_rite.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="suspense.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="the_deep_path.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="siege_of_laurelmor.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="casualties_of_war.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="silvan_sanctuary.ogg"
 	[/music]
-[music]
-
+	[music]
 		append=yes
 		ms_before=12000
 		name="battle-epic.ogg"
 	[/music]
-[event]
-
+	[event]
 		name="prestart"
 		[music]
 			ms_before=12000
@@ -380,170 +345,142 @@ turns="-1"
 			name="battle-epic.ogg"
 		[/music]
 	[/event]
-[item]
-
+	[item]
 		image="units/elves-wood/lord-magic-1.png~GS()"
 		x=16
 		y=14
 	[/item]
-[item]
-
+	[item]
 		image="units/elves-wood/champion-attack-5.png~GS()"
 		x=19
 		y=2
 	[/item]
-[item]
-
+	[item]
 		image="units/elves-wood/sharpshooter+female-bow-attack3.png~GS()"
 		x=20
 		y=25
 	[/item]
-[item]
-
+	[item]
 		image="scenery/village-human-burned1.png"
 		x=35
 		y=3
 	[/item]
-[item]
-
+	[item]
 		image="scenery/rubble.png"
 		x=27
 		y=6
 	[/item]
-[item]
-
+	[item]
 		image="scenery/tent-fancy-red.png"
 		x=15
 		y=27
 	[/item]
-[item]
-
+	[item]
 		image="scenery/leanto.png"
 		x=14
 		y=27
 	[/item]
-[item]
-
+	[item]
 		image="units/transport/boat.png"
 		x=2
 		y=5
 	[/item]
-[item]
-
+	[item]
 		image="items/scarecrow.png"
 		x=5
 		y=25
 	[/item]
-[item]
-
+	[item]
 		image="items/straw-bale2.png"
 		x=37
 		y=25
 	[/item]
-[item]
-
+	[item]
 		image="items/straw-bale1.png"
 		x=35
 		y=24
 	[/item]
-[item]
-
+	[item]
 		image="items/box.png"
 		x=2
 		y=21
 	[/item]
-[item]
-
+	[item]
 		image="items/ornate1.png"
 		x=2
 		y=22
 	[/item]
-[item]
-
+	[item]
 		image="items/barrel.png"
 		x=1
 		y=13
 	[/item]
-[item]
-
+	[item]
 		image="items/brazier.png"
 		x=1
 		y=16
 	[/item]
-[item]
-
+	[item]
 		image="items/barrel.png"
 		x=2
 		y=18
 	[/item]
-[item]
-
+	[item]
 		image="scenery/monolith2.png"
 		x=19
 		y=11
 	[/item]
-[item]
-
+	[item]
 		image="scenery/monolith3.png"
 		x=22
 		y=12
 	[/item]
-[item]
-
+	[item]
 		image="scenery/monolith1.png"
 		x=22
 		y=15
 	[/item]
-[item]
-
+	[item]
 		image="scenery/monolith3.png"
 		x=19
 		y=17
 	[/item]
-[item]
-
+	[item]
 		image="scenery/monolith2.png"
 		x=13
 		y=17
 	[/item]
-[item]
-
+	[item]
 		image="scenery/monolith3.png"
 		x=10
 		y=15
 	[/item]
-[item]
-
+	[item]
 		image="scenery/monolith1.png"
 		x=10
 		y=12
 	[/item]
-[item]
-
+	[item]
 		image="scenery/monolith3.png"
 		x=13
 		y=11
 	[/item]
-[item]
-
+	[item]
 		image="scenery/whirlpool.png"
 		x=15
 		y=14
 	[/item]
-[item]
-
+	[item]
 		image="scenery/whirlpool.png"
 		x=17
 		y=14
 	[/item]
-[item]
-
+	[item]
 		image="scenery/well.png"
 		x=15
 		y=26
 	[/item]
-[event]
-
+	[event]
 		name="prestart"
 		[store_locations]
 			variable="ToD_change_to_litcave"
@@ -583,8 +520,7 @@ turns="-1"
 			[time]
 				id="underground_illum"
 				image="misc/time-schedules/schedule-underground-illum.png"
-#textdomain wesnoth-multiplayer
-				name=_"Underground"
+				name="Underground"
 			[/time]
 		[/time_area]
 		[clear_variable]
@@ -598,12 +534,11 @@ turns="-1"
 			code=" wesnoth.require(""multiplayer/eras.lua"").quick_4mp_leaders(...) "
 			[args]
 				[trait]
-#textdomain wesnoth-help
 					female_name=_"female^quick"
 					help_text=_"<italic>text='Quick'</italic> units have 1 extra movement point, but 5% less hitpoints than usual." +
 						_"
 
-Quick is the most noticeable trait, particularly in slower moving units such as trolls or heavy infantry. Units with the quick trait often have greatly increased mobility in rough terrain, which can be important to consider when deploying your forces. Also, quick units arenâ€™t quite as tough as units without this trait and are subsequently less good at holding contested positions."
+Quick is the most noticeable trait, particularly in slower moving units such as trolls or heavy infantry. Units with the quick trait often have greatly increased mobility in rough terrain, which can be important to consider when deploying your forces. Also, quick units aren’t quite as tough as units without this trait and are subsequently less good at holding contested positions."
 					id="quick"
 					male_name=_"quick"
 					[effect]
