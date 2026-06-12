@@ -1271,3 +1271,67 @@ holds up:
 6. **Update entries when we discover errors.** Don't add a
    contradicting entry. Find the earlier one and edit it, with
    a brief note on what changed and when.
+
+---
+
+## Combat-outcome prediction (the in-game damage calculator)
+
+**Rule:** Wesnoth's attack-prediction oracle computes EXACT joint
+HP distributions by sparse dynamic programming, with three
+approximations: (a) probabilities within 1e-9 of 0/1 are snapped,
+(b) extra berserk rounds stop once >= 99% of probability mass has a
+dead combatant, (c) above a complexity threshold of 50,000 it
+abandons exactness for Monte-Carlo simulation with 5,000 sampled
+fights. (Researched 2026-06-12 from the GitHub 1.18.4 tag; local
+wesnoth_src/src/ was lost in the machine move.)
+
+- `src/attack_prediction.cpp` — `prob_matrix`: a sparse 2D matrix
+  of (A_hp, B_hp) probabilities across FOUR planes
+  (NEITHER_SLOWED / A_SLOWED / B_SLOWED / BOTH_SLOWED). Each strike
+  shifts probability mass between cells (`shift_cols`/`shift_rows`
+  take `drain_constant`/`drain_percent`; slow procs move mass
+  between planes).
+
+- Berserk round loop, `complex_fight()`:
+
+```cpp
+} while(--rounds && pm->dead_prob() < 0.99);
+```
+
+- Tiny-probability snapping, `round_prob_if_close_to_sure()`:
+
+```cpp
+if(prob < 1.0e-9) {
+    prob = 0.0;
+} else if(prob > 1.0 - 1.0e-9) {
+    prob = 1.0;
+}
+```
+
+- Complexity switch (`src/attack_prediction.hpp`):
+
+```cpp
+static const unsigned int MONTE_CARLO_SIMULATION_THRESHOLD = 50000u;
+```
+
+  with `fight_complexity()` =
+
+```cpp
+return num_slices * opp_num_slices * ((stats.slows || opp_stats.is_slowed) ? 2 : 1)
+       * ((opp_stats.slows || stats.is_slowed) ? 2 : 1) * stats.max_hp * opp_stats.max_hp;
+```
+
+  (`num_slices` = swarm HP-threshold slices; 1 without swarm.) The
+  Monte-Carlo path (`monte_carlo_combat_matrix`) uses
+  `static const unsigned int NUM_ITERATIONS = 5000u;`.
+
+- Output per combatant: `hp_dist` (full HP distribution) plus
+  `untouched` / `poisoned` / `slowed` marginals
+  (`src/attack_prediction.hpp`, `struct combatant`).
+
+**Why non-obvious:** the calculator is commonly assumed to be
+fully exact; it is exact ONLY below the complexity threshold, and
+berserk fights are truncated by the 99%-dead-mass rule — the
+residual <1% "both still alive after N rounds" mass is simply left
+in place, which is the "ignores extremely low probability
+outcomes" behavior visible in-game.
