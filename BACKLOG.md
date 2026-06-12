@@ -64,6 +64,24 @@ strategies; cluster economy).
   `--mini-maps` / `--mini-ratio` (sim_self_play).
 - Open: `scrape_terrain.py` ignores its output-path argument (writes
   to project root unconditionally) — harmless today, fix sometime.
+- [ ] 🟠 **Wesnoth-playback verification harness** (the faithfulness
+  end-state, user discussion 2026-06-12). Determinism reframed: the
+  dangerous class is the sim implicitly recording a command in a
+  form Wesnoth resolves with ITS OWN rng at playback (precedent:
+  the d_weapon=-1 retaliation bug) — sim-vs-sim twins are blind to
+  it. Today's automated guard is test_rng_accounting.py (every
+  attack pins seed + concrete counter choice, recruits pin trait
+  seeds, advancements pin [choose], WML-level follow-up audit).
+  The real oracle: (1) emit VERIFIABLE checkups in exported saves
+  (currently deliberately empty — playback cannot detect divergence
+  even in principle; mp_checkup format is known from the oracle
+  work, post-strike values available from sim state), (2) drive
+  real Wesnoth over the replay non-interactively and fail on OOS.
+  Gate on a feasibility spike of Wesnoth's non-interactive replay
+  options on Windows (batch verification needs no interactivity —
+  the thing that killed the training IPC). When this lands, the
+  consolidated twin test in test_sim_determinism.py becomes
+  redundant and can be dropped (agreed with user).
 
 ## MCTS effectiveness roadmap (2026-06-11, profiling-driven)
 

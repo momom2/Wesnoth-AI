@@ -54,36 +54,31 @@ def _drive_to_end(sim: WesnothSim) -> WesnothSim:
     return sim
 
 
-def test_two_runs_same_state_key():
-    """Two independent runs with DummyPolicy from the same starting
-    state produce the same `state_key` at termination.
+def test_twin_runs_identical():
+    """ONE twin pair, all the internal-determinism facets asserted
+    together: terminal state_key, byte-level command history, and
+    the synced-RNG request counter.
 
-    state_key sums over:
-      - unit (id, side, position, hp, mp, exp, statuses, name, leader)
-      - sides (faction, gold, income, villages, recruits)
-      - village ownership
-      - global (turn, ToD, gold, upkeep, RNG counter)
-
-    so any divergence in any of these fields makes the keys differ.
-    """
+    Scope note (user discussion 2026-06-12): sim-vs-sim agreement is
+    NECESSARY (MCTS chance nodes / tree reuse assume identical state
+    + identical action => identical outcome) but NOT SUFFICIENT for
+    correctness — it is structurally blind to implicit-RNG leaks
+    where the recorded stream leaves a resolution for Wesnoth to
+    roll at playback (the d_weapon=-1 retaliation bug was exactly
+    that, and twins agreed perfectly through it). The contract that
+    nothing is left to Wesnoth lives in test_rng_accounting.py; the
+    end-state oracle (actual Wesnoth playback verification) is in
+    BACKLOG. This file keeps exactly one cheap test for the
+    internal-determinism property and the fork-isolation test."""
     sim_a, sim_b = twin_scenario_sims(seed=3, max_turns=6, mini=True)
     _drive_to_end(sim_a)
     _drive_to_end(sim_b)
-    key_a = state_key(sim_a.gs)
-    key_b = state_key(sim_b.gs)
+
+    key_a, key_b = state_key(sim_a.gs), state_key(sim_b.gs)
     assert key_a == key_b, (
         f"state_key differs: {key_a} vs {key_b}. The sim is NOT "
         f"deterministic; MCTS / self-play results will be unreliable.")
 
-
-def test_command_history_identical():
-    """The recorded command_history must match byte-for-byte (modulo
-    Python object identity) between two runs. This is finer-grained
-    than state_key -- catches divergences that happen mid-game even
-    if they cancel out by termination."""
-    sim_a, sim_b = twin_scenario_sims(seed=4, max_turns=6, mini=True)
-    _drive_to_end(sim_a)
-    _drive_to_end(sim_b)
     assert len(sim_a.command_history) == len(sim_b.command_history), (
         f"history lengths differ: {len(sim_a.command_history)} vs "
         f"{len(sim_b.command_history)}")
@@ -94,14 +89,6 @@ def test_command_history_identical():
         assert a.cmd == b.cmd, f"cmd {i}: cmd {a.cmd!r} vs {b.cmd!r}"
         assert a.extras == b.extras, f"cmd {i}: extras differ"
 
-
-def test_rng_counter_advances_consistently():
-    """`_rng_requests` ends at the same value in both runs -- confirms
-    the synced-RNG plumbing is in lockstep. Also serves as a regression
-    against accidental seed-fetches from non-deterministic sources."""
-    sim_a, sim_b = twin_scenario_sims(seed=5, max_turns=6, mini=True)
-    _drive_to_end(sim_a)
-    _drive_to_end(sim_b)
     assert sim_a._rng_requests == sim_b._rng_requests, (
         f"_rng_requests differs: {sim_a._rng_requests} vs "
         f"{sim_b._rng_requests}")
