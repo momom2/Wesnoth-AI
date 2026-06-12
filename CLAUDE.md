@@ -19,16 +19,28 @@ behind config is preferred to code that gates behavior behind weights.
   parser and Lua-file generation with synthetic data — they do NOT spin
   up real Wesnoth)
 
-### Wesnoth source pinning
+### Wesnoth data provenance (updated 2026-06-12)
 
-`wesnoth_src/` MUST stay on the **1.18.4 tag** (`git checkout 1.18.4` in
-that directory). Wesnoth's `master` branch is 1.19.x development and
-unit stats DRIFT between releases — e.g., in master the Ghoul gained
-a `[resistance] pierce=90` override that doesn't exist in 1.18.4
-(where pierce inherits 70 from the gruefoot movement_type). Using
-master's stats made our combat reconstruction overdamage units that
-should have lived. Re-run `python tools/scrape_unit_stats.py
-wesnoth_src unit_stats.json` after any version change.
+`wesnoth_src/data/` is a WML-only copy (cfg/lua/map, no art) of the
+LOCAL STEAM INSTALL's data tree — currently **1.18.7** — refreshed
+via:
+
+    robocopy "C:\Program Files (x86)\Steam\steamapps\common\wesnoth\data" wesnoth_src\data *.cfg *.lua *.map /S
+
+It serves the RUNTIME readers (scenario_pool factions/eras,
+scenario_events, map files). It is NOT a git checkout anymore and
+has no `src/` tree; for engine-internals research, read the GitHub
+**1.18.4 tag** directly (as docs/wesnoth_rules.md entries do).
+
+**`unit_stats.json` / `terrain_db.json` are pinned 1.18.4 scrapes
+and are COMMITTED. Never re-scrape them from this wesnoth_src.**
+Unit stats DRIFT between releases — e.g., in 1.19.x the Ghoul
+gained a `[resistance] pierce=90` override that doesn't exist in
+1.18.4 (where pierce inherits 70 from the gruefoot movement_type);
+using drifted stats made combat reconstruction overdamage units.
+The sim's bit-exact combat parity and the existing checkpoints
+assume the 1.18.4 stats. Re-scraping requires fetching the 1.18.4
+tag from GitHub first.
 
 Most replays in `replays_raw/` are from 1.18.x clients; pin
 accordingly. If a replay's `[scenario] version=` says something

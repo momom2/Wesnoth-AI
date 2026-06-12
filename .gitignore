@@ -53,9 +53,13 @@ replays_dataset.old/
 replays_raw_set_aside/
 replays_dataset_set_aside/
 
-# Build artifacts.
-unit_stats.json
-terrain_db.json
+# Pinned 1.18.4 scrape artifacts — deliberately TRACKED since
+# 2026-06-12: the local 1.18.4 source they were scraped from is
+# gone (wesnoth_src now mirrors the Steam install's NEWER data),
+# so losing these would force a drifted re-scrape that breaks the
+# sim's bit-exact combat pin. See CLAUDE.md "Wesnoth data
+# provenance".
+# (unit_stats.json and terrain_db.json intentionally not ignored)
 tmp_scratch/
 test_replays_temp/
 
