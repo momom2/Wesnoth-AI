@@ -1368,6 +1368,24 @@ def main(argv: List[str]) -> int:
                     help="How many decisions per game are sampled "
                          "proportional to visits^(1/tau) before "
                          "switching to argmax-visits.")
+    ap.add_argument("--mcts-classic-root", action="store_true",
+                    help="Use classic AlphaZero root handling "
+                         "(Dirichlet noise + visit-count temperature "
+                         "+ visit-count targets) instead of the "
+                         "default Gumbel root (Gumbel-Top-k "
+                         "candidates + sequential halving + "
+                         "completed-Q targets; Danihelka 2022).")
+    ap.add_argument("--mcts-gumbel-m", type=int, default=16,
+                    help="Gumbel root: number of candidate actions "
+                         "sampled without replacement for "
+                         "sequential halving.")
+    ap.add_argument("--mcts-no-tree-reuse", action="store_true",
+                    help="Disable state-key-checked subtree reuse "
+                         "across consecutive decisions (on by "
+                         "default; reuse only fires when the live "
+                         "successor state exactly matches the "
+                         "searched child, so combat RNG divergence "
+                         "auto-rebuilds).")
     ap.add_argument("--draw-tiebreak-cap", type=float, default=0.3,
                     help="MCTS draws score by material differential "
                          "(villages + gold + unit value) in "
@@ -1488,12 +1506,19 @@ def main(argv: List[str]) -> int:
             temperature=args.mcts_temperature,
             temperature_decisions=args.mcts_temperature_decisions,
             draw_tiebreak=tiebreak,
+            tree_reuse=not args.mcts_no_tree_reuse,
+            gumbel_root=not args.mcts_classic_root,
+            gumbel_m=args.mcts_gumbel_m,
         )
+        root_desc = (f"gumbel(m={mcts_cfg.gumbel_m})"
+                     if mcts_cfg.gumbel_root else
+                     f"classic(tau={mcts_cfg.temperature}"
+                     f"x{mcts_cfg.temperature_decisions})")
         log.info(
             f"MCTS mode enabled: sims={mcts_cfg.n_simulations} "
             f"c_puct={mcts_cfg.c_puct} batch_size={mcts_cfg.batch_size} "
-            f"fpu={mcts_cfg.fpu_reduction} "
-            f"tau={mcts_cfg.temperature}x{mcts_cfg.temperature_decisions} "
+            f"fpu={mcts_cfg.fpu_reduction} root={root_desc} "
+            f"tree_reuse={mcts_cfg.tree_reuse} "
             f"draw_tiebreak_cap="
             f"{tiebreak.cap if tiebreak else 'off'}. "
             f"--reward-config is ignored in MCTS mode (AlphaZero "

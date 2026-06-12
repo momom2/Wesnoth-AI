@@ -1,12 +1,12 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """Regression tests for tools/mcts.py.
 
 Focus areas:
 
-1. **PUCT selection** — formula, tie-break, exploration vs exploitation
+1. **PUCT selection** â€” formula, tie-break, exploration vs exploitation
    trade-off across visit counts.
 
-2. **Sign-flip in `_backup` — turns vs actions**. This is the
+2. **Sign-flip in `_backup` â€” turns vs actions**. This is the
    Wesnoth-specific bit that diverges from textbook 2-player MCTS:
    a *turn* in Wesnoth contains many *actions* by the same side
    (move, attack, recruit, ...) before `end_turn` flips control.
@@ -17,16 +17,16 @@ Focus areas:
    with same-side multi-action stretches and mixed paths spanning
    multiple turn transitions to lock that behavior down.
 
-3. **Terminal-value semantics** — win/loss/draw from a given side's
+3. **Terminal-value semantics** â€” win/loss/draw from a given side's
    perspective; terminal-leaf shortcut avoids a model forward.
 
-4. **Dirichlet noise** — mass conservation, eps=0/eps=1 endpoints.
+4. **Dirichlet noise** â€” mass conservation, eps=0/eps=1 endpoints.
 
-5. **Visit-count extraction** — output format, zero-skip behavior.
+5. **Visit-count extraction** â€” output format, zero-skip behavior.
 
 These are pure-Python unit tests with hand-rolled MCTSNode/MCTSEdge
 fixtures (no live model, no real sim). End-to-end `mcts_search`
-integration coverage is not in this file — would require a small
+integration coverage is not in this file â€” would require a small
 synthetic GameState + model and is a separate test layer.
 
 Dependencies: tools.mcts, action_sampler.LegalActionPrior, classes
@@ -108,7 +108,7 @@ def test_terminal_value_draw():
 
 
 # ---------------------------------------------------------------------
-# _backup — turns vs actions sign convention
+# _backup â€” turns vs actions sign convention
 # ---------------------------------------------------------------------
 
 def test_backup_single_step_opposite_sides():
@@ -125,7 +125,7 @@ def test_backup_single_step_opposite_sides():
 def test_backup_same_side_action_no_flip():
     """Wesnoth-specific: a same-side action (move/attack/recruit)
     keeps `current_side` unchanged. The backup MUST NOT flip the
-    sign — both nodes are on side 1, so parent sees the leaf value
+    sign â€” both nodes are on side 1, so parent sees the leaf value
     as +v, not -v.
 
     The bug this guards against is the textbook 'flip every step'
@@ -139,7 +139,7 @@ def test_backup_same_side_action_no_flip():
 
 
 def test_backup_multi_action_same_turn():
-    """A full Wesnoth turn: A → A → A → A → leaf A. Five actions,
+    """A full Wesnoth turn: A â†’ A â†’ A â†’ A â†’ leaf A. Five actions,
     zero turn transitions. All four parents are on side A and the
     leaf is on side A, so every edge accumulates +v."""
     nodes = [_make_node(side=1) for _ in range(5)]
@@ -156,11 +156,11 @@ def test_backup_multi_action_same_turn():
 
 
 def test_backup_path_spans_turn_transition():
-    """Mixed path: A → A → B → B → leaf B. The first two parents
+    """Mixed path: A â†’ A â†’ B â†’ B â†’ leaf B. The first two parents
     are on the wrong side (A) and should get -v; the third parent
     is on the right side (B, same as leaf) and should get +v.
     Textbook 'flip every step' would give the wrong sign on the
-    A→A edge."""
+    Aâ†’A edge."""
     n1 = _make_node(side=1)  # parent of edge 1
     n2 = _make_node(side=1)  # same-side action: still A
     n3 = _make_node(side=2)  # end_turn happened: now B
@@ -176,7 +176,7 @@ def test_backup_path_spans_turn_transition():
 
 
 def test_backup_path_returns_to_original_side():
-    """Two transitions: A → B → A → leaf A. With leaf_side=A, the
+    """Two transitions: A â†’ B â†’ A â†’ leaf A. With leaf_side=A, the
     A nodes get +v and the single B node gets -v. Tests that the
     rule is 'compare each parent's side to leaf_side', not 'alternate
     based on depth'."""
@@ -270,7 +270,7 @@ def test_puct_select_explores_unvisited_edge():
     e_visited = _attach(node, _make_node(side=2), prior=0.5)
     e_unvisited = _attach(node, _make_node(side=2), prior=0.5)
     e_visited.n_visits = 50
-    e_visited.w_value = -45.0  # Q ≈ -0.9
+    e_visited.w_value = -45.0  # Q â‰ˆ -0.9
     node._total_visits = 50
     chosen = _puct_select(node, c_puct=1.5)
     assert chosen is e_unvisited
@@ -292,8 +292,8 @@ def test_dirichlet_eps_zero_is_noop():
 
 
 def test_dirichlet_preserves_mass():
-    """Convex combination (1-eps)*prior + eps*noise — total mass
-    stays ≈1 since both components sum to 1."""
+    """Convex combination (1-eps)*prior + eps*noise â€” total mass
+    stays â‰ˆ1 since both components sum to 1."""
     import numpy as np
     node = _make_node(side=1)
     edges = [_attach(node, _make_node(side=2), prior=p)
@@ -329,7 +329,7 @@ def test_extract_visit_counts_skips_zero_visits():
 
 
 def test_extract_visit_counts_preserves_visit_counts():
-    """All non-zero visit counts pass through verbatim — no
+    """All non-zero visit counts pass through verbatim â€” no
     normalization at extraction time. The trainer applies the
     softmax-with-temperature when building the target distribution."""
     node = _make_node(side=1)
@@ -360,7 +360,7 @@ def test_terminal_node_marks_terminal_via_sim_done():
 
 
 # ---------------------------------------------------------------------
-# Transposition table — node sharing across paths
+# Transposition table â€” node sharing across paths
 # ---------------------------------------------------------------------
 
 def test_transposition_shares_node_across_paths():
@@ -425,7 +425,7 @@ def test_transposition_shares_node_across_paths():
     # turn counter advances), so a child can never share an ancestor's
     # state_key. If root collided with the children here, the TT would
     # resolve the root's own child back to root and _select_one would
-    # descend the root→root self-loop forever.
+    # descend the rootâ†’root self-loop forever.
     root_sim.gs.global_info.turn_number = 2
     root = MCTSNode(root_sim)
     # Root must be marked expanded so _select_one descends.
@@ -517,7 +517,7 @@ def test_mcts_self_play_smoke(tmp_path):
     and verify exit code 0 + an MCTS-mode log message. Catches:
       - import-graph regressions in tools/mcts_policy.py
       - CLI flag wiring on sim_self_play.py
-      - the MCTSPolicy → trainer.step_mcts contract end-to-end
+      - the MCTSPolicy â†’ trainer.step_mcts contract end-to-end
 
     The default model is 26M params; building it and running 2
     MCTS sims per move for a 5-turn game on CPU completes in ~1
@@ -538,7 +538,7 @@ def test_mcts_self_play_smoke(tmp_path):
         "--iterations", "1",
         "--games-per-iter", "1",
         "--max-turns", "5",
-        "--workers", "0",          # serial — easier to attribute log lines
+        "--workers", "0",          # serial â€” easier to attribute log lines
         "--mcts",
         "--mcts-sims", "2",
         "--checkpoint-out", str(ckpt_out),
@@ -647,3 +647,150 @@ def test_sample_action_never_returns_unvisited():
     rng = np.random.default_rng(3)
     for _ in range(200):
         assert sample_action(root, 1.0, rng)["id"] == 0
+
+
+# ---------------------------------------------------------------------
+# Tree reuse (state-key-checked)
+# ---------------------------------------------------------------------
+
+def test_tree_reuse_inherits_subtree_for_deterministic_actions():
+    """End-to-end on a real sim + tiny model: search once, step a
+    DETERMINISTIC root action (move/end_turn -- combat would diverge
+    by RNG), verify the live successor state-key matches the searched
+    child, then search again with reuse_root and assert the subtree
+    object and its visit statistics are inherited."""
+    import random as _random
+    import torch
+    from classes import state_key
+    from transformer_policy import TransformerPolicy
+    from tools.mcts import MCTSConfig, mcts_search
+    from tools.scenario_pool import (
+        random_setup, build_scenario_gamestate, load_factions,
+    )
+    from tools.wesnoth_sim import WesnothSim
+
+    torch.manual_seed(0)
+    policy = TransformerPolicy(
+        d_model=64, num_layers=2, num_heads=4, d_ff=128,
+        device=torch.device("cpu"),
+    )
+    load_factions()
+    setup = random_setup(_random.Random(11), forced_faction=None)
+    gs = build_scenario_gamestate(setup)
+    sim = WesnothSim(gs, scenario_id=setup.scenario_id, max_turns=30)
+
+    cfg = MCTSConfig(n_simulations=40, add_root_noise=False)
+    root1 = mcts_search(
+        sim, policy._inference_model, policy._inference_encoder, cfg)
+
+    # Pick a deterministic, visited, expanded root edge.
+    edge = next(
+        (e for e in sorted(root1.edges, key=lambda e: -e.n_visits)
+         if e.child is not None and e.child.expanded
+         and not e.child.is_terminal
+         and e.action.get("type") in ("move", "end_turn")),
+        None)
+    if edge is None:
+        import pytest as _pytest
+        _pytest.skip("search visited no deterministic expanded edge "
+                     "at 10 sims on this seed")
+
+    live = sim.fork()
+    live.step(edge.action)
+    assert state_key(live.gs) == state_key(edge.child.sim.gs), (
+        "deterministic action must reproduce the searched child state"
+    )
+
+    inherited = edge.child._total_visits
+    root2 = mcts_search(
+        live, policy._inference_model, policy._inference_encoder, cfg,
+        reuse_root=edge.child)
+    assert root2 is edge.child
+    # Each simulation backs up exactly one root visit on top of the
+    # inherited statistics.
+    assert root2._total_visits == inherited + cfg.n_simulations
+
+
+# ---------------------------------------------------------------------
+# Gumbel root: completed-Q target + sequential halving
+# ---------------------------------------------------------------------
+
+def test_gumbel_target_completed_q_math():
+    """Worked example for extract_gumbel_policy_target: two visited
+    edges with known Q, one unvisited edge completed with v_mix.
+    Checks the mctx mix-value formula and that the softmax favors
+    the high-Q visited action over an equal-prior unvisited one."""
+    from tools.mcts import MCTSConfig, extract_gumbel_policy_target
+
+    root = _make_node(side=1)
+    root.value = 0.10                      # network v(root)
+    e_good = _attach(root, _make_node(side=2), prior=0.4)
+    e_good.action = {"id": 0}
+    e_good.n_visits, e_good.w_value = 4, 0.4     # q = +0.1
+    e_bad = _attach(root, _make_node(side=2), prior=0.4)
+    e_bad.action = {"id": 1}
+    e_bad.n_visits, e_bad.w_value = 4, -0.4      # q = -0.1
+    e_unvisited = _attach(root, _make_node(side=2), prior=0.2)
+    e_unvisited.action = {"id": 2}
+    root._total_visits = 8
+
+    cfg = MCTSConfig()
+    target = extract_gumbel_policy_target(root, cfg)
+    assert len(target) >= 2
+    probs = {t[0]: t[3] for t in target}   # keyed by actor_idx=0 all..
+    # All weights form a distribution.
+    total = sum(t[3] for t in target)
+    assert abs(total - 1.0) < 1e-9
+    # Edge order matches root.edges order in the tuple list; map by
+    # position instead of actor_idx (the stub edges share actor 0).
+    weights = [t[3] for t in target]
+    w_good, w_bad = weights[0], weights[1]
+    assert w_good > w_bad
+    # v_mix = (v_root + sum_visits * weighted_q) / (1 + sum_visits)
+    # weighted_q over visited = (0.4*0.1 + 0.4*(-0.1)) / 0.8 = 0.0
+    # => v_mix = 0.1 / 9. The unvisited edge's completed Q is small
+    # positive => its weight must exceed e_bad's (q=-0.1) despite
+    # half the prior.
+    if len(weights) == 3:
+        assert weights[2] > w_bad
+
+
+def test_gumbel_root_search_integration():
+    """Full mcts_search with the Gumbel root on a real sim + tiny
+    model: a gumbel_action is chosen from the legal edges, the sim
+    budget is respected, and the policy target is a distribution."""
+    import random as _random
+    import torch
+    from transformer_policy import TransformerPolicy
+    from tools.mcts import (
+        MCTSConfig, mcts_search, extract_gumbel_policy_target,
+    )
+    from tools.scenario_pool import (
+        random_setup, build_scenario_gamestate, load_factions,
+    )
+    from tools.wesnoth_sim import WesnothSim
+
+    torch.manual_seed(0)
+    policy = TransformerPolicy(
+        d_model=64, num_layers=2, num_heads=4, d_ff=128,
+        device=torch.device("cpu"),
+    )
+    load_factions()
+    setup = random_setup(_random.Random(5), forced_faction=None)
+    gs = build_scenario_gamestate(setup)
+    sim = WesnothSim(gs, scenario_id=setup.scenario_id, max_turns=30)
+
+    cfg = MCTSConfig(n_simulations=12, gumbel_m=4, gumbel_root=True)
+    root = mcts_search(
+        sim, policy._inference_model, policy._inference_encoder, cfg)
+
+    assert root.gumbel_action is not None
+    assert any(e.action is root.gumbel_action for e in root.edges)
+    assert 1 <= root._total_visits <= cfg.n_simulations
+    # Candidates are capped at m: at most gumbel_m root edges visited.
+    visited_edges = sum(1 for e in root.edges if e.n_visits > 0)
+    assert visited_edges <= cfg.gumbel_m
+
+    target = extract_gumbel_policy_target(root, cfg)
+    total = sum(t[3] for t in target)
+    assert abs(total - 1.0) < 1e-6

@@ -40,12 +40,12 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from classes import GameState
+from classes import GameState, state_key
 from trainer import MCTSExperience, TrainStats
 from tools.draw_tiebreak import draw_tiebreak_z
 from tools.mcts import (
     MCTSConfig, mcts_search, extract_visit_counts, best_action,
-    sample_action,
+    sample_action, extract_gumbel_policy_target,
 )
 
 
@@ -85,6 +85,12 @@ class MCTSPolicy:
         # self-play data generation wants diversity, not
         # reproducibility; tests construct their own Generator.
         self._rng = np.random.default_rng()
+        # Tree-reuse stash: game_label -> (child_node, child_state_key)
+        # for the action played at the previous decision. The next
+        # select_action reuses the subtree iff the LIVE state's key
+        # matches (deterministic actions match; combat RNG diverges
+        # and rebuilds). See MCTSConfig.tree_reuse.
+        self._reuse: Dict[str, Tuple] = {}
         # `_inference_*` already exist on base — under the lock used
         # by base's snapshot. We just borrow them. mcts_search runs
         # `torch.no_grad()` internally so concurrent gradient steps
@@ -109,24 +115,40 @@ class MCTSPolicy:
                 "the search tree. Update the rollout loop to pass "
                 "the live sim through."
             )
+        reuse_root = None
+        if self._mcts_config.tree_reuse:
+            with self._lock:
+                stash = self._reuse.pop(game_label, None)
+            if stash is not None:
+                child, child_key = stash
+                if state_key(sim.gs) == child_key:
+                    reuse_root = child
         root = mcts_search(
             sim,
             self._inference_model,
             self._inference_encoder,
             self._mcts_config,
+            reuse_root=reuse_root,
         )
-        # AlphaZero exploration schedule: sample proportional to
-        # visit counts for the first `temperature_decisions`
-        # decisions of each game, argmax afterwards. The decision
-        # index is exactly how many states this game has already
-        # recorded.
-        with self._lock:
-            decision_idx = len(self._pending.get(game_label, ()))
-        if decision_idx < self._mcts_config.temperature_decisions:
-            action = sample_action(
-                root, self._mcts_config.temperature, self._rng)
+        if self._mcts_config.gumbel_root:
+            # Gumbel mode: the search already chose
+            # argmax(g + logits + sigma(q̂)) -- stochastic via the
+            # Gumbel draws, provably an improved policy. No
+            # temperature schedule needed.
+            action = root.gumbel_action or best_action(root)
         else:
-            action = best_action(root)
+            # Classic AlphaZero exploration schedule: sample
+            # proportional to visit counts for the first
+            # `temperature_decisions` decisions of each game, argmax
+            # afterwards. The decision index is exactly how many
+            # states this game has already recorded.
+            with self._lock:
+                decision_idx = len(self._pending.get(game_label, ()))
+            if decision_idx < self._mcts_config.temperature_decisions:
+                action = sample_action(
+                    root, self._mcts_config.temperature, self._rng)
+            else:
+                action = best_action(root)
         if action is None:
             # No legal action and no terminal — pathological state.
             # The base policy's select_action would have raised; we
@@ -136,13 +158,34 @@ class MCTSPolicy:
                 f"root.is_terminal={root.is_terminal}, "
                 f"n_edges={len(root.edges)}"
             )
-        visits = extract_visit_counts(root)
+        if self._mcts_config.gumbel_root:
+            # Completed-Q target: every legal action gets a weight
+            # (search Q if visited, mixed value if not) -- denser
+            # signal than raw visit counts at small sim budgets.
+            visits = extract_gumbel_policy_target(
+                root, self._mcts_config)
+        else:
+            visits = extract_visit_counts(root)
         side = game_state.global_info.current_side
         with self._lock:
             self._pending.setdefault(game_label, []).append(
                 _PendingMCTSState(gs=game_state, visit_counts=visits,
                                   side=side)
             )
+        # Stash the played edge's subtree for state-key-checked reuse
+        # at the next decision. Action dicts are returned by identity
+        # from the edge, so `is` finds the edge; `==` is the fallback
+        # for wrappers that copy.
+        if self._mcts_config.tree_reuse:
+            edge = next(
+                (e for e in root.edges
+                 if e.action is action or e.action == action), None)
+            if (edge is not None and edge.child is not None
+                    and edge.child.expanded
+                    and not edge.child.is_terminal):
+                with self._lock:
+                    self._reuse[game_label] = (
+                        edge.child, state_key(edge.child.sim.gs))
         return action
 
     def observe(self, game_label: str, side: int, reward: float,
@@ -167,6 +210,7 @@ class MCTSPolicy:
         which trails the true final state by one action."""
         with self._lock:
             states = self._pending.pop(game_label, [])
+            self._reuse.pop(game_label, None)
         tiebreak = self._mcts_config.draw_tiebreak
         if winner == 0 and tiebreak is not None and final_gs is None \
                 and states:
@@ -203,6 +247,7 @@ class MCTSPolicy:
         rollout. We just drop pending without queuing."""
         with self._lock:
             self._pending.pop(game_label, None)
+            self._reuse.pop(game_label, None)
 
     def train_step(self) -> TrainStats:
         with self._lock:

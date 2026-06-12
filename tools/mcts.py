@@ -205,6 +205,45 @@ class MCTSConfig:
     temperature:           float = 1.0
     temperature_decisions: int   = 30
 
+    # Gumbel AlphaZero root (Danihelka et al. 2022, "Policy
+    # improvement by planning with Gumbel"). Replaces
+    # Dirichlet-noise + visit-count-temperature at the ROOT with:
+    #   1. Gumbel-Top-k: sample `gumbel_m` DISTINCT candidate
+    #      actions ∝ the prior (g(a) + logits(a), g ~ Gumbel(0,1)).
+    #   2. Sequential halving: split the sim budget tournament-style
+    #      across candidates, halving the field each phase by
+    #      g + logits + sigma(q̂) -- the bandit-optimal way to find
+    #      the best arm under a fixed budget.
+    #   3. Play argmax g + logits + sigma(q̂): provably a policy
+    #      improvement in expectation, even at tiny budgets.
+    # The policy target becomes softmax(logits + sigma(completed_q))
+    # over ALL legal actions (`extract_gumbel_policy_target`) --
+    # unvisited actions fall back to the mixed value estimate
+    # instead of an implicit zero, so no simulation is wasted.
+    # Interior nodes keep PUCT + FPU (the paper's interior variant
+    # is a smaller win; documented divergence).
+    # sigma(q) = (c_visit + max_b N(b)) * c_scale * q, paper defaults.
+    gumbel_root:    bool  = True
+    gumbel_m:       int   = 16
+    gumbel_c_visit: float = 50.0
+    gumbel_c_scale: float = 1.0
+
+    # Tree reuse across consecutive decisions (state-key-checked).
+    # After the live game plays the chosen action, the subtree under
+    # that root edge describes the searched successor state -- which
+    # for DETERMINISTIC actions (moves, end_turn: the vast majority
+    # of intra-turn decisions) is exactly the live successor, but for
+    # combat is conditioned on the ONE RNG outcome the search
+    # sampled, which the live game almost never reproduces. The
+    # caller (MCTSPolicy) therefore reuses the subtree iff
+    # state_key(live state) == state_key(searched child state):
+    # deterministic steps match and inherit the whole subtree's
+    # visits; combat mismatches and rebuilds from scratch. Zero
+    # unsoundness by construction (modulo 64-bit state_key
+    # collisions, the same assumption the transposition table
+    # already makes).
+    tree_reuse: bool = True
+
     # Transposition table: when two paths converge on the same
     # `state_key(gs)`, share a single MCTSNode rather than building
     # two parallel subtrees. Visit counts and Q-values then reflect
@@ -296,7 +335,7 @@ class MCTSNode:
     __slots__ = ("sim", "side", "edges", "is_terminal",
                  "expanded", "_total_visits",
                  "tt_hits", "tt_misses",
-                 "cliffness", "value")
+                 "cliffness", "value", "gumbel_action")
 
     def __init__(self, sim: WesnothSim):
         self.sim:           WesnothSim   = sim
@@ -320,6 +359,10 @@ class MCTSNode:
         # for this node's unvisited edges. 0.0 for terminal /
         # unexpanded nodes.
         self.value:         float        = 0.0
+        # Action chosen by the Gumbel root procedure (set on the
+        # ROOT by mcts_search when config.gumbel_root). None
+        # elsewhere / in classic mode.
+        self.gumbel_action: Optional[dict] = None
 
 
 # ---------------------------------------------------------------------
@@ -441,6 +484,7 @@ def _select_one(
     stats:          Optional[Dict[str, int]] = None,
     fpu_reduction:      Optional[float] = None,
     root_fpu_reduction: Optional[float] = None,
+    forced_first_edge:  Optional[MCTSEdge] = None,
 ) -> Tuple[MCTSNode, List[Tuple[MCTSNode, MCTSEdge]]]:
     """Walk down from root picking PUCT-best edges. Lazy-create
     child nodes by forking the parent sim and applying the edge's
@@ -460,8 +504,14 @@ def _select_one(
     path: List[Tuple[MCTSNode, MCTSEdge]] = []
     node = root
     while node.expanded and not node.is_terminal:
-        fpu = root_fpu_reduction if node is root else fpu_reduction
-        edge = _puct_select(node, c_puct, fpu)
+        if forced_first_edge is not None:
+            # Gumbel sequential halving pins the ROOT edge; interior
+            # selection below stays PUCT.
+            edge = forced_first_edge
+            forced_first_edge = None
+        else:
+            fpu = root_fpu_reduction if node is root else fpu_reduction
+            edge = _puct_select(node, c_puct, fpu)
         if edge.child is None:
             child_sim = node.sim.fork()
             try:
@@ -622,13 +672,122 @@ def _populate_leaf(
     return leaf.value
 
 
+def _run_one_sim(
+    root:           MCTSNode,
+    model:          WesnothModel,
+    encoder:        GameStateEncoder,
+    config:         MCTSConfig,
+    transpositions: Optional[Dict[int, MCTSNode]],
+    tt_stats:       Dict[str, int],
+    forced_first_edge: Optional[MCTSEdge] = None,
+) -> None:
+    """One serial simulation: select (optionally pinned through a
+    given root edge), evaluate/expand the leaf, back up. Used by the
+    Gumbel root procedure; the classic loop keeps its own batched
+    variant."""
+    leaf, path = _select_one(
+        root, config.c_puct, 0.0,
+        transpositions=transpositions, stats=tt_stats,
+        fpu_reduction=config.fpu_reduction,
+        root_fpu_reduction=config.fpu_reduction,
+        forced_first_edge=forced_first_edge,
+    )
+    if leaf.is_terminal:
+        v = _terminal_value(leaf.sim, leaf.side, config.draw_tiebreak)
+        _backup(path, v, leaf.side, 0.0, leaf_is_terminal=True)
+        return
+    with torch.no_grad():
+        encoded = encoder.encode(leaf.sim.gs)
+        output = model(encoded)
+    v = _populate_leaf(leaf, encoded, output)
+    _backup(
+        path, v, leaf.side, 0.0,
+        leaf_cliffness=leaf.cliffness,
+        bootstrap_alpha=config.cliffness_bootstrap_alpha,
+        leaf_is_terminal=leaf.is_terminal,
+    )
+
+
+def _gumbel_sigma(q: float, max_visits: float, config: MCTSConfig) -> float:
+    """The paper's monotone Q transform: sigma(q) =
+    (c_visit + max_b N(b)) * c_scale * q. Scaling by the visit count
+    keeps logits and Q commensurate as the search deepens."""
+    return (config.gumbel_c_visit + max_visits) * config.gumbel_c_scale * q
+
+
+def _gumbel_root_search(
+    root:           MCTSNode,
+    model:          WesnothModel,
+    encoder:        GameStateEncoder,
+    config:         MCTSConfig,
+    transpositions: Optional[Dict[int, MCTSNode]],
+    tt_stats:       Dict[str, int],
+    rng:            np.random.Generator,
+    n_sims:         int,
+    deadline:       Optional[float] = None,
+) -> None:
+    """Gumbel-Top-k candidates + sequential halving at the root.
+    Sets `root.gumbel_action` to argmax(g + logits + sigma(q̂)) over
+    the final survivors -- in expectation a policy improvement over
+    the raw prior (Danihelka et al. 2022, thm. on one-step
+    improvement)."""
+    import time as _time
+    edges = root.edges
+    if not edges:
+        root.gumbel_action = None
+        return
+    logits = np.log(np.maximum(
+        np.array([e.prior for e in edges], dtype=np.float64), 1e-12))
+    g = rng.gumbel(size=len(edges))
+    base = g + logits
+
+    m = max(1, min(config.gumbel_m, len(edges)))
+    cands: List[int] = list(np.argsort(-base)[:m])
+
+    def _score(ci: int, max_v: float) -> float:
+        return base[ci] + _gumbel_sigma(edges[ci].q_value, max_v, config)
+
+    sims_done = 0
+    num_phases = max(1, math.ceil(math.log2(m))) if m > 1 else 1
+    for phase in range(num_phases):
+        if len(cands) == 1 or sims_done >= n_sims:
+            break
+        # Even split of the remaining budget over remaining phases,
+        # then over surviving candidates; every candidate gets at
+        # least one sim per phase (subject to the global budget).
+        phase_budget = max(len(cands),
+                           (n_sims - sims_done) // (num_phases - phase))
+        sims_per = max(1, phase_budget // len(cands))
+        for ci in cands:
+            for _ in range(sims_per):
+                if sims_done >= n_sims:
+                    break
+                if deadline is not None and _time.perf_counter() > deadline:
+                    log.info(f"mcts(gumbel): stopping at "
+                             f"{sims_done}/{n_sims} (time budget hit)")
+                    sims_done = n_sims
+                    break
+                _run_one_sim(root, model, encoder, config,
+                             transpositions, tt_stats,
+                             forced_first_edge=edges[ci])
+                sims_done += 1
+        max_v = max(e.n_visits for e in edges)
+        keep = max(1, math.ceil(len(cands) / 2))
+        cands = sorted(cands, key=lambda ci: -_score(ci, max_v))[:keep]
+
+    max_v = max(e.n_visits for e in edges)
+    best_ci = max(cands, key=lambda ci: _score(ci, max_v))
+    root.gumbel_action = edges[best_ci].action
+
+
 def mcts_search(
     sim:     WesnothSim,
     model:   WesnothModel,
     encoder: GameStateEncoder,
     config:  Optional[MCTSConfig] = None,
     *,
-    rng:     Optional[np.random.Generator] = None,
+    rng:        Optional[np.random.Generator] = None,
+    reuse_root: Optional[MCTSNode] = None,
 ) -> MCTSNode:
     """Run MCTS from `sim`'s state. Returns the root node with
     populated visit counts on outgoing edges.
@@ -637,6 +796,14 @@ def mcts_search(
     With `config.batch_size > 1`, leaves accumulate and are forwarded
     through `model.forward_batch` together (virtual-loss
     parallelization).
+
+    `reuse_root`: a subtree node from a PREVIOUS search whose state
+    the caller has verified (by state_key) to equal `sim`'s current
+    state. The search continues from it, inheriting its visit
+    statistics, and still runs the full `n_simulations` on top.
+    Dirichlet root noise is (re-)applied to its priors, matching
+    Leela/KataGo's reuse behavior. Pass only state-key-verified
+    nodes -- see MCTSConfig.tree_reuse.
 
     Cost (B=1, CPU, default model): ~30-50 ms per simulation, model
     forward dominated. With B=8 on GPU: typically 5-10x speedup as
@@ -648,9 +815,16 @@ def mcts_search(
         rng = np.random.default_rng()
     import time as _time
 
-    # Fork so the caller's sim is untouched.
-    root_sim = sim.fork()
-    root = MCTSNode(root_sim)
+    if (reuse_root is not None and reuse_root.expanded
+            and not reuse_root.is_terminal):
+        root = reuse_root
+        root_sim = root.sim
+        log.debug(f"mcts: reusing subtree with "
+                  f"{root._total_visits} inherited visits")
+    else:
+        # Fork so the caller's sim is untouched.
+        root_sim = sim.fork()
+        root = MCTSNode(root_sim)
 
     # Per-search transposition table. Built fresh and dropped at
     # function exit -- a stale TT across searches would carry
@@ -671,8 +845,13 @@ def mcts_search(
     # Always serial (single state to evaluate at the start). Reads
     # the network's cliffness as a side-effect, which we then use
     # for the adaptive sim budget.
-    _expand(root, model, encoder, tiebreak=config.draw_tiebreak)
-    if config.add_root_noise and root.edges:
+    if not root.expanded:
+        _expand(root, model, encoder, tiebreak=config.draw_tiebreak)
+    # Gumbel mode replaces Dirichlet noise at the root: exploration
+    # comes from sampling the candidate set without replacement.
+    use_gumbel = bool(config.gumbel_root and root.edges
+                      and not root.is_terminal)
+    if config.add_root_noise and root.edges and not use_gumbel:
         _add_dirichlet_noise(root, config.dirichlet_alpha,
                              config.dirichlet_eps, rng)
 
@@ -696,6 +875,12 @@ def mcts_search(
 
     deadline = (_time.perf_counter() + config.time_budget
                 if config.time_budget is not None else None)
+
+    if use_gumbel:
+        _gumbel_root_search(root, model, encoder, config,
+                            transpositions, tt_stats, rng, n_sims,
+                            deadline)
+        n_sims = 0   # the classic PUCT-at-root loop below is skipped
 
     B = max(1, int(config.batch_size))
     V_LOSS = float(config.virtual_loss) if B > 1 else 0.0
@@ -829,6 +1014,58 @@ def best_action(root: MCTSNode) -> Optional[dict]:
         return None
     best = max(root.edges, key=lambda e: e.n_visits)
     return best.action if best.n_visits > 0 else None
+
+
+def extract_gumbel_policy_target(
+    root:   MCTSNode,
+    config: MCTSConfig,
+) -> List[Tuple]:
+    """The Gumbel-AlphaZero "completed Q" policy target:
+
+        pi_target = softmax(logits + sigma(completed_q))
+
+    over ALL legal root actions, where completed_q(a) = q̂(a) for
+    visited actions and the MIXED VALUE estimate v_mix for unvisited
+    ones (instead of the implicit 0 that visit-count targets give
+    them). v_mix interpolates the root's own network value with the
+    prior-weighted mean of the visited actions' search Q
+    (mctx's `qtransform_completed_by_mix_value`):
+
+        v_mix = (v_root + sum_visits * weighted_q) / (1 + sum_visits)
+
+    Same 5-tuple schema as `extract_visit_counts`
+    (actor, target, weapon, weight, type); weights are floats
+    summing to ~1 -- the trainer normalizes by total weight, so
+    counts and probabilities train identically."""
+    edges = root.edges
+    if not edges:
+        return []
+    priors = np.maximum(
+        np.array([e.prior for e in edges], dtype=np.float64), 1e-12)
+    logits = np.log(priors)
+    visits = np.array([float(e.n_visits) for e in edges])
+    qs = np.array([e.q_value for e in edges], dtype=np.float64)
+    visited = visits > 0
+
+    sum_visits = float(visits.sum())
+    if visited.any():
+        p_vis = priors[visited]
+        weighted_q = float((p_vis * qs[visited]).sum() / p_vis.sum())
+        v_mix = (root.value + sum_visits * weighted_q) / (1.0 + sum_visits)
+    else:
+        v_mix = root.value
+
+    max_v = float(visits.max()) if len(visits) else 0.0
+    completed_q = np.where(visited, qs, v_mix)
+    t = logits + (config.gumbel_c_visit + max_v) \
+        * config.gumbel_c_scale * completed_q
+    t -= t.max()
+    p = np.exp(t)
+    p /= p.sum()
+    return [
+        (e.actor_idx, e.target_idx, e.weapon_idx, float(w), e.type_idx)
+        for e, w in zip(edges, p) if w > 1e-9
+    ]
 
 
 def sample_action(
