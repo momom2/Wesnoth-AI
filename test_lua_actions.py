@@ -45,41 +45,16 @@ def test_action_file_writing():
             {'type': 'recruit', 'unit_type': 'Dwarvish Guardsman', 'target_x': 20, 'target_y': 20},
         ]
         
-        all_passed = True
+        # Plain asserts (a returned bool passes silently under pytest).
         for action in test_actions:
-            try:
-                # Write action
-                success = game.send_action(action)
-                
-                if not success:
-                    print_test(f"  Write {action['type']} action", False)
-                    all_passed = False
-                    continue
-                
-                # Read back and verify
-                content = game.action_path.read_text()
-                
-                # Check that it starts with "return"
-                if not content.strip().startswith('return'):
-                    print_test(f"  {action['type']} - starts with 'return'", False)
-                    all_passed = False
-                    continue
-                
-                # Check that action type is in the file
-                if action['type'] not in content:
-                    print_test(f"  {action['type']} - contains type", False)
-                    all_passed = False
-                    continue
-                
-                print_test(f"  Write {action['type']} action", True)
-                print(f"    File content preview: {content[:80]}...")
-                
-            except Exception as e:
-                print_test(f"  Write {action['type']} action", False)
-                print(f"    Error: {e}")
-                all_passed = False
-        
-        return all_passed
+            assert game.send_action(action), \
+                f"send_action failed for {action['type']}"
+            content = game.action_path.read_text()
+            assert content.strip().startswith('return'), \
+                f"{action['type']}: file must start with 'return'"
+            assert action['type'] in content, \
+                f"{action['type']}: action type missing from file"
+            print_test(f"  Write {action['type']} action", True)
 
 def test_special_characters():
     """Test handling of special characters in Lua strings."""
@@ -96,29 +71,13 @@ def test_special_characters():
             ("Mixed's \"Characters\"", "mixed quotes"),
         ]
         
-        all_passed = True
+        # Plain asserts (a returned bool passes silently under pytest).
         for test_value, description in test_cases:
-            try:
-                action = {'type': 'recruit', 'unit_type': test_value}
-                lua_code = game._dict_to_lua(action)
-                
-                # Should not cause syntax errors and should escape properly
-                print(f"\n  Input ({description}): {test_value}")
-                print(f"  Lua output: {lua_code}")
-                
-                # Basic check: should contain the escaped version
-                if 'unit_type' in lua_code:
-                    print_test(f"  {description} handling", True)
-                else:
-                    print_test(f"  {description} handling", False)
-                    all_passed = False
-                    
-            except Exception as e:
-                print_test(f"  {description} handling", False)
-                print(f"    Error: {e}")
-                all_passed = False
-        
-        return all_passed
+            action = {'type': 'recruit', 'unit_type': test_value}
+            lua_code = game._dict_to_lua(action)
+            assert 'unit_type' in lua_code, \
+                f"{description}: unit_type key missing from Lua output"
+            print_test(f"  {description} handling", True)
 
 def test_action_roundtrip():
     """Test that actions can be written and would be readable by Lua."""

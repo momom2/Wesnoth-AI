@@ -237,18 +237,11 @@ def test_sim_recruit_on_occupied_hex_signals_retry():
     """sim._action_to_command for recruit on an occupied hex adds
     to the rejection set and returns the retry sentinel; step()
     sets last_step_rejected and doesn't consume the turn."""
-    import glob
-    from tools.wesnoth_sim import WesnothSim
+    from sim_test_helpers import fresh_scenario_sim
 
-    cands = sorted(glob.glob("replays_dataset/*.json.gz"))
-    if not cands:
-        pytest.skip("no replays_dataset/")
-    sim = WesnothSim.from_replay(Path(cands[0]), max_turns=5)
-    # If the bootstrap replay was a custom-scenario with N>2 sides
-    # (e.g. QQ_UWS_race, WC_II_2p) where only side 1 has a leader,
-    # `WesnothSim.__init__` calls `_check_game_over` which sees a
-    # missing side-2 leader and sets `done=True` immediately. Reset
-    # so our manual setup below isn't no-op'd.
+    sim = fresh_scenario_sim(seed=8, max_turns=5, mini=True)
+    # The state surgery below replaces the whole map; make sure no
+    # game-over latch from the bootstrap state survives it.
     sim.done = False
     sim.winner = 0
     sim.ended_by = ""

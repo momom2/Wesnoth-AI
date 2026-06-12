@@ -61,48 +61,19 @@ def _make(unit_type, side, x, y, uid, *, current_hp=None, current_exp=0,
 
 @pytest.fixture
 def fresh_sim():
-    """A WesnothSim with one of the dataset replays for bootstrap.
-    The unit roster gets cleared and replaced per test.
+    """A from-scratch WesnothSim shell; the unit roster is cleared
+    and replaced per test (pure state surgery).
 
-    Filter to default-era 2p PvP replays (matching our training
-    distribution). Tests assume the bootstrap replay carries
-    `_experience_modifier=70` (PvP default); a non-PvP replay
-    breaks XP-threshold tests like `test_kill_based_advance_detected`
-    which expect a Skeleton's max_exp to scale to ~27 (39 base * 70%).
-    """
-    import glob, json
-    from pathlib import Path
-    # Use index.jsonl to filter to competitive 2p PvP scenarios.
-    sys.path.insert(0, str(Path(__file__).parent / "tools"))
-    try:
-        from tools.scenarios import is_competitive_2p
-    except ImportError:
-        is_competitive_2p = lambda s: True   # fallback: don't filter
-    PLAYER_FACTIONS = {"Drakes", "Knalgan Alliance", "Loyalists",
-                       "Northerners", "Rebels", "Undead"}
-    idx_path = Path("replays_dataset/index.jsonl")
-    candidates = []
-    if idx_path.exists():
-        with idx_path.open(encoding="utf-8") as f:
-            for line in f:
-                try:
-                    m = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if not is_competitive_2p(m.get("scenario_id", "")):
-                    continue
-                factions = m.get("factions", []) or []
-                players = [f for f in factions if f in PLAYER_FACTIONS]
-                non_players = [f for f in factions if f not in PLAYER_FACTIONS]
-                if len(players) != 2 or len(non_players) > 1:
-                    continue
-                candidates.append(f"replays_dataset/{m['file']}")
-    if not candidates:
-        # Fallback: any file (will skip if extraction not yet run).
-        candidates = sorted(glob.glob("replays_dataset/*.json.gz"))
-    if not candidates:
-        pytest.skip("no replays_dataset/ to bootstrap from")
-    sim = WesnothSim.from_replay(Path(candidates[0]), max_turns=10)
+    Built via the production scenario path (sim_test_helpers), which
+    sets `_experience_modifier=70` (PvP default) — XP-threshold tests
+    like `test_kill_based_advance_detected` expect a Skeleton's
+    max_exp to scale to ~27 (39 base * 70%). The Freelands board is
+    big enough for the surgery coordinates (up to (21, 20))."""
+    from sim_test_helpers import fresh_scenario_sim
+    sim = fresh_scenario_sim(
+        seed=7, max_turns=10, scenario_id="multiplayer_The_Freelands")
+    assert sim.gs.map.size_x > 22 and sim.gs.map.size_y > 21, (
+        "fixture map too small for the surgery coordinates")
     sim.gs.map.units.clear()
     return sim
 

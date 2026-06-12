@@ -1,11 +1,11 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """Tests for the multi-worker rollout path in `sim_self_play.run_iteration`.
 
 Builds on the snapshot+lock design in TransformerPolicy: workers
 calling `select_action` / `observe` concurrently must not corrupt
 the policy's `_pending` / `_queue` state, must not produce NaN
 forwards (the inference snapshot is consistent), and must produce
-the same number of trajectories as workers × games.
+the same number of trajectories as workers Ã— games.
 """
 
 from __future__ import annotations
@@ -24,36 +24,29 @@ import pytest
 
 
 @pytest.fixture
-def small_replay_pool() -> list:
-    """A handful of bootstrapping replays, filtered to 2-side
-    scenarios. Replays with 3+ declared sides spawn extra
-    trajectories (one per acting side), which breaks the
-    "trajectories == 2 * outcomes" parity assertion the parallel
-    correctness tests rely on. The production code-path handles
-    >2 sides correctly; we just want a controlled fixture here."""
-    import gzip
-    import json as _json
-    cands = sorted(glob.glob("replays_dataset/*.json.gz"))
-    keep: list = []
-    for p in cands:
-        try:
-            with gzip.open(p, "rt", encoding="utf-8") as f:
-                data = _json.load(f)
-        except Exception:
-            continue
-        if len(data.get("starting_sides", [])) == 2:
-            keep.append(Path(p))
-        if len(keep) >= 10:
-            break
-    if len(keep) < 4:
-        pytest.skip("need >=4 two-side replays_dataset/*.json.gz")
-    return keep
+def small_replay_pool() -> None:
+    """Legacy fixture name, now a None pool marker: `run_iteration`
+    ignores its pool argument and seeds games from
+    tools.scenario_pool (scenarios are always exactly 2 player
+    sides, so the "trajectories == 2 * outcomes" parity assertions
+    hold by construction). The fixture survives only to guard on
+    the vendored scenario data being present."""
+    from sim_test_helpers import require_scenario_data
+    require_scenario_data()
+    return None
 
 
 def _build_policy_and_reward():
+    """Tiny model: these tests exercise THREADING contracts (queue
+    parity, pending leaks, concurrent train_step), not model
+    quality. Default-size forwards on CPU made the file take
+    minutes; d=64/L=2 plus mini maps keeps it in seconds."""
+    import torch
     from rewards import WeightedReward
     from transformer_policy import TransformerPolicy
-    return TransformerPolicy(), WeightedReward()
+    policy = TransformerPolicy(d_model=64, num_layers=2, num_heads=4,
+                               d_ff=128, device=torch.device("cpu"))
+    return policy, WeightedReward()
 
 
 def _cost_lookup():
@@ -83,7 +76,7 @@ def test_parallel_iteration_queue_parity(small_replay_pool):
     rng = random.Random(0)
     outcomes = run_iteration(
         policy, small_replay_pool, reward_fn, _cost_lookup(),
-        iter_idx=0, games_per_iter=8, max_turns=3,
+        iter_idx=0, games_per_iter=8, max_turns=3, mini_maps=True,
         rng=rng, workers=4, train_at_end=False,
     )
     n_traj = len(policy._queue)
@@ -106,7 +99,7 @@ def test_parallel_iteration_no_pending_leaks(small_replay_pool):
     rng = random.Random(1)
     run_iteration(
         policy, small_replay_pool, reward_fn, _cost_lookup(),
-        iter_idx=0, games_per_iter=4, max_turns=3,
+        iter_idx=0, games_per_iter=4, max_turns=3, mini_maps=True,
         rng=rng, workers=2,
     )
     # No half-finished trajectories left in _pending.
@@ -124,7 +117,7 @@ def test_parallel_iteration_with_train_step(small_replay_pool):
     rng = random.Random(2)
     outcomes = run_iteration(
         policy, small_replay_pool, reward_fn, _cost_lookup(),
-        iter_idx=0, games_per_iter=4, max_turns=3,
+        iter_idx=0, games_per_iter=4, max_turns=3, mini_maps=True,
         rng=rng, workers=2, train_at_end=False,
     )
     stats = policy.train_step()
@@ -158,7 +151,7 @@ def test_concurrent_train_step_during_rollouts(small_replay_pool):
     # trajectories for the stress thread to consume.
     run_iteration(
         policy, small_replay_pool, reward_fn, _cost_lookup(),
-        iter_idx=-1, games_per_iter=8, max_turns=3,
+        iter_idx=-1, games_per_iter=8, max_turns=3, mini_maps=True,
         rng=rng, workers=0, train_at_end=False,    # serial pre-warm
     )
     if len(policy._queue) == 0:
@@ -193,7 +186,7 @@ def test_concurrent_train_step_during_rollouts(small_replay_pool):
     # Fire a parallel rollout with workers feeding the queue.
     run_iteration(
         policy, small_replay_pool, reward_fn, _cost_lookup(),
-        iter_idx=0, games_per_iter=8, max_turns=3,
+        iter_idx=0, games_per_iter=8, max_turns=3, mini_maps=True,
         rng=rng, workers=4,
     )
     stop_evt.set()

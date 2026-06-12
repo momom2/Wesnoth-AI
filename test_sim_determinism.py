@@ -37,27 +37,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent / "tools"))
 
-import glob
-import pytest
-
 from classes import state_key
 from dummy_policy import DummyPolicy
+from sim_test_helpers import fresh_scenario_sim, twin_scenario_sims
 from tools.wesnoth_sim import WesnothSim
 
 
-def _pick_sample_replay() -> Path:
-    """A small dataset replay to bootstrap from."""
-    candidates = sorted(glob.glob("replays_dataset/*.json.gz"))
-    if not candidates:
-        pytest.skip("no replays_dataset/ to bootstrap from")
-    return Path(candidates[0])
-
-
-def _run_dummy_game(replay: Path, max_turns: int = 6) -> WesnothSim:
-    """Drive a sim from `replay` to completion (or `max_turns`) using
-    DummyPolicy for both sides. Returns the finished sim so the caller
-    can inspect command_history and gs."""
-    sim = WesnothSim.from_replay(replay, max_turns=max_turns)
+def _drive_to_end(sim: WesnothSim) -> WesnothSim:
+    """Drive a sim to completion (or its turn cap) using DummyPolicy
+    for both sides; DummyPolicy is deterministic (sorts units by id),
+    so identical starting states yield identical action sequences."""
     pol = DummyPolicy()
     while not sim.done:
         action = pol.select_action(sim.gs, game_label="det")
@@ -77,9 +66,9 @@ def test_two_runs_same_state_key():
 
     so any divergence in any of these fields makes the keys differ.
     """
-    replay = _pick_sample_replay()
-    sim_a = _run_dummy_game(replay)
-    sim_b = _run_dummy_game(replay)
+    sim_a, sim_b = twin_scenario_sims(seed=3, max_turns=6, mini=True)
+    _drive_to_end(sim_a)
+    _drive_to_end(sim_b)
     key_a = state_key(sim_a.gs)
     key_b = state_key(sim_b.gs)
     assert key_a == key_b, (
@@ -92,9 +81,9 @@ def test_command_history_identical():
     Python object identity) between two runs. This is finer-grained
     than state_key -- catches divergences that happen mid-game even
     if they cancel out by termination."""
-    replay = _pick_sample_replay()
-    sim_a = _run_dummy_game(replay)
-    sim_b = _run_dummy_game(replay)
+    sim_a, sim_b = twin_scenario_sims(seed=4, max_turns=6, mini=True)
+    _drive_to_end(sim_a)
+    _drive_to_end(sim_b)
     assert len(sim_a.command_history) == len(sim_b.command_history), (
         f"history lengths differ: {len(sim_a.command_history)} vs "
         f"{len(sim_b.command_history)}")
@@ -110,9 +99,9 @@ def test_rng_counter_advances_consistently():
     """`_rng_requests` ends at the same value in both runs -- confirms
     the synced-RNG plumbing is in lockstep. Also serves as a regression
     against accidental seed-fetches from non-deterministic sources."""
-    replay = _pick_sample_replay()
-    sim_a = _run_dummy_game(replay)
-    sim_b = _run_dummy_game(replay)
+    sim_a, sim_b = twin_scenario_sims(seed=5, max_turns=6, mini=True)
+    _drive_to_end(sim_a)
+    _drive_to_end(sim_b)
     assert sim_a._rng_requests == sim_b._rng_requests, (
         f"_rng_requests differs: {sim_a._rng_requests} vs "
         f"{sim_b._rng_requests}")
@@ -123,8 +112,7 @@ def test_fork_does_not_perturb_parent():
     the fork advances independently, the parent sim's state must be
     unchanged. If fork-then-step bleeds state into the parent, MCTS
     rollouts contaminate each other."""
-    replay = _pick_sample_replay()
-    sim = WesnothSim.from_replay(replay, max_turns=6)
+    sim = fresh_scenario_sim(seed=6, max_turns=6, mini=True)
     parent_pre_key = state_key(sim.gs)
 
     fork = sim.fork()

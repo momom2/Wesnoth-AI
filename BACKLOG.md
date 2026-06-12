@@ -49,11 +49,14 @@ strategies; cluster economy).
   resolution): https://files.wesnoth.org/addons/1.18/Mini_Maps_Collection.tar.bz2
 - **Corpus permanently retired** (user decision): replays_raw /
   replays_dataset will NOT be re-downloaded; supervised training is
-  legacy-only. Consequence: the ~19 corpus-skipped tests will skip
-  forever — candidates for rewrite (bootstrap from scenario_pool
-  from-scratch games instead of corpus replays) or deletion; they
-  guard live sim code (advancement, determinism, parallel
-  rollouts), so rewrite is preferred. Decision pending.
+  legacy-only.
+  - [x] (DONE 2026-06-12) all 19 corpus-skipped tests rewritten to
+    bootstrap from from-scratch scenario games (sim_test_helpers.py:
+    fresh_scenario_sim / twin_scenario_sims, mostly on the mini
+    pool for speed). Suite is now 268 passed / 0 skipped, ~2.5 min,
+    with determinism, advancement, parallel-rollout, recruit-
+    rejection, and reward-pipeline coverage all LIVE for the first
+    time since the machine loss.
 - **Mini training pool restored**: the Mini Maps Collection add-on
   (lost with wesnoth_src) re-downloaded from the official 1.18
   add-on server; all 8 MINI_MAP_SCENARIO_IDS build + emit. Trainable

@@ -33,45 +33,11 @@ from rewards import (
 )
 
 
-@pytest.fixture
-def small_replay() -> Path:
-    """Pick a small default-era 2p PvP replay (deterministic) so this
-    test is reproducible and stays fast.
-
-    Filter via index.jsonl to skip campaign / custom-era replays that
-    use different XP scaling and starting setups -- those break tests
-    that assume PvP defaults. When index.jsonl is missing (e.g.
-    mid-extraction), fall back to first lexical .json.gz.
-    """
-    import json as _json
-    try:
-        from tools.scenarios import is_competitive_2p
-    except ImportError:
-        is_competitive_2p = lambda s: True
-    PLAYER_FACTIONS = {"Drakes", "Knalgan Alliance", "Loyalists",
-                       "Northerners", "Rebels", "Undead"}
-    idx_path = Path("replays_dataset/index.jsonl")
-    cands: List[str] = []
-    if idx_path.exists():
-        with idx_path.open(encoding="utf-8") as f:
-            for line in f:
-                try:
-                    m = _json.loads(line)
-                except _json.JSONDecodeError:
-                    continue
-                if not is_competitive_2p(m.get("scenario_id", "")):
-                    continue
-                factions = m.get("factions", []) or []
-                players = [f for f in factions if f in PLAYER_FACTIONS]
-                non_players = [f for f in factions if f not in PLAYER_FACTIONS]
-                if len(players) != 2 or len(non_players) > 1:
-                    continue
-                cands.append(f"replays_dataset/{m['file']}")
-    if not cands:
-        cands = sorted(glob.glob("replays_dataset/*.json.gz"))
-    if not cands:
-        pytest.skip("no replays_dataset/ to bootstrap from")
-    return Path(cands[0])
+# Sims are built from scratch via the production scenario path
+# (sim_test_helpers): mini maps keep games to a handful of decisions,
+# and the helpers carry PvP defaults (experience_modifier=70 etc.)
+# that the reward assertions assume.
+from sim_test_helpers import fresh_scenario_sim, twin_scenario_sims
 
 
 def _wrap_dummy() -> "object":
@@ -105,11 +71,10 @@ class _NoStats:
     grad_norm = 0.0
 
 
-def test_one_game_emits_observe_per_step(small_replay):
+def test_one_game_emits_observe_per_step():
     """play_one_game calls policy.observe at least once per accepted
     action + once per terminal. Verify shape on a counting stub."""
     from sim_self_play import play_one_game, _recruit_cost_lookup
-    from wesnoth_sim import WesnothSim
 
     class _CountingPolicy:
         """Always end-turn so the game terminates fast."""
@@ -132,7 +97,7 @@ def test_one_game_emits_observe_per_step(small_replay):
             # REINFORCE-style stubs are no-ops.
             pass
 
-    sim = WesnothSim.from_replay(small_replay, max_turns=4)
+    sim = fresh_scenario_sim(seed=1, max_turns=4, mini=True)
     policy = _CountingPolicy()
     reward_fn = WeightedReward()
     cost_lookup = _recruit_cost_lookup()
@@ -155,18 +120,20 @@ def test_one_game_emits_observe_per_step(small_replay):
         assert isinstance(r, float)
 
 
-def test_unit_type_bonus_fires_through_pipeline(small_replay):
+def test_unit_type_bonus_fires_through_pipeline():
     """A WeightedReward with a UnitTypeBonus on a recruitable unit
     type credits the bonus when DummyPolicy recruits one. Compare
     side1_reward across two runs (bonus on/off): the delta must be
-    exactly weight × n_recruits_of_target_type."""
+    exactly weight × n_recruits_of_target_type. Twin sims guarantee
+    the two runs share a byte-identical starting state, so the
+    histories match and only the reward weighting differs."""
     from sim_self_play import play_one_game, _recruit_cost_lookup
-    from wesnoth_sim import WesnothSim
 
     cost_lookup = _recruit_cost_lookup()
+    twins = list(twin_scenario_sims(seed=2, max_turns=3, mini=True))
 
     def _run_with_reward_fn(rf):
-        sim = WesnothSim.from_replay(small_replay, max_turns=3)
+        sim = twins.pop(0)
         outcome = play_one_game(sim, _wrap_dummy(), rf,
                                 game_label="bonus_test",
                                 cost_lookup=cost_lookup)
@@ -198,7 +165,7 @@ def test_unit_type_bonus_fires_through_pipeline(small_replay):
         f"side1_b={out_b.side1_reward}, n_recruits={n_recruits})")
 
 
-def test_turn_conditional_once_resets_between_games(small_replay):
+def test_turn_conditional_once_resets_between_games():
     """A `once=True` turn-conditional bonus must fire ONCE PER GAME.
     The run_iteration harness calls reward_fn.reset_game_state(label)
     before each game; without that, the second game's fired-set
@@ -226,8 +193,9 @@ def test_turn_conditional_once_resets_between_games(small_replay):
     rng = random.Random(0)
 
     outcomes = run_iteration(
-        _wrap_dummy(), [small_replay], rf, cost_lookup,
-        iter_idx=0, games_per_iter=2, max_turns=3, rng=rng,
+        _wrap_dummy(), None, rf, cost_lookup,
+        iter_idx=0, games_per_iter=2, max_turns=3, mini_maps=True,
+        rng=rng,
     )
     assert len(outcomes) == 2
     # Both games fire the once-bonus -> both have nonzero rewards.
