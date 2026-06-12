@@ -34,7 +34,12 @@ training/checkpoints/done.flag
 training/logs/*
 !training/logs/trainer_history_*.csv
 add-ons/wesnoth_ai/games/
-add-ons/wesnoth_ai/scenarios/eval/
+# Eval scenarios are generated, but the DIRECTORY must exist:
+# _main.cfg's `{~add-ons/wesnoth_ai/scenarios/eval/}` include
+# hard-errors the whole add-on when the dir is missing (observed
+# 2026-06-12). Keep the .gitkeep tracked.
+add-ons/wesnoth_ai/scenarios/eval/*
+!add-ons/wesnoth_ai/scenarios/eval/.gitkeep
 
 # Wesnoth debugging dumps (anywhere in the tree)
 *.log

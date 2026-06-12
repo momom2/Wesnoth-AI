@@ -229,20 +229,20 @@ def _load_core_macros() -> Dict[str, Tuple[List[str], str]]:
 _CORE_MACROS_CACHE: Optional[Dict[str, Tuple[List[str], str]]] = None
 
 
-def load_scenario_wml(scenario_id: str) -> Optional[WMLNode]:
-    """Find and parse the scenario .cfg matching `scenario_id`. Returns
-    the parsed root node (with a [multiplayer] or [scenario] child),
-    or None if unmappable. `scenario_id` should match the WML id like
-    "multiplayer_Aethermaw", "multiplayer_Den_of_Onis", or for
-    vendored add-on scenarios the raw id like "2p_mini" or
-    "Modified_Tiny_Close_Relation".
+def find_scenario_cfg_path(scenario_id: str) -> Optional[Path]:
+    """Locate the scenario .cfg whose WML id is `scenario_id`.
 
     Search order:
       1. wesnoth_src/data/multiplayer/scenarios/  (core 2p ladder)
       2. wesnoth_src/data/add-ons/<pkg>/scenarios/  (vendored add-ons,
          currently just Mini_Maps_Collection)
+      3. <project>/add-ons/<pkg>/scenarios/ and scenarios/drills/
+         (our own add-on: the capability drills)
+
+    Shared by load_scenario_wml AND sim_to_replay's per-scenario
+    gold/village/unit scrapes, so the two can't disagree on which
+    file defines a scenario.
     """
-    global _CORE_MACROS_CACHE
     if not SCENARIO_DIR.exists():
         return None
 
@@ -261,53 +261,72 @@ def load_scenario_wml(scenario_id: str) -> Optional[WMLNode]:
     base = _BASE_OVERRIDES.get(base, base)
 
     candidate = SCENARIO_DIR / f"2p_{base}.cfg"
-    if not candidate.exists():
-        # Try without the 2p_ prefix (some scenarios use 4p_, 8p_, etc.)
-        for nplayers in (3, 4, 5, 6, 8):
-            alt = SCENARIO_DIR / f"{nplayers}p_{base}.cfg"
-            if alt.exists():
-                candidate = alt; break
-        else:
-            candidate = None  # fall through to add-on search
-    # Add-on fallback: scan vendored add-ons under
-    # wesnoth_src/data/add-ons/<pkg>/scenarios/. Mini-map scenarios
-    # often have raw ids like "2p_mini" or "Modified_Tiny_Close_Relation"
-    # that don't match either prefix convention; look up by both
-    # filename and by the [multiplayer]/[scenario] id attribute.
-    if candidate is None or not candidate.exists():
-        ADDONS_DIR = SCENARIO_DIR.parent.parent / "add-ons"
-        if ADDONS_DIR.is_dir():
-            for addon in ADDONS_DIR.iterdir():
-                sc_dir = addon / "scenarios"
-                if not sc_dir.is_dir(): continue
+    if candidate.exists():
+        return candidate
+    # Try without the 2p_ prefix (some scenarios use 4p_, 8p_, etc.)
+    for nplayers in (3, 4, 5, 6, 8):
+        alt = SCENARIO_DIR / f"{nplayers}p_{base}.cfg"
+        if alt.exists():
+            return alt
+
+    # Add-on fallback: scan vendored add-ons (wesnoth_src/data/
+    # add-ons/) AND the project's own add-on tree (add-ons/ at the
+    # repo root -- the capability drills live there, junctioned into
+    # userdata for the real game). Mini-map / drill scenarios often
+    # have raw ids like "2p_mini" or "drill_duel" that don't match
+    # either prefix convention; look up by both filename and by the
+    # [multiplayer]/[scenario] id attribute.
+    import re as _re
+    addon_roots = [
+        SCENARIO_DIR.parent.parent / "add-ons",        # wesnoth_src/data
+        Path(__file__).resolve().parents[1] / "add-ons",   # project
+    ]
+    for addons_dir in addon_roots:
+        if not addons_dir.is_dir():
+            continue
+        for addon in addons_dir.iterdir():
+            sc_root = addon / "scenarios"
+            if not sc_root.is_dir():
+                continue
+            for sc_dir in (sc_root, sc_root / "drills"):
+                if not sc_dir.is_dir():
+                    continue
                 # First try filename matches (faster).
                 for fname in (f"{scenario_id}.cfg",
                               f"{base}.cfg",
                               f"2p_{base}.cfg"):
                     p = sc_dir / fname
                     if p.is_file():
-                        candidate = p; break
-                if candidate is not None and candidate.is_file():
-                    break
+                        return p
                 # Fall through: scan every .cfg's id= attribute.
-                # Add-on scenarios often pick non-filename-matching ids
-                # (e.g. file Modified_Close_Relation.cfg has
+                # Add-on scenarios often pick non-filename-matching
+                # ids (e.g. file Modified_Close_Relation.cfg has
                 # id=Modified_Tiny_Close_Relation).
-                import re as _re
                 for p in sc_dir.glob("*.cfg"):
                     try:
                         head = p.read_text(encoding="utf-8",
                                            errors="ignore")[:2000]
-                    except OSError: continue
+                    except OSError:
+                        continue
                     m = _re.search(r"^\s*id\s*=\s*(\S+)\s*$",
                                    head, _re.MULTILINE)
                     if m and m.group(1).strip() == scenario_id:
-                        candidate = p
-                        break
-                if candidate is not None and candidate.is_file():
-                    break
-        if candidate is None or not candidate.is_file():
-            return None
+                        return p
+    return None
+
+
+def load_scenario_wml(scenario_id: str) -> Optional[WMLNode]:
+    """Find and parse the scenario .cfg matching `scenario_id`. Returns
+    the parsed root node (with a [multiplayer] or [scenario] child),
+    or None if unmappable. `scenario_id` should match the WML id like
+    "multiplayer_Aethermaw", "multiplayer_Den_of_Onis", or for
+    add-on scenarios the raw id like "2p_mini" or "drill_duel".
+    Search order: see `find_scenario_cfg_path`.
+    """
+    global _CORE_MACROS_CACHE
+    candidate = find_scenario_cfg_path(scenario_id)
+    if candidate is None:
+        return None
 
     if _CORE_MACROS_CACHE is None:
         _CORE_MACROS_CACHE = _load_core_macros()

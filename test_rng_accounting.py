@@ -18,9 +18,15 @@ research, docs/wesnoth_rules.md):
   - recruit: trait rolls (seed)
   - advancement: which advance_to the unit takes ([choose])
 
-The end-state oracle — driving actual Wesnoth over the exported
-replay with verifiable checkups — is a BACKLOG item; this file is
-the automatable contract check available today.
+The end-state oracle: exported [attack] commands carry FULL
+[checkup] blocks (per-strike chance/hits/damage/dies [result]
+children) which Wesnoth's synced_checkup COMPARES at playback,
+raising the SYNC error on divergence — so any manual replay
+viewing verifies the sim's combat math (landed 2026-06-12; fully
+non-interactive playback is impossible on the stock binary, see
+BACKLOG). This file remains the automatable contract check: seeds
+pinned, choices pinned, and checkup payloads present and
+well-formed.
 """
 from __future__ import annotations
 
@@ -238,6 +244,24 @@ def test_export_every_rng_consumer_has_followup():
             assert _followed_by_seed(i), (
                 "attack without a dependent [random_seed] -- Wesnoth "
                 "rolls its own damage dice at playback")
+            # VERIFIABLE checkup: per strike the engine compares two
+            # [result] children ({chance,hits,damage} then {dies});
+            # an empty [checkup] silently records instead of
+            # verifying (synced_checkup.cpp). Require the payload
+            # and its 2-results-per-strike shape.
+            checkup = cmd.first("checkup")
+            assert checkup is not None, "attack without [checkup]"
+            results = checkup.all("result")
+            assert len(results) >= 2 and len(results) % 2 == 0, (
+                f"attack [checkup] carries {len(results)} [result] "
+                f"children; expected an even count >= 2 (two per "
+                f"strike) -- playback would verify nothing")
+            for j in range(0, len(results), 2):
+                first, second = results[j], results[j + 1]
+                assert {"chance", "hits", "damage"} <= set(
+                    first.attrs), f"result {j}: {first.attrs}"
+                assert "dies" in second.attrs, (
+                    f"result {j + 1}: {second.attrs}")
         rec = cmd.first("recruit")
         if rec is not None:
             n_recruits += 1

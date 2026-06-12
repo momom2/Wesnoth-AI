@@ -543,6 +543,17 @@ class CombatResult:
     # see replay_dataset's plague handler for resolution.
     plague_spawned_attacker_died: bool = False
     rng_calls_used:    int = 0
+    # Per-strike checkup payloads in engine order: for EVERY strike
+    # attempt (misses included) Wesnoth's attack::perform_hit runs
+    # two checkup_instance->local_checkup calls (attack.cpp 1.18.4),
+    # appending [result] children the replay verifier later compares:
+    #   {"chance": cth, "hits": bool, "damage": nominal-per-strike}
+    #   {"dies": bool}
+    # `damage` is the NOMINAL post-modifier value (0 on a miss), NOT
+    # clamped by the target's remaining hp. sim_to_replay emits these
+    # into exported saves so any Wesnoth playback hard-verifies the
+    # sim's combat math.
+    checkup_strikes: Optional[List[Dict[str, object]]] = None
 
 
 def resolve_attack(
@@ -596,6 +607,7 @@ def resolve_attack(
 
     plague_spawned = False
     starting_calls = rng.calls
+    checkup_strikes: List[Dict[str, object]] = []
 
     while True:
         # --- attacker's strike ------------------------------------------
@@ -603,6 +615,7 @@ def resolve_attack(
             if not _perform_hit(
                 attacker, defender, a_stats, d_stats,
                 attacker_is_striker=True, rng=rng,
+                record=checkup_strikes,
             ):
                 if a_stats.petrifies and defender.is_petrified:
                     pass
@@ -615,6 +628,7 @@ def resolve_attack(
             if not _perform_hit(
                 defender, attacker, d_stats, a_stats,
                 attacker_is_striker=False, rng=rng,
+                record=checkup_strikes,
             ):
                 break
 
@@ -704,6 +718,7 @@ def resolve_attack(
         plague_spawned=plague_spawned,
         plague_spawned_attacker_died=plague_spawned_attacker_died,
         rng_calls_used=rng.calls - starting_calls,
+        checkup_strikes=checkup_strikes,
     )
 
 
@@ -714,20 +729,56 @@ def _perform_hit(
     target_stats: Optional[BattleStats],
     attacker_is_striker: bool,
     rng:          MTRng,
+    record:       Optional[List[Dict[str, object]]] = None,
 ) -> bool:
     """One strike attempt. Returns False if combat should END after
-    this strike (someone died / petrified)."""
+    this strike (someone died / petrified).
+
+    `record`, when given, receives the engine's two per-strike
+    checkup payloads -- {"chance","hits","damage"} then {"dies"} --
+    in the exact order attack::perform_hit runs its
+    checkup_instance->local_checkup calls (see
+    CombatResult.checkup_strikes). The `dies` entry is appended on
+    EVERY return path, misses included, matching the engine."""
     striker_stats.n_attacks -= 1
 
     # Per-strike RNG: hit if r < cth.
     r = rng.get_next_random() % 100
     hits = r < striker_stats.cth
 
+    # Nominal damage — slow_damage if striker is currently slowed.
+    # Computed before the miss-return so the checkup record carries
+    # the engine's values (damage=0 on a miss, attack.cpp).
+    dmg = (striker_stats.slow_damage if striker.is_slowed
+           else striker_stats.damage) if hits else 0
+    if record is not None:
+        record.append(
+            {"chance": striker_stats.cth, "hits": hits, "damage": dmg})
+
+    try:
+        return _perform_hit_body(
+            striker, target, striker_stats, target_stats,
+            hits=hits, dmg=dmg)
+    finally:
+        # Engine's second checkup: did the struck unit die?
+        if record is not None:
+            record.append({"dies": target.hp <= 0})
+
+
+def _perform_hit_body(
+    striker:      CombatUnit,
+    target:       CombatUnit,
+    striker_stats:BattleStats,
+    target_stats: Optional[BattleStats],
+    *,
+    hits: bool,
+    dmg:  int,
+) -> bool:
+    """Damage / drain / status application for one strike (split from
+    `_perform_hit` so the checkup recording wraps every return path)."""
     if not hits:
         return True  # combat continues; struck nothing
 
-    # Damage application — slow_damage if striker is currently slowed.
-    dmg = striker_stats.slow_damage if striker.is_slowed else striker_stats.damage
     if dmg <= 0:
         return True
 

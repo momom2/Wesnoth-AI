@@ -1005,6 +1005,91 @@ For non-strict-sync replays the `[mp_checkup]` block carries no
 per-step truncation data, so this ambush rule must run at apply
 time, not at extract time.
 
+### `[checkup]` verification: empty blocks record, filled blocks verify
+
+Replay verification is driven by the `[checkup]` child of each
+synced `[command]`. `synced_checkup::local_checkup`
+(src/synced_checkup.cpp, 1.18.4) compares only when stored data
+exists; otherwise it APPENDS and returns true:
+
+```cpp
+if(buffer_.child_count("result") > pos_)
+{
+    real_data = buffer_.mandatory_child("result",pos_);
+    pos_++;
+    return real_data == expected_data;
+}
+else
+{
+    assert(buffer_.child_count("result") == pos_);
+    buffer_.add_child("result", expected_data);
+    pos_++;
+    return true;
+}
+```
+
+So an exported save with EMPTY `[checkup]` blocks plays back
+without any verification (recorder mode), while one carrying
+`[result]` children makes playback hard-compare every entry. The
+buffer binds to the **last real command's plain `[checkup]` child**
+(`set_scontext_synced::generate_checkup`,
+src/synced_context.cpp: `resources::recorder->
+get_last_real_command().child_or_add(tagname)` with tagname
+`"checkup"`; end-of-turn contexts use the numbered variant, e.g.
+`[checkup1]`).
+
+**Why non-obvious:** the same call site switches to
+`mp_debug_checkup` when `resources::classification->oos_debug` is
+set — THAT variant writes the per-result dependent
+`[command][mp_checkup]` blocks seen in strict-sync replays (our
+731/731 oracle's data source). The inline-`[checkup]` form and the
+dependent-`[mp_checkup]` form carry the SAME payloads in different
+wire shapes; which one a save uses is decided by the
+`[game_classification]` `oos_debug` flag, not by preferences at
+playback time.
+
+### Attack checkup payload: two `[result]`s per strike, nominal damage
+
+`attack::perform_hit` (src/actions/attack.cpp, 1.18.4) runs TWO
+`local_checkup` calls per strike attempt — misses included:
+
+```cpp
+int damage = 0;
+if(hits) {
+    damage = attacker.damage_;
+    resources::gamedata->get_variable("damage_inflicted") = damage;
+}
+
+const config local_results {"chance", attacker.cth_, "hits", hits,
+                            "damage", damage};
+```
+
+then after applying the strike:
+
+```cpp
+equals_replay = checkup_instance->local_checkup(config{"dies", dies},
+                                                 replay_results);
+```
+
+`damage` is the NOMINAL post-modifier per-strike value
+(`attacker.damage_`), NOT clamped by the target's remaining hp —
+the clamp happens later (`damage_done = std::min<int>(
+defender.get_unit().hitpoints(), attacker.damage_)`). Bools
+serialize as `yes`/`no`. On mismatch the engine logs an errbuf
+line starting `SYNC:` and overrides its calculation with the data
+source's result (so playback visually follows the recording while
+flagging the divergence).
+
+Verified empirically against tests/fixtures/strict_sync_hamlets_t9
+.bz2: every strike shows `{chance, damage, hits}` then `{dies}`,
+e.g. `chance=40 damage=0 hits=no` / `dies=no` for a miss.
+
+Sim-side: `combat.resolve_attack` records exactly these payloads
+(`CombatResult.checkup_strikes`); `sim_to_replay` emits them into
+exported `[attack]` commands so any manual playback verifies the
+sim's combat bit-for-bit. `tools/playback_verdict.py` scans the
+session log for the failure markers afterward.
+
 ### Petrified scenery via `random_traits=no` in `[side]`
 
 The mainline 2p maps with petrified statues (Caves of the Basilisk,

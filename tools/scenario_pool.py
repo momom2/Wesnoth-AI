@@ -122,6 +122,32 @@ MINI_MAP_SCENARIO_IDS: List[str] = [
 ]
 
 
+# Capability drills: hand-authored [multiplayer] scenarios under
+# add-ons/wesnoth_ai/scenarios/drills/ (project add-on, junctioned
+# into userdata so the real game loads them too). Each isolates one
+# tactical skill on a purpose-built micro map:
+#
+#   drill_duel          9x7   fixed 3v3 combined arms, gold=0 (no
+#                             recruiting) -- focus fire, ToD timing,
+#                             terrain defense
+#   drill_village_rush  11x8  8 villages, 40 gold, no placed units
+#                             -- expansion order + income arithmetic;
+#                             turn-cap endings feed the draw
+#                             tiebreaker (village/gold differentials)
+#   drill_chokepoint    13x7  one-hex mountain pass, fixed dwarf
+#                             trios, gold=0 -- funnel fighting, ZoC
+#
+# Fixed armies are [unit] blocks under [side] 1/2 with
+# random_traits=no (the sim models placed units trait-less; Wesnoth
+# playback must match). Mix into training via --drill-ratio
+# (sim_self_play.py).
+DRILL_SCENARIO_IDS: List[str] = [
+    "drill_duel",
+    "drill_village_rush",
+    "drill_chokepoint",
+]
+
+
 # ---------------------------------------------------------------------
 # Default era factions
 # ---------------------------------------------------------------------
@@ -318,6 +344,7 @@ def random_setup(
     forced_faction: Optional[str] = ...,
     mini_maps: bool = False,
     mini_ratio: float = 0.0,
+    drill_ratio: float = 0.0,
 ) -> ScenarioSetup:
     """Pick a random scenario + 2 (faction, leader) pairs.
 
@@ -345,24 +372,39 @@ def random_setup(
     iter. When `mini_maps=True`, this parameter is ignored
     (already 100% mini).
 
+    `drill_ratio`: in [0, 1], same mixing semantics for the
+    capability-drill pool (DRILL_SCENARIO_IDS). One uniform roll
+    decides the pool: mini with `mini_ratio`, else drill with
+    `drill_ratio`, else ladder -- so mini_ratio + drill_ratio must
+    be <= 1.
+
     Leaders are sampled from each faction's `random_leader=` pool,
     matching Wesnoth's `type=random` behavior.
     """
     if forced_faction is ...:
         forced_faction = FORCED_FACTION
+    if mini_ratio + drill_ratio > 1.0:
+        raise ValueError(
+            f"mini_ratio ({mini_ratio}) + drill_ratio ({drill_ratio}) "
+            f"> 1")
     factions = load_factions()
     if not factions:
         raise RuntimeError("no factions loaded")
     # Resolve which pool to sample from this call. `mini_maps=True`
     # is the legacy "100% mini" toggle (preserved for backwards
-    # compat); otherwise `mini_ratio` controls the per-call
-    # probability of picking mini over ladder.
+    # compat); otherwise one uniform roll splits ladder / mini /
+    # drill by the requested ratios.
     if mini_maps:
         scenario_pool = MINI_MAP_SCENARIO_IDS
-    elif mini_ratio > 0.0 and rng.random() < mini_ratio:
-        scenario_pool = MINI_MAP_SCENARIO_IDS
     else:
-        scenario_pool = LADDER_SCENARIO_IDS
+        roll = rng.random() if (mini_ratio > 0.0
+                                or drill_ratio > 0.0) else 1.0
+        if roll < mini_ratio:
+            scenario_pool = MINI_MAP_SCENARIO_IDS
+        elif roll < mini_ratio + drill_ratio:
+            scenario_pool = DRILL_SCENARIO_IDS
+        else:
+            scenario_pool = LADDER_SCENARIO_IDS
     scenario_id = rng.choice(scenario_pool)
 
     if forced_faction is not None and forced_faction in factions:
@@ -443,15 +485,19 @@ def build_scenario_gamestate(
         # Add-on form: map_data="{~add-ons/<pkg>/maps/<name>.map}".
         # The {...} syntax is Wesnoth's preprocessor file-inclusion;
         # `~add-ons/` resolves to <userdata>/data/add-ons/ on a real
-        # Wesnoth install. We vendored the relevant add-on under
-        # wesnoth_src/data/add-ons/, so the same path string maps
-        # cleanly to our tree by stripping the leading `~`.
+        # Wesnoth install. Vendored add-ons live under
+        # wesnoth_src/data/add-ons/; OUR OWN add-on (the capability
+        # drills) lives at the project root's add-ons/ (junctioned
+        # into userdata), so try both roots.
         import re as _re
         m = _re.match(r"\s*\{\s*~?([^}]+?)\s*\}\s*", map_data_attr)
         if m:
             relpath = m.group(1).lstrip("/")
-            # Standard prefix: "add-ons/<pkg>/..." -> wesnoth_src/data/add-ons/...
+            # "add-ons/<pkg>/..." -> wesnoth_src/data/add-ons/...
             map_path = project_root / "wesnoth_src" / "data" / relpath
+            if not map_path.is_file():
+                # ... or the project's own add-on tree.
+                map_path = project_root / relpath
     if map_path is None:
         raise RuntimeError(
             f"scenario {setup.scenario_id} has no map_file or "
@@ -523,8 +569,13 @@ def build_scenario_gamestate(
         },
     ]
 
-    # Neutral / scenery units defined directly in the scenario .cfg's
-    # [side] blocks for sides >= 3. The mainline 2p maps that use this:
+    # Pre-placed units defined directly in the scenario .cfg's
+    # [side] blocks -- two distinct users:
+    #
+    # (a) PLAYER sides 1/2: the capability drills' fixed armies
+    #     (see DRILL_SCENARIO_IDS). Ordinary controllable units.
+    #
+    # (b) Neutral / scenery sides >= 3. The mainline 2p maps that use this:
     #
     #   - Thousand Stings Garrison: side=3 controller=null, ~50 petrified
     #     Giant Scorpion statues placed via UNIT_PETRIFY macros.
@@ -546,14 +597,17 @@ def build_scenario_gamestate(
     # leaving them in `starting_units` (with side=3) is enough for
     # `gs.map.units` to list them and the legality mask to see the
     # hexes as occupied.
-    next_uid = 1000   # leave room above the leader uids; statues
-                      # don't need contiguous numbering.
+    # Pre-placed PLAYER units (sides 1/2) come first: the capability
+    # drills field fixed armies as [unit] blocks under [side]. They
+    # are ordinary controllable units (trait-less -- the drill cfgs
+    # carry random_traits=no so Wesnoth playback instantiates them
+    # trait-less too, matching this model).
+    next_uid = 1000   # leave room above the leader uids; placed
+                      # units don't need contiguous numbering.
     for s in mp.all("side"):
         try:
             sn = int(s.attrs.get("side", "0"))
         except ValueError:
-            continue
-        if sn in (1, 2):
             continue
         for u in s.all("unit"):
             try:
@@ -567,7 +621,8 @@ def build_scenario_gamestate(
             if not utype:
                 continue
             # [status] petrified=yes -> render as a petrified statue
-            # (no moves, no attacks, can't act).
+            # (no moves, no attacks, can't act). Scenery-side only
+            # in practice (TSG / CoB).
             petrified = False
             status_node = u.first("status")
             if status_node is not None:

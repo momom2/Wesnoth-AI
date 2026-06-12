@@ -749,6 +749,7 @@ def _worker_loop(
     forced_faction=...,
     mini_maps=False,
     mini_ratio: float = 0.0,
+    drill_ratio: float = 0.0,
 ):
     """Per-thread rollout loop. Each worker pulls a game index from
     `shared.next_game` (atomic under the master lock), assigns
@@ -764,7 +765,8 @@ def _worker_loop(
             g_idx = shared["next_game"]
             shared["next_game"] += 1
         setup = random_setup(worker_rng, forced_faction=forced_faction,
-                             mini_maps=mini_maps, mini_ratio=mini_ratio)
+                             mini_maps=mini_maps, mini_ratio=mini_ratio,
+                             drill_ratio=drill_ratio)
         game_label = (f"iter{shared['iter_idx']}_"
                       f"w{worker_id}_g{g_idx}")
         outcome = _play_one_game_safe(
@@ -794,6 +796,7 @@ def run_iteration(
     forced_faction: Optional[str] = ...,
     mini_maps:     bool = False,
     mini_ratio:    float = 0.0,
+    drill_ratio:   float = 0.0,
     snapshot_sink: Optional[Callable[[Dict], None]] = None,
 ) -> List[GameOutcome]:
     """Roll out `games_per_iter` games and call `train_step` once at
@@ -842,7 +845,8 @@ def run_iteration(
         for g_idx in range(games_per_iter):
             setup = random_setup(rng, forced_faction=forced_faction,
                                  mini_maps=mini_maps,
-                                 mini_ratio=mini_ratio)
+                                 mini_ratio=mini_ratio,
+                                 drill_ratio=drill_ratio)
             game_label = f"iter{iter_idx}_g{g_idx}"
             outcome = _play_one_game_safe(
                 setup=setup, max_turns=max_turns,
@@ -878,6 +882,7 @@ def run_iteration(
                     forced_faction=forced_faction,
                     mini_maps=mini_maps,
                     mini_ratio=mini_ratio,
+                    drill_ratio=drill_ratio,
                 ),
                 daemon=True,
                 name=f"selfplay-w{w}",
@@ -1327,6 +1332,14 @@ def main(argv: List[str]) -> int:
                          "production distribution. Ignored when "
                          "--mini-maps is also set (already 100%% "
                          "mini). Default 0.0 = pure ladder.")
+    ap.add_argument("--drill-ratio", type=float, default=0.0,
+                    help="Fraction of games per iter that sample from "
+                         "the capability-drill pool (drill_duel / "
+                         "drill_village_rush / drill_chokepoint -- "
+                         "see scenario_pool.DRILL_SCENARIO_IDS). "
+                         "Combines with --mini-ratio: one roll "
+                         "splits ladder/mini/drill, so the two "
+                         "ratios must sum to <= 1. Default 0.0.")
     # MCTS-mode flags. Default OFF: the existing REINFORCE path runs.
     # When --mcts is set, action selection runs an AlphaZero-style
     # tree search and the trainer minimizes CE against visit-count
@@ -1659,6 +1672,7 @@ def main(argv: List[str]) -> int:
             forced_faction=forced_faction_arg,
             mini_maps=args.mini_maps,
             mini_ratio=max(0.0, min(1.0, float(args.mini_ratio))),
+            drill_ratio=max(0.0, min(1.0, float(args.drill_ratio))),
             snapshot_sink=(history_csv.append if history_csv else None),
         )
         if not outcomes:

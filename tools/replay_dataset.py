@@ -1784,6 +1784,14 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             d_backstab_active=ctx.d_backstab,
             rng=rng,
         )
+        # Stash the per-strike checkup payloads for the sim's command
+        # recorder (consumed by WesnothSim.step right after this
+        # returns; the replay path simply overwrites it next attack).
+        # Exports emit them as [checkup][result] children so Wesnoth
+        # playback verifies every strike. Bookkeeping only -- NOT
+        # observable state (never read by the legality mask/encoder).
+        setattr(gs.global_info, "_last_checkup_strikes",
+                result.checkup_strikes)
 
         # Write outcomes back to gs. has_attacked True for attacker;
         # HP/XP from the result; remove dead units. Both combatants

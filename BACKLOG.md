@@ -64,6 +64,23 @@ strategies; cluster economy).
   `--mini-maps` / `--mini-ratio` (sim_self_play).
 - Open: `scrape_terrain.py` ignores its output-path argument (writes
   to project root unconditionally) — harmless today, fix sometime.
+- [x] **Capability drills** (DONE 2026-06-12): third training pool
+  (`DRILL_SCENARIO_IDS`) of hand-authored micro-scenarios in
+  add-ons/wesnoth_ai/scenarios/drills/ — drill_duel (fixed 3v3
+  combined arms, gold=0), drill_village_rush (8 villages, 40 gold),
+  drill_chokepoint (one-hex mountain pass, fixed dwarf trios).
+  Mixed into training via `--drill-ratio` (one roll splits
+  ladder/mini/drill). En route: find_scenario_cfg_path extracted
+  into scenario_events (shared by the pool, the sim and the
+  exporter — previously sim_to_replay only resolved multiplayer_*
+  ids, so MINI exports silently used PvP-default gold instead of
+  the cfg's gold=40; now fixed), pre-placed [side][unit] armies
+  flow sim-side (scenario_pool reads sides 1/2 too) AND
+  export-side (_scrape_scenario_preplaced_units → [unit] blocks
+  with random_traits=no, matching the sim's trait-less model).
+  Templates generated via the game preprocessor over our add-on's
+  _main.cfg (userdata junction). test_drill_scenarios.py pins the
+  path end-to-end.
 - [ ] 🟠 **Wesnoth-playback verification harness** (the faithfulness
   end-state, user discussion 2026-06-12). Determinism reframed: the
   dangerous class is the sim implicitly recording a command in a
@@ -77,11 +94,59 @@ strategies; cluster economy).
   even in principle; mp_checkup format is known from the oracle
   work, post-strike values available from sim state), (2) drive
   real Wesnoth over the replay non-interactively and fail on OOS.
-  Gate on a feasibility spike of Wesnoth's non-interactive replay
-  options on Windows (batch verification needs no interactivity —
-  the thing that killed the training IPC). When this lands, the
-  consolidated twin test in test_sim_determinism.py becomes
-  redundant and can be dropped (agreed with user).
+  When this lands, the consolidated twin test in
+  test_sim_determinism.py becomes redundant and can be dropped
+  (agreed with user).
+
+  **Spike verdict (2026-06-12): part (2) — fully non-interactive
+  playback — is NOT possible on the stock 1.18.7 binary.**
+  Findings (all empirical on the Steam binary + 1.18.4 source):
+  - `--load X --with-replay --nogui` → rejected: `--nogui` only
+    valid with `--multiplayer` / `--screenshot` / `--plugin`.
+  - `--multiplayer --load X --with-replay --nogui` → segfault
+    (0xC0000005).
+  - `--plugin probe.lua --load X --with-replay --nogui` → WORKS
+    headlessly (no crash, no window): titlescreen → Game context
+    auto-entered, accessors `turn` / `level_result` poll fine
+    (call them with a `{}` arg; they return flat tables). But the
+    replay sits paused at turn=1 forever: the Game plugin context
+    registers ONLY quit/save_game/save_replay + those accessors
+    (playsingle_controller.cpp ctor — verified verbatim), no
+    play_replay verb. `tmp_scratch/replay_probe.lua` is the
+    working probe (good scaffold for any future plugin work).
+  - The engine's only auto-play seam is
+    `playsingle_controller::enable_replay(is_unit_test=true)`
+    (game_launcher::single_unit_test) — reachable solely via
+    `-u <test_id>`, which replays the save IT generates from an
+    AI-driven [test] scenario, never an arbitrary file. No CLI
+    option feeds our replay into it (commandline_options.cpp
+    checked).
+  - `playreplay` ships with no default key binding (button-only;
+    hotkey_command.cpp). A prefs-bound hotkey + synthesized
+    keystroke works in principle but requires window focus
+    (SDL drops key events to unfocused windows) — VETOED by user
+    2026-06-12: verification must never steal the screen.
+  Revised plan: (1) checkup emission becomes the deliverable —
+  with real checkup payloads, ANY playback (e.g. the user casually
+  watching an exported demo) hard-fails loudly on divergence,
+  converting manual viewing into ground-truth verification.
+  **(1) LANDED 2026-06-12:** research pinned the semantics
+  (synced_checkup compares stored [result]s, appends when absent —
+  so empty [checkup]s verify NOTHING; full quotes + the
+  inline-[checkup] vs oos_debug [mp_checkup] wire-form split now in
+  docs/wesnoth_rules.md "Replay structure"). combat.resolve_attack
+  records the engine's two per-strike payloads
+  ({chance,hits,damage} + {dies}, nominal damage, misses included)
+  on CombatResult.checkup_strikes; sim_to_replay emits them in
+  exported [attack] commands; tools/playback_verdict.py scans the
+  session log (SYNC: / error replay / out of sync / checksum
+  markers) and prints CLEAN/DIVERGED after the user closes the
+  viewer. test_rng_accounting now requires the 2-per-strike
+  [result] shape on every exported attack. Remaining (manual,
+  user-driven): actually watch one exported replay in Wesnoth and
+  run the verdict tool — first real-engine confirmation of the
+  full chain. The consolidated twin test stays until that
+  confirmation lands.
 
 ## MCTS effectiveness roadmap (2026-06-11, profiling-driven)
 
@@ -149,9 +214,17 @@ hex-distance (fraught). Low priority — MCTS mode doesn't pay it.
     ALSO FIXED en route: self-play combat was retaliation-free —
     the sim emitted d_weapon=-1 ("auto-pick") which resolve_attack
     mapped to None (no counter). Counter-weapon now resolved at
-    command-build time (choose_counter_weapon: matching range, max
-    damage*strikes). OPEN: port the exact engine rating
-    (battle_context::choose_defender_weapon) — v1 is a heuristic.
+    command-build time. DONE 2026-06-12: exact engine-rating port
+    (battle_context::choose_defender_weapon + better_combat +
+    calculate_probability_of_debuff, 1.18.4 verbatim) lives in
+    tools/combat_outcomes.choose_counter_weapon, reusing the
+    outcome DP (touched-flag-augmented) for the combatant
+    marginals; replaces the v1 max-damage×strikes heuristic.
+    Documented deviations: [disable] unmodeled, defense_weight
+    constant 1.0 (the engine's min_rating pass is dead code in
+    1.18.4 so the weight can't matter beyond its >0 filter),
+    exact P(touched) where the engine approximates, deterministic
+    v1 fallback where the engine would go Monte-Carlo.
   - [ ] Tier 2: event hard-split (kill/level/status boundaries are
     TYPE boundaries — never merged) + HP-quantile buckets within a
     class sharing priors/edges off ONE representative forward while

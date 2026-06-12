@@ -10,7 +10,7 @@ cfg gives byte-faithful macro expansion -- {DEFAULT_SCHEDULE},
 {DEFAULT_MUSIC_PLAYLIST}, add-on map inclusions, even scenario-local
 #define blocks -- because the actual game binary does the expanding.
 
-Covers BOTH scenario pools (tools/scenario_pool.py):
+Covers ALL THREE scenario pools (tools/scenario_pool.py):
   - LADDER_SCENARIO_IDS  -- mainline 2p maps under
     wesnoth_src/data/multiplayer/scenarios/
   - MINI_MAP_SCENARIO_IDS -- the Mini Maps Collection add-on under
@@ -18,6 +18,10 @@ Covers BOTH scenario pools (tools/scenario_pool.py):
     (tactical-training curriculum; templates make mini games
     exportable to the replay viewer, which replay extraction never
     could -- no human replays exist for them).
+  - DRILL_SCENARIO_IDS -- our own capability drills under
+    add-ons/wesnoth_ai/scenarios/drills/ (project add-on,
+    junctioned into userdata so the preprocessor and the real game
+    resolve the same files).
 
 REQUIREMENT for the mini pool: the add-on must ALSO be installed in
 Wesnoth's userdata (Documents/My Games/Wesnoth1.18/data/add-ons/),
@@ -67,7 +71,9 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from constants import WESNOTH_PATH
-from tools.scenario_pool import LADDER_SCENARIO_IDS, MINI_MAP_SCENARIO_IDS
+from tools.scenario_pool import (
+    DRILL_SCENARIO_IDS, LADDER_SCENARIO_IDS, MINI_MAP_SCENARIO_IDS,
+)
 from tools.replay_extract import parse_wml
 
 log = logging.getLogger("build_scenario_templates")
@@ -80,6 +86,11 @@ LADDER_SRC = _ROOT / "wesnoth_src" / "data" / "multiplayer" / "scenarios"
 # refuses the file (observed: every enclave_* scenario).
 MINI_SRC = (_ROOT / "wesnoth_src" / "data" / "add-ons"
             / "Mini_Maps_Collection" / "_main.cfg")
+# Capability drills live in OUR add-on at the project root. The
+# preprocessor resolves its `{~add-ons/wesnoth_ai/...}` includes
+# against userdata, where add-ons/wesnoth_ai is junctioned -- so the
+# files it reads ARE these files.
+DRILL_SRC = _ROOT / "add-ons" / "wesnoth_ai" / "_main.cfg"
 OUT_DIR = _ROOT / "tools" / "templates" / "scenarios"
 
 # Save-only attributes the engine injects at game start. Injected
@@ -249,7 +260,10 @@ def transform(pp_text: str, scenario_id: str, source_note: str) -> str:
     # (the era boilerplate below is spliced raw and keeps its own).
     body = [re.sub(r'_\s*"', '"', l) for l in body]
     body = _strip_player_sides(body)
-    if scenario_id not in MINI_MAP_SCENARIO_IDS:
+    if (scenario_id not in MINI_MAP_SCENARIO_IDS
+            and scenario_id not in DRILL_SCENARIO_IDS):
+        # Minis and drills arrive with map_data already inlined by
+        # the preprocessor; ladder cfgs reference map_file=.
         body = _inline_map_data(body, scenario_id)
 
     # Inject save-only attrs not already defined by the cfg.
@@ -322,8 +336,9 @@ def main(argv: List[str]) -> int:
     logging.basicConfig(level=getattr(logging, args.log_level),
                         format="%(levelname)s %(message)s")
 
-    wanted = set(args.only) if args.only else set(
-        LADDER_SCENARIO_IDS) | set(MINI_MAP_SCENARIO_IDS)
+    wanted = set(args.only) if args.only else (
+        set(LADDER_SCENARIO_IDS) | set(MINI_MAP_SCENARIO_IDS)
+        | set(DRILL_SCENARIO_IDS))
 
     with tempfile.TemporaryDirectory(prefix="wml_pp_") as td:
         tmp = Path(td)
@@ -344,6 +359,16 @@ def main(argv: List[str]) -> int:
             idx = _index_preprocessed(tmp / "mini")
             index.update(idx)
             sources.update({k: "Mini_Maps_Collection add-on "
+                               "(game cfg, game preprocessor)"
+                            for k in idx})
+        if wanted & set(DRILL_SCENARIO_IDS):
+            if not DRILL_SRC.is_file():
+                log.error(f"wesnoth_ai add-on missing: {DRILL_SRC}")
+                return 2
+            run_preprocessor(DRILL_SRC, tmp / "drills")
+            idx = _index_preprocessed(tmp / "drills")
+            index.update(idx)
+            sources.update({k: "add-ons/wesnoth_ai drills "
                                "(game cfg, game preprocessor)"
                             for k in idx})
 
