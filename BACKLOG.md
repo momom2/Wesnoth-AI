@@ -84,11 +84,25 @@ hex-distance (fraught). Low priority — MCTS mode doesn't pay it.
     outcome matches a sampled child). `--mcts-no-chance-nodes`
     restores frozen-sample for A/B. Live sims never carry a salt
     (replay-export contract untouched).
-  - [ ] Tier 1: exact outcome enumeration — port the engine's
-    prob_matrix DP (see docs/wesnoth_rules.md "Combat-outcome
-    prediction") into combat_oracle; exact-probability selection /
-    backup below the 50,000 complexity threshold; stop re-rolling
-    once support is enumerated.
+  - [x] Tier 1: exact outcome enumeration (DONE 2026-06-12,
+    tools/combat_outcomes.py): prob_matrix-style DP over
+    (a_hp, d_hp, slow/poison flags), parameters from the SAME
+    build_attack_context as the bit-exact resolver (extracted from
+    _apply_command, pure refactor). Guards -> sampling fallback:
+    petrify, possible advancement, schedule/state caps. Chance
+    edges register sampled children against the exact support;
+    at >= 99.9% observed mass, selection switches to renormalized
+    exact probabilities with NO sim fork (tail truncation
+    parallels the engine's own). DP/sim mismatch disables the
+    dist for that edge with a warning. Validated: DP vs 400
+    salted-sim samples (every sample in support, TV < 0.15);
+    `--mcts-no-exact-outcomes` for A/B.
+    ALSO FIXED en route: self-play combat was retaliation-free —
+    the sim emitted d_weapon=-1 ("auto-pick") which resolve_attack
+    mapped to None (no counter). Counter-weapon now resolved at
+    command-build time (choose_counter_weapon: matching range, max
+    damage*strikes). OPEN: port the exact engine rating
+    (battle_context::choose_defender_weapon) — v1 is a heuristic.
   - [ ] Tier 2: event hard-split (kill/level/status boundaries are
     TYPE boundaries — never merged) + HP-quantile buckets within a
     class sharing priors/edges off ONE representative forward while

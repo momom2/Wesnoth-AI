@@ -264,6 +264,39 @@ def _move_cost_at_hex(unit, gs, x: int, y: int) -> int:
 # Both the sim and sim_to_replay call this with the same request_id,
 # get the same hex string, and so trait/damage rolls match.
 
+def choose_counter_weapon(att, dfd, a_weapon_idx: int) -> int:
+    """Defender's counter-attack weapon for a sim-originated attack.
+
+    Wesnoth's battle_context::choose_defender_weapon runs a full
+    rating simulation over candidate weapons (attack.cpp); this is
+    the v1 approximation: the matching-range weapon maximizing
+    damage x strikes, ties to the lowest index. Returns -1 when the
+    defender has no matching-range weapon (no retaliation).
+
+    History: the sim used to emit d_weapon=-1 with a comment
+    claiming combat.py would auto-pick -- it never did (-1 maps to
+    d_weapon_idx=None = no counter-attack), so every self-play
+    combat was retaliation-free, and exported replays let Wesnoth
+    auto-select a counter our sim never applied (OOS on playback).
+    Resolving the counter HERE, at command-build time, keeps
+    replay_dataset._apply_command byte-identical for real replays
+    (which always record the actual defender weapon).
+    BACKLOG: port the exact engine rating."""
+    if (not getattr(att, "attacks", None)
+            or not getattr(dfd, "attacks", None)
+            or a_weapon_idx >= len(att.attacks)):
+        return -1
+    a_ranged = att.attacks[a_weapon_idx].is_ranged
+    best_idx, best_score = -1, -1
+    for i, w in enumerate(dfd.attacks):
+        if w.is_ranged != a_ranged:
+            continue
+        score = w.damage_per_strike * w.number_strikes
+        if score > best_score:
+            best_idx, best_score = i, score
+    return best_idx
+
+
 def request_seed(request_id: int) -> str:
     """Deterministic 8-hex-char seed for the n-th random-rolling
     command in a sim run. Re-implemented (not imported) to keep the
@@ -1290,12 +1323,25 @@ class WesnothSim:
             # follow-up command sim_to_replay emits. cmd[7] is the
             # seed slot consumed by replay_dataset._apply_command.
             seed = self._next_seed()
-            # d_weapon=-1 means "let combat.py pick the defender's
-            # best weapon", same as Wesnoth's auto-selection.
+            # Resolve the defender's counter-weapon NOW (see
+            # choose_counter_weapon): the command must carry a
+            # concrete index so the sim applies retaliation and
+            # Wesnoth playback uses the same counter we resolved.
+            att_u = next(
+                (u for u in self.gs.map.units
+                 if u.position.x == start.x and u.position.y == start.y),
+                None)
+            dfd_u = next(
+                (u for u in self.gs.map.units
+                 if u.position.x == target.x and u.position.y == target.y),
+                None)
+            d_weapon = (choose_counter_weapon(att_u, dfd_u, weapon)
+                        if att_u is not None and dfd_u is not None
+                        else -1)
             return ["attack",
                     start.x, start.y,
                     target.x, target.y,
-                    weapon, -1, seed], None
+                    weapon, d_weapon, seed], None
         if atype == "recruit":
             unit_type = action["unit_type"]
             target: Position = action["target_hex"]

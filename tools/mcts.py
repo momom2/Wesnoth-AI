@@ -103,6 +103,9 @@ from encoder import GameStateEncoder
 from model import WesnothModel
 from wesnoth_sim import WesnothSim
 from draw_tiebreak import DrawTiebreakConfig, draw_tiebreak_z
+from combat_outcomes import (
+    enumerate_attack_outcomes, outcome_key_for_child,
+)
 
 
 log = logging.getLogger("mcts")
@@ -116,6 +119,21 @@ _STOCHASTIC_ACTION_TYPES = frozenset({"attack", "recruit"})
 # Children-dict key for the step-rejected pseudo-terminal (state_key
 # on a malformed post-error state could itself raise).
 _STEP_ERROR_KEY = "step_error"
+
+# Sentinel: edge.outcome_probs not yet computed (None = computed and
+# unavailable -> pure sampling).
+_OUTCOMES_UNSET = "unset"
+
+# Coverage threshold for switching from sampled to exact-probability
+# outcome selection: once the observed children carry >= 1 - this of
+# the exact mass, traversals select among them with renormalized
+# exact probabilities and stop forking the sim. The ignored tail
+# (< 0.1%) parallels the engine's own truncations (berserk rounds
+# stop at 99% dead mass, probs snapped at 1e-9 -- see
+# docs/wesnoth_rules.md); the alternative, waiting for full
+# coverage, would keep Monte-Carlo forking for thousands of visits
+# to chase outcomes that cannot influence a 16-200-sim search.
+_EXACT_COVERAGE_EPSILON = 1e-3
 
 
 # ---------------------------------------------------------------------
@@ -255,6 +273,19 @@ class MCTSConfig:
     # determinization).
     chance_nodes: bool = True
 
+    # Exact outcome enumeration (Tier 1, see tools/combat_outcomes):
+    # attack edges lazily compute the exact outcome distribution via
+    # the prob_matrix-style DP (same parameters as the bit-exact
+    # resolver). While unseen mass remains, traversals keep sampling
+    # through the real sim (true-distribution Monte Carlo); once the
+    # observed children cover ~all the mass, selection switches to
+    # exact-probability choice among them with NO sim fork -- zero
+    # Monte-Carlo noise and cheaper traversals in the common
+    # ~10-outcome case. Fights the DP refuses (petrify, possible
+    # advancement, berserk/complexity caps, any DP/sim mismatch)
+    # fall back to sampling automatically.
+    exact_outcome_enumeration: bool = True
+
     # Tree reuse across consecutive decisions (state-key-checked).
     # After the live game plays the chosen action, the subtree under
     # that root edge describes the searched successor state -- which
@@ -345,7 +376,8 @@ class MCTSEdge:
     E_outcome[V(best response | outcome)]."""
     __slots__ = ("action", "actor_idx", "type_idx", "target_idx",
                  "weapon_idx", "prior", "n_visits", "w_value",
-                 "children")
+                 "children",
+                 "outcome_probs", "outcome_keys", "seen_mass")
 
     def __init__(self, lap: LegalActionPrior):
         self.action     = lap.action
@@ -357,6 +389,13 @@ class MCTSEdge:
         self.n_visits   = 0
         self.w_value    = 0.0
         self.children: Dict = {}
+        # Exact-enumeration bookkeeping (attack edges only):
+        # outcome_probs: _OUTCOMES_UNSET | None | OutcomeDistribution.
+        # outcome_keys maps children state_key -> OutcomeKey;
+        # seen_mass = total exact probability of observed children.
+        self.outcome_probs = _OUTCOMES_UNSET
+        self.outcome_keys: Dict = {}
+        self.seen_mass: float = 0.0
 
     @property
     def sole_child(self) -> Optional["MCTSNode"]:
@@ -531,6 +570,7 @@ def _select_one(
     forced_first_edge:  Optional[MCTSEdge] = None,
     chance_nodes:       bool = False,
     sample_rng:         Optional[np.random.Generator] = None,
+    exact_outcomes:     bool = False,
 ) -> Tuple[MCTSNode, List[Tuple[MCTSNode, MCTSEdge]]]:
     """Walk down from root picking PUCT-best edges. Lazy-create
     child nodes by forking the parent sim and applying the edge's
@@ -576,50 +616,105 @@ def _select_one(
             # descend the cached successor without re-stepping.
             child = next(iter(edge.children.values()))
         else:
-            child_sim = node.sim.fork()
-            if resample and sample_rng is not None:
-                # Fresh salt => this traversal rolls independent
-                # synced RNG, sampling a fresh outcome. Search-only:
-                # live sims never carry a salt (replay fidelity).
-                child_sim._seed_salt = (
-                    f"mcts{int(sample_rng.integers(1 << 62))}")
-            step_error = False
-            try:
-                child_sim.step(edge.action)
-            except Exception as e:
-                log.debug(f"mcts: step rejected: {e}; treating as terminal")
-                child_sim.done = True
-                child_sim.winner = 0
-                child_sim.ended_by = "step_error"
-                step_error = True
-            if step_error:
-                # state_key on a malformed post-error state could
-                # itself raise; park all error outcomes under one
-                # sentinel child.
-                child = edge.children.get(_STEP_ERROR_KEY)
-                if child is None:
-                    child = MCTSNode(child_sim)
-                    edge.children[_STEP_ERROR_KEY] = child
-            else:
-                key = state_key(child_sim.gs)
-                child = edge.children.get(key)
-                if child is None:
-                    # Transposition lookup: if another path already
-                    # reached this state, share its MCTSNode.
-                    cached = (transpositions.get(key)
-                              if transpositions is not None else None)
-                    if cached is not None:
-                        child = cached
-                        if stats is not None:
-                            stats["hits"] = stats.get("hits", 0) + 1
-                    else:
+            child = None
+            dist = None
+            if (resample and exact_outcomes
+                    and edge.action.get("type") == "attack"):
+                if edge.outcome_probs is _OUTCOMES_UNSET:
+                    try:
+                        edge.outcome_probs = enumerate_attack_outcomes(
+                            node.sim.gs, edge.action)
+                    except Exception as e:
+                        log.warning(
+                            f"mcts: outcome enumeration failed ({e}); "
+                            f"sampling instead")
+                        edge.outcome_probs = None
+                dist = edge.outcome_probs
+                if (dist is not None and sample_rng is not None
+                        and edge.seen_mass >= 1.0 - _EXACT_COVERAGE_EPSILON
+                        and edge.children):
+                    # Full support observed: exact-probability choice
+                    # among the known outcome children -- no sim
+                    # fork, no Monte-Carlo noise.
+                    keys = [k for k in edge.children
+                            if k != _STEP_ERROR_KEY]
+                    if keys:
+                        w = np.array(
+                            [dist.probs[edge.outcome_keys[k]]
+                             for k in keys])
+                        w /= w.sum()
+                        pick = keys[int(sample_rng.choice(
+                            len(keys), p=w))]
+                        child = edge.children[pick]
+            if child is None:
+                child_sim = node.sim.fork()
+                if resample and sample_rng is not None:
+                    # Fresh salt => this traversal rolls independent
+                    # synced RNG, sampling a fresh outcome.
+                    # Search-only: live sims never carry a salt
+                    # (replay fidelity).
+                    child_sim._seed_salt = (
+                        f"mcts{int(sample_rng.integers(1 << 62))}")
+                step_error = False
+                try:
+                    child_sim.step(edge.action)
+                except Exception as e:
+                    log.debug(f"mcts: step rejected: {e}; "
+                              f"treating as terminal")
+                    child_sim.done = True
+                    child_sim.winner = 0
+                    child_sim.ended_by = "step_error"
+                    step_error = True
+                if step_error:
+                    # state_key on a malformed post-error state could
+                    # itself raise; park all error outcomes under one
+                    # sentinel child.
+                    child = edge.children.get(_STEP_ERROR_KEY)
+                    if child is None:
                         child = MCTSNode(child_sim)
-                        if transpositions is not None:
-                            transpositions[key] = child
+                        edge.children[_STEP_ERROR_KEY] = child
+                else:
+                    key = state_key(child_sim.gs)
+                    child = edge.children.get(key)
+                    if child is None:
+                        # Transposition lookup: if another path
+                        # already reached this state, share its
+                        # MCTSNode.
+                        cached = (transpositions.get(key)
+                                  if transpositions is not None
+                                  else None)
+                        if cached is not None:
+                            child = cached
                             if stats is not None:
-                                stats["misses"] = (
-                                    stats.get("misses", 0) + 1)
-                    edge.children[key] = child
+                                stats["hits"] = stats.get("hits", 0) + 1
+                        else:
+                            child = MCTSNode(child_sim)
+                            if transpositions is not None:
+                                transpositions[key] = child
+                                if stats is not None:
+                                    stats["misses"] = (
+                                        stats.get("misses", 0) + 1)
+                        edge.children[key] = child
+                    # Exact-enumeration bookkeeping: tie this child
+                    # to its outcome and accumulate observed mass.
+                    # A sampled outcome the DP doesn't know is a
+                    # modeling gap -- distrust the whole distribution
+                    # for this edge rather than risk biased
+                    # selection.
+                    if dist is not None and key not in edge.outcome_keys:
+                        okey = outcome_key_for_child(
+                            child_sim.gs, dist.attacker_id,
+                            dist.defender_id)
+                        p_o = dist.probs.get(okey)
+                        if p_o is None:
+                            log.warning(
+                                "mcts: sampled combat outcome absent "
+                                "from exact support; disabling "
+                                "enumeration for this edge")
+                            edge.outcome_probs = None
+                        else:
+                            edge.outcome_keys[key] = okey
+                            edge.seen_mass += p_o
         # Apply virtual loss BEFORE descending so the next
         # parallel selection in the same batch sees an edge that
         # currently looks bad (q drops, PUCT score drops). Real
@@ -770,6 +865,7 @@ def _run_one_sim(
         forced_first_edge=forced_first_edge,
         chance_nodes=config.chance_nodes,
         sample_rng=sample_rng,
+        exact_outcomes=config.exact_outcome_enumeration,
     )
     if leaf.is_terminal:
         v = _terminal_value(leaf.sim, leaf.side, config.draw_tiebreak)
@@ -994,6 +1090,7 @@ def mcts_search(
                     else config.fpu_reduction),
                 chance_nodes=config.chance_nodes,
                 sample_rng=rng,
+                exact_outcomes=config.exact_outcome_enumeration,
             )
             if leaf.is_terminal:
                 # Immediate backup -- no model forward needed.

@@ -1379,6 +1379,11 @@ def main(argv: List[str]) -> int:
                     help="Gumbel root: number of candidate actions "
                          "sampled without replacement for "
                          "sequential halving.")
+    ap.add_argument("--mcts-no-exact-outcomes", action="store_true",
+                    help="Disable exact combat-outcome enumeration "
+                         "at chance nodes (tools/combat_outcomes "
+                         "prob-matrix DP); falls back to pure "
+                         "sampled outcomes.")
     ap.add_argument("--mcts-no-tree-reuse", action="store_true",
                     help="Disable state-key-checked subtree reuse "
                          "across consecutive decisions (on by "
@@ -1509,6 +1514,7 @@ def main(argv: List[str]) -> int:
             tree_reuse=not args.mcts_no_tree_reuse,
             gumbel_root=not args.mcts_classic_root,
             gumbel_m=args.mcts_gumbel_m,
+            exact_outcome_enumeration=not args.mcts_no_exact_outcomes,
         )
         root_desc = (f"gumbel(m={mcts_cfg.gumbel_m})"
                      if mcts_cfg.gumbel_root else

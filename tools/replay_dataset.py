@@ -1290,6 +1290,121 @@ def _advance_unit_once(gs: GameState, u: Unit) -> Unit:
     return fresh
 
 
+@dataclass
+class AttackContext:
+    """Everything `combat.resolve_attack` needs, fixed at fight
+    start. Built by `build_attack_context` -- shared by the replay/
+    sim attack application AND tools.combat_outcomes' exact
+    outcome enumeration, so the two can never drift on combat
+    parameters."""
+    att_cu:       "cb.CombatUnit"
+    dfd_cu:       "cb.CombatUnit"
+    a_weapon:     int
+    d_weapon:     int     # -1 = no counter-attack
+    a_lawful:     int
+    d_lawful:     int
+    a_leadership: int
+    d_leadership: int
+    a_backstab:   bool
+    d_backstab:   bool
+
+
+def build_attack_context(gs: GameState, att: Unit, dfd: Unit,
+                         a_weapon: int, d_weapon: int) -> AttackContext:
+    """Build CombatUnit snapshots + adjacency/ToD modifiers for one
+    attack. Verbatim extraction (2026-06-12) of the logic that lived
+    inline in `_apply_command`'s attack branch -- no behavior change.
+
+    Snapshots use each unit's CURRENT terrain for defense (the
+    attacker on its hex can be counter-attacked, so its own terrain
+    feeds its defense_pct). The alias-resolved defense_pct walks
+    Wesnoth's full overlay graph (^Fms, ^Fp, etc.)."""
+    dx, dy = dfd.position.x, dfd.position.y
+    a_def_table = (getattr(att, "_defense_table", None)
+                   or _stats_for(att.name).get("defense", {}))
+    d_def_table = (getattr(dfd, "_defense_table", None)
+                   or _stats_for(dfd.name).get("defense", {}))
+    a_def_pct = _terrain_def_pct(gs, att.position.x, att.position.y, a_def_table)
+    d_def_pct = _terrain_def_pct(gs, dx, dy, d_def_table)
+    att_cu = _to_combat_unit(att, _terrain_keys_at(gs, att.position.x, att.position.y),
+                             defense_pct=a_def_pct)
+    dfd_cu = _to_combat_unit(dfd, _terrain_keys_at(gs, dx, dy),
+                             defense_pct=d_def_pct)
+    # Defensive clamp: if our DB lacks weapons for this unit type
+    # (e.g., a custom-era unit), fall back to weapon 0 to keep the
+    # replay reconstruction running rather than crashing the loader.
+    if a_weapon >= len(att_cu.weapons):
+        a_weapon = 0
+    if d_weapon >= 0 and d_weapon >= len(dfd_cu.weapons):
+        d_weapon = 0
+    # Petrified defenders can't counter-attack — the UNIT_PETRIFY
+    # macro strips their attacks. Force d_weapon = -1 so combat
+    # treats this as a one-sided strike. (Wesnoth's attack code
+    # checks `defender->attacks().empty()` before counter-attack.)
+    if "petrified" in dfd.statuses:
+        d_weapon = -1
+
+    # Adjacency-based effects: leadership, illuminate, backstab.
+    from tools.abilities import (
+        leadership_bonus, illuminate_step, is_backstab_active,
+    )
+    a_stats_db = _stats_for(att.name)
+    d_stats_db = _stats_for(dfd.name)
+    a_level = int(a_stats_db.get("level", 1))
+    d_level = int(d_stats_db.get("level", 1))
+
+    a_leadership = leadership_bonus(att, gs.map.units, opponent_level=d_level)
+    d_leadership = leadership_bonus(dfd, gs.map.units, opponent_level=a_level)
+
+    # Illuminate shifts ToD by +25 (bumps lawful_bonus). We compute
+    # per-side using each combatant's own hex — both for the
+    # adjacent-illuminate ability AND for scenario [time_area]
+    # overrides (Tombs of Kesorak's permanent dark/illuminated
+    # zones, Elensefar Courtyard's underground keeps).
+    turn = gs.global_info.turn_number
+    a_base = _lawful_bonus_at(gs, att.position.x, att.position.y, turn)
+    d_base = _lawful_bonus_at(gs, dx, dy, turn)
+    # Unit-illumination ([illuminates] ability, value=25 max_value=25)
+    # is applied via Wesnoth's asymmetric bounded_add ON TOP of
+    # the terrain-light-modified `a_base` / `d_base`. Per
+    # `tod_manager.cpp:265-281`, the per-illuminator effect is
+    # `bounded_add(terrain_light, 25, max_value=25, min_value=0)`,
+    # then `best_result = max(terrain_light, illum_result)` (when
+    # !net_darker, i.e., positive illumination).
+    # Matches `bounded_add` semantics: for positive increment,
+    #   result = min(base + 25, max(base, 25))
+    # so when base >= 25 the result is `base` (illumination
+    # cannot exceed terrain_light when terrain_light is already
+    # at/above the illuminate cap). At day on lava (a_base=35),
+    # this preserves 35 instead of dropping to 25 -- the old
+    # additive `min(25, base+25)` cap incorrectly clamped down.
+    # Edge case (rare in 2p corpus) but correctness-relevant.
+    def _apply_illum(base: int, has_illum: bool) -> int:
+        if not has_illum:
+            return base
+        # bounded_add(base, 25, max_sum=25, min_sum=0); positive
+        # branch: min(base+25, max(base, 25)).
+        return min(base + 25, max(base, 25))
+    a_lawful = _apply_illum(a_base, illuminate_step(att, gs.map.units) > 0)
+    d_lawful = _apply_illum(d_base, illuminate_step(dfd, gs.map.units) > 0)
+
+    # Backstab: active when there's an enemy of the defender on
+    # the hex opposite the attacker. Symmetric for the counter-
+    # attack (a backstab-flagged defender weapon hitting the
+    # attacker also needs an enemy of the attacker opposite from
+    # the defender — usually irrelevant, but supported).
+    a_backstab = is_backstab_active(att, dfd, gs.map.units)
+    d_backstab = is_backstab_active(dfd, att, gs.map.units)
+
+    return AttackContext(
+        att_cu=att_cu, dfd_cu=dfd_cu,
+        a_weapon=a_weapon, d_weapon=d_weapon,
+        a_lawful=a_lawful, d_lawful=d_lawful,
+        a_leadership=a_leadership, d_leadership=d_leadership,
+        a_backstab=a_backstab, d_backstab=d_backstab,
+    )
+
+
 def _apply_command(gs: GameState, cmd: list) -> None:
     """Mutate GameState by applying one replay command (compact format
     from replay_extract.extract_replay)."""
@@ -1654,99 +1769,19 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         if not seed_hex:
             return
 
-        # Build CombatUnit snapshots using each unit's CURRENT terrain
-        # for defense. (Attacker on its hex can be counter-attacked,
-        # so we pass its own terrain for its defense_pct.) Pass the
-        # alias-resolved defense_pct directly so we walk Wesnoth's
-        # full overlay graph (^Fms, ^Fp, etc.) instead of the hand-
-        # rolled `_OVERLAY_DEFENSE_KEYS` allow-list.
-        a_def_table = (getattr(att, "_defense_table", None)
-                       or _stats_for(att.name).get("defense", {}))
-        d_def_table = (getattr(dfd, "_defense_table", None)
-                       or _stats_for(dfd.name).get("defense", {}))
-        a_def_pct = _terrain_def_pct(gs, att.position.x, att.position.y, a_def_table)
-        d_def_pct = _terrain_def_pct(gs, dx, dy, d_def_table)
-        att_cu = _to_combat_unit(att, _terrain_keys_at(gs, att.position.x, att.position.y),
-                                 defense_pct=a_def_pct)
-        dfd_cu = _to_combat_unit(dfd, _terrain_keys_at(gs, dx, dy),
-                                 defense_pct=d_def_pct)
-        # Defensive clamp: if our DB lacks weapons for this unit type
-        # (e.g., a custom-era unit), fall back to weapon 0 to keep the
-        # replay reconstruction running rather than crashing the loader.
-        if a_weapon >= len(att_cu.weapons):
-            a_weapon = 0
-        if d_weapon >= 0 and d_weapon >= len(dfd_cu.weapons):
-            d_weapon = 0
-        # Petrified defenders can't counter-attack — the UNIT_PETRIFY
-        # macro strips their attacks. Force d_weapon = -1 so combat
-        # treats this as a one-sided strike. (Wesnoth's attack code
-        # checks `defender->attacks().empty()` before counter-attack.)
-        if "petrified" in dfd.statuses:
-            d_weapon = -1
-
-        # Adjacency-based effects: leadership, illuminate, backstab.
-        from tools.abilities import (
-            leadership_bonus, illuminate_step, is_backstab_active,
-        )
-        a_stats_db = _stats_for(att.name)
-        d_stats_db = _stats_for(dfd.name)
-        a_level = int(a_stats_db.get("level", 1))
-        d_level = int(d_stats_db.get("level", 1))
-
-        a_leadership = leadership_bonus(att, gs.map.units, opponent_level=d_level)
-        d_leadership = leadership_bonus(dfd, gs.map.units, opponent_level=a_level)
-
-        # Illuminate shifts ToD by +25 (bumps lawful_bonus). We compute
-        # per-side using each combatant's own hex — both for the
-        # adjacent-illuminate ability AND for scenario [time_area]
-        # overrides (Tombs of Kesorak's permanent dark/illuminated
-        # zones, Elensefar Courtyard's underground keeps).
-        turn = gs.global_info.turn_number
-        a_base = _lawful_bonus_at(gs, att.position.x, att.position.y, turn)
-        d_base = _lawful_bonus_at(gs, dx, dy, turn)
-        # Unit-illumination ([illuminates] ability, value=25 max_value=25)
-        # is applied via Wesnoth's asymmetric bounded_add ON TOP of
-        # the terrain-light-modified `a_base` / `d_base`. Per
-        # `tod_manager.cpp:265-281`, the per-illuminator effect is
-        # `bounded_add(terrain_light, 25, max_value=25, min_value=0)`,
-        # then `best_result = max(terrain_light, illum_result)` (when
-        # !net_darker, i.e., positive illumination).
-        # Matches `bounded_add` semantics: for positive increment,
-        #   result = min(base + 25, max(base, 25))
-        # so when base >= 25 the result is `base` (illumination
-        # cannot exceed terrain_light when terrain_light is already
-        # at/above the illuminate cap). At day on lava (a_base=35),
-        # this preserves 35 instead of dropping to 25 -- the old
-        # additive `min(25, base+25)` cap incorrectly clamped down.
-        # Edge case (rare in 2p corpus) but correctness-relevant.
-        def _apply_illum(base: int, has_illum: bool) -> int:
-            if not has_illum:
-                return base
-            # bounded_add(base, 25, max_sum=25, min_sum=0); positive
-            # branch: min(base+25, max(base, 25)).
-            return min(base + 25, max(base, 25))
-        a_lawful = _apply_illum(a_base, illuminate_step(att, gs.map.units) > 0)
-        d_lawful = _apply_illum(d_base, illuminate_step(dfd, gs.map.units) > 0)
-
-        # Backstab: active when there's an enemy of the defender on
-        # the hex opposite the attacker. Symmetric for the counter-
-        # attack (a backstab-flagged defender weapon hitting the
-        # attacker also needs an enemy of the attacker opposite from
-        # the defender — usually irrelevant, but supported).
-        a_backstab = is_backstab_active(att, dfd, gs.map.units)
-        d_backstab = is_backstab_active(dfd, att, gs.map.units)
+        ctx = build_attack_context(gs, att, dfd, a_weapon, d_weapon)
 
         rng = cb.MTRng(seed_hex) if seed_hex else cb.MTRng("00000000")
         result = cb.resolve_attack(
-            att_cu, dfd_cu,
-            a_weapon_idx=a_weapon,
-            d_weapon_idx=d_weapon if d_weapon >= 0 else None,
-            a_lawful_bonus=a_lawful,
-            d_lawful_bonus=d_lawful,
-            a_leadership_bonus=a_leadership,
-            d_leadership_bonus=d_leadership,
-            a_backstab_active=a_backstab,
-            d_backstab_active=d_backstab,
+            ctx.att_cu, ctx.dfd_cu,
+            a_weapon_idx=ctx.a_weapon,
+            d_weapon_idx=ctx.d_weapon if ctx.d_weapon >= 0 else None,
+            a_lawful_bonus=ctx.a_lawful,
+            d_lawful_bonus=ctx.d_lawful,
+            a_leadership_bonus=ctx.a_leadership,
+            d_leadership_bonus=ctx.d_leadership,
+            a_backstab_active=ctx.a_backstab,
+            d_backstab_active=ctx.d_backstab,
             rng=rng,
         )
 
