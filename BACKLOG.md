@@ -65,22 +65,30 @@ hex-distance (fraught). Low priority — MCTS mode doesn't pay it.
   (`finalize_game`), z_draw = cap·tanh(Δscore/scale), cap 0.3.
   `--draw-tiebreak-cap 0` disables. Curriculum (--max-turns)
   still recommended alongside.
-- [ ] 🟠 **Tree reuse across decisions.** User concern (2026-06-11):
-  random combat makes child subtrees stale — the search's attack
-  edge froze ONE sampled RNG outcome, the live game rolls another.
-  Proposed safe rule: STATE-KEY-CHECKED reuse — after the live
-  sim steps, reuse the played edge's subtree iff
-  state_key(live gs) == state_key(searched child gs). Deterministic
-  actions (moves/end_turn, vast majority intra-turn) match and
-  reuse; combat almost never matches and auto-discards. Zero
-  unsoundness. Related deeper issue: single-sample determinization
-  of chance nodes inside the search itself (Antonoglou et al. 2022
-  stochastic-MuZero chance nodes, or expected-value backup via the
-  combat oracle) — discuss before building.
-- [ ] 🟠 **Gumbel AlphaZero root selection** (Danihelka et al.
-  2022): sequential halving + Gumbel-Top-k at the root; provable
-  policy improvement at 16-32 sims, removes Dirichlet/temperature
-  knobs. The right fit for few-sims × many-actions.
+- [x] 🟠 **Tree reuse across decisions** (DONE 2026-06-12,
+  state-key-checked per user discussion): reuse the played edge's
+  subtree iff state_key(live gs) == state_key(searched child gs).
+  Deterministic actions match and inherit; combat RNG divergence
+  auto-rebuilds. `--mcts-no-tree-reuse` disables.
+  STILL OPEN (deferred by user until after Gumbel+tiebreak): chance
+  nodes for combat inside the search — single-sample
+  determinization remains; options are stochastic-MuZero-style
+  chance nodes (Antonoglou et al. 2022) or expected-value backup
+  via our exact combat oracle.
+- [x] 🟠 **Gumbel AlphaZero root** (DONE 2026-06-12, default ON):
+  Gumbel-Top-k candidates (m=16) + sequential halving + argmax
+  (g + logits + σ(q̂)) at the root; completed-Q policy targets
+  (mix-value completion for unvisited actions). Replaces Dirichlet
+  noise + visit-temperature. `--mcts-classic-root` reverts;
+  `--mcts-gumbel-m` tunes. Interior stays PUCT+FPU.
+- 📋 **Probe run 2026-06-12** (3 iters × 2 games, 16 sims, 12
+  turns, laptop CPU, warm-start 5.68M): pipeline green end-to-end;
+  ~40s/2-game rollout (reuse + vectorized enumeration); value
+  targets nonzero via tiebreak (mean z ≈ -0.005..-0.010, end-gold
+  differentials up to 65g → |z| up to ~0.17); value_loss live
+  (3.7-4.2). Attack% still 0 — engagement is the training
+  objective, not a 3-iter outcome. policy CE ~14-16 and grad_norm
+  72-159 with completed-Q targets: watch on the first long run.
 - [ ] 🟡 **Playout-cap randomization** (KataGo): most self-play
   moves get a tiny budget, a random subset gets full budget and
   produces policy targets — 3-10x more games per GPU-hour.
