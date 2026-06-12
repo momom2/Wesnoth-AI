@@ -107,6 +107,16 @@ from draw_tiebreak import DrawTiebreakConfig, draw_tiebreak_z
 
 log = logging.getLogger("mcts")
 
+# Action types whose sim.step consumes synced RNG (combat damage
+# rolls; recruit trait rolls). Chance-node sampling re-forks and
+# re-steps these on EVERY traversal; everything else is
+# deterministic and keeps its single cached successor.
+_STOCHASTIC_ACTION_TYPES = frozenset({"attack", "recruit"})
+
+# Children-dict key for the step-rejected pseudo-terminal (state_key
+# on a malformed post-error state could itself raise).
+_STEP_ERROR_KEY = "step_error"
+
 
 # ---------------------------------------------------------------------
 # Config
@@ -228,6 +238,23 @@ class MCTSConfig:
     gumbel_c_visit: float = 50.0
     gumbel_c_scale: float = 1.0
 
+    # Chance nodes for stochastic actions (combat, recruit traits).
+    # When ON, every traversal of a stochastic edge re-forks the
+    # parent sim with a fresh seed salt and re-steps -- sampling the
+    # outcome from the TRUE distribution (the sim is bit-exact) --
+    # and the edge keeps one child PER DISTINCT OUTCOME state
+    # (keyed by state_key; strike-order permutations collapse).
+    # Selection then continues below the sampled outcome, so the
+    # subtree represents outcome-CONDITIONAL play: concentrate where
+    # you hit high, spread where you hit low. The edge's Q converges
+    # to E_outcome[V(adaptive response)] -- expectation AFTER the
+    # max, not before (EV-collapse would systematically undervalue
+    # multi-pronged aggression; see BACKLOG chance-node discussion).
+    # When OFF, the legacy behavior: the first sampled outcome is
+    # frozen and every visit descends it (single-sample
+    # determinization).
+    chance_nodes: bool = True
+
     # Tree reuse across consecutive decisions (state-key-checked).
     # After the live game plays the chosen action, the subtree under
     # that root edge describes the searched successor state -- which
@@ -306,10 +333,19 @@ class MCTSConfig:
 # ---------------------------------------------------------------------
 
 class MCTSEdge:
-    """One outgoing action from a node. Stores PUCT statistics:
-    visit count, summed value, prior, lazy-created child node."""
+    """One outgoing action from a node. Stores PUCT statistics
+    (visit count, summed value, prior) and the lazily-created
+    successor node(s).
+
+    `children` maps state_key(outcome state) -> MCTSNode. A
+    deterministic action has exactly one entry; a stochastic action
+    (attack, recruit) accumulates one entry per distinct sampled
+    outcome when chance nodes are on. Edge statistics aggregate
+    across outcomes, so q_value estimates
+    E_outcome[V(best response | outcome)]."""
     __slots__ = ("action", "actor_idx", "type_idx", "target_idx",
-                 "weapon_idx", "prior", "n_visits", "w_value", "child")
+                 "weapon_idx", "prior", "n_visits", "w_value",
+                 "children")
 
     def __init__(self, lap: LegalActionPrior):
         self.action     = lap.action
@@ -320,7 +356,15 @@ class MCTSEdge:
         self.prior      = lap.prior
         self.n_visits   = 0
         self.w_value    = 0.0
-        self.child: Optional["MCTSNode"] = None
+        self.children: Dict = {}
+
+    @property
+    def sole_child(self) -> Optional["MCTSNode"]:
+        """The single successor of a deterministic edge, or None if
+        the edge has zero or multiple (outcome-branched) children."""
+        if len(self.children) == 1:
+            return next(iter(self.children.values()))
+        return None
 
     @property
     def q_value(self) -> float:
@@ -485,6 +529,8 @@ def _select_one(
     fpu_reduction:      Optional[float] = None,
     root_fpu_reduction: Optional[float] = None,
     forced_first_edge:  Optional[MCTSEdge] = None,
+    chance_nodes:       bool = False,
+    sample_rng:         Optional[np.random.Generator] = None,
 ) -> Tuple[MCTSNode, List[Tuple[MCTSNode, MCTSEdge]]]:
     """Walk down from root picking PUCT-best edges. Lazy-create
     child nodes by forking the parent sim and applying the edge's
@@ -492,6 +538,14 @@ def _select_one(
     parallel selection in the same batch is biased away from this
     path. Returns (leaf, path) where path is the list of
     (parent_node, edge_taken) pairs; backup walks it in reverse.
+
+    With `chance_nodes`, every traversal of a STOCHASTIC edge
+    (attack / recruit) re-forks the parent sim under a fresh seed
+    salt and re-steps, sampling the outcome from the true
+    distribution; the edge keeps one child per distinct outcome
+    state. Deterministic edges keep their single cached successor
+    (no re-fork). Without it, the first sampled outcome is frozen
+    (legacy single-sample determinization).
 
     If `transpositions` is provided, the table is consulted before
     creating a new child: if `state_key(child_sim.gs)` already maps
@@ -512,8 +566,24 @@ def _select_one(
         else:
             fpu = root_fpu_reduction if node is root else fpu_reduction
             edge = _puct_select(node, c_puct, fpu)
-        if edge.child is None:
+
+        resample = (chance_nodes
+                    and isinstance(edge.action, dict)
+                    and edge.action.get("type")
+                    in _STOCHASTIC_ACTION_TYPES)
+        if edge.children and not resample:
+            # Deterministic edge (or legacy frozen-sample mode):
+            # descend the cached successor without re-stepping.
+            child = next(iter(edge.children.values()))
+        else:
             child_sim = node.sim.fork()
+            if resample and sample_rng is not None:
+                # Fresh salt => this traversal rolls independent
+                # synced RNG, sampling a fresh outcome. Search-only:
+                # live sims never carry a salt (replay fidelity).
+                child_sim._seed_salt = (
+                    f"mcts{int(sample_rng.integers(1 << 62))}")
+            step_error = False
             try:
                 child_sim.step(edge.action)
             except Exception as e:
@@ -521,29 +591,35 @@ def _select_one(
                 child_sim.done = True
                 child_sim.winner = 0
                 child_sim.ended_by = "step_error"
-            # Transposition lookup: if another path already reached
-            # this state, share its MCTSNode. Skip the lookup for
-            # error-marked sims (state_key on a malformed gs would
-            # itself raise, and there's nothing useful to share
-            # with anyway).
-            if (transpositions is not None and not child_sim.done) or (
-                transpositions is not None and child_sim.done
-                and child_sim.ended_by != "step_error"
-            ):
-                key = state_key(child_sim.gs)
-                cached = transpositions.get(key)
-                if cached is not None:
-                    edge.child = cached
-                    if stats is not None:
-                        stats["hits"] = stats.get("hits", 0) + 1
-                else:
-                    new_child = MCTSNode(child_sim)
-                    transpositions[key] = new_child
-                    edge.child = new_child
-                    if stats is not None:
-                        stats["misses"] = stats.get("misses", 0) + 1
+                step_error = True
+            if step_error:
+                # state_key on a malformed post-error state could
+                # itself raise; park all error outcomes under one
+                # sentinel child.
+                child = edge.children.get(_STEP_ERROR_KEY)
+                if child is None:
+                    child = MCTSNode(child_sim)
+                    edge.children[_STEP_ERROR_KEY] = child
             else:
-                edge.child = MCTSNode(child_sim)
+                key = state_key(child_sim.gs)
+                child = edge.children.get(key)
+                if child is None:
+                    # Transposition lookup: if another path already
+                    # reached this state, share its MCTSNode.
+                    cached = (transpositions.get(key)
+                              if transpositions is not None else None)
+                    if cached is not None:
+                        child = cached
+                        if stats is not None:
+                            stats["hits"] = stats.get("hits", 0) + 1
+                    else:
+                        child = MCTSNode(child_sim)
+                        if transpositions is not None:
+                            transpositions[key] = child
+                            if stats is not None:
+                                stats["misses"] = (
+                                    stats.get("misses", 0) + 1)
+                    edge.children[key] = child
         # Apply virtual loss BEFORE descending so the next
         # parallel selection in the same batch sees an edge that
         # currently looks bad (q drops, PUCT score drops). Real
@@ -553,7 +629,7 @@ def _select_one(
             edge.w_value -= virtual_loss
             node._total_visits += virtual_loss
         path.append((node, edge))
-        node = edge.child
+        node = child
     return node, path
 
 
@@ -680,6 +756,7 @@ def _run_one_sim(
     transpositions: Optional[Dict[int, MCTSNode]],
     tt_stats:       Dict[str, int],
     forced_first_edge: Optional[MCTSEdge] = None,
+    sample_rng:        Optional[np.random.Generator] = None,
 ) -> None:
     """One serial simulation: select (optionally pinned through a
     given root edge), evaluate/expand the leaf, back up. Used by the
@@ -691,6 +768,8 @@ def _run_one_sim(
         fpu_reduction=config.fpu_reduction,
         root_fpu_reduction=config.fpu_reduction,
         forced_first_edge=forced_first_edge,
+        chance_nodes=config.chance_nodes,
+        sample_rng=sample_rng,
     )
     if leaf.is_terminal:
         v = _terminal_value(leaf.sim, leaf.side, config.draw_tiebreak)
@@ -769,7 +848,8 @@ def _gumbel_root_search(
                     break
                 _run_one_sim(root, model, encoder, config,
                              transpositions, tt_stats,
-                             forced_first_edge=edges[ci])
+                             forced_first_edge=edges[ci],
+                             sample_rng=rng)
                 sims_done += 1
         max_v = max(e.n_visits for e in edges)
         keep = max(1, math.ceil(len(cands) / 2))
@@ -912,6 +992,8 @@ def mcts_search(
                     if (config.add_root_noise
                         and config.fpu_reduction is not None)
                     else config.fpu_reduction),
+                chance_nodes=config.chance_nodes,
+                sample_rng=rng,
             )
             if leaf.is_terminal:
                 # Immediate backup -- no model forward needed.

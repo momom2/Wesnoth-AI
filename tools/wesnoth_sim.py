@@ -401,6 +401,16 @@ class WesnothSim:
         # between simulator and Wesnoth playback.
         self._rng_requests: int = 0
 
+        # Search-only seed salt. Empty on every LIVE game sim --
+        # seeds then come from request_seed(counter), the bit-exact
+        # replay-export contract. MCTS chance-node sampling sets a
+        # fresh salt on each search fork before stepping a stochastic
+        # action, so repeated forks of the same parent sample
+        # DIFFERENT combat outcomes / trait rolls instead of
+        # replaying one predetermined seed. Never set this on a sim
+        # whose command_history will be exported.
+        self._seed_salt: str = ""
+
         # last_step_rejected: did the most recent .step() call refuse
         # to apply the action (rather than apply or fall back to
         # end_turn)? Currently only set on recruit-rejection (target
@@ -476,8 +486,23 @@ class WesnothSim:
         out.ended_by = self.ended_by
         out._actions_by_side = dict(self._actions_by_side)
         out._rng_requests    = self._rng_requests
+        out._seed_salt       = self._seed_salt
         out.command_history  = []   # forks don't track history
         return out
+
+    def _next_seed(self) -> str:
+        """Allocate the next synced-RNG seed. Live sims (no salt)
+        derive it purely from the request counter -- the bit-exact
+        contract sim_to_replay's WML emitter relies on. Salted sims
+        (MCTS search forks) mix the salt in so identical counters
+        yield independent rolls across forks."""
+        self._rng_requests += 1
+        if not self._seed_salt:
+            return request_seed(self._rng_requests)
+        import hashlib
+        h = hashlib.sha256(
+            f"{self._seed_salt}:{self._rng_requests}".encode()).hexdigest()
+        return h[:8]
 
     def _find_attack_hex(self, attacker, target) -> Optional[Position]:
         """Pick a hex the attacker can move to and attack `target` from.
@@ -1264,8 +1289,7 @@ class WesnothSim:
             # what Wesnoth replays back from the [random_seed]
             # follow-up command sim_to_replay emits. cmd[7] is the
             # seed slot consumed by replay_dataset._apply_command.
-            self._rng_requests += 1
-            seed = request_seed(self._rng_requests)
+            seed = self._next_seed()
             # d_weapon=-1 means "let combat.py pick the defender's
             # best weapon", same as Wesnoth's auto-selection.
             return ["attack",
@@ -1327,8 +1351,7 @@ class WesnothSim:
             # first time the unit's MP differs between the two views.
             # cmd[4] is the trait_seed slot consumed by
             # _build_recruit_unit's MTRng path.
-            self._rng_requests += 1
-            seed = request_seed(self._rng_requests)
+            seed = self._next_seed()
             return ["recruit", unit_type, target.x, target.y, seed], None
         if atype == "recall":
             # Recall is NOT supported end-to-end. The sim has no

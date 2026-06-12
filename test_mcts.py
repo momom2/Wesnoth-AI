@@ -84,9 +84,12 @@ def _make_edge(prior: float = 0.5,
 
 
 def _attach(parent: MCTSNode, child: MCTSNode, prior: float = 0.5) -> MCTSEdge:
-    """Attach `child` to `parent` via a fresh edge; return the edge."""
+    """Attach `child` to `parent` via a fresh edge; return the edge.
+    Uses id(child) as the outcome key -- tests that exercise real
+    state-keyed descent clear `.children` and let _select_one
+    populate it."""
     edge = _make_edge(prior=prior)
-    edge.child = child
+    edge.children = {id(child): child}
     parent.edges.append(edge)
     return edge
 
@@ -434,8 +437,8 @@ def test_transposition_shares_node_across_paths():
     e_b = _attach(root, _make_node(side=1), prior=0.5)
     # Detach the pre-attached child stubs so _select_one creates
     # fresh ones via TT logic on first descent.
-    e_a.child = None
-    e_b.child = None
+    e_a.children.clear()
+    e_b.children.clear()
     # Bias selection: PUCT with zero visits picks max-prior; tie
     # broken by edge order. We set priors to differ so the FIRST
     # descent picks e_a, the SECOND picks e_b after virtual loss
@@ -451,11 +454,11 @@ def test_transposition_shares_node_across_paths():
     leaf_b, _ = _select_one(root, c_puct=1.5, virtual_loss=1.0,
                             transpositions=tt)
     # Both edges' children must be the SAME node, supplied by the TT.
-    assert e_a.child is e_b.child, (
+    assert e_a.sole_child is e_b.sole_child, (
         "TT should have shared the child across both edges"
     )
     # And that shared node sits in the TT at the canonical key.
-    assert tt[target_key] is e_a.child
+    assert tt[target_key] is e_a.sole_child
 
 
 def test_transposition_disabled_creates_separate_nodes():
@@ -496,14 +499,14 @@ def test_transposition_disabled_creates_separate_nodes():
     root.expanded = True
     e_a = _attach(root, _make_node(side=1), prior=0.51)
     e_b = _attach(root, _make_node(side=1), prior=0.50)
-    e_a.child = None
-    e_b.child = None
+    e_a.children.clear()
+    e_b.children.clear()
 
     _select_one(root, c_puct=1.5, virtual_loss=1.0,
                 transpositions=None)
     _select_one(root, c_puct=1.5, virtual_loss=1.0,
                 transpositions=None)
-    assert e_a.child is not e_b.child, (
+    assert e_a.sole_child is not e_b.sole_child, (
         "without TT, each edge gets its own MCTSNode"
     )
 
@@ -686,26 +689,27 @@ def test_tree_reuse_inherits_subtree_for_deterministic_actions():
     # Pick a deterministic, visited, expanded root edge.
     edge = next(
         (e for e in sorted(root1.edges, key=lambda e: -e.n_visits)
-         if e.child is not None and e.child.expanded
-         and not e.child.is_terminal
+         if e.sole_child is not None and e.sole_child.expanded
+         and not e.sole_child.is_terminal
          and e.action.get("type") in ("move", "end_turn")),
         None)
     if edge is None:
         import pytest as _pytest
         _pytest.skip("search visited no deterministic expanded edge "
                      "at 10 sims on this seed")
+    child = edge.sole_child
 
     live = sim.fork()
     live.step(edge.action)
-    assert state_key(live.gs) == state_key(edge.child.sim.gs), (
+    assert state_key(live.gs) == state_key(child.sim.gs), (
         "deterministic action must reproduce the searched child state"
     )
 
-    inherited = edge.child._total_visits
+    inherited = child._total_visits
     root2 = mcts_search(
         live, policy._inference_model, policy._inference_encoder, cfg,
-        reuse_root=edge.child)
-    assert root2 is edge.child
+        reuse_root=child)
+    assert root2 is child
     # Each simulation backs up exactly one root visit on top of the
     # inherited statistics.
     assert root2._total_visits == inherited + cfg.n_simulations
@@ -794,3 +798,122 @@ def test_gumbel_root_search_integration():
     target = extract_gumbel_policy_target(root, cfg)
     total = sum(t[3] for t in target)
     assert abs(total - 1.0) < 1e-6
+
+
+# ---------------------------------------------------------------------
+# Chance nodes (per-visit outcome sampling)
+# ---------------------------------------------------------------------
+
+def test_seed_salt_samples_distinct_recruit_outcomes():
+    """Real sim: forks with DIFFERENT seed salts stepping the SAME
+    recruit action roll different traits (distinct state keys), while
+    unsalted forks reproduce one predetermined outcome -- the frozen
+    single-sample behavior chance nodes exist to fix."""
+    import random as _random
+    from classes import state_key
+    from tools.openers import recruit_type
+    from tools.scenario_pool import (
+        random_setup, build_scenario_gamestate, load_factions,
+    )
+    from tools.wesnoth_sim import WesnothSim
+
+    load_factions()
+    setup = random_setup(_random.Random(11), forced_faction=None)
+    gs = build_scenario_gamestate(setup)
+    sim = WesnothSim(gs, scenario_id=setup.scenario_id, max_turns=30)
+    side = sim.gs.global_info.current_side
+    unit_type = sim.gs.sides[side - 1].recruits[0]
+    action = recruit_type(unit_type)(sim.gs, side)
+    assert action is not None, "leader should be able to recruit at start"
+
+    # Unsalted forks: bit-exact determinism (replay contract).
+    keys_plain = set()
+    for _ in range(3):
+        f = sim.fork()
+        f.step(action)
+        keys_plain.add(state_key(f.gs))
+    assert len(keys_plain) == 1
+
+    # Salted forks: independent trait rolls.
+    keys_salted = set()
+    for i in range(6):
+        f = sim.fork()
+        f._seed_salt = f"test-salt-{i}"
+        f.step(action)
+        keys_salted.add(state_key(f.gs))
+    assert len(keys_salted) >= 2, (
+        "six independently-salted trait rolls should produce at "
+        "least two distinct outcomes"
+    )
+
+
+def _chance_stub_root():
+    """Root with ONE stochastic edge whose stub sim produces a NEW
+    distinct state on every fork+step (monotone counter)."""
+    from classes import GameState, GlobalInfo, Map, SideInfo
+
+    counter = {"n": 10}
+
+    def _mk_gs(turn):
+        return GameState(
+            game_id="t",
+            map=Map(size_x=4, size_y=4, mask=set(), fog=set(),
+                    hexes=set(), units=set()),
+            global_info=GlobalInfo(
+                current_side=2, turn_number=turn, time_of_day="dawn",
+                village_gold=2, village_upkeep=1, base_income=2,
+            ),
+            sides=[SideInfo(player="x", recruits=[], current_gold=0,
+                            base_income=2, nb_villages_controlled=0)],
+        )
+
+    class _StubSim:
+        def __init__(self, turn=1):
+            self.gs = _mk_gs(turn)
+            self.done = False
+            self.winner = 0
+            self.ended_by = ""
+            self._seed_salt = ""
+        def fork(self):
+            return _StubSim(self.gs.global_info.turn_number)
+        def step(self, action):  # noqa: ARG002
+            counter["n"] += 1
+            self.gs = _mk_gs(counter["n"])
+
+    root = MCTSNode(_StubSim())
+    root.expanded = True
+    lap = LegalActionPrior(
+        action={"type": "attack"}, prior=1.0,
+        actor_idx=0, target_idx=None, weapon_idx=None, type_idx=None,
+    )
+    root.edges = [MCTSEdge(lap)]
+    return root
+
+
+def test_chance_nodes_accumulate_outcome_children():
+    import numpy as np
+    from tools.mcts import _select_one
+    root = _chance_stub_root()
+    edge = root.edges[0]
+    rng = np.random.default_rng(0)
+    for _ in range(4):
+        _select_one(root, c_puct=1.5, virtual_loss=0.0,
+                    chance_nodes=True, sample_rng=rng)
+    assert len(edge.children) == 4, (
+        "each traversal of a stochastic edge must sample a fresh "
+        "outcome child"
+    )
+
+
+def test_chance_nodes_off_freezes_first_sample():
+    import numpy as np
+    from tools.mcts import _select_one
+    root = _chance_stub_root()
+    edge = root.edges[0]
+    rng = np.random.default_rng(0)
+    for _ in range(4):
+        _select_one(root, c_puct=1.5, virtual_loss=0.0,
+                    chance_nodes=False, sample_rng=rng)
+    assert len(edge.children) == 1, (
+        "legacy mode: first sampled outcome is frozen"
+    )

@@ -120,9 +120,15 @@ class MCTSPolicy:
             with self._lock:
                 stash = self._reuse.pop(game_label, None)
             if stash is not None:
-                child, child_key = stash
-                if state_key(sim.gs) == child_key:
-                    reuse_root = child
+                # The stash maps outcome state_key -> searched child
+                # node. Deterministic actions have one entry; combat
+                # has one per sampled outcome -- if the live RNG
+                # produced an outcome the search visited, its subtree
+                # is reusable.
+                cand = stash.get(state_key(sim.gs))
+                if (cand is not None and cand.expanded
+                        and not cand.is_terminal):
+                    reuse_root = cand
         root = mcts_search(
             sim,
             self._inference_model,
@@ -172,20 +178,20 @@ class MCTSPolicy:
                 _PendingMCTSState(gs=game_state, visit_counts=visits,
                                   side=side)
             )
-        # Stash the played edge's subtree for state-key-checked reuse
-        # at the next decision. Action dicts are returned by identity
-        # from the edge, so `is` finds the edge; `==` is the fallback
-        # for wrappers that copy.
+        # Stash the played edge's outcome children for
+        # state-key-checked reuse at the next decision. Action dicts
+        # are returned by identity from the edge, so `is` finds the
+        # edge; `==` is the fallback for wrappers that copy.
         if self._mcts_config.tree_reuse:
             edge = next(
                 (e for e in root.edges
                  if e.action is action or e.action == action), None)
-            if (edge is not None and edge.child is not None
-                    and edge.child.expanded
-                    and not edge.child.is_terminal):
-                with self._lock:
-                    self._reuse[game_label] = (
-                        edge.child, state_key(edge.child.sim.gs))
+            if edge is not None and edge.children:
+                stash = {k: n for k, n in edge.children.items()
+                         if isinstance(k, int)}   # skip error sentinel
+                if stash:
+                    with self._lock:
+                        self._reuse[game_label] = stash
         return action
 
     def observe(self, game_label: str, side: int, reward: float,

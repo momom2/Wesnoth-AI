@@ -70,11 +70,33 @@ hex-distance (fraught). Low priority — MCTS mode doesn't pay it.
   subtree iff state_key(live gs) == state_key(searched child gs).
   Deterministic actions match and inherit; combat RNG divergence
   auto-rebuilds. `--mcts-no-tree-reuse` disables.
-  STILL OPEN (deferred by user until after Gumbel+tiebreak): chance
-  nodes for combat inside the search — single-sample
-  determinization remains; options are stochastic-MuZero-style
-  chance nodes (Antonoglou et al. 2022) or expected-value backup
-  via our exact combat oracle.
+  FOLLOW-UP (2026-06-12, user design review): EV-backup REJECTED —
+  Wesnoth strategy is convex in combat outcomes (concentrate on
+  high rolls, spread on low ones), so the correct backup is
+  E[max(response)|outcome], not max(response to E[outcome]).
+  Approved ladder instead:
+  - [x] Tier 3 substrate (DONE 2026-06-12): sample-per-visit
+    chance nodes. Edges hold children keyed by outcome state_key;
+    every traversal of a stochastic edge (attack/recruit) re-forks
+    under a fresh `_seed_salt` and re-steps, sampling the TRUE
+    distribution (sim is bit-exact). Deterministic edges keep the
+    single-child fast path. Combat tree-reuse now possible (live
+    outcome matches a sampled child). `--mcts-no-chance-nodes`
+    restores frozen-sample for A/B. Live sims never carry a salt
+    (replay-export contract untouched).
+  - [ ] Tier 1: exact outcome enumeration — port the engine's
+    prob_matrix DP (see docs/wesnoth_rules.md "Combat-outcome
+    prediction") into combat_oracle; exact-probability selection /
+    backup below the 50,000 complexity threshold; stop re-rolling
+    once support is enumerated.
+  - [ ] Tier 2: event hard-split (kill/level/status boundaries are
+    TYPE boundaries — never merged) + HP-quantile buckets within a
+    class sharing priors/edges off ONE representative forward while
+    sampling real members per visit (unbiased values); merge by
+    value-closeness, UNMERGE by visit pressure (OGA-style
+    refinement; fixes the net-can't-see-it-yet circularity).
+  - [ ] Later, with compute: learned outcome codebook
+    (Stochastic-MuZero-style) replacing the hand-split.
 - [x] 🟠 **Gumbel AlphaZero root** (DONE 2026-06-12, default ON):
   Gumbel-Top-k candidates (m=16) + sequential halving + argmax
   (g + logits + σ(q̂)) at the root; completed-Q policy targets

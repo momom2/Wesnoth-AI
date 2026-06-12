@@ -78,7 +78,7 @@ def _make_edge(prior: float = 0.5) -> MCTSEdge:
 def _attach(parent: MCTSNode, child: MCTSNode,
             prior: float = 0.5) -> MCTSEdge:
     edge = _make_edge(prior=prior)
-    edge.child = child
+    edge.children = {id(child): child}
     parent.edges.append(edge)
     return edge
 
