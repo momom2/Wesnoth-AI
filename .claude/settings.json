@@ -1,4 +1,10 @@
 {
+  "permissions": {
+    "deny": [
+      "Edit(C:/Program Files (x86)/Steam/steamapps/common/wesnoth/**)",
+      "Write(C:/Program Files (x86)/Steam/steamapps/common/wesnoth/**)"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
