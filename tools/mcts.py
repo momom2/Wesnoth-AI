@@ -120,6 +120,31 @@ _STOCHASTIC_ACTION_TYPES = frozenset({"attack", "recruit"})
 # on a malformed post-error state could itself raise).
 _STEP_ERROR_KEY = "step_error"
 
+# Children-dict key for a NO-OP resample: a stochastic step that
+# advanced the game by nothing observable, so state_key(child) ==
+# state_key(parent). The canonical case is a recruit attempt on a
+# fog-occupied castle hex: the sim adds the hex to the per-turn
+# rejection set and returns WITHOUT applying anything (see
+# wesnoth_sim.step's __retry_recruit__ branch), and the rejection
+# set is deliberately EXCLUDED from state_key (it's per-turn
+# observable history, not game state). Descending into such a child
+# is catastrophic: the per-search transposition table maps the
+# unchanged key back to the PARENT node, so child IS parent and the
+# selection descent self-loops forever, forking a sim per iteration
+# until the process OOMs (observed 2026-06-13: one game ran 3.5h
+# then MemoryError'd in _select_one's path.append). Routing no-ops
+# to a distinct pseudo-terminal sentinel (NOT shared via the
+# transposition table) stops the loop, lets the edge accrue visits
+# so PUCT stops over-selecting it, and backs up a neutral value.
+_NOOP_KEY = "noop"
+
+# Hard cap on selection-descent depth. No legitimate line of play in
+# our games (max_turns ~24, low-hundreds of actions/turn worst case)
+# approaches this; exceeding it means an undiscovered cycle, so we
+# break and treat the current node as the leaf rather than hang.
+# Defense-in-depth behind the _NOOP_KEY guard above.
+_MAX_SELECT_DEPTH = 4096
+
 # Sentinel: edge.outcome_probs not yet computed (None = computed and
 # unavailable -> pure sampling).
 _OUTCOMES_UNSET = "unset"
@@ -598,6 +623,13 @@ def _select_one(
     path: List[Tuple[MCTSNode, MCTSEdge]] = []
     node = root
     while node.expanded and not node.is_terminal:
+        if len(path) >= _MAX_SELECT_DEPTH:
+            # Cycle backstop (see _MAX_SELECT_DEPTH): treat the
+            # current node as the leaf rather than descend forever.
+            log.warning(
+                "mcts: selection depth hit %d; breaking (cycle?). "
+                "Treating current node as leaf.", _MAX_SELECT_DEPTH)
+            break
         if forced_first_edge is not None:
             # Gumbel sequential halving pins the ROOT edge; interior
             # selection below stays PUCT.
@@ -665,14 +697,29 @@ def _select_one(
                     child_sim.winner = 0
                     child_sim.ended_by = "step_error"
                     step_error = True
-                if step_error:
+                noop = (not step_error
+                        and (getattr(child_sim, "last_step_rejected", False)
+                             or state_key(child_sim.gs)
+                             == state_key(node.sim.gs)))
+                if step_error or noop:
                     # state_key on a malformed post-error state could
                     # itself raise; park all error outcomes under one
-                    # sentinel child.
-                    child = edge.children.get(_STEP_ERROR_KEY)
+                    # sentinel child. A NO-OP resample (e.g. a recruit
+                    # rejected on a fog-occupied hex) is routed the
+                    # same way: its unchanged state_key would alias
+                    # the parent through the transposition table and
+                    # self-loop the descent forever (see _NOOP_KEY).
+                    # Mark the sentinel sim terminal so the descent
+                    # stops here and a neutral value backs up.
+                    sentinel = _STEP_ERROR_KEY if step_error else _NOOP_KEY
+                    child = edge.children.get(sentinel)
                     if child is None:
+                        if noop:
+                            child_sim.done = True
+                            child_sim.winner = 0
+                            child_sim.ended_by = "noop_resample"
                         child = MCTSNode(child_sim)
-                        edge.children[_STEP_ERROR_KEY] = child
+                        edge.children[sentinel] = child
                 else:
                     key = state_key(child_sim.gs)
                     child = edge.children.get(key)
@@ -707,7 +754,21 @@ def _select_one(
                             dist.defender_id)
                         p_o = dist.probs.get(okey)
                         if p_o is None:
-                            log.warning(
+                            # Expected graceful fallback, NOT an error:
+                            # the DP occasionally misses a rare-tail
+                            # outcome on complex mid-game combats
+                            # (pre-existing slow/poison, backstab /
+                            # leadership / illuminate shifts, swarm /
+                            # berserk). We distrust the whole
+                            # distribution for this edge and sample
+                            # instead -- always correct, just slower.
+                            # debug-level because it fired ~1866x in a
+                            # 44-iter overnight run and flooded the log
+                            # (2026-06-13); the loss is enumeration
+                            # speedup on that edge, not correctness.
+                            # BACKLOG (Tier-2 outcome modeling) tracks
+                            # closing the gap.
+                            log.debug(
                                 "mcts: sampled combat outcome absent "
                                 "from exact support; disabling "
                                 "enumeration for this edge")
@@ -870,6 +931,17 @@ def _run_one_sim(
     if leaf.is_terminal:
         v = _terminal_value(leaf.sim, leaf.side, config.draw_tiebreak)
         _backup(path, v, leaf.side, 0.0, leaf_is_terminal=True)
+        return
+    if leaf.expanded:
+        # Depth-cap break (see _MAX_SELECT_DEPTH) returned an already-
+        # expanded interior node. Re-running _populate_leaf would
+        # REPLACE leaf.edges and discard its accumulated stats, so
+        # back up its stored value estimate instead.
+        _backup(
+            path, leaf.value, leaf.side, 0.0,
+            leaf_cliffness=leaf.cliffness,
+            bootstrap_alpha=config.cliffness_bootstrap_alpha,
+        )
         return
     with torch.no_grad():
         encoded = encoder.encode(leaf.sim.gs)
@@ -1105,6 +1177,17 @@ def mcts_search(
                     leaf_cliffness=0.0,
                     bootstrap_alpha=0.0,
                     leaf_is_terminal=True,
+                )
+                sims_done += 1
+            elif leaf.expanded:
+                # Depth-cap break (see _MAX_SELECT_DEPTH): already-
+                # expanded interior node. Back up its stored value
+                # rather than re-populating (which would wipe its
+                # edge stats); don't add it to the forward batch.
+                _backup(
+                    path, leaf.value, leaf.side, V_LOSS,
+                    leaf_cliffness=leaf.cliffness,
+                    bootstrap_alpha=config.cliffness_bootstrap_alpha,
                 )
                 sims_done += 1
             else:

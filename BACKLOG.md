@@ -150,6 +150,36 @@ strategies; cluster economy).
 
 ## MCTS effectiveness roadmap (2026-06-11, profiling-driven)
 
+- [x] 🔴 **No-op-resample self-loop OOM** (FIXED 2026-06-13). First
+  overnight MCTS run (warm-start 5.68M, mini0.5/drill0.3/ladder0.2,
+  32 sims) crashed: one game ran 3.5h then MemoryError'd in
+  `_select_one`'s `path.append`, and the process was OOM-killed at
+  iter 44 (~5h, not the 9h budget). Root cause: a `recruit`
+  attempted on a fog-occupied castle hex returns from
+  `wesnoth_sim.step` via the `__retry_recruit__` branch WITHOUT
+  changing game state (only the per-turn rejection set, which
+  `state_key` deliberately excludes). Under chance-node resampling
+  that yields `state_key(child) == state_key(parent)`; the
+  per-search transposition table maps the unchanged key back to the
+  PARENT node, so `child IS parent` and the selection descent
+  self-loops forever, forking a sim per iteration → OOM. The
+  deadline is only checked between sims, never inside `_select_one`,
+  so it hung indefinitely. Fix (tools/mcts.py): a no-op resample
+  (detected via `last_step_rejected` OR unchanged state_key) is
+  routed to a `_NOOP_KEY` pseudo-terminal sentinel — NOT shared via
+  the TT — so the descent stops, the edge still accrues a visit
+  (PUCT stops over-selecting it), and a neutral value backs up. Plus
+  a defense-in-depth `_MAX_SELECT_DEPTH=4096` descent cap (and the
+  `_run_one_sim` / batched paths back up an already-expanded
+  break-leaf's stored value instead of re-`_populate_leaf`-ing it,
+  which would wipe edge stats). Regression test
+  `test_noop_resample_does_not_self_loop` reproduces the exact
+  self-loop and asserts bounded termination. The
+  `test_transposition_shares_node_across_paths` test had even
+  documented this hazard in a comment ("would descend the root→root
+  self-loop forever") — it just never fired until a no-op step made
+  a real child collide with its parent.
+
 Baseline profile on the recovery laptop (CPU, 25 sims):
 ~180ms/simulation = 118ms legal-action enumeration + 44ms model
 forward + 14ms encode. Enumeration was 2.6x the forward, mostly
@@ -225,6 +255,23 @@ hex-distance (fraught). Low priority — MCTS mode doesn't pay it.
     1.18.4 so the weight can't matter beyond its >0 filter),
     exact P(touched) where the engine approximates, deterministic
     v1 fallback where the engine would go Monte-Carlo.
+  - 📋 **DP-support mismatch on complex mid-game combats**
+    (characterized 2026-06-13). The "sampled outcome absent from
+    exact support → disable enumeration for this edge" fallback
+    fired ~1866× in the first overnight MCTS run (44 iters). It is
+    a SAFE graceful degradation (falls back to sampling the true
+    sim; no incorrectness) and is NOT a regression from the
+    counter-weapon port — combat behavior is unchanged and the DP
+    cross-check tests pass. Empirically it does NOT reproduce on
+    turn-1 leader combats: 0 absent over 2000+ controlled samples
+    across drill/mini AND 243 ladder leader-fights. It only bites
+    deep mid-game states the probe can't reach (pre-existing
+    slow/poison combatants, backstab/leadership/illuminate cth
+    shifts, recruited swarm/berserk units). Action taken: warning
+    downgraded to debug (it flooded the overnight log). Tier-2
+    work below should close the gap and re-enable enumeration on
+    those edges. Worth a targeted repro (mid-game save + each
+    mechanic) before then to pin the exact missing transition.
   - [ ] Tier 2: event hard-split (kill/level/status boundaries are
     TYPE boundaries — never merged) + HP-quantile buckets within a
     class sharing priors/edges off ONE representative forward while

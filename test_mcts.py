@@ -512,6 +512,98 @@ def test_transposition_disabled_creates_separate_nodes():
 
 
 # ---------------------------------------------------------------------
+# No-op resample self-loop guard (the 2026-06-13 OOM regression)
+# ---------------------------------------------------------------------
+
+def test_noop_resample_does_not_self_loop():
+    """A stochastic edge whose resampled step is a NO-OP (state_key
+    unchanged) must NOT make the chance-node descent self-loop.
+
+    Root cause of the 2026-06-13 overnight OOM: a recruit attempted
+    on a fog-occupied castle hex returns from `step()` without
+    changing anything except the per-turn rejection set, which is
+    deliberately EXCLUDED from `state_key`. So `state_key(child) ==
+    state_key(parent)`; the per-search transposition table then maps
+    that key back to the PARENT node, `child IS parent`, and the
+    selection descent loops forever forking a sim per iteration until
+    the process OOMs (one game ran 3.5h then MemoryError'd in
+    `_select_one`'s `path.append`).
+
+    The fix routes a no-op resample to the `_NOOP_KEY` pseudo-terminal
+    sentinel (not shared via the TT), so the descent stops. This test
+    builds exactly that setup and asserts `_select_one` returns with a
+    bounded path and a terminal leaf.
+    """
+    from tools.mcts import _select_one, _NOOP_KEY
+    from classes import GameState, GlobalInfo, Map, SideInfo, state_key
+
+    def _mk_gs():
+        return GameState(
+            game_id="t",
+            map=Map(size_x=4, size_y=4, mask=set(), fog=set(),
+                    hexes=set(), units=set()),
+            global_info=GlobalInfo(
+                current_side=1, turn_number=5, time_of_day="dawn",
+                village_gold=2, village_upkeep=1, base_income=2,
+            ),
+            sides=[SideInfo(player="x", recruits=[], current_gold=0,
+                            base_income=2, nb_villages_controlled=0)],
+        )
+
+    # Stub sim whose step() is a NO-OP: the child gs hashes to the
+    # same state_key as the parent -- exactly the fog-rejected-recruit
+    # case. `last_step_rejected` mirrors what wesnoth_sim sets on the
+    # __retry_recruit__ bail-out.
+    class _NoopSim:
+        def __init__(self):
+            self.gs = _mk_gs()
+            self.done = False
+            self.winner = 0
+            self.ended_by = ""
+            self.last_step_rejected = False
+            self._seed_salt = None
+
+        def fork(self):
+            return _NoopSim()
+
+        def step(self, action):  # noqa: ARG002
+            # No observable state change (only a rejection-set update
+            # in the real sim, which state_key excludes).
+            self.last_step_rejected = True
+
+    import numpy as np
+
+    root = MCTSNode(_NoopSim())
+    root.expanded = True
+    # A single STOCHASTIC recruit edge -- resample fires under
+    # chance_nodes, and its step is the no-op above.
+    lap = LegalActionPrior(
+        action={"type": "recruit", "unit_type": "Spearman",
+                "target_hex": SimpleNamespace(x=1, y=1)},
+        prior=1.0, actor_idx=0, target_idx=None,
+        weapon_idx=None, type_idx=None,
+    )
+    edge = MCTSEdge(lap)
+    root.edges.append(edge)
+
+    tt = {state_key(root.sim.gs): root}
+    leaf, path = _select_one(
+        root, c_puct=1.5, virtual_loss=0.0,
+        transpositions=tt,
+        chance_nodes=True,
+        sample_rng=np.random.default_rng(0),
+    )
+
+    # Terminated (no hang), bounded path, routed to the sentinel.
+    assert len(path) == 1, f"expected a 1-edge path, got {len(path)}"
+    assert leaf.is_terminal, "no-op leaf must be pseudo-terminal"
+    assert _NOOP_KEY in edge.children, (
+        "no-op resample must be parked under the _NOOP_KEY sentinel")
+    # The sentinel child must NOT be the parent (that was the loop).
+    assert edge.children[_NOOP_KEY] is not root
+
+
+# ---------------------------------------------------------------------
 # End-to-end smoke: --mcts CLI flag actually runs sim_self_play
 # ---------------------------------------------------------------------
 
