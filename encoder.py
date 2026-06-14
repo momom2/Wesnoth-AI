@@ -178,6 +178,19 @@ class EncodedState:
     # to the device hop when this field is missing.
     recruit_is_ours_np: Optional[np.ndarray] = None
 
+    # Visible-unit id set (optimization #3, 2026-06-14). The encoder
+    # only emits VISIBLE units (units_visible_to), so the ids in
+    # `unit_ids` ARE the fog-visible set for `current_side` -- exactly
+    # what action_sampler._build_legality_masks needs to decide which
+    # enemies are hidden. Stashing it here lets the sampler skip a
+    # SECOND units_visible_to() call per decision (it was computing
+    # the identical set independently). Keyed by stable `u.id` (not
+    # python id()), so it stays correct even if the EncodedState is
+    # paired with a deep-copied GameState. `None` => sampler falls
+    # back to recomputing (hand-built EncodedState / tests), so
+    # behavior is unchanged there.
+    visible_unit_ids: Optional[frozenset] = None
+
 
 # ---------------------------------------------------------------------
 # Two-phase encoding split
@@ -598,6 +611,7 @@ class GameStateEncoder(nn.Module):
             global_token=global_token,
             end_turn_token=self.end_turn_token.view(1, 1, -1),
             recruit_is_ours_np=raw.recruit_is_ours,  # zero-copy view
+            visible_unit_ids=frozenset(raw.unit_ids),  # opt #3
         )
 
     def encode_from_raw_batch(
@@ -762,6 +776,7 @@ class GameStateEncoder(nn.Module):
                 global_token=global_emb[b:b + 1].unsqueeze(1),  # [1, 1, d]
                 end_turn_token=end_turn_token,
                 recruit_is_ours_np=raw.recruit_is_ours,
+                visible_unit_ids=frozenset(raw.unit_ids),  # opt #3
             ))
         return results
 

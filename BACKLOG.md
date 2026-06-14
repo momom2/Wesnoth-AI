@@ -150,6 +150,59 @@ strategies; cluster economy).
 
 ## MCTS effectiveness roadmap (2026-06-11, profiling-driven)
 
+- [x] ⚡ **Profile-driven CPU optimization pass** (LANDED 2026-06-14,
+  46-agent review workflow + adversarial A/B verification). The model
+  forward is ~66-80% of MCTS rollout (the immovable ceiling without a
+  retrain); the wins cut forward overhead/count and dead Python work
+  around it. All seven shipped; combat/RNG/terrain were verified
+  off-limits (sub-1% AND parity-critical). Full suite 286 passed.
+  1. **torch.set_num_threads knob** (`--torch-threads`, default 4 /
+     $WAI_TORCH_THREADS) -- per-leaf states are tiny (~48 tokens);
+     the default all-cores pool oversubscribes. Measured ~1.3-2.3x
+     end-to-end on this laptop. Only reorders float reductions
+     (~1e-7); integer combat RNG / state_key / mask untouched.
+  2. **Lazy `marginal_type_logits`** (model.py) -- was ~5-9% of every
+     forward but only a test reads it; now a recompute-on-access
+     property. Byte-identical.
+  3. **Visibility dedup** -- the sampler recomputed `units_visible_to`
+     that the encoder already had; now reuses it via
+     `EncodedState.visible_unit_ids` (keyed by stable u.id, fallback
+     to recompute for hand-built encodeds).
+  4. **Vectorized `visible_hexes_for`** (visibility.py) -- numpy
+     sight-disc, bit-identical to the scalar `_hex_distance`
+     (test_visibility::test_visible_hexes_vectorized_matches_scalar).
+  5. **Vectorized MCTS policy loss** (trainer.py) -- groups per-tuple
+     NLL into one index_select+sum per cached log-prob vector,
+     backward graph O(tuples)->O(vectors), ~1.3-2x step_mcts in the
+     Gumbel regime. NOT bit-identical (float reassociation); gated by
+     `TrainerConfig.vectorized_mcts_policy_loss` (default True) and
+     tolerance-tested (test_mcts_policy_loss_vectorized: loss + every
+     grad within 1e-5 of the loop).
+  6. **Skip dead shaping in MCTS** -- `uses_step_rewards=False` on
+     MCTSPolicy gates out the per-step compute_delta Dijkstra (its
+     output is discarded; observe is a no-op). Recruit-success
+     diagnostic recovered via a cheap unit-count diff. Kills
+     straggler Dijkstra spikes.
+  7. **step_mcts forwards in eval()** -- the 9 Dropout(1e-4) no-op
+     layers skipped; value-head training forward now deterministic.
+  Rejected (do not revisit): memoizing terrain/combat-unit lookups
+  (sub-0.2% in real MCTS), MTRng twiddling (FORBIDDEN -- breaks
+  731/731 parity), MHA fast-path flip (CPU wash). NOT re-measured
+  post-landing under the live training run's CPU contention; do a
+  clean before/after on the next idle run.
+
+- 📋 **Ladder maps produce ZERO leaderkills** (measured 2026-06-14,
+  iter-168 checkpoint). 8 ladder maps, best-play (argmax) MCTS,
+  24-turn cap: 0/8 decisive, and `closest_approach` to the enemy
+  leader was 8-38 hexes -- the army never even threatens the leader
+  on full maps in 24 turns. So all ~28 decisive games in the
+  overnight runs were mini/drill; the 20% ladder share contributes
+  only draw-tiebreak signal. Curriculum lever for a future run:
+  longer turn cap on ladder maps and/or a distance-closing
+  incentive. NOTE: GameOutcome does not record scenario_id, so this
+  isn't answerable from training logs -- worth adding a per-game
+  scenario+winner log line so it is.
+
 - [x] 🔴 **No-op-resample self-loop OOM** (FIXED 2026-06-13). First
   overnight MCTS run (warm-start 5.68M, mini0.5/drill0.3/ladder0.2,
   32 sims) crashed: one game ran 3.5h then MemoryError'd in

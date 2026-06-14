@@ -58,6 +58,9 @@ class TransformerPolicy:
     the optional training hooks ``observe`` and ``train_step``."""
 
     trainable = True
+    # REINFORCE consumes per-step shaping rewards (compute_delta +
+    # reward_fn); see optimization #6 and MCTSPolicy.uses_step_rewards.
+    uses_step_rewards = True
 
     def __init__(
         self,

@@ -68,6 +68,11 @@ class MCTSPolicy:
     """Wraps a `TransformerPolicy` to do MCTS+distillation."""
 
     trainable = True
+    # Optimization #6 (2026-06-14): MCTS distills terminal z, not
+    # per-step shaping -- `observe` is a no-op. Signals the rollout
+    # loop to skip the (expensive, Dijkstra-bearing) compute_delta +
+    # reward_fn calls entirely.
+    uses_step_rewards = False
 
     def __init__(self, base, mcts_config: Optional[MCTSConfig] = None):
         self._base = base

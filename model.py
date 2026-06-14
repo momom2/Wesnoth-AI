@@ -164,19 +164,26 @@ class ModelOutput:
     num_recruits:  int
 
     # Diagnostic: marginal-over-actors probability of each action
-    # type. Useful for "what % of decisions did the policy attack?"
-    # logging and as a coarse PUCT prior at the type level.
-    # Computed by the model after softmaxing actor_logits and
-    # type_logits, summing P(actor) * P(type | actor) over UNIT
-    # actors (with -inf masking elsewhere). Shape [1, T+2] where
-    # the extra two indices capture aggregated RECRUIT and END_TURN
-    # mass (so the sum across the four leaf-action-types equals 1
-    # given a legal action distribution). Layout:
+    # type. Layout [1, T+2]:
     #   0: ATTACK   (sum_unit_actors P(unit) * P(attack | unit))
     #   1: MOVE     (sum_unit_actors P(unit) * P(move   | unit))
     #   2: RECRUIT  (sum_recruit_actors P(recruit_slot))
     #   3: END_TURN (P(end_turn_slot))
-    marginal_type_logits: torch.Tensor  # [1, T+2]
+    #
+    # LAZY (optimization #2, 2026-06-14): this was a per-forward field
+    # costing ~5-9% of every forward (two extra softmaxes + reductions),
+    # but the ONLY reader is test_action_type_head.py -- self-play and
+    # the trainer never touch it. It is now computed on demand from the
+    # logits already stored on this dataclass, so the hot path pays
+    # nothing. Recompute-on-access (no cache) is fine: the sole reader
+    # touches it a handful of times.
+    @property
+    def marginal_type_logits(self) -> torch.Tensor:  # [1, T+2]
+        return _compute_marginal_type_logits(
+            self.actor_logits, self.type_logits,
+            self.num_units, self.num_recruits,
+            self.actor_logits.device,
+        )
 
 
 class WesnothModel(nn.Module):
@@ -345,14 +352,9 @@ class WesnothModel(nn.Module):
                  - value.pow(2)).clamp_min(0)
         cliffness = var_v.sqrt()                                  # [B, 1]
 
-        # Diagnostic marginal: aggregated probability of each leaf-
-        # action-type across the whole actor distribution. Useful for
-        # logging "what % of decisions did the policy attack?" and
-        # as a coarse PUCT prior at the leaf-type level.
-        marginal_type_logits = _compute_marginal_type_logits(
-            actor_logits, type_logits, U, R, device,
-        )
-
+        # marginal_type_logits is now a lazy property on ModelOutput
+        # (optimization #2) -- not computed here; the sole reader is a
+        # test, and self-play/training never touch it.
         return ModelOutput(
             actor_logits=actor_logits,
             actor_kind=actor_kind,
@@ -364,7 +366,6 @@ class WesnothModel(nn.Module):
             cliffness=cliffness,
             num_units=U,
             num_recruits=R,
-            marginal_type_logits=marginal_type_logits,
         )
 
     # ------------------------------------------------------------------
@@ -541,10 +542,7 @@ class WesnothModel(nn.Module):
             value_logits_sample = value_logits_b[b:b+1]    # [1, K]
             cliffness_sample = cliffness_b[b:b+1]          # [1, 1]
 
-            marginal_type_logits = _compute_marginal_type_logits(
-                actor_logits, type_logits, U_b, R_b, device,
-            )
-
+            # marginal_type_logits: lazy property (optimization #2).
             outputs.append(ModelOutput(
                 actor_logits=actor_logits,
                 actor_kind=actor_kind,
@@ -556,6 +554,5 @@ class WesnothModel(nn.Module):
                 cliffness=cliffness_sample,
                 num_units=U_b,
                 num_recruits=R_b,
-                marginal_type_logits=marginal_type_logits,
             ))
         return outputs

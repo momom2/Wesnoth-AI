@@ -1071,13 +1071,27 @@ def _build_legality_masks(
     # dict (combat-oracle priors below need actual enemy refs;
     # we only emit refs for visible enemies) and the occupancy
     # array. Hidden enemies don't appear in either.
-    from visibility import units_visible_to as _units_visible_to
-    visible_unit_ids = {id(u) for u in _units_visible_to(
-        game_state, current_side)}
+    #
+    # Optimization #3 (2026-06-14): reuse the visible set the ENCODER
+    # already computed (stashed on EncodedState.visible_unit_ids,
+    # keyed by stable u.id) instead of calling units_visible_to a
+    # second time per decision. Falls back to the independent
+    # recompute (keyed by python id()) when the field is absent --
+    # hand-built EncodedState / tests -- so behavior is unchanged
+    # there. Both paths identify the same hidden enemies.
+    if encoded.visible_unit_ids is not None:
+        visible_unit_ids = encoded.visible_unit_ids   # by u.id
+        _use_obj_id = False
+    else:
+        from visibility import units_visible_to as _units_visible_to
+        visible_unit_ids = {id(u) for u in _units_visible_to(
+            game_state, current_side)}
+        _use_obj_id = True
     occupancy = np.zeros(H, dtype=np.int8)
     unit_at: Dict[Tuple[int, int], Unit] = {}
     for u in game_state.map.units:
-        if u.side != current_side and id(u) not in visible_unit_ids:
+        _vis_key = id(u) if _use_obj_id else u.id
+        if u.side != current_side and _vis_key not in visible_unit_ids:
             # Hidden enemy: leave occupancy=0 and DON'T add to
             # unit_at. The hex looks empty to the legality mask;
             # the policy may attempt to move into it; the sim

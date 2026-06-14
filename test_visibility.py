@@ -236,6 +236,50 @@ def test_visible_hexes_radius_disc():
     assert vis == expected
 
 
+def _scalar_visible(state, side):
+    """Reference: the pre-optimization scalar sight-disc computation,
+    using the module's verbatim `_hex_distance`. The vectorized
+    `visible_hexes_for` (optimization #4) must match this exactly."""
+    out = set()
+    our = [u for u in state.map.units if u.side == side]
+    coords = [(h.position.x, h.position.y) for h in state.map.hexes]
+    for u in our:
+        r = visibility.sight_radius_for(u)
+        ux, uy = u.position.x, u.position.y
+        for hx, hy in coords:
+            if visibility._hex_distance(ux, uy, hx, hy) <= r:
+                out.add((hx, hy))
+    return out
+
+
+def test_visible_hexes_vectorized_matches_scalar():
+    """Optimization #4: the numpy-vectorized sight disc is BIT-
+    IDENTICAL to the scalar `_hex_distance` loop. Units span both
+    column parities and low/high rows so the odd-q vertical-penalty
+    branches (a_even & ~b_even & ay<=by) AND (b_even & ~a_even &
+    by<=ay) are both exercised, plus varied radii."""
+    hexes = _hexes_grid(14, 7)
+    units = []
+    for uid, x, y, mv in [("a", 2, 0, 2), ("b", 5, 3, 3),
+                          ("c", 8, 6, 4), ("d", 11, 1, 1),
+                          ("e", 7, 5, 5)]:
+        u = _unit(uid, x=x, side=1, max_moves=mv)
+        u.position = Position(x=x, y=y)   # _unit hardcodes y=0
+        units.append(u)
+    # An enemy unit too, to confirm side filtering is unaffected.
+    e = _unit("z", x=4, side=2, max_moves=3)
+    e.position = Position(x=4, y=4)
+    units.append(e)
+    s = _state(units, hexes)
+    got = visibility.visible_hexes_for(s, 1)
+    ref = _scalar_visible(s, 1)
+    assert got == ref, f"vectorized != scalar: {got ^ ref}"
+    # Sanity: result is non-trivial and python-int tuples (set
+    # membership parity with the scalar path).
+    assert got and all(isinstance(c[0], int) and isinstance(c[1], int)
+                       for c in got)
+
+
 def test_visible_fraction_in_unit_interval():
     units = [_unit('u', x=5, side=1, max_moves=2)]
     s = _state(units, _hexes_grid(20))

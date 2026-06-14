@@ -326,6 +326,11 @@ def play_one_game(
     # `_pending` entries leak.
     last_acting_side: Dict[int, bool] = {}
 
+    # Optimization #6: skip per-step shaping when the policy ignores
+    # it (MCTS). Read the flag once. Default True keeps any unknown
+    # policy on the REINFORCE behavior.
+    uses_step_rewards = getattr(policy, "uses_step_rewards", True)
+
     while not sim.done:
         acting_side = sim.gs.global_info.current_side
         # Snapshot the state BEFORE the step. Two reasons it has to
@@ -462,23 +467,41 @@ def play_one_game(
         # function has turn-conditional bonuses configured; doing it
         # unconditionally would retain a deepcopy-equivalent
         # reference per Transition.
-        attach_post = bool(getattr(reward_fn,
-                                   "turn_conditional_bonuses", None))
-        delta = compute_delta(
-            pre_state, sim.gs, atype,
-            recruit_cost=recruit_cost,
-            outcome=OUTCOME_ONGOING,
-            game_label=game_label,
-            attach_post_state=attach_post,
-        )
-        step_r = reward_fn(delta)
-        # Count successful recruits (state delta confirms a unit
-        # appeared). units_recruited is a tuple of names; empty
-        # if the recruit didn't actually land.
-        if atype == "recruit" and delta.units_recruited:
+        if uses_step_rewards:
+            attach_post = bool(getattr(reward_fn,
+                                       "turn_conditional_bonuses", None))
+            delta = compute_delta(
+                pre_state, sim.gs, atype,
+                recruit_cost=recruit_cost,
+                outcome=OUTCOME_ONGOING,
+                game_label=game_label,
+                attach_post_state=attach_post,
+            )
+            step_r = reward_fn(delta)
+            # Count successful recruits (state delta confirms a unit
+            # appeared). units_recruited is a tuple of names; empty
+            # if the recruit didn't actually land.
+            recruited = (len(delta.units_recruited)
+                         if atype == "recruit" else 0)
+        else:
+            # Optimization #6: MCTS discards per-step shaping (observe
+            # is a no-op; z comes from the winner), so skip the
+            # compute_delta Dijkstra entirely. Recover ONLY the
+            # recruit-success diagnostic via a cheap pre/post
+            # unit-count diff (a recruit adds exactly one unit, or
+            # zero if it bounced) -- benchmarked equal to
+            # delta.units_recruited.
+            step_r = 0.0
+            recruited = 0
+            if atype == "recruit":
+                pre_n = sum(1 for u in pre_state.map.units
+                            if u.side == acting_side)
+                post_n = sum(1 for u in sim.gs.map.units
+                             if u.side == acting_side)
+                recruited = max(0, post_n - pre_n)
+        if atype == "recruit" and recruited:
             n_recruits_per_side[acting_side] = (
-                n_recruits_per_side.get(acting_side, 0)
-                + len(delta.units_recruited))
+                n_recruits_per_side.get(acting_side, 0) + recruited)
         policy.observe(game_label, acting_side, step_r, done=False)
         last_acting_side[acting_side] = True
         if acting_side == 1:
@@ -1287,6 +1310,22 @@ def main(argv: List[str]) -> int:
                          f"Available: {', '.join(openers_mod.available()) or '(none)'}. "
                          f"Default: no opener; the model controls "
                          f"every decision from turn 1.")
+    ap.add_argument("--torch-threads", type=int, default=None,
+                    help="Cap torch's intra-op CPU thread pool "
+                         "(torch.set_num_threads). Default None reads "
+                         "$WAI_TORCH_THREADS, else 4. Optimization #1 "
+                         "(2026-06-14): the model forward is ~66-80%% "
+                         "of MCTS rollout but the per-leaf states are "
+                         "tiny (median ~48 tokens), where the default "
+                         "all-cores pool (10 on a 12-core box) loses "
+                         "to oversubscription -- capping to ~4 measured "
+                         "~1.3-2.3x end-to-end throughput. Only affects "
+                         "float reduction ORDER in the trunk (~1e-7 "
+                         "drift); combat synced-RNG, state_key, and the "
+                         "legality mask are integer/Python and "
+                         "untouched. Set per machine; pass 0 to leave "
+                         "torch's default. Lower this further when "
+                         "running multiple training processes.")
     ap.add_argument("--device", default=None,
                     help="Torch device for the policy. Accepts "
                          "'cuda' (cluster), 'cpu', 'dml' (local "
@@ -1421,6 +1460,22 @@ def main(argv: List[str]) -> int:
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
         datefmt="%H:%M:%S",
     )
+
+    # Optimization #1: cap torch's intra-op thread pool BEFORE the
+    # first forward (set_num_threads must precede any parallel op to
+    # take effect cleanly). See --torch-threads help. 0 = leave the
+    # torch default; None = $WAI_TORCH_THREADS or 4.
+    import os as _os
+    if args.torch_threads is None:
+        _n_threads = int(_os.environ.get("WAI_TORCH_THREADS", "4"))
+    else:
+        _n_threads = int(args.torch_threads)
+    if _n_threads > 0:
+        import torch as _torch
+        _was = _torch.get_num_threads()
+        _torch.set_num_threads(_n_threads)
+        log.info(f"torch intra-op threads {_was} -> {_n_threads} "
+                 f"(optimization #1)")
 
     rng = random.Random(args.seed)
     # Self-play seeds are now scenarios + random factions/leaders
