@@ -150,6 +150,28 @@ strategies; cluster economy).
 
 ## MCTS effectiveness roadmap (2026-06-11, profiling-driven)
 
+- [x] ⚡ **Experience replay + multi-epoch training** (LANDED +
+  A/B-validated 2026-06-15, default-off). Root-caused the plateau:
+  overfit probes showed the 0.54M model is NOT at capacity (both
+  heads fit a fixed batch to their info-theoretic floors), but the
+  value head needs ~80-100 gradient steps to converge on a batch
+  while the legacy schedule gave it ONE step per fresh high-variance
+  batch then discarded it -> value loss stuck ~3.5 (ln51=3.93 floor)
+  for 535 iters -> mushy MCTS targets -> policy plateau. Fix: bounded
+  replay buffer + N minibatch updates/iter (MCTSPolicy.ReplayConfig;
+  `--replay-buffer` etc; enabled=False = exact legacy path).
+  **A/B result (20 iters each from the same iter-535 warm-start,
+  same seed/curriculum, held-out eval on 48 fixed states):**
+  warm-start value_loss 3.44 -> control (replay off) 3.42 (flat) vs
+  treatment (replay on) **3.04** -- a 0.40 drop in 20 iters on the
+  SAME data, the first movement off the uniform floor in 535 iters.
+  grad-norm also smoother (~2 vs ~10-13). Caveats: value head only
+  partway converged (probe floor ~0.5); no behavioral payoff yet
+  (attack% / decisive flat at 20 iters) -- sharper play is downstream
+  of the value fn and needs a longer run. NEXT: a full replay run
+  (and try higher updates_per_iter / value_coef) to realize the
+  behavioral gain; this is now the primary lever, not model size.
+
 - [x] ⚡ **Profile-driven CPU optimization pass** (LANDED 2026-06-14,
   46-agent review workflow + adversarial A/B verification). The model
   forward is ~66-80% of MCTS rollout (the immovable ceiling without a
