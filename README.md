@@ -13,9 +13,13 @@ Two goals shape the design:
 
 ## Status (2026-06-11)
 
-- **Training is local-only.** The ENSTA Mesogip cluster is
-  permanently inaccessible (2026-06); the SLURM/sync/GUI
-  infrastructure was removed (preserved in git history).
+- **Training is local-only for now, but GPU-ready.** The ENSTA
+  Mesogip cluster is permanently inaccessible (2026-06); the
+  SLURM/sync/GUI infrastructure was removed (preserved in git
+  history). To run on new GPU/cloud compute, the self-play
+  entrypoint is device-aware — see
+  [docs/running_on_gpu.md](docs/running_on_gpu.md) (launch flags,
+  device-aware defaults, and the required first-run CUDA smoke).
   Reward/weight configs live in `configs/`. The project was
   recovered onto a new machine 2026-06-11; the replay corpus
   (`replays_raw/`, `replays_dataset/`) did not survive the move —

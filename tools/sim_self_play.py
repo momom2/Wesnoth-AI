@@ -1319,20 +1319,28 @@ def main(argv: List[str]) -> int:
                          f"every decision from turn 1.")
     ap.add_argument("--torch-threads", type=int, default=None,
                     help="Cap torch's intra-op CPU thread pool "
-                         "(torch.set_num_threads). Default None reads "
-                         "$WAI_TORCH_THREADS, else 4. Optimization #1 "
-                         "(2026-06-14): the model forward is ~66-80%% "
-                         "of MCTS rollout but the per-leaf states are "
-                         "tiny (median ~48 tokens), where the default "
-                         "all-cores pool (10 on a 12-core box) loses "
-                         "to oversubscription -- capping to ~4 measured "
-                         "~1.3-2.3x end-to-end throughput. Only affects "
-                         "float reduction ORDER in the trunk (~1e-7 "
-                         "drift); combat synced-RNG, state_key, and the "
-                         "legality mask are integer/Python and "
-                         "untouched. Set per machine; pass 0 to leave "
-                         "torch's default. Lower this further when "
-                         "running multiple training processes.")
+                         "(torch.set_num_threads). CPU-ONLY tuning: by "
+                         "default this is applied only on a CPU device "
+                         "(to ~4, or $WAI_TORCH_THREADS) -- on the tiny "
+                         "per-leaf states the all-cores pool loses to "
+                         "oversubscription (measured ~1.3-2.3x on CPU). "
+                         "On a CUDA/DML device it is NOT capped by "
+                         "default (the CPU-side MCTS/encoding wants all "
+                         "cores while the GPU does forwards). Pass an "
+                         "explicit value to force a cap on ANY device; "
+                         "pass 0 to force torch's default. Only affects "
+                         "float reduction order (~1e-7); combat RNG / "
+                         "state_key / mask are integer + untouched.")
+    ap.add_argument("--train-batch-size", type=int, default=None,
+                    help="forward_batch chunk size for the trainer "
+                         "(TrainerConfig.train_batch_size). THE key GPU "
+                         "knob: default None is device-aware -- 1 on "
+                         "CPU (batching these shapes doesn't help), 2 on "
+                         "DML (AMD-driver-stable), 128 on CUDA so the "
+                         "replay minibatch forwards as ONE batched call "
+                         "instead of 128 batch-1 calls (near-worst GPU "
+                         "utilization otherwise). Raise on a large GPU; "
+                         "lower if you hit OOM.")
     ap.add_argument("--device", default=None,
                     help="Torch device for the policy. Accepts "
                          "'cuda' (cluster), 'cpu', 'dml' (local "
@@ -1494,21 +1502,38 @@ def main(argv: List[str]) -> int:
         datefmt="%H:%M:%S",
     )
 
-    # Optimization #1: cap torch's intra-op thread pool BEFORE the
-    # first forward (set_num_threads must precede any parallel op to
-    # take effect cleanly). See --torch-threads help. 0 = leave the
-    # torch default; None = $WAI_TORCH_THREADS or 4.
+    # Resolve the device FIRST so device-specific tuning below (thread
+    # cap, train batch size) can key off it. (Was previously chosen
+    # later; moved up for cluster-readiness, 2026-06-15.)
     import os as _os
-    if args.torch_threads is None:
+    import torch
+    if args.device in ("auto", "dml", "directml"):
+        # Route through the helper so DML's `privateuseone:N` device
+        # object (not a valid torch.device string) is resolved.
+        from tools.device_select import select_inference_device
+        device = select_inference_device(args.device)
+    else:
+        device = torch.device(args.device) if args.device else None
+    _is_cpu = (device is None) or str(device).startswith("cpu")
+
+    # Optimization #1 (CPU-ONLY): cap torch's intra-op thread pool
+    # before the first forward. On CPU the tiny per-leaf states
+    # oversubscribe the all-cores pool; capping to ~4 measured
+    # ~1.3-2.3x. On a GPU device, leave the default so CPU-side
+    # MCTS/encoding can use all cores while the GPU does forwards --
+    # capping there would throttle the host pipeline. An explicit
+    # --torch-threads forces a cap on ANY device. See --torch-threads.
+    if args.torch_threads is not None:
+        _n_threads = int(args.torch_threads)           # explicit, any device
+    elif _is_cpu:
         _n_threads = int(_os.environ.get("WAI_TORCH_THREADS", "4"))
     else:
-        _n_threads = int(args.torch_threads)
+        _n_threads = 0                                 # GPU: torch default
     if _n_threads > 0:
-        import torch as _torch
-        _was = _torch.get_num_threads()
-        _torch.set_num_threads(_n_threads)
+        _was = torch.get_num_threads()
+        torch.set_num_threads(_n_threads)
         log.info(f"torch intra-op threads {_was} -> {_n_threads} "
-                 f"(optimization #1)")
+                 f"(CPU-only tuning; device={device})")
 
     rng = random.Random(args.seed)
     # Self-play seeds are now scenarios + random factions/leaders
@@ -1532,15 +1557,7 @@ def main(argv: List[str]) -> int:
     if args.mini_maps:
         log.info(f"  mini-maps active: {', '.join(active_pool)}")
 
-    import torch
-    if args.device in ("auto", "dml", "directml"):
-        # Route through the helper so DML's `privateuseone:N` device
-        # object (not a valid torch.device string) is resolved.
-        from tools.device_select import select_inference_device
-        device = select_inference_device(args.device)
-    else:
-        device = torch.device(args.device) if args.device else None
-
+    # (device already resolved above, before the thread-cap.)
     # When warm-starting from a checkpoint with non-default arch
     # (e.g. supervised_epoch3.pt at d_model=128 while
     # TransformerPolicy's default is d_model=512), build the policy
@@ -1566,6 +1583,21 @@ def main(argv: List[str]) -> int:
             )
 
     policy = TransformerPolicy(device=device, **arch_kwargs)
+    # train_batch_size: forward_batch chunk size. THE key GPU knob --
+    # TransformerPolicy defaults to 1 (CPU) / 2 (DML) and leaves CUDA
+    # at 1, so a CUDA run would forward the replay minibatch as
+    # batch-1 calls. Override to a batched size on CUDA. See
+    # --train-batch-size. (Read per-chunk as max(1, config.
+    # train_batch_size), so a post-construction set takes effect.)
+    if args.train_batch_size is not None:
+        _tbs = max(1, int(args.train_batch_size))
+    elif (device is not None) and str(device).startswith("cuda"):
+        _tbs = 128
+    else:
+        _tbs = policy._trainer.config.train_batch_size  # keep 1/2 default
+    policy._trainer.config.train_batch_size = _tbs
+    log.info(f"train_batch_size = {_tbs} (forward_batch chunk; "
+             f"device={device})")
     if args.value_coef is not None:
         # Override the value-loss weight (TrainerConfig default 0.5).
         # The trainer reads self.config.value_coef each step, so a
