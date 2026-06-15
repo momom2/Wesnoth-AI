@@ -1443,6 +1443,32 @@ def main(argv: List[str]) -> int:
                          "successor state exactly matches the "
                          "searched child, so combat RNG divergence "
                          "auto-rebuilds).")
+    ap.add_argument("--replay-buffer", action="store_true",
+                    help="Enable AlphaZero-style experience replay + "
+                         "multi-epoch training (MCTS mode). Default OFF "
+                         "= legacy one-gradient-step-per-fresh-batch-"
+                         "then-discard. Diagnosis 2026-06-15: one-pass "
+                         "is severely sample-inefficient -- the value "
+                         "head needs ~80-100 steps to converge but got "
+                         "1 per shifting batch, so it stalled at the "
+                         "~uniform floor and the policy plateaued. "
+                         "Replay retains recent experiences and takes "
+                         "several minibatch steps per iter.")
+    ap.add_argument("--replay-updates", type=int, default=8,
+                    help="Gradient steps per iteration when "
+                         "--replay-buffer is on (default 8).")
+    ap.add_argument("--replay-minibatch", type=int, default=128,
+                    help="Experiences per gradient step under "
+                         "--replay-buffer (default 128).")
+    ap.add_argument("--replay-capacity", type=int, default=4000,
+                    help="Max experiences retained in the replay "
+                         "buffer (default 4000). Each holds a "
+                         "deepcopied game state -- watch memory on "
+                         "modest hardware.")
+    ap.add_argument("--replay-min-size", type=int, default=512,
+                    help="Warm up with legacy one-pass training until "
+                         "the replay buffer holds this many "
+                         "experiences (default 512).")
     ap.add_argument("--draw-tiebreak-cap", type=float, default=0.3,
                     help="MCTS draws score by material differential "
                          "(villages + gold + unit value) in "
@@ -1562,7 +1588,7 @@ def main(argv: List[str]) -> int:
     if args.mcts:
         from tools.draw_tiebreak import DrawTiebreakConfig
         from tools.mcts import MCTSConfig
-        from tools.mcts_policy import MCTSPolicy
+        from tools.mcts_policy import MCTSPolicy, ReplayConfig
         if args.draw_tiebreak_config is not None:
             tiebreak = DrawTiebreakConfig.from_json(
                 args.draw_tiebreak_config)
@@ -1598,7 +1624,22 @@ def main(argv: List[str]) -> int:
             f"--reward-config is ignored in MCTS mode (AlphaZero "
             f"distills terminal z, not shaping rewards)."
         )
-        policy = MCTSPolicy(policy, mcts_cfg)
+        replay_cfg = ReplayConfig(
+            enabled=args.replay_buffer,
+            capacity=args.replay_capacity,
+            updates_per_iter=args.replay_updates,
+            minibatch=args.replay_minibatch,
+            min_size=args.replay_min_size,
+        )
+        if replay_cfg.enabled:
+            log.info(
+                f"replay buffer ON: capacity={replay_cfg.capacity} "
+                f"updates/iter={replay_cfg.updates_per_iter} "
+                f"minibatch={replay_cfg.minibatch} "
+                f"warmup>={replay_cfg.min_size} (multi-epoch training; "
+                f"value head gets {replay_cfg.updates_per_iter}x the "
+                f"gradient steps per iter vs legacy one-pass)")
+        policy = MCTSPolicy(policy, mcts_cfg, replay_config=replay_cfg)
 
     # Optional opener wrapper: scripts the first K decisions per
     # game-side, then delegates to the learned policy. Forwarding to

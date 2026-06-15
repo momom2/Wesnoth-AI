@@ -34,7 +34,9 @@ Dependents:   tools.sim_self_play (when --mcts is passed)
 from __future__ import annotations
 
 import logging
+import random
 import threading
+from collections import deque
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
@@ -50,6 +52,31 @@ from tools.mcts import (
 
 
 log = logging.getLogger("mcts_policy")
+
+
+@dataclass
+class ReplayConfig:
+    """Experience-replay + multi-epoch training for the MCTS path.
+
+    Diagnosis (2026-06-15): the default one-gradient-step-per-fresh-
+    batch-then-discard schedule is severely sample-inefficient. Overfit
+    probes showed the value head needs ~80-100 gradient steps to
+    converge on a batch, but live training gave it ONE step per
+    (shifting, high-variance) batch -> the value head never left its
+    ~uniform floor (val loss ~3.56 vs ln(51)=3.93), MCTS produced
+    near-uniform visit targets, and the policy plateaued. A replay
+    buffer + several minibatch updates per iteration is the AlphaZero-
+    standard fix: it decouples gradient steps from data generation so
+    the value head can actually converge.
+
+    `enabled=False` reproduces the exact legacy one-pass behavior, so
+    this is a safe, A/B-able default-off addition.
+    """
+    enabled:          bool = False
+    capacity:         int  = 4000   # max experiences retained (memory!)
+    updates_per_iter: int  = 8      # gradient steps per train_step
+    minibatch:        int  = 128    # experiences per gradient step
+    min_size:         int  = 512    # warm up (legacy one-pass) until this
 
 
 @dataclass
@@ -74,9 +101,11 @@ class MCTSPolicy:
     # reward_fn calls entirely.
     uses_step_rewards = False
 
-    def __init__(self, base, mcts_config: Optional[MCTSConfig] = None):
+    def __init__(self, base, mcts_config: Optional[MCTSConfig] = None,
+                 replay_config: Optional[ReplayConfig] = None):
         self._base = base
         self._mcts_config = mcts_config or MCTSConfig()
+        self._replay_config = replay_config or ReplayConfig()
         # Per-game pending: game_label -> List[_PendingMCTSState].
         # Mid-game states accumulate here; `finalize_game` drains
         # them into `_queue` with their terminal z attached.
@@ -84,6 +113,16 @@ class MCTSPolicy:
         # Completed: flat list of MCTSExperience, drained by
         # `train_step` and handed to `trainer.step_mcts`.
         self._queue: List[MCTSExperience] = []
+        # Experience-replay buffer (only used when replay_config is
+        # enabled). Bounded FIFO of the most recent experiences; each
+        # holds a per-decision deepcopy of the game state (see
+        # _PendingMCTSState), so retaining it across iterations is
+        # safe -- no aliasing with the live sim.
+        self._replay: "deque[MCTSExperience]" = deque(
+            maxlen=self._replay_config.capacity)
+        # Dedicated seeded RNG for minibatch sampling (separate from
+        # the search RNG) so replay runs are reproducible given a seed.
+        self._replay_rng = random.Random(0)
         self._lock = threading.Lock()
         # RNG for temperature sampling at the root (AlphaZero's
         # tau=1 phase). Unseeded like mcts_search's noise RNG --
@@ -264,13 +303,56 @@ class MCTSPolicy:
         with self._lock:
             batch = self._queue
             self._queue = []
-        if not batch:
-            return TrainStats(
-                policy_loss=0.0, value_loss=0.0, entropy=0.0,
-                total_loss=0.0, n_trajectories=0, n_transitions=0,
-                mean_return=0.0, grad_norm=0.0,
-            )
-        return self._base._trainer.step_mcts(batch)
+        rc = self._replay_config
+        if not rc.enabled:
+            # Legacy: one gradient step over this iteration's fresh
+            # experiences, then discard. Byte-for-byte the old path.
+            if not batch:
+                return TrainStats()
+            return self._base._trainer.step_mcts(batch)
+
+        # --- Experience replay + multi-epoch (default-off) -----------
+        # Add the fresh experiences to the bounded buffer, then take
+        # several minibatch gradient steps sampled from it. This gives
+        # the value head the many steps it needs to converge (see
+        # ReplayConfig) instead of one-and-discard.
+        self._replay.extend(batch)
+        if len(self._replay) < rc.min_size:
+            # Warm-up: not enough history yet -- mirror legacy (one
+            # pass over the fresh batch) so early iters aren't wasted.
+            if not batch:
+                return TrainStats()
+            return self._base._trainer.step_mcts(batch)
+
+        pool = list(self._replay)
+        n = len(pool)
+        mb = min(rc.minibatch, n)
+        stats: List[TrainStats] = []
+        for _ in range(rc.updates_per_iter):
+            sample = self._replay_rng.sample(pool, mb)
+            stats.append(self._base._trainer.step_mcts(sample))
+        return self._combine_stats(stats, buffer_size=n)
+
+    @staticmethod
+    def _combine_stats(stats: List[TrainStats],
+                       buffer_size: int) -> TrainStats:
+        """Aggregate the multi-epoch minibatch steps into one TrainStats
+        for the iter log: losses/grad-norm are MEANED over the updates
+        (representative of the pass), transitions SUMMED (total samples
+        touched), grad_norm uses the LAST step (post-update magnitude)."""
+        if not stats:
+            return TrainStats()
+        k = len(stats)
+        return TrainStats(
+            policy_loss=sum(s.policy_loss for s in stats) / k,
+            value_loss=sum(s.value_loss for s in stats) / k,
+            entropy=sum(s.entropy for s in stats) / k,
+            total_loss=sum(s.total_loss for s in stats) / k,
+            grad_norm=stats[-1].grad_norm,
+            mean_return=sum(s.mean_return for s in stats) / k,
+            n_transitions=sum(s.n_transitions for s in stats),
+            n_trajectories=buffer_size,
+        )
 
     # ------------------------------------------------------------------
     # Checkpoint forwarding
