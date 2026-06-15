@@ -360,12 +360,60 @@ hex-distance (fraught). Low priority — MCTS mode doesn't pay it.
     work below should close the gap and re-enable enumeration on
     those edges. Worth a targeted repro (mid-game save + each
     mechanic) before then to pin the exact missing transition.
-  - [ ] Tier 2: event hard-split (kill/level/status boundaries are
-    TYPE boundaries — never merged) + HP-quantile buckets within a
-    class sharing priors/edges off ONE representative forward while
-    sampling real members per visit (unbiased values); merge by
-    value-closeness, UNMERGE by visit pressure (OGA-style
-    refinement; fixes the net-can't-see-it-yet circularity).
+  - [ ] Tier 2: **adaptive outcome bucketing** (AGREED DESIGN
+    2026-06-15, flag-gated `--mcts-outcome-buckets`, default off,
+    A/B-able vs the current one-child-per-outcome path). Lit basis:
+    PARSS (Hostetler et al., UAI-2015 / JAIR-2017) supplies the
+    coarse→fine, split-in-half, asymptotic-convergence backbone;
+    OGA-UCT (Anand et al.) supplies the value-heterogeneity trigger
+    for WHICH/WHEN to split. PARSS alone refines on a fixed schedule
+    (not what we want); OGA alone lacks the convergence guarantee —
+    we use the hybrid.
+    Mechanics:
+      * **Event hard-split (never merged):** group the DP's
+        OutcomeKeys by their discrete signature
+        (a_dead, d_dead, a_slowed, d_slowed, a_poisoned, d_poisoned).
+        Within an event-class only the continuous (a_hp, d_hp)
+        varies, and legal actions are HP-independent → the shared
+        edges below are valid by construction.
+      * **One representative forward per bucket:** the bucket is
+        expanded ONCE (forward at the prob-weighted-centroid member,
+        snapped to a real member) → shared value V_bucket + shared
+        post-combat action priors π_bucket / edges. Saves
+        (members−1) forwards — the win, on CPU AND GPU (forwards are
+        finite everywhere; GPU reinvests the saving in more roots /
+        depth, complementary to batched-leaf-eval).
+      * **Sample real member per visit → re-separate one ply below
+        (approved):** on visit, sample a member by within-bucket
+        renormalized prob, fork+step the sim to that REAL state,
+        PUCT-select a shared edge (π_bucket), apply it to the real
+        member sim → a real next-state keyed by state_key as today
+        (members re-separate below; abstraction is at the chance ply
+        only — recursive abstraction explicitly out of scope).
+      * **Ground-stats aggregation (OGA model — dissolves visit-
+        inheritance):** statistics live per MEMBER (OutcomeKey →
+        visits, value-sum); bucket Q = aggregate of its members'.
+        A split is just a RE-GROUPING of retained member stats →
+        nothing inherited, nothing lost, warm AND unbiased by
+        construction. Cheap (members bounded < MAX_DP_STATES,
+        typ. <40; scalar bookkeeping, no extra forward).
+      * **Split trigger (OGA) + mechanism (PARSS):** when a bucket
+        has visits ≥ V_min AND value heterogeneity across its
+        members > τ (measured from ground stats — median-split the
+        higher-variance HP axis, compare mean member-value of the
+        two halves), bisect at that median and recurse; each
+        sub-bucket re-forwards its representative. Retain member
+        ground stats (warm Q); rebuild the shared edges on split
+        (subtree-reattach is a possible later optimization, not v1).
+        Continued pressure → one member per bucket = exact (PARSS
+        convergence guarantee).
+    Gating tests (correctness rails): probability-mass conservation
+    across splits, bucketed edge-Q is an unbiased estimate of the
+    per-outcome edge-Q within sampling tolerance, determinism.
+    New pure module `tools/outcome_buckets.py` (event-class +
+    membership + renorm sampling + split, no torch); integration in
+    `tools/mcts.py` `_select_one`. Closes the DP-support-mismatch
+    fallback noise too (📋 above).
   - [ ] Later, with compute: learned outcome codebook
     (Stochastic-MuZero-style) replacing the hand-split.
 - [x] 🟠 **Gumbel AlphaZero root** (DONE 2026-06-12, default ON):
