@@ -1291,6 +1291,13 @@ def main(argv: List[str]) -> int:
                     help="PvP defaults: gold per village per turn.")
     ap.add_argument("--village-support", type=int, default=1,
                     help="PvP defaults: upkeep absorbed per village.")
+    ap.add_argument("--value-coef", type=float, default=None,
+                    help="Override the trainer's value-loss weight "
+                         "(TrainerConfig default 0.5). Higher weights "
+                         "value learning harder -- relevant because "
+                         "the value head is the diagnosed training "
+                         "bottleneck (2026-06-15). Default None = leave "
+                         "at 0.5.")
     ap.add_argument("--exp-modifier", type=int, default=70,
                     help="PvP defaults: experience required modifier (%%).")
 
@@ -1559,6 +1566,14 @@ def main(argv: List[str]) -> int:
             )
 
     policy = TransformerPolicy(device=device, **arch_kwargs)
+    if args.value_coef is not None:
+        # Override the value-loss weight (TrainerConfig default 0.5).
+        # The trainer reads self.config.value_coef each step, so a
+        # post-construction set takes effect; used by the replay
+        # sweep to test whether weighting value learning harder helps
+        # (the value head is the diagnosed bottleneck).
+        policy._trainer.config.value_coef = float(args.value_coef)
+        log.info(f"value_coef override -> {args.value_coef}")
     if args.checkpoint_in and args.checkpoint_in.exists():
         log.info(f"loading checkpoint {args.checkpoint_in}")
         try:
