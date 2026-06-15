@@ -171,6 +171,19 @@ strategies; cluster economy).
   of the value fn and needs a longer run. NEXT: a full replay run
   (and try higher updates_per_iter / value_coef) to realize the
   behavioral gain; this is now the primary lever, not model size.
+  **Hyperparameter sweep (2026-06-15, 6 arms x 20 iters, same
+  warm-start/seed/curriculum, held-out value loss on 48 fixed
+  states):** updates_per_iter is the DOMINANT, monotonic lever --
+  4->3.28, 8->3.09, 16->2.74 (vs warm-start 3.42); the curve has NOT
+  bottomed (8->16 gained as much as 4->8, no overfitting -- held-out
+  still dropping). value_coef=1.0 is a small mostly-positive nudge
+  (best at updates=16: 2.738 vs 2.824), second-order vs updates.
+  Policy loss ~flat (2.97-3.06) at 20 iters (lags value). **Chosen
+  config: --replay-updates 16 --value-coef 1.0** (best tested; the
+  value head wants even more steps, so monitor held-out value loss on
+  the full run and consider 24 if it keeps dropping without
+  overfitting; bump --replay-capacity to ~6000 for a long run since
+  staleness only bites over many iters). Added --value-coef flag.
 
 - [x] ⚡ **Profile-driven CPU optimization pass** (LANDED 2026-06-14,
   46-agent review workflow + adversarial A/B verification). The model
