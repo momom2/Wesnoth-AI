@@ -99,6 +99,10 @@ def _cfg():
 
 
 def _play_and_finalize(mp, seed=21):
+    # Seed the MCTS search RNG so the game (and thus the recorded
+    # experiences) is reproducible -- an unseeded MCTS test is flaky.
+    import numpy as np
+    mp._rng = np.random.default_rng(seed)
     sim = fresh_scenario_sim(seed=seed, max_turns=8, mini=True)
     gl = "g0"
     steps = 0
