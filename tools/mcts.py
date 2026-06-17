@@ -106,6 +106,7 @@ from draw_tiebreak import DrawTiebreakConfig, draw_tiebreak_z
 from combat_outcomes import (
     enumerate_attack_outcomes, outcome_key_for_child,
 )
+from outcome_buckets import event_class as _event_class
 
 
 log = logging.getLogger("mcts")
@@ -383,6 +384,24 @@ class MCTSConfig:
 
     cliffness_max:                 float = 0.577
 
+    # ----- Tier-2 adaptive outcome bucketing (default off) -----------
+    # Group an attack edge's combat outcomes into buckets that share
+    # ONE representative network forward, refined only where members'
+    # values diverge (see tools/outcome_buckets + BACKLOG "Tier 2").
+    # The first outcome sampled into a bucket is forwarded and becomes
+    # the representative; later same-bucket outcomes COPY its edges +
+    # value instead of forwarding (amortizes the dominant cost) while
+    # still recursing from their own real state. Requires
+    # `exact_outcome_enumeration` (operates on the DP distribution)
+    # and the serial search path (batch_size == 1; the production
+    # default). `bucket_z_sig` is the significance multiplier for the
+    # split trigger; `bucket_v_min` / `bucket_min_half_visits` gate it
+    # (see outcome_buckets.propose_split).
+    outcome_buckets:        bool  = False
+    bucket_v_min:           int   = 16
+    bucket_z_sig:           float = 2.0
+    bucket_min_half_visits: int   = 2
+
 
 # ---------------------------------------------------------------------
 # Tree structures
@@ -402,7 +421,8 @@ class MCTSEdge:
     __slots__ = ("action", "actor_idx", "type_idx", "target_idx",
                  "weapon_idx", "prior", "n_visits", "w_value",
                  "children",
-                 "outcome_probs", "outcome_keys", "seen_mass")
+                 "outcome_probs", "outcome_keys", "seen_mass",
+                 "bucket_rep", "bucket_of")
 
     def __init__(self, lap: LegalActionPrior):
         self.action     = lap.action
@@ -421,6 +441,16 @@ class MCTSEdge:
         self.outcome_probs = _OUTCOMES_UNSET
         self.outcome_keys: Dict = {}
         self.seen_mass: float = 0.0
+        # Tier-2 outcome bucketing (only populated when
+        # config.outcome_buckets; see tools/outcome_buckets):
+        #   bucket_rep: id(Bucket) -> representative MCTSNode (the one
+        #     outcome that forwarded; later same-bucket outcomes copy
+        #     its edges/value).
+        #   bucket_of:  OutcomeKey -> Bucket it currently belongs to
+        #     (re-pointed when a bucket splits). None until lazily
+        #     initialized from the DP distribution on first use.
+        self.bucket_rep: Dict[int, "MCTSNode"] = {}
+        self.bucket_of: Optional[Dict] = None
 
     @property
     def sole_child(self) -> Optional["MCTSNode"]:
@@ -443,7 +473,8 @@ class MCTSNode:
     __slots__ = ("sim", "side", "edges", "is_terminal",
                  "expanded", "_total_visits",
                  "tt_hits", "tt_misses",
-                 "cliffness", "value", "gumbel_action")
+                 "cliffness", "value", "gumbel_action",
+                 "_bucket_copy_from")
 
     def __init__(self, sim: WesnothSim):
         self.sim:           WesnothSim   = sim
@@ -471,6 +502,11 @@ class MCTSNode:
         # ROOT by mcts_search when config.gumbel_root). None
         # elsewhere / in classic mode.
         self.gumbel_action: Optional[dict] = None
+        # Tier-2 bucketing: when set (to the bucket's representative
+        # node), this node is a NON-representative member -- on
+        # expansion it COPIES the representative's edges + value
+        # instead of running its own network forward. None otherwise.
+        self._bucket_copy_from: Optional["MCTSNode"] = None
 
 
 # ---------------------------------------------------------------------
@@ -596,6 +632,7 @@ def _select_one(
     chance_nodes:       bool = False,
     sample_rng:         Optional[np.random.Generator] = None,
     exact_outcomes:     bool = False,
+    outcome_buckets:    bool = False,
 ) -> Tuple[MCTSNode, List[Tuple[MCTSNode, MCTSEdge]]]:
     """Walk down from root picking PUCT-best edges. Lazy-create
     child nodes by forking the parent sim and applying the edge's
@@ -776,6 +813,24 @@ def _select_one(
                         else:
                             edge.outcome_keys[key] = okey
                             edge.seen_mass += p_o
+                    # --- Tier-2 bucketing (stage 1: copy-at-expansion).
+                    # Group this outcome's child with same-event-class
+                    # outcomes: the first one forwarded is the bucket
+                    # representative; later ones copy its edges + value
+                    # instead of running their own network forward.
+                    # Members still recurse from their own real sim
+                    # (re-separation), so each keeps an independent
+                    # value signal. Only active with a live DP dist.
+                    if outcome_buckets and dist is not None:
+                        okey = edge.outcome_keys.get(key)
+                        if okey is not None:
+                            ec = _event_class(okey)
+                            rep = edge.bucket_rep.get(ec)
+                            if rep is None or rep is child:
+                                edge.bucket_rep[ec] = child
+                            elif (not child.expanded
+                                  and child._bucket_copy_from is None):
+                                child._bucket_copy_from = rep
         # Apply virtual loss BEFORE descending so the next
         # parallel selection in the same batch sees an edge that
         # currently looks bad (q drops, PUCT score drops). Real
@@ -904,6 +959,30 @@ def _populate_leaf(
     return leaf.value
 
 
+def _copy_expansion(leaf: MCTSNode, rep: MCTSNode) -> float:
+    """Tier-2 copy-at-expansion: expand a non-representative bucket
+    member by COPYING the representative's edges + value/cliffness
+    instead of running a network forward. Valid because all members
+    of an event-class share the same legal actions (HP doesn't change
+    legality); the shared priors are an approximation that the
+    significance-aware split corrects when member values diverge. Each
+    copied edge is a FRESH MCTSEdge (independent stats) built from the
+    representative edge's LegalActionPrior, so the member's subtree
+    still re-separates from its own real sim. Returns the value to
+    back up (the representative's V)."""
+    leaf.edges = [
+        MCTSEdge(LegalActionPrior(
+            action=e.action, prior=e.prior, actor_idx=e.actor_idx,
+            type_idx=e.type_idx, target_idx=e.target_idx,
+            weapon_idx=e.weapon_idx))
+        for e in rep.edges
+    ]
+    leaf.value = rep.value
+    leaf.cliffness = rep.cliffness
+    leaf.expanded = True
+    return leaf.value
+
+
 def _run_one_sim(
     root:           MCTSNode,
     model:          WesnothModel,
@@ -927,6 +1006,7 @@ def _run_one_sim(
         chance_nodes=config.chance_nodes,
         sample_rng=sample_rng,
         exact_outcomes=config.exact_outcome_enumeration,
+        outcome_buckets=config.outcome_buckets,
     )
     if leaf.is_terminal:
         v = _terminal_value(leaf.sim, leaf.side, config.draw_tiebreak)
@@ -943,10 +1023,20 @@ def _run_one_sim(
             bootstrap_alpha=config.cliffness_bootstrap_alpha,
         )
         return
-    with torch.no_grad():
-        encoded = encoder.encode(leaf.sim.gs)
-        output = model(encoded)
-    v = _populate_leaf(leaf, encoded, output)
+    # Tier-2 copy-at-expansion: a non-representative bucket member
+    # copies its representative's edges/value instead of forwarding --
+    # but only once the representative itself is expanded with real
+    # edges; otherwise fall back to a normal forward (no saving this
+    # time, still correct).
+    rep = leaf._bucket_copy_from
+    if (rep is not None and rep.expanded and not rep.is_terminal
+            and rep.edges):
+        v = _copy_expansion(leaf, rep)
+    else:
+        with torch.no_grad():
+            encoded = encoder.encode(leaf.sim.gs)
+            output = model(encoded)
+        v = _populate_leaf(leaf, encoded, output)
     _backup(
         path, v, leaf.side, 0.0,
         leaf_cliffness=leaf.cliffness,
