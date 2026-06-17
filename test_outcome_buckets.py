@@ -128,23 +128,38 @@ def test_split_preserves_event_class():
 def test_no_split_below_v_min():
     b = initial_buckets({_k(10, 8): 0.5, _k(10, 2): 0.5})[0]
     b.record(_k(10, 8), 1.0)
-    assert propose_split(b, v_min=10, tau=0.1) is None
+    assert propose_split(b, v_min=10, z_sig=2.0) is None
 
 
 def test_no_split_when_homogeneous():
-    # both halves same value -> no heterogeneity -> no split
+    # both halves same value -> zero gap -> not significant -> no split
     probs = {_k(10, h): 0.25 for h in (8, 6, 4, 2)}
     b = initial_buckets(probs)[0]
     for k in probs:
         for _ in range(3):
             b.record(k, 0.5)         # identical value everywhere
-    assert propose_split(b, v_min=4, tau=0.1) is None
+    assert propose_split(b, v_min=4, z_sig=2.0) is None
 
 
-def test_split_detects_value_heterogeneity_across_hp():
-    # low-defender-HP outcomes are much better (killable next turn);
-    # the value gradient along the defender-HP axis must trigger a
-    # split on axis=1.
+def test_no_split_when_gap_is_within_noise():
+    # Members differ in mean only slightly relative to their large
+    # within-member variance -> the gap is NOT significant -> no split,
+    # even though a fixed-tau test might have fired.
+    probs = {_k(10, h): 0.25 for h in (8, 6, 4, 2)}
+    b = initial_buckets(probs)[0]
+    rng = np.random.default_rng(0)
+    for _ in range(40):
+        # all members ~ same mean (0), huge noise; tiny systematic
+        # HP-correlated shift far below the noise SE
+        for h in (8, 6, 4, 2):
+            b.record(_k(10, h), rng.normal(0.0, 1.0) + 0.001 * h)
+    assert propose_split(b, v_min=8, z_sig=2.0) is None
+
+
+def test_split_detects_significant_value_heterogeneity():
+    # low-defender-HP outcomes are much better and the per-member
+    # values are consistent (low variance) -> the gap is many SEs ->
+    # significant split on axis=1.
     probs = {_k(10, h): 0.25 for h in (8, 6, 4, 2)}
     b = initial_buckets(probs)[0]
     for _ in range(5):
@@ -152,26 +167,26 @@ def test_split_detects_value_heterogeneity_across_hp():
         b.record(_k(10, 6), -0.5)
         b.record(_k(10, 4), 0.5)
         b.record(_k(10, 2), 0.6)
-    out = propose_split(b, v_min=8, tau=0.3)
-    assert out is not None, "should detect the value gradient"
+    out = propose_split(b, v_min=8, z_sig=2.0)
+    assert out is not None, "should detect the significant value gradient"
     axis, thr, gap = out
     assert axis == 1, "heterogeneity is on the defender-HP axis"
     assert gap > 0.3
-    # splitting there separates the good (low-HP) from bad (high-HP)
     lo, hi = split(b, axis, thr)
     assert lo.mean_value > hi.mean_value   # lo = low defender HP = better
 
 
 def test_repeated_splits_converge_to_singletons():
-    # PARSS guarantee: under continued pressure, buckets refine to one
-    # member each (= exact).
+    # PARSS convergence: with a genuine, consistent value gradient,
+    # sustained pressure refines a heterogeneous bucket to one member
+    # each. Members have distinct constant values (zero within-member
+    # variance) so every real gap is significant.
     probs = {_k(10, h): 1.0 / 6 for h in (10, 8, 6, 4, 2, 1)}
     work = initial_buckets(probs)
-    # force splits by giving a monotonic value gradient and splitting
-    # any splittable bucket until none remain.
     for b in work:
         for k in b.members:
-            b.record(k, float(k[1]) / 10.0)   # value ~ defender HP
+            for _ in range(3):                 # >= min_half_visits per side
+                b.record(k, float(k[1]) / 10.0)  # value ~ defender HP
     frontier = list(work)
     singletons = []
     guard = 0
@@ -180,11 +195,10 @@ def test_repeated_splits_converge_to_singletons():
         b = frontier.pop()
         if len(b.members) == 1:
             singletons.append(b); continue
-        out = propose_split(b, v_min=1, tau=0.0)   # tau=0 -> always split if heterogeneous
+        out = propose_split(b, v_min=1, z_sig=2.0)
         if out is None:
             singletons.append(b); continue
         lo, hi = split(b, out[0], out[1])
         frontier.extend([lo, hi])
     assert all(len(b.members) == 1 for b in singletons)
-    # mass still conserved over the fully-refined set
     assert abs(sum(b.prob_mass for b in singletons) - 1.0) < 1e-9

@@ -397,16 +397,25 @@ hex-distance (fraught). Low priority — MCTS mode doesn't pay it.
         nothing inherited, nothing lost, warm AND unbiased by
         construction. Cheap (members bounded < MAX_DP_STATES,
         typ. <40; scalar bookkeeping, no extra forward).
-      * **Split trigger (OGA) + mechanism (PARSS):** when a bucket
-        has visits ≥ V_min AND value heterogeneity across its
-        members > τ (measured from ground stats — median-split the
-        higher-variance HP axis, compare mean member-value of the
-        two halves), bisect at that median and recurse; each
-        sub-bucket re-forwards its representative. Retain member
-        ground stats (warm Q); rebuild the shared edges on split
-        (subtree-reattach is a possible later optimization, not v1).
-        Continued pressure → one member per bucket = exact (PARSS
-        convergence guarantee).
+      * **Split trigger (OGA, SIGNIFICANCE-AWARE) + mechanism
+        (PARSS):** when a bucket has visits ≥ V_min AND the two
+        halves either side of an HP axis's visit-weighted median have
+        mean values differing by > `z_sig` standard errors (a value
+        gap unlikely to be sampling noise), bisect at that median and
+        recurse; each sub-bucket re-forwards its representative.
+        Significance-aware (not a fixed τ): members track
+        value_sq_sum so the test self-calibrates to the observed
+        value spread — no hand-tuned heterogeneity knob, only
+        `z_sig` (default 2 ≈ 95%). Refines only where a value
+        difference is statistically detectable, so value-homogeneous
+        buckets stay merged (OGA efficiency); a heterogeneous bucket
+        under sustained pressure refines toward one member each
+        (PARSS convergence). Retain member ground stats (warm Q);
+        rebuild shared edges on split (subtree-reattach is a later
+        optimization, not v1). CAVEAT: MCTS backups are correlated,
+        so the SE underestimates true uncertainty → somewhat
+        split-happy; V_min + min-half-visits + conservative z_sig
+        give margin.
     Gating tests (correctness rails): probability-mass conservation
     across splits, bucketed edge-Q is an unbiased estimate of the
     per-outcome edge-Q within sampling tolerance, determinism.

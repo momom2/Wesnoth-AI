@@ -34,13 +34,17 @@ OGA-UCT (Anand et al.) for the value-heterogeneity split trigger.
     unbiased by construction (this is why there's no "child visit
     inheritance" question).
 
-  * SPLIT trigger (OGA) + mechanism (PARSS): once a bucket has
-    visits >= V_min AND its members show value heterogeneity > tau
-    along an HP axis (compare the visit-weighted mean member-value
-    of the two halves either side of that axis's median), bisect at
-    the median and recurse. Continued pressure -> one member per
-    bucket = exact (PARSS convergence). Member stats are retained
-    across the split.
+  * SPLIT trigger (OGA, significance-aware) + mechanism (PARSS):
+    once a bucket has visits >= V_min AND the two halves either side
+    of an HP axis's visit-weighted median have mean values differing
+    by > z_sig standard errors (a value gap unlikely to be sampling
+    noise -- no hand-tuned threshold), bisect at the median and
+    recurse. Refines only where a value difference is statistically
+    detectable, so truly value-homogeneous buckets stay merged (the
+    OGA efficiency win); under sustained pressure a heterogeneous
+    bucket refines toward one member each (PARSS convergence).
+    Member stats (incl. value_sq_sum for the SE) are retained across
+    the split.
 
 Probability convention: each member stores its FULL-distribution
 probability (from OutcomeDistribution.probs, which sums to ~1 across
@@ -79,10 +83,15 @@ def event_class(key: OutcomeKey) -> EventClass:
 class MemberStat:
     """Ground-level statistics for one concrete outcome (OutcomeKey).
     `prob` is the outcome's full-distribution probability (fixed);
-    `visits`/`value_sum` accumulate as the search samples it."""
-    prob:      float
-    visits:    int = 0
-    value_sum: float = 0.0
+    `visits` / `value_sum` / `value_sq_sum` accumulate as the search
+    samples it. `value_sq_sum` (sum of squared backed-up values) lets
+    the split test estimate value variance -> standard error, so the
+    split trigger is statistically significance-aware rather than
+    keyed to a hand-tuned threshold."""
+    prob:         float
+    visits:       int = 0
+    value_sum:    float = 0.0
+    value_sq_sum: float = 0.0
 
     @property
     def mean_value(self) -> float:
@@ -154,6 +163,7 @@ class Bucket:
         m = self.members[key]
         m.visits += 1
         m.value_sum += value
+        m.value_sq_sum += value * value
 
 
 def initial_buckets(probs: Dict[OutcomeKey, float]) -> List["Bucket"]:
@@ -166,41 +176,60 @@ def initial_buckets(probs: Dict[OutcomeKey, float]) -> List["Bucket"]:
     return [Bucket(event=ec, members=mem) for ec, mem in by_class.items()]
 
 
-def propose_split(bucket: "Bucket", v_min: int,
-                  tau: float) -> Optional[Tuple[int, float, float]]:
-    """Decide whether `bucket` should be refined, OGA-style. Returns
-    (axis, threshold, gap) or None.
+def propose_split(bucket: "Bucket", v_min: int, z_sig: float = 2.0,
+                  min_half_visits: int = 2
+                  ) -> Optional[Tuple[int, float, float]]:
+    """Decide whether `bucket` should be refined, OGA-style with a
+    SIGNIFICANCE-AWARE trigger. Returns (axis, threshold, gap) or None.
 
     axis: 0 = attacker HP, 1 = defender HP. threshold: split members
-    with hp < threshold from hp >= threshold. gap: |mean value of the
-    two halves|, the heterogeneity that justified the split.
+    with hp < threshold from hp >= threshold. gap: |mean_hi - mean_lo|.
 
-    Criterion: visits >= v_min, and for some HP axis with >1 distinct
-    value among VISITED members, splitting at that axis's
-    visit-weighted median yields two non-empty visited halves whose
-    mean member-values differ by > tau. Picks the axis with the
-    largest gap (most-heterogeneous direction)."""
+    Criterion (both must hold):
+      * visit pressure: bucket.visits >= v_min;
+      * statistical significance: for some HP axis, splitting at that
+        axis's visit-weighted median yields two halves each with
+        >= min_half_visits visits whose mean backed-up values differ
+        by MORE than `z_sig` standard errors of the difference --
+        i.e. the bucket is masking a value gap unlikely to be
+        sampling noise. Picks the axis with the largest STANDARDIZED
+        gap (most significant direction).
+
+    This replaces the earlier fixed-tau threshold: the test
+    self-calibrates to the observed value spread, so there's no
+    hand-tuned heterogeneity knob -- only `z_sig` (default 2 ~ 95%).
+
+    CAVEAT (honest): MCTS value backups for a node are correlated,
+    not i.i.d., so the SE computed from per-visit values
+    UNDERESTIMATES the true uncertainty -> the test is somewhat
+    split-happy. `v_min` + `min_half_visits` + a conservative `z_sig`
+    provide margin; raise `z_sig` if splits proliferate. (Same
+    spirit as confidence-based abstraction methods.)"""
     if bucket.visits < v_min:
         return None
     visited = [(k, m) for k, m in bucket.members.items() if m.visits > 0]
     if len(visited) < 2:
         return None
 
-    best: Optional[Tuple[int, float, float]] = None
+    best: Optional[Tuple[int, float, float]] = None   # (axis, thr, gap)
+    best_z = z_sig
     for axis in (0, 1):
-        vals = sorted({k[axis] for k, _ in visited})
-        if len(vals) < 2:
+        if len({k[axis] for k, _ in visited}) < 2:
             continue   # no variation on this axis -> can't split here
-        # Visit-weighted median HP on this axis (so the split balances
-        # sampled mass, not raw member count).
         thr = _weighted_median_hp(visited, axis)
         lo = [(k, m) for k, m in visited if k[axis] < thr]
         hi = [(k, m) for k, m in visited if k[axis] >= thr]
-        if not lo or not hi:
+        n_lo, mean_lo, se_lo = _half_stats(lo)
+        n_hi, mean_hi, se_hi = _half_stats(hi)
+        if n_lo < min_half_visits or n_hi < min_half_visits:
             continue
-        gap = abs(_wmean(lo) - _wmean(hi))
-        if gap > tau and (best is None or gap > best[2]):
-            best = (axis, float(thr), gap)
+        gap = abs(mean_hi - mean_lo)
+        se_diff = math.sqrt(se_lo * se_lo + se_hi * se_hi)
+        # Standardized gap; se_diff==0 (perfectly-consistent halves)
+        # means any nonzero gap is infinitely significant.
+        std_gap = math.inf if se_diff == 0.0 else gap / se_diff
+        if gap > 0.0 and std_gap > best_z:
+            best, best_z = (axis, float(thr), gap), std_gap
     return best
 
 
@@ -222,13 +251,22 @@ def split(bucket: "Bucket", axis: int,
 # internals
 # ---------------------------------------------------------------------
 
-def _wmean(items: List[Tuple[OutcomeKey, MemberStat]]) -> float:
-    """Visit-weighted mean of member mean-values (so a member sampled
-    more carries more weight in the heterogeneity test)."""
-    tot_v = sum(m.visits for _, m in items)
-    if tot_v <= 0:
-        return 0.0
-    return sum(m.value_sum for _, m in items) / tot_v
+def _half_stats(items: List[Tuple[OutcomeKey, MemberStat]]
+                ) -> Tuple[int, float, float]:
+    """(N, mean, standard_error) over the pooled per-visit values of a
+    half. N = total visits; mean = visit-weighted mean value; SE =
+    sqrt(sample_variance / N). SE is 0 for N<2 or perfectly-consistent
+    values (caller treats SE=0 as 'any gap is significant')."""
+    N = sum(m.visits for _, m in items)
+    if N <= 0:
+        return 0, 0.0, 0.0
+    S = sum(m.value_sum for _, m in items)
+    Q = sum(m.value_sq_sum for _, m in items)
+    mean = S / N
+    if N < 2:
+        return N, mean, 0.0
+    var = max(0.0, (Q - S * S / N) / (N - 1))   # sample variance, clamped
+    return N, mean, math.sqrt(var / N)
 
 
 def _weighted_median_hp(items: List[Tuple[OutcomeKey, MemberStat]],
