@@ -82,14 +82,18 @@ current-state facts I verified against the code on 2026-06-17.
       bit-deterministic (dynamic cross-actor batching); eval/tests stay
       serial. SPEEDUP is unvalidated locally (CPU, no GPU) — measure on
       a rented GPU (Phase 0 exit criterion: GPU util ≥ ~70%).
-    * **TODO — intra-search Gumbel batching (§3.1a, the "layered"
-      part 2):** batch the `len(cands) x sims_per` independent sims
-      WITHIN a sequential-halving phase (mcts.py `_gumbel_root_search`,
-      currently serial `_run_one_sim`). Enlarges a SINGLE actor's
-      request; composes with the pool (which enlarges across actors).
-      Collides with Tier-2 bucketing's copy-at-expansion (siblings
-      batched before any rep is forwarded) — needs the dedup/forward-
-      all/exclusive decision before coding. Reuses the B1 seam.
+    * **DEFERRED — intra-search Gumbel batching (§3.1a, the "layered"
+      part 2)** (user call 2026-06-17). Would batch the
+      `len(cands) x sims_per` independent sims WITHIN a sequential-
+      halving phase (mcts.py `_gumbel_root_search`, currently serial
+      `_run_one_sim`). DEPRIORITIZED because the actor pool (B2)
+      already feeds the GPU by batching forwards ACROSS games; intra-
+      search batching only adds value for SINGLE-game latency (eval /
+      live play), not training throughput. Also collides with Tier-2
+      bucketing's copy-at-expansion (siblings batched before any rep is
+      forwarded) → would need a dedup/forward-all/exclusive decision.
+      Revisit only if single-game eval/play latency becomes a
+      bottleneck. Reuses the B1 seam when picked up.
   ORIGINAL plan-framing corrections (verified in code), retained:
     * **Batched MCTS leaf eval + virtual loss already exists — but only
       on the CLASSIC root** (`mcts.py:1313–1376`, collect→`model.
@@ -141,10 +145,47 @@ current-state facts I verified against the code on 2026-06-17.
       material-margin target (cheap, reuses the tiebreak scorer, dense)
       over opponent-reply (needs cross-side trajectory plumbing) — the
       latter remains a future auxiliary.
-    * [ ] **Progressive net growth** — still TODO (start Tier-a sized,
-      widen as the Elo curve flattens; net2net width-transfer is the
-      [moderate] version).
+    * [~] **Progressive net growth** — MECHANISM DONE 2026-06-17.
+      `tools/net2net.py` block-transfers a narrow checkpoint into a
+      WIDER/DEEPER model (overlapping leading block per param; QKV-split
+      for attention `in_proj`; new capacity stays fresh) so scaling via
+      the §3.2 arch flags warm-starts instead of discarding weights.
+      `grow_checkpoint(...)` / `python tools/net2net.py --in ... --out
+      ... --d-model N` produces a `--checkpoint-in`-able file. Honest
+      scope: an APPROXIMATE warm start, NOT exactly function-preserving
+      Net2WiderNet (the identity/same-arch case IS exact — test
+      asserts bit-identical outputs). Validated on the real 471k
+      checkpoint (128->192: all params transferred, value loss stayed
+      BELOW the uniform floor on the first warm-started step).
+      `test_net2net` (5). STILL TODO: the "WHEN to grow" policy (widen
+      as the Elo curve flattens) needs a GPU training curve to drive.
     * Keep tuning the proven `--replay-updates` / `--value-coef` levers.
+
+- [~] 🔴 **MCTS actor-slot drift (training-correctness bug, FOUND
+  2026-06-17; crash GUARDED, root cause OPEN).** Surfaced by the new
+  aux test: `trainer._mcts_factored_policy_loss` IndexError'd on certain
+  states (reliably on some mini scenarios, e.g. seed 24) — a recorded
+  visit-count `actor_idx` exceeded the current actor-slot count.
+  DIAGNOSIS: the recorded action indices assume the actor-slot layout
+  at MCTS-SEARCH time, but re-encoding the (frozen, deterministic-
+  encoding) stored `game_state` at TRAIN time yields a DIFFERENT actor
+  count — observed a 1-slot difference, chiefly in the recruit-phantom
+  count. So the search saw a different actor count than the state
+  stored alongside its visit_counts (a record/search mismatch;
+  mechanism not yet pinned — suspect the per-turn recruit-rejection
+  interaction in play_one_game's bounce-retry, since recruit phantoms
+  depend on placement legality). IMPACT: not just a crash — a boundary
+  index can also mis-map (a recorded recruit lands on the `end_turn`
+  slot), so the policy target is corrupted for drifted experiences.
+  GUARD (landed): `_trainer_step_mcts` wraps the per-experience policy
+  loss; on a stale-slot IndexError it drops THAT experience's policy
+  term (value + aux still train, since z/margin don't depend on the
+  layout) and logs once per step. `test_trainer_robustness` pins it.
+  This matches the codebase's existing stale-slot tolerance (the inline
+  weapon-slot skip). STILL OPEN: pin the exact drift mechanism and fix
+  at the SOURCE (e.g. record the slot layout in `MCTSExperience` and
+  assert it matches, or make recruit-phantom enumeration record/train-
+  consistent) so the policy targets aren't silently dropped/misaligned.
 
 **Cross-links to existing BACKLOG items the plan re-surfaces:**
 `scenario_id` in `GameOutcome` for per-map leaderkill attribution
