@@ -24,10 +24,17 @@ current-state facts I verified against the code on 2026-06-17.
   d_ff=256`), decision_step **5,676,775** — read from
   `training/checkpoints/sim_selfplay.pt`. Below Connect-4-grade
   capacity (AlphaZero.jl C4 ≈ 1.6M).
-- **No positional encoding** anywhere — only `TokenKind` embeddings
-  (`model.py:64`) distinguish streams; zero positional params in the
-  state dict. A position-blind transformer for a geography-decided
-  game is a real capability ceiling.
+- ⚠️ **CORRECTION to the plan (2026-06-17): the model is NOT
+  position-blind.** The plan claimed "no positional encoding — only
+  TokenKind embeddings," but it inspected only `model.py` (TokenKind)
+  and MISSED that the ENCODER injects ABSOLUTE 2D positional encoding:
+  `pos_x_embed`/`pos_y_embed` (each `nn.Embedding(MAX_MAP_SIZE=128,
+  d_model)`, trained — present in the checkpoint's `encoder_state`)
+  are added to every hex, unit, AND recruit token
+  (`encoder.py:524-525, 545-546, 574-575` + the batched path). So
+  axial absolute positional encoding already exists. (My earlier
+  state-dict check looked at `model_state`, not `encoder_state` —
+  hence the omission; corrected here.)
 - Fresh init currently defaults to `512/8` (TransformerPolicy ctor);
   warm-start reads arch from the checkpoint and RAISES on mismatch
   (`sim_self_play.py:~1636`). No `--d-model`/etc. flags exist yet.
@@ -100,13 +107,22 @@ current-state facts I verified against the code on 2026-06-17.
       `torch.multiprocessing` actor processes feeding one central
       batched-inference process (SEED-RL/MonoBeast pattern, ~100 lines,
       no heavy dep). This is genuinely new work.
-- [ ] 🟠 **2D positional encoding (plan §3.3) — [moderate].** Axial
-  learned hex-`(x,y)` embeddings or RoPE-2D, localized to `encoder.py`
-  + `model.py`. Likely necessary to fix the "never closes on the
-  leader" full-map failure (see ZERO-leaderkills item below). Validate
-  on the Elo axis rather than assume. Watch O(seq_len²) over ~1700 hex
-  tokens as `d_model` grows; defer windowed/downsampled attention until
-  profiling shows it binds.
+- [ ] 🟠 **2D positional encoding (plan §3.3) — RE-SCOPED 2026-06-17.**
+  The plan's framing ("add 2D positional encoding") is already
+  satisfied: axial ABSOLUTE learned hex-`(x,y)` embeddings exist and
+  are applied to all tokens (see correction above). The only genuine
+  upgrade left is RELATIVE positional encoding (RoPE-2D or a relative
+  attention bias) so attention sees pairwise hex OFFSETS directly
+  rather than learning to subtract two absolute embeddings — a real
+  spatial-reasoning enhancement, but SPECULATIVE (no evidence the
+  absolute scheme is the bottleneck). NOTE: the plan ITSELF attributes
+  the "never closes on the leader" failure to "a curriculum + turn-cap
+  issue, not (yet) a tactics issue" (plan §1) and to the undertrained
+  value head — i.e. NOT to positional encoding. So a relative-encoding
+  change should be justified by an Elo win, not assumed to fix the
+  leaderkill failure. Watch O(seq_len²) over ~1700 hex tokens as
+  `d_model` grows; defer windowed/downsampled attention until profiling
+  shows it binds.
 - [ ] 🟠 **KataGo efficiency tricks (plan §3.5) — [slight].**
   Playout-cap randomization is already a 🟡 todo below; plan also wants
   auxiliary prediction targets (opponent reply, gold/territory swing)
