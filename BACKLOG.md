@@ -40,10 +40,18 @@ current-state facts I verified against the code on 2026-06-17.
   (the 0.47M weights won't load into a wider/deeper net; that's fine).
   Targets: Tier-a ~3–10M (`384/6/8/1536`), Tier-b ~10–30M (`512/8–12`),
   Tier-c ~85–100M (`768/12`). Unblocks everything; no GPU needed.
-- [ ] 🔴 **Internal Elo ladder (plan §3.4-1) — [new tooling].**
-  Round-robin among checkpoints + RCA + scripted `dummy_policy`, fit
-  Elo (WHR/BayesElo-lite) over `eval_sim.py` games → one strength axis.
-  Without it, no later run is measurable. Local, no GPU.
+- [x] 🔴 **Internal Elo ladder (plan §3.4-1) — DONE 2026-06-17.**
+  `tools/elo_ladder.py`: round-robins players (checkpoints + random
+  baseline + scripted `dummy`) through the sim (reusing `eval_sim`'s
+  rollout + `_load_policy`) and fits static Bradley-Terry/Elo via the
+  MM algorithm (Hunter 2004; numpy-only, no scipy) with Fisher-info
+  standard errors and a ghost-games prior (winless/undefeated players
+  stay finite). One gauge-fixed strength axis with 95% CIs;
+  `--save-json` for tracking. NOTE: sim-side only — RCA AI (live
+  Wesnoth) and human strength (replay-agreement, §3.4-2) are separate
+  bridges, NOT players here. 7 pure-math unit tests
+  (`test_elo_ladder.py`) + CLI smoke. `dummy_policy` is included as a
+  scripted floor anchor.
 - [ ] 🔴 **Keep the GPU fed (plan §3.1) — [moderate], highest GPU-ROI.**
   TWO CORRECTIONS to the plan's framing, verified in code:
     * **Batched MCTS leaf eval + virtual loss already exists — but only
