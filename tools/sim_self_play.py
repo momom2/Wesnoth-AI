@@ -821,6 +821,7 @@ def run_iteration(
     mini_ratio:    float = 0.0,
     drill_ratio:   float = 0.0,
     snapshot_sink: Optional[Callable[[Dict], None]] = None,
+    actor_pool=None,
 ) -> List[GameOutcome]:
     """Roll out `games_per_iter` games and call `train_step` once at
     the end. Returns the per-game outcomes for logging.
@@ -862,7 +863,20 @@ def run_iteration(
     if hasattr(reward_fn, "_component_acc"):
         reward_fn._component_acc = {}
 
-    if workers <= 0:
+    if actor_pool is not None:
+        # Actor-pool path (MCTS only): self-play runs in weightless
+        # actor PROCESSES feeding this process's central batched-
+        # inference server (see tools/actor_pool). The actors ship back
+        # completed MCTSExperiences; we drain them into the learner's
+        # queue here, and the shared train_step below applies the
+        # gradient update exactly as in the in-process paths.
+        base_seed = rng.randint(0, 2**31 - 1)
+        pool_outcomes, pool_exps = actor_pool.run_iteration(
+            iter_idx, games_per_iter, base_seed)
+        outcomes.extend(pool_outcomes)
+        with policy._lock:
+            policy._queue.extend(pool_exps)
+    elif workers <= 0:
         # Serial path -- simplest, used for tests and smoke runs.
         from tools.scenario_pool import random_setup
         for g_idx in range(games_per_iter):
@@ -1381,6 +1395,21 @@ def main(argv: List[str]) -> int:
                          "On CPU, ~30%% speedup at workers=4 (GIL "
                          "limits gains); on GPU, larger speedup as "
                          "forwards dispatch in parallel.")
+    ap.add_argument("--actor-pool", type=int, default=0,
+                    help="MCTS only. >0 = run self-play in N "
+                         "WEIGHTLESS actor PROCESSES feeding a central "
+                         "batched-inference server (this main process "
+                         "owns the GPU and batches forwards across "
+                         "actors -- SEED-RL pattern, tools/actor_pool). "
+                         "Escapes the GIL that caps --workers threads "
+                         "and keeps a GPU fed on a CPU-rich host. "
+                         "Mutually exclusive with --workers. Training "
+                         "is no longer bit-deterministic (dynamic "
+                         "cross-actor batching).")
+    ap.add_argument("--actor-max-batch", type=int, default=0,
+                    help="Max inference batch the actor-pool server "
+                         "fuses per GPU forward. 0 (default) = "
+                         "max(8, --actor-pool).")
     ap.add_argument("--forced-faction", default=None,
                     help="If set, every game has at least one side "
                          "playing this faction. Pass 'none' to "
@@ -1881,6 +1910,39 @@ def main(argv: List[str]) -> int:
         except OSError:
             pass
 
+    # Optional multiprocess actor pool (MCTS only). Built here so all
+    # scenario/device/pvp settings are resolved; started before the
+    # loop and torn down via atexit (daemon actors also die with the
+    # parent). Mutually exclusive with --workers / --opener-spec.
+    actor_pool = None
+    if args.actor_pool > 0:
+        if not args.mcts:
+            log.error("--actor-pool requires --mcts"); return 2
+        if args.workers > 0:
+            log.error("--actor-pool is mutually exclusive with --workers")
+            return 2
+        if args.opener_spec:
+            log.error("--actor-pool does not support --opener-spec "
+                      "(actors do not apply openers)"); return 2
+        import atexit
+        from tools.actor_pool import ActorPool
+        scenario_opts = dict(
+            forced_faction=forced_faction_arg,
+            mini_maps=args.mini_maps,
+            mini_ratio=max(0.0, min(1.0, float(args.mini_ratio))),
+            drill_ratio=max(0.0, min(1.0, float(args.drill_ratio))),
+        )
+        actor_pool = ActorPool(
+            policy, args.actor_pool, mcts_cfg,
+            scenario_opts=scenario_opts, max_turns=args.max_turns,
+            pvp_defaults=pvp_defaults, device=device,
+            max_batch=(args.actor_max_batch or None),
+            log_level=logging.getLogger().level)
+        actor_pool.start()
+        atexit.register(actor_pool.shutdown)
+        log.info(f"actor pool: {args.actor_pool} processes "
+                 f"(GIL-free; --workers thread-path disabled)")
+
     DEAD_ITER_LIMIT = 5
     consecutive_dead = 0
     for it in range(args.iterations):
@@ -1897,6 +1959,7 @@ def main(argv: List[str]) -> int:
             mini_ratio=max(0.0, min(1.0, float(args.mini_ratio))),
             drill_ratio=max(0.0, min(1.0, float(args.drill_ratio))),
             snapshot_sink=(history_csv.append if history_csv else None),
+            actor_pool=actor_pool,
         )
         if not outcomes:
             consecutive_dead += 1

@@ -52,8 +52,38 @@ current-state facts I verified against the code on 2026-06-17.
   bridges, NOT players here. 7 pure-math unit tests
   (`test_elo_ladder.py`) + CLI smoke. `dummy_policy` is included as a
   scripted floor anchor.
-- [ ] 🔴 **Keep the GPU fed (plan §3.1) — [moderate], highest GPU-ROI.**
-  TWO CORRECTIONS to the plan's framing, verified in code:
+- [~] 🔴 **Keep the GPU fed (plan §3.1) — actor pool DONE 2026-06-17;
+  intra-search Gumbel batching deferred.**
+  Implemented the multiprocess actor pool (§3.1b) in two stages:
+    * **B1 — inference seam** (`tools/inference_seam.py`, committed):
+      drop-in `RemoteEncoder`/`RemoteModel`/`InferenceServer` duck-types
+      so the MCTS leaf forward can be relocated to another process with
+      ZERO mcts.py changes. Cut point is `RawEncoded` (weight-free
+      phase-1 encode); server runs trained phase-2 + model and returns
+      CPU `ModelOutput`. 5 parity tests incl. an identical-tree
+      `mcts_search` check.
+    * **B2 — actor pool + central server** (`tools/actor_pool.py`,
+      committed): N WEIGHTLESS actor PROCESSES run sim+encode+MCTS and
+      ship leaf RawEncoded to the main process, which owns the model
+      and dynamically batches forwards across actors (SEED-RL). No
+      weight sync (actors are weightless; server forwards with current
+      weights). `--actor-pool N` / `--actor-max-batch` in
+      sim_self_play; mutually exclusive with `--workers`/`--opener-spec`.
+      Standalone correctness smoke (`python tools/actor_pool.py` and an
+      `--actor-pool 2` entrypoint run) — NOT a pytest (spawning torch
+      subprocs in the sweep risks the machine). Training is no longer
+      bit-deterministic (dynamic cross-actor batching); eval/tests stay
+      serial. SPEEDUP is unvalidated locally (CPU, no GPU) — measure on
+      a rented GPU (Phase 0 exit criterion: GPU util ≥ ~70%).
+    * **TODO — intra-search Gumbel batching (§3.1a, the "layered"
+      part 2):** batch the `len(cands) x sims_per` independent sims
+      WITHIN a sequential-halving phase (mcts.py `_gumbel_root_search`,
+      currently serial `_run_one_sim`). Enlarges a SINGLE actor's
+      request; composes with the pool (which enlarges across actors).
+      Collides with Tier-2 bucketing's copy-at-expansion (siblings
+      batched before any rep is forwarded) — needs the dedup/forward-
+      all/exclusive decision before coding. Reuses the B1 seam.
+  ORIGINAL plan-framing corrections (verified in code), retained:
     * **Batched MCTS leaf eval + virtual loss already exists — but only
       on the CLASSIC root** (`mcts.py:1313–1376`, collect→`model.
       forward_batch`→backup). The **DEFAULT Gumbel root is fully
