@@ -69,6 +69,7 @@ class _NoStats:
     entropy = 0.0
     mean_return = 0.0
     grad_norm = 0.0
+    aux_loss = 0.0
 
 
 def test_one_game_emits_observe_per_step():

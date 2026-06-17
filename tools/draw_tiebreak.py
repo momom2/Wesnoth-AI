@@ -99,3 +99,29 @@ def draw_tiebreak_z(
     if cfg.score_scale <= 0:
         return 0.0
     return cfg.cap * math.tanh(score / cfg.score_scale)
+
+
+def material_margin(
+    gs:   "GameState",
+    side: int,
+    cfg:  DrawTiebreakConfig,
+) -> float:
+    """Auxiliary training target (KataGo 'score'/margin analog): the
+    signed final MATERIAL margin from `side`'s perspective, squashed to
+    (-1, +1) by tanh. Identical material score to `draw_tiebreak_z`
+    (villages + weighted gold + weighted unit value) but WITHOUT the
+    draw `cap` -- a denser signal than the win/loss z, distinguishing a
+    crushing result from a narrow one regardless of who won. Computed
+    for EVERY recorded state (not just draws). Antisymmetric between
+    sides. `score_scale<=0` -> 0.0 (margin signal disabled)."""
+    if cfg.score_scale <= 0:
+        return 0.0
+    opponent = 3 - side
+    v_us,  g_us,  u_us  = _side_material(gs, side)
+    v_opp, g_opp, u_opp = _side_material(gs, opponent)
+    score = (
+        cfg.weight_village    * (v_us - v_opp)
+        + cfg.weight_gold       * (g_us - g_opp)
+        + cfg.weight_unit_value * (u_us - u_opp)
+    )
+    return math.tanh(score / cfg.score_scale)

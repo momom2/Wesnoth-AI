@@ -1017,11 +1017,15 @@ def run_iteration(
         train_t0 = time.perf_counter()
         train_stats = policy.train_step()
         train_dt = time.perf_counter() - train_t0
+        # getattr-guarded: non-trainable/stub policies (openers, dummy)
+        # may return a minimal stats object without the aux field.
+        _aux = getattr(train_stats, "aux_loss", 0.0)
+        aux_str = f" aux={_aux:.4f}" if _aux else ""
         log.info(
             f"iter {iter_idx}: train_step in {train_dt:.1f}s "
             f"trajectories={train_stats.n_trajectories} transitions={train_stats.n_transitions} "
             f"loss={train_stats.total_loss:.4f} policy={train_stats.policy_loss:.4f} "
-            f"value={train_stats.value_loss:.4f} entropy={train_stats.entropy:.4f} "
+            f"value={train_stats.value_loss:.4f}{aux_str} entropy={train_stats.entropy:.4f} "
             f"mean_return={train_stats.mean_return:+.3f} grad_norm={train_stats.grad_norm:.3f}"
         )
 
@@ -1541,6 +1545,18 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--mcts-playout-cap-fast-sims", type=int, default=0,
                     help="Sim budget for fast (unrecorded) moves under "
                          "--mcts-playout-cap. 0 = max(1, --mcts-sims//4).")
+    ap.add_argument("--mcts-aux-score", action="store_true",
+                    help="Add the auxiliary margin head (KataGo §3.5): "
+                         "the model predicts the final MATERIAL margin "
+                         "(tanh, denser than win/loss z), trained with "
+                         "an MSE term (--mcts-aux-coef) against "
+                         "draw_tiebreak.material_margin. Changes the "
+                         "model arch (adds a head) -> fresh init unless "
+                         "warm-starting an aux-on checkpoint. Targets "
+                         "are produced only in MCTS mode.")
+    ap.add_argument("--mcts-aux-coef", type=float, default=0.15,
+                    help="Weight of the auxiliary margin MSE loss "
+                         "(--mcts-aux-score). KataGo uses ~0.15.")
     ap.add_argument("--replay-buffer", action="store_true",
                     help="Enable AlphaZero-style experience replay + "
                          "multi-epoch training (MCTS mode). Default OFF "
@@ -1649,6 +1665,7 @@ def main(argv: List[str]) -> int:
     # init. The cluster job's chain logic relies on this -- losing
     # the warm-start every iteration would burn cluster time.
     arch_kwargs: Dict[str, int] = {}
+    ckpt_aux_score = False
     if args.checkpoint_in and args.checkpoint_in.exists():
         try:
             raw = torch.load(args.checkpoint_in, map_location="cpu",
@@ -1657,8 +1674,10 @@ def main(argv: List[str]) -> int:
             for k in ("d_model", "num_layers", "num_heads", "d_ff"):
                 if k in saved_arch:
                     arch_kwargs[k] = int(saved_arch[k])
+            ckpt_aux_score = bool(raw.get("aux_score", False))
             if arch_kwargs:
-                log.info(f"warm-start arch from checkpoint: {arch_kwargs}")
+                log.info(f"warm-start arch from checkpoint: {arch_kwargs}"
+                         f"{' +aux_score' if ckpt_aux_score else ''}")
         except Exception as e:
             log.warning(
                 f"couldn't peek arch from {args.checkpoint_in}: {e!r}; "
@@ -1692,7 +1711,17 @@ def main(argv: List[str]) -> int:
                 f"--num-heads ({arch_kwargs['num_heads']}) must divide "
                 f"--d-model ({arch_kwargs['d_model']}).")
 
-    policy = TransformerPolicy(device=device, **arch_kwargs)
+    # Auxiliary margin head (plan §3.5): on if requested OR if warm-
+    # starting an aux-on checkpoint (so the head isn't dropped on
+    # resume). It's a model-arch change, so it must be set at
+    # construction.
+    aux_score_flag = bool(args.mcts_aux_score) or ckpt_aux_score
+    policy = TransformerPolicy(device=device, aux_score=aux_score_flag,
+                               **arch_kwargs)
+    if aux_score_flag:
+        policy._trainer.config.aux_coef = float(args.mcts_aux_coef)
+        log.info(f"auxiliary margin head ON (aux_coef="
+                 f"{args.mcts_aux_coef}; KataGo §3.5)")
     # train_batch_size: forward_batch chunk size. THE key GPU knob --
     # TransformerPolicy defaults to 1 (CPU) / 2 (DML) and leaves CUDA
     # at 1, so a CUDA run would forward the replay minibatch as

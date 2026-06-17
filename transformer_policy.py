@@ -82,6 +82,7 @@ class TransformerPolicy:
         d_ff: int = 2048,
         device=None,
         trainer_config: Optional[TrainerConfig] = None,
+        aux_score: bool = False,
     ):
         # Default to select_device() — picks the discrete DirectML GPU
         # when available, falls back to CPU otherwise. The prior
@@ -121,12 +122,14 @@ class TransformerPolicy:
             is_dml = "privateuseone" in str(self._device)
             trainer_config = TrainerConfig(train_batch_size=2 if is_dml else 1)
 
+        self._aux_score = bool(aux_score)
         self._encoder = GameStateEncoder(d_model=d_model).to(self._device)
         self._model = WesnothModel(
             d_model=d_model,
             num_layers=num_layers,
             num_heads=num_heads,
             d_ff=d_ff,
+            aux_score=self._aux_score,
         ).to(self._device)
         self._trainer = Trainer(
             self._model,
@@ -161,6 +164,7 @@ class TransformerPolicy:
             num_layers=num_layers,
             num_heads=num_heads,
             d_ff=d_ff,
+            aux_score=self._aux_score,
         ).to(self._device)
         self._inference_encoder.load_state_dict(self._encoder.state_dict())
         self._inference_model.load_state_dict(self._model.state_dict())
@@ -563,6 +567,10 @@ class TransformerPolicy:
         torch.save(
             {
                 "arch":            self._arch,
+                # Kept OUT of `arch` (which is strict-compared on load,
+                # and old checkpoints lack the key); the aux head
+                # partial-loads via the EXPECTED_MISSING whitelist.
+                "aux_score":       self._aux_score,
                 "model_state":     self._model.state_dict(),
                 "encoder_state":   self._encoder.state_dict(),
                 "unit_type_to_id": dict(self._encoder.unit_type_to_id),
@@ -680,6 +688,11 @@ class TransformerPolicy:
                     # value_head and we partial-load):
                     "value_head.2.weight", "value_head.2.bias",
                     "_value_atoms",
+                    # Optional auxiliary margin head (KataGo §3.5,
+                    # 2026-06-17). Present only when aux_score=True;
+                    # an aux-on model resumed from an aux-off
+                    # checkpoint partial-loads with this head fresh.
+                    "aux_score_head.weight", "aux_score_head.bias",
                 },
                 "encoder": {
                     # Dynamic hex flags (recruit_rejected etc.)

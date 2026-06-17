@@ -162,6 +162,12 @@ class ModelOutput:
     cliffness:     torch.Tensor  # [1, 1]            std(Z(s))
     num_units:     int
     num_recruits:  int
+    # Optional auxiliary prediction head (KataGo §3.5): the predicted
+    # final MATERIAL margin from the acting side's perspective, tanh-
+    # bounded to (-1, +1). `None` when the model was built without the
+    # aux head (default). A denser training signal than win/loss z;
+    # see trainer aux_coef + draw_tiebreak.material_margin.
+    aux_score:     Optional[torch.Tensor] = None  # [1, 1] or None
 
     # Diagnostic: marginal-over-actors probability of each action
     # type. Layout [1, T+2]:
@@ -206,10 +212,12 @@ class WesnothModel(nn.Module):
         # keeps every forward on the GPU.
         dropout:     float = 1e-4,
         max_attacks: int = MAX_ATTACKS,
+        aux_score:   bool = False,
     ):
         super().__init__()
         self.d_model     = d_model
         self.max_attacks = max_attacks
+        self.has_aux_score = bool(aux_score)
 
         # Distinguish streams at attention time.
         self.token_kind_embed = nn.Embedding(TokenKind.COUNT, d_model)
@@ -272,6 +280,12 @@ class WesnothModel(nn.Module):
             "_value_atoms",
             torch.linspace(VALUE_V_MIN, VALUE_V_MAX, VALUE_N_ATOMS),
         )
+        # Optional auxiliary head (KataGo §3.5): predicts the final
+        # material margin from the global token, tanh-bounded to
+        # (-1, +1). Built only when `aux_score` is on, so the default
+        # arch (and existing checkpoints) are byte-unchanged.
+        self.aux_score_head = (
+            nn.Linear(d_model, 1) if self.has_aux_score else None)
 
     def forward(self, encoded: "EncodedState") -> ModelOutput:
         device = encoded.hex_tokens.device
@@ -352,6 +366,11 @@ class WesnothModel(nn.Module):
                  - value.pow(2)).clamp_min(0)
         cliffness = var_v.sqrt()                                  # [B, 1]
 
+        aux_score = None
+        if self.aux_score_head is not None:
+            aux_score = torch.tanh(
+                self.aux_score_head(global_ctx.squeeze(1)))       # [B, 1]
+
         # marginal_type_logits is now a lazy property on ModelOutput
         # (optimization #2) -- not computed here; the sole reader is a
         # test, and self-play/training never touch it.
@@ -366,6 +385,7 @@ class WesnothModel(nn.Module):
             cliffness=cliffness,
             num_units=U,
             num_recruits=R,
+            aux_score=aux_score,
         )
 
     # ------------------------------------------------------------------
@@ -463,6 +483,10 @@ class WesnothModel(nn.Module):
         var_v_b = ((value_probs_b * atoms_b.pow(2)).sum(dim=-1, keepdim=True)
                    - value_b.pow(2)).clamp_min(0)
         cliffness_b = var_v_b.sqrt()                                  # [B, 1]
+        aux_score_b = None
+        if self.aux_score_head is not None:
+            aux_score_b = torch.tanh(
+                self.aux_score_head(global_ctx_b.squeeze(1)))         # [B, 1]
 
         # Heads applied to the padded streams once each — replaces the
         # old per-sample loop that called actor_head / target_q_proj /
@@ -541,6 +565,8 @@ class WesnothModel(nn.Module):
             value_sample = value_b[b:b+1]                  # [1, 1]
             value_logits_sample = value_logits_b[b:b+1]    # [1, K]
             cliffness_sample = cliffness_b[b:b+1]          # [1, 1]
+            aux_sample = (aux_score_b[b:b+1]
+                          if aux_score_b is not None else None)  # [1, 1]
 
             # marginal_type_logits: lazy property (optimization #2).
             outputs.append(ModelOutput(
@@ -554,5 +580,6 @@ class WesnothModel(nn.Module):
                 cliffness=cliffness_sample,
                 num_units=U_b,
                 num_recruits=R_b,
+                aux_score=aux_sample,
             ))
         return outputs

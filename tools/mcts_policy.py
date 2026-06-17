@@ -44,7 +44,7 @@ import numpy as np
 
 from classes import GameState, state_key
 from trainer import MCTSExperience, TrainStats
-from tools.draw_tiebreak import draw_tiebreak_z
+from tools.draw_tiebreak import draw_tiebreak_z, material_margin
 from tools.mcts import (
     MCTSConfig, mcts_search, extract_visit_counts, best_action,
     sample_action, extract_gumbel_policy_target,
@@ -288,6 +288,14 @@ class MCTSPolicy:
             log.debug(
                 f"finalize_game({game_label!r}): no final_gs passed; "
                 f"tiebreak scored on the last pre-action state")
+        # Auxiliary margin target (KataGo §3.5): the final MATERIAL
+        # margin from each state's side, computed from the game's end
+        # state for EVERY outcome (denser than z). Needs the tiebreak
+        # weights + a final state; falls back to the last recorded
+        # state if the rollout didn't pass `final_gs`. `None` when no
+        # tiebreak config is set (trainer then skips the aux loss).
+        aux_gs = final_gs if final_gs is not None else (
+            states[-1].gs if states else None)
         for s in states:
             if winner == 0:
                 if tiebreak is not None and final_gs is not None:
@@ -298,10 +306,14 @@ class MCTSPolicy:
                 z = +1.0
             else:
                 z = -1.0
+            aux = (material_margin(aux_gs, s.side, tiebreak)
+                   if (tiebreak is not None and aux_gs is not None)
+                   else None)
             exp = MCTSExperience(
                 game_state=s.gs,
                 visit_counts=s.visit_counts,
                 z=z,
+                aux_target=aux,
             )
             with self._lock:
                 self._queue.append(exp)
@@ -372,6 +384,7 @@ class MCTSPolicy:
             mean_return=sum(s.mean_return for s in stats) / k,
             n_transitions=sum(s.n_transitions for s in stats),
             n_trajectories=buffer_size,
+            aux_loss=sum(s.aux_loss for s in stats) / k,
         )
 
     # ------------------------------------------------------------------

@@ -123,11 +123,28 @@ current-state facts I verified against the code on 2026-06-17.
   leaderkill failure. Watch O(seq_len²) over ~1700 hex tokens as
   `d_model` grows; defer windowed/downsampled attention until profiling
   shows it binds.
-- [ ] 🟠 **KataGo efficiency tricks (plan §3.5) — [slight].**
-  Playout-cap randomization is already a 🟡 todo below; plan also wants
-  auxiliary prediction targets (opponent reply, gold/territory swing)
-  and progressive net growth. Keep tuning the proven `--replay-updates`
-  / `--value-coef` levers.
+- [~] 🟠 **KataGo efficiency tricks (plan §3.5) — partially DONE.**
+    * [x] **Playout-cap randomization** — DONE 2026-06-17
+      (`--mcts-playout-cap`; see the dedicated item below).
+    * [x] **Auxiliary prediction target** — DONE 2026-06-17.
+      `--mcts-aux-score` adds a margin head: the model predicts the
+      final MATERIAL margin (`draw_tiebreak.material_margin`, tanh,
+      denser than win/loss z), trained with an MSE term
+      (`--mcts-aux-coef`, default 0.15). Config-gated at model
+      construction (`WesnothModel(aux_score=...)`), so the default arch
+      and existing checkpoints are byte-unchanged; the aux head
+      partial-loads (added to the EXPECTED_MISSING whitelist) and the
+      `aux_score` flag round-trips in the checkpoint (separate from the
+      strict-compared `arch`). `MCTSExperience.aux_target` set in
+      `finalize_game`; trainer adds the term only when the head AND
+      targets are present. `test_aux_targets` (7). Chose the
+      material-margin target (cheap, reuses the tiebreak scorer, dense)
+      over opponent-reply (needs cross-side trajectory plumbing) — the
+      latter remains a future auxiliary.
+    * [ ] **Progressive net growth** — still TODO (start Tier-a sized,
+      widen as the Elo curve flattens; net2net width-transfer is the
+      [moderate] version).
+    * Keep tuning the proven `--replay-updates` / `--value-coef` levers.
 
 **Cross-links to existing BACKLOG items the plan re-surfaces:**
 `scenario_id` in `GameOutcome` for per-map leaderkill attribution

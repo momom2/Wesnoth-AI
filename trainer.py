@@ -104,6 +104,12 @@ class MCTSExperience:
     game_state:  GameState
     visit_counts: List[Tuple]    # 4-tuple (legacy) or 5-tuple (new)
     z:            float
+    # Optional auxiliary target (KataGo §3.5): the final MATERIAL
+    # margin from this state's side perspective, in (-1, +1). `None`
+    # when aux targets aren't being collected (the trainer then skips
+    # the aux loss). A denser companion to `z`. See
+    # draw_tiebreak.material_margin + MCTSPolicy.finalize_game.
+    aux_target:  Optional[float] = None
 
 
 @dataclass
@@ -113,6 +119,13 @@ class TrainerConfig:
     weight_decay:         float = 1e-4
     gamma:                float = 0.99
     value_coef:           float = 0.5
+    # Auxiliary-target loss weight (KataGo §3.5). Only has an effect
+    # when the model was built with the aux head (`aux_score=True`) AND
+    # the experiences carry `aux_target`s; otherwise it's a no-op. A
+    # small weight (KataGo uses ~0.15) so the dense margin signal
+    # regularizes the shared trunk without overwhelming the policy/value
+    # objectives. See draw_tiebreak.material_margin.
+    aux_coef:             float = 0.15
     # Lowered from 0.01 after the first 22 train_steps held entropy
     # ~8.3 (near max). The bonus was dominating the tiny shaping
     # gradients and preventing the policy from ever committing to an
@@ -174,6 +187,7 @@ class TrainStats:
     mean_return:    float = 0.0
     n_transitions:  int   = 0
     n_trajectories: int   = 0
+    aux_loss:       float = 0.0   # auxiliary margin loss (KataGo §3.5); 0 when off
 
 
 class Trainer:
@@ -830,10 +844,27 @@ def _trainer_step_mcts(
         zs.clamp_(min=-float(self.config.value_clip),
                   max=+float(self.config.value_clip))
 
+    # Auxiliary margin target (KataGo §3.5). Active only when the model
+    # has the aux head, the weight is positive, AND every experience
+    # carries a margin target -- otherwise the head/term is skipped
+    # entirely (mixed or aux-off data trains exactly as before).
+    aux_on = (
+        self.config.aux_coef > 0
+        and getattr(self.model, "has_aux_score", False)
+        and all(getattr(e, "aux_target", None) is not None
+                for e in experiences)
+    )
+    aux_t_full = (
+        torch.tensor([e.aux_target for e in experiences],
+                     device=dev, dtype=torch.float32)
+        if aux_on else None
+    )
+
     self.optimizer.zero_grad()
 
     sum_policy_loss = 0.0
     sum_value_loss  = 0.0
+    sum_aux_loss    = 0.0
     sum_total_visits = 0.0
     sum_actor_nlp_weighted = 0.0  # for "entropy"-style logging
 
@@ -874,6 +905,7 @@ def _trainer_step_mcts(
         chunk_policy_losses: List[torch.Tensor] = []
         chunk_values: List[torch.Tensor] = []
         chunk_value_logits: List[torch.Tensor] = []
+        chunk_aux: List[torch.Tensor] = []
         for e, encoded, output in zip(chunk, encoded_chunk, outputs):
             policy_loss, total_v, mean_actor_nlp = (
                 _mcts_factored_policy_loss(
@@ -884,6 +916,8 @@ def _trainer_step_mcts(
             chunk_policy_losses.append(policy_loss)
             chunk_values.append(output.value.squeeze())
             chunk_value_logits.append(output.value_logits.squeeze(0))
+            if aux_on:
+                chunk_aux.append(output.aux_score.squeeze())
             sum_total_visits += total_v
             sum_actor_nlp_weighted += mean_actor_nlp * total_v
 
@@ -902,6 +936,18 @@ def _trainer_step_mcts(
             policy_loss_t
             + self.config.value_coef * value_loss
         )
+        # Auxiliary margin loss (KataGo §3.5): MSE of the predicted vs
+        # final material margin, summed over the chunk and normalized by
+        # N (matching the value-loss normalization), weighted by
+        # aux_coef. Regularizes the shared trunk with a denser signal.
+        if aux_on:
+            aux_pred_t = torch.stack(chunk_aux)
+            aux_tgt_t  = aux_t_full[start:start + L]
+            aux_loss = F.mse_loss(aux_pred_t, aux_tgt_t,
+                                  reduction="sum") / N
+            chunk_loss = chunk_loss + self.config.aux_coef * aux_loss
+            sum_aux_loss += float(aux_loss.item())
+
         chunk_loss.backward()
 
         sum_policy_loss += float(policy_loss_t.item())
@@ -932,12 +978,14 @@ def _trainer_step_mcts(
         total_loss     = float(
             sum_policy_loss
             + self.config.value_coef * sum_value_loss
+            + self.config.aux_coef   * sum_aux_loss
         ),
         grad_norm      = float(grad_norm) if isinstance(grad_norm, float)
                          else float(grad_norm.item()),
         mean_return    = float(zs.mean().item()),
         n_transitions  = int(N),
         n_trajectories = int(N),  # one experience = one root state
+        aux_loss       = float(sum_aux_loss),
     )
 
 
