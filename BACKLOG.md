@@ -360,8 +360,8 @@ hex-distance (fraught). Low priority — MCTS mode doesn't pay it.
     work below should close the gap and re-enable enumeration on
     those edges. Worth a targeted repro (mid-game save + each
     mechanic) before then to pin the exact missing transition.
-  - [ ] Tier 2: **adaptive outcome bucketing** (AGREED DESIGN
-    2026-06-15, flag-gated `--mcts-outcome-buckets`, default off,
+  - [x] Tier 2: **adaptive outcome bucketing** (LANDED 2026-06-17,
+    flag-gated `--mcts-outcome-buckets`, default off,
     A/B-able vs the current one-child-per-outcome path). Lit basis:
     PARSS (Hostetler et al., UAI-2015 / JAIR-2017) supplies the
     coarse→fine, split-in-half, asymptotic-convergence backbone;
@@ -423,6 +423,33 @@ hex-distance (fraught). Low priority — MCTS mode doesn't pay it.
     membership + renorm sampling + split, no torch); integration in
     `tools/mcts.py` `_select_one`. Closes the DP-support-mismatch
     fallback noise too (📋 above).
+    **IMPLEMENTED (2026-06-17), two stages:**
+      * Stage 1 (copy-at-expansion, commit a95e602): the pure core
+        `tools/outcome_buckets.py` (event_class, MemberStat, Bucket,
+        initial_buckets, propose_split, split) + `test_outcome_buckets`
+        (12 tests). `_select_one` elects a per-bucket representative;
+        non-rep members copy its edges/value instead of forwarding
+        (`_copy_expansion`). `test_mcts_buckets` checks forward
+        reduction, determinism, loose Q-unbiasedness.
+      * Stage 2 (adaptive HP-splitting, THIS commit): `_select_one`
+        returns a parallel `member_path`; `_backup` attributes each
+        backed-up value to its member ground stat (same parent frame
+        as `edge.w_value`) and calls `_record_and_maybe_split`, which
+        runs the significance test and, on a fire, re-points
+        `edge.bucket_of` to the two sub-buckets and retires the old
+        representative (sub-buckets re-elect lazily; retained ground
+        stats make the split warm + unbiased). Knobs: `bucket_v_min`
+        (16), `bucket_z_sig` (2.0), `bucket_min_half_visits` (2).
+    **v1 SCOPE / LIMITS:** rides the serial `_run_one_sim` path the
+    Gumbel root uses — the classic batched-root loop leaves bucketing
+    OFF (the CLI guards against silently no-opping `--mcts-classic-root
+    --mcts-outcome-buckets`). Merges/un-merges of already-split buckets
+    are NOT yet implemented (split-only; PARSS converges coarse→fine,
+    so this is the asymptotically-correct direction, but a bucket that
+    split on transient heterogeneity won't re-coalesce in v1).
+    Subtree-reattach on split is still deferred (sub-buckets re-forward
+    their representative). Next: A/B a trained-checkpoint run with the
+    flag on vs off (forwards-saved vs strength), then consider merges.
   - [ ] Later, with compute: learned outcome codebook
     (Stochastic-MuZero-style) replacing the hand-split.
 - [x] 🟠 **Gumbel AlphaZero root** (DONE 2026-06-12, default ON):

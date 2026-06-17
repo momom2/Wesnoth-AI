@@ -1458,6 +1458,23 @@ def main(argv: List[str]) -> int:
                          "successor state exactly matches the "
                          "searched child, so combat RNG divergence "
                          "auto-rebuilds).")
+    ap.add_argument("--mcts-outcome-buckets", action="store_true",
+                    help="Enable Tier-2 adaptive outcome bucketing at "
+                         "chance nodes (Gumbel/serial path only): "
+                         "same-event-class combat outcomes share one "
+                         "network forward (copy-at-expansion), then "
+                         "split adaptively when within-bucket value "
+                         "heterogeneity becomes significant (PARSS "
+                         "backbone + OGA significance trigger). Default "
+                         "OFF; complements root batching by cutting "
+                         "redundant per-outcome forwards.")
+    ap.add_argument("--mcts-bucket-v-min", type=int, default=16,
+                    help="Min bucket visits before a split is "
+                         "considered (--mcts-outcome-buckets).")
+    ap.add_argument("--mcts-bucket-z-sig", type=float, default=2.0,
+                    help="Significance threshold (in SEs of the half-"
+                         "mean difference) for splitting a bucket "
+                         "(--mcts-outcome-buckets).")
     ap.add_argument("--replay-buffer", action="store_true",
                     help="Enable AlphaZero-style experience replay + "
                          "multi-epoch training (MCTS mode). Default OFF "
@@ -1656,7 +1673,19 @@ def main(argv: List[str]) -> int:
             gumbel_root=not args.mcts_classic_root,
             gumbel_m=args.mcts_gumbel_m,
             exact_outcome_enumeration=not args.mcts_no_exact_outcomes,
+            outcome_buckets=args.mcts_outcome_buckets,
+            bucket_v_min=args.mcts_bucket_v_min,
+            bucket_z_sig=args.mcts_bucket_z_sig,
         )
+        if mcts_cfg.outcome_buckets and not mcts_cfg.gumbel_root:
+            # Bucketing rides the serial _run_one_sim path the Gumbel
+            # root uses; the classic batched loop leaves it off (v1).
+            # Don't let the flag silently no-op.
+            log.warning(
+                "--mcts-outcome-buckets has no effect with "
+                "--mcts-classic-root (bucketing is implemented only on "
+                "the Gumbel/serial path in v1); disabling it.")
+            mcts_cfg.outcome_buckets = False
         root_desc = (f"gumbel(m={mcts_cfg.gumbel_m})"
                      if mcts_cfg.gumbel_root else
                      f"classic(tau={mcts_cfg.temperature}"
@@ -1666,6 +1695,8 @@ def main(argv: List[str]) -> int:
             f"c_puct={mcts_cfg.c_puct} batch_size={mcts_cfg.batch_size} "
             f"fpu={mcts_cfg.fpu_reduction} root={root_desc} "
             f"tree_reuse={mcts_cfg.tree_reuse} "
+            f"outcome_buckets="
+            f"{'on(v_min=%d,z=%.1f)' % (mcts_cfg.bucket_v_min, mcts_cfg.bucket_z_sig) if mcts_cfg.outcome_buckets else 'off'} "
             f"draw_tiebreak_cap="
             f"{tiebreak.cap if tiebreak else 'off'}. "
             f"--reward-config is ignored in MCTS mode (AlphaZero "

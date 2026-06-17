@@ -106,7 +106,12 @@ from draw_tiebreak import DrawTiebreakConfig, draw_tiebreak_z
 from combat_outcomes import (
     enumerate_attack_outcomes, outcome_key_for_child,
 )
-from outcome_buckets import event_class as _event_class
+from outcome_buckets import (
+    event_class as _event_class,
+    initial_buckets as _initial_buckets,
+    propose_split as _propose_split,
+    split as _bucket_split,
+)
 
 
 log = logging.getLogger("mcts")
@@ -638,8 +643,11 @@ def _select_one(
     child nodes by forking the parent sim and applying the edge's
     action. Apply virtual loss to each selected edge so the next
     parallel selection in the same batch is biased away from this
-    path. Returns (leaf, path) where path is the list of
-    (parent_node, edge_taken) pairs; backup walks it in reverse.
+    path. Returns (leaf, path, member_path): `path` is the list of
+    (parent_node, edge_taken) pairs (backup walks it in reverse);
+    `member_path` is the parallel list of the OutcomeKey descended
+    into at each bucketed chance edge (else None), which backup uses
+    to attribute values to member ground stats (Tier-2 bucketing).
 
     With `chance_nodes`, every traversal of a STOCHASTIC edge
     (attack / recruit) re-forks the parent sim under a fresh seed
@@ -658,6 +666,12 @@ def _select_one(
     edges of the path, not the nodes themselves.
     """
     path: List[Tuple[MCTSNode, MCTSEdge]] = []
+    # Parallel to `path`: the OutcomeKey descended into at each step
+    # when that edge is a bucketed chance edge, else None. _backup
+    # uses it to attribute backed-up values to member ground stats
+    # (Tier-2 stage 2). Always built; harmless (all None) when
+    # bucketing is off.
+    member_path: List[Optional[tuple]] = []
     node = root
     while node.expanded and not node.is_terminal:
         if len(path) >= _MAX_SELECT_DEPTH:
@@ -667,6 +681,7 @@ def _select_one(
                 "mcts: selection depth hit %d; breaking (cycle?). "
                 "Treating current node as leaf.", _MAX_SELECT_DEPTH)
             break
+        step_okey: Optional[tuple] = None   # set iff bucketed this step
         if forced_first_edge is not None:
             # Gumbel sequential halving pins the ROOT edge; interior
             # selection below stays PUCT.
@@ -813,24 +828,37 @@ def _select_one(
                         else:
                             edge.outcome_keys[key] = okey
                             edge.seen_mass += p_o
-                    # --- Tier-2 bucketing (stage 1: copy-at-expansion).
-                    # Group this outcome's child with same-event-class
-                    # outcomes: the first one forwarded is the bucket
-                    # representative; later ones copy its edges + value
-                    # instead of running their own network forward.
+                    # --- Tier-2 bucketing. Group this outcome's child
+                    # into its bucket: the first outcome forwarded in a
+                    # bucket is the representative; later same-bucket
+                    # outcomes copy its edges + value instead of running
+                    # their own network forward (copy-at-expansion).
                     # Members still recurse from their own real sim
-                    # (re-separation), so each keeps an independent
-                    # value signal. Only active with a live DP dist.
+                    # (re-separation), keeping an independent value
+                    # signal that the backup-time significance test
+                    # (stage 2) uses to split buckets. `step_okey`
+                    # threads the member to _backup for ground-stat
+                    # attribution. Only active with a live DP dist.
                     if outcome_buckets and dist is not None:
                         okey = edge.outcome_keys.get(key)
                         if okey is not None:
-                            ec = _event_class(okey)
-                            rep = edge.bucket_rep.get(ec)
-                            if rep is None or rep is child:
-                                edge.bucket_rep[ec] = child
-                            elif (not child.expanded
-                                  and child._bucket_copy_from is None):
-                                child._bucket_copy_from = rep
+                            if edge.bucket_of is None:
+                                # Lazy init: one bucket per event-class
+                                # (coarsest), refined by splits later.
+                                edge.bucket_of = {
+                                    k: b
+                                    for b in _initial_buckets(dist.probs)
+                                    for k in b.members
+                                }
+                            b = edge.bucket_of.get(okey)
+                            if b is not None:
+                                step_okey = okey
+                                rep = edge.bucket_rep.get(id(b))
+                                if rep is None or rep is child:
+                                    edge.bucket_rep[id(b)] = child
+                                elif (not child.expanded
+                                      and child._bucket_copy_from is None):
+                                    child._bucket_copy_from = rep
         # Apply virtual loss BEFORE descending so the next
         # parallel selection in the same batch sees an edge that
         # currently looks bad (q drops, PUCT score drops). Real
@@ -840,8 +868,9 @@ def _select_one(
             edge.w_value -= virtual_loss
             node._total_visits += virtual_loss
         path.append((node, edge))
+        member_path.append(step_okey)
         node = child
-    return node, path
+    return node, path, member_path
 
 
 # Variance of the prior distribution over outcomes, used as
@@ -855,6 +884,33 @@ def _select_one(
 _BOOTSTRAP_PRIOR_VAR = 1.0 / 3.0
 
 
+def _record_and_maybe_split(edge, okey, mv, config) -> None:
+    """Tier-2 stage 2: attribute a backed-up member value `mv` (in the
+    edge's parent-perspective frame, consistent across the bucket) to
+    its ground stat, then split the bucket if the significance test
+    fires. On split, re-point members to the two sub-buckets and
+    retire the old representative (sub-buckets re-elect one lazily on
+    their next sampled member). Retained member ground stats carry
+    into the sub-buckets, so the split is warm and unbiased."""
+    if edge.bucket_of is None:
+        return
+    b = edge.bucket_of.get(okey)
+    if b is None:
+        return
+    b.record(okey, mv)
+    out = _propose_split(b, config.bucket_v_min, config.bucket_z_sig,
+                         config.bucket_min_half_visits)
+    if out is None:
+        return
+    axis, thr, _gap = out
+    lo, hi = _bucket_split(b, axis, thr)
+    for k in lo.members:
+        edge.bucket_of[k] = lo
+    for k in hi.members:
+        edge.bucket_of[k] = hi
+    edge.bucket_rep.pop(id(b), None)
+
+
 def _backup(
     path:                List[Tuple[MCTSNode, MCTSEdge]],
     v:                   float,
@@ -863,6 +919,8 @@ def _backup(
     leaf_cliffness:      float = 0.0,
     bootstrap_alpha:     float = 0.0,
     leaf_is_terminal:    bool  = False,
+    member_path:         Optional[List] = None,
+    config:              Optional["MCTSConfig"] = None,
 ) -> None:
     """Walk the path in reverse, undoing virtual loss and adding the
     real visit. `v` is from `leaf_side`'s perspective; flip per edge
@@ -905,14 +963,24 @@ def _backup(
         v_eff = v * scale
     else:
         v_eff = v
-    for parent, edge in reversed(path):
+    bucketing = member_path is not None and config is not None
+    for i in range(len(path) - 1, -1, -1):
+        parent, edge = path[i]
         if virtual_loss > 0:
             edge.n_visits -= virtual_loss
             edge.w_value += virtual_loss
             parent._total_visits -= virtual_loss
         edge.n_visits += 1
         parent._total_visits += 1
-        edge.w_value += v_eff if parent.side == leaf_side else -v_eff
+        contrib = v_eff if parent.side == leaf_side else -v_eff
+        edge.w_value += contrib
+        # Tier-2 stage 2: attribute to the traversed member's ground
+        # stat (same parent-perspective frame as edge.w_value, so it's
+        # consistent across the bucket) and split on significance.
+        if bucketing:
+            okey = member_path[i]
+            if okey is not None:
+                _record_and_maybe_split(edge, okey, contrib, config)
 
 
 def _adaptive_n_sims(config: MCTSConfig, root_cliffness: float) -> int:
@@ -997,7 +1065,7 @@ def _run_one_sim(
     given root edge), evaluate/expand the leaf, back up. Used by the
     Gumbel root procedure; the classic loop keeps its own batched
     variant."""
-    leaf, path = _select_one(
+    leaf, path, member_path = _select_one(
         root, config.c_puct, 0.0,
         transpositions=transpositions, stats=tt_stats,
         fpu_reduction=config.fpu_reduction,
@@ -1008,9 +1076,13 @@ def _run_one_sim(
         exact_outcomes=config.exact_outcome_enumeration,
         outcome_buckets=config.outcome_buckets,
     )
+    # Member-attribution args: only thread them when bucketing is on
+    # (no-op otherwise, and keeps _backup's hot loop branch-free).
+    _bp = ({"member_path": member_path, "config": config}
+           if config.outcome_buckets else {})
     if leaf.is_terminal:
         v = _terminal_value(leaf.sim, leaf.side, config.draw_tiebreak)
-        _backup(path, v, leaf.side, 0.0, leaf_is_terminal=True)
+        _backup(path, v, leaf.side, 0.0, leaf_is_terminal=True, **_bp)
         return
     if leaf.expanded:
         # Depth-cap break (see _MAX_SELECT_DEPTH) returned an already-
@@ -1020,7 +1092,7 @@ def _run_one_sim(
         _backup(
             path, leaf.value, leaf.side, 0.0,
             leaf_cliffness=leaf.cliffness,
-            bootstrap_alpha=config.cliffness_bootstrap_alpha,
+            bootstrap_alpha=config.cliffness_bootstrap_alpha, **_bp,
         )
         return
     # Tier-2 copy-at-expansion: a non-representative bucket member
@@ -1041,7 +1113,7 @@ def _run_one_sim(
         path, v, leaf.side, 0.0,
         leaf_cliffness=leaf.cliffness,
         bootstrap_alpha=config.cliffness_bootstrap_alpha,
-        leaf_is_terminal=leaf.is_terminal,
+        leaf_is_terminal=leaf.is_terminal, **_bp,
     )
 
 
@@ -1240,7 +1312,10 @@ def mcts_search(
         # accumulate in `pending` for batched forward.
         pending: List[Tuple[MCTSNode, List[Tuple[MCTSNode, MCTSEdge]]]] = []
         for _ in range(n_this_batch):
-            leaf, path = _select_one(
+            # Batched (classic-root) path: outcome bucketing is left
+            # OFF (v1 supports it only on the serial Gumbel path);
+            # member_path is unused here.
+            leaf, path, _member_path = _select_one(
                 root, config.c_puct, V_LOSS,
                 transpositions=transpositions,
                 stats=tt_stats,

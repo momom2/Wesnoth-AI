@@ -449,10 +449,10 @@ def test_transposition_shares_node_across_paths():
 
     target_key = state_key(_mk_gs())
     tt = {state_key(root_sim.gs): root}
-    leaf_a, _ = _select_one(root, c_puct=1.5, virtual_loss=1.0,
-                            transpositions=tt)
-    leaf_b, _ = _select_one(root, c_puct=1.5, virtual_loss=1.0,
-                            transpositions=tt)
+    leaf_a, _, _ = _select_one(root, c_puct=1.5, virtual_loss=1.0,
+                               transpositions=tt)
+    leaf_b, _, _ = _select_one(root, c_puct=1.5, virtual_loss=1.0,
+                               transpositions=tt)
     # Both edges' children must be the SAME node, supplied by the TT.
     assert e_a.sole_child is e_b.sole_child, (
         "TT should have shared the child across both edges"
@@ -587,7 +587,7 @@ def test_noop_resample_does_not_self_loop():
     root.edges.append(edge)
 
     tt = {state_key(root.sim.gs): root}
-    leaf, path = _select_one(
+    leaf, path, _ = _select_one(
         root, c_puct=1.5, virtual_loss=0.0,
         transpositions=tt,
         chance_nodes=True,

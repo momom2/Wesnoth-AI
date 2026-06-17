@@ -33,22 +33,32 @@ from sim_test_helpers import fresh_scenario_sim  # noqa: E402
 
 def _combat_sim():
     """A mini state with a friendly attacker teleported adjacent to an
-    enemy, so the root has an attack edge with a multi-outcome combat."""
+    enemy, set up as a DETERMINISTIC, guaranteed-multi-outcome melee
+    (Spearman vs Spearman, both 3-strike): each side can lose 0-3
+    strikes' worth of HP -> many (a_hp, d_hp) 'both survive' outcomes
+    for copy-at-expansion to amortize over. Units are picked in id
+    order (gs.map.units is a set -> unstable iteration otherwise)."""
+    from tools.replay_dataset import _attacks_from_stats, _stats_for
     sim = fresh_scenario_sim(seed=21, max_turns=10, mini=True)
-    side = sim.gs.global_info.current_side
-    att = next(u for u in sim.gs.map.units if u.side == side and u.attacks)
-    dfd = next(u for u in sim.gs.map.units if u.side != side and u.attacks)
-    occ = {(u.position.x, u.position.y) for u in sim.gs.map.units}
+    gs = sim.gs
+    side = gs.global_info.current_side
+    units = sorted(gs.map.units, key=lambda u: u.id)
+    att = next(u for u in units if u.side == side and u.attacks)
+    dfd = next(u for u in units if u.side != side and u.attacks)
+    for u in (att, dfd):
+        u.name = "Spearman"
+        u.attacks = _attacks_from_stats(_stats_for("Spearman"))
+        u.current_hp = u.max_hp = 60     # high HP -> both survive, many outcomes
+        u.statuses.discard("slowed"); u.statuses.discard("poisoned")
+        if hasattr(u, "_defense_table"):
+            del u._defense_table
+    occ = {(u.position.x, u.position.y) for u in gs.map.units}
     spot = next(((nx, ny) for nx, ny in hex_neighbors(dfd.position.x,
                                                       dfd.position.y)
-                 if (nx, ny) not in occ and 0 <= nx < sim.gs.map.size_x
-                 and 0 <= ny < sim.gs.map.size_y), None)
+                 if (nx, ny) not in occ and 0 <= nx < gs.map.size_x
+                 and 0 <= ny < gs.map.size_y), None)
     assert spot is not None
     att.position.x, att.position.y = spot
-    # Raise HP so the combat has many "both survive" HP outcomes
-    # (the bucket members the copy-at-expansion amortizes over).
-    att.current_hp = att.max_hp = 60
-    dfd.current_hp = dfd.max_hp = 60
     return sim
 
 
@@ -131,6 +141,45 @@ def test_bucketing_is_deterministic():
     m1 = sorted(c._total_visits for c in a1.children.values())
     m2 = sorted(c._total_visits for c in a2.children.values())
     assert m1 == m2, "same seed must give identical child visit structure"
+
+
+def test_in_search_split_glue_repartitions_and_retires_rep():
+    """Stage 2: _record_and_maybe_split records member values and, when
+    the significance test fires, re-points the bucket's members to the
+    two sub-buckets and retires the old representative (sub-buckets
+    re-elect lazily). Tested directly with a heterogeneous value
+    signal, since a random-init model gives no heterogeneity to split."""
+    from action_sampler import LegalActionPrior
+    from tools.mcts import MCTSEdge, MCTSConfig, _record_and_maybe_split
+    from tools.outcome_buckets import initial_buckets, event_class
+
+    def k(d_hp):
+        return (10, d_hp, False, False, False, False)
+
+    probs = {k(h): 0.25 for h in (8, 6, 4, 2)}     # one event-class
+    buckets = initial_buckets(probs)
+    assert len(buckets) == 1
+    b0 = buckets[0]
+    edge = MCTSEdge(LegalActionPrior(
+        action={"type": "attack"}, prior=1.0, actor_idx=0,
+        type_idx=0, target_idx=0, weapon_idx=0))
+    edge.bucket_of = {key: b for b in buckets for key in b.members}
+    edge.bucket_rep[id(b0)] = object()             # sentinel rep
+    cfg = MCTSConfig(bucket_v_min=8, bucket_z_sig=2.0,
+                     bucket_min_half_visits=2, outcome_buckets=True)
+
+    # Low defender HP = much better (consistent per member -> low
+    # variance, large between-half gap = significant).
+    for _ in range(6):
+        for h in (8, 6, 4, 2):
+            mv = 0.6 if h <= 4 else -0.6
+            _record_and_maybe_split(edge, k(h), mv, cfg)
+
+    distinct = {id(b) for b in edge.bucket_of.values()}
+    assert len(distinct) >= 2, "bucket should have split on the value gap"
+    assert id(b0) not in edge.bucket_rep, "old representative retired on split"
+    # Members still all in the same event-class (hard-split preserved).
+    assert all(b.event == event_class(k(8)) for b in edge.bucket_of.values())
 
 
 def test_root_value_estimate_in_band():
