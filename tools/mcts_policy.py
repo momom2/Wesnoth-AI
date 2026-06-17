@@ -173,12 +173,27 @@ class MCTSPolicy:
                 if (cand is not None and cand.expanded
                         and not cand.is_terminal):
                     reuse_root = cand
+        # Playout-cap randomization (KataGo): most moves are "fast"
+        # (cheap search, NOT recorded as a training target); a random
+        # fraction `playout_cap_prob` are "full" (full budget AND
+        # recorded). Decoupling game-advancing moves from data-
+        # generating moves yields ~3-10x more self-play games per
+        # GPU-hour while targets still come from full-strength searches.
+        cfg = self._mcts_config
+        full_move = True
+        n_override = None
+        if cfg.playout_cap_randomization:
+            full_move = bool(self._rng.random() < cfg.playout_cap_prob)
+            if not full_move:
+                n_override = (cfg.playout_cap_fast_sims
+                              or max(1, cfg.n_simulations // 4))
         root = mcts_search(
             sim,
             self._inference_model,
             self._inference_encoder,
             self._mcts_config,
             reuse_root=reuse_root,
+            n_sims_override=n_override,
         )
         if self._mcts_config.gumbel_root:
             # Gumbel mode: the search already chose
@@ -208,20 +223,25 @@ class MCTSPolicy:
                 f"root.is_terminal={root.is_terminal}, "
                 f"n_edges={len(root.edges)}"
             )
-        if self._mcts_config.gumbel_root:
-            # Completed-Q target: every legal action gets a weight
-            # (search Q if visited, mixed value if not) -- denser
-            # signal than raw visit counts at small sim budgets.
-            visits = extract_gumbel_policy_target(
-                root, self._mcts_config)
-        else:
-            visits = extract_visit_counts(root)
-        side = game_state.global_info.current_side
-        with self._lock:
-            self._pending.setdefault(game_label, []).append(
-                _PendingMCTSState(gs=game_state, visit_counts=visits,
-                                  side=side)
-            )
+        # Record a training target ONLY for full-budget moves. Fast
+        # moves advance the game but generate no policy target
+        # (playout-cap randomization); their search ran a cheap budget
+        # purely to pick a reasonable action.
+        if full_move:
+            if self._mcts_config.gumbel_root:
+                # Completed-Q target: every legal action gets a weight
+                # (search Q if visited, mixed value if not) -- denser
+                # signal than raw visit counts at small sim budgets.
+                visits = extract_gumbel_policy_target(
+                    root, self._mcts_config)
+            else:
+                visits = extract_visit_counts(root)
+            side = game_state.global_info.current_side
+            with self._lock:
+                self._pending.setdefault(game_label, []).append(
+                    _PendingMCTSState(gs=game_state, visit_counts=visits,
+                                      side=side)
+                )
         # Stash the played edge's outcome children for
         # state-key-checked reuse at the next decision. Action dicts
         # are returned by identity from the edge, so `is` finds the

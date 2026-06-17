@@ -1526,6 +1526,21 @@ def main(argv: List[str]) -> int:
                     help="Significance threshold (in SEs of the half-"
                          "mean difference) for splitting a bucket "
                          "(--mcts-outcome-buckets).")
+    ap.add_argument("--mcts-playout-cap", action="store_true",
+                    help="Playout-cap randomization (KataGo): only a "
+                         "random fraction of self-play moves "
+                         "(--mcts-playout-cap-prob) run the full sim "
+                         "budget AND record a policy target; the rest "
+                         "run a cheap budget (--mcts-playout-cap-fast-"
+                         "sims) and record nothing. ~3-10x more games "
+                         "per GPU-hour; value targets still attach to "
+                         "every recorded full move.")
+    ap.add_argument("--mcts-playout-cap-prob", type=float, default=0.25,
+                    help="P(full-budget, recorded move) under "
+                         "--mcts-playout-cap (default 0.25).")
+    ap.add_argument("--mcts-playout-cap-fast-sims", type=int, default=0,
+                    help="Sim budget for fast (unrecorded) moves under "
+                         "--mcts-playout-cap. 0 = max(1, --mcts-sims//4).")
     ap.add_argument("--replay-buffer", action="store_true",
                     help="Enable AlphaZero-style experience replay + "
                          "multi-epoch training (MCTS mode). Default OFF "
@@ -1754,6 +1769,9 @@ def main(argv: List[str]) -> int:
             outcome_buckets=args.mcts_outcome_buckets,
             bucket_v_min=args.mcts_bucket_v_min,
             bucket_z_sig=args.mcts_bucket_z_sig,
+            playout_cap_randomization=args.mcts_playout_cap,
+            playout_cap_prob=args.mcts_playout_cap_prob,
+            playout_cap_fast_sims=args.mcts_playout_cap_fast_sims,
         )
         if mcts_cfg.outcome_buckets and not mcts_cfg.gumbel_root:
             # Bucketing rides the serial _run_one_sim path the Gumbel
@@ -1775,6 +1793,8 @@ def main(argv: List[str]) -> int:
             f"tree_reuse={mcts_cfg.tree_reuse} "
             f"outcome_buckets="
             f"{'on(v_min=%d,z=%.1f)' % (mcts_cfg.bucket_v_min, mcts_cfg.bucket_z_sig) if mcts_cfg.outcome_buckets else 'off'} "
+            f"playout_cap="
+            f"{'on(p=%.2f,fast=%d)' % (mcts_cfg.playout_cap_prob, mcts_cfg.playout_cap_fast_sims or max(1, mcts_cfg.n_simulations // 4)) if mcts_cfg.playout_cap_randomization else 'off'} "
             f"draw_tiebreak_cap="
             f"{tiebreak.cap if tiebreak else 'off'}. "
             f"--reward-config is ignored in MCTS mode (AlphaZero "

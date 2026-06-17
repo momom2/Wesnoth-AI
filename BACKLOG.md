@@ -598,9 +598,16 @@ hex-distance (fraught). Low priority — MCTS mode doesn't pay it.
   (3.7-4.2). Attack% still 0 — engagement is the training
   objective, not a 3-iter outcome. policy CE ~14-16 and grad_norm
   72-159 with completed-Q targets: watch on the first long run.
-- [ ] 🟡 **Playout-cap randomization** (KataGo): most self-play
-  moves get a tiny budget, a random subset gets full budget and
-  produces policy targets — 3-10x more games per GPU-hour.
+- [x] 🟡 **Playout-cap randomization** (KataGo) — DONE 2026-06-17.
+  `--mcts-playout-cap` (+ `--mcts-playout-cap-prob` 0.25,
+  `--mcts-playout-cap-fast-sims`): each self-play move is "full" with
+  prob p (full `n_simulations` AND records a policy target) else
+  "fast" (cheap budget via `mcts_search(n_sims_override=...)`, records
+  nothing). MCTSConfig fields + MCTSPolicy.select_action gate +
+  `test_playout_cap` (override cuts forwards; prob=0 records nothing;
+  prob=1 records every move; off-by-default unchanged). Value target
+  still attaches to every recorded full state at finalize. ~3-10x more
+  games/GPU-hour (KataGo); composes with the actor pool.
 - [ ] 🟡 **Batched leaf evaluation on GPU** once new compute
   lands (`--mcts-batch-size 8-32`; wired, CPU-pessimal today).
 - [ ] 🟡 TT hit rate is 0.0% at 25 sims (bench 2026-06-11) —

@@ -407,6 +407,21 @@ class MCTSConfig:
     bucket_z_sig:           float = 2.0
     bucket_min_half_visits: int   = 2
 
+    # ----- Playout-cap randomization (KataGo, Wu 2019) ----------------
+    # Decouple the moves that ADVANCE a self-play game (cheap) from the
+    # moves that GENERATE training data (expensive full search). When
+    # on, each decision is a "full" move with probability
+    # `playout_cap_prob` -- full `n_simulations` AND its policy target
+    # is recorded -- otherwise a "fast" move with only
+    # `playout_cap_fast_sims` sims and NO recorded target. Most moves
+    # are fast, so games/GPU-hour rises ~3-10x (KataGo) while targets
+    # still come from full-strength searches. `playout_cap_fast_sims`
+    # == 0 derives a default of max(1, n_simulations // 4). The value
+    # target (terminal z) still attaches to every recorded full state.
+    playout_cap_randomization: bool  = False
+    playout_cap_prob:          float = 0.25
+    playout_cap_fast_sims:     int   = 0
+
 
 # ---------------------------------------------------------------------
 # Tree structures
@@ -1198,9 +1213,15 @@ def mcts_search(
     *,
     rng:        Optional[np.random.Generator] = None,
     reuse_root: Optional[MCTSNode] = None,
+    n_sims_override: Optional[int] = None,
 ) -> MCTSNode:
     """Run MCTS from `sim`'s state. Returns the root node with
     populated visit counts on outgoing edges.
+
+    `n_sims_override`: when set, run exactly this many simulations,
+    bypassing both `config.n_simulations` and the adaptive budget.
+    Used by playout-cap randomization (KataGo) to run cheap "fast"
+    searches on the majority of self-play moves.
 
     The caller's `sim` is NOT mutated -- the search runs on a fork.
     With `config.batch_size > 1`, leaves accumulate and are forwarded
@@ -1271,7 +1292,13 @@ def mcts_search(
     # n_max (cliffness >= cliffness_max, network maxed-out
     # uncertain). Default OFF -- when off, n_simulations stays
     # whatever the caller asked for.
-    n_sims = _adaptive_n_sims(config, root.cliffness)
+    if n_sims_override is not None:
+        # Playout-cap "fast" move: a fixed cheap budget, no adaptive
+        # scaling (the move won't be recorded as a training target, so
+        # its search just needs to pick a reasonable action).
+        n_sims = max(1, int(n_sims_override))
+    else:
+        n_sims = _adaptive_n_sims(config, root.cliffness)
     # Always log root cliffness (cheap; callers want this even
     # when adaptive_sim_budget is off, so they can decide what
     # an empirically reasonable budget schedule would look like
