@@ -41,12 +41,15 @@ current-state facts I verified against the code on 2026-06-17.
 
 **Workstreams (this project's purview), by leverage:**
 
-- [ ] 🔴 **Arch CLI flags (plan §3.2) — [slight], do first.** Add
-  `--d-model/--num-layers/--num-heads/--d-ff` to `sim_self_play.py`,
-  threaded into `TransformerPolicy` fresh init. Scaling = fresh init
-  (the 0.47M weights won't load into a wider/deeper net; that's fine).
-  Targets: Tier-a ~3–10M (`384/6/8/1536`), Tier-b ~10–30M (`512/8–12`),
-  Tier-c ~85–100M (`768/12`). Unblocks everything; no GPU needed.
+- [x] 🔴 **Arch CLI flags (plan §3.2) — DONE 2026-06-17.**
+  `--d-model/--num-layers/--num-heads/--d-ff` in `sim_self_play.py`,
+  threaded into `TransformerPolicy` fresh init; CLI flags win over a
+  warm-start checkpoint's arch (differing => fresh init at the
+  requested size, logged), with a num_heads-divides-d_model guard.
+  Verified the flags reproduce the current 0.47M net exactly and
+  Tier-a `384/6/8/1536` => 11.3M. Net2Net (below) now lets scaling
+  WARM-START instead of discarding weights. Targets: Tier-a ~3–10M,
+  Tier-b ~10–30M (`512/8–12`), Tier-c ~85–100M (`768/12`).
 - [x] 🔴 **Internal Elo ladder (plan §3.4-1) — DONE 2026-06-17.**
   `tools/elo_ladder.py`: round-robins players (checkpoints + random
   baseline + scripted `dummy`) through the sim (reusing `eval_sim`'s
