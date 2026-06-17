@@ -62,6 +62,31 @@ current-state facts I verified against the code on 2026-06-17.
   bridges, NOT players here. 7 pure-math unit tests
   (`test_elo_ladder.py`) + CLI smoke. `dummy_policy` is included as a
   scripted floor anchor.
+- [x] 🔴 **Whole-History Rating (WHR, Coulom 2008) — DONE 2026-06-17.**
+  `tools/whr.py`: the TIME-SERIES rating method for an ongoing run (vs
+  elo_ladder's static one-off round-robin). Each periodic checkpoint is
+  a node at its training-time; games are between checkpoints (and,
+  later, vs a fixed anchor like RCA); a Brownian-motion prior ties
+  consecutive checkpoints so the strength curve is smooth and a
+  sparse-data checkpoint borrows strength from neighbors. MAP via
+  Newton on the (strictly concave) Bradley-Terry log-lik + Gaussian
+  prior; inverse-Hessian Elo SEs; one pinned anchor fixes the gauge.
+  Pure-numpy. Fits the WHOLE accumulated history jointly → no moving
+  window, no per-window gauge drift. All-draws → all-equal (a draw is
+  evidence of equality), so it's safe to run before games turn
+  decisive — it just reports "indistinguishable so far" (which is why
+  there's NO point standing up a pool until training produces decisive
+  games — user, 2026-06-17). `test_whr.py` (9): monotone recovery,
+  anchor pin, Brownian smoothing (no-games node interpolates), all-
+  draws→equal, SE shrinks with games, drift controls smoothing,
+  2-player closed form. CLI fits from a games JSON. USAGE NOTE: pass
+  iteration indices (or evenly-spaced small times) as `times` so
+  `elo_drift_per_time` (Elo std per √unit-time) is intuitive (~tens of
+  Elo); raw decision_steps make it a footgun. NEXT (at training time):
+  accumulate elo_ladder pair-records into a persistent history and feed
+  WHR for the live strength curve; peg the anchor to RCA via the
+  live-Wesnoth eval. Establishing the actual pool/league + decisive-
+  game criteria is deferred to when training begins.
 - [~] 🔴 **Keep the GPU fed (plan §3.1) — actor pool DONE 2026-06-17;
   intra-search Gumbel batching deferred.**
   Implemented the multiprocess actor pool (§3.1b) in two stages:
