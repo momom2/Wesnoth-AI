@@ -1341,6 +1341,28 @@ def main(argv: List[str]) -> int:
                          "instead of 128 batch-1 calls (near-worst GPU "
                          "utilization otherwise). Raise on a large GPU; "
                          "lower if you hit OOM.")
+    # --- fresh-init architecture (model scaling, plan §3.2) ----------
+    # Default None = "not specified" -> fall back to the checkpoint's
+    # saved arch (warm-start) or TransformerPolicy's ctor default
+    # (fresh). Provide these to scale the net up for a campaign; the
+    # 0.47M weights WON'T load into a wider/deeper net, so passing a
+    # size that differs from --checkpoint-in starts FRESH at the
+    # requested size (logged). See docs/superhuman_training_plan.md
+    # §3.2 for param targets (Tier-a ~3-10M = 384/6/8/1536, etc.).
+    ap.add_argument("--d-model", type=int, default=None,
+                    help="Transformer width for FRESH init (model "
+                         "scaling). Default None -> checkpoint arch if "
+                         "warm-starting, else TransformerPolicy default. "
+                         "Differing from --checkpoint-in starts fresh.")
+    ap.add_argument("--num-layers", type=int, default=None,
+                    help="Transformer depth for fresh init (see "
+                         "--d-model).")
+    ap.add_argument("--num-heads", type=int, default=None,
+                    help="Attention heads for fresh init (see "
+                         "--d-model). Must divide --d-model.")
+    ap.add_argument("--d-ff", type=int, default=None,
+                    help="Feed-forward hidden dim for fresh init (see "
+                         "--d-model).")
     ap.add_argument("--device", default=None,
                     help="Torch device for the policy. Accepts "
                          "'cuda' (cluster), 'cpu', 'dml' (local "
@@ -1598,6 +1620,33 @@ def main(argv: List[str]) -> int:
                 f"couldn't peek arch from {args.checkpoint_in}: {e!r}; "
                 f"falling back to TransformerPolicy defaults"
             )
+
+    # --- model scaling (plan §3.2): explicit CLI arch flags WIN over
+    # the checkpoint's saved arch. If they differ from a warm-start
+    # checkpoint, build at the requested size and let load_checkpoint
+    # below hit "arch mismatch" -> discard weights -> fresh init (the
+    # plan's intended "scaling means fresh init"). Logged loudly so a
+    # warm-start isn't silently dropped.
+    cli_arch = {k: v for k, v in (
+        ("d_model", args.d_model), ("num_layers", args.num_layers),
+        ("num_heads", args.num_heads), ("d_ff", args.d_ff),
+    ) if v is not None}
+    if cli_arch:
+        conflicts = {k: (arch_kwargs[k], cli_arch[k]) for k in cli_arch
+                     if k in arch_kwargs and arch_kwargs[k] != cli_arch[k]}
+        arch_kwargs.update(cli_arch)
+        log.info(f"arch from CLI flags: {cli_arch}")
+        if conflicts:
+            log.warning(
+                "CLI arch flags differ from --checkpoint-in arch "
+                f"({conflicts} as checkpoint->cli); the warm-start "
+                "will be DISCARDED and training starts fresh at the "
+                "requested size (model scaling).")
+    if "num_heads" in arch_kwargs and "d_model" in arch_kwargs:
+        if arch_kwargs["d_model"] % arch_kwargs["num_heads"] != 0:
+            raise SystemExit(
+                f"--num-heads ({arch_kwargs['num_heads']}) must divide "
+                f"--d-model ({arch_kwargs['d_model']}).")
 
     policy = TransformerPolicy(device=device, **arch_kwargs)
     # train_batch_size: forward_batch chunk size. THE key GPU knob --
