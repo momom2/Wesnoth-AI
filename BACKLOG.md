@@ -72,11 +72,18 @@ current-state facts I verified against the code on 2026-06-17.
   Newton on the (strictly concave) Bradley-Terry log-lik + Gaussian
   prior; inverse-Hessian Elo SEs; one pinned anchor fixes the gauge.
   Pure-numpy. Fits the WHOLE accumulated history jointly → no moving
-  window, no per-window gauge drift. All-draws → all-equal (a draw is
-  evidence of equality), so it's safe to run before games turn
-  decisive — it just reports "indistinguishable so far" (which is why
+  window, no per-window gauge drift. **DRAWS ARE DROPPED by default**
+  (`draw_weight=0`, in both whr.py and elo_ladder.py): a Wesnoth "draw"
+  is a turn-budget TIMEOUT, NOT evidence of equality (neither side
+  could force a win in the budget; even an agent vs itself almost
+  always resolves via RNG/terrain/faction asymmetry — user, 2026-06-17).
+  Counting a timeout as half-a-win would wrongly pull drawn opponents
+  toward equal (a passive policy that times out vs everyone would rate
+  equal to the champion). So an all-draws early history has no decisive
+  games → ratings stay undetermined at the anchor with HIGH (prior-
+  bounded) uncertainty — the honest "can't tell yet," which is why
   there's NO point standing up a pool until training produces decisive
-  games — user, 2026-06-17). `test_whr.py` (9): monotone recovery,
+  games. (`draw_weight=0.5` recovers the textbook half-win treatment.) `test_whr.py` (9): monotone recovery,
   anchor pin, Brownian smoothing (no-games node interpolates), all-
   draws→equal, SE shrinks with games, drift controls smoothing,
   2-player closed form. CLI fits from a games JSON. USAGE NOTE: pass

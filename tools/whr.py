@@ -13,7 +13,17 @@ window, no per-window gauge drift (one global anchor pins the scale).
 
 Model (Coulom, "Whole-History Rating", CG 2008):
   * Natural rating r per node; Bradley-Terry P(i beats j) = σ(r_i - r_j),
-    σ the logistic. Draws count as half a win to each side.
+    σ the logistic. DRAWS ARE DROPPED by default (`draw_weight=0`): a
+    Wesnoth "draw" is a turn-budget TIMEOUT — neither side could force a
+    win in the allotted budget — NOT evidence the two are equal. (Real
+    Wesnoth has no draw outcome; even RCA-vs-itself, maximally equal,
+    almost always resolves decisively via RNG/terrain/faction
+    asymmetry.) Counting a timeout as half-a-win would wrongly pull
+    drawn opponents toward equal Elo — e.g. a passive policy that times
+    out against everyone would rate equal to the champion. So a draw
+    carries no "who is stronger" signal and is excluded. (`draw_weight=
+    0.5` recovers the textbook half-win treatment for games with
+    legitimate draws.)
   * Brownian prior: for consecutive timeline nodes,
     r_{k+1} - r_k ~ N(0, w² Δt) — strength does a random walk over
     training-time with variance rate w². Expressed to callers as an
@@ -32,14 +42,14 @@ the first checkpoint for a relative one. The pinned node must be
 connected to the rest through games (the prior only constrains
 DIFFERENCES, not the overall level).
 
-All-draws degeneracy (expected very early in training, when nothing
-decisive happens): every pair drawn → zero gradient at equal ratings →
-all nodes sit at the anchor (a draw is evidence of EQUALITY, so the
-system correctly reports no spread). So WHR is safe to run before games
-turn decisive; it just reports "indistinguishable so far." (The
-genuinely high-uncertainty case is a node that played NO games — its SE
-is then set by the Brownian prior alone, i.e. it only borrows from its
-timeline neighbors.)
+All-draws early regime (expected before the policy can force wins):
+with draws dropped, an all-draws history has NO decisive games, so the
+likelihood is empty and ratings are determined by the prior alone —
+they collapse to the anchor with LARGE (prior-bounded) uncertainty.
+That is the honest state: "we can't tell who is stronger yet," NOT
+"everyone is equal." It also means a rating only becomes meaningful
+once games start resolving — which is exactly why there's no point
+standing up a rating pool until training produces decisive results.
 
 This module is pure numpy (torch-free) so it unit-tests in isolation.
 """
@@ -81,17 +91,25 @@ def _sigmoid(x: float) -> float:
 
 def _grad_hess(
     r: np.ndarray, games: Sequence[Game], walk_links: Sequence[WalkLink],
+    draw_weight: float = 0.0,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Gradient and Hessian of the log-posterior at `r` (Hessian is
-    negative semidefinite; strictly negative-definite with the prior)."""
+    negative semidefinite; strictly negative-definite with the prior).
+
+    `draw_weight` is the fraction of a draw credited as a win to EACH
+    side. Default 0.0 DROPS draws from the likelihood (a Wesnoth "draw"
+    is a turn-budget timeout, not evidence of equality — see module
+    docstring). 0.5 recovers the textbook draw=half-win treatment for
+    games with legitimate draws."""
     n = len(r)
     g = np.zeros(n)
     H = np.zeros((n, n))
     for i, j, wi, d, wj in games:
-        n_ij = wi + d + wj
+        eff_i = wi + draw_weight * d
+        eff_j = wj + draw_weight * d
+        n_ij = eff_i + eff_j          # draws contribute iff draw_weight>0
         if n_ij <= 0:
             continue
-        eff_i = wi + 0.5 * d          # draws split half/half
         p = _sigmoid(r[i] - r[j])     # P(i beats j)
         gi = eff_i - n_ij * p         # d log-lik / d r_i
         g[i] += gi
@@ -117,7 +135,7 @@ def _grad_hess(
 
 def whr_fit(
     n: int, games: Sequence[Game], walk_links: Sequence[WalkLink], *,
-    anchor: int = 0, anchor_natural: float = 0.0,
+    anchor: int = 0, anchor_natural: float = 0.0, draw_weight: float = 0.0,
     iters: int = 500, tol: float = 1e-10, ridge: float = 1e-9,
     max_step: float = 4.0,
 ) -> Tuple[np.ndarray, np.ndarray]:
@@ -135,7 +153,7 @@ def whr_fit(
     free_arr = np.array(free)
 
     for _ in range(iters):
-        g, H = _grad_hess(r, games, walk_links)
+        g, H = _grad_hess(r, games, walk_links, draw_weight)
         gf = g[free_arr]
         Hf = H[np.ix_(free_arr, free_arr)]
         A = -Hf + ridge * np.eye(len(free))     # pos-def (maximization)
@@ -151,7 +169,7 @@ def whr_fit(
             break
 
     # Laplace covariance from the inverse Hessian at the optimum.
-    _, H = _grad_hess(r, games, walk_links)
+    _, H = _grad_hess(r, games, walk_links, draw_weight)
     Hf = H[np.ix_(free_arr, free_arr)]
     se = np.zeros(n, dtype=float)
     try:
@@ -202,7 +220,7 @@ def fit_whr(
     games: Sequence[Tuple[str, str, float, float, float]], *,
     times: Optional[Dict[str, float]] = None,
     anchor: Optional[str] = None, anchor_elo: float = 0.0,
-    elo_drift_per_time: float = 20.0,
+    elo_drift_per_time: float = 20.0, draw_weight: float = 0.0,
 ) -> WHRResult:
     """Fit WHR over named players.
 
@@ -228,7 +246,8 @@ def fit_whr(
     a_idx = idx[anchor]
 
     r, se = whr_fit(n, agg, walk, anchor=a_idx,
-                    anchor_natural=anchor_elo * _LN_PER_ELO)
+                    anchor_natural=anchor_elo * _LN_PER_ELO,
+                    draw_weight=draw_weight)
     elo = {nm: float(r[idx[nm]] * _ELO_PER_LN) for nm in players}
     # Recenter so the anchor sits exactly at anchor_elo (guards rounding).
     shift = anchor_elo - elo[anchor]

@@ -100,20 +100,30 @@ class PairRecord:
 
 def _win_and_game_matrices(
     n: int, pairs: Dict[Tuple[int, int], PairRecord], prior_games: float,
+    draw_weight: float = 0.0,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Build the regularized win-mass vector W (length n) and games
     matrix N (n x n, symmetric, zero diagonal) the MM fit consumes.
 
+    `draw_weight` is the fraction of a draw credited as a win to EACH
+    side. Default 0.0 DROPS draws: a Wesnoth "draw" is a turn-budget
+    TIMEOUT, not evidence of equality (neither side could force a win in
+    the budget; even an agent vs itself almost always resolves via
+    RNG/terrain/faction asymmetry). Counting it as half-a-win would
+    wrongly pull drawn opponents toward equal. 0.5 = textbook half-win
+    for games with legitimate draws.
+
     The prior adds `prior_games` ghost games to EVERY unordered pair,
-    split 50/50 (half a win to each side), i.e. a uniform shrink
-    toward 50% with strength `prior_games`."""
+    split 50/50, i.e. a uniform shrink toward 50% with strength
+    `prior_games`."""
     W = np.zeros(n, dtype=float)
     N = np.zeros((n, n), dtype=float)
     for (i, j), rec in pairs.items():
-        N[i, j] += rec.games
-        N[j, i] += rec.games
-        W[i] += rec.wins_i + 0.5 * rec.draws
-        W[j] += rec.wins_j + 0.5 * rec.draws
+        eff = rec.wins_i + rec.wins_j + 2.0 * draw_weight * rec.draws
+        N[i, j] += eff
+        N[j, i] += eff
+        W[i] += rec.wins_i + draw_weight * rec.draws
+        W[j] += rec.wins_j + draw_weight * rec.draws
     if prior_games > 0:
         for i, j in combinations(range(n), 2):
             N[i, j] += prior_games
@@ -193,10 +203,13 @@ def elo_standard_errors(
 def fit_elo(
     n: int, pairs: Dict[Tuple[int, int], PairRecord],
     anchor_idx: int, anchor_elo: float = 0.0, prior_games: float = 1.0,
+    draw_weight: float = 0.0,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """End-to-end: aggregate -> MM fit -> Elo (recentered to anchor)
-    + SEs. Returns (elo[n], se[n])."""
-    W, N = _win_and_game_matrices(n, pairs, prior_games)
+    + SEs. Returns (elo[n], se[n]). `draw_weight` (default 0.0) drops
+    draws -- a Wesnoth draw is a timeout, not equality evidence (see
+    _win_and_game_matrices)."""
+    W, N = _win_and_game_matrices(n, pairs, prior_games, draw_weight)
     gamma = fit_bradley_terry(W, N)
     elo = _ELO_PER_LN * np.log(gamma)
     elo += anchor_elo - elo[anchor_idx]
@@ -340,7 +353,7 @@ def _play_pair(
 def run_ladder(
     players: List[Player], *, games_per_pair: int, max_turns: int,
     seed: int, forced_faction, anchor_label: Optional[str],
-    anchor_elo: float, prior_games: float,
+    anchor_elo: float, prior_games: float, draw_weight: float = 0.0,
 ) -> LadderResult:
     n = len(players)
     if n < 2:
@@ -368,7 +381,8 @@ def run_ladder(
         anchor_idx = next((k for k, p in enumerate(players)
                            if p.spec == "random"), 0)
 
-    elo, se = fit_elo(n, pair_recs, anchor_idx, anchor_elo, prior_games)
+    elo, se = fit_elo(n, pair_recs, anchor_idx, anchor_elo, prior_games,
+                      draw_weight)
 
     # Per-player W/L/D totals and pairwise dict for the report.
     record = [{"win": 0, "loss": 0, "draw": 0} for _ in range(n)]
@@ -451,6 +465,11 @@ def main(argv: List[str]) -> int:
                     help="Ghost games per pair (50/50 split) "
                          "regularizing toward equality, so winless/"
                          "undefeated players stay finite.")
+    ap.add_argument("--draw-weight", type=float, default=0.0,
+                    help="Fraction of a draw credited as a win to each "
+                         "side. Default 0.0 DROPS draws: a Wesnoth draw "
+                         "is a turn-budget timeout, not equality "
+                         "evidence. 0.5 = textbook half-win.")
     ap.add_argument("--save-json", type=Path, default=None)
     ap.add_argument("--log-level", default="WARNING",
                     choices=["DEBUG", "INFO", "WARNING"])
@@ -483,7 +502,8 @@ def main(argv: List[str]) -> int:
         players, games_per_pair=args.games_per_pair,
         max_turns=args.max_turns, seed=args.seed,
         forced_faction=forced_faction, anchor_label=args.anchor,
-        anchor_elo=args.anchor_elo, prior_games=args.prior_games)
+        anchor_elo=args.anchor_elo, prior_games=args.prior_games,
+        draw_weight=args.draw_weight)
 
     print_ladder(res)
 

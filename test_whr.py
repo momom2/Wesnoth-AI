@@ -63,17 +63,46 @@ def test_brownian_smoothing_borrows_strength():
     assert math.isfinite(res.se_elo["B"]) and res.se_elo["B"] > 0.0
 
 
-def test_all_draws_give_equal_ratings():
+def test_draws_carry_no_signal_and_are_uncertain():
+    # A Wesnoth draw is a timeout, NOT equality evidence. Dropped by
+    # default => an all-draws history has no decisive games => ratings
+    # collapse to the anchor (we can't tell who's stronger) and are FAR
+    # MORE uncertain than the same pairings played out decisively.
     players = ["s0", "s1", "s2"]
     times = {"s0": 0.0, "s1": 1.0, "s2": 2.0}
-    games = [("s0", "s1", 0.0, 30.0, 0.0),
+    drawn = [("s0", "s1", 0.0, 30.0, 0.0),
              ("s1", "s2", 0.0, 30.0, 0.0),
              ("s0", "s2", 0.0, 30.0, 0.0)]
-    res = fit_whr(players, games, times=times, anchor="s0",
-                  elo_drift_per_time=50.0)
+    rd = fit_whr(players, drawn, times=times, anchor="s0",
+                 elo_drift_per_time=50.0)
     for nm in players:
-        assert abs(res.elo[nm]) < 1e-6, res.elo          # all equal
-        assert math.isfinite(res.se_elo[nm])
+        assert abs(rd.elo[nm]) < 1e-6, rd.elo            # no decisive info
+        assert math.isfinite(rd.se_elo[nm])
+
+    decisive = [_decisive("s1", "s0", 30), _decisive("s2", "s1", 30),
+                _decisive("s2", "s0", 30)]
+    rc = fit_whr(players, decisive, times=times, anchor="s0",
+                 elo_drift_per_time=50.0)
+    assert rc.elo["s2"] > 0.0                             # decisive => spread
+    assert rd.se_elo["s2"] > rc.se_elo["s2"]              # draws => uncertain
+
+
+def test_draws_are_ignored_by_default():
+    # Padding a decisive record with draws (timeouts) must not move the
+    # rating: a timeout is a non-result.
+    base = fit_whr(["i", "j"], [("i", "j", 15.0, 0.0, 5.0)], anchor="j")
+    padded = fit_whr(["i", "j"], [("i", "j", 15.0, 100.0, 5.0)], anchor="j")
+    assert abs(base.elo["i"] - padded.elo["i"]) < 1e-9
+
+
+def test_draw_weight_half_recovers_equality_pull():
+    # Opt-in: with draw_weight=0.5 (textbook half-win, for games with
+    # LEGITIMATE draws), many draws DO pull the two toward equal Elo.
+    gap_drop = fit_whr(["i", "j"], [("i", "j", 15.0, 200.0, 5.0)],
+                       anchor="j", draw_weight=0.0).elo["i"]
+    gap_half = fit_whr(["i", "j"], [("i", "j", 15.0, 200.0, 5.0)],
+                       anchor="j", draw_weight=0.5).elo["i"]
+    assert 0.0 < gap_half < gap_drop
 
 
 def test_se_shrinks_with_more_games():

@@ -62,6 +62,21 @@ def test_equal_players_get_equal_elo():
     assert abs(elo[0] - elo[1]) < 1e-6
 
 
+def test_draws_dropped_by_default():
+    # A Wesnoth draw is a timeout, not equality evidence: padding a
+    # decisive record with draws must NOT move the Elo (default
+    # draw_weight=0), and a draws-only pair contributes nothing.
+    base = {(0, 1): PairRecord(wins_i=15, draws=0, wins_j=5)}
+    padded = {(0, 1): PairRecord(wins_i=15, draws=200, wins_j=5)}
+    e_base, _ = fit_elo(2, base, anchor_idx=1, prior_games=0.0)
+    e_pad, _ = fit_elo(2, padded, anchor_idx=1, prior_games=0.0)
+    assert abs(e_base[0] - e_pad[0]) < 1e-6
+    # draw_weight=0.5 (textbook) instead pulls them toward equal.
+    e_half, _ = fit_elo(2, padded, anchor_idx=1, prior_games=0.0,
+                        draw_weight=0.5)
+    assert 0.0 < e_half[0] < e_base[0]
+
+
 def test_winless_and_undefeated_stay_finite():
     # Without the prior, a 0-win player would have gamma -> 0 (Elo
     # -inf) and an undefeated player Elo +inf. The ghost-games prior
