@@ -6,6 +6,84 @@ Refreshed 2026-04-29 / 2026-05-02 / 2026-05-03 / 2026-05-04 /
 goals (superhuman play via MCTS+self-play; readable/customizable
 strategies; cluster economy).
 
+## Update (2026-06-17): superhuman training plan (rented compute)
+
+A separate instance drafted **`docs/superhuman_training_plan.md`** — a
+staged roadmap (free dev → ~$30–240 Tier-a calibration → ~$500–1,500
+Tier-b campaign → Tier-c stretch) to take the model from "far from
+superhuman" to a measurable target on rented GPUs. Its thesis
+(**capacity-first, rollout-bound, measure-then-scale**) is sound and
+corroborates the local replay-buffer diagnosis (signal/throughput, not
+just size, was the plateau). The compute-rental half (§4–5: pricing,
+credits, spot orchestration) is logged there; below are the
+**AI/algorithmic workstreams that fall to this project**, with the
+current-state facts I verified against the code on 2026-06-17.
+
+**Verified current state (2026-06-17):**
+- Trained net = **471,405 params** (`d_model=128, layers=3, heads=4,
+  d_ff=256`), decision_step **5,676,775** — read from
+  `training/checkpoints/sim_selfplay.pt`. Below Connect-4-grade
+  capacity (AlphaZero.jl C4 ≈ 1.6M).
+- **No positional encoding** anywhere — only `TokenKind` embeddings
+  (`model.py:64`) distinguish streams; zero positional params in the
+  state dict. A position-blind transformer for a geography-decided
+  game is a real capability ceiling.
+- Fresh init currently defaults to `512/8` (TransformerPolicy ctor);
+  warm-start reads arch from the checkpoint and RAISES on mismatch
+  (`sim_self_play.py:~1636`). No `--d-model`/etc. flags exist yet.
+
+**Workstreams (this project's purview), by leverage:**
+
+- [ ] 🔴 **Arch CLI flags (plan §3.2) — [slight], do first.** Add
+  `--d-model/--num-layers/--num-heads/--d-ff` to `sim_self_play.py`,
+  threaded into `TransformerPolicy` fresh init. Scaling = fresh init
+  (the 0.47M weights won't load into a wider/deeper net; that's fine).
+  Targets: Tier-a ~3–10M (`384/6/8/1536`), Tier-b ~10–30M (`512/8–12`),
+  Tier-c ~85–100M (`768/12`). Unblocks everything; no GPU needed.
+- [ ] 🔴 **Internal Elo ladder (plan §3.4-1) — [new tooling].**
+  Round-robin among checkpoints + RCA + scripted `dummy_policy`, fit
+  Elo (WHR/BayesElo-lite) over `eval_sim.py` games → one strength axis.
+  Without it, no later run is measurable. Local, no GPU.
+- [ ] 🔴 **Keep the GPU fed (plan §3.1) — [moderate], highest GPU-ROI.**
+  TWO CORRECTIONS to the plan's framing, verified in code:
+    * **Batched MCTS leaf eval + virtual loss already exists — but only
+      on the CLASSIC root** (`mcts.py:1313–1376`, collect→`model.
+      forward_batch`→backup). The **DEFAULT Gumbel root is fully
+      serial** (`_gumbel_root_search`→`_run_one_sim`, one forward per
+      sim, `mcts.py:1179`). So the real work is "**bring batching to the
+      Gumbel path**," not build it. ⚠️ This INTERSECTS the just-landed
+      Tier-2 outcome bucketing — that also rides only the serial Gumbel
+      path and also cuts the expansion forward. The two must be
+      **co-designed** (DESIGN DECISION — pause for user).
+    * **The actor pool is NEW, not an extension of `--workers`.** The
+      existing `--workers` is GIL-bound THREADS (~30% from encode/
+      forward overlap, `sim_self_play.py:839–850`). The plan's
+      rollout-bound thesis requires escaping the GIL → real
+      `torch.multiprocessing` actor processes feeding one central
+      batched-inference process (SEED-RL/MonoBeast pattern, ~100 lines,
+      no heavy dep). This is genuinely new work.
+- [ ] 🟠 **2D positional encoding (plan §3.3) — [moderate].** Axial
+  learned hex-`(x,y)` embeddings or RoPE-2D, localized to `encoder.py`
+  + `model.py`. Likely necessary to fix the "never closes on the
+  leader" full-map failure (see ZERO-leaderkills item below). Validate
+  on the Elo axis rather than assume. Watch O(seq_len²) over ~1700 hex
+  tokens as `d_model` grows; defer windowed/downsampled attention until
+  profiling shows it binds.
+- [ ] 🟠 **KataGo efficiency tricks (plan §3.5) — [slight].**
+  Playout-cap randomization is already a 🟡 todo below; plan also wants
+  auxiliary prediction targets (opponent reply, gold/territory swing)
+  and progressive net growth. Keep tuning the proven `--replay-updates`
+  / `--value-coef` levers.
+
+**Cross-links to existing BACKLOG items the plan re-surfaces:**
+`scenario_id` in `GameOutcome` for per-map leaderkill attribution
+(📋 "Ladder maps produce ZERO leaderkills"), playout-cap randomization
+(🟡 below), the replay-buffer/value-signal diagnosis (replay sweep),
+and the `--max-turns` curriculum lever for closing distance on full
+maps. Validation rungs (internal Elo → RCA dominance → human-replay
+agreement via the surviving `download_replays.py`/`replay_extract.py`
+→ live ladder) define "superhuman" operationally (plan §6–7).
+
 ## Update (2026-06-11): machine loss, recovery, cluster decommission
 
 - The previous machine failed in early June; the project was
