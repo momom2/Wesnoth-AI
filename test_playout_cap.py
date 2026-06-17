@@ -62,47 +62,41 @@ def test_n_sims_override_runs_fewer_forwards():
         f"override should cut forwards: fast={n_fast[0]} full={n_full[0]}")
 
 
-def test_fast_moves_record_no_target():
-    """With prob=0 (every move fast), NO pending training states are
-    recorded across a whole game, but the game still completes."""
-    pol = _policy()
-    mp = MCTSPolicy(pol, _cfg(playout_cap_randomization=True,
-                              playout_cap_prob=0.0,
-                              playout_cap_fast_sims=4))
-    sim = fresh_scenario_sim(seed=21, max_turns=8, mini=True)
-    gl = "g0"
-    steps = 0
-    while not sim.done and steps < 40:
-        action = mp.select_action(sim.gs, game_label=gl, sim=sim)
-        sim.step(action)
-        steps += 1
-    # prob=0 => every move was fast => nothing recorded.
-    assert sum(len(v) for v in mp._pending.values()) == 0
+def _recorded_count(mp, seed=21):
+    """Drive a REAL self-play game through the production rollout
+    (tools.sim_self_play.play_one_game -- which deepcopies the per-
+    decision snapshot and calls finalize_game) and return how many
+    training targets the policy recorded. Driving the actual code path
+    (not a hand-rolled select/step/finalize loop) is the point: it can't
+    get the snapshot contract subtly wrong. MCTS ignores per-step
+    rewards, so a zero reward_fn suffices."""
+    from tools.sim_self_play import play_one_game, _recruit_cost_lookup
+    mp._rng = np.random.default_rng(seed)
+    sim = fresh_scenario_sim(seed=seed, max_turns=8, mini=True)
+    play_one_game(sim, mp, lambda delta: 0.0, game_label="g",
+                  cost_lookup=_recruit_cost_lookup())
+    return len(mp._queue)   # finalize_game drained _pending -> _queue
 
 
-def test_full_prob_records_every_move():
-    """prob=1.0 => every move is full => every decision records a
-    target (parity with playout-cap OFF), confirming the gate only
-    suppresses recording on FAST moves."""
-    pol = _policy()
-    mp = MCTSPolicy(pol, _cfg(playout_cap_randomization=True,
-                              playout_cap_prob=1.0, playout_cap_fast_sims=4))
-    mp._rng = np.random.default_rng(0)
-    sim = fresh_scenario_sim(seed=21, max_turns=8, mini=True)
-    gl = "g1"
-    decisions = 0
-    while not sim.done and decisions < 12:
-        action = mp.select_action(sim.gs, game_label=gl, sim=sim)
-        sim.step(action)
-        decisions += 1
-    assert decisions > 0
-    assert sum(len(v) for v in mp._pending.values()) == decisions, \
-        "prob=1.0 must record every decision"
+def test_playout_cap_prob_zero_records_nothing():
+    """prob=0 => every move is FAST => no policy targets recorded
+    (the game still plays out)."""
+    mp = MCTSPolicy(_policy(), _cfg(playout_cap_randomization=True,
+                                    playout_cap_prob=0.0,
+                                    playout_cap_fast_sims=4))
+    assert _recorded_count(mp) == 0
 
 
-def test_off_by_default_records_every_move():
-    pol = _policy()
-    mp = MCTSPolicy(pol, _cfg())   # playout_cap_randomization defaults False
-    sim = fresh_scenario_sim(seed=23, max_turns=8, mini=True)
-    mp.select_action(sim.gs, game_label="g3", sim=sim)
-    assert sum(len(v) for v in mp._pending.values()) == 1
+def test_playout_cap_full_records_targets():
+    """prob=1 => every move is FULL => the rollout records targets
+    (the gate suppresses recording only on FAST moves)."""
+    mp = MCTSPolicy(_policy(), _cfg(playout_cap_randomization=True,
+                                    playout_cap_prob=1.0,
+                                    playout_cap_fast_sims=4))
+    assert _recorded_count(mp) > 0
+
+
+def test_off_by_default_records_targets():
+    """playout_cap off (default) => normal recording on every move."""
+    mp = MCTSPolicy(_policy(), _cfg())
+    assert _recorded_count(mp) > 0

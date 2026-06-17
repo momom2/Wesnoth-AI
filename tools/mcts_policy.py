@@ -159,6 +159,23 @@ class MCTSPolicy:
                 "the search tree. Update the rollout loop to pass "
                 "the live sim through."
             )
+        # Enforce the snapshot contract: `game_state` must be a
+        # DEEPCOPY of the pre-action state, not the live `sim.gs`. We
+        # stash `game_state` in `_pending` as the AlphaZero training
+        # target; if it's the live object, subsequent `sim.step` calls
+        # mutate it and the recorded action indices stop matching the
+        # state's re-encoding at train time (actor-slot drift -> the
+        # policy loss IndexErrors or trains on a corrupted target).
+        # Every real rollout/eval caller already deepcopies (see
+        # play_one_game). Fail loudly here so a future caller/test that
+        # forgets can't silently corrupt training data.
+        if game_state is sim.gs:
+            raise ValueError(
+                "MCTSPolicy.select_action was passed the LIVE sim.gs; it "
+                "must be a deepcopy snapshot of the pre-action state "
+                "(sim.step would otherwise mutate the recorded training "
+                "target). See play_one_game's `copy.deepcopy(sim.gs)`."
+            )
         reuse_root = None
         if self._mcts_config.tree_reuse:
             with self._lock:

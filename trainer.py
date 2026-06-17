@@ -27,7 +27,6 @@ Pieces:
 
 from __future__ import annotations
 
-import logging
 import random
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
@@ -35,8 +34,6 @@ from typing import Dict, List, Optional, Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-log = logging.getLogger("trainer")
 
 from action_sampler import (
     _build_legality_masks,
@@ -870,7 +867,6 @@ def _trainer_step_mcts(
     sum_aux_loss    = 0.0
     sum_total_visits = 0.0
     sum_actor_nlp_weighted = 0.0  # for "entropy"-style logging
-    n_policy_skipped = 0          # experiences whose policy term was dropped
 
     # Optimization #7 (2026-06-14): run the training forwards in eval()
     # (not train()), mirroring the REINFORCE step(). The model's 9
@@ -911,27 +907,12 @@ def _trainer_step_mcts(
         chunk_value_logits: List[torch.Tensor] = []
         chunk_aux: List[torch.Tensor] = []
         for e, encoded, output in zip(chunk, encoded_chunk, outputs):
-            try:
-                policy_loss, total_v, mean_actor_nlp = (
-                    _mcts_factored_policy_loss(
-                        encoded, output, e.game_state, e.visit_counts,
-                        vectorized=self.config.vectorized_mcts_policy_loss,
-                    )
+            policy_loss, total_v, mean_actor_nlp = (
+                _mcts_factored_policy_loss(
+                    encoded, output, e.game_state, e.visit_counts,
+                    vectorized=self.config.vectorized_mcts_policy_loss,
                 )
-            except IndexError:
-                # The experience's recorded action indices assume the
-                # actor-slot layout at MCTS-search time; re-encoding here
-                # can yield a different actor count (chiefly the recruit-
-                # phantom count -- see BACKLOG "MCTS actor-slot drift"),
-                # so a stale index can fall outside the current legal
-                # set. Drop this experience's POLICY term rather than
-                # crash the whole train_step; its VALUE + AUX targets
-                # (z / margin) don't depend on the slot layout and still
-                # train below. (The codebase already skips stale WEAPON
-                # slots inline; this is the experience-level backstop.)
-                n_policy_skipped += 1
-                policy_loss = output.value.new_zeros(())
-                total_v, mean_actor_nlp = 0.0, 0.0
+            )
             chunk_policy_losses.append(policy_loss)
             chunk_values.append(output.value.squeeze())
             chunk_value_logits.append(output.value_logits.squeeze(0))
@@ -974,13 +955,6 @@ def _trainer_step_mcts(
 
         del chunk_policy_losses, chunk_values, val_t, z_t, chunk_loss
         del encoded_chunk, outputs
-
-    if n_policy_skipped:
-        log.warning(
-            "step_mcts: dropped the policy term for %d/%d experiences "
-            "with stale actor-slot indices (search/train layout drift; "
-            "value+aux still trained). See BACKLOG 'MCTS actor-slot "
-            "drift'.", n_policy_skipped, N)
 
     grad_norm = torch.nn.utils.clip_grad_norm_(
         list(self.model.parameters()) + list(self.encoder.parameters()),

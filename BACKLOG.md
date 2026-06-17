@@ -161,31 +161,25 @@ current-state facts I verified against the code on 2026-06-17.
       as the Elo curve flattens) needs a GPU training curve to drive.
     * Keep tuning the proven `--replay-updates` / `--value-coef` levers.
 
-- [~] 🔴 **MCTS actor-slot drift (training-correctness bug, FOUND
-  2026-06-17; crash GUARDED, root cause OPEN).** Surfaced by the new
-  aux test: `trainer._mcts_factored_policy_loss` IndexError'd on certain
-  states (reliably on some mini scenarios, e.g. seed 24) — a recorded
-  visit-count `actor_idx` exceeded the current actor-slot count.
-  DIAGNOSIS: the recorded action indices assume the actor-slot layout
-  at MCTS-SEARCH time, but re-encoding the (frozen, deterministic-
-  encoding) stored `game_state` at TRAIN time yields a DIFFERENT actor
-  count — observed a 1-slot difference, chiefly in the recruit-phantom
-  count. So the search saw a different actor count than the state
-  stored alongside its visit_counts (a record/search mismatch;
-  mechanism not yet pinned — suspect the per-turn recruit-rejection
-  interaction in play_one_game's bounce-retry, since recruit phantoms
-  depend on placement legality). IMPACT: not just a crash — a boundary
-  index can also mis-map (a recorded recruit lands on the `end_turn`
-  slot), so the policy target is corrupted for drifted experiences.
-  GUARD (landed): `_trainer_step_mcts` wraps the per-experience policy
-  loss; on a stale-slot IndexError it drops THAT experience's policy
-  term (value + aux still train, since z/margin don't depend on the
-  layout) and logs once per step. `test_trainer_robustness` pins it.
-  This matches the codebase's existing stale-slot tolerance (the inline
-  weapon-slot skip). STILL OPEN: pin the exact drift mechanism and fix
-  at the SOURCE (e.g. record the slot layout in `MCTSExperience` and
-  assert it matches, or make recruit-phantom enumeration record/train-
-  consistent) so the policy targets aren't silently dropped/misaligned.
+- [x] ✅ **MCTS "actor-slot drift" — RESOLVED 2026-06-17: it was a TEST
+  contract violation, NOT a production bug.** `_mcts_factored_policy_loss`
+  IndexError'd on some mini scenarios when a recorded visit-count
+  `actor_idx` exceeded the current actor-slot count. ROOT CAUSE (pinned
+  by instrumentation): the new aux/playout tests passed the LIVE
+  `sim.gs` to `MCTSPolicy.select_action` and then called `sim.step`,
+  so the state the policy RECORDED got mutated by subsequent steps —
+  the recorded indices (3→6 units over the game) then didn't match the
+  mutated state's re-encoding. `encode()` is deterministic; a deepcopy
+  snapshot stays isolated (verified). PRODUCTION never hits this: every
+  real rollout/eval caller (`play_one_game`, `eval_sim`,
+  `diagnose_selfplay`, `sim_demo_game`) passes `copy.deepcopy(sim.gs)`
+  exactly as the documented caller contract requires
+  (play_one_game:336-348 explains why). FIX: made the tests honor the
+  contract (deepcopy the snapshot). A blanket `try/except IndexError`
+  guard added mid-diagnosis was REVERTED — it was inconsistent with the
+  codebase's targeted weapon-slot skip and would have masked future
+  real indexing bugs. Lesson: MCTS-policy tests must pass a deepcopy
+  snapshot (mirror play_one_game), never the live `sim.gs`.
 
 **Cross-links to existing BACKLOG items the plan re-surfaces:**
 `scenario_id` in `GameOutcome` for per-map leaderkill attribution

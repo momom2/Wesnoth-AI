@@ -99,18 +99,30 @@ def _cfg():
 
 
 def _play_and_finalize(mp, seed=21):
-    # Seed the MCTS search RNG so the game (and thus the recorded
-    # experiences) is reproducible -- an unseeded MCTS test is flaky.
+    # Drive the REAL production rollout (tools.sim_self_play.play_one_game)
+    # rather than re-implementing the select_action/step/finalize loop:
+    # mirroring the loop by hand is exactly what previously got the
+    # snapshot-deepcopy contract wrong. play_one_game deepcopies the
+    # per-decision state and calls finalize_game itself, so the recorded
+    # MCTSExperiences land in mp._queue. Seed the search RNG for
+    # reproducibility. (MCTS ignores per-step rewards -> a zero reward_fn.)
     import numpy as np
+    from tools.sim_self_play import play_one_game, _recruit_cost_lookup
     mp._rng = np.random.default_rng(seed)
     sim = fresh_scenario_sim(seed=seed, max_turns=8, mini=True)
-    gl = "g0"
-    steps = 0
-    while not sim.done and steps < 40:
-        action = mp.select_action(sim.gs, game_label=gl, sim=sim)
-        sim.step(action)
-        steps += 1
-    mp.finalize_game(gl, sim.winner, final_gs=sim.gs)
+    play_one_game(sim, mp, lambda delta: 0.0,
+                  game_label="g0", cost_lookup=_recruit_cost_lookup())
+
+
+def test_select_action_rejects_live_sim_gs():
+    """Contract guard: passing the LIVE sim.gs (not a deepcopy snapshot)
+    must fail loudly -- otherwise sim.step would mutate the recorded
+    training target (the 'actor-slot drift' that bit the tests)."""
+    import pytest
+    mp = MCTSPolicy(_pol(False), _cfg())
+    sim = fresh_scenario_sim(seed=21, max_turns=8, mini=True)
+    with pytest.raises(ValueError, match="deepcopy snapshot"):
+        mp.select_action(sim.gs, game_label="x", sim=sim)
 
 
 def test_finalize_sets_aux_target_when_aux_on():
