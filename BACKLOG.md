@@ -196,6 +196,30 @@ current-state facts I verified against the code on 2026-06-17.
       as the Elo curve flattens) needs a GPU training curve to drive.
     * Keep tuning the proven `--replay-updates` / `--value-coef` levers.
 
+- [x] 🟠 **Rollout profiler + "should we rewrite the sim in Rust?"
+  answer (DONE 2026-06-17).** `tools/profile_rollout.py` times a real
+  MCTS self-play rollout by component (sim.step / sim.fork / encode /
+  enumerate / forward / remainder) and reports both the CPU breakdown
+  and the GPU/actor-pool throughput regime (forward → ~0, batched +
+  overlapped). CUDA-correct (synchronizes on GPU-touching components);
+  checkpoint-or-fresh-arch; full maps by default; `--save-json`.
+  FINDING (laptop CPU, 0.47M net, mini maps): forward 44%, sampler
+  (`enumerate`) 18%, encode 15%, sim.step 13%, sim.fork 2%, remainder
+  11%. In the GPU regime: sampler ~35%, sim.step ~24%, encode ~18%,
+  remainder ~19%, sim.fork ~4%. CONCLUSION: **the game-logic sim is
+  only ~¼ of the throughput-relevant cost — NOT the bottleneck** (the
+  legal-action SAMPLER is the single biggest Python component), and no
+  single component dominates. A full Rust simulator rewrite is poor
+  ROI: Amdahl-capped at ~1.4× per actor while leaving the sampler +
+  encoder untouched, and it re-opens the hard-won bit-exact parity
+  (Stages 1–24). Scaling the model (plan §3.2) makes the Python
+  fraction SMALLER, weakening the case further. The cheap throughput
+  lever is the actor pool (parallelism across cores). IF Phase-0
+  profiling on the rented GPU box (target model size + full maps)
+  shows per-core throughput binds, the priority for a SURGICAL PyO3
+  kernel is `enumerate` → `sim.step` → `encode`, not a whole-sim
+  rewrite. RE-RUN this profiler there first.
+
 - [x] ✅ **MCTS "actor-slot drift" — RESOLVED 2026-06-17: it was a TEST
   contract violation, NOT a production bug.** `_mcts_factored_policy_loss`
   IndexError'd on some mini scenarios when a recorded visit-count
