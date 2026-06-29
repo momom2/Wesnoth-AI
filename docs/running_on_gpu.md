@@ -82,8 +82,16 @@ placement once on real hardware.
 - **OOM**: lower `--train-batch-size` first, then `--replay-capacity`
   (each buffered experience holds a deepcopied game state).
 - **Underutilized GPU**: raise `--train-batch-size` (bigger batched
-  forward) and/or `--replay-updates`; consider `--workers N` for
-  parallel rollout to keep the GPU fed during self-play.
+  forward) and/or `--replay-updates`; raise `--mcts-batch-size` (B=8-32)
+  so each Gumbel sequential-halving phase evaluates its leaves through one
+  batched forward instead of B=1-per-sim (intra-search batching; was a
+  no-op before the 2026-06-29 fix); and/or `--workers N` for parallel
+  rollout (cross-game batching). The two batching levers compose; profile
+  to pick B.
+- **Fresh campaign vs. resume**: start a NEW training run (treating an old
+  checkpoint as weights-only) with `--reset-decision-step` so the
+  combat-oracle anneal restarts from full strength; OMIT it when resuming
+  an in-progress run (it would restart the anneal mid-training).
 - **Throughput metric**: held-out value loss + attack%/decisive vs
   wall-clock *on that GPU*. There's a held-out eval recipe in the
   BACKLOG / git history (load checkpoints, score on a fixed set).

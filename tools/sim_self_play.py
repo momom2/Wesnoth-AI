@@ -1482,10 +1482,16 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--mcts-c-puct", type=float, default=1.5,
                     help="PUCT exploration constant (--mcts only).")
     ap.add_argument("--mcts-batch-size", type=int, default=1,
-                    help="Batched leaf evaluation (--mcts only). "
-                         "B=1 on CPU; B=8-32 amortizes kernel "
-                         "launch on GPU but our forward already "
-                         "dominates so the gain is modest.")
+                    help="Batched leaf evaluation (--mcts only). B=1 on "
+                         "CPU; B=8-32 amortizes per-forward kernel-launch "
+                         "+ host-sync overhead on GPU. Applies to BOTH the "
+                         "default Gumbel root (each sequential-halving "
+                         "phase evaluates its leaves through one "
+                         "forward_batch with virtual loss) and the classic "
+                         "root. Falls back to serial when "
+                         "--mcts-outcome-buckets is on. Profile on the GPU "
+                         "node to pick B; composes with --workers "
+                         "(cross-game batching).")
     ap.add_argument("--mcts-fpu-reduction", type=float, default=0.25,
                     help="First-play urgency: unvisited edges score "
                          "as (parent value - this) instead of 0, so "

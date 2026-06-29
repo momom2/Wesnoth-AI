@@ -1146,6 +1146,92 @@ def _run_one_sim(
     )
 
 
+def _run_sim_batch(
+    root:           MCTSNode,
+    model:          WesnothModel,
+    encoder:        GameStateEncoder,
+    config:         MCTSConfig,
+    transpositions: Optional[Dict[int, MCTSNode]],
+    tt_stats:       Dict[str, int],
+    rng:            Optional[np.random.Generator],
+    v_loss:         float,
+    decision_step:  int,
+    *,
+    forced_edges:   Optional[List[MCTSEdge]] = None,
+    n:              int = 0,
+) -> int:
+    """Run a batch of simulations sharing ONE `model.forward_batch` over
+    their leaves (virtual-loss parallelization). Shared by the classic
+    PUCT-at-root loop and the batched Gumbel phase so there is a single
+    tested select -> batch-forward -> backup code path.
+
+    `forced_edges`: per-sim pinned root edges (Gumbel sequential halving
+    descends each sim through a fixed candidate). When None, run `n`
+    classic PUCT-at-root selections. Returns the number of sims
+    completed (terminal / already-expanded leaves are backed up inline;
+    non-terminal unexpanded leaves share the batched forward).
+
+    Does NOT support outcome bucketing (member_path attribution) -- the
+    callers gate the batched path on `not config.outcome_buckets` and
+    fall back to the serial `_run_one_sim` when buckets are on.
+    """
+    specs: List[Optional[MCTSEdge]] = (
+        list(forced_edges) if forced_edges is not None else [None] * n)
+    root_fpu = (config.root_fpu_reduction
+                if (config.add_root_noise and config.fpu_reduction is not None)
+                else config.fpu_reduction)
+    pending: List[Tuple[MCTSNode, List[Tuple[MCTSNode, MCTSEdge]]]] = []
+    completed = 0
+    # ----- Phase 1: select leaves (virtual loss diversifies them) ----
+    for fe in specs:
+        leaf, path, _member = _select_one(
+            root, config.c_puct, v_loss,
+            transpositions=transpositions, stats=tt_stats,
+            fpu_reduction=config.fpu_reduction,
+            root_fpu_reduction=root_fpu,
+            forced_first_edge=fe,
+            chance_nodes=config.chance_nodes,
+            sample_rng=rng,
+            exact_outcomes=config.exact_outcome_enumeration,
+        )
+        if leaf.is_terminal:
+            v = _terminal_value(leaf.sim, leaf.side, config.draw_tiebreak)
+            _backup(path, v, leaf.side, v_loss,
+                    leaf_cliffness=0.0, bootstrap_alpha=0.0,
+                    leaf_is_terminal=True)
+            completed += 1
+        elif leaf.expanded:
+            # Depth-cap break: already-expanded interior node. Back up
+            # its stored value rather than re-populating (which would
+            # wipe its edge stats).
+            _backup(path, leaf.value, leaf.side, v_loss,
+                    leaf_cliffness=leaf.cliffness,
+                    bootstrap_alpha=config.cliffness_bootstrap_alpha)
+            completed += 1
+        else:
+            pending.append((leaf, path))
+    # ----- Phase 2: one batched forward over the unique leaves --------
+    if pending:
+        unique_leaves: Dict[int, MCTSNode] = {}
+        for leaf, _ in pending:
+            unique_leaves.setdefault(id(leaf), leaf)
+        unique_list = list(unique_leaves.values())
+        with torch.no_grad():
+            encoded_list = [encoder.encode(l.sim.gs) for l in unique_list]
+            outputs = model.forward_batch(encoded_list)
+        leaf_values: Dict[int, float] = {}
+        for leaf, encoded, output in zip(unique_list, encoded_list, outputs):
+            leaf_values[id(leaf)] = _populate_leaf(
+                leaf, encoded, output, decision_step=decision_step)
+        for leaf, path in pending:
+            _backup(path, leaf_values[id(leaf)], leaf.side, v_loss,
+                    leaf_cliffness=leaf.cliffness,
+                    bootstrap_alpha=config.cliffness_bootstrap_alpha,
+                    leaf_is_terminal=leaf.is_terminal)
+            completed += 1
+    return completed
+
+
 def _gumbel_sigma(q: float, max_visits: float, config: MCTSConfig) -> float:
     """The paper's monotone Q transform: sigma(q) =
     (c_visit + max_b N(b)) * c_scale * q. Scaling by the visit count
@@ -1187,6 +1273,17 @@ def _gumbel_root_search(
     def _score(ci: int, max_v: float) -> float:
         return base[ci] + _gumbel_sigma(edges[ci].q_value, max_v, config)
 
+    # Batched leaf evaluation: when batch_size > 1 (GPU), evaluate each
+    # phase's sims through one model.forward_batch with virtual loss
+    # instead of B=1-per-sim. The sequential-halving SCHEDULE (num_phases,
+    # sims_per, candidate reduction) is identical either way -- only the
+    # forward grouping changes -- so the total sim count matches. Gated
+    # off when outcome bucketing is on (the batched path doesn't carry
+    # member-path attribution); falls back to serial _run_one_sim.
+    use_batch = config.batch_size > 1 and not config.outcome_buckets
+    B = max(1, int(config.batch_size))
+    V_LOSS = float(config.virtual_loss) if use_batch else 0.0
+
     sims_done = 0
     num_phases = max(1, math.ceil(math.log2(m))) if m > 1 else 1
     for phase in range(num_phases):
@@ -1198,10 +1295,33 @@ def _gumbel_root_search(
         phase_budget = max(len(cands),
                            (n_sims - sims_done) // (num_phases - phase))
         sims_per = max(1, phase_budget // len(cands))
+        # Flat list of this phase's sims, each pinned through a candidate
+        # root edge, capped by the remaining global budget. Same order
+        # (candidate-major) the serial loop used.
+        forced: List[MCTSEdge] = []
         for ci in cands:
             for _ in range(sims_per):
-                if sims_done >= n_sims:
+                if sims_done + len(forced) >= n_sims:
                     break
+                forced.append(edges[ci])
+            if sims_done + len(forced) >= n_sims:
+                break
+
+        if use_batch:
+            j = 0
+            while j < len(forced):
+                if deadline is not None and _time.perf_counter() > deadline:
+                    log.info(f"mcts(gumbel): stopping at "
+                             f"{sims_done}/{n_sims} (time budget hit)")
+                    sims_done = n_sims
+                    break
+                chunk = forced[j:j + B]
+                j += len(chunk)
+                sims_done += _run_sim_batch(
+                    root, model, encoder, config, transpositions, tt_stats,
+                    rng, V_LOSS, decision_step, forced_edges=chunk)
+        else:
+            for fe in forced:
                 if deadline is not None and _time.perf_counter() > deadline:
                     log.info(f"mcts(gumbel): stopping at "
                              f"{sims_done}/{n_sims} (time budget hit)")
@@ -1209,10 +1329,11 @@ def _gumbel_root_search(
                     break
                 _run_one_sim(root, model, encoder, config,
                              transpositions, tt_stats,
-                             forced_first_edge=edges[ci],
+                             forced_first_edge=fe,
                              sample_rng=rng,
                              decision_step=decision_step)
                 sims_done += 1
+
         max_v = max(e.n_visits for e in edges)
         keep = max(1, math.ceil(len(cands) / 2))
         cands = sorted(cands, key=lambda ci: -_score(ci, max_v))[:keep]
@@ -1355,98 +1476,14 @@ def mcts_search(
                      f"(time budget hit)")
             break
 
-        # How many sims to run in this batch.
+        # Run up to B sims sharing one batched forward (B=1 => serial).
+        # Outcome bucketing is unsupported on the batched classic root
+        # (v1 supports it only on the serial Gumbel path); the
+        # outcome_buckets+classic-root combo is warned about at the CLI.
         n_this_batch = min(B, n_sims - sims_done)
-
-        # ----- Phase 1: select leaves --------------------------------
-        # Each iteration descends from root via PUCT, applying virtual
-        # loss as it goes. Terminal-leaf paths are backed up
-        # immediately (no model forward needed). Non-terminal leaves
-        # accumulate in `pending` for batched forward.
-        pending: List[Tuple[MCTSNode, List[Tuple[MCTSNode, MCTSEdge]]]] = []
-        for _ in range(n_this_batch):
-            # Batched (classic-root) path: outcome bucketing is left
-            # OFF (v1 supports it only on the serial Gumbel path);
-            # member_path is unused here.
-            leaf, path, _member_path = _select_one(
-                root, config.c_puct, V_LOSS,
-                transpositions=transpositions,
-                stats=tt_stats,
-                fpu_reduction=config.fpu_reduction,
-                root_fpu_reduction=(
-                    config.root_fpu_reduction
-                    if (config.add_root_noise
-                        and config.fpu_reduction is not None)
-                    else config.fpu_reduction),
-                chance_nodes=config.chance_nodes,
-                sample_rng=rng,
-                exact_outcomes=config.exact_outcome_enumeration,
-            )
-            if leaf.is_terminal:
-                # Immediate backup -- no model forward needed.
-                # Terminal v is exact; bootstrap weighting must be
-                # disabled for this path (cliffness has no meaning
-                # at a terminal, and we shouldn't shrink an exact
-                # outcome anyway).
-                v = _terminal_value(leaf.sim, leaf.side,
-                                    config.draw_tiebreak)
-                _backup(
-                    path, v, leaf.side, V_LOSS,
-                    leaf_cliffness=0.0,
-                    bootstrap_alpha=0.0,
-                    leaf_is_terminal=True,
-                )
-                sims_done += 1
-            elif leaf.expanded:
-                # Depth-cap break (see _MAX_SELECT_DEPTH): already-
-                # expanded interior node. Back up its stored value
-                # rather than re-populating (which would wipe its
-                # edge stats); don't add it to the forward batch.
-                _backup(
-                    path, leaf.value, leaf.side, V_LOSS,
-                    leaf_cliffness=leaf.cliffness,
-                    bootstrap_alpha=config.cliffness_bootstrap_alpha,
-                )
-                sims_done += 1
-            else:
-                pending.append((leaf, path))
-
-        # ----- Phase 2: batch evaluate the non-terminal leaves -------
-        if pending:
-            # Deduplicate leaves: with virtual loss, two parallel
-            # selections rarely converge on the same unexpanded leaf,
-            # but it CAN happen (e.g. tiny tree, tied priors). Encode
-            # + forward each unique leaf once; share the value across
-            # all paths that reached it.
-            unique_leaves: Dict[int, MCTSNode] = {}
-            for leaf, _ in pending:
-                if id(leaf) not in unique_leaves:
-                    unique_leaves[id(leaf)] = leaf
-            unique_list = list(unique_leaves.values())
-
-            with torch.no_grad():
-                encoded_list = [encoder.encode(l.sim.gs) for l in unique_list]
-                outputs = model.forward_batch(encoded_list)
-
-            # Build edges + record value per unique leaf.
-            # _populate_leaf also stamps cliffness onto the leaf
-            # node, which the backup phase below reads.
-            leaf_values: Dict[int, float] = {}
-            for leaf, encoded, output in zip(
-                    unique_list, encoded_list, outputs):
-                leaf_values[id(leaf)] = _populate_leaf(
-                    leaf, encoded, output, decision_step=decision_step)
-
-            # Backup all pending paths (each may share or own its leaf).
-            for leaf, path in pending:
-                v = leaf_values[id(leaf)]
-                _backup(
-                    path, v, leaf.side, V_LOSS,
-                    leaf_cliffness=leaf.cliffness,
-                    bootstrap_alpha=config.cliffness_bootstrap_alpha,
-                    leaf_is_terminal=leaf.is_terminal,
-                )
-                sims_done += 1
+        sims_done += _run_sim_batch(
+            root, model, encoder, config, transpositions, tt_stats,
+            rng, V_LOSS, decision_step, n=n_this_batch)
 
     # Surface TT stats on the returned root so callers (test code,
     # logging in sim_self_play) can decide whether the table is

@@ -50,6 +50,15 @@ it is now fixed.** Full suite green after all changes below.
   experience_modifier. M2 — `unit_stats.json` parsed once
   (`_unit_stats_data`). M3 — cached the constant playable-hex set per
   game. M4 — Gumbel `_run_one_sim` uses `config.root_fpu_reduction`.
+- B1 — **batched-Gumbel leaf evaluation.** `--mcts-batch-size` was a
+  silent no-op under the default Gumbel root (each sim a B=1 forward).
+  Now each sequential-halving phase evaluates its leaves through one
+  `model.forward_batch` with virtual loss (shared `_run_sim_batch` helper,
+  also used by the classic root). Gated on `batch_size>1 and not
+  outcome_buckets`; B=1 default = byte-identical serial path. Schedule is
+  batching-independent so total sim count matches B=1
+  (`test_batched_gumbel.py`). Throughput win is CUDA-only (unmeasurable
+  on the CPU laptop) — profile B on the GPU node.
 
 **Deferred (logged here, not yet done):**
 - **B2 — per-element `.item()`/D2H syncs** (trainer baseline read,
