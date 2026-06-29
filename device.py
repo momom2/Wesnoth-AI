@@ -1,69 +1,18 @@
-"""Pick the best available torch device.
+"""DirectML device helpers (`describe`, `is_dml`, `dml_sync`).
 
-On this machine:
-- torch_directml.device(1) = AMD Radeon RX 6600 (discrete, what we want).
-- torch_directml.device(0) = integrated iGPU, slower than CPU — AVOID.
-- cpu fallback for environments without torch-directml installed.
-
-The picker returns a `torch.device`-compatible object. Phase-3 code
-should call `select_device()` once at startup and pass the result
-around; do NOT assume CUDA is ever available, and do NOT call
-`torch_directml.device()` without an explicit index.
+NOTE: the actual device SELECTION for the training/inference path lives
+in `tools/device_select.select_inference_device` (which resolves "auto"
+as DML > CUDA > CPU and is what `sim_self_play` uses). A second picker
+used to live here (`select_device`) with a DML-or-CPU "auto" that had no
+CUDA branch -- it was never called (a latent footgun that would silently
+hand back CPU on a CUDA box), so it was removed 2026-06-29. Keep a single
+source of truth for "auto"; if you need a device here, import
+`tools.device_select`.
 """
 
 from __future__ import annotations
 
-import os
-from typing import Optional
-
 import torch
-
-
-def select_device(prefer: str = "auto"):
-    """Return a torch device for model/training ops.
-
-    Args:
-        prefer: "auto" to auto-select; "cpu" to force CPU; "dml:N" to
-                force DirectML device index N (0 = iGPU here, 1 = dGPU).
-                Env var WESNOTH_AI_DEVICE overrides if set.
-
-    Returns:
-        A torch.device or an equivalent DirectML device handle.
-    """
-    override = os.environ.get("WESNOTH_AI_DEVICE", "").strip()
-    if override:
-        prefer = override
-
-    if prefer == "cpu":
-        return torch.device("cpu")
-
-    if prefer.startswith("dml:"):
-        idx = int(prefer.split(":", 1)[1])
-        return _dml_device(idx)
-
-    # auto: try the discrete DirectML device, fall back to CPU.
-    dml = _dml_device(1)
-    return dml if dml is not None else torch.device("cpu")
-
-
-def _dml_device(index: int):
-    """DirectML device at `index`, or None if torch-directml isn't usable."""
-    try:
-        import torch_directml
-    except ImportError:
-        return None
-
-    try:
-        count = torch_directml.device_count()
-    except Exception:
-        return None
-    if index < 0 or index >= count:
-        return None
-
-    try:
-        return torch_directml.device(index)
-    except Exception:
-        return None
 
 
 def describe(device) -> str:

@@ -171,6 +171,48 @@ def test_snapshot_after_train_step_syncs_weights():
             f"post-train_step mismatch at {k}")
 
 
+def test_mcts_train_step_syncs_inference_weights():
+    """Regression for the 2026-06-29 frozen-inference bug.
+
+    `MCTSPolicy.train_step` calls `trainer.step_mcts` directly,
+    BYPASSING `TransformerPolicy.train_step`'s snapshot. Without an
+    explicit refresh, the self-play/search network (`_inference_model`)
+    stays frozen at warm-start weights for the entire `--mcts` run
+    while only the saved checkpoint's `_model` drifts -- the AlphaZero
+    loop never closes.
+
+    We drive the REAL `MCTSPolicy.train_step` and the REAL
+    `_snapshot_inference_weights`; only the gradient compute is stubbed
+    (its numerics are covered by the trainer's own tests) and made to
+    perturb `_model` so the model<->inference divergence is observable.
+    """
+    from types import SimpleNamespace
+    from tools.mcts_policy import MCTSPolicy, ReplayConfig
+    from trainer import MCTSExperience, TrainStats
+
+    base = TransformerPolicy()
+
+    # Stand-in gradient step: perturb _model so it diverges from the
+    # inference snapshot, exactly as a real optimizer.step() would.
+    def fake_step_mcts(batch):
+        with torch.no_grad():
+            for p in base._model.parameters():
+                p.add_(torch.randn_like(p) * 0.1)
+        return TrainStats(n_transitions=len(batch), n_trajectories=1)
+    base._trainer = SimpleNamespace(step_mcts=fake_step_mcts)
+
+    pol = MCTSPolicy(base, replay_config=ReplayConfig(enabled=False))
+    pol._queue = [MCTSExperience(game_state=None, visit_counts=[], z=0.0)]
+
+    pol.train_step()
+
+    for k, v_t in base._model.state_dict().items():
+        v_i = base._inference_model.state_dict()[k]
+        assert torch.allclose(v_t, v_i), (
+            f"MCTS train_step left the inference net stale at {k} "
+            f"-- self-play would run on a frozen network")
+
+
 def test_load_checkpoint_syncs_inference():
     """load_checkpoint must propagate the loaded weights into the
     inference snapshot too -- otherwise select_action keeps using

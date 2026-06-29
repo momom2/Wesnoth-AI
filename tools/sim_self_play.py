@@ -1257,6 +1257,17 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--checkpoint-out", type=Path,
                     default=Path("training/checkpoints/sim_selfplay.pt"),
                     help="Where to write checkpoints.")
+    ap.add_argument("--reset-decision-step", action="store_true",
+                    help="After loading --checkpoint-in, reset the "
+                         "training-progress counter (decision_step) to 0. "
+                         "Use when warm-starting a checkpoint as WEIGHTS "
+                         "ONLY for a fresh training campaign: the combat-"
+                         "oracle anneal (combat_alphas_at) then runs from "
+                         "full strength over ~COMBAT_ANNEAL_HORIZON "
+                         "decisions instead of inheriting a counter that "
+                         "may already be past the anneal floor. Do NOT use "
+                         "when resuming an in-progress run -- it would "
+                         "restart the anneal mid-training.")
     ap.add_argument("--iterations", type=int, default=10,
                     help="Hard ceiling on train_step iterations. When "
                          "`--time-budget` is set, this is mostly a "
@@ -1765,6 +1776,25 @@ def main(argv: List[str]) -> int:
                 raise
     else:
         log.warning("no input checkpoint -- training from random init")
+
+    # Weights-only warm-start: forget the loaded training-progress
+    # counter so the combat-oracle anneal restarts from full strength.
+    if args.reset_decision_step:
+        prev = policy._decision_step
+        policy._decision_step = 0
+        log.info(f"--reset-decision-step: decision_step {prev} -> 0 "
+                 f"(combat-oracle anneal restarts at full strength)")
+
+    # Vocab stays dynamically growable (config-driven customization: a
+    # new id appends a fresh learnable embedding row; existing ids never
+    # shift -- see encoder.register_names). Once the base roster is in
+    # place (a warm-started checkpoint already carries it), arm growth
+    # logging so any NEW unit type appearing during self-play is a
+    # visible breadcrumb rather than a silent change on a long run. Skip
+    # for a fresh init, whose first iteration legitimately populates the
+    # whole roster.
+    if len(policy._encoder.unit_type_to_id) > 0:
+        policy.watch_vocab_growth()
 
     # Optional MCTS wrapper: replaces raw policy sampling with an
     # AlphaZero-style tree search. Same duck-typed

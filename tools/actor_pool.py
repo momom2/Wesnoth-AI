@@ -196,6 +196,8 @@ class ActorPool:
         pvp_defaults=None, device: Optional[torch.device] = None,
         max_batch: Optional[int] = None, serve_timeout: float = 0.005,
         log_level: int = logging.WARNING, actor_torch_threads: int = 1,
+        iteration_timeout: Optional[float] = 1800.0,
+        liveness_interval: float = 2.0,
     ):
         if n_actors < 1:
             raise ValueError("n_actors must be >= 1")
@@ -211,6 +213,16 @@ class ActorPool:
         self._serve_timeout = serve_timeout
         self._log_level = log_level
         self._actor_threads = actor_torch_threads
+        # Watchdog (CLAUDE principle #5: every wait is finite, failures
+        # are visible). A hard-crashed actor (segfault / OOM-kill on the
+        # GPU box / C-level hang) never sends its _R_DONE finally, so the
+        # serve loop would otherwise spin forever with no progress and no
+        # error. `iteration_timeout` is an overall wall-clock deadline
+        # (None disables); `liveness_interval` throttles the per-actor
+        # is_alive() scan that detects an actor that died without
+        # reporting done.
+        self._iteration_timeout = iteration_timeout
+        self._liveness_interval = liveness_interval
         self._started = False
 
     # -- lifecycle ----------------------------------------------------
@@ -264,9 +276,11 @@ class ActorPool:
 
         outcomes: List = []
         experiences: List = []
-        done = 0
+        outstanding = set(range(self._n))   # actors not yet _R_DONE
         served = 0
-        while done < self._n:
+        t_start = time.monotonic()
+        last_liveness = t_start
+        while outstanding:
             # 1) Drain results (non-blocking).
             while True:
                 try:
@@ -278,16 +292,41 @@ class ActorPool:
                 elif kind == _R_EXPS:
                     experiences.extend(payload)
                 elif kind == _R_DONE:
-                    done += 1
+                    outstanding.discard(aid)
                 elif kind == _R_ERROR:
                     log.error(f"actor {aid} error:\n{payload}")
-            if done >= self._n:
+            if not outstanding:
                 break
             # 2) Serve one batch of inference requests.
             batch = []
             try:
                 batch.append(self._req_q.get(timeout=self._serve_timeout))
             except _queue.Empty:
+                # No requests in flight. This is the only place the loop
+                # can idle, so run the watchdog here (throttled).
+                now = time.monotonic()
+                if (self._iteration_timeout is not None
+                        and now - t_start > self._iteration_timeout):
+                    log.error(
+                        f"iter {iter_idx}: wall-clock deadline "
+                        f"({self._iteration_timeout:.0f}s) exceeded with "
+                        f"actors {sorted(outstanding)} still outstanding; "
+                        f"abandoning the iteration with partial results "
+                        f"({len(outcomes)} games, {len(experiences)} exps).")
+                    break
+                if now - last_liveness > self._liveness_interval:
+                    last_liveness = now
+                    dead = {aid for aid in outstanding
+                            if not self._procs[aid].is_alive()}
+                    if dead:
+                        for aid in sorted(dead):
+                            log.error(
+                                f"iter {iter_idx}: actor {aid} died without "
+                                f"reporting done (exitcode="
+                                f"{self._procs[aid].exitcode}); dropping it.")
+                        outstanding -= dead
+                        if not outstanding:
+                            break
                 continue
             while len(batch) < self._max_batch:
                 try:

@@ -110,6 +110,13 @@ class MCTSExperience:
     # the aux loss). A denser companion to `z`. See
     # draw_tiebreak.material_margin + MCTSPolicy.finalize_game.
     aux_target:  Optional[float] = None
+    # Training-progress counter at the time this state's MCTS search ran.
+    # Threaded into the distillation loss so the reference legality
+    # masks rebuild the combat-oracle bias at the SAME annealed alpha the
+    # search used (`combat_alphas_at`) -- search priors and loss must
+    # agree. Default 0 = full-strength oracle (also the legacy-pickle
+    # fallback, matching the pre-anneal behavior of old serialized data).
+    decision_step: int = 0
 
 
 @dataclass
@@ -545,6 +552,7 @@ def _mcts_factored_policy_loss(
     visit_counts: List[Tuple],
     *,
     vectorized: bool = True,
+    decision_step: int = 0,
 ) -> Tuple[torch.Tensor, float, float]:
     """Cross-entropy of the model's factored policy against MCTS
     visit counts. Returns (loss, total_visits, action_kl_proxy).
@@ -575,7 +583,8 @@ def _mcts_factored_policy_loss(
             type_idx = None
         return actor, target, weapon, count, type_idx
 
-    masks = _build_legality_masks(encoded, game_state)
+    masks = _build_legality_masks(encoded, game_state,
+                                  decision_step=decision_step)
     actor_logits = _masked_actor_logits(encoded, output, masks.actor_valid)
     actor_logp = F.log_softmax(actor_logits.squeeze(0), dim=-1)  # [A]
 
@@ -825,11 +834,17 @@ def _trainer_step_mcts(
 
     cap = self.config.max_transitions_per_step
     if len(experiences) > cap:
-        # Subsample. Same uniform-stride logic the REINFORCE path
-        # uses; the subsample bias documented in BACKLOG.md applies
-        # here too.
-        step = len(experiences) / cap
-        experiences = [experiences[int(i * step)] for i in range(cap)]
+        # Subsample to a RANDOM subset, matching the REINFORCE path
+        # (`step`, which moved off uniform stride deliberately).
+        # Uniform stride correlates the kept set with episode position:
+        # MCTS experiences are appended per-game in finalize_game order,
+        # so stride-N would preferentially keep a fixed game-phase
+        # subset and skew the value/policy target distribution. A random
+        # subset keeps the kept batch's distribution matched to the full
+        # set. (Usually inert under the documented replay-buffer recipe,
+        # where minibatch <= cap; bites large non-replay iterations.)
+        idxs = random.sample(range(len(experiences)), cap)
+        experiences = [experiences[i] for i in idxs]
 
     dev = self.device or next(self.model.parameters()).device
     N = len(experiences)
@@ -911,6 +926,7 @@ def _trainer_step_mcts(
                 _mcts_factored_policy_loss(
                     encoded, output, e.game_state, e.visit_counts,
                     vectorized=self.config.vectorized_mcts_policy_loss,
+                    decision_step=getattr(e, "decision_step", 0),
                 )
             )
             chunk_policy_losses.append(policy_loss)

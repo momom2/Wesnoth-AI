@@ -300,7 +300,20 @@ class GlobalInfo:
         for k, v in self.__dict__.items():
             if not k.startswith("_"):
                 continue
-            if isinstance(v, dict):
+            if k == "_terrain_codes":
+                # ALIAS (don't copy). Terrain codes are immutable during
+                # 2p-ladder self-play -- only terrain-MORPH events mutate
+                # them in place (scenario_events._terrain_action), the
+                # same class of mutation as the `hexes` set, which
+                # Map.__deepcopy__ also aliases (morph scenarios already
+                # require the slow deep_clone path). Copying this dict
+                # every step gave it a fresh id() each time, which (a)
+                # wasted a full dict copy and (b) defeated the rewards
+                # MP-distance Dijkstra cache that keys on
+                # id(_terrain_codes) -- prev_state then missed every
+                # step and thrashed the cache. See rewards._MP_DIST_CACHE.
+                setattr(new, k, v)
+            elif isinstance(v, dict):
                 setattr(new, k, dict(v))
             elif isinstance(v, set):
                 setattr(new, k, set(v))

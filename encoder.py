@@ -20,6 +20,7 @@ Phase 3.2 will pad and batch when the trainer needs it.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
@@ -133,6 +134,17 @@ from constants import (
 
 import logging
 log = logging.getLogger("encoder")
+
+# Serializes the append-only vocab growth in `register_names`. Training
+# and inference encoders SHARE the same `unit_type_to_id`/`faction_to_id`
+# dict objects (transformer_policy wires them by reference), and MCTS
+# leaf expansion can register names from worker threads while the
+# trainer reads the same dicts -- an unguarded `dict[name] = len(dict)`
+# could then race (two threads claim the same id, or a reader sees a
+# half-updated dict). A process-wide lock is enough: cross-PROCESS
+# actors (the actor pool) hold their own dict copies shipped via the
+# vocab snapshot, so they never share this state. See CLAUDE.md "Vocab".
+_VOCAB_LOCK = threading.Lock()
 
 
 @dataclass
@@ -404,7 +416,51 @@ class GameStateEncoder(nn.Module):
         any subsequent new name fires a per-name warning instead of
         being silently added (would shift embedding ids and
         invalidate the checkpoint).
+
+        Thread-safety: the append-only growth is serialized by the
+        process-wide `_VOCAB_LOCK` (training + inference encoders share
+        the same dict objects; MCTS leaf expansion can register from a
+        worker thread concurrently with the trainer). See the lock's
+        definition for why a process-wide lock suffices.
         """
+        with _VOCAB_LOCK:
+            self._register_names_locked(game_state)
+
+    def watch_vocab_growth(self) -> None:
+        """Start logging (once per name) whenever `register_names` adds
+        a NEW vocab entry. Call this after warm-start / checkpoint load:
+        the bulk initial population then stays quiet, but a genuinely
+        mid-run addition (a new unit type appearing during self-play)
+        becomes a visible breadcrumb -- the new id maps to a fresh-init
+        embedding row, which is intentional under dynamic growth but
+        worth surfacing on a long unattended run. Does NOT stop growth
+        (that's `freeze_vocab`)."""
+        self._vocab_growth_watch = True
+        if getattr(self, "_warned_new_name", None) is None:
+            self._warned_new_name = set()
+        log.info(
+            f"encoder now watching mid-run vocab growth (currently "
+            f"{len(self.unit_type_to_id)} unit types, "
+            f"{len(self.faction_to_id)} factions)."
+        )
+
+    def _note_new_type(self, name: str) -> None:
+        """One-shot (per name) log of a mid-run vocab addition; no-op
+        unless `watch_vocab_growth()` armed it."""
+        if not getattr(self, "_vocab_growth_watch", False):
+            return
+        seen = getattr(self, "_warned_new_name", None)
+        if seen is None:
+            seen = set()
+            self._warned_new_name = seen
+        if name not in seen:
+            seen.add(name)
+            log.warning(
+                f"encoder vocab grew mid-run: new entry {name!r} "
+                f"(fresh embedding row; intentional dynamic growth)."
+            )
+
+    def _register_names_locked(self, game_state: GameState) -> None:
         type_to_id = self.unit_type_to_id
         cap = MAX_UNIT_TYPES
         frozen = getattr(self, "_vocab_frozen", False)
@@ -439,6 +495,7 @@ class GameStateEncoder(nn.Module):
                     # the right thing without a phantom dict slot.
                     continue
                 type_to_id[u.name] = len(type_to_id)
+                self._note_new_type(u.name)
         faction_to_id = self.faction_to_id
         for s in game_state.sides:
             if s.faction not in faction_to_id:
@@ -459,6 +516,7 @@ class GameStateEncoder(nn.Module):
                         self._warned_faction_overflow = True
                     continue
                 faction_to_id[s.faction] = len(faction_to_id)
+                self._note_new_type(s.faction)
             for r in s.recruits:
                 if r not in type_to_id:
                     if frozen:
@@ -474,6 +532,7 @@ class GameStateEncoder(nn.Module):
                         # here to avoid log-spam on a single state.
                         continue
                     type_to_id[r] = len(type_to_id)
+                    self._note_new_type(r)
 
     def encode_from_raw(
         self,

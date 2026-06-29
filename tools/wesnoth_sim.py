@@ -134,6 +134,23 @@ def apply_pvp_defaults(gs: GameState, defaults: PvPDefaults) -> None:
     setattr(gs.global_info, "_experience_modifier",
             defaults.experience_modifier)
 
+    # Rescale the ALREADY-CONSTRUCTED starting units' xp-to-advance to
+    # the target modifier. _build_initial_gamestate baked each starting
+    # unit's max_exp using the SOURCE replay's experience_modifier (often
+    # a custom host value), but recruits made later use this PvP default
+    # -- so without this rescale a leader/pre-placed unit would advance
+    # on a different xp threshold than its own recruits in the same game.
+    # Idempotent: recomputing at the same modifier yields the same value.
+    import dataclasses
+    from replay_dataset import _stats_for, _scaled_max_exp
+    target_mod = int(defaults.experience_modifier)
+    rescaled = set()
+    for u in gs.map.units:
+        base_exp = int(_stats_for(u.name).get("experience", 50))
+        rescaled.add(dataclasses.replace(
+            u, max_exp=_scaled_max_exp(base_exp, target_mod)))
+    gs.map.units = rescaled
+
 
 # ---------------------------------------------------------------------
 # Terrain-aware movement-cost lookup
@@ -148,6 +165,33 @@ def apply_pvp_defaults(gs: GameState, defaults: PvPDefaults) -> None:
 # than the unit has remaining (see wesnoth_src/src/actions/move.cpp).
 
 _MOVETYPE_COSTS_CACHE: Dict[str, dict] = {}
+
+# Memoized terrain->MP resolution. `terrain_resolver.mvt_cost` walks the
+# terrain alias graph recursively from scratch on every call (its own
+# lru_cache import was never wired up), and `_move_cost_at_hex` is called
+# per frontier hex inside `_find_attack_hex`'s Dijkstra -- millions of
+# times over a training run. The result is a pure function of
+# (stripped_terrain_code, unit_type, slowed), so cache it. Keyed on
+# unit.name (not movetype) to match `_MOVETYPE_COSTS_CACHE`'s granularity.
+_MVT_RESOLVE_CACHE: Dict[Tuple[str, str, bool], int] = {}
+
+
+_UNIT_STATS_DATA: Optional[dict] = None
+
+
+def _unit_stats_data() -> dict:
+    """Parse `unit_stats.json` ONCE per process and cache it. Both
+    `_movetype_costs` and `_recruit_cost_for` index into this instead of
+    re-reading + re-parsing the ~400KB file on every cold cache key
+    (their per-key caches still avoid re-indexing once warm)."""
+    global _UNIT_STATS_DATA
+    if _UNIT_STATS_DATA is None:
+        import json
+        from pathlib import Path
+        path = Path(__file__).resolve().parent.parent / "unit_stats.json"
+        with path.open(encoding="utf-8") as f:
+            _UNIT_STATS_DATA = json.load(f)
+    return _UNIT_STATS_DATA
 
 
 def _movetype_costs(unit_type: str, slowed: bool = False) -> dict:
@@ -168,14 +212,7 @@ def _movetype_costs(unit_type: str, slowed: bool = False) -> dict:
     if cache_key in _MOVETYPE_COSTS_CACHE:
         return _MOVETYPE_COSTS_CACHE[cache_key]
     try:
-        # Lazy import: replay_dataset's module-level _UNIT_DB load
-        # already happens during sim init, so this is essentially
-        # free.
-        import json
-        from pathlib import Path
-        path = Path(__file__).resolve().parent.parent / "unit_stats.json"
-        with path.open(encoding="utf-8") as f:
-            data = json.load(f)
+        data = _unit_stats_data()
         units = data.get("units", {})
         movetypes = data.get("movement_types", {})
         u = units.get(unit_type, {})
@@ -246,7 +283,13 @@ def _move_cost_at_hex(unit, gs, x: int, y: int) -> int:
     c = code
     if c[:1].isdigit() and c[1:2] == " ":
         c = c[2:]
-    return _resolve_mvt(c, _movetype_costs(unit.name, slowed=slowed))
+    cache_key = (c, unit.name, slowed)
+    cached = _MVT_RESOLVE_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+    val = _resolve_mvt(c, _movetype_costs(unit.name, slowed=slowed))
+    _MVT_RESOLVE_CACHE[cache_key] = val
+    return val
 
 
 # ---------------------------------------------------------------------
@@ -295,11 +338,7 @@ def _recruit_cost_for(unit_type: str) -> int:
     if unit_type in _RECRUIT_COSTS_CACHE:
         return _RECRUIT_COSTS_CACHE[unit_type]
     try:
-        import json
-        from pathlib import Path
-        path = Path(__file__).resolve().parent.parent / "unit_stats.json"
-        with path.open(encoding="utf-8") as f:
-            data = json.load(f)
+        data = _unit_stats_data()
         cost = int(data.get("units", {}).get(unit_type, {}).get("cost", 14))
         _RECRUIT_COSTS_CACHE[unit_type] = cost
         return cost
@@ -537,18 +576,60 @@ class WesnothSim:
         ax, ay = attacker.position.x, attacker.position.y
         budget = attacker.current_moves
         target_neighbors = set(hex_neighbors(target.x, target.y))
-        # Hex set for fast "in playable area" tests.
-        playable = {(h.position.x, h.position.y) for h in self.gs.map.hexes}
-        # Occupied hexes (excluding attacker -- it can return to its
-        # own hex if attacker is already adjacent).
-        occupied = {
+        # Hex set for fast "in playable area" tests. The set of playable
+        # cells is constant for a game (terrain morphs change a hex's
+        # TYPE, not which cells exist), and _find_attack_hex runs per
+        # attack action in the rollout hot path -- so cache it on the sim
+        # instead of rebuilding O(num_hexes) every call. Lazy getattr so
+        # fork()'d sims (which bypass __init__) populate it on first use.
+        playable = getattr(self, "_playable_hexes_cache", None)
+        if playable is None:
+            playable = frozenset(
+                (h.position.x, h.position.y) for h in self.gs.map.hexes)
+            self._playable_hexes_cache = playable
+
+        # Occupancy, the Wesnoth way: ENEMY units block movement
+        # entirely (you can neither enter nor pass through their hex);
+        # FRIENDLY units are PASS-THROUGH -- a unit may move *through*
+        # an ally -- but can't be a *landing* hex (you may not END a
+        # move on any occupied hex). Treating allies as walls (the pre-
+        # 2026-06-29 bug) silently downgraded legal attacks routed past
+        # a friendly to end_turn. See pathfind / move.cpp.
+        enemy_hexes = {
             (u.position.x, u.position.y)
             for u in self.gs.map.units
-            if u is not attacker
+            if u.side != attacker.side
+        }
+        friendly_hexes = {
+            (u.position.x, u.position.y)
+            for u in self.gs.map.units
+            if u.side == attacker.side and u is not attacker
         }
 
-        # Dijkstra-lite: BFS over hexes reachable within MP budget.
-        # State: (cost_to_enter, x, y). We keep best cost per hex.
+        # Enemy Zone of Control. A non-petrified enemy of level >= 1
+        # emits ZoC over its 6 neighbours; ENTERING a ZoC hex zeroes the
+        # mover's remaining MP (move.cpp:1042-1054, mirrored exactly in
+        # _apply_post_move_stops). So in the search a ZoC hex is a
+        # TERMINAL node: reachable as a landing hex, but the path can't
+        # continue past it. `skirmisher` ignores ZoC entirely; petrified
+        # ("statue") enemies emit no ZoC (unit.hpp:1352-1355). The
+        # attacker's OWN start hex never self-stops (a unit can always
+        # move out of a ZoC it began the turn in).
+        is_skirmisher = "skirmisher" in (attacker.abilities or set())
+        zoc_hexes: set = set()
+        if not is_skirmisher:
+            for u in self.gs.map.units:
+                if u.side == attacker.side:
+                    continue
+                if "petrified" in (u.statuses or set()):
+                    continue
+                if int(_stats_for(u.name).get("level", 1)) < 1:
+                    continue
+                zoc_hexes.update(hex_neighbors(u.position.x, u.position.y))
+
+        # Dijkstra over MP cost. State: (cost_to_enter, x, y); best cost
+        # per hex. Terrain cost and the 99 "unreachable" sentinel
+        # (impassable terrain) are honoured via _move_cost_at_hex.
         from heapq import heappush, heappop
         best_cost: Dict[Tuple[int, int], int] = {(ax, ay): 0}
         heap: List[Tuple[int, int, int]] = [(0, ax, ay)]
@@ -556,11 +637,16 @@ class WesnothSim:
             cost, x, y = heappop(heap)
             if cost > best_cost.get((x, y), 10**9):
                 continue
+            # ZoC stop: we may STAND on this hex (already recorded in
+            # best_cost) but can't expand further from it. The start hex
+            # is exempt (move-out-of-ZoC is always allowed).
+            if (x, y) != (ax, ay) and (x, y) in zoc_hexes:
+                continue
             for nx, ny in hex_neighbors(x, y):
                 if (nx, ny) not in playable:
                     continue
-                if (nx, ny) in occupied:
-                    continue
+                if (nx, ny) in enemy_hexes:
+                    continue            # can't enter an enemy-occupied hex
                 step_cost = _move_cost_at_hex(attacker, self.gs, nx, ny)
                 if step_cost >= 99:
                     continue
@@ -571,10 +657,12 @@ class WesnothSim:
                     best_cost[(nx, ny)] = new_cost
                     heappush(heap, (new_cost, nx, ny))
 
-        # Filter to reachable neighbors of target.
+        # Candidate landing hexes: reachable neighbours of the target
+        # that are UNOCCUPIED. Friendly hexes are pass-through only, so
+        # exclude them; enemy hexes never enter best_cost.
         candidates = [
             (cost, x, y) for (x, y), cost in best_cost.items()
-            if (x, y) in target_neighbors
+            if (x, y) in target_neighbors and (x, y) not in friendly_hexes
         ]
         if not candidates:
             return None

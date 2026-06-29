@@ -85,10 +85,16 @@ class _PendingMCTSState:
     `gs` reference (NOT a deepcopy — `_run_one_game` already passes
     in a deepcopy as `pre_state`), the MCTS visit counts emitted
     at this state, and the side-to-move so finalize_game can
-    compute z = +1 / -1 / 0 from the perspective of that side."""
-    gs:           GameState
-    visit_counts: List[Tuple]
-    side:         int
+    compute z = +1 / -1 / 0 from the perspective of that side.
+
+    `decision_step` is the training-progress counter at the time this
+    state's search ran -- carried through to the MCTSExperience so the
+    distillation loss rebuilds reference logits at the SAME combat-oracle
+    alpha the search used (`combat_alphas_at`)."""
+    gs:            GameState
+    visit_counts:  List[Tuple]
+    side:          int
+    decision_step: int = 0
 
 
 class MCTSPolicy:
@@ -176,6 +182,18 @@ class MCTSPolicy:
                 "(sim.step would otherwise mutate the recorded training "
                 "target). See play_one_game's `copy.deepcopy(sim.gs)`."
             )
+        # Combat-oracle anneal: capture the policy's current training-
+        # progress counter for THIS decision and advance it. The MCTS
+        # path otherwise never increments decision_step (only
+        # TransformerPolicy.select_action does, on the REINFORCE path),
+        # so without this the oracle bias would never anneal in MCTS
+        # mode. The captured value drives the search's leaf-prior alpha
+        # AND is recorded on the training target so the distillation loss
+        # rebuilds reference logits at the same alpha. Atomic under the
+        # base lock (worker threads may call select_action concurrently).
+        with self._base._lock:
+            decision_step = self._base._decision_step
+            self._base._decision_step += 1
         reuse_root = None
         if self._mcts_config.tree_reuse:
             with self._lock:
@@ -211,6 +229,7 @@ class MCTSPolicy:
             self._mcts_config,
             reuse_root=reuse_root,
             n_sims_override=n_override,
+            decision_step=decision_step,
         )
         if self._mcts_config.gumbel_root:
             # Gumbel mode: the search already chose
@@ -257,7 +276,7 @@ class MCTSPolicy:
             with self._lock:
                 self._pending.setdefault(game_label, []).append(
                     _PendingMCTSState(gs=game_state, visit_counts=visits,
-                                      side=side)
+                                      side=side, decision_step=decision_step)
                 )
         # Stash the played edge's outcome children for
         # state-key-checked reuse at the next decision. Action dicts
@@ -331,6 +350,7 @@ class MCTSPolicy:
                 visit_counts=s.visit_counts,
                 z=z,
                 aux_target=aux,
+                decision_step=s.decision_step,
             )
             with self._lock:
                 self._queue.append(exp)
@@ -358,7 +378,9 @@ class MCTSPolicy:
             # experiences, then discard. Byte-for-byte the old path.
             if not batch:
                 return TrainStats()
-            return self._base._trainer.step_mcts(batch)
+            result = self._base._trainer.step_mcts(batch)
+            self._sync_inference_weights()
+            return result
 
         # --- Experience replay + multi-epoch (default-off) -----------
         # Add the fresh experiences to the bounded buffer, then take
@@ -371,7 +393,9 @@ class MCTSPolicy:
             # pass over the fresh batch) so early iters aren't wasted.
             if not batch:
                 return TrainStats()
-            return self._base._trainer.step_mcts(batch)
+            result = self._base._trainer.step_mcts(batch)
+            self._sync_inference_weights()
+            return result
 
         pool = list(self._replay)
         n = len(pool)
@@ -380,7 +404,26 @@ class MCTSPolicy:
         for _ in range(rc.updates_per_iter):
             sample = self._replay_rng.sample(pool, mb)
             stats.append(self._base._trainer.step_mcts(sample))
+        self._sync_inference_weights()
         return self._combine_stats(stats, buffer_size=n)
+
+    def _sync_inference_weights(self) -> None:
+        """Propagate the freshly-updated `_model` weights into the
+        inference copy that MCTS actually searches with.
+
+        CRITICAL: `step_mcts` lands gradients on `self._base._model`,
+        but `select_action` / leaf expansion run on the SEPARATE
+        `self._base._inference_model` (see `__init__`: `_inference_model
+        = base._inference_model`). `TransformerPolicy.train_step` snapshots
+        after every gradient step for exactly this reason, but the MCTS
+        path calls `_trainer.step_mcts` directly and bypasses it -- so
+        without this call the self-play / search network would stay
+        frozen at warm-start weights for the entire run while only the
+        saved checkpoint drifts (the AlphaZero loop would never close).
+        `_snapshot_inference_weights` briefly takes `_base._lock`, so a
+        concurrent worker `select_action` either waits ~ms on the
+        load_state_dict swap or runs on the previous snapshot."""
+        self._base._snapshot_inference_weights()
 
     @staticmethod
     def _combine_stats(stats: List[TrainStats],

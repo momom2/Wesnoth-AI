@@ -461,6 +461,16 @@ class WesnothModel(nn.Module):
             if Rs[b] < R_max:
                 pad_mask[b, H_max + U_max + Rs[b]:H_max + U_max + R_max] = True
 
+        # Safety: every row MUST keep >=1 unmasked position. An all-masked
+        # row makes the attention softmax NaN, which silently poisons the
+        # whole batch's gradient through the shared encoder. The global +
+        # end_turn tokens (last 2 columns) are never masked above, so this
+        # holds by construction -- assert it so a future mask change can't
+        # regress it unnoticed. Cheap: forward_batch is the per-gradient-
+        # step train path, not the per-leaf rollout loop.
+        assert bool((~pad_mask).any(dim=1).all()), \
+            "forward_batch: a sample has all tokens masked (would NaN)"
+
         x = self.encoder(x, src_key_padding_mask=pad_mask)  # [B, seq_len, d]
 
         # Split the batched context back into blocks.

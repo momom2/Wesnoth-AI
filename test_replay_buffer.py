@@ -33,8 +33,14 @@ class _FakeTrainer:
 
 
 def _policy(replay_config):
+    # `_snaps` counts _snapshot_inference_weights() calls. The MCTS path
+    # MUST refresh the inference net after each gradient iteration, or
+    # self-play/search runs on a frozen network (the 2026-06-29 bug).
     base = SimpleNamespace(_trainer=_FakeTrainer(),
-                           _inference_model=None, _inference_encoder=None)
+                           _inference_model=None, _inference_encoder=None,
+                           _snaps=[0])
+    base._snapshot_inference_weights = lambda: base._snaps.__setitem__(
+        0, base._snaps[0] + 1)
     return MCTSPolicy(base, replay_config=replay_config), base._trainer
 
 
@@ -48,12 +54,14 @@ def test_disabled_is_legacy_one_pass():
     pol._queue = _exps(5)
     pol.train_step()
     assert tr.calls == [5], "disabled must do exactly one step over the fresh batch"
+    assert pol._base._snaps[0] == 1, "gradient step must refresh the inference net"
 
 
 def test_disabled_empty_queue_noop():
     pol, tr = _policy(ReplayConfig(enabled=False))
     pol.train_step()
     assert tr.calls == [], "no experiences -> no gradient step"
+    assert pol._base._snaps[0] == 0, "no gradient step -> no inference refresh"
 
 
 def test_warmup_uses_one_pass_until_min_size():
@@ -63,6 +71,7 @@ def test_warmup_uses_one_pass_until_min_size():
     pol.train_step()
     assert tr.calls == [6], "below min_size must fall back to one-pass on fresh batch"
     assert len(pol._replay) == 6
+    assert pol._base._snaps[0] == 1, "warm-up gradient step must refresh inference"
 
 
 def test_multiepoch_after_min_size():
@@ -73,6 +82,9 @@ def test_multiepoch_after_min_size():
     pol.train_step()
     assert tr.calls == [8, 8, 8], (
         f"expected 3 minibatch steps of size 8, got {tr.calls}")
+    # ONE refresh per iteration (after the final update), not per minibatch:
+    # the inference net only needs the latest weights once self-play resumes.
+    assert pol._base._snaps[0] == 1, "exactly one inference refresh per iteration"
 
 
 def test_minibatch_capped_to_buffer_size():

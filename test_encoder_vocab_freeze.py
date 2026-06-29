@@ -122,3 +122,64 @@ def test_freeze_prevents_new_faction(caplog):
         enc.register_names(gs)
     assert enc.faction_to_id == before
     assert any("InventedFaction" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------
+# Dynamic-growth hardening (2026-06-29 review, A2): vocab stays
+# growable, but register_names is thread-safe and mid-run additions are
+# logged once armed.
+# ---------------------------------------------------------------------
+
+def test_concurrent_register_names_no_lost_ids():
+    """Many threads registering DISTINCT new types concurrently must
+    yield a contiguous, collision-free id space (the _VOCAB_LOCK
+    serializes the read-modify-write `dict[name] = len(dict)`)."""
+    import threading
+
+    enc = GameStateEncoder(d_model=32)
+    # Stay well under MAX_UNIT_TYPES=200 (each _gs also registers the
+    # Foo/Bar recruits), so no overflow-clamp masks a real collision.
+    names = [f"Type{i}" for i in range(150)]
+
+    barrier = threading.Barrier(len(names))
+
+    def worker(name):
+        barrier.wait()                    # maximize contention
+        enc.register_names(_gs([_u("u", 1, 0, 0, name=name)]))
+
+    threads = [threading.Thread(target=worker, args=(n,)) for n in names]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    ids = [enc.unit_type_to_id[n] for n in names]
+    assert len(set(ids)) == len(names), "ids collided under concurrency"
+    # Contiguous 0..N-1 (Foo from the gs default isn't added because each
+    # _gs side recruits 'Foo'/'Bar' too -- so just assert no gaps/dupes).
+    assert sorted(enc.unit_type_to_id.values()) == \
+        list(range(len(enc.unit_type_to_id)))
+
+
+def test_watch_growth_logs_new_type_once(caplog):
+    enc = GameStateEncoder(d_model=32)
+    enc.register_names(_gs([_u("u1", 1, 0, 0, name="Foo")]))   # base roster
+    enc.watch_vocab_growth()
+
+    gs_new = _gs([_u("u2", 1, 0, 0, name="NewLevel2Adv")])
+    with caplog.at_level(logging.WARNING, logger="encoder"):
+        for _ in range(4):
+            enc.register_names(gs_new)
+    # Grew (still dynamic), AND logged exactly once for the new name.
+    assert "NewLevel2Adv" in enc.unit_type_to_id
+    grew = [r for r in caplog.records
+            if "grew mid-run" in r.message and "NewLevel2Adv" in r.message]
+    assert len(grew) == 1, f"expected 1 mid-run log, got {len(grew)}"
+
+
+def test_no_growth_log_before_watch_armed(caplog):
+    """Initial roster population (pre-arm) must stay quiet."""
+    enc = GameStateEncoder(d_model=32)
+    with caplog.at_level(logging.WARNING, logger="encoder"):
+        enc.register_names(_gs([_u("u1", 1, 0, 0, name="Foo")]))
+    assert not any("grew mid-run" in r.message for r in caplog.records)

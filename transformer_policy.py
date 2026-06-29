@@ -32,7 +32,7 @@ import torch
 
 from action_sampler import sample_action
 from classes import GameState
-from device import describe, select_device
+from device import describe
 from encoder import GameStateEncoder
 from model import WesnothModel
 from trainer import Trainer, TrainerConfig, Transition, TrainStats
@@ -84,15 +84,7 @@ class TransformerPolicy:
         trainer_config: Optional[TrainerConfig] = None,
         aux_score: bool = False,
     ):
-        # Default to select_device() — picks the discrete DirectML GPU
-        # when available, falls back to CPU otherwise. The prior
-        # hard-coded CPU default was needed because Categorical's
-        # scatter-in-backward broke on DML; action_sampler.py now uses
-        # a gather-based log_prob / entropy and Gumbel-max sampling
-        # (no scatter, no multinomial), so DML is usable for training
-        # too. Override via `device=torch.device("cpu")` or env var
-        # WESNOTH_AI_DEVICE=cpu if we hit a new DML op gap.
-        # CPU default again. DML runs work for rollout (single-sample
+        # Default device is CPU. DML runs work for rollout (single-sample
         # forwards are competitive with CPU once the MHA/TransformerEncoder
         # fast paths are off), but training on the RX 6600 via DirectML
         # triggered "The GPU device instance has been suspended" (Windows
@@ -366,6 +358,17 @@ class TransformerPolicy:
             self._inference_encoder.load_state_dict(self._encoder.state_dict())
             self._inference_model.eval()
             self._inference_encoder.eval()
+
+    def watch_vocab_growth(self) -> None:
+        """Arm mid-run vocab-growth logging on BOTH encoders. The
+        training and inference encoders share the same vocab dicts, but
+        either may be the one that registers a new name (REINFORCE via
+        `_encoder`, MCTS leaf expansion via `_inference_encoder`), so arm
+        both. Call after warm-start so the initial roster is silent and a
+        genuinely new type during self-play is surfaced. See
+        `Encoder.watch_vocab_growth`."""
+        self._encoder.watch_vocab_growth()
+        self._inference_encoder.watch_vocab_growth()
 
     # ------------------------------------------------------------------
     # Trainable-policy hooks (game_manager uses these)

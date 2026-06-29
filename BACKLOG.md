@@ -6,6 +6,73 @@ Refreshed 2026-04-29 / 2026-05-02 / 2026-05-03 / 2026-05-04 /
 goals (superhuman play via MCTS+self-play; readable/customizable
 strategies; cluster economy).
 
+## Update (2026-06-29): post-hiatus correctness + optimization review
+
+Multi-agent review of the self-play training path (6 subsystems +
+adversarial verification) ahead of renting GPU compute. Test baseline
+was 351/351 green. **Verdict was NO-GO until the #1 blocker was fixed;
+it is now fixed.** Full suite green after all changes below.
+
+**Fixed this session:**
+- 🔴 **CRITICAL — MCTS trained a frozen inference net.** `MCTSPolicy.
+  train_step` called `step_mcts` directly and never snapshotted, so
+  `--mcts` self-play/search ran on a permanently frozen network while
+  only the saved checkpoint drifted. Now snapshots after each gradient
+  iteration (`mcts_policy.py`). Tests: `test_inference_snapshot.py`,
+  `test_replay_buffer.py`.
+- 🟠 Reward over-scale — `min_enemy_distance_penalty` 0.0 in
+  `configs/reward_selfplay.json` (was -0.001, 10× the safe scale; would
+  saturate the C51 support). Code's own recommended value.
+- A1 — `_find_attack_hex` allowed friendly passthrough + enforces
+  enemy-block / ZoC-stop (skirmisher/petrified-aware). `test_attack_pathfinding.py`.
+- A2 — vocab kept DYNAMIC but hardened: `register_names` thread-safe
+  (`_VOCAB_LOCK`), `watch_vocab_growth()` logs mid-run additions, armed
+  in `sim_self_play` after warm-start. (Append-only growth never shifts
+  existing ids; user chose dynamic over freeze for new-faction fine-tuning.)
+- A4 — actor-pool watchdog: per-actor liveness + wall-clock deadline in
+  `run_iteration` (`iteration_timeout`/`liveness_interval`).
+  `test_actor_pool_watchdog.py`.
+- C1 — memoized terrain MP resolution (`_MVT_RESOLVE_CACHE`).
+- C2 — alias `_terrain_codes` in `GlobalInfo.__deepcopy__` (fixes the
+  self-poisoned MP-distance Dijkstra cache + saves a per-step dict copy).
+- C3 — `forward_batch` all-masked-row NaN assert.
+- C4 — MCTS subsample uses `random.sample`, matching REINFORCE (was
+  biased uniform stride).
+- C5 — deleted dead `device.py:select_device` (no CUDA branch; footgun).
+- C7 — **combat-oracle bias now anneals in MCTS mode.** `decision_step`
+  is threaded through `mcts_search`→`_expand`/`_populate_leaf` AND the
+  distillation loss (same alpha both sides), and is advanced per MCTS
+  decision (it was frozen before — only REINFORCE incremented it).
+  Stored on `MCTSExperience`. New `--reset-decision-step` warm-starts a
+  checkpoint as WEIGHTS-ONLY so the anneal restarts from full strength.
+  `test_combat_anneal_mcts.py`.
+- M1 — `apply_pvp_defaults` rescales starting units' max_exp to the PvP
+  experience_modifier. M2 — `unit_stats.json` parsed once
+  (`_unit_stats_data`). M3 — cached the constant playable-hex set per
+  game. M4 — Gumbel `_run_one_sim` uses `config.root_fpu_reduction`.
+
+**Deferred (logged here, not yet done):**
+- **B2 — per-element `.item()`/D2H syncs** (trainer baseline read,
+  masked-logit helpers, MCTS leaf eval, inference-seam per-field
+  `.to(cpu)`). Stall the GPU; free on CPU so unmeasurable here.
+  → profile on the first rented CUDA node, fix the stalls that show up.
+- **B3 — `non_blocking=True` H2D on un-pinned (pageable) numpy**
+  (`encoder.py:505+`) is silently synchronous on CUDA. Pin host buffers
+  for `device.type=='cuda'`. → bundle with B2 on the GPU node.
+- **C6 — Net2Net width-grow is not function-preserving** through
+  LayerNorm + MHA reshape (`tools/net2net.py`); only the identity case
+  is exact. Matters only when the superhuman plan's progressive-growth
+  step is exercised — run a few-iter held-out value-loss check after any
+  grow before committing GPU hours. Keep grows to `d_model`/`d_ff` with
+  `num_heads` fixed where possible.
+- **C8 — per-action `GameState` deepcopy** (`sim_self_play.py`) is
+  load-bearing (the snapshot contract: trainer/MCTS re-forward on the
+  stored ref) and heavier on full ladder maps than the laptop mini-map
+  profile shows. Don't optimize blind — instrument the deepcopy
+  specifically in `profile_rollout.py` on the real GPU box first; a
+  lighter purpose-built clone must be validated against the
+  `select_action` id() tripwire + combat parity.
+
 ## Update (2026-06-17): superhuman training plan (rented compute)
 
 A separate instance drafted **`docs/superhuman_training_plan.md`** — a
