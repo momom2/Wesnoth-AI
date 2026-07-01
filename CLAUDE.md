@@ -46,7 +46,44 @@ Most replays in `replays_raw/` are from 1.18.x clients; pin
 accordingly. If a replay's `[scenario] version=` says something
 other than 1.18.x, scrape from that version's tag instead.
 
-## Current status (2026-06-11)
+## Current status (2026-06-30)
+
+**Post-hiatus review complete; training path unblocked and on `main`.**
+A multi-agent correctness+optimization review (2026-06-29) of the
+self-play path found and FIXED a critical blocker plus a batch of
+correctness/throughput items — all committed and pushed to `origin/main`
+(commits `7abbba1` review fixes, `9935473` B1 batched-Gumbel). Full
+pytest suite green (365+ tests). Itemised in **BACKLOG.md §2026-06-29**.
+
+What a new instance MUST know:
+- **CRITICAL (now fixed):** on the `--mcts` path `MCTSPolicy.train_step`
+  never snapshotted, so self-play/search ran on a PERMANENTLY FROZEN
+  inference net while only the saved checkpoint drifted — the AlphaZero
+  loop never closed. Any `--mcts` run/checkpoint from before 2026-06-29
+  was generated against a frozen network. Fixed + regression-tested
+  (`test_inference_snapshot.py`).
+- **Combat-oracle bias now ANNEALS in MCTS mode.** It was frozen:
+  `decision_step` never advanced in the MCTS path (only REINFORCE
+  incremented it). It now advances per MCTS decision and is threaded
+  through search AND the distillation loss (same alpha). **Start a fresh
+  campaign with `--reset-decision-step`** — per the owner's directive,
+  treat the existing ~5.68M-step checkpoint as WEIGHTS-ONLY init and
+  restart training progress from zero so the anneal runs from full
+  strength. OMIT the flag when resuming an in-progress run.
+- **B1 batched-Gumbel landed:** `--mcts-batch-size>1` now batches Gumbel
+  leaf forwards (was a silent no-op in the default config). GPU-only win.
+- **Deferred to the first GPU node** (unmeasurable on this CPU laptop):
+  B2 per-element `.item()`/D2H syncs, B3 pinned-memory H2D. See BACKLOG.
+
+**NEXT — go-forward plan.** The code is GO for renting compute; the CUDA
+path has NEVER run on real hardware. Before a paid run: (1) run the
+REQUIRED first-run GPU smoke in `docs/running_on_gpu.md`; (2) profile
+B2/B3 + MCTS leaf batching on that node and fix the stalls that show;
+(3) launch the campaign with `--reset-decision-step`. After that the
+project moves to acquiring GPU compute (owner's stated sequencing:
+review → confirm working → acquire compute).
+
+## Current status (2026-06-11, superseded — kept for provenance)
 
 **Training is local-only.** The ENSTA Mesogip cluster is permanently
 inaccessible (2026-06); all SLURM/sync/GUI infrastructure was removed

@@ -11,7 +11,22 @@ Two goals shape the design:
    in network weights — a modder should be able to flip a behavior
    without touching the model.
 
-## Status (2026-06-11)
+## Status (2026-06-30)
+
+**Post-hiatus review done; training path unblocked, all fixes on `main`.**
+A 2026-06-29 correctness+optimization review fixed a critical blocker —
+`--mcts` self-play was training a **frozen** inference net (the AlphaZero
+loop never closed) — plus friendly-unit pathfinding, an actor-pool
+watchdog, thread-safe dynamic vocab growth, a combat-oracle anneal that
+now actually runs in MCTS mode, and the B1 batched-Gumbel GPU throughput
+lever. Full pytest suite green (365+ tests). Itemised in `BACKLOG.md`
+§2026-06-29; a new-instance handoff lives in `CLAUDE.md`
+"Current status (2026-06-30)". The code is ready to rent GPU compute; the
+CUDA path has never run on real hardware, so the next step is the
+required GPU smoke + throughput profiling in `docs/running_on_gpu.md`,
+launching a fresh campaign with `--reset-decision-step`.
+
+## Status (2026-06-11, superseded)
 
 - **Training is local-only for now, but GPU-ready.** The ENSTA
   Mesogip cluster is permanently inaccessible (2026-06); the
