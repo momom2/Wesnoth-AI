@@ -1,0 +1,15 @@
+border_size=1
+usage=map
+
+_off^_usr, _off^_usr, Wwg, _off^_usr, Wwg, _off^_usr, Gd, _off^_usr, Gd, _off^_usr, Gd, _off^_usr, Gd, _off^_usr, Gd, _off^_usr, Gd, _off^_usr
+_off^_usr, Wwg, Ch, Wwg, Ch, Wwg, Gd, Gd, Hhd, Md, Hhd, Gd, Gd, Gd, Gd, Gd, Gd, _off^_usr
+_off^_usr, Wwg, Ch, 1 Kh, Ch, Wwg^Bw/, Gd, Gd, Gd, Md, Md, Hh^Vhh, Gd, Gd, Gd^Gvs, Gs^Vh, Gd, _off^_usr
+_off^_usr, Wwg, Wwg, Wwg^Bw|, Wwg, Wwg, Wwg, Gd, Gd, Gd, Gd, Gd, Gd, Gd^Gvs, Gd^Wm, Gd, Gd, _off^_usr
+_off^_usr, Gd, Gd, Gd, Gd, Gd, Ss, Wog, Ss^Vhs, Gd, Gd, Gd, Hhd, Gd^Gvs, Gll^Fmf, Gd, Gd, _off^_usr
+_off^_usr, Gd, Gll^Fmf, Gs^Vh, Gll^Fmf, Gd, Gd, Wog, Wog, Wo, Wo, Gd, Gd, Gd, Gll^Fmf, Gll^Fmf, Gd, _off^_usr
+_off^_usr, Gd, Gll^Fmf, Gll^Fmf, Gd, Gd, Gd, Wo, Wo, Wog, Wog, Gd, Gd, Gll^Fmf, Gs^Vh, Gll^Fmf, Gd, _off^_usr
+_off^_usr, Gd, Gd, Gll^Fmf, Gd^Gvs, Hhd, Gd, Gd, Gd, Ss^Vhs, Wog, Ss, Gd, Gd, Gd, Gd, Gd, _off^_usr
+_off^_usr, Gd, Gd, Gd^Wm, Gd^Gvs, Gd, Gd, Gd, Gd, Gd, Gd, Wwg, Wwg, Wwg, Wwg^Bw|, Wwg, Wwg, _off^_usr
+_off^_usr, Gd, Gs^Vh, Gd^Gvs, Gd, Gd, Hh^Vhh, Md, Md, Gd, Gd, Gd, Wwg^Bw/, Ch, 2 Kh, Ch, Wwg, _off^_usr
+_off^_usr, Gd, Gd, Gd, Gd, Gd, Gd, Hhd, Md, Hhd, Gd, Gd, Wwg, Ch, Wwg, Ch, Wwg, _off^_usr
+_off^_usr, Gd, _off^_usr, Gd, _off^_usr, Gd, _off^_usr, Gd, _off^_usr, Gd, _off^_usr, Gd, _off^_usr, Wwg, _off^_usr, Wwg, _off^_usr, _off^_usr

@@ -32,6 +32,14 @@ scenario_events, map files). It is NOT a git checkout anymore and
 has no `src/` tree; for engine-internals research, read the GitHub
 **1.18.4 tag** directly (as docs/wesnoth_rules.md entries do).
 
+**The sim's runtime WML subset IS tracked in git (since 2026-07-02):**
+`data/multiplayer/{factions,scenarios,maps}` + `data/add-ons/
+Mini_Maps_Collection` (~840KB) — so a bare `git clone` can run
+self-play training on a GPU node with no Wesnoth install. The rest
+of `wesnoth_src/` stays untracked. A robocopy refresh from Steam
+will show these as git diffs; that's intentional (data drift
+becomes visible in review instead of silent).
+
 **`unit_stats.json` / `terrain_db.json` are pinned 1.18.4 scrapes
 and are COMMITTED. Never re-scrape them from this wesnoth_src.**
 Unit stats DRIFT between releases — e.g., in 1.19.x the Ghoul

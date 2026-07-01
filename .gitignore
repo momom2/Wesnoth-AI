@@ -44,8 +44,26 @@ add-ons/wesnoth_ai/scenarios/eval/*
 # Wesnoth debugging dumps (anywhere in the tree)
 *.log
 
-# External Wesnoth source — clone separately (see CLAUDE.md, README).
-wesnoth_src/
+# External Wesnoth source — refreshed from the Steam install (see
+# CLAUDE.md "Wesnoth data provenance"). Mostly untracked, EXCEPT the
+# sim's runtime WML inputs (~840KB), tracked since 2026-07-02 so a
+# bare clone can train on a rented GPU node without a Wesnoth
+# install: factions (scenario_pool.load_factions hard-errors without
+# them), 2p scenario .cfg (scenarios.py allowlist + scenario_events),
+# .map files, and the Mini Maps add-on (--mini-ratio curriculum).
+# gitignore can't re-include below an excluded dir, so un-exclude
+# each level explicitly.
+wesnoth_src/*
+!wesnoth_src/data/
+wesnoth_src/data/*
+!wesnoth_src/data/multiplayer/
+wesnoth_src/data/multiplayer/*
+!wesnoth_src/data/multiplayer/factions/
+!wesnoth_src/data/multiplayer/scenarios/
+!wesnoth_src/data/multiplayer/maps/
+!wesnoth_src/data/add-ons/
+wesnoth_src/data/add-ons/*
+!wesnoth_src/data/add-ons/Mini_Maps_Collection/
 
 # Local data — corpus is too big for git; built by tools/download_replays.py
 # and tools/replay_extract.py respectively.

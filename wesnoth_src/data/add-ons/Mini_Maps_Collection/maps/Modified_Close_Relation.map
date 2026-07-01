@@ -1,0 +1,8 @@
+border_size=1
+usage=map
+
+Mm^Xm       , Mm^Xm       , Mm^Xm       , Ww          , Md^Xm       , Md^Xm       , Md^Xm       
+Mm^Xm       , Mm^Xm       , Cud         , Ww          , Ce          , Md^Xm       , Md^Xm       
+Mm^Xm       , 2 Kud       , Cud         , Wwf         , Ce          , 1 Ke        , Md^Xm       
+Mm^Xm       , Mm^Vhh      , Mm^Xm       , Ww          , Md^Xm       , Mm^Vc       , Md^Xm       
+Mm^Xm       , Mm^Xm       , Mm^Xm       , Ww          , Md^Xm       , Md^Xm       , Md^Xm       

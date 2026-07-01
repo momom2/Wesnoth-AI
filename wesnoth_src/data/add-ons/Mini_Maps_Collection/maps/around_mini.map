@@ -1,0 +1,16 @@
+border_size=1
+usage=map
+
+Gg          , Gg          , Gs          , Gs          , Gs          , Gg          , Re          , Gg          , Gg          , Gg          , Gg          
+Gs          , Gs          , Re          , Re          , Re          , Re          , Gg          , Re          , Re          , Gg          , Gg          
+Gg          , Re          , Mm^Xm       , Mm^Xm       , Gs          , Gg          , Md^Xm       , Gs^Vh       , Gs          , Re          , Gs          
+Gg          , Re          , Mm^Xm       , Gg^Ve       , Dd          , Hh^Fds      , Uu^Uf       , Md^Xm       , Gg          , Re          , Gs          
+Gg          , Re          , Re          , Gs          , Gs          , Mm^Xm       , Gd          , Gll         , Gs          , Re          , Gs          
+Gg          , Re          , Md^Xm       , Re          , Ce          , Md^Xm       , Ce          , Dd          , Md^Xm       , Rb          , Gg          
+Gg          , Re          , Md^Xm       , 1 Ke        , Ce          , Wwf         , Ce          , 2 Ke        , Md^Xm       , Re          , Gg          
+Gg          , Re          , Gs          , Dd          , Gd          , Md^Xm       , Gs          , Re          , Re          , Re          , Gg          
+Gg          , Re          , Gg          , Gll         , Uu^Uf       , Mm^Xm       , Dd          , Gg          , Mm^Xm       , Rb          , Gg          
+Gs          , Re          , Gg          , Mm^Xm       , Mm^Xm       , Hh^Fds      , Gg          , Gg^Ve       , Mm^Xm       , Rb          , Gg          
+Gs          , Rb          , Rb          , Gs^Vh       , Gs          , Gs          , Gs          , Mm^Xm       , Re          , Rb          , Gg          
+Gg          , Gs          , Gs          , Rb          , Re          , Re          , Re          , Rb          , Gg          , Gg          , Gg          
+Gg          , Gg          , Gg          , Gg          , Gg          , Gg          , Gg          , Gg          , Gg          , Gg          , Gg          
