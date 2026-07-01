@@ -56,19 +56,26 @@ other than 1.18.x, scrape from that version's tag instead.
 
 ## Current status (2026-07-02)
 
-**Second deep review DONE + fixes on `origin/main`; Tier-a compute plan
-LOCKED; next action = execute the Tier-a runbook (grow the net, run the
-CUDA pipeline on free Kaggle, then a ~$30 Vast.ai spot calibration run).**
-An independent multi-agent correctness+optimization review (2026-07-01,
-every finding adversarially verified) returned **GO for the default
-in-process `--mcts` path** — the combat/economy/termination core that
-produces the ±1 reward is sound; no training-signal-corrupting bug on the
-intended path. All pre-flight fixes applied, full suite green (**369
-passed**), committed + pushed. Itemised in **BACKLOG.md §2026-07-01**.
+**Kaggle pre-flight DONE (2026-07-02): Phase 0 executed, repo made
+self-contained, a warm-start-corrupting vocab bug found+fixed; next
+action = USER creates a Kaggle account (phone-verify) and runs
+`kaggle/tier_a_phase1.ipynb` (Phase 1), then Vast.ai Phase 2.**
+Highlights (details in **BACKLOG.md §2026-07-02**, suite **370 passed**):
+- 🔴 `load_checkpoint` rebind orphaned the shared trainer/inference
+  vocab dicts → after ANY warm-start, MCTS rollouts ran with an empty
+  vocab and scrambled unit-type embeddings (affected all resumes since
+  2026-06-29; smoke runs only). Fixed in-place + regression test.
+- `training/checkpoints/tier_a_5m.pt` (5.02M, vocab+step carried) is
+  COMMITTED — Phase 0 done; don't re-grow.
+- The sim's runtime WML subset (`wesnoth_src/data/multiplayer/*`,
+  Mini Maps, ~840KB) is now TRACKED; a bare `git clone` trains
+  (verified from a scratch index export). Do NOT pip-install
+  requirements.txt on Kaggle (Windows-only torch-directml pin).
 
-Commits this session (all on `origin/main`):
-- `8468c5b` review pre-flight fixes; `c83a3dd` Tier-a decisions locked +
-  runbook; `f706400`/`c6b314c` gpu-perf B3 (pinned H2D) + perf patch spec.
+The 2026-07-01 deep review returned **GO for the default in-process
+`--mcts` path** (reward core sound; itemised in BACKLOG.md §2026-07-01);
+its pre-flight fixes are on `origin/main` (`8468c5b`, `c83a3dd`,
+`f706400`/`c6b314c`).
 
 What a new instance MUST know:
 - **The go-forward path is the Tier-a runbook: `docs/tier_a_runbook.md`**

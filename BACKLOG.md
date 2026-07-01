@@ -6,6 +6,38 @@ Refreshed 2026-04-29 / 2026-05-02 / 2026-05-03 / 2026-05-04 /
 goals (superhuman play via MCTS+self-play; readable/customizable
 strategies; cluster economy).
 
+## Update (2026-07-02): Kaggle pre-flight — warm-start vocab bug + repo self-containment
+
+Found while proving a bare `git clone` can run Tier-a Phase 1:
+
+- 🔴 **FIXED: `load_checkpoint` orphaned the shared trainer/inference
+  vocab dicts.** It rebound `_encoder.unit_type_to_id`/`faction_to_id`
+  to fresh dicts, breaking the construction-time by-reference sharing
+  with `_inference_encoder`. After ANY warm-start the inference
+  encoder (source of ALL rollout data in MCTS mode) kept an EMPTY
+  vocab and re-grew its own conflicting ids in play — trained
+  embedding rows read under the wrong unit identities. Affected every
+  `--checkpoint-in`/auto-resume run since the inference-snapshot
+  design landed 2026-06-29 (smoke runs only, luckily); the 2026-07-01
+  review missed it because it focused on the reward core. Smoking gun:
+  "watching vocab growth (currently **0 unit types**)" + 16 fresh-row
+  warnings for types already in the checkpoint. Fix = in-place
+  clear+update; regression test asserts the sharing invariant
+  survives `load_checkpoint`. (`tools/net2net.py` had independently
+  worked around the same trap — see its manual re-share.)
+- 🟠 **FIXED: fresh clones couldn't train at all** — the sim
+  hard-depends on `wesnoth_src/data` at runtime (factions dir raises,
+  scenario allowlist/events/maps, Mini Maps for `--mini-ratio`) but
+  `wesnoth_src/` was wholesale gitignored. The ~840KB runtime subset
+  is now tracked; verified by running self-play from a scratch export
+  of the git index.
+- 🟠 **FIXED: runbook told Kaggle users to `pip install -r
+  requirements.txt`** — it pins Windows-only `torch-directml`; on
+  Kaggle nothing needs installing.
+- Phase 0 executed: `tier_a_5m.pt` (5.02M params, vocab +
+  decision_step carried) committed. Ready-to-run Phase 1 notebook at
+  `kaggle/tier_a_phase1.ipynb`. Suite: **370 passed**.
+
 ## Update (2026-07-01): second deep review + fixes applied
 
 Independent multi-agent review (7 subsystems + adversarial verification)
