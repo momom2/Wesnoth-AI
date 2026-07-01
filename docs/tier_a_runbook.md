@@ -1,0 +1,149 @@
+# Tier-a calibration runbook (Kaggle → Vast.ai)
+
+Turnkey command sequence for the first rented/free GPU run. Objective is
+**calibration, not a strong model**: prove the CUDA path runs and is fed
+(not GPU-starved), fix the D2H stalls that show, and get ONE Elo-vs-compute
+point at the scaled net before committing to a paid Tier-b campaign.
+
+Decisions are locked in `docs/superhuman_training_plan.md` §10. Everything
+below was validated end-to-end on the CPU laptop except the CUDA-specific
+throughput (that's what Phase 1 measures).
+
+- **Model:** `--d-model 256 --num-layers 6 --num-heads 8 --d-ff 1024` (5.0M).
+- **Warm-start:** Net2Net-grow the current 471K checkpoint (preserves the
+  trained value head; measured value MAE ~0.017 — see plan §10).
+- **Fresh campaign:** first launch uses `--reset-decision-step` (weights-
+  only; anneal restarts at full strength). **Omit it on a resume.**
+
+---
+
+## Phase 0 — grow the checkpoint (do once, anywhere incl. locally)
+
+```
+python tools/net2net.py \
+  --in  training/checkpoints/sim_selfplay.pt \
+  --out training/checkpoints/tier_a_5m.pt \
+  --d-model 256 --num-layers 6 --num-heads 8 --d-ff 1024
+```
+Commit `tier_a_5m.pt` (or upload it as a Kaggle Dataset) so both phases
+start from the same warm net. It carries the vocab + decision_step.
+
+---
+
+## Phase 1 — Kaggle (free): pipeline test + profiling
+
+**Why Kaggle first:** free T4×2, real background execution (Save & Run All /
+Commit survives closing the tab), ~30 GPU-h/week. Caveat: only ~4 vCPU (the
+rollout will be somewhat starved) and 9–12h session cap → this phase is for
+*validating the pipeline and profiling*, not the long run.
+
+Setup: verify phone (unlocks accelerators), enable **GPU T4×2**, `pip install
+-r requirements` (torch is preinstalled), pull the repo + `tier_a_5m.pt`
+(as a Dataset), and ensure the pinned scrapes `unit_stats.json` /
+`terrain_db.json` are present (they're committed).
+
+**1a. REQUIRED first-run CUDA smoke** (adapted from `running_on_gpu.md`, at
+the real 5M arch):
+```
+python tools/sim_self_play.py --device cuda \
+  --mcts --mcts-sims 8 --iterations 2 --games-per-iter 2 --max-turns 12 \
+  --mini-ratio 1.0 --replay-buffer --replay-updates 2 --replay-minibatch 16 \
+  --replay-min-size 1 --train-batch-size 8 \
+  --d-model 256 --num-layers 6 --num-heads 8 --d-ff 1024 \
+  --checkpoint-in training/checkpoints/tier_a_5m.pt \
+  --checkpoint-out /kaggle/working/gpu_smoke.pt --log-level INFO
+```
+Confirm: exit 0, no `device`-mismatch errors; the log shows
+`mcts_batch_size = 16 (... device=cuda)` and `train_batch_size = 8` with NO
+thread-cap line; `nvidia-smi` shows utilization during `train_step`; the
+checkpoint saves and re-loads (and writes a `.bak` on the 2nd save).
+
+**1b. Profile the rollout** (find the D2H stalls the CPU laptop couldn't
+measure):
+```
+python tools/profile_rollout.py --device cuda \
+  --checkpoint-in training/checkpoints/tier_a_5m.pt \
+  --d-model 256 --num-layers 6 --num-heads 8 --d-ff 1024 \
+  --games 2 --mcts-sims 32 --mini-ratio 0.5 \
+  --save-json /kaggle/working/profile.json --log-level INFO
+```
+Read the per-stage breakdown. If the in-process rollout's per-leaf
+`.item()`/`.tolist()` on GPU tensors dominates (expected), apply the
+prepped perf fixes (branch `gpu-perf-fixes`, see BACKLOG §2026-07-01) and
+re-profile. Also profile `--mcts-batch-size 8/16/32` to pick B.
+
+**1c. Short end-to-end pipeline run** (a few iterations; confirm the loop,
+replay buffer, checkpoint/resume, and the WHR/Elo logging all work on CUDA):
+```
+python tools/sim_self_play.py --device cuda \
+  --mcts --mcts-sims 32 --iterations 20 --games-per-iter 8 --max-turns 24 \
+  --mini-ratio 0.5 --drill-ratio 0.3 \
+  --replay-buffer --replay-updates 16 --value-coef 1.0 \
+  --replay-minibatch 128 --replay-capacity 6000 --train-batch-size 128 \
+  --d-model 256 --num-layers 6 --num-heads 8 --d-ff 1024 \
+  --reset-decision-step \
+  --checkpoint-in training/checkpoints/tier_a_5m.pt \
+  --checkpoint-out /kaggle/working/tier_a_5m.pt \
+  --save-every 2 --log-level INFO
+```
+**Gate to Phase 2 (all green):** CUDA smoke passes, profiling shows the GPU
+is fed (not idling on D2H syncs) after the perf fixes, and held-out value
+loss trends down over the 20 iters. If the rollout is hopelessly vCPU-
+starved on Kaggle's 4 vCPU, that's expected — Phase 2's high-vCPU host fixes
+it; the point of Phase 1 is the pipeline + profile, not throughput.
+
+---
+
+## Phase 2 — Vast.ai spot 4090 (~$30): the calibration run
+
+Rent an **interruptible RTX 4090 on a high-vCPU host** — in the Vast search,
+filter `cpu_cores >= 32` (the rollout is CPU-bound; a 6-vCPU host starves the
+GPU). Attach a persistent disk for checkpoints. Interruptible is safe: the
+checkpoint save is atomic (`.tmp` + `os.replace`) and keeps a `.bak`, and the
+resume path falls back to `.bak` if the primary is truncated by a preemption.
+
+**First launch (fresh campaign — note `--reset-decision-step`):**
+```
+python tools/sim_self_play.py --device cuda \
+  --mcts --mcts-sims 32 \
+  --d-model 256 --num-layers 6 --num-heads 8 --d-ff 1024 \
+  --replay-buffer --replay-updates 16 --value-coef 1.0 \
+    --replay-minibatch 128 --replay-capacity 6000 \
+  --train-batch-size 128 --mcts-batch-size 16 \
+  --mini-ratio 0.5 --drill-ratio 0.3 \
+  --reward-config configs/reward_selfplay.json \
+  --reset-decision-step \
+  --checkpoint-in  training/checkpoints/tier_a_5m.pt \
+  --checkpoint-out training/checkpoints/tier_a_5m.pt \
+  --time-budget HH:MM:SS --iterations 100000 --save-every 2 --log-level INFO
+```
+
+**On a spot preemption / restart — SAME command but DROP `--reset-decision-
+step`** (it would restart the anneal mid-run). `--checkpoint-in` ==
+`--checkpoint-out` is intentional and now safe (atomic + `.bak`).
+
+Re-tune on the node (hardware-specific — the laptop sweep does NOT carry
+over): `--replay-updates` {8,16,32} equal-wall-clock, `--mcts-batch-size`
+{8,16,32}, and add `--workers N` (cross-game batching) once single-game
+throughput is understood.
+
+**What to measure (the Tier-a deliverable = an Elo-vs-compute point):**
+- Strength: `tools/elo_ladder.py` / `tools/whr.py` over periodic checkpoints
+  (+ the scripted `dummy` and random floor). Watch the curve MOVE.
+- Value learning: held-out value loss trending down.
+- Behavior: attack% / decisive-game% / leader-threat on ladder maps (the
+  BACKLOG's iter-168 baseline had *zero* leaderkills on full maps).
+- Throughput: games/sec and GPU utilization *on that GPU* (compare GPU runs
+  to each other, never to laptop logs).
+
+**Gate to Tier-b:** re-estimate Tier-b cost from YOUR measured Elo-vs-compute
+slope, not the plan's a-priori numbers. If the curve is flat, diagnose
+(capacity? signal? throughput?) before spending Tier-b money.
+
+---
+
+## Cost sanity
+
+- Phase 1 (Kaggle): **$0** (+ free Modal/RunPod credit if you smoke there).
+- Phase 2 (Vast spot 4090, ~$0.20–0.35/hr, ~100–150 GPU-h): **~$30**, plus a
+  few $ for persistent disk. Delete the disk when done.

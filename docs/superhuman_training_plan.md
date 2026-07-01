@@ -370,6 +370,63 @@ while rung 4 is unproven.
 
 ---
 
+## 10. Tier-a locked decisions (2026-07-01, validated locally)
+
+Supersedes parts of §9. A second deep review (BACKLOG §2026-07-01) applied
+the pre-flight fixes; this section records the Tier-a calibration decisions
+validated on the CPU laptop before renting.
+
+**Model config — LOCKED: `d_model=256, num_layers=6, num_heads=8, d_ff=1024`
+= 5.0M model params** (from 471K). Mid the plan's 3–10M Tier-a target.
+Reproduce param counts with `TransformerPolicy(**arch)`.
+
+**Warm-start — Net2Net from the current 471K checkpoint IS worth it (not
+fresh init).** Measured output divergence of the grown net vs the trained
+net on 24 held-out states (`tools/net2net.py` grow, then compare):
+- Width grow → 5.0M: value scalar MAE **0.017** (range ±1), C51 value-dist
+  KL **0.050** nats, actor-policy KL 0.40.
+- Depth/FF-only grow (d_model fixed): value MAE 0.034, C51 KL 0.082, policy
+  KL 0.15.
+- Identity grow: 0.000 across the board (confirms the transfer plumbing).
+The C6 caveat (net2net is only approx. function-preserving through
+LayerNorm+MHA) holds but the perturbation is SMALL and recoverable — the
+value head (the diagnosed bottleneck) is preserved to ~2% of range, far
+better than a random value head. Budget a short re-warm, not a retrain.
+The width grow best preserves value; policy re-converges fast in self-play.
+
+**End-to-end launch path validated on CPU:** net2net grow → `sim_self_play`
+warm-starts at 5M, `--reset-decision-step` (5.68M→0), replay buffer, MCTS
+`train_step`, atomic checkpoint saved — exit 0. Only CUDA throughput is
+unvalidated (that's the GPU smoke's job). The device-aware
+`--mcts-batch-size` default logs B=1 on CPU / B=16 on CUDA.
+
+**Compute — REVISED from §4–5 for a SOLO, UNINCORPORATED individual** (the
+§9 "apply to MS Founders Hub" step does NOT apply — Founders Hub/AWS/Google/
+NVIDIA startup credits all need a registered company + website/matching
+domain). Verified mid-2026:
+- **Plan: Kaggle (free) for pipeline test + profiling, then Vast.ai spot
+  4090 (~$30) for the real run.** See `docs/tier_a_runbook.md`.
+- Kaggle: free T4×2, ~30 GPU-h/week, real background execution, but only
+  ~4 vCPU (rollout somewhat starved) and 9–12h sessions → chain via
+  checkpoint-resume (atomic + `.bak` now in place). Best FREE fit.
+- Vast.ai interruptible 4090 on a **high-vCPU (32+) host** ≈ $0.13–0.35/hr
+  → ~$30 for ~100–150 GPU-h. Best fit for the CPU-rollout-bound workload;
+  no eligibility gate; interruptible is safe given atomic checkpointing.
+- Free smoke credits: Modal $30/mo, RunPod ~$5, Vast ~$1.
+- Google TPU Research Cloud is the only LARGE free grant open to an
+  individual, but it's a POOR fit here — needs a torch_xla/JAX port and a
+  low-vCPU driver VM starves a rollout-bound job. Skip unless porting.
+- Lightning AI free (~80 GPU-h/mo, background exec, 100GB persistent) is a
+  viable free alternative to Kaggle; verify the free GPU studio's vCPU count
+  at signup (default 4 vCPU).
+
+**Deferred CUDA-only perf fixes** (profile on the GPU node, then apply): the
+in-process rollout's per-leaf `.item()`/`.tolist()` on GPU tensors (adopt
+the actor-pool's sampler-on-CPU split), B2 (per-leaf value/cliffness batch
+read), B3 (pinned H2D). See BACKLOG §2026-07-01.
+
+---
+
 ### Appendix: key sources (2026-06-17)
 - Compute estimates: AlphaZero (arXiv:1712.01815), MuZero, KataGo
   (arXiv:1902.10565) + public run (katagotraining.org), Lc0, AlphaZero.jl
