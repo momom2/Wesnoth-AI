@@ -751,12 +751,22 @@ class TransformerPolicy:
                         f"EXPECTED_MISSING_KEYS_BY_LABEL in "
                         f"transformer_policy.load_checkpoint."
                     )
-        self._encoder.unit_type_to_id = dict(ckpt["unit_type_to_id"])
+        # Vocab restore -- IN PLACE, never rebind. The inference
+        # encoder shares these dict OBJECTS by reference (see
+        # __init__); rebinding the attribute orphans that reference,
+        # leaving the inference encoder on an empty vocab that then
+        # re-grows its own conflicting ids during rollouts -- trained
+        # embedding rows get read under the WRONG unit identities
+        # (observed 2026-07-02: a warm-started MCTS run logged
+        # "vocab grew" for every type already in the checkpoint).
+        self._encoder.unit_type_to_id.clear()
+        self._encoder.unit_type_to_id.update(ckpt["unit_type_to_id"])
         # Faction vocab — present in checkpoints saved after faction
         # conditioning landed. Older checkpoints lack it; fall back to
         # the encoder's default-seeded vocab so names still resolve.
         if "faction_to_id" in ckpt:
-            self._encoder.faction_to_id = dict(ckpt["faction_to_id"])
+            self._encoder.faction_to_id.clear()
+            self._encoder.faction_to_id.update(ckpt["faction_to_id"])
         if "optimizer_state" in ckpt and not pre_c51:
             try:
                 self._trainer.optimizer.load_state_dict(ckpt["optimizer_state"])

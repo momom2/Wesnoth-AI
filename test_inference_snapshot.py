@@ -237,6 +237,41 @@ def test_load_checkpoint_syncs_inference():
                 f"post-load mismatch at {k}")
 
 
+def test_load_checkpoint_preserves_vocab_sharing():
+    """After load_checkpoint, the inference encoder must see the
+    LOADED vocab through the construction-time shared dicts.
+
+    Regression (2026-07-02): load_checkpoint used to REBIND
+    `_encoder.unit_type_to_id` to a fresh dict, orphaning the
+    inference encoder's shared reference. The inference encoder --
+    which generates ALL rollout data in MCTS mode -- then kept an
+    empty vocab and re-grew its own conflicting ids during play,
+    reading trained embedding rows under the wrong unit identities
+    (silent warm-start corruption)."""
+    import tempfile
+    policy = TransformerPolicy()
+    # Populate the vocab through the normal encode path ('Spearman'
+    # from _gs's units), then save.
+    policy.select_action(_gs(), game_label="vocab-seed")
+    assert "Spearman" in policy._encoder.unit_type_to_id
+    with tempfile.TemporaryDirectory() as td:
+        ckpt_path = Path(td) / "ckpt.pt"
+        policy.save_checkpoint(ckpt_path)
+
+        policy2 = TransformerPolicy()
+        policy2.load_checkpoint(ckpt_path)
+        # Sharing invariant survives the load...
+        assert (policy2._encoder.unit_type_to_id is
+                policy2._inference_encoder.unit_type_to_id), (
+            "load_checkpoint broke the trainer/inference vocab "
+            "sharing -- inference rollouts would re-grow their own "
+            "conflicting unit-type ids")
+        assert (policy2._encoder.faction_to_id is
+                policy2._inference_encoder.faction_to_id)
+        # ...and the loaded content is visible through BOTH handles.
+        assert "Spearman" in policy2._inference_encoder.unit_type_to_id
+
+
 # ---------------------------------------------------------------------
 # Concurrency stress
 # ---------------------------------------------------------------------
