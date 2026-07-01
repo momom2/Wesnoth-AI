@@ -919,7 +919,14 @@ class WesnothSim:
             policy = policy_side1 if side == 1 else policy_side2
             action = policy.select_action(self.gs, game_label=game_label)
             if record_trajectory:
-                traj.append(SimStep(state=self.gs, action=action, side=side))
+                # Deepcopy the PRE-action state: self.step() below mutates
+                # self.gs in place, so storing the live reference would make
+                # every SimStep.state alias the single terminal state (its
+                # docstring promises "the game state BEFORE the action").
+                # Matches the per-decision snapshot the trainer/MCTS rely on.
+                import copy as _copy
+                traj.append(SimStep(state=_copy.deepcopy(self.gs),
+                                    action=action, side=side))
             self.step(action)
         return SimResult(
             winner=self.winner,

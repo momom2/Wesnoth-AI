@@ -467,6 +467,34 @@ where Wesnoth had it dead. Cascade: cmd[760] attacker_missing.
 `tools/abilities.py::illuminate_step` no longer filters by side.
 Test: `test_combat_rules.py::test_illuminate_lights_enemy_too`.
 
+### Petrified/incapacitated units project NO adjacent abilities
+
+A petrified (or otherwise `incapacitated()`) unit is skipped when a
+neighbor gathers adjacency abilities. `wesnoth_src/src/units/abilities.cpp`
+(`get_abilities_weapons` / the `affect_adjacent` loop, ~line 150 in the
+1.18.4 tag):
+```cpp
+const unit_map::const_iterator it = units.find(adjacent[i]);
+if(it == units.end() || it->incapacitated())
+    continue;
+// ... only here are it's abilities considered for the neighbor ...
+```
+`incapacitated()` is `get_state(STATE_PETRIFIED)` (see the ZoC entry
+above, `unit.hpp`). Illumination is the same rule via a different code
+path (`tod_manager.cpp:443`, quoted above). So a petrified **source**
+unit contributes no `leadership`, `heals`, `cures`, or `illuminates`
+to its neighbors (and `is_backstab_active` already excludes a petrified
+flanker). Note this is the SOURCE-side rule; the RECIPIENT-side rule
+(a petrified patient receives no healing — `heal.cpp` gates on
+`patient.incapacitated()`) is separate.
+
+**Why non-obvious**: `heal.cpp` itself has no source-side check — the
+filtering is delegated to `unit::get_abilities`, so grepping the
+healing code alone misses it. Verified 2026-07-01 against the 1.18.4
+tag while fixing a review finding: all four `tools/abilities.py`
+scanners (`illuminate_step`, `leadership_bonus`, `healer_heal_amount`,
+`adjacent_curer`) now skip `"petrified" in source.statuses`.
+
 ### AMLA grants +3 max_hp, +20% max_experience, AND clears poisoned/slowed
 
 `wesnoth_src/data/core/macros/amla.cfg:4-30` (`AMLA_DEFAULT`):

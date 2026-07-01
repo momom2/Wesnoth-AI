@@ -24,6 +24,7 @@ stored so load can refuse an incompatible model.
 from __future__ import annotations
 
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -312,17 +313,21 @@ class TransformerPolicy:
                     )
                 self._last_state_id[key_dbg] = id(game_state)
 
+            # Capture the anneal counter used for THIS decision and stamp it
+            # onto the Transition, so the trainer's reforward rebuilds the
+            # combat-oracle bias at the same alpha the sampler applied here
+            # (otherwise the reference distribution the policy gradient is
+            # computed against uses stronger oracle bias than was sampled --
+            # a systematic train/collect mismatch).
+            ds = self._decision_step
             with torch.no_grad():
                 encoded = self._inference_encoder.encode(game_state)
                 output = self._inference_model(encoded)
                 sampled = sample_action(
                     encoded, output, game_state,
-                    decision_step=self._decision_step,
+                    decision_step=ds,
                 )
-            # Increment AFTER sampling so decision N's alpha schedule
-            # matches the value the trainer's reforward sees when it
-            # consults the same counter (we save the counter at
-            # checkpoint time; trainer's reforward uses it as-is).
+            # Increment AFTER sampling so decision N samples at counter N.
             self._decision_step += 1
 
             side = game_state.global_info.current_side
@@ -333,6 +338,7 @@ class TransformerPolicy:
                 target_idx=sampled.target_idx,
                 weapon_idx=sampled.weapon_idx,
                 type_idx=sampled.type_idx,
+                decision_step=ds,
             ))
             return sampled.action
 
@@ -567,6 +573,15 @@ class TransformerPolicy:
     def save_checkpoint(self, path: Path) -> None:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
+        # Atomic write: save to a temp file, keep one rolling backup of the
+        # prior good checkpoint, then os.replace (atomic rename) into place.
+        # A long self-play campaign runs on rented SPOT/preemptible GPUs where
+        # a kill mid-`torch.save` would otherwise truncate the ONLY checkpoint
+        # (docs/running_on_gpu.md uses the same path for --checkpoint-in/-out),
+        # losing the whole paid run. os.replace is atomic on the same
+        # filesystem; the `.bak` gives the resume path a fallback if the
+        # primary is somehow corrupt. Mirrors tools/supervised_train.py.
+        tmp = path.with_suffix(path.suffix + ".tmp")
         torch.save(
             {
                 "arch":            self._arch,
@@ -581,8 +596,17 @@ class TransformerPolicy:
                 "optimizer_state": self._trainer.optimizer.state_dict(),
                 "decision_step":   self._decision_step,
             },
-            path,
+            tmp,
         )
+        if path.exists():
+            bak = path.with_suffix(path.suffix + ".bak")
+            try:
+                os.replace(path, bak)
+            except OSError:
+                # A missing/unreplaceable prior checkpoint must not block
+                # the new save; the tmp->path replace below is what matters.
+                pass
+        os.replace(tmp, path)
         self._logger.info(f"Saved checkpoint to {path}")
 
     def load_checkpoint(self, path: Path, *, strict: bool = False) -> None:

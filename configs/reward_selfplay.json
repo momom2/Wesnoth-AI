@@ -7,7 +7,7 @@
   "terminal_timeout":           0.0,
 
   "gold_killed_delta":          0.01,
-  "damage_dealt":               0.005,
+  "damage_dealt":               0.0005,
   "village_delta":              0.05,
   "unit_recruited_cost":        0.001,
 

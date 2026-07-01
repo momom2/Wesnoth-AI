@@ -212,6 +212,12 @@ def leadership_bonus(unit: Unit, all_units: Iterable[Unit],
     for ally in _adjacent_units(all_units, unit.position.x, unit.position.y):
         if ally.side != unit.side or ally.id == unit.id:
             continue
+        # Petrified/incapacitated leaders project nothing: get_abilities
+        # skips adjacent units where `it->incapacitated()`
+        # (abilities.cpp:~150; incapacitated() includes petrified). See
+        # docs/wesnoth_rules.md.
+        if "petrified" in ally.statuses:
+            continue
         if "leadership" not in ally.abilities:
             continue
         ally_level = _lvl(_stats_for(ally.name))
@@ -252,10 +258,17 @@ def illuminate_step(unit: Unit, all_units: Iterable[Unit]) -> int:
     cmd[759] move couldn't pass through u46 (alive at hp=4 in our
     sim).
     """
-    if "illuminates" in unit.abilities:
+    if "illuminates" in unit.abilities and "petrified" not in unit.statuses:
         return 1
     for other in _adjacent_units(all_units, unit.position.x, unit.position.y):
-        if "illuminates" in other.abilities:
+        # Petrified/incapacitated units project no abilities: the scan in
+        # `get_illuminated_time_of_day` gates on `!itor->incapacitated()`
+        # (docs/wesnoth_rules.md:443). A petrified illuminator (e.g. a
+        # statue with `illuminates` on the Basilisk/Sullas maps) must not
+        # light the hex, or a chaotic/lawful combatant fights at the wrong
+        # lawful_bonus and combat parity breaks.
+        if ("illuminates" in other.abilities
+                and "petrified" not in other.statuses):
             return 1
     return 0
 
@@ -277,6 +290,11 @@ def healer_heal_amount(unit: Unit, all_units: Iterable[Unit],
                                 pos_index=pos_index):
         if ally.side != unit.side:
             continue
+        # Petrified/incapacitated healers project nothing (abilities.cpp
+        # get_abilities skips adjacent `it->incapacitated()`; see
+        # docs/wesnoth_rules.md).
+        if "petrified" in ally.statuses:
+            continue
         if "cures" in ally.abilities or "heals_8" in ally.abilities or "heals+8" in ally.abilities:
             best = max(best, 8)
         elif "heals_4" in ally.abilities or "heals+4" in ally.abilities:
@@ -291,6 +309,11 @@ def adjacent_curer(unit: Unit, all_units: Iterable[Unit],
     for ally in _adjacent_units(all_units, unit.position.x, unit.position.y,
                                 pos_index=pos_index):
         if ally.side != unit.side:
+            continue
+        # Petrified/incapacitated curers project nothing (abilities.cpp
+        # get_abilities skips adjacent `it->incapacitated()`; see
+        # docs/wesnoth_rules.md).
+        if "petrified" in ally.statuses:
             continue
         if "cures" in ally.abilities:
             return True

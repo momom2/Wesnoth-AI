@@ -743,8 +743,15 @@ def _select_one(
                     # Full support observed: exact-probability choice
                     # among the known outcome children -- no sim
                     # fork, no Monte-Carlo noise.
+                    # Exclude BOTH sentinel keys: _STEP_ERROR_KEY and
+                    # _NOOP_KEY are inserted into `children` but never into
+                    # `outcome_keys`, so indexing dist.probs[outcome_keys[k]]
+                    # below would KeyError. A _NOOP_KEY child can't currently
+                    # coexist with an attack edge (noop arises only on recruit
+                    # rejections / unchanged-state_key), but filter it here so
+                    # this stays correct if that invariant ever changes.
                     keys = [k for k in edge.children
-                            if k != _STEP_ERROR_KEY]
+                            if k not in (_STEP_ERROR_KEY, _NOOP_KEY)]
                     if keys:
                         w = np.array(
                             [dist.probs[edge.outcome_keys[k]]

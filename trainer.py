@@ -66,6 +66,14 @@ class Transition:
     target_idx: Optional[int] = None
     weapon_idx: Optional[int] = None
     type_idx:   Optional[int] = None
+    # Combat-oracle anneal counter at SAMPLE time. The re-forward in
+    # Trainer.step must rebuild the legality masks (which carry the
+    # annealed combat-oracle bias) at the SAME alpha the sampler used,
+    # or the reference logP/entropy the policy gradient is computed
+    # against won't match the on-policy sampling distribution. Defaults
+    # to 0 so pre-existing pickled trajectories still load (they get
+    # full-strength bias, matching the old behavior).
+    decision_step: int = 0
     # Filled in by game_manager after the next state arrives:
     reward:     float = 0.0
     done:       bool  = False
@@ -404,6 +412,7 @@ class Trainer:
                         target_idx=t.target_idx,
                         weapon_idx=t.weapon_idx,
                         type_idx=t.type_idx,
+                        decision_step=getattr(t, "decision_step", 0),
                     )
                     chunk_log_probs.append(lp)
                     chunk_values.append(output.value.squeeze())
@@ -509,8 +518,11 @@ def _project_returns_to_atoms(
     B = returns.shape[0]
     K = atoms.shape[0]
     delta = atoms[1] - atoms[0]
-    # Clamp to [V_MIN, V_MAX] so b lands inside [0, K-1].
-    r = returns.clamp(atoms[0].item(), atoms[-1].item())
+    # Clamp to [V_MIN, V_MAX] so b lands inside [0, K-1]. Use the
+    # device-resident atom endpoints as tensor bounds (clamp broadcasts
+    # 0-dim tensors) rather than .item()-ing them — the latter is two
+    # D2H syncs per chunk on CUDA for a fixed, non-learned buffer.
+    r = returns.clamp(atoms[0], atoms[-1])
     b = (r - atoms[0]) / delta            # [B], real-valued in [0, K-1]
     l = b.floor().long().clamp(0, K - 2)  # [B], lower-bin index, room above
     weight_l = (l.float() + 1) - b        # [B], mass on bin l
@@ -609,6 +621,10 @@ def _mcts_factored_policy_loss(
     # via the negative-log-prob average. Caller logs `entropy` from
     # the original REINFORCE convention; we expose total visits and
     # mean -log p(a|s) so the train_step log line stays informative.
+    # Accumulated as a DETACHED tensor and read with a single .item()
+    # before return, so neither path pays a per-visit D2H sync (300-900
+    # per state on Gumbel roots) just to populate a log field.
+    actor_nlp_t = actor_logp.new_zeros(())
     sum_actor_nlp = 0.0
 
     if not vectorized:
@@ -617,8 +633,9 @@ def _mcts_factored_policy_loss(
             actor_idx, target_idx, weapon_idx, count, type_idx = _unpack(tup)
             if count <= 0:
                 continue
-            nll = nll - count * actor_logp[actor_idx]
-            sum_actor_nlp += count * float(-actor_logp[actor_idx].item())
+            actor_term = count * actor_logp[actor_idx]
+            nll = nll - actor_term
+            actor_nlp_t = actor_nlp_t - actor_term.detach()
 
             # Type term (only for unit actors with a type_idx).
             is_unit = actor_idx < output.num_units
@@ -715,7 +732,6 @@ def _mcts_factored_policy_loss(
                 continue
             a_idx.append(actor_idx)
             a_cnt.append(count)
-            sum_actor_nlp += count * float(-actor_logp[actor_idx].item())
 
             is_unit = actor_idx < output.num_units
             if is_unit and type_idx is not None:
@@ -804,7 +820,9 @@ def _mcts_factored_policy_loss(
             return (ct * vec.index_select(0, it)).sum()
 
         if a_idx:
-            nll = nll - _term(actor_logp, a_idx, a_cnt)
+            actor_term = _term(actor_logp, a_idx, a_cnt)
+            nll = nll - actor_term
+            actor_nlp_t = actor_nlp_t - actor_term.detach()
         for aidx, (idxs, cnts) in type_b.items():
             nll = nll - _term(type_logp_cache[aidx], idxs, cnts)
         for _key, (vec, idxs, cnts) in tgt_b.items():
@@ -813,6 +831,8 @@ def _mcts_factored_policy_loss(
             nll = nll - _term(vec, idxs, cnts)
 
     loss = nll / float(total_visits)
+    # Single D2H sync per state for the diagnostic (was per visit tuple).
+    sum_actor_nlp = float(actor_nlp_t.item())
     mean_actor_nlp = sum_actor_nlp / float(total_visits)
     return loss, float(total_visits), float(mean_actor_nlp)
 

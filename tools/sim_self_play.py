@@ -377,14 +377,16 @@ def play_one_game(
                 f"recruit rejected: {action.get('unit_type')!r} on "
                 f"({tgt.x},{tgt.y}) (god-view occupied); "
                 f"re-deciding with hex blacklisted")
-            # Drop the pending Transition the policy recorded for
-            # the rejected select_action so the trainer doesn't
-            # re-forward on it. observe() with reward=0 keeps the
-            # trajectory shape consistent: the rejected pick lands
-            # in the trajectory with a neutral signal -- not great,
-            # not awful. A future refactor could expose a "drop
-            # just the tail" API on the policy.
-            policy.observe(game_label, acting_side, 0.0, done=False)
+            # Undo the rejected select_action's recorded target. MCTSPolicy
+            # exposes drop_last_pending (pops the pending MCTSExperience tail
+            # AND rolls back the decision_step increment) -- without it the
+            # bounced decision would be trained on with terminal z and
+            # over-advance the combat-oracle anneal. Policies without it
+            # (REINFORCE) fall back to observe(reward=0), which lands the
+            # rejected pick in the trajectory with a neutral signal.
+            drop = getattr(policy, "drop_last_pending", None)
+            if not (callable(drop) and drop(game_label)):
+                policy.observe(game_label, acting_side, 0.0, done=False)
             pre_state = copy.deepcopy(sim.gs)
             action = policy.select_action(pre_state, game_label=game_label, sim=sim)
 
@@ -412,7 +414,9 @@ def play_one_game(
                 f"move rejected: ({tgt.x},{tgt.y}) (god-view "
                 f"occupied by fog-hidden enemy); re-deciding "
                 f"with hex blacklisted")
-            policy.observe(game_label, acting_side, 0.0, done=False)
+            drop = getattr(policy, "drop_last_pending", None)
+            if not (callable(drop) and drop(game_label)):
+                policy.observe(game_label, acting_side, 0.0, done=False)
             pre_state = copy.deepcopy(sim.gs)
             action = policy.select_action(pre_state, game_label=game_label, sim=sim)
         atype = action.get("type", "end_turn")
@@ -1481,17 +1485,20 @@ def main(argv: List[str]) -> int:
                          "sims early in development.")
     ap.add_argument("--mcts-c-puct", type=float, default=1.5,
                     help="PUCT exploration constant (--mcts only).")
-    ap.add_argument("--mcts-batch-size", type=int, default=1,
-                    help="Batched leaf evaluation (--mcts only). B=1 on "
-                         "CPU; B=8-32 amortizes per-forward kernel-launch "
-                         "+ host-sync overhead on GPU. Applies to BOTH the "
-                         "default Gumbel root (each sequential-halving "
-                         "phase evaluates its leaves through one "
-                         "forward_batch with virtual loss) and the classic "
-                         "root. Falls back to serial when "
-                         "--mcts-outcome-buckets is on. Profile on the GPU "
-                         "node to pick B; composes with --workers "
-                         "(cross-game batching).")
+    ap.add_argument("--mcts-batch-size", type=int, default=None,
+                    help="Batched leaf evaluation (--mcts only). Default is "
+                         "device-aware: B=1 on CPU, B=16 on CUDA (a batched "
+                         "leaf forward amortizes per-forward kernel-launch + "
+                         "host-sync overhead — the per-leaf forward is the "
+                         "dominant GPU cost of an --mcts run, so leaving it "
+                         "at 1 on CUDA starves the device). Pass an explicit "
+                         "value to override; profile on the GPU node to pick "
+                         "B (8-32). Applies to BOTH the default Gumbel root "
+                         "(each sequential-halving phase evaluates its leaves "
+                         "through one forward_batch with virtual loss) and "
+                         "the classic root. Falls back to serial when "
+                         "--mcts-outcome-buckets is on. Composes with "
+                         "--workers (cross-game batching).")
     ap.add_argument("--mcts-fpu-reduction", type=float, default=0.25,
                     help="First-play urgency: unvisited edges score "
                          "as (parent value - this) instead of 0, so "
@@ -1684,9 +1691,32 @@ def main(argv: List[str]) -> int:
     arch_kwargs: Dict[str, int] = {}
     ckpt_aux_score = False
     if args.checkpoint_in and args.checkpoint_in.exists():
-        try:
-            raw = torch.load(args.checkpoint_in, map_location="cpu",
-                             weights_only=False)
+        # Resolve to a LOADABLE checkpoint: prefer the primary, but if it's
+        # unreadable (truncated by a kill mid-write on a preemptible node),
+        # fall back to the rolling `.bak` that save_checkpoint keeps. Doing
+        # this here — before load_checkpoint below — means both the arch
+        # peek and the weight load use the same good file, so a spot
+        # preemption costs at most the last save interval, not the whole run.
+        candidates = [
+            args.checkpoint_in,
+            args.checkpoint_in.with_suffix(args.checkpoint_in.suffix + ".bak"),
+        ]
+        raw = None
+        for cand in candidates:
+            if not cand.exists():
+                continue
+            try:
+                raw = torch.load(cand, map_location="cpu",
+                                 weights_only=False)
+                if cand != args.checkpoint_in:
+                    log.warning(
+                        f"primary checkpoint {args.checkpoint_in} unreadable;"
+                        f" resuming from backup {cand}")
+                    args.checkpoint_in = cand
+                break
+            except Exception as e:
+                log.warning(f"checkpoint {cand} unreadable: {e!r}")
+        if raw is not None:
             saved_arch = raw.get("arch", {}) or {}
             for k in ("d_model", "num_layers", "num_heads", "d_ff"):
                 if k in saved_arch:
@@ -1695,10 +1725,10 @@ def main(argv: List[str]) -> int:
             if arch_kwargs:
                 log.info(f"warm-start arch from checkpoint: {arch_kwargs}"
                          f"{' +aux_score' if ckpt_aux_score else ''}")
-        except Exception as e:
+        else:
             log.warning(
-                f"couldn't peek arch from {args.checkpoint_in}: {e!r}; "
-                f"falling back to TransformerPolicy defaults"
+                "no loadable checkpoint (primary or .bak); falling back to "
+                "TransformerPolicy defaults / random init"
             )
 
     # --- model scaling (plan §3.2): explicit CLI arch flags WIN over
@@ -1818,10 +1848,32 @@ def main(argv: List[str]) -> int:
             tiebreak = DrawTiebreakConfig(cap=args.draw_tiebreak_cap)
         else:
             tiebreak = None
+        # mcts_batch_size: device-aware default (mirrors train_batch_size).
+        # The per-leaf model forward is the dominant cost of an --mcts run;
+        # leaving B=1 on CUDA issues one un-batched forward per simulation
+        # and starves the GPU. Auto-bump to 16 on CUDA when the flag is
+        # unset; an explicit --mcts-batch-size always wins. Gated off when
+        # --mcts-outcome-buckets is on (the batched path falls back to
+        # serial there anyway; see MCTSConfig / mcts._run_sim_batch).
+        if args.mcts_batch_size is not None:
+            _mbs = max(1, int(args.mcts_batch_size))
+        elif ((device is not None) and str(device).startswith("cuda")
+              and not args.mcts_outcome_buckets):
+            _mbs = 16
+        else:
+            _mbs = 1
+        if ((device is not None) and str(device).startswith("cuda")
+                and _mbs == 1 and not args.mcts_outcome_buckets):
+            log.warning(
+                "MCTS leaf batching is B=1 on CUDA: each simulation runs an "
+                "un-batched leaf forward, which starves the GPU. Set "
+                "--mcts-batch-size 8-32 (profile to pick B).")
+        log.info(f"mcts_batch_size = {_mbs} (leaf forward_batch; "
+                 f"device={device})")
         mcts_cfg = MCTSConfig(
             n_simulations=args.mcts_sims,
             c_puct=args.mcts_c_puct,
-            batch_size=args.mcts_batch_size,
+            batch_size=_mbs,
             fpu_reduction=(None if args.mcts_fpu_reduction < 0
                            else args.mcts_fpu_reduction),
             temperature=args.mcts_temperature,

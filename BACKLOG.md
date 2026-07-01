@@ -6,6 +6,78 @@ Refreshed 2026-04-29 / 2026-05-02 / 2026-05-03 / 2026-05-04 /
 goals (superhuman play via MCTS+self-play; readable/customizable
 strategies; cluster economy).
 
+## Update (2026-07-01): second deep review + fixes applied
+
+Independent multi-agent review (7 subsystems + adversarial verification)
+before renting GPU compute. **Verdict: GO for the default in-process
+`--mcts` path** — the combat/economy/termination core that produces the
+±1 reward is sound; no training-signal-corrupting bug on the intended
+path. Full suite green after fixes: **369 passed**. Refuted (correctly):
+actor-pool watchdog "never enforced" (queue empties during rollout gaps),
+MCTS `_NOOP_KEY` KeyError at mcts.py:746 (sentinel only on recruit edges,
+disjoint from the attack-gated exact-prob branch), `actor_kind` "never
+needs GPU" (used in on-device masking).
+
+**FIXED + tested this session:**
+- 🟠 **Checkpoint save now atomic** — `transformer_policy.save_checkpoint`
+  writes `.tmp` then `os.replace`, keeps a rolling `.bak`; resume
+  (`sim_self_play.py`) falls back to `.bak` if the primary is unreadable.
+  Spot-preemption mid-write no longer loses the whole run.
+- 🟠 **`configs/reward_selfplay.json damage_dealt` 0.005 → 0.0005** (was
+  10× the code's documented-safe value; C51-support saturation risk).
+- 🟠 **`--actor-pool` un-broken.** Commit `7abbba1` added
+  `_base._lock`/`_decision_step` reads to `MCTSPolicy.select_action`; the
+  actor's `SimpleNamespace` base lacked both → AttributeError on decision
+  1, swallowed → ZERO experiences. Base now supplies both, and the global
+  `decision_step` is threaded through the PLAY command + advanced per
+  iteration by the actors' summed decision count (anneal tracks true
+  progress). Validated via the standalone smoke: 2 games → 54 experiences,
+  decision_step 0→54 (was 0 experiences before).
+- 🟠 **`--mcts-batch-size` device-aware default** (mirrors
+  `--train-batch-size`): unset + CUDA → 16 (was 1 for all devices, which
+  runs un-batched leaf forwards and starves the GPU); startup WARNING if
+  it ends up B=1 on CUDA. Explicit flag still wins.
+- 🟠 **Trainer MCTS-loss diagnostic vectorized** — the per-visit `.item()`
+  (`trainer.py`, 300–900 D2H syncs/state on Gumbel roots, pure logging) is
+  now one detached-tensor read per state. Loss is bit-identical.
+- 🟡 **C51 clamp** uses device-resident atom endpoints (was 2 `.item()`/
+  chunk). 🟡 **REINFORCE anneal mismatch** — `Transition` now carries
+  `decision_step`, stamped at sample time and threaded into the trainer
+  re-forward so the reference masks rebuild the oracle bias at the sampled
+  alpha (was frozen full-strength; REINFORCE path only). 🟡 **Petrified
+  units project no adjacency abilities** — `illuminate_step`/
+  `leadership_bonus`/`healer_heal_amount`/`adjacent_curer` now skip
+  `"petrified"` sources (verified vs the 1.18.4 tag; see
+  `docs/wesnoth_rules.md`; combat-parity break on statue maps). 🟢
+  **MCTS fog-bounce orphan target** — `MCTSPolicy.drop_last_pending`
+  pops the rejected decision's pending tail + rolls back decision_step
+  (was a no-op `observe`). 🟢 `run_game(record_trajectory=True)` deepcopies
+  the pre-action state (was aliasing the mutating gs; latent). 🟢
+  `mcts.py:746` also filters `_NOOP_KEY` (defensive).
+
+**DEFERRED — CUDA-only optimizations (recorded; cannot be perf-validated
+on the CPU laptop). Profile + apply on the first rented GPU node:**
+- **In-process rollout does per-leaf `.item()`/`.tolist()` on GPU-resident
+  tensors** (`action_sampler.py` enumerate path, ~dozens/leaf; +
+  `mcts.py` `_populate_leaf` value/cliffness). The actor-pool path already
+  moves outputs to CPU via `inference_seam.move_model_output`; the
+  in-process rollout does NOT. Fix: reuse the forward-on-GPU/sampler-on-CPU
+  split for the in-process path too. **Not done blind** — it's a refactor
+  of the default/tested hot path with a CPU-unmeasurable benefit; validate
+  on the GPU node. (Same family as B2 below.)
+- **B2** — per-leaf value/cliffness `.item()` batching in `_run_sim_batch`
+  (`mcts.py:1042`): read the batch's value+cliffness in one `.cpu()` after
+  `forward_batch`. **B3** — pin host buffers for `non_blocking=True` H2D on
+  CUDA (`encoder.py` `_to_dev`/`_cat_to_dev`; currently silently
+  synchronous on pageable numpy). Both were already logged 2026-06-29.
+- **model.py `actor_kind`** rebuilt per-`b` in `forward_batch` (small H2D/
+  forward) — precompute in `RawEncoded` at encode time (it's a pure fn of
+  U,R). Note it IS consumed on-device in `predict_priors` masking, so it
+  can't simply move to CPU. **inference_seam.move_model_output** issues
+  ~9×B separate D2H; coalesce per batch tensor then slice on CPU. **trainer
+  Pass-1 value harvest** (`trainer.py:372`, REINFORCE-only) — one `.item()`/
+  transition; stack + single readback.
+
 ## Update (2026-06-29): post-hiatus correctness + optimization review
 
 Multi-agent review of the self-play training path (6 subsystems +

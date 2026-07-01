@@ -48,6 +48,7 @@ import logging
 import multiprocessing as mp
 import queue as _queue
 import random
+import threading
 import time
 import traceback
 from types import SimpleNamespace
@@ -58,7 +59,7 @@ import torch
 log = logging.getLogger("actor_pool")
 
 # Control-queue commands (main -> actor).
-_CMD_PLAY = "play"        # (iter_idx, n_games, base_seed, t2i, f2i)
+_CMD_PLAY = "play"        # (iter_idx, n_games, base_seed, t2i, f2i, decision_step)
 _CMD_STOP = "stop"
 
 # Result-queue message kinds (actor -> main).
@@ -150,12 +151,23 @@ def _actor_loop(
         cmd = ctrl_q.get()
         if cmd[0] == _CMD_STOP:
             return
-        _, iter_idx, n_games, base_seed, t2i, f2i = cmd
+        _, iter_idx, n_games, base_seed, t2i, f2i, decision_step0 = cmd
         # Rebuild the encoder each iteration with the freshly-snapshotted
         # vocab so actor indices line up with the server's encoder.
         renc = RemoteEncoder(t2i, f2i, device=cpu)
+        # MCTSPolicy.select_action reads `_base._lock` / `_base._decision_step`
+        # (the combat-oracle anneal, added 2026-06-29). The in-process base is
+        # a TransformerPolicy that supplies both; the actor's lightweight base
+        # MUST supply them too, or select_action AttributeErrors on the first
+        # decision of every game — an error _play_one_game_safe swallows, so
+        # the pool would silently produce ZERO experiences. Seed the counter
+        # from the main process's GLOBAL decision_step (broadcast in the PLAY
+        # command) so the anneal alpha reflects true training progress rather
+        # than restarting at 0 in each actor each iteration.
         base = SimpleNamespace(_inference_model=rmodel,
-                               _inference_encoder=renc)
+                               _inference_encoder=renc,
+                               _lock=threading.Lock(),
+                               _decision_step=int(decision_step0))
         policy = MCTSPolicy(base, mcts_cfg)
         rng = random.Random(base_seed)
         try:
@@ -178,7 +190,14 @@ def _actor_loop(
         except Exception:
             result_q.put((_R_ERROR, actor_id, traceback.format_exc()))
         finally:
-            result_q.put((_R_DONE, actor_id, None))
+            # Report how many decisions this actor made this iteration
+            # (base._decision_step advanced past decision_step0), so the
+            # main process can advance the global anneal counter by the
+            # total across all actors.
+            local_decisions = (int(getattr(base, "_decision_step",
+                                           decision_step0))
+                               - int(decision_step0))
+            result_q.put((_R_DONE, actor_id, local_decisions))
 
 
 # =====================================================================
@@ -257,6 +276,24 @@ class ActorPool:
         enc = self._policy._inference_encoder
         return dict(enc.unit_type_to_id), dict(enc.faction_to_id)
 
+    def _anneal_base(self):
+        """The object holding the combat-oracle anneal counter. In
+        actor-pool mode `self._policy` is the MCTSPolicy wrapper, which
+        reads `self._base._decision_step` — the counter lives on the
+        underlying TransformerPolicy (`_base`). Fall back to the policy
+        itself for non-wrapped shapes."""
+        return getattr(self._policy, "_base", self._policy)
+
+    def _global_decision_step(self) -> int:
+        return int(getattr(self._anneal_base(), "_decision_step", 0))
+
+    def _advance_decision_step(self, n: int) -> None:
+        base = self._anneal_base()
+        if n and hasattr(base, "_decision_step"):
+            # Only run_iteration advances this in the main process (the
+            # actors mutate their own private copies), so no lock needed.
+            base._decision_step += int(n)
+
     def run_iteration(
         self, iter_idx: int, games_per_iter: int, base_seed: int,
     ) -> Tuple[List, List]:
@@ -269,14 +306,16 @@ class ActorPool:
         for i in range(games_per_iter % self._n):
             per[i] += 1
         t2i, f2i = self._vocab_snapshot()
+        ds0 = self._global_decision_step()
         for aid in range(self._n):
             self._ctrl_qs[aid].put(
                 (_CMD_PLAY, iter_idx, per[aid],
-                 base_seed + aid * 1_000_003, t2i, f2i))
+                 base_seed + aid * 1_000_003, t2i, f2i, ds0))
 
         outcomes: List = []
         experiences: List = []
         outstanding = set(range(self._n))   # actors not yet _R_DONE
+        total_decisions = 0                 # summed across actors this iter
         served = 0
         t_start = time.monotonic()
         last_liveness = t_start
@@ -293,6 +332,7 @@ class ActorPool:
                     experiences.extend(payload)
                 elif kind == _R_DONE:
                     outstanding.discard(aid)
+                    total_decisions += int(payload or 0)
                 elif kind == _R_ERROR:
                     log.error(f"actor {aid} error:\n{payload}")
             if not outstanding:
@@ -337,8 +377,13 @@ class ActorPool:
             for (aid, rid, _raw), out in zip(batch, outs):
                 self._resp_qs[aid].put((rid, out))
             served += len(batch)
+        # Advance the global anneal counter by the decisions generated this
+        # iteration (sum across actors), so the combat-oracle bias keeps
+        # annealing across the campaign instead of freezing at ds0.
+        self._advance_decision_step(total_decisions)
         log.info(f"iter {iter_idx}: pool served {served} forwards, "
-                 f"{len(outcomes)} games, {len(experiences)} experiences")
+                 f"{len(outcomes)} games, {len(experiences)} experiences, "
+                 f"decision_step {ds0} -> {self._global_decision_step()}")
         return outcomes, experiences
 
     def shutdown(self, timeout: float = 15.0) -> None:

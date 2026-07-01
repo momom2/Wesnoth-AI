@@ -141,6 +141,11 @@ class MCTSPolicy:
         # matches (deterministic actions match; combat RNG diverges
         # and rebuilds). See MCTSConfig.tree_reuse.
         self._reuse: Dict[str, Tuple] = {}
+        # game_label -> whether the LAST select_action recorded a pending
+        # training target (True only for full-budget moves). Lets the
+        # fog-bounce retry loop drop exactly the rejected decision's tail
+        # via drop_last_pending (see select_action / drop_last_pending).
+        self._last_recorded: Dict[str, bool] = {}
         # `_inference_*` already exist on base — under the lock used
         # by base's snapshot. We just borrow them. mcts_search runs
         # `torch.no_grad()` internally so concurrent gradient steps
@@ -292,6 +297,12 @@ class MCTSPolicy:
                 if stash:
                     with self._lock:
                         self._reuse[game_label] = stash
+        # Record whether this decision left a pending training target, so a
+        # fog-bounce retry can undo exactly this decision (full moves append
+        # a pending state; fast playout-cap moves don't). decision_step was
+        # advanced above regardless.
+        with self._lock:
+            self._last_recorded[game_label] = full_move
         return action
 
     def observe(self, game_label: str, side: int, reward: float,
@@ -367,6 +378,32 @@ class MCTSPolicy:
         with self._lock:
             self._pending.pop(game_label, None)
             self._reuse.pop(game_label, None)
+            self._last_recorded.pop(game_label, None)
+
+    def drop_last_pending(self, game_label: str) -> bool:
+        """Undo the most recent select_action for `game_label` after a
+        fog-bounce rejection: pop the pending training target it recorded
+        (if it was a full move) and roll back the decision_step increment
+        it made, so the rejected pick is neither trained on nor counted
+        toward the combat-oracle anneal. Also drop the now-stale tree-reuse
+        stash for the bounced action. Returns True (the rejection was
+        handled) so the rollout loop knows not to fall back to observe().
+
+        MUST be called BEFORE the re-decision so the rolled-back
+        decision_step is re-consumed by the retry (no double-count).
+        """
+        with self._lock:
+            recorded = self._last_recorded.pop(game_label, False)
+            if recorded:
+                pend = self._pending.get(game_label)
+                if pend:
+                    pend.pop()
+            self._reuse.pop(game_label, None)
+        # Roll back the per-decision counter the bounced call advanced.
+        with self._base._lock:
+            if self._base._decision_step > 0:
+                self._base._decision_step -= 1
+        return True
 
     def train_step(self) -> TrainStats:
         with self._lock:

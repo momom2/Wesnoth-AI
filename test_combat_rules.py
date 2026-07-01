@@ -160,6 +160,52 @@ def test_illuminate_lights_enemy_too():
     )
 
 
+def _mk_unit(uid, name, side, x, y, *, abilities=frozenset(),
+             statuses=frozenset()):
+    from classes import Position, Unit
+    return Unit(
+        id=uid, name=name, name_id=0, side=side, is_leader=False,
+        position=Position(x, y), max_hp=30, max_moves=5, max_exp=50,
+        cost=20, alignment=None, levelup_names=[], current_hp=30,
+        current_moves=5, current_exp=0, has_attacked=False, attacks=[],
+        resistances=[1.0]*6, defenses=[60]*14, movement_costs=[1]*14,
+        abilities=set(abilities), traits=set(), statuses=set(statuses),
+    )
+
+
+def test_petrified_source_projects_no_adjacency_abilities():
+    """A petrified/incapacitated unit projects NO adjacency ability:
+    get_abilities skips adjacent units where it->incapacitated()
+    (abilities.cpp; illuminate via tod_manager.cpp:443). Verified vs
+    the 1.18.4 tag 2026-07-01. Covers illuminate + heals + cures."""
+    from tools.abilities import (illuminate_step, healer_heal_amount,
+                                 adjacent_curer)
+
+    # Illuminate: a petrified illuminator lights neither itself nor a
+    # neighbor (the reachable statue-map case; illuminate is side-agnostic).
+    illum = _mk_unit("u1", "Mage of Light", 1, 1, 1,
+                     abilities={"illuminates"}, statuses={"petrified"})
+    neighbor = _mk_unit("u2", "Spearman", 2, 2, 1)
+    units = {illum, neighbor}
+    assert illuminate_step(illum, units) == 0
+    assert illuminate_step(neighbor, units) == 0
+
+    # Heals / cures: a petrified same-side healer/curer projects nothing.
+    healer = _mk_unit("h1", "White Mage", 1, 1, 1,
+                      abilities={"heals_8", "cures"}, statuses={"petrified"})
+    patient = _mk_unit("p1", "Spearman", 1, 2, 1)
+    hunits = {healer, patient}
+    assert healer_heal_amount(patient, hunits) == 0
+    assert adjacent_curer(patient, hunits) is False
+
+    # Sanity: without petrification the same healer DOES project.
+    healer_ok = _mk_unit("h2", "White Mage", 1, 1, 1,
+                         abilities={"heals_8", "cures"})
+    ok_units = {healer_ok, patient}
+    assert healer_heal_amount(patient, ok_units) == 8
+    assert adjacent_curer(patient, ok_units) is True
+
+
 # ---------------------------------------------------------------------
 # AMLA — +3 max_hp, +20% max_exp, clear poisoned/slowed
 # ---------------------------------------------------------------------

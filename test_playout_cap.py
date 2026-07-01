@@ -100,3 +100,29 @@ def test_off_by_default_records_targets():
     """playout_cap off (default) => normal recording on every move."""
     mp = MCTSPolicy(_policy(), _cfg())
     assert _recorded_count(mp) > 0
+
+
+def test_drop_last_pending_pops_tail_and_rolls_back_decision_step():
+    """The fog-bounce retry loop calls drop_last_pending to undo the
+    rejected decision. It must (a) pop exactly the pending target the
+    last select_action recorded and (b) roll back the decision_step
+    increment, so the bounced pick is neither trained on nor counted
+    toward the combat-oracle anneal (which would otherwise over-advance
+    and inject a correlated duplicate target)."""
+    import copy
+    mp = MCTSPolicy(_policy(), _cfg())
+    mp._rng = np.random.default_rng(21)
+    sim = fresh_scenario_sim(seed=21, max_turns=8, mini=True)
+
+    ds0 = mp._base._decision_step
+    pre = copy.deepcopy(sim.gs)
+    mp.select_action(pre, game_label="g", sim=sim)
+    # A full move recorded one pending target and advanced the counter.
+    assert len(mp._pending.get("g", [])) == 1
+    assert mp._base._decision_step == ds0 + 1
+
+    handled = mp.drop_last_pending("g")
+    assert handled is True
+    assert len(mp._pending.get("g", [])) == 0
+    # decision_step rolled back so the retry re-consumes it (no double count).
+    assert mp._base._decision_step == ds0

@@ -82,12 +82,21 @@ placement once on real hardware.
 - **OOM**: lower `--train-batch-size` first, then `--replay-capacity`
   (each buffered experience holds a deepcopied game state).
 - **Underutilized GPU**: raise `--train-batch-size` (bigger batched
-  forward) and/or `--replay-updates`; raise `--mcts-batch-size` (B=8-32)
+  forward) and/or `--replay-updates`; tune `--mcts-batch-size` (B=8-32)
   so each Gumbel sequential-halving phase evaluates its leaves through one
   batched forward instead of B=1-per-sim (intra-search batching; was a
-  no-op before the 2026-06-29 fix); and/or `--workers N` for parallel
-  rollout (cross-game batching). The two batching levers compose; profile
-  to pick B.
+  no-op before the 2026-06-29 fix). **As of 2026-07-01 `--mcts-batch-size`
+  defaults device-aware (B=16 on CUDA, B=1 on CPU)** so leaf batching is on
+  by default on GPU; pass an explicit value to tune. And/or `--workers N`
+  for parallel rollout (cross-game batching). The batching levers compose;
+  profile to pick B.
+- **First-GPU-node profiling TODO (see BACKLOG §2026-07-01 "DEFERRED"):**
+  several CUDA-only D2H-sync stalls could not be measured on the CPU
+  laptop and were recorded, not applied — the in-process rollout's
+  per-leaf `.item()`/`.tolist()` on GPU tensors (biggest; adopt the
+  actor-pool's sampler-on-CPU split), B2 (per-leaf value/cliffness batch
+  read), B3 (pinned H2D). Profile with `tools/profile_rollout.py` on the
+  node and fix the stalls that actually show before the long campaign.
 - **Fresh campaign vs. resume**: start a NEW training run (treating an old
   checkpoint as weights-only) with `--reset-decision-step` so the
   combat-oracle anneal restarts from full strength; OMIT it when resuming

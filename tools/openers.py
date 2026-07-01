@@ -184,6 +184,14 @@ class OpenerPolicy:
         if fn is not None:
             return fn(*args, **kwargs)
 
+    def drop_last_pending(self, *args, **kwargs) -> bool:
+        # Forward the fog-bounce drop-tail to the base if it implements it
+        # (MCTSPolicy does; TransformerPolicy doesn't). Return False when
+        # the base can't handle it so the rollout loop falls back to
+        # observe() for the neutral-signal behavior.
+        fn = getattr(self._base, "drop_last_pending", None)
+        return bool(fn(*args, **kwargs)) if fn is not None else False
+
     def finalize_game(self, *args, **kwargs):
         # The rollout loop calls this unconditionally at game end;
         # not forwarding it crashed every --opener run with an
