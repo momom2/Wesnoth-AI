@@ -37,10 +37,15 @@ Commit survives closing the tab), ~30 GPU-h/week. Caveat: only ~4 vCPU (the
 rollout will be somewhat starved) and 9–12h session cap → this phase is for
 *validating the pipeline and profiling*, not the long run.
 
-Setup: verify phone (unlocks accelerators), enable **GPU T4×2**, `pip install
--r requirements` (torch is preinstalled), pull the repo + `tier_a_5m.pt`
-(as a Dataset), and ensure the pinned scrapes `unit_stats.json` /
-`terrain_db.json` are present (they're committed).
+Setup: verify phone (unlocks accelerators), enable **GPU T4×2** and
+Internet, then `git clone` the repo in the notebook. **Do NOT `pip
+install -r requirements.txt`** — it pins `torch-directml` (Windows-only,
+would fail/mis-resolve on Kaggle's Linux image); torch, numpy and pytest
+are all preinstalled. The clone is self-contained: the pinned scrapes
+`unit_stats.json`/`terrain_db.json` AND the sim's runtime WML subset
+(`wesnoth_src/data/multiplayer/*`, Mini Maps) are committed, and
+`tier_a_5m.pt` is committed under `training/checkpoints/`.
+A ready-to-run notebook lives at `kaggle/tier_a_phase1.ipynb`.
 
 **1a. REQUIRED first-run CUDA smoke** (adapted from `running_on_gpu.md`, at
 the real 5M arch):
