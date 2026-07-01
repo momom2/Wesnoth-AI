@@ -46,42 +46,62 @@ Most replays in `replays_raw/` are from 1.18.x clients; pin
 accordingly. If a replay's `[scenario] version=` says something
 other than 1.18.x, scrape from that version's tag instead.
 
-## Current status (2026-06-30)
+## Current status (2026-07-02)
 
-**Post-hiatus review complete; training path unblocked and on `main`.**
-A multi-agent correctness+optimization review (2026-06-29) of the
-self-play path found and FIXED a critical blocker plus a batch of
-correctness/throughput items — all committed and pushed to `origin/main`
-(commits `7abbba1` review fixes, `9935473` B1 batched-Gumbel). Full
-pytest suite green (365+ tests). Itemised in **BACKLOG.md §2026-06-29**.
+**Second deep review DONE + fixes on `origin/main`; Tier-a compute plan
+LOCKED; next action = execute the Tier-a runbook (grow the net, run the
+CUDA pipeline on free Kaggle, then a ~$30 Vast.ai spot calibration run).**
+An independent multi-agent correctness+optimization review (2026-07-01,
+every finding adversarially verified) returned **GO for the default
+in-process `--mcts` path** — the combat/economy/termination core that
+produces the ±1 reward is sound; no training-signal-corrupting bug on the
+intended path. All pre-flight fixes applied, full suite green (**369
+passed**), committed + pushed. Itemised in **BACKLOG.md §2026-07-01**.
+
+Commits this session (all on `origin/main`):
+- `8468c5b` review pre-flight fixes; `c83a3dd` Tier-a decisions locked +
+  runbook; `f706400`/`c6b314c` gpu-perf B3 (pinned H2D) + perf patch spec.
 
 What a new instance MUST know:
-- **CRITICAL (now fixed):** on the `--mcts` path `MCTSPolicy.train_step`
-  never snapshotted, so self-play/search ran on a PERMANENTLY FROZEN
-  inference net while only the saved checkpoint drifted — the AlphaZero
-  loop never closed. Any `--mcts` run/checkpoint from before 2026-06-29
-  was generated against a frozen network. Fixed + regression-tested
-  (`test_inference_snapshot.py`).
-- **Combat-oracle bias now ANNEALS in MCTS mode.** It was frozen:
-  `decision_step` never advanced in the MCTS path (only REINFORCE
-  incremented it). It now advances per MCTS decision and is threaded
-  through search AND the distillation loss (same alpha). **Start a fresh
-  campaign with `--reset-decision-step`** — per the owner's directive,
-  treat the existing ~5.68M-step checkpoint as WEIGHTS-ONLY init and
-  restart training progress from zero so the anneal runs from full
-  strength. OMIT the flag when resuming an in-progress run.
-- **B1 batched-Gumbel landed:** `--mcts-batch-size>1` now batches Gumbel
-  leaf forwards (was a silent no-op in the default config). GPU-only win.
-- **Deferred to the first GPU node** (unmeasurable on this CPU laptop):
-  B2 per-element `.item()`/D2H syncs, B3 pinned-memory H2D. See BACKLOG.
+- **The go-forward path is the Tier-a runbook: `docs/tier_a_runbook.md`**
+  (decisions locked in `docs/superhuman_training_plan.md` §10). Phase 0
+  grow (done-able locally) → Phase 1 Kaggle free T4×2 (pipeline test +
+  profile) → Phase 2 Vast.ai spot 4090 on a ≥32-vCPU host (~$30
+  calibration run). Objective is a single Elo-vs-compute point, NOT a
+  strong model, before any Tier-b spend.
+- **Tier-a net = 5.0M params** (`--d-model 256 --num-layers 6
+  --num-heads 8 --d-ff 1024`), Net2Net-grown from the 471K checkpoint via
+  `tools/net2net.py` (measured value MAE ~0.017 — the grow preserves the
+  trained value head well enough to warm-start). Grow output =
+  `training/checkpoints/tier_a_5m.pt`.
+- **Fresh campaign uses `--reset-decision-step`** (weights-only init;
+  combat-oracle anneal restarts at full strength). **OMIT it on a
+  spot-preemption resume** or the anneal restarts mid-run.
+- **Pre-flight fixes that change how you run it:** checkpoint save is now
+  atomic (`.tmp`+`os.replace`+rolling `.bak`) and resume falls back to
+  `.bak`, so same-path `--checkpoint-in`==`--checkpoint-out` on spot is
+  safe; `--mcts-batch-size` now defaults device-aware (B=16 on CUDA);
+  `configs/reward_selfplay.json damage_dealt` corrected 0.005→0.0005;
+  `--actor-pool` un-broken (was crashing → 0 experiences) if you reach
+  for it to feed the GPU.
+- **Deferred CUDA-only perf (profile-first on the GPU node):** the
+  in-process rollout's per-leaf `.item()`/`.tolist()` on GPU tensors is
+  the biggest expected stall (fix = adopt the actor-pool's
+  forward-on-GPU/sampler-on-CPU split); plus B2 (per-leaf value/cliffness
+  batch read) and B3 (pinned H2D, now impl'd on `main`). Spec in
+  `docs/gpu_perf_patches.md`; profile with `tools/profile_rollout.py`.
 
-**NEXT — go-forward plan.** The code is GO for renting compute; the CUDA
-path has NEVER run on real hardware. Before a paid run: (1) run the
-REQUIRED first-run GPU smoke in `docs/running_on_gpu.md`; (2) profile
-B2/B3 + MCTS leaf batching on that node and fix the stalls that show;
-(3) launch the campaign with `--reset-decision-step`. After that the
-project moves to acquiring GPU compute (owner's stated sequencing:
-review → confirm working → acquire compute).
+**Free-compute question (RESOLVED, see plan §10 / the runbook's cost
+section):** startup credit programs (MS Founders Hub / AWS Activate /
+Google / NVIDIA Inception) all need a registered company + website — NOT
+viable for a solo unincorporated individual. Google TPU Research Cloud is
+the only large free grant open to individuals but a poor fit (needs a
+`torch_xla` port and its low-vCPU driver would starve the CPU-bound
+rollout). So the plan is **Kaggle free T4×2 (Phase 1) → Vast.ai spot 4090
+~$30 (Phase 2)**, with small free smoke credits available (Modal ~$30/mo,
+RunPod ~$5). A final background re-run of this research was lost when the
+process exited, but its conclusions were already captured — no need to
+redo it unless chasing a specific new grant.
 
 ## Current status (2026-06-11, superseded — kept for provenance)
 
