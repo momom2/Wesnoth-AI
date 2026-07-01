@@ -561,11 +561,19 @@ class GameStateEncoder(nn.Module):
         # the device was already doing. Harmless on CPU (no-op).
         # Kept True on DML after the ablation -- see the matching
         # comment in encode_from_raw_batch.
+        # [gpu-perf B3] On CUDA, non_blocking=True is SILENTLY SYNCHRONOUS
+        # from pageable (un-pinned) numpy memory, so we pin the host buffer
+        # first to get real async DMA overlap. pin_memory() is a host->
+        # pinned copy (small cost) that only pays off if it overlaps real
+        # compute -- profile on the GPU node before assuming a win.
         nb = device.type != "cpu"
+        _pin = device.type == "cuda"
 
         def _to_dev(arr_or_tensor):
             t = torch.from_numpy(arr_or_tensor)
             if device.type != "cpu":
+                if _pin:
+                    t = t.pin_memory()
                 t = t.to(device, non_blocking=nb)
             return t
 
@@ -712,6 +720,7 @@ class GameStateEncoder(nn.Module):
         # here; stability comes from `train_batch_size=1` +
         # `dml_sync` at the start of `trainer.step` (see device.py).
         nb = device.type != "cpu"
+        _pin = device.type == "cuda"   # [gpu-perf B3] see encode_from_raw
 
         Hs = [r.hex_xs.shape[0] for r in raws]
         Us = [r.unit_xs.shape[0] for r in raws]
@@ -725,6 +734,8 @@ class GameStateEncoder(nn.Module):
             cat = np.concatenate(arrays) if arrays else np.zeros(0, dtype=dtype)
             t = torch.from_numpy(cat)
             if device.type != "cpu":
+                if _pin:
+                    t = t.pin_memory()
                 t = t.to(device, non_blocking=nb)
             return t
 
