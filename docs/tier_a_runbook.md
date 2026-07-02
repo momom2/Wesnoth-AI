@@ -78,13 +78,17 @@ prepped perf fixes (branch `gpu-perf-fixes`, see BACKLOG §2026-07-01) and
 re-profile. Also profile `--mcts-batch-size 8/16/32` to pick B.
 
 **1c. Short end-to-end pipeline run** (a few iterations; confirm the loop,
-replay buffer, checkpoint/resume, and the WHR/Elo logging all work on CUDA):
+replay buffer, checkpoint/resume, and the WHR/Elo logging all work on CUDA).
+**T4-sized batches** — measured 2026-07-02: minibatch/chunk 128/128 OOM'd
+the 15GB T4 at iter 1 (12.7GB allocated, +818MB refused); 64/32 +
+`expandable_segments` is the T4 setting. Phase 2's 24GB 4090 keeps 128/128:
 ```
+PYTORCH_ALLOC_CONF=expandable_segments:True \
 python tools/sim_self_play.py --device cuda \
   --mcts --mcts-sims 32 --iterations 20 --games-per-iter 8 --max-turns 24 \
   --mini-ratio 0.5 --drill-ratio 0.3 \
   --replay-buffer --replay-updates 16 --value-coef 1.0 \
-  --replay-minibatch 128 --replay-capacity 6000 --train-batch-size 128 \
+  --replay-minibatch 64 --replay-capacity 6000 --train-batch-size 32 \
   --d-model 256 --num-layers 6 --num-heads 8 --d-ff 1024 \
   --reset-decision-step \
   --checkpoint-in training/checkpoints/tier_a_5m.pt \

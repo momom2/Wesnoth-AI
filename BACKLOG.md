@@ -38,6 +38,28 @@ Found while proving a bare `git clone` can run Tier-a Phase 1:
   decision_step carried) committed. Ready-to-run Phase 1 notebook at
   `kaggle/tier_a_phase1.ipynb`. Suite: **370 passed**.
 
+**Phase 1 first Kaggle run (2026-07-02, T4×2, torch 2.10.0+cu128):**
+- **1a smoke PASSED** on first GPU attempt: `mcts_batch_size = 16
+  (device=cuda)`, vocab fix confirmed live (`151 unit types` at load),
+  checkpoint saved (62MB with optimizer state).
+- **1b profile (sims=32, 2 games, 2578 leaf evals, GPU-serialized):**
+  forward 41.3% (6.8ms/leaf), enumerate 26.0%, encode 22.8%, sim
+  step+fork 2.9%. → Once the forward is batched/overlapped away, the
+  CPU side (enumerate+encode) is ~83% of the rollout: **confirms the
+  sampler-on-CPU/B2 patch direction AND the ≥32-vCPU Phase 2 host
+  requirement.** Throughput 2.5 actions/s serialized (4 vCPU).
+- **1c OOM'd the 15GB T4 at iter 1's train_step** with the runbook's
+  4090-sized `--replay-minibatch 128 --train-batch-size 128` (12.7GB
+  allocated, +818MB refused; iter-0 step at 441 transitions worked,
+  10.0s). Iter-1 minibatches sample later-game states (more units →
+  longer padded sequences), pushing peak activation memory over.
+  Notebook + runbook now use 64/32 + `expandable_segments` on T4.
+- **DEFERRED (nice-to-have before long unattended runs):** train_step
+  has no OOM backoff — a mid-run `torch.OutOfMemoryError` kills the
+  process (atomic checkpoint + resume limits the loss, but on spot
+  compute it wastes the rental). Consider catch → halve forward chunk
+  → retry-once in `trainer.py`.
+
 ## Update (2026-07-01): second deep review + fixes applied
 
 Independent multi-agent review (7 subsystems + adversarial verification)

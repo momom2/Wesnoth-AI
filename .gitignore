@@ -44,6 +44,10 @@ add-ons/wesnoth_ai/scenarios/eval/*
 # Wesnoth debugging dumps (anywhere in the tree)
 *.log
 
+# Kaggle run artifacts pulled via `kaggle kernels output` (checkpoints,
+# profile.json, run logs) — analyzed locally, not versioned.
+kaggle/kaggle_output/
+
 # External Wesnoth source — refreshed from the Steam install (see
 # CLAUDE.md "Wesnoth data provenance"). Mostly untracked, EXCEPT the
 # sim's runtime WML inputs (~840KB), tracked since 2026-07-02 so a
