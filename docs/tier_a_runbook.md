@@ -111,6 +111,34 @@ GPU). Attach a persistent disk for checkpoints. Interruptible is safe: the
 checkpoint save is atomic (`.tmp` + `os.replace`) and keeps a `.bak`, and the
 resume path falls back to `.bak` if the primary is truncated by a preemption.
 
+**Concrete Vast.ai steps (2026-07-02):**
+1. Search: GPU = RTX 4090, **Interruptible**, filters `cpu_cores >= 32`,
+   RAM ≥ 32 GB (the replay buffer holds 6000 deep-copied GameStates),
+   disk slider ~40 GB, reliability ≥ 99%, inet ≥ 100 Mbps.
+2. Template: an official PyTorch CUDA template with **Python ≥ 3.11**
+   (the onstart script hard-checks and refuses otherwise).
+3. Paste `scripts/vast_onstart.sh` into the template's **On-start
+   Script** box. It runs at every (re)start and encodes everything:
+   env check, clone, FIRST-launch-vs-resume (`--reset-decision-step`
+   only when `tier_a_campaign.pt` doesn't exist yet), the full
+   runbook command with all three tripwires, logging to
+   `/workspace/train.log`, and an `ABORTED_<rc>` marker that BLOCKS
+   auto-relaunch after a tripwire (codes 4/5 need a human).
+4. Bid: set ~20–30% above the current interruptible price (~$0.15/h →
+   bid ~$0.20/h) so routine outbids are rare; a preemption STOPS the
+   instance (disk persists, onstart auto-resumes on restart) — only
+   DESTROY loses the disk. Download the checkpoint + CSV before
+   destroying.
+5. Monitor (from the local machine): `pip install vastai`, set the API
+   key, then `vastai show instances`, `vastai logs <id>`, or ssh +
+   `tail -f /workspace/train.log`. Pull artifacts with `vastai copy`
+   / scp: `training/logs/trainer_history_local.csv` and
+   `training/checkpoints/tier_a_campaign.pt`.
+6. Watch, in order: `holdout value CE` falling (the ONLY value-learning
+   signal), decisive-game % rising, games/hr. Tripwire exits leave
+   `ABORTED_4` (all-draws) / `ABORTED_5` (holdout stall) in
+   `/workspace` — diagnose from the CSV, remove the marker, restart.
+
 **First launch (fresh campaign — note `--reset-decision-step`):**
 ```
 python tools/sim_self_play.py --device cuda \
