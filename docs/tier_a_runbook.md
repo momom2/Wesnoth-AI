@@ -115,6 +115,15 @@ resume path falls back to `.bak` if the primary is truncated by a preemption.
 1. Search: GPU = RTX 4090, **Interruptible**, filters `cpu_cores >= 32`,
    RAM ≥ 32 GB (the replay buffer holds 6000 deep-copied GameStates),
    disk slider ~40 GB, reliability ≥ 99%, inet ≥ 100 Mbps.
+   **Judge offers by ALLOCATED CPU CORES PER DOLLAR** (the first
+   number in the card's `48/128 CPU` column), not by GPU count: the
+   workload is CPU-bound (measured 2026-07-02: rollout ~80% CPU) and
+   one 4090 won't be saturated. A cheap 2×/4×-GPU offer with many
+   cores beats a pricier 1×-GPU offer — the extra GPUs just idle
+   (`--device cuda` = GPU 0; no config change). Don't run a second
+   job on the idle GPUs; it would split the cores the main run needs.
+   Multi-GPU *training* is deliberately NOT supported — wrong
+   bottleneck until one GPU is CPU-saturated (Tier-b question).
 2. Template: an official PyTorch CUDA template with **Python ≥ 3.11**
    (the onstart script hard-checks and refuses otherwise).
 3. Paste `scripts/vast_onstart.sh` into the template's **On-start
