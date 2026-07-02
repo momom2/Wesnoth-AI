@@ -75,6 +75,11 @@ else
 fi
 
 export PYTORCH_ALLOC_CONF=expandable_segments:True
+# 48 actor processes x (ctrl/resp queues + shipped experience pipes)
+# exceed the container's default 1024-fd soft limit (observed
+# 2026-07-02: OSError errno 24 in multiprocessing resource_sharer).
+ulimit -n 65536 2>/dev/null || ulimit -n 4096 2>/dev/null || true
+echo "[onstart] fd limit: $(ulimit -n)"
 nohup bash -c "
   '$PY' tools/sim_self_play.py --device cuda \
     --mcts --mcts-sims 32 \
