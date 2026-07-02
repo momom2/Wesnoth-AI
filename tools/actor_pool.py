@@ -329,7 +329,14 @@ class ActorPool:
                 if kind == _R_OUTCOME:
                     outcomes.append(payload)
                 elif kind == _R_EXPS:
-                    experiences.extend(payload)
+                    # Each _R_EXPS payload is ONE GAME's experiences
+                    # (actors ship per game) -- exactly the granularity
+                    # the learner's holdout probe needs. Offer the
+                    # whole game; only train on it if not diverted.
+                    offer = getattr(self._policy, "offer_holdout_game",
+                                    None)
+                    if offer is None or not offer(payload):
+                        experiences.extend(payload)
                 elif kind == _R_DONE:
                     outstanding.discard(aid)
                     total_decisions += int(payload or 0)

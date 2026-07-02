@@ -2000,19 +2000,13 @@ def main(argv: List[str]) -> int:
         policy = MCTSPolicy(policy, mcts_cfg, replay_config=replay_cfg,
                             holdout_size=args.holdout_size)
         if args.holdout_size > 0:
-            if args.actor_pool > 0:
-                # Actor experiences bypass the learner's finalize_game
-                # (they arrive pre-finalized from the actor processes),
-                # so the diversion hook never sees them.
-                log.warning(
-                    "--holdout-size is inactive under --actor-pool "
-                    "(finalize_game runs in the actors); running "
-                    "without the holdout probe.")
-            else:
-                log.info(
-                    f"holdout probe ON: first ~{args.holdout_size} "
-                    f"experiences (whole games) are held out of "
-                    f"training and scored each iter.")
+            # Works on both the in-process path (finalize_game) and
+            # --actor-pool (the pool drain offers each per-game
+            # _R_EXPS payload to offer_holdout_game).
+            log.info(
+                f"holdout probe ON: first ~{args.holdout_size} "
+                f"experiences (whole games) are held out of "
+                f"training and scored each iter.")
 
     # Optional opener wrapper: scripts the first K decisions per
     # game-side, then delegates to the learned policy. Forwarding to

@@ -46,6 +46,10 @@ if [ ! -d Wesnoth-AI ]; then
     git clone --depth 1 https://github.com/momom2/Wesnoth-AI.git || exit 1
 fi
 cd Wesnoth-AI
+# Pick up fixes pushed since the instance was created. --ff-only so a
+# locally-dirtied tree (shouldn't happen; checkpoints write to an
+# untracked path) fails loudly instead of merging silently.
+git pull --ff-only || echo "[onstart] WARN: git pull failed; running existing checkout"
 
 # A tripwire abort (exit 4 = all-draws, 5 = holdout stall) needs a
 # human decision -- do NOT auto-relaunch over it.
@@ -82,6 +86,7 @@ nohup bash -c "
     --holdout-size 512 \
     --abort-decisive-rate 0.05 --abort-window 40 \
     --abort-holdout-stall 150 \
+    --actor-pool 48 --games-per-iter 48 \
     $RESET \
     --checkpoint-in  $CKPT_IN \
     --checkpoint-out $CAMPAIGN \

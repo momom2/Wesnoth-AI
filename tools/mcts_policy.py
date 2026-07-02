@@ -354,14 +354,7 @@ class MCTSPolicy:
         # tiebreak config is set (trainer then skips the aux loss).
         aux_gs = final_gs if final_gs is not None else (
             states[-1].gs if states else None)
-        # Holdout diversion: while the probe set is below target, this
-        # whole game's experiences go there INSTEAD of training (per-
-        # game granularity -- states within one game are correlated,
-        # so splitting a game between train and holdout would leak).
-        with self._lock:
-            divert = (self._holdout_target > 0
-                      and len(self._holdout) < self._holdout_target)
-        sink_is_holdout = divert
+        exps: List[MCTSExperience] = []
         for s in states:
             if winner == 0:
                 if tiebreak is not None and final_gs is not None:
@@ -375,29 +368,28 @@ class MCTSPolicy:
             aux = (material_margin(aux_gs, s.side, tiebreak)
                    if (tiebreak is not None and aux_gs is not None)
                    else None)
-            exp = MCTSExperience(
+            exps.append(MCTSExperience(
                 game_state=s.gs,
                 visit_counts=s.visit_counts,
                 z=z,
                 aux_target=aux,
                 decision_step=s.decision_step,
-            )
+            ))
+        # Holdout diversion: while the probe set is below target, the
+        # WHOLE game goes there instead of training (states within one
+        # game are correlated; splitting a game between train and
+        # holdout would leak). Same code path the actor-pool drain
+        # uses for its per-game _R_EXPS payloads.
+        diverted = self.offer_holdout_game(exps)
+        if not diverted:
             with self._lock:
-                if sink_is_holdout:
-                    self._holdout.append(exp)
-                else:
-                    self._queue.append(exp)
+                self._queue.extend(exps)
         if states:
             log.debug(
                 f"finalize_game({game_label!r}, winner={winner}): "
-                f"{'HELD OUT' if sink_is_holdout else 'queued'} "
+                f"{'HELD OUT' if diverted else 'queued'} "
                 f"{len(states)} MCTSExperiences"
             )
-            if sink_is_holdout and \
-                    len(self._holdout) >= self._holdout_target:
-                log.info(
-                    f"holdout set full: {len(self._holdout)} "
-                    f"experiences frozen; all further games train.")
 
     def drop_pending(self, game_label: str) -> None:
         """Match TransformerPolicy's drop_pending API for error
@@ -431,6 +423,26 @@ class MCTSPolicy:
         with self._base._lock:
             if self._base._decision_step > 0:
                 self._base._decision_step -= 1
+        return True
+
+    def offer_holdout_game(self, exps: List[MCTSExperience]) -> bool:
+        """Offer ONE GAME's experiences to the holdout probe. Returns
+        True if the game was diverted (caller must NOT train on it),
+        False if the probe is off or already full. Used by the
+        actor-pool drain loop, whose per-game _R_EXPS messages
+        preserve exactly the game granularity the probe needs."""
+        if not exps:
+            return False
+        with self._lock:
+            if (self._holdout_target <= 0
+                    or len(self._holdout) >= self._holdout_target):
+                return False
+            self._holdout.extend(exps)
+            full = len(self._holdout) >= self._holdout_target
+        if full:
+            log.info(
+                f"holdout set full: {len(self._holdout)} "
+                f"experiences frozen; all further games train.")
         return True
 
     def holdout_metrics(self) -> Optional[Tuple[float, int]]:

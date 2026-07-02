@@ -79,6 +79,25 @@ def test_holdout_diverts_whole_games_then_freezes():
         assert torch.equal(a, b), "holdout eval must not update weights"
 
 
+def test_offer_holdout_game_pool_contract():
+    """The actor-pool drain calls offer_holdout_game per _R_EXPS
+    payload (= one game). Contract: divert whole games until full,
+    then refuse; empty payloads and probe-off always refuse."""
+    from trainer import MCTSExperience
+    policy = TransformerPolicy()
+    mp = MCTSPolicy(policy, holdout_size=3)
+    game = [MCTSExperience(game_state=_gs(), visit_counts=[], z=0.0)
+            for _ in range(2)]
+    assert mp.offer_holdout_game([]) is False, "empty game -> refuse"
+    assert mp.offer_holdout_game(list(game)) is True     # 2 < 3
+    assert mp.offer_holdout_game(list(game)) is True     # whole game in
+    assert len(mp._holdout) == 4, "freeze is per-game, may overshoot"
+    assert mp.offer_holdout_game(list(game)) is False, "full -> train"
+    # Probe off -> always refuse.
+    mp_off = MCTSPolicy(policy)
+    assert mp_off.offer_holdout_game(list(game)) is False
+
+
 def test_holdout_off_by_default():
     policy = TransformerPolicy()
     mp = MCTSPolicy(policy)  # holdout_size defaults to 0
