@@ -9,13 +9,31 @@
 # cycles on Vast (it is the instance's disk; it is lost only if the
 # instance is DESTROYED -- download checkpoints before destroying).
 set -uo pipefail
-exec >> /workspace/onstart.log 2>&1
+# Vast images differ in data dir + where python lives (observed
+# 2026-07-02 on vastai/pytorch:cuda-13.0.3-auto: no /workspace at
+# onstart time, and python sits in /venv/main which only interactive
+# shells activate). Be robust to both.
+WORKDIR="${DATA_DIRECTORY:-/workspace}"
+mkdir -p "$WORKDIR"
+exec >> "$WORKDIR/onstart.log" 2>&1
 echo "==== onstart $(date -u +%FT%TZ) ===="
 
-cd /workspace
+cd "$WORKDIR"
+
+# Resolve python: prefer the image's venv, then conda, then PATH.
+if [ -x /venv/main/bin/python ]; then
+    export PATH="/venv/main/bin:$PATH"
+elif [ -x /opt/conda/bin/python ]; then
+    export PATH="/opt/conda/bin:$PATH"
+fi
+PY="$(command -v python || command -v python3 || true)"
+if [ -z "$PY" ]; then
+    echo "[onstart] FATAL: no python found on PATH/venv/conda"; exit 1
+fi
+echo "[onstart] using python: $PY"
 
 # Hard requirements: CUDA torch + Python >= 3.11 (project floor).
-python - <<'EOF' || { echo "[onstart] FATAL: env check failed"; exit 1; }
+"$PY" - <<'EOF' || { echo "[onstart] FATAL: env check failed"; exit 1; }
 import sys, torch
 assert sys.version_info >= (3, 11), f"need Python >=3.11, got {sys.version}"
 assert torch.cuda.is_available(), "no CUDA device visible"
@@ -31,9 +49,9 @@ cd Wesnoth-AI
 
 # A tripwire abort (exit 4 = all-draws, 5 = holdout stall) needs a
 # human decision -- do NOT auto-relaunch over it.
-if ls /workspace/ABORTED_* >/dev/null 2>&1; then
+if ls "$WORKDIR"/ABORTED_* >/dev/null 2>&1; then
     echo "[onstart] ABORTED_* marker present -- NOT relaunching."
-    echo "[onstart] Read the tail of /workspace/train.log, diagnose,"
+    echo "[onstart] Read the tail of $WORKDIR/train.log, diagnose,"
     echo "[onstart] delete the marker, then restart the instance."
     exit 0
 fi
@@ -54,7 +72,7 @@ fi
 
 export PYTORCH_ALLOC_CONF=expandable_segments:True
 nohup bash -c "
-  python tools/sim_self_play.py --device cuda \
+  '$PY' tools/sim_self_play.py --device cuda \
     --mcts --mcts-sims 32 \
     --d-model 256 --num-layers 6 --num-heads 8 --d-ff 1024 \
     --replay-buffer --replay-updates 16 --value-coef 1.0 \
@@ -68,9 +86,9 @@ nohup bash -c "
     --checkpoint-in  $CKPT_IN \
     --checkpoint-out $CAMPAIGN \
     --iterations 100000 --save-every 2 --log-level INFO \
-    >> /workspace/train.log 2>&1
+    >> '$WORKDIR/train.log' 2>&1
   rc=\$?
-  echo \"[onstart] training exited rc=\$rc at \$(date -u +%FT%TZ)\" >> /workspace/train.log
-  if [ \$rc -ge 3 ]; then touch /workspace/ABORTED_\$rc; fi
+  echo \"[onstart] training exited rc=\$rc at \$(date -u +%FT%TZ)\" >> '$WORKDIR/train.log'
+  if [ \$rc -ge 3 ]; then touch '$WORKDIR/ABORTED_'\$rc; fi
 " >/dev/null 2>&1 &
-echo "[onstart] training launched (tail -f /workspace/train.log)"
+echo "[onstart] training launched (tail -f $WORKDIR/train.log)"
