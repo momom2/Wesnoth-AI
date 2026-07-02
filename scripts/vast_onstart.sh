@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+﻿#!/usr/bin/env bash
 # Vast.ai on-start script for the Tier-a Phase 2 calibration run
 # (docs/tier_a_runbook.md). Paste into the template's "On-start
 # Script" box. It runs at EVERY instance (re)start, so it encodes the
@@ -84,8 +84,8 @@ nohup bash -c "
   '$PY' tools/sim_self_play.py --device cuda \
     --mcts --mcts-sims 32 \
     --d-model 256 --num-layers 6 --num-heads 8 --d-ff 1024 \
-    --replay-buffer --replay-updates 16 --value-coef 1.0 \
-    --replay-minibatch 128 --replay-capacity 6000 \
+    --replay-buffer --replay-updates 48 --value-coef 1.0 \
+    --replay-minibatch 128 --replay-capacity 24000 \
     --train-batch-size 128 --mcts-batch-size 16 \
     --mini-ratio 0.5 --drill-ratio 0.3 \
     --holdout-size 512 \

@@ -105,6 +105,30 @@ no measured T4 win, and the holdout probe caught the memorization.**
 - 1a smoke green; checkpoint + `.bak` chain fine; holdout diversion
   froze at 275 experiences (first 4 games) as designed.
 
+**Phase 2 first hours on the Vast 2×4090/64-vCPU box (2026-07-02
+evening): throughput characterized end-to-end, first decisive games.**
+- **Serial** in-process rollout: 12 actions/s, GPU 7%. **Threads**
+  (--workers 16): 212% CPU total — the GIL ceiling, ~2 cores of 64.
+- **Actor pool works** (after: fd-limit raise to 65536 — 48 procs blew
+  the 1024 default; holdout port; pkill self-match fix) but the
+  single-threaded serve loop is a measured HARD CEILING at ~200
+  req/s: 48 actors = 201/s, 96 actors = 195/s (A/B, same box). With
+  ~13 requests/decision that caps ~15 decisions/s regardless of
+  cores. → **Post-calibration engineering item: async/multi-threaded
+  inference serving** (batch aggregation across actors, possibly the
+  2nd GPU as a second server). Target: >2000 req/s.
+- **First decisive full-map games ever: 7/47 (15%)** at warm-start
+  strength (old iter-168 baseline: zero leaderkills). 96-actor iter's
+  completed-game subset hit 56% decisive (selection bias: kills end
+  early, draws run the clock — do NOT read that as the true rate).
+- **Config imbalance fixed for the long run:** pool generates ~18k
+  experiences/iter but replay held 6k and consumed 2k/iter (2/3 of
+  rollout data discarded untrained; train_step 23s vs rollout 21min).
+  Long-run: --replay-capacity 24000 --replay-updates 48.
+- 96-actor iterations also tripped the pool's 30-min
+  iteration_timeout (games ~2x slower under oversubscription) —
+  keep games-per-iter <= actors on this host.
+
 **Pre-Phase-2 safeguards landed (2026-07-02, later same day):**
 - **`--holdout-size` (held-out value probe):** `finalize_game` diverts
   whole games into a frozen set until target size; the net's value CE
