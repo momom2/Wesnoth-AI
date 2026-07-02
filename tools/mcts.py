@@ -574,6 +574,9 @@ def _expand(
     with torch.no_grad():
         encoded = encoder.encode(node.sim.gs)
         output = model(encoded)
+        # Sampler-on-CPU split: one bulk D2H here instead of dozens of
+        # per-actor syncs inside the enumeration (no-op on CPU).
+        encoded, output = _leaf_to_cpu(encoded, output)
         priors = enumerate_legal_actions_with_priors(
             encoded, output, node.sim.gs, decision_step=decision_step)
         v = float(output.value.squeeze().item())
@@ -1033,20 +1036,60 @@ def _adaptive_n_sims(config: MCTSConfig, root_cliffness: float) -> int:
     ))
 
 
+def _leaf_to_cpu(encoded, output):
+    """Forward-on-GPU / sampler-on-CPU split (gpu_perf_patches.md #1).
+
+    `enumerate_legal_actions_with_priors` does dozens of per-actor
+    `.item()`/`.tolist()` reads; on CUDA each one is a serializing
+    D2H sync, × n_sims leaves per move (measured 2026-07-02 on a T4:
+    enumerate = 26% of the rollout even before counting the syncs
+    buried in `forward`'s 41%). Move the model output (every tensor
+    field, via the actor pool's proven `move_model_output` seam) and
+    the two encoded tensors the sampler consumes as values
+    (`unit_is_ours`, `recruit_is_ours` — `build_light_encoded`
+    documents that the sampler reads the token tensors only for
+    `.size()`) to CPU in ONE pass, then enumerate on host tensors.
+
+    CPU inputs pass through untouched, so the CPU path — and the
+    whole test suite — is byte-identical. The CUDA-only behavior is
+    validated by the Kaggle GPU smoke + re-profile (the device
+    mismatch this could cause cannot manifest on CPU)."""
+    if output.actor_logits.device.type == "cpu":
+        return encoded, output
+    from dataclasses import replace as _dc_replace
+    from tools.inference_seam import move_model_output
+    cpu = torch.device("cpu")
+    output_cpu = move_model_output(output, cpu)
+    encoded_cpu = _dc_replace(
+        encoded,
+        unit_is_ours=encoded.unit_is_ours.to(cpu),
+        recruit_is_ours=encoded.recruit_is_ours.to(cpu),
+    )
+    return encoded_cpu, output_cpu
+
+
 def _populate_leaf(
     leaf:    MCTSNode,
     encoded,
     output,
     *,
     decision_step: int = 0,
+    value:     Optional[float] = None,
+    cliffness: Optional[float] = None,
 ) -> float:
     """Build the leaf's edges from the model's enumerated priors and
     return v from leaf.side's perspective. Mirrors the post-forward
     half of `_expand`. Also records the network's cliffness on the
     leaf node so the backup phase can downweight unreliable
     bootstraps. `decision_step` drives the combat-oracle anneal (must
-    match the loss's value for this state; see `_expand`)."""
-    leaf.cliffness = float(output.cliffness.squeeze().item())
+    match the loss's value for this state; see `_expand`).
+
+    `value`/`cliffness`: pre-read scalars from a batched D2H transfer
+    (B2, see `_run_sim_batch`); when None, read them from `output`
+    (identical values -- the batch read is a pure transfer coalesce)."""
+    encoded, output = _leaf_to_cpu(encoded, output)
+    leaf.cliffness = (float(output.cliffness.squeeze().item())
+                      if cliffness is None else float(cliffness))
     priors = enumerate_legal_actions_with_priors(
         encoded, output, leaf.sim.gs, decision_step=decision_step)
     if not priors:
@@ -1056,7 +1099,8 @@ def _populate_leaf(
     priors.sort(key=lambda p: -p.prior)
     leaf.edges = [MCTSEdge(p) for p in priors]
     leaf.expanded = True
-    leaf.value = float(output.value.squeeze().item())
+    leaf.value = (float(output.value.squeeze().item())
+                  if value is None else float(value))
     return leaf.value
 
 
@@ -1226,10 +1270,29 @@ def _run_sim_batch(
         with torch.no_grad():
             encoded_list = [encoder.encode(l.sim.gs) for l in unique_list]
             outputs = model.forward_batch(encoded_list)
+        # B2 (gpu_perf_patches.md #2): read every leaf's scalar value
+        # + cliffness in ONE batched D2H transfer instead of 2
+        # serializing syncs per leaf. Values are identical to the
+        # per-leaf `.item()` reads; CPU path skips the coalesce (the
+        # reads are already host ops there).
+        vals: Optional[List[float]] = None
+        cliffs: Optional[List[float]] = None
+        if outputs and outputs[0].value.device.type != "cpu":
+            with torch.no_grad():
+                packed = torch.stack([
+                    torch.stack((o.value.reshape(()),
+                                 o.cliffness.reshape(())))
+                    for o in outputs
+                ]).cpu()
+            vals = packed[:, 0].tolist()
+            cliffs = packed[:, 1].tolist()
         leaf_values: Dict[int, float] = {}
-        for leaf, encoded, output in zip(unique_list, encoded_list, outputs):
+        for i, (leaf, encoded, output) in enumerate(
+                zip(unique_list, encoded_list, outputs)):
             leaf_values[id(leaf)] = _populate_leaf(
-                leaf, encoded, output, decision_step=decision_step)
+                leaf, encoded, output, decision_step=decision_step,
+                value=None if vals is None else vals[i],
+                cliffness=None if cliffs is None else cliffs[i])
         for leaf, path in pending:
             _backup(path, leaf_values[id(leaf)], leaf.side, v_loss,
                     leaf_cliffness=leaf.cliffness,

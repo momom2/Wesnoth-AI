@@ -31,7 +31,14 @@ transfers aren't on the critical path, revert (it adds a copy for nothing).
 
 ---
 
-## [SPEC] #1 — in-process rollout: forward on GPU, sampler on CPU (biggest win)
+## [IMPLEMENTED 2026-07-02] #1 — in-process rollout: forward on GPU, sampler on CPU (biggest win)
+
+> Implemented as `tools/mcts.py::_leaf_to_cpu`, wired into `_expand`
+> and `_populate_leaf` (covers the serial, batched, and Gumbel
+> paths). Gated on `output.actor_logits.device.type != 'cpu'`; suite
+> green on CPU (strict no-op, pinned by
+> `test_gpu_perf_patches.py`). **CUDA validation still required:**
+> the Kaggle notebook's 1a smoke + 1b re-profile.
 
 **Problem.** In `--actor-pool 0` (default) the inference model is on the GPU,
 so `mcts._expand` / `_populate_leaf` call `enumerate_legal_actions_with_priors`
@@ -78,7 +85,12 @@ must be identical to the pre-patch GPU path — compare a few leaves' priors).
 
 ---
 
-## [SPEC] #2 — B2: batch the per-leaf value/cliffness read in `_run_sim_batch`
+## [IMPLEMENTED 2026-07-02] #2 — B2: batch the per-leaf value/cliffness read in `_run_sim_batch`
+
+> Implemented in `_run_sim_batch` phase 2: one stacked `.cpu()` for
+> the whole batch's value+cliffness, passed into `_populate_leaf`'s
+> new optional `value=`/`cliffness=` params. CPU path skips the
+> coalesce (reads are already host ops).
 
 `tools/mcts.py::_run_sim_batch` runs one `forward_batch` (good) then loops
 `_populate_leaf` per leaf, each doing `output.value.squeeze().item()` +
