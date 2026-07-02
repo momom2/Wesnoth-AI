@@ -445,6 +445,10 @@ class MCTSPolicy:
                 return None
             probe = list(self._holdout)
         loss = self._base._trainer.eval_value_loss(probe)
+        # Cached for the main loop's holdout-stall tripwire, which
+        # runs after run_iteration() has already consumed the metric
+        # for its log line / CSV row (avoids a second full eval).
+        self.last_holdout_loss = loss
         return (loss, len(probe))
 
     def train_step(self) -> TrainStats:

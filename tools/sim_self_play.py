@@ -1350,6 +1350,25 @@ def main(argv: List[str]) -> int:
                          "tripwire only arms once this many "
                          "iterations have completed, so it doubles "
                          "as the burn-in period.")
+    ap.add_argument("--abort-holdout-stall", type=int, default=None,
+                    help="Memorization tripwire (needs --holdout-size): "
+                         "stop if the held-out value CE has not made a "
+                         "new best (by --abort-holdout-min-delta) for "
+                         "this many consecutive iterations. Saves a "
+                         "final checkpoint and exits with code 5. The "
+                         "2026-07-02 Kaggle data motivates it: train "
+                         "value loss fell 3.8->1.15 while holdout CE "
+                         "sat flat at ~3.1 -- pure buffer memorization. "
+                         "Pick a GENEROUS window (hours of compute): "
+                         "the frozen holdout goes stale as the policy "
+                         "improves, so short windows false-trip on "
+                         "long runs.")
+    ap.add_argument("--abort-holdout-min-delta", type=float,
+                    default=0.01,
+                    help="Improvement below this doesn't count as a "
+                         "new holdout best (default 0.01 CE nats; "
+                         "guards against noise resetting the stall "
+                         "counter).")
     ap.add_argument("--seed", type=int, default=0,
                     help="RNG seed for replay sampling.")
     ap.add_argument("--log-level", default="INFO",
@@ -2155,6 +2174,22 @@ def main(argv: List[str]) -> int:
             f"{abort_rate:.0%} (armed after iter {args.abort_window}).")
     if args.holdout_size > 0 and not args.mcts:
         log.warning("--holdout-size requires --mcts; probe inactive.")
+    # Holdout-stall (memorization) tripwire state. Tracks the running
+    # best holdout CE; an iteration only resets the stall counter when
+    # it beats the best by at least min_delta.
+    holdout_stall_limit = args.abort_holdout_stall
+    if holdout_stall_limit is not None and args.holdout_size <= 0:
+        log.warning("--abort-holdout-stall needs --holdout-size; "
+                    "tripwire inactive.")
+        holdout_stall_limit = None
+    holdout_best: Optional[float] = None
+    holdout_stall = 0
+    if holdout_stall_limit is not None:
+        log.info(
+            f"holdout-stall tripwire ON: stop if holdout value CE "
+            f"makes no new best (min delta "
+            f"{args.abort_holdout_min_delta}) for "
+            f"{holdout_stall_limit} consecutive iters.")
 
     DEAD_ITER_LIMIT = 5
     consecutive_dead = 0
@@ -2222,6 +2257,43 @@ def main(argv: List[str]) -> int:
                     if history_csv is not None:
                         history_csv.close()
                     return 4
+        # Holdout-stall (memorization) tripwire: the holdout CE is the
+        # only metric that distinguishes value learning from replay-
+        # buffer fitting (measured 2026-07-02: train value loss fell
+        # 3.8->1.15 while holdout CE sat flat at ~3.1). If it makes no
+        # new best for the configured stretch, training is either
+        # memorizing or stalled -- either way, on paid compute, stop
+        # and diagnose. State is saved (checkpoint + flushed CSV).
+        if holdout_stall_limit is not None:
+            hl = getattr(policy, "last_holdout_loss", None)
+            if hl is not None:
+                if (holdout_best is None
+                        or hl < holdout_best - args.abort_holdout_min_delta):
+                    holdout_best = hl
+                    holdout_stall = 0
+                else:
+                    holdout_stall += 1
+                    if holdout_stall >= holdout_stall_limit:
+                        policy.save_checkpoint(args.checkpoint_out)
+                        log.error(
+                            f"ABORT TRIPWIRE (holdout stall): holdout "
+                            f"value CE has not beaten its best "
+                            f"({holdout_best:.4f}) by "
+                            f"{args.abort_holdout_min_delta} for "
+                            f"{holdout_stall} consecutive iters "
+                            f"(latest {hl:.4f}) after iter {it + 1}, "
+                            f"while training continued -- the "
+                            f"memorization signature. Final "
+                            f"checkpoint saved to "
+                            f"{args.checkpoint_out}; CSV flushed. "
+                            f"Compare train_value_loss vs "
+                            f"holdout_value_loss columns before "
+                            f"re-launching (capacity? signal? stale "
+                            f"holdout on a long run?). Exit code 5."
+                        )
+                        if history_csv is not None:
+                            history_csv.close()
+                        return 5
         # Time-budget early exit. Check AFTER the iteration finishes
         # rather than mid-iteration: a partial iteration's gradient
         # update wouldn't have happened yet, so cutting mid-iter

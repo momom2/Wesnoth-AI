@@ -134,3 +134,31 @@ def test_abort_tripwire_exits_4_and_saves(tmp_path):
     rows = csv.read_text(encoding="utf-8").strip().splitlines()
     # Header + one row per completed iteration (window=2 -> 2 iters).
     assert len(rows) >= 3, f"CSV must hold the aborted run's rows: {rows}"
+
+
+def test_holdout_stall_tripwire_exits_5(tmp_path):
+    """Memorization tripwire through the real main(): with
+    --abort-holdout-min-delta forced impossibly large, no iteration
+    can register a holdout improvement, so the stall counter must hit
+    the limit deterministically once the holdout probe activates ->
+    exit code 5 with a saved checkpoint."""
+    from sim_self_play import main
+
+    ckpt = tmp_path / "stall.pt"
+    rc = main([
+        "sim_self_play.py",
+        "--mcts", "--mcts-sims", "2",
+        "--iterations", "8", "--games-per-iter", "1",
+        "--max-turns", "2", "--mini-ratio", "1.0",
+        "--d-model", "32", "--num-layers", "1",
+        "--num-heads", "2", "--d-ff", "64",
+        "--holdout-size", "2",
+        "--abort-holdout-stall", "2",
+        "--abort-holdout-min-delta", "100",
+        "--checkpoint-out", str(ckpt),
+        "--trainer-history-csv", str(tmp_path / "h.csv"),
+        "--save-every", "100",
+        "--seed", "3", "--log-level", "WARNING",
+    ])
+    assert rc == 5, f"expected holdout-stall exit code 5, got {rc}"
+    assert ckpt.exists(), "tripwire must save a final checkpoint"

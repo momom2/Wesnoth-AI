@@ -122,6 +122,7 @@ python tools/sim_self_play.py --device cuda \
   --mini-ratio 0.5 --drill-ratio 0.3 \
   --holdout-size 512 \
   --abort-decisive-rate 0.05 --abort-window 40 \
+  --abort-holdout-stall 150 \
   --reward-config configs/reward_selfplay.json \
   --reset-decision-step \
   --checkpoint-in  training/checkpoints/tier_a_5m.pt \
@@ -139,6 +140,13 @@ python tools/sim_self_play.py --device cuda \
   flat while train falls = memorizing, not learning. Caveat: the
   holdout is NOT persisted — a preemption-resume re-collects it from
   post-resume games, restarting that curve's baseline.
+- `--abort-holdout-stall 150` — memorization tripwire: if the holdout
+  CE makes no new best (min delta 0.01) for 150 consecutive iters
+  (several hours at expected iteration times), save + flush + exit
+  **code 5**. Motivated by the measured 2026-07-02 signature (train
+  value loss 3.8→1.15 with holdout flat at ~3.1). The window is
+  deliberately generous: the frozen holdout goes stale as the policy
+  improves, so short windows false-trip on long runs.
 - `--abort-decisive-rate 0.05 --abort-window 40` — predefined abort:
   if fewer than 5% of games over the trailing 40 iters are decisive
   (non-draw), the run saves a final checkpoint, flushes the CSV, and
