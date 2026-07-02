@@ -79,6 +79,32 @@ CRITERIA MET.** Full 20-iteration 1c completed, zero errors:
   B2 (spec: `docs/gpu_perf_patches.md`), re-profile on Kaggle (free),
   then rent the Vast.ai 32-vCPU spot 4090 for the calibration run.
 
+**Post-patch Kaggle run (2026-07-02 13:10, third run): CUDA-correct,
+no measured T4 win, and the holdout probe caught the memorization.**
+- **Perf patches #1+#2 validated CUDA-correct** (full run, zero device
+  mismatches) but the profile is UNCHANGED: forward 6.9ms/leaf (was
+  6.7), enumerate 21% (was 23), 2.7 actions/s serialized; live 1c
+  throughput identical (5-9 actions/s). Conclusion: at 5M params /
+  B=1 on a T4, per-leaf forward cost is dominated by Python + kernel
+  launch overhead, NOT the per-actor D2H syncs the spec targeted.
+  KEEP the patches (no-op on CPU, no regression on GPU, and syncs
+  matter more at bigger batch/model), but the T4 throughput lever is
+  what the plan already said: batch the forward + CPU cores
+  (--workers on the 32-vCPU Phase 2 host). Do NOT expect the patches
+  to move Phase 2 numbers by themselves.
+- **Holdout probe, first real data — train value loss falls 3.77 →
+  ~1.15 over 13 iters while holdout value CE goes 3.68 → ~3.1 and
+  PLATEAUS there (±0.15, no trend after iter 1).** The gap IS buffer
+  memorization, measured directly: most of the on-buffer improvement
+  does not generalize even to same-policy states. Caveats: warm-up
+  scale (8 games/iter, 24-turn caps, all-draw tiebreak targets), and
+  the holdout is 275 early-policy states. But the Phase 2 gate now
+  has teeth: value learning = HOLDOUT CE falling, nothing else. If it
+  is still flat after real GPU-hours, diagnose signal/capacity before
+  any Tier-b spend.
+- 1a smoke green; checkpoint + `.bak` chain fine; holdout diversion
+  froze at 275 experiences (first 4 games) as designed.
+
 **Pre-Phase-2 safeguards landed (2026-07-02, later same day):**
 - **`--holdout-size` (held-out value probe):** `finalize_game` diverts
   whole games into a frozen set until target size; the net's value CE

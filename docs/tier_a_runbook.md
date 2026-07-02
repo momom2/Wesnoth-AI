@@ -172,6 +172,14 @@ throughput is understood.
 slope, not the plan's a-priori numbers. If the curve is flat, diagnose
 (capacity? signal? throughput?) before spending Tier-b money.
 
+**Value-learning gate = the HOLDOUT curve, not the train loss.** The
+2026-07-02 Kaggle runs measured it directly: train value loss fell
+3.77 → ~1.15 over 13 iters while holdout CE plateaued at ~3.1 — the
+gap is replay-buffer memorization. On this run, watch
+`holdout_value_loss` in the CSV: falling = real value learning;
+flat-while-train-falls after the first GPU-hours = stop and diagnose
+(signal? capacity?) before burning the rest of the budget.
+
 ---
 
 ## Cost sanity
