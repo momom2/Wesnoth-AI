@@ -60,6 +60,25 @@ Found while proving a bare `git clone` can run Tier-a Phase 1:
   compute it wastes the rental). Consider catch → halve forward chunk
   → retry-once in `trainer.py`.
 
+**Phase 1 second Kaggle run (2026-07-02, T4-sized batches): GATE
+CRITERIA MET.** Full 20-iteration 1c completed, zero errors:
+- **Value loss 3.82 → ~1.17** over 20 iters (2.78/1.99/1.51/1.30 by
+  iter 4 — the warm-started value head relearns fast). Total loss
+  7.58 → 4.41. Entropy 1.33 → 1.00, attack% up to 25% by iter 19.
+- **Checkpoint chain verified on CUDA:** `tier_a_5m.pt` + rolling
+  `.bak` saved every 2 iters; 64/32 minibatch/chunk +
+  `expandable_segments` → NO OOM (peak run stable over 53 min).
+- **Throughput on 4 vCPU (starved, as predicted):** rollout 58–111s
+  per 8-game iter (6–8 actions/s live vs 2.7 GPU-serialized in the
+  profiler → mcts_batch=16 already buys ~2.5×); train_step 68–100s
+  per 16×64 updates. Profile reproducible across runs (forward 44%
+  vs 41%, enumerate/encode ≈ 23% each).
+- All 160 games draw at the 24-turn cap — expected at reset-anneal
+  warm-start; wins/Elo movement is Phase 2's question, not Phase 1's.
+- **NEXT per the locked plan:** implement the sampler-on-CPU split +
+  B2 (spec: `docs/gpu_perf_patches.md`), re-profile on Kaggle (free),
+  then rent the Vast.ai 32-vCPU spot 4090 for the calibration run.
+
 ## Update (2026-07-01): second deep review + fixes applied
 
 Independent multi-agent review (7 subsystems + adversarial verification)
