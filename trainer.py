@@ -1025,6 +1025,61 @@ def _trainer_step_mcts(
     )
 
 
+def _trainer_eval_value_loss(
+    self,                                     # Trainer (method injected below)
+    experiences: List[MCTSExperience],
+) -> float:
+    """No-grad categorical value CE of the CURRENT model on a fixed
+    experience set. Same normalization as `step_mcts`'s value term
+    (sum of per-chunk `_categorical_value_loss / N` = mean CE per
+    experience), so the two numbers are directly comparable.
+
+    Purpose: held-out generalization tracking. `step_mcts`'s logged
+    value loss is measured on replay-buffer samples the net has
+    already taken ~20-30 gradient steps on, so it falls under BOTH
+    "learning the value function" and "fitting the buffer's specific
+    states". Evaluating on states that never entered training
+    separates the two (see MCTSPolicy holdout diversion).
+    """
+    if not experiences:
+        return float("nan")
+    dev = self.device or next(self.model.parameters()).device
+    N = len(experiences)
+    B = max(1, self.config.train_batch_size)
+    zs = torch.tensor(
+        [e.z for e in experiences], device=dev, dtype=torch.float32,
+    )
+    if self.config.value_clip is not None:
+        zs.clamp_(min=-float(self.config.value_clip),
+                  max=+float(self.config.value_clip))
+    self.model.eval(); self.encoder.eval()
+    register_names = self.encoder.register_names
+    for e in experiences:
+        register_names(e.game_state)
+    type_to_id    = self.encoder.unit_type_to_id
+    faction_to_id = self.encoder.faction_to_id
+    atoms = self.model._value_atoms
+    total = 0.0
+    with torch.no_grad():
+        for start in range(0, N, B):
+            chunk = experiences[start:start + B]
+            raw_chunk = [
+                encode_raw(e.game_state,
+                           type_to_id=type_to_id,
+                           faction_to_id=faction_to_id)
+                for e in chunk
+            ]
+            encoded_chunk = self.encoder.encode_from_raw_batch(raw_chunk)
+            outputs = self.model.forward_batch(encoded_chunk)
+            vl_t = torch.stack(
+                [o.value_logits.squeeze(0) for o in outputs])
+            z_t = zs[start:start + len(chunk)]
+            total += float(
+                _categorical_value_loss(vl_t, z_t, atoms).item()) / N
+    return total
+
+
 # Inject as a method on Trainer. Gives users `trainer.step_mcts(exps)`
 # alongside the REINFORCE `trainer.step(trajectories)`.
 Trainer.step_mcts = _trainer_step_mcts
+Trainer.eval_value_loss = _trainer_eval_value_loss

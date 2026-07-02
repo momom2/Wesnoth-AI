@@ -79,6 +79,34 @@ CRITERIA MET.** Full 20-iteration 1c completed, zero errors:
   B2 (spec: `docs/gpu_perf_patches.md`), re-profile on Kaggle (free),
   then rent the Vast.ai 32-vCPU spot 4090 for the calibration run.
 
+**Pre-Phase-2 safeguards landed (2026-07-02, later same day):**
+- **`--holdout-size` (held-out value probe):** `finalize_game` diverts
+  whole games into a frozen set until target size; the net's value CE
+  on it is logged per iter (`Trainer.eval_value_loss`, same
+  normalization as `step_mcts`'s value term) + `holdout_value_loss`
+  CSV column. Closes the gate-metric gap: the train value loss is
+  measured on replay samples revisited ~20-30 times, so it cannot
+  distinguish learning from buffer memorization. Inactive under
+  `--actor-pool` (actors finalize remotely; logged warning).
+- **`--abort-decisive-rate` / `--abort-window` (paid-run tripwire):**
+  trailing-window decisive-game rate below threshold → save
+  checkpoint, flush CSV, exit code 4 (vs 3 = dead-iter abort) with a
+  diagnosis pointer. Runbook Phase 2 sets 0.05/40.
+- **Draw-stall design note (user concern, 2026-07-02):** a losing
+  policy CAN prefer stalling to the turn cap (draw-tiebreak z ≥ −0.3)
+  over fighting (E[z] → −1). "Count draws as losses for BOTH sides"
+  was considered and REJECTED for now: `mcts._backup` is negamax
+  (flips sign per ply, hard-assumes zero-sum z₁ = −z₂); a −1/−1 draw
+  is unrepresentable in that frame without reworking backup + the
+  value head's perspective convention. Zero-sum-preserving levers, in
+  order: (1) raise `--draw-tiebreak-cap` (0.3 → 0.5-0.6 narrows the
+  stall-vs-fight gap AND sharpens the winner's convert-don't-coast
+  incentive; keep < 1 so a real kill stays strictly best); (2) longer
+  `--max-turns` (stalling gets harder to sustain); (3) engagement
+  curriculum via `--mini-ratio`. Decide on EVIDENCE: the tripwire +
+  decisive% logging will show stalling directly in Phase 2; revisit
+  the reward structure only if the levers fail.
+
 ## Update (2026-07-01): second deep review + fixes applied
 
 Independent multi-agent review (7 subsystems + adversarial verification)

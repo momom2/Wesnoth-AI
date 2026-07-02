@@ -108,10 +108,21 @@ class MCTSPolicy:
     uses_step_rewards = False
 
     def __init__(self, base, mcts_config: Optional[MCTSConfig] = None,
-                 replay_config: Optional[ReplayConfig] = None):
+                 replay_config: Optional[ReplayConfig] = None,
+                 holdout_size: int = 0):
         self._base = base
         self._mcts_config = mcts_config or MCTSConfig()
         self._replay_config = replay_config or ReplayConfig()
+        # Held-out generalization probe: while the holdout has fewer
+        # than `holdout_size` experiences, finalize_game diverts WHOLE
+        # games here instead of the training queue (whole games, so no
+        # sibling state from the same trajectory leaks into training).
+        # Frozen once full; `holdout_metrics()` evaluates the current
+        # net's value CE on it. 0 = off. NOT persisted in checkpoints:
+        # a resumed run re-collects from its first games, restarting
+        # the curve's baseline (documented in the runbook).
+        self._holdout_target = max(0, int(holdout_size))
+        self._holdout: List[MCTSExperience] = []
         # Per-game pending: game_label -> List[_PendingMCTSState].
         # Mid-game states accumulate here; `finalize_game` drains
         # them into `_queue` with their terminal z attached.
@@ -343,6 +354,14 @@ class MCTSPolicy:
         # tiebreak config is set (trainer then skips the aux loss).
         aux_gs = final_gs if final_gs is not None else (
             states[-1].gs if states else None)
+        # Holdout diversion: while the probe set is below target, this
+        # whole game's experiences go there INSTEAD of training (per-
+        # game granularity -- states within one game are correlated,
+        # so splitting a game between train and holdout would leak).
+        with self._lock:
+            divert = (self._holdout_target > 0
+                      and len(self._holdout) < self._holdout_target)
+        sink_is_holdout = divert
         for s in states:
             if winner == 0:
                 if tiebreak is not None and final_gs is not None:
@@ -364,12 +383,21 @@ class MCTSPolicy:
                 decision_step=s.decision_step,
             )
             with self._lock:
-                self._queue.append(exp)
+                if sink_is_holdout:
+                    self._holdout.append(exp)
+                else:
+                    self._queue.append(exp)
         if states:
             log.debug(
                 f"finalize_game({game_label!r}, winner={winner}): "
-                f"queued {len(states)} MCTSExperiences"
+                f"{'HELD OUT' if sink_is_holdout else 'queued'} "
+                f"{len(states)} MCTSExperiences"
             )
+            if sink_is_holdout and \
+                    len(self._holdout) >= self._holdout_target:
+                log.info(
+                    f"holdout set full: {len(self._holdout)} "
+                    f"experiences frozen; all further games train.")
 
     def drop_pending(self, game_label: str) -> None:
         """Match TransformerPolicy's drop_pending API for error
@@ -404,6 +432,20 @@ class MCTSPolicy:
             if self._base._decision_step > 0:
                 self._base._decision_step -= 1
         return True
+
+    def holdout_metrics(self) -> Optional[Tuple[float, int]]:
+        """(value CE on the frozen holdout set, holdout size), or None
+        when the probe is off or still collecting. Evaluated with the
+        CURRENT training net, no gradients; comparable to the logged
+        train value loss (same normalization -- see
+        Trainer.eval_value_loss)."""
+        with self._lock:
+            if (self._holdout_target <= 0
+                    or len(self._holdout) < self._holdout_target):
+                return None
+            probe = list(self._holdout)
+        loss = self._base._trainer.eval_value_loss(probe)
+        return (loss, len(probe))
 
     def train_step(self) -> TrainStats:
         with self._lock:

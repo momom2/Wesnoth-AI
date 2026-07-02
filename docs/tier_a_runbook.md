@@ -120,12 +120,35 @@ python tools/sim_self_play.py --device cuda \
     --replay-minibatch 128 --replay-capacity 6000 \
   --train-batch-size 128 --mcts-batch-size 16 \
   --mini-ratio 0.5 --drill-ratio 0.3 \
+  --holdout-size 512 \
+  --abort-decisive-rate 0.05 --abort-window 40 \
   --reward-config configs/reward_selfplay.json \
   --reset-decision-step \
   --checkpoint-in  training/checkpoints/tier_a_5m.pt \
   --checkpoint-out training/checkpoints/tier_a_5m.pt \
   --time-budget HH:MM:SS --iterations 100000 --save-every 2 --log-level INFO
 ```
+
+**Safeguards in that command (added 2026-07-02):**
+- `--holdout-size 512` — the first ~512 experiences (whole games) are
+  held out of training and the net's value CE on them is logged each
+  iter (`holdout value CE=` line + `holdout_value_loss` CSV column).
+  THIS is the gate's "held-out value loss trending down" — the train
+  value loss is measured on replay samples the net already fit, so it
+  can fall by memorization. Watch the two curves together: holdout
+  flat while train falls = memorizing, not learning. Caveat: the
+  holdout is NOT persisted — a preemption-resume re-collects it from
+  post-resume games, restarting that curve's baseline.
+- `--abort-decisive-rate 0.05 --abort-window 40` — predefined abort:
+  if fewer than 5% of games over the trailing 40 iters are decisive
+  (non-draw), the run saves a final checkpoint, flushes the CSV, and
+  exits with **code 4**. This is the known failure shape (the old
+  iter-168 baseline had ZERO leaderkills on full maps); deciding the
+  threshold now beats rationalizing at hour two with money burning.
+  On a trip: nothing is lost — diagnose (closest_approach / attack%
+  trends in the CSV; consider a higher --draw-tiebreak-cap, more
+  --mini-ratio, longer --max-turns), then resume from the same
+  checkpoint WITHOUT `--reset-decision-step`.
 
 **On a spot preemption / restart — SAME command but DROP `--reset-decision-
 step`** (it would restart the anneal mid-run). `--checkpoint-in` ==

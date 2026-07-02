@@ -1033,6 +1033,20 @@ def run_iteration(
             f"mean_return={train_stats.mean_return:+.3f} grad_norm={train_stats.grad_norm:.3f}"
         )
 
+    # Held-out value CE with the post-update net (--holdout-size;
+    # MCTSPolicy only -- getattr-guarded so every other policy type is
+    # untouched). This is the generalization probe: the train value
+    # loss above is measured on replay samples the net already fit.
+    holdout_loss = holdout_n = None
+    holdout_fn = getattr(policy, "holdout_metrics", None)
+    if train_at_end and holdout_fn is not None:
+        hm = holdout_fn()
+        if hm is not None:
+            holdout_loss, holdout_n = hm
+            log.info(
+                f"iter {iter_idx}: holdout value CE={holdout_loss:.4f} "
+                f"on {holdout_n} held-out states (never trained on)")
+
     # Optional snapshot sink: the main loop passes a callable that
     # appends a CSV row to disk. Tests don't pass one, so this is
     # a no-op there. Keeping the return type a plain List[GameOutcome]
@@ -1091,6 +1105,8 @@ def run_iteration(
             "n_recruits_s2":       n_recruits_s2,
             "n_recruit_attempts_s1": n_recruit_attempts_s1,
             "n_recruit_attempts_s2": n_recruit_attempts_s2,
+            "holdout_value_loss":  holdout_loss,
+            "holdout_n":           holdout_n,
         })
     return outcomes
 
@@ -1152,7 +1168,12 @@ class _TrainerHistoryCSV:
         "train_n_trajectories", "train_n_transitions",
         "train_loss", "train_policy_loss", "train_value_loss",
         "train_entropy", "train_mean_return", "train_grad_norm",
-    ] + [f"r_{k}" for k in _REWARD_COMPONENT_KEYS] + list(_ECON_KEYS)
+    ] + [f"r_{k}" for k in _REWARD_COMPONENT_KEYS] + list(_ECON_KEYS) + [
+        # Held-out generalization probe (--holdout-size; MCTS only).
+        # Appended LAST so rows appended to a pre-existing CSV stay
+        # column-compatible with its older header.
+        "holdout_value_loss", "holdout_n",
+    ]
 
     def __init__(self, path: Path):
         self.path = path
@@ -1304,6 +1325,31 @@ def main(argv: List[str]) -> int:
                          "max_actions_per_side is the real safety net.")
     ap.add_argument("--save-every", type=int, default=10,
                     help="Save checkpoint every N iterations.")
+    ap.add_argument("--holdout-size", type=int, default=0,
+                    help="MCTS only: divert whole games into a frozen "
+                         "held-out set until it reaches N experiences, "
+                         "then log the net's value CE on it each iter "
+                         "(generalization probe -- the train value "
+                         "loss is measured on replay samples the net "
+                         "already fit). 0 = off. Not persisted across "
+                         "resumes: a resumed run re-collects, "
+                         "restarting the curve's baseline.")
+    ap.add_argument("--abort-decisive-rate", type=float, default=None,
+                    help="Abort tripwire: once the trailing "
+                         "--abort-window iterations are full, stop if "
+                         "the fraction of decisive (non-draw) games "
+                         "falls below this value. Saves a final "
+                         "checkpoint and exits with code 4 so a "
+                         "wrapper can distinguish 'tripwire' from "
+                         "'done'. Guards paid GPU runs against the "
+                         "known all-draws failure shape (see "
+                         "tier_a_runbook.md). Off by default.")
+    ap.add_argument("--abort-window", type=int, default=20,
+                    help="Trailing iteration count for "
+                         "--abort-decisive-rate (default 20). The "
+                         "tripwire only arms once this many "
+                         "iterations have completed, so it doubles "
+                         "as the burn-in period.")
     ap.add_argument("--seed", type=int, default=0,
                     help="RNG seed for replay sampling.")
     ap.add_argument("--log-level", default="INFO",
@@ -1932,7 +1978,22 @@ def main(argv: List[str]) -> int:
                 f"warmup>={replay_cfg.min_size} (multi-epoch training; "
                 f"value head gets {replay_cfg.updates_per_iter}x the "
                 f"gradient steps per iter vs legacy one-pass)")
-        policy = MCTSPolicy(policy, mcts_cfg, replay_config=replay_cfg)
+        policy = MCTSPolicy(policy, mcts_cfg, replay_config=replay_cfg,
+                            holdout_size=args.holdout_size)
+        if args.holdout_size > 0:
+            if args.actor_pool > 0:
+                # Actor experiences bypass the learner's finalize_game
+                # (they arrive pre-finalized from the actor processes),
+                # so the diversion hook never sees them.
+                log.warning(
+                    "--holdout-size is inactive under --actor-pool "
+                    "(finalize_game runs in the actors); running "
+                    "without the holdout probe.")
+            else:
+                log.info(
+                    f"holdout probe ON: first ~{args.holdout_size} "
+                    f"experiences (whole games) are held out of "
+                    f"training and scored each iter.")
 
     # Optional opener wrapper: scripts the first K decisions per
     # game-side, then delegates to the learned policy. Forwarding to
@@ -2080,6 +2141,21 @@ def main(argv: List[str]) -> int:
         log.info(f"actor pool: {args.actor_pool} processes "
                  f"(GIL-free; --workers thread-path disabled)")
 
+    # Decisive-rate abort tripwire state (--abort-decisive-rate).
+    # Trailing window of (decisive_games, total_games) per iteration;
+    # armed once the window is full (= burn-in of --abort-window iters).
+    from collections import deque as _deque
+    abort_rate = args.abort_decisive_rate
+    abort_hist: "_deque[Tuple[int, int]]" = _deque(
+        maxlen=max(1, args.abort_window))
+    if abort_rate is not None:
+        log.info(
+            f"abort tripwire ON: stop if decisive-game rate over the "
+            f"trailing {args.abort_window} iters drops below "
+            f"{abort_rate:.0%} (armed after iter {args.abort_window}).")
+    if args.holdout_size > 0 and not args.mcts:
+        log.warning("--holdout-size requires --mcts; probe inactive.")
+
     DEAD_ITER_LIMIT = 5
     consecutive_dead = 0
     for it in range(args.iterations):
@@ -2111,6 +2187,41 @@ def main(argv: List[str]) -> int:
                 return 3
         else:
             consecutive_dead = 0
+        # Decisive-rate tripwire: on a paid GPU node, a policy that
+        # draws essentially every game generates almost no win/loss
+        # signal -- the known failure shape (the 2026-05 iter-168
+        # baseline had ZERO leaderkills on full maps). Predefined
+        # abort > deciding at hour two with money burning. State is
+        # saved before exiting (checkpoint + line-buffered CSV), so
+        # nothing is lost: diagnose, adjust, resume from the same
+        # checkpoint (WITHOUT --reset-decision-step).
+        if abort_rate is not None and outcomes:
+            abort_hist.append(
+                (sum(1 for o in outcomes if o.winner != 0),
+                 len(outcomes)))
+            if len(abort_hist) == abort_hist.maxlen:
+                dec = sum(d for d, _ in abort_hist)
+                tot = sum(t for _, t in abort_hist)
+                rate = (dec / tot) if tot else 0.0
+                if rate < abort_rate:
+                    policy.save_checkpoint(args.checkpoint_out)
+                    log.error(
+                        f"ABORT TRIPWIRE: decisive-game rate "
+                        f"{rate:.1%} ({dec}/{tot} over the last "
+                        f"{len(abort_hist)} iters) is below the "
+                        f"--abort-decisive-rate {abort_rate:.0%} "
+                        f"threshold after iter {it + 1}. Final "
+                        f"checkpoint saved to {args.checkpoint_out}; "
+                        f"trainer-history CSV is flushed per row. "
+                        f"Diagnose before re-launching: check "
+                        f"closest_approach / attack%% trends in the "
+                        f"CSV, consider --mini-ratio (engagement "
+                        f"curriculum), a higher --draw-tiebreak-cap, "
+                        f"or a longer --max-turns. Exit code 4."
+                    )
+                    if history_csv is not None:
+                        history_csv.close()
+                    return 4
         # Time-budget early exit. Check AFTER the iteration finishes
         # rather than mid-iteration: a partial iteration's gradient
         # update wouldn't have happened yet, so cutting mid-iter
