@@ -1106,23 +1106,33 @@ def build_save_wml(
         keep_pos = _scrape_map_keep_positions(md_m.group(1))
 
     # ---- per-side blocks rendered from sim state ----
+    # [side] describes the STARTING setup, so prefer the leaders
+    # snapshotted at sim construction: the final state is missing the
+    # loser's leader in every decisive game, and a leader that
+    # advanced mid-game would export as the wrong (evolved) type.
     side_blocks: List[str] = []
-    leaders = {u.side: u for u in sim.gs.map.units if u.is_leader}
+    initial = getattr(sim, "initial_leaders", {})
+    live = {u.side: u for u in sim.gs.map.units if u.is_leader}
     for i, side_info in enumerate(sim.gs.sides, start=1):
-        leader = leaders.get(i)
-        if leader is None:
+        if i in initial:
+            leader_name, leader_pos = initial[i]
+        elif i in live:  # legacy sims without the snapshot attr
+            leader_name = live[i].name
+            leader_pos = live[i].position
+        else:
             raise RuntimeError(
-                f"sim has no leader for side {i}; cannot emit [side]")
+                f"sim has no leader record for side {i}; cannot "
+                f"emit [side]")
         if i in keep_pos:
             keep_x, keep_y = keep_pos[i]
         else:
-            keep_x = leader.position.x + 1
-            keep_y = leader.position.y + 1
+            keep_x = leader_pos.x + 1
+            keep_y = leader_pos.y + 1
         starting_gold = cfg_gold.get(i, pvp.starting_gold)
         color, team_name, user_team_name = _color_for_side(i)
         side_blocks.append(_render_side_block(
             side_num=i,
-            leader_type=leader.name,
+            leader_type=leader_name,
             keep_x=keep_x, keep_y=keep_y,
             faction=side_info.faction or "Custom",
             recruit=list(side_info.recruits or []),

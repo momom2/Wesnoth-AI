@@ -182,6 +182,29 @@ def test_sides_reflect_sim_factions_and_leaders(tmp_path):
     assert s2.attrs.get("type") == sim_leaders[2]
 
 
+def test_export_works_when_a_leader_is_dead(tmp_path):
+    """DECISIVE games must export. Regression (2026-07-03): the
+    [side] renderer read leaders from the FINAL state, so the first
+    ever export of a decisive game crashed with "sim has no leader
+    for side 1" — the loser's leader is dead at export time. [side]
+    describes the STARTING setup; it now uses the sim's
+    initial_leaders snapshot."""
+    from tools.replay_extract import parse_replay_file
+    sim = _build_sim_for("multiplayer_Den_of_Onis")
+    dead = next(u for u in sim.gs.map.units if u.is_leader and u.side == 1)
+    start_type = dead.name
+    sim.gs.map.units.discard(dead)      # simulate a leader kill
+    sim.winner, sim.ended_by, sim.done = 2, "leader_killed", True
+    out_path = tmp_path / "decisive.bz2"
+    export_replay_from_scratch(sim, out_path)
+    root = parse_replay_file(out_path)
+    sides = root.first("scenario").all("side")
+    assert len(sides) == 2
+    assert sides[0].attrs.get("type") == start_type, (
+        "side 1 must be emitted with its STARTING leader type even "
+        "though that leader died")
+
+
 def test_starting_gold_from_cfg_overrides_pvp_default(tmp_path):
     """Arcanclave Citadel's .cfg sets `gold=175`. The emitted save
     must reflect that, not the PvP default 100."""

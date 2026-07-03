@@ -426,6 +426,17 @@ class WesnothSim:
         self.ended_by:  str  = ""
         self._actions_by_side: Dict[int, int] = {1: 0, 2: 0}
 
+        # Starting leaders, snapshotted BEFORE any play: replay export
+        # renders [side] blocks from the STARTING setup, and reading
+        # leaders from the final state breaks on every decisive game
+        # (the loser's leader is dead — observed 2026-07-03, the first
+        # time a decisive game was exported) and mis-types leaders
+        # that advanced mid-game. {side: (unit_name, Position)}.
+        self.initial_leaders: Dict[int, tuple] = {
+            u.side: (u.name, u.position)
+            for u in self.gs.map.units if u.is_leader
+        }
+
         # Command history -- ordered list of every command applied to
         # the game state. Used by sim_to_replay.py to export a
         # Wesnoth-loadable .bz2 replay so the user can inspect a
