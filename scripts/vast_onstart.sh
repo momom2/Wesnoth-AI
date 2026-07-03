@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 # Vast.ai on-start script for the Tier-a Phase 2 calibration run
 # (docs/tier_a_runbook.md). Paste into the template's "On-start
 # Script" box. It runs at EVERY instance (re)start, so it encodes the
