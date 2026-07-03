@@ -53,7 +53,13 @@ def main() -> int:
         return 1
     from huggingface_hub import HfApi
     api = HfApi(token=token)
-    api.create_repo(repo, private=True, exist_ok=True)
+    try:
+        api.create_repo(repo, private=True, exist_ok=True)
+    except Exception as e:                          # noqa: BLE001
+        # A repo-scoped fine-grained token (the recommended setup)
+        # can't create repos at all -- the repo is pre-created in the
+        # UI and this call just gets a 403. Uploads still work.
+        print(f"hf_upload_loop: create_repo skipped ({e})", flush=True)
     print(f"hf_upload_loop: uploading to {repo} every "
           f"{UPLOAD_EVERY}s", flush=True)
     last_sig = None
