@@ -167,6 +167,20 @@ python tools/sim_self_play.py --device cuda \
   --time-budget HH:MM:SS --iterations 100000 --save-every 2 --log-level INFO
 ```
 
+**Draw-tiebreak retirement criterion (locked 2026-07-03):** keep the
+draw tiebreak while draws are common — under pure ±1-with-0-draws, a
+LOSING side strictly prefers stalling to the cap (guaranteed 0) over
+fighting (E[z]≈−0.8); the tiebreak (stalling-from-behind ≈ −0.3) is
+what keeps the gradient pointed at fighting back. It self-anneals as
+decisive%% rises. Flip to literal pure win/loss
+(`--draw-tiebreak-cap 0`) only once the trailing decisive rate holds
+≥ 90%% for ~20 iterations.
+
+**Per-host pool sizing:** the pool's 30-min iteration deadline abandons
+unfinished games (their experiences are LOST). Size so every game gets
+≥1.3 cores: games_per_iter ≈ 0.6 × allocated_cores (64-core host: 48
+games fine; 40-core host: 40 games timed out en masse → 24 works).
+
 **Safeguards in that command (added 2026-07-02):**
 - `--holdout-size 512` — the first ~512 experiences (whole games) are
   held out of training and the net's value CE on them is logged each
