@@ -1,5 +1,22 @@
 # Project review — bugs and improvements
 
+## Open items (2026-07-03)
+
+- 🟡 **eval-vs-RCA games leave no replay.** The live bridge runs
+  `wesnoth --test eval_<id>`, and test-mode skips the replay-autosave
+  flow; eval_runner has no save handling either — a watched game is
+  gone when the window closes (user hit this 2026-07-03). Options to
+  research (wesnoth_src, 1.18.4 tag): (a) does test-mode honor the
+  `save_replays` preference / can the eval scenario's victory event
+  call a savegame API from Lua; (b) alternatively reconstruct: log the
+  executed actions on the Python side and export via the existing
+  `sim_to_replay.export_replay_from_scratch` machinery (actions are
+  already the bridge's wire format, and the sim can replay them —
+  fidelity caveats where RCA does things the sim mis-models).
+  Meanwhile the workaround for "watch the policy" is
+  `tools/sim_demo_game.py` (self-play, exports a loadable .bz2
+  straight into the Wesnoth saves folder).
+
 Generated 2026-04-28 from a deep review of every major component.
 Refreshed 2026-04-29 / 2026-05-02 / 2026-05-03 / 2026-05-04 /
 2026-05-10. Items are graded by impact on the project's stated
