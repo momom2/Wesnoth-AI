@@ -1713,6 +1713,20 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--mcts-aux-coef", type=float, default=0.15,
                     help="Weight of the auxiliary margin MSE loss "
                          "(--mcts-aux-score). KataGo uses ~0.15.")
+    ap.add_argument("--mcts-moves-left", action="store_true",
+                    help="Add the Lc0-style moves-left head: the model "
+                         "predicts the fraction of the turn budget "
+                         "still to be played (sigmoid), trained with an "
+                         "MSE term (--mcts-moves-left-coef) against the "
+                         "game's actual remaining turns. A dense TEMPO "
+                         "signal the sparse z can't provide (2026-07-04 "
+                         "action-spam diagnosis). Adds a head -> "
+                         "partial-load on aux-off checkpoints. The "
+                         "search-side utility consumer is separate and "
+                         "default-off pending calibration.")
+    ap.add_argument("--mcts-moves-left-coef", type=float, default=0.1,
+                    help="Weight of the moves-left MSE loss "
+                         "(--mcts-moves-left).")
     ap.add_argument("--replay-buffer", action="store_true",
                     help="Enable AlphaZero-style experience replay + "
                          "multi-epoch training (MCTS mode). Default OFF "
@@ -1822,6 +1836,7 @@ def main(argv: List[str]) -> int:
     # the warm-start every iteration would burn cluster time.
     arch_kwargs: Dict[str, int] = {}
     ckpt_aux_score = False
+    ckpt_moves_left = False
     if args.checkpoint_in and args.checkpoint_in.exists():
         # Resolve to a LOADABLE checkpoint: prefer the primary, but if it's
         # unreadable (truncated by a kill mid-write on a preemptible node),
@@ -1854,9 +1869,11 @@ def main(argv: List[str]) -> int:
                 if k in saved_arch:
                     arch_kwargs[k] = int(saved_arch[k])
             ckpt_aux_score = bool(raw.get("aux_score", False))
+            ckpt_moves_left = bool(raw.get("moves_left", False))
             if arch_kwargs:
                 log.info(f"warm-start arch from checkpoint: {arch_kwargs}"
-                         f"{' +aux_score' if ckpt_aux_score else ''}")
+                         f"{' +aux_score' if ckpt_aux_score else ''}"
+                         f"{' +moves_left' if ckpt_moves_left else ''}")
         else:
             log.warning(
                 "no loadable checkpoint (primary or .bak); falling back to "
@@ -1895,12 +1912,19 @@ def main(argv: List[str]) -> int:
     # resume). It's a model-arch change, so it must be set at
     # construction.
     aux_score_flag = bool(args.mcts_aux_score) or ckpt_aux_score
+    moves_left_flag = bool(args.mcts_moves_left) or ckpt_moves_left
     policy = TransformerPolicy(device=device, aux_score=aux_score_flag,
+                               moves_left=moves_left_flag,
                                **arch_kwargs)
     if aux_score_flag:
         policy._trainer.config.aux_coef = float(args.mcts_aux_coef)
         log.info(f"auxiliary margin head ON (aux_coef="
                  f"{args.mcts_aux_coef}; KataGo §3.5)")
+    if moves_left_flag:
+        policy._trainer.config.moves_left_coef = float(
+            args.mcts_moves_left_coef)
+        log.info(f"moves-left head ON (moves_left_coef="
+                 f"{args.mcts_moves_left_coef}; Lc0-style tempo signal)")
     # train_batch_size: forward_batch chunk size. THE key GPU knob --
     # TransformerPolicy defaults to 1 (CPU) / 2 (DML) and leaves CUDA
     # at 1, so a CUDA run would forward the replay minibatch as

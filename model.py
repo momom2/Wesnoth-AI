@@ -168,6 +168,14 @@ class ModelOutput:
     # aux head (default). A denser training signal than win/loss z;
     # see trainer aux_coef + draw_tiebreak.material_margin.
     aux_score:     Optional[torch.Tensor] = None  # [1, 1] or None
+    # Optional moves-left head (Lc0-style, 2026-07-04): predicted
+    # FRACTION of the turn budget still to be played from this state,
+    # sigmoid-bounded to (0, 1) (fraction of MOVES_LEFT_NORM_TURNS).
+    # Trains as a dense regression alongside z; intended search-side
+    # consumer (prefer shorter wins / longer losses) is wired
+    # SEPARATELY and default-off pending calibration. `None` when the
+    # model was built without the head (default).
+    moves_left:    Optional[torch.Tensor] = None  # [1, 1] or None
 
     # Diagnostic: marginal-over-actors probability of each action
     # type. Layout [1, T+2]:
@@ -213,11 +221,13 @@ class WesnothModel(nn.Module):
         dropout:     float = 1e-4,
         max_attacks: int = MAX_ATTACKS,
         aux_score:   bool = False,
+        moves_left:  bool = False,
     ):
         super().__init__()
         self.d_model     = d_model
         self.max_attacks = max_attacks
         self.has_aux_score = bool(aux_score)
+        self.has_moves_left = bool(moves_left)
 
         # Distinguish streams at attention time.
         self.token_kind_embed = nn.Embedding(TokenKind.COUNT, d_model)
@@ -286,6 +296,12 @@ class WesnothModel(nn.Module):
         # arch (and existing checkpoints) are byte-unchanged.
         self.aux_score_head = (
             nn.Linear(d_model, 1) if self.has_aux_score else None)
+        # Optional moves-left head (Lc0-style): predicts the fraction
+        # of the turn budget remaining from the global token, sigmoid-
+        # bounded to (0, 1). Built only when `moves_left` is on, so
+        # the default arch (and existing checkpoints) are unchanged.
+        self.moves_left_head = (
+            nn.Linear(d_model, 1) if self.has_moves_left else None)
 
     def forward(self, encoded: "EncodedState") -> ModelOutput:
         device = encoded.hex_tokens.device
@@ -370,6 +386,10 @@ class WesnothModel(nn.Module):
         if self.aux_score_head is not None:
             aux_score = torch.tanh(
                 self.aux_score_head(global_ctx.squeeze(1)))       # [B, 1]
+        moves_left = None
+        if self.moves_left_head is not None:
+            moves_left = torch.sigmoid(
+                self.moves_left_head(global_ctx.squeeze(1)))      # [B, 1]
 
         # marginal_type_logits is now a lazy property on ModelOutput
         # (optimization #2) -- not computed here; the sole reader is a
@@ -386,6 +406,7 @@ class WesnothModel(nn.Module):
             num_units=U,
             num_recruits=R,
             aux_score=aux_score,
+            moves_left=moves_left,
         )
 
     # ------------------------------------------------------------------
@@ -497,6 +518,10 @@ class WesnothModel(nn.Module):
         if self.aux_score_head is not None:
             aux_score_b = torch.tanh(
                 self.aux_score_head(global_ctx_b.squeeze(1)))         # [B, 1]
+        moves_left_b = None
+        if self.moves_left_head is not None:
+            moves_left_b = torch.sigmoid(
+                self.moves_left_head(global_ctx_b.squeeze(1)))        # [B, 1]
 
         # Heads applied to the padded streams once each — replaces the
         # old per-sample loop that called actor_head / target_q_proj /
@@ -577,6 +602,8 @@ class WesnothModel(nn.Module):
             cliffness_sample = cliffness_b[b:b+1]          # [1, 1]
             aux_sample = (aux_score_b[b:b+1]
                           if aux_score_b is not None else None)  # [1, 1]
+            ml_sample = (moves_left_b[b:b+1]
+                         if moves_left_b is not None else None)  # [1, 1]
 
             # marginal_type_logits: lazy property (optimization #2).
             outputs.append(ModelOutput(
@@ -591,5 +618,6 @@ class WesnothModel(nn.Module):
                 num_units=U_b,
                 num_recruits=R_b,
                 aux_score=aux_sample,
+                moves_left=ml_sample,
             ))
         return outputs

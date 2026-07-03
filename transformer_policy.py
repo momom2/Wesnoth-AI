@@ -84,6 +84,7 @@ class TransformerPolicy:
         device=None,
         trainer_config: Optional[TrainerConfig] = None,
         aux_score: bool = False,
+        moves_left: bool = False,
     ):
         # Default device is CPU. DML runs work for rollout (single-sample
         # forwards are competitive with CPU once the MHA/TransformerEncoder
@@ -116,6 +117,7 @@ class TransformerPolicy:
             trainer_config = TrainerConfig(train_batch_size=2 if is_dml else 1)
 
         self._aux_score = bool(aux_score)
+        self._moves_left = bool(moves_left)
         self._encoder = GameStateEncoder(d_model=d_model).to(self._device)
         self._model = WesnothModel(
             d_model=d_model,
@@ -123,6 +125,7 @@ class TransformerPolicy:
             num_heads=num_heads,
             d_ff=d_ff,
             aux_score=self._aux_score,
+            moves_left=self._moves_left,
         ).to(self._device)
         self._trainer = Trainer(
             self._model,
@@ -158,6 +161,7 @@ class TransformerPolicy:
             num_heads=num_heads,
             d_ff=d_ff,
             aux_score=self._aux_score,
+            moves_left=self._moves_left,
         ).to(self._device)
         self._inference_encoder.load_state_dict(self._encoder.state_dict())
         self._inference_model.load_state_dict(self._model.state_dict())
@@ -589,6 +593,7 @@ class TransformerPolicy:
                 # and old checkpoints lack the key); the aux head
                 # partial-loads via the EXPECTED_MISSING whitelist.
                 "aux_score":       self._aux_score,
+                "moves_left":      self._moves_left,
                 "model_state":     self._model.state_dict(),
                 "encoder_state":   self._encoder.state_dict(),
                 "unit_type_to_id": dict(self._encoder.unit_type_to_id),
@@ -720,6 +725,9 @@ class TransformerPolicy:
                     # an aux-on model resumed from an aux-off
                     # checkpoint partial-loads with this head fresh.
                     "aux_score_head.weight", "aux_score_head.bias",
+                    # Moves-left head (Lc0-style, 2026-07-04); same
+                    # partial-load story as the aux head.
+                    "moves_left_head.weight", "moves_left_head.bias",
                 },
                 "encoder": {
                     # Dynamic hex flags (recruit_rejected etc.)

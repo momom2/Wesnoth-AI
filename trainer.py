@@ -118,6 +118,12 @@ class MCTSExperience:
     # the aux loss). A denser companion to `z`. See
     # draw_tiebreak.material_margin + MCTSPolicy.finalize_game.
     aux_target:  Optional[float] = None
+    # Fraction of the turn budget that was STILL to be played from
+    # this state (turns_remaining / MOVES_LEFT_NORM_TURNS, clipped to
+    # [0, 1]). Lc0-style moves-left target (2026-07-04): a dense
+    # tempo signal the sparse z cannot provide. None when the game's
+    # end turn was unknown (legacy pickles) -- the loss then skips.
+    moves_left_target: Optional[float] = None
     # Training-progress counter at the time this state's MCTS search ran.
     # Threaded into the distillation loss so the reference legality
     # masks rebuild the combat-oracle bias at the SAME annealed alpha the
@@ -141,6 +147,12 @@ class TrainerConfig:
     # regularizes the shared trunk without overwhelming the policy/value
     # objectives. See draw_tiebreak.material_margin.
     aux_coef:             float = 0.15
+    # Moves-left loss weight (Lc0-style). Effective only when the
+    # model has the head (`moves_left=True`) AND experiences carry
+    # `moves_left_target`s. Small: it is a trunk regularizer / future
+    # search-utility input, not an objective that should compete with
+    # policy/value.
+    moves_left_coef:      float = 0.1
     # Lowered from 0.01 after the first 22 train_steps held entropy
     # ~8.3 (near max). The bonus was dominating the tiny shaping
     # gradients and preventing the policy from ever committing to an
@@ -203,6 +215,7 @@ class TrainStats:
     n_transitions:  int   = 0
     n_trajectories: int   = 0
     aux_loss:       float = 0.0   # auxiliary margin loss (KataGo §3.5); 0 when off
+    moves_left_loss: float = 0.0  # Lc0-style moves-left MSE; 0 when off
 
 
 class Trainer:
@@ -895,11 +908,27 @@ def _trainer_step_mcts(
         if aux_on else None
     )
 
+    # Moves-left head (Lc0-style, 2026-07-04): same gating story as
+    # the aux head -- head present + weight positive + every
+    # experience carries a target, else the term vanishes entirely.
+    ml_on = (
+        self.config.moves_left_coef > 0
+        and getattr(self.model, "has_moves_left", False)
+        and all(getattr(e, "moves_left_target", None) is not None
+                for e in experiences)
+    )
+    ml_t_full = (
+        torch.tensor([e.moves_left_target for e in experiences],
+                     device=dev, dtype=torch.float32)
+        if ml_on else None
+    )
+
     self.optimizer.zero_grad()
 
     sum_policy_loss = 0.0
     sum_value_loss  = 0.0
     sum_aux_loss    = 0.0
+    sum_ml_loss     = 0.0
     sum_total_visits = 0.0
     sum_actor_nlp_weighted = 0.0  # for "entropy"-style logging
 
@@ -941,6 +970,7 @@ def _trainer_step_mcts(
         chunk_values: List[torch.Tensor] = []
         chunk_value_logits: List[torch.Tensor] = []
         chunk_aux: List[torch.Tensor] = []
+        chunk_ml: List[torch.Tensor] = []
         for e, encoded, output in zip(chunk, encoded_chunk, outputs):
             policy_loss, total_v, mean_actor_nlp = (
                 _mcts_factored_policy_loss(
@@ -954,6 +984,8 @@ def _trainer_step_mcts(
             chunk_value_logits.append(output.value_logits.squeeze(0))
             if aux_on:
                 chunk_aux.append(output.aux_score.squeeze())
+            if ml_on:
+                chunk_ml.append(output.moves_left.squeeze())
             sum_total_visits += total_v
             sum_actor_nlp_weighted += mean_actor_nlp * total_v
 
@@ -983,6 +1015,16 @@ def _trainer_step_mcts(
                                   reduction="sum") / N
             chunk_loss = chunk_loss + self.config.aux_coef * aux_loss
             sum_aux_loss += float(aux_loss.item())
+        # Moves-left loss (Lc0-style): MSE of the predicted vs actual
+        # remaining-turn fraction; same normalization/weighting shape
+        # as the aux term.
+        if ml_on:
+            ml_pred_t = torch.stack(chunk_ml)
+            ml_tgt_t  = ml_t_full[start:start + L]
+            ml_loss = F.mse_loss(ml_pred_t, ml_tgt_t,
+                                 reduction="sum") / N
+            chunk_loss = chunk_loss + self.config.moves_left_coef * ml_loss
+            sum_ml_loss += float(ml_loss.item())
 
         chunk_loss.backward()
 
@@ -1015,6 +1057,7 @@ def _trainer_step_mcts(
             sum_policy_loss
             + self.config.value_coef * sum_value_loss
             + self.config.aux_coef   * sum_aux_loss
+            + self.config.moves_left_coef * sum_ml_loss
         ),
         grad_norm      = float(grad_norm) if isinstance(grad_norm, float)
                          else float(grad_norm.item()),
@@ -1022,6 +1065,7 @@ def _trainer_step_mcts(
         n_transitions  = int(N),
         n_trajectories = int(N),  # one experience = one root state
         aux_loss       = float(sum_aux_loss),
+        moves_left_loss = float(sum_ml_loss),
     )
 
 

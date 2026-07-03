@@ -53,6 +53,12 @@ from tools.mcts import (
 
 log = logging.getLogger("mcts_policy")
 
+# Normalizer for moves-left targets: remaining_turns / THIS, clipped
+# to [0, 1]. Fixed (not per-game max_turns) so the predicted fraction
+# means the same wall-clock distance on every map; 200 = the training
+# turn cap in use since the 2026-07 campaigns.
+MOVES_LEFT_NORM_TURNS = 200.0
+
 
 @dataclass
 class ReplayConfig:
@@ -354,6 +360,13 @@ class MCTSPolicy:
         # tiebreak config is set (trainer then skips the aux loss).
         aux_gs = final_gs if final_gs is not None else (
             states[-1].gs if states else None)
+        # Moves-left targets (Lc0-style, 2026-07-04): fraction of the
+        # turn budget still to be played from each recorded state,
+        # derived from the game's actual end turn. Normalized by a
+        # fixed constant (not per-game max_turns) so "0.1 left" means
+        # the same wall distance on every map.
+        end_turn_no = (aux_gs.global_info.turn_number
+                       if aux_gs is not None else None)
         exps: List[MCTSExperience] = []
         for s in states:
             if winner == 0:
@@ -368,11 +381,17 @@ class MCTSPolicy:
             aux = (material_margin(aux_gs, s.side, tiebreak)
                    if (tiebreak is not None and aux_gs is not None)
                    else None)
+            ml = None
+            if end_turn_no is not None:
+                remaining = max(0, end_turn_no
+                                - s.gs.global_info.turn_number)
+                ml = min(1.0, remaining / MOVES_LEFT_NORM_TURNS)
             exps.append(MCTSExperience(
                 game_state=s.gs,
                 visit_counts=s.visit_counts,
                 z=z,
                 aux_target=aux,
+                moves_left_target=ml,
                 decision_step=s.decision_step,
             ))
         # Holdout diversion: while the probe set is below target, the
@@ -540,6 +559,7 @@ class MCTSPolicy:
             n_transitions=sum(s.n_transitions for s in stats),
             n_trajectories=buffer_size,
             aux_loss=sum(s.aux_loss for s in stats) / k,
+            moves_left_loss=sum(s.moves_left_loss for s in stats) / k,
         )
 
     # ------------------------------------------------------------------
