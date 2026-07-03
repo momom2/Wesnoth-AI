@@ -74,6 +74,22 @@ else
     echo "[onstart] FIRST LAUNCH from $CKPT_IN (+anneal reset)"
 fi
 
+# ---- Periodic checkpoint export (Hugging Face Hub) ------------------
+# Opt-in: put a fine-grained write token (scoped to ONE model repo) in
+# $WORKDIR/.hf_token, or set HF_TOKEN in the template env. Uploads the
+# campaign checkpoint + CSV immediately and every 30 min -- a stopped
+# instance's disk is unreachable (learned 2026-07-03), so anything not
+# pushed off the node is hostage to the next outbid.
+pkill -f 'hf_upload_loo[p].py' 2>/dev/null || true
+if [ -n "${HF_TOKEN:-}" ] || [ -f "$WORKDIR/.hf_token" ]; then
+    "$PY" -m pip install --quiet huggingface_hub || true
+    WORKDIR="$WORKDIR" nohup "$PY" scripts/hf_upload_loop.py \
+        >> "$WORKDIR/hf_upload.log" 2>&1 &
+    echo "[onstart] HF checkpoint uploader ON (see hf_upload.log)"
+else
+    echo "[onstart] HF uploader off (no HF_TOKEN / $WORKDIR/.hf_token)"
+fi
+
 # Rotate a bloated train.log (the 2026-07-03 fd-leak spammed 134MB of
 # tracebacks; keep restarts snappy and greps fast).
 if [ -f "$WORKDIR/train.log" ] && \
