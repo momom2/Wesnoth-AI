@@ -207,6 +207,15 @@ throughput is understood.
 **What to measure (the Tier-a deliverable = an Elo-vs-compute point):**
 - Strength: `tools/elo_ladder.py` / `tools/whr.py` over periodic checkpoints
   (+ the scripted `dummy` and random floor). Watch the curve MOVE.
+  **Eval protocol (locked 2026-07-03):** LADDER MAPS ONLY — no
+  `--mini-ratio`/`--drill-ratio` in evaluation, ever (mini-map games
+  have different dynamics and pollute the Elo meaning). The ladder's
+  default `random_setup` call already guarantees this; pinned by
+  `test_elo_ladder_maps.py`. Checkpoints come from the HF Hub history
+  (`momom2/wesnoth-tier-a` — every 30-min upload is a revision; fetch
+  start/middle/end via `hf_hub_download(revision=...)`). Run the
+  ladder ON the GPU node (reserve the last ~3-4h of credit: stop
+  training, ~30 games/pair over 3 checkpoints + dummy ≈ 2-3h).
 - Value learning: held-out value loss trending down.
 - Behavior: attack% / decisive-game% / leader-threat on ladder maps (the
   BACKLOG's iter-168 baseline had *zero* leaderkills on full maps).
