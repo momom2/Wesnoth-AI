@@ -74,6 +74,14 @@ else
     echo "[onstart] FIRST LAUNCH from $CKPT_IN (+anneal reset)"
 fi
 
+# Rotate a bloated train.log (the 2026-07-03 fd-leak spammed 134MB of
+# tracebacks; keep restarts snappy and greps fast).
+if [ -f "$WORKDIR/train.log" ] && \
+        [ "$(stat -c%s "$WORKDIR/train.log")" -gt 50000000 ]; then
+    mv "$WORKDIR/train.log" "$WORKDIR/train.log.1"
+    echo "[onstart] rotated oversized train.log -> train.log.1"
+fi
+
 export PYTORCH_ALLOC_CONF=expandable_segments:True
 # 48 actor processes x (ctrl/resp queues + shipped experience pipes)
 # exceed the container's default 1024-fd soft limit (observed

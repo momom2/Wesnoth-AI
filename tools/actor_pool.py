@@ -122,6 +122,26 @@ def _zero_reward(_delta) -> float:
     return 0.0
 
 
+def _set_fd_safe_sharing() -> None:
+    """Switch torch's multiprocessing tensor transport off the
+    'file_descriptor' strategy (Linux default). Every tensor shipped
+    through the queues (ModelOutput responses, experience payloads)
+    holds fds under that strategy, and at 48 actors x thousands of
+    forwards/min they LEAK faster than they are reclaimed — observed
+    2026-07-03 on the Vast node: fd count grew past ulimit 65536
+    overnight, actors died one by one (game counts 48 -> 26), and
+    resource_sharer spammed 134MB of Errno-24 tracebacks. The
+    'file_system' strategy stages tensors in /dev/shm files instead
+    (the standard DataLoader too-many-open-files fix); no-op where
+    unsupported (Windows already uses it)."""
+    try:
+        import torch.multiprocessing as _tmp
+        if "file_system" in _tmp.get_all_sharing_strategies():
+            _tmp.set_sharing_strategy("file_system")
+    except Exception:
+        pass
+
+
 def _actor_loop(
     actor_id: int, ctrl_q, req_q, resp_q, result_q,
     mcts_cfg, scenario_opts: Dict, max_turns: int,
@@ -133,6 +153,7 @@ def _actor_loop(
     logging.basicConfig(level=log_level,
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
     torch.set_num_threads(max(1, torch_threads))
+    _set_fd_safe_sharing()
 
     # Heavy imports happen here (post-spawn), not at module import time.
     from tools.inference_seam import RemoteEncoder, RemoteModel
@@ -248,6 +269,7 @@ class ActorPool:
 
     def start(self) -> None:
         from tools.inference_seam import InferenceServer
+        _set_fd_safe_sharing()
         ctx = mp.get_context("spawn")
         self._req_q = ctx.Queue()
         self._result_q = ctx.Queue()
