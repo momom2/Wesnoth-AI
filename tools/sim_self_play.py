@@ -53,7 +53,7 @@ import logging
 import random
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -133,6 +133,11 @@ class GameOutcome:
     # pool deadline abandoning slow ladder draws). "ladder" | "mini" |
     # "drill" | "" (unknown / legacy producer).
     map_class: str = ""
+    # Accepted actions per SIDE-TURN (one side's decision sequence
+    # within one turn), pooled across the game. MCTS depth
+    # calibration input: at ~A actions per side-turn, S sims explore
+    # roughly S/A of one turn plan ahead (2026-07-03 user request).
+    turn_action_counts: List[int] = field(default_factory=list)
 
 
 def _outcome_for(winner: int, ended_by: str, side: int) -> str:
@@ -320,6 +325,8 @@ def play_one_game(
     # recruits but chose not to?".
     n_recruits_per_side: Dict[int, int] = {1: 0, 2: 0}
     n_recruit_attempts_per_side: Dict[int, int] = {1: 0, 2: 0}
+    # (turn_number, side) -> accepted actions in that side-turn.
+    turn_action_tally: Dict[tuple, int] = {}
     # Per-side closest-approach tracker, updated after every sim.step
     # (and seeded from the initial state below). Surfaces as the
     # headline no-kills metric in the iter log.
@@ -455,6 +462,13 @@ def play_one_game(
 
         sim.step(action)
         action_counts[atype] = action_counts.get(atype, 0) + 1
+        # Per-side-turn action tally: how many decisions one side
+        # makes within one turn. This is the MCTS depth calibration
+        # input — at ~A actions per side-turn, a search of S sims
+        # only looks ~S/A "turns" ahead within its own turn plan.
+        # Keyed on the PRE-step turn/side (end_turn advances them).
+        _tk = (pre_state.global_info.turn_number, acting_side)
+        turn_action_tally[_tk] = turn_action_tally.get(_tk, 0) + 1
         _update_closest_approach(sim.gs, closest_approach)
 
         # Recruit diagnostics: did this recruit attempt actually
@@ -599,6 +613,7 @@ def play_one_game(
         n_recruit_attempts_s2=n_recruit_attempts_per_side.get(2, 0),
         map_class=_classify_scenario(getattr(sim, "scenario_id", "")
                                      or ""),
+        turn_action_counts=sorted(turn_action_tally.values()),
     )
 
 
@@ -1042,6 +1057,18 @@ def run_iteration(
             f"iter {iter_idx}: decisive split -- ladder "
             f"{ladder_dec}/{ladder_n}, mini/drill "
             f"{other_dec}/{other_n}")
+    # Actions-per-side-turn distribution, pooled across the iter's
+    # games (MCTS depth calibration: S sims / A actions-per-side-turn
+    # ≈ how much of one turn plan the search can look ahead).
+    pooled_apt = sorted(
+        c for o in outcomes for c in (o.turn_action_counts or []))
+    apt_mean = (sum(pooled_apt) / len(pooled_apt)) if pooled_apt else None
+    apt_median = pooled_apt[len(pooled_apt) // 2] if pooled_apt else None
+    if pooled_apt:
+        log.info(
+            f"iter {iter_idx}: actions/side-turn mean={apt_mean:.1f} "
+            f"median={apt_median} max={pooled_apt[-1]} "
+            f"(n={len(pooled_apt)} side-turns)")
 
     train_stats = None
     if train_at_end:
@@ -1139,6 +1166,8 @@ def run_iteration(
             "ladder_decisive":     ladder_dec,
             "other_games":         other_n,
             "other_decisive":      other_dec,
+            "actions_per_turn_mean":   apt_mean,
+            "actions_per_turn_median": apt_median,
         })
     return outcomes
 
@@ -1209,6 +1238,8 @@ class _TrainerHistoryCSV:
         # over a mixed curriculum is misleading).
         "ladder_games", "ladder_decisive",
         "other_games", "other_decisive",
+        # Actions-per-side-turn distribution (MCTS depth calibration).
+        "actions_per_turn_mean", "actions_per_turn_median",
     ]
 
     def __init__(self, path: Path):

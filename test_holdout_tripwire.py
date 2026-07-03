@@ -155,6 +155,12 @@ def test_outcome_carries_map_class():
     out = play_one_game(sim, _EndTurn(), lambda *a, **kw: 0.0,
                         game_label="mc", cost_lookup=_recruit_cost_lookup())
     assert out.map_class == "mini"
+    # Actions-per-side-turn tally: an end_turn-only policy makes
+    # exactly ONE action per side-turn.
+    assert out.turn_action_counts, "per-side-turn tally must be populated"
+    assert all(c == 1 for c in out.turn_action_counts), (
+        f"end_turn-only game must tally 1 action per side-turn, "
+        f"got {out.turn_action_counts}")
 
 
 def test_abort_tripwire_exits_4_and_saves(tmp_path):
