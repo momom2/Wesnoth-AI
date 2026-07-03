@@ -255,8 +255,15 @@ def find_scenario_cfg_path(scenario_id: str) -> Optional[Path]:
     # scenarios pick a snappier WML `id=` than their filename
     # (Caves of the Basilisk's id=multiplayer_Basilisk vs file
     # 2p_Caves_of_the_Basilisk.cfg). Add new entries as discovered.
+    # The two lowercase-id maps MUST be here: their files are
+    # CamelCase, and on a case-SENSITIVE filesystem (Linux training
+    # nodes) the naive `2p_<id>.cfg` probe misses them -- observed
+    # 2026-07-02 on Vast: both maps silently skipped from the ladder
+    # pool. Windows' case-insensitive filesystem masked it locally.
     _BASE_OVERRIDES = {
         "Basilisk": "Caves_of_the_Basilisk",
+        "elensefar_courtyard": "Elensefar_Courtyard",
+        "thousand_stings_garrison": "Thousand_Stings_Garrison",
     }
     base = _BASE_OVERRIDES.get(base, base)
 
