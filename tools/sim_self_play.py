@@ -64,6 +64,7 @@ sys.path.insert(0, str(_THIS.parent))
 
 from classes import GameState, Unit
 from tools.scenario_pool import LADDER_SCENARIO_IDS
+from tools.scenario_pool import classify_scenario as _classify_scenario
 from rewards import (
     OUTCOME_DRAW, OUTCOME_LOSS, OUTCOME_ONGOING, OUTCOME_TIMEOUT, OUTCOME_WIN,
     StepDelta, WeightedReward, compute_delta, hex_distance, load_reward_config,
@@ -125,6 +126,13 @@ class GameOutcome:
     n_recruits_s2: int = 0
     n_recruit_attempts_s1: int = 0
     n_recruit_attempts_s2: int = 0
+    # Which map class produced this game. The AGGREGATE decisive rate
+    # over a mixed curriculum is MISLEADING (proven 2026-07-03: the
+    # trainer log read ~50% decisive while ladder maps were 0/8
+    # decisive — every kill came from the mini half, amplified by the
+    # pool deadline abandoning slow ladder draws). "ladder" | "mini" |
+    # "drill" | "" (unknown / legacy producer).
+    map_class: str = ""
 
 
 def _outcome_for(winner: int, ended_by: str, side: int) -> str:
@@ -589,6 +597,8 @@ def play_one_game(
         n_recruits_s2=n_recruits_per_side.get(2, 0),
         n_recruit_attempts_s1=n_recruit_attempts_per_side.get(1, 0),
         n_recruit_attempts_s2=n_recruit_attempts_per_side.get(2, 0),
+        map_class=_classify_scenario(getattr(sim, "scenario_id", "")
+                                     or ""),
     )
 
 
@@ -1015,6 +1025,24 @@ def run_iteration(
             f"{ca_str}"
         )
 
+    # Per-map-class decisive split. The AGGREGATE decisive rate is
+    # misleading over a mixed curriculum (2026-07-03: ~50% aggregate,
+    # 0/8 decisive on ladder maps — all kills came from minis, and
+    # the pool deadline abandoning slow ladder draws inflated it
+    # further). Ladder decisiveness is the number that matters for
+    # full-game strength; log both.
+    ladder_n = sum(1 for o in outcomes if o.map_class == "ladder")
+    ladder_dec = sum(1 for o in outcomes
+                     if o.map_class == "ladder" and o.winner != 0)
+    other_n = len(outcomes) - ladder_n
+    other_dec = sum(1 for o in outcomes
+                    if o.map_class != "ladder" and o.winner != 0)
+    if outcomes:
+        log.info(
+            f"iter {iter_idx}: decisive split -- ladder "
+            f"{ladder_dec}/{ladder_n}, mini/drill "
+            f"{other_dec}/{other_n}")
+
     train_stats = None
     if train_at_end:
         # One gradient step over all queued trajectories.
@@ -1107,6 +1135,10 @@ def run_iteration(
             "n_recruit_attempts_s2": n_recruit_attempts_s2,
             "holdout_value_loss":  holdout_loss,
             "holdout_n":           holdout_n,
+            "ladder_games":        ladder_n,
+            "ladder_decisive":     ladder_dec,
+            "other_games":         other_n,
+            "other_decisive":      other_dec,
         })
     return outcomes
 
@@ -1173,6 +1205,10 @@ class _TrainerHistoryCSV:
         # Appended LAST so rows appended to a pre-existing CSV stay
         # column-compatible with its older header.
         "holdout_value_loss", "holdout_n",
+        # Per-map-class decisive split (2026-07-03; aggregate decisive
+        # over a mixed curriculum is misleading).
+        "ladder_games", "ladder_decisive",
+        "other_games", "other_decisive",
     ]
 
     def __init__(self, path: Path):

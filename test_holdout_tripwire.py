@@ -128,6 +128,35 @@ def test_eval_value_loss_matches_step_mcts_scale():
 # Abort tripwire, through the real main()
 # ---------------------------------------------------------------------
 
+def test_outcome_carries_map_class():
+    """Every GameOutcome must say which map class produced it — the
+    aggregate decisive rate over a mixed curriculum is misleading
+    (2026-07-03: ~50% aggregate while ladder maps were 0/8 decisive),
+    so the per-class split is the metric that matters."""
+    from sim_test_helpers import fresh_scenario_sim
+    from tools.scenario_pool import classify_scenario
+    from tools.sim_self_play import _recruit_cost_lookup, play_one_game
+
+    assert classify_scenario("multiplayer_Den_of_Onis") == "ladder"
+    assert classify_scenario("multiplayer_elensefar_courtyard") == "ladder"
+    assert classify_scenario("drill_duel") == "drill"
+    assert classify_scenario("2p_mini_edited") == "mini"
+    assert classify_scenario("") == ""
+
+    class _EndTurn:
+        uses_step_rewards = False
+        def select_action(self, gs, *, game_label="d", sim=None):
+            return {"type": "end_turn"}
+        def observe(self, *a, **kw): pass
+        def drop_pending(self, *a, **kw): pass
+        def finalize_game(self, *a, **kw): pass
+
+    sim = fresh_scenario_sim(3, mini=True, max_turns=2)
+    out = play_one_game(sim, _EndTurn(), lambda *a, **kw: 0.0,
+                        game_label="mc", cost_lookup=_recruit_cost_lookup())
+    assert out.map_class == "mini"
+
+
 def test_abort_tripwire_exits_4_and_saves(tmp_path):
     """2-turn mini-map games always draw -> decisive rate 0 -> the
     tripwire must fire once the window fills, after saving the

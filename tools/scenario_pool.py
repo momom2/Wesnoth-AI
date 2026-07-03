@@ -338,6 +338,22 @@ class ScenarioSetup:
 FORCED_FACTION: Optional[str] = "Knalgan Alliance"
 
 
+def classify_scenario(scenario_id: str) -> str:
+    """Map-class of a scenario id: "ladder" (the 21-map competitive
+    pool), "drill" (our capability drills), "mini" (anything else we
+    set up — the Mini Maps engagement curriculum), "" for an unknown/
+    empty id. Exists to SPLIT outcome statistics per class: the
+    aggregate decisive rate over a mixed curriculum proved misleading
+    (2026-07-03: ~50% aggregate while ladder maps were 0/8 decisive)."""
+    if not scenario_id:
+        return ""
+    if scenario_id in LADDER_SCENARIO_IDS:
+        return "ladder"
+    if scenario_id.startswith("drill_"):
+        return "drill"
+    return "mini"
+
+
 def random_setup(
     rng: random.Random,
     *,

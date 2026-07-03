@@ -2,6 +2,34 @@
 
 ## Open items (2026-07-03)
 
+- 🔴 **CONFIRMED (16-game controlled diagnostic, training conditions,
+  checkpoint @155k decisions): ladder maps 0/8 decisive, minis 4/8.**
+  The trainer's ~50% aggregate decisive rate was the mini curriculum
+  plus completion bias (pool deadline abandons slow ladder draws, so
+  completed-game stats over-sample fast mini kills). FIXED the
+  metric: `GameOutcome.map_class` + per-iter "decisive split" log
+  line + 4 CSV columns (`ladder_games/ladder_decisive/other_*`).
+  OPEN the underlying question: ladder-map conversion has not
+  emerged at this compute scale — watch the new split; consider
+  mini-ratio annealing or intermediate map sizes if it stays 0.
+- 🟠 **Action-budget exhaustion pathology:** 6/15 diagnostic games
+  ended by `max_actions`, two as early as turn 16-20 — the policy
+  issues masses of no-progress moves per turn (also visible in the
+  replay: unit shuffling). Wastes compute and turns games into
+  timeouts. Investigate: why is end_turn so unattractive; is there a
+  sampler-level loop (same unit shuffling between two hexes)?
+- 🟠 **Elo-ladder eval must handle draws** or it cannot separate
+  checkpoints (ladder games currently ~all draw at the cap). Options:
+  score capped games by material tiebreak sign; or report
+  tiebreak-margin alongside Elo. Decide before the end-of-credit
+  ladder run.
+- 🟢 Perf note for the scaling backlog: 16 INDEPENDENT in-process
+  rollout processes (each doing its own GPU forwards) saturated the
+  4090 at 99% — something the central-server actor pool never
+  achieved (~200 req/s ceiling, GPU ~idle). "N independent processes,
+  merge experiences via files" may beat "async server" as the Tier-b
+  scale-out design.
+
 - 🟡 **eval-vs-RCA games leave no replay.** The live bridge runs
   `wesnoth --test eval_<id>`, and test-mode skips the replay-autosave
   flow; eval_runner has no save handling either — a watched game is
