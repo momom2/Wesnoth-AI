@@ -1080,6 +1080,8 @@ def run_iteration(
         # may return a minimal stats object without the aux field.
         _aux = getattr(train_stats, "aux_loss", 0.0)
         aux_str = f" aux={_aux:.4f}" if _aux else ""
+        _ml = getattr(train_stats, "moves_left_loss", 0.0)
+        aux_str += f" moves_left={_ml:.4f}" if _ml else ""
         log.info(
             f"iter {iter_idx}: train_step in {train_dt:.1f}s "
             f"trajectories={train_stats.n_trajectories} transitions={train_stats.n_transitions} "
