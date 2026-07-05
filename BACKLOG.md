@@ -1,5 +1,27 @@
 # Project review — bugs and improvements
 
+## TIER-A VERDICT (2026-07-05): Elo-vs-compute point measured
+
+66-game ladder-only round-robin (Kaggle free T4, MCTS sims=32,
+start/mid/final from the HF checkpoint history + scripted dummy
+anchor at 0; results in the HF repo `elo/` + local
+kaggle/kaggle_output/elo_final/). MATERIAL-SIGN convention (primary):
+**start −145±84 → mid +69±81 (+~36 GPU-h) → final +69±81 (+~47
+GPU-h)**. final beats start 13-0-1 head-to-head on material.
+- Self-play training WORKS (+~215 material-Elo over the campaign).
+- The curve FLATTENED in the second half (mid→final ≈ 0; 5-9
+  head-to-head). Cause visible in the games: 42/66 ended by
+  max_actions (the spam pathology), 22 by turn cap, only 2 kills.
+  **Bottleneck is behavioral (tempo/conversion), not compute — per
+  the runbook gate, FIX before renting Tier-b hours:** (1) wire the
+  moves-left search utility (head already trained), (2) curriculum
+  lever on ladder conversion, then re-run this ladder (free) and
+  check the slope recovers.
+- PURE convention: blind (2/66 decisive; all players within ±17) —
+  material-sign-primary was the right call.
+- Scripted dummy holds material parity with all nets on full maps —
+  the honest strength anchor.
+
 ## Open items (2026-07-03)
 
 - 🔴 **CONFIRMED (16-game controlled diagnostic, training conditions,
