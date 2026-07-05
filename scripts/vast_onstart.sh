@@ -113,6 +113,7 @@ nohup bash -c "
     --train-batch-size 128 --mcts-batch-size 16 \
     --mini-ratio 0.5 --drill-ratio 0.3 \
     --mcts-aux-score --mcts-moves-left \
+    --mcts-moves-left-utility 0.2 \
     --holdout-size 512 \
     --abort-decisive-rate 0.05 --abort-window 40 \
     --abort-holdout-stall 150 \

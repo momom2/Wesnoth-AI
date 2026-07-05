@@ -1729,6 +1729,13 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--mcts-moves-left-coef", type=float, default=0.1,
                     help="Weight of the moves-left MSE loss "
                          "(--mcts-moves-left).")
+    ap.add_argument("--mcts-moves-left-utility", type=float, default=0.0,
+                    help="Lc0-style search utility: winning lines are "
+                         "nudged toward FEWER expected remaining moves "
+                         "(and losing lines toward more) by this weight "
+                         "in PUCT selection. 0 = off (default). Needs "
+                         "the moves-left head (--mcts-moves-left) to "
+                         "carry any signal; start ~0.2.")
     ap.add_argument("--replay-buffer", action="store_true",
                     help="Enable AlphaZero-style experience replay + "
                          "multi-epoch training (MCTS mode). Default OFF "
@@ -2030,6 +2037,7 @@ def main(argv: List[str]) -> int:
                  f"device={device})")
         mcts_cfg = MCTSConfig(
             n_simulations=args.mcts_sims,
+            moves_left_utility=args.mcts_moves_left_utility,
             c_puct=args.mcts_c_puct,
             batch_size=_mbs,
             fpu_reduction=(None if args.mcts_fpu_reduction < 0

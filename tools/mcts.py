@@ -179,6 +179,19 @@ class MCTSConfig:
     branching factor (~80-200 legal actions vs Go's 362)."""
 
     n_simulations:    int   = 100
+    # Lc0-style moves-left utility weight (2026-07-05). 0.0 = OFF
+    # (default; byte-identical search). When > 0, in-tree selection
+    # adds  -moves_left_utility * Q(s,a) * M(s,a)  to each visited
+    # edge's PUCT score, where M is the edge's backed-up mean
+    # moves-left prediction in [0,1] (terminals back up 0). Effect:
+    # from winning positions (Q>0) the search prefers lines that END
+    # the game sooner; from losing positions it prefers dragging.
+    # Motivated by the Tier-a verdict: 42/66 eval games died to the
+    # action cap -- nothing priced time. Requires a checkpoint whose
+    # model has the moves-left head (--mcts-moves-left); without M
+    # data the term is inert. Tuning knob, start ~0.2 (term bounded
+    # by the weight since |Q|<=1, M<=1).
+    moves_left_utility: float = 0.0
     # PUCT exploration constant. Higher = more exploration. AlphaZero
     # uses ~1.0; chess-AlphaZero uses ~1.25-2.5. We default 1.5
     # because legal-action counts on a typical Wesnoth state vary
@@ -440,6 +453,7 @@ class MCTSEdge:
     E_outcome[V(best response | outcome)]."""
     __slots__ = ("action", "actor_idx", "type_idx", "target_idx",
                  "weapon_idx", "prior", "n_visits", "w_value",
+                 "m_sum",
                  "children",
                  "outcome_probs", "outcome_keys", "seen_mass",
                  "bucket_rep", "bucket_of")
@@ -453,6 +467,11 @@ class MCTSEdge:
         self.prior      = lap.prior
         self.n_visits   = 0
         self.w_value    = 0.0
+        # Summed moves-left predictions backed up through this edge
+        # (perspective-free: game length, not value -- no sign flip).
+        # Sibling-relative comparisons are what the utility consumes,
+        # so the constant per-ply offset is irrelevant (Lc0-style).
+        self.m_sum      = 0.0
         self.children: Dict = {}
         # Exact-enumeration bookkeeping (attack edges only):
         # outcome_probs: _OUTCOMES_UNSET | None | OutcomeDistribution.
@@ -494,6 +513,7 @@ class MCTSNode:
                  "expanded", "_total_visits",
                  "tt_hits", "tt_misses",
                  "cliffness", "value", "gumbel_action",
+                 "moves_left",
                  "_bucket_copy_from")
 
     def __init__(self, sim: WesnothSim):
@@ -522,6 +542,12 @@ class MCTSNode:
         # ROOT by mcts_search when config.gumbel_root). None
         # elsewhere / in classic mode.
         self.gumbel_action: Optional[dict] = None
+        # Moves-left prediction (fraction of the turn budget still to
+        # be played, in (0,1)) from the network's optional moves-left
+        # head, stamped at expansion. None when the model lacks the
+        # head or the node is terminal/unexpanded (terminals back up
+        # M=0 directly -- game over IS zero moves left).
+        self.moves_left: Optional[float] = None
         # Tier-2 bucketing: when set (to the bucket's representative
         # node), this node is a NON-representative member -- on
         # expansion it COPIES the representative's edges + value
@@ -581,6 +607,8 @@ def _expand(
             encoded, output, node.sim.gs, decision_step=decision_step)
         v = float(output.value.squeeze().item())
         node.cliffness = float(output.cliffness.squeeze().item())
+        if output.moves_left is not None:
+            node.moves_left = float(output.moves_left.squeeze().item())
     if not priors:
         # No legal actions left -- treat the node as terminal with
         # neutral value. Shouldn't happen on real maps (end_turn is
@@ -602,6 +630,7 @@ def _puct_select(
     node:   MCTSNode,
     c_puct: float,
     fpu_reduction: Optional[float] = None,
+    moves_left_utility: float = 0.0,
 ) -> MCTSEdge:
     """Pick the edge maximizing
         U(s,a) = Q(s,a) + c_puct * P(s,a) * sqrt(sum_b N(s,b)) / (1 + N(s,a))
@@ -625,6 +654,14 @@ def _puct_select(
         q = q_init if edge.n_visits == 0 else edge.q_value
         u = (q
              + c_puct * edge.prior * sqrt_total / (1 + edge.n_visits))
+        # Lc0-style moves-left utility (see MCTSConfig): winning lines
+        # (q > 0) are nudged toward LOW expected remaining moves,
+        # losing lines toward HIGH. Only visited edges carry M data;
+        # the term vanishes at moves_left_utility=0 (default) and for
+        # M-less edges, keeping legacy behavior byte-identical.
+        if moves_left_utility > 0.0 and edge.n_visits > 0 \
+                and edge.m_sum > 0.0:
+            u -= moves_left_utility * q * (edge.m_sum / edge.n_visits)
         if u > best_score:
             best_score = u
             best_edge  = edge
@@ -659,6 +696,7 @@ def _select_one(
     stats:          Optional[Dict[str, int]] = None,
     fpu_reduction:      Optional[float] = None,
     root_fpu_reduction: Optional[float] = None,
+    moves_left_utility: float = 0.0,
     forced_first_edge:  Optional[MCTSEdge] = None,
     chance_nodes:       bool = False,
     sample_rng:         Optional[np.random.Generator] = None,
@@ -715,7 +753,7 @@ def _select_one(
             forced_first_edge = None
         else:
             fpu = root_fpu_reduction if node is root else fpu_reduction
-            edge = _puct_select(node, c_puct, fpu)
+            edge = _puct_select(node, c_puct, fpu, moves_left_utility)
 
         resample = (chance_nodes
                     and isinstance(edge.action, dict)
@@ -954,6 +992,7 @@ def _backup(
     leaf_is_terminal:    bool  = False,
     member_path:         Optional[List] = None,
     config:              Optional["MCTSConfig"] = None,
+    leaf_moves_left:     Optional[float] = None,
 ) -> None:
     """Walk the path in reverse, undoing virtual loss and adding the
     real visit. `v` is from `leaf_side`'s perspective; flip per edge
@@ -1007,6 +1046,13 @@ def _backup(
         parent._total_visits += 1
         contrib = v_eff if parent.side == leaf_side else -v_eff
         edge.w_value += contrib
+        # Moves-left backup (perspective-free -- game length, not
+        # value, so no sign flip). Terminal leaves back up 0 ("game
+        # over IS zero moves left"); leaves without the head back up
+        # nothing, leaving m_sum's mean over the visits that DID
+        # carry M (consumed sibling-relative by _puct_select).
+        if leaf_moves_left is not None:
+            edge.m_sum += leaf_moves_left
         # Tier-2 stage 2: attribute to the traversed member's ground
         # stat (same parent-perspective frame as edge.w_value, so it's
         # consistent across the bucket) and split on significance.
@@ -1090,6 +1136,8 @@ def _populate_leaf(
     encoded, output = _leaf_to_cpu(encoded, output)
     leaf.cliffness = (float(output.cliffness.squeeze().item())
                       if cliffness is None else float(cliffness))
+    if output.moves_left is not None:
+        leaf.moves_left = float(output.moves_left.squeeze().item())
     priors = enumerate_legal_actions_with_priors(
         encoded, output, leaf.sim.gs, decision_step=decision_step)
     if not priors:
@@ -1124,6 +1172,7 @@ def _copy_expansion(leaf: MCTSNode, rep: MCTSNode) -> float:
     ]
     leaf.value = rep.value
     leaf.cliffness = rep.cliffness
+    leaf.moves_left = rep.moves_left
     leaf.expanded = True
     return leaf.value
 
@@ -1149,6 +1198,7 @@ def _run_one_sim(
         transpositions=transpositions, stats=tt_stats,
         fpu_reduction=config.fpu_reduction,
         root_fpu_reduction=config.root_fpu_reduction,
+        moves_left_utility=config.moves_left_utility,
         forced_first_edge=forced_first_edge,
         chance_nodes=config.chance_nodes,
         sample_rng=sample_rng,
@@ -1161,7 +1211,8 @@ def _run_one_sim(
            if config.outcome_buckets else {})
     if leaf.is_terminal:
         v = _terminal_value(leaf.sim, leaf.side, config.draw_tiebreak)
-        _backup(path, v, leaf.side, 0.0, leaf_is_terminal=True, **_bp)
+        _backup(path, v, leaf.side, 0.0, leaf_is_terminal=True,
+                leaf_moves_left=0.0, **_bp)
         return
     if leaf.expanded:
         # Depth-cap break (see _MAX_SELECT_DEPTH) returned an already-
@@ -1171,7 +1222,8 @@ def _run_one_sim(
         _backup(
             path, leaf.value, leaf.side, 0.0,
             leaf_cliffness=leaf.cliffness,
-            bootstrap_alpha=config.cliffness_bootstrap_alpha, **_bp,
+            bootstrap_alpha=config.cliffness_bootstrap_alpha,
+            leaf_moves_left=leaf.moves_left, **_bp,
         )
         return
     # Tier-2 copy-at-expansion: a non-representative bucket member
@@ -1193,7 +1245,9 @@ def _run_one_sim(
         path, v, leaf.side, 0.0,
         leaf_cliffness=leaf.cliffness,
         bootstrap_alpha=config.cliffness_bootstrap_alpha,
-        leaf_is_terminal=leaf.is_terminal, **_bp,
+        leaf_is_terminal=leaf.is_terminal,
+        leaf_moves_left=(0.0 if leaf.is_terminal else leaf.moves_left),
+        **_bp,
     )
 
 
@@ -1240,6 +1294,7 @@ def _run_sim_batch(
             transpositions=transpositions, stats=tt_stats,
             fpu_reduction=config.fpu_reduction,
             root_fpu_reduction=root_fpu,
+            moves_left_utility=config.moves_left_utility,
             forced_first_edge=fe,
             chance_nodes=config.chance_nodes,
             sample_rng=rng,
@@ -1249,7 +1304,7 @@ def _run_sim_batch(
             v = _terminal_value(leaf.sim, leaf.side, config.draw_tiebreak)
             _backup(path, v, leaf.side, v_loss,
                     leaf_cliffness=0.0, bootstrap_alpha=0.0,
-                    leaf_is_terminal=True)
+                    leaf_is_terminal=True, leaf_moves_left=0.0)
             completed += 1
         elif leaf.expanded:
             # Depth-cap break: already-expanded interior node. Back up
@@ -1257,7 +1312,8 @@ def _run_sim_batch(
             # wipe its edge stats).
             _backup(path, leaf.value, leaf.side, v_loss,
                     leaf_cliffness=leaf.cliffness,
-                    bootstrap_alpha=config.cliffness_bootstrap_alpha)
+                    bootstrap_alpha=config.cliffness_bootstrap_alpha,
+                    leaf_moves_left=leaf.moves_left)
             completed += 1
         else:
             pending.append((leaf, path))
@@ -1297,7 +1353,9 @@ def _run_sim_batch(
             _backup(path, leaf_values[id(leaf)], leaf.side, v_loss,
                     leaf_cliffness=leaf.cliffness,
                     bootstrap_alpha=config.cliffness_bootstrap_alpha,
-                    leaf_is_terminal=leaf.is_terminal)
+                    leaf_is_terminal=leaf.is_terminal,
+                    leaf_moves_left=(0.0 if leaf.is_terminal
+                                     else leaf.moves_left))
             completed += 1
     return completed
 

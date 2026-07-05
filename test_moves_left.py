@@ -95,6 +95,62 @@ def test_finalize_sets_shrinking_moves_left_targets():
                 f"turn {ta} ({fa})")
 
 
+def test_search_utility_prefers_short_wins_long_losses():
+    """The Lc0-style utility must flip its preference with Q's sign:
+    winning -> pick the edge with LOWER backed-up moves-left; losing
+    -> HIGHER. c_puct=0 isolates the Q+utility part of the score."""
+    from tools.mcts import MCTSNode, MCTSEdge, _puct_select
+    from action_sampler import LegalActionPrior
+
+    def _node_with_two_edges(q, m_fast, m_slow):
+        sim = fresh_scenario_sim(seed=21, max_turns=8, mini=True)
+        node = MCTSNode(sim)
+        edges = []
+        for m in (m_fast, m_slow):
+            e = MCTSEdge(LegalActionPrior(
+                action={"type": "end_turn"}, prior=0.5, actor_idx=0,
+                type_idx=0, target_idx=0, weapon_idx=0))
+            e.n_visits = 10
+            e.w_value = q * 10
+            e.m_sum = m * 10
+            edges.append(e)
+        node.edges = edges
+        node._total_visits = 20
+        return node
+
+    # Winning (q=+0.5): prefer the SHORT line (m=0.1 over m=0.9).
+    node = _node_with_two_edges(+0.5, 0.1, 0.9)
+    assert _puct_select(node, c_puct=0.0,
+                        moves_left_utility=0.2) is node.edges[0]
+    # Losing (q=-0.5): prefer the LONG line.
+    node = _node_with_two_edges(-0.5, 0.1, 0.9)
+    assert _puct_select(node, c_puct=0.0,
+                        moves_left_utility=0.2) is node.edges[1]
+    # Utility off: tie on Q -> first edge wins (legacy behavior).
+    node = _node_with_two_edges(+0.5, 0.1, 0.9)
+    assert _puct_select(node, c_puct=0.0,
+                        moves_left_utility=0.0) is node.edges[0]
+
+
+def test_search_backs_up_moves_left_through_real_search():
+    """A real search with the head + utility on must leave backed-up
+    M mass on visited root edges (sigmoid outputs are strictly
+    positive, so any network-evaluated backup deposits m_sum > 0)."""
+    import numpy as np
+    from tools.mcts import MCTSConfig as MC, mcts_search
+    pol = _pol(True)
+    sim = fresh_scenario_sim(seed=21, max_turns=8, mini=True)
+    cfg = MC(n_simulations=12, gumbel_root=False, add_root_noise=False,
+             draw_tiebreak=DrawTiebreakConfig(cap=0.3), batch_size=1,
+             moves_left_utility=0.2)
+    root = mcts_search(sim, pol._inference_model, pol._inference_encoder,
+                       cfg, rng=np.random.default_rng(0))
+    visited = [e for e in root.edges if e.n_visits > 0]
+    assert visited, "search must visit at least one root edge"
+    assert any(e.m_sum > 0 for e in visited), (
+        "no moves-left mass backed up despite the head being present")
+
+
 def test_train_step_moves_left_loss_fires_only_when_on():
     mp_on = MCTSPolicy(_pol(True), _cfg())
     _play_and_finalize(mp_on, seed=21)
