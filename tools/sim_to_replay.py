@@ -932,16 +932,20 @@ def _scrape_map_keep_positions(map_data: str) -> Dict[int, Tuple[int, int]]:
     Missing side -> not in the map -> caller errors loudly.
     """
     out: Dict[int, Tuple[int, int]] = {}
-    rows = [r for r in map_data.splitlines() if r.strip()]
-    for y, row in enumerate(rows, start=1):
+    from tools.replay_dataset import split_map_grid
+    rows, border = split_map_grid(map_data)
+    for y_b, row in enumerate(rows):
         tiles = [t.strip() for t in row.split(",")]
-        for x, tile in enumerate(tiles, start=1):
+        for x_b, tile in enumerate(tiles):
             # Match "<N> <code>" prefix where <N> is the side number.
             m = re.match(r'^(\d+)\s+(.+)$', tile)
             if m:
                 side = int(m.group(1))
                 if side not in out:
-                    out[side] = (x, y)
+                    # WML (1,1) = first PLAYABLE hex = grid index
+                    # (border, border); header lines already stripped
+                    # by split_map_grid (add-on maps carry them).
+                    out[side] = (x_b - border + 1, y_b - border + 1)
     return out
 
 

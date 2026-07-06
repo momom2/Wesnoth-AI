@@ -22,6 +22,25 @@ GPU-h)**. final beats start 13-0-1 head-to-head on material.
 - Scripted dummy holds material parity with all nets on full maps —
   the honest strength anchor.
 
+## Open items (2026-07-06, replay-validation harness catches)
+
+- 🟠 **Mini-scenario exports still desync in real playback** (layer 2
+  catch): `error replay: received a synced [command] from side 1.
+  Expacted was a [command] from side 3` + `found corrupt movement` —
+  mini scenarios carry a scenery side 3; the export's turn/init_side
+  sequencing models only 2 sides. Ladder exports play back CLEAN
+  (positively verified). Repro: WESNOTH_E2E=1 pytest
+  test_replay_validation.py (mini case is xfail'd).
+- 🟡 Layer-2 harness startup quirk: the known-bad archived replay
+  loads+plays when launched manually but stalls before playback under
+  the harness (5 replay-domain lines in 240s). Detector correctly
+  reports INCONCLUSIVE instead of passing; find the launch-context
+  difference (window pinning timing? save-dir collision?).
+- 🟢 Training note: the map-header fix shifts the MINI maps'
+  coordinate frame (a translation + restored edge rows). The running
+  campaign picks it up at its next restart — mini-game encodings
+  change slightly; internally consistent before and after.
+
 ## Open items (2026-07-03)
 
 - 🔴 **CONFIRMED (16-game controlled diagnostic, training conditions,

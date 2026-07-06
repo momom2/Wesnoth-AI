@@ -282,10 +282,10 @@ def extract_player_starts(raw_map: str) -> Dict[int, Position]:
     starts (3, 4, ...) for FFA but ladder maps only have 1 and 2.
     """
     out: Dict[int, Position] = {}
-    rows = [r for r in raw_map.splitlines() if r.strip()]
+    from tools.replay_dataset import split_map_grid
+    rows, border = split_map_grid(raw_map)
     if not rows:
         return out
-    border = 1
     for y_b, row in enumerate(rows):
         if y_b < border or y_b >= len(rows) - border:
             continue
