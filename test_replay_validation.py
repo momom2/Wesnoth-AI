@@ -73,27 +73,53 @@ def test_keep_scrape_matches_wml_coordinates():
         assert keeps[2] == (3, 2), keeps
 
 
-def _export_and_validate(mini: bool, tmp_path: Path):
-    from dummy_policy import DummyPolicy
+def _export_and_validate(mini: bool, tmp_path: Path,
+                         policy_kind: str = "dummy",
+                         max_turns: int = 8):
+    """Play + export one game, return (path, layer-1 violations).
+
+    policy_kind='mcts' drives the PRODUCTION self-play path (real
+    MCTSPolicy search on a small random-init net) — the user-facing
+    replays come from self-play, so the e2e verification must too
+    (dummy-verified ladder exports had been trusted while self-play
+    minis desynced; never let the verified path diverge from the
+    production path again)."""
     from sim_test_helpers import fresh_scenario_sim
     from tools.sim_self_play import _recruit_cost_lookup, play_one_game
     from tools.sim_to_replay import export_replay_from_scratch
     from tools.validate_replay import validate_replay
 
-    class _Stub:
-        uses_step_rewards = False
-        def __init__(self): self._d = DummyPolicy()
-        def select_action(self, gs, *, game_label="d", sim=None):
-            return self._d.select_action(gs, game_label=game_label,
-                                         sim=sim)
-        def observe(self, *a, **kw): pass
-        def drop_pending(self, *a, **kw): pass
-        def finalize_game(self, *a, **kw): pass
+    if policy_kind == "mcts":
+        import torch
+        from tools.draw_tiebreak import DrawTiebreakConfig
+        from tools.mcts import MCTSConfig
+        from tools.mcts_policy import MCTSPolicy
+        from transformer_policy import TransformerPolicy
+        base = TransformerPolicy(device=torch.device("cpu"),
+                                 d_model=48, num_layers=2,
+                                 num_heads=4, d_ff=96)
+        policy = MCTSPolicy(base, MCTSConfig(
+            n_simulations=4,
+            draw_tiebreak=DrawTiebreakConfig(cap=0.3)))
+    else:
+        from dummy_policy import DummyPolicy
 
-    sim = fresh_scenario_sim(seed=7, max_turns=8, mini=mini)
-    play_one_game(sim, _Stub(), lambda *a, **kw: 0.0,
+        class _Stub:
+            uses_step_rewards = False
+            def __init__(self): self._d = DummyPolicy()
+            def select_action(self, gs, *, game_label="d", sim=None):
+                return self._d.select_action(
+                    gs, game_label=game_label, sim=sim)
+            def observe(self, *a, **kw): pass
+            def drop_pending(self, *a, **kw): pass
+            def finalize_game(self, *a, **kw): pass
+        policy = _Stub()
+
+    sim = fresh_scenario_sim(seed=7, max_turns=max_turns, mini=mini)
+    play_one_game(sim, policy, lambda *a, **kw: 0.0,
                   game_label="val", cost_lookup=_recruit_cost_lookup())
-    out = tmp_path / f"validate_{'mini' if mini else 'ladder'}.bz2"
+    out = tmp_path / (f"validate_{policy_kind}_"
+                      f"{'mini' if mini else 'ladder'}.bz2")
     export_replay_from_scratch(sim, out)
     return out, validate_replay(out)
 
@@ -105,6 +131,14 @@ def test_selfplay_export_validates_ladder(tmp_path):
 
 def test_selfplay_export_validates_mini(tmp_path):
     _, problems = _export_and_validate(mini=True, tmp_path=tmp_path)
+    assert problems == [], "\n".join(problems)
+
+
+def test_mcts_selfplay_export_validates_ladder(tmp_path):
+    """The PRODUCTION path: real MCTS search, exported, statically
+    validated. Small net + 4 sims keeps it suite-friendly."""
+    _, problems = _export_and_validate(mini=False, tmp_path=tmp_path,
+                                       policy_kind="mcts")
     assert problems == [], "\n".join(problems)
 
 

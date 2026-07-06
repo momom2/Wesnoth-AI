@@ -28,14 +28,24 @@ GPU-h)**. final beats start 13-0-1 head-to-head on material.
   catch): `error replay: received a synced [command] from side 1.
   Expacted was a [command] from side 3` + `found corrupt movement` —
   mini scenarios carry a scenery side 3; the export's turn/init_side
-  sequencing models only 2 sides. Ladder exports play back CLEAN
-  (positively verified). Repro: WESNOTH_E2E=1 pytest
-  test_replay_validation.py (mini case is xfail'd).
-- 🟡 Layer-2 harness startup quirk: the known-bad archived replay
-  loads+plays when launched manually but stalls before playback under
-  the harness (5 replay-domain lines in 240s). Detector correctly
-  reports INCONCLUSIVE instead of passing; find the launch-context
-  difference (window pinning timing? save-dir collision?).
+  sequencing models only 2 sides. Ladder exports play back CLEAN —
+  verified 2026-07-06 for BOTH a dummy-policy game AND a real MCTS
+  self-play game (campaign checkpoint, sims=8, 267 replay actions,
+  played to the end unattended, zero engine error lines). Repro:
+  WESNOTH_E2E=1 pytest test_replay_validation.py (mini case is
+  xfail'd).
+- ✅ RESOLVED 2026-07-06: layer-2 "stalls under harness" quirk. Root
+  cause: `--load X --with-replay` opens the replay viewer STOPPED
+  (1.18.4 replay_controller.cpp constructs with the base
+  replay_stop_condition), so unattended runs sat at action 1 forever;
+  every "working" run had a human pressing Play. `playreplay` has no
+  default key binding, so the harness now launches with an isolated
+  --userdata-dir whose preferences bind p->playreplay and PostMessages
+  that key to the minimized window (no focus stealing), then requires
+  progress to the final "up to replay action N/N" line (else
+  INCONCLUSIVE=fail). Bad-mini re-verified to still FAIL under the
+  new launch path; window minimization does NOT stall playback
+  (tested: restoring a stuck window changed nothing).
 - 🟢 Training note: the map-header fix shifts the MINI maps'
   coordinate frame (a translation + restored edge rows). The running
   campaign picks it up at its next restart — mini-game encodings

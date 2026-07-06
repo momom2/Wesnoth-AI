@@ -3,14 +3,27 @@ Wesnoth and fail on out-of-sync markers in the engine log.
 
 This is the ground-truth check layer 1 approximates: Wesnoth itself
 re-simulates the recorded commands during replay playback and logs
-desyncs. We launch `wesnoth --load <replay> --with-replay --nodelay`
-(the man page's replay-playback path), pin the window to the
-background (no focus stealing — the project rule), tail the newest
-`wesnoth-*.out.log`, and scan for OOS signatures until the replay
-ends or a timeout.
+desyncs.
 
-Requires a real Wesnoth install; used by the opt-in pytest
-(WESNOTH_E2E=1) and manually:
+Two findings shape the launch procedure (2026-07-06):
+
+1. `--load <replay> --with-replay` opens the replay viewer STOPPED.
+   1.18.4 src/replay_controller.cpp constructs with the base
+   `replay_stop_condition` (should_stop() == true), so playback only
+   starts when something calls play_replay() — i.e. the theme's Play
+   button or the `playreplay` hotkey. Every "working" harness run
+   before this fix had a human pressing Play; unattended runs sat at
+   replay action 1 forever.
+
+2. `playreplay` has NO default key binding (hotkey_command.cpp:
+   `{ HOTKEY_REPLAY_PLAY, "playreplay", ..., "" }`), so we launch
+   with an isolated `--userdata-dir` whose preferences bind
+   key "p" -> playreplay, and PostMessage that key to the (minimized,
+   never-focused) window until the log shows playback progressing.
+   The isolated userdata also keeps the user's real preferences and
+   saves untouched; its WML cache persists across runs.
+
+Used by the opt-in pytest (WESNOTH_E2E=1) and manually:
 
     python tools/validate_replay_wesnoth.py logs/validate_mini.bz2
 """
@@ -18,22 +31,31 @@ Requires a real Wesnoth install; used by the opt-in pytest
 from __future__ import annotations
 
 import argparse
+import ctypes
 import logging
+import os
+import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from constants import WESNOTH_PATH, WESNOTH_LOGS_PATH
+from constants import WESNOTH_PATH
 
 log = logging.getLogger("validate_replay_wesnoth")
 
-SAVES_DIR = (Path.home() / "Documents" / "My Games" / "Wesnoth1.18"
-             / "saves")
+# Isolated userdata: survives across runs so the WML cache is only
+# built once (~1 min); deliberately NOT the session scratchpad.
+USERDATA_DIR = Path(tempfile.gettempdir()) / "wesnoth_ai_validate_userdata"
+
+# preferences WML format per 1.18.4 src/hotkey/hotkey_item.cpp
+# save_helper: [hotkey] command=..., key=<lowercased key name>.
+_PREFERENCES = '[hotkey]\n\tcommand="playreplay"\n\tkey="p"\n[/hotkey]\n'
 
 # Engine log signatures of replay desync, calibrated 2026-07-06 by
 # playing a KNOWN-BAD replay with --log-debug=replay and reading what
@@ -48,60 +70,113 @@ SAVES_DIR = (Path.home() / "Documents" / "My Games" / "Wesnoth1.18"
 # phrases as belt-and-suspenders.
 _OOS_MARKERS = (" error replay:", "out of sync", "desync",
                 "checksum mismatch", "verification failed")
-# Playback-activity signature: with --log-debug=replay the replay
-# domain chats constantly during playback. A run with fewer than
-# _MIN_ACTIVITY such lines never actually played the replay — report
-# that as a FAILURE (an inconclusive run must not pass).
-_ACTIVITY_MARKER = "replay:"
-_MIN_ACTIVITY = 20
+# Playback-progress signature: "up to replay action X/Y" (info-level,
+# needs --log-debug=replay). X==Y means the replay played to the end.
+_PROGRESS_RE = re.compile(r"up to replay action (\d+)/(\d+)")
+# A run that never progressed past the start events never actually
+# played the replay — report that as a FAILURE, not a pass.
+_MIN_PROGRESS = 2
 
 
-def validate_in_wesnoth(replay: Path, timeout: float = 180.0,
-                        settle: float = 20.0) -> list:
+if os.name == "nt":
+    _u32 = ctypes.windll.user32
+    from ctypes import wintypes
+    _ENUM = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND,
+                               wintypes.LPARAM)
+    _WM_KEYDOWN, _WM_KEYUP = 0x100, 0x101
+    _VK_P = 0x50
+    _SW_SHOWMINNOACTIVE = 7
+
+    def _windows_of(pid: int) -> list:
+        got = []
+
+        def _cb(hwnd, _lparam):
+            p = wintypes.DWORD()
+            _u32.GetWindowThreadProcessId(hwnd, ctypes.byref(p))
+            if p.value == pid and _u32.IsWindowVisible(hwnd):
+                got.append(hwnd)
+            return True
+
+        _u32.EnumWindows(_ENUM(_cb), 0)
+        return got
+
+    def _minimize(pid: int) -> bool:
+        found = False
+        for h in _windows_of(pid):
+            _u32.ShowWindow(h, _SW_SHOWMINNOACTIVE)
+            found = True
+        return found
+
+    def _post_play_hotkey(pid: int) -> None:
+        """PostMessage the bound 'p' key — reaches SDL's message pump
+        without focusing/raising the window (no focus stealing)."""
+        scan = _u32.MapVirtualKeyW(_VK_P, 0)
+        lp_down = 1 | (scan << 16)
+        lp_up = 1 | (scan << 16) | (1 << 30) | (1 << 31)
+        for h in _windows_of(pid):
+            _u32.PostMessageW(h, _WM_KEYDOWN, _VK_P, lp_down)
+            _u32.PostMessageW(h, _WM_KEYUP, _VK_P, lp_up)
+else:
+    def _minimize(pid: int) -> bool:      # pragma: no cover
+        return False
+
+    def _post_play_hotkey(pid: int) -> None:  # pragma: no cover
+        pass
+
+
+def _engine_logs() -> set:
+    # Engine logs go to `wesnoth-*.log`; the `.out.log` twins carry
+    # only Lua std_print output (learned 2026-07-06 — tailing the
+    # wrong one made every verdict vacuous).
+    d = USERDATA_DIR / "logs"
+    if not d.exists():
+        return set()
+    return {p for p in d.glob("wesnoth-*.log")
+            if not p.name.endswith(".out.log")}
+
+
+def validate_in_wesnoth(replay: Path, timeout: float = 420.0,
+                        settle: float = 30.0) -> list:
     """Returns a list of offending log lines (empty = no OOS seen).
 
     `settle`: extra seconds to keep scanning after the last log
     growth, so slow playback isn't cut short. A replay that plays to
-    the end OR goes quiet without OOS lines counts as clean."""
+    its final action OR goes quiet without OOS lines (after having
+    visibly progressed) counts as clean."""
     if not WESNOTH_PATH.exists():
         raise RuntimeError(f"Wesnoth not found at {WESNOTH_PATH}")
-    SAVES_DIR.mkdir(parents=True, exist_ok=True)
-    target = SAVES_DIR / replay.name
-    if replay.resolve() != target.resolve():
-        shutil.copy2(replay, target)
-
-    # Engine logs go to `wesnoth-*.log`; the `.out.log` twins carry
-    # only Lua std_print output (learned 2026-07-06 — tailing the
-    # wrong one made every verdict vacuous).
-    def _engine_logs():
-        if not WESNOTH_LOGS_PATH.exists():
-            return set()
-        return {p for p in WESNOTH_LOGS_PATH.glob("wesnoth-*.log")
-                if not p.name.endswith(".out.log")}
+    saves = USERDATA_DIR / "saves"
+    saves.mkdir(parents=True, exist_ok=True)
+    prefs = USERDATA_DIR / "preferences"
+    if (not prefs.exists()
+            or "playreplay" not in prefs.read_text(encoding="utf-8")):
+        prefs.write_text(_PREFERENCES, encoding="utf-8")
+    shutil.copy2(replay, saves / replay.name)
 
     pre_logs = _engine_logs()
-    cmd = [str(WESNOTH_PATH), "--load", replay.name, "--with-replay",
-           "--nodelay", "--log-debug=replay", "--log-info=engine"]
+    cmd = [str(WESNOTH_PATH), "--userdata-dir", str(USERDATA_DIR),
+           "--load", replay.name, "--with-replay", "--nodelay",
+           "--log-debug=replay"]
+    log.info("launching: %s", " ".join(cmd))
     proc = subprocess.Popen(cmd)
-    # Reuse the bridge's minimize-without-focus machinery.
-    try:
-        from wesnoth_interface import _pin_to_background
-        _pin_to_background(proc.pid, log)
-    except Exception:                                   # noqa: BLE001
-        pass
 
     offending: list = []
-    activity = 0
+    progress = 0          # highest X seen in "action X/Y"
+    total = None          # Y
+    minimized = False
     log_file = None
     pos = 0
     t0 = time.time()
     last_growth = t0
     try:
         while time.time() - t0 < timeout:
+            if not minimized:
+                minimized = _minimize(proc.pid)
             if log_file is None:
                 cand = [p for p in _engine_logs() if p not in pre_logs]
                 if cand:
-                    log_file = max(cand, key=lambda p: p.stat().st_mtime)
+                    log_file = max(cand,
+                                   key=lambda p: p.stat().st_mtime)
                 else:
                     time.sleep(1.0)
                     continue
@@ -118,29 +193,47 @@ def validate_in_wesnoth(replay: Path, timeout: float = 180.0,
                 last_growth = time.time()
                 for line in new.splitlines():
                     low = line.lower()
-                    if _ACTIVITY_MARKER in low:
-                        activity += 1
-                    if any(m in low for m in _OOS_MARKERS):
+                    m = _PROGRESS_RE.search(low)
+                    if m:
+                        progress = max(progress, int(m.group(1)))
+                        total = int(m.group(2))
+                    if any(mk in low for mk in _OOS_MARKERS):
                         offending.append(line.strip())
             if offending:
                 return offending          # fail fast on first OOS
+            # The viewer opens STOPPED (see module docstring); keep
+            # nudging the play hotkey until playback visibly moves.
+            if progress < _MIN_PROGRESS:
+                _post_play_hotkey(proc.pid)
+            if total is not None and progress >= total:
+                log.info("replay played to the end (%d/%d)",
+                         progress, total)
+                break
             if proc.poll() is not None:
                 break                     # Wesnoth exited
-            # The quiet-settle exit only applies once playback has
+            # Quiet-settle exit only applies once playback has
             # visibly STARTED — boot + asset load takes ~40s with
             # sparse logging, and bailing during it produced
             # inconclusive runs (2026-07-06 calibration).
-            if (activity >= _MIN_ACTIVITY
+            if (progress >= _MIN_PROGRESS
                     and time.time() - last_growth > settle):
                 break                     # playback done / stalled
             time.sleep(1.0)
         else:
-            offending.append(f"TIMEOUT after {timeout}s")
-        if activity < _MIN_ACTIVITY:
             offending.append(
-                f"INCONCLUSIVE: only {activity} replay-domain log "
-                f"lines — playback never ran (bad --load path?); "
-                f"refusing to report success")
+                f"TIMEOUT after {timeout}s "
+                f"(progress {progress}/{total})")
+        if progress < _MIN_PROGRESS:
+            offending.append(
+                f"INCONCLUSIVE: playback never progressed past "
+                f"action {progress} — the play hotkey didn't take "
+                f"(window state? preferences?); refusing to report "
+                f"success")
+        elif total is not None and progress < total:
+            offending.append(
+                f"INCONCLUSIVE: playback stopped at action "
+                f"{progress}/{total} without an OOS line; refusing "
+                f"to report success")
         return offending
     finally:
         if proc.poll() is None:
@@ -150,7 +243,7 @@ def validate_in_wesnoth(replay: Path, timeout: float = 180.0,
 def main(argv) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("replay", type=Path)
-    ap.add_argument("--timeout", type=float, default=180.0)
+    ap.add_argument("--timeout", type=float, default=420.0)
     args = ap.parse_args(argv[1:])
     logging.basicConfig(level=logging.INFO)
     bad = validate_in_wesnoth(args.replay, timeout=args.timeout)
