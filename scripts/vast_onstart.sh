@@ -129,7 +129,15 @@ if [ -f "$WORKDIR/train.log" ] && \
     echo "[onstart] rotated oversized train.log -> train.log.1"
 fi
 
+# Both spellings: torch <=2.7 reads PYTORCH_CUDA_ALLOC_CONF, newer
+# reads PYTORCH_ALLOC_CONF.
 export PYTORCH_ALLOC_CONF=expandable_segments:True
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+# GPU memory budget (24GB card, learned from the 2026-07-06 OOM):
+# each spool worker pins a ~560MB CUDA context + model, so
+# 24 workers (13.7GB) + trainer peak at batch 128 (~10GB) OOM'd
+# mid-train-step (and allocator thrash made the step take 22 min).
+# 16 workers (~9GB) + batch 64 (~5GB) leaves real headroom.
 # 48 actor processes x (ctrl/resp queues + shipped experience pipes)
 # exceed the container's default 1024-fd soft limit (observed
 # 2026-07-02: OSError errno 24 in multiprocessing resource_sharer).
@@ -141,14 +149,14 @@ nohup bash -c "
     --d-model 256 --num-layers 6 --num-heads 8 --d-ff 1024 \
     --replay-buffer --replay-updates 48 --value-coef 1.0 \
     --replay-minibatch 128 --replay-capacity 24000 \
-    --train-batch-size 128 --mcts-batch-size 16 \
+    --train-batch-size 64 --mcts-batch-size 16 \
     --mini-ratio 0.5 --drill-ratio 0.3 \
     --mcts-aux-score --mcts-moves-left \
     --mcts-moves-left-utility 0.2 \
     --holdout-size 512 \
     --abort-decisive-rate 0.05 --abort-window 40 \
     --abort-holdout-stall 150 \
-    --spool-workers 24 --games-per-iter 24 \
+    --spool-workers 16 --games-per-iter 16 \
     $RESET \
     --checkpoint-in  $CKPT_IN \
     --checkpoint-out $CAMPAIGN \
