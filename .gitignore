@@ -24,6 +24,7 @@ Thumbs.db
 logs/
 training/profiles/
 training/replays/
+training/spool/
 
 # Trained checkpoints + their learning-curve CSVs are deliberately
 # TRACKED: months of training are not regenerable and the 2026-06

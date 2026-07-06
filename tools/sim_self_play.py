@@ -832,6 +832,104 @@ def _worker_loop(
                 shared["outcomes"].append(outcome)
 
 
+class SpoolWorkers:
+    """Spawn + supervise N independent self-play worker PROCESSES
+    (tools/selfplay_worker.py) and collect their spooled games.
+
+    The winning architecture from the 2026-07 measurements: each
+    worker plays whole games in-process with its own GPU forwards (no
+    inference server, no IPC — the central-server pool capped at
+    ~200 req/s with the GPU idle; independent processes saturated
+    it). The spool directory is the only seam: workers atomically
+    write one pickle per game; the learner consumes, trains, and
+    saves checkpoints that workers hot-reload between games."""
+
+    def __init__(self, n: int, spool_dir: Path, checkpoint: Path,
+                 args, log_level: str):
+        import subprocess
+        self._n = n
+        self._dir = spool_dir / "games"
+        self._dir.mkdir(parents=True, exist_ok=True)
+        self._checkpoint = checkpoint
+        self._cmd_tail = [
+            "--checkpoint", str(checkpoint),
+            "--spool-dir", str(spool_dir),
+            "--mcts-sims", str(args.mcts_sims),
+            "--mini-ratio", str(max(0.0, min(1.0, args.mini_ratio))),
+            "--drill-ratio", str(max(0.0, min(1.0, args.drill_ratio))),
+            "--max-turns", str(args.max_turns),
+            "--draw-tiebreak-cap", str(max(0.0, args.draw_tiebreak_cap)),
+            "--moves-left-utility", str(args.mcts_moves_left_utility),
+            "--log-level", log_level,
+        ]
+        self._seed0 = args.seed * 1_000_003 + 7
+        self._subprocess = subprocess
+        self._procs: List = [None] * n
+        for i in range(n):
+            self._spawn(i)
+
+    def _spawn(self, i: int) -> None:
+        worker = Path(__file__).resolve().parent / "selfplay_worker.py"
+        self._procs[i] = self._subprocess.Popen(
+            [sys.executable, str(worker), "--worker-id", str(i),
+             "--seed", str(self._seed0 + i)] + self._cmd_tail,
+            stdout=self._subprocess.DEVNULL,
+            stderr=self._subprocess.DEVNULL,
+        )
+
+    def ensure_alive(self) -> None:
+        """Respawn crashed workers (called once per iteration)."""
+        for i, p in enumerate(self._procs):
+            if p is None or p.poll() is not None:
+                rc = None if p is None else p.poll()
+                log.warning(f"spool worker {i} died (rc={rc}); respawning")
+                self._spawn(i)
+
+    def collect(self, policy, want: int,
+                timeout_s: float = 3600.0) -> List["GameOutcome"]:
+        """Block until `want` spooled games are consumed (or timeout).
+        Per game file: advance the global decision counter, offer the
+        WHOLE game to the learner-side holdout, else queue it for
+        training; delete the file."""
+        import pickle as _pickle
+        outcomes: List[GameOutcome] = []
+        deadline = time.perf_counter() + timeout_s
+        while len(outcomes) < want:
+            files = sorted(self._dir.glob("game_*.pkl"))
+            if not files:
+                if time.perf_counter() > deadline:
+                    log.error(
+                        f"spool collect timed out with "
+                        f"{len(outcomes)}/{want} games; check worker "
+                        f"logs / respawn next iteration.")
+                    break
+                time.sleep(5.0)
+                continue
+            for f in files[:want - len(outcomes)]:
+                try:
+                    payload = _pickle.loads(f.read_bytes())
+                except Exception as e:                  # noqa: BLE001
+                    log.warning(f"unreadable spool file {f.name}: {e}")
+                    f.unlink(missing_ok=True)
+                    continue
+                base = getattr(policy, "_base", policy)
+                with base._lock:
+                    base._decision_step += int(payload["n_decisions"])
+                exps = payload["experiences"]
+                offer = getattr(policy, "offer_holdout_game", None)
+                if offer is None or not offer(exps):
+                    with policy._lock:
+                        policy._queue.extend(exps)
+                outcomes.append(payload["outcome"])
+                f.unlink(missing_ok=True)
+        return outcomes
+
+    def shutdown(self) -> None:
+        for p in self._procs:
+            if p is not None and p.poll() is None:
+                p.terminate()
+
+
 def run_iteration(
     policy:        TransformerPolicy,
     pool_files:    Optional[List[Path]],   # legacy; ignored post-pivot
@@ -851,6 +949,7 @@ def run_iteration(
     drill_ratio:   float = 0.0,
     snapshot_sink: Optional[Callable[[Dict], None]] = None,
     actor_pool=None,
+    spool=None,
 ) -> List[GameOutcome]:
     """Roll out `games_per_iter` games and call `train_step` once at
     the end. Returns the per-game outcomes for logging.
@@ -892,7 +991,15 @@ def run_iteration(
     if hasattr(reward_fn, "_component_acc"):
         reward_fn._component_acc = {}
 
-    if actor_pool is not None:
+    if spool is not None:
+        # Spool path (MCTS only): fully independent worker processes
+        # play games with their own in-process GPU forwards and drop
+        # one pickle per game; collect() advances the anneal counter,
+        # routes whole games to the learner-side holdout, and queues
+        # the rest for the shared train_step below.
+        spool.ensure_alive()
+        outcomes.extend(spool.collect(policy, games_per_iter))
+    elif actor_pool is not None:
         # Actor-pool path (MCTS only): self-play runs in weightless
         # actor PROCESSES feeding this process's central batched-
         # inference server (see tools/actor_pool). The actors ship back
@@ -1736,6 +1843,21 @@ def main(argv: List[str]) -> int:
                          "in PUCT selection. 0 = off (default). Needs "
                          "the moves-left head (--mcts-moves-left) to "
                          "carry any signal; start ~0.2.")
+    ap.add_argument("--spool-workers", type=int, default=0,
+                    help="MCTS only: N INDEPENDENT self-play worker "
+                         "processes, each playing whole games with its "
+                         "own in-process GPU forwards and spooling one "
+                         "pickle per game (tools/selfplay_worker.py); "
+                         "the learner consumes, trains, and saves "
+                         "checkpoints the workers hot-reload. The "
+                         "measured replacement for --actor-pool (whose "
+                         "central server capped at ~200 req/s with the "
+                         "GPU idle). Size to ~min(cores, 24) on a 24GB "
+                         "card (each worker holds a CUDA context).")
+    ap.add_argument("--spool-dir", type=Path,
+                    default=Path("training/spool"),
+                    help="Directory for spooled game files "
+                         "(--spool-workers).")
     ap.add_argument("--replay-buffer", action="store_true",
                     help="Enable AlphaZero-style experience replay + "
                          "multi-epoch training (MCTS mode). Default OFF "
@@ -2255,6 +2377,31 @@ def main(argv: List[str]) -> int:
         log.info(f"actor pool: {args.actor_pool} processes "
                  f"(GIL-free; --workers thread-path disabled)")
 
+    # Spool workers: independent per-game processes, the measured
+    # replacement for the actor pool (see SpoolWorkers docstring).
+    spool = None
+    if args.spool_workers > 0:
+        if not args.mcts:
+            log.error("--spool-workers requires --mcts"); return 2
+        if args.actor_pool > 0 or args.workers > 0:
+            log.error("--spool-workers is mutually exclusive with "
+                      "--actor-pool / --workers"); return 2
+        if args.opener_spec:
+            log.error("--spool-workers does not support --opener-spec")
+            return 2
+        import atexit
+        # Workers boot from the checkpoint file: guarantee it exists
+        # (a fresh run hasn't saved yet).
+        if not args.checkpoint_out.exists():
+            policy.save_checkpoint(args.checkpoint_out)
+        spool = SpoolWorkers(args.spool_workers, args.spool_dir,
+                             args.checkpoint_out, args,
+                             log_level=args.log_level)
+        atexit.register(spool.shutdown)
+        log.info(f"spool workers: {args.spool_workers} independent "
+                 f"processes -> {args.spool_dir} (in-process GPU "
+                 f"forwards; no inference server)")
+
     # Decisive-rate abort tripwire state (--abort-decisive-rate).
     # Trailing window of (decisive_games, total_games) per iteration;
     # armed once the window is full (= burn-in of --abort-window iters).
@@ -2303,6 +2450,7 @@ def main(argv: List[str]) -> int:
             drill_ratio=max(0.0, min(1.0, float(args.drill_ratio))),
             snapshot_sink=(history_csv.append if history_csv else None),
             actor_pool=actor_pool,
+            spool=spool,
         )
         if not outcomes:
             consecutive_dead += 1

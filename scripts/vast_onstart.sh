@@ -117,7 +117,7 @@ nohup bash -c "
     --holdout-size 512 \
     --abort-decisive-rate 0.05 --abort-window 40 \
     --abort-holdout-stall 150 \
-    --actor-pool 48 --games-per-iter 48 \
+    --spool-workers 24 --games-per-iter 24 \
     $RESET \
     --checkpoint-in  $CKPT_IN \
     --checkpoint-out $CAMPAIGN \
