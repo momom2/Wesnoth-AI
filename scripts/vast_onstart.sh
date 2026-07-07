@@ -147,7 +147,7 @@ nohup bash -c "
   '$PY' tools/sim_self_play.py --device cuda \
     --mcts --mcts-sims 32 \
     --d-model 256 --num-layers 6 --num-heads 8 --d-ff 1024 \
-    --replay-buffer --replay-updates 48 --value-coef 1.0 \
+    --replay-buffer --replay-updates 16 --value-coef 1.0 \
     --replay-minibatch 128 --replay-capacity 24000 \
     --train-batch-size 64 --mcts-batch-size 16 \
     --mini-ratio 0.5 --drill-ratio 0.3 \
