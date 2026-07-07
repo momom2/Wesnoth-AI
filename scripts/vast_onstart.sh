@@ -153,7 +153,8 @@ nohup bash -c "
     --mini-ratio 0.5 --drill-ratio 0.3 \
     --mcts-aux-score --mcts-moves-left \
     --mcts-moves-left-utility 0.2 \
-    --holdout-size 512 \
+    --value-label-smoothing 0.02 \
+    --holdout-size 512 --holdout-per-game-cap 64 \
     --abort-decisive-rate 0.05 --abort-window 40 \
     --abort-holdout-stall 150 \
     --spool-workers 16 --games-per-iter 16 \

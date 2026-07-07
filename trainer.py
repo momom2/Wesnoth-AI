@@ -153,6 +153,11 @@ class TrainerConfig:
     # search-utility input, not an objective that should compete with
     # policy/value.
     moves_left_coef:      float = 0.1
+    # Mix eps of uniform mass into the projected C51 value target
+    # (TRAIN loss only; eval CE stays unsmoothed). 0 = off. Guards
+    # against extreme-atom collapse under many replay updates on
+    # hard terminal targets -- see _categorical_value_loss.
+    value_label_smoothing: float = 0.0
     # Lowered from 0.01 after the first 22 train_steps held entropy
     # ~8.3 (near max). The bonus was dominating the tiny shaping
     # gradients and preventing the policy from ever committing to an
@@ -216,6 +221,13 @@ class TrainStats:
     n_trajectories: int   = 0
     aux_loss:       float = 0.0   # auxiliary margin loss (KataGo §3.5); 0 when off
     moves_left_loss: float = 0.0  # Lc0-style moves-left MSE; 0 when off
+    # Value CE on THIS iteration's incoming games, measured BEFORE any
+    # gradient step touched them (nan when unavailable). Distribution-
+    # matched generalization signal: unlike the frozen holdout it
+    # tracks the current self-play distribution, and unlike the train
+    # value loss the net has never seen these states. The gap
+    # (value_loss vs this) is the memorization measurement.
+    fresh_value_ce: float = float("nan")
 
 
 class Trainer:
@@ -550,12 +562,28 @@ def _categorical_value_loss(
     value_logits: torch.Tensor,    # [B, K] raw head logits
     returns:      torch.Tensor,    # [B] scalar targets (already clipped)
     atoms:        torch.Tensor,    # [K] bin support
+    label_smoothing: float = 0.0,  # TRAIN-only; eval passes 0
 ) -> torch.Tensor:
     """Cross-entropy between the predicted distribution Z(s) and the
     projected target distribution. Sum-reduced over the batch (the
     trainer's chunk loop divides by N to match the old .mean()
-    semantics)."""
+    semantics).
+
+    `label_smoothing` mixes eps of uniform mass into the projected
+    target: with hard +-1 outcome targets and many replay updates the
+    C51 head otherwise collapses toward extreme-atom spikes
+    (measured 2026-07-07: Z entropy 1.86->1.13, max-atom p
+    0.39->0.58 in 46 iters) and a confidently-wrong spike makes the
+    held-out CE explode. Smoothing bounds the target away from a
+    delta so the head keeps calibrated uncertainty. Applied only to
+    the TRAINING loss -- eval CE stays unsmoothed for comparability
+    across runs."""
     target_dist = _project_returns_to_atoms(returns, atoms)         # [B, K]
+    if label_smoothing > 0.0:
+        K = atoms.shape[0]
+        target_dist = (
+            (1.0 - label_smoothing) * target_dist
+            + label_smoothing / K)
     log_probs = torch.nn.functional.log_softmax(value_logits, dim=-1)
     return -(target_dist * log_probs).sum()
 
@@ -998,7 +1026,9 @@ def _trainer_step_mcts(
         # consistent with the REINFORCE path. `zs` was already
         # clipped to [V_MIN, V_MAX] by the value_clip block above.
         atoms = self.model._value_atoms
-        value_loss = _categorical_value_loss(vl_t, z_t, atoms) / N
+        value_loss = _categorical_value_loss(
+            vl_t, z_t, atoms,
+            label_smoothing=self.config.value_label_smoothing) / N
 
         chunk_loss = (
             policy_loss_t

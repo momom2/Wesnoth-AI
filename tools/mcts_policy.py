@@ -115,7 +115,8 @@ class MCTSPolicy:
 
     def __init__(self, base, mcts_config: Optional[MCTSConfig] = None,
                  replay_config: Optional[ReplayConfig] = None,
-                 holdout_size: int = 0):
+                 holdout_size: int = 0,
+                 holdout_per_game_cap: int = 64):
         self._base = base
         self._mcts_config = mcts_config or MCTSConfig()
         self._replay_config = replay_config or ReplayConfig()
@@ -123,12 +124,21 @@ class MCTSPolicy:
         # than `holdout_size` experiences, finalize_game diverts WHOLE
         # games here instead of the training queue (whole games, so no
         # sibling state from the same trajectory leaks into training).
+        # Each diverted game contributes at most `holdout_per_game_cap`
+        # RANDOMLY SAMPLED states (the rest of the game is discarded,
+        # NOT trained on) so the probe spans many games: the original
+        # whole-game fill made a 512-state holdout out of ~2 games
+        # (~275 experiences each, 2026-07-07 diagnosis) and the "CE"
+        # measured those 2 games' idiosyncrasies, not generalization.
         # Frozen once full; `holdout_metrics()` evaluates the current
         # net's value CE on it. 0 = off. NOT persisted in checkpoints:
         # a resumed run re-collects from its first games, restarting
         # the curve's baseline (documented in the runbook).
         self._holdout_target = max(0, int(holdout_size))
+        self._holdout_per_game_cap = max(1, int(holdout_per_game_cap))
         self._holdout: List[MCTSExperience] = []
+        self._holdout_games = 0
+        self._holdout_rng = random.Random(0x5EED)
         # Per-game pending: game_label -> List[_PendingMCTSState].
         # Mid-game states accumulate here; `finalize_game` drains
         # them into `_queue` with their terminal z attached.
@@ -456,12 +466,23 @@ class MCTSPolicy:
             if (self._holdout_target <= 0
                     or len(self._holdout) >= self._holdout_target):
                 return False
-            self._holdout.extend(exps)
+            # Cap this game's contribution (random sample, not a
+            # prefix -- a prefix would over-sample openings) so the
+            # probe spans >= holdout_target/cap different games. The
+            # game's remaining states are dropped, not trained: the
+            # game-level train/holdout split stays leak-free. The
+            # freeze check stays per-game (may overshoot by < cap),
+            # preserving the pool-drain contract.
+            take = min(self._holdout_per_game_cap, len(exps))
+            self._holdout.extend(self._holdout_rng.sample(exps, take))
+            self._holdout_games += 1
             full = len(self._holdout) >= self._holdout_target
         if full:
             log.info(
-                f"holdout set full: {len(self._holdout)} "
-                f"experiences frozen; all further games train.")
+                f"holdout set full: {len(self._holdout)} experiences "
+                f"sampled from {self._holdout_games} games "
+                f"(cap {self._holdout_per_game_cap}/game); "
+                f"all further games train.")
         return True
 
     def holdout_metrics(self) -> Optional[Tuple[float, int]]:
@@ -497,6 +518,22 @@ class MCTSPolicy:
             return result
 
         # --- Experience replay + multi-epoch (default-off) -----------
+        # Pre-update generalization probe: value CE on (a sample of)
+        # THIS iteration's fresh games before any gradient step
+        # touches them. Distribution-matched, no training data lost
+        # (unlike the frozen holdout, which anchors to relaunch-era
+        # games and drifts off-distribution). ~1 forward pass over
+        # <=256 states.
+        fresh_ce = float("nan")
+        # getattr-guarded: instrumentation only -- trainer test stubs
+        # (and any custom trainer) without eval_value_loss just skip
+        # the probe rather than break training.
+        _eval = getattr(self._base._trainer, "eval_value_loss", None)
+        if batch and _eval is not None:
+            probe = (batch if len(batch) <= 256
+                     else self._replay_rng.sample(batch, 256))
+            fresh_ce = _eval(probe)
+
         # Add the fresh experiences to the bounded buffer, then take
         # several minibatch gradient steps sampled from it. This gives
         # the value head the many steps it needs to converge (see
@@ -509,6 +546,7 @@ class MCTSPolicy:
                 return TrainStats()
             result = self._base._trainer.step_mcts(batch)
             self._sync_inference_weights()
+            result.fresh_value_ce = fresh_ce
             return result
 
         pool = list(self._replay)
@@ -519,7 +557,9 @@ class MCTSPolicy:
             sample = self._replay_rng.sample(pool, mb)
             stats.append(self._base._trainer.step_mcts(sample))
         self._sync_inference_weights()
-        return self._combine_stats(stats, buffer_size=n)
+        combined = self._combine_stats(stats, buffer_size=n)
+        combined.fresh_value_ce = fresh_ce
+        return combined
 
     def _sync_inference_weights(self) -> None:
         """Propagate the freshly-updated `_model` weights into the

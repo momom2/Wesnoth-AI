@@ -107,6 +107,79 @@ def test_holdout_off_by_default():
     assert mp.holdout_metrics() is None
 
 
+def test_holdout_per_game_cap_spreads_across_games():
+    """A 512-state holdout built from ~2 whole games measured those
+    games' quirks, not generalization (2026-07-07 diagnosis). The cap
+    forces the probe to span many games."""
+    from trainer import MCTSExperience
+    policy = TransformerPolicy()
+    mp = MCTSPolicy(policy, holdout_size=8, holdout_per_game_cap=3)
+    big_game = [MCTSExperience(game_state=_gs(), visit_counts=[], z=1.0)
+                for _ in range(50)]
+    assert mp.offer_holdout_game(list(big_game)) is True
+    assert len(mp._holdout) == 3, "one game contributes at most cap"
+    for _ in range(2):
+        assert mp.offer_holdout_game(list(big_game)) is True
+    assert len(mp._holdout) == 9, "filled across 3 games (cap 3)"
+    assert mp._holdout_games == 3
+    assert mp.offer_holdout_game(list(big_game)) is False, "frozen"
+
+
+def test_value_label_smoothing_train_only():
+    """Smoothing must change the TRAIN loss (bounded away from the
+    hard-target CE) while eval_value_loss stays unsmoothed, so holdout
+    curves remain comparable across runs with different smoothing."""
+    from trainer import (MCTSExperience, _categorical_value_loss,
+                         _project_returns_to_atoms)
+    policy = TransformerPolicy()
+    atoms = policy._model._value_atoms
+    logits = torch.randn(4, atoms.numel())
+    zs = torch.tensor([1.0, -1.0, 0.2, 0.0])
+    hard = _categorical_value_loss(logits, zs, atoms)
+    smooth = _categorical_value_loss(logits, zs, atoms,
+                                     label_smoothing=0.05)
+    assert not torch.isclose(hard, smooth), "smoothing must move loss"
+    # Mixture identity: CE against (1-eps)*target + eps*uniform ==
+    # (1-eps)*CE_hard + eps*CE_uniform.
+    K = atoms.numel()
+    logp = torch.log_softmax(logits, dim=-1)
+    ce_uniform = -(logp.sum() / K)
+    expected = 0.95 * hard + 0.05 * ce_uniform
+    assert torch.isclose(smooth, expected, rtol=1e-5)
+
+    # eval path ignores TrainerConfig.value_label_smoothing entirely.
+    policy._trainer.config.value_label_smoothing = 0.5
+    exps = [MCTSExperience(game_state=_gs(), visit_counts=[], z=1.0)
+            for _ in range(2)]
+    e1 = policy._trainer.eval_value_loss(exps)
+    policy._trainer.config.value_label_smoothing = 0.0
+    e2 = policy._trainer.eval_value_loss(exps)
+    assert math.isclose(e1, e2, rel_tol=1e-9), \
+        "eval CE must be independent of train smoothing"
+
+
+def test_fresh_value_ce_reported_pre_update():
+    """The replay-path train_step must report value CE on the incoming
+    batch measured BEFORE the gradient steps (distribution-matched
+    generalization signal, no data lost)."""
+    from tools.mcts_policy import ReplayConfig
+    policy = TransformerPolicy()
+    mp = MCTSPolicy(policy, replay_config=ReplayConfig(
+        enabled=True, capacity=64, updates_per_iter=2,
+        minibatch=4, min_size=1))
+    mp._pending["g"] = _pend(6)
+    mp.finalize_game("g", winner=1)
+    stats = mp.train_step()
+    assert math.isfinite(stats.fresh_value_ce), \
+        "replay-path stats must carry the pre-update CE"
+    # Pre-update CE on never-seen states == eval CE of the PRE-step
+    # net; after updates the net moved, so recomputing now on the
+    # same states generally differs. We can't re-check equality, but
+    # it must be a plausible CE (0, log K + margin).
+    k_atoms = policy._model._value_atoms.numel()
+    assert 0.0 < stats.fresh_value_ce < math.log(k_atoms) + 1.0
+
+
 def test_eval_value_loss_matches_step_mcts_scale():
     """Same experiences, same net: eval_value_loss must land in the
     same ballpark as step_mcts's value term (identical normalization:

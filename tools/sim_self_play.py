@@ -1189,6 +1189,9 @@ def run_iteration(
         aux_str = f" aux={_aux:.4f}" if _aux else ""
         _ml = getattr(train_stats, "moves_left_loss", 0.0)
         aux_str += f" moves_left={_ml:.4f}" if _ml else ""
+        _fce = getattr(train_stats, "fresh_value_ce", float("nan"))
+        if _fce == _fce:                       # not NaN
+            aux_str += f" fresh_value_ce={_fce:.4f}"
         log.info(
             f"iter {iter_idx}: train_step in {train_dt:.1f}s "
             f"trajectories={train_stats.n_trajectories} transitions={train_stats.n_transitions} "
@@ -1271,6 +1274,8 @@ def run_iteration(
             "n_recruit_attempts_s2": n_recruit_attempts_s2,
             "holdout_value_loss":  holdout_loss,
             "holdout_n":           holdout_n,
+            "fresh_value_ce":      (getattr(train_stats, "fresh_value_ce",
+                                            None) if train_stats else None),
             "ladder_games":        ladder_n,
             "ladder_decisive":     ladder_dec,
             "other_games":         other_n,
@@ -1343,6 +1348,9 @@ class _TrainerHistoryCSV:
         # Appended LAST so rows appended to a pre-existing CSV stay
         # column-compatible with its older header.
         "holdout_value_loss", "holdout_n",
+        # Pre-update value CE on this iter's fresh games (2026-07-07;
+        # distribution-matched generalization, no training data lost).
+        "fresh_value_ce",
         # Per-map-class decisive split (2026-07-03; aggregate decisive
         # over a mixed curriculum is misleading).
         "ladder_games", "ladder_decisive",
@@ -1354,6 +1362,21 @@ class _TrainerHistoryCSV:
     def __init__(self, path: Path):
         self.path = path
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        # Appending rows with MORE columns than the file's existing
+        # header silently orphans the extra cells (DictReader maps
+        # them to None) -- exactly what hid the holdout column on the
+        # 2026-07-06 Vast run, whose clone shipped an old-header CSV.
+        # On mismatch, rotate the old file aside and start fresh.
+        if self.path.exists() and self.path.stat().st_size > 0:
+            with self.path.open("r", encoding="utf-8", newline="") as f:
+                existing = f.readline().rstrip("\r\n").split(",")
+            if existing != self.COLUMNS:
+                rotated = self.path.with_suffix(
+                    self.path.suffix + ".oldschema")
+                self.path.replace(rotated)
+                logging.getLogger("sim_self_play").warning(
+                    f"trainer-history CSV header mismatch; rotated "
+                    f"old file to {rotated.name}")
         # Open in append mode; write header only if file is empty
         # (or doesn't exist). Line buffering (buffering=1) so each
         # row is flushed; cluster jobs that get walltime-killed
@@ -1510,6 +1533,22 @@ def main(argv: List[str]) -> int:
                          "already fit). 0 = off. Not persisted across "
                          "resumes: a resumed run re-collects, "
                          "restarting the curve's baseline.")
+    ap.add_argument("--holdout-per-game-cap", type=int, default=64,
+                    help="Max states RANDOMLY SAMPLED into the holdout "
+                         "from each diverted game (default 64), so a "
+                         "512-state holdout spans ~8 games instead of "
+                         "~2 whole ones (2026-07-07: a 2-game holdout "
+                         "measured those games' idiosyncrasies, not "
+                         "generalization). Diverted games' remaining "
+                         "states are discarded, not trained on.")
+    ap.add_argument("--value-label-smoothing", type=float, default=0.0,
+                    help="Mix this much uniform mass into the C51 "
+                         "value TRAIN target (eval CE stays "
+                         "unsmoothed). Counters extreme-atom collapse "
+                         "under many replay updates on hard terminal "
+                         "targets (2026-07-07 diagnosis: Z entropy "
+                         "1.86->1.13 in 46 iters while holdout CE "
+                         "diverged). Try 0.02. 0 = off (default).")
     ap.add_argument("--abort-decisive-rate", type=float, default=None,
                     help="Abort tripwire: once the trailing "
                          "--abort-window iterations are full, stop if "
@@ -2079,6 +2118,11 @@ def main(argv: List[str]) -> int:
         # (the value head is the diagnosed bottleneck).
         policy._trainer.config.value_coef = float(args.value_coef)
         log.info(f"value_coef override -> {args.value_coef}")
+    if args.value_label_smoothing:
+        policy._trainer.config.value_label_smoothing = float(
+            args.value_label_smoothing)
+        log.info(f"value label smoothing -> "
+                 f"{args.value_label_smoothing} (train loss only)")
     if args.checkpoint_in and args.checkpoint_in.exists():
         log.info(f"loading checkpoint {args.checkpoint_in}")
         try:
@@ -2221,7 +2265,8 @@ def main(argv: List[str]) -> int:
                 f"value head gets {replay_cfg.updates_per_iter}x the "
                 f"gradient steps per iter vs legacy one-pass)")
         policy = MCTSPolicy(policy, mcts_cfg, replay_config=replay_cfg,
-                            holdout_size=args.holdout_size)
+                            holdout_size=args.holdout_size,
+                            holdout_per_game_cap=args.holdout_per_game_cap)
         if args.holdout_size > 0:
             # Works on both the in-process path (finalize_game) and
             # --actor-pool (the pool drain offers each per-game
