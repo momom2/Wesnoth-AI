@@ -32,7 +32,11 @@ def list_day(d: date) -> list[str]:
         with urlopen(req, timeout=30) as r:
             html = r.read().decode("utf-8", errors="replace")
     except (URLError, HTTPError) as e:
-        print(f"[!] {url} → {e}")
+        # ASCII only: a piped stdout on Windows encodes cp1252, and a
+        # non-ASCII arrow here crashed the whole bulk run at the first
+        # missing day (2026-07-07: the entire 2024 chunk died on the
+        # pre-archive date 2024-03-18).
+        print(f"[!] {url} -> {e}")
         return []
     # Apache listing: <a href="Foo_Turn_3_(123).bz2">Foo_Turn_3_(123).bz2</a>
     hrefs = re.findall(r'href="([^"?]+\.bz2)"', html)
