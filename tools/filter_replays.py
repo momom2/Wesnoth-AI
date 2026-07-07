@@ -96,7 +96,11 @@ def parse_header(raw: bytes, max_lines: int = 200_000) -> dict:
                 out["map_data_present"] = True
         elif current_side is not None and stack[-1] == "side":
             if k in ("faction", "controller", "user_team_name",
-                     "team_name", "side", "type", "recruit", "save_id"):
+                     "team_name", "side", "type", "recruit", "save_id",
+                     # player-name keys: the value-corpus leaver
+                     # labeling maps server "<name> has left the
+                     # game" speaks to a side number.
+                     "player_id", "current_player"):
                 current_side[k] = v
 
     return out
