@@ -146,12 +146,18 @@ def _human_sides(header: dict) -> int:
 
 
 def build(raw_dir: Path, out_dir: Path, *, min_turns: int,
-          limit: Optional[int] = None) -> Counter:
+          limit: Optional[int] = None,
+          shard: Optional[Tuple[int, int]] = None) -> Counter:
     from tools.replay_extract import extract_replay
     from tools.diff_replay import diff_replay
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    index_path = out_dir / "value_corpus_index.jsonl"
+    # Sharded runs write separate index files (concurrent appends to
+    # one file interleave); concatenate into value_corpus_index.jsonl
+    # when all shards finish:
+    #   cat value_corpus_index_shard*.jsonl > value_corpus_index.jsonl
+    index_path = (out_dir / f"value_corpus_index_shard{shard[0]}.jsonl"
+                  if shard else out_dir / "value_corpus_index.jsonl")
     # Resume-friendly: skip sources already in the index.
     done_src = set()
     if index_path.exists():
@@ -164,6 +170,9 @@ def build(raw_dir: Path, out_dir: Path, *, min_turns: int,
 
     stats: Counter = Counter()
     files = sorted(raw_dir.glob("**/*.bz2"))
+    if shard:
+        i, n = shard
+        files = files[i::n]
     if limit:
         files = files[:limit]
     log.info(f"scanning {len(files)} raw replays "
@@ -178,6 +187,14 @@ def build(raw_dir: Path, out_dir: Path, *, min_turns: int,
             src = str(p.as_posix())
             if src in done_src:
                 stats["skip_done"] += 1
+                continue
+            # Size gate BEFORE decompressing: competitive 2p games run
+            # ~100-500KB compressed; the multi-MB outliers are
+            # campaign/mod monsters that would be rejected anyway and
+            # can OOM a parallel shard (shard 2 died on one,
+            # 2026-07-08: MemoryError with 6 builders resident).
+            if p.stat().st_size > 4 * 1024 * 1024:
+                stats["reject_oversize"] += 1
                 continue
             try:
                 raw = bz2.decompress(p.read_bytes())
@@ -282,10 +299,16 @@ def main(argv: List[str]) -> int:
                          "count.")
     ap.add_argument("--limit", type=int, default=None,
                     help="Only scan the first N raw files (smoke).")
+    ap.add_argument("--shard", type=int, nargs=2, default=None,
+                    metavar=("I", "N"),
+                    help="Process files[I::N] and write a per-shard "
+                         "index (parallel builds; cat the shard "
+                         "indexes together afterwards).")
     args = ap.parse_args(argv[1:])
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     stats = build(args.raw_dir, args.out, min_turns=args.min_turns,
-                  limit=args.limit)
+                  limit=args.limit,
+                  shard=tuple(args.shard) if args.shard else None)
     log.info("== done ==")
     for k, v in sorted(stats.items()):
         log.info(f"  {k}: {v}")
