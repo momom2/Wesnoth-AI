@@ -524,15 +524,16 @@ class MCTSPolicy:
         # (unlike the frozen holdout, which anchors to relaunch-era
         # games and drifts off-distribution). ~1 forward pass over
         # <=256 states.
-        fresh_ce = float("nan")
+        nan = float("nan")
+        fresh = {"ce": nan, "pred_entropy": nan, "marginal_ce_floor": nan}
         # getattr-guarded: instrumentation only -- trainer test stubs
-        # (and any custom trainer) without eval_value_loss just skip
-        # the probe rather than break training.
-        _eval = getattr(self._base._trainer, "eval_value_loss", None)
+        # (and any custom trainer) without eval_value_metrics just
+        # skip the probe rather than break training.
+        _eval = getattr(self._base._trainer, "eval_value_metrics", None)
         if batch and _eval is not None:
             probe = (batch if len(batch) <= 256
                      else self._replay_rng.sample(batch, 256))
-            fresh_ce = _eval(probe)
+            fresh = _eval(probe)
 
         # Add the fresh experiences to the bounded buffer, then take
         # several minibatch gradient steps sampled from it. This gives
@@ -546,7 +547,7 @@ class MCTSPolicy:
                 return TrainStats()
             result = self._base._trainer.step_mcts(batch)
             self._sync_inference_weights()
-            result.fresh_value_ce = fresh_ce
+            self._attach_fresh_metrics(result, fresh)
             return result
 
         pool = list(self._replay)
@@ -558,8 +559,14 @@ class MCTSPolicy:
             stats.append(self._base._trainer.step_mcts(sample))
         self._sync_inference_weights()
         combined = self._combine_stats(stats, buffer_size=n)
-        combined.fresh_value_ce = fresh_ce
+        self._attach_fresh_metrics(combined, fresh)
         return combined
+
+    @staticmethod
+    def _attach_fresh_metrics(stats: TrainStats, fresh: Dict) -> None:
+        stats.fresh_value_ce = fresh["ce"]
+        stats.fresh_pred_entropy = fresh["pred_entropy"]
+        stats.fresh_ce_floor = fresh["marginal_ce_floor"]
 
     def _sync_inference_weights(self) -> None:
         """Propagate the freshly-updated `_model` weights into the

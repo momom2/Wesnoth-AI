@@ -1159,11 +1159,21 @@ def run_iteration(
     other_n = len(outcomes) - ladder_n
     other_dec = sum(1 for o in outcomes
                     if o.map_class != "ladder" and o.winner != 0)
+    # Per-class SIDE split (2026-07-07: a 1-7 side-2 iteration was
+    # only visible as an anecdote; global s1/s2 hides which map class
+    # carries an asymmetry).
+    ladder_s1 = sum(1 for o in outcomes
+                    if o.map_class == "ladder" and o.winner == 1)
+    ladder_s2 = ladder_dec - ladder_s1
+    other_s1 = sum(1 for o in outcomes
+                   if o.map_class != "ladder" and o.winner == 1)
+    other_s2 = other_dec - other_s1
     if outcomes:
         log.info(
             f"iter {iter_idx}: decisive split -- ladder "
-            f"{ladder_dec}/{ladder_n}, mini/drill "
-            f"{other_dec}/{other_n}")
+            f"{ladder_dec}/{ladder_n} (s1 {ladder_s1}, s2 {ladder_s2}), "
+            f"mini/drill {other_dec}/{other_n} "
+            f"(s1 {other_s1}, s2 {other_s2})")
     # Actions-per-side-turn distribution, pooled across the iter's
     # games (MCTS depth calibration: S sims / A actions-per-side-turn
     # ≈ how much of one turn plan the search can look ahead).
@@ -1192,6 +1202,14 @@ def run_iteration(
         _fce = getattr(train_stats, "fresh_value_ce", float("nan"))
         if _fce == _fce:                       # not NaN
             aux_str += f" fresh_value_ce={_fce:.4f}"
+            _fent = getattr(train_stats, "fresh_pred_entropy",
+                            float("nan"))
+            _ffloor = getattr(train_stats, "fresh_ce_floor",
+                              float("nan"))
+            if _fent == _fent:
+                aux_str += f" fresh_pred_entropy={_fent:.4f}"
+            if _ffloor == _ffloor:
+                aux_str += f" fresh_ce_floor={_ffloor:.4f}"
         log.info(
             f"iter {iter_idx}: train_step in {train_dt:.1f}s "
             f"trajectories={train_stats.n_trajectories} transitions={train_stats.n_transitions} "
@@ -1276,6 +1294,21 @@ def run_iteration(
             "holdout_n":           holdout_n,
             "fresh_value_ce":      (getattr(train_stats, "fresh_value_ce",
                                             None) if train_stats else None),
+            "fresh_pred_entropy":  (getattr(train_stats,
+                                            "fresh_pred_entropy",
+                                            None) if train_stats else None),
+            "fresh_ce_floor":      (getattr(train_stats, "fresh_ce_floor",
+                                            None) if train_stats else None),
+            "ladder_s1_wins":      ladder_s1,
+            "ladder_s2_wins":      ladder_s2,
+            "other_s1_wins":       other_s1,
+            "other_s2_wins":       other_s2,
+            # Cumulative training-unit progress, so cost-per-unit is
+            # computable from the CSV alone (2026-07-07 reporting
+            # rule: runway in training units, not wall-clock).
+            "decision_step":       getattr(
+                getattr(policy, "_base", policy), "_decision_step",
+                None),
             "ladder_games":        ladder_n,
             "ladder_decisive":     ladder_dec,
             "other_games":         other_n,
@@ -1349,14 +1382,22 @@ class _TrainerHistoryCSV:
         # column-compatible with its older header.
         "holdout_value_loss", "holdout_n",
         # Pre-update value CE on this iter's fresh games (2026-07-07;
-        # distribution-matched generalization, no training data lost).
-        "fresh_value_ce",
+        # distribution-matched generalization, no training data lost)
+        # + prediction entropy (overconfidence curve) + the state-
+        # blind marginal floor (outcome-mix predictability cap).
+        "fresh_value_ce", "fresh_pred_entropy", "fresh_ce_floor",
         # Per-map-class decisive split (2026-07-03; aggregate decisive
-        # over a mixed curriculum is misleading).
+        # over a mixed curriculum is misleading) + per-class SIDE
+        # split (2026-07-07; asymmetries were anecdotes before).
         "ladder_games", "ladder_decisive",
         "other_games", "other_decisive",
+        "ladder_s1_wins", "ladder_s2_wins",
+        "other_s1_wins", "other_s2_wins",
         # Actions-per-side-turn distribution (MCTS depth calibration).
         "actions_per_turn_mean", "actions_per_turn_median",
+        # Cumulative decision counter (training-unit progress; makes
+        # cost-per-unit computable from the CSV alone).
+        "decision_step",
     ]
 
     def __init__(self, path: Path):

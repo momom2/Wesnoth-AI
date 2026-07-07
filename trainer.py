@@ -228,6 +228,14 @@ class TrainStats:
     # value loss the net has never seen these states. The gap
     # (value_loss vs this) is the memorization measurement.
     fresh_value_ce: float = float("nan")
+    # Mean entropy of the predicted Z(s) on the fresh probe (nats;
+    # uniform = ln 51 ~ 3.93). Continuous overconfidence curve.
+    fresh_pred_entropy: float = float("nan")
+    # CE of the best state-blind predictor on the fresh probe (the
+    # batch's empirical projected-z mixture). fresh_value_ce should
+    # sit BELOW this; a high floor means the games' outcomes are
+    # inherently mixed and caps what any head can achieve.
+    fresh_ce_floor: float = float("nan")
 
 
 class Trainer:
@@ -1099,24 +1107,36 @@ def _trainer_step_mcts(
     )
 
 
-def _trainer_eval_value_loss(
+def _trainer_eval_value_metrics(
     self,                                     # Trainer (method injected below)
     experiences: List[MCTSExperience],
-) -> float:
-    """No-grad categorical value CE of the CURRENT model on a fixed
-    experience set. Same normalization as `step_mcts`'s value term
-    (sum of per-chunk `_categorical_value_loss / N` = mean CE per
-    experience), so the two numbers are directly comparable.
+) -> Dict[str, float]:
+    """No-grad value diagnostics of the CURRENT model on a fixed
+    experience set, one forward pass:
+
+    - "ce": categorical value CE, same normalization as `step_mcts`'s
+      value term (mean CE per experience), directly comparable.
+    - "pred_entropy": mean entropy of the predicted Z(s) distribution
+      (nats; uniform over K=51 atoms = ln 51 ~ 3.93). The continuous
+      overconfidence curve -- the 2026-07-07 diagnosis needed offline
+      checkpoint probes for this.
+    - "marginal_ce_floor": CE of the best STATE-BLIND predictor (the
+      batch's empirical projected-z mixture) = entropy of that
+      mixture. A learned head should score BELOW this; ce >> floor
+      means worse-than-marginal, while a high floor says the games'
+      outcomes are inherently mixed (e.g. coin-flip self-play) and
+      caps what any head can achieve on this batch.
 
     Purpose: held-out generalization tracking. `step_mcts`'s logged
     value loss is measured on replay-buffer samples the net has
-    already taken ~20-30 gradient steps on, so it falls under BOTH
-    "learning the value function" and "fitting the buffer's specific
-    states". Evaluating on states that never entered training
-    separates the two (see MCTSPolicy holdout diversion).
+    already taken many gradient steps on, so it conflates "learning
+    the value function" with "fitting the buffer's specific states".
+    Evaluating on states that never entered training separates the
+    two (see MCTSPolicy holdout diversion + fresh-probe).
     """
+    nan = float("nan")
     if not experiences:
-        return float("nan")
+        return {"ce": nan, "pred_entropy": nan, "marginal_ce_floor": nan}
     dev = self.device or next(self.model.parameters()).device
     N = len(experiences)
     B = max(1, self.config.train_batch_size)
@@ -1134,6 +1154,7 @@ def _trainer_eval_value_loss(
     faction_to_id = self.encoder.faction_to_id
     atoms = self.model._value_atoms
     total = 0.0
+    entropy_sum = 0.0
     with torch.no_grad():
         for start in range(0, N, B):
             chunk = experiences[start:start + B]
@@ -1150,10 +1171,26 @@ def _trainer_eval_value_loss(
             z_t = zs[start:start + len(chunk)]
             total += float(
                 _categorical_value_loss(vl_t, z_t, atoms).item()) / N
-    return total
+            logp = torch.log_softmax(vl_t, dim=-1)
+            entropy_sum += float(-(logp.exp() * logp).sum().item())
+        marginal = _project_returns_to_atoms(zs, atoms).mean(dim=0)
+        floor = float(
+            -(marginal * marginal.clamp_min(1e-9).log()).sum().item())
+    return {"ce": total, "pred_entropy": entropy_sum / N,
+            "marginal_ce_floor": floor}
+
+
+def _trainer_eval_value_loss(
+    self,
+    experiences: List[MCTSExperience],
+) -> float:
+    """Back-compat scalar wrapper (holdout probe + tripwire callers):
+    just the "ce" of eval_value_metrics."""
+    return _trainer_eval_value_metrics(self, experiences)["ce"]
 
 
 # Inject as a method on Trainer. Gives users `trainer.step_mcts(exps)`
 # alongside the REINFORCE `trainer.step(trajectories)`.
 Trainer.step_mcts = _trainer_step_mcts
 Trainer.eval_value_loss = _trainer_eval_value_loss
+Trainer.eval_value_metrics = _trainer_eval_value_metrics

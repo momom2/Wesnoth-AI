@@ -178,6 +178,33 @@ def test_fresh_value_ce_reported_pre_update():
     # it must be a plausible CE (0, log K + margin).
     k_atoms = policy._model._value_atoms.numel()
     assert 0.0 < stats.fresh_value_ce < math.log(k_atoms) + 1.0
+    # Companion probe metrics (2026-07-07 log enrichment):
+    # prediction entropy in (0, ln K]; the marginal floor for a
+    # single-outcome batch (all z=+1 here) is the projection's own
+    # entropy ~ 0 (point mass on the +1 atom).
+    assert 0.0 < stats.fresh_pred_entropy <= math.log(k_atoms) + 1e-6
+    assert 0.0 <= stats.fresh_ce_floor < 0.1, \
+        "all-same-outcome batch => near-zero marginal floor"
+
+
+def test_eval_value_metrics_floor_reflects_outcome_mix():
+    """The marginal floor must be ~0 for a single-outcome batch and
+    ~ln 2 for a 50/50 win/loss batch (state-blind predictability cap)."""
+    from trainer import MCTSExperience
+    policy = TransformerPolicy()
+    wins = [MCTSExperience(game_state=_gs(), visit_counts=[], z=1.0)
+            for _ in range(4)]
+    mixed = wins[:2] + [
+        MCTSExperience(game_state=_gs(), visit_counts=[], z=-1.0)
+        for _ in range(2)]
+    m_pure = policy._trainer.eval_value_metrics(wins)
+    m_mixed = policy._trainer.eval_value_metrics(mixed)
+    assert m_pure["marginal_ce_floor"] < 0.05
+    assert abs(m_mixed["marginal_ce_floor"] - math.log(2)) < 0.05
+    # ce must equal the back-compat scalar
+    assert math.isclose(m_pure["ce"],
+                        policy._trainer.eval_value_loss(wins),
+                        rel_tol=1e-9)
 
 
 def test_eval_value_loss_matches_step_mcts_scale():
