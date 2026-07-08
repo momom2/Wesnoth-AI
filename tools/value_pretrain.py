@@ -55,6 +55,12 @@ def main(argv: List[str]) -> int:
                          "+ policy heads untouched; safest for resuming "
                          "self-play, weakest value features).")
     ap.add_argument("--limit-games", type=int, default=None)
+    ap.add_argument("--probe-states", type=int, default=1024,
+                    help="Held-out probe size. Each probe state is a "
+                         "deep-copied GameState held in RAM for the "
+                         "whole run -- 2048 of them OOM-killed the "
+                         "first overnight run on the laptop "
+                         "(silently; Windows gives no traceback).")
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args(argv[1:])
     logging.basicConfig(level=logging.INFO,
@@ -115,16 +121,17 @@ def main(argv: List[str]) -> int:
         return game_experiences(args.dataset_dir / row["file"],
                                 row["winner"], stride=stride, rng=rng)
 
-    # Fixed held-out probe (sampled once; ~2k states).
+    # Fixed held-out probe (sampled once). Probe stride is high so
+    # the probe spans MANY games at few states each.
     probe = []
     for row in holdout_rows:
-        if len(probe) >= 2048:
+        if len(probe) >= args.probe_states:
             break
         try:
-            probe.extend(load_exps(row, max(args.stride, 8)))
+            probe.extend(load_exps(row, max(args.stride, 16)))
         except Exception as e:                  # noqa: BLE001
             log.debug(f"holdout skip {row['file']}: {e}")
-    probe = probe[:2048]
+    probe = probe[:args.probe_states]
     m0 = trainer.eval_value_metrics(probe)
     log.info(f"BEFORE: holdout ce={m0['ce']:.4f} "
              f"pred_entropy={m0['pred_entropy']:.4f} "
