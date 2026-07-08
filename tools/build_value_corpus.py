@@ -73,6 +73,10 @@ _LEFT_RE = re.compile(r'message="([^"]+) has left the game\.?"')
 _SURRENDER_RE = re.compile(
     r'\[surrender\]\s*\n\s*side_number="?(\d)"?', re.MULTILINE)
 
+# Absolute minimum game length for ANY label source (leader kills
+# included). See the rejection site for rationale.
+MIN_TURNS_ANY = 5
+
 
 def _decisive_winner_from_reconstruction(gz_path: Path) -> Tuple[
         Optional[int], int]:
@@ -262,6 +266,15 @@ def build(raw_dir: Path, out_dir: Path, *, min_turns: int,
                 gz_path.unlink(missing_ok=True)
                 continue
 
+            # Hard floor on ALL label sources: nobody wins a
+            # competitive 2p game before turn 5 -- sub-5-turn "leader
+            # kills" are AFK/walk-in disconnect artifacts (user rule
+            # 2026-07-08; the 13 such games in the first full build
+            # were all turn-4 kills).
+            if n_turns < MIN_TURNS_ANY:
+                stats["reject_too_short_any"] += 1
+                gz_path.unlink(missing_ok=True)
+                continue
             if kill_winner is not None:
                 winner, source = kill_winner, "leader_kill"
             elif raw_winner is not None and n_turns >= min_turns:
