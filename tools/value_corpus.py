@@ -106,6 +106,49 @@ def game_experiences(gz_path: Path, winner: int, *,
     return out
 
 
+def game_raw_experiences(gz_path: Path, winner: int, *,
+                         type_to_id: dict, faction_to_id: dict,
+                         stride: int = 8,
+                         rng: Optional[random.Random] = None,
+                         moves_left_norm: Optional[float] = None):
+    """Like game_experiences, but encode_raw each sampled state at
+    sample time (no deepcopy) and return picklable
+    (RawEncoded, z, moves_left) tuples — the worker-side producer for
+    the parallel value fine-tune. `type_to_id`/`faction_to_id` MUST be
+    the model's frozen vocab (encode_raw is read-only; out-of-vocab ->
+    overflow bucket)."""
+    from encoder import encode_raw
+    from tools.mcts_policy import MOVES_LEFT_NORM_TURNS
+    from tools.replay_dataset import (_apply_command,
+                                      _build_initial_gamestate,
+                                      _setup_scenario_events)
+    norm = moves_left_norm or MOVES_LEFT_NORM_TURNS
+    with gzip.open(gz_path, "rt", encoding="utf-8") as f:
+        data = json.load(f)
+    gs = _build_initial_gamestate(data)
+    _setup_scenario_events(gs, data.get("scenario_id", ""))
+    offset = (rng.randrange(stride) if rng and stride > 1 else 0)
+    sampled = []
+    k = 0
+    for cmd in data.get("commands", []):
+        kind = cmd[0] if cmd else "?"
+        if kind in _DECISION_KINDS:
+            side = gs.global_info.current_side
+            if side in (1, 2) and k % stride == offset:
+                raw = encode_raw(gs, type_to_id=type_to_id,
+                                 faction_to_id=faction_to_id)
+                sampled.append((raw, side, gs.global_info.turn_number))
+            k += 1
+        _apply_command(gs, cmd)
+    end_turn = gs.global_info.turn_number
+    out = []
+    for raw, side, turn in sampled:
+        z = +1.0 if side == winner else -1.0
+        ml = min(1.0, max(0, end_turn - turn) / norm)
+        out.append((raw, z, ml))
+    return out
+
+
 def iter_corpus(index_path: Path, *,
                 stride: int = 4,
                 per_game_cap: Optional[int] = None,

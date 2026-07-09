@@ -1107,6 +1107,106 @@ def _trainer_step_mcts(
     )
 
 
+def _trainer_step_value_from_raw(
+    self,                                     # Trainer (method injected below)
+    raws: list,                               # List[RawEncoded]
+    zs: List[float],
+    mls: Optional[List[Optional[float]]] = None,
+) -> Dict[str, float]:
+    """One gradient step training VALUE (+ moves-left) from
+    pre-encoded RawEncoded inputs — no game_state, no policy loss.
+
+    This is the human-corpus value fine-tune's train step: workers
+    reconstruct + encode_raw games in parallel, the main process
+    calls this with a batch of RawEncoded. The trunk gets gradient
+    (full unfreeze), so it can learn win-predictive features rather
+    than only re-mapping frozen ones. Policy heads receive no
+    gradient (no policy term here), matching the visit-count-free
+    human data.
+    """
+    import torch.nn.functional as F
+    self.model.train(); self.encoder.train()
+    dev = self.device or next(self.model.parameters()).device
+    N = len(raws)
+    z_all = torch.tensor(zs, device=dev, dtype=torch.float32)
+    if self.config.value_clip is not None:
+        z_all.clamp_(min=-float(self.config.value_clip),
+                     max=+float(self.config.value_clip))
+    atoms = self.model._value_atoms
+    ml_on = (getattr(self.model, "has_moves_left", False)
+             and mls is not None and all(m is not None for m in mls))
+    # Chunk the forward/backward by train_batch_size: each state is a
+    # full-map token sequence (~1e3 tokens), so attention is O(S^2) and
+    # a whole 256-batch at once OOMs even a 24GB GPU. Backward per
+    # chunk accumulates grads; one optimizer.step() at the end == one
+    # gradient step over the full batch (losses are /N).
+    B = max(1, self.config.train_batch_size)
+    self.optimizer.zero_grad()
+    v_total = 0.0
+    ml_total = 0.0
+    for start in range(0, N, B):
+        chunk = raws[start:start + B]
+        encoded = self.encoder.encode_from_raw_batch(chunk, device=dev)
+        outputs = self.model.forward_batch(encoded)
+        vl_t = torch.stack([o.value_logits.squeeze(0) for o in outputs])
+        z_t = z_all[start:start + len(chunk)]
+        value_loss = _categorical_value_loss(
+            vl_t, z_t, atoms,
+            label_smoothing=self.config.value_label_smoothing) / N
+        loss = self.config.value_coef * value_loss
+        v_total += float(value_loss.item())
+        if ml_on:
+            ml_pred = torch.stack([o.moves_left.squeeze(-1)
+                                   for o in outputs]).reshape(-1)
+            ml_t = torch.tensor(mls[start:start + len(chunk)],
+                                device=dev, dtype=torch.float32)
+            ml_loss = F.mse_loss(ml_pred, ml_t, reduction="sum") / N
+            loss = loss + self.config.moves_left_coef * ml_loss
+            ml_total += float(ml_loss.item())
+        loss.backward()
+    grad_norm = float(torch.nn.utils.clip_grad_norm_(
+        self.model.parameters(), self.config.grad_clip))
+    self.optimizer.step()
+    return {"value_loss": v_total, "moves_left_loss": ml_total,
+            "grad_norm": grad_norm}
+
+
+def _trainer_eval_value_metrics_from_raw(
+    self,                                     # Trainer (method injected below)
+    raws: list, zs: List[float],
+) -> Dict[str, float]:
+    """No-grad value diagnostics from pre-encoded RawEncoded inputs —
+    the raw-fed twin of `eval_value_metrics` (same ce / pred_entropy /
+    marginal_ce_floor definitions)."""
+    nan = float("nan")
+    if not raws:
+        return {"ce": nan, "pred_entropy": nan, "marginal_ce_floor": nan}
+    dev = self.device or next(self.model.parameters()).device
+    N = len(raws)
+    B = max(1, self.config.train_batch_size)
+    z_all = torch.tensor(zs, device=dev, dtype=torch.float32)
+    if self.config.value_clip is not None:
+        z_all.clamp_(min=-float(self.config.value_clip),
+                     max=+float(self.config.value_clip))
+    self.model.eval(); self.encoder.eval()
+    atoms = self.model._value_atoms
+    total = entropy_sum = 0.0
+    with torch.no_grad():
+        for start in range(0, N, B):
+            chunk = raws[start:start + B]
+            encoded = self.encoder.encode_from_raw_batch(chunk, device=dev)
+            outputs = self.model.forward_batch(encoded)
+            vl_t = torch.stack([o.value_logits.squeeze(0) for o in outputs])
+            z_t = z_all[start:start + len(chunk)]
+            total += float(_categorical_value_loss(vl_t, z_t, atoms).item()) / N
+            logp = torch.log_softmax(vl_t, dim=-1)
+            entropy_sum += float(-(logp.exp() * logp).sum().item())
+        marginal = _project_returns_to_atoms(z_all, atoms).mean(dim=0)
+        floor = float(-(marginal * marginal.clamp_min(1e-9).log()).sum().item())
+    return {"ce": total, "pred_entropy": entropy_sum / N,
+            "marginal_ce_floor": floor}
+
+
 def _trainer_eval_value_metrics(
     self,                                     # Trainer (method injected below)
     experiences: List[MCTSExperience],
@@ -1194,3 +1294,5 @@ def _trainer_eval_value_loss(
 Trainer.step_mcts = _trainer_step_mcts
 Trainer.eval_value_loss = _trainer_eval_value_loss
 Trainer.eval_value_metrics = _trainer_eval_value_metrics
+Trainer.step_value_from_raw = _trainer_step_value_from_raw
+Trainer.eval_value_metrics_from_raw = _trainer_eval_value_metrics_from_raw
