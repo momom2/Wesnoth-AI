@@ -73,10 +73,19 @@ CAMPAIGN=training/checkpoints/tier_a_campaign.pt
 # fresh --reset-decision-step run). Requires HF_TOKEN in the template
 # env (pass at create time: vastai create instance ... --env '-e
 # HF_TOKEN=hf_...') or $WORKDIR/.hf_token pre-seeded some other way.
+# HF_SEED_FILE selects WHICH repo file seeds the campaign (default:
+# the rolling campaign checkpoint). Pass -e HF_SEED_FILE=... at
+# create time to start a run from a different escrowed checkpoint,
+# e.g. human_value_allgames.pt (the 2026-07-09 human-corpus value
+# fine-tune: late-game AUC 0.89 vs the old head's ~0.50). It lands
+# AS the local campaign file, so the resume path (no anneal reset,
+# decision_step carried) applies and the uploader's tier_a_campaign
+# escrow rolls forward from it.
 if [ ! -f "$CAMPAIGN" ]; then
     if [ -n "${HF_TOKEN:-}" ] || [ -f "$WORKDIR/.hf_token" ]; then
         "$PY" -m pip install --quiet huggingface_hub || true
         HF_SEED_TOKEN="${HF_TOKEN:-}" \
+        HF_SEED_FILE="${HF_SEED_FILE:-tier_a_campaign.pt}" \
         "$PY" - <<'EOF' && echo "[onstart] seeded campaign from HF" \
             || echo "[onstart] HF seed unavailable (first campaign?)"
 import os, pathlib, shutil, sys
@@ -84,15 +93,16 @@ from huggingface_hub import hf_hub_download
 tok = os.environ.get("HF_SEED_TOKEN") or pathlib.Path(
     os.environ.get("WORKDIR", "/workspace"), ".hf_token"
 ).read_text().strip()
+fname = os.environ.get("HF_SEED_FILE", "tier_a_campaign.pt")
 try:
-    p = hf_hub_download("momom2/wesnoth-tier-a", "tier_a_campaign.pt",
-                        token=tok)
+    p = hf_hub_download("momom2/wesnoth-tier-a", fname, token=tok)
 except Exception as e:                                  # noqa: BLE001
     print(f"[onstart] hf seed download failed: {e}")
     sys.exit(1)
 dst = pathlib.Path("training/checkpoints/tier_a_campaign.pt")
 dst.parent.mkdir(parents=True, exist_ok=True)
 shutil.copy2(p, dst)
+print(f"[onstart] seed file: {fname}")
 EOF
     fi
 fi
