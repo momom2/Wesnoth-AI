@@ -97,3 +97,6 @@ test_replays_temp/
 .claude/*
 !.claude/settings.json
 !.claude/hooks/
+
+# per-run log artifacts (escrowed to HF, never tracked)
+training/logs/trainer_history*.csv*
