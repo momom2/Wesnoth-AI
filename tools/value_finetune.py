@@ -86,6 +86,11 @@ def main(argv) -> int:
     ap.add_argument("--limit-games", type=int, default=None)
     ap.add_argument("--holdout-games", type=int, default=300)
     ap.add_argument("--probe-states", type=int, default=1024)
+    ap.add_argument("--eval-every", type=int, default=40,
+                    help="Run the held-out probe every N gradient "
+                         "steps (mid-epoch) so the run yields a CE "
+                         "curve, not just epoch endpoints. 0 = only "
+                         "at epoch boundaries.")
     ap.add_argument("--device", default="cpu")
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args(argv[1:])
@@ -157,6 +162,10 @@ def main(argv) -> int:
     import multiprocessing as mp
     best = m0["ce"]
 
+    # Running global step count, so the mid-epoch held-out curve is
+    # monotonic across epochs (not reset each epoch).
+    step_ctr = {"n": 0}
+
     def _run_epoch(epoch, produce):
         """produce: iterable yielding per-game result lists."""
         br, bz, bm = [], [], []
@@ -172,11 +181,21 @@ def main(argv) -> int:
                 if len(br) >= args.batch:
                     st = trainer.step_value_from_raw(br, bz, bm)
                     vsum += st["value_loss"]; n_batches += 1
+                    step_ctr["n"] += 1
                     n_pairs += len(br)
                     if n_batches % 50 == 0:
                         log.info(f"  epoch {epoch}: {n_batches} batches, "
                                  f"{n_pairs} pairs, "
                                  f"train_v={vsum / n_batches:.4f}")
+                    # Mid-epoch held-out curve point.
+                    if (args.eval_every
+                            and step_ctr["n"] % args.eval_every == 0):
+                        me = trainer.eval_value_metrics_from_raw(
+                            probe_raw, probe_z)
+                        log.info(f"  [curve] step {step_ctr['n']} "
+                                 f"(epoch {epoch}): holdout "
+                                 f"ce={me['ce']:.4f} "
+                                 f"ent={me['pred_entropy']:.4f}")
                     br, bz, bm = [], [], []
         if br:
             trainer.step_value_from_raw(br, bz, bm); n_pairs += len(br)
