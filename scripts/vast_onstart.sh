@@ -141,6 +141,9 @@ fi
 
 # Both spellings: torch <=2.7 reads PYTORCH_CUDA_ALLOC_CONF, newer
 # reads PYTORCH_ALLOC_CONF.
+# SPOOL_WORKERS / TRAIN_BATCH: GPU-memory knobs, overridable via
+# -e at create time for smaller cards (16GB: 12 / 48; the 24GB
+# defaults 16 / 64 measured ~17GB with creep).
 export PYTORCH_ALLOC_CONF=expandable_segments:True
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 # GPU memory budget (24GB card, learned from the 2026-07-06 OOM):
@@ -159,7 +162,7 @@ nohup bash -c "
     --d-model 256 --num-layers 6 --num-heads 8 --d-ff 1024 \
     --replay-buffer --replay-updates 16 --value-coef 1.0 \
     --replay-minibatch 128 --replay-capacity 24000 \
-    --train-batch-size 64 --mcts-batch-size 16 \
+    --train-batch-size ${TRAIN_BATCH:-64} --mcts-batch-size 16 \
     --mini-ratio 0.5 --drill-ratio 0.3 \
     --mcts-aux-score --mcts-moves-left \
     --mcts-moves-left-utility 0.2 \
@@ -167,7 +170,7 @@ nohup bash -c "
     --holdout-size 512 --holdout-per-game-cap 64 \
     --abort-decisive-rate 0.05 --abort-window 40 \
     --abort-holdout-stall 150 \
-    --spool-workers 16 --games-per-iter 16 \
+    --spool-workers ${SPOOL_WORKERS:-16} --games-per-iter ${SPOOL_WORKERS:-16} \
     $RESET \
     --checkpoint-in  $CKPT_IN \
     --checkpoint-out $CAMPAIGN \
