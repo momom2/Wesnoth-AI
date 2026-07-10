@@ -38,6 +38,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
+def pearson(a: List[float], b: List[float]) -> float:
+    n = len(a)
+    if n < 3:
+        return float("nan")
+    ma, mb = sum(a) / n, sum(b) / n
+    cov = sum((x - ma) * (y - mb) for x, y in zip(a, b))
+    va = sum((x - ma) ** 2 for x in a)
+    vb = sum((y - mb) ** 2 for y in b)
+    if va <= 0 or vb <= 0:
+        return float("nan")
+    return cov / (va ** 0.5 * vb ** 0.5)
+
+
 def auc(win: List[float], loss: List[float], n=20000) -> float:
     if not win or not loss:
         return float("nan")
@@ -58,6 +71,12 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--skip-games", type=int, default=0)
     ap.add_argument("--stride", type=int, default=15)
     ap.add_argument("--seed", type=int, default=99)
+    ap.add_argument("--material-corr", action="store_true",
+                    help="Also report per-phase Pearson r of E[V] "
+                         "with the state's CURRENT material margin vs "
+                         "with the actual outcome z. A draw-tiebreak-"
+                         "degenerate head (trained mostly on material-"
+                         "z draws) shows r_material >> r_outcome.")
     args = ap.parse_args(argv[1:])
 
     import torch
@@ -95,6 +114,13 @@ def main(argv: List[str]) -> int:
         atoms = m._value_atoms
         buckets = {"open(1-8)": ([], []), "mid(9-16)": ([], []),
                    "late(17+)": ([], [])}
+        # per-phase (ev, z, material) triples for --material-corr
+        tri = {k: [] for k in buckets}
+        mat_cfg = None
+        if args.material_corr:
+            from tools.draw_tiebreak import (DrawTiebreakConfig,
+                                             material_margin)
+            mat_cfg = DrawTiebreakConfig(cap=0.3)
         with torch.no_grad():
             for r in sample:
                 try:
@@ -108,9 +134,14 @@ def main(argv: List[str]) -> int:
                     out = m(enc.encode(e.game_state))
                     ev = float((torch.softmax(
                         out.value_logits.squeeze(), -1) * atoms).sum())
-                    w, l = buckets[bucket(
-                        e.game_state.global_info.turn_number)]
+                    bk = bucket(e.game_state.global_info.turn_number)
+                    w, l = buckets[bk]
                     (w if e.z > 0 else l).append(ev)
+                    if mat_cfg is not None:
+                        side = e.game_state.global_info.current_side
+                        mm = material_margin(e.game_state, side,
+                                             mat_cfg)
+                        tri[bk].append((ev, e.z, mm))
         print(f"== {ck.name} (step="
               f"{raw.get('decision_step', '?')}) ==")
         for name, (w, l) in buckets.items():
@@ -119,6 +150,14 @@ def main(argv: List[str]) -> int:
                       f"E[V]win={st.mean(w):+.3f}  "
                       f"E[V]loss={st.mean(l):+.3f}  "
                       f"AUC={auc(w, l):.3f}")
+        if mat_cfg is not None:
+            for name, rows_ in tri.items():
+                if len(rows_) > 10:
+                    evs = [t[0] for t in rows_]
+                    print(f"  {name:11} corr(E[V], outcome)="
+                          f"{pearson(evs, [t[1] for t in rows_]):+.3f}"
+                          f"  corr(E[V], material)="
+                          f"{pearson(evs, [t[2] for t in rows_]):+.3f}")
     return 0
 
 
