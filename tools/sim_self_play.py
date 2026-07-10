@@ -1370,6 +1370,9 @@ def run_iteration(
             "z_draw_frac":  (getattr(train_stats, "z_draw_frac", None)
                              if train_stats else None),
             "human_anchor_loss": human_anchor_loss,
+            "value_signal_states": (getattr(train_stats,
+                                            "value_signal_states", None)
+                                    if train_stats else None),
             "ladder_games":        ladder_n,
             "ladder_decisive":     ladder_dec,
             "other_games":         other_n,
@@ -1464,7 +1467,7 @@ class _TrainerHistoryCSV:
         # Value-target composition + human rehearsal (2026-07-10
         # draw-spike diagnosis / anchor fix).
         "z_win_frac", "z_loss_frac", "z_draw_frac",
-        "human_anchor_loss",
+        "human_anchor_loss", "value_signal_states",
     ]
 
     def __init__(self, path: Path):
@@ -2047,6 +2050,13 @@ def main(argv: List[str]) -> int:
                          "(default 4; vs --replay-updates self-play "
                          "steps).")
     ap.add_argument("--human-anchor-batch", type=int, default=128)
+    ap.add_argument("--draw-value-weight", type=float, default=1.0,
+                    help="Weight of drawn games' states in the MCTS "
+                         "value loss (aux/moves-left heads always get "
+                         "them). 0 = decisive-only value learning "
+                         "(2026-07-10: the 71%-draw gradient mass "
+                         "flattened the value head even with honest "
+                         "z=0 labels and a rehearsal anchor).")
     ap.add_argument("--draw-tiebreak-cap", type=float, default=0.3,
                     help="MCTS draws score by material differential "
                          "(villages + gold + unit value) in "
@@ -2247,6 +2257,11 @@ def main(argv: List[str]) -> int:
             args.value_label_smoothing)
         log.info(f"value label smoothing -> "
                  f"{args.value_label_smoothing} (train loss only)")
+    if args.draw_value_weight != 1.0:
+        policy._trainer.config.draw_value_weight = float(
+            args.draw_value_weight)
+        log.info(f"draw value weight -> {args.draw_value_weight} "
+                 f"(draws feed aux/moves-left only at 0)")
     if args.checkpoint_in and args.checkpoint_in.exists():
         log.info(f"loading checkpoint {args.checkpoint_in}")
         try:

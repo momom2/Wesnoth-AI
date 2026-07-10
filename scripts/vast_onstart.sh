@@ -163,7 +163,7 @@ nohup bash -c "
     --replay-buffer --replay-updates 16 --value-coef 1.0 \
     --replay-minibatch 128 --replay-capacity 24000 \
     --train-batch-size ${TRAIN_BATCH:-64} --mcts-batch-size 16 \
-    --mini-ratio 0.5 --drill-ratio 0.3 \
+    --mini-ratio ${MINI_RATIO:-0.5} --drill-ratio ${DRILL_RATIO:-0.3} \
     --mcts-aux-score --mcts-moves-left \
     --mcts-moves-left-utility 0.2 \
     --value-label-smoothing 0.02 \
@@ -171,6 +171,7 @@ nohup bash -c "
     ${HUMAN_ANCHOR_FILE:+--human-anchor-file $HUMAN_ANCHOR_FILE} \
     ${HUMAN_ANCHOR_UPDATES:+--human-anchor-updates $HUMAN_ANCHOR_UPDATES} \
     ${HUMAN_ANCHOR_BATCH:+--human-anchor-batch $HUMAN_ANCHOR_BATCH} \
+    ${DRAW_VALUE_WEIGHT:+--draw-value-weight $DRAW_VALUE_WEIGHT} \
     --abort-decisive-rate 0.05 --abort-window 40 \
     --abort-holdout-stall 150 \
     --spool-workers ${SPOOL_WORKERS:-16} --games-per-iter ${SPOOL_WORKERS:-16} \

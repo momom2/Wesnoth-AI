@@ -183,3 +183,35 @@ def test_z_composition_stats():
     assert abs(st.z_win_frac - 2 / 6) < 1e-9
     assert abs(st.z_loss_frac - 1 / 6) < 1e-9
     assert abs(st.z_draw_frac - 3 / 6) < 1e-9
+
+
+def test_draw_value_weight_zero_removes_draw_gradient():
+    """draw_value_weight=0: an all-decisive batch trains normally, a
+    mixed batch's value loss equals the decisive-only value loss
+    (weight-sum normalization), and an all-draw batch contributes no
+    value gradient."""
+    import torch
+    from trainer import MCTSExperience
+    from transformer_policy import TransformerPolicy
+
+    from test_inference_snapshot import _gs as _real_gs
+
+    net = TransformerPolicy(device=torch.device("cpu"), d_model=32,
+                            num_layers=1, num_heads=4, d_ff=64)
+    net._trainer.config.draw_value_weight = 0.0
+    net._trainer.config.train_batch_size = 4
+
+    def exp(z):
+        return MCTSExperience(game_state=_real_gs(),
+                              visit_counts=[], z=z)
+
+    dec = [exp(+1.0), exp(-1.0)]
+    mixed = dec + [exp(0.0), exp(0.0)]
+    st_mixed = net._trainer.step_mcts(list(mixed))
+    assert st_mixed.value_signal_states == 2, \
+        "only decisive states feed the value loss at weight 0"
+    all_draw = [exp(0.0), exp(0.0), exp(0.0)]
+    st_draw = net._trainer.step_mcts(list(all_draw))
+    assert st_draw.value_signal_states == 0
+    assert st_draw.value_loss == 0.0, \
+        "all-draw batch at weight 0 -> zero value loss"

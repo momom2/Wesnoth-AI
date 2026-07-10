@@ -158,6 +158,15 @@ class TrainerConfig:
     # against extreme-atom collapse under many replay updates on
     # hard terminal targets -- see _categorical_value_loss.
     value_label_smoothing: float = 0.0
+    # Per-state weight of DRAWN games (|z| < 1) in the MCTS value
+    # loss. 1.0 = legacy (draws train the head toward their z).
+    # 0.0 = decisive-only value learning: draws still feed the aux
+    # and moves-left heads, but stop flattening the value head
+    # (2026-07-10: ~71% of incoming states are draws; even with
+    # honest z=0 labels their gradient mass erodes win/loss
+    # discrimination -- human-corpus late AUC 0.88 -> 0.64 in 51
+    # iters WITH a 512-state/iter rehearsal anchor).
+    draw_value_weight: float = 1.0
     # Lowered from 0.01 after the first 22 train_steps held entropy
     # ~8.3 (near max). The bonus was dominating the tiny shaping
     # gradients and preventing the policy from ever committing to an
@@ -237,6 +246,10 @@ class TrainStats:
     z_win_frac: float = float("nan")
     z_loss_frac: float = float("nan")
     z_draw_frac: float = float("nan")
+    # States whose weight actually feeds the value loss this step
+    # (decisive + weighted draws; starvation watch for
+    # draw_value_weight=0 runs). Summed across replay updates.
+    value_signal_states: int = 0
     # CE of the best state-blind predictor on the fresh probe (the
     # batch's empirical projected-z mixture). fresh_value_ce should
     # sit BELOW this; a high floor means the games' outcomes are
@@ -577,6 +590,7 @@ def _categorical_value_loss(
     returns:      torch.Tensor,    # [B] scalar targets (already clipped)
     atoms:        torch.Tensor,    # [K] bin support
     label_smoothing: float = 0.0,  # TRAIN-only; eval passes 0
+    weights: "Optional[torch.Tensor]" = None,   # [B] per-state
 ) -> torch.Tensor:
     """Cross-entropy between the predicted distribution Z(s) and the
     projected target distribution. Sum-reduced over the batch (the
@@ -599,7 +613,10 @@ def _categorical_value_loss(
             (1.0 - label_smoothing) * target_dist
             + label_smoothing / K)
     log_probs = torch.nn.functional.log_softmax(value_logits, dim=-1)
-    return -(target_dist * log_probs).sum()
+    per_state = -(target_dist * log_probs).sum(dim=-1)              # [B]
+    if weights is not None:
+        per_state = per_state * weights
+    return per_state.sum()
 
 
 # =====================================================================
@@ -972,6 +989,13 @@ def _trainer_step_mcts(
     sum_aux_loss    = 0.0
     sum_ml_loss     = 0.0
     sum_total_visits = 0.0
+    # Full-batch value-weight normalizer + "how many states actually
+    # feed the value head" (dashboard starvation watch).
+    _w_full = torch.where(
+        zs.abs() >= 0.999, torch.ones_like(zs),
+        torch.full_like(zs, self.config.draw_value_weight))
+    total_value_w = float(_w_full.sum().item())
+    n_value_signal = int((_w_full > 0).sum().item())
     sum_actor_nlp_weighted = 0.0  # for "entropy"-style logging
 
     # Optimization #7 (2026-06-14): run the training forwards in eval()
@@ -1039,10 +1063,20 @@ def _trainer_step_mcts(
         # terminal-z target (z ∈ {-1, 0, +1} for win/draw/loss),
         # consistent with the REINFORCE path. `zs` was already
         # clipped to [V_MIN, V_MAX] by the value_clip block above.
+        # Draws are down-weighted by config.draw_value_weight and the
+        # loss normalizes by TOTAL WEIGHT (not N), so decisive states
+        # keep full-strength gradient regardless of the batch's draw
+        # share; an all-draw batch at weight 0 contributes no value
+        # gradient at all.
         atoms = self.model._value_atoms
+        w_t = torch.where(z_t.abs() >= 0.999,
+                          torch.ones_like(z_t),
+                          torch.full_like(
+                              z_t, self.config.draw_value_weight))
         value_loss = _categorical_value_loss(
             vl_t, z_t, atoms,
-            label_smoothing=self.config.value_label_smoothing) / N
+            label_smoothing=self.config.value_label_smoothing,
+            weights=w_t) / max(float(total_value_w), 1e-9)
 
         chunk_loss = (
             policy_loss_t
@@ -1110,6 +1144,7 @@ def _trainer_step_mcts(
         n_trajectories = int(N),  # one experience = one root state
         aux_loss       = float(sum_aux_loss),
         moves_left_loss = float(sum_ml_loss),
+        value_signal_states = n_value_signal,
     )
 
 

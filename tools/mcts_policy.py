@@ -623,6 +623,8 @@ class MCTSPolicy:
             return TrainStats()
         k = len(stats)
         return TrainStats(
+            value_signal_states=sum(
+                getattr(s, "value_signal_states", 0) for s in stats),
             policy_loss=sum(s.policy_loss for s in stats) / k,
             value_loss=sum(s.value_loss for s in stats) / k,
             entropy=sum(s.entropy for s in stats) / k,
