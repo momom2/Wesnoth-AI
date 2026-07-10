@@ -930,6 +930,17 @@ class SpoolWorkers:
                 p.terminate()
 
 
+def _gpu_mem_mb():
+    """(allocated_MB, reserved_MB) of the trainer process, or
+    (None, None) off-CUDA. Reserved > allocated = allocator cache;
+    reserved growth with flat allocated = fragmentation/ratchet."""
+    import torch
+    if not torch.cuda.is_available():
+        return (None, None)
+    return (round(torch.cuda.memory_allocated() / 2**20),
+            round(torch.cuda.memory_reserved() / 2**20))
+
+
 def run_iteration(
     policy:        TransformerPolicy,
     pool_files:    Optional[List[Path]],   # legacy; ignored post-pivot
@@ -1309,6 +1320,12 @@ def run_iteration(
             "decision_step":       getattr(
                 getattr(policy, "_base", policy), "_decision_step",
                 None),
+            # Trainer-process GPU memory (MB). The undiagnosed creep
+            # (2026-07-10: OOM'd a 16GB card in ~3h) becomes a curve:
+            # linear slope = leak-like, staircase = allocator
+            # high-water ratchet on variable-length batches.
+            "gpu_mem_alloc_mb":    _gpu_mem_mb()[0],
+            "gpu_mem_reserved_mb": _gpu_mem_mb()[1],
             "ladder_games":        ladder_n,
             "ladder_decisive":     ladder_dec,
             "other_games":         other_n,
@@ -1398,6 +1415,8 @@ class _TrainerHistoryCSV:
         # Cumulative decision counter (training-unit progress; makes
         # cost-per-unit computable from the CSV alone).
         "decision_step",
+        # Trainer-process CUDA memory (creep tracking, 2026-07-10).
+        "gpu_mem_alloc_mb", "gpu_mem_reserved_mb",
     ]
 
     def __init__(self, path: Path):
