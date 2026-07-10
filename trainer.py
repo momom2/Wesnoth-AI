@@ -246,6 +246,11 @@ class TrainStats:
     z_win_frac: float = float("nan")
     z_loss_frac: float = float("nan")
     z_draw_frac: float = float("nan")
+    # Fresh CE restricted to decisive (+-1) incoming states -- the
+    # gate metric when draw_value_weight=0 (pooled fresh_value_ce is
+    # then structurally inflated by z=0 states the head is
+    # deliberately not trained on).
+    fresh_decisive_ce: float = float("nan")
     # States whose weight actually feeds the value loss this step
     # (decisive + weighted draws; starvation watch for
     # draw_value_weight=0 runs). Summed across replay updates.

@@ -546,6 +546,14 @@ class MCTSPolicy:
             probe = (batch if len(batch) <= 256
                      else self._replay_rng.sample(batch, 256))
             fresh = _eval(probe)
+            # Decisive-only variant: with draw_value_weight=0 the head
+            # is deliberately not trained to predict z=0 states, so
+            # the pooled CE is structurally inflated by them
+            # (2026-07-10). CE on the +-1 subset is the gate metric
+            # under that recipe.
+            dec = [e for e in probe if abs(e.z) >= 0.999]
+            fresh["decisive_ce"] = (_eval(dec)["ce"] if len(dec) >= 16
+                                    else float("nan"))
 
         # Add the fresh experiences to the bounded buffer, then take
         # several minibatch gradient steps sampled from it. This gives
@@ -581,6 +589,7 @@ class MCTSPolicy:
         stats.fresh_value_ce = fresh["ce"]
         stats.fresh_pred_entropy = fresh["pred_entropy"]
         stats.fresh_ce_floor = fresh["marginal_ce_floor"]
+        stats.fresh_decisive_ce = fresh.get("decisive_ce", float("nan"))
 
     @staticmethod
     def _attach_z_composition(stats: TrainStats, batch) -> None:

@@ -1373,6 +1373,9 @@ def run_iteration(
             "value_signal_states": (getattr(train_stats,
                                             "value_signal_states", None)
                                     if train_stats else None),
+            "fresh_decisive_ce": (getattr(train_stats,
+                                          "fresh_decisive_ce", None)
+                                  if train_stats else None),
             "ladder_games":        ladder_n,
             "ladder_decisive":     ladder_dec,
             "other_games":         other_n,
@@ -1468,6 +1471,7 @@ class _TrainerHistoryCSV:
         # draw-spike diagnosis / anchor fix).
         "z_win_frac", "z_loss_frac", "z_draw_frac",
         "human_anchor_loss", "value_signal_states",
+        "fresh_decisive_ce",
     ]
 
     def __init__(self, path: Path):
