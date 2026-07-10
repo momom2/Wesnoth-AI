@@ -1218,6 +1218,16 @@ def run_iteration(
                 [t[2] for t in sample])
             losses.append(st["value_loss"])
         human_anchor_loss = sum(losses) / max(1, len(losses))
+        # Return the anchor batches' cached blocks to the driver:
+        # human ladder states are much larger than self-play batches
+        # and ratchet the allocator cache (measured 2026-07-10:
+        # 162MB allocated vs 11.5GB reserved after one iteration).
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:                       # noqa: BLE001
+            pass
         log.info(f"iter {iter_idx}: human anchor -- {a_updates} "
                  f"updates x {a_batch}, value_loss="
                  f"{human_anchor_loss:.4f}")
