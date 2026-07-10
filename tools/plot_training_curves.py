@@ -176,6 +176,16 @@ def build_html(rows: List[dict], source_note: str) -> str:
         [("mean", "s1", col("actions_per_turn_mean")),
          ("median", "s2", col("actions_per_turn_median"))],
         "actions — spam pathology watch", y_fmt=".1f")
+    p6 = _svg_panel(
+        "p6", "Value-target composition (fresh batches)", xs,
+        [("win (+1)", "s2", col("z_win_frac")),
+         ("loss (-1)", "s1", col("z_loss_frac")),
+         ("draw", "s3", col("z_draw_frac"))],
+        "fraction of incoming targets", y_min=0.0, y_max=1.0)
+    p7 = _svg_panel(
+        "p7", "Human-anchor rehearsal loss", xs,
+        [("anchor value CE", "s1", col("human_anchor_loss"))],
+        "CE on pre-encoded human states")
     p5 = _svg_panel(
         "p5", "Trainer GPU memory", xs,
         [("allocated", "s1", col("gpu_mem_alloc_mb")),
@@ -229,7 +239,7 @@ svg {{ width: 100%; height: auto; display: block; }}
 <h2>Wesnoth self-play — training curves</h2>
 <p class="muted">{source_note} &middot; {len(rows)} iterations &middot;
 x-axis: {x_note}</p>
-{p1}{p2}{p3}{p4}{p5}
+{p1}{p2}{p6}{p7}{p3}{p4}{p5}
 </div>
 <script>
 for (const svg of document.querySelectorAll("svg[data-plot]")) {{

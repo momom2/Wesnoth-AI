@@ -861,7 +861,8 @@ class SpoolWorkers:
             "--draw-tiebreak-cap", str(max(0.0, args.draw_tiebreak_cap)),
             "--moves-left-utility", str(args.mcts_moves_left_utility),
             "--log-level", log_level,
-        ]
+        ] + (["--train-draw-tiebreak"] if getattr(
+            args, "train_draw_tiebreak", False) else [])
         self._seed0 = args.seed * 1_000_003 + 7
         self._subprocess = subprocess
         self._procs: List = [None] * n
@@ -961,6 +962,7 @@ def run_iteration(
     snapshot_sink: Optional[Callable[[Dict], None]] = None,
     actor_pool=None,
     spool=None,
+    human_anchor=None,   # (pool, updates_per_iter, batch, rng) or None
 ) -> List[GameOutcome]:
     """Roll out `games_per_iter` games and call `train_step` once at
     the end. Returns the per-game outcomes for logging.
@@ -1199,6 +1201,26 @@ def run_iteration(
             f"(n={len(pooled_apt)} side-turns)")
 
     train_stats = None
+    human_anchor_loss = None
+    if train_at_end and human_anchor is not None:
+        # Human-corpus rehearsal (2026-07-10): value-only gradient
+        # steps on pre-encoded human states with clean +-1 labels,
+        # BEFORE train_step so its inference-weight sync captures
+        # them. The anti-forgetting anchor: self-play alone eroded
+        # human late-game AUC 0.88 -> 0.60 in ~80 iterations.
+        a_pool, a_updates, a_batch, a_rng = human_anchor
+        trainer = getattr(policy, "_base", policy)._trainer
+        losses = []
+        for _ in range(a_updates):
+            sample = a_rng.sample(a_pool, min(a_batch, len(a_pool)))
+            st = trainer.step_value_from_raw(
+                [t[0] for t in sample], [t[1] for t in sample],
+                [t[2] for t in sample])
+            losses.append(st["value_loss"])
+        human_anchor_loss = sum(losses) / max(1, len(losses))
+        log.info(f"iter {iter_idx}: human anchor -- {a_updates} "
+                 f"updates x {a_batch}, value_loss="
+                 f"{human_anchor_loss:.4f}")
     if train_at_end:
         # One gradient step over all queued trajectories.
         train_t0 = time.perf_counter()
@@ -1210,6 +1232,11 @@ def run_iteration(
         aux_str = f" aux={_aux:.4f}" if _aux else ""
         _ml = getattr(train_stats, "moves_left_loss", 0.0)
         aux_str += f" moves_left={_ml:.4f}" if _ml else ""
+        _zw = getattr(train_stats, "z_win_frac", float("nan"))
+        if _zw == _zw:
+            aux_str += (f" z_comp={_zw:.2f}/"
+                        f"{getattr(train_stats, 'z_loss_frac', 0):.2f}/"
+                        f"{getattr(train_stats, 'z_draw_frac', 0):.2f}")
         _fce = getattr(train_stats, "fresh_value_ce", float("nan"))
         if _fce == _fce:                       # not NaN
             aux_str += f" fresh_value_ce={_fce:.4f}"
@@ -1326,6 +1353,13 @@ def run_iteration(
             # high-water ratchet on variable-length batches.
             "gpu_mem_alloc_mb":    _gpu_mem_mb()[0],
             "gpu_mem_reserved_mb": _gpu_mem_mb()[1],
+            "z_win_frac":   (getattr(train_stats, "z_win_frac", None)
+                             if train_stats else None),
+            "z_loss_frac":  (getattr(train_stats, "z_loss_frac", None)
+                             if train_stats else None),
+            "z_draw_frac":  (getattr(train_stats, "z_draw_frac", None)
+                             if train_stats else None),
+            "human_anchor_loss": human_anchor_loss,
             "ladder_games":        ladder_n,
             "ladder_decisive":     ladder_dec,
             "other_games":         other_n,
@@ -1417,6 +1451,10 @@ class _TrainerHistoryCSV:
         "decision_step",
         # Trainer-process CUDA memory (creep tracking, 2026-07-10).
         "gpu_mem_alloc_mb", "gpu_mem_reserved_mb",
+        # Value-target composition + human rehearsal (2026-07-10
+        # draw-spike diagnosis / anchor fix).
+        "z_win_frac", "z_loss_frac", "z_draw_frac",
+        "human_anchor_loss",
     ]
 
     def __init__(self, path: Path):
@@ -1983,6 +2021,22 @@ def main(argv: List[str]) -> int:
                     help="Warm up with legacy one-pass training until "
                          "the replay buffer holds this many "
                          "experiences (default 512).")
+    ap.add_argument("--train-draw-tiebreak", action="store_true",
+                    help="LEGACY: label drawn games' TRAINING z with "
+                         "the material tiebreak (search always uses "
+                         "the tiebreak regardless). Default off since "
+                         "2026-07-10: material-z draw labels made "
+                         "'predict material' the dominant value "
+                         "lesson and eroded win/loss discrimination.")
+    ap.add_argument("--human-anchor-file", type=Path, default=None,
+                    help="Pre-encoded human-corpus anchor cache "
+                         "(tools/build_human_anchor.py). Enables "
+                         "value-only rehearsal steps each iteration.")
+    ap.add_argument("--human-anchor-updates", type=int, default=4,
+                    help="Rehearsal gradient steps per iteration "
+                         "(default 4; vs --replay-updates self-play "
+                         "steps).")
+    ap.add_argument("--human-anchor-batch", type=int, default=128)
     ap.add_argument("--draw-tiebreak-cap", type=float, default=0.3,
                     help="MCTS draws score by material differential "
                          "(villages + gold + unit value) in "
@@ -2326,7 +2380,14 @@ def main(argv: List[str]) -> int:
                 f"gradient steps per iter vs legacy one-pass)")
         policy = MCTSPolicy(policy, mcts_cfg, replay_config=replay_cfg,
                             holdout_size=args.holdout_size,
-                            holdout_per_game_cap=args.holdout_per_game_cap)
+                            holdout_per_game_cap=args.holdout_per_game_cap,
+                            train_draw_tiebreak=args.train_draw_tiebreak)
+        if args.train_draw_tiebreak:
+            log.info("LEGACY draw labels: training z = material "
+                     "tiebreak on draws")
+        else:
+            log.info("honest draw labels: training z = 0 on draws "
+                     "(tiebreak remains search-only)")
         if args.holdout_size > 0:
             # Works on both the in-process path (finalize_game) and
             # --actor-pool (the pool drain offers each per-game
@@ -2405,6 +2466,25 @@ def main(argv: List[str]) -> int:
     # Trainer history CSV. Empty string disables; None falls back
     # to the default per-job path. The writer is line-buffered so a
     # walltime-killed job leaves a recoverable file.
+    # Human-corpus rehearsal anchor (2026-07-10): pre-encoded
+    # (RawEncoded, z, moves_left) tuples; value-only steps each iter.
+    human_anchor = None
+    if getattr(args, "human_anchor_file", None):
+        import pickle as _pkl
+        with args.human_anchor_file.open("rb") as _f:
+            _pool = _pkl.load(_f)
+        if _pool:
+            human_anchor = (_pool, max(0, args.human_anchor_updates),
+                            max(1, args.human_anchor_batch),
+                            random.Random(args.seed ^ 0xA17C4))
+            log.info(
+                f"human anchor ON: {len(_pool)} pre-encoded states "
+                f"from {args.human_anchor_file.name}; "
+                f"{args.human_anchor_updates} value-only updates x "
+                f"{args.human_anchor_batch} per iteration")
+        else:
+            log.warning("human anchor file empty; rehearsal OFF")
+
     history_csv: Optional[_TrainerHistoryCSV] = None
     csv_arg = args.trainer_history_csv
     if csv_arg is None:
@@ -2556,6 +2636,7 @@ def main(argv: List[str]) -> int:
             snapshot_sink=(history_csv.append if history_csv else None),
             actor_pool=actor_pool,
             spool=spool,
+            human_anchor=human_anchor,
         )
         if not outcomes:
             consecutive_dead += 1

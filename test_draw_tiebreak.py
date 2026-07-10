@@ -113,3 +113,73 @@ def test_shipped_config_matches_code_defaults():
     shipped = DrawTiebreakConfig.from_json(
         Path(__file__).parent / "configs" / "draw_tiebreak.json")
     assert shipped == DrawTiebreakConfig()
+
+
+# ---------------------------------------------------------------------
+# Training-label decoupling (2026-07-10): draws train z=0 by default;
+# the tiebreak is search-only unless --train-draw-tiebreak opts back in
+# ---------------------------------------------------------------------
+
+def _finalize_gs(**kw):
+    """_gs() plus the global_info fields finalize_game touches
+    (AUGMENT global_info -- replacing it would clobber the
+    _village_owner map that material scoring reads)."""
+    g = _gs(**kw)
+    g.global_info.turn_number = 20
+    g.global_info.current_side = 1
+    return g
+
+
+def test_finalize_draw_trains_honest_zero_by_default():
+    import torch
+    from tools.mcts import MCTSConfig
+    from tools.mcts_policy import MCTSPolicy, _PendingMCTSState
+    from transformer_policy import TransformerPolicy
+
+    base = TransformerPolicy(device=torch.device("cpu"), d_model=32,
+                             num_layers=1, num_heads=4, d_ff=64)
+    final = _finalize_gs(villages=(3, 0))   # imbalanced draw
+    mp = MCTSPolicy(base, MCTSConfig(draw_tiebreak=CFG))
+    mp._pending["g"] = [
+        _PendingMCTSState(gs=_finalize_gs(), visit_counts=[], side=s)
+        for s in (1, 2)]
+    mp.finalize_game("g", winner=0, final_gs=final)
+    assert [e.z for e in mp._queue] == [0.0, 0.0], \
+        "default: drawn games train the value head toward z=0"
+    # aux target still carries material (that is the aux head's job)
+    assert mp._queue[0].aux_target is not None
+    assert mp._queue[0].aux_target > 0.0
+
+
+def test_finalize_draw_legacy_tiebreak_optin():
+    import torch
+    from tools.mcts import MCTSConfig
+    from tools.mcts_policy import MCTSPolicy, _PendingMCTSState
+    from transformer_policy import TransformerPolicy
+
+    base = TransformerPolicy(device=torch.device("cpu"), d_model=32,
+                             num_layers=1, num_heads=4, d_ff=64)
+    final = _finalize_gs(villages=(3, 0))
+    mp = MCTSPolicy(base, MCTSConfig(draw_tiebreak=CFG),
+                    train_draw_tiebreak=True)
+    mp._pending["g"] = [
+        _PendingMCTSState(gs=_finalize_gs(), visit_counts=[], side=s)
+        for s in (1, 2)]
+    mp.finalize_game("g", winner=0, final_gs=final)
+    zs = [e.z for e in mp._queue]
+    assert 0.0 < zs[0] <= CFG.cap and zs[1] == -zs[0], \
+        "legacy opt-in restores antisymmetric material-z draw labels"
+
+
+def test_z_composition_stats():
+    from tools.mcts_policy import MCTSPolicy
+    from trainer import MCTSExperience, TrainStats
+
+    class _E:
+        def __init__(self, z): self.z = z
+    st = TrainStats()
+    MCTSPolicy._attach_z_composition(
+        st, [_E(1.0), _E(1.0), _E(-1.0), _E(0.0), _E(0.12), _E(-0.2)])
+    assert abs(st.z_win_frac - 2 / 6) < 1e-9
+    assert abs(st.z_loss_frac - 1 / 6) < 1e-9
+    assert abs(st.z_draw_frac - 3 / 6) < 1e-9

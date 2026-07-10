@@ -73,7 +73,10 @@ def _build_policy(ckpt: Path, device, args):
         draw_tiebreak=DrawTiebreakConfig(cap=args.draw_tiebreak_cap),
         moves_left_utility=args.moves_left_utility,
     )
-    return MCTSPolicy(base, cfg), base
+    return MCTSPolicy(
+        base, cfg,
+        train_draw_tiebreak=getattr(args, "train_draw_tiebreak",
+                                    False)), base
 
 
 def main(argv) -> int:
@@ -86,6 +89,9 @@ def main(argv) -> int:
     ap.add_argument("--drill-ratio", type=float, default=0.3)
     ap.add_argument("--max-turns", type=int, default=200)
     ap.add_argument("--draw-tiebreak-cap", type=float, default=0.3)
+    ap.add_argument("--train-draw-tiebreak", action="store_true",
+                    help="LEGACY: material-tiebreak z on drawn games'"
+                         " training labels (see sim_self_play).")
     ap.add_argument("--moves-left-utility", type=float, default=0.0)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--torch-threads", type=int, default=2)

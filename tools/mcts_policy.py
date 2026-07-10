@@ -116,10 +116,21 @@ class MCTSPolicy:
     def __init__(self, base, mcts_config: Optional[MCTSConfig] = None,
                  replay_config: Optional[ReplayConfig] = None,
                  holdout_size: int = 0,
-                 holdout_per_game_cap: int = 64):
+                 holdout_per_game_cap: int = 64,
+                 train_draw_tiebreak: bool = False):
         self._base = base
         self._mcts_config = mcts_config or MCTSConfig()
         self._replay_config = replay_config or ReplayConfig()
+        # Draw-label policy for TRAINING targets (2026-07-10). The
+        # material tiebreak remains a SEARCH preference (mcts.py
+        # _terminal_value) and the aux head still learns material --
+        # but by default draws now train the value head toward the
+        # honest z=0. Labeling draws with material-z made "predict
+        # material" the dominant lesson (~93% of ladder games are
+        # draws) and measurably eroded win/loss discrimination
+        # (human-corpus late-game AUC 0.88 -> 0.60 in ~80 iters;
+        # r_material/r_outcome rose 1.28 -> 2.18).
+        self._train_draw_tiebreak = bool(train_draw_tiebreak)
         # Held-out generalization probe: while the holdout has fewer
         # than `holdout_size` experiences, finalize_game diverts WHOLE
         # games here instead of the training queue (whole games, so no
@@ -380,10 +391,11 @@ class MCTSPolicy:
         exps: List[MCTSExperience] = []
         for s in states:
             if winner == 0:
-                if tiebreak is not None and final_gs is not None:
+                if (self._train_draw_tiebreak and tiebreak is not None
+                        and final_gs is not None):
                     z = draw_tiebreak_z(final_gs, s.side, tiebreak)
                 else:
-                    z = 0.0
+                    z = 0.0     # honest draw label (see __init__)
             elif winner == s.side:
                 z = +1.0
             else:
@@ -548,6 +560,7 @@ class MCTSPolicy:
             result = self._base._trainer.step_mcts(batch)
             self._sync_inference_weights()
             self._attach_fresh_metrics(result, fresh)
+            self._attach_z_composition(result, batch)
             return result
 
         pool = list(self._replay)
@@ -560,6 +573,7 @@ class MCTSPolicy:
         self._sync_inference_weights()
         combined = self._combine_stats(stats, buffer_size=n)
         self._attach_fresh_metrics(combined, fresh)
+        self._attach_z_composition(combined, batch)
         return combined
 
     @staticmethod
@@ -567,6 +581,18 @@ class MCTSPolicy:
         stats.fresh_value_ce = fresh["ce"]
         stats.fresh_pred_entropy = fresh["pred_entropy"]
         stats.fresh_ce_floor = fresh["marginal_ce_floor"]
+
+    @staticmethod
+    def _attach_z_composition(stats: TrainStats, batch) -> None:
+        """Target-composition of this iteration's incoming
+        experiences: the 'draw-spike dominates the value gradient'
+        diagnosis (2026-07-10) as a per-iteration measurement."""
+        n = len(batch)
+        if not n:
+            return
+        stats.z_win_frac = sum(1 for e in batch if e.z >= 0.999) / n
+        stats.z_loss_frac = sum(1 for e in batch if e.z <= -0.999) / n
+        stats.z_draw_frac = 1.0 - stats.z_win_frac - stats.z_loss_frac
 
     def _sync_inference_weights(self) -> None:
         """Propagate the freshly-updated `_model` weights into the

@@ -231,6 +231,12 @@ class TrainStats:
     # Mean entropy of the predicted Z(s) on the fresh probe (nats;
     # uniform = ln 51 ~ 3.93). Continuous overconfidence curve.
     fresh_pred_entropy: float = float("nan")
+    # Target composition of the iteration's incoming experiences
+    # (2026-07-10 draw-spike diagnosis): fraction of z=+1 / z=-1 /
+    # everything else (draws; tiebreak values under legacy labels).
+    z_win_frac: float = float("nan")
+    z_loss_frac: float = float("nan")
+    z_draw_frac: float = float("nan")
     # CE of the best state-blind predictor on the fresh probe (the
     # batch's empirical projected-z mixture). fresh_value_ce should
     # sit BELOW this; a high floor means the games' outcomes are

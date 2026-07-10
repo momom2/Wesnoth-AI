@@ -168,6 +168,8 @@ nohup bash -c "
     --mcts-moves-left-utility 0.2 \
     --value-label-smoothing 0.02 \
     --holdout-size 512 --holdout-per-game-cap 64 \
+    ${HUMAN_ANCHOR_FILE:+--human-anchor-file $HUMAN_ANCHOR_FILE} \
+    ${HUMAN_ANCHOR_UPDATES:+--human-anchor-updates $HUMAN_ANCHOR_UPDATES} \
     --abort-decisive-rate 0.05 --abort-window 40 \
     --abort-holdout-stall 150 \
     --spool-workers ${SPOOL_WORKERS:-16} --games-per-iter ${SPOOL_WORKERS:-16} \
