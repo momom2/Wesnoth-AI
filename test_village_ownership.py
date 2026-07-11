@@ -151,6 +151,57 @@ def test_pad_helper_covers_direct_encoder_loads():
     assert legacy["dynamic_flag_proj.weight"].shape[1] == 1
 
 
+def test_legacy_optimizer_state_repairs_after_pad(tmp_path):
+    """The pad shim fixes the WEIGHTS, but a resumed Adam state still
+    carries old-shaped moments; the first optimizer.step() then
+    crashes on the broadcast (production incident 2026-07-11:
+    'output with shape [256, 1] doesn't match the broadcast shape
+    [256, 3]'). Pins repair_optimizer_state_shapes end-to-end
+    through load_checkpoint."""
+    from transformer_policy import TransformerPolicy
+    p1 = TransformerPolicy(device=torch.device("cpu"), d_model=32,
+                           num_layers=1, num_heads=4, d_ff=64)
+    opt1 = p1._trainer.optimizer
+    for g in opt1.param_groups:              # populate Adam state
+        for p in g["params"]:
+            p.grad = torch.zeros_like(p)
+    opt1.step()
+    opt1.zero_grad()
+    ck = tmp_path / "legacy.pt"
+    p1.save_checkpoint(ck)
+
+    raw = torch.load(ck, map_location="cpu", weights_only=False)
+    es = raw["encoder_state"]
+    es["dynamic_flag_proj.weight"] = \
+        es["dynamic_flag_proj.weight"][:, :1].clone()
+    es["side_embed.weight"] = es["side_embed.weight"][:2, :].clone()
+    # Slice the matching Adam moments back to the legacy shapes
+    # (identified by shape: dynamic_flag_proj is [32, 3], side_embed
+    # [3, 32] at this test's d_model=32).
+    n_sliced = 0
+    for entry in raw["optimizer_state"]["state"].values():
+        for k, t in list(entry.items()):
+            if isinstance(t, torch.Tensor) and tuple(t.shape) == (32, 3):
+                entry[k] = t[:, :1].clone(); n_sliced += 1
+            elif isinstance(t, torch.Tensor) and tuple(t.shape) == (3, 32):
+                entry[k] = t[:2, :].clone(); n_sliced += 1
+    assert n_sliced >= 4, "premise: moments for both padded params"
+    torch.save(raw, ck)
+
+    p2 = TransformerPolicy(device=torch.device("cpu"), d_model=32,
+                           num_layers=1, num_heads=4, d_ff=64)
+    p2.load_checkpoint(ck)
+    opt2 = p2._trainer.optimizer
+    for g in opt2.param_groups:
+        for p in g["params"]:
+            p.grad = torch.zeros_like(p)
+    opt2.step()                              # crashed before the fix
+    for p, s in opt2.state.items():
+        for k in ("exp_avg", "exp_avg_sq"):
+            if k in s and isinstance(s[k], torch.Tensor):
+                assert s[k].shape == p.shape
+
+
 def test_legacy_checkpoint_pads_dynamic_flag_proj(tmp_path):
     from transformer_policy import TransformerPolicy
     p1 = TransformerPolicy(device=torch.device("cpu"), d_model=32,

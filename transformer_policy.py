@@ -796,6 +796,12 @@ class TransformerPolicy:
         if "optimizer_state" in ckpt and not pre_c51:
             try:
                 self._trainer.optimizer.load_state_dict(ckpt["optimizer_state"])
+                # Legacy checkpoints whose encoder tensors we padded
+                # above carry old-shaped Adam moments; repair them or
+                # the first step() crashes on the broadcast.
+                from encoder import repair_optimizer_state_shapes
+                repair_optimizer_state_shapes(
+                    self._trainer.optimizer, log=self._logger)
             except Exception as e:
                 self._logger.warning(
                     f"Couldn't restore optimizer state: {e}. Training "

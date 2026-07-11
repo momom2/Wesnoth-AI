@@ -100,6 +100,34 @@ def pad_legacy_encoder_state(encoder_state: dict, encoder) -> dict:
         out["side_embed.weight"] = torch.cat([sew, pad], dim=0)
     return out
 
+
+def repair_optimizer_state_shapes(optimizer, log=None) -> int:
+    """Zero-pad optimizer moment tensors whose parameter grew since
+    the checkpoint was saved. Companion to `pad_legacy_encoder_state`:
+    the load shim pads the WEIGHTS, but a restored Adam state still
+    carries old-shaped exp_avg/exp_avg_sq, and the first `step()`
+    crashes on the broadcast (observed 2026-07-11 on the A4000
+    relaunch: "output with shape [256, 1] doesn't match the broadcast
+    shape [256, 3]" inside adam's _multi_tensor path). Call AFTER
+    `optimizer.load_state_dict`. Old dims keep their momentum; new
+    dims start at zero, matching the zero-padded weights. Skips
+    scalars (Adam's `step` counter) and exact-shape entries. Returns
+    the number of tensors repaired."""
+    n = 0
+    for p, s in optimizer.state.items():
+        for k, t in list(s.items()):
+            if (isinstance(t, torch.Tensor) and t.ndim == p.ndim
+                    and t.shape != p.shape
+                    and all(a <= b for a, b in zip(t.shape, p.shape))):
+                new = torch.zeros_like(p)
+                new[tuple(slice(0, d) for d in t.shape)] = t
+                s[k] = new
+                n += 1
+                if log is not None:
+                    log.info(f"padded optimizer state '{k}' "
+                             f"{tuple(t.shape)} -> {tuple(p.shape)}")
+    return n
+
 # Per-hex STATIC multi-hot: (village, keep, castle). Static = doesn't
 # change during a game (or only changes via village-capture, which
 # is captured by the village bit being side-agnostic).

@@ -875,6 +875,10 @@ def train(
         if "optimizer_state" in ckpt:
             try:
                 opt.load_state_dict(ckpt["optimizer_state"])
+                # Padded legacy encoder tensors need their Adam
+                # moments padded too (see encoder.py helper).
+                from encoder import repair_optimizer_state_shapes
+                repair_optimizer_state_shapes(opt)
             except Exception as e:
                 log.warning(f"  optimizer state restore failed ({e}); "
                             f"re-accumulating momentum from scratch")
