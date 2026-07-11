@@ -1103,10 +1103,16 @@ def _build_legality_masks(
         j = pos_to_hex.get(key)
         if j is None:
             continue
-        if u.side == current_side:
-            occupancy[j] = 1
-        elif "petrified" in (u.statuses or set()):
+        if ("petrified" in (u.statuses or set())
+                or u.side not in (1, 2)):
+            # Statues AND scenery-side objects (vortices, ToD
+            # fires): occupy the hex, never attackable. Checked
+            # BEFORE the own-side branch so a petrified unit on
+            # the side to move is inert too, matching the encoder
+            # (neutral code, is_ours=0).
             occupancy[j] = 3
+        elif u.side == current_side:
+            occupancy[j] = 1
         else:
             occupancy[j] = 2
 
@@ -1120,7 +1126,8 @@ def _build_legality_masks(
     for i in range(U):
         uid = encoded.unit_ids[i]
         u = unit_id_to_obj.get(uid)
-        if u is None or u.side != current_side:
+        if (u is None or u.side != current_side
+                or "petrified" in (u.statuses or set())):
             continue
         can_move   = u.current_moves > 0
         can_attack = not u.has_attacked

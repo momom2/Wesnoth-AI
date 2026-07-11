@@ -117,6 +117,12 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--checkpoint", type=Path, required=True)
     ap.add_argument("--games", type=int, default=20)
     ap.add_argument("--sims", type=int, default=32)
+    ap.add_argument("--aux-value-bonus", type=float, default=0.0,
+                    help="Match the training run's value (reviewer "
+                         "m2: dissecting an aux-trained checkpoint "
+                         "with the bonus off measures the wrong "
+                         "search regime).")
+    ap.add_argument("--moves-left-utility", type=float, default=0.0)
     ap.add_argument("--max-turns", type=int, default=100)
     ap.add_argument("--out", type=Path,
                     default=Path("logs/ladder_anatomy.jsonl"))
@@ -149,7 +155,9 @@ def main(argv: List[str]) -> int:
     base.load_checkpoint(args.checkpoint)
     policy = MCTSPolicy(base, MCTSConfig(
         n_simulations=args.sims,
-        draw_tiebreak=DrawTiebreakConfig(cap=0.3)))
+        draw_tiebreak=DrawTiebreakConfig(cap=0.3),
+        aux_value_bonus=args.aux_value_bonus,
+        moves_left_utility=args.moves_left_utility))
 
     # Root value-distribution sink: per-search child-Q stats.
     q_stats: List[dict] = []

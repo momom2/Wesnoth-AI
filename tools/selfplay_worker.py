@@ -72,6 +72,7 @@ def _build_policy(ckpt: Path, device, args):
         n_simulations=args.mcts_sims,
         draw_tiebreak=DrawTiebreakConfig(cap=args.draw_tiebreak_cap),
         moves_left_utility=args.moves_left_utility,
+        aux_value_bonus=getattr(args, "aux_value_bonus", 0.0),
     )
     return MCTSPolicy(
         base, cfg,
@@ -93,6 +94,7 @@ def main(argv) -> int:
                     help="LEGACY: material-tiebreak z on drawn games'"
                          " training labels (see sim_self_play).")
     ap.add_argument("--moves-left-utility", type=float, default=0.0)
+    ap.add_argument("--aux-value-bonus", type=float, default=0.0)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--torch-threads", type=int, default=2)
     ap.add_argument("--log-level", default="WARNING")

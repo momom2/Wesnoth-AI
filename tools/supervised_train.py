@@ -859,8 +859,10 @@ def train(
         if m_unexpected:
             log.warning(f"  model: {len(m_unexpected)} unexpected key(s) "
                         f"in checkpoint (ignored): {m_unexpected}")
+        from encoder import pad_legacy_encoder_state
         e_missing, e_unexpected = encoder.load_state_dict(
-            ckpt["encoder_state"], strict=False)
+            pad_legacy_encoder_state(ckpt["encoder_state"], encoder),
+            strict=False)
         if e_missing:
             log.warning(f"  encoder: {len(e_missing)} missing key(s) "
                         f"(will train from random init): {e_missing}")

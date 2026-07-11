@@ -163,3 +163,34 @@ def test_train_step_moves_left_loss_fires_only_when_on():
     _play_and_finalize(mp_off, seed=22)
     stats_off = mp_off.train_step()
     assert stats_off.moves_left_loss == 0.0, "no head -> no loss"
+
+
+# ---------------------------------------------------------------------
+# Aux-head value bonus (2026-07-11): leaf v' = clamp(v + b*aux, -1, 1)
+# ---------------------------------------------------------------------
+
+def test_aux_adjusted_math():
+    import torch
+    from types import SimpleNamespace
+    from tools.mcts import _aux_adjusted
+
+    out = SimpleNamespace(aux_score=torch.tensor([[0.5]]))
+    assert abs(_aux_adjusted(0.1, out, 0.3) - 0.25) < 1e-9
+    # clamped at +1
+    assert _aux_adjusted(0.95, out, 0.3) == 1.0
+    # negative margin pulls down
+    out_neg = SimpleNamespace(aux_score=torch.tensor([[-1.0]]))
+    assert abs(_aux_adjusted(0.0, out_neg, 0.3) - (-0.3)) < 1e-9
+
+
+def test_aux_adjusted_off_by_default():
+    import torch
+    from types import SimpleNamespace
+    from tools.mcts import MCTSConfig, _aux_adjusted
+
+    assert MCTSConfig().aux_value_bonus == 0.0
+    out = SimpleNamespace(aux_score=torch.tensor([[0.9]]))
+    assert _aux_adjusted(0.2, out, 0.0) == 0.2, "knob 0 = no-op"
+    out_no_head = SimpleNamespace(aux_score=None)
+    assert _aux_adjusted(0.2, out_no_head, 0.3) == 0.2, \
+        "no aux head = no-op"

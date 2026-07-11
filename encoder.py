@@ -59,7 +59,9 @@ MAX_FACTIONS    = 32    # default era has 6; supervised corpus adds a
                         # leaves room for growth.
 NUM_TERRAINS    = max(Terrain) + 1       # 14 enum values today
 NUM_ALIGNMENTS  = max(Alignment) + 1     # 4
-NUM_SIDE_CODES  = 2     # 0 = ours (current_side), 1 = theirs
+NUM_SIDE_CODES  = 3     # 0 = ours, 1 = theirs, 2 = neutral
+# (2 = scenery/statues: non-player sides and petrified units --
+#  visible board furniture, not combatants; 2026-07-11)
 
 
 # Pre-seeded faction vocab. Re-exported from constants.py so era
@@ -67,6 +69,36 @@ NUM_SIDE_CODES  = 2     # 0 = ours (current_side), 1 = theirs
 # "unknown/unset" -> id 0.
 from constants import DEFAULT_FACTIONS as _DEFAULT_FACTIONS
 from visibility import units_visible_to
+
+
+def pad_legacy_encoder_state(encoder_state: dict, encoder) -> dict:
+    """Zero-pad legacy encoder tensors that grew in 2026-07-11's
+    observation upgrade (dynamic_flag_proj [d,1]->[d,3] for village
+    ownership; side_embed [2,d]->[3,d] for neutral scenery), so every
+    loader -- not just TransformerPolicy.load_checkpoint -- can
+    resume old checkpoints. `strict=False` does NOT tolerate shape
+    mismatches (adversarial review 2026-07-11, verified), so any
+    direct `encoder.load_state_dict(ckpt["encoder_state"], ...)`
+    MUST route its state through this helper first. Returns a new
+    dict; the input is not mutated."""
+    out = dict(encoder_state)
+    dfw = out.get("dynamic_flag_proj.weight")
+    cur = encoder.dynamic_flag_proj.weight
+    if (dfw is not None and dfw.shape != cur.shape
+            and dfw.shape[0] == cur.shape[0]
+            and dfw.shape[1] < cur.shape[1]):
+        pad = torch.zeros(cur.shape[0], cur.shape[1] - dfw.shape[1],
+                          dtype=dfw.dtype)
+        out["dynamic_flag_proj.weight"] = torch.cat([dfw, pad], dim=1)
+    sew = out.get("side_embed.weight")
+    cur_se = encoder.side_embed.weight
+    if (sew is not None and sew.shape != cur_se.shape
+            and sew.shape[1] == cur_se.shape[1]
+            and sew.shape[0] < cur_se.shape[0]):
+        pad = torch.zeros(cur_se.shape[0] - sew.shape[0],
+                          sew.shape[1], dtype=sew.dtype)
+        out["side_embed.weight"] = torch.cat([sew, pad], dim=0)
+    return out
 
 # Per-hex STATIC multi-hot: (village, keep, castle). Static = doesn't
 # change during a game (or only changes via village-capture, which
@@ -86,6 +118,18 @@ NUM_HEX_MODIFIERS = 3
 #   0: recruit_rejected -- this hex bounced a recruit attempt this
 #                          turn (cleared at init_side). See the
 #                          legality-mask contract in CLAUDE.md.
+#   1: village_ours     -- this village hex is owned by the side to
+#                          move. ALWAYS shown when true (you know
+#                          your own villages even in fog).
+#   2: village_theirs   -- this village hex is owned by the opponent
+#                          AND its hex is currently visible to the
+#                          side to move (in its vision disc, or fog
+#                          is off). A fogged enemy-owned village has
+#                          BOTH flags 0 = appears neutral (user spec
+#                          2026-07-11; deliberate small deviation
+#                          from Wesnoth's stale last-seen display,
+#                          which would need per-side memory).
+#   Neutral / non-village hexes carry 0/0.
 #
 # Move-bounce (fog-hidden enemy) rejection is tracked on
 # `global_info._move_rejected_hexes` (parallel to the recruit set)
@@ -97,7 +141,7 @@ NUM_HEX_MODIFIERS = 3
 # NUM_HEX_DYNAMIC_FLAGS=1 preserves checkpoint compatibility for
 # the dynamic_flag_proj weight (avoids a backward-incompat shape
 # change in load_checkpoint).
-NUM_HEX_DYNAMIC_FLAGS = 1
+NUM_HEX_DYNAMIC_FLAGS = 3
 
 # Per-unit numerical features. Order MATTERS — changing it requires
 # a retrain (the Linear weights are positional).
@@ -930,6 +974,22 @@ def encode_raw(
         or set()
     )
 
+    # Side-to-move vision disc, shared between the village-ownership
+    # fog gate below and `units_visible_to` (which otherwise
+    # recomputes it) -- computed lazily, at most ONCE per encode.
+    # Fog toggle: underscore attr so GlobalInfo.__deepcopy__ carries
+    # it through MCTS state copies (non-underscore attrs are
+    # dropped; adversarial review 2026-07-11).
+    fog_on = getattr(game_state.global_info, "_fog", True)
+    _disc_cache: list = []
+
+    def _vision_disc():
+        if not _disc_cache:
+            from visibility import visible_hexes_for
+            _disc_cache.append(
+                visible_hexes_for(game_state, current_side))
+        return _disc_cache[0]
+
     if H == 0:
         hex_xs_np = np.empty(0, dtype=np.int64)
         hex_ys_np = np.empty(0, dtype=np.int64)
@@ -941,6 +1001,8 @@ def encode_raw(
         # to skip per-call Python-frame overhead. _clamp_pos/_first_terrain_id
         # are still defined as standalone helpers for clarity / unit tests;
         # we just don't call them per-hex.
+        village_owner_map = (getattr(
+            game_state.global_info, "_village_owner", None) or {})
         hex_xs_np          = np.empty(H, dtype=np.int64)
         hex_ys_np          = np.empty(H, dtype=np.int64)
         hex_terrain_ids_np = np.empty(H, dtype=np.int64)
@@ -972,6 +1034,17 @@ def encode_raw(
             # Dynamic flag: recruit-rejected this turn.
             if (p.x, p.y) in rejected_hexes:
                 hex_dynamic_flags_np[i, 0] = 1.0
+            # Dynamic flags 1-2: village ownership as seen by the
+            # side to move (fog rule documented at
+            # NUM_HEX_DYNAMIC_FLAGS above).
+            if mod_village in mods:
+                _owner = village_owner_map.get((p.x, p.y), 0)
+                if _owner == current_side:
+                    hex_dynamic_flags_np[i, 1] = 1.0
+                elif _owner not in (0, current_side):
+                    if (not fog_on
+                            or (p.x, p.y) in _vision_disc()):
+                        hex_dynamic_flags_np[i, 2] = 1.0
 
     # ---- units ----
     # Fog-of-war filter: the policy must only see units that the
@@ -987,7 +1060,12 @@ def encode_raw(
     # `_uncovered_units` set per ambush-trigger). See
     # `visibility.py` for the full contract.
     units = sorted(
-        units_visible_to(game_state, current_side),
+        units_visible_to(
+            game_state, current_side,
+            # Reuse the disc if the village fog gate already
+            # computed it; None lets the filter compute lazily.
+            vis_set=_disc_cache[0] if _disc_cache else None,
+        ),
         key=lambda u: (u.position.y, u.position.x, u.id),
     )
     U = len(units)
@@ -1002,9 +1080,15 @@ def encode_raw(
     unit_feats_np    = np.empty((U, UNIT_FEAT_DIM), dtype=np.float32)
     type_overflow    = MAX_UNIT_TYPES - 1
     for i, u in enumerate(units):
-        is_ours = u.side == current_side
+        is_neutral = (u.side not in (1, 2)
+                      or "petrified" in (u.statuses or set()))
+        # A petrified unit is board furniture even if nominally on
+        # our side: neutral code AND is_ours=0 (matches the legality
+        # mask, where it is inert and never an actor).
+        is_ours = u.side == current_side and not is_neutral
         unit_is_ours_np[i]  = 1.0 if is_ours else 0.0
-        unit_side_ids_np[i] = 0 if is_ours else 1
+        unit_side_ids_np[i] = (2 if is_neutral
+                               else (0 if is_ours else 1))
         unit_type_ids_np[i] = min(
             type_to_id.get(u.name, type_overflow), type_overflow
         )

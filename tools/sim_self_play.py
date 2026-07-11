@@ -860,6 +860,8 @@ class SpoolWorkers:
             "--max-turns", str(args.max_turns),
             "--draw-tiebreak-cap", str(max(0.0, args.draw_tiebreak_cap)),
             "--moves-left-utility", str(args.mcts_moves_left_utility),
+            "--aux-value-bonus", str(getattr(
+                args, "mcts_aux_value_bonus", 0.0)),
             "--log-level", log_level,
         ] + (["--train-draw-tiebreak"] if getattr(
             args, "train_draw_tiebreak", False) else [])
@@ -1990,6 +1992,18 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--mcts-moves-left-coef", type=float, default=0.1,
                     help="Weight of the moves-left MSE loss "
                          "(--mcts-moves-left).")
+    ap.add_argument("--mcts-aux-value-bonus", type=float, default=0.0,
+                    help="Add aux_value_bonus * aux_pred (tanh-bounded "
+                         "material margin) to every leaf value the "
+                         "search uses, clamped to [-1, 1]. 0.3 spans "
+                         "(-0.3, +0.3): material/village gains become "
+                         "visible within the search horizon "
+                         "(2026-07-11; anatomy showed zero village "
+                         "captures without it). NOTE: in gumbel-root "
+                         "mode (default) the aux-shaped Q also shapes "
+                         "the distilled POLICY TARGET -- intended: "
+                         "the policy learns to value material at up "
+                         "to 0.3 of a win. 0 = off.")
     ap.add_argument("--mcts-moves-left-utility", type=float, default=0.0,
                     help="Lc0-style search utility: winning lines are "
                          "nudged toward FEWER expected remaining moves "
@@ -2347,6 +2361,7 @@ def main(argv: List[str]) -> int:
         mcts_cfg = MCTSConfig(
             n_simulations=args.mcts_sims,
             moves_left_utility=args.mcts_moves_left_utility,
+            aux_value_bonus=args.mcts_aux_value_bonus,
             c_puct=args.mcts_c_puct,
             batch_size=_mbs,
             fpu_reduction=(None if args.mcts_fpu_reduction < 0
@@ -2407,6 +2422,12 @@ def main(argv: List[str]) -> int:
                 f"warmup>={replay_cfg.min_size} (multi-epoch training; "
                 f"value head gets {replay_cfg.updates_per_iter}x the "
                 f"gradient steps per iter vs legacy one-pass)")
+        if (args.mcts_aux_value_bonus
+                and not getattr(policy._model, "has_aux_score", False)):
+            log.warning(
+                "--mcts-aux-value-bonus is set but the model has NO "
+                "aux head (--mcts-aux-score): the bonus is a silent "
+                "no-op (reviewer finding m3, 2026-07-11).")
         policy = MCTSPolicy(policy, mcts_cfg, replay_config=replay_cfg,
                             holdout_size=args.holdout_size,
                             holdout_per_game_cap=args.holdout_per_game_cap,

@@ -689,8 +689,26 @@ class TransformerPolicy:
 
         model_res = self._model.load_state_dict(
             model_state, strict=strict)
+        encoder_state = dict(ckpt["encoder_state"])
+        if not strict:
+            # 2026-07-11: pad legacy encoder tensors that grew in the
+            # observation upgrade (village-ownership dynamic flags,
+            # neutral-scenery side code). Shared helper so the tools
+            # that load encoder state directly get the same shim.
+            from encoder import pad_legacy_encoder_state
+            padded = pad_legacy_encoder_state(
+                encoder_state, self._encoder)
+            for k in ("dynamic_flag_proj.weight", "side_embed.weight"):
+                if (k in padded and k in encoder_state
+                        and padded[k].shape != encoder_state[k].shape):
+                    self._logger.info(
+                        f"padded legacy {k} "
+                        f"{tuple(encoder_state[k].shape)} -> "
+                        f"{tuple(padded[k].shape)} "
+                        "(new features start at zero)")
+            encoder_state = padded
         encoder_res = self._encoder.load_state_dict(
-            ckpt["encoder_state"], strict=strict)
+            encoder_state, strict=strict)
         if not strict:
             # Surface what didn't load. PyTorch returns a
             # _IncompatibleKeys named-tuple with `missing_keys` and

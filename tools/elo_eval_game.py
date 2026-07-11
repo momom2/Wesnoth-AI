@@ -47,9 +47,18 @@ def _build_player(spec: str, label: str, sims: int, device):
     if sims > 0:
         from tools.mcts import MCTSConfig
         from tools.mcts_policy import MCTSPolicy
+        import os
+        # Reviewer m2 (2026-07-11): an aux/moves-left-trained
+        # checkpoint must be EVALUATED under the same search knobs it
+        # trained with, or the Elo point measures the wrong regime.
+        # Env-configured (this worker is spawned per game).
         return MCTSPolicy(policy, MCTSConfig(
             n_simulations=sims,
-            draw_tiebreak=DrawTiebreakConfig(cap=0.3)))
+            draw_tiebreak=DrawTiebreakConfig(cap=0.3),
+            aux_value_bonus=float(
+                os.environ.get("ELO_AUX_VALUE_BONUS", "0") or 0),
+            moves_left_utility=float(
+                os.environ.get("ELO_MOVES_LEFT_UTILITY", "0") or 0)))
     return policy
 
 

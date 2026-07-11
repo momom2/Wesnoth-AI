@@ -192,6 +192,16 @@ class MCTSConfig:
     # data the term is inert. Tuning knob, start ~0.2 (term bounded
     # by the weight since |Q|<=1, M<=1).
     moves_left_utility: float = 0.0
+    # Aux-head value bonus (2026-07-11): leaf value used by search
+    # becomes clamp(v + aux_value_bonus * aux_pred, -1, 1), with
+    # aux_pred = tanh-bounded predicted material margin in (-1, 1).
+    # At 0.3 the bonus spans (-0.3, +0.3): material/village gains
+    # become visible WITHIN the search horizon instead of only at
+    # in-search terminals (never reached mid-game). Root cause it
+    # fixes: the anatomy diagnostic showed ~zero village captures in
+    # 100-turn games -- nothing in-horizon rewarded expansion.
+    # 0.0 = off (legacy).
+    aux_value_bonus:  float = 0.0
     # PUCT exploration constant. Higher = more exploration. AlphaZero
     # uses ~1.0; chess-AlphaZero uses ~1.25-2.5. We default 1.5
     # because legal-action counts on a typical Wesnoth state vary
@@ -575,6 +585,16 @@ def _terminal_value(
     return 1.0 if sim.winner == side else -1.0
 
 
+def _aux_adjusted(v: float, output, aux_value_bonus: float) -> float:
+    """clamp(v + bonus * aux_pred). No-op when the knob is 0 or the
+    model has no aux head."""
+    if not aux_value_bonus or output.aux_score is None:
+        return v
+    aux = float(output.aux_score.reshape(()).item())
+    adj = v + aux_value_bonus * aux
+    return max(-1.0, min(1.0, adj))
+
+
 def _expand(
     node: MCTSNode,
     model: WesnothModel,
@@ -582,6 +602,7 @@ def _expand(
     tiebreak: Optional[DrawTiebreakConfig] = None,
     *,
     decision_step: int = 0,
+    aux_value_bonus: float = 0.0,
 ) -> float:
     """Forward the model on `node.sim.gs`, build edges from the
     legal-action priors, return v(s) from node.side's perspective.
@@ -605,7 +626,8 @@ def _expand(
         encoded, output = _leaf_to_cpu(encoded, output)
         priors = enumerate_legal_actions_with_priors(
             encoded, output, node.sim.gs, decision_step=decision_step)
-        v = float(output.value.squeeze().item())
+        v = _aux_adjusted(float(output.value.squeeze().item()),
+                          output, aux_value_bonus)
         node.cliffness = float(output.cliffness.squeeze().item())
         if output.moves_left is not None:
             node.moves_left = float(output.moves_left.squeeze().item())
@@ -1122,6 +1144,7 @@ def _populate_leaf(
     decision_step: int = 0,
     value:     Optional[float] = None,
     cliffness: Optional[float] = None,
+    aux_value_bonus: float = 0.0,
 ) -> float:
     """Build the leaf's edges from the model's enumerated priors and
     return v from leaf.side's perspective. Mirrors the post-forward
@@ -1147,8 +1170,12 @@ def _populate_leaf(
     priors.sort(key=lambda p: -p.prior)
     leaf.edges = [MCTSEdge(p) for p in priors]
     leaf.expanded = True
-    leaf.value = (float(output.value.squeeze().item())
-                  if value is None else float(value))
+    # `value`, when provided (B2 batched read), is the RAW network
+    # value -- the aux adjustment is applied here either way so both
+    # paths agree.
+    raw_v = (float(output.value.squeeze().item())
+             if value is None else float(value))
+    leaf.value = _aux_adjusted(raw_v, output, aux_value_bonus)
     return leaf.value
 
 
@@ -1240,6 +1267,7 @@ def _run_one_sim(
             encoded = encoder.encode(leaf.sim.gs)
             output = model(encoded)
         v = _populate_leaf(leaf, encoded, output,
+                           aux_value_bonus=config.aux_value_bonus,
                            decision_step=decision_step)
     _backup(
         path, v, leaf.side, 0.0,
@@ -1348,6 +1376,7 @@ def _run_sim_batch(
             leaf_values[id(leaf)] = _populate_leaf(
                 leaf, encoded, output, decision_step=decision_step,
                 value=None if vals is None else vals[i],
+                aux_value_bonus=config.aux_value_bonus,
                 cliffness=None if cliffs is None else cliffs[i])
         for leaf, path in pending:
             _backup(path, leaf_values[id(leaf)], leaf.side, v_loss,
@@ -1552,6 +1581,7 @@ def mcts_search(
     # for the adaptive sim budget.
     if not root.expanded:
         _expand(root, model, encoder, tiebreak=config.draw_tiebreak,
+                aux_value_bonus=config.aux_value_bonus,
                 decision_step=decision_step)
     # Gumbel mode replaces Dirichlet noise at the root: exploration
     # comes from sampling the candidate set without replacement.

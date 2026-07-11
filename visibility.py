@@ -249,7 +249,10 @@ def _hide_cover_active(state: GameState, unit: Unit) -> bool:
     return False
 
 
-def units_visible_to(state: GameState, side: int) -> List[Unit]:
+def units_visible_to(
+    state: GameState, side: int,
+    vis_set: Optional[Set[Tuple[int, int]]] = None,
+) -> List[Unit]:
     """Return the god-view unit list filtered to what `side` can
     see, per the Wesnoth fog-of-war contract.
 
@@ -273,26 +276,48 @@ def units_visible_to(state: GameState, side: int) -> List[Unit]:
     sides need a separate filter at the encoder level (they're a
     distinct fog leak the simple unit filter doesn't cover).
 
+    Callers that already hold the side's vision disc (e.g. the
+    encoder, which may have computed it for the village-ownership
+    fog gate) can pass it as `vis_set` to skip the recompute; when
+    omitted it is computed lazily, at most once per call.
+
+    Fog can be disabled per-game via `global_info._fog = False`
+    (underscore attr so `GlobalInfo.__deepcopy__` carries it through
+    MCTS state copies): the sight-disc gate is skipped and every
+    non-hidden unit is visible. Hide-cover abilities still conceal
+    (Wesnoth's ambush et al. work independently of fog).
+
     Returns a fresh list; callers may sort / reorder freely.
     """
     if not state.map.units:
         return []
     uncovered = getattr(state.global_info, "_uncovered_units", None) or set()
-    # Compute the visibility disc ONCE, then index it for every
-    # enemy. The alternative (one disc check per enemy via
-    # _hex_distance from each own-unit) is the same work, but
-    # the set-based form is faster on cpython and reusable.
-    vis_set: Optional[Set[Tuple[int, int]]] = None
+    fog_on = getattr(state.global_info, "_fog", True)
     out: List[Unit] = []
     for u in state.map.units:
         if u.side == side:
             out.append(u)
             continue
-        # Enemy unit. First gate: hide-cover ability.
+        # Scenery & statues are terrain-like: always visible, like
+        # the map itself (user spec 2026-07-11; Wesnoth renders
+        # petrified statues and scenery-side objects under fog --
+        # fog hides UNITS' presence, not board furniture). Covers
+        # units on non-player sides (vortices, ToD fires) and
+        # petrified units regardless of nominal side (Caves of the
+        # Basilisk statues).
+        if u.side not in (1, 2) or "petrified" in (u.statuses or set()):
+            out.append(u)
+            continue
+        # Enemy unit. First gate: hide-cover ability (applies with
+        # or without fog, as in Wesnoth).
         if _hide_cover_active(state, u) and u.id not in uncovered:
             continue
-        # Second gate: sight disc. Compute lazily (skip the work
-        # entirely if every enemy turns out to be hide-blocked).
+        # Second gate: sight disc -- skipped entirely when fog is
+        # off for this game. Compute lazily (skip the work if every
+        # enemy turns out to be hide-blocked).
+        if not fog_on:
+            out.append(u)
+            continue
         if vis_set is None:
             vis_set = visible_hexes_for(state, side)
         if (u.position.x, u.position.y) not in vis_set:

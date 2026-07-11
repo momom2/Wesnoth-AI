@@ -318,6 +318,9 @@ def main(argv):
                 policy._model.load_state_dict(ms, strict=False)
                 enc_state = raw.get("encoder_state")
                 if enc_state is not None:
+                    from encoder import pad_legacy_encoder_state
+                    enc_state = pad_legacy_encoder_state(
+                        enc_state, policy._encoder)
                     policy._encoder.load_state_dict(enc_state, strict=False)
                 policy._snapshot_inference_weights()
                 ckpt_label = f"{args.checkpoint} (pre-C51, partial load)"
