@@ -255,7 +255,18 @@ nohup bash -c "
     rc=\$?
     echo \"[onstart] training exited rc=\$rc at \$(date -u +%FT%TZ)\" >> '$WORKDIR/train.log'
     if [ \$rc -eq 0 ]; then break; fi
-    if [ \$rc -ge 3 ]; then touch '$WORKDIR/ABORTED_'\$rc; break; fi
+    # rc >= 128 = killed by signal (operator pkill, preemption
+    # shutdown): stop quietly WITHOUT an ABORTED marker -- the next
+    # onstart (or the operator) decides what runs next.
+    if [ \$rc -ge 128 ]; then
+      echo \"[onstart] signal exit; supervisor stands down\" >> '$WORKDIR/train.log'
+      break
+    fi
+    # Tripwire aborts (3=reserved, 4=all-draws, 5=holdout stall)
+    # need a human: marker blocks auto-relaunch until removed.
+    if [ \$rc -ge 3 ] && [ \$rc -le 9 ]; then
+      touch '$WORKDIR/ABORTED_'\$rc; break
+    fi
     tries=\$((tries + 1))
     echo \"[onstart] relaunch \$tries/20 in 60s\" >> '$WORKDIR/train.log'
     sleep 60
