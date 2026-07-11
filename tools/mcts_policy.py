@@ -131,6 +131,11 @@ class MCTSPolicy:
         # (human-corpus late-game AUC 0.88 -> 0.60 in ~80 iters;
         # r_material/r_outcome rose 1.28 -> 2.18).
         self._train_draw_tiebreak = bool(train_draw_tiebreak)
+        # Optional diagnostic hook: called with the search ROOT after
+        # every mcts_search (see tools/ladder_anatomy.py -- root
+        # child-Q spread is the value signal PUCT actually compares).
+        # None (default) = zero overhead.
+        self.search_stats_sink = None
         # Held-out generalization probe: while the holdout has fewer
         # than `holdout_size` experiences, finalize_game diverts WHOLE
         # games here instead of the training queue (whole games, so no
@@ -274,6 +279,8 @@ class MCTSPolicy:
             n_sims_override=n_override,
             decision_step=decision_step,
         )
+        if self.search_stats_sink is not None:
+            self.search_stats_sink(root)
         if self._mcts_config.gumbel_root:
             # Gumbel mode: the search already chose
             # argmax(g + logits + sigma(q̂)) -- stochastic via the

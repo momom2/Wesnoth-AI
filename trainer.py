@@ -1217,6 +1217,30 @@ def _trainer_step_value_from_raw(
             "grad_norm": grad_norm}
 
 
+def _trainer_values_from_raw(
+    self,                                     # Trainer (method injected below)
+    raws: list,
+) -> List[float]:
+    """No-grad E[V] per pre-encoded RawEncoded state (expectation of
+    the C51 head over its atom support). Diagnostic helper."""
+    if not raws:
+        return []
+    dev = self.device or next(self.model.parameters()).device
+    B = max(1, self.config.train_batch_size)
+    self.model.eval(); self.encoder.eval()
+    atoms = self.model._value_atoms
+    out: List[float] = []
+    with torch.no_grad():
+        for start in range(0, len(raws), B):
+            chunk = raws[start:start + B]
+            encoded = self.encoder.encode_from_raw_batch(chunk, device=dev)
+            outputs = self.model.forward_batch(encoded)
+            vl_t = torch.stack([o.value_logits.squeeze(0) for o in outputs])
+            probs = torch.softmax(vl_t, dim=-1)
+            out.extend((probs * atoms).sum(dim=-1).tolist())
+    return out
+
+
 def _trainer_eval_value_metrics_from_raw(
     self,                                     # Trainer (method injected below)
     raws: list, zs: List[float],
@@ -1340,5 +1364,6 @@ def _trainer_eval_value_loss(
 Trainer.step_mcts = _trainer_step_mcts
 Trainer.eval_value_loss = _trainer_eval_value_loss
 Trainer.eval_value_metrics = _trainer_eval_value_metrics
+Trainer.values_from_raw = _trainer_values_from_raw
 Trainer.step_value_from_raw = _trainer_step_value_from_raw
 Trainer.eval_value_metrics_from_raw = _trainer_eval_value_metrics_from_raw
