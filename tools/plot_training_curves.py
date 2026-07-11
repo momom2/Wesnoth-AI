@@ -192,6 +192,27 @@ def build_html(rows: List[dict], source_note: str) -> str:
          ("reserved", "s3", col("gpu_mem_reserved_mb"))],
         "MB — creep watch: linear=leak, staircase=ratchet",
         y_fmt=".0f")
+    # Fogless-mixing experiment (2026-07-11): is full information
+    # doing work on ladder maps? Compare capture activity and
+    # decisiveness per fog condition.
+    p8 = _svg_panel(
+        "p8", "Village capture: fogged vs fogless ladder", xs,
+        [("fogged vil/turn", "s1",
+          col("ladder_fog_villages_per_turn")),
+         ("fogless vil/turn", "s2",
+          col("ladder_fogless_villages_per_turn")),
+         ("fogged end", "s3", col("ladder_fog_villages_end")),
+         ("fogless end", "s4", col("ladder_fogless_villages_end"))],
+        "villages owned (both sides) — never-meet flatlines near 0")
+    p9 = _svg_panel(
+        "p9", "Ladder decisive rate by fog condition (rolling 10)", xs,
+        [("fogged", "s1",
+          rolling_fraction(rows, "ladder_fog_decisive",
+                           "ladder_fog_games")),
+         ("fogless", "s2",
+          rolling_fraction(rows, "ladder_fogless_decisive",
+                           "ladder_fogless_games"))],
+        "fraction of ladder games decided", y_min=0.0, y_max=1.0)
 
     def css_vars(m):
         return (f"--surface:{m['surface']};--text:{m['text']};"
@@ -239,7 +260,7 @@ svg {{ width: 100%; height: auto; display: block; }}
 <h2>Wesnoth self-play — training curves</h2>
 <p class="muted">{source_note} &middot; {len(rows)} iterations &middot;
 x-axis: {x_note}</p>
-{p1}{p2}{p6}{p7}{p3}{p4}{p5}
+{p1}{p2}{p6}{p7}{p3}{p8}{p9}{p4}{p5}
 </div>
 <script>
 for (const svg of document.querySelectorAll("svg[data-plot]")) {{

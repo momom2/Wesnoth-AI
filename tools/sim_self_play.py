@@ -138,6 +138,19 @@ class GameOutcome:
     # calibration input: at ~A actions per side-turn, S sims explore
     # roughly S/A of one turn plan ahead (2026-07-03 user request).
     turn_action_counts: List[int] = field(default_factory=list)
+    # Fog condition + village-ownership diagnostics (2026-07-11,
+    # fogless-mixing experiment): `fogless` = this game ran with fog
+    # of war off (ladder pool only). villages_mean_* = time-average
+    # of villages owned per TURN (sampled once at each turn
+    # boundary; the "is anyone actually capturing?" curve);
+    # villages_end_* = final ownership count. Consumers must
+    # getattr() these with defaults: spool workers may pickle
+    # outcomes from an older code version.
+    fogless: bool = False
+    villages_mean_s1: float = 0.0
+    villages_mean_s2: float = 0.0
+    villages_end_s1: int = 0
+    villages_end_s2: int = 0
 
 
 def _outcome_for(winner: int, ended_by: str, side: int) -> str:
@@ -327,6 +340,10 @@ def play_one_game(
     n_recruit_attempts_per_side: Dict[int, int] = {1: 0, 2: 0}
     # (turn_number, side) -> accepted actions in that side-turn.
     turn_action_tally: Dict[tuple, int] = {}
+    # Villages owned per side, sampled once per TURN boundary
+    # (fogless-mixing observability, 2026-07-11).
+    village_turn_samples: List[tuple] = []
+    _last_village_turn = 0
     # Per-side closest-approach tracker, updated after every sim.step
     # (and seeded from the initial state below). Surfaces as the
     # headline no-kills metric in the iter log.
@@ -470,6 +487,14 @@ def play_one_game(
         _tk = (pre_state.global_info.turn_number, acting_side)
         turn_action_tally[_tk] = turn_action_tally.get(_tk, 0) + 1
         _update_closest_approach(sim.gs, closest_approach)
+        _tn_now = sim.gs.global_info.turn_number
+        if _tn_now != _last_village_turn:
+            _last_village_turn = _tn_now
+            _vown = getattr(sim.gs.global_info,
+                            "_village_owner", None) or {}
+            village_turn_samples.append(
+                (sum(1 for v in _vown.values() if v == 1),
+                 sum(1 for v in _vown.values() if v == 2)))
 
         # Recruit diagnostics: did this recruit attempt actually
         # produce a new unit? `delta.units_recruited` populates
@@ -614,6 +639,19 @@ def play_one_game(
         map_class=_classify_scenario(getattr(sim, "scenario_id", "")
                                      or ""),
         turn_action_counts=sorted(turn_action_tally.values()),
+        fogless=not getattr(sim.gs.global_info, "_fog", True),
+        villages_mean_s1=(sum(v[0] for v in village_turn_samples)
+                          / len(village_turn_samples)
+                          if village_turn_samples else 0.0),
+        villages_mean_s2=(sum(v[1] for v in village_turn_samples)
+                          / len(village_turn_samples)
+                          if village_turn_samples else 0.0),
+        villages_end_s1=sum(
+            1 for v in (getattr(sim.gs.global_info, "_village_owner",
+                                None) or {}).values() if v == 1),
+        villages_end_s2=sum(
+            1 for v in (getattr(sim.gs.global_info, "_village_owner",
+                                None) or {}).values() if v == 2),
     )
 
 
@@ -1196,6 +1234,47 @@ def run_iteration(
             f"{ladder_dec}/{ladder_n} (s1 {ladder_s1}, s2 {ladder_s2}), "
             f"mini/drill {other_dec}/{other_n} "
             f"(s1 {other_s1}, s2 {other_s2})")
+    # Fogless-mixing observability (2026-07-11 user request): the
+    # ladder pool mixes fogged and fogless games; whether fogless is
+    # doing work (more captures, closer approach, decisive games)
+    # must be visible per CONDITION, not pooled. villages/turn is
+    # the time-averaged count of villages owned (both sides summed);
+    # `end` is final ownership. getattr() defaults tolerate spooled
+    # outcomes pickled by older worker code.
+    def _fog_cond_stats(want_fogless: bool) -> Dict:
+        games = [o for o in outcomes
+                 if o.map_class == "ladder"
+                 and getattr(o, "fogless", False) == want_fogless]
+        if not games:
+            return {"n": 0, "dec": 0, "vpt": None, "vend": None,
+                    "appr": None}
+        vpt = sum(getattr(o, "villages_mean_s1", 0.0)
+                  + getattr(o, "villages_mean_s2", 0.0)
+                  for o in games) / len(games)
+        vend = sum(getattr(o, "villages_end_s1", 0)
+                   + getattr(o, "villages_end_s2", 0)
+                   for o in games) / len(games)
+        appr = [x for o in games
+                for x in (o.side1_closest_approach,
+                          o.side2_closest_approach) if x is not None]
+        return {"n": len(games),
+                "dec": sum(1 for o in games if o.winner != 0),
+                "vpt": vpt, "vend": vend,
+                "appr": (sum(appr) / len(appr)) if appr else None}
+    fog_stats = _fog_cond_stats(False)
+    fogless_stats = _fog_cond_stats(True)
+    if fog_stats["n"] or fogless_stats["n"]:
+        def _fmt_cond(c: Dict) -> str:
+            if not c["n"]:
+                return "0 games"
+            appr = f"{c['appr']:.1f}" if c["appr"] is not None else "n/a"
+            return (f"{c['dec']}/{c['n']} dec, vil/turn {c['vpt']:.2f} "
+                    f"(end {c['vend']:.1f}), approach {appr}")
+        log.info(
+            f"iter {iter_idx}: ladder fog split -- fogged "
+            f"{_fmt_cond(fog_stats)} | fogless "
+            f"{_fmt_cond(fogless_stats)}")
+
     # Actions-per-side-turn distribution, pooled across the iter's
     # games (MCTS depth calibration: S sims / A actions-per-side-turn
     # ≈ how much of one turn plan the search can look ahead).
@@ -1391,6 +1470,17 @@ def run_iteration(
             "other_decisive":      other_dec,
             "actions_per_turn_mean":   apt_mean,
             "actions_per_turn_median": apt_median,
+            # Ladder fog/fogless condition split (2026-07-11).
+            "ladder_fog_games":        fog_stats["n"],
+            "ladder_fog_decisive":     fog_stats["dec"],
+            "ladder_fog_villages_per_turn": fog_stats["vpt"],
+            "ladder_fog_villages_end": fog_stats["vend"],
+            "ladder_fog_approach":     fog_stats["appr"],
+            "ladder_fogless_games":    fogless_stats["n"],
+            "ladder_fogless_decisive": fogless_stats["dec"],
+            "ladder_fogless_villages_per_turn": fogless_stats["vpt"],
+            "ladder_fogless_villages_end": fogless_stats["vend"],
+            "ladder_fogless_approach": fogless_stats["appr"],
         })
     return outcomes
 
@@ -1481,6 +1571,16 @@ class _TrainerHistoryCSV:
         "z_win_frac", "z_loss_frac", "z_draw_frac",
         "human_anchor_loss", "value_signal_states",
         "fresh_decisive_ce",
+        # Ladder fog/fogless condition split (2026-07-11): is the
+        # fogless mix doing work? villages_per_turn = time-averaged
+        # villages owned (both sides summed) -- the capture-activity
+        # curve the never-meet pathology flatlines at ~0.
+        "ladder_fog_games", "ladder_fog_decisive",
+        "ladder_fog_villages_per_turn", "ladder_fog_villages_end",
+        "ladder_fog_approach",
+        "ladder_fogless_games", "ladder_fogless_decisive",
+        "ladder_fogless_villages_per_turn", "ladder_fogless_villages_end",
+        "ladder_fogless_approach",
     ]
 
     def __init__(self, path: Path):
