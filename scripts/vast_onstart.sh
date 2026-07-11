@@ -167,6 +167,7 @@ nohup bash -c "
     --mcts-aux-score --mcts-moves-left \
     --mcts-moves-left-utility 0.2 \
     ${AUX_VALUE_BONUS:+--mcts-aux-value-bonus $AUX_VALUE_BONUS} \
+    ${FOGLESS_RATIO:+--fogless-ratio $FOGLESS_RATIO} \
     --value-label-smoothing 0.02 \
     --holdout-size 512 --holdout-per-game-cap 64 \
     ${HUMAN_ANCHOR_FILE:+--human-anchor-file $HUMAN_ANCHOR_FILE} \

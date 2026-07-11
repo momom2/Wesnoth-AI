@@ -802,6 +802,7 @@ def _worker_loop(
     mini_maps=False,
     mini_ratio: float = 0.0,
     drill_ratio: float = 0.0,
+    fogless_ratio: float = 0.0,
 ):
     """Per-thread rollout loop. Each worker pulls a game index from
     `shared.next_game` (atomic under the master lock), assigns
@@ -818,7 +819,8 @@ def _worker_loop(
             shared["next_game"] += 1
         setup = random_setup(worker_rng, forced_faction=forced_faction,
                              mini_maps=mini_maps, mini_ratio=mini_ratio,
-                             drill_ratio=drill_ratio)
+                             drill_ratio=drill_ratio,
+                             fogless_ratio=fogless_ratio)
         game_label = (f"iter{shared['iter_idx']}_"
                       f"w{worker_id}_g{g_idx}")
         outcome = _play_one_game_safe(
@@ -862,6 +864,8 @@ class SpoolWorkers:
             "--moves-left-utility", str(args.mcts_moves_left_utility),
             "--aux-value-bonus", str(getattr(
                 args, "mcts_aux_value_bonus", 0.0)),
+            "--fogless-ratio", str(max(0.0, min(1.0, getattr(
+                args, "fogless_ratio", 0.0)))),
             "--log-level", log_level,
         ] + (["--train-draw-tiebreak"] if getattr(
             args, "train_draw_tiebreak", False) else [])
@@ -961,6 +965,7 @@ def run_iteration(
     mini_maps:     bool = False,
     mini_ratio:    float = 0.0,
     drill_ratio:   float = 0.0,
+    fogless_ratio: float = 0.0,
     snapshot_sink: Optional[Callable[[Dict], None]] = None,
     actor_pool=None,
     spool=None,
@@ -1034,7 +1039,8 @@ def run_iteration(
             setup = random_setup(rng, forced_faction=forced_faction,
                                  mini_maps=mini_maps,
                                  mini_ratio=mini_ratio,
-                                 drill_ratio=drill_ratio)
+                                 drill_ratio=drill_ratio,
+                                 fogless_ratio=fogless_ratio)
             game_label = f"iter{iter_idx}_g{g_idx}"
             outcome = _play_one_game_safe(
                 setup=setup, max_turns=max_turns,
@@ -1071,6 +1077,7 @@ def run_iteration(
                     mini_maps=mini_maps,
                     mini_ratio=mini_ratio,
                     drill_ratio=drill_ratio,
+                    fogless_ratio=fogless_ratio,
                 ),
                 daemon=True,
                 name=f"selfplay-w{w}",
@@ -1861,6 +1868,13 @@ def main(argv: List[str]) -> int:
                          "Combines with --mini-ratio: one roll "
                          "splits ladder/mini/drill, so the two "
                          "ratios must sum to <= 1. Default 0.0.")
+    ap.add_argument("--fogless-ratio", type=float, default=0.0,
+                    help="Fraction of LADDER-pool games played with "
+                         "fog of war OFF (mini/drill games always "
+                         "keep fog). Full-information games give the "
+                         "value head mutually-visible armies -- an "
+                         "engagement-learning aid. Range [0, 1]. "
+                         "Default 0.0 = all games fogged.")
     # MCTS-mode flags. Default OFF: the existing REINFORCE path runs.
     # When --mcts is set, action selection runs an AlphaZero-style
     # tree search and the trainer minimizes CE against visit-count
@@ -2600,6 +2614,7 @@ def main(argv: List[str]) -> int:
             mini_maps=args.mini_maps,
             mini_ratio=max(0.0, min(1.0, float(args.mini_ratio))),
             drill_ratio=max(0.0, min(1.0, float(args.drill_ratio))),
+            fogless_ratio=max(0.0, min(1.0, float(args.fogless_ratio))),
         )
         actor_pool = ActorPool(
             policy, args.actor_pool, mcts_cfg,
@@ -2683,6 +2698,7 @@ def main(argv: List[str]) -> int:
             mini_maps=args.mini_maps,
             mini_ratio=max(0.0, min(1.0, float(args.mini_ratio))),
             drill_ratio=max(0.0, min(1.0, float(args.drill_ratio))),
+            fogless_ratio=max(0.0, min(1.0, float(args.fogless_ratio))),
             snapshot_sink=(history_csv.append if history_csv else None),
             actor_pool=actor_pool,
             spool=spool,

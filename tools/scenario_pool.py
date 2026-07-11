@@ -314,6 +314,11 @@ class ScenarioSetup:
     leader1: str
     faction2: str
     leader2: str
+    # Play this game with fog of war disabled (units always visible;
+    # hide-cover abilities still conceal). Set by `random_setup` on a
+    # `fogless_ratio` fraction of LADDER-pool games; applied by
+    # `build_scenario_gamestate` as `global_info._fog = False`.
+    fogless: bool = False
 
     def label(self) -> str:
         """Short human-readable label. Filesystem-safe: no colons,
@@ -361,6 +366,7 @@ def random_setup(
     mini_maps: bool = False,
     mini_ratio: float = 0.0,
     drill_ratio: float = 0.0,
+    fogless_ratio: float = 0.0,
 ) -> ScenarioSetup:
     """Pick a random scenario + 2 (faction, leader) pairs.
 
@@ -394,6 +400,13 @@ def random_setup(
     `drill_ratio`, else ladder -- so mini_ratio + drill_ratio must
     be <= 1.
 
+    `fogless_ratio`: in [0, 1]. Probability that a LADDER-pool game
+    is played with fog of war off (`setup.fogless=True` ->
+    `global_info._fog = False`). Mini / drill games always keep fog:
+    the knob exists to give the value/policy heads full-information
+    ladder games where army positions are mutually visible, as an
+    engagement-learning aid (user request 2026-07-11).
+
     Leaders are sampled from each faction's `random_leader=` pool,
     matching Wesnoth's `type=random` behavior.
     """
@@ -422,6 +435,12 @@ def random_setup(
         else:
             scenario_pool = LADDER_SCENARIO_IDS
     scenario_id = rng.choice(scenario_pool)
+    # Fogless roll: ladder games only (mini/drill scenarios are
+    # engagement drills where fog barely matters and the pools
+    # should stay comparable across runs).
+    fogless = (scenario_pool is LADDER_SCENARIO_IDS
+               and fogless_ratio > 0.0
+               and rng.random() < fogless_ratio)
 
     if forced_faction is not None and forced_faction in factions:
         # Pick which side gets the forced faction (50/50). The other
@@ -443,6 +462,7 @@ def random_setup(
         scenario_id=scenario_id,
         faction1=f1, leader1=l1,
         faction2=f2, leader2=l2,
+        fogless=fogless,
     )
 
 
@@ -701,11 +721,10 @@ def build_scenario_gamestate(
             gs.sides[sn - 1] = _replace(
                 old, nb_villages_controlled=len(positions))
 
-    # Stash pre-owned villages on global_info. The encoder doesn't
-    # currently use this, but the village ownership tracker
-    # (`_village_owner` map in global_info) is consulted by
-    # _capture_village to detect "revisit" vs "capture" when a unit
-    # walks onto a village. Marking these as owned at start avoids
+    # Stash pre-owned villages on global_info. The `_village_owner`
+    # map is consulted by _capture_village (to detect "revisit" vs
+    # "capture") AND, since 2026-07-11, by the encoder's per-village
+    # ownership flags. Marking these as owned at start avoids
     # spurious "captured a village!" rewards on turn 1 if a unit
     # walks onto a pre-owned village.
     if side_pre_villages:
@@ -714,4 +733,11 @@ def build_scenario_gamestate(
             for p in positions:
                 owner_map[(p.x, p.y)] = sn
         setattr(gs.global_info, "_village_owner", owner_map)
+
+    # Fogless game: underscore attr so GlobalInfo.__deepcopy__
+    # carries it through MCTS state copies. Consumed by
+    # visibility.units_visible_to (skips the sight-disc gate) and
+    # the encoder's village-ownership fog rule.
+    if setup.fogless:
+        setattr(gs.global_info, "_fog", False)
     return gs

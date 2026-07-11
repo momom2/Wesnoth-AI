@@ -204,6 +204,11 @@ def visible_fraction_for(state: GameState, side: int) -> float:
     hexes = state.map.hexes
     if not hexes:
         return 0.0
+    # Fogless game: everything is effectively revealed, so the
+    # fog-reveal shaping reward saturates rather than paying for
+    # sight-disc coverage that carries no information value.
+    if not getattr(state.global_info, "_fog", True):
+        return 1.0
     return len(visible_hexes_for(state, side)) / len(hexes)
 
 

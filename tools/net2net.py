@@ -80,7 +80,16 @@ def transfer_state_dict(
 ) -> Dict[str, List[str]]:
     """Block-transfer `src_sd` into `dst_model` (in place). Returns a
     report: which params were copied exactly / partially (grown) /
-    skipped (shape-incompatible) / left fresh (no source match)."""
+    skipped (shape-incompatible) / left fresh (no source match).
+
+    CAVEAT (2026-07-11): grown slots keep the DESTINATION's random
+    init, not zeros. For arch dims (d_model etc.) that's the Net2Net
+    intent, but for OBSERVATION growth (dynamic_flag_proj [d,1]->[d,3]
+    village flags, side_embed [2,d]->[3,d] neutral code) it breaks the
+    "new features start at zero = old behavior preserved" property.
+    If you re-grow a pre-2026-07-11 checkpoint, route its encoder
+    state through `encoder.pad_legacy_encoder_state` FIRST so those
+    slots transfer as zeros."""
     report = {"exact": [], "grown": [], "skipped": [], "fresh": []}
     new_sd = {k: v.clone() for k, v in dst_model.state_dict().items()}
     with torch.no_grad():

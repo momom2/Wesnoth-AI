@@ -95,6 +95,7 @@ def main(argv) -> int:
                          " training labels (see sim_self_play).")
     ap.add_argument("--moves-left-utility", type=float, default=0.0)
     ap.add_argument("--aux-value-bonus", type=float, default=0.0)
+    ap.add_argument("--fogless-ratio", type=float, default=0.0)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--torch-threads", type=int, default=2)
     ap.add_argument("--log-level", default="WARNING")
@@ -147,7 +148,8 @@ def main(argv) -> int:
             log.warning(f"checkpoint reload skipped: {e}")
 
         setup = random_setup(rng, mini_ratio=args.mini_ratio,
-                             drill_ratio=args.drill_ratio)
+                             drill_ratio=args.drill_ratio,
+                             fogless_ratio=args.fogless_ratio)
         gs = build_scenario_gamestate(
             setup, base_income=pvp.base_income,
             village_gold=pvp.village_gold,
