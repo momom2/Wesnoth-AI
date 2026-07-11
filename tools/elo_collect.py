@@ -1,11 +1,16 @@
 """Fit Elo from a directory of elo_eval_game.py result files, under
-TWO draw conventions from the same games (locked 2026-07-04):
+TWO draw conventions from the same games:
 
-  MATERIAL (primary): a drawn/timed-out game whose final material
-    margin from A exceeds +/-EPS counts as a win for the side ahead;
-    only near-level draws remain draws (weight 0.5). More separating
-    -- Wesnoth turn-cap draws usually hide a clear material verdict.
-  PURE (secondary): draws are draws, weight 0.5 for each side.
+  PURE (primary): draws are draws, weight 0.5 for each side. This is
+    THE metric: the contract on policy performance is the game's own
+    win/draw/loss, and material advantage must not factor into
+    evaluation (user decision 2026-07-11, reversing the 2026-07-04
+    material-primary lock -- material valuation is a training crutch,
+    not part of what performance means).
+  MATERIAL-SIGN (diagnostic only): a drawn/timed-out game whose final
+    material margin from A exceeds +/-EPS counts as a win for the
+    side ahead. More separating while ladder games are draw-heavy,
+    useful for watching progress -- but never the headline number.
 
 Usage:
     python tools/elo_collect.py GAMES_DIR [--anchor dummy]
@@ -106,8 +111,8 @@ def main(argv) -> int:
                   if args.anchor in labels else 0)
     n = len(labels)
     results = {}
-    for title, pairs in (("MATERIAL-SIGN (primary)", mat),
-                         ("PURE (draws=0.5)", pure)):
+    for title, pairs in (("PURE (draws=0.5, primary)", pure),
+                         ("MATERIAL-SIGN (diagnostic)", mat)):
         elo, se = fit_elo(n, pairs, anchor_idx, anchor_elo=0.0,
                           prior_games=1.0, draw_weight=0.5)
         _print_table(title, labels, elo, se, pairs)

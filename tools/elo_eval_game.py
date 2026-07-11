@@ -14,7 +14,11 @@ LADDER-ONLY default `random_setup` (pinned by test_elo_ladder_maps).
 
 The result file records BOTH the outcome and the final material
 margin from A's perspective, so the collector can fit Elo under the
-pure and material-sign draw conventions from one set of games.
+PURE (primary -- draws are draws; material advantage is a training
+crutch and does not factor into evaluation, user 2026-07-11) and
+material-sign (diagnostic) draw conventions from one set of games.
+Eval search likewise runs WITHOUT the material shapers
+(draw_tiebreak, aux_value_bonus) regardless of training config.
 """
 
 from __future__ import annotations
@@ -48,15 +52,16 @@ def _build_player(spec: str, label: str, sims: int, device):
         from tools.mcts import MCTSConfig
         from tools.mcts_policy import MCTSPolicy
         import os
-        # Reviewer m2 (2026-07-11): an aux/moves-left-trained
-        # checkpoint must be EVALUATED under the same search knobs it
-        # trained with, or the Elo point measures the wrong regime.
-        # Env-configured (this worker is spawned per game).
+        # EVALUATION CONTRACT (user, 2026-07-11): valuing material
+        # advantage is a TRAINING crutch, not part of what policy
+        # performance means -- so the material-based search shapers
+        # (draw_tiebreak, aux_value_bonus) are OFF here regardless of
+        # what the checkpoint trained with. Eval search sees the real
+        # game: win +1, loss -1, draw 0. moves_left_utility (time
+        # preference among equal outcomes, no material content) stays
+        # env-configurable.
         return MCTSPolicy(policy, MCTSConfig(
             n_simulations=sims,
-            draw_tiebreak=DrawTiebreakConfig(cap=0.3),
-            aux_value_bonus=float(
-                os.environ.get("ELO_AUX_VALUE_BONUS", "0") or 0),
             moves_left_utility=float(
                 os.environ.get("ELO_MOVES_LEFT_UTILITY", "0") or 0)))
     return policy
