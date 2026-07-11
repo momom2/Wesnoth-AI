@@ -115,6 +115,55 @@ else
     echo "[onstart] FIRST LAUNCH from $CKPT_IN (+anneal reset)"
 fi
 
+# ---- Human-anchor rehearsal cache -----------------------------------
+# HUMAN_ANCHOR_FILE points at a pre-encoded (RawEncoded, z, ml)
+# pickle. It is deliberately NOT escrowed: the cache is invalid
+# across encoder feature-layout changes (2026-07-11 grew the hex
+# dynamic flags and side codes), so a fresh node REBUILDS it from
+# the escrowed value corpus (value_corpus.tar.gz: index + games at
+# tar root -> extracted into replays_dataset/). ~few minutes.
+if [ -n "${HUMAN_ANCHOR_FILE:-}" ] && [ ! -f "$HUMAN_ANCHOR_FILE" ]; then
+    if [ -n "${HF_TOKEN:-}" ] || [ -f "$WORKDIR/.hf_token" ]; then
+        "$PY" -m pip install --quiet huggingface_hub || true
+        HF_SEED_TOKEN="${HF_TOKEN:-}" "$PY" - <<'EOF' \
+            && echo "[onstart] value corpus ready" \
+            || echo "[onstart] WARN: value corpus fetch failed"
+import os, pathlib, sys, tarfile
+from huggingface_hub import hf_hub_download
+tok = os.environ.get("HF_SEED_TOKEN") or pathlib.Path(
+    os.environ.get("WORKDIR", "/workspace"), ".hf_token"
+).read_text().strip()
+dst = pathlib.Path("replays_dataset")
+if (dst / "value_corpus_index.jsonl").is_file():
+    print("[onstart] value corpus already extracted")
+    sys.exit(0)
+try:
+    p = hf_hub_download("momom2/wesnoth-tier-a", "value_corpus.tar.gz",
+                        token=tok)
+except Exception as e:                                  # noqa: BLE001
+    print(f"[onstart] corpus download failed: {e}")
+    sys.exit(1)
+dst.mkdir(parents=True, exist_ok=True)
+with tarfile.open(p) as t:
+    t.extractall(dst)
+print(f"[onstart] extracted corpus -> {dst}")
+EOF
+        if [ -f replays_dataset/value_corpus_index.jsonl ]; then
+            echo "[onstart] building human anchor -> $HUMAN_ANCHOR_FILE"
+            NW=$(nproc); [ "$NW" -gt 24 ] && NW=24
+            "$PY" tools/build_human_anchor.py \
+                --out "$HUMAN_ANCHOR_FILE" --workers "$NW" \
+                >> "$WORKDIR/onstart.log" 2>&1 \
+                || echo "[onstart] WARN: anchor build failed"
+        fi
+    fi
+    if [ ! -f "$HUMAN_ANCHOR_FILE" ]; then
+        echo "[onstart] WARN: no anchor file; training will run WITHOUT"
+        echo "[onstart]       the human rehearsal anchor."
+        unset HUMAN_ANCHOR_FILE
+    fi
+fi
+
 # ---- Periodic checkpoint export (Hugging Face Hub) ------------------
 # Opt-in: put a fine-grained write token (scoped to ONE model repo) in
 # $WORKDIR/.hf_token, or set HF_TOKEN in the template env. Uploads the
