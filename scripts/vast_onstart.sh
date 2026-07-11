@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # Vast.ai on-start script for the Tier-a Phase 2 calibration run
-# (docs/tier_a_runbook.md). Paste into the template's "On-start
-# Script" box. It runs at EVERY instance (re)start, so it encodes the
-# first-launch vs preemption-resume distinction that must not be
+# (docs/tier_a_runbook.md). Do NOT paste THIS file into the template:
+# use scripts/vast_onstart_bootstrap.sh there instead -- it pulls the
+# repo and execs the current copy of this script, so onstart fixes
+# ship with a git push (2026-07-11 lesson: a frozen create-time copy
+# re-ran stale config after an instance restart and stranded the
+# box). This script runs at EVERY instance (re)start, so it encodes
+# the first-launch vs preemption-resume distinction that must not be
 # fumbled: --reset-decision-step ONLY on the very first launch.
 #
 # Layout: /workspace persists across interruptible stop/restart
