@@ -21,6 +21,16 @@ echo "==== onstart $(date -u +%FT%TZ) ===="
 
 cd "$WORKDIR"
 
+# Post-create env overrides: container env is frozen at instance
+# creation, so knob changes on a LIVE instance go into
+# $WORKDIR/env.sh (plain `export VAR=...` lines). Persisted on the
+# instance disk -> survives stop/restart cycles and wins over the
+# create-time -e values.
+if [ -f "$WORKDIR/env.sh" ]; then
+    . "$WORKDIR/env.sh"
+    echo "[onstart] sourced $WORKDIR/env.sh overrides"
+fi
+
 # Resolve python: prefer the image's venv, then conda, then PATH.
 if [ -x /venv/main/bin/python ]; then
     export PATH="/venv/main/bin:$PATH"
@@ -205,34 +215,50 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 # 2026-07-02: OSError errno 24 in multiprocessing resource_sharer).
 ulimit -n 65536 2>/dev/null || ulimit -n 4096 2>/dev/null || true
 echo "[onstart] fd limit: $(ulimit -n)"
+# Supervised launch: relaunch on ordinary crashes (rc 1/2 -- OOM,
+# transient CUDA errors) with a 60s backoff, capped at 20 restarts
+# per onstart so a hard config bug can't burn the box all night
+# (2026-07-06 lesson: 22 unsupervised OOM deaths). Tripwire aborts
+# (rc >= 3) still stop everything and leave an ABORTED_* marker.
+# After the first save, $RESET is dropped automatically: the
+# campaign file exists, so a relaunch resumes it.
 nohup bash -c "
-  '$PY' tools/sim_self_play.py --device cuda \
-    --mcts --mcts-sims 32 \
-    --d-model 256 --num-layers 6 --num-heads 8 --d-ff 1024 \
-    --replay-buffer --replay-updates 16 --value-coef 1.0 \
-    --replay-minibatch 128 --replay-capacity 24000 \
-    --train-batch-size ${TRAIN_BATCH:-64} --mcts-batch-size 16 \
-    --mini-ratio ${MINI_RATIO:-0.5} --drill-ratio ${DRILL_RATIO:-0.3} \
-    --mcts-aux-score --mcts-moves-left \
-    --mcts-moves-left-utility 0.2 \
-    ${AUX_VALUE_BONUS:+--mcts-aux-value-bonus $AUX_VALUE_BONUS} \
-    ${FOGLESS_RATIO:+--fogless-ratio $FOGLESS_RATIO} \
-    --value-label-smoothing 0.02 \
-    --holdout-size 512 --holdout-per-game-cap 64 \
-    ${HUMAN_ANCHOR_FILE:+--human-anchor-file $HUMAN_ANCHOR_FILE} \
-    ${HUMAN_ANCHOR_UPDATES:+--human-anchor-updates $HUMAN_ANCHOR_UPDATES} \
-    ${HUMAN_ANCHOR_BATCH:+--human-anchor-batch $HUMAN_ANCHOR_BATCH} \
-    ${DRAW_VALUE_WEIGHT:+--draw-value-weight $DRAW_VALUE_WEIGHT} \
-    --abort-decisive-rate 0.05 --abort-window 40 \
-    --abort-holdout-stall 150 \
-    --spool-workers ${SPOOL_WORKERS:-16} --games-per-iter ${SPOOL_WORKERS:-16} \
-    $RESET \
-    --checkpoint-in  $CKPT_IN \
-    --checkpoint-out $CAMPAIGN \
-    --iterations 100000 --save-every 2 --log-level INFO \
-    >> '$WORKDIR/train.log' 2>&1
-  rc=\$?
-  echo \"[onstart] training exited rc=\$rc at \$(date -u +%FT%TZ)\" >> '$WORKDIR/train.log'
-  if [ \$rc -ge 3 ]; then touch '$WORKDIR/ABORTED_'\$rc; fi
+  RESET='$RESET'
+  tries=0
+  while [ \$tries -lt 20 ]; do
+    [ -f '$CAMPAIGN' ] && RESET=''
+    '$PY' tools/sim_self_play.py --device cuda \
+      --mcts --mcts-sims 32 \
+      --d-model 256 --num-layers 6 --num-heads 8 --d-ff 1024 \
+      --replay-buffer --replay-updates 16 --value-coef 1.0 \
+      --replay-minibatch ${REPLAY_MINIBATCH:-128} --replay-capacity 24000 \
+      --train-batch-size ${TRAIN_BATCH:-64} --mcts-batch-size 16 \
+      --mini-ratio ${MINI_RATIO:-0.5} --drill-ratio ${DRILL_RATIO:-0.3} \
+      --mcts-aux-score --mcts-moves-left \
+      --mcts-moves-left-utility 0.2 \
+      ${AUX_VALUE_BONUS:+--mcts-aux-value-bonus $AUX_VALUE_BONUS} \
+      ${FOGLESS_RATIO:+--fogless-ratio $FOGLESS_RATIO} \
+      --value-label-smoothing 0.02 \
+      --holdout-size 512 --holdout-per-game-cap 64 \
+      ${HUMAN_ANCHOR_FILE:+--human-anchor-file $HUMAN_ANCHOR_FILE} \
+      ${HUMAN_ANCHOR_UPDATES:+--human-anchor-updates $HUMAN_ANCHOR_UPDATES} \
+      ${HUMAN_ANCHOR_BATCH:+--human-anchor-batch $HUMAN_ANCHOR_BATCH} \
+      ${DRAW_VALUE_WEIGHT:+--draw-value-weight $DRAW_VALUE_WEIGHT} \
+      --abort-decisive-rate 0.05 --abort-window 40 \
+      --abort-holdout-stall 150 \
+      --spool-workers ${SPOOL_WORKERS:-16} --games-per-iter ${SPOOL_WORKERS:-16} \
+      \$RESET \
+      --checkpoint-in  \$([ -f '$CAMPAIGN' ] && echo '$CAMPAIGN' || echo '$CKPT_IN') \
+      --checkpoint-out $CAMPAIGN \
+      --iterations 100000 --save-every 2 --log-level INFO \
+      >> '$WORKDIR/train.log' 2>&1
+    rc=\$?
+    echo \"[onstart] training exited rc=\$rc at \$(date -u +%FT%TZ)\" >> '$WORKDIR/train.log'
+    if [ \$rc -eq 0 ]; then break; fi
+    if [ \$rc -ge 3 ]; then touch '$WORKDIR/ABORTED_'\$rc; break; fi
+    tries=\$((tries + 1))
+    echo \"[onstart] relaunch \$tries/20 in 60s\" >> '$WORKDIR/train.log'
+    sleep 60
+  done
 " >/dev/null 2>&1 &
-echo "[onstart] training launched (tail -f $WORKDIR/train.log)"
+echo "[onstart] training launched, supervised (tail -f $WORKDIR/train.log)"
