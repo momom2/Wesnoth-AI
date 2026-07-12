@@ -47,6 +47,20 @@ if [ -z "$PY" ]; then
 fi
 echo "[onstart] using python: $PY"
 
+# CUDA forward-compat libs (shipped in vastai images for newer-than-
+# driver CUDA runtimes) only work on datacenter GPUs; on GeForce
+# cards the compat libcuda poisons CUDA init with Error 804 while
+# nvidia-smi looks fine (hit 2026-07-12 on an RTX 3090 + driver 550).
+# Drop the compat layer and rely on CUDA minor-version compatibility
+# against the host driver.
+if [ -d /usr/local/cuda/compat ] && nvidia-smi --query-gpu=name \
+        --format=csv,noheader 2>/dev/null | grep -qi geforce; then
+    mv /usr/local/cuda/compat /usr/local/cuda/compat.disabled \
+        2>/dev/null || true
+    ldconfig 2>/dev/null || true
+    echo "[onstart] disabled CUDA compat libs (GeForce + compat = 804)"
+fi
+
 # Hard requirements: CUDA torch + Python >= 3.11 (project floor).
 "$PY" - <<'EOF' || { echo "[onstart] FATAL: env check failed"; exit 1; }
 import sys, torch
