@@ -79,6 +79,14 @@ class EngagementStats:
     heal_village:            Dict[int, int] = field(default_factory=_sides)
     heal_rest:               Dict[int, int] = field(default_factory=_sides)
     heal_ability:            Dict[int, int] = field(default_factory=_sides)
+    # Anti-poison economy (2026-07-12): cures are invisible in the
+    # healing buckets (curing REPLACES healing), so count them
+    # explicitly. poison_damage_taken = NET actual HP lost on
+    # poison-normal turns (rest folded in per the simultaneous-
+    # application rule; the combined clamp makes any finer split
+    # arbitrary).
+    poison_cured:            Dict[int, int] = field(default_factory=_sides)
+    poison_damage_taken:     Dict[int, int] = field(default_factory=_sides)
     first_contact_turn:      Optional[int] = None
     # Scouting: fraction of map visible RIGHT BEFORE each of the
     # side's end_turns (hexes revealed during a turn can re-hide
@@ -118,6 +126,12 @@ class EngagementStats:
                 self.heal_village[s] += p.get("village", 0)
                 self.heal_rest[s] += p.get("rest", 0)
                 self.heal_ability[s] += p.get("ability", 0)
+        elif kind == "poison":
+            s = p["side"]
+            if s in (1, 2):
+                if p.get("cured"):
+                    self.poison_cured[s] += 1
+                self.poison_damage_taken[s] += p.get("damage", 0)
 
     # ---- sim-side hooks --------------------------------------------
     def note_attack_attempt(self, gs, action) -> None:
@@ -171,6 +185,8 @@ class EngagementStats:
             "heal_village": dict(self.heal_village),
             "heal_rest": dict(self.heal_rest),
             "heal_ability": dict(self.heal_ability),
+            "poison_cured": dict(self.poison_cured),
+            "poison_damage_taken": dict(self.poison_damage_taken),
             "first_contact_turn": self.first_contact_turn,
             "scouted_frac": frac(self._scout_sum, self._scout_n),
             "unused_mp_frac": frac(self._mp_unused, self._mp_total),

@@ -82,6 +82,48 @@ def test_heal_attribution_regen_is_ability_bucket():
     assert sum(e["village"] for e in evs) == 0
 
 
+def test_poison_cure_counted_and_heals_only_rest():
+    """Cure turn: poisoned status cleared, poison_cured fires, HP
+    healed shows only the rest bucket (+2)."""
+    gs = _gs()
+    u1 = next(u for u in gs.map.units if u.id == "u1")
+    u1.current_hp = u1.max_hp - 10
+    u1.statuses.update({"poisoned", "resting"})
+    setattr(gs.global_info, "_terrain_codes",
+            {(u1.position.x, u1.position.y): "Gg^Vh"})
+    events = []
+    set_event_sink(lambda k, p: events.append((k, p)))
+    try:
+        _apply_command(gs, ["init_side", 1])
+    finally:
+        clear_event_sink()
+    heals = [p for k, p in events if k == "heal" and p["side"] == 1]
+    poisons = [p for k, p in events if k == "poison" and p["side"] == 1]
+    assert sum(e["rest"] for e in heals) == 2
+    assert sum(e["village"] for e in heals) == 0, \
+        "curing replaces healing"
+    assert poisons == [{"side": 1, "cured": True, "damage": 0}]
+    u1_after = next(u for u in gs.map.units if u.id == "u1")
+    assert "poisoned" not in u1_after.statuses
+
+
+def test_poison_damage_net_of_rest():
+    """Poison-normal turn while resting: net -6, one event."""
+    gs = _gs()
+    u1 = next(u for u in gs.map.units if u.id == "u1")
+    u1.statuses.update({"poisoned", "resting"})
+    events = []
+    set_event_sink(lambda k, p: events.append((k, p)))
+    try:
+        _apply_command(gs, ["init_side", 1])
+    finally:
+        clear_event_sink()
+    poisons = [p for k, p in events if k == "poison" and p["side"] == 1]
+    assert poisons == [{"side": 1, "cured": False, "damage": 6}]
+    u1_after = next(u for u in gs.map.units if u.id == "u1")
+    assert u1_after.current_hp == u1_after.max_hp - 6
+
+
 def test_sim_gate_rejects_statue_attack_and_counts():
     from sim_test_helpers import fresh_scenario_sim
     from tools.abilities import hex_neighbors

@@ -1620,6 +1620,16 @@ def _apply_command(gs: GameState, cmd: list) -> None:
                            village=_village_part,
                            ability=_ability_part,
                            rest=_rest_applied)
+            if cure_poison:
+                from tools.engagement_stats import emit_event
+                emit_event("poison", side=u.side, cured=True, damage=0)
+            elif poisoned and healing < 0:
+                # Poison-normal turn: NET actual HP loss (rest folded
+                # in; single combined clamp, so -6 when resting, -8
+                # otherwise, less at the 1-HP floor).
+                from tools.engagement_stats import emit_event
+                emit_event("poison", side=u.side, cured=False,
+                           damage=-healing)
 
             # NOTE: slowed clears at end_turn (NOT here). Wesnoth's
             # `unit::end_turn()` (units/unit.cpp:1284) does

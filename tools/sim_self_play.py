@@ -1345,6 +1345,9 @@ def run_iteration(
         "eng_heal_rest_pg": _emean(lambda e: _e2(e, "heal_rest")),
         "eng_heal_ability_pg": _emean(lambda e: _e2(e, "heal_ability")),
         "eng_advancements_pg": _emean(lambda e: _e2(e, "advancements")),
+        "eng_poison_cured_pg": _emean(lambda e: _e2(e, "poison_cured")),
+        "eng_poison_damage_pg": _emean(
+            lambda e: _e2(e, "poison_damage_taken")),
         "eng_contact_rate": (sum(1 for e in _engs
                                  if e.get("first_contact_turn")
                                  is not None) / len(_engs)
@@ -1722,6 +1725,7 @@ class _TrainerHistoryCSV:
         "eng_damage_pg", "eng_kills_pg", "eng_kills_value_pg",
         "eng_heal_village_pg", "eng_heal_rest_pg", "eng_heal_ability_pg",
         "eng_advancements_pg",
+        "eng_poison_cured_pg", "eng_poison_damage_pg",
         "eng_contact_rate", "eng_first_contact_turn",
         "eng_scouted_frac", "eng_unused_mp_frac",
         "eng_villages_frac", "eng_material_end_pg",
