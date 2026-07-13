@@ -394,6 +394,62 @@ gates the action so a player can never click-attack a statue.
 Our legality mask should match the UI rule: petrified targets
 excluded from attack mask.
 
+### Healing: main sources take the MAX; rest adds on top
+
+`src/actions/heal.cpp` (1.18.4 tag, verified 2026-07-12):
+```cpp
+inline bool update_healing(int & healing, int & harming, int value)
+{
+    if ( value > healing ) {
+        healing = value;
+```
+Village/oasis (terrain `heals=8`), `regenerate`, and adjacent
+healers do NOT sum: the single best source wins. Observable
+consequence: two adjacent heals+4 healers give +4, not +8.
+
+Rest healing (+2) is ADDED on top, before the poison branch:
+```cpp
+if ( patient.resting() || patient.is_healthy() )
+    healing += game_config::rest_heal_amount;
+```
+**Why non-obvious**: `is_healthy()` (the `healthy` trait) bypasses
+the `resting` state entirely — a healthy unit rest-heals even on a
+turn after it moved, attacked, or WAS attacked (fighting only
+clears `resting`, which healthy units don't need). Also: DEFENDING
+breaks resting — `attack.cpp` calls `set_resting(false)` on both
+combatants.
+
+### Healing vs poison
+
+`heal.cpp` (same function, rest already added before the branch):
+```cpp
+if ( !patient.get_state(unit::STATE_POISONED) ) {
+    healing += heal_amount(side, patient, healers);
+} else {
+    curing = poison_progress(side, patient, healers);
+    if ( curing == POISON_NORMAL && patient.side() == side )
+        healing -= game_config::poison_amount;
+}
+```
+  - CURE (village/oasis/regen/adjacent `cures`): poison cleared
+    INSTEAD of healing — no main heal that turn. Rest still
+    applies (added before the branch): a resting unit is cured
+    AND heals +2.
+  - SLOW / counteract (adjacent heals+4/+8 WITHOUT `cures`): no
+    main heal, no poison damage — even heals+4 cancels the full
+    8 poison. Rest still applies (net +2 if resting).
+  - NORMAL: -8 on the patient's own turn. With rest: net -6,
+    ONE combined clamp at the end (floor 1 HP — poison cannot
+    kill; no intermediate clamping between rest and poison).
+  - A healer with BOTH `cures` and `heals+x` cures and does NOT
+    heal that turn.
+
+Our sim's port lives in `tools/replay_dataset.py` (init_side
+healing loop) and matches every branch above; oasis (`^Do`,
+`heals=8`, not a village, cures poison like one) resolves via
+`tools/terrain_resolver.terrain_heals` mirroring
+`terrain.cpp:230`'s `max(base.heals_, overlay.heals_)`.
+
 ### Attacking a petrified defender
 
 `wesnoth_src/src/actions/attack.cpp` and `unit.hpp:1352-1355`:
