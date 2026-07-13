@@ -136,6 +136,12 @@ class MCTSPolicy:
         # child-Q spread is the value signal PUCT actually compares).
         # None (default) = zero overhead.
         self.search_stats_sink = None
+        # Per-game search diagnostics (engagement telemetry,
+        # 2026-07-12): root child-Q spread + how often the search
+        # OVERTURNED the prior's argmax. Keyed by game_label; drained
+        # by play_one_game via pop_search_diag(). Cheap (a max + a
+        # pstdev over <=B root edges per decision).
+        self._search_diag = {}
         # Held-out generalization probe: while the holdout has fewer
         # than `holdout_size` experiences, finalize_game diverts WHOLE
         # games here instead of the training queue (whole games, so no
@@ -195,6 +201,35 @@ class MCTSPolicy:
         # via `train_step` won't corrupt these forwards.
         self._inference_model = base._inference_model
         self._inference_encoder = base._inference_encoder
+
+    def _note_search_diag(self, game_label, root, action) -> None:
+        edges = getattr(root, "edges", None) or []
+        qs = [e.q_value for e in edges if e.n_visits > 0]
+        if len(qs) < 2 or action is None:
+            return
+        import statistics as _st
+        spread = _st.pstdev(qs)
+        prior_best = max(edges, key=lambda e: e.prior)
+        # Actions are the edge dicts by identity (gumbel_action and
+        # best_action both return edge.action).
+        overturned = prior_best.action is not action
+        with self._lock:
+            d = self._search_diag.setdefault(
+                game_label, {"n": 0, "spread_sum": 0.0, "overturns": 0})
+            d["n"] += 1
+            d["spread_sum"] += spread
+            d["overturns"] += 1 if overturned else 0
+
+    def pop_search_diag(self, game_label: str):
+        """Return {'n_searches','q_spread_mean','overturn_frac'} for
+        the game and clear its slot (None if nothing recorded)."""
+        with self._lock:
+            d = self._search_diag.pop(game_label, None)
+        if not d or not d["n"]:
+            return None
+        return {"n_searches": d["n"],
+                "q_spread_mean": d["spread_sum"] / d["n"],
+                "overturn_frac": d["overturns"] / d["n"]}
 
     # ------------------------------------------------------------------
     # Policy duck-type
@@ -300,6 +335,7 @@ class MCTSPolicy:
                     root, self._mcts_config.temperature, self._rng)
             else:
                 action = best_action(root)
+        self._note_search_diag(game_label, root, action)
         if action is None:
             # No legal action and no terminal — pathological state.
             # The base policy's select_action would have raised; we

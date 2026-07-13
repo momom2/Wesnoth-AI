@@ -147,6 +147,14 @@ class GameOutcome:
     # getattr() these with defaults: spool workers may pickle
     # outcomes from an older code version.
     fogless: bool = False
+    # Full per-game engagement telemetry (tools/engagement_stats.py,
+    # user spec 2026-07-12): attacks (attempted / Wesnoth-invalid /
+    # sim-rejected), damage, kills by unit type + value, healing by
+    # source, advancements, first contact, scouting, unused MP,
+    # villages fraction, material, search diagnostics, map constants.
+    # None on outcomes from pre-telemetry producers (getattr-guard
+    # all consumers).
+    engagement: Optional[Dict] = None
     villages_mean_s1: float = 0.0
     villages_mean_s2: float = 0.0
     villages_end_s1: int = 0
@@ -344,6 +352,18 @@ def play_one_game(
     # (fogless-mixing observability, 2026-07-11).
     village_turn_samples: List[tuple] = []
     _last_village_turn = 0
+    # Engagement telemetry (2026-07-12): per-game accumulator on the
+    # REAL sim only (fork() never carries it -> MCTS pays nothing).
+    eng = (sim.enable_engagement_stats()
+           if hasattr(sim, "enable_engagement_stats") else None)
+    # Count via TERRAIN (map-build truth): the VILLAGE *modifier* is
+    # only stamped on owned villages at capture time
+    # (replay_dataset._parse_hex_code vs _capture_village).
+    from classes import Terrain as _T
+    map_total_villages = sum(
+        1 for h in sim.gs.map.hexes if _T.VILLAGE in h.terrain_types)
+    start_gold = {i + 1: int(sd.current_gold)
+                  for i, sd in enumerate(sim.gs.sides[:2])}
     # Per-side closest-approach tracker, updated after every sim.step
     # (and seeded from the initial state below). Surfaces as the
     # headline no-kills metric in the iter log.
@@ -616,6 +636,29 @@ def play_one_game(
                if sim.gs.sides else 0)
     s2_gold = (int(sim.gs.sides[1].current_gold)
                if sim.gs.sides and len(sim.gs.sides) >= 2 else 0)
+    engagement = None
+    if eng is not None:
+        engagement = eng.to_dict()
+        engagement["map_total_villages"] = map_total_villages
+        engagement["start_gold"] = start_gold
+        # Average owned-villages fraction of the map total, per side.
+        if map_total_villages and village_turn_samples:
+            n_s = len(village_turn_samples)
+            engagement["villages_frac_avg"] = {
+                1: sum(v[0] for v in village_turn_samples)
+                   / n_s / map_total_villages,
+                2: sum(v[1] for v in village_turn_samples)
+                   / n_s / map_total_villages,
+            }
+        else:
+            engagement["villages_frac_avg"] = {1: None, 2: None}
+        # End-of-game material = bank + summed unit cost.
+        from tools.draw_tiebreak import _side_material
+        engagement["material_end"] = {
+            s: _side_material(sim.gs, s)[1] + _side_material(sim.gs, s)[2]
+            for s in (1, 2)}
+        if hasattr(policy, "pop_search_diag"):
+            engagement["search"] = policy.pop_search_diag(game_label)
     return GameOutcome(
         game_label=game_label,
         winner=sim.winner,
@@ -640,6 +683,7 @@ def play_one_game(
                                      or ""),
         turn_action_counts=sorted(turn_action_tally.values()),
         fogless=not getattr(sim.gs.global_info, "_fog", True),
+        engagement=engagement,
         villages_mean_s1=(sum(v[0] for v in village_turn_samples)
                           / len(village_turn_samples)
                           if village_turn_samples else 0.0),
@@ -1004,6 +1048,7 @@ def run_iteration(
     mini_ratio:    float = 0.0,
     drill_ratio:   float = 0.0,
     fogless_ratio: float = 0.0,
+    game_log_dir: Optional[Path] = None,
     snapshot_sink: Optional[Callable[[Dict], None]] = None,
     actor_pool=None,
     spool=None,
@@ -1234,6 +1279,90 @@ def run_iteration(
             f"{ladder_dec}/{ladder_n} (s1 {ladder_s1}, s2 {ladder_s2}), "
             f"mini/drill {other_dec}/{other_n} "
             f"(s1 {other_s1}, s2 {other_s2})")
+    # Per-game JSONL (2026-07-12 user spec): one directory PER
+    # ITERATION so records stay browsable, one JSON line per game
+    # with the full engagement telemetry.
+    if game_log_dir is not None and outcomes:
+        _dir = game_log_dir / f"iter_{iter_idx:06d}"
+        _dir.mkdir(parents=True, exist_ok=True)
+        with (_dir / "games.jsonl").open("a", encoding="utf-8") as _f:
+            for o in outcomes:
+                _f.write(json.dumps({
+                    "game_label": o.game_label,
+                    "winner": o.winner,
+                    "ended_by": o.ended_by,
+                    "turns": o.turns,
+                    "map_class": o.map_class,
+                    "fogless": getattr(o, "fogless", False),
+                    "action_counts": o.action_counts,
+                    "units_end": [o.side1_units_end, o.side2_units_end],
+                    "closest_approach": [o.side1_closest_approach,
+                                         o.side2_closest_approach],
+                    "end_gold": [o.side1_end_gold, o.side2_end_gold],
+                    "recruits": [o.n_recruits_s1, o.n_recruits_s2],
+                    "recruit_attempts": [o.n_recruit_attempts_s1,
+                                         o.n_recruit_attempts_s2],
+                    "villages_mean": [
+                        getattr(o, "villages_mean_s1", 0.0),
+                        getattr(o, "villages_mean_s2", 0.0)],
+                    "villages_end": [getattr(o, "villages_end_s1", 0),
+                                     getattr(o, "villages_end_s2", 0)],
+                    "engagement": getattr(o, "engagement", None),
+                }) + "\n")
+
+    # Iteration-level aggregates of the engagement telemetry (the
+    # curve-worthy scalars; full detail lives in the JSONL).
+    _engs = [getattr(o, "engagement", None) for o in outcomes]
+    _engs = [e for e in _engs if e]
+
+    def _emean(fn):
+        vals = [v for v in (fn(e) for e in _engs) if v is not None]
+        return (sum(vals) / len(vals)) if vals else None
+
+    def _e2(e, key):
+        d = e.get(key) or {}
+        return (d.get(1, 0) or 0) + (d.get(2, 0) or 0)
+
+    def _e2mean(e, key):
+        d = e.get(key) or {}
+        vals = [v for v in (d.get(1), d.get(2)) if v is not None]
+        return (sum(vals) / len(vals)) if vals else None
+
+    eng_agg = {
+        "eng_games": len(_engs),
+        "eng_attacks_pg": _emean(lambda e: _e2(e, "attacks_attempted")),
+        # Tripwires: SUMS across the iteration; expect exactly 0.
+        "eng_invalid_attacks": (sum(_e2(e, "attacks_invalid_wesnoth")
+                                    for e in _engs) if _engs else None),
+        "eng_rejected_attacks": (sum(_e2(e, "attacks_rejected_sim")
+                                     for e in _engs) if _engs else None),
+        "eng_damage_pg": _emean(lambda e: _e2(e, "damage_dealt")),
+        "eng_kills_pg": _emean(
+            lambda e: sum(sum(v.values()) for v in
+                          (e.get("kills") or {}).values())),
+        "eng_kills_value_pg": _emean(lambda e: _e2(e, "kills_value")),
+        "eng_heal_village_pg": _emean(lambda e: _e2(e, "heal_village")),
+        "eng_heal_rest_pg": _emean(lambda e: _e2(e, "heal_rest")),
+        "eng_heal_ability_pg": _emean(lambda e: _e2(e, "heal_ability")),
+        "eng_advancements_pg": _emean(lambda e: _e2(e, "advancements")),
+        "eng_contact_rate": (sum(1 for e in _engs
+                                 if e.get("first_contact_turn")
+                                 is not None) / len(_engs)
+                             if _engs else None),
+        "eng_first_contact_turn": _emean(
+            lambda e: e.get("first_contact_turn")),
+        "eng_scouted_frac": _emean(lambda e: _e2mean(e, "scouted_frac")),
+        "eng_unused_mp_frac": _emean(
+            lambda e: _e2mean(e, "unused_mp_frac")),
+        "eng_villages_frac": _emean(
+            lambda e: _e2mean(e, "villages_frac_avg")),
+        "eng_material_end_pg": _emean(lambda e: _e2(e, "material_end")),
+        "search_q_spread": _emean(
+            lambda e: (e.get("search") or {}).get("q_spread_mean")),
+        "search_overturn_frac": _emean(
+            lambda e: (e.get("search") or {}).get("overturn_frac")),
+    }
+
     # Fogless-mixing observability (2026-07-11 user request): the
     # ladder pool mixes fogged and fogless games; whether fogless is
     # doing work (more captures, closer approach, decisive games)
@@ -1481,6 +1610,7 @@ def run_iteration(
             "ladder_fogless_villages_per_turn": fogless_stats["vpt"],
             "ladder_fogless_villages_end": fogless_stats["vend"],
             "ladder_fogless_approach": fogless_stats["appr"],
+            **eng_agg,
         })
     return outcomes
 
@@ -1581,6 +1711,21 @@ class _TrainerHistoryCSV:
         "ladder_fogless_games", "ladder_fogless_decisive",
         "ladder_fogless_villages_per_turn", "ladder_fogless_villages_end",
         "ladder_fogless_approach",
+        # Engagement telemetry aggregates (2026-07-12 user spec; the
+        # per-game detail incl. kill breakdowns lives in the per-
+        # iteration games.jsonl). *_pg = mean per game, both sides
+        # summed unless it is a fraction (then side-averaged).
+        # eng_invalid/rejected_attacks are iteration SUMS: tripwires
+        # for mask/sim/Wesnoth divergence, expected 0.
+        "eng_games", "eng_attacks_pg",
+        "eng_invalid_attacks", "eng_rejected_attacks",
+        "eng_damage_pg", "eng_kills_pg", "eng_kills_value_pg",
+        "eng_heal_village_pg", "eng_heal_rest_pg", "eng_heal_ability_pg",
+        "eng_advancements_pg",
+        "eng_contact_rate", "eng_first_contact_turn",
+        "eng_scouted_frac", "eng_unused_mp_frac",
+        "eng_villages_frac", "eng_material_end_pg",
+        "search_q_spread", "search_overturn_frac",
     ]
 
     def __init__(self, path: Path):
@@ -1968,6 +2113,12 @@ def main(argv: List[str]) -> int:
                          "Combines with --mini-ratio: one roll "
                          "splits ladder/mini/drill, so the two "
                          "ratios must sum to <= 1. Default 0.0.")
+    ap.add_argument("--game-log-dir", type=Path,
+                    default=Path("training/logs/games"),
+                    help="Per-game JSONL telemetry root; each "
+                         "iteration writes its own subdirectory "
+                         "(iter_NNNNNN/games.jsonl). Pass an empty "
+                         "string to disable.")
     ap.add_argument("--fogless-ratio", type=float, default=0.0,
                     help="Fraction of LADDER-pool games played with "
                          "fog of war OFF (mini/drill games always "
@@ -2200,6 +2351,8 @@ def main(argv: List[str]) -> int:
                     help="JSON overriding the draw-tiebreak weights "
                          "(takes precedence over --draw-tiebreak-cap).")
     args = ap.parse_args(argv[1:])
+    if args.game_log_dir is not None and str(args.game_log_dir) in ("", "."):
+        args.game_log_dir = None
 
     logging.basicConfig(
         level=getattr(logging, args.log_level),
@@ -2799,6 +2952,7 @@ def main(argv: List[str]) -> int:
             mini_ratio=max(0.0, min(1.0, float(args.mini_ratio))),
             drill_ratio=max(0.0, min(1.0, float(args.drill_ratio))),
             fogless_ratio=max(0.0, min(1.0, float(args.fogless_ratio))),
+            game_log_dir=args.game_log_dir,
             snapshot_sink=(history_csv.append if history_csv else None),
             actor_pool=actor_pool,
             spool=spool,

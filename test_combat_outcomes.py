@@ -42,7 +42,9 @@ def _engineered_fight():
                 if u.side == side and u.attacks),
                None)
     dfd = next((u for u in sim.gs.map.units
-                if u.side != side and u.attacks),
+                if u.side != side and u.attacks
+               and u.side in (1, 2)
+               and "petrified" not in (u.statuses or set())),
                None)
     if att is None or dfd is None:
         pytest.skip("setup lacks a usable attacker/defender pair")

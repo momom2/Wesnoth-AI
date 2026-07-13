@@ -67,7 +67,9 @@ def _leaders(sim):
     att = next(u for u in sim.gs.map.units
                if u.side == side and u.attacks)
     dfd = next(u for u in sim.gs.map.units
-               if u.side != side and u.attacks)
+               if u.side != side and u.attacks
+               and u.side in (1, 2)
+               and "petrified" not in (u.statuses or set()))
     return att, dfd
 
 
@@ -153,7 +155,9 @@ def test_advancement_pins_choice_in_history_and_export():
     att = next(u for u in sim.gs.map.units
                if u.side == side and not u.is_leader)
     dfd = next(u for u in sim.gs.map.units
-               if u.side != side and u.attacks)
+               if u.side != side and u.attacks
+               and u.side in (1, 2)
+               and "petrified" not in (u.statuses or set()))
     _teleport_adjacent(sim, att, dfd)
     att.current_exp = max(0, att.max_exp - 1)
     # Survival surgery: the counter-attack must not kill the

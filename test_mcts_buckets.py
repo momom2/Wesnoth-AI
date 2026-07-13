@@ -44,7 +44,9 @@ def _combat_sim():
     side = gs.global_info.current_side
     units = sorted(gs.map.units, key=lambda u: u.id)
     att = next(u for u in units if u.side == side and u.attacks)
-    dfd = next(u for u in units if u.side != side and u.attacks)
+    dfd = next(u for u in units if u.side != side and u.attacks
+               and u.side in (1, 2)
+               and "petrified" not in (u.statuses or set()))
     for u in (att, dfd):
         u.name = "Spearman"
         u.attacks = _attacks_from_stats(_stats_for("Spearman"))

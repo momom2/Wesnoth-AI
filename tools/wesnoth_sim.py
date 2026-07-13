@@ -540,6 +540,30 @@ class WesnothSim:
         out.command_history  = []   # forks don't track history
         return out
 
+    def enable_engagement_stats(self):
+        """Attach a per-game EngagementStats accumulator to THIS sim.
+        fork() never carries it, so MCTS search forks stay
+        instrumentation-free (zero cost in rollouts)."""
+        from tools.engagement_stats import EngagementStats
+        self._engagement = EngagementStats()
+        return self._engagement
+
+    def _apply_with_stats(self, cmd) -> None:
+        """_apply_command with the thread-local engagement event sink
+        installed for the duration (combat + heal events from
+        replay_dataset). Plain _apply_command when stats are off."""
+        es = getattr(self, "_engagement", None)
+        if es is None:
+            _apply_command(self.gs, cmd)
+            return
+        from tools.engagement_stats import (clear_event_sink,
+                                            set_event_sink)
+        set_event_sink(es.on_event)
+        try:
+            _apply_command(self.gs, cmd)
+        finally:
+            clear_event_sink()
+
     def _next_seed(self) -> str:
         """Allocate the next synced-RNG seed. Live sims (no salt)
         derive it purely from the request counter -- the bit-exact
@@ -693,6 +717,13 @@ class WesnothSim:
         if self.done:
             return True
 
+        _es = getattr(self, "_engagement", None)
+        if _es is not None and action.get("type") == "attack":
+            # Count the POLICY-chosen attack (before move-to-attack
+            # normalization; nested pre-move step()s are moves and
+            # can't double count).
+            _es.note_attack_attempt(self.gs, action)
+
         # Implicit move-to-attack: if the policy picked an attack on a
         # target that the actor isn't adjacent to, plan a pre-move to a
         # reachable attack hex and dispatch it via a nested step()
@@ -806,6 +837,11 @@ class WesnothSim:
             terrain_cost = None
 
         if cmd[0] == "end_turn":
+            if _es is not None:
+                # "Right before end of turn": hexes revealed during
+                # the turn are still visible here and may re-hide
+                # afterwards (user spec 2026-07-12).
+                _es.note_end_turn(self.gs, side_now)
             _apply_command(self.gs, ["end_turn"])
             self.command_history.append(RecordedCommand(
                 kind="end_turn", side=side_now, cmd=["end_turn"]))
@@ -841,7 +877,7 @@ class WesnothSim:
                     elif u.position.x == dx and u.position.y == dy:
                         pre_dfd = (u.id, u.name, u.side)
 
-            _apply_command(self.gs, cmd)
+            self._apply_with_stats(cmd)
             # Post-apply terrain MP correction. _apply_command
             # already flat-deducted 1 MP; we owe an extra
             # (cost - 1) so the unit's MP reflects Wesnoth's
@@ -887,6 +923,10 @@ class WesnothSim:
                         advance_choices.append((pre_side, 0))
                 if advance_choices:
                     extras["advance_choices"] = advance_choices
+                    if _es is not None:
+                        for _adv_side, _ in advance_choices:
+                            if _adv_side in (1, 2):
+                                _es.advancements[_adv_side] += 1
             if cmd[0] == "attack":
                 # Per-strike checkup payloads recorded by
                 # resolve_attack (stashed by the shared attack
@@ -1183,7 +1223,7 @@ class WesnothSim:
         turn-start events, and computing healing / poison / curing
         for `side`'s units. Game-over can also fire here (e.g. poison
         kills a leader)."""
-        _apply_command(self.gs, ["init_side", side])
+        self._apply_with_stats(["init_side", side])
         self.command_history.append(RecordedCommand(
             kind="init_side", side=side, cmd=["init_side", side]))
         # Refresh hidden/uncovered tracking: own-side units re-hide,
@@ -1426,6 +1466,23 @@ class WesnothSim:
                 (u for u in self.gs.map.units
                  if u.position.x == target.x and u.position.y == target.y),
                 None)
+            if dfd_u is not None and (
+                    dfd_u.side not in (1, 2)
+                    or "petrified" in (dfd_u.statuses or set())):
+                # Wesnoth-as-played refuses attacks on incapacitated
+                # or scenery units (UI gate, mouse_events.cpp:753 --
+                # see docs/wesnoth_rules.md). The legality mask should
+                # never send one; refuse rather than resolve combat
+                # against a statue (defense in depth after the
+                # 2026-07-11 scenery-encoding bug, where exactly that
+                # happened for months).
+                es = getattr(self, "_engagement", None)
+                if es is not None and self.current_side in (1, 2):
+                    es.attacks_rejected_sim[self.current_side] += 1
+                log.debug(
+                    f"sim: rejecting attack on scenery/petrified "
+                    f"target at {(target.x, target.y)}")
+                return None, None
             d_weapon = (choose_counter_weapon(self.gs, att_u, dfd_u, weapon)
                         if att_u is not None and dfd_u is not None
                         else -1)

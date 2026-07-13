@@ -1597,6 +1597,30 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             if cure_poison:
                 new_statuses.discard("poisoned")
 
+            # Engagement telemetry: attribute the ACTUAL applied heal
+            # (post-cap). Rest first, remainder to the main source;
+            # main source = first of village/oasis > regen > healer
+            # whose amount equals the max (user rules 2026-07-12).
+            # `main_heal` exists only on the not-poisoned branch;
+            # poisoned branches heal via rest alone, so main_applied
+            # is 0 there by construction.
+            if healing > 0:
+                from tools.engagement_stats import emit_event
+                _rest_part = cb.REST_HEAL_AMOUNT if rest_eligible else 0
+                _rest_applied = min(_rest_part, healing)
+                _main_applied = healing - _rest_applied
+                _village_part = 0
+                _ability_part = 0
+                if _main_applied > 0:
+                    if terrain_heal_amt > 0 and terrain_heal_amt == main_heal:
+                        _village_part = _main_applied
+                    else:
+                        _ability_part = _main_applied   # regen or healer
+                emit_event("heal", side=u.side,
+                           village=_village_part,
+                           ability=_ability_part,
+                           rest=_rest_applied)
+
             # NOTE: slowed clears at end_turn (NOT here). Wesnoth's
             # `unit::end_turn()` (units/unit.cpp:1284) does
             # `set_state(STATE_SLOWED, false)`, called once per unit by
@@ -1825,6 +1849,21 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         # observable state (never read by the legality mask/encoder).
         setattr(gs.global_info, "_last_checkup_strikes",
                 result.checkup_strikes)
+        # Engagement telemetry (no-op unless a sink is installed --
+        # only the live training sim installs one). att/dfd still
+        # hold PRE-combat HP here; outcomes are written back below.
+        from tools.engagement_stats import emit_event
+        emit_event(
+            "combat",
+            a_side=att.side, d_side=dfd.side,
+            dmg_to_defender=max(0, dfd.current_hp
+                                - result.defender_hp_after),
+            dmg_to_attacker=max(0, att.current_hp
+                                - result.attacker_hp_after),
+            defender_died=not result.defender_alive,
+            attacker_died=not result.attacker_alive,
+            attacker_name=att.name, defender_name=dfd.name,
+            attacker_cost=att.cost, defender_cost=dfd.cost)
 
         # Write outcomes back to gs. has_attacked True for attacker;
         # HP/XP from the result; remove dead units. Both combatants

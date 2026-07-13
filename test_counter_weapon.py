@@ -78,7 +78,9 @@ def _surgical_matchup(sim, att_type: str, dfd_type: str):
     gs = sim.gs
     side = gs.global_info.current_side
     att = next(u for u in gs.map.units if u.side == side and u.attacks)
-    dfd = next(u for u in gs.map.units if u.side != side and u.attacks)
+    dfd = next(u for u in gs.map.units if u.side != side and u.attacks
+               and u.side in (1, 2)
+               and "petrified" not in (u.statuses or set()))
     for u, name in ((att, att_type), (dfd, dfd_type)):
         u.name = name
         u.attacks = _attacks_from_stats(_stats_for(name))
