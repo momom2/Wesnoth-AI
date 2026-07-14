@@ -93,7 +93,8 @@ def test_one_game_emits_observe_per_step():
             self.observes.append((game_label, side, reward, done))
         def drop_pending(self, game_label):
             pass
-        def finalize_game(self, game_label, winner, final_gs=None):
+        def finalize_game(self, game_label, winner, final_gs=None,
+                          midgame=False):
             # Per-game flush hook (added 2026-05 for MCTSPolicy);
             # REINFORCE-style stubs are no-ops.
             pass

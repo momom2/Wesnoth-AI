@@ -1302,8 +1302,11 @@ def _trainer_eval_value_metrics(
     """No-grad value diagnostics of the CURRENT model on a fixed
     experience set, one forward pass:
 
-    - "ce": categorical value CE, same normalization as `step_mcts`'s
-      value term (mean CE per experience), directly comparable.
+    - "ce": categorical value CE as a GAME-WEIGHTED mean (same
+      game_weight normalization as `step_mcts`, so mixed-length
+      batches compare; NOTE step_mcts's value term additionally
+      applies draw_value_weight, which this probe deliberately does
+      NOT -- an all-draw holdout must still produce a number).
     - "pred_entropy": mean entropy of the predicted Z(s) distribution
       (nats; uniform over K=51 atoms = ln 51 ~ 3.93). The continuous
       overconfidence curve -- the 2026-07-07 diagnosis needed offline
@@ -1341,6 +1344,10 @@ def _trainer_eval_value_metrics(
     type_to_id    = self.encoder.unit_type_to_id
     faction_to_id = self.encoder.faction_to_id
     atoms = self.model._value_atoms
+    gws_e = torch.tensor(
+        [float(getattr(e, "game_weight", 1.0)) for e in experiences],
+        device=dev, dtype=torch.float32)
+    total_gw_e = max(float(gws_e.sum().item()), 1e-9)
     total = 0.0
     entropy_sum = 0.0
     with torch.no_grad():
@@ -1357,8 +1364,9 @@ def _trainer_eval_value_metrics(
             vl_t = torch.stack(
                 [o.value_logits.squeeze(0) for o in outputs])
             z_t = zs[start:start + len(chunk)]
-            total += float(
-                _categorical_value_loss(vl_t, z_t, atoms).item()) / N
+            gw_c = gws_e[start:start + len(chunk)]
+            total += float(_categorical_value_loss(
+                vl_t, z_t, atoms, weights=gw_c).item()) / total_gw_e
             logp = torch.log_softmax(vl_t, dim=-1)
             entropy_sum += float(-(logp.exp() * logp).sum().item())
         marginal = _project_returns_to_atoms(zs, atoms).mean(dim=0)

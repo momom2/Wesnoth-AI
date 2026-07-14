@@ -617,7 +617,8 @@ def play_one_game(
     # `_pending` into the trainer queue with the terminal z derived
     # from `winner`. Defined as a no-op on TransformerPolicy so the
     # call is unconditional.
-    policy.finalize_game(game_label, sim.winner, final_gs=sim.gs)
+    policy.finalize_game(game_label, sim.winner, final_gs=sim.gs,
+                         midgame=getattr(sim, "_midgame_start", False))
 
     # Living-unit counts at game end. Counts every unit on the
     # final-state board belonging to each side -- includes leaders.
@@ -1341,6 +1342,8 @@ def run_iteration(
     if game_log_dir is not None and outcomes:
         _dir = game_log_dir / f"iter_{iter_idx:06d}"
         _dir.mkdir(parents=True, exist_ok=True)
+        # NB json.dumps stringifies the engagement dicts' int side
+        # keys ("1"/"2"); offline readers must not use int keys.
         with (_dir / "games.jsonl").open("a", encoding="utf-8") as _f:
             for o in outcomes:
                 _f.write(json.dumps({

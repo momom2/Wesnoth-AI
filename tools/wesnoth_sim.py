@@ -1230,8 +1230,8 @@ class WesnothSim:
         init_side handles: setting current_side, incrementing turn
         (when side == 1), updating time-of-day, firing scenario
         turn-start events, and computing healing / poison / curing
-        for `side`'s units. Game-over can also fire here (e.g. poison
-        kills a leader)."""
+        for `side`'s units. Game-over can also fire here (turn-limit
+        checks; NB poison cannot kill -- healing clamps at 1 HP)."""
         self._apply_with_stats(["init_side", side])
         self.command_history.append(RecordedCommand(
             kind="init_side", side=side, cmd=["init_side", side]))

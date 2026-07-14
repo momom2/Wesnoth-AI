@@ -423,7 +423,8 @@ class TransformerPolicy:
                     del self._last_state_id[k]
 
     def finalize_game(self, game_label: str, winner: int,
-                      final_gs=None) -> None:
+                      final_gs=None,
+                      midgame: bool = False) -> None:
         """No-op for REINFORCE. The MCTS-mode policy wrapper
         (`tools.mcts_policy.MCTSPolicy`) overrides this to seal
         per-game `MCTSExperience` lists with the terminal-z derived

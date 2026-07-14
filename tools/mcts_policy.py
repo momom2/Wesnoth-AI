@@ -58,6 +58,11 @@ log = logging.getLogger("mcts_policy")
 # means the same wall-clock distance on every map; 200 = the training
 # turn cap in use since the 2026-07 campaigns.
 MOVES_LEFT_NORM_TURNS = 200.0
+# Game-weight floor for HUMAN-DERIVED (midgame-start) games only:
+# caps any single state at 1/8 of a game's weight (Fable review M-1;
+# user pick K=8, 2026-07-12 -- preserves most of the equal-per-game
+# boost for short decisive continuations while bounding variance).
+MIDGAME_GW_FLOOR = 8
 
 
 @dataclass
@@ -396,7 +401,8 @@ class MCTSPolicy:
         # Intentionally empty.
 
     def finalize_game(self, game_label: str, winner: int,
-                      final_gs: Optional[GameState] = None) -> None:
+                      final_gs: Optional[GameState] = None,
+                      midgame: bool = False) -> None:
         """Drain `_pending[game_label]` into `_queue` with one
         `MCTSExperience` per recorded state. `winner == 0` means
         draw/timeout: z is 0, or the material tiebreaker score of
@@ -434,7 +440,16 @@ class MCTSPolicy:
         exps: List[MCTSExperience] = []
         # Per-game gradient normalization (2026-07-12): each game
         # contributes equal total weight regardless of length.
-        gw = 1.0 / max(1, len(states))
+        # HUMAN-DERIVED games (midgame starts) get a weight FLOOR
+        # (user decision 2026-07-12, Fable review M-1): a continuation
+        # cut near the end may record 1-3 states whose decisive label
+        # mostly credits the HUMAN's play, not ours -- without a floor
+        # a single such state can transiently own most of a minibatch.
+        # gw = 1/max(n, 8): games shorter than 8 states contribute
+        # n/8 of a full game; pure self-play keeps exact equal-per-
+        # game weighting (floor 1).
+        floor = MIDGAME_GW_FLOOR if midgame else 1
+        gw = 1.0 / max(floor, len(states))
         for i, s in enumerate(states):
             if winner == 0:
                 if (self._train_draw_tiebreak and tiebreak is not None
@@ -555,7 +570,8 @@ class MCTSPolicy:
         """(value CE on the frozen holdout set, holdout size), or None
         when the probe is off or still collecting. Evaluated with the
         CURRENT training net, no gradients; comparable to the logged
-        train value loss (same normalization -- see
+        train value loss (game-weighted mean; the train term
+        additionally applies draw_value_weight -- see
         Trainer.eval_value_loss)."""
         with self._lock:
             if (self._holdout_target <= 0

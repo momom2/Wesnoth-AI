@@ -16,7 +16,7 @@ Consumes the index written by tools/build_value_corpus.py
     with self-play experiences,
   - moves_left_target: from the game's actual end turn (same
     MOVES_LEFT_NORM_TURNS normalization as self-play),
-  - aux_target: signed material margin at game end (same
+  - aux_target: END-OF-GAME material margin (NB 2026-07-12: the self-play path now targets the NEXT state's margin -- do NOT mix these into step_mcts's aux term without retargeting) at game end (same
     material_margin the self-play path uses).
 
 Sampling: every `stride`-th decision per game (deepcopy per sampled

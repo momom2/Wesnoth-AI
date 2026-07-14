@@ -182,6 +182,31 @@ def test_finalize_draw_legacy_tiebreak_optin():
         "legacy opt-in restores antisymmetric material-z draw labels"
 
 
+def test_midgame_game_weight_floor():
+    """Human-derived (midgame) games get gw = 1/max(n, 8); pure
+    self-play keeps exact 1/n (Fable review M-1, user K=8)."""
+    import torch
+    from tools.mcts import MCTSConfig
+    from tools.mcts_policy import MCTSPolicy, _PendingMCTSState
+    from transformer_policy import TransformerPolicy
+
+    base = TransformerPolicy(device=torch.device("cpu"), d_model=32,
+                             num_layers=1, num_heads=4, d_ff=64)
+    mp = MCTSPolicy(base, MCTSConfig(draw_tiebreak=CFG))
+    mp._pending["h"] = [
+        _PendingMCTSState(gs=_finalize_gs(), visit_counts=[], side=s)
+        for s in (1, 2)]
+    mp.finalize_game("h", winner=0, final_gs=_finalize_gs(),
+                     midgame=True)
+    assert all(e.game_weight == 1 / 8 for e in mp._queue),         "midgame games floor at K=8"
+    mp._queue.clear()
+    mp._pending["f"] = [
+        _PendingMCTSState(gs=_finalize_gs(), visit_counts=[], side=s)
+        for s in (1, 2)]
+    mp.finalize_game("f", winner=0, final_gs=_finalize_gs())
+    assert all(e.game_weight == 0.5 for e in mp._queue),         "self-play games keep exact equal-per-game weighting"
+
+
 def test_z_composition_stats():
     from tools.mcts_policy import MCTSPolicy
     from trainer import MCTSExperience, TrainStats
