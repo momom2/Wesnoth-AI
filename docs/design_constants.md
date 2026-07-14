@@ -100,3 +100,27 @@ with their own comment block explaining "scale rationale".
 Listed here only for completeness; if you wonder where these
 come from, check the `constants.py` block — they're era-mod
 overridable in one place.
+
+
+## Material-margin village normalization (2026-07-12)
+
+`DrawTiebreakConfig.weight_village = 10.0`, applied as
+`10 * (Δvillages / MAP_TOTAL_VILLAGES)` inside the shared material
+score (`tools/draw_tiebreak.py`), with `score_scale = 5.0` unchanged.
+
+Derivation: village counts vary ~10-30 per ladder map, so the old
+1.0/village term meant "one village" was worth 3x more signal on a
+small map than a big one, and a full sweep saturated differently
+everywhere. Normalizing to the map fraction makes the semantics
+map-invariant; the 10x multiplier calibrates magnitudes:
+
+  - half the map's villages ->  10 * 0.5 / 5 = 1.0 -> tanh = 0.76
+    (a dominant position reads as near-saturated margin);
+  - one village on a 20-village map -> 10 * 0.05 / 5 = 0.1
+    (same order as the old per-village 0.20, now map-invariant);
+  - with `aux_value_bonus = 0.3`, one village moves a search leaf by
+    ~0.03 -- ~10 villages differential reaches outcome order (user
+    calibration target, 2026-07-12).
+
+Gold / unit-value weights (0.05) are NOT normalized: gold scales are
+already map-independent (start ~100, village income fixed).

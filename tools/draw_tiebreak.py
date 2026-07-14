@@ -52,7 +52,13 @@ class DrawTiebreakConfig:
     """Weights + bounds for the material draw score. See module
     docstring for the derivation of the defaults."""
     cap:               float = 0.3
-    weight_village:    float = 1.0
+    # Village term is Δvillages / MAP_TOTAL_VILLAGES (2026-07-12):
+    # normalized so "half the map's villages" means the same signal
+    # on every map. weight_village=10 with score_scale=5 calibrates:
+    # half-map differential -> tanh(1.0) ~= 0.76; one village on a
+    # 20-village map -> ~0.10 (same order as the old per-village 0.20
+    # but map-invariant). Derivation: docs/design_constants.md.
+    weight_village:    float = 10.0
     weight_gold:       float = 0.05
     weight_unit_value: float = 0.05
     score_scale:       float = 5.0
@@ -66,6 +72,22 @@ class DrawTiebreakConfig:
         kwargs = {k: float(v) for k, v in data.items()
                   if not k.startswith("_") and k in cls.__dataclass_fields__}
         return cls(**kwargs)
+
+
+def _map_total_villages(gs: "GameState") -> int:
+    """Total village count of the map (terrain truth), cached on
+    global_info as an underscore attr so MCTS deepcopies carry it
+    and the hex scan runs once per game."""
+    n = getattr(gs.global_info, "_map_total_villages", None)
+    if n is None:
+        from classes import Terrain
+        n = sum(1 for h in gs.map.hexes
+                if Terrain.VILLAGE in h.terrain_types)
+        try:
+            setattr(gs.global_info, "_map_total_villages", n)
+        except Exception:                            # noqa: BLE001
+            pass
+    return max(1, int(n))
 
 
 def _side_material(gs: "GameState", side: int) -> tuple:
@@ -92,7 +114,7 @@ def draw_tiebreak_z(
     v_us,  g_us,  u_us  = _side_material(gs, side)
     v_opp, g_opp, u_opp = _side_material(gs, opponent)
     score = (
-        cfg.weight_village    * (v_us - v_opp)
+        cfg.weight_village    * (v_us - v_opp) / _map_total_villages(gs)
         + cfg.weight_gold       * (g_us - g_opp)
         + cfg.weight_unit_value * (u_us - u_opp)
     )
@@ -120,7 +142,7 @@ def material_margin(
     v_us,  g_us,  u_us  = _side_material(gs, side)
     v_opp, g_opp, u_opp = _side_material(gs, opponent)
     score = (
-        cfg.weight_village    * (v_us - v_opp)
+        cfg.weight_village    * (v_us - v_opp) / _map_total_villages(gs)
         + cfg.weight_gold       * (g_us - g_opp)
         + cfg.weight_unit_value * (u_us - u_opp)
     )

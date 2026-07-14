@@ -38,7 +38,10 @@ def _gs(*, gold=(100, 100), villages=(0, 0), unit_costs=((), ())):
         map=SimpleNamespace(units=units),
         sides=[SimpleNamespace(current_gold=gold[0]),
                SimpleNamespace(current_gold=gold[1])],
-        global_info=SimpleNamespace(_village_owner=owner),
+        # Fixed map-village total for the normalized village term
+        # (2026-07-12): stubs have no hexes to count.
+        global_info=SimpleNamespace(_village_owner=owner,
+                                    _map_total_villages=10),
     )
 
 
@@ -146,9 +149,17 @@ def test_finalize_draw_trains_honest_zero_by_default():
     mp.finalize_game("g", winner=0, final_gs=final)
     assert [e.z for e in mp._queue] == [0.0, 0.0], \
         "default: drawn games train the value head toward z=0"
-    # aux target still carries material (that is the aux head's job)
-    assert mp._queue[0].aux_target is not None
-    assert mp._queue[0].aux_target > 0.0
+    # aux target still carries material (that is the aux head's job).
+    # 2026-07-12: targets are the NEXT state's margin -- state 0 sees
+    # the balanced state 1, the LAST state sees the imbalanced final.
+    assert mp._queue[0].aux_target == 0.0
+    assert mp._queue[1].aux_target is not None
+    # queue[1] is the SIDE-2 state; the final favors side 1, so its
+    # margin is negative (antisymmetric perspective).
+    assert mp._queue[1].aux_target < 0.0
+    # Per-game normalization: a 2-state game stamps weight 1/2 on
+    # each experience (games contribute equally regardless of length).
+    assert all(e.game_weight == 0.5 for e in mp._queue)
 
 
 def test_finalize_draw_legacy_tiebreak_optin():

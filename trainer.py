@@ -124,6 +124,13 @@ class MCTSExperience:
     # tempo signal the sparse z cannot provide. None when the game's
     # end turn was unknown (legacy pickles) -- the loss then skips.
     moves_left_target: Optional[float] = None
+    # Per-game normalization weight (2026-07-12): 1/n_recorded_states
+    # of the source game, so every GAME contributes equally to the
+    # gradient regardless of length (a 190-turn ladder draw no longer
+    # outweighs a 10-turn mini ~19:1 in state count). Consumed by
+    # step_mcts in every loss term. Old pickles lack the attr; all
+    # consumers getattr() with default 1.0.
+    game_weight: float = 1.0
     # Training-progress counter at the time this state's MCTS search ran.
     # Threaded into the distillation loss so the reference legality
     # masks rebuild the combat-oracle bias at the SAME annealed alpha the
@@ -956,6 +963,14 @@ def _trainer_step_mcts(
         zs.clamp_(min=-float(self.config.value_clip),
                   max=+float(self.config.value_clip))
 
+    # Per-game normalization (see MCTSExperience.game_weight): every
+    # loss term below is a weighted mean over states with these
+    # weights, so each GAME sums to equal influence.
+    gws = torch.tensor(
+        [float(getattr(e, "game_weight", 1.0)) for e in experiences],
+        device=dev, dtype=torch.float32)
+    total_gw = max(float(gws.sum().item()), 1e-9)
+
     # Auxiliary margin target (KataGo §3.5). Active only when the model
     # has the aux head, the weight is positive, AND every experience
     # carries a margin target -- otherwise the head/term is skipped
@@ -998,7 +1013,7 @@ def _trainer_step_mcts(
     # feed the value head" (dashboard starvation watch).
     _w_full = torch.where(
         zs.abs() >= 0.999, torch.ones_like(zs),
-        torch.full_like(zs, self.config.draw_value_weight))
+        torch.full_like(zs, self.config.draw_value_weight)) * gws
     total_value_w = float(_w_full.sum().item())
     n_value_signal = int((_w_full > 0).sum().item())
     sum_actor_nlp_weighted = 0.0  # for "entropy"-style logging
@@ -1060,7 +1075,9 @@ def _trainer_step_mcts(
             sum_total_visits += total_v
             sum_actor_nlp_weighted += mean_actor_nlp * total_v
 
-        policy_loss_t = torch.stack(chunk_policy_losses).sum() / N
+        gw_chunk = gws[start:start + L]
+        policy_loss_t = (torch.stack(chunk_policy_losses)
+                         * gw_chunk).sum() / total_gw
         val_t = torch.stack(chunk_values)
         vl_t  = torch.stack(chunk_value_logits)
         z_t   = zs[start:start + L]
@@ -1077,7 +1094,8 @@ def _trainer_step_mcts(
         w_t = torch.where(z_t.abs() >= 0.999,
                           torch.ones_like(z_t),
                           torch.full_like(
-                              z_t, self.config.draw_value_weight))
+                              z_t, self.config.draw_value_weight)) \
+            * gw_chunk
         value_loss = _categorical_value_loss(
             vl_t, z_t, atoms,
             label_smoothing=self.config.value_label_smoothing,
@@ -1094,8 +1112,8 @@ def _trainer_step_mcts(
         if aux_on:
             aux_pred_t = torch.stack(chunk_aux)
             aux_tgt_t  = aux_t_full[start:start + L]
-            aux_loss = F.mse_loss(aux_pred_t, aux_tgt_t,
-                                  reduction="sum") / N
+            aux_loss = ((aux_pred_t - aux_tgt_t) ** 2
+                        * gw_chunk).sum() / total_gw
             chunk_loss = chunk_loss + self.config.aux_coef * aux_loss
             sum_aux_loss += float(aux_loss.item())
         # Moves-left loss (Lc0-style): MSE of the predicted vs actual
@@ -1104,8 +1122,8 @@ def _trainer_step_mcts(
         if ml_on:
             ml_pred_t = torch.stack(chunk_ml)
             ml_tgt_t  = ml_t_full[start:start + L]
-            ml_loss = F.mse_loss(ml_pred_t, ml_tgt_t,
-                                 reduction="sum") / N
+            ml_loss = ((ml_pred_t - ml_tgt_t) ** 2
+                       * gw_chunk).sum() / total_gw
             chunk_loss = chunk_loss + self.config.moves_left_coef * ml_loss
             sum_ml_loss += float(ml_loss.item())
 

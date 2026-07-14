@@ -432,7 +432,10 @@ class MCTSPolicy:
         end_turn_no = (aux_gs.global_info.turn_number
                        if aux_gs is not None else None)
         exps: List[MCTSExperience] = []
-        for s in states:
+        # Per-game gradient normalization (2026-07-12): each game
+        # contributes equal total weight regardless of length.
+        gw = 1.0 / max(1, len(states))
+        for i, s in enumerate(states):
             if winner == 0:
                 if (self._train_draw_tiebreak and tiebreak is not None
                         and final_gs is not None):
@@ -443,9 +446,16 @@ class MCTSPolicy:
                 z = +1.0
             else:
                 z = -1.0
-            aux = (material_margin(aux_gs, s.side, tiebreak)
-                   if (tiebreak is not None and aux_gs is not None)
-                   else None)
+            # Aux target = NEXT recorded state's margin (2026-07-12,
+            # was: the game's FINAL margin). One-step material
+            # prediction directly credits captures/kills the moment
+            # they happen -- and since the next recorded state may
+            # follow the opponent's reply, it teaches captures that
+            # HOLD. The last state falls back to the true final state.
+            nxt_gs = (states[i + 1].gs if i + 1 < len(states)
+                      else (aux_gs if aux_gs is not None else s.gs))
+            aux = (material_margin(nxt_gs, s.side, tiebreak)
+                   if tiebreak is not None else None)
             ml = None
             if end_turn_no is not None:
                 remaining = max(0, end_turn_no
@@ -458,6 +468,7 @@ class MCTSPolicy:
                 aux_target=aux,
                 moves_left_target=ml,
                 decision_step=s.decision_step,
+                game_weight=gw,
             ))
         # Holdout diversion: while the probe set is below target, the
         # WHOLE game goes there instead of training (states within one
