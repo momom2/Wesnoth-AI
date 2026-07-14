@@ -1315,27 +1315,34 @@ def run_iteration(
     # the pool deadline abandoning slow ladder draws inflated it
     # further). Ladder decisiveness is the number that matters for
     # full-game strength; log both.
-    ladder_n = sum(1 for o in outcomes if o.map_class == "ladder")
-    ladder_dec = sum(1 for o in outcomes
+    # Midgame continuations are ladder-class but inherit village-rich
+    # human positions; pooling them into the fresh buckets made both
+    # the decisive split and the fog split misleading (2026-07-14).
+    # They get their own segment; ladder/mini buckets are FRESH only.
+    _fresh = [o for o in outcomes if not getattr(o, "midgame", False)]
+    ladder_n = sum(1 for o in _fresh if o.map_class == "ladder")
+    ladder_dec = sum(1 for o in _fresh
                      if o.map_class == "ladder" and o.winner != 0)
-    other_n = len(outcomes) - ladder_n
-    other_dec = sum(1 for o in outcomes
+    other_n = len(_fresh) - ladder_n
+    other_dec = sum(1 for o in _fresh
                     if o.map_class != "ladder" and o.winner != 0)
     # Per-class SIDE split (2026-07-07: a 1-7 side-2 iteration was
     # only visible as an anecdote; global s1/s2 hides which map class
     # carries an asymmetry).
-    ladder_s1 = sum(1 for o in outcomes
+    ladder_s1 = sum(1 for o in _fresh
                     if o.map_class == "ladder" and o.winner == 1)
     ladder_s2 = ladder_dec - ladder_s1
-    other_s1 = sum(1 for o in outcomes
+    other_s1 = sum(1 for o in _fresh
                    if o.map_class != "ladder" and o.winner == 1)
     other_s2 = other_dec - other_s1
     if outcomes:
+        _mg_log = [o for o in outcomes if getattr(o, "midgame", False)]
         log.info(
             f"iter {iter_idx}: decisive split -- ladder "
             f"{ladder_dec}/{ladder_n} (s1 {ladder_s1}, s2 {ladder_s2}), "
             f"mini/drill {other_dec}/{other_n} "
-            f"(s1 {other_s1}, s2 {other_s2})")
+            f"(s1 {other_s1}, s2 {other_s2}), midgame "
+            f"{sum(1 for o in _mg_log if o.winner != 0)}/{len(_mg_log)}")
     # Per-game JSONL (2026-07-12 user spec): one directory PER
     # ITERATION so records stay browsable, one JSON line per game
     # with the full engagement telemetry.
@@ -1437,8 +1444,13 @@ def run_iteration(
     # `end` is final ownership. getattr() defaults tolerate spooled
     # outcomes pickled by older worker code.
     def _fog_cond_stats(want_fogless: bool) -> Dict:
+        # FRESH ladder games only: midgame continuations are fog-on
+        # and village-rich by inheritance, and pooling them here made
+        # the fogged bucket read ~5 villages/turn vs 0.7 fogless
+        # (2026-07-14 confusion).
         games = [o for o in outcomes
                  if o.map_class == "ladder"
+                 and not getattr(o, "midgame", False)
                  and getattr(o, "fogless", False) == want_fogless]
         if not games:
             return {"n": 0, "dec": 0, "vpt": None, "vend": None,
@@ -1466,7 +1478,7 @@ def run_iteration(
             return (f"{c['dec']}/{c['n']} dec, vil/turn {c['vpt']:.2f} "
                     f"(end {c['vend']:.1f}), approach {appr}")
         log.info(
-            f"iter {iter_idx}: ladder fog split -- fogged "
+            f"iter {iter_idx}: FRESH ladder fog split -- fogged "
             f"{_fmt_cond(fog_stats)} | fogless "
             f"{_fmt_cond(fogless_stats)}")
 
@@ -1777,6 +1789,9 @@ class _TrainerHistoryCSV:
         "ladder_fogless_games", "ladder_fogless_decisive",
         "ladder_fogless_villages_per_turn", "ladder_fogless_villages_end",
         "ladder_fogless_approach",
+        # NB (2026-07-14): ladder_*/other_*/ladder_fog*/ladder_fogless*
+        # columns count FRESH games only; midgame continuations are
+        # reported in midgame_games/midgame_decisive exclusively.
         # Engagement telemetry aggregates (2026-07-12 user spec; the
         # per-game detail incl. kill breakdowns lives in the per-
         # iteration games.jsonl). *_pg = mean per game, both sides
