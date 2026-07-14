@@ -410,6 +410,8 @@ class WesnothSim:
         scenario_id:   str,
         max_turns:     int = DEFAULT_MAX_TURNS,
         max_actions_per_side: int = DEFAULT_MAX_ACTIONS_PER_SIDE,
+        apply_scenario_events: bool = True,
+        begin_side: int = 1,
     ):
         self.gs = initial_state
         self.scenario_id = scenario_id
@@ -418,8 +420,11 @@ class WesnothSim:
 
         # Wire scenario-specific events (time_area, store_locations,
         # Aethermaw morph, etc.) -- mirrors what replay_dataset does
-        # at the top of iter_replay_pairs.
-        _setup_scenario_events(self.gs, scenario_id)
+        # at the top of iter_replay_pairs. Mid-game starts pass
+        # False: reconstruction already fired them, and prestart
+        # unit placement (CoB statues) must not double-apply.
+        if apply_scenario_events:
+            _setup_scenario_events(self.gs, scenario_id)
 
         self.done:      bool = False
         self.winner:    int  = 0
@@ -474,7 +479,11 @@ class WesnothSim:
 
         # Turn 0 is pre-game. The first init_side(1) bumps to turn 1
         # AND fires turn-1 events / healing. Mirror that here.
-        self._begin_side_turn(1)
+        # Mid-game starts resume at the side whose init_side the cut
+        # landed on (adversarial review 2026-07-12 C1: hardcoding side
+        # 1 skipped side 2's turn and double-turned side 1 -- free
+        # income+healing tempo bias in every continuation).
+        self._begin_side_turn(begin_side)
 
     # ----- factory ---------------------------------------------------
 

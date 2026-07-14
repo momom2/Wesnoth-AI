@@ -96,6 +96,9 @@ def main(argv) -> int:
     ap.add_argument("--moves-left-utility", type=float, default=0.0)
     ap.add_argument("--aux-value-bonus", type=float, default=0.0)
     ap.add_argument("--fogless-ratio", type=float, default=0.0)
+    ap.add_argument("--midgame-ratio", type=float, default=0.0)
+    ap.add_argument("--midgame-dataset", type=Path,
+                    default=Path("replays_dataset"))
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--torch-threads", type=int, default=2)
     ap.add_argument("--log-level", default="WARNING")
@@ -147,16 +150,32 @@ def main(argv) -> int:
             # current weights, retry next game.
             log.warning(f"checkpoint reload skipped: {e}")
 
-        setup = random_setup(rng, mini_ratio=args.mini_ratio,
-                             drill_ratio=args.drill_ratio,
-                             fogless_ratio=args.fogless_ratio)
-        gs = build_scenario_gamestate(
-            setup, base_income=pvp.base_income,
-            village_gold=pvp.village_gold,
-            village_upkeep=pvp.village_support,
-            experience_modifier=pvp.experience_modifier)
-        sim = WesnothSim(gs, scenario_id=setup.scenario_id,
-                         max_turns=args.max_turns)
+        setup = None
+        midgame_cut = None
+        if args.midgame_ratio > 0 and rng.random() < args.midgame_ratio:
+            from tools.midgame_starts import sample_midgame_start
+            mg = sample_midgame_start(rng, args.midgame_dataset)
+            if mg is not None:
+                setup = ("__midgame__",) + mg
+        if setup is None:
+            setup = random_setup(rng, mini_ratio=args.mini_ratio,
+                                 drill_ratio=args.drill_ratio,
+                                 fogless_ratio=args.fogless_ratio)
+        if isinstance(setup, tuple) and setup[0] == "__midgame__":
+            _, gs, scen_id, midgame_cut, begin_side = setup
+            sim = WesnothSim(gs, scenario_id=scen_id,
+                             max_turns=args.max_turns,
+                             apply_scenario_events=False,
+                             begin_side=begin_side)
+            sim._midgame_start = True
+        else:
+            gs = build_scenario_gamestate(
+                setup, base_income=pvp.base_income,
+                village_gold=pvp.village_gold,
+                village_upkeep=pvp.village_support,
+                experience_modifier=pvp.experience_modifier)
+            sim = WesnothSim(gs, scenario_id=setup.scenario_id,
+                             max_turns=args.max_turns)
         label = f"w{args.worker_id}g{n}"
         ds_before = base._decision_step
         outcome = play_one_game(sim, policy, _zero_reward,

@@ -147,6 +147,9 @@ class GameOutcome:
     # getattr() these with defaults: spool workers may pickle
     # outcomes from an older code version.
     fogless: bool = False
+    # Game began from a human-corpus mid-game position (2026-07-12
+    # backward-curriculum starts) rather than a fresh scenario.
+    midgame: bool = False
     # Full per-game engagement telemetry (tools/engagement_stats.py,
     # user spec 2026-07-12): attacks (attempted / Wesnoth-invalid /
     # sim-rejected), damage, kills by unit type + value, healing by
@@ -683,6 +686,7 @@ def play_one_game(
                                      or ""),
         turn_action_counts=sorted(turn_action_tally.values()),
         fogless=not getattr(sim.gs.global_info, "_fog", True),
+        midgame=getattr(sim, "_midgame_start", False),
         engagement=engagement,
         villages_mean_s1=(sum(v[0] for v in village_turn_samples)
                           / len(village_turn_samples)
@@ -844,6 +848,32 @@ def _play_one_game_safe(
     (CoB neutrals, Aethermaw morph, etc.).
     """
     from tools.scenario_pool import build_scenario_gamestate
+    # Mid-game start: `setup` is ("__midgame__", gs, scenario_id,
+    # cut_turn) from sample_midgame_start (see _worker_loop).
+    if isinstance(setup, tuple) and setup and setup[0] == "__midgame__":
+        _, gs, scen_id, _cut, begin_side = setup
+        try:
+            sim = WesnothSim(gs, scenario_id=scen_id,
+                             max_turns=max_turns,
+                             apply_scenario_events=False,
+                             begin_side=begin_side)
+            sim._midgame_start = True
+        except Exception as e:                        # noqa: BLE001
+            log.warning(f"skipping midgame start ({scen_id}): {e}")
+            return None
+        if hasattr(policy, "reset_game"):
+            policy.reset_game(game_label)
+        if hasattr(reward_fn, "reset_game_state"):
+            reward_fn.reset_game_state(game_label)
+        try:
+            return play_one_game(
+                sim, policy, reward_fn,
+                game_label=game_label, cost_lookup=cost_lookup,
+            )
+        except Exception as e:                        # noqa: BLE001
+            log.exception(f"midgame game {game_label} crashed: {e}")
+            policy.drop_pending(game_label)
+            return None
     # Map pvp_defaults onto build_scenario_gamestate kwargs.
     sg = (pvp_defaults.starting_gold if pvp_defaults else 100)
     bi = (pvp_defaults.base_income   if pvp_defaults else 2)
@@ -885,6 +915,8 @@ def _worker_loop(
     mini_ratio: float = 0.0,
     drill_ratio: float = 0.0,
     fogless_ratio: float = 0.0,
+    midgame_ratio: float = 0.0,
+    midgame_dataset: Optional[Path] = None,
 ):
     """Per-thread rollout loop. Each worker pulls a game index from
     `shared.next_game` (atomic under the master lock), assigns
@@ -899,10 +931,18 @@ def _worker_loop(
                 return
             g_idx = shared["next_game"]
             shared["next_game"] += 1
-        setup = random_setup(worker_rng, forced_faction=forced_faction,
-                             mini_maps=mini_maps, mini_ratio=mini_ratio,
-                             drill_ratio=drill_ratio,
-                             fogless_ratio=fogless_ratio)
+        setup = None
+        if midgame_ratio > 0 and worker_rng.random() < midgame_ratio:
+            from tools.midgame_starts import sample_midgame_start
+            mg = sample_midgame_start(
+                worker_rng, midgame_dataset or Path("replays_dataset"))
+            if mg is not None:
+                setup = ("__midgame__",) + mg
+        if setup is None:
+            setup = random_setup(worker_rng, forced_faction=forced_faction,
+                                 mini_maps=mini_maps, mini_ratio=mini_ratio,
+                                 drill_ratio=drill_ratio,
+                                 fogless_ratio=fogless_ratio)
         game_label = (f"iter{shared['iter_idx']}_"
                       f"w{worker_id}_g{g_idx}")
         outcome = _play_one_game_safe(
@@ -948,6 +988,10 @@ class SpoolWorkers:
                 args, "mcts_aux_value_bonus", 0.0)),
             "--fogless-ratio", str(max(0.0, min(1.0, getattr(
                 args, "fogless_ratio", 0.0)))),
+            "--midgame-ratio", str(max(0.0, min(1.0, getattr(
+                args, "midgame_ratio", 0.0)))),
+            "--midgame-dataset", str(getattr(
+                args, "midgame_dataset", Path("replays_dataset"))),
             "--log-level", log_level,
         ] + (["--train-draw-tiebreak"] if getattr(
             args, "train_draw_tiebreak", False) else [])
@@ -1048,6 +1092,8 @@ def run_iteration(
     mini_ratio:    float = 0.0,
     drill_ratio:   float = 0.0,
     fogless_ratio: float = 0.0,
+    midgame_ratio: float = 0.0,
+    midgame_dataset: Optional[Path] = None,
     game_log_dir: Optional[Path] = None,
     snapshot_sink: Optional[Callable[[Dict], None]] = None,
     actor_pool=None,
@@ -1119,11 +1165,19 @@ def run_iteration(
         # Serial path -- simplest, used for tests and smoke runs.
         from tools.scenario_pool import random_setup
         for g_idx in range(games_per_iter):
-            setup = random_setup(rng, forced_faction=forced_faction,
-                                 mini_maps=mini_maps,
-                                 mini_ratio=mini_ratio,
-                                 drill_ratio=drill_ratio,
-                                 fogless_ratio=fogless_ratio)
+            setup = None
+            if midgame_ratio > 0 and rng.random() < midgame_ratio:
+                from tools.midgame_starts import sample_midgame_start
+                mg = sample_midgame_start(
+                    rng, midgame_dataset or Path("replays_dataset"))
+                if mg is not None:
+                    setup = ("__midgame__",) + mg
+            if setup is None:
+                setup = random_setup(rng, forced_faction=forced_faction,
+                                     mini_maps=mini_maps,
+                                     mini_ratio=mini_ratio,
+                                     drill_ratio=drill_ratio,
+                                     fogless_ratio=fogless_ratio)
             game_label = f"iter{iter_idx}_g{g_idx}"
             outcome = _play_one_game_safe(
                 setup=setup, max_turns=max_turns,
@@ -1161,6 +1215,8 @@ def run_iteration(
                     mini_ratio=mini_ratio,
                     drill_ratio=drill_ratio,
                     fogless_ratio=fogless_ratio,
+                    midgame_ratio=midgame_ratio,
+                    midgame_dataset=midgame_dataset,
                 ),
                 daemon=True,
                 name=f"selfplay-w{w}",
@@ -1294,6 +1350,7 @@ def run_iteration(
                     "turns": o.turns,
                     "map_class": o.map_class,
                     "fogless": getattr(o, "fogless", False),
+                    "midgame": getattr(o, "midgame", False),
                     "action_counts": o.action_counts,
                     "units_end": [o.side1_units_end, o.side2_units_end],
                     "closest_approach": [o.side1_closest_approach,
@@ -1328,7 +1385,10 @@ def run_iteration(
         vals = [v for v in (d.get(1), d.get(2)) if v is not None]
         return (sum(vals) / len(vals)) if vals else None
 
+    _mg = [o for o in outcomes if getattr(o, "midgame", False)]
     eng_agg = {
+        "midgame_games": len(_mg),
+        "midgame_decisive": sum(1 for o in _mg if o.winner != 0),
         "eng_games": len(_engs),
         "eng_attacks_pg": _emean(lambda e: _e2(e, "attacks_attempted")),
         # Tripwires: SUMS across the iteration; expect exactly 0.
@@ -1720,6 +1780,7 @@ class _TrainerHistoryCSV:
         # summed unless it is a fraction (then side-averaged).
         # eng_invalid/rejected_attacks are iteration SUMS: tripwires
         # for mask/sim/Wesnoth divergence, expected 0.
+        "midgame_games", "midgame_decisive",
         "eng_games", "eng_attacks_pg",
         "eng_invalid_attacks", "eng_rejected_attacks",
         "eng_damage_pg", "eng_kills_pg", "eng_kills_value_pg",
@@ -2117,6 +2178,17 @@ def main(argv: List[str]) -> int:
                          "Combines with --mini-ratio: one roll "
                          "splits ladder/mini/drill, so the two "
                          "ratios must sum to <= 1. Default 0.0.")
+    ap.add_argument("--midgame-ratio", type=float, default=0.0,
+                    help="Fraction of games starting from a human-"
+                         "corpus MID-GAME position (uniform game, "
+                         "uniform turn in [1, end]) played out by "
+                         "self-play -- backward curriculum vs the "
+                         "never-meet stalemate equilibrium "
+                         "(2026-07-12). Requires the value corpus "
+                         "at --midgame-dataset.")
+    ap.add_argument("--midgame-dataset", type=Path,
+                    default=Path("replays_dataset"),
+                    help="Value-corpus dir (index + json.gz games).")
     ap.add_argument("--game-log-dir", type=Path,
                     default=Path("training/logs/games"),
                     help="Per-game JSONL telemetry root; each "
@@ -2357,6 +2429,14 @@ def main(argv: List[str]) -> int:
     args = ap.parse_args(argv[1:])
     if args.game_log_dir is not None and str(args.game_log_dir) in ("", "."):
         args.game_log_dir = None
+    if float(getattr(args, "midgame_ratio", 0.0)) > 0:
+        from tools.midgame_starts import midgame_available
+        if not midgame_available(args.midgame_dataset):
+            log.warning(
+                f"--midgame-ratio {args.midgame_ratio} requested but no "
+                f"value corpus at {args.midgame_dataset} -- ALL games "
+                f"will be fresh starts (midgame_games column will read "
+                f"0).")
 
     logging.basicConfig(
         level=getattr(logging, args.log_level),
@@ -2956,6 +3036,8 @@ def main(argv: List[str]) -> int:
             mini_ratio=max(0.0, min(1.0, float(args.mini_ratio))),
             drill_ratio=max(0.0, min(1.0, float(args.drill_ratio))),
             fogless_ratio=max(0.0, min(1.0, float(args.fogless_ratio))),
+            midgame_ratio=max(0.0, min(1.0, float(args.midgame_ratio))),
+            midgame_dataset=args.midgame_dataset,
             game_log_dir=args.game_log_dir,
             snapshot_sink=(history_csv.append if history_csv else None),
             actor_pool=actor_pool,
