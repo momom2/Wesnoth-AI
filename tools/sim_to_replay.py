@@ -878,6 +878,7 @@ def _render_side_block(
     user_team_name: str,
     pre_placed_villages: List[Tuple[int, int]] = (),
     pre_placed_units: List[Tuple[str, int, int]] = (),
+    income_offset: int = 0,
 ) -> str:
     """Render one `[side]...[/side]` block. Mirrors what Wesnoth emits
     for a fresh-game save: a top-level type= for the leader (Wesnoth
@@ -898,7 +899,12 @@ def _render_side_block(
         f'\tfaction_name="{faction}"',
         f'\tfog="no"',  # PvP default ladder has fog off
         f'\tgold="{gold}"',
-        f'\tincome="0"',
+        # [side] income is an OFFSET over game_config::base_income=2
+        # (team.hpp:179). Default-era games emit 0; corpus games with
+        # base income 3/4 need 1/2 here or playback under-accrues
+        # gold every turn and recruits bounce ("unit too expensive",
+        # validation catch 2026-07-15).
+        f'\tincome="{income_offset}"',
         f'\tis_host="{"yes" if side_num == 1 else "no"}"',
         f'\tis_local="yes"',
         f'\tname="Sim Player {side_num}"',
@@ -1075,7 +1081,7 @@ def build_save_wml(
     sim:          WesnothSim,
     *,
     pvp_defaults: Optional[PvPDefaults] = None,
-    side_gold: Optional[Dict[int, int]] = None,
+    side_economy: Optional[Dict[int, dict]] = None,
 ) -> str:
     """Compose a complete Wesnoth save WML string for the sim's game.
 
@@ -1164,10 +1170,12 @@ def build_save_wml(
             keep_x = leader_pos.x + 1
             keep_y = leader_pos.y + 1
         # Precedence: explicit per-side override (midgame validation
-        # exports carry the source game's true per-side gold --
-        # handicap games exist in the corpus) > scenario cfg > pvp.
-        if side_gold and i in side_gold:
-            starting_gold = side_gold[i]
+        # exports carry the source game's true per-side economy --
+        # handicap gold and base_income 3/4 games exist in the
+        # corpus) > scenario cfg > pvp defaults.
+        econ = (side_economy or {}).get(i, {})
+        if "gold" in econ:
+            starting_gold = int(econ["gold"])
         else:
             starting_gold = cfg_gold.get(i, pvp.starting_gold)
         color, team_name, user_team_name = _color_for_side(i)
@@ -1178,8 +1186,10 @@ def build_save_wml(
             faction=side_info.faction or "Custom",
             recruit=list(side_info.recruits or []),
             gold=starting_gold,
-            village_gold=village_gold,
-            village_support=village_support,
+            village_gold=int(econ.get("village_gold", village_gold)),
+            village_support=int(
+                econ.get("village_support", village_support)),
+            income_offset=int(econ.get("income_offset", 0)),
             color=color,
             team_name=team_name,
             user_team_name=user_team_name,

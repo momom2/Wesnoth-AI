@@ -94,6 +94,25 @@ class ValidationExporter:
             return None
 
 
+def side_economy_from_dataset(starting_sides: list) -> dict:
+    """Per-side economy overrides for build_save_wml, from a value-
+    corpus game's starting_sides. Dataset keys: `gold`,
+    `village_income` (the [side] village_gold attr),
+    `village_support`, `base_income` (TOTAL; the emitted [side]
+    income attr is the offset over game_config::base_income=2,
+    team.hpp:179)."""
+    econ = {}
+    for i, s in enumerate(starting_sides):
+        side = int(s.get("side", i + 1) or (i + 1))
+        econ[side] = {
+            "gold": int(s.get("gold", 100) or 100),
+            "village_gold": int(s.get("village_income", 2) or 2),
+            "village_support": int(s.get("village_support", 1) or 1),
+            "income_offset": int(s.get("base_income", 2) or 2) - 2,
+        }
+    return econ
+
+
 def _walk_prefix_commands(data: dict, boundary_idx: int):
     """Re-apply the source game's commands[:boundary_idx] on a fresh
     reconstruction, harvesting per-command extras exactly like
@@ -181,15 +200,16 @@ def export_midgame_replay(sim, out_path: Path) -> None:
     if not {1, 2} <= set(initial_leaders):
         raise RuntimeError(f"{gz.name}: missing starting leaders")
 
-    # Starting-side economy: the source game's TRUE per-side gold
-    # (handicap games with e.g. 100/200 exist in the corpus) goes
-    # through build_save_wml's side_gold override.
+    # Starting-side economy: the source game's TRUE per-side
+    # settings. Handicap gold (100/200), base_income 3/4 and
+    # village_income variants all exist in the corpus; any mismatch
+    # makes playback accrue different gold than the reconstruction
+    # did until recruits bounce ("unit too expensive to recruit",
+    # validation catch 2026-07-15).
     sides = data.get("starting_sides", [])
-    gold_by_side = {int(s.get("side", i + 1) or (i + 1)):
-                    int(s.get("gold", 100) or 100)
-                    for i, s in enumerate(sides)}
+    side_economy = side_economy_from_dataset(sides)
     pvp = PvPDefaults(
-        starting_gold=gold_by_side.get(1, 100),
+        starting_gold=int(side_economy.get(1, {}).get("gold", 100)),
         experience_modifier=int(
             data.get("experience_modifier", 70) or 70),
     )
@@ -206,7 +226,7 @@ def export_midgame_replay(sim, out_path: Path) -> None:
         command_history=list(prefix) + list(sim.command_history),
     )
     save_wml = build_save_wml(shim, pvp_defaults=pvp,
-                              side_gold=gold_by_side)
+                              side_economy=side_economy)
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with bz2.open(out_path, "wt", encoding="utf-8") as f:

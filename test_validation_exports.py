@@ -125,3 +125,36 @@ def test_recruit_rng_predictor_named_races():
     assert f("Vampire Bat") is True       # bats nameless BUT draws a trait
     assert f("Dark Adept") is True        # multi-gender
     assert f("Elvish Fighter") is True    # named + trait draws
+
+
+def test_midgame_export_carries_source_economy():
+    """Third validation-pipeline catch (2026-07-15): midgame exports
+    dropped the source game's economy, so playback under-accrued
+    gold on base_income-3/4 or village_income variants until
+    recruits bounced ("unit 'X' is too expensive to recruit").
+    The [side] income attr is an OFFSET over
+    game_config::base_income=2 (team.hpp:179). Engine-verified:
+    a 14-turn, 32-recruit prefix on a base_income=3 / gold=150
+    corpus game plays back clean 515/515."""
+    from tools.validation_exports import side_economy_from_dataset
+    econ = side_economy_from_dataset([
+        {"side": 1, "gold": 150, "village_income": 1,
+         "village_support": 2, "base_income": 3},
+        {"side": 2, "gold": 200, "base_income": 4},
+    ])
+    assert econ[1] == {"gold": 150, "village_gold": 1,
+                       "village_support": 2, "income_offset": 1}
+    assert econ[2]["gold"] == 200 and econ[2]["income_offset"] == 2
+    assert econ[2]["village_gold"] == 2      # dataset default
+    # And build_save_wml emits them per side.
+    from test_sim_to_replay_from_scratch import _build_sim_for
+    from tools.sim_to_replay import build_save_wml
+    import re
+    sim = _build_sim_for("multiplayer_Hamlets")
+    wml = build_save_wml(sim, side_economy=econ)
+    sides = re.findall(r"\[side\](.*?)\[/side\]", wml, re.S)
+    s1 = next(s for s in sides if 'side="1"' in s)
+    s2 = next(s for s in sides if 'side="2"' in s)
+    assert 'income="1"' in s1 and 'gold="150"' in s1 \
+        and 'village_gold="1"' in s1
+    assert 'income="2"' in s2 and 'gold="200"' in s2
