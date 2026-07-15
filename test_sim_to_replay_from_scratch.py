@@ -416,3 +416,54 @@ def test_exported_save_pins_tod_start_slot():
     wml2 = build_save_wml(sim2)
     m2 = re.search(r"^\s*current_time=(\d+)", wml2, re.MULTILINE)
     assert m2 and m2.group(1) == "5", m2
+
+
+def test_tod_start_policy_mirrors_engine():
+    """User policy 2026-07-15 == engine behavior: set-time maps
+    (ladder) start at their scenario `current_time` (Fallenstar
+    Lake / Ruined Passage = 5, everything else 0);
+    random_start_time=yes maps (all minis) draw a uniform slot per
+    game; a ScenarioSetup.tod_start override forces any slot on any
+    map (general capability). Human-derived midgame starts read the
+    replay's own current_time via _build_initial_gamestate."""
+    import random as _random
+    from tools.scenario_pool import sample_tod_start
+
+    rng = _random.Random(123)
+    # Set-time maps: constant, whatever the rng says.
+    assert all(sample_tod_start("multiplayer_Fallenstar_Lake", rng) == 5
+               for _ in range(10))
+    assert all(sample_tod_start("multiplayer_Hamlets", rng) == 0
+               for _ in range(10))
+    # random_start_time=yes minis: uniform draw -- across 60 draws
+    # all 6 slots should appear (P(miss one) < 1e-4).
+    draws = {sample_tod_start("enclave_micro_isar", rng)
+             for _ in range(60)}
+    assert draws == {0, 1, 2, 3, 4, 5}, draws
+    # random_setup stamps the draw on the setup, and the built game
+    # carries it end to end (offset + global time_of_day + export).
+    from tools.scenario_pool import random_setup
+    setup = None
+    rng2 = _random.Random(7)
+    while setup is None or setup.tod_start in (None, 0):
+        setup = random_setup(rng2, mini_maps=True, forced_faction=None)
+    gs = build_scenario_gamestate(setup, experience_modifier=70)
+    assert getattr(gs.global_info, "_tod_start_offset", 0) == setup.tod_start
+    # Override capability: force second watch on a dawn map.
+    factions = load_factions()
+    forced = ScenarioSetup(
+        scenario_id="multiplayer_Hamlets",
+        faction1="Drakes",
+        leader1=factions["Drakes"].random_leader_pool[0],
+        faction2="Rebels",
+        leader2=factions["Rebels"].random_leader_pool[0],
+        tod_start=5,
+    )
+    gs2 = build_scenario_gamestate(forced, experience_modifier=70)
+    assert getattr(gs2.global_info, "_tod_start_offset", 0) == 5
+    assert gs2.global_info.time_of_day == "second_watch"
+    import re
+    sim = WesnothSim(gs2, scenario_id="multiplayer_Hamlets", max_turns=2)
+    m = re.search(r"^\s*current_time=(\d+)", build_save_wml(sim),
+                  re.MULTILINE)
+    assert m and m.group(1) == "5", m

@@ -200,12 +200,14 @@ def main(argv) -> int:
             fnames = list(factions.keys())
             f1 = rng.choice(fnames)
             f2 = rng.choice(fnames)
+            from tools.scenario_pool import sample_tod_start
             setup = ScenarioSetup(
                 scenario_id=args.scenario,
                 faction1=f1,
                 leader1=rng.choice(factions[f1].random_leader_pool),
                 faction2=f2,
                 leader2=rng.choice(factions[f2].random_leader_pool),
+                tod_start=sample_tod_start(args.scenario, rng),
             )
         else:
             setup = random_setup(rng)
