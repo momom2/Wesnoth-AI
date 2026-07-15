@@ -143,15 +143,33 @@ def _extract_inline_macros(text: str) -> Tuple[str, Dict[str, Tuple[List[str], s
 
 
 def _split_macro_args(arg_str: str) -> List[str]:
-    """Split macro invocation arguments respecting quoted strings."""
+    """Split macro invocation arguments respecting quoted strings AND
+    Wesnoth-preprocessor parenthesized arguments: `(a b, c)` is ONE
+    argument whose value is the inner text (parens stripped) -- the
+    Mini_Maps_Collection spawns pass `(Tentacle of the Deep)` and
+    `(2,2)` this way; splitting them on whitespace mangled x,y into
+    `(2` / `2)` and the [unit] action silently dropped every enclave
+    tentacle (found 2026-07-14)."""
     args: List[str] = []
     cur = ""
     in_quote = False
+    depth = 0
     for ch in arg_str:
-        if ch == '"':
+        if ch == '"' and depth == 0:
             in_quote = not in_quote
             cur += ch
-        elif ch.isspace() and not in_quote:
+        elif ch == "(" and not in_quote:
+            if depth > 0:
+                cur += ch
+            depth += 1
+        elif ch == ")" and not in_quote and depth > 0:
+            depth -= 1
+            if depth > 0:
+                cur += ch
+            else:
+                args.append(cur)
+                cur = ""
+        elif ch.isspace() and not in_quote and depth == 0:
             if cur:
                 args.append(cur)
                 cur = ""
@@ -340,12 +358,40 @@ def load_scenario_wml(scenario_id: str) -> Optional[WMLNode]:
 
     raw = candidate.read_text(encoding="utf-8", errors="replace")
     raw = _strip_comments(_strip_textdomain(raw))
-    raw = _expand_parallel_assigns(raw)
     raw, scenario_macros = _extract_inline_macros(raw)
     # Merge core macros with this scenario's local macros (local wins).
     all_macros = dict(_CORE_MACROS_CACHE)
+    # Add-on scenarios may define macros in SIBLING utility files
+    # (Mini_Maps_Collection keeps {MI_UNIT_PLACING} in
+    # utils/units-utils.cfg): without them the enclave maps' turn-1
+    # tentacle spawns expanded to nothing and side 3 was silently
+    # empty (found 2026-07-14). Load defines from every other .cfg
+    # under the add-on root (nearest ancestor containing _main.cfg).
+    addon_root = None
+    for parent in candidate.parents:
+        if (parent / "_main.cfg").is_file():
+            addon_root = parent
+            break
+    if addon_root is not None:
+        for util_cfg in sorted(addon_root.rglob("*.cfg")):
+            if util_cfg == candidate:
+                continue
+            try:
+                util_raw = _strip_comments(_strip_textdomain(
+                    util_cfg.read_text(encoding="utf-8",
+                                       errors="replace")))
+            except OSError:
+                continue
+            _, util_macros = _extract_inline_macros(util_raw)
+            for k, v in util_macros.items():
+                all_macros.setdefault(k, v)
     all_macros.update(scenario_macros)
     expanded = _substitute_macros(raw, all_macros)
+    # Parallel assigns (x,y=2,2) AFTER substitution: macro bodies
+    # carry `x,y={POSITION}` which only becomes expandable once the
+    # args are in (the pre-substitution ordering silently mangled
+    # every enclave tentacle spawn, 2026-07-14).
+    expanded = _expand_parallel_assigns(expanded)
     return parse_wml(expanded)
 
 
