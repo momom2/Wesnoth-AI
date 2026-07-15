@@ -385,3 +385,34 @@ def test_all_mini_maps_emit_without_error(tmp_path):
         except Exception as e:
             failures.append(f"{sid}: {type(e).__name__}: {e}")
     assert not failures, "\n".join(failures)
+
+
+def test_exported_save_pins_tod_start_slot():
+    """The emitted [scenario] must carry `current_time=<the slot the
+    sim played>`. 1.18.4 tod_manager.cpp:51-55: a present
+    current_time disables random_start_time entirely, so playback
+    neither re-draws the start slot (Mini_Maps have
+    random_start_time=yes) nor consumes an extra synced-RNG draw.
+    Without the pin, Wesnoth drew its own slot and every
+    ToD-sensitive strike diverged (2026-07-15: tentacle retaliation
+    4 sim-dawn vs 3 engine-day on enclave_micro_isar).
+    """
+    import re
+    # Default-schedule map: sim plays slot 0 -> pin 0.
+    sim = _build_sim_for("enclave_micro_isar",
+                         faction1="Knalgan Alliance", faction2="Rebels")
+    wml = build_save_wml(sim)
+    m = re.search(r"^\s*current_time=(\d+)", wml, re.MULTILINE)
+    assert m and m.group(1) == "0", m
+    # Second-watch map ({DEFAULT_SCHEDULE_SECOND_WATCH} emits
+    # current_time=5): the fresh build must START there and the
+    # export must pin the same slot.
+    from tools.scenario_pool import _scenario_tod_start
+    assert _scenario_tod_start("multiplayer_Fallenstar_Lake") == 5
+    assert _scenario_tod_start("multiplayer_Hamlets") == 0
+    sim2 = _build_sim_for("multiplayer_Fallenstar_Lake")
+    assert getattr(sim2.gs.global_info, "_tod_start_offset", 0) == 5
+    assert sim2.gs.global_info.time_of_day == "second_watch"
+    wml2 = build_save_wml(sim2)
+    m2 = re.search(r"^\s*current_time=(\d+)", wml2, re.MULTILINE)
+    assert m2 and m2.group(1) == "5", m2

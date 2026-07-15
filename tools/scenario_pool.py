@@ -467,6 +467,37 @@ def random_setup(
     )
 
 
+def _scenario_tod_start(scenario_id: str) -> int:
+    """Turn-1 ToD slot for a fresh game on this scenario.
+
+    Read from the repo-tracked expanded template
+    (`tools/templates/scenarios/<id>.wml`, built by the game's own
+    preprocessor): schedule macros resolve to a `current_time` attr
+    there -- e.g. {DEFAULT_SCHEDULE_SECOND_WATCH} (Fallenstar Lake,
+    Ruined Passage) emits current_time=5, so real Wesnoth starts
+    those maps at second watch, not dawn. Before 2026-07-15 this was
+    hardcoded 0 and fresh self-play on those maps ran a ToD cycle
+    shifted 5 slots from real Wesnoth.
+
+    `random_start_time=yes` scenarios (the Mini_Maps pool) have no
+    current_time and still pin slot 0 here -- sampling the slot
+    per-game like real Wesnoth does is a training-distribution
+    decision, not taken yet. The replay exporter writes whatever
+    slot the sim used (as `current_time`, which 1.18.4
+    tod_manager.cpp:51-55 lets override random_start_time), so
+    Wesnoth playback matches the sim either way.
+    """
+    import re as _re
+    tpl = (Path(__file__).resolve().parent / "templates" / "scenarios"
+           / f"{scenario_id}.wml")
+    try:
+        m = _re.search(r'^\s*current_time=(\d+)',
+                       tpl.read_text(encoding="utf-8"), _re.MULTILINE)
+    except OSError:
+        return 0
+    return int(m.group(1)) if m else 0
+
+
 def build_scenario_gamestate(
     setup: ScenarioSetup,
     *,
@@ -701,7 +732,7 @@ def build_scenario_gamestate(
         "starting_units":      starting_units,
         "starting_sides":      starting_sides,
         "experience_modifier": experience_modifier,
-        "tod_start_index":     0,
+        "tod_start_index":     _scenario_tod_start(setup.scenario_id),
     }
 
     gs = _build_initial_gamestate(data)

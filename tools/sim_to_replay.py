@@ -1150,6 +1150,31 @@ def build_save_wml(
             pre_placed_units=unit_map.get(i, []),
         ))
 
+    # ---- pin the ToD start slot the sim actually played ----
+    # 1.18.4 tod_manager.cpp:51-55: when the scenario cfg carries a
+    # `current_time` attr, `random_start_time` is ignored ENTIRELY
+    # (random_tod_ = false -> resolve_random() no-ops, no synced-RNG
+    # draw). Without this pin, playback of a random_start_time=yes
+    # scenario (all Mini_Maps) re-draws the start slot from the
+    # save's RNG seed and every ToD-sensitive strike diverges
+    # (witnessed 2026-07-15: tentacle retaliation 4 (sim, dawn) vs
+    # 3 (Wesnoth, chaotic day) on enclave_micro_isar). Replacing an
+    # existing current_time (Fallenstar Lake / Ruined Passage
+    # templates carry 5 = second watch) keeps playback faithful to
+    # whatever the SIM used, even if the sim's own slot choice is
+    # wrong for that map.
+    tod_start = int(getattr(
+        sim.gs.global_info, "_tod_start_offset", 0) or 0)
+    if re.search(r'^\s*current_time=', template_body, re.MULTILINE):
+        template_body = re.sub(
+            r'^(\s*)current_time=.*$',
+            rf'\g<1>current_time={tod_start}',
+            template_body, count=1, flags=re.MULTILINE)
+    else:
+        template_body = template_body.replace(
+            "[scenario]\n",
+            f"[scenario]\n\tcurrent_time={tod_start}\n", 1)
+
     # ---- compose [scenario] block: template + injected [side]s ----
     # Splice ordering matters: Wesnoth processes [side] blocks IN
     # ORDER and assumes side 1 first, then 2, then any scenery

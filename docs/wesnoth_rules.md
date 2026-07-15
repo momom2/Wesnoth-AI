@@ -1009,6 +1009,44 @@ WML order in our exported replay must be: `[attack]` →
 
 ## Scenario events
 
+### `current_time` overrides `random_start_time`; schedule macros set it
+
+`wesnoth_src/src/tod_manager.cpp:51-55` (1.18.4, constructor):
+```cpp
+// ? : operator doesn't work in this case.
+if(scenario_cfg["current_time"].to_int(-17403) == -17403) {
+    random_tod_ = scenario_cfg["random_start_time"];
+} else {
+    random_tod_ = false;
+}
+```
+and `:66-67`:
+```cpp
+currentTime_ = fix_time_index(times_.size(), scenario_cfg["current_time"].to_int(0));
+```
+
+If the scenario cfg carries a `current_time=N` attribute, the
+turn-1 ToD slot is N and `random_start_time` is IGNORED entirely —
+`resolve_random()` (called at scenario init under the synced
+gamedata RNG, see the game_state.cpp quote in "Recruit traits use
+the synced MP RNG") no-ops without consuming a draw. Only when
+`current_time` is ABSENT does `random_start_time=yes` draw
+`r.next_random()` from the synced RNG.
+
+**Why non-obvious**: (1) the schedule macros hide the attribute —
+`{DEFAULT_SCHEDULE_SECOND_WATCH}` (Fallenstar Lake, Ruined Passage)
+expands to the six default `[time]` blocks PLUS `current_time=5`,
+so those maps start at second watch even though their .cfg shows no
+`current_time` textually. (2) The Mini_Maps pool has
+`random_start_time=yes`: a sim-exported replay whose [scenario]
+lacks `current_time` makes playback re-draw the slot from the
+save's seed and every ToD-sensitive strike diverges (witnessed
+2026-07-15: tentacle retaliation 4 sim-dawn vs 3 engine-day).
+`build_save_wml` therefore always pins `current_time=<the slot the
+sim played>`; `scenario_pool._scenario_tod_start` reads the slot
+from the expanded template for fresh builds. Pinned by
+`test_sim_to_replay_from_scratch.py::test_exported_save_pins_tod_start_slot`.
+
 ### Pre-placed units via `[switch] variable=pN_faction [case]` (Hornshark Island)
 
 Most MP maps spawn only leaders and let players recruit. **Hornshark

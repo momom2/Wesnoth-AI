@@ -656,7 +656,9 @@ def _build_initial_gamestate(data: dict) -> GameState:
                 hexes=hexes, units=units),
         global_info=GlobalInfo(
             current_side=current_side, turn_number=0,
-            time_of_day=_tod_for_turn(1), village_gold=village_gold,
+            time_of_day=_tod_for_turn(
+                1, int(data.get("tod_start_index", 0) or 0)),
+            village_gold=village_gold,
             village_upkeep=village_support, base_income=2,
         ),
         sides=sides,
