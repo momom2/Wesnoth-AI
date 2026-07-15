@@ -926,6 +926,19 @@ class WesnothSim:
                        for u in self.gs.map.units):
                     from tools.neutral_ai import run_neutral_side_turn
                     run_neutral_side_turn(self, side=3)
+                    if self.done and self.gs.global_info.current_side \
+                            not in (1, 2):
+                        # A tentacle killed a leader: the game is
+                        # over and the WINNER is the player side
+                        # whose leader survives (_check_game_over's
+                        # leader-alive rule). Terminal states must
+                        # not report current_side=3 -- every
+                        # downstream consumer (telemetry, terminal
+                        # observation, GameOutcome) indexes by
+                        # player side. Point it at the survivor.
+                        if self.winner in (1, 2):
+                            self.gs.global_info.current_side = \
+                                self.winner
             if not self.done:
                 self._begin_side_turn(next_side)
         else:

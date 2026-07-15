@@ -135,21 +135,33 @@ def test_tentacle_attacks_again_on_later_turns():
         f"tentacle must attack every turn (got {len(s3_attacks)})"
 
 
-def test_tentacle_leader_kill_ends_game_for_opponent():
-    """A tentacle killing side 1's leader must end the game with
-    side 2 as the winner (surviving player side)."""
+def _run_leader_kill(victim_side: int):
+    """Park VICTIM side's leader at 1 HP next to a tentacle and
+    cycle turns until the neutral side kills it. Returns the sim."""
     sim = _sim()
     tent = next(u for u in sim.gs.map.units if u.side == 3)
-    lead = next(u for u in sim.gs.map.units if u.side == 1)
+    lead = next(u for u in sim.gs.map.units if u.side == victim_side)
     _park_adjacent(sim, lead, tent)
     lead.current_hp = 1                   # any hit kills
     for _ in range(4):
         if sim.done:
             break
         sim.step({"type": "end_turn"})
-    assert sim.done, "leader death must end the game"
-    assert sim.winner == 2, f"survivor wins (got {sim.winner})"
-    assert sim.ended_by == "leader_killed"
+    return sim
+
+
+def test_tentacle_leader_kill_ends_game_for_opponent():
+    """A tentacle killing a leader must end the game with the side
+    that STILL HAS a leader as the winner -- both directions (user
+    2026-07-15: happens surprisingly often on some mini maps). The
+    terminal state must also report a PLAYER side as current_side,
+    not 3 (every downstream consumer indexes by player side)."""
+    for victim, survivor in ((1, 2), (2, 1)):
+        sim = _run_leader_kill(victim)
+        assert sim.done, "leader death must end the game"
+        assert sim.winner == survivor,             f"victim {victim}: survivor {survivor} wins "             f"(got {sim.winner})"
+        assert sim.ended_by == "leader_killed"
+        assert sim.gs.global_info.current_side == survivor,             f"terminal current_side must be the surviving player "             f"side (got {sim.gs.global_info.current_side})"
 
 
 def test_wounded_tentacle_regenerates_on_its_turn():

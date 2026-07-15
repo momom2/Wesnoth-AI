@@ -187,3 +187,24 @@ def test_outcome_engagement_end_to_end():
     assert e["search"] is not None
     assert 0.0 <= e["search"]["overturn_frac"] <= 1.0
     assert e["search"]["n_searches"] > 0
+
+
+def test_first_contact_is_player_vs_player_only():
+    """Poking a side-3 tentacle is NOT "contact" (user 2026-07-15):
+    first_contact_turn only sets when the target is the OPPOSING
+    PLAYER side. Attacking side 3 still counts as an attempted (and
+    Wesnoth-valid) attack."""
+    from tools.engagement_stats import EngagementStats
+    gs = _gs()
+    gs.map.units.add(_u("tent", 3, 3, 4, name="Tentacle of the Deep"))
+    es = EngagementStats()
+    # side 1 attacks the armed side-3 tentacle: no contact.
+    es.note_attack_attempt(gs, {"type": "attack",
+                                "target_hex": Position(3, 4)})
+    assert es.first_contact_turn is None
+    assert es.attacks_attempted[1] == 1
+    assert es.attacks_invalid_wesnoth[1] == 0   # armed side-3 = valid
+    # side 1 attacks the side-2 unit: contact.
+    es.note_attack_attempt(gs, {"type": "attack",
+                                "target_hex": Position(4, 3)})
+    assert es.first_contact_turn == 1

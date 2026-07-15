@@ -139,8 +139,6 @@ class EngagementStats:
         if side not in (1, 2):
             return
         self.attacks_attempted[side] += 1
-        if self.first_contact_turn is None:
-            self.first_contact_turn = gs.global_info.turn_number
         # Wesnoth-as-played validity, from RAW unit state (never the
         # mask/encoder): target exists, is a hostile player-side
         # unit, and is not incapacitated (mouse_events.cpp:753).
@@ -150,6 +148,12 @@ class EngagementStats:
             dfd = next((u for u in gs.map.units
                         if u.position.x == t.x and u.position.y == t.y),
                        None)
+        # First contact = PLAYER-vs-PLAYER only (user 2026-07-15):
+        # poking a side-3 tentacle on a mini map is not "contact
+        # with the enemy".
+        if (self.first_contact_turn is None and dfd is not None
+                and dfd.side in (1, 2) and dfd.side != side):
+            self.first_contact_turn = gs.global_info.turn_number
         from visibility import is_scenery_unit
         invalid = (dfd is None
                    or dfd.side == side

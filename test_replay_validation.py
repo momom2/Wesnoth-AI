@@ -169,3 +169,32 @@ def test_mini_export_plays_back_oos_free_in_wesnoth(tmp_path):
     assert problems == []
     bad = validate_in_wesnoth(out, timeout=300)
     assert bad == [], "\n".join(bad)
+
+
+def test_event_unit_scan_reaches_switch_case_spawns():
+    """Layer-1 occupancy seeding must find units spawned via
+    [event]->[switch]->[case]->[unit] (Hornshark Island's faction
+    starters). WMLNode.all() is non-recursive, so the flat
+    ev.all("unit") scan finds ZERO of them -- the recursive walk
+    (validate_replay.py, 2026-07-15) must find them all."""
+    from tools.scenario_events import load_scenario_wml
+    root = load_scenario_wml("multiplayer_Hornshark_Island")
+    assert root is not None
+    mp = root.first("multiplayer") or root.first("scenario")
+    assert mp is not None
+    flat, recursive = 0, 0
+    for ev in mp.all("event"):
+        flat += sum(1 for u in ev.all("unit")
+                    if u.attrs.get("x") and u.attrs.get("y"))
+        stack = [ev]
+        while stack:
+            node = stack.pop()
+            for child in node.children:
+                if (child.tag == "unit" and child.attrs.get("x")
+                        and child.attrs.get("y")):
+                    recursive += 1
+                stack.append(child)
+    assert recursive > flat, (
+        f"recursive walk must find the [switch]/[case] spawns the "
+        f"flat scan misses (flat={flat}, recursive={recursive})")
+    assert recursive >= 8, f"Hornshark spawns >= 8 (got {recursive})"

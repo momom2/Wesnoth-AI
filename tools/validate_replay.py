@@ -99,11 +99,25 @@ def validate_replay(path: Path) -> List[str]:
                        if root_wml is not None else None)
             if mp_node is not None:
                 for ev in mp_node.all("event"):
-                    for u in ev.all("unit"):
-                        xs = _ints(u.attrs.get("x", ""))
-                        ys = _ints(u.attrs.get("y", ""))
-                        if xs and ys:
-                            occupied.add((xs[0], ys[0]))
+                    # RECURSIVE descent: Hornshark's faction starters
+                    # spawn via [event]->[switch]->[case]->[unit], and
+                    # WMLNode.all() only returns direct children --
+                    # the non-recursive scan missed them and produced
+                    # "attack from empty hex" false positives
+                    # (independent review 2026-07-14, fixed
+                    # 2026-07-15). Over-collection risk ([unit]
+                    # inside [filter] etc.) is acceptable: occupancy
+                    # is a permissive heuristic here.
+                    stack = [ev]
+                    while stack:
+                        node = stack.pop()
+                        for child in node.children:
+                            if child.tag == "unit":
+                                xs = _ints(child.attrs.get("x", ""))
+                                ys = _ints(child.attrs.get("y", ""))
+                                if xs and ys:
+                                    occupied.add((xs[0], ys[0]))
+                            stack.append(child)
         except Exception:                             # noqa: BLE001
             pass
 
