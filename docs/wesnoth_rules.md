@@ -450,6 +450,50 @@ healing loop) and matches every branch above; oasis (`^Do`,
 `tools/terrain_resolver.terrain_heals` mirroring
 `terrain.cpp:230`'s `max(base.heals_, overlay.heals_)`.
 
+### Default (RCA) AI combat rating
+
+`src/ai/default/attack.cpp` `attack_analysis::rating` (1.18.4,
+~lines 298-345; fetched verbatim 2026-07-14):
+```cpp
+if(leader_threat) { aggression = 1.0; }
+if(uses_leader)   { aggression = ai_obj.get_leader_aggression(); }
+double value = chance_to_kill*target_value - avg_losses*(1.0-aggression);
+if(terrain_quality > alternative_terrain_quality) {
+    const double exposure_mod = uses_leader ? 2.0 : ai_obj.get_caution();
+    const double exposure = exposure_mod*resources_used*
+        (terrain_quality - alternative_terrain_quality)*vulnerability
+        /std::max<double>(0.01,support);
+    value -= exposure*(1.0-aggression);
+}
+value += ((target_starting_damage/3 + avg_damage_inflicted)
+          - (1.0-aggression)*avg_damage_taken)/10.0;
+if(!is_surrounded || (support != 0 && avg_damage_taken != 0)) {
+    if(vulnerability > 50.0 && vulnerability > support*2.0
+       && chance_to_kill < 0.02 && aggression < 0.75
+       && !attack_close(target)) { return -1.0; }
+}
+if(!leader_threat && vulnerability*terrain_quality > 0.0 && support != 0) {
+    value *= support/(vulnerability*terrain_quality);
+}
+value /= ((resources_used/2) + (resources_used/2)*terrain_quality);
+if(leader_threat) { value *= 5.0; }
+```
+Inputs (analyze()): target_value = cost*(1+xp/max_xp);
+resources_used = attacker cost (same scaling); terrain_quality =
+cost-weighted defender-CTH-vs-attacker (x0.5 on village);
+target_starting_damage = max_hp - hp. The combat CA
+(src/ai/default/ca.cpp) executes the best-rated analysis only while
+rating > 0.0 -- "no efficient fight -> idle".
+
+**Why non-obvious**: leader_threat sets aggression to 1.0 (losses
+ignored) AND multiplies the final value by 5 -- the default AI
+deliberately kamikazes into enemy leaders. A 1-HP unit adjacent to
+an enemy leader attacks; the same unit next to a non-leader idles.
+Pinned by test_neutral_ai.py. Our stationary port:
+tools/neutral_ai.py (exposure term exactly 0 for immobile
+attackers; power_projection gates approximated as
+support=vulnerability=0 pending a port -- documented there).
+
 ### Attacking a petrified defender
 
 `wesnoth_src/src/actions/attack.cpp` and `unit.hpp:1352-1355`:
