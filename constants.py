@@ -64,6 +64,22 @@ MAX_ACTIONS_PER_GAME = 500
 LOG_FREQUENCY        = 10
 CHECKPOINT_FREQUENCY = 100
 
+# Legality-mask rule (user 2026-07-15): end_turn is ILLEGAL while
+# (a) any of our units that is not the-leader-standing-on-a-keep
+# still has a legal move, or (b) any recruit is affordable and
+# placeable. Motivation: watched decisive replays showed the
+# policies mostly idling while a tentacle (which at least attacks
+# every turn) killed a leader. This is an action-SPACE constraint,
+# not a reward: the mask stays a pure function of observable state
+# (CLAUDE.md contract) -- both conditions read only visible units,
+# own gold, and the already-computed legal-move/recruit rows, and
+# by construction whenever end_turn is masked at least one other
+# action is legal (no deadlock). The leader-on-keep exception lets
+# the leader hold its recruiting spot without being forced to
+# wander. Flip to False to restore free idling (e.g. for A/B or
+# eval-contract experiments).
+FORBID_IDLE_END_TURN = True
+
 # ----------------------------------------------------------------------
 # IPC (see wesnoth_interface.py)
 # ----------------------------------------------------------------------

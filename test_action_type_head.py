@@ -353,9 +353,23 @@ def test_enumerate_legal_actions_with_priors_includes_type_idx():
         elif atype in ("recruit", "end_turn"):
             assert p.type_idx is None
     # Should have multiple unit actions (we have a unit at (3,3) +
-    # an enemy at (4,3)) AND at least one end_turn entry.
-    assert by_type["end_turn"] >= 1
+    # an enemy at (4,3)). end_turn is ABSENT here: units still have
+    # legal moves, so the FORBID_IDLE_END_TURN gate (user rule
+    # 2026-07-15) masks it.
+    assert by_type["end_turn"] == 0
     assert (by_type["attack"] + by_type["move"]) >= 1
+    # Exhaust the side's MP -> end_turn reappears with type_idx=None.
+    from dataclasses import replace as _replace
+    for u in list(gs.map.units):
+        if u.side == 1:
+            gs.map.units.discard(u)
+            gs.map.units.add(_replace(u, current_moves=0))
+    encoded2 = encoder.encode(gs)
+    with torch.no_grad():
+        out2 = model(encoded2)
+        priors2 = enumerate_legal_actions_with_priors(encoded2, out2, gs)
+    ends = [p for p in priors2 if p.action.get("type") == "end_turn"]
+    assert len(ends) >= 1 and ends[0].type_idx is None
 
 
 def test_mcts_factored_loss_consumes_type_idx():

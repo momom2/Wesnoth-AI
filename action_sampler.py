@@ -1299,6 +1299,44 @@ def _build_legality_masks(
                     target_valid_np[a] = recruit_hex_row.astype(np.float32)
                     actor_valid_np[a] = 1.0
 
+    # ----- end_turn gate (constants.FORBID_IDLE_END_TURN) -----
+    # end_turn becomes ILLEGAL while (a) some unit that is not the
+    # leader-standing-on-a-keep still has a legal MOVE, or (b) any
+    # recruit is affordable+placeable (user rule 2026-07-15). Both
+    # conditions are read off the rows already computed above, so
+    # the mask stays a pure function of observable state, and
+    # whenever the gate fires at least one non-end_turn action is
+    # legal by construction (no deadlock). Attack-only situations
+    # (no moves left, nothing recruitable) keep end_turn legal --
+    # attacks are never mandated.
+    from constants import FORBID_IDLE_END_TURN
+    if FORBID_IDLE_END_TURN:
+        has_recruit = bool(actor_valid_np[U:U + R].any()) if R > 0 else False
+        has_idle_move = False
+        if not has_recruit:
+            for i in range(U):
+                if not actor_valid_np[i]:
+                    continue
+                if not target_move_np[i].any():
+                    continue
+                u = _unit_by_id(game_state, encoded.unit_ids[i])
+                if u is None or u.side != current_side:
+                    continue
+                if u.is_leader:
+                    lhex = next(
+                        (h for h in game_state.map.hexes
+                         if h.position.x == u.position.x
+                         and h.position.y == u.position.y),
+                        None,
+                    )
+                    if (lhex is not None
+                            and TerrainModifiers.KEEP in lhex.modifiers):
+                        continue          # leader may hold its keep
+                has_idle_move = True
+                break
+        if has_recruit or has_idle_move:
+            actor_valid_np[A - 1] = 0.0
+
     return LegalityMasks(
         actor_valid  = torch.from_numpy(actor_valid_np).to(device).unsqueeze(0),
         target_valid = torch.from_numpy(target_valid_np).to(device),
