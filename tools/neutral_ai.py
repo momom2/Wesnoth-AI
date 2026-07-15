@@ -33,9 +33,9 @@ Inputs come from the sim's EXACT combat distributions
 approximations:
     chance_to_kill        = P(defender hp 0)
     avg_damage_inflicted  = E[defender hp lost]
-                            + poison_amount*2*P(defender poisoned
-                              & survives) when we can poison (per
-                              analyze(); tentacles don't poison)
+                            (analyze()'s poison bonus term is NOT
+                            implemented -- tentacles cannot poison;
+                            port it before any poisoning monster)
     avg_damage_taken      = E[attacker hp lost]
     avg_losses            = attacker_cost * P(attacker dies)
     target_value          = cost * (1 + xp/max_xp)
@@ -146,9 +146,13 @@ def rate_attack(gs, attacker, defender, action: dict,
 
     target_value = _xp_scaled_cost(defender)
     resources_used = _xp_scaled_cost(attacker)
-    leader_threat = bool(getattr(defender, "is_leader", False))
-    if leader_threat:
-        aggression = 1.0
+    # leader_threat in 1.18.4 analyze() means "the target stands
+    # adjacent to a leader of the AI's OWN side" (defend my leader),
+    # NOT "the target is a leader". Monster sides are no_leader=yes,
+    # so for side>=3 it is constant FALSE -- no aggression=1.0, no
+    # x5 (independent review 2026-07-14 M1: the first port inverted
+    # this and made tentacles kamikaze into enemy leaders).
+    leader_threat = False
 
     value = ctk * target_value - avg_losses * (1.0 - aggression)
     # exposure: exactly 0 (stationary attacker; tq == alt_tq).
@@ -161,8 +165,7 @@ def rate_attack(gs, attacker, defender, action: dict,
     if _attacker_on_village(gs, attacker):
         tq *= 0.5
     value /= ((resources_used / 2) + (resources_used / 2) * tq)
-    if leader_threat:
-        value *= 5.0
+    # (leader_threat x5 branch: unreachable for no-leader sides.)
     return value
 
 
@@ -221,4 +224,11 @@ def run_neutral_side_turn(sim, side: int = 3) -> int:
         n_attacks += 1
         if sim.done:
             break
+    # Close the side's turn in the command stream: Wesnoth playback
+    # advances turns via each side's [end_turn] wrap-around
+    # (independent review 2026-07-14 M2 -- without this, exported
+    # tentacle-map replays are structurally invalid).
+    if not sim.done:
+        sim.command_history.append(RecordedCommand(
+            kind="end_turn", side=side, cmd=["end_turn"]))
     return n_attacks

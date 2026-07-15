@@ -62,3 +62,30 @@ def test_around_mini_tentacle_is_a_side2_player_unit():
           if u.side == 2 and u.name == "Tentacle of the Deep"]
     assert len(s2) == 1
     assert (s2[0].position.x, s2[0].position.y) == (4, 5)
+
+
+def test_mainline_statue_maps_spawn_scenery_exactly_once():
+    """The parser fixes also affect MAINLINE ladder maps whose
+    prestart events place petrified statues (independent review
+    2026-07-14 M3). Pin the exact statue counts, that every statue
+    classifies as scenery (petrified => unattackable non-actor),
+    and that nothing double-spawned (no two units on one hex).
+    Reconstruction parity separately verified: 17/19 statue-map
+    corpus replays clean, both failures a pre-existing
+    Ladder_Random side-numbering quirk.
+    """
+    from visibility import is_scenery_unit
+    expected_statues = {
+        "multiplayer_Sullas_Ruins": 5,               # Sulla + 4 servants
+        "multiplayer_Basilisk": 15,                  # basilisk victims
+        "multiplayer_thousand_stings_garrison": 66,  # scorpion garrison
+    }
+    for sid, n_statues in expected_statues.items():
+        sim = _sim(sid)
+        petr = [u for u in sim.gs.map.units
+                if "petrified" in (u.statuses or set())]
+        assert len(petr) == n_statues, \
+            f"{sid}: {len(petr)} petrified != {n_statues}"
+        assert all(is_scenery_unit(u) for u in petr), sid
+        pos = [(u.position.x, u.position.y) for u in sim.gs.map.units]
+        assert len(pos) == len(set(pos)), f"{sid}: duplicate hex"

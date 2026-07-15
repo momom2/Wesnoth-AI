@@ -908,6 +908,12 @@ class WesnothSim:
             # Advance to the next side. 2p only for now.
             n_sides = max(2, len(self.gs.sides))
             next_side = (side_now % n_sides) + 1
+            # NB reward attribution (review 2026-07-14 M4): the
+            # neutral turn's effects land inside side 2's end_turn
+            # step, so REINFORCE-path compute_delta credits side 2
+            # for tentacle damage to side 1. Production training is
+            # MCTS (per-step shaping is a no-op there); fix the
+            # delta split before any REINFORCE run on tentacle maps.
             # Neutral side-3 turn (Mini_Maps tentacles, 2026-07-14):
             # Wesnoth's side order is 1, 2, 3 within a turn, so the
             # RCA combat turn for armed side-3 units runs after side

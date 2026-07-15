@@ -43,14 +43,19 @@ def test_tentacle_attacks_weak_adjacent_unit_and_order_survives():
     tent = next(u for u in sim.gs.map.units if u.side == 3)
     lead = next(u for u in sim.gs.map.units if u.side == 1)
     _park_adjacent(sim, lead, tent)
-    lead.current_hp = 12
+    # Wounded and DEFENSELESS: under correct leader_threat semantics
+    # (constant false for monster sides) a retaliating leader can
+    # rate <= 0 -- real RCA caution. No retaliation + missing HP
+    # rates > 0 deterministically.
+    lead.current_hp = 30
+    lead.attacks.clear()
     sim.step({"type": "end_turn"})
     sim.step({"type": "end_turn"})
     after = next((u for u in sim.gs.map.units if u.id == lead.id), None)
-    assert after is None or after.current_hp < 12, \
-        "tentacle must attack the weak adjacent leader"
+    assert after is None or after.current_hp < 30, \
+        "tentacle must attack the wounded defenseless target"
     s3 = [rc.kind for rc in sim.command_history if rc.side == 3]
-    assert s3 == ["init_side", "attack"]
+    assert s3 == ["init_side", "attack", "end_turn"]
     assert sim.gs.global_info.turn_number == 2
     assert sim.gs.global_info.current_side == 1
 
@@ -101,19 +106,50 @@ def test_rating_gate_declines_bad_fight():
     tent2.current_hp = 1
     action = {"type": "attack", "start_hex": tent2.position,
               "target_hex": after.position, "attack_index": 0}
-    was_leader = after.is_leader
-    after.is_leader = False
     r = rate_attack(sim.gs, tent2, after, action, aggression=0.3)
     assert r is None or r <= 0.0, \
-        f"1-HP tentacle vs full non-leader must rate <= 0 (got {r})"
-    # Against a LEADER the same suicide attack rates POSITIVE:
-    # attack_analysis::rating sets aggression=1.0 and multiplies by
-    # 5 on leader threats -- real RCA kamikazes into enemy leaders.
-    after.is_leader = was_leader
-    r_leader = rate_attack(sim.gs, tent2, after, action,
-                           aggression=0.3)
-    assert r_leader is not None and r_leader > 0.0, \
-        f"leader-threat kamikaze must rate > 0 (got {r_leader})"
+        f"1-HP tentacle vs full unit must rate <= 0 (got {r})"
+    # leader_threat means "target adjacent to MY OWN leader", not
+    # "target is a leader" (review 2026-07-14 M1). A no-leader
+    # monster side never triggers it: the suicide attack rates <= 0
+    # even against an enemy LEADER.
+    assert after.is_leader, "fixture: target is the enemy leader"
+
+
+def test_tentacle_attacks_again_on_later_turns():
+    """init_side(3) must reset has_attacked: the tentacle fights
+    every turn, not only the first (private uncertainty list item,
+    verified directly)."""
+    sim = _sim()
+    tent = next(u for u in sim.gs.map.units if u.side == 3)
+    lead = next(u for u in sim.gs.map.units if u.side == 1)
+    _park_adjacent(sim, lead, tent)
+    lead.current_hp = 30                  # wounded: rating > 0
+    lead.attacks.clear()                  # no retaliation
+    for _ in range(2):                    # two full turn cycles
+        sim.step({"type": "end_turn"})
+        sim.step({"type": "end_turn"})
+    s3_attacks = [rc for rc in sim.command_history
+                  if rc.side == 3 and rc.kind == "attack"]
+    assert len(s3_attacks) >= 2, \
+        f"tentacle must attack every turn (got {len(s3_attacks)})"
+
+
+def test_tentacle_leader_kill_ends_game_for_opponent():
+    """A tentacle killing side 1's leader must end the game with
+    side 2 as the winner (surviving player side)."""
+    sim = _sim()
+    tent = next(u for u in sim.gs.map.units if u.side == 3)
+    lead = next(u for u in sim.gs.map.units if u.side == 1)
+    _park_adjacent(sim, lead, tent)
+    lead.current_hp = 1                   # any hit kills
+    for _ in range(4):
+        if sim.done:
+            break
+        sim.step({"type": "end_turn"})
+    assert sim.done, "leader death must end the game"
+    assert sim.winner == 2, f"survivor wins (got {sim.winner})"
+    assert sim.ended_by == "leader_killed"
 
 
 def test_wounded_tentacle_regenerates_on_its_turn():

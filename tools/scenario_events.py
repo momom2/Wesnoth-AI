@@ -369,7 +369,10 @@ def load_scenario_wml(scenario_id: str) -> Optional[WMLNode]:
     # under the add-on root (nearest ancestor containing _main.cfg).
     addon_root = None
     for parent in candidate.parents:
-        if (parent / "_main.cfg").is_file():
+        # Only genuine add-on trees: mainline multiplayer/ also has a
+        # _main.cfg, and merging all 86 mainline cfgs' defines into
+        # every load is broad, slow, and fragile (review 2026-07-14).
+        if (parent / "_main.cfg").is_file() and "add-ons" in parent.parts:
             addon_root = parent
             break
     if addon_root is not None:

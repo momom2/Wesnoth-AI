@@ -485,11 +485,13 @@ target_starting_damage = max_hp - hp. The combat CA
 (src/ai/default/ca.cpp) executes the best-rated analysis only while
 rating > 0.0 -- "no efficient fight -> idle".
 
-**Why non-obvious**: leader_threat sets aggression to 1.0 (losses
-ignored) AND multiplies the final value by 5 -- the default AI
-deliberately kamikazes into enemy leaders. A 1-HP unit adjacent to
-an enemy leader attacks; the same unit next to a non-leader idles.
-Pinned by test_neutral_ai.py. Our stationary port:
+**Why non-obvious**: `leader_threat` does NOT mean "the target is
+a leader" -- analyze() sets it when the target stands adjacent to a
+leader of the AI's OWN side (defending my leader justifies
+sacrifices: aggression=1.0 and x5). A no-leader monster side
+(Mini_Maps tentacles) therefore NEVER triggers it (independent
+review 2026-07-14 corrected an inverted first reading that briefly
+lived in this entry). Our stationary port:
 tools/neutral_ai.py (exposure term exactly 0 for immobile
 attackers; power_projection gates approximated as
 support=vulnerability=0 pending a port -- documented there).
