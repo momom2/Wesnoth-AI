@@ -15,7 +15,8 @@ Usage:
     python tools/run_validation_batch.py --hf-pull     # fetch first
 
 Idempotent: replays already in the results CSV are skipped, so run
-it periodically during a campaign (each playback takes ~1-2 min).
+it periodically during a campaign (each playback takes ~10s with
+the harness's turbo/skip-animation prefs, 2026-07-15).
 """
 
 from __future__ import annotations
@@ -97,7 +98,7 @@ def main(argv) -> int:
         log.info("nothing new to validate")
         return 0
     log.info(f"{len(todo)} replay(s) to validate "
-             f"(~{len(todo) * 1.5:.0f} min)")
+             f"(~{len(todo) * 12 / 60:.0f} min)")
 
     from tools.validate_replay_wesnoth import validate_in_wesnoth
     new_row = not results_path.exists()

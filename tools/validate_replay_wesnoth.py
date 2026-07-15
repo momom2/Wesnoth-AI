@@ -55,7 +55,28 @@ USERDATA_DIR = Path(tempfile.gettempdir()) / "wesnoth_ai_validate_userdata"
 
 # preferences WML format per 1.18.4 src/hotkey/hotkey_item.cpp
 # save_helper: [hotkey] command=..., key=<lowercased key name>.
-_PREFERENCES = '[hotkey]\n\tcommand="playreplay"\n\tkey="p"\n[/hotkey]\n'
+# Speed prefs (2026-07-15, user request -- playback was wasting
+# minutes on animations): turbo x16 (max UI choice), no map/water
+# animation, no action scrolling, no audio; skip_ai_moves is
+# harmless belt-and-braces (only fires for AI-controller sides;
+# our exported sides are human). `replayskipanimation` (bound to
+# "s", unbound by default like playreplay) TOGGLES
+# play_controller::skip_replay_ -- posted exactly ONCE after
+# playback visibly starts, since a second press would toggle the
+# skip back off. All of this lives in the ISOLATED userdata
+# profile, so the user's own Wesnoth preferences are untouched.
+_PREFERENCES = (
+    '[hotkey]\n\tcommand="playreplay"\n\tkey="p"\n[/hotkey]\n'
+    '[hotkey]\n\tcommand="replayskipanimation"\n\tkey="s"\n[/hotkey]\n'
+    'turbo=yes\n'
+    'turbo_speed=16\n'
+    'skip_ai_moves=yes\n'
+    'animate_map=no\n'
+    'animate_water=no\n'
+    'scroll_to_action=no\n'
+    'sound=no\n'
+    'music=no\n'
+)
 
 # Engine log signatures of replay desync, calibrated 2026-07-06 by
 # playing a KNOWN-BAD replay with --log-debug=replay and reading what
@@ -84,7 +105,7 @@ if os.name == "nt":
     _ENUM = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND,
                                wintypes.LPARAM)
     _WM_KEYDOWN, _WM_KEYUP = 0x100, 0x101
-    _VK_P = 0x50
+    _VK_P, _VK_S = 0x50, 0x53
     _SW_SHOWMINNOACTIVE = 7
 
     def _windows_of(pid: int) -> list:
@@ -107,20 +128,29 @@ if os.name == "nt":
             found = True
         return found
 
-    def _post_play_hotkey(pid: int) -> None:
-        """PostMessage the bound 'p' key — reaches SDL's message pump
+    def _post_hotkey(pid: int, vk: int) -> None:
+        """PostMessage a bound key — reaches SDL's message pump
         without focusing/raising the window (no focus stealing)."""
-        scan = _u32.MapVirtualKeyW(_VK_P, 0)
+        scan = _u32.MapVirtualKeyW(vk, 0)
         lp_down = 1 | (scan << 16)
         lp_up = 1 | (scan << 16) | (1 << 30) | (1 << 31)
         for h in _windows_of(pid):
-            _u32.PostMessageW(h, _WM_KEYDOWN, _VK_P, lp_down)
-            _u32.PostMessageW(h, _WM_KEYUP, _VK_P, lp_up)
+            _u32.PostMessageW(h, _WM_KEYDOWN, vk, lp_down)
+            _u32.PostMessageW(h, _WM_KEYUP, vk, lp_up)
+
+    def _post_play_hotkey(pid: int) -> None:
+        _post_hotkey(pid, _VK_P)
+
+    def _post_skip_hotkey(pid: int) -> None:
+        _post_hotkey(pid, _VK_S)
 else:
     def _minimize(pid: int) -> bool:      # pragma: no cover
         return False
 
     def _post_play_hotkey(pid: int) -> None:  # pragma: no cover
+        pass
+
+    def _post_skip_hotkey(pid: int) -> None:  # pragma: no cover
         pass
 
 
@@ -149,7 +179,10 @@ def validate_in_wesnoth(replay: Path, timeout: float = 420.0,
     saves.mkdir(parents=True, exist_ok=True)
     prefs = USERDATA_DIR / "preferences"
     if (not prefs.exists()
-            or "playreplay" not in prefs.read_text(encoding="utf-8")):
+            or "replayskipanimation"
+            not in prefs.read_text(encoding="utf-8")):
+        # rewrite also upgrades pre-2026-07-15 isolated profiles
+        # (play hotkey only, no turbo/skip prefs).
         prefs.write_text(_PREFERENCES, encoding="utf-8")
     shutil.copy2(replay, saves / replay.name)
 
@@ -164,6 +197,7 @@ def validate_in_wesnoth(replay: Path, timeout: float = 420.0,
     progress = 0          # highest X seen in "action X/Y"
     total = None          # Y
     minimized = False
+    skip_sent = False
     log_file = None
     pos = 0
     t0 = time.time()
@@ -205,6 +239,12 @@ def validate_in_wesnoth(replay: Path, timeout: float = 420.0,
             # nudging the play hotkey until playback visibly moves.
             if progress < _MIN_PROGRESS:
                 _post_play_hotkey(proc.pid)
+            elif not skip_sent:
+                # Playback confirmed running -> hotkeys reach the
+                # replay controller. Toggle skip-animation exactly
+                # once (it's a TOGGLE; repeats would turn it off).
+                _post_skip_hotkey(proc.pid)
+                skip_sent = True
             if total is not None and progress >= total:
                 log.info("replay played to the end (%d/%d)",
                          progress, total)
