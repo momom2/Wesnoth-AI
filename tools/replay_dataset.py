@@ -1116,6 +1116,24 @@ def _maybe_advance_unit(gs: GameState, u: Unit) -> Unit:
     return u
 
 
+def _record_advance_event(gs: GameState, side: int, choice: int) -> None:
+    """Side-channel for replay export (mirrors _last_checkup_strikes):
+    every advancement step -- type advance OR AMLA, including each
+    link of a multi-advance chain -- appends (side, choice_index)
+    to `gs.global_info._last_advance_events`. The exporter emits one
+    dependent [choose] block per event; Wesnoth's advance_unit_at
+    fires get_user_choice for EVERY advancement (advancement.cpp:296),
+    AMLA included. The old name-change detector missed AMLAs (name
+    unchanged) and chain links (one name diff for two advances) --
+    caught by the validation pipeline 2026-07-15 ("expecting a user
+    choice" on late-game exports)."""
+    events = getattr(gs.global_info, "_last_advance_events", None)
+    if events is None:
+        events = []
+        setattr(gs.global_info, "_last_advance_events", events)
+    events.append((int(side), int(choice)))
+
+
 def _advance_unit_once(gs: GameState, u: Unit) -> Unit:
     """Apply exactly one advancement step to `u` (either a real
     type advance or an AMLA), returning the new unit. Pulled out
@@ -1140,9 +1158,13 @@ def _advance_unit_once(gs: GameState, u: Unit) -> Unit:
         # AMLA dropped value=0, then cmd[1084]'s value=1 got pushed
         # behind it; Wolf Rider then advanced with value=0.)
         pending = list(getattr(gs.global_info, "_advance_choices", []) or [])
+        amla_choice = 0
         if pending:
-            pending.pop(0)
+            v = pending.pop(0)
+            if isinstance(v, int):
+                amla_choice = v
             setattr(gs.global_info, "_advance_choices", pending)
+        _record_advance_event(gs, u.side, amla_choice)
         new_max_hp = u.max_hp + 3
         # AMLA_DEFAULT (data/core/macros/amla.cfg) effects:
         #   [effect] apply_to=hitpoints   increase_total=3 heal_full=yes
@@ -1200,6 +1222,7 @@ def _advance_unit_once(gs: GameState, u: Unit) -> Unit:
     # mirrors Wesnoth's `unit::advance_to` which copies the source's
     # variation across when the destination has it. Falls back to the
     # base advances_to entry if no matching variation exists.
+    _record_advance_event(gs, u.side, targets.index(new_type))
     if ":" in u.name:
         _, src_var = u.name.split(":", 1)
         if src_var:
@@ -1923,8 +1946,19 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         if result.attacker_alive:
             new_max = att.max_hp + (1 if att_feed_bump else 0)
             new_hp = result.attacker_hp_after + (1 if att_feed_bump else 0)
+            # Attacking spends ALL remaining movement:
+            # attack.cpp:1372 `set_movement(movement_left -
+            # movement_used(), true)` with attack_type::movement_used
+            # defaulting to "everything" (no default-era weapon
+            # overrides it -- grepped data/core/units 2026-07-15).
+            # Missing this let self-play move units AFTER attacking;
+            # Wesnoth playback rejected those moves ("found corrupt
+            # movement") in 7/8 decisive-game validation exports.
+            # Human-replay parity never caught it because the UI
+            # forbids the attempt, so no human replay contains one.
             new_att = _replace_unit(gs, att,
                           has_attacked=True,
+                          current_moves=0,
                           max_hp=new_max,
                           current_hp=new_hp,
                           current_exp=result.attacker_xp_after,

@@ -116,32 +116,22 @@ def _walk_prefix_commands(data: dict, boundary_idx: int):
         if kind == "init_side" and len(cmd) > 1:
             side_now = int(cmd[1])
         extras: dict = {}
-        pre_att = pre_dfd = None
-        if kind == "attack":
-            ax, ay, dx, dy = cmd[1], cmd[2], cmd[3], cmd[4]
-            for u in gs.map.units:
-                if u.position.x == ax and u.position.y == ay:
-                    pre_att = (u.id, u.name, u.side)
-                elif u.position.x == dx and u.position.y == dy:
-                    pre_dfd = (u.id, u.name, u.side)
-        elif kind in ("recruit", "recall"):
+        if kind in ("recruit", "recall"):
             for u in gs.map.units:
                 if u.is_leader and u.side == side_now:
                     extras["leader_pos"] = (u.position.x, u.position.y)
                     break
         _apply_command(gs, cmd)
         if kind == "attack":
-            # Advancement choices, attacker first (mirrors sim.step).
-            by_id = {u.id: u for u in gs.map.units}
-            advance_choices = []
-            for pre in (pre_att, pre_dfd):
-                if pre is None:
-                    continue
-                pre_id, pre_name, pre_side = pre
-                post = by_id.get(pre_id)
-                if post is not None and post.name != pre_name:
-                    advance_choices.append((pre_side, 0))
+            # Advancement [choose] events from the applier's
+            # side-channel: exact per-step records incl. AMLA and
+            # multi-advance chains, carrying the HUMAN's recorded
+            # choice indices (the queue values _advance_unit_once
+            # consumed), not a guessed 0.
+            advance_choices = list(getattr(
+                gs.global_info, "_last_advance_events", []) or [])
             if advance_choices:
+                setattr(gs.global_info, "_last_advance_events", [])
                 extras["advance_choices"] = advance_choices
             strikes = getattr(gs.global_info,
                               "_last_checkup_strikes", None)

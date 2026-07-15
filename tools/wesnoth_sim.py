@@ -586,25 +586,17 @@ class WesnothSim:
             log.warning(f"neutral attack failed to translate: {action!r}")
             return False
         side_now = self.gs.global_info.current_side
-        ax, ay, dx, dy = cmd[1], cmd[2], cmd[3], cmd[4]
-        pre_att = pre_dfd = None
-        for u in self.gs.map.units:
-            if u.position.x == ax and u.position.y == ay:
-                pre_att = (u.id, u.name, u.side)
-            elif u.position.x == dx and u.position.y == dy:
-                pre_dfd = (u.id, u.name, u.side)
         self._apply_with_stats(cmd)
         extras: dict = {}
-        by_id = {u.id: u for u in self.gs.map.units}
-        advance_choices = []
-        for pre in (pre_att, pre_dfd):
-            if pre is None:
-                continue
-            pre_id, pre_name, pre_side = pre
-            post = by_id.get(pre_id)
-            if post is not None and post.name != pre_name:
-                advance_choices.append((pre_side, 0))
+        # Advancement [choose] events straight from the applier's
+        # side-channel (one per advancement step, AMLA and chain
+        # links included; attacker-first order preserved). The old
+        # name-change diff missed AMLAs and double-advances
+        # (validation pipeline catch, 2026-07-15).
+        advance_choices = list(getattr(
+            self.gs.global_info, "_last_advance_events", []) or [])
         if advance_choices:
+            setattr(self.gs.global_info, "_last_advance_events", [])
             extras["advance_choices"] = advance_choices
             es = getattr(self, "_engagement", None)
             if es is not None:
@@ -952,23 +944,6 @@ class WesnothSim:
                     self.gs.global_info, "_village_owner", None) or {}
                 prev_village_owner = int(owner_map.get((tx, ty), 0))
 
-            # Snapshot attacker/defender (id, name, side) BEFORE attack so
-            # we can detect mid-attack advancement post-apply. Wesnoth's
-            # `attack_unit_and_advance` (attack.cpp:1556-1573) advances
-            # attacker first, then defender, each producing one
-            # `[command] dependent="yes" [choose] value=K [/choose]` block
-            # in the replay. If we don't emit those, playback OOSes the
-            # first time a model lands a level-up kill.
-            pre_att = pre_dfd = None
-            if cmd[0] == "attack":
-                ax, ay = cmd[1], cmd[2]
-                dx, dy = cmd[3], cmd[4]
-                for u in self.gs.map.units:
-                    if u.position.x == ax and u.position.y == ay:
-                        pre_att = (u.id, u.name, u.side)
-                    elif u.position.x == dx and u.position.y == dy:
-                        pre_dfd = (u.id, u.name, u.side)
-
             self._apply_with_stats(cmd)
             # Post-apply terrain MP correction. _apply_command
             # already flat-deducted 1 MP; we owe an extra
@@ -995,25 +970,17 @@ class WesnothSim:
             extras: dict = {}
             if cmd[0] == "recruit" and leader_pos is not None:
                 extras["leader_pos"] = leader_pos
-            # Post-attack advancement detection: an attacker/defender
-            # whose name changed (or vanished from the unit set replaced
-            # by a same-id but different-name advanced version) crossed
-            # the XP threshold and was advanced. We pick `targets[0]` in
-            # `_maybe_advance_unit`, so the choice index is always 0.
-            # Order MUST match Wesnoth's attack_unit_and_advance:
-            # attacker first, defender second.
-            if cmd[0] == "attack" and (pre_att or pre_dfd):
-                # Build id -> Unit map post-apply.
-                by_id = {u.id: u for u in self.gs.map.units}
-                advance_choices: List[Tuple[int, int]] = []  # (side, idx)
-                for pre in (pre_att, pre_dfd):
-                    if pre is None:
-                        continue
-                    pre_id, pre_name, pre_side = pre
-                    post = by_id.get(pre_id)
-                    if post is not None and post.name != pre_name:
-                        advance_choices.append((pre_side, 0))
+            # Advancement [choose] events from the applier's
+            # side-channel (one per advancement step, AMLA and
+            # multi-advance chain links included; attacker-first
+            # order preserved -- matches attack_unit_and_advance).
+            if cmd[0] == "attack":
+                advance_choices = list(getattr(
+                    self.gs.global_info, "_last_advance_events", [])
+                    or [])
                 if advance_choices:
+                    setattr(self.gs.global_info,
+                            "_last_advance_events", [])
                     extras["advance_choices"] = advance_choices
                     if _es is not None:
                         for _adv_side, _ in advance_choices:
