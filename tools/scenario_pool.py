@@ -113,7 +113,8 @@ LADDER_SCENARIO_IDS: List[str] = [
 MINI_MAP_SCENARIO_IDS: List[str] = [
     "2p_mini",
     "2p_mini_edited",
-    "around_mini",
+    # "around_mini" removed 2026-07-14 (user): its side-2 starting
+    # Tentacle (water-locked player unit) is out until further notice.
     "enclave_micro_isar",
     "enclave_mini_fallenstar_1v1",
     "enclave_small_fallenstar_1v1",

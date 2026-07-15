@@ -39,7 +39,11 @@ def _combat_sim():
     for copy-at-expansion to amortize over. Units are picked in id
     order (gs.map.units is a set -> unstable iteration otherwise)."""
     from tools.replay_dataset import _attacks_from_stats, _stats_for
-    sim = fresh_scenario_sim(seed=21, max_turns=10, mini=True)
+    # Pinned to a tentacle-free mini map (2026-07-14: the seed-21
+    # map now spawns side-3 tentacles that changed the engineered
+    # matchup geometry).
+    sim = fresh_scenario_sim(seed=21, max_turns=10, mini=True,
+                             scenario_id="Benji_Autumn_Siege_small")
     gs = sim.gs
     side = gs.global_info.current_side
     units = sorted(gs.map.units, key=lambda u: u.id)

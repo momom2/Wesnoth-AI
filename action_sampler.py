@@ -1103,13 +1103,14 @@ def _build_legality_masks(
         j = pos_to_hex.get(key)
         if j is None:
             continue
-        if ("petrified" in (u.statuses or set())
-                or u.side not in (1, 2)):
-            # Statues AND scenery-side objects (vortices, ToD
-            # fires): occupy the hex, never attackable. Checked
-            # BEFORE the own-side branch so a petrified unit on
-            # the side to move is inert too, matching the encoder
-            # (neutral code, is_ours=0).
+        from visibility import is_scenery_unit
+        if is_scenery_unit(u):
+            # Statues AND attackless scenery-side objects: occupy
+            # the hex, never attackable. Checked BEFORE the own-side
+            # branch so a petrified unit on the side to move is
+            # inert too, matching the encoder. Armed side>=3
+            # combatants (tentacles) fall through to occupancy 2:
+            # attackable enemies (2026-07-14).
             occupancy[j] = 3
         elif u.side == current_side:
             occupancy[j] = 1

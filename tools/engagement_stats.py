@@ -150,10 +150,10 @@ class EngagementStats:
             dfd = next((u for u in gs.map.units
                         if u.position.x == t.x and u.position.y == t.y),
                        None)
+        from visibility import is_scenery_unit
         invalid = (dfd is None
                    or dfd.side == side
-                   or dfd.side not in (1, 2)
-                   or "petrified" in (dfd.statuses or set()))
+                   or is_scenery_unit(dfd))
         if invalid:
             self.attacks_invalid_wesnoth[side] += 1
 

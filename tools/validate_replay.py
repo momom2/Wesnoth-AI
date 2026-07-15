@@ -83,6 +83,29 @@ def validate_replay(path: Path) -> List[str]:
             xs, ys = _ints(u.attrs.get("x", "")), _ints(u.attrs.get("y", ""))
             if xs and ys:
                 occupied.add((xs[0], ys[0]))
+    # Event-spawned units (Mini_Maps tentacles, Hornshark faction
+    # starters): Wesnoth playback re-fires the scenario's events from
+    # local game data, so those units exist at their spawn hexes even
+    # though the composed save carries no [unit] blocks for them.
+    # Mirror that here or side-3 attacks read "from empty hex"
+    # (2026-07-14).
+    scen_id = scn.attrs.get("id", "").strip().strip('"')
+    if scen_id:
+        try:
+            from tools.scenario_events import load_scenario_wml
+            root_wml = load_scenario_wml(scen_id)
+            mp_node = (root_wml.first("multiplayer")
+                       or root_wml.first("scenario")
+                       if root_wml is not None else None)
+            if mp_node is not None:
+                for ev in mp_node.all("event"):
+                    for u in ev.all("unit"):
+                        xs = _ints(u.attrs.get("x", ""))
+                        ys = _ints(u.attrs.get("y", ""))
+                        if xs and ys:
+                            occupied.add((xs[0], ys[0]))
+        except Exception:                             # noqa: BLE001
+            pass
 
     replay = root.children[-1]                     # trailing [replay]
     n_cmd = 0

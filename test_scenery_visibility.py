@@ -9,9 +9,12 @@ visible they encoded as ordinary foes -- every mainline map with
 scenery (Caves of the Basilisk, Sullas Ruins, Thousand Stings
 Garrison...) leaked or misled.
 
-Pins:
-  1. units_visible_to: non-player-side units and petrified units
-     bypass the fog disc; real enemies still don't.
+Pins (semantics refined 2026-07-14: ARMED non-petrified side>=3
+units are hostile COMBATANTS -- fog-gated, attackable; only
+petrified or attackless units are scenery):
+  1. units_visible_to: attackless non-player-side units and
+     petrified units bypass the fog disc; real enemies (including
+     armed side-3 tentacles) still don't.
   2. Encoder: neutral units carry side code 2 (NUM_SIDE_CODES=3),
      is_ours=0.
   3. Legality: a visible scenery unit is never an attack target
@@ -39,10 +42,19 @@ def _with_extra(gs, unit):
     return gs
 
 
+def _scenery(uid, side, x, y):
+    """A genuine scenery unit: ATTACKLESS (vortex / ToD fire).
+    The _u() template carries a spear -- strip it, else the unit
+    is a combatant under the 2026-07-14 classification."""
+    u = _u(uid, side, x, y)
+    u.attacks.clear()
+    return u
+
+
 def test_scenery_side_visible_through_fog():
     gs = _gs()
-    # side-3 vortex far from every side-1 unit (vision ~5-6)
-    vortex = _u("vortex", 3, 9, 9)
+    # side-3 ATTACKLESS vortex far from every side-1 unit
+    vortex = _scenery("vortex", 3, 9, 9)
     _with_extra(gs, vortex)
     vis_ids = {u.id for u in units_visible_to(gs, 1)}
     assert "vortex" in vis_ids, "scenery must bypass the fog disc"
@@ -56,6 +68,42 @@ def test_petrified_statue_visible_through_fog_any_side():
     vis_ids = {u.id for u in units_visible_to(gs, 1)}
     assert "statue" in vis_ids, \
         "petrified units are board furniture: visible under fog"
+
+
+def test_armed_side3_unit_is_a_fog_gated_combatant():
+    """2026-07-14: an ARMED side-3 unit (Mini_Maps tentacle) is NOT
+    scenery -- it hides in fog like any enemy and is attackable."""
+    gs = _gs()
+    tentacle = _u("tent", 3, 9, 0)            # armed, out of vision
+    _with_extra(gs, tentacle)
+    vis_ids = {u.id for u in units_visible_to(gs, 1)}
+    assert "tent" not in vis_ids,         "armed side-3 units respect the fog disc"
+
+    from visibility import is_scenery_unit
+    assert not is_scenery_unit(tentacle)
+    petrified = _u("statue", 3, 9, 1)
+    petrified.statuses.add("petrified")
+    assert is_scenery_unit(petrified), "petrified stays scenery"
+    assert is_scenery_unit(_scenery("fire", 3, 9, 2)),         "attackless side-3 stays scenery"
+
+
+def test_armed_side3_unit_is_attackable():
+    import torch
+    from action_sampler import enumerate_legal_actions_with_priors
+    from transformer_policy import TransformerPolicy
+    pol = TransformerPolicy(device=torch.device("cpu"), d_model=32,
+                            num_layers=1, num_heads=4, d_ff=64)
+    gs = _gs()
+    _with_extra(gs, _u("tent", 3, 3, 4))      # armed, adjacent to u1
+    enc = pol._encoder.encode(gs)
+    with torch.no_grad():
+        out = pol._model(enc)
+    priors = enumerate_legal_actions_with_priors(enc, out, gs)
+    attacked = any(
+        p.action.get("type") == "attack"
+        and (p.action["target_hex"].x, p.action["target_hex"].y) == (3, 4)
+        for p in priors)
+    assert attacked, "armed side-3 combatants must be attack targets"
 
 
 def test_fog_off_reveals_enemies_and_survives_deepcopy():
@@ -84,7 +132,7 @@ def test_neutral_side_code_in_encoder():
     from encoder import NUM_SIDE_CODES, encode_raw
     assert NUM_SIDE_CODES == 3
     gs = _gs()
-    _with_extra(gs, _u("vortex", 3, 4, 4))   # near, visible anyway
+    _with_extra(gs, _scenery("vortex", 3, 4, 4))   # near, visible
     raw = encode_raw(gs, type_to_id={}, faction_to_id={})
     idx = raw.unit_ids.index("vortex")
     assert raw.unit_side_ids[idx] == 2, "scenery -> neutral side code"
@@ -101,8 +149,8 @@ def test_scenery_never_an_attack_target_nor_actor():
     pol = TransformerPolicy(device=torch.device("cpu"), d_model=32,
                             num_layers=1, num_heads=4, d_ff=64)
     gs = _gs()
-    # vortex adjacent to our unit u1 at (3,3)
-    _with_extra(gs, _u("vortex", 3, 3, 4))
+    # ATTACKLESS vortex adjacent to our unit u1 at (3,3)
+    _with_extra(gs, _scenery("vortex", 3, 3, 4))
     enc = pol._encoder.encode(gs)
     with torch.no_grad():
         out = pol._model(enc)

@@ -573,6 +573,57 @@ class WesnothSim:
         finally:
             clear_event_sink()
 
+    def apply_neutral_attack(self, action: dict) -> bool:
+        """Execute one pre-validated NEUTRAL-side attack (side >= 3
+        RCA turn, tools/neutral_ai.py). Mirrors step()'s attack-apply
+        bookkeeping (pre snapshots, advancement choices, checkup
+        strikes, history) WITHOUT step()'s end-turn fallback: a
+        neutral attack must never rotate the player turn order.
+        Returns False if the action didn't translate to an attack
+        command (caller aborts its loop)."""
+        cmd, _cost = self._action_to_command(action)
+        if cmd is None or cmd[0] != "attack":
+            log.warning(f"neutral attack failed to translate: {action!r}")
+            return False
+        side_now = self.gs.global_info.current_side
+        ax, ay, dx, dy = cmd[1], cmd[2], cmd[3], cmd[4]
+        pre_att = pre_dfd = None
+        for u in self.gs.map.units:
+            if u.position.x == ax and u.position.y == ay:
+                pre_att = (u.id, u.name, u.side)
+            elif u.position.x == dx and u.position.y == dy:
+                pre_dfd = (u.id, u.name, u.side)
+        self._apply_with_stats(cmd)
+        extras: dict = {}
+        by_id = {u.id: u for u in self.gs.map.units}
+        advance_choices = []
+        for pre in (pre_att, pre_dfd):
+            if pre is None:
+                continue
+            pre_id, pre_name, pre_side = pre
+            post = by_id.get(pre_id)
+            if post is not None and post.name != pre_name:
+                advance_choices.append((pre_side, 0))
+        if advance_choices:
+            extras["advance_choices"] = advance_choices
+            es = getattr(self, "_engagement", None)
+            if es is not None:
+                for _adv_side, _ in advance_choices:
+                    if _adv_side in (1, 2):
+                        es.advancements[_adv_side] += 1
+        strikes = getattr(self.gs.global_info,
+                          "_last_checkup_strikes", None)
+        if strikes:
+            extras["checkup_strikes"] = strikes
+            setattr(self.gs.global_info, "_last_checkup_strikes", None)
+        self.command_history.append(RecordedCommand(
+            kind="attack", side=side_now, cmd=list(cmd),
+            extras=extras))
+        if __debug__:
+            self._assert_invariants(after_cmd="attack")
+        self._check_game_over()
+        return True
+
     def _next_seed(self) -> str:
         """Allocate the next synced-RNG seed. Live sims (no salt)
         derive it purely from the request counter -- the bit-exact
@@ -857,7 +908,20 @@ class WesnothSim:
             # Advance to the next side. 2p only for now.
             n_sides = max(2, len(self.gs.sides))
             next_side = (side_now % n_sides) + 1
-            self._begin_side_turn(next_side)
+            # Neutral side-3 turn (Mini_Maps tentacles, 2026-07-14):
+            # Wesnoth's side order is 1, 2, 3 within a turn, so the
+            # RCA combat turn for armed side-3 units runs after side
+            # 2 ends, before init_side(1) increments the turn. Runs
+            # in MCTS forks too -- search must anticipate tentacle
+            # retaliation.
+            if side_now == 2 and not self.done:
+                from visibility import is_scenery_unit
+                if any(u.side not in (1, 2) and not is_scenery_unit(u)
+                       for u in self.gs.map.units):
+                    from tools.neutral_ai import run_neutral_side_turn
+                    run_neutral_side_turn(self, side=3)
+            if not self.done:
+                self._begin_side_turn(next_side)
         else:
             # Snapshot the village owner BEFORE the move applies so
             # we can tell capture (prior owner != side) from revisit
@@ -1475,9 +1539,8 @@ class WesnothSim:
                 (u for u in self.gs.map.units
                  if u.position.x == target.x and u.position.y == target.y),
                 None)
-            if dfd_u is not None and (
-                    dfd_u.side not in (1, 2)
-                    or "petrified" in (dfd_u.statuses or set())):
+            from visibility import is_scenery_unit
+            if dfd_u is not None and is_scenery_unit(dfd_u):
                 # Wesnoth-as-played refuses attacks on incapacitated
                 # or scenery units (UI gate, mouse_events.cpp:753 --
                 # see docs/wesnoth_rules.md). The legality mask should

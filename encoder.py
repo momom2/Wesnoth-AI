@@ -1108,11 +1108,13 @@ def encode_raw(
     unit_feats_np    = np.empty((U, UNIT_FEAT_DIM), dtype=np.float32)
     type_overflow    = MAX_UNIT_TYPES - 1
     for i, u in enumerate(units):
-        is_neutral = (u.side not in (1, 2)
-                      or "petrified" in (u.statuses or set()))
-        # A petrified unit is board furniture even if nominally on
-        # our side: neutral code AND is_ours=0 (matches the legality
-        # mask, where it is inert and never an actor).
+        from visibility import is_scenery_unit
+        is_neutral = is_scenery_unit(u)
+        # Scenery is board furniture even if nominally on our side:
+        # neutral code AND is_ours=0 (matches the legality mask,
+        # where it is inert and never an actor). Armed side>=3
+        # combatants (tentacles) encode as ENEMIES (code 1) -- they
+        # are hostile and attackable (2026-07-14).
         is_ours = u.side == current_side and not is_neutral
         unit_is_ours_np[i]  = 1.0 if is_ours else 0.0
         unit_side_ids_np[i] = (2 if is_neutral

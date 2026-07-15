@@ -254,6 +254,23 @@ def _hide_cover_active(state: GameState, unit: Unit) -> bool:
     return False
 
 
+def is_scenery_unit(u) -> bool:
+    """Board furniture vs combatant (single source of truth,
+    2026-07-14; refines the 2026-07-11 scenery rule which treated ALL
+    side>=3 units as scenery and made the Mini_Maps tentacles
+    invulnerable blockers).
+
+      scenery   = petrified (any side)  OR  attackless non-player
+                  side unit (CoB/TSG statues, vortices, ToD fires):
+                  always visible, unattackable, never an actor.
+      combatant = everything else -- including ARMED non-petrified
+                  side>=3 units (stationary tentacles): attackable,
+                  fog-gated like any enemy, killable for XP.
+    """
+    return ("petrified" in (u.statuses or set())
+            or (u.side not in (1, 2) and not u.attacks))
+
+
 def units_visible_to(
     state: GameState, side: int,
     vis_set: Optional[Set[Tuple[int, int]]] = None,
@@ -304,13 +321,10 @@ def units_visible_to(
             out.append(u)
             continue
         # Scenery & statues are terrain-like: always visible, like
-        # the map itself (user spec 2026-07-11; Wesnoth renders
-        # petrified statues and scenery-side objects under fog --
-        # fog hides UNITS' presence, not board furniture). Covers
-        # units on non-player sides (vortices, ToD fires) and
-        # petrified units regardless of nominal side (Caves of the
-        # Basilisk statues).
-        if u.side not in (1, 2) or "petrified" in (u.statuses or set()):
+        # the map itself (fog hides UNITS' presence, not board
+        # furniture). Armed side>=3 combatants (tentacles) are NOT
+        # scenery -- they fall through to the enemy fog gates below.
+        if is_scenery_unit(u):
             out.append(u)
             continue
         # Enemy unit. First gate: hide-cover ability (applies with
