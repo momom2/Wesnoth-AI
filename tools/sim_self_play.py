@@ -77,6 +77,14 @@ from openers import Opener, OpenerPolicy
 
 log = logging.getLogger("sim_self_play")
 
+# Strict-sync validation exporter (tools/validation_exports). Set by
+# main() / selfplay_worker.main() from --validate-export-every; when
+# set, play_one_game exports every Nth finished game per category
+# (mini / ladder / ladder_fogless / midgame) as a Wesnoth-loadable
+# replay for local strict-sync verification. Per-process counters:
+# each spool worker picks every Nth of ITS OWN stream.
+VALIDATION_EXPORTER = None
+
 
 # ---------------------------------------------------------------------
 # Reward bookkeeping
@@ -663,6 +671,8 @@ def play_one_game(
             for s in (1, 2)}
         if hasattr(policy, "pop_search_diag"):
             engagement["search"] = policy.pop_search_diag(game_label)
+    if VALIDATION_EXPORTER is not None:
+        VALIDATION_EXPORTER.maybe_export(sim, game_label=game_label)
     return GameOutcome(
         game_label=game_label,
         winner=sim.winner,
@@ -850,15 +860,17 @@ def _play_one_game_safe(
     """
     from tools.scenario_pool import build_scenario_gamestate
     # Mid-game start: `setup` is ("__midgame__", gs, scenario_id,
-    # cut_turn) from sample_midgame_start (see _worker_loop).
+    # cut_turn, begin_side, provenance) from sample_midgame_start
+    # (see _worker_loop).
     if isinstance(setup, tuple) and setup and setup[0] == "__midgame__":
-        _, gs, scen_id, _cut, begin_side = setup
+        _, gs, scen_id, _cut, begin_side, mg_prov = setup
         try:
             sim = WesnothSim(gs, scenario_id=scen_id,
                              max_turns=max_turns,
                              apply_scenario_events=False,
                              begin_side=begin_side)
             sim._midgame_start = True
+            sim._midgame_provenance = mg_prov
         except Exception as e:                        # noqa: BLE001
             log.warning(f"skipping midgame start ({scen_id}): {e}")
             return None
@@ -993,6 +1005,11 @@ class SpoolWorkers:
                 args, "midgame_ratio", 0.0)))),
             "--midgame-dataset", str(getattr(
                 args, "midgame_dataset", Path("replays_dataset"))),
+            "--validate-export-every", str(getattr(
+                args, "validate_export_every", 100)),
+            "--validate-export-dir", str(getattr(
+                args, "validate_export_dir",
+                Path("training/validate_exports"))),
             "--log-level", log_level,
         ] + (["--train-draw-tiebreak"] if getattr(
             args, "train_draw_tiebreak", False) else [])
@@ -2207,6 +2224,19 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--midgame-dataset", type=Path,
                     default=Path("replays_dataset"),
                     help="Value-corpus dir (index + json.gz games).")
+    ap.add_argument("--validate-export-every", type=int, default=100,
+                    help="Export every Nth finished game PER CATEGORY "
+                         "(mini / ladder / ladder_fogless / midgame) "
+                         "as a Wesnoth-loadable replay for offline "
+                         "strict-sync verification (user spec "
+                         "2026-07-15). 0 disables. Counters are "
+                         "per-process (each spool worker exports "
+                         "every Nth of its own stream).")
+    ap.add_argument("--validate-export-dir", type=Path,
+                    default=Path("training/validate_exports"),
+                    help="Root dir for validation replay exports "
+                         "(one subdir per category; swept by the HF "
+                         "uploader on training boxes).")
     ap.add_argument("--game-log-dir", type=Path,
                     default=Path("training/logs/games"),
                     help="Per-game JSONL telemetry root; each "
@@ -2447,6 +2477,12 @@ def main(argv: List[str]) -> int:
     args = ap.parse_args(argv[1:])
     if args.game_log_dir is not None and str(args.game_log_dir) in ("", "."):
         args.game_log_dir = None
+    if int(getattr(args, "validate_export_every", 0)) > 0:
+        from tools.validation_exports import ValidationExporter
+        global VALIDATION_EXPORTER
+        VALIDATION_EXPORTER = ValidationExporter(
+            args.validate_export_dir,
+            every=args.validate_export_every)
     if float(getattr(args, "midgame_ratio", 0.0)) > 0:
         from tools.midgame_starts import midgame_available
         if not midgame_available(args.midgame_dataset):

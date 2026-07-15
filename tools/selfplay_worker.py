@@ -99,10 +99,21 @@ def main(argv) -> int:
     ap.add_argument("--midgame-ratio", type=float, default=0.0)
     ap.add_argument("--midgame-dataset", type=Path,
                     default=Path("replays_dataset"))
+    ap.add_argument("--validate-export-every", type=int, default=100)
+    ap.add_argument("--validate-export-dir", type=Path,
+                    default=Path("training/validate_exports"))
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--torch-threads", type=int, default=2)
     ap.add_argument("--log-level", default="WARNING")
     args = ap.parse_args(argv[1:])
+    if int(args.validate_export_every) > 0:
+        import tools.sim_self_play as _ssp
+        from tools.validation_exports import ValidationExporter
+        # play_one_game (imported from sim_self_play) reads the
+        # module global -- set it in THIS worker process too.
+        _ssp.VALIDATION_EXPORTER = ValidationExporter(
+            args.validate_export_dir,
+            every=args.validate_export_every)
     logging.basicConfig(
         level=getattr(logging, args.log_level),
         format=f"%(asctime)s w{args.worker_id} %(levelname)s %(message)s")
@@ -162,12 +173,13 @@ def main(argv) -> int:
                                  drill_ratio=args.drill_ratio,
                                  fogless_ratio=args.fogless_ratio)
         if isinstance(setup, tuple) and setup[0] == "__midgame__":
-            _, gs, scen_id, midgame_cut, begin_side = setup
+            _, gs, scen_id, midgame_cut, begin_side, mg_prov = setup
             sim = WesnothSim(gs, scenario_id=scen_id,
                              max_turns=args.max_turns,
                              apply_scenario_events=False,
                              begin_side=begin_side)
             sim._midgame_start = True
+            sim._midgame_provenance = mg_prov
         else:
             gs = build_scenario_gamestate(
                 setup, base_income=pvp.base_income,

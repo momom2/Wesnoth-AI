@@ -63,6 +63,7 @@ def main() -> int:
     print(f"hf_upload_loop: uploading to {repo} every "
           f"{UPLOAD_EVERY}s", flush=True)
     last_sig = None
+    uploaded_validation: set = set()
     while True:
         try:
             # Skip the upload when nothing changed (cheap mtime+size
@@ -81,6 +82,24 @@ def main() -> int:
                 print(f"hf_upload_loop: uploaded at "
                       f"{time.strftime('%FT%TZ', time.gmtime())}",
                       flush=True)
+            # Validation replay exports (tools/validation_exports):
+            # every-Nth-per-category strict-sync replays. Upload each
+            # NEW file once (names are unique: category+counter+pid),
+            # under validate_exports/<category>/ in the repo, so the
+            # local batch runner can pull and verify during the run.
+            vdir = Path("training/validate_exports")
+            if vdir.is_dir():
+                for f in sorted(vdir.rglob("*.bz2")):
+                    rel = f.relative_to(vdir).as_posix()
+                    if rel in uploaded_validation:
+                        continue
+                    api.upload_file(
+                        path_or_fileobj=str(f),
+                        path_in_repo=f"validate_exports/{rel}",
+                        repo_id=repo, repo_type="model")
+                    uploaded_validation.add(rel)
+                    print(f"hf_upload_loop: validation export "
+                          f"uploaded: {rel}", flush=True)
         except Exception as e:                      # noqa: BLE001
             # Transient network/Hub errors must not kill the loop --
             # the next cycle retries.

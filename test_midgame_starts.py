@@ -33,7 +33,7 @@ def test_sample_midgame_start_valid_state():
     rng = random.Random(3)
     mg = sample_midgame_start(rng, DATASET)
     assert mg is not None
-    gs, scen_id, cut, begin_side = mg
+    gs, scen_id, cut, begin_side, prov = mg
     assert scen_id
     assert 1 <= gs.global_info.turn_number
     assert begin_side in (1, 2)
@@ -62,7 +62,7 @@ def test_midgame_continuation_through_production_path():
         if mg is not None:
             break
     assert mg is not None, "no valid midgame sample in 20 tries"
-    gs, scen_id, cut, begin_side = mg
+    gs, scen_id, cut, begin_side, prov = mg
     sim = WesnothSim(gs, scenario_id=scen_id,
                      max_turns=gs.global_info.turn_number + 4,
                      apply_scenario_events=False,

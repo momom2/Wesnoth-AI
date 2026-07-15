@@ -256,6 +256,7 @@ nohup bash -c "
       --mcts-moves-left-utility 0.2 \
       ${AUX_VALUE_BONUS:+--mcts-aux-value-bonus $AUX_VALUE_BONUS} \
       ${FOGLESS_RATIO:+--fogless-ratio $FOGLESS_RATIO}       ${MIDGAME_RATIO:+--midgame-ratio $MIDGAME_RATIO} \
+      ${VALIDATE_EXPORT_EVERY:+--validate-export-every $VALIDATE_EXPORT_EVERY} \
       --value-label-smoothing 0.02 \
       --holdout-size 512 --holdout-per-game-cap 64 \
       ${HUMAN_ANCHOR_FILE:+--human-anchor-file $HUMAN_ANCHOR_FILE} \

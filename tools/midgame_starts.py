@@ -93,12 +93,14 @@ def sample_midgame_start(
         # turn_number increments on init_side(1), the boundary is in
         # practice always an init_side(2).
         begin_side = None
-        for cmd in cmds:
+        boundary_idx = None
+        for i, cmd in enumerate(cmds):
             if (cmd and cmd[0] == "init_side"
                     and gs.global_info.turn_number >= cut
                     and gs.global_info.current_side in (1, 2)
                     and len(cmd) > 1 and cmd[1] in (1, 2)):
                 begin_side = int(cmd[1])
+                boundary_idx = i
                 break
             _apply_command(gs, cmd)
         if begin_side is None:
@@ -111,8 +113,18 @@ def sample_midgame_start(
         alive = {u.side for u in gs.map.units if u.is_leader}
         if not {1, 2} <= alive:
             return None
+        # Provenance for validation exports: enough to re-walk the
+        # human prefix (commands[:boundary_idx]) and splice it in
+        # front of the sim continuation
+        # (tools/validation_exports.export_midgame_replay).
+        provenance = {
+            "dataset_dir": str(dataset_dir),
+            "file": row["file"],
+            "boundary_idx": boundary_idx,
+            "begin_side": begin_side,
+        }
         return (copy.deepcopy(gs), data.get("scenario_id", ""),
-                gs.global_info.turn_number, begin_side)
+                gs.global_info.turn_number, begin_side, provenance)
     except Exception as e:                            # noqa: BLE001
         log.warning(f"midgame sample failed for {row.get('file')}: {e}")
         return None
