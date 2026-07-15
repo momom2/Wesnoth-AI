@@ -134,6 +134,36 @@ print(f"[onstart] seed file: {fname}")
 EOF
     fi
 fi
+
+# Stage the human value corpus for midgame starts. Without it,
+# --midgame-ratio silently degrades to fresh starts (hit 2026-07-15:
+# first 56 min of the run trained with midgame 0/0 -- the warning
+# was in train.log but nothing staged the data). Idempotent: skips
+# when the index is already on disk.
+if [ ! -f replays_dataset/value_corpus_index.jsonl ] \
+        && { [ -n "${HF_TOKEN:-}" ] || [ -f "$WORKDIR/.hf_token" ]; }; then
+    HF_SEED_TOKEN="${HF_TOKEN:-}" \
+    "$PY" - <<'EOF' && echo "[onstart] value corpus staged" \
+        || echo "[onstart] WARN: corpus staging failed (midgame will be OFF)"
+import os, pathlib, sys, tarfile
+from huggingface_hub import hf_hub_download
+tok = os.environ.get("HF_SEED_TOKEN") or pathlib.Path(
+    os.environ.get("WORKDIR", "/workspace"), ".hf_token"
+).read_text().strip()
+try:
+    p = hf_hub_download("momom2/wesnoth-tier-a", "value_corpus.tar.gz",
+                        token=tok)
+except Exception as e:                                  # noqa: BLE001
+    print(f"[onstart] corpus download failed: {e}")
+    sys.exit(1)
+dst = pathlib.Path("replays_dataset")
+dst.mkdir(parents=True, exist_ok=True)
+with tarfile.open(p, "r:gz") as tf:
+    tf.extractall(dst)                          # flat ./*.json.gz + index
+print(f"[onstart] corpus: {len(list(dst.glob('*.json.gz')))} games")
+EOF
+fi
+
 if [ -f "$CAMPAIGN" ]; then
     CKPT_IN="$CAMPAIGN"; RESET=""
     echo "[onstart] RESUME from $CAMPAIGN (no --reset-decision-step)"
