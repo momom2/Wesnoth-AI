@@ -496,13 +496,19 @@ def _scenario_tod_info(scenario_id: str) -> tuple:
         text = tpl.read_text(encoding="utf-8")
     except OSError:
         return None, False, 6
-    m = _re.search(r'^\s*current_time=(\d+)', text, _re.MULTILINE)
+    # Strip [time_area] sub-schedules BEFORE every search: the
+    # engine reads current_time / random_start_time as top-level
+    # scenario attrs only (tod_manager ctor); an area-local
+    # current_time is that area's phase, not the game start slot.
+    # (No current template carries one -- audited 2026-07-15 --
+    # this guards future maps.)
+    stripped = _re.sub(r'\[time_area\].*?\[/time_area\]', '',
+                       text, flags=_re.DOTALL)
+    m = _re.search(r'^\s*current_time=(\d+)', stripped, _re.MULTILINE)
     current_time = int(m.group(1)) if m else None
     random_start = bool(_re.search(
         r'^\s*random_start_time="?(?:yes|true|1)"?\s*$',
-        text, _re.MULTILINE))
-    stripped = _re.sub(r'\[time_area\].*?\[/time_area\]', '',
-                       text, flags=_re.DOTALL)
+        stripped, _re.MULTILINE))
     n_slots = len(_re.findall(r'^\s*\[time\]', stripped,
                               _re.MULTILINE)) or 6
     return current_time, random_start, n_slots
