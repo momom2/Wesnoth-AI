@@ -336,12 +336,37 @@ def _unit_trait_info(unit_type: str) -> dict:
             "num_traits": int(t.get("num_traits", 2)),
             "musthave":   list(t.get("musthave", [])),
             "pool":       list(t.get("pool", [])),
+            "race":       str(u.get("race", "") or ""),
         }
         _RNG_INFO_CACHE[unit_type] = info
         return info
     except Exception:
         _RNG_INFO_CACHE[unit_type] = {}
         return {}
+
+
+# Races whose 1.18.4 [race] block pulls in a names macro (male AND
+# female in every case -- verified: every {*_NAMES} macro in
+# data/core/macros/names.cfg defines both genders). Recruits of
+# these races run the markov/CFG name generator, which draws from
+# the SYNCED RNG (markov_generator.cpp:59-69 pre-draws max_len
+# next_random() calls precisely to keep the synced state
+# deterministic). Nameless races (undead, mechanical, bats, monster,
+# falcon, horse, raven) get the base name_generator that returns ""
+# with ZERO draws -- which is why the 2026-07-06 Skeleton
+# calibration correctly found no seed for undead recruits, and why
+# a Wose (num_traits=0 but a NAMED race) still needs one (found by
+# the validation pipeline's first batch, 2026-07-15: Ruined Passage
+# midgame OOS "found [recruit] command expecting a user choice"
+# exactly at a Wose recruit).
+# Derived from the 1.18.4 tag (data/core/units.cfg +
+# data/core/macros/names.cfg) -- do NOT re-derive from the local
+# wesnoth_src (1.18.7).
+_NAMED_RACES = frozenset({
+    "drake", "dwarf", "elf", "goblin", "gryphon", "human",
+    "dunefolk", "lizard", "merman", "naga", "ogre", "orc",
+    "troll", "wolf", "wose",
+})
 
 
 def _recruit_consumes_synced_rng(unit_type: str) -> bool:
@@ -355,7 +380,10 @@ def _recruit_consumes_synced_rng(unit_type: str) -> bool:
          consume zero).
       2. facing_ -- uses default_instance() (NON-synced); doesn't
          touch our seed.
-      3. advance_to -> generate_traits -- per missing trait beyond
+      3. generate_name (unit.cpp:689) -- the markov name generator
+         draws synced RNG iff the unit's RACE has a name source
+         (see _NAMED_RACES above); nameless races consume zero.
+      4. advance_to -> generate_traits -- per missing trait beyond
          musthaves, one synced call to pick from the available pool.
          If musthaves already fill num_traits OR the pool is empty
          after filtering, the for-loop never enters.
@@ -367,6 +395,8 @@ def _recruit_consumes_synced_rng(unit_type: str) -> bool:
         # actual OOS we're trying to fix.
         return True
     if info["n_genders"] > 1:
+        return True
+    if info.get("race", "") in _NAMED_RACES:
         return True
     n_random = max(0, info["num_traits"] - len(info["musthave"]))
     if n_random <= 0:
@@ -1045,6 +1075,7 @@ def build_save_wml(
     sim:          WesnothSim,
     *,
     pvp_defaults: Optional[PvPDefaults] = None,
+    side_gold: Optional[Dict[int, int]] = None,
 ) -> str:
     """Compose a complete Wesnoth save WML string for the sim's game.
 
@@ -1132,7 +1163,13 @@ def build_save_wml(
         else:
             keep_x = leader_pos.x + 1
             keep_y = leader_pos.y + 1
-        starting_gold = cfg_gold.get(i, pvp.starting_gold)
+        # Precedence: explicit per-side override (midgame validation
+        # exports carry the source game's true per-side gold --
+        # handicap games exist in the corpus) > scenario cfg > pvp.
+        if side_gold and i in side_gold:
+            starting_gold = side_gold[i]
+        else:
+            starting_gold = cfg_gold.get(i, pvp.starting_gold)
         color, team_name, user_team_name = _color_for_side(i)
         side_blocks.append(_render_side_block(
             side_num=i,

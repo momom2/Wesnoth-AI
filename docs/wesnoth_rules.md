@@ -832,6 +832,43 @@ unit.cpp:855-893 (random-fill phase):
 - (no `availability=` attribute) → eligible for non-leader random
   pool only.
 
+### Recruit NAME GENERATION also uses the synced MP RNG (named races only)
+
+`wesnoth_src/src/utils/markov_generator.cpp:59-69` (1.18.4, comment
+abridged):
+```cpp
+	// This name generator is called by mp_connect.cpp and
+	// [get_random() getting called a different number of times ...
+	//  causes a problem since the random state is no longer in sync ...]
+	// To avoid that problem we call get_random()
+	std::vector<int> random(max_len);
+	...
+		random[j] = randomness::generator->next_random();
+```
+and `unit.cpp:689` runs `generate_name()` during `unit::init` for
+every freshly created unit (recruits included).
+
+If the unit's RACE has a name source (a `{*_NAMES}` macro in
+`data/core/units.cfg` — drake, dwarf, elf, goblin, gryphon, human,
+dunefolk, lizard, merman, naga, ogre, orc, troll, wolf, wose; every
+such macro defines BOTH genders), the generator draws a fixed
+max_len batch of `next_random()` from the SYNCED RNG. Nameless
+races (undead, mechanical, bats, monster, falcon, horse, raven) get
+the base `name_generator` whose `generate()` returns `""` with zero
+draws.
+
+**Why non-obvious**: RNG-consumption prediction based on
+gender+traits alone is correct for every nameless-race unit
+(Skeleton, Ghoul — the 2026-07-06 calibration) and coincidentally
+correct for every unit that also draws traits — it breaks ONLY on
+named-race units with zero random-trait draws. In default-era 2p
+that's essentially the WOSE (num_traits=0). Found by the validation
+pipeline's very first batch (2026-07-15): a Ruined Passage midgame
+export hit "found [recruit] command in replay expecting a user
+choice" exactly at a human Wose recruit. `_NAMED_RACES` in
+`tools/sim_to_replay.py` pins the race list (derived from the
+1.18.4 tag — don't re-derive from the local 1.18.7 wesnoth_src).
+
 ### Recruit traits use the synced MP RNG
 
 `wesnoth_src/src/units/unit.cpp:890`:

@@ -107,3 +107,21 @@ def test_midgame_splice_composes_and_parses(tmp_path):
     assert len(inits) > cont_inits
     assert "[replay_start]" in wml or "[scenario]" in wml
     assert re.search(r"^\s*current_time=\d+", wml, re.MULTILINE)
+
+
+def test_recruit_rng_predictor_named_races():
+    """Name generation draws SYNCED RNG for named races
+    (markov_generator.cpp pre-draws next_random(); see
+    docs/wesnoth_rules.md). The Wose is the canonical trap: zero
+    random traits, single gender, but race wose HAS names -> seed
+    required (validation pipeline's first real catch, 2026-07-15).
+    Nameless undead stay seedless (the 2026-07-06 Skeleton
+    calibration)."""
+    from tools.sim_to_replay import _recruit_consumes_synced_rng as f
+    assert f("Wose") is True              # named race, 0 traits
+    assert f("Skeleton") is False         # undead: nameless, musthave-only
+    assert f("Ghoul") is False            # undead: 2 musthaves > num_traits
+    assert f("Walking Corpse") is False
+    assert f("Vampire Bat") is True       # bats nameless BUT draws a trait
+    assert f("Dark Adept") is True        # multi-gender
+    assert f("Elvish Fighter") is True    # named + trait draws

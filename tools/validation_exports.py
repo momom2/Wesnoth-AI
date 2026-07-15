@@ -191,17 +191,15 @@ def export_midgame_replay(sim, out_path: Path) -> None:
     if not {1, 2} <= set(initial_leaders):
         raise RuntimeError(f"{gz.name}: missing starting leaders")
 
-    # Starting-side economy for the save header. Sides can in
-    # principle differ in gold; the composer takes side 1's and
-    # warns -- [side] gold is per-side in _render_side_block only
-    # via cfg scrape, so a differing side 2 would need work.
+    # Starting-side economy: the source game's TRUE per-side gold
+    # (handicap games with e.g. 100/200 exist in the corpus) goes
+    # through build_save_wml's side_gold override.
     sides = data.get("starting_sides", [])
-    golds = [int(s.get("gold", 100) or 100) for s in sides[:2]]
-    if len(set(golds)) > 1:
-        log.warning(f"{gz.name}: per-side starting gold differs "
-                    f"{golds}; using {golds[0]}")
+    gold_by_side = {int(s.get("side", i + 1) or (i + 1)):
+                    int(s.get("gold", 100) or 100)
+                    for i, s in enumerate(sides)}
     pvp = PvPDefaults(
-        starting_gold=golds[0] if golds else 100,
+        starting_gold=gold_by_side.get(1, 100),
         experience_modifier=int(
             data.get("experience_modifier", 70) or 70),
     )
@@ -217,7 +215,8 @@ def export_midgame_replay(sim, out_path: Path) -> None:
         initial_leaders=initial_leaders,
         command_history=list(prefix) + list(sim.command_history),
     )
-    save_wml = build_save_wml(shim, pvp_defaults=pvp)
+    save_wml = build_save_wml(shim, pvp_defaults=pvp,
+                              side_gold=gold_by_side)
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with bz2.open(out_path, "wt", encoding="utf-8") as f:
