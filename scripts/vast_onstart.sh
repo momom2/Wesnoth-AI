@@ -248,7 +248,11 @@ fi
 # HF_EXTRA_FILES='training/checkpoints/supervised.pt:supervised.pt,training/checkpoints/supervised_eval.jsonl:supervised_eval.jsonl'
 # at create time so the uploader ships the SL artifacts too.
 if [ "${SL_MODE:-0}" = "1" ]; then
-    SL_OUT=training/checkpoints/supervised.pt
+    # NOT supervised.pt: that name is a git-TRACKED 471K-era (d_model
+    # 128) checkpoint, so a fresh clone ships it and the
+    # resume-if-exists logic below would pick it up -- the arch
+    # guard caught exactly that on the first SL launch (2026-07-16).
+    SL_OUT="${SL_OUT:-training/checkpoints/supervised_5m.pt}"
     if [ -f "$SL_OUT" ]; then
         SL_RESUME="$SL_OUT"
     else
