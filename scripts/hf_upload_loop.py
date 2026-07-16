@@ -34,6 +34,13 @@ FILES = [
     ("training/checkpoints/tier_a_campaign.pt", "tier_a_campaign.pt"),
     ("training/logs/trainer_history_local.csv", "trainer_history_local.csv"),
 ]
+# HF_EXTRA_FILES="src:dst,src:dst" adds run-specific artifacts (e.g.
+# the supervised pass: supervised.pt + its eval curve, 2026-07-16).
+for _pair in os.environ.get("HF_EXTRA_FILES", "").split(","):
+    if ":" in _pair:
+        _src, _dst = _pair.split(":", 1)
+        if _src.strip() and _dst.strip():
+            FILES.append((_src.strip(), _dst.strip()))
 
 
 def _read_opt(env: str, fallback_file: Path) -> str:
