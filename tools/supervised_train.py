@@ -1388,7 +1388,6 @@ def train(
                             running_loss_type,
                             running_loss_target,
                             running_loss_weapon,
-                        running_loss_value,
                             running_loss_value,
                             type_loss_weights=type_loss_weights,
                         )

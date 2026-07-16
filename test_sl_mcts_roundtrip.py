@@ -163,3 +163,27 @@ def test_flush_batch_carries_value_loss():
                  dq["v"])
     assert len(dq["v"]) == 2, "value CE must be logged per sample"
     assert all(0.0 < v < 20.0 for v in dq["v"])
+
+
+def test_batched_training_loop_actually_steps(tmp_path):
+    """Integration guard for the 2026-07-16 stall: a duplicated
+    positional arg at the _flush_batch CALL SITE made every flush
+    raise TypeError, silently swallowed by the resilience except --
+    the trainer encoded the whole corpus and never stepped. Unit
+    tests on _flush_batch itself cannot catch call-site bugs; this
+    drives train() end-to-end in batched mode and requires actual
+    optimizer steps."""
+    import re
+    from tools.supervised_train import train
+
+    out = tmp_path / "sl_it.pt"
+    train(dataset_dir=Path("replays_dataset"), checkpoint_out=out,
+          epochs=1, batch_size=8, max_pairs=24, log_every=1,
+          device_str="cpu", batched_forward=True,
+          d_model=128, num_layers=2, num_heads=4, d_ff=128,
+          holdout_games=20, eval_every=0, eval_pairs=5,
+          value_loss_weight=0.5)
+    import torch
+    ck = torch.load(out, map_location="cpu", weights_only=False)
+    assert int(ck.get("supervised_step", 0)) >= 3, \
+        "batched train() must land optimizer steps"

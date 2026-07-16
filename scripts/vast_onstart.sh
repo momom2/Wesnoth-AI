@@ -258,6 +258,11 @@ if [ "${SL_MODE:-0}" = "1" ]; then
     else
         SL_RESUME="$CAMPAIGN"
     fi
+    # Idempotency: Vast can re-fire onstart on a running instance
+    # (observed 2026-07-16: a second trainer spawned mid-run and
+    # contended for the GPU). One SL trainer at a time.
+    pkill -f 'supervised_trai[n].py' 2>/dev/null || true
+    sleep 2
     echo "[onstart] SL_MODE: behavior cloning, resume from $SL_RESUME"
     nohup "$PY" tools/supervised_train.py replays_dataset         --checkpoint "$SL_OUT"         --resume "$SL_RESUME"         --epochs "${SL_EPOCHS:-8}"         --bs "${SL_BS:-64}"         --lr "${SL_LR:-1e-4}"         --device cuda         --workers "${SL_WORKERS:-24}"         --d-model 256 --num-layers 6 --num-heads 8 --d-ff 1024         --holdout-games "${SL_HOLDOUT:-300}"         --value-loss-weight "${SL_VALUE_WEIGHT:-0.5}"         --eval-every "${SL_EVAL_EVERY:-50000}"         --eval-pairs "${SL_EVAL_PAIRS:-1200}"         >> "$WORKDIR/train.log" 2>&1 &
     echo "[onstart] SL training launched (tail -f $WORKDIR/train.log)"
