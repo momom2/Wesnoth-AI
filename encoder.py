@@ -68,7 +68,9 @@ NUM_SIDE_CODES  = 3     # 0 = ours, 1 = theirs, 2 = neutral
 # mods can override in one place. Empty string is reserved for
 # "unknown/unset" -> id 0.
 from constants import DEFAULT_FACTIONS as _DEFAULT_FACTIONS
-from visibility import units_visible_to
+from visibility import (hexes_in_slot_order, own_recruit_types,
+                        units_visible_to,
+                        visible_units_in_slot_order)
 
 
 def pad_legacy_encoder_state(encoder_state: dict, encoder) -> dict:
@@ -984,8 +986,7 @@ def encode_raw(
     # collector already excludes invisible enemy units from
     # `gs.map.units` for the side we're encoding for, so any
     # hidden unit isn't in the input we see anyway.
-    hexes = sorted(game_state.map.hexes,
-                   key=lambda h: (h.position.y, h.position.x))
+    hexes = hexes_in_slot_order(game_state)   # slot contract
 
     hex_positions = [h.position for h in hexes]
     H = len(hex_positions)
@@ -1087,14 +1088,14 @@ def encode_raw(
     # nightstalk) hidden until uncovered (sim manages the
     # `_uncovered_units` set per ambush-trigger). See
     # `visibility.py` for the full contract.
-    units = sorted(
-        units_visible_to(
-            game_state, current_side,
-            # Reuse the disc if the village fog gate already
-            # computed it; None lets the filter compute lazily.
-            vis_set=_disc_cache[0] if _disc_cache else None,
-        ),
-        key=lambda u: (u.position.y, u.position.x, u.id),
+    # Slot contract (visibility.visible_units_in_slot_order): the
+    # label builder and any other slot consumer share THIS
+    # enumeration -- do not inline a sort here again.
+    units = visible_units_in_slot_order(
+        game_state, current_side,
+        # Reuse the disc if the village fog gate already computed
+        # it; None lets the filter compute lazily.
+        vis_set=_disc_cache[0] if _disc_cache else None,
     )
     U = len(units)
     unit_positions = [u.position for u in units]
@@ -1154,14 +1155,16 @@ def encode_raw(
     recruit_xs: List[int] = []
     recruit_ys: List[int] = []
     recruit_feats_rows: List[np.ndarray] = []
-    # Emit recruit phantoms ONLY for the current side. Enemy
-    # recruit lists are fog-hidden per Wesnoth's UI contract.
-    if 0 < current_side <= len(sides):
-        side_info = sides[current_side - 1]
+    # Recruit phantoms via the slot contract
+    # (visibility.own_recruit_types): CURRENT side only, side_info
+    # order -- the label builder resolves recruit slots through the
+    # same function.
+    own_recruits = own_recruit_types(game_state, current_side)
+    if own_recruits:
         lx, ly = own_leader_xy
         lx_clamped = 0 if lx < 0 else (MAP_LIMIT if lx > MAP_LIMIT else lx)
         ly_clamped = 0 if ly < 0 else (MAP_LIMIT if ly > MAP_LIMIT else ly)
-        for name in side_info.recruits:
+        for name in own_recruits:
             recruit_types.append(name)
             recruit_is_ours.append(1.0)
             recruit_type_ids.append(

@@ -2316,37 +2316,23 @@ def _action_indices(gs: GameState, cmd: list) -> Optional[ActionIndices]:
         return None
     kind = cmd[0]
 
-    # Helper: produce the encoder-aligned unit list for the current
-    # side. MUST mirror encoder.encode_raw exactly: (1) only units
-    # VISIBLE to the acting side (units_visible_to) -- the
-    # reconstruction gs is god-view, but the encoder filters, so a
-    # god-view enumeration here shifts every slot index past the
-    # first fog-hidden enemy and mislabels the actor head (found
-    # 2026-07-16: 19% of behavior-cloning pairs were out-of-range
-    # and an unknown further fraction silently mislabeled); (2)
-    # sorted by (y, x, id); (3) recruit phantoms for the CURRENT
-    # side only, in side_info.recruits order; (4) end_turn last.
-    from visibility import units_visible_to
+    # Slot contract: units / recruits / hexes all come from the
+    # SHARED enumeration in visibility.py -- the same functions the
+    # encoder builds its tokens from. (The previous hand-mirrored
+    # copy silently rotted when the encoder became fog-filtered,
+    # mislabeling 19%+ of behavior-cloning pairs; root-caused and
+    # de-mirrored 2026-07-16.)
+    from visibility import (hexes_in_slot_order, own_recruit_types,
+                            visible_units_in_slot_order)
     current_side = gs.global_info.current_side
-    units_sorted = sorted(
-        units_visible_to(gs, current_side),
-        key=lambda u: (u.position.y, u.position.x, u.id),
-    )
-
-    # Hex ordering: encoder sorts hexes by (y, x) row-major. Same here.
-    hex_positions = sorted(
-        (h.position for h in gs.map.hexes),
-        key=lambda p: (p.y, p.x),
-    )
+    units_sorted = visible_units_in_slot_order(gs, current_side)
+    hex_positions = [h.position for h in hexes_in_slot_order(gs)]
     pos_to_hex_idx = {(p.x, p.y): i for i, p in enumerate(hex_positions)}
 
     if kind == "end_turn":
-        # Last actor slot = end_turn sentinel. Recruit phantoms are
-        # CURRENT-side only (encoder contract).
-        n_own_recruits = 0
-        if 0 < current_side <= len(gs.sides):
-            n_own_recruits = len(gs.sides[current_side - 1].recruits)
-        end_idx = len(units_sorted) + n_own_recruits
+        # Last actor slot = end_turn sentinel.
+        end_idx = len(units_sorted) + len(
+            own_recruit_types(gs, current_side))
         return ActionIndices("end_turn", actor_idx=end_idx)
 
     if kind == "move":
@@ -2390,16 +2376,13 @@ def _action_indices(gs: GameState, cmd: list) -> Optional[ActionIndices]:
     if kind == "recruit":
         unit_type = cmd[1]
         tx, ty = cmd[2], cmd[3]
-        # Recruit actor slots come after the VISIBLE units, and only
-        # the CURRENT side's recruit list is emitted, in
-        # side_info.recruits order (encoder contract).
+        # Recruit actor slots follow the visible units (slot
+        # contract: own_recruit_types).
         actor = None
-        if 0 < current_side <= len(gs.sides):
-            own = gs.sides[current_side - 1].recruits
-            for j, r_name in enumerate(own):
-                if r_name == unit_type:
-                    actor = len(units_sorted) + j
-                    break
+        for j, r_name in enumerate(own_recruit_types(gs, current_side)):
+            if r_name == unit_type:
+                actor = len(units_sorted) + j
+                break
         if actor is None:
             return None
         target = pos_to_hex_idx.get((tx, ty))

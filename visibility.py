@@ -343,3 +343,44 @@ def units_visible_to(
             continue
         out.append(u)
     return out
+
+
+# ---------------------------------------------------------------------
+# Actor-slot contract (single source of truth, 2026-07-16)
+# ---------------------------------------------------------------------
+# The model's actor dimension is [visible units | own recruit
+# phantoms | end_turn], and the TARGET dimension is the hex list.
+# Every consumer that needs "slot i means X" MUST derive it from the
+# three functions below -- the encoder builds its tokens from them
+# and the behavior-cloning label builder resolves observed actions
+# through them. History: these orderings used to be re-implemented
+# independently ("mirrored"); when the encoder became fog-filtered
+# (pre-recovery, ~2026-05) the dormant supervised-label mirror kept
+# god-view enumeration and silently mislabeled 19%+ of pairs (found
+# 2026-07-16 when SL was revived). Shared code, not mirrors.
+
+def visible_units_in_slot_order(
+    state: GameState, side: int,
+    vis_set: Optional[Set[Tuple[int, int]]] = None,
+) -> List[Unit]:
+    """Unit slots 0..U-1: fog-visible units for `side`, sorted by
+    (y, x, id)."""
+    return sorted(
+        units_visible_to(state, side, vis_set=vis_set),
+        key=lambda u: (u.position.y, u.position.x, u.id),
+    )
+
+
+def own_recruit_types(state: GameState, side: int) -> List[str]:
+    """Recruit slots U..U+R-1: the CURRENT side's recruit list, in
+    side_info order (enemy lists are fog-hidden per Wesnoth's UI
+    contract). Slot U+R is the end_turn sentinel."""
+    if 0 < side <= len(state.sides):
+        return list(state.sides[side - 1].recruits)
+    return []
+
+
+def hexes_in_slot_order(state: GameState) -> List:
+    """Target slots: the hex list sorted row-major (y, x)."""
+    return sorted(state.map.hexes,
+                  key=lambda h: (h.position.y, h.position.x))
