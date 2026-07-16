@@ -439,11 +439,16 @@ class LossParts:
     actor:        torch.Tensor   # scalar, grad-tracking (or zero sentinel)
     type:         torch.Tensor   # scalar, grad-tracking (or zero sentinel)
     target:       torch.Tensor   # scalar, grad-tracking (or zero sentinel)
+    # value: C51 CE against the game outcome z (joint value training,
+    # user 2026-07-16 -- the value-frozen epoch-0 pass let policy
+    # gradients reshape the trunk under the head, late AUC 0.79->0.63).
     weapon:       torch.Tensor   # scalar, grad-tracking (or zero sentinel)
     actor_fired:  bool
     type_fired:   bool
     target_fired: bool
     weapon_fired: bool
+    value:        torch.Tensor = None   # zero sentinel when off
+    value_fired:  bool = False
 
 
 # Per-action-type loss weight on the actor head + the new type head.
@@ -502,6 +507,8 @@ def _loss_parts_for_output(
     device:  torch.device,
     *,
     type_loss_weights: Dict[str, float] = None,
+    value_z: Optional[int] = None,      # game outcome for the mover
+    value_weight: float = 0.0,          # lambda_v x per-game weight
 ) -> LossParts:
     """Per-sample CE loss decomposed into actor/type/target/weapon
     heads.
@@ -551,7 +558,8 @@ def _loss_parts_for_output(
         # Pathological: observed actor isn't in the model's output. The
         # whole pair contributes nothing — total=0, no head fired.
         return LossParts(zero, zero, zero, zero, zero,
-                         False, False, False, False)
+                         False, False, False, False,
+                         value=zero, value_fired=False)
 
     actor_target = torch.tensor(ai.actor_idx, device=device, dtype=torch.long)
     actor_loss_raw = F.cross_entropy(
@@ -613,14 +621,35 @@ def _loss_parts_for_output(
             )
             weapon_fired = True
 
-    total = actor_loss + type_loss + target_loss + weapon_loss
+    # Joint value loss (user 2026-07-16): C51 CE against the game
+    # outcome z for the side to move. Corpus games are decisive by
+    # construction (z in {-1,+1}), so the projected target is a
+    # ONE-HOT on the support's edge atom -- CE reduces to
+    # -log p(edge). `value_weight` carries lambda_v x the per-game
+    # decorrelation weight (mean_cmds / n_cmds(game)): each GAME
+    # contributes ~equally regardless of length, the same
+    # game_weight philosophy as trainer.step_mcts. Value CE per
+    # sample is reported UNWEIGHTED in `value` for the log.
+    value_loss = zero
+    value_loss_raw = zero
+    value_fired = False
+    if value_z is not None and value_weight > 0.0             and getattr(output, "value_logits", None) is not None:
+        logp = F.log_softmax(output.value_logits[0], dim=-1)   # [K]
+        edge = (logp.shape[0] - 1) if value_z > 0 else 0
+        value_loss_raw = -logp[edge]
+        value_loss = value_weight * value_loss_raw
+        value_fired = True
+
+    total = (actor_loss + type_loss + target_loss + weapon_loss
+             + value_loss)
     # Per-head fields report the raw CE (no action-type weight, no
     # smoothing scale baked in) so the running-average log line stays
     # interpretable -- "actor=2.5" means CE=2.5 even if the actor head
     # is internally scaled 5x for recruits.
     return LossParts(total, actor_loss_raw, type_loss_raw,
                      target_loss, weapon_loss,
-                     True, type_fired, target_fired, weapon_fired)
+                     True, type_fired, target_fired, weapon_fired,
+                     value=value_loss_raw, value_fired=value_fired)
 
 
 def _loss_for_output(
@@ -667,12 +696,15 @@ def _loss_parts_for_pair(
     device:  torch.device,
     *,
     type_loss_weights: Optional[Dict[str, float]] = None,
+    value_z: Optional[int] = None,
+    value_weight: float = 0.0,
 ) -> LossParts:
     """Per-pair forward + per-head loss breakdown."""
     encoded = _encode_one(encoder, state_or_raw, device)
     output = model(encoded)
     return _loss_parts_for_output(
-        output, ai, device, type_loss_weights=type_loss_weights)
+        output, ai, device, type_loss_weights=type_loss_weights,
+        value_z=value_z, value_weight=value_weight)
 
 
 def _flush_batch(
@@ -680,6 +712,7 @@ def _flush_batch(
     encoder:         GameStateEncoder,
     batch_encoded:   List,
     batch_ais:       List[ActionIndices],
+    batch_zw:        List,                    # per-sample (z, weight)
     opt:             torch.optim.Optimizer,
     params_for_clip: List[torch.nn.Parameter],
     batch_size:      int,
@@ -689,6 +722,7 @@ def _flush_batch(
     running_loss_type:   deque,
     running_loss_target: deque,
     running_loss_weapon: deque,
+    running_loss_value:  deque,
     type_loss_weights: Optional[Dict[str, float]] = None,
 ) -> None:
     """One batched forward + summed-loss backward + opt step.
@@ -713,10 +747,12 @@ def _flush_batch(
     # Single padded transformer pass over B samples.
     outputs = model.forward_batch(batch_encoded)
 
+    zw = batch_zw if batch_zw else [(None, 0.0)] * len(batch_ais)
     parts_list = [
         _loss_parts_for_output(out, ai, device,
-                               type_loss_weights=type_loss_weights)
-        for out, ai in zip(outputs, batch_ais)
+                               type_loss_weights=type_loss_weights,
+                               value_z=z, value_weight=w)
+        for out, ai, (z, w) in zip(outputs, batch_ais, zw)
     ]
 
     # Stack each head separately so we can both backprop through the
@@ -726,6 +762,15 @@ def _flush_batch(
     type_stack   = torch.stack([p.type   for p in parts_list])  # [B]
     target_stack = torch.stack([p.target for p in parts_list])  # [B]
     weapon_stack = torch.stack([p.weapon for p in parts_list])  # [B]
+    # Raw per-sample value CE, weighted here by lambda_v x per-game
+    # weight (zw). NOTE: total_loss re-sums the heads rather than
+    # using p.total, so the value term MUST be added explicitly --
+    # omitting this stack would silently drop value training in the
+    # batched (GPU) flow only.
+    value_stack  = torch.stack([p.value  for p in parts_list])  # [B]
+    vw = torch.tensor([w for (_z, w) in zw],
+                      device=value_stack.device,
+                      dtype=value_stack.dtype)
 
     # backward() through the same scalar that the per-pair path
     # produces: sum of all heads divided by batch_size. Linearity
@@ -733,7 +778,8 @@ def _flush_batch(
     # `(part.total / bs).backward()` calls.
     total_loss = (actor_stack.sum() + type_stack.sum()
                   + target_stack.sum()
-                  + weapon_stack.sum()) / batch_size
+                  + weapon_stack.sum()
+                  + (value_stack * vw).sum()) / batch_size
     total_loss.backward()
 
     torch.nn.utils.clip_grad_norm_(params_for_clip, 1.0)
@@ -746,6 +792,7 @@ def _flush_batch(
     type_floats   = type_stack.detach().cpu().tolist()
     target_floats = target_stack.detach().cpu().tolist()
     weapon_floats = weapon_stack.detach().cpu().tolist()
+    value_floats  = value_stack.detach().cpu().tolist()
     for i, p in enumerate(parts_list):
         if not p.actor_fired:
             continue   # actor_idx out of range — pair contributed 0 to grad
@@ -759,12 +806,15 @@ def _flush_batch(
             running_loss_target.append(t)
         if p.weapon_fired:
             running_loss_weapon.append(w)
+        if p.value_fired and running_loss_value is not None:
+            running_loss_value.append(value_floats[i])
 
 
 def _evaluate(
     model, encoder, holdout_files, device, *,
     eval_pairs: int = 1200,
     type_loss_weights: Optional[Dict[str, float]] = None,
+    winner_map: Optional[Dict[str, int]] = None,
 ) -> Dict[str, float]:
     """Held-out behavior-cloning metrics: per-head top-1 accuracy +
     mean CE over the first `eval_pairs` pairs of the holdout games
@@ -776,6 +826,7 @@ def _evaluate(
     hits = {"actor": 0, "type": 0, "target": 0, "weapon": 0}
     fired = {"actor": 0, "type": 0, "target": 0, "weapon": 0}
     ce_sum, n = 0.0, 0
+    ev_win, ev_loss = [], []      # E[V] samples for value AUC
     with torch.no_grad():
         for item in _pair_stream_serial(sorted(holdout_files)):
             if item[0] != "pair":
@@ -789,6 +840,11 @@ def _evaluate(
             except Exception:                     # noqa: BLE001
                 continue
             n += 1
+            if winner_map and _name in winner_map:
+                ev = float(output.value.item())
+                mover = state.global_info.current_side
+                (ev_win if winner_map[_name] == mover
+                 else ev_loss).append(ev)
             parts = _loss_parts_for_output(
                 output, ai, device,
                 type_loss_weights=type_loss_weights)
@@ -815,6 +871,19 @@ def _evaluate(
     out = {"n": n, "ce": (ce_sum / n) if n else float("nan")}
     for k in hits:
         out[f"{k}_top1"] = (hits[k] / fired[k]) if fired[k] else None
+    # Value discrimination: P(E[V]_winner-to-move > E[V]_loser-to-
+    # move) over holdout states -- the same AUC probe_value_head
+    # reports, cheap enough to ride every eval so trunk-drift damage
+    # (epoch-0 lesson: late AUC 0.79 -> 0.63) shows up in the CURVE.
+    if ev_win and ev_loss:
+        wins = sum(1 for a in ev_win for b in ev_loss if a > b)
+        ties = sum(1 for a in ev_win for b in ev_loss if a == b)
+        out["value_auc"] = (wins + 0.5 * ties) / (
+            len(ev_win) * len(ev_loss))
+        out["n_value"] = len(ev_win) + len(ev_loss)
+    else:
+        out["value_auc"] = None
+        out["n_value"] = 0
     return out
 
 
@@ -832,7 +901,8 @@ def _log_eval(stats: Dict, epoch: int, global_step: int,
         f"actor_top1={fmt(stats['actor_top1'])} "
         f"type_top1={fmt(stats['type_top1'])} "
         f"target_top1={fmt(stats['target_top1'])} "
-        f"weapon_top1={fmt(stats['weapon_top1'])}")
+        f"weapon_top1={fmt(stats['weapon_top1'])} "
+        f"value_auc={fmt(stats.get('value_auc'))}")
     try:
         row = dict(stats)
         row.update({"epoch": epoch, "step": global_step,
@@ -875,6 +945,8 @@ def train(
     num_heads: int = 4,
     d_ff: int = 256,
     holdout_games: int = 300,        # held-out GAMES (never trained on)
+    value_loss_weight: float = 0.5,  # lambda_v for joint value CE
+                                     # (0 = legacy policy-only)
     eval_every: int = 50_000,        # pairs between held-out evals
                                      # (0 = only at epoch ends)
     eval_pairs: int = 1200,          # held-out pairs per eval
@@ -1096,6 +1168,42 @@ def train(
         files = files[:max_replays]
     log.info(f"Training on {len(files)} replay files")
 
+    # Joint value training: game outcome per file (winner in {1,2},
+    # decisive by corpus construction) + per-game decorrelation
+    # weight mean_cmds/n_cmds -- each GAME contributes ~equally to
+    # the value gradient regardless of length (game_weight
+    # philosophy; full 1-state-per-game decorrelation is
+    # unnecessary: the 2026-07-09 value fine-tune on all states of
+    # these games reached held-out AUC 0.89).
+    winner_map: Dict[str, int] = {}
+    game_vweight: Dict[str, float] = {}
+    if value_loss_weight > 0.0:
+        idx_path = dataset_dir / "value_corpus_index.jsonl"
+        if idx_path.is_file():
+            n_cmds: Dict[str, int] = {}
+            with idx_path.open(encoding="utf-8") as f:
+                for line in f:
+                    row = json.loads(line)
+                    w = row.get("winner")
+                    if w in (1, 2):
+                        winner_map[row["file"]] = int(w)
+                        n_cmds[row["file"]] = max(
+                            1, int(row.get("n_commands", 1)))
+            train_names = {f.name for f in files}
+            counts = [c for name, c in n_cmds.items()
+                      if name in train_names]
+            mean_cmds = (sum(counts) / len(counts)) if counts else 1.0
+            for name, c in n_cmds.items():
+                game_vweight[name] = mean_cmds / c
+            log.info(f"joint value loss ON (lambda_v="
+                     f"{value_loss_weight}): {len(winner_map)} "
+                     f"labeled games, mean_cmds={mean_cmds:.0f}")
+        else:
+            log.warning(f"no {idx_path} -- joint value loss OFF")
+            value_loss_weight = 0.0
+    else:
+        log.info("joint value loss OFF (value_loss_weight=0)")
+
     if eval_only:
         if not holdout_files:
             log.error("--eval-only needs a holdout split")
@@ -1137,6 +1245,7 @@ def train(
     running_loss_type   = deque(maxlen=200)
     running_loss_target = deque(maxlen=200)
     running_loss_weapon = deque(maxlen=200)
+    running_loss_value  = deque(maxlen=200)
     # running_count is THIS RUN's pair count (drives max_pairs cap and
     # rate). cumulative_pairs adds the resumed-from total for the
     # progress-display + checkpoint save.
@@ -1204,6 +1313,7 @@ def train(
         # are concentrated in the "pair" event handler.
         batch_encoded: List = []
         batch_ais: List[ActionIndices] = []
+        batch_zw: List = []
         losses_in_batch = 0  # used by per-pair flow
         params_for_clip = list(model.parameters()) + list(encoder.parameters())
         opt.zero_grad()
@@ -1237,12 +1347,24 @@ def train(
                     # Abandon any partial gradient or batch from this
                     # file — its data is incomplete.
                     opt.zero_grad()
-                    batch_encoded.clear(); batch_ais.clear()
+                    batch_encoded.clear(); batch_ais.clear(); batch_zw.clear()
                     losses_in_batch = 0
                     continue
 
                 # kind == "pair"
                 _, state_or_raw, ai, _gz_name = event
+
+                # Joint value target: game outcome z for the mover
+                # (+ per-game decorrelation weight). None/0 when the
+                # game has no winner label or value training is off.
+                v_z, v_w = None, 0.0
+                if value_loss_weight > 0.0 and _gz_name in winner_map:
+                    if isinstance(state_or_raw, RawEncoded):
+                        mover = 1 if state_or_raw.global_feats[1] < 0 else 2
+                    else:
+                        mover = state_or_raw.global_info.current_side
+                    v_z = 1 if winner_map[_gz_name] == mover else -1
+                    v_w = value_loss_weight * game_vweight.get(_gz_name, 1.0)
 
                 if use_batched:
                     # === Batched flow: accumulate B, then forward_batch.
@@ -1253,26 +1375,30 @@ def train(
                         continue
                     batch_encoded.append(encoded)
                     batch_ais.append(ai)
+                    batch_zw.append((v_z, v_w))
                     if len(batch_encoded) < batch_size:
                         continue
                     try:
                         _flush_batch(
                             model, encoder, batch_encoded, batch_ais,
+                            batch_zw,
                             opt, params_for_clip, batch_size, device,
                             running_loss,
                             running_loss_actor,
                             running_loss_type,
                             running_loss_target,
                             running_loss_weapon,
+                        running_loss_value,
+                            running_loss_value,
                             type_loss_weights=type_loss_weights,
                         )
                     except Exception as e:
                         log.debug(f"  batch flush failed: {e}")
                         opt.zero_grad()
-                        batch_encoded.clear(); batch_ais.clear()
+                        batch_encoded.clear(); batch_ais.clear(); batch_zw.clear()
                         continue
                     running_count += len(batch_encoded)
-                    batch_encoded.clear(); batch_ais.clear()
+                    batch_encoded.clear(); batch_ais.clear(); batch_zw.clear()
                     step_just_landed = True
                 else:
                     # === Per-pair flow: forward+backward per pair, step
@@ -1284,6 +1410,7 @@ def train(
                         parts = _loss_parts_for_pair(
                             encoder, model, state_or_raw, ai, device,
                             type_loss_weights=type_loss_weights,
+                            value_z=v_z, value_weight=v_w,
                         )
                     except Exception as e:
                         log.debug(f"  loss compute failed: {e}")
@@ -1300,6 +1427,8 @@ def train(
                             running_loss_target.append(float(parts.target.item()))
                         if parts.weapon_fired:
                             running_loss_weapon.append(float(parts.weapon.item()))
+                        if parts.value_fired:
+                            running_loss_value.append(float(parts.value.item()))
                     running_count += 1
                     losses_in_batch += 1
                     if losses_in_batch < batch_size:
@@ -1342,7 +1471,8 @@ def train(
                             f"  epoch={epoch} step={step} "
                             f"avg_loss={avg:.3f} "
                             f"(actor={avg_actor:.3f} type={avg_type:.3f} "
-                            f"target={avg_target:.3f} weapon={avg_weapon:.3f}) "
+                            f"target={avg_target:.3f} weapon={avg_weapon:.3f} "
+                            f"value={_avg(running_loss_value):.3f}) "
                             f"pairs={running_count} rate={rate:.1f}/s "
                             f"wall={total_elapsed/60:.1f}m eta={eta}"
                         )
@@ -1367,7 +1497,8 @@ def train(
                         stats = _evaluate(
                             model, encoder, holdout_files, device,
                             eval_pairs=eval_pairs,
-                            type_loss_weights=type_loss_weights)
+                            type_loss_weights=type_loss_weights,
+                            winner_map=winner_map)
                         _log_eval(stats, epoch, global_step,
                                   running_count, checkpoint_out)
                     if max_pairs and running_count >= max_pairs:
@@ -1390,19 +1521,21 @@ def train(
                 try:
                     _flush_batch(
                         model, encoder, batch_encoded, batch_ais,
+                        batch_zw,
                         opt, params_for_clip, batch_size, device,
                         running_loss,
                         running_loss_actor,
                         running_loss_type,
                         running_loss_target,
                         running_loss_weapon,
+                        running_loss_value,
                         type_loss_weights=type_loss_weights,
                     )
                     running_count += len(batch_encoded)
                 except Exception as e:
                     log.debug(f"  end-of-epoch flush failed: {e}")
                     opt.zero_grad()
-                batch_encoded.clear(); batch_ais.clear()
+                batch_encoded.clear(); batch_ais.clear(); batch_zw.clear()
             elif not use_batched and losses_in_batch > 0:
                 torch.nn.utils.clip_grad_norm_(params_for_clip, 1.0)
                 opt.step()
@@ -1433,7 +1566,8 @@ def train(
         if holdout_files:
             stats = _evaluate(model, encoder, holdout_files, device,
                               eval_pairs=eval_pairs,
-                              type_loss_weights=type_loss_weights)
+                              type_loss_weights=type_loss_weights,
+                              winner_map=winner_map)
             _log_eval(stats, epoch, global_step, running_count,
                       checkpoint_out, tag=f"epoch{epoch}-end")
         # Advance the LR scheduler one cosine step. Done AFTER the
@@ -1504,6 +1638,12 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--num-layers", type=int, default=3)
     ap.add_argument("--num-heads", type=int, default=4)
     ap.add_argument("--d-ff", type=int, default=256)
+    ap.add_argument("--value-loss-weight", type=float, default=0.5,
+                    help="lambda_v for the joint C51 value CE against "
+                         "game outcomes (per-game decorrelation weight "
+                         "applied on top). 0 = legacy policy-only "
+                         "(the value-frozen epoch-0 mode that let the "
+                         "trunk drift under the head).")
     ap.add_argument("--holdout-games", type=int, default=300,
                     help="Games held out of training (seed-0 split); "
                          "held-out top-1 accuracy is the SL "
@@ -1552,6 +1692,7 @@ def main(argv: List[str]) -> int:
         num_heads=args.num_heads,
         d_ff=args.d_ff,
         holdout_games=args.holdout_games,
+        value_loss_weight=args.value_loss_weight,
         eval_every=args.eval_every,
         eval_pairs=args.eval_pairs,
         eval_only=args.eval_only,
