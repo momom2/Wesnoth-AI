@@ -109,6 +109,8 @@ def _save_checkpoint(
     step: int,
     pairs: int,
     epoch: int = 0,
+    arch: Optional[Dict[str, int]] = None,
+    carry: Optional[Dict] = None,
 ) -> None:
     """Atomic-ish checkpoint write: save to .tmp then rename.
 
@@ -120,9 +122,16 @@ def _save_checkpoint(
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
-    torch.save({
-        "arch": {"d_model": 128, "num_layers": 3,
-                 "num_heads": 4, "d_ff": 256},
+    payload = dict(carry or {})
+    # `carry` holds fields the MCTS/self-play path owns and the SL
+    # pass must transport UNCHANGED (decision_step for the
+    # combat-oracle anneal, aux_score / moves_left head flags) --
+    # the SL<->MCTS round-trip contract (2026-07-16). Explicit keys
+    # below always win.
+    payload.update({
+        "arch": dict(arch) if arch else {
+            "d_model": 128, "num_layers": 3,
+            "num_heads": 4, "d_ff": 256},
         "model_state":     model.state_dict(),
         "encoder_state":   encoder.state_dict(),
         "unit_type_to_id": dict(encoder.unit_type_to_id),
@@ -131,7 +140,8 @@ def _save_checkpoint(
         "supervised_step":  step,
         "supervised_pairs": pairs,
         "supervised_epoch": epoch,
-    }, tmp)
+    })
+    torch.save(payload, tmp)
     import os
     os.replace(tmp, path)
 
@@ -751,6 +761,91 @@ def _flush_batch(
             running_loss_weapon.append(w)
 
 
+def _evaluate(
+    model, encoder, holdout_files, device, *,
+    eval_pairs: int = 1200,
+    type_loss_weights: Optional[Dict[str, float]] = None,
+) -> Dict[str, float]:
+    """Held-out behavior-cloning metrics: per-head top-1 accuracy +
+    mean CE over the first `eval_pairs` pairs of the holdout games
+    (deterministic file order -> comparable across evals). The
+    encoder vocab is not intentionally grown here; unseen names hit
+    the overflow bucket exactly as they would at rollout time."""
+    was_training = model.training
+    model.eval(); encoder.eval()
+    hits = {"actor": 0, "type": 0, "target": 0, "weapon": 0}
+    fired = {"actor": 0, "type": 0, "target": 0, "weapon": 0}
+    ce_sum, n = 0.0, 0
+    with torch.no_grad():
+        for item in _pair_stream_serial(sorted(holdout_files)):
+            if item[0] != "pair":
+                continue
+            _, state, ai, _name = item
+            if n >= eval_pairs:
+                break
+            try:
+                encoded = _encode_one(encoder, state, device)
+                output = model(encoded)
+            except Exception:                     # noqa: BLE001
+                continue
+            n += 1
+            parts = _loss_parts_for_output(
+                output, ai, device,
+                type_loss_weights=type_loss_weights)
+            ce_sum += float(parts.total.item())
+            A = output.actor_logits.size(1)
+            if ai.actor_idx < A:
+                fired["actor"] += 1
+                if int(output.actor_logits[0].argmax()) == ai.actor_idx:
+                    hits["actor"] += 1
+                if ai.type_idx is not None:
+                    fired["type"] += 1
+                    if int(output.type_logits[0, ai.actor_idx].argmax())                             == ai.type_idx:
+                        hits["type"] += 1
+                if ai.target_idx is not None                         and ai.target_idx < output.target_logits.size(2):
+                    fired["target"] += 1
+                    if int(output.target_logits[0, ai.actor_idx].argmax())                             == ai.target_idx:
+                        hits["target"] += 1
+                if ai.weapon_idx is not None                         and ai.weapon_idx < output.weapon_logits.size(2):
+                    fired["weapon"] += 1
+                    if int(output.weapon_logits[0, ai.actor_idx].argmax())                             == ai.weapon_idx:
+                        hits["weapon"] += 1
+    if was_training:
+        model.train(); encoder.train()
+    out = {"n": n, "ce": (ce_sum / n) if n else float("nan")}
+    for k in hits:
+        out[f"{k}_top1"] = (hits[k] / fired[k]) if fired[k] else None
+    return out
+
+
+def _log_eval(stats: Dict, epoch: int, global_step: int,
+              pairs: int, checkpoint_out: Path, tag: str = "") -> None:
+    """One log line + one JSONL row per held-out eval, so training
+    yields a generalization CURVE (house convention: mid-epoch
+    measurements, not endpoints). JSONL sits next to the checkpoint:
+    <stem>_eval.jsonl."""
+    def fmt(v):
+        return "n/a" if v is None else f"{v:.3f}"
+    log.info(
+        f"EVAL{('[' + tag + ']') if tag else ''} step={global_step} "
+        f"pairs={pairs} n={stats['n']} ce={stats['ce']:.4f} "
+        f"actor_top1={fmt(stats['actor_top1'])} "
+        f"type_top1={fmt(stats['type_top1'])} "
+        f"target_top1={fmt(stats['target_top1'])} "
+        f"weapon_top1={fmt(stats['weapon_top1'])}")
+    try:
+        row = dict(stats)
+        row.update({"epoch": epoch, "step": global_step,
+                    "pairs": pairs, "tag": tag,
+                    "ts": time.strftime("%FT%T")})
+        out = checkpoint_out.with_name(checkpoint_out.stem + "_eval.jsonl")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        with out.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(row) + "\n")
+    except Exception as e:                            # noqa: BLE001
+        log.warning(f"eval log write failed: {e}")
+
+
 def train(
     dataset_dir: Path,
     checkpoint_out: Path,
@@ -775,6 +870,15 @@ def train(
                                      # subprocesses
     prefetch_factor: int = 4,        # in-flight items per worker target
     batched_forward: Optional[bool] = None,  # None = auto (on iff GPU)
+    d_model: int = 128,              # model/encoder width; the tier-a
+    num_layers: int = 3,             # 5M arch is 256/6/8/1024
+    num_heads: int = 4,
+    d_ff: int = 256,
+    holdout_games: int = 300,        # held-out GAMES (never trained on)
+    eval_every: int = 50_000,        # pairs between held-out evals
+                                     # (0 = only at epoch ends)
+    eval_pairs: int = 1200,          # held-out pairs per eval
+    eval_only: bool = False,         # evaluate --resume ckpt and exit
     type_loss_weights: Optional[Dict[str, float]] = None,
         # per-action-type loss weights; None -> defaults
         # (_DEFAULT_ACTION_TYPE_LOSS_WEIGHT). Pass via --action-type-weights
@@ -808,10 +912,51 @@ def train(
         device = torch.device(device_str)
         log.info(f"Device: {device}")
 
-    encoder = GameStateEncoder(d_model=128).to(device)
-    model   = WesnothModel(d_model=128, num_layers=3,
-                           num_heads=4, d_ff=256).to(device)
+    # Peek the resume checkpoint FIRST: the SL<->MCTS round-trip
+    # contract (2026-07-16) requires (a) constructing the OPTIONAL
+    # heads (aux_score / moves_left) the checkpoint carries --
+    # otherwise strict=False loading silently DROPS the campaign's
+    # trained aux head as "unexpected keys"; (b) validating the arch
+    # instead of loading a 256-wide checkpoint into a 128 model; and
+    # (c) carrying decision_step (combat-oracle anneal) through
+    # unchanged so the next MCTS resume doesn't restart the anneal.
+    ckpt = None
+    aux_flag = moves_flag = False
+    carry: Dict = {}
+    if resume is not None and resume.exists():
+        ckpt = torch.load(resume, map_location="cpu",
+                          weights_only=False)
+        saved_arch = ckpt.get("arch") or {}
+        ours = {"d_model": d_model, "num_layers": num_layers,
+                "num_heads": num_heads, "d_ff": d_ff}
+        for k, v in ours.items():
+            if saved_arch and saved_arch.get(k) != v:
+                raise RuntimeError(
+                    f"--resume arch mismatch on '{k}': checkpoint "
+                    f"has {saved_arch.get(k)!r}, flags say {v!r}. "
+                    f"Pass the checkpoint's arch explicitly.")
+        ms = ckpt.get("model_state", {})
+        aux_flag = bool(ckpt.get("aux_score")) or any(
+            k.startswith("aux_score_head.") for k in ms)
+        moves_flag = bool(ckpt.get("moves_left")) or any(
+            k.startswith("moves_left_head.") for k in ms)
+        for k in ("decision_step", "aux_score", "moves_left"):
+            if k in ckpt:
+                carry[k] = ckpt[k]
+        carry.setdefault("aux_score", aux_flag)
+        carry.setdefault("moves_left", moves_flag)
+        if "decision_step" in carry:
+            log.info(f"  carrying decision_step="
+                     f"{carry['decision_step']} through the SL pass")
+
+    encoder = GameStateEncoder(d_model=d_model).to(device)
+    model   = WesnothModel(d_model=d_model, num_layers=num_layers,
+                           num_heads=num_heads, d_ff=d_ff,
+                           aux_score=aux_flag,
+                           moves_left=moves_flag).to(device)
     model.train(); encoder.train()
+    arch_record = {"d_model": d_model, "num_layers": num_layers,
+                   "num_heads": num_heads, "d_ff": d_ff}
 
     opt = torch.optim.AdamW(
         list(model.parameters()) + list(encoder.parameters()),
@@ -841,9 +986,8 @@ def train(
     resumed_step = 0
     resumed_pairs = 0
     resumed_epoch = 0
-    if resume is not None and resume.exists():
+    if ckpt is not None:
         log.info(f"Resuming from {resume}")
-        ckpt = torch.load(resume, map_location=device, weights_only=False)
         # strict=False so an architecture-additive change (new head,
         # new embedding column) can warm-start from a prior
         # checkpoint without losing the heads that DID exist.
@@ -934,9 +1078,33 @@ def train(
         )
         log.info(f"After size filters: {len(files)} replay files remain")
 
+    # Held-out split BY GAME (seed-0 deterministic shuffle of the
+    # post-filter file list; the last `holdout_games` files are never
+    # trained on). Held-out top-1 accuracy is the SL acceptance
+    # metric -- logged periodically so training yields a curve, not
+    # an endpoint.
+    holdout_files: List[Path] = []
+    if holdout_games > 0 and len(files) > holdout_games * 2:
+        _split = sorted(files)
+        random.Random(0).shuffle(_split)
+        holdout_files = _split[-holdout_games:]
+        files = _split[:-holdout_games]
+        log.info(f"Holdout: {len(holdout_files)} games held out; "
+                 f"{len(files)} remain for training")
+
     if max_replays:
         files = files[:max_replays]
     log.info(f"Training on {len(files)} replay files")
+
+    if eval_only:
+        if not holdout_files:
+            log.error("--eval-only needs a holdout split")
+            return
+        stats = _evaluate(model, encoder, holdout_files, device,
+                          eval_pairs=eval_pairs,
+                          type_loss_weights=type_loss_weights)
+        log.info(f"EVAL-ONLY {stats}")
+        return
 
     # Pre-seed the encoder vocab from observed names BEFORE workers
     # spawn (when --workers > 0). Workers receive a snapshot at startup
@@ -973,6 +1141,7 @@ def train(
     # rate). cumulative_pairs adds the resumed-from total for the
     # progress-display + checkpoint save.
     running_count = 0
+    last_eval_pairs = 0
     global_step = resumed_step
     t_start = time.time()
     stop = False
@@ -1188,8 +1357,19 @@ def train(
                         _save_checkpoint(
                             checkpoint_out, model, encoder, opt,
                             global_step, running_count, epoch=epoch,
+                            arch=arch_record, carry=carry,
                         )
                         log.info(f"  periodic checkpoint @ step={global_step}")
+                    if (eval_every and holdout_files
+                            and running_count - last_eval_pairs
+                            >= eval_every):
+                        last_eval_pairs = running_count
+                        stats = _evaluate(
+                            model, encoder, holdout_files, device,
+                            eval_pairs=eval_pairs,
+                            type_loss_weights=type_loss_weights)
+                        _log_eval(stats, epoch, global_step,
+                                  running_count, checkpoint_out)
                     if max_pairs and running_count >= max_pairs:
                         log.info(f"Reached max_pairs={max_pairs}; stopping.")
                         stop = True
@@ -1241,13 +1421,21 @@ def train(
         # link at `range(resumed_epoch, epochs)`.
         completed = epoch + 1
         _save_checkpoint(checkpoint_out, model, encoder, opt,
-                         global_step, running_count, epoch=completed)
+                         global_step, running_count, epoch=completed,
+                         arch=arch_record, carry=carry)
         epoch_path = checkpoint_out.with_name(
             f"{checkpoint_out.stem}_epoch{epoch}{checkpoint_out.suffix}"
         )
         _save_checkpoint(epoch_path, model, encoder, opt,
-                         global_step, running_count, epoch=completed)
+                         global_step, running_count, epoch=completed,
+                         arch=arch_record, carry=carry)
         log.info(f"Epoch {epoch} saved to {checkpoint_out} and {epoch_path.name}")
+        if holdout_files:
+            stats = _evaluate(model, encoder, holdout_files, device,
+                              eval_pairs=eval_pairs,
+                              type_loss_weights=type_loss_weights)
+            _log_eval(stats, epoch, global_step, running_count,
+                      checkpoint_out, tag=f"epoch{epoch}-end")
         # Advance the LR scheduler one cosine step. Done AFTER the
         # save so the saved optimizer state still has the lr that
         # produced this epoch's gradients (recoverable for analysis).
@@ -1312,6 +1500,21 @@ def main(argv: List[str]) -> int:
                          "Big win on GPU; regresses on CPU because of "
                          "padding-to-max-seq waste. Default 'auto' is "
                          "on iff device != cpu.")
+    ap.add_argument("--d-model", type=int, default=128)
+    ap.add_argument("--num-layers", type=int, default=3)
+    ap.add_argument("--num-heads", type=int, default=4)
+    ap.add_argument("--d-ff", type=int, default=256)
+    ap.add_argument("--holdout-games", type=int, default=300,
+                    help="Games held out of training (seed-0 split); "
+                         "held-out top-1 accuracy is the SL "
+                         "acceptance metric. 0 disables.")
+    ap.add_argument("--eval-every", type=int, default=50_000,
+                    help="Pairs between held-out evals (0 = epoch "
+                         "ends only).")
+    ap.add_argument("--eval-pairs", type=int, default=1200)
+    ap.add_argument("--eval-only", action="store_true",
+                    help="Evaluate the --resume checkpoint on the "
+                         "holdout split and exit (baseline mode).")
     ap.add_argument("--action-type-weights", type=Path, default=None,
                     help="Path to action-type loss-weight JSON "
                          "(see tools/compute_action_type_weights.py). "
@@ -1344,6 +1547,14 @@ def main(argv: List[str]) -> int:
         workers=args.workers,
         prefetch_factor=args.prefetch_factor,
         batched_forward=bf_arg,
+        d_model=args.d_model,
+        num_layers=args.num_layers,
+        num_heads=args.num_heads,
+        d_ff=args.d_ff,
+        holdout_games=args.holdout_games,
+        eval_every=args.eval_every,
+        eval_pairs=args.eval_pairs,
+        eval_only=args.eval_only,
         type_loss_weights=type_loss_weights,
     )
     return 0

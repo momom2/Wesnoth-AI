@@ -2316,10 +2316,20 @@ def _action_indices(gs: GameState, cmd: list) -> Optional[ActionIndices]:
         return None
     kind = cmd[0]
 
-    # Helper: produce the encoder-aligned unit list for the current side.
+    # Helper: produce the encoder-aligned unit list for the current
+    # side. MUST mirror encoder.encode_raw exactly: (1) only units
+    # VISIBLE to the acting side (units_visible_to) -- the
+    # reconstruction gs is god-view, but the encoder filters, so a
+    # god-view enumeration here shifts every slot index past the
+    # first fog-hidden enemy and mislabels the actor head (found
+    # 2026-07-16: 19% of behavior-cloning pairs were out-of-range
+    # and an unknown further fraction silently mislabeled); (2)
+    # sorted by (y, x, id); (3) recruit phantoms for the CURRENT
+    # side only, in side_info.recruits order; (4) end_turn last.
+    from visibility import units_visible_to
     current_side = gs.global_info.current_side
     units_sorted = sorted(
-        gs.map.units,
+        units_visible_to(gs, current_side),
         key=lambda u: (u.position.y, u.position.x, u.id),
     )
 
@@ -2331,10 +2341,12 @@ def _action_indices(gs: GameState, cmd: list) -> Optional[ActionIndices]:
     pos_to_hex_idx = {(p.x, p.y): i for i, p in enumerate(hex_positions)}
 
     if kind == "end_turn":
-        # Last actor slot = end_turn sentinel.
-        end_idx = len(units_sorted) + sum(
-            len(s.recruits) for s in gs.sides
-        )
+        # Last actor slot = end_turn sentinel. Recruit phantoms are
+        # CURRENT-side only (encoder contract).
+        n_own_recruits = 0
+        if 0 < current_side <= len(gs.sides):
+            n_own_recruits = len(gs.sides[current_side - 1].recruits)
+        end_idx = len(units_sorted) + n_own_recruits
         return ActionIndices("end_turn", actor_idx=end_idx)
 
     if kind == "move":
@@ -2378,18 +2390,16 @@ def _action_indices(gs: GameState, cmd: list) -> Optional[ActionIndices]:
     if kind == "recruit":
         unit_type = cmd[1]
         tx, ty = cmd[2], cmd[3]
-        # Recruit actor slots come after all units, ordered by encoder
-        # rules (iterate sides in order, then their recruit list).
-        offset = len(units_sorted)
+        # Recruit actor slots come after the VISIBLE units, and only
+        # the CURRENT side's recruit list is emitted, in
+        # side_info.recruits order (encoder contract).
         actor = None
-        for side_idx, side_info in enumerate(gs.sides, start=1):
-            for r_name in side_info.recruits:
-                if side_idx == current_side and r_name == unit_type:
-                    actor = offset
+        if 0 < current_side <= len(gs.sides):
+            own = gs.sides[current_side - 1].recruits
+            for j, r_name in enumerate(own):
+                if r_name == unit_type:
+                    actor = len(units_sorted) + j
                     break
-                offset += 1
-            if actor is not None:
-                break
         if actor is None:
             return None
         target = pos_to_hex_idx.get((tx, ty))
