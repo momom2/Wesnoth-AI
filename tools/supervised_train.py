@@ -1194,7 +1194,13 @@ def train(
                       if name in train_names]
             mean_cmds = (sum(counts) / len(counts)) if counts else 1.0
             for name, c in n_cmds.items():
-                game_vweight[name] = mean_cmds / c
+                # Cap: a 60-command game would otherwise carry 6.5x
+                # per-state gradient -- observed 2026-07-16 as
+                # value_auc oscillating 0.36<->0.76 with train value
+                # CE churning at lambda_v=0.5. Equal-game weighting
+                # matters at the mean; the tail spikes just inject
+                # variance.
+                game_vweight[name] = min(3.0, mean_cmds / c)
             log.info(f"joint value loss ON (lambda_v="
                      f"{value_loss_weight}): {len(winner_map)} "
                      f"labeled games, mean_cmds={mean_cmds:.0f}")
