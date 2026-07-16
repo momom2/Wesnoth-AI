@@ -27,11 +27,23 @@ from constants import COMBAT_ANNEAL_HORIZON    # noqa: E402
 
 
 def test_anneal_schedule_actually_decays():
-    """Sanity: the oracle alpha is strictly smaller late in training than
-    at step 0 -- otherwise 'annealing' would be a no-op."""
+    """Sanity: the anneal MACHINERY decays alpha with step. The
+    oracle is RETIRED (user 2026-07-16: configured alphas 0.0 make
+    every bias zero), so the decay property is pinned against
+    synthetic nonzero alphas -- the machinery must stay intact for
+    a future un-retirement."""
     t0, y0 = combat_alphas_at(0)
     t1, y1 = combat_alphas_at(COMBAT_ANNEAL_HORIZON)
-    assert t1 < t0 and y1 < y0, "combat-oracle alpha must decay with step"
+    if t0 == 0.0 and y0 == 0.0:
+        # Retired config: bias is exactly zero at every step.
+        assert t1 == y1 == 0.0
+        import action_sampler as asamp
+        import unittest.mock as mock
+        with mock.patch.object(asamp, "COMBAT_TARGET_ALPHA", 0.1), \
+                mock.patch.object(asamp, "COMBAT_TYPE_ALPHA", 0.1):
+            t0, y0 = combat_alphas_at(0)
+            t1, y1 = combat_alphas_at(COMBAT_ANNEAL_HORIZON)
+    assert t1 < t0 and y1 < y0, "anneal machinery must decay with step"
 
 
 def _mcts_policy_and_sim(seed: int):

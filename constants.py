@@ -135,8 +135,14 @@ TURN_NORM     = 60.0    # default 2p ladder turn limit ~30, 60 for safety
 # they're at 10% strength (configurable floor below). The policy's
 # learned logits dominate after horizon; the oracle is just a
 # warm-start prior. See action_sampler.combat_alphas_at().
-COMBAT_TARGET_ALPHA = 0.1
-COMBAT_TYPE_ALPHA   = 0.1
+# RETIRED until further notice (user 2026-07-16): with the
+# behavior-cloning pass giving the policy real preferences, the
+# oracle crutch comes off -- "time for the policy to learn to walk
+# on its own legs". Machinery (bias computation + anneal schedule)
+# stays intact; alphas 0.0 make every bias exactly zero at any
+# decision_step. Restore by setting the old values (0.1 / 0.1).
+COMBAT_TARGET_ALPHA = 0.0
+COMBAT_TYPE_ALPHA   = 0.0
 # Backwards-compat alias (used by the rare external caller); the
 # canonical names are the two above.
 COMBAT_LOGIT_ALPHA = COMBAT_TARGET_ALPHA
