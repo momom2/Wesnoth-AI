@@ -244,7 +244,11 @@ class _ScriptedAdapter:
 @dataclass
 class Player:
     label: str
-    spec:  str                       # "random" | "dummy" | <ckpt path>
+    spec:  str    # "random" | "dummy" | <ckpt path> |
+                  # "mcts:<sims>:<ckpt path|random>" (search-vs-prior
+                  # strength tests, 2026-07-16 -- the null the
+                  # overturn metric lacked). Sims comes BEFORE the
+                  # path because Windows paths contain colons.
     policy: object = None            # built lazily on the device
 
     def build(self, device) -> None:
@@ -253,6 +257,19 @@ class Player:
         elif self.spec == "dummy":
             from dummy_policy import DummyPolicy
             self.policy = _ScriptedAdapter(DummyPolicy())
+        elif self.spec.startswith("mcts:"):
+            _, sims_s, inner = self.spec.split(":", 2)
+            base = _load_policy(
+                None if inner == "random" else Path(inner),
+                device, label=self.label)
+            from tools.mcts import MCTSConfig
+            from tools.mcts_policy import MCTSPolicy
+            # Eval contract: MCTSConfig defaults keep the training
+            # crutches OFF (aux_value_bonus=0.0, draw_tiebreak=None)
+            # -- pure search over the checkpoint's own heads.
+            self.policy = MCTSPolicy(
+                base, mcts_config=MCTSConfig(
+                    n_simulations=int(sims_s)))
         else:
             self.policy = _load_policy(Path(self.spec), device,
                                        label=self.label)
@@ -272,7 +289,8 @@ def _parse_players(args) -> List[Player]:
         if "=" not in entry:
             raise SystemExit(
                 f"--player must be LABEL=SPEC (got {entry!r}); SPEC is a "
-                f"checkpoint path, 'random', or 'dummy'.")
+                f"checkpoint path, 'random', 'dummy', or "
+                f"'mcts:<sims>:<ckpt|random>'.")
         label, spec = entry.split("=", 1)
         _add(label.strip(), spec.strip())
 
