@@ -945,8 +945,10 @@ def train(
     num_heads: int = 4,
     d_ff: int = 256,
     holdout_games: int = 300,        # held-out GAMES (never trained on)
-    value_loss_weight: float = 0.5,  # lambda_v for joint value CE
-                                     # (0 = legacy policy-only)
+    value_loss_weight: float = 1.0,  # lambda_v on SELECTED value
+                                     # states (0 = legacy policy-only)
+    value_states_per_game: int = 16, # expected value states sampled
+                                     # per game per epoch
     eval_every: int = 50_000,        # pairs between held-out evals
                                      # (0 = only at epoch ends)
     eval_pairs: int = 1200,          # held-out pairs per eval
@@ -1168,42 +1170,39 @@ def train(
         files = files[:max_replays]
     log.info(f"Training on {len(files)} replay files")
 
-    # Joint value training: game outcome per file (winner in {1,2},
-    # decisive by corpus construction) + per-game decorrelation
-    # weight mean_cmds/n_cmds -- each GAME contributes ~equally to
-    # the value gradient regardless of length (game_weight
-    # philosophy; full 1-state-per-game decorrelation is
-    # unnecessary: the 2026-07-09 value fine-tune on all states of
-    # these games reached held-out AUC 0.89).
+    # Joint value training via VALUE-STATE SUBSAMPLING (2026-07-16,
+    # replaces per-state weight scaling): each state carries the
+    # value loss with probability k/n_cmds(game) at UNIFORM weight
+    # lambda_v. Expected per-game total = k*lambda_v -- equal per
+    # game like before -- but (a) per-state weight is bounded (no
+    # 6.5x short-game spikes; E[w^2] controlled), and (b) since the
+    # pair stream is FILE-SEQUENTIAL, a batch used to fill up with
+    # 64 same-label same-weight states of one game and shove the
+    # value head in one direction per step; with ~k states per game
+    # selected, same-game value states rarely share a batch. This
+    # was the actual instability mechanism behind value_auc
+    # oscillating 0.36<->0.76: equal-total-per-epoch normalization
+    # can't fix within-step correlation. (The MCTS trainer's
+    # identical game_weight scheme is stable because ITS batches
+    # come from a shuffled replay buffer.)
     winner_map: Dict[str, int] = {}
-    game_vweight: Dict[str, float] = {}
+    value_select_p: Dict[str, float] = {}
     if value_loss_weight > 0.0:
         idx_path = dataset_dir / "value_corpus_index.jsonl"
         if idx_path.is_file():
-            n_cmds: Dict[str, int] = {}
+            k = max(1, int(value_states_per_game))
             with idx_path.open(encoding="utf-8") as f:
                 for line in f:
                     row = json.loads(line)
                     w = row.get("winner")
                     if w in (1, 2):
-                        winner_map[row["file"]] = int(w)
-                        n_cmds[row["file"]] = max(
-                            1, int(row.get("n_commands", 1)))
-            train_names = {f.name for f in files}
-            counts = [c for name, c in n_cmds.items()
-                      if name in train_names]
-            mean_cmds = (sum(counts) / len(counts)) if counts else 1.0
-            for name, c in n_cmds.items():
-                # Cap: a 60-command game would otherwise carry 6.5x
-                # per-state gradient -- observed 2026-07-16 as
-                # value_auc oscillating 0.36<->0.76 with train value
-                # CE churning at lambda_v=0.5. Equal-game weighting
-                # matters at the mean; the tail spikes just inject
-                # variance.
-                game_vweight[name] = min(3.0, mean_cmds / c)
+                        name = row["file"]
+                        winner_map[name] = int(w)
+                        n = max(1, int(row.get("n_commands", 1)))
+                        value_select_p[name] = min(1.0, k / n)
             log.info(f"joint value loss ON (lambda_v="
-                     f"{value_loss_weight}): {len(winner_map)} "
-                     f"labeled games, mean_cmds={mean_cmds:.0f}")
+                     f"{value_loss_weight}, ~{k} value states/game): "
+                     f"{len(winner_map)} labeled games")
         else:
             log.warning(f"no {idx_path} -- joint value loss OFF")
             value_loss_weight = 0.0
@@ -1360,17 +1359,20 @@ def train(
                 # kind == "pair"
                 _, state_or_raw, ai, _gz_name = event
 
-                # Joint value target: game outcome z for the mover
-                # (+ per-game decorrelation weight). None/0 when the
-                # game has no winner label or value training is off.
+                # Joint value target: subsampled -- this state
+                # carries the value loss with prob k/n(game) at
+                # uniform weight lambda_v (see the selection-map
+                # comment above for why not per-state weights).
                 v_z, v_w = None, 0.0
-                if value_loss_weight > 0.0 and _gz_name in winner_map:
+                if (value_loss_weight > 0.0 and _gz_name in winner_map
+                        and random.random()
+                        < value_select_p.get(_gz_name, 0.0)):
                     if isinstance(state_or_raw, RawEncoded):
                         mover = 1 if state_or_raw.global_feats[1] < 0 else 2
                     else:
                         mover = state_or_raw.global_info.current_side
                     v_z = 1 if winner_map[_gz_name] == mover else -1
-                    v_w = value_loss_weight * game_vweight.get(_gz_name, 1.0)
+                    v_w = value_loss_weight
 
                 if use_batched:
                     # === Batched flow: accumulate B, then forward_batch.
@@ -1643,12 +1645,17 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--num-layers", type=int, default=3)
     ap.add_argument("--num-heads", type=int, default=4)
     ap.add_argument("--d-ff", type=int, default=256)
-    ap.add_argument("--value-loss-weight", type=float, default=0.5,
-                    help="lambda_v for the joint C51 value CE against "
-                         "game outcomes (per-game decorrelation weight "
-                         "applied on top). 0 = legacy policy-only "
-                         "(the value-frozen epoch-0 mode that let the "
-                         "trunk drift under the head).")
+    ap.add_argument("--value-loss-weight", type=float, default=1.0,
+                    help="lambda_v applied to SELECTED value states "
+                         "(subsampled at ~value-states-per-game per "
+                         "game, uniform weight). 0 = legacy "
+                         "policy-only (the value-frozen mode that let "
+                         "the trunk drift under the head).")
+    ap.add_argument("--value-states-per-game", type=int, default=16,
+                    help="Expected number of states per game that "
+                         "carry the value loss each epoch (the "
+                         "streaming form of AlphaGo's "
+                         "one-position-per-game decorrelation).")
     ap.add_argument("--holdout-games", type=int, default=300,
                     help="Games held out of training (seed-0 split); "
                          "held-out top-1 accuracy is the SL "
@@ -1698,6 +1705,7 @@ def main(argv: List[str]) -> int:
         d_ff=args.d_ff,
         holdout_games=args.holdout_games,
         value_loss_weight=args.value_loss_weight,
+        value_states_per_game=args.value_states_per_game,
         eval_every=args.eval_every,
         eval_pairs=args.eval_pairs,
         eval_only=args.eval_only,
