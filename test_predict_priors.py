@@ -261,41 +261,49 @@ def test_illegal_move_target_has_zero_mass():
 # ---------------------------------------------------------------------
 
 def test_end_turn_prior_follows_idle_gate():
-    """Old contract: end_turn prior always positive. Superseded by
-    FORBID_IDLE_END_TURN (user rule 2026-07-15): while units still
-    have legal moves the end_turn prior is exactly 0; once the side
-    is exhausted it must be positive again."""
-    gs, encoded, out = _build()
-    priors = predict_priors(out, encoded, gs)
-    A = priors.actor.shape[1]
-    assert float(priors.actor[0, A - 1].item()) == 0.0
-    from dataclasses import replace as _replace
-    for u in list(gs.map.units):
-        if u.side == gs.global_info.current_side:
-            gs.map.units.discard(u)
-            gs.map.units.add(_replace(u, current_moves=0))
-    # ... and drain the gold: with the leader on its keep and 100
-    # gold, condition (b) (affordable recruit) keeps the gate on.
-    si = gs.sides[gs.global_info.current_side - 1]
-    gs.sides[gs.global_info.current_side - 1] = _replace(
-        si, current_gold=0)
-    from encoder import GameStateEncoder
-    enc = GameStateEncoder()
-    enc.register_names(gs)
-    encoded2 = enc.encode(gs)
-    import torch as _torch
-    from model import WesnothModel
-    model = WesnothModel()
-    with _torch.no_grad():
-        out2 = model(encoded2)
-    priors2 = predict_priors(out2, encoded2, gs)
-    A2 = priors2.actor.shape[1]
-    assert float(priors2.actor[0, A2 - 1].item()) > 0.0
+    # Gate default flipped to False 2026-07-18; this test exercises
+    # the gate MECHANISM, so pin it ON for the test's scope.
+    import constants
+    _orig_gate = constants.FORBID_IDLE_END_TURN
+    constants.FORBID_IDLE_END_TURN = True
+    try:
+        """Old contract: end_turn prior always positive. Superseded by
+        FORBID_IDLE_END_TURN (user rule 2026-07-15): while units still
+        have legal moves the end_turn prior is exactly 0; once the side
+        is exhausted it must be positive again."""
+        gs, encoded, out = _build()
+        priors = predict_priors(out, encoded, gs)
+        A = priors.actor.shape[1]
+        assert float(priors.actor[0, A - 1].item()) == 0.0
+        from dataclasses import replace as _replace
+        for u in list(gs.map.units):
+            if u.side == gs.global_info.current_side:
+                gs.map.units.discard(u)
+                gs.map.units.add(_replace(u, current_moves=0))
+        # ... and drain the gold: with the leader on its keep and 100
+        # gold, condition (b) (affordable recruit) keeps the gate on.
+        si = gs.sides[gs.global_info.current_side - 1]
+        gs.sides[gs.global_info.current_side - 1] = _replace(
+            si, current_gold=0)
+        from encoder import GameStateEncoder
+        enc = GameStateEncoder()
+        enc.register_names(gs)
+        encoded2 = enc.encode(gs)
+        import torch as _torch
+        from model import WesnothModel
+        model = WesnothModel()
+        with _torch.no_grad():
+            out2 = model(encoded2)
+        priors2 = predict_priors(out2, encoded2, gs)
+        A2 = priors2.actor.shape[1]
+        assert float(priors2.actor[0, A2 - 1].item()) > 0.0
 
 
-# ---------------------------------------------------------------------
-# Caching contract: passed-in masks == freshly built
-# ---------------------------------------------------------------------
+    # ---------------------------------------------------------------------
+    # Caching contract: passed-in masks == freshly built
+    # ---------------------------------------------------------------------
+    finally:
+        constants.FORBID_IDLE_END_TURN = _orig_gate
 
 def test_passing_masks_matches_no_args():
     gs, encoded, out = _build()

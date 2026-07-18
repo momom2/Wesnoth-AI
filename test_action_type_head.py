@@ -330,47 +330,54 @@ def test_legality_mask_type_bias_only_on_attack():
 # ---------------------------------------------------------------------
 
 def test_enumerate_legal_actions_with_priors_includes_type_idx():
-    """LegalActionPrior records type_idx for unit actions; recruit
-    + end_turn keep type_idx=None."""
-    from action_sampler import enumerate_legal_actions_with_priors
-    from model import UnitActionType
-    gs = _gs_with_unit_and_enemy()
-    encoder = GameStateEncoder()
-    encoder.register_names(gs)
-    model = WesnothModel()
-    encoded = encoder.encode(gs)
-    with torch.no_grad():
-        out = model(encoded)
-        priors = enumerate_legal_actions_with_priors(encoded, out, gs)
-    by_type = {"attack": 0, "move": 0, "recruit": 0, "end_turn": 0}
-    for p in priors:
-        atype = p.action.get("type")
-        by_type[atype] = by_type.get(atype, 0) + 1
-        if atype == "attack":
-            assert p.type_idx == UnitActionType.ATTACK
-        elif atype == "move":
-            assert p.type_idx == UnitActionType.MOVE
-        elif atype in ("recruit", "end_turn"):
-            assert p.type_idx is None
-    # Should have multiple unit actions (we have a unit at (3,3) +
-    # an enemy at (4,3)). end_turn is ABSENT here: units still have
-    # legal moves, so the FORBID_IDLE_END_TURN gate (user rule
-    # 2026-07-15) masks it.
-    assert by_type["end_turn"] == 0
-    assert (by_type["attack"] + by_type["move"]) >= 1
-    # Exhaust the side's MP -> end_turn reappears with type_idx=None.
-    from dataclasses import replace as _replace
-    for u in list(gs.map.units):
-        if u.side == 1:
-            gs.map.units.discard(u)
-            gs.map.units.add(_replace(u, current_moves=0))
-    encoded2 = encoder.encode(gs)
-    with torch.no_grad():
-        out2 = model(encoded2)
-        priors2 = enumerate_legal_actions_with_priors(encoded2, out2, gs)
-    ends = [p for p in priors2 if p.action.get("type") == "end_turn"]
-    assert len(ends) >= 1 and ends[0].type_idx is None
-
+    # Gate default flipped to False 2026-07-18; this test exercises
+    # the gate MECHANISM, so pin it ON for the test's scope.
+    import constants
+    _orig_gate = constants.FORBID_IDLE_END_TURN
+    constants.FORBID_IDLE_END_TURN = True
+    try:
+        """LegalActionPrior records type_idx for unit actions; recruit
+        + end_turn keep type_idx=None."""
+        from action_sampler import enumerate_legal_actions_with_priors
+        from model import UnitActionType
+        gs = _gs_with_unit_and_enemy()
+        encoder = GameStateEncoder()
+        encoder.register_names(gs)
+        model = WesnothModel()
+        encoded = encoder.encode(gs)
+        with torch.no_grad():
+            out = model(encoded)
+            priors = enumerate_legal_actions_with_priors(encoded, out, gs)
+        by_type = {"attack": 0, "move": 0, "recruit": 0, "end_turn": 0}
+        for p in priors:
+            atype = p.action.get("type")
+            by_type[atype] = by_type.get(atype, 0) + 1
+            if atype == "attack":
+                assert p.type_idx == UnitActionType.ATTACK
+            elif atype == "move":
+                assert p.type_idx == UnitActionType.MOVE
+            elif atype in ("recruit", "end_turn"):
+                assert p.type_idx is None
+        # Should have multiple unit actions (we have a unit at (3,3) +
+        # an enemy at (4,3)). end_turn is ABSENT here: units still have
+        # legal moves, so the FORBID_IDLE_END_TURN gate (user rule
+        # 2026-07-15) masks it.
+        assert by_type["end_turn"] == 0
+        assert (by_type["attack"] + by_type["move"]) >= 1
+        # Exhaust the side's MP -> end_turn reappears with type_idx=None.
+        from dataclasses import replace as _replace
+        for u in list(gs.map.units):
+            if u.side == 1:
+                gs.map.units.discard(u)
+                gs.map.units.add(_replace(u, current_moves=0))
+        encoded2 = encoder.encode(gs)
+        with torch.no_grad():
+            out2 = model(encoded2)
+            priors2 = enumerate_legal_actions_with_priors(encoded2, out2, gs)
+        ends = [p for p in priors2 if p.action.get("type") == "end_turn"]
+        assert len(ends) >= 1 and ends[0].type_idx is None
+    finally:
+        constants.FORBID_IDLE_END_TURN = _orig_gate
 
 def test_mcts_factored_loss_consumes_type_idx():
     """Trainer's _mcts_factored_policy_loss handles 5-tuples (with

@@ -76,9 +76,20 @@ CHECKPOINT_FREQUENCY = 100
 # by construction whenever end_turn is masked at least one other
 # action is legal (no deadlock). The leader-on-keep exception lets
 # the leader hold its recruiting spot without being forced to
-# wander. Flip to False to restore free idling (e.g. for A/B or
-# eval-contract experiments).
-FORBID_IDLE_END_TURN = True
+# wander. Flip to True to re-enable the crutch (A/B experiments).
+#
+# DEFAULT FALSE since 2026-07-18 (post-pathfinding-fix evidence):
+#   - gate OFF, raw epoch-3 SL policy: ladder 10/10 decisive,
+#     mini 9/10 (vs 10/10, 10/10 gated; seeds matched) -- the gate
+#     is no longer load-bearing for reaching conclusions;
+#   - gate ON it binds on 92.4% of decisions (1,680/1,819 probed)
+#     yet the free policy picks end_turn only ~7% of the time when
+#     allowed -- near-zero behavioral payoff;
+#   - it forbids 69% of HUMAN end_turns in the corpus (1,169/1,706
+#     over 60 games, check_mask_coverage), violating the "policy may
+#     attempt whatever a human could" mask contract and distorting
+#     the BC-cloned prior at inference.
+FORBID_IDLE_END_TURN = False
 
 # ----------------------------------------------------------------------
 # IPC (see wesnoth_interface.py)

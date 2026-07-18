@@ -44,11 +44,18 @@ def _zero_all_mp(gs, side):
 
 
 def test_end_turn_masked_while_units_can_move():
-    gs = _gs_with_unit_and_enemy()
-    encoded, masks = _masks_for(gs)
-    assert not _end_turn_valid(encoded, masks), \
-        "units have MP and legal moves -> end_turn must be illegal"
-
+    # Gate default flipped to False 2026-07-18; this test exercises
+    # the gate MECHANISM, so pin it ON for the test's scope.
+    import constants
+    _orig_gate = constants.FORBID_IDLE_END_TURN
+    constants.FORBID_IDLE_END_TURN = True
+    try:
+        gs = _gs_with_unit_and_enemy()
+        encoded, masks = _masks_for(gs)
+        assert not _end_turn_valid(encoded, masks), \
+            "units have MP and legal moves -> end_turn must be illegal"
+    finally:
+        constants.FORBID_IDLE_END_TURN = _orig_gate
 
 def test_end_turn_legal_when_side_exhausted():
     gs = _gs_with_unit_and_enemy()
@@ -79,11 +86,19 @@ def test_leader_on_keep_with_mp_does_not_block_end_turn():
 
 
 def test_leader_off_keep_with_mp_blocks_end_turn():
-    gs = _gs_with_unit_and_enemy()
-    _zero_all_mp(gs, 1)
-    ldr = next(u for u in gs.map.units if u.side == 1 and u.is_leader)
-    gs.map.units.discard(ldr)
-    gs.map.units.add(replace(ldr, current_moves=5))   # NOT on a keep
-    encoded, masks = _masks_for(gs)
-    assert not _end_turn_valid(encoded, masks), \
-        "a movable leader off-keep counts like any other unit"
+    # Gate default flipped to False 2026-07-18; this test exercises
+    # the gate MECHANISM, so pin it ON for the test's scope.
+    import constants
+    _orig_gate = constants.FORBID_IDLE_END_TURN
+    constants.FORBID_IDLE_END_TURN = True
+    try:
+        gs = _gs_with_unit_and_enemy()
+        _zero_all_mp(gs, 1)
+        ldr = next(u for u in gs.map.units if u.side == 1 and u.is_leader)
+        gs.map.units.discard(ldr)
+        gs.map.units.add(replace(ldr, current_moves=5))   # NOT on a keep
+        encoded, masks = _masks_for(gs)
+        assert not _end_turn_valid(encoded, masks), \
+            "a movable leader off-keep counts like any other unit"
+    finally:
+        constants.FORBID_IDLE_END_TURN = _orig_gate
