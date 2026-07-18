@@ -124,3 +124,29 @@ map-invariant; the 10x multiplier calibrates magnitudes:
 
 Gold / unit-value weights (0.05) are NOT normalized: gold scales are
 already map-independent (start ~100, village income fixed).
+
+## Spool-worker VRAM budget (2026-07-18)
+
+`tools/sim_self_play.py`:
+`SPOOL_WORKER_VRAM_BYTES = 600 MiB`, `TRAINER_VRAM_RESERVE_BYTES = 12 GiB`,
+consumed by `_assign_spool_devices` ("auto" mode:
+`K_cuda = (total_vram − reserve) // per_worker`).
+
+Derivation — measured on the 45230879 campaign box (RTX 4090,
+23.52 GiB usable, 5.0M-param model, 56 workers):
+
+  - per-worker VRAM: torch's OOM report listed every worker process
+    at 388–586 MiB (CUDA context ~300 MiB + model weights + forward
+    buffers; the spread is batch-in-flight variance). 600 MiB is the
+    observed ceiling rounded up to a clean budget unit.
+  - trainer reserve: the learner's backward peaked at 7.14 GiB
+    in-use with `--train-batch-size 64` / 2048-transition replay
+    minibatches and OOM'd needing +318 MiB more. 12 GiB ≈ 1.7× the
+    observed peak, absorbing batch-size growth and allocator
+    fragmentation.
+
+Consequence on a 24 GiB card: K ≈ 19 cuda workers; requesting more
+workers spills the remainder to cpu instead of starving the trainer
+(the 2026-07-18 crash-loop: 3 OOM deaths at 56 all-cuda workers).
+Re-measure both numbers if the model grows past ~10M params or the
+replay minibatch changes materially.

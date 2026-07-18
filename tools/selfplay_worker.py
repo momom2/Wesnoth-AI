@@ -104,6 +104,17 @@ def main(argv) -> int:
                     default=Path("training/validate_exports"))
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--torch-threads", type=int, default=2)
+    ap.add_argument("--device", choices=("auto", "cuda", "cpu"),
+                    default="auto",
+                    help="Forward device for this worker. The learner "
+                         "assigns it per-worker from the VRAM budget "
+                         "(sim_self_play._assign_spool_devices): each "
+                         "cuda worker costs ~600MB of the card "
+                         "(CUDA context + model), and 56 auto-cuda "
+                         "workers starved the trainer's backward into "
+                         "an OOM crash-loop on 2026-07-18. 'auto' "
+                         "keeps the legacy cuda-if-available behavior "
+                         "with the init-time OOM fallback to cpu.")
     ap.add_argument("--log-level", default="WARNING")
     args = ap.parse_args(argv[1:])
     if int(args.validate_export_every) > 0:
@@ -130,8 +141,12 @@ def main(argv) -> int:
     _set_fd_safe_sharing()
 
     device = None
-    if torch.cuda.is_available():
+    if args.device == "cuda":
+        device = torch.device("cuda")     # explicit: fail loud if absent
+    elif args.device == "auto" and torch.cuda.is_available():
         device = torch.device("cuda")
+    # args.device == "cpu": stay None -- zero VRAM footprint; the
+    # learner keeps the whole card for its backward pass.
     try:
         policy, base = _build_policy(args.checkpoint, device, args)
     except torch.cuda.OutOfMemoryError:

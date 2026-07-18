@@ -891,6 +891,61 @@ def _worker_loop(
                 shared["outcomes"].append(outcome)
 
 
+# ---- spool-worker VRAM budgeting (2026-07-18 OOM incident) ----------
+# Measured on the 4090 campaign box: each cuda spool worker holds
+# 388-586MB of VRAM (CUDA context ~300MB + 5M model + forward
+# buffers); budget at the observed ceiling rounded up. The learner's
+# backward peaked at 7.1GB at --train-batch-size 64 / 2048-transition
+# replay minibatches and still needed +318MB when it OOM'd; reserve
+# 12GB (~1.7x the observed peak) so batch-size growth and allocator
+# fragmentation don't re-trigger the crash-loop. Derivations recorded
+# in docs/design_constants.md ("Spool-worker VRAM budget").
+SPOOL_WORKER_VRAM_BYTES = 600 * 2**20
+TRAINER_VRAM_RESERVE_BYTES = 12 * 2**30
+
+
+def _assign_spool_devices(n: int, mode: str,
+                          *, cuda_available: Optional[bool] = None,
+                          total_vram: Optional[int] = None) -> List[str]:
+    """Per-worker forward-device assignment for the spool fleet.
+
+    mode:
+      - "cpu":  all workers cpu (zero VRAM; the trainer keeps the
+                whole card; worker count can scale to vCPUs).
+      - "cuda": all workers cuda (expert override -- YOU own the
+                VRAM math; this is the pre-2026-07-18 behavior that
+                crash-looped the trainer at 56 workers).
+      - "auto": as many cuda workers as the VRAM budget allows after
+                the trainer's reserve, remainder cpu:
+                  K = (total_vram - TRAINER_VRAM_RESERVE_BYTES)
+                      // SPOOL_WORKER_VRAM_BYTES
+                On a 24GB card that's ~19; a 56-worker fleet becomes
+                19 cuda + 37 cpu instead of an OOM crash-loop.
+
+    `cuda_available` / `total_vram` are injectable for tests; they
+    default to the live torch.cuda probe.
+    """
+    if n <= 0:
+        return []
+    if mode == "cpu":
+        return ["cpu"] * n
+    if cuda_available is None:
+        import torch
+        cuda_available = torch.cuda.is_available()
+    if not cuda_available:
+        return ["cpu"] * n
+    if mode == "cuda":
+        return ["cuda"] * n
+    # auto: budgeted split.
+    if total_vram is None:
+        import torch
+        total_vram = torch.cuda.get_device_properties(0).total_memory
+    k = max(0, int((total_vram - TRAINER_VRAM_RESERVE_BYTES)
+                   // SPOOL_WORKER_VRAM_BYTES))
+    k = min(n, k)
+    return ["cuda"] * k + ["cpu"] * (n - k)
+
+
 class SpoolWorkers:
     """Spawn + supervise N independent self-play worker PROCESSES
     (tools/selfplay_worker.py) and collect their spooled games.
@@ -901,7 +956,14 @@ class SpoolWorkers:
     ~200 req/s with the GPU idle; independent processes saturated
     it). The spool directory is the only seam: workers atomically
     write one pickle per game; the learner consumes, trains, and
-    saves checkpoints that workers hot-reload between games."""
+    saves checkpoints that workers hot-reload between games.
+
+    VRAM discipline (2026-07-18 incident): every cuda worker costs
+    ~400-590MB of the card (CUDA context + model + buffers), and the
+    learner's backward needs gigabytes MORE than its steady state.
+    56 auto-cuda workers on a 24GB 4090 left the trainer 318MB short
+    and crash-looped it through 3 OOM deaths. Worker devices are now
+    assigned by `_assign_spool_devices` under an explicit budget."""
 
     def __init__(self, n: int, spool_dir: Path, checkpoint: Path,
                  args, log_level: str):
@@ -910,6 +972,17 @@ class SpoolWorkers:
         self._dir = spool_dir / "games"
         self._dir.mkdir(parents=True, exist_ok=True)
         self._checkpoint = checkpoint
+        # Per-worker forward device, assigned from the VRAM budget
+        # (see _assign_spool_devices). Fixed at spawn time; respawns
+        # keep the dead worker's slot device.
+        self._devices = _assign_spool_devices(
+            n, getattr(args, "spool_worker_device", "auto"))
+        n_cuda = sum(1 for d in self._devices if d == "cuda")
+        if 0 < n_cuda < n:
+            log.info(f"spool devices: {n_cuda} cuda + {n - n_cuda} cpu "
+                     f"(VRAM budget; see --spool-worker-device)")
+        elif n_cuda == 0:
+            log.info("spool devices: all cpu")
         self._cmd_tail = [
             "--checkpoint", str(checkpoint),
             "--spool-dir", str(spool_dir),
@@ -945,7 +1018,8 @@ class SpoolWorkers:
         worker = Path(__file__).resolve().parent / "selfplay_worker.py"
         self._procs[i] = self._subprocess.Popen(
             [sys.executable, str(worker), "--worker-id", str(i),
-             "--seed", str(self._seed0 + i)] + self._cmd_tail,
+             "--seed", str(self._seed0 + i),
+             "--device", self._devices[i]] + self._cmd_tail,
             stdout=self._subprocess.DEVNULL,
             stderr=self._subprocess.DEVNULL,
         )
@@ -2331,8 +2405,18 @@ def main(argv: List[str]) -> int:
                          "checkpoints the workers hot-reload. The "
                          "measured replacement for --actor-pool (whose "
                          "central server capped at ~200 req/s with the "
-                         "GPU idle). Size to ~min(cores, 24) on a 24GB "
-                         "card (each worker holds a CUDA context).")
+                         "GPU idle). Safe to size to vCPUs: worker "
+                         "GPU placement is VRAM-budgeted separately "
+                         "(--spool-worker-device).")
+    ap.add_argument("--spool-worker-device",
+                    choices=("auto", "cuda", "cpu"), default="auto",
+                    help="Forward device for spool workers. auto = "
+                         "as many cuda workers as fit the VRAM budget "
+                         "(each costs ~600MB; 12GB reserved for the "
+                         "learner's backward -- 2026-07-18 OOM "
+                         "incident), remainder cpu. cpu = all-cpu "
+                         "fleet (trainer keeps the whole card). cuda "
+                         "= all-cuda (expert override, no budget).")
     ap.add_argument("--spool-dir", type=Path,
                     default=Path("training/spool"),
                     help="Directory for spooled game files "
