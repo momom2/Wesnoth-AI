@@ -400,6 +400,19 @@ def state_key(gs: "GameState") -> int:
     )
     village_owner = getattr(gs.global_info, "_village_owner", None) or {}
     villages_key = tuple(sorted(village_owner.items()))
+    # Observable-state side-data that changes LEGALITY without moving
+    # any unit: revealed hiders (visibility/ZoC/blocking) and the
+    # per-turn recruit-rejection set (the mask excludes those hexes).
+    # Omitting them let the MCTS transposition table merge nodes
+    # whose masks disagreed -- caught live 2026-07-18 as "mask/sim
+    # reachability disagreement" warnings in self-play (the noop
+    # sentinel bounded the damage; the merge was still wrong).
+    hidden_state_key = (
+        tuple(sorted(getattr(gs.global_info, "_uncovered_units", None)
+                     or ())),
+        tuple(sorted(getattr(gs.global_info, "_recruit_rejected_hexes",
+                             None) or ())),
+    )
     global_key = (
         gs.global_info.current_side,
         gs.global_info.turn_number,
@@ -413,4 +426,5 @@ def state_key(gs: "GameState") -> int:
         # MCTS node. Pull from the optional field set by WesnothSim.
         getattr(gs.global_info, "_rng_request_counter", 0),
     )
-    return hash((units_key, sides_key, villages_key, global_key))
+    return hash((units_key, sides_key, villages_key, global_key,
+                 hidden_state_key))
