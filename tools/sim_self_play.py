@@ -906,7 +906,8 @@ TRAINER_VRAM_RESERVE_BYTES = 12 * 2**30
 
 def _assign_spool_devices(n: int, mode: str,
                           *, cuda_available: Optional[bool] = None,
-                          total_vram: Optional[int] = None) -> List[str]:
+                          total_vram: Optional[int] = None,
+                          cuda_cap: Optional[int] = None) -> List[str]:
     """Per-worker forward-device assignment for the spool fleet.
 
     mode:
@@ -936,12 +937,17 @@ def _assign_spool_devices(n: int, mode: str,
         return ["cpu"] * n
     if mode == "cuda":
         return ["cuda"] * n
-    # auto: budgeted split.
-    if total_vram is None:
-        import torch
-        total_vram = torch.cuda.get_device_properties(0).total_memory
-    k = max(0, int((total_vram - TRAINER_VRAM_RESERVE_BYTES)
-                   // SPOOL_WORKER_VRAM_BYTES))
+    # auto: budgeted split. `cuda_cap` (--spool-cuda-workers /
+    # SPOOL_CUDA_WORKERS) overrides the constant-based budget with a
+    # MEASURED cap from tools/profile_worker_split.py.
+    if cuda_cap is not None:
+        k = max(0, int(cuda_cap))
+    else:
+        if total_vram is None:
+            import torch
+            total_vram = torch.cuda.get_device_properties(0).total_memory
+        k = max(0, int((total_vram - TRAINER_VRAM_RESERVE_BYTES)
+                       // SPOOL_WORKER_VRAM_BYTES))
     k = min(n, k)
     return ["cuda"] * k + ["cpu"] * (n - k)
 
@@ -976,7 +982,8 @@ class SpoolWorkers:
         # (see _assign_spool_devices). Fixed at spawn time; respawns
         # keep the dead worker's slot device.
         self._devices = _assign_spool_devices(
-            n, getattr(args, "spool_worker_device", "auto"))
+            n, getattr(args, "spool_worker_device", "auto"),
+            cuda_cap=getattr(args, "spool_cuda_workers", None))
         n_cuda = sum(1 for d in self._devices if d == "cuda")
         if 0 < n_cuda < n:
             log.info(f"spool devices: {n_cuda} cuda + {n - n_cuda} cpu "
@@ -1086,6 +1093,23 @@ def _gpu_mem_mb():
         return (None, None)
     return (round(torch.cuda.memory_allocated() / 2**20),
             round(torch.cuda.memory_reserved() / 2**20))
+
+
+def _gpu_mem_peak_mb(reset: bool = False):
+    """Max CUDA bytes allocated since the last reset (MB), or None
+    off-CUDA. With `reset=True` the counter restarts -- called at
+    each iteration start so the logged value is THIS iteration's
+    true backward peak. This is the number the spool-worker VRAM
+    budget's trainer reserve must exceed (2026-07-18 OOM: steady-
+    state alloc looked fine at ~7GB while the backward peaked past
+    12GB; profile_worker_split consumes this column)."""
+    import torch
+    if not torch.cuda.is_available():
+        return None
+    peak = round(torch.cuda.max_memory_allocated() / 2**20)
+    if reset:
+        torch.cuda.reset_peak_memory_stats()
+    return peak
 
 
 def run_iteration(
@@ -1671,6 +1695,7 @@ def run_iteration(
             # high-water ratchet on variable-length batches.
             "gpu_mem_alloc_mb":    _gpu_mem_mb()[0],
             "gpu_mem_reserved_mb": _gpu_mem_mb()[1],
+            "gpu_mem_peak_mb":     _gpu_mem_peak_mb(reset=True),
             "z_win_frac":   (getattr(train_stats, "z_win_frac", None)
                              if train_stats else None),
             "z_loss_frac":  (getattr(train_stats, "z_loss_frac", None)
@@ -1787,6 +1812,10 @@ class _TrainerHistoryCSV:
         "decision_step",
         # Trainer-process CUDA memory (creep tracking, 2026-07-10).
         "gpu_mem_alloc_mb", "gpu_mem_reserved_mb",
+        # Per-iteration CUDA high-water mark (reset each iteration):
+        # the trainer's TRUE backward peak, which the worker-split
+        # VRAM budget must reserve for (2026-07-18).
+        "gpu_mem_peak_mb",
         # Value-target composition + human rehearsal (2026-07-10
         # draw-spike diagnosis / anchor fix).
         "z_win_frac", "z_loss_frac", "z_draw_frac",
@@ -2417,6 +2446,10 @@ def main(argv: List[str]) -> int:
                          "incident), remainder cpu. cpu = all-cpu "
                          "fleet (trainer keeps the whole card). cuda "
                          "= all-cuda (expert override, no budget).")
+    ap.add_argument("--spool-cuda-workers", type=int, default=None,
+                    help="auto mode only: MEASURED cap on cuda "
+                         "workers (from tools/profile_worker_split), "
+                         "overriding the constant-based VRAM budget.")
     ap.add_argument("--spool-dir", type=Path,
                     default=Path("training/spool"),
                     help="Directory for spooled game files "

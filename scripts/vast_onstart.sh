@@ -334,6 +334,7 @@ nohup bash -c "
       --abort-holdout-stall 150 \
       --spool-workers ${SPOOL_WORKERS:-16} --games-per-iter ${SPOOL_WORKERS:-16} \
       --spool-worker-device ${SPOOL_WORKER_DEVICE:-auto} \
+      ${SPOOL_CUDA_WORKERS:+--spool-cuda-workers $SPOOL_CUDA_WORKERS} \
       \$RESET \
       --checkpoint-in  \$([ -f '$CAMPAIGN' ] && echo '$CAMPAIGN' || echo '$CKPT_IN') \
       --checkpoint-out $CAMPAIGN \

@@ -35,6 +35,7 @@ Usage (normally spawned by sim_self_play --spool-workers):
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import pickle
@@ -162,6 +163,8 @@ def main(argv) -> int:
     rng = random.Random(args.seed)
     ckpt_mtime = args.checkpoint.stat().st_mtime
     n = 0
+    hb_decisions = 0
+    hb_started = time.time()
     while True:
         # Hot-reload the learner's latest weights between games.
         try:
@@ -225,6 +228,29 @@ def main(argv) -> int:
         n += 1
         log.info(f"spooled {final.name}: {len(exps)} exps, "
                  f"winner={outcome.winner} map={outcome.map_class}")
+
+        # Heartbeat: cumulative per-worker throughput + device tag,
+        # overwritten atomically after each game. Consumed by
+        # tools/profile_worker_split.py to measure cuda-vs-cpu
+        # per-worker rates from the LIVE fleet (and handy for
+        # at-a-glance worker liveness). Losing it is harmless.
+        try:
+            hb_decisions += int(payload["n_decisions"])
+            stats_dir = args.spool_dir / "stats"
+            stats_dir.mkdir(parents=True, exist_ok=True)
+            hb = {
+                "worker": args.worker_id,
+                "device": (device.type if device is not None else "cpu"),
+                "games": n,
+                "decisions": hb_decisions,
+                "started": hb_started,
+                "updated": time.time(),
+            }
+            hb_tmp = stats_dir / f".tmp_w{args.worker_id}.json"
+            hb_tmp.write_text(json.dumps(hb), encoding="utf-8")
+            os.replace(hb_tmp, stats_dir / f"w{args.worker_id}.json")
+        except OSError as e:
+            log.warning(f"heartbeat write failed: {e}")
 
 
 if __name__ == "__main__":
