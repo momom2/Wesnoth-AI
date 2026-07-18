@@ -476,6 +476,9 @@ class WesnothSim:
         # decision -- they'd typically just call step() again,
         # which is exactly the right behavior.
         self.last_step_rejected: bool = False
+        # Consecutive rejected-step counter for the mask-less-caller
+        # loop guard (see step()). Reset whenever a command applies.
+        self._consecutive_rejects: int = 0
 
         # Turn 0 is pre-game. The first init_side(1) bumps to turn 1
         # AND fires turn-1 events / healing. Mirror that here.
@@ -633,10 +636,9 @@ class WesnothSim:
     def _find_attack_hex(self, attacker, target) -> Optional[Position]:
         """Pick a hex the attacker can move to and attack `target` from.
 
-        Returns the chosen attack hex (a neighbor of `target` reachable
-        from `attacker.position` within `attacker.current_moves`,
-        unoccupied, and walkable for the attacker), or None if no such
-        hex exists.
+        Returns the chosen attack hex (a neighbor of `target` the
+        attacker can LAND on this turn, per the shared
+        observable-state planner), or None if no such hex exists.
 
         Why this helper: the policy emits attack actions with
         `start_hex = unit's current position`. When `start_hex` isn't
@@ -650,117 +652,37 @@ class WesnothSim:
         the target hex -- mirroring what Wesnoth's UI does when the
         player clicks an enemy from a non-adjacent unit.
 
-        Picks by lowest MP-cost-to-enter, with the attacker's own
-        current hex as a free fallback if it happens to be a neighbor
-        of `target` (i.e. attacker WAS adjacent and the caller's
-        adjacency check was wrong; defensive). Ties broken by
-        defense_pct (higher = better) so the attacker is more likely
-        to survive any counter-attack.
+        Knowledge level: the plan runs on the ACTING SIDE'S
+        OBSERVABLE state (tools/pathfind_sim.ReachContext), exactly
+        like a player's own attack order -- hidden units neither
+        block nor ZoC the approach; they resolve during the nested
+        move's execution walk (blocked/ambush truncation aborts the
+        attack, as in Wesnoth).
+
+        Choice among candidate hexes: minimal Wesnoth float cost
+        (MP + defense/ally subcosts, pathfind.cpp:815-820), i.e. the
+        cheapest approach preferring defensible terrain -- the same
+        preference order Wesnoth's own pathfinder applies.
         """
         from tools.abilities import hex_neighbors
-        from replay_dataset import _stats_for
+        from tools.pathfind_sim import ReachContext, unit_reach
 
-        ax, ay = attacker.position.x, attacker.position.y
-        budget = attacker.current_moves
         target_neighbors = set(hex_neighbors(target.x, target.y))
-        # Hex set for fast "in playable area" tests. The set of playable
-        # cells is constant for a game (terrain morphs change a hex's
-        # TYPE, not which cells exist), and _find_attack_hex runs per
-        # attack action in the rollout hot path -- so cache it on the sim
-        # instead of rebuilding O(num_hexes) every call. Lazy getattr so
-        # fork()'d sims (which bypass __init__) populate it on first use.
-        playable = getattr(self, "_playable_hexes_cache", None)
-        if playable is None:
-            playable = frozenset(
-                (h.position.x, h.position.y) for h in self.gs.map.hexes)
-            self._playable_hexes_cache = playable
-
-        # Occupancy, the Wesnoth way: ENEMY units block movement
-        # entirely (you can neither enter nor pass through their hex);
-        # FRIENDLY units are PASS-THROUGH -- a unit may move *through*
-        # an ally -- but can't be a *landing* hex (you may not END a
-        # move on any occupied hex). Treating allies as walls (the pre-
-        # 2026-06-29 bug) silently downgraded legal attacks routed past
-        # a friendly to end_turn. See pathfind / move.cpp.
-        enemy_hexes = {
-            (u.position.x, u.position.y)
-            for u in self.gs.map.units
-            if u.side != attacker.side
-        }
-        friendly_hexes = {
-            (u.position.x, u.position.y)
-            for u in self.gs.map.units
-            if u.side == attacker.side and u is not attacker
-        }
-
-        # Enemy Zone of Control. A non-petrified enemy of level >= 1
-        # emits ZoC over its 6 neighbours; ENTERING a ZoC hex zeroes the
-        # mover's remaining MP (move.cpp:1042-1054, mirrored exactly in
-        # _apply_post_move_stops). So in the search a ZoC hex is a
-        # TERMINAL node: reachable as a landing hex, but the path can't
-        # continue past it. `skirmisher` ignores ZoC entirely; petrified
-        # ("statue") enemies emit no ZoC (unit.hpp:1352-1355). The
-        # attacker's OWN start hex never self-stops (a unit can always
-        # move out of a ZoC it began the turn in).
-        is_skirmisher = "skirmisher" in (attacker.abilities or set())
-        zoc_hexes: set = set()
-        if not is_skirmisher:
-            for u in self.gs.map.units:
-                if u.side == attacker.side:
-                    continue
-                if "petrified" in (u.statuses or set()):
-                    continue
-                if int(_stats_for(u.name).get("level", 1)) < 1:
-                    continue
-                zoc_hexes.update(hex_neighbors(u.position.x, u.position.y))
-
-        # Dijkstra over MP cost. State: (cost_to_enter, x, y); best cost
-        # per hex. Terrain cost and the 99 "unreachable" sentinel
-        # (impassable terrain) are honoured via _move_cost_at_hex.
-        from heapq import heappush, heappop
-        best_cost: Dict[Tuple[int, int], int] = {(ax, ay): 0}
-        heap: List[Tuple[int, int, int]] = [(0, ax, ay)]
-        while heap:
-            cost, x, y = heappop(heap)
-            if cost > best_cost.get((x, y), 10**9):
-                continue
-            # ZoC stop: we may STAND on this hex (already recorded in
-            # best_cost) but can't expand further from it. The start hex
-            # is exempt (move-out-of-ZoC is always allowed).
-            if (x, y) != (ax, ay) and (x, y) in zoc_hexes:
-                continue
-            for nx, ny in hex_neighbors(x, y):
-                if (nx, ny) not in playable:
-                    continue
-                if (nx, ny) in enemy_hexes:
-                    continue            # can't enter an enemy-occupied hex
-                step_cost = _move_cost_at_hex(attacker, self.gs, nx, ny)
-                if step_cost >= 99:
-                    continue
-                new_cost = cost + step_cost
-                if new_cost > budget:
-                    continue
-                if new_cost < best_cost.get((nx, ny), 10**9):
-                    best_cost[(nx, ny)] = new_cost
-                    heappush(heap, (new_cost, nx, ny))
-
-        # Candidate landing hexes: reachable neighbours of the target
-        # that are UNOCCUPIED. Friendly hexes are pass-through only, so
-        # exclude them; enemy hexes never enter best_cost.
+        ctx = ReachContext.for_side(
+            self.gs, attacker.side, exclude_unit=attacker)
+        reach = unit_reach(attacker, self.gs, ctx)
+        # The attacker's own hex is a free "landing" if already
+        # adjacent (defensive: callers normally handle that case).
+        if reach.start in target_neighbors:
+            return Position(x=reach.start[0], y=reach.start[1])
         candidates = [
-            (cost, x, y) for (x, y), cost in best_cost.items()
-            if (x, y) in target_neighbors and (x, y) not in friendly_hexes
+            pos for pos in reach.landable if pos in target_neighbors
         ]
         if not candidates:
             return None
-        # Pick lowest cost; tiebreak by defense (higher defense_pct ->
-        # smaller `defense_pct` value in the unit's defenses table --
-        # lower number means HARDER to hit, see _to_combat_unit).
-        # We don't have a quick defense lookup here without rebuilding
-        # CombatUnit; cost-only is good enough for first cut.
-        candidates.sort(key=lambda c: c[0])
-        _, bx, by = candidates[0]
-        return Position(x=bx, y=by)
+        best = min(candidates, key=lambda pos: reach.cost[pos])
+        return Position(x=best[0], y=best[1])
+
 
     def step(self, action: dict) -> bool:
         """Apply one action. Returns True if the game is over after
@@ -808,22 +730,18 @@ class WesnothSim:
                 else:
                     attack_hex = self._find_attack_hex(attacker, target)
                     if attack_hex is None:
-                        # No reachable attack hex (path blocked by
-                        # statues, ZoC, terrain, etc.). The legality
-                        # mask permits attacks on hex_distance <= MP+1,
-                        # which doesn't account for path obstructions
-                        # -- so the policy occasionally picks attacks
-                        # on unreachable targets. Wesnoth's playback
-                        # would either reject or silently no-op,
-                        # leaving the [random_seed] follow-up
-                        # orphaned ("found dependent command in replay
-                        # while is_synced=false"). Fall back to
-                        # end_turn rather than emit a bogus [attack].
-                        log.debug(
+                        # No landable attack hex. The mask computes
+                        # attackability from the SAME observable-state
+                        # reach, so this is a mask/sim disagreement --
+                        # loud, and re-decide rather than burn the
+                        # turn.
+                        log.warning(
                             f"sim: attack {start.x},{start.y}->"
-                            f"{target.x},{target.y} unreachable; "
-                            f"ending turn")
-                        action = {"type": "end_turn"}
+                            f"{target.x},{target.y} has no landable "
+                            f"attack hex; mask/sim reachability "
+                            f"disagreement -- re-deciding")
+                        self.last_step_rejected = True
+                        return self.done
                     else:
                         # Dispatch the move first; if it produces a
                         # game-over (e.g. capture-the-flag scenario),
@@ -873,14 +791,34 @@ class WesnothSim:
         self.last_step_rejected = False
 
         cmd, terrain_cost = self._action_to_command(action)
-        if cmd is not None and cmd[0] == "__retry_recruit__":
-            # Recruit hex was god-view-occupied. _action_to_command
-            # added it to the rejection set; we just bail out without
-            # applying anything (no command_history append, no side
-            # advance, no actions_by_side bump). Caller's
-            # `last_step_rejected` check then triggers a re-decide.
-            self.last_step_rejected = True
-            return self.done
+        if cmd is not None and cmd[0] in ("__retry_recruit__",
+                                          "__reject_action__"):
+            # Recruit hex god-view-occupied, or a move target outside
+            # the planner's landable set. Normally: bail out without
+            # applying anything and let the caller re-decide
+            # (`last_step_rejected`). BUT a policy that does NOT
+            # consult the legality mask (scripted DummyPolicy, buggy
+            # caller) can deterministically re-emit the same doomed
+            # action forever -- caught 2026-07-17 as an infinite
+            # no-op loop in the validation suite. Bound it: after
+            # _MAX_CONSECUTIVE_REJECTS rejected steps with no applied
+            # command in between, degrade to end_turn (the pre-2026-07
+            # behavior) with a loud warning. Mask-consulting policies
+            # never accumulate rejects (the mask and the planner
+            # agree), so the bound only fires for mask-less callers.
+            self._consecutive_rejects = getattr(
+                self, "_consecutive_rejects", 0) + 1
+            if self._consecutive_rejects < self._MAX_CONSECUTIVE_REJECTS:
+                self.last_step_rejected = True
+                return self.done
+            log.warning(
+                f"sim: {self._consecutive_rejects} consecutive "
+                f"rejected steps (last: {action!r}); caller is not "
+                f"re-deciding from the mask -- ending turn to "
+                f"guarantee progress")
+            cmd = ["end_turn"]
+            terrain_cost = None
+        self._consecutive_rejects = 0
         if cmd is None:
             # Action was illegal-shaped or referred to a missing unit.
             # Treat as a wasted turn -- end the side's turn.
@@ -934,39 +872,15 @@ class WesnothSim:
             if not self.done:
                 self._begin_side_turn(next_side)
         else:
-            # Snapshot the village owner BEFORE the move applies so
-            # we can tell capture (prior owner != side) from revisit
-            # (prior owner == side, no MP zeroing).
-            prev_village_owner: Optional[int] = None
-            if cmd[0] == "move":
-                tx, ty = cmd[1][-1], cmd[2][-1]
-                owner_map = getattr(
-                    self.gs.global_info, "_village_owner", None) or {}
-                prev_village_owner = int(owner_map.get((tx, ty), 0))
-
             self._apply_with_stats(cmd)
-            # Post-apply terrain MP correction. _apply_command
-            # already flat-deducted 1 MP; we owe an extra
-            # (cost - 1) so the unit's MP reflects Wesnoth's
-            # terrain-based cost. `terrain_cost` was returned by
-            # _action_to_command alongside `cmd`; it's None for
-            # non-move commands and for moves with cost <= 1.
-            if cmd[0] == "move" and terrain_cost is not None and terrain_cost > 1:
-                tx, ty = cmd[1][-1], cmd[2][-1]
-                self._deduct_extra_mp(tx, ty, terrain_cost - 1)
-            # Post-apply ZoC / ambush / village-capture MP zeroing.
-            # Wesnoth's `unit_mover::try_actual_movement`
-            # (move.cpp:1042-1054) calls `set_movement(0, true)` when
-            # the unit lands in a ZoC'd hex, gets ambushed by a
-            # hidden enemy, or captures a non-friendly village. Our
-            # sim was missing all three, so the unit could keep
-            # moving past the stop point -- subsequent moves would be
-            # valid in our view but Wesnoth's playback (with MP=0)
-            # would reject them as "corrupt movement".
-            if cmd[0] == "move":
-                tx, ty = cmd[1][-1], cmd[2][-1]
-                self._apply_post_move_stops(
-                    tx, ty, side_now, prev_village_owner)
+            # Move MP, truncation (blocked/ambush), reveals, and the
+            # ZoC / village-capture MP zeroing are all resolved
+            # INSIDE _apply_command's move handler via
+            # `pathfind_sim.walk_move_path` -- one truncation
+            # semantics shared with replay reconstruction (the old
+            # post-apply `_deduct_extra_mp` / `_apply_post_move_stops`
+            # fix-ups are gone with the flat-1-MP deduction they
+            # corrected).
             extras: dict = {}
             if cmd[0] == "recruit" and leader_pos is not None:
                 extras["leader_pos"] = leader_pos
@@ -1053,227 +967,36 @@ class WesnothSim:
     # the matching terrain/ToD, but only if not already revealed.
     # `_hide_cover_active` and the per-turn `_uncovered_units` set
     # together gate when ambush actually fires.
+    # Loop guard: max consecutive planner-rejected steps before the
+    # sim forces end_turn (mask-less caller protection; see step()).
+    _MAX_CONSECUTIVE_REJECTS = 8
+
     _AMBUSH_ABILITIES = frozenset({
         "ambush", "nightstalk", "concealment", "submerge",
     })
 
-    def _hide_cover_active(self, unit) -> bool:
-        """True if `unit` has a hide ability AND its current hex
-        terrain (or the ToD, for nightstalk) satisfies the ability's
-        cover condition. Verified abilities and their covers from
-        wesnoth_src/data/core/abilities.cfg:
-
-          - ambush:      forest terrain
-          - concealment: village terrain
-          - submerge:    deep_water terrain
-          - nightstalk:  current ToD has lawful_bonus < 0 (night /
-                         second_watch)
-        """
-        from replay_dataset import _terrain_keys_at, _lawful_bonus_at
-        abilities = unit.abilities or set()
-        if not (abilities & self._AMBUSH_ABILITIES):
-            return False
-        keys = _terrain_keys_at(self.gs, unit.position.x, unit.position.y)
-        if "ambush" in abilities and "forest" in keys:
-            return True
-        if "concealment" in abilities and "village" in keys:
-            return True
-        if "submerge" in abilities and "deep_water" in keys:
-            return True
-        if "nightstalk" in abilities:
-            bonus = _lawful_bonus_at(
-                self.gs, unit.position.x, unit.position.y,
-                self.gs.global_info.turn_number,
-            )
-            if bonus < 0:
-                return True
-        return False
-
     def _refresh_uncovered_state(self, current_side: int) -> None:
         """Called at each side's init_side. Implements Wesnoth's
         `unit::new_turn` reset of STATE_UNCOVERED for the side's own
-        units, plus the start-of-turn re-evaluation: a hidden unit
-        that's already adjacent to ANY enemy at turn start is
-        considered exposed for this turn -- even if the enemy moves
-        away later, the unit doesn't re-hide until its OWN side's
-        next init_side.
+        units (unit.cpp:1277): a hider that was revealed (ambush
+        trigger, blocked-move reveal, or its own attack) re-hides at
+        ITS side's turn start.
 
-        This handles the user-flagged edge case: a hidden unit that
-        starts adjacent to an enemy is revealed; if the enemy then
-        moves away, the unit remains revealed.
+        Adjacency-based discovery is deliberately NOT persisted
+        here: `would_be_discovered` is a LIVE predicate (a hider
+        adjacent to an enemy is visible only while the enemy stays
+        adjacent -- display_context.cpp:29-49), modelled by
+        `visibility._discovered_by_adjacency` at observation time.
+        (An earlier revision persisted turn-start adjacency reveals
+        for the whole turn; source check 2026-07-17 showed the
+        engine has no such rule.)
         """
-        from tools.abilities import hex_neighbors
-
         uncovered: set = getattr(
             self.gs.global_info, "_uncovered_units", None) or set()
-
-        # Step 1: side-current units re-hide (STATE_UNCOVERED reset).
         for u in list(self.gs.map.units):
             if u.side == current_side and u.id in uncovered:
                 uncovered.discard(u.id)
-
-        # Step 2: for each hidden-ability unit on OTHER sides, check
-        # if it's adjacent to any unit of `current_side`. If so, it's
-        # already exposed (visible to current_side from the start).
-        side_unit_positions = {
-            (u.position.x, u.position.y)
-            for u in self.gs.map.units
-            if u.side == current_side
-        }
-        for u in self.gs.map.units:
-            if u.side == current_side:
-                continue
-            if not self._hide_cover_active(u):
-                continue
-            for nx, ny in hex_neighbors(u.position.x, u.position.y):
-                if (nx, ny) in side_unit_positions:
-                    uncovered.add(u.id)
-                    break
-
         setattr(self.gs.global_info, "_uncovered_units", uncovered)
-
-    def _apply_post_move_stops(
-        self,
-        x: int,
-        y: int,
-        side: int,
-        prev_village_owner: Optional[int] = None,
-    ) -> None:
-        """If the unit at (x, y) of `side` just moved into a hex that
-        Wesnoth would zero its MP on, set current_moves = 0. Three
-        independent triggers (move.cpp:1042-1054), each with the
-        precise condition Wesnoth checks:
-
-          - Ambush: an adjacent enemy has an ACTIVE hide ability
-            (cover terrain/ToD matches the ability) AND that enemy
-            has not yet been uncovered this turn. Skirmisher does
-            NOT bypass ambush. After firing, the enemy becomes
-            uncovered (won't ambush again until its own side's next
-            init_side reset).
-          - ZoC: an adjacent enemy of level >= 1 emits ZoC over (x,y)
-            and the mover lacks `skirmisher`.
-          - Village capture: entering a village whose previous owner
-            was NOT this side. Friendly revisit doesn't zero MP.
-            Pre-move owner is snapshotted in `step()` before
-            `_apply_command` updates the village owner map.
-        """
-        from tools.abilities import hex_neighbors
-        from replay_dataset import _stats_for
-        from classes import TerrainModifiers
-
-        unit = next(
-            (u for u in self.gs.map.units
-             if u.position.x == x and u.position.y == y and u.side == side),
-            None,
-        )
-        if unit is None or unit.current_moves <= 0:
-            return
-
-        zero_mp = False
-
-        # Ambush + ZoC: walk adjacent hexes once.
-        uncovered: set = getattr(
-            self.gs.global_info, "_uncovered_units", None) or set()
-        is_skirmisher = "skirmisher" in (unit.abilities or set())
-        for nx, ny in hex_neighbors(x, y):
-            enemy = next(
-                (u for u in self.gs.map.units
-                 if u.position.x == nx and u.position.y == ny
-                 and u.side != side),
-                None,
-            )
-            if enemy is None:
-                continue
-            # Petrified (incapacitated) enemies emit no ZoC and can't
-            # ambush. unit.hpp:1352-1355 -> `emit_zoc_ && !incapacitated()`
-            # for ZoC, and incapacitated units have no abilities active
-            # (the hide-ability check uses live state). Without this
-            # filter, a unit walking past a statue would zero its MP
-            # (Giant Scorpion is level 2, would block movement).
-            if "petrified" in (enemy.statuses or set()):
-                continue
-            # Ambush: hide ability with matching cover, not already
-            # uncovered. Bypasses skirmisher.
-            if (enemy.id not in uncovered
-                    and self._hide_cover_active(enemy)):
-                zero_mp = True
-                # Once an enemy ambushes, it's revealed for the rest
-                # of the turn (won't ambush twice from the same
-                # cover this turn).
-                uncovered.add(enemy.id)
-                setattr(self.gs.global_info, "_uncovered_units",
-                        uncovered)
-                break
-            # ZoC: only level >= 1 enemies emit, only stops
-            # non-skirmishers.
-            if not is_skirmisher:
-                level = int(_stats_for(enemy.name).get("level", 1))
-                if level >= 1:
-                    zero_mp = True
-                    break
-
-        # Village capture: only zero MP if the prior owner was NOT
-        # this side. Friendly revisits leave MP alone (Wesnoth's
-        # `if (orig_village_owner != current_side_)` gate).
-        if not zero_mp and prev_village_owner is not None and prev_village_owner != side:
-            hex_obj = next(
-                (h for h in self.gs.map.hexes
-                 if h.position.x == x and h.position.y == y),
-                None,
-            )
-            if hex_obj is not None and TerrainModifiers.VILLAGE in hex_obj.modifiers:
-                zero_mp = True
-
-        if zero_mp:
-            self._set_unit_mp(x, y, side, 0)
-
-    def _set_unit_mp(self, x: int, y: int, side: int, new_mp: int) -> None:
-        """Replace the unit at (x, y) of `side` with a copy whose
-        `current_moves` is set to `new_mp`. Mirrors `_deduct_extra_mp`
-        but with an absolute target value rather than a delta."""
-        from classes import Unit
-        new_units = set()
-        for u in self.gs.map.units:
-            if u.position.x == x and u.position.y == y and u.side == side:
-                base = {k: v for k, v in u.__dict__.items()
-                        if not k.startswith("_")}
-                base["current_moves"] = max(0, new_mp)
-                replacement = Unit(**base)
-                for k, v in u.__dict__.items():
-                    if k.startswith("_"):
-                        setattr(replacement, k, v)
-                new_units.add(replacement)
-            else:
-                new_units.add(u)
-        self.gs.map.units = new_units
-
-    def _deduct_extra_mp(self, x: int, y: int, extra: int) -> None:
-        """Subtract `extra` more MP from the unit now at (x, y),
-        clamped to >= 0. Used to top up _apply_command's flat-1
-        deduction with the actual terrain cost - 1.
-
-        Uses the discard/add pattern instead of rebuilding the whole
-        units set: O(1) on average vs O(N) per call. With MCTS
-        rollouts hitting this path multiple times per simulation
-        (every move command), the speedup compounds. ~30x faster on
-        a 30-unit mid-game state vs the rebuild loop."""
-        from classes import Unit
-        from replay_dataset import _rebuild_unit
-        target: Optional[Unit] = None
-        for u in self.gs.map.units:
-            if u.position.x == x and u.position.y == y:
-                target = u
-                break
-        if target is None:
-            return  # nothing at (x, y) -- silent no-op
-        if extra <= 0:
-            return  # nothing to deduct
-        new_mp = max(0, target.current_moves - extra)
-        if new_mp == target.current_moves:
-            return  # already clamped to 0; saves the rebuild
-        replacement = _rebuild_unit(target, current_moves=new_mp)
-        self.gs.map.units.discard(target)
-        self.gs.map.units.add(replacement)
 
     def _begin_side_turn(self, side: int) -> None:
         """Fire init_side(side). Replay-recon's _apply_command for
@@ -1441,25 +1164,12 @@ class WesnothSim:
             #      emit the full path verbatim.
             if "path" in action:
                 raise NotImplementedError(
-                    "multi-step `path` field in move action dict "
-                    "not supported by the sim yet; see invariant "
-                    "comment in _action_to_command. Pass a single "
-                    "(start_hex, target_hex) pair instead."
+                    "explicit `path` field in move action dict not "
+                    "supported; the sim plans the route itself "
+                    "(Wesnoth-default cost model, see "
+                    "tools/pathfind_sim.py). Pass (start_hex, "
+                    "target_hex)."
                 )
-            # Validate the move is legal: target must be a hex
-            # neighbor of start, the source must hold one of OUR
-            # units, and the unit must have enough MP to ENTER the
-            # target's terrain. Wesnoth's replay engine re-checks
-            # this on playback (plot_turn in move.cpp) and rejects
-            # any violation as 'corrupt movement', so we have to
-            # enforce it here too -- the underlying _apply_command
-            # is permissive (flat 1 MP per step, no terrain check)
-            # and would otherwise accept teleports / 0-MP moves /
-            # over-cost moves.
-            if (target.x, target.y) not in hex_neighbors(start.x, start.y):
-                log.debug(f"sim: rejecting non-adjacent move "
-                          f"{(start.x, start.y)}->{(target.x, target.y)}")
-                return None, None
             mover = next(
                 (u for u in self.gs.map.units
                  if u.position.x == start.x and u.position.y == start.y
@@ -1468,24 +1178,37 @@ class WesnothSim:
             )
             if mover is None:
                 return None, None
-            # Target hex must be unoccupied (Wesnoth never allows
-            # stacking; the playback engine would assert).
-            if any(u.position.x == target.x and u.position.y == target.y
-                   for u in self.gs.map.units):
-                return None, None
-            cost = _move_cost_at_hex(mover, self.gs, target.x, target.y)
-            if cost >= 99 or mover.current_moves < cost:
-                return None, None
-            # _apply_command's move handler reads xs[0], ys[0] (start)
-            # and xs[-1], ys[-1] (target). The intermediate path is
-            # only used to fire enter_hex events, which our scenarios
-            # don't depend on. Pass [start, target] -- minimal valid
-            # path -- so the unit lands at the target hex.
+            # Plan the route from the ACTING SIDE'S OBSERVABLE state
+            # -- the same knowledge the legality mask used to offer
+            # this target, and the same knowledge Wesnoth's client
+            # uses for a player's move order (mouse_events.cpp
+            # get_route). Hidden units neither block nor ZoC here;
+            # they resolve at execution (walk_move_path: blocked /
+            # ambush truncation).
+            from tools.pathfind_sim import (
+                ReachContext, unit_reach, route_to)
+            ctx = ReachContext.for_side(
+                self.gs, self.current_side, exclude_unit=mover)
+            reach = unit_reach(mover, self.gs, ctx)
+            tpos = (target.x, target.y)
+            if tpos not in reach.landable:
+                # The mask uses the same planner on the same
+                # observable state, so this means mask and sim
+                # disagree -- a contract bug, not a policy mistake.
+                # Loud (WARNING, not debug) + re-decide instead of
+                # burning the turn.
+                log.warning(
+                    f"sim: move target {tpos} not landable for "
+                    f"{mover.id}@{(start.x, start.y)} "
+                    f"(mp={mover.current_moves}); mask/sim "
+                    f"reachability disagreement -- re-deciding")
+                return ["__reject_action__"], None
+            path = route_to(reach, tpos)
             cmd_move = ["move",
-                        [start.x, target.x],
-                        [start.y, target.y],
+                        [p[0] for p in path],
+                        [p[1] for p in path],
                         self.current_side]   # from_side filter
-            return cmd_move, cost
+            return cmd_move, None
         if atype == "attack":
             start: Position = action["start_hex"]
             target: Position = action["target_hex"]
@@ -1560,8 +1283,41 @@ class WesnothSim:
             # it deducts cost and clamps gold to 0, then accepts the
             # recruit -- so without this gate the sim emits illegal
             # recruits that Wesnoth rejects.
-            cost = _recruit_cost_for(unit_type)
+            # Leader-on-keep + castle-network connectivity, via the
+            # SHARED helper the legality mask consumes
+            # (visibility.leader_castle_network) -- audit 2026-07-17
+            # found the sim skipped connectivity entirely, so a
+            # mask-less caller could emit recruits Wesnoth playback
+            # rejects ("cannot recruit unit: ..."). Violation = the
+            # caller ignored the mask -> loud reject + re-decide
+            # (bounded by the consecutive-reject guard).
+            from visibility import leader_castle_network
+            _leader = next(
+                (u for u in self.gs.map.units
+                 if u.side == self.current_side and u.is_leader), None)
+            if _leader is None:
+                return None, None
+            _on_keep, _network = leader_castle_network(self.gs, _leader)
+            if not _on_keep or (target.x, target.y) not in _network:
+                log.warning(
+                    f"sim: recruit {unit_type!r} on "
+                    f"({target.x},{target.y}) rejected: "
+                    f"{'leader off keep' if not _on_keep else 'hex outside leader castle network'}"
+                    f" -- re-deciding")
+                return ["__reject_action__"], None
+            # Type must be on the side's recruit list (mask offers
+            # only own_recruit_types; engine playback rejects
+            # off-list recruits).
             side_idx = self.current_side - 1
+            if 0 <= side_idx < len(self.gs.sides):
+                _rlist = self.gs.sides[side_idx].recruits or ()
+                if _rlist and unit_type not in _rlist:
+                    log.warning(
+                        f"sim: recruit {unit_type!r} not on side "
+                        f"{self.current_side}'s recruit list -- "
+                        f"re-deciding")
+                    return ["__reject_action__"], None
+            cost = _recruit_cost_for(unit_type)
             if 0 <= side_idx < len(self.gs.sides):
                 gold = int(self.gs.sides[side_idx].current_gold)
                 if gold < cost:

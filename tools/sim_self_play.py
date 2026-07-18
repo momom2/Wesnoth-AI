@@ -272,64 +272,6 @@ def _would_recruit_bounce(action: Dict, gs: "GameState") -> bool:
     return False
 
 
-def _would_move_bounce_on_fog(action: Dict, gs: "GameState") -> bool:
-    """True if `action` is a MOVE onto a hex the sim's god-view
-    knows is occupied by a unit invisible to the acting side.
-
-    Why this case is special: with the fog-of-war filter
-    (visibility.py + encoder.py), enemy units in fog don't appear
-    in the sampler's enemy_mask -- the target hex looks empty to
-    the policy. The sim still rejects the move (Wesnoth never
-    allows stacking) and, without this pre-check, the rejection
-    would be treated as an illegal-shaped action and consume the
-    side's turn via the end_turn fallback (wesnoth_sim.py step()).
-
-    Fair-information principle: the policy picked a hex that
-    LOOKED legal given everything it could see. Punishing it for
-    information it didn't have would violate the legality-mask
-    contract in CLAUDE.md. Instead, the harness anticipates the
-    bounce, marks the hex in `_move_rejected_hexes` (mirrored
-    into hex_dynamic_flags bit 1 by the encoder), and re-decides
-    -- same shape as the recruit-rejection retry.
-
-    NOT a bounce-on-fog (these are policy bugs that should still
-    cost the turn or trip the invalid_action signal):
-      * Move onto a hex occupied by a VISIBLE enemy or friendly.
-        Visible occupancy already maps to enemy_mask=1 or
-        occupancy=1 in the legality mask, so the policy
-        shouldn't have picked it. If it did, that's the model
-        being wrong on visible state -- not fair information.
-      * Move onto a non-neighbour hex / from a unit that has no
-        MP / etc. Those checks happen earlier in
-        _action_to_command and return None outright.
-
-    Cheap: linear over gs.map.units, fires only on move actions.
-    """
-    if action.get("type") != "move":
-        return False
-    tgt = action.get("target_hex")
-    if tgt is None:
-        return False
-    current_side = gs.global_info.current_side
-    # Find the unit at the target (if any). If it's invisible to
-    # the acting side, the bounce qualifies as fair-information.
-    occupant = None
-    for u in gs.map.units:
-        if u.position.x == tgt.x and u.position.y == tgt.y:
-            occupant = u
-            break
-    if occupant is None:
-        return False
-    if occupant.side == current_side:
-        # Friendly already-occupied. The policy can see its own
-        # units -- not a fog bounce.
-        return False
-    # Enemy unit. Is it visible to the acting side?
-    from visibility import units_visible_to
-    visible_ids = {id(u) for u in units_visible_to(gs, current_side)}
-    return id(occupant) not in visible_ids
-
-
 def play_one_game(
     sim:         WesnothSim,
     policy:      TransformerPolicy,
@@ -453,35 +395,15 @@ def play_one_game(
             pre_state = copy.deepcopy(sim.gs)
             action = policy.select_action(pre_state, game_label=game_label, sim=sim)
 
-        # Same mechanic for MOVE onto a fog-hidden enemy hex.
-        # Fair-information contract: the hex looked empty to the
-        # policy (the enemy unit was filtered out of the encoder's
-        # tokens by visibility.units_visible_to), so the bounce
-        # isn't punishable. Mark the hex in `_move_rejected_hexes`,
-        # observe(reward=0) to drop the rejected Transition tail,
-        # and re-decide. Loop bound: each bounce adds one hex to
-        # the per-turn rejection set; the legality mask blacklists
-        # it; the move-target choice space shrinks monotonically
-        # within the turn. (Worst case the policy exhausts its
-        # legal moves and picks attack / end_turn instead.)
-        while _would_move_bounce_on_fog(action, sim.gs):
-            tgt = action["target_hex"]
-            move_rejected = (
-                getattr(sim.gs.global_info,
-                        "_move_rejected_hexes", None) or set()
-            )
-            move_rejected.add((tgt.x, tgt.y))
-            setattr(sim.gs.global_info,
-                    "_move_rejected_hexes", move_rejected)
-            log.debug(
-                f"move rejected: ({tgt.x},{tgt.y}) (god-view "
-                f"occupied by fog-hidden enemy); re-deciding "
-                f"with hex blacklisted")
-            drop = getattr(policy, "drop_last_pending", None)
-            if not (callable(drop) and drop(game_label)):
-                policy.observe(game_label, acting_side, 0.0, done=False)
-            pre_state = copy.deepcopy(sim.gs)
-            action = policy.select_action(pre_state, game_label=game_label, sim=sim)
+        # Moves onto fog-hidden enemy hexes are NOT pre-bounced here
+        # anymore (2026-07-17): the sim resolves them Wesnoth-
+        # faithfully inside step() -- the unit walks the planned
+        # route and stops per the engine's blocked/ambush rules
+        # (tools/pathfind_sim.walk_move_path), revealing the hidden
+        # unit. A real partial move, real information gained; no
+        # re-decide loop needed. (The recruit bounce above stays: a
+        # recruit has no partial-execution semantics to fall back
+        # on.)
         atype = action.get("type", "end_turn")
         if atype == "recruit":
             unit_type = action.get("unit_type", "")
@@ -2461,7 +2383,7 @@ def main(argv: List[str]) -> int:
                     help="Weight of drawn games' states in the MCTS "
                          "value loss (aux/moves-left heads always get "
                          "them). 0 = decisive-only value learning "
-                         "(2026-07-10: the 71%-draw gradient mass "
+                         "(2026-07-10: the 71%%-draw gradient mass "
                          "flattened the value head even with honest "
                          "z=0 labels and a rehearsal anchor).")
     ap.add_argument("--draw-tiebreak-cap", type=float, default=0.3,

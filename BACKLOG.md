@@ -1,5 +1,111 @@
 # Project review — bugs and improvements
 
+## 2026-07-17 — 🔴 Movement was silently impossible; pathfinding rebuild
+
+**The bug (user-caught watching a demo replay):** the legality mask
+has always offered move targets across the unit's full MP range
+(crow-flies `dist <= moves`), but `_action_to_command` only accepted
+SINGLE-HEX steps ("the policy's mask restricts moves to adjacent
+hexes" — never true) and converted every rejected move into a silent
+`end_turn` (debug-level log). Result: ~85% of a uniform policy's
+moves — and essentially ALL of the SL-cloned policy's moves — burned
+the side's whole turn. Move-to-attack similarly broke beyond 2-hex
+range (nested pre-move non-adjacent → end_turn). **Every self-play
+campaign to date trained under this** (1-hex random shuffles, ≤2-hex
+attacks); it plausibly explains much of the "policy never reaches a
+game end" pathology previously attributed to myopia. Made visible by
+the SL policy because it's the first that consistently tries
+human-style multi-hex moves: raw smoke showed recruits learned but
+attacks ≈ 0; with the gate on, a Freelands demo recorded 0 moves /
+80 bare end_turns while the policy sent 12 moves per 6 turns.
+
+**Fix (this session):**
+- `tools/pathfind_sim.py` (new): Wesnoth-1.18.4-faithful single-turn
+  planner + executor. Planning = acting side's OBSERVABLE state
+  (mouse_events.cpp get_route semantics: fog≠shroud, hidden units
+  neither block nor ZoC, visible-enemy block, ally pass-through +1e-4
+  subcost, ZoC entry charges all remaining MP, defense-pct tie-break;
+  docs/wesnoth_rules.md "Default route selection"). Execution =
+  god-view `walk_move_path` (blocked: stop before hidden occupant,
+  MP KEPT; ambush: stop at hex, MP 0; both reveal → STATE_UNCOVERED;
+  ZoC/village-capture landing zeroes MP; plot_turn backtrack).
+- Mask move/attack rows = true reachability (per-unit Dijkstra;
+  attack = enemy adjacent to {start} ∪ landable). Old crow-flies rows
+  also offered unreachable hexes (mountains, ZoC) — gone.
+- Sim accepts multi-hex move orders (plans route, emits FULL path
+  WML + `skip_sighted="all"`; sighting interrupts deliberately not
+  modelled — sim==export==playback).
+- Reconstruction (`_apply_command` move) now shares `walk_move_path`:
+  terrain-cost MP (was flat 1/hex!), blocked-vs-ambush distinction
+  (was: MP 0 on every truncation), adjacent-ambush truncation
+  (was: MISSED entirely — human replays record full planned paths).
+- Hidden-unit visibility corrected to engine truth (source-verified):
+  live adjacency discovery (`would_be_discovered`), UNCOVERED only
+  via ambush/blocked reveal + attacker self-reveal
+  (attack.cpp:1378, now applied), cleared at hider's own turn start.
+  The former "adjacent at turn start → exposed all turn" rule was
+  NOT engine behavior and was removed.
+- `sim_self_play` move fog-bounce pre-check removed (moves onto
+  hidden enemies now execute Wesnoth-faithfully); recruit bounce
+  stays. `_move_rejected_hexes` no longer populated (encoder bit
+  retained for checkpoint compat).
+- Perf: per-(map,unit-type) terrain/defense maps keyed by a
+  deepcopy-surviving `_terrain_epoch` (bumped on terrain morphs);
+  mask build ~2.2ms/decision (2 units).
+- `tools/check_mask_coverage.py` (new): every human action in a
+  replay sample must be mask-legal — planner-correctness proof
+  against the corpus.
+
+**Contract (user, 2026-07-17):** mask = what the policy may ATTEMPT
+(human-knowledge level; fogged-but-occupied targets stay attemptable,
+failures are informed); sim validation/execution = god-view
+Wesnoth-faithful resolution. Conflicts resolve toward Wesnoth.
+
+**Contract audit (2026-07-17/18) — findings + resolutions:**
+- 🔴 Sim recruit validation skipped BOTH leader-on-keep and
+  castle-network connectivity (mask checked them; a mask-less caller
+  could emit playback-rejected recruits). Fixed via shared
+  `visibility.leader_castle_network` (mask + sim consume the same
+  function; the mask's private BFS deleted). Recruit type-in-list
+  validation added sim-side too.
+- 🔴 Mask-less callers could hang the sim: planner-rejected steps
+  are no-ops for re-decide, and scripted DummyPolicy re-emitted the
+  same doomed action forever (caught live: 80-min suite hang). Loop
+  guard: ≥8 consecutive rejects → end_turn + WARNING.
+- 🔴 Gumbel root search under-ran its sim budget when root edge
+  counts stopped being conveniently even (single-candidate roots ran
+  ZERO sims; floor-splits dropped a few). Unspent budget now spills
+  into the classic PUCT loop; tree-reuse visit invariant restored.
+- 🟠 `_terrain_maps_for` cache collided across synthetic no-code
+  states (cross-test pollution); such states now bypass the cache.
+- 🟠 Dead mirrors removed: sim's `_hide_cover_active` (visibility.py
+  is the single source), action_sampler's local `_hex_neighbors` +
+  crow-flies `_hex_distance_vec`, `_deduct_extra_mp` /
+  `_apply_post_move_stops` / `_set_unit_mp` (subsumed by the walk).
+- ⚪ `_move_rejected_hexes` is no longer populated (blocked moves
+  now execute partially instead of bouncing); mask consultation +
+  encoder bit retained for checkpoint compat. Recruit-rejected
+  mechanism unchanged (a recruit has no partial execution).
+- ⚪ FORBID_IDLE_END_TURN quantified against the corpus: the gate
+  forbids 69% of HUMAN end_turns (1,169/1,706 over 60 games) — the
+  one deliberate mask-tighter-than-human crutch; fate decision
+  pending on raw-smoke evidence per plan.
+
+**Validation (2026-07-18):**
+- Mask coverage over 60 corpus games: moves 13,276/13,276, attacks
+  4,886/4,886, recruits 2,102/2,102 mask-legal (100%).
+- diff_replay 400-replay sample: **400/400 clean** (bar: ≥98.5%) —
+  the engine-exact walk (terrain-cost MP, blocked-vs-ambush,
+  adjacent-ambush truncation) improved reconstruction.
+- Real-Wesnoth strict-sync playback of a policy game with multi-hex
+  moves: CLEAN (385 commands, The Freelands).
+- **First-ever decisive ladder self-play game**: epoch-3 SL policy,
+  raw sampling, winner by leader_killed on turn 11
+  (sl_epoch3_pathfix_demo.bz2, in the user's saves).
+- Known cost: self-play games now have ~10× more decisions/turn
+  (real movement + gate); the MCTS smoke went ~1 min → ~5-10 min.
+  Tier-a compute estimates need re-baselining.
+
 ## TIER-A VERDICT (2026-07-05): Elo-vs-compute point measured
 
 66-game ladder-only round-robin (Kaggle free T4, MCTS sims=32,

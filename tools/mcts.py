@@ -1407,7 +1407,7 @@ def _gumbel_root_search(
     n_sims:         int,
     deadline:       Optional[float] = None,
     decision_step:  int = 0,
-) -> None:
+) -> int:
     """Gumbel-Top-k candidates + sequential halving at the root.
     Sets `root.gumbel_action` to argmax(g + logits + sigma(q̂)) over
     the final survivors -- in expectation a policy improvement over
@@ -1418,7 +1418,7 @@ def _gumbel_root_search(
     edges = root.edges
     if not edges:
         root.gumbel_action = None
-        return
+        return 0
     logits = np.log(np.maximum(
         np.array([e.prior for e in edges], dtype=np.float64), 1e-12))
     g = rng.gumbel(size=len(edges))
@@ -1498,6 +1498,7 @@ def _gumbel_root_search(
     max_v = max(e.n_visits for e in edges)
     best_ci = max(cands, key=lambda ci: _score(ci, max_v))
     root.gumbel_action = edges[best_ci].action
+    return sims_done
 
 
 def mcts_search(
@@ -1619,10 +1620,19 @@ def mcts_search(
                 if config.time_budget is not None else None)
 
     if use_gumbel:
-        _gumbel_root_search(root, model, encoder, config,
-                            transpositions, tt_stats, rng, n_sims,
-                            deadline, decision_step=decision_step)
-        n_sims = 0   # the classic PUCT-at-root loop below is skipped
+        _gumbel_done = _gumbel_root_search(
+            root, model, encoder, config, transpositions, tt_stats,
+            rng, n_sims, deadline, decision_step=decision_step)
+        # Spill any UNSPENT budget into the classic PUCT loop below.
+        # Sequential halving can under-consume: a single-candidate
+        # root runs 0 sims (nothing to halve), and the per-phase
+        # floor split can drop a few for odd candidate counts. The
+        # spill keeps the "n_simulations sims total" contract (and
+        # the tree-reuse visit accounting built on it) regardless of
+        # edge count -- exposed 2026-07-17 when true-reachability
+        # masks changed root edge counts. Gumbel's action CHOICE
+        # (root.gumbel_action) is already set and unaffected.
+        n_sims = max(0, n_sims - _gumbel_done)
 
     B = max(1, int(config.batch_size))
     V_LOSS = float(config.virtual_loss) if B > 1 else 0.0

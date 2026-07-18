@@ -288,42 +288,88 @@ def test_visible_fraction_in_unit_interval():
     assert f == pytest.approx(5/20)
 
 
-# ---- fog-bounce on move (fair-information principle) -------------
+# ---- move onto hidden units: Wesnoth blocked/ambush semantics ----
+# (2026-07-17: replaces the retired harness-side fog-bounce
+# pre-check `_would_move_bounce_on_fog` -- moves onto hidden enemies
+# now EXECUTE with the engine's partial-move resolution via
+# tools/pathfind_sim.walk_move_path.)
 
-def test_would_move_bounce_on_fog_detects_invisible_enemy():
-    """`_would_move_bounce_on_fog` returns True iff the move's
-    target hex is occupied by an enemy unit invisible to the
-    acting side."""
-    from tools.sim_self_play import _would_move_bounce_on_fog
+def test_walk_blocked_by_hidden_enemy_keeps_mp():
+    """A hidden unit ON a path hex stops the mover on the hex
+    BEFORE it, KEEPS remaining MP (post_move zeroes MP only for
+    ambush/ZoC-final, move.cpp:1041-1043), and reveals the
+    blocker.
+
+    Setup note: sight radius == max_moves, so the mover gets
+    max_moves=1 (sight 1 -> the lurker at distance 3 is fog-hidden
+    and exerts no ZoC) with an explicit walk budget of 4."""
+    from tools.pathfind_sim import walk_move_path
     units = [
-        _unit('mine', x=0, side=1, max_moves=3),    # sight 3
-        _unit('enemy_close', x=2, side=2),           # visible
-        _unit('enemy_far',   x=15, side=2),          # invisible
+        _unit('mover', x=0, side=1, max_moves=1),
+        _unit('lurker', x=3, side=2),      # on the path, fog-hidden
     ]
-    s = _state(units, _hexes_grid(20))
-    # Move onto visible enemy: NOT a fog bounce (policy chose
-    # wrong on visible info; the legality mask should have
-    # ruled this out).
-    visible_move = {'type': 'move',
-                    'start_hex': Position(x=1, y=0),
-                    'target_hex': Position(x=2, y=0)}
-    assert not _would_move_bounce_on_fog(visible_move, s)
-    # Move onto invisible enemy: IS a fog bounce.
-    fog_move = {'type': 'move',
-                'start_hex': Position(x=14, y=0),
-                'target_hex': Position(x=15, y=0)}
-    assert _would_move_bounce_on_fog(fog_move, s)
-    # Move onto empty hex: not a bounce.
-    empty_move = {'type': 'move',
-                  'start_hex': Position(x=0, y=0),
-                  'target_hex': Position(x=1, y=0)}
-    assert not _would_move_bounce_on_fog(empty_move, s)
-    # Move onto our OWN unit's hex: not a fog bounce
-    # (visible-friendly occupancy; policy bug).
-    own_collide = {'type': 'move',
-                   'start_hex': Position(x=2, y=0),
-                   'target_hex': Position(x=0, y=0)}
-    assert not _would_move_bounce_on_fog(own_collide, s)
+    s = _state(units, _hexes_grid(6))
+    mover = next(u for u in s.map.units if u.id == 'mover')
+    out = walk_move_path(s, mover, [0, 1, 2, 3, 4], [0, 0, 0, 0, 0],
+                         budget=4)
+    assert out.stop_reason == "blocked"
+    assert out.final_idx == 2               # stopped BEFORE (3,0)
+    assert out.uncovered_ids == ['lurker']
+    # 2 MP spent on flat terrain, 2 kept (NOT zeroed).
+    assert out.mp_left == 2
+
+
+def test_walk_ambush_by_hidden_hider_zeroes_mp():
+    """Entering a hex adjacent to a hidden `hides` enemy stops the
+    mover AT that hex, zeroes MP, and reveals the ambusher
+    (check_for_ambushers, move.cpp:422-440)."""
+    from tools.pathfind_sim import walk_move_path
+    units = [
+        _unit('mover', x=0, side=1, max_moves=4),
+        # Ambusher OFF the path (y=1) but adjacent to path hex (2,0).
+        # nightstalk covers via lawful_bonus<0; simpler: monkeypatch
+        # is avoided by giving it `ambush` and forest terrain below.
+        _unit('wose', x=2, side=2, abilities=frozenset({'ambush'})),
+    ]
+    hexes = _hexes_grid(6)
+    # Put the ambusher's hex on forest so its cover is active.
+    # Hide-cover resolution reads the raw terrain-code dict
+    # (`_terrain_keys_at` -> `_terrain_codes`), so stamp the code
+    # ("Gg^Fp" = grass + pine forest) rather than the Hex enum.
+    hexes = {h for h in hexes if not (h.position.x == 2 and h.position.y == 0)}
+    hexes.add(Hex(position=Position(x=2, y=0),
+                  terrain_types=frozenset({Terrain.FOREST}),
+                  modifiers=frozenset()))
+    s = _state(units, hexes)
+    s.global_info._terrain_codes = {(2, 0): "Gg^Fp"}
+    mover = next(u for u in s.map.units if u.id == 'mover')
+    # Path passes adjacent to (2,0): entering (1,0) is adjacent.
+    out = walk_move_path(s, mover, [0, 1], [0, 0])
+    assert out.stop_reason == "ambush"
+    assert out.final_idx == 1               # stopped AT the entered hex
+    assert 'wose' in out.uncovered_ids
+    assert out.mp_left == 0
+
+
+def test_walk_passes_through_ally_and_backtracks_off_it():
+    """Own-side units are pass-through (pathfind.cpp:777-786), but
+    a move may not END on one: the walk backtracks off occupied end
+    hexes (plot_turn, move.cpp:776-780) with MP refunded."""
+    from tools.pathfind_sim import walk_move_path
+    units = [
+        _unit('mover', x=0, side=1, max_moves=4),
+        _unit('buddy', x=2, side=1),
+    ]
+    s = _state(units, _hexes_grid(6))
+    mover = next(u for u in s.map.units if u.id == 'mover')
+    # Through the ally, landing beyond: fine.
+    out = walk_move_path(s, mover, [0, 1, 2, 3], [0, 0, 0, 0])
+    assert out.stop_reason == "end" and out.final_idx == 3
+    assert out.mp_left == 1
+    # Ordered to END on the ally's hex: backtrack to (1,0).
+    out2 = walk_move_path(s, mover, [0, 1, 2], [0, 0, 0])
+    assert out2.final_idx == 1
+    assert out2.mp_left == 3                # only 1 MP charged
 
 
 def test_move_rejected_set_clears_at_init_side():

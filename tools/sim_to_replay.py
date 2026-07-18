@@ -166,7 +166,13 @@ def _wml_for_command(rc: RecordedCommand,
         )
 
     if rc.kind == "move":
-        # cmd = ["move", [sx, tx], [sy, ty], from_side]
+        # cmd = ["move", [sx, .., tx], [sy, .., ty], from_side] --
+        # the FULL PLANNED path (Wesnoth records the planned path;
+        # playback re-truncates on hidden blockers identically to
+        # our walk_move_path). skip_sighted="all" disables the
+        # sighted-move interrupt on playback
+        # (synced_commands.cpp:305-314) -- the sim doesn't model
+        # sighting interrupts, so exports must not re-check them.
         xs, ys = rc.cmd[1], rc.cmd[2]
         # Convert to 1-indexed.
         xs1 = ",".join(str(v + 1) for v in xs)
@@ -175,6 +181,7 @@ def _wml_for_command(rc: RecordedCommand,
             "\t[command]\n"
             f"\t\tfrom_side={rc.side}\n"
             "\t\t[move]\n"
+            f"\t\t\tskip_sighted=\"all\"\n"
             f"\t\t\tx=\"{xs1}\"\n"
             f"\t\t\ty=\"{ys1}\"\n"
             "\t\t[/move]\n"

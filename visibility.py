@@ -226,8 +226,9 @@ def _hide_cover_active(state: GameState, unit: Unit) -> bool:
       - nightstalk:  current ToD has lawful_bonus < 0
                      (night / second_watch)
 
-    Mirrors `WesnothSim._hide_cover_active`; if the rules drift,
-    this needs to update in lockstep with the sim.
+    SINGLE source of truth since 2026-07-18 (the sim's duplicate
+    method was removed; walk_move_path and units_visible_to both
+    consume this one).
     """
     abilities = unit.abilities or set()
     if not (abilities & _AMBUSH_ABILITIES):
@@ -250,6 +251,76 @@ def _hide_cover_active(state: GameState, unit: Unit) -> bool:
             state.global_info.turn_number,
         )
         if bonus < 0:
+            return True
+    return False
+
+
+def leader_castle_network(state: GameState,
+                          leader: Unit) -> Tuple[bool, Set[Tuple[int, int]]]:
+    """(leader_on_keep, castle-network hex set) for recruit legality.
+
+    The network is the BFS closure of CASTLE/KEEP-modifier hexes
+    connected to the keep the leader stands on (Wesnoth:
+    `can_recruit_on` walks castle tiles from the recruiting keep).
+    Returns (False, empty set) when the leader is off-keep.
+
+    SHARED CONTRACT: the legality mask (action_sampler) and the
+    sim's recruit validation (wesnoth_sim._action_to_command) must
+    both consume THIS function -- a mirror was how the sim ended up
+    skipping connectivity entirely (audit 2026-07-17).
+    """
+    from collections import deque
+    from classes import TerrainModifiers
+
+    mods_by_pos = {
+        (h.position.x, h.position.y): h.modifiers
+        for h in state.map.hexes
+    }
+    start = (leader.position.x, leader.position.y)
+    if TerrainModifiers.KEEP not in (mods_by_pos.get(start) or set()):
+        return False, set()
+    from tools.abilities import hex_neighbors
+    visited = {start}
+    q = deque([start])
+    network: Set[Tuple[int, int]] = set()
+    while q:
+        x, y = q.popleft()
+        for nx, ny in hex_neighbors(x, y):
+            if (nx, ny) in visited:
+                continue
+            nmods = mods_by_pos.get((nx, ny))
+            if nmods is None:
+                continue
+            if (TerrainModifiers.CASTLE in nmods
+                    or TerrainModifiers.KEEP in nmods):
+                visited.add((nx, ny))
+                q.append((nx, ny))
+                network.add((nx, ny))
+    return True, network
+
+
+def _discovered_by_adjacency(state: GameState, hider: Unit,
+                             observer_side: int) -> bool:
+    """Wesnoth's `would_be_discovered` (display_context.cpp:29-49):
+    a hidden unit is seen while ANY enemy of the hider stands on an
+    adjacent tile (not incapacitated). `unit::invisible` is
+    viewer-INDEPENDENT, so a discovery by a third party (e.g. an
+    armed side-3 neutral adjacent to a side-2 hider) reveals the
+    hider to every side — including `observer_side` (adversarial
+    review 2026-07-18; previously only the observer's own units
+    counted). The engine additionally requires the discoverer to be
+    itself visible to the hider's team; we accept that reduction
+    (documented sight-model simplification)."""
+    from tools.abilities import hex_neighbors
+    adj = set(hex_neighbors(hider.position.x, hider.position.y))
+    for u in state.map.units:
+        if u.side == hider.side:
+            continue
+        if is_scenery_unit(u):
+            continue
+        if "petrified" in (u.statuses or set()):
+            continue
+        if (u.position.x, u.position.y) in adj:
             return True
     return False
 
@@ -328,9 +399,19 @@ def units_visible_to(
             out.append(u)
             continue
         # Enemy unit. First gate: hide-cover ability (applies with
-        # or without fog, as in Wesnoth).
+        # or without fog, as in Wesnoth). A hider is nonetheless
+        # DISCOVERED while any non-incapacitated unit of the
+        # observing side stands directly adjacent -- a LIVE
+        # predicate, not a persistent reveal: move the adjacent unit
+        # away and the hider re-hides. Only ambush-trigger / blocked
+        # reveals and the hider's own attack set the persistent
+        # UNCOVERED state (cleared at the hider's side's turn
+        # start). `display_context.cpp:29-49 would_be_discovered`,
+        # `unit.cpp:2596-2637 unit::invisible`,
+        # `move.cpp:870` + `attack.cpp:1378` for the setters.
         if _hide_cover_active(state, u) and u.id not in uncovered:
-            continue
+            if not _discovered_by_adjacency(state, u, side):
+                continue
         # Second gate: sight disc -- skipped entirely when fog is
         # off for this game. Compute lazily (skip the work if every
         # enemy turns out to be hide-blocked).

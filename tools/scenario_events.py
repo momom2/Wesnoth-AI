@@ -496,6 +496,23 @@ def _terrain_action(gs: GameState, action: WMLNode) -> None:
     # the WML defense table is keyed by (e.g., 'Wwf^Bsb/' → 'Wwf').
     new_base_code = new_code.split("^", 1)[0]
 
+    # COPY-ON-WRITE (adversarial-review HIGH finding, 2026-07-18):
+    # `Map.__deepcopy__` / `GlobalInfo.__deepcopy__` ALIAS
+    # `map.hexes` and `_terrain_codes` across `WesnothSim.fork()`
+    # (terrain was assumed immutable). Mutating them in place meant
+    # an MCTS rollout fork that crossed a morph turn (Aethermaw,
+    # turns 4-6) morphed the LIVE game's terrain too — reproduced:
+    # 22 live hexes changed from a fork stepped to turn 13, with the
+    # live `_terrain_epoch` left stale so the planner/mask served
+    # pre-morph costs against post-morph combat. Build NEW
+    # containers and rebind them on THIS gs only. Replacing the
+    # hexes set also changes `id(gs.map.hexes)`, auto-invalidating
+    # the `_hex_lookup` cache keyed on it (previously never
+    # invalidated here — same latent bug, second symptom).
+    new_hexes = set(gs.map.hexes)
+    codes = getattr(gs.global_info, "_terrain_codes", None)
+    new_codes = dict(codes) if codes is not None else None
+
     pairs = list(zip(xs, ys))
     for wml_x, wml_y in pairs:
         # Parsed Hex set: 0-indexed playable coords → subtract 1.
@@ -504,13 +521,13 @@ def _terrain_action(gs: GameState, action: WMLNode) -> None:
         # the new terrain. Hex is hashable on position, so we discard
         # the old and add a fresh one with the new terrain set.
         old_hex = next(
-            (h for h in gs.map.hexes
+            (h for h in new_hexes
              if h.position.x == py_x and h.position.y == py_y),
             None,
         )
         if old_hex is not None:
-            gs.map.hexes.discard(old_hex)
-        gs.map.hexes.add(Hex(
+            new_hexes.discard(old_hex)
+        new_hexes.add(Hex(
             position=Position(x=py_x, y=py_y),
             terrain_types=set(new_terr),
             modifiers=set(new_mods),
@@ -521,9 +538,8 @@ def _terrain_action(gs: GameState, action: WMLNode) -> None:
         # the post-event hex still resolves through the OLD code and
         # combat defense math is wrong (Drake on Ford should get its
         # grass defense, not shallow-water defense).
-        codes = getattr(gs.global_info, "_terrain_codes", None)
-        if codes is not None:
-            codes[(py_x, py_y)] = new_base_code
+        if new_codes is not None:
+            new_codes[(py_x, py_y)] = new_base_code
 
         # Raw map_data string: border-included → WML (X, Y) is at
         # raw_cells[Y][X] directly (file row Y col X with the border
@@ -534,6 +550,15 @@ def _terrain_action(gs: GameState, action: WMLNode) -> None:
             if len(old) >= 2 and old[0].isdigit() and old[1] == " ":
                 prefix = old[:2]
             raw_cells[wml_y][wml_x] = prefix + new_code
+
+    gs.map.hexes = new_hexes
+    if new_codes is not None:
+        setattr(gs.global_info, "_terrain_codes", new_codes)
+        # Invalidate the reach-planner's per-map terrain cache
+        # (pathfind_sim keys on this epoch). Once per event, on THIS
+        # gs only.
+        from tools.pathfind_sim import next_terrain_epoch
+        setattr(gs.global_info, "_terrain_epoch", next_terrain_epoch())
 
     if raw_cells:
         new_raw = "\n".join(", ".join(row) for row in raw_cells)

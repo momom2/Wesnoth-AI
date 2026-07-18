@@ -670,6 +670,11 @@ def _build_initial_gamestate(data: dict) -> GameState:
     # pass-through for tools that have the original .json.gz on hand.
     setattr(gs.global_info, "_raw_map_data", data.get("map_data", ""))
     setattr(gs.global_info, "_terrain_codes", terrain_codes)
+    # Terrain epoch: reach-planner cache key that survives deepcopy
+    # (MCTS forks share entries) and is BUMPED by terrain-morph
+    # events (see pathfind_sim._terrain_maps_for).
+    from tools.pathfind_sim import next_terrain_epoch
+    setattr(gs.global_info, "_terrain_epoch", next_terrain_epoch())
     # ToD start offset for random_start_time scenarios. 0 means turn-1
     # is dawn (the default 2p case). Other values shift the cycle so
     # that turn-1 reads as e.g. afternoon (offset=2) — matching the
@@ -1756,66 +1761,39 @@ def _apply_command(gs: GameState, cmd: list) -> None:
                     break
         if unit is None:
             return
-        # Ambush truncation: replays record the FULL planned path. If
-        # the path crosses a hex held by an enemy, Wesnoth's
-        # `actions::execute_move` stops the unit at the hex before
-        # the enemy and zeros remaining MP (revealed-enemy ambush;
-        # see `actions/move.cpp::move_unit_internal`). For non-strict-
-        # sync replays the [mp_checkup] block carries no per-step
-        # data so our extractor can't truncate at extract time --
-        # we have to do it here, mirroring Wesnoth's runtime rule.
-        # If the FIRST step is enemy-occupied, abort the move
-        # entirely (this only happens in cascade scenarios where
-        # our sim already has the wrong unit at the wrong place;
-        # silently dropping is the same as Wesnoth's "the unit
-        # stayed put" outcome of a fully-blocked move).
-        truncate_idx = len(xs) - 1
-        for j in range(1, len(xs)):
-            blocker = None
-            for u in gs.map.units:
-                if u.position.x == xs[j] and u.position.y == ys[j]:
-                    blocker = u
-                    break
-            if blocker is not None and blocker.side != unit.side:
-                truncate_idx = j - 1
-                break
-        # If the truncation point itself is occupied (by a friendly
-        # unit on the path; not a blocker), back off until we find a
-        # clear hex. This prevents creating two units on the same
-        # hex (invariant:hex_double_occupied) — a real Wesnoth ambush
-        # always lands on an empty hex because the path itself was
-        # planned as walkable, with friendlies treated as
-        # passthrough but never as the *final* target.
-        while truncate_idx > 0:
-            occ = None
-            for u in gs.map.units:
-                if u is unit:
-                    continue
-                if (u.position.x == xs[truncate_idx]
-                        and u.position.y == ys[truncate_idx]):
-                    occ = u
-                    break
-            if occ is None:
-                break
-            truncate_idx -= 1
-        if truncate_idx < 1:
-            # Source-only "move" — no actual movement. Skip rather
-            # than placing the unit on top of itself.
+        # Execute the recorded/planned path with the shared
+        # Wesnoth-faithful walk (tools/pathfind_sim.walk_move_path):
+        # replays record the FULL planned path, and the engine
+        # re-truncates at runtime -- blocked (hidden unit ON a path
+        # hex: stop before it, KEEP remaining MP), ambush (hidden
+        # `hides` enemy adjacent to an entered hex: stop there, MP
+        # zeroed), ZoC / village-capture landing (MP zeroed), plus
+        # the plot_turn backtrack off occupied end hexes. MP is
+        # charged by TERRAIN COST per entered hex (the old handler's
+        # flat 1-MP-per-step was a fidelity gap). enforce_budget is
+        # off: the engine already validated this move when it was
+        # played, so a budget overrun can only mean OUR reconstructed
+        # MP drifted -- never truncate a human path for it.
+        from tools.pathfind_sim import walk_move_path
+        out = walk_move_path(gs, unit, xs, ys, enforce_budget=False)
+        if out.uncovered_ids:
+            # Blocked/ambush reveals persist until the hider's side's
+            # next turn start (STATE_UNCOVERED, move.cpp:870).
+            uncovered = getattr(
+                gs.global_info, "_uncovered_units", None) or set()
+            uncovered.update(out.uncovered_ids)
+            setattr(gs.global_info, "_uncovered_units", uncovered)
+        if out.final_idx < 1:
+            # Source-only "move" (first step blocked) — the unit
+            # stays put, same as Wesnoth's fully-blocked outcome.
             return
-        tx, ty = xs[truncate_idx], ys[truncate_idx]
+        tx, ty = xs[out.final_idx], ys[out.final_idx]
         new_statuses = set(unit.statuses)
         new_statuses.discard("resting")
-        # Wesnoth's ambush also zeros remaining MP. Mirror by
-        # setting current_moves to 0 if we truncated; otherwise
-        # subtract the step count.
-        if truncate_idx < len(xs) - 1:
-            new_moves = 0
-        else:
-            new_moves = max(0, unit.current_moves - (len(xs) - 1))
         moved = _replace_unit(
             gs, unit,
             position=Position(x=tx, y=ty),
-            current_moves=new_moves,
+            current_moves=out.mp_left,
             statuses=new_statuses,
         )
         if _terrain_at(gs, tx, ty) == "village":
@@ -1862,6 +1840,18 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             return
 
         ctx = build_attack_context(gs, att, dfd, a_weapon, d_weapon)
+
+        # Attacking reveals the attacker: Wesnoth sets
+        # STATE_UNCOVERED on the attacking unit unconditionally
+        # (attack.cpp:1378), so a hidden ambusher that strikes stays
+        # visible until its own side's next turn start. Harmless
+        # no-op for non-hiders (visibility only consults the set for
+        # hide-cover units).
+        _att_uncovered = getattr(
+            gs.global_info, "_uncovered_units", None) or set()
+        if att.id not in _att_uncovered:
+            _att_uncovered.add(att.id)
+            setattr(gs.global_info, "_uncovered_units", _att_uncovered)
 
         rng = cb.MTRng(seed_hex) if seed_hex else cb.MTRng("00000000")
         result = cb.resolve_attack(

@@ -24,20 +24,27 @@ Masking rules (shared between the two paths):
     masked out. This is required for correctness — sampling an
     all-invalid actor would make every action a no-op.
   - Target hex mask per actor:
-      * Unit actor: target must be the unit's own hex excluded,
-        friendly-occupied excluded; empty hex requires
-        `hex_distance(unit, hex) <= current_moves`; enemy-occupied
-        hex requires `!has_attacked` and
-        `hex_distance(unit, enemy) <= current_moves + 1` (can reach
-        a neighbor to attack from).
+      * Unit actor MOVE: TRUE single-turn reachability from the
+        acting side's observable state, via the shared Wesnoth-
+        default planner (tools/pathfind_sim.unit_reach): terrain
+        costs, visible-enemy blocking + ZoC, ally pass-through.
+        Landing hexes exclude visibly-occupied ones; hexes under
+        HIDDEN units stay offered (a human could order that move
+        too -- the sim resolves it with Wesnoth's blocked/ambush
+        semantics).
+      * Unit actor ATTACK: enemies the unit is adjacent to or can
+        land next to this turn (same reach).
       * Recruit actor: BFS from leader's keep through connected
         castle/keep hexes; targets are empty hexes in that network.
         Leader must be on a keep for any recruit to be valid.
-      * End-turn: no target sampled.
-    The mask is a CHEAP-UPPER-BOUND filter: anything we mark invalid
-    is truly invalid, but some things we leave valid (e.g. moves
-    into ZOC, impassable terrain) will still be rejected by Wesnoth.
-    Residual invalidity is acceptable.
+      * End-turn: no target sampled (and gated while moves/recruits
+        remain -- constants.FORBID_IDLE_END_TURN).
+    Contract (2026-07-17): the mask offers exactly what a HUMAN
+    could attempt through the same fog -- everything it marks
+    invalid is truly unorderable, and everything it offers, the sim
+    can route (same planner, same observable state). Residual
+    god-view divergence (hidden blockers/ambushers) resolves at
+    execution, Wesnoth-faithfully, never by burning the turn.
   - Weapon index is capped to the attacker's actual attack count.
 
 Computing the masks is deterministic in game_state, so both paths
@@ -49,7 +56,6 @@ numpy helper below — see profile for current numbers.
 from __future__ import annotations
 
 import logging
-from collections import deque
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
@@ -1117,11 +1123,39 @@ def _build_legality_masks(
         else:
             occupancy[j] = 2
 
-    friendly_mask = occupancy == 1
-    enemy_mask    = occupancy == 2
-    empty_mask    = occupancy == 0
+    enemy_mask = occupancy == 2
 
     unit_id_to_obj = {u.id: u for u in game_state.map.units}
+
+    # Shared observable-state reach context for this decision: built
+    # from the SAME `unit_at` visibility classification the rest of
+    # the mask uses, so mask-internal state can't diverge. The sim's
+    # `_action_to_command` rebuilds the equivalent context via
+    # `ReachContext.for_side` on the same observable state, which is
+    # what makes "mask offers it => sim can route it" hold.
+    from tools.abilities import hex_neighbors as _hex_neighbors
+    from tools.pathfind_sim import ReachContext, unit_reach
+    from tools.replay_dataset import _stats_for as _rd_stats_for
+    from visibility import is_scenery_unit as _is_scenery
+    reach_ctx = ReachContext(
+        side=current_side,
+        playable=frozenset(pos_to_hex.keys()),
+    )
+    for _pos, _uu in unit_at.items():
+        reach_ctx.occupied_visible.add(_pos)
+        if _uu.side == current_side:
+            # Own-side units are pass-through regardless of state
+            # (pathfind.cpp:777-786 keys on is_enemy only).
+            reach_ctx.ally_hexes.add(_pos)
+            continue
+        reach_ctx.enemy_hexes.add(_pos)
+        if _is_scenery(_uu):
+            continue
+        if "petrified" in (_uu.statuses or set()):
+            continue
+        if int(_rd_stats_for(_uu.name).get("level", 1)) < 1:
+            continue
+        reach_ctx.zoc_hexes.update(_hex_neighbors(_pos[0], _pos[1]))
 
     # ----- Unit actors (slots 0..U-1) -----
     for i in range(U):
@@ -1135,19 +1169,27 @@ def _build_legality_masks(
         if not (can_move or can_attack):
             continue
         ux, uy = u.position.x, u.position.y
-        moves = u.current_moves
 
-        dist = _hex_distance_vec(ux, uy, hex_xs, hex_ys)
-        self_mask = (hex_xs == ux) & (hex_ys == uy)
+        # TRUE single-turn reachability via the shared Wesnoth-
+        # default planner (tools/pathfind_sim), replacing the old
+        # crow-flies `dist <= moves` approximation -- which offered
+        # hexes across impassable terrain / through ZoC that the
+        # unit could never reach, and whose failed orders used to
+        # burn the whole turn. `landable` = hexes this unit can END
+        # a move order on given the acting side's observable state.
+        reach = unit_reach(u, game_state, reach_ctx)
 
         # Type-conditional target masks. UNIT actors split their
-        # legal targets across ATTACK (enemy-occupied within
-        # move+1 hexes) and MOVE (empty-and-reachable, excluding
-        # our own current hex).
+        # legal targets across ATTACK (enemies with a reachable
+        # adjacent landing hex, or already adjacent) and MOVE
+        # (landable hexes).
         move_row   = np.zeros(H, dtype=bool)
         attack_row = np.zeros(H, dtype=bool)
         if can_move:
-            move_row = empty_mask & ~self_mask & (dist <= moves)
+            for _lpos in reach.landable:
+                _j = pos_to_hex.get(_lpos)
+                if _j is not None:
+                    move_row[_j] = True
             # Per-turn move-rejection set: hexes that bounced an
             # earlier move this turn because the sim's god-view said
             # they were occupied by a unit invisible to the acting
@@ -1166,7 +1208,20 @@ def _build_legality_masks(
                     if (int(hx), int(hy)) in move_rej_hexes:
                         move_row[hex_idx] = False
         if can_attack:
-            attack_row = enemy_mask & (dist <= moves + 1)
+            # An enemy is attackable iff the unit is ALREADY adjacent
+            # or can LAND on a hex adjacent to it this turn (the
+            # move-to-attack normalization in WesnothSim.step then
+            # routes the approach). Replaces `dist <= moves + 1`,
+            # which ignored path obstructions entirely.
+            _attack_positions = {(ux, uy)}
+            if can_move:
+                _attack_positions |= reach.landable
+            for _j in np.where(enemy_mask)[0]:
+                _ex, _ey = int(hex_xs[_j]), int(hex_ys[_j])
+                for _n in _hex_neighbors(_ex, _ey):
+                    if _n in _attack_positions:
+                        attack_row[_j] = True
+                        break
             # Combat-oracle priors: for each valid attack target, score
             # the expected net damage using the unit's best weapon.
             #   - Per-target bias: feed scaled net into attack_bias_np
@@ -1348,35 +1403,6 @@ def _build_legality_masks(
     )
 
 
-def _hex_distance_vec(ax: int, ay: int,
-                      bxs: np.ndarray, bys: np.ndarray) -> np.ndarray:
-    """Vectorized odd-q hex distance — matches rewards.hex_distance.
-
-    Kept local (rather than promoting to a shared util) to avoid a
-    round-trip import cycle and because the scalar version already
-    lives next to the reward code that needs it.
-    """
-    hd = np.abs(ax - bxs)
-    a_even = (ax & 1) == 0
-    b_even = (bxs & 1) == 0
-    if a_even:
-        cond1 = (~b_even) & (ay <= bys)
-        cond2 = np.zeros_like(bxs, dtype=bool)
-    else:
-        cond1 = np.zeros_like(bxs, dtype=bool)
-        cond2 = b_even & (bys <= ay)
-    vpenalty = np.where(cond1 | cond2, 1, 0)
-    return np.maximum(hd, np.abs(ay - bys) + (hd // 2) + vpenalty)
-
-
-def _hex_neighbors(x: int, y: int) -> List[Tuple[int, int]]:
-    """Six hex neighbors under Wesnoth's odd-q offset."""
-    if x % 2 == 0:
-        return [(x - 1, y - 1), (x, y - 1), (x + 1, y - 1),
-                (x - 1, y),                  (x + 1, y),
-                                  (x, y + 1)]
-    return [(x - 1, y),     (x, y - 1), (x + 1, y),
-            (x - 1, y + 1), (x, y + 1), (x + 1, y + 1)]
 
 
 def _recruit_hex_mask(
@@ -1405,30 +1431,12 @@ def _recruit_hex_mask(
     handled by the harness retry loop, not the mask).
     """
     rejected_hexes = rejected_hexes or set()
-    mods_by_pos: Dict[Tuple[int, int], set] = {
-        (h.position.x, h.position.y): h.modifiers for h in game_state.map.hexes
+    from visibility import leader_castle_network
+    _on_keep, network = leader_castle_network(game_state, leader)
+    valid = {
+        pos for pos in network
+        if pos not in unit_at and pos not in rejected_hexes
     }
-    start = (leader.position.x, leader.position.y)
-    visited = {start}
-    q: deque = deque([start])
-    valid: set = set()
-
-    while q:
-        x, y = q.popleft()
-        for nx, ny in _hex_neighbors(x, y):
-            if (nx, ny) in visited:
-                continue
-            nmods = mods_by_pos.get((nx, ny))
-            if nmods is None:
-                continue
-            if TerrainModifiers.CASTLE in nmods or TerrainModifiers.KEEP in nmods:
-                visited.add((nx, ny))
-                q.append((nx, ny))
-                if (nx, ny) in unit_at:
-                    continue
-                if (nx, ny) in rejected_hexes:
-                    continue
-                valid.add((nx, ny))
 
     mask = np.zeros(H, dtype=bool)
     for (x, y) in valid:
