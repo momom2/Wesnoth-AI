@@ -106,6 +106,25 @@ Wesnoth-faithful resolution. Conflicts resolve toward Wesnoth.
   (real movement + gate); the MCTS smoke went ~1 min → ~5-10 min.
   Tier-a compute estimates need re-baselining.
 
+**Overnight measurements (2026-07-18, post-review-fix code):**
+- **MCTS rent: EARNED.** mcts:32:epoch3 beat raw epoch3 **9-0-1**
+  (+321 Elo, n=10, ladder pool, PURE eval contract, ~3h CPU). With
+  decisive games and an audible value head, search finally works.
+- **Gate retired** (constants.py FORBID_IDLE_END_TURN=False):
+  gate-off raw play 10/10 ladder decisive / 9/10 mini (seed-matched
+  vs 10/10+10/10 gated); gate bound on 92.4% of decisions for ~7%
+  end_turn-when-free usage; forbade 69% of human end_turns.
+- Adversarial review verdict GO (after the 2 HIGH fixes above,
+  landed + regression-tested: test_terrain_morph_isolation.py).
+- Full suite 491 passed / 2 skipped. Commits e8823c7..69c8e12
+  pushed to origin/main.
+- Box launch staged but NOT executed (vastai create is blocked by
+  the local permission classifier → needs the user): seed
+  `selfplay_seed_20260718.pt` on HF, cheapest fit offer 37369033
+  (4090, 32 vCPU, $0.335/hr). A local CPU self-play run
+  (sims 16, from epoch3 → selfplay_local_20260718.pt) stood in
+  overnight.
+
 ## TIER-A VERDICT (2026-07-05): Elo-vs-compute point measured
 
 66-game ladder-only round-robin (Kaggle free T4, MCTS sims=32,
