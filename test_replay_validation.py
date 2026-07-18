@@ -134,6 +134,7 @@ def test_selfplay_export_validates_mini(tmp_path):
     assert problems == [], "\n".join(problems)
 
 
+@pytest.mark.slow          # ~24s: see pytest.ini two-tier note
 def test_mcts_selfplay_export_validates_ladder(tmp_path):
     """The PRODUCTION path: real MCTS search, exported, statically
     validated. Small net + 4 sims keeps it suite-friendly."""

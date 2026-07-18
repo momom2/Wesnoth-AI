@@ -369,7 +369,14 @@ many line-coverage tests.
   test requires a live Wesnoth process — we don't have one yet.
 
 ### Guidelines
-- Run `pytest` after changes.
+- Run `pytest` after changes. This runs the FAST tier (~2.5 min):
+  tests marked `slow` (full-game / subprocess / threading e2e,
+  >10s each — see pytest.ini) are excluded by default.
+- **Run the FULL suite — `pytest -m ""` (~11 min) — before
+  committing sim/trainer/mask changes and before launching any
+  training campaign.** The slow tier holds the e2e regression
+  guards (MCTS self-play smoke, concurrent train-step races,
+  export validation); the fast tier alone does NOT cover them.
 - **Never run more than one pytest invocation at a time.** Each
   pytest spawns a Python process that imports torch + the model;
   parallel runs balloon memory (5+ GB per process) and a stuck

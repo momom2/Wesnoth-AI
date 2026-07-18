@@ -43,6 +43,7 @@ def test_sample_midgame_start_valid_state():
     assert len(gs.sides) >= 2
 
 
+@pytest.mark.slow          # ~19s: see pytest.ini two-tier note
 def test_midgame_continuation_through_production_path():
     import numpy as np
     import torch

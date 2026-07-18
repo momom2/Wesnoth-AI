@@ -607,6 +607,7 @@ def test_noop_resample_does_not_self_loop():
 # End-to-end smoke: --mcts CLI flag actually runs sim_self_play
 # ---------------------------------------------------------------------
 
+@pytest.mark.slow          # ~371s: see pytest.ini two-tier note
 def test_mcts_self_play_smoke(tmp_path):
     """Drive `tools/sim_self_play.py --mcts` for one tiny iteration
     and verify exit code 0 + an MCTS-mode log message. Catches:
@@ -615,9 +616,9 @@ def test_mcts_self_play_smoke(tmp_path):
       - the MCTSPolicy â†’ trainer.step_mcts contract end-to-end
 
     The default model is 26M params; building it and running 2
-    MCTS sims per move for a 5-turn game on CPU completes in ~1
-    minute. The 10-minute timeout below leaves slack for slower
-    CI machines.
+    MCTS sims per move for a 5-turn game on CPU took ~1 minute pre-2026-07 and ~6 minutes since true-reachability
+    masks made turns full-length (every unit really moves). The
+    15-minute timeout leaves slack for slower machines.
     """
     import os
     import subprocess
@@ -641,7 +642,7 @@ def test_mcts_self_play_smoke(tmp_path):
         "--log-level", "INFO",
     ]
     proc = subprocess.run(cmd, env=env, cwd=str(project_root),
-                          capture_output=True, text=True, timeout=600)
+                          capture_output=True, text=True, timeout=900)
     combined = proc.stdout + proc.stderr
     assert proc.returncode == 0, (
         f"sim_self_play.py --mcts exited {proc.returncode}.\n"

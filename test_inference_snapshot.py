@@ -276,6 +276,7 @@ def test_load_checkpoint_preserves_vocab_sharing():
 # Concurrency stress
 # ---------------------------------------------------------------------
 
+@pytest.mark.slow          # ~20s: see pytest.ini two-tier note
 def test_concurrent_rollout_and_train_step_no_nan():
     """With a worker thread doing rollouts while the main thread
     runs train_step, no forward should produce NaN. The lock keeps

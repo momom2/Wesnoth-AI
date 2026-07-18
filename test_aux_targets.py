@@ -11,6 +11,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
 import torch
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -133,6 +134,7 @@ def test_finalize_sets_aux_target_when_aux_on():
     assert all(-1.0 <= e.aux_target <= 1.0 for e in mp._queue)
 
 
+@pytest.mark.slow          # ~21s: see pytest.ini two-tier note
 def test_train_step_aux_loss_fires_only_when_on():
     mp_on = MCTSPolicy(_pol(True), _cfg())
     _play_and_finalize(mp_on, seed=21)

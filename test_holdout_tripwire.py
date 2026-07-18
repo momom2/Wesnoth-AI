@@ -290,6 +290,7 @@ def test_abort_tripwire_exits_4_and_saves(tmp_path):
     assert len(rows) >= 3, f"CSV must hold the aborted run's rows: {rows}"
 
 
+@pytest.mark.slow          # ~16s: see pytest.ini two-tier note
 def test_spool_workers_end_to_end(tmp_path):
     """--spool-workers through the real main(): one independent
     worker process plays a mini game, spools it, and the learner

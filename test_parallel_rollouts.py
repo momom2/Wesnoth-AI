@@ -133,6 +133,7 @@ def test_parallel_iteration_with_train_step(small_replay_pool):
 # Concurrency stress: train_step DURING rollout
 # ---------------------------------------------------------------------
 
+@pytest.mark.slow          # ~28s: see pytest.ini two-tier note
 def test_concurrent_train_step_during_rollouts(small_replay_pool):
     """Spawn rollout workers AND fire train_step from a separate
     thread mid-rollout. The snapshot lock should keep everything
@@ -201,6 +202,7 @@ def test_concurrent_train_step_during_rollouts(small_replay_pool):
 # Lock contracts: observe / drop_pending / register_names
 # ---------------------------------------------------------------------
 
+@pytest.mark.slow          # ~11s: see pytest.ini two-tier note
 def test_observe_is_thread_safe():
     """Many threads concurrently observing into the same policy
     don't corrupt _pending / _queue. Uses the simplest possible

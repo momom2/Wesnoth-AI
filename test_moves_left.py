@@ -26,6 +26,7 @@ from tools.mcts import MCTSConfig                              # noqa: E402
 from tools.mcts_policy import MCTSPolicy                       # noqa: E402
 from tools.draw_tiebreak import DrawTiebreakConfig             # noqa: E402
 from sim_test_helpers import fresh_scenario_sim                # noqa: E402
+import pytest
 
 
 def _pol(ml):
@@ -151,6 +152,7 @@ def test_search_backs_up_moves_left_through_real_search():
         "no moves-left mass backed up despite the head being present")
 
 
+@pytest.mark.slow          # ~15s: see pytest.ini two-tier note
 def test_train_step_moves_left_loss_fires_only_when_on():
     mp_on = MCTSPolicy(_pol(True), _cfg())
     _play_and_finalize(mp_on, seed=21)
