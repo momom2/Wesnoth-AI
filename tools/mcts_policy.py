@@ -566,6 +566,84 @@ class MCTSPolicy:
                 f"all further games train.")
         return True
 
+    def save_holdout(self, path) -> bool:
+        """Persist the holdout probe to `path` (atomic tmp+replace).
+
+        Why (2026-07-18): the probe used to be resampled at every
+        supervisor relaunch, so each session's holdout CE sat on a
+        DIFFERENT 512-state set -- levels jumped 0.44<->0.88 across
+        restarts and the capacity question ("is the value head
+        saturating?") was unanswerable from the logs. Persisting the
+        set beside the campaign checkpoint makes holdout CE one
+        continuous comparable curve across restarts.
+
+        Saves whatever has been collected (a partial set resumes
+        collecting after load). Returns True if written.
+        """
+        import os
+        import pickle
+        from pathlib import Path as _P
+        with self._lock:
+            if self._holdout_target <= 0 or not self._holdout:
+                return False
+            payload = {
+                "experiences": list(self._holdout),
+                "games": self._holdout_games,
+                "target": self._holdout_target,
+            }
+        path = _P(path)
+        tmp = path.with_name(path.name + ".tmp")
+        with open(tmp, "wb") as f:
+            pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(tmp, path)
+        log.info(f"holdout probe saved: {len(payload['experiences'])} "
+                 f"experiences from {payload['games']} games -> {path}")
+        return True
+
+    def maybe_persist_holdout(self) -> None:
+        """Save the probe to the path stashed by sim_self_play
+        whenever it has grown since the last save (a few ~25MB writes
+        early in a campaign, then none once frozen). Crash-safe: the
+        historical failure mode is sessions dying within 1-3
+        iterations, so partial sets are saved too and resume
+        collecting after relaunch."""
+        path = getattr(self, "_holdout_persist_path", None)
+        if path is None or self._holdout_target <= 0:
+            return
+        with self._lock:
+            n = len(self._holdout)
+        if n > getattr(self, "_holdout_saved_n", 0):
+            if self.save_holdout(path):
+                self._holdout_saved_n = n
+
+    def load_holdout(self, path) -> bool:
+        """Restore a persisted holdout probe. Returns True on success;
+        on any failure (missing/corrupt/foreign file) logs and leaves
+        the fresh-sampling behavior untouched. The stored TARGET does
+        not override the configured one: a loaded partial set keeps
+        collecting up to the current --holdout-size."""
+        import pickle
+        from pathlib import Path as _P
+        path = _P(path)
+        if not path.exists():
+            return False
+        try:
+            with open(path, "rb") as f:
+                payload = pickle.load(f)
+            exps = list(payload["experiences"])
+            games = int(payload.get("games", 0))
+        except Exception as e:  # noqa: BLE001 -- any corrupt file
+            log.warning(f"holdout probe load failed ({path}): "
+                        f"{type(e).__name__}: {e}; sampling fresh")
+            return False
+        with self._lock:
+            self._holdout = exps
+            self._holdout_games = games
+        log.info(f"holdout probe restored: {len(exps)} experiences "
+                 f"from {games} games ({path}); "
+                 f"{'FROZEN' if len(exps) >= self._holdout_target else 'still collecting'}")
+        return True
+
     def holdout_metrics(self) -> Optional[Tuple[float, int]]:
         """(value CE on the frozen holdout set, holdout size), or None
         when the probe is off or still collecting. Evaluated with the

@@ -110,6 +110,11 @@ CAMPAIGN=training/checkpoints/tier_a_campaign.pt
 # decision_step carried) applies and the uploader's tier_a_campaign
 # escrow rolls forward from it.
 if [ ! -f "$CAMPAIGN" ]; then
+    # Fresh campaign: a stale persisted holdout probe (from a
+    # previous campaign on this disk) would anchor holdout CE to the
+    # wrong distribution -- clear it so the new campaign samples its
+    # own (sim_self_play persists it as <checkpoint>.holdout).
+    rm -f "$CAMPAIGN.holdout"
     if [ -n "${HF_TOKEN:-}" ] || [ -f "$WORKDIR/.hf_token" ]; then
         "$PY" -m pip install --quiet huggingface_hub || true
         HF_SEED_TOKEN="${HF_TOKEN:-}" \

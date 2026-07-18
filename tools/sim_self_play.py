@@ -2857,6 +2857,17 @@ def main(argv: List[str]) -> int:
                 f"holdout probe ON: first ~{args.holdout_size} "
                 f"experiences (whole games) are held out of "
                 f"training and scored each iter.")
+            # Persist the probe across supervisor relaunches so
+            # holdout CE stays ONE comparable curve (2026-07-18:
+            # per-restart resampling made capacity trends unreadable
+            # -- levels jumped 0.44<->0.88 on set changes). The file
+            # rides beside the campaign checkpoint; a fresh campaign
+            # (new checkpoint path / cleared checkpoint) should clear
+            # it too (onstart's HF-seed block does).
+            holdout_file = Path(str(args.checkpoint_out) + ".holdout")
+            if policy.load_holdout(holdout_file):
+                pass  # restored (full -> frozen; partial -> resumes)
+            setattr(policy, "_holdout_persist_path", holdout_file)
 
     # Optional opener wrapper: scripts the first K decisions per
     # game-side, then delegates to the learned policy. Forwarding to
@@ -3104,6 +3115,11 @@ def main(argv: List[str]) -> int:
             spool=spool,
             human_anchor=human_anchor,
         )
+        # Persist the holdout probe when it grew (crash-safe partial
+        # saves; no-op once frozen+saved). getattr-guarded: wrapper
+        # policies (OpenerPolicy) and REINFORCE lack the method --
+        # the probe simply isn't persisted there.
+        getattr(policy, "maybe_persist_holdout", lambda: None)()
         if not outcomes:
             consecutive_dead += 1
             if consecutive_dead >= DEAD_ITER_LIMIT:
