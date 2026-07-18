@@ -163,6 +163,63 @@ A unit can move THROUGH a friendly unit's hex (with a tiny defense-
 preference subcost), but cannot move through an enemy's hex.
 The unit cannot END its move on any occupied hex (friend or foe).
 
+### Default route selection: cost model, not explicit tie-breaks
+
+When a player clicks a destination, the route comes from
+`mouse_handler::get_route` (`wesnoth_src/src/mouse_events.cpp`):
+```cpp
+const pathfind::shortest_path_calculator calc(*un, team, board.teams(), board.map());
+...
+route = pathfind::a_star_search(
+    un->get_location(), go_to, 10000.0, calc, board.map().w(), board.map().h(), &allowed_teleports);
+```
+The viewing team is the MOVING player's team; the `ignore_unit /
+ignore_defense / see_all` flags default to false. All path
+preference lives in `shortest_path_calculator::cost`
+(`wesnoth_src/src/pathfind/pathfind.cpp:742-820`, 1.18.4):
+
+1. Shrouded hex (`viewing_team_.shrouded(loc)`, line 748) →
+   `getNoPathValue()`. **Shroud blocks pathing; FOG does not** —
+   fogged hexes are pathable, and units hidden in them are simply
+   not seen (next point).
+2. Occupancy via `resources::gameboard->get_visible_unit(loc,
+   viewing_team_, see_all_)` — **only units visible to the moving
+   player block or penalize**. Visible enemy → `getNoPathValue()`
+   (line 780); visible friendly → `other_unit_subcost = 1`
+   (line 785, pass-through with a tiny avoidance preference).
+3. ZoC (line 797-806): entering a ZoC hex costs ALL remaining MP
+   (`move_cost += remaining_movement`) instead of the terrain
+   cost — UNLESS entering it consumes exactly the remaining MP
+   anyway (`remaining_movement != terrain_cost` guard), or the
+   unit is a skirmisher. So equal-MP routes AVOID ZoC hexes, and
+   a ZoC hex is effectively terminal for the turn.
+   `enemy_zoc` (pathfind.cpp:134-140) also uses
+   `get_visible_unit` — **only visible enemies exert ZoC for
+   planning** — and checks `u->emits_zoc()` (petrified/lvl-0
+   emit none).
+4. Tie-breaks (line 815-820): `return move_cost +
+   (defense_subcost + other_unit_subcost) / 10000.0` where
+   `defense_subcost = unit_.defense_modifier(terrain)` (chance
+   to be hit, 0-100). Among equal-MP routes Wesnoth prefers
+   (a) better defense terrain along the way, (b) hexes without
+   allied units, at 1e-4 weight so they never outweigh 1 MP.
+
+**Residual exact ties are unspecified.** `a_star_search`'s node
+comparison is `t < o.t` only (`astarsearch.cpp:113`), neighbors
+expand via `get_adjacent_tiles` iterated in reverse
+(`astarsearch.cpp:187-194`); ties fall to heap order. The route is
+computed CLIENT-SIDE and the chosen path is recorded in the replay
+verbatim — playback validates path legality (`plot_turn`), not
+that it matches any canonical choice. So a reimplementation is
+Wesnoth-faithful iff it minimizes the same cost function
+(MP + defense/ally subcosts); residual-tie choices are free.
+
+**Why non-obvious:** "the default path" sounds like a tie-break
+rule but is really a cost model; and the visibility handling
+(fog ≠ shroud, hidden units ignored, ZoC from visible enemies
+only) means route planning is a pure function of the moving
+player's OBSERVABLE state — exactly our legality-mask contract.
+
 ### ZoC and incapacitation
 
 `wesnoth_src/src/units/unit.hpp:1352-1355`:
@@ -177,6 +234,79 @@ bool get_emit_zoc() const
 Petrified (`STATE_PETRIFIED`) → `incapacitated()` is true →
 emits no ZoC. Also has `attacks_left() = 0` and `movement_left() = 0`
 (unit.hpp:998 and 1299).
+
+### Hidden-unit visibility: live adjacency + persistent UNCOVERED
+
+`wesnoth_src/src/units/unit.cpp:2596-2637` (`unit::invisible`):
+```cpp
+if(get_state(STATE_UNCOVERED)) {
+    return false;
+}
+...
+bool is_inv = get_ability_bool(hides, loc);
+if(is_inv){
+    is_inv = (resources::gameboard ? !resources::gameboard->would_be_discovered(loc, side_,see_all) : true);
+}
+```
+`wesnoth_src/src/display_context.cpp:29-49` (`would_be_discovered`):
+a hider is discovered iff an ADJACENT tile holds an enemy (of the
+hider) that is not incapacitated and is itself visible.
+
+So a `hides`-ability unit is invisible even on a fog-visible hex,
+EXCEPT:
+1. **Live adjacency** — while an enemy unit stands directly
+   adjacent. This does NOT persist: move the adjacent unit away and
+   the hider re-hides.
+2. **STATE_UNCOVERED** — persistent until the hider's own side's
+   turn start (`unit::new_turn`, unit.cpp:1277). Set in exactly two
+   places: `reveal_ambusher` when an ambush/blocked-move reveal
+   fires (move.cpp:870), and the hider itself attacking
+   (attack.cpp:1378, unconditional on the attacker).
+
+**Why non-obvious:** "I saw it earlier this turn so it stays
+visible" is NOT engine behavior for mere adjacency — only
+ambush-trigger/blocked reveals and self-attacks persist. Also note
+ambush *eligibility* during a move uses the PRE-MOVE invisibility
+cache (unit.cpp:2613-2618; cleared in post_move via
+`clear_status_caches`), so a mover is ambushed by a hider it was
+about to discover by stepping adjacent.
+
+### Move resolution: blocked vs ambush vs ZoC vs capture
+
+`wesnoth_src/src/actions/move.cpp`:
+- `plot_turn` (726-780): the turn's route prefix stops at MP
+  exhaustion or after entering a (visible-)enemy ZoC hex; the
+  expected end BACKTRACKS off hexes holding a visible unit
+  (776-780). No village stop — passing THROUGH a village mid-path
+  neither stops the unit nor captures it.
+- `check_for_ambushers` (422-440): entering a hex ADJACENT to a
+  hidden (`invisible(loc)`) enemy → `ambushed_`, stop AT that hex.
+- `check_for_obstructing_unit` (449-...): an (invisible) unit ON
+  the next path hex → `blocked()`, stop BEFORE it.
+- `post_move` (1019-1055): `if (ambushed_ || blocked())
+  reveal_ambushers()`; MP zeroed ONLY for
+  `ambushed_ || final_loc == zoc_stop_` — a BLOCKED unit keeps its
+  remaining MP; village capture on the FINAL hex zeroes MP
+  (1046-1053).
+
+**Why non-obvious:** blocked ≠ ambush. Both reveal the hidden unit
+(STATE_UNCOVERED), but ambush zeroes MP while blocked leaves the
+remainder spendable. And hidden units exert NO ZoC while hidden
+(`plot_turn` checks `enemy_zoc` with the current team's visibility,
+765-768) — they stop movers via ambush/block, never via ZoC.
+
+### Replay [move] playback: skip_sighted
+
+`wesnoth_src/src/synced_commands.cpp:305-314` (move handler):
+```cpp
+if(child["skip_sighted"] == "all") { skip_sighted = true; }
+else if(child["skip_sighted"] == "only_ally") { skip_ally_sighted = true; }
+```
+Playback re-checks sighted-interrupts UNLESS the [move] WML carries
+`skip_sighted="all"`. Blocked/ambush truncation applies regardless.
+Our exports always emit `skip_sighted="all"` (the sim doesn't model
+sighting interrupts, so exports must not re-check them —
+sim_to_replay._wml_for_command).
 
 ### Recruit `place_recruit` zeroes MP and attacks
 
