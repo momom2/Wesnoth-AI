@@ -313,6 +313,7 @@ nohup bash -c "
       --replay-minibatch ${REPLAY_MINIBATCH:-128} --replay-capacity 24000 \
       --train-batch-size ${TRAIN_BATCH:-64} --mcts-batch-size 16 \
       --mini-ratio ${MINI_RATIO:-0.5} --drill-ratio ${DRILL_RATIO:-0.3} \
+      ${MAX_TURNS:+--max-turns $MAX_TURNS} \
       --mcts-aux-score --mcts-moves-left \
       --mcts-moves-left-utility 0.2 \
       ${AUX_VALUE_BONUS:+--mcts-aux-value-bonus $AUX_VALUE_BONUS} \
