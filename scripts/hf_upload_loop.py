@@ -33,6 +33,12 @@ WORKDIR = Path(os.environ.get("WORKDIR", "/workspace"))
 FILES = [
     ("training/checkpoints/tier_a_campaign.pt", "tier_a_campaign.pt"),
     ("training/logs/trainer_history_local.csv", "trainer_history_local.csv"),
+    # Persisted holdout probe (2026-07-18): without it, a destroyed/
+    # reseeded box resamples the probe and the holdout-CE curve loses
+    # cross-box comparability (the balance-exhaustion stop of
+    # 2026-07-19 nearly stranded it on an unreachable disk).
+    ("training/checkpoints/tier_a_campaign.pt.holdout",
+     "tier_a_campaign.pt.holdout"),
 ]
 # HF_EXTRA_FILES="src:dst,src:dst" adds run-specific artifacts (e.g.
 # the supervised pass: supervised.pt + its eval curve, 2026-07-16).
