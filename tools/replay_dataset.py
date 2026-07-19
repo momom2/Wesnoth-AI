@@ -1776,6 +1776,17 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         # MP drifted -- never truncate a human path for it.
         from tools.pathfind_sim import walk_move_path
         out = walk_move_path(gs, unit, xs, ys, enforce_budget=False)
+        # Side-channel for the sim's command recorder (mirrors
+        # _last_advance_events): where the walk actually stopped vs
+        # the ordered destination, so exports can annotate truncated
+        # moves with the ATTEMPTED target (replay-comment
+        # instrumentation, user request 2026-07-19). Overwritten per
+        # move; reconstruction callers simply ignore it.
+        setattr(gs.global_info, "_last_move_walk", {
+            "ordered": (xs[-1], ys[-1]),
+            "landed": (xs[out.final_idx], ys[out.final_idx]),
+            "stop_reason": out.stop_reason,
+        })
         if out.uncovered_ids:
             # Blocked/ambush reveals persist until the hider's side's
             # next turn start (STATE_UNCOVERED, move.cpp:870).

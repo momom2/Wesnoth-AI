@@ -429,6 +429,25 @@ def _command_consumes_synced_rng(rc: RecordedCommand) -> bool:
     return False
 
 
+def _wml_speak_comment(side: int, message: str) -> str:
+    """Unsynced chat line documenting a divergence between the
+    policy's attempted action and what the sim executed. Structure
+    copied from corpus [speak] blocks (undo=no, id/message/time);
+    unsynced chat is playback-safe and shows in the viewer's chat
+    log at the point it occurs."""
+    safe = message.replace('"', "'")
+    return (
+        "[command]\n"
+        "undo=\"no\"\n"
+        "[speak]\n"
+        "id=\"sim\"\n"
+        f"message=\"[s{side}] {safe}\"\n"
+        "time=\"0\"\n"
+        "[/speak]\n"
+        "[/command]\n"
+    )
+
+
 def _wml_choose_command(side: int, value: int) -> str:
     """Emit a synthetic `[command] dependent="yes" [choose]` block --
     Wesnoth's record of an advancement choice. After every attack that
@@ -512,6 +531,16 @@ def _build_replay_wml(history: List[RecordedCommand]) -> str:
     parts: List[str] = []
     request_id = 0
     for rc in history:
+        # Attempted-action annotation (2026-07-19 user request):
+        # whenever the EXECUTED command differs from what the policy
+        # attempted (sim-forced end_turns, truncated moves), emit an
+        # unsynced chat line before it so the divergence is visible
+        # in the replay viewer's chat log. Format mirrors corpus
+        # [speak] blocks (undo="no", unsynced -- playback-safe).
+        # end_turns WITHOUT a note are the policy's own choice.
+        note = (rc.extras or {}).get("attempted")
+        if note:
+            parts.append(_wml_speak_comment(rc.side, note))
         parts.append(_wml_for_command(rc, next_side=None))
         # Only emit [random_seed] for commands Wesnoth's synced_rng
         # will actually consume. Skeleton-class recruits with no

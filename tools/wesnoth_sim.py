@@ -246,6 +246,26 @@ def _move_cost(unit, terrain_key: str) -> int:
     return int(cost) if cost is not None else 1
 
 
+def _describe_action(action: dict) -> str:
+    """Compact human-readable form of a policy action dict for the
+    replay-comment instrumentation (attempted-action [speak] lines)."""
+    t = action.get("type", "?")
+    if t == "move":
+        s, d = action.get("start_hex"), action.get("target_hex")
+        return (f"move ({getattr(s,'x','?')},{getattr(s,'y','?')})->"
+                f"({getattr(d,'x','?')},{getattr(d,'y','?')})")
+    if t == "attack":
+        s, d = action.get("start_hex"), action.get("target_hex")
+        return (f"attack ({getattr(s,'x','?')},{getattr(s,'y','?')})->"
+                f"({getattr(d,'x','?')},{getattr(d,'y','?')}) "
+                f"w={action.get('attack_index', 0)}")
+    if t == "recruit":
+        d = action.get("target_hex")
+        return (f"recruit {action.get('unit_type','?')}@"
+                f"({getattr(d,'x','?')},{getattr(d,'y','?')})")
+    return str(t)
+
+
 def _move_cost_at_hex(unit, gs, x: int, y: int) -> int:
     """Resolve the movement cost for `unit` entering hex (x, y).
 
@@ -726,6 +746,9 @@ class WesnothSim:
                 if attacker is None or defender is None:
                     # Stale action -- units moved / died. Drop it; the
                     # outer loop will pick a fresh action next call.
+                    self._forced_end_turn_note = (
+                        f"attempted {_describe_action(action)}; "
+                        f"stale (unit moved/died) -> end_turn")
                     action = {"type": "end_turn"}
                 else:
                     attack_hex = self._find_attack_hex(attacker, target)
@@ -816,6 +839,10 @@ class WesnothSim:
                 f"rejected steps (last: {action!r}); caller is not "
                 f"re-deciding from the mask -- ending turn to "
                 f"guarantee progress")
+            self._forced_end_turn_note = (
+                f"attempted {_describe_action(action)}; "
+                f"{self._consecutive_rejects} consecutive rejects "
+                f"-> forced end_turn (loop guard)")
             cmd = ["end_turn"]
             terrain_cost = None
         self._consecutive_rejects = 0
@@ -823,6 +850,9 @@ class WesnothSim:
             # Action was illegal-shaped or referred to a missing unit.
             # Treat as a wasted turn -- end the side's turn.
             log.debug(f"sim: untranslatable action {action!r}; ending turn")
+            self._forced_end_turn_note = (
+                f"attempted {_describe_action(action)}; "
+                f"untranslatable -> end_turn")
             cmd = ["end_turn"]
             terrain_cost = None
 
@@ -833,8 +863,17 @@ class WesnothSim:
                 # afterwards (user spec 2026-07-12).
                 _es.note_end_turn(self.gs, side_now)
             _apply_command(self.gs, ["end_turn"])
+            _et_extras: dict = {}
+            _note = getattr(self, "_forced_end_turn_note", None)
+            if _note is not None and action.get("type") != "end_turn":
+                # SIM-FORCED end_turn: the policy attempted something
+                # else. Policy-chosen end_turns carry no note --
+                # absence of the annotation IS the provenance signal.
+                _et_extras["attempted"] = _note
+            self._forced_end_turn_note = None
             self.command_history.append(RecordedCommand(
-                kind="end_turn", side=side_now, cmd=["end_turn"]))
+                kind="end_turn", side=side_now, cmd=["end_turn"],
+                extras=_et_extras))
             # Advance to the next side. 2p only for now.
             n_sides = max(2, len(self.gs.sides))
             next_side = (side_now % n_sides) + 1
@@ -882,6 +921,17 @@ class WesnothSim:
             # fix-ups are gone with the flat-1-MP deduction they
             # corrected).
             extras: dict = {}
+            if cmd[0] == "move":
+                # Truncated walk (blocked/ambush): annotate the
+                # ATTEMPTED destination so the exported replay shows
+                # what the policy wanted (comment instrumentation,
+                # 2026-07-19).
+                walk = getattr(self.gs.global_info,
+                               "_last_move_walk", None) or {}
+                if walk and walk.get("landed") != walk.get("ordered"):
+                    extras["attempted"] = (
+                        f"move ordered to {walk['ordered']}, stopped "
+                        f"at {walk['landed']} ({walk['stop_reason']})")
             if cmd[0] == "recruit" and leader_pos is not None:
                 extras["leader_pos"] = leader_pos
             # Advancement [choose] events from the applier's

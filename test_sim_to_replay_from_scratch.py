@@ -467,3 +467,31 @@ def test_tod_start_policy_mirrors_engine():
     m = re.search(r"^\s*current_time=(\d+)", build_save_wml(sim),
                   re.MULTILINE)
     assert m and m.group(1) == "5", m
+
+
+def test_attempted_action_speak_comments():
+    """Sim-forced end_turns and truncated moves carry an 'attempted'
+    extras note; the exporter emits it as an unsynced [speak] chat
+    line BEFORE the command (2026-07-19 instrumentation). Policy-
+    chosen end_turns carry no note -- absence is the provenance
+    signal (measured 318/318 policy-chosen in the introducing
+    investigation)."""
+    import re
+    from tools.wesnoth_sim import RecordedCommand
+    from tools.sim_to_replay import _build_replay_wml
+
+    history = [
+        RecordedCommand(kind="end_turn", side=1, cmd=["end_turn"],
+                        extras={"attempted": "attempted move (1,1)->(5,5); "
+                                             "untranslatable -> end_turn"}),
+        RecordedCommand(kind="end_turn", side=2, cmd=["end_turn"],
+                        extras={}),
+    ]
+    wml = _build_replay_wml(history)
+    speaks = re.findall(r'\[speak\].*?message="([^"]*)".*?\[/speak\]',
+                        wml, re.S)
+    assert len(speaks) == 1, speaks
+    assert speaks[0].startswith("[s1] attempted move")
+    # The speak precedes its command and is undo-protected.
+    assert wml.index("[speak]") < wml.index("[end_turn]")
+    assert 'undo="no"' in wml
