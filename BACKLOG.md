@@ -219,7 +219,25 @@ GPU-h)**. final beats start 13-0-1 head-to-head on material.
   campaign picks it up at its next restart — mini-game encodings
   change slightly; internally consistent before and after.
 
-## Open items (2026-07-03)
+## Open items (2026-07-03) — status sweep 2026-07-19
+
+- ✅ RESOLVED by the movement rebuild (§2026-07-17): "ladder 0/8
+  decisive" was the nothingness-valley bug (multi-hex moves silently
+  discarded). Post-fix: raw SL policy 10/10 ladder decisive; box
+  campaign 84/88; training smoke 6/6.
+- ✅ SUPERSEDED: "action-budget exhaustion / unit shuffling" — same
+  root cause; games now end by leader kill ~turn 10-30. The
+  attempted-action replay annotations (17541c7) make any recurrence
+  directly observable.
+- ✅ RESOLVED by convention (eval-contract memory + elo_ladder
+  flags): draws drop from Elo by default (--draw-weight 0);
+  decisive rates are high enough post-rebuild that separation works
+  (9-0-1 rent match measured cleanly).
+- 🟢 The "N independent processes beat the async server" perf note
+  CONFIRMED at scale by the spool-worker architecture (2026-07 box
+  runs); VRAM budgeting added 2026-07-18.
+
+Original text below for provenance:
 
 - 🔴 **CONFIRMED (16-game controlled diagnostic, training conditions,
   checkpoint @155k decisions): ladder maps 0/8 decisive, minis 4/8.**
