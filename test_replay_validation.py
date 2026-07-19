@@ -161,9 +161,10 @@ def test_ladder_export_plays_back_oos_free_in_wesnoth(tmp_path):
 
 
 @_e2e
-@pytest.mark.xfail(reason="mini scenarios carry a scenery side 3 the "
-                          "export's turn sequencing doesn't model — "
-                          "first catch of this harness (2026-07-06)")
+# Was xfail from 2026-07-06 ("scenery side 3 the export's turn
+# sequencing doesn't model"). XPASSED 2026-07-19: the side-3 export
+# work (controller=ai neutral turns + init_side sequencing, 2026-07-14
+# tentacle machinery) fixed it; now strict so a regression is loud.
 def test_mini_export_plays_back_oos_free_in_wesnoth(tmp_path):
     from tools.validate_replay_wesnoth import validate_in_wesnoth
     out, problems = _export_and_validate(mini=True, tmp_path=tmp_path)

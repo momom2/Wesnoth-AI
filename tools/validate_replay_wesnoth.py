@@ -105,7 +105,7 @@ if os.name == "nt":
     _ENUM = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND,
                                wintypes.LPARAM)
     _WM_KEYDOWN, _WM_KEYUP = 0x100, 0x101
-    _VK_P, _VK_S = 0x50, 0x53
+    _VK_P, _VK_S, _VK_RETURN = 0x50, 0x53, 0x0D
     _SW_SHOWMINNOACTIVE = 7
 
     def _windows_of(pid: int) -> list:
@@ -143,6 +143,9 @@ if os.name == "nt":
 
     def _post_skip_hotkey(pid: int) -> None:
         _post_hotkey(pid, _VK_S)
+
+    def _post_enter(pid: int) -> None:
+        _post_hotkey(pid, _VK_RETURN)
 else:
     def _minimize(pid: int) -> bool:      # pragma: no cover
         return False
@@ -151,6 +154,9 @@ else:
         pass
 
     def _post_skip_hotkey(pid: int) -> None:  # pragma: no cover
+        pass
+
+    def _post_enter(pid: int) -> None:  # pragma: no cover
         pass
 
 
@@ -198,6 +204,7 @@ def _validate_once(replay: Path, timeout: float = 420.0,
     t0 = time.time()
     last_growth = t0
     _last_nudge = 0.0
+    _last_enter = 0.0
     try:
         while time.time() - t0 < timeout:
             if not minimized:
@@ -259,6 +266,21 @@ def _validate_once(replay: Path, timeout: float = 420.0,
             # visibly STARTED — boot + asset load takes ~40s with
             # sparse logging, and bailing during it produced
             # inconclusive runs (2026-07-06 calibration).
+            # Story [message] dialogs block unattended playback
+            # (Aethermaw's turn-4 gates dialog stalled midgame
+            # validation at action 38/163, 2026-07-19). When
+            # playback has visibly started but the log has been
+            # quiet >=10s and we're short of the final action, post
+            # ENTER to dismiss a dialog. Sparse (10s cadence) and
+            # only mid-stall -- ENTER on the dialog-less viewer is a
+            # no-op, and the [choose]-first retry guard still
+            # backstops any derailment.
+            if (progress >= _MIN_PROGRESS
+                    and (total is None or progress < total)
+                    and time.time() - last_growth >= 10.0
+                    and time.time() - _last_enter >= 10.0):
+                _post_enter(proc.pid)
+                _last_enter = time.time()
             if (progress >= _MIN_PROGRESS
                     and time.time() - last_growth > settle):
                 break                     # playback done / stalled

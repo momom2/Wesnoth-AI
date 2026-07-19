@@ -1066,7 +1066,20 @@ def _scrape_scenario_villages(cfg_path: Path) -> Dict[int, List[Tuple[int, int]]
     out: Dict[int, List[Tuple[int, int]]] = {1: [], 2: []}
     # Walk per-[side] block.
     side_re = re.compile(r'\[side\]([\s\S]*?)\[/side\]')
-    village_re = re.compile(r'\[village\][\s\S]*?x\s*=\s*(\d+)[\s\S]*?y\s*=\s*(\d+)[\s\S]*?\[/village\]')
+    # WML writes coordinates in TWO forms: split (`x=2` + `y=10`,
+    # most maps) and combined (`x,y=2,10` -- Clearing Gushes, The
+    # Walls of Pyrennis). Only the split form was parsed until
+    # 2026-07-19: combined-form villages were silently DROPPED from
+    # exports, so playback started them unowned and the first
+    # friendly visit became a CAPTURE -- zeroing MP the sim had
+    # kept, then failing the next move as 'found corrupt movement'
+    # (caught by the pre-box verification sweep on Clearing Gushes).
+    # scenario_pool's node-based parser always handled both; this
+    # regex mirror didn't.
+    village_block_re = re.compile(r'\[village\]([\s\S]*?)\[/village\]')
+    split_re = re.compile(
+        r'x\s*=\s*"?(\d+)"?[\s\S]*?y\s*=\s*"?(\d+)"?')
+    combined_re = re.compile(r'x\s*,\s*y\s*=\s*"?(\d+)\s*,\s*(\d+)"?')
     for sm in side_re.finditer(text):
         body = sm.group(1)
         sn_m = re.search(r'^\s*side\s*=\s*(\d+)', body, re.MULTILINE)
@@ -1075,8 +1088,11 @@ def _scrape_scenario_villages(cfg_path: Path) -> Dict[int, List[Tuple[int, int]]
         sn = int(sn_m.group(1))
         if sn not in out:
             out[sn] = []
-        for vm in village_re.finditer(body):
-            out[sn].append((int(vm.group(1)), int(vm.group(2))))
+        for vb in village_block_re.finditer(body):
+            vbody = vb.group(1)
+            m = combined_re.search(vbody) or split_re.search(vbody)
+            if m:
+                out[sn].append((int(m.group(1)), int(m.group(2))))
     return out
 
 
