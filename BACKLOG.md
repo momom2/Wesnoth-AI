@@ -1,5 +1,24 @@
 # Project review — bugs and improvements
 
+## RESOLVED (2026-07-19) — [choose] from_side: acting side, not owner
+
+The "fog-only" export desync was neither fog- nor movement-related:
+the exporter stamped advancement [choose] commands with the
+ADVANCING UNIT's owner side; the engine expects the ACTING side (the
+attack's from_side) for BOTH attacker and defender advancements —
+corpus-verified 106/106 dependent chooses across human replays match
+their parent attack's side. The bug fired on any DEFENDER-side
+advancement (attacker dies / defender levels on the kill); the two
+fogless demo games simply contained none (fog correlation was
+coincidence). Confirmed by surgically patching the failing replays'
+from_side → both play back CLEAN; fix in sim_to_replay
+(_wml_choose_command call site) + regression test
+(test_choose_from_side_is_the_acting_side). Regenerated fogged demos
+validate CLEAN. NOTE: every pre-fix export with a defender
+advancement carries this defect (incl. the overnight campaign's
+validate_exports escrow) — harmless for training (sim-internal), but
+don't chase phantom OOS in old exports.
+
 ## 2026-07-17 — 🔴 Movement was silently impossible; pathfinding rebuild
 
 **The bug (user-caught watching a demo replay):** the legality mask

@@ -444,9 +444,16 @@ def _wml_choose_command(side: int, value: int) -> str:
     [random_seed] follow-up, then attacker's [choose] (if attacker
     advanced), then defender's [choose] (if defender advanced).
 
-    Format mirrors a real-replay sample (`from_side` is the unit's
-    OWNER side, not "server" -- different from [random_seed] which is
-    server-emitted)."""
+    `from_side` is the ACTING side -- the side whose attack command
+    this choose depends on -- for BOTH attacker and defender
+    advancements. Corpus-verified 2026-07-19: 106/106 dependent
+    [choose] commands across human replays carry the same from_side
+    as their parent [attack], defender advancements included (the
+    acting client answers the synced choice for both units). The
+    previous revision stamped the advancing UNIT's owner side, which
+    strict-sync playback rejects on defender advancements ("we got
+    an answer from side X for [choose] which is not was we
+    expected")."""
     return (
         "[command]\n"
         "dependent=\"yes\"\n"
@@ -522,8 +529,11 @@ def _build_replay_wml(history: List[RecordedCommand]) -> str:
         # advancer per side, attacker first then defender). Sim's
         # `_maybe_advance_unit` always picks targets[0], so value=0.
         if rc.kind == "attack":
-            for side, idx in rc.extras.get("advance_choices", []):
-                parts.append(_wml_choose_command(side, idx))
+            # from_side = the ATTACK's side, not the advancing
+            # unit's owner (see _wml_choose_command; the recorded
+            # (side, idx) tuple's side is kept for ordering/debug).
+            for _adv_side, idx in rc.extras.get("advance_choices", []):
+                parts.append(_wml_choose_command(rc.side, idx))
     return "[replay]\n" + "".join(parts) + "[/replay]\n"
 
 

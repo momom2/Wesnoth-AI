@@ -135,6 +135,10 @@ def main(argv) -> int:
                          "File -> Load Game without manual copying. "
                          "Default: standard Windows path. Pass an "
                          "empty string to skip the copy.")
+    ap.add_argument("--fogless", action="store_true",
+                    help="Play (and export) the game with fog of war "
+                         "OFF -- the ladder pool's fogless condition "
+                         "(ScenarioSetup.fogless).")
     ap.add_argument("--max-turns", type=int, default=40,
                     help="Per-game turn cap.")
     ap.add_argument("--seed", type=int, default=None,
@@ -208,9 +212,11 @@ def main(argv) -> int:
                 faction2=f2,
                 leader2=rng.choice(factions[f2].random_leader_pool),
                 tod_start=sample_tod_start(args.scenario, rng),
+                fogless=args.fogless,
             )
         else:
-            setup = random_setup(rng)
+            setup = random_setup(
+                rng, fogless_ratio=1.0 if args.fogless else 0.0)
         log.info(
             f"from-scratch setup: scenario={setup.scenario_id} "
             f"factions={setup.faction1} vs {setup.faction2} "

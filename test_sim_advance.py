@@ -183,11 +183,17 @@ def test_choose_emitted_after_random_seed():
     pc2 = wml.find("[choose]", pc1 + 1)
     assert pa > 0 and ps > pa and pc1 > ps and pc2 > pc1, (
         f"order violated: attack={pa} seed={ps} choose1={pc1} choose2={pc2}")
-    # First choose belongs to side 1 (attacker), second to side 2.
+    # BOTH chooses carry the ACTING side (the attack's from_side) --
+    # corpus-verified 106/106 across human replays 2026-07-19,
+    # defender advancements included; the previous owner-side
+    # expectation made strict-sync playback reject defender
+    # advancements (see test_attack_fidelity_fixes.py::
+    # test_choose_from_side_is_the_acting_side). Ordering (attacker's
+    # choose first, then defender's) is unchanged.
     import re
     sides = re.findall(r'from_side="(\d+)"\s*\n\[choose\]', wml)
     values = re.findall(r'\[choose\]\s*\nvalue="(\d+)"', wml)
-    assert sides == ["1", "2"], sides
+    assert sides == ["1", "1"], sides
     assert values == ["0", "1"], values
 
 

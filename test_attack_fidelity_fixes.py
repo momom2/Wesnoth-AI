@@ -109,3 +109,32 @@ def test_amla_advancement_emits_choose_event():
     from tools.sim_to_replay import _build_replay_wml
     wml = _build_replay_wml([rc])
     assert "[choose]" in wml and 'dependent="yes"' in wml
+
+
+def test_choose_from_side_is_the_acting_side():
+    """Dependent [choose] commands carry the ATTACK's from_side, not
+    the advancing unit's owner -- corpus-verified 106/106 across
+    human replays (2026-07-19; defender advancements included).
+    Stamping the owner side made strict-sync playback reject every
+    defender advancement ("we got an answer from side 1 for [choose]
+    which is not was we expected") -- caught on campaign demo
+    exports, both repros CLEAN after the fix."""
+    from tools.wesnoth_sim import RecordedCommand
+    from tools.sim_to_replay import _build_replay_wml
+    import re
+
+    # Side-2 attack whose extras record a DEFENDER (side-1)
+    # advancement: the emitted choose must say from_side="2".
+    rc = RecordedCommand(
+        kind="attack", side=2,
+        cmd=["attack", 1, 1, 2, 1, 0, 0, "00000000"],
+        extras={"advance_choices": [(1, 0)],
+                "checkup_strikes": []},
+    )
+    wml = _build_replay_wml([rc])
+    chooses = re.findall(
+        r'\[command\]\s*dependent="yes"\s*from_side="(\d+)"\s*'
+        r'\[choose\]', wml)
+    assert chooses == ["2"], (
+        f"choose must be stamped with the acting side (2), "
+        f"got {chooses}")
