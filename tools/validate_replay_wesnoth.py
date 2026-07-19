@@ -165,14 +165,9 @@ def _engine_logs() -> set:
             if not p.name.endswith(".out.log")}
 
 
-def validate_in_wesnoth(replay: Path, timeout: float = 420.0,
-                        settle: float = 30.0) -> list:
-    """Returns a list of offending log lines (empty = no OOS seen).
-
-    `settle`: extra seconds to keep scanning after the last log
-    growth, so slow playback isn't cut short. A replay that plays to
-    its final action OR goes quiet without OOS lines (after having
-    visibly progressed) counts as clean."""
+def _validate_once(replay: Path, timeout: float = 420.0,
+                   settle: float = 30.0) -> list:
+    """One playback pass; see validate_in_wesnoth for the contract."""
     if not WESNOTH_PATH.exists():
         raise RuntimeError(f"Wesnoth not found at {WESNOTH_PATH}")
     saves = USERDATA_DIR / "saves"
@@ -202,6 +197,7 @@ def validate_in_wesnoth(replay: Path, timeout: float = 420.0,
     pos = 0
     t0 = time.time()
     last_growth = t0
+    _last_nudge = 0.0
     try:
         while time.time() - t0 < timeout:
             if not minimized:
@@ -237,8 +233,16 @@ def validate_in_wesnoth(replay: Path, timeout: float = 420.0,
                 return offending          # fail fast on first OOS
             # The viewer opens STOPPED (see module docstring); keep
             # nudging the play hotkey until playback visibly moves.
-            if progress < _MIN_PROGRESS:
+            if (progress < _MIN_PROGRESS
+                    and time.time() - _last_nudge >= 5.0):
+                # Nudge sparingly: a 'p' landing on the wrong UI
+                # state can flip the viewer into take-control mode,
+                # whose locally-generated [choose] answers mismatch
+                # the recorded stream -- a FALSE OOS (2026-07-19
+                # false-positive class; see validate_in_wesnoth's
+                # retry).
                 _post_play_hotkey(proc.pid)
+                _last_nudge = time.time()
             elif not skip_sent:
                 # Playback confirmed running -> hotkeys reach the
                 # replay controller. Toggle skip-animation exactly
@@ -278,6 +282,40 @@ def validate_in_wesnoth(replay: Path, timeout: float = 420.0,
     finally:
         if proc.poll() is None:
             proc.terminate()
+
+
+_CHOOSE_ANSWER_RE = re.compile(
+    r"answer[^\n]*\[choose\]|\[choose\][^\n]*answer", re.I)
+
+
+def validate_in_wesnoth(replay: Path, timeout: float = 420.0,
+                        settle: float = 30.0) -> list:
+    """Returns a list of offending log lines (empty = no OOS seen).
+
+    `settle`: extra seconds to keep scanning after the last log
+    growth, so slow playback isn't cut short. A replay that plays to
+    its final action OR goes quiet without OOS lines (after having
+    visibly progressed) counts as clean.
+
+    FALSE-POSITIVE guard (2026-07-19): the play-hotkey nudge can
+    land on the wrong UI state and flip the viewer into take-control
+    mode, whose locally-generated [choose] answers mismatch the
+    recorded stream. A GENUINE desync cascade shows damage-SYNC
+    overrides before any [choose] complaint (verified on the
+    Silverhead null-side case); a [choose]-FIRST verdict with no
+    damage-SYNC line is therefore retried once, and the retry's
+    verdict stands. Same-file OOS-then-clean flips motivated this
+    (camp0719_fog_2, 2026-07-18/19).
+    """
+    verdict = _validate_once(replay, timeout=timeout, settle=settle)
+    if verdict and _CHOOSE_ANSWER_RE.search(verdict[0])             and not any("SYNC: In attack" in l for l in verdict):
+        log.warning(
+            "[choose]-first OOS with no damage-SYNC lines -- "
+            "possible hotkey-derailment false positive; retrying "
+            "once (%s)", replay.name)
+        verdict = _validate_once(replay, timeout=timeout,
+                                 settle=settle)
+    return verdict
 
 
 def main(argv) -> int:
