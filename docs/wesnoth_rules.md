@@ -235,6 +235,36 @@ Petrified (`STATE_PETRIFIED`) → `incapacitated()` is true →
 emits no ZoC. Also has `attacks_left() = 0` and `movement_left() = 0`
 (unit.hpp:998 and 1299).
 
+### controller=null sides get no turn, ever
+
+`wesnoth_src/src/playsingle_controller.cpp:198-210`
+(`skip_empty_sides`):
+```cpp
+for (; side_num != max; ++side_num) {
+    int side_num_mod = modulo(side_num, sides, 1);
+    if(!gamestate().board_.get_team(side_num_mod).is_empty()) {
+        return { side_num_mod, side_num_mod != side_num };
+    }
+}
+```
+The turn loop advances past every `team::is_empty()` side
+(controller=null parses to an empty team): no `[init_side]`, no
+actions, no events for that side -- its units simply exist on the
+map (occupying hexes, exerting ZoC, defending when attacked).
+
+**Why non-obvious:** a null side can own ARMED, non-petrified units
+-- Silverhead Crossing's side-3 "Shapeshifter" is a live Tentacle
+of the Deep (the scenario even carries a belt-and-braces
+`[event] name="side 3 turn" -> [end_turn]`). Treating "armed
+neutral" as "gets a turn" (our mini-map machinery's rule) emitted
+sim turns + exported [init_side] side_number=3 commands the engine
+never expects; playback's turn counter drifted, dragging ToD with
+it -- surfacing as damage-verification overrides once combat
+crossed a lawful-bonus phase boundary (the 2026-07-19 19-vs-12
+Wose strike: afternoon vs night). The controller attribute, not
+the armament, decides who acts: minis' tentacle sides are
+controller=ai and legitimately fight.
+
 ### Hidden-unit visibility: live adjacency + persistent UNCOVERED
 
 `wesnoth_src/src/units/unit.cpp:2596-2637` (`unit::invisible`):

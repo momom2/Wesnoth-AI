@@ -891,7 +891,22 @@ class WesnothSim:
             # retaliation.
             if side_now == 2 and not self.done:
                 from visibility import is_scenery_unit
-                if any(u.side not in (1, 2) and not is_scenery_unit(u)
+                # controller=null sides NEVER act: the engine's turn
+                # loop skips empty teams entirely
+                # (playsingle_controller.cpp:198-210
+                # skip_empty_sides), so emitting a sim turn (and its
+                # exported [init_side]) for one desynchronizes
+                # playback's turn counter and drifts ToD -- the
+                # 2026-07-19 Silverhead damage desync ("Nani the
+                # Shapeshifter" is an ARMED null-side tentacle).
+                # Minis' tentacle sides are controller=ai and keep
+                # their turn.
+                _null_sides = getattr(
+                    self.gs.global_info, "_null_controller_sides",
+                    None) or frozenset()
+                if any(u.side not in (1, 2)
+                       and u.side not in _null_sides
+                       and not is_scenery_unit(u)
                        for u in self.gs.map.units):
                     from tools.neutral_ai import run_neutral_side_turn
                     run_neutral_side_turn(self, side=3)

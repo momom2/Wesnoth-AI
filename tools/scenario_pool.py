@@ -634,11 +634,26 @@ def build_scenario_gamestate(
     # `starting_gold` arg or 100.
     side_gold: Dict[int, int] = {}
     side_pre_villages: Dict[int, List[Position]] = {}
+    # Sides the ENGINE never gives a turn: controller=null parses to
+    # an empty team, and playsingle_controller::skip_empty_sides
+    # (playsingle_controller.cpp:198-210) advances the turn loop past
+    # every `team::is_empty()` side -- no [init_side], no actions,
+    # ever. Our armed-neutral machinery must honor this: Silverhead
+    # Crossing's side-3 "Shapeshifter" (an armed Tentacle of the
+    # Deep, controller=null) got a full sim turn per round, whose
+    # exported [init_side] side_number=3 commands drifted playback's
+    # turn counter and with it the ToD phase -- the 2026-07-19
+    # damage-desync (19-vs-12 on the Wose strike = afternoon vs
+    # night). Minis' tentacle sides declare controller=ai and keep
+    # their turn.
+    null_controller_sides: set = set()
     for s in mp.all("side"):
         try:
             sn = int(s.attrs.get("side", "0"))
         except ValueError:
             continue
+        if s.attrs.get("controller", "").strip() == "null":
+            null_controller_sides.add(sn)
         if sn not in (1, 2):
             continue
         if "gold" in s.attrs:
@@ -823,4 +838,10 @@ def build_scenario_gamestate(
     # the encoder's village-ownership fog rule.
     if setup.fogless:
         setattr(gs.global_info, "_fog", False)
+    # Engine-skipped sides (controller=null): the sim's neutral-turn
+    # gate consults this so a null side never acts (see the census
+    # comment at the [side] parse above).
+    if null_controller_sides:
+        setattr(gs.global_info, "_null_controller_sides",
+                frozenset(null_controller_sides))
     return gs

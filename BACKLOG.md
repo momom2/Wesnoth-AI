@@ -1,5 +1,29 @@
 # Project review — bugs and improvements
 
+## RESOLVED (2026-07-19 pm) — Silverhead ToD drift: armed controller=null side
+
+The last standing export desync (damage-verification overrides, e.g.
+19-vs-12 on a Wose strike = afternoon-vs-night lawful bonus,
+user-diagnosed as ToD-shaped). Root cause: Silverhead Crossing's
+side-3 "Shapeshifter" is an ARMED controller=null unit; the engine
+never gives empty teams a turn (playsingle_controller.cpp:198-210
+skip_empty_sides — rules-doc entry added) but our armed-neutral
+gate keyed on armament, not controller, running it a full RCA turn
+whose exported [init_side] side_number=3 drifted playback's turn
+counter and ToD phase. Invisible while adjacent phases shared a
+lawful bonus; visible at the first phase-crossing combat; cascading
+into [choose] errors downstream. Fix: scenario build stashes
+`_null_controller_sides` from the [side] controller attrs; the
+neutral-turn gate honors it (minis' controller=ai tentacles keep
+their turns — the map's own `[event] name="side 3 turn" ->
+[end_turn]` guard confirms design intent).
+test_null_controller_sides.py. Post-fix Silverhead demo: 41 turns,
+437 actions, strict-sync CLEAN (was OOS by turn 9). Also fixed en
+route: OOS-finder false positives (2775ac8 — hotkey-derailment
+[choose]-first verdicts; sparse nudges + discriminating retry).
+With the from_side fix below, ALL known export desyncs are resolved;
+pre-fix escrowed validate_exports remain stale artifacts.
+
 ## RESOLVED (2026-07-19) — [choose] from_side: acting side, not owner
 
 The "fog-only" export desync was neither fog- nor movement-related:
