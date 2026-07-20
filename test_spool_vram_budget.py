@@ -27,14 +27,17 @@ from tools.sim_self_play import (
 
 def test_auto_budget_on_24gb_card_caps_cuda_workers():
     """The incident configuration: 56 workers on a 23.52GiB 4090.
-    auto must yield ~19 cuda + the rest cpu -- never all-cuda."""
+    auto must cap cuda workers under the trainer reserve -- never
+    all-cuda. 13 = (23.52GiB - 15GiB reserve) // 640MiB (2026-07-20
+    revision: reserve raised above the measured 12.6GiB trainer
+    peak after the 19-cuda-worker OOM)."""
     total = int(23.52 * 2**30)
     devices = _assign_spool_devices(
         56, "auto", cuda_available=True, total_vram=total)
     n_cuda = devices.count("cuda")
     expected = (total - TRAINER_VRAM_RESERVE_BYTES) \
         // SPOOL_WORKER_VRAM_BYTES
-    assert n_cuda == expected == 19
+    assert n_cuda == expected == 13
     assert devices.count("cpu") == 56 - n_cuda
     # cuda workers first (stable slot ordering for respawns).
     assert devices[:n_cuda] == ["cuda"] * n_cuda

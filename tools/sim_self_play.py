@@ -897,15 +897,17 @@ def _worker_loop(
 
 # ---- spool-worker VRAM budgeting (2026-07-18 OOM incident) ----------
 # Measured on the 4090 campaign box: each cuda spool worker holds
-# 388-586MB of VRAM (CUDA context ~300MB + 5M model + forward
+# 388-618MB of VRAM (CUDA context ~300MB + 5M model + forward
 # buffers); budget at the observed ceiling rounded up. The learner's
-# backward peaked at 7.1GB at --train-batch-size 64 / 2048-transition
-# replay minibatches and still needed +318MB when it OOM'd; reserve
-# 12GB (~1.7x the observed peak) so batch-size growth and allocator
-# fragmentation don't re-trigger the crash-loop. Derivations recorded
+# backward peak GROWS with play quality (longer, denser games):
+# 7.1GB on 2026-07-18, 12.6GB on 2026-07-20 (12.05GB in use + a
+# failed 556MB allocation at the same batch/minibatch settings).
+# Reserve 15GB (~1.2x the latest peak, chosen knowing the trend) so
+# the auto split can't hand out cuda workers the trainer will need
+# back mid-campaign. Derivations + the peak-growth history recorded
 # in docs/design_constants.md ("Spool-worker VRAM budget").
-SPOOL_WORKER_VRAM_BYTES = 600 * 2**20
-TRAINER_VRAM_RESERVE_BYTES = 12 * 2**30
+SPOOL_WORKER_VRAM_BYTES = 640 * 2**20
+TRAINER_VRAM_RESERVE_BYTES = 15 * 2**30
 
 
 def _assign_spool_devices(n: int, mode: str,
@@ -924,8 +926,8 @@ def _assign_spool_devices(n: int, mode: str,
                 the trainer's reserve, remainder cpu:
                   K = (total_vram - TRAINER_VRAM_RESERVE_BYTES)
                       // SPOOL_WORKER_VRAM_BYTES
-                On a 24GB card that's ~19; a 56-worker fleet becomes
-                19 cuda + 37 cpu instead of an OOM crash-loop.
+                On a 24GB card that's ~13; a 56-worker fleet becomes
+                13 cuda + 43 cpu instead of an OOM crash-loop.
 
     `cuda_available` / `total_vram` are injectable for tests; they
     default to the live torch.cuda probe.
