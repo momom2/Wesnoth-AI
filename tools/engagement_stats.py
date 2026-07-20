@@ -97,6 +97,13 @@ class EngagementStats:
     # sampled at each of its end_turns, averaged per game.
     _mp_unused:              Dict[int, int] = field(default_factory=_sides)
     _mp_total:               Dict[int, int] = field(default_factory=_sides)
+    # Bank gold: the side's treasury sampled at each of its
+    # end_turns, time-averaged per game (user metric 2026-07-20:
+    # watch the under-recruiting / gold-hoarding behavior as
+    # training progresses; end-of-game gold alone hides mid-game
+    # hoards spent late).
+    _gold_sum:               Dict[int, float] = field(default_factory=_sidesf)
+    _gold_n:                 Dict[int, int] = field(default_factory=_sides)
 
     # ---- event sink (combat + heal, from replay_dataset) ----------
     def on_event(self, kind: str, p: dict) -> None:
@@ -168,6 +175,9 @@ class EngagementStats:
         if units:
             self._mp_unused[side] += sum(u.current_moves for u in units)
             self._mp_total[side] += sum(u.max_moves for u in units)
+        if 0 <= side - 1 < len(gs.sides):
+            self._gold_sum[side] += float(gs.sides[side - 1].current_gold)
+            self._gold_n[side] += 1
         if getattr(gs.global_info, "_fog", True):
             from visibility import visible_fraction_for
             self._scout_sum[side] += visible_fraction_for(gs, side)
@@ -194,4 +204,5 @@ class EngagementStats:
             "first_contact_turn": self.first_contact_turn,
             "scouted_frac": frac(self._scout_sum, self._scout_n),
             "unused_mp_frac": frac(self._mp_unused, self._mp_total),
+            "gold_bank_mean": frac(self._gold_sum, self._gold_n),
         }

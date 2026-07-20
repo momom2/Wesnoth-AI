@@ -183,6 +183,10 @@ def test_outcome_engagement_end_to_end():
     assert e["material_end"][1] > 0
     # Both sides ended at least one turn in a 4-turn game.
     assert e["unused_mp_frac"][1] is not None
+    # Gold-hoarding watch (2026-07-20): per-side time-averaged bank.
+    assert e["gold_bank_mean"][1] is not None
+    assert e["gold_bank_mean"][1] >= 0.0
+    assert e["gold_bank_mean"][2] is not None
     # Search diagnostics from the MCTS policy.
     assert e["search"] is not None
     assert 0.0 <= e["search"]["overturn_frac"] <= 1.0

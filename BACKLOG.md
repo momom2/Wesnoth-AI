@@ -1,5 +1,36 @@
 # Project review — bugs and improvements
 
+## 2026-07-20 — gold-bank + unused-MP watch metrics; export-test flake noted
+
+User watch metrics for the behaviors spotted in the demo replays
+(under-recruiting / gold hoarding; units left idle at end_turn):
+
+- **Bank gold per side**: `EngagementStats` now samples the side's
+  treasury at each of its own end_turns; per-game time-average
+  exported as `gold_bank_mean`, aggregated per SIDE into the
+  trainer CSV as `eng_gold_bank_s1/s2` (asymmetry winner-vs-loser
+  is part of the signal) and printed on the per-iteration econ log
+  line (`bank_mean s1=... s2=...`). End-of-game `mean_end_gold_*`
+  alone hid mid-game hoards spent late.
+- **Unused-MP fraction** already existed (`eng_unused_mp_frac`,
+  2026-07-12 machinery): unspent/total MP across the side's units
+  at each end_turn. Overnight-campaign baseline readings 0.18-0.40.
+
+Smoke-verified end-to-end (log line + CSV columns populate; the
+header-mismatch rotation handles the schema change on existing
+CSVs). Full suite: first run 515/516 with
+`test_mcts_selfplay_export_validates_ladder` FAILING, but the
+failure did not reproduce: 20 fresh net-seeds of the exact
+export+validate path all CLEAN, whole-file run CLEAN, full-suite
+rerun 516/516 CLEAN. The test plays a RANDOM-INIT net's MCTS game
+(torch RNG state at that point in the suite is arbitrary), so this
+is a rare game-shape in the export/validation tail, not a
+deterministic regression — the original failure text was lost to a
+`tail` pipe. **WATCH: if it fails again, capture the `problems`
+list verbatim and keep the .bz2** (the validate helper writes to
+pytest tmp_path; rerun with `-m "" -x` and no output truncation).
+
+
 ## RESOLVED (2026-07-19 pm) — Silverhead ToD drift: armed controller=null side
 
 The last standing export desync (damage-verification overrides, e.g.

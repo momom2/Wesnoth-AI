@@ -1464,6 +1464,15 @@ def run_iteration(
         "eng_scouted_frac": _emean(lambda e: _e2mean(e, "scouted_frac")),
         "eng_unused_mp_frac": _emean(
             lambda e: _e2mean(e, "unused_mp_frac")),
+        # Per-SIDE time-averaged bank gold (sampled at each of the
+        # side's end_turns) -- the gold-hoarding watch metric (user
+        # 2026-07-20). Kept per side, unlike the side-averaged
+        # fractions: hoarding asymmetry between the winner and loser
+        # is part of the signal.
+        "eng_gold_bank_s1": _emean(
+            lambda e: (e.get("gold_bank_mean") or {}).get(1)),
+        "eng_gold_bank_s2": _emean(
+            lambda e: (e.get("gold_bank_mean") or {}).get(2)),
         "eng_villages_frac": _emean(
             lambda e: _e2mean(e, "villages_frac_avg")),
         "eng_material_end_pg": _emean(lambda e: _e2(e, "material_end")),
@@ -1632,9 +1641,20 @@ def run_iteration(
         # reward_fn for any other consumer; the next iter resets).
         reward_components = dict(
             getattr(reward_fn, "_component_acc", None) or {})
+        # Gold-hoarding watch (user 2026-07-20): time-averaged bank
+        # gold per side (sampled at the side's own end_turns) next to
+        # the end-of-game snapshot -- a hoard spent late shows in the
+        # bank mean even when end gold looks lean.
+        _b1 = eng_agg.get("eng_gold_bank_s1")
+        _b2 = eng_agg.get("eng_gold_bank_s2")
+        _bank_str = ""
+        if _b1 is not None or _b2 is not None:
+            _f = lambda v: f"{v:.1f}" if v is not None else "n/a"
+            _bank_str = f"bank_mean s1={_f(_b1)} s2={_f(_b2)}; "
         log.info(
             f"iter {iter_idx}: econ "
             f"mean_end_gold s1={mean_end_gold_s1:.1f} s2={mean_end_gold_s2:.1f}; "
+            f"{_bank_str}"
             f"recruits s1={n_recruits_s1}(of {n_recruit_attempts_s1}) "
             f"s2={n_recruits_s2}(of {n_recruit_attempts_s2})"
         )
@@ -1849,6 +1869,9 @@ class _TrainerHistoryCSV:
         "eng_poison_cured_pg", "eng_poison_damage_pg",
         "eng_contact_rate", "eng_first_contact_turn",
         "eng_scouted_frac", "eng_unused_mp_frac",
+        # Gold-hoarding watch (2026-07-20): per-side time-averaged
+        # treasury at the side's own end_turns.
+        "eng_gold_bank_s1", "eng_gold_bank_s2",
         "eng_villages_frac", "eng_material_end_pg",
         "search_q_spread", "search_overturn_frac",
     ]
