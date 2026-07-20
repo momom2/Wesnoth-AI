@@ -159,3 +159,20 @@ workers under the stale 12 GiB reserve < 12.6 GiB actual peak).
 constant-based K with a measured cap (the campaign box pins 8 via
 env.sh). Re-measure both numbers if the model grows past ~10M
 params or the replay minibatch changes materially.
+
+`DEMOTION_HEADROOM_BYTES = 2 GiB` — the reactive-demotion margin
+(2026-07-20): each iteration the learner recomputes
+`headroom = total − trainer_peak − n_cuda × per_worker` from the
+iteration's measured backward peak and gracefully demotes one cuda
+worker (between-games ctl-file exit, zero data loss) when headroom
+drops under the margin. Derivation: the trainer peak history shows
+≤ ~500 MB growth per iteration (7.1 → 12.6 GiB over ~19
+iterations, front-loaded); 2 GiB ≈ 4× the largest observed
+single-iteration step, so the guard fires at least one iteration
+before exhaustion even on the fastest observed trend. The margin
+makes the spawn-time constants above non-load-bearing: they seed
+the initial split, and the ratchet converges the fleet on any
+card/model combination. A residual OOM (a single-step jump past
+2 GiB) is caught in `run_iteration`'s train_step retry: empty
+cache, HARD-demote one worker (process kill frees its ~300 MB CUDA
+context; costs that worker's one in-flight game), retry once.

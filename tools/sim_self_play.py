@@ -50,6 +50,7 @@ import copy
 import gzip
 import json
 import logging
+import os
 import random
 import sys
 import time
@@ -908,6 +909,14 @@ def _worker_loop(
 # in docs/design_constants.md ("Spool-worker VRAM budget").
 SPOOL_WORKER_VRAM_BYTES = 640 * 2**20
 TRAINER_VRAM_RESERVE_BYTES = 15 * 2**30
+# Reactive demotion (2026-07-20, after the second OOM): the trainer
+# peak GROWS during a campaign, so the spawn-time budget can become
+# stale mid-run. Each iteration the learner recomputes
+#   headroom = total_vram - trainer_peak - n_cuda * per_worker
+# and demotes one cuda worker to cpu (graceful, between games) when
+# headroom drops below this margin. 2GiB ≈ 4x the largest observed
+# single-iteration peak growth -- see docs/design_constants.md.
+DEMOTION_HEADROOM_BYTES = 2 * 2**30
 
 
 def _assign_spool_devices(n: int, mode: str,
@@ -985,11 +994,22 @@ class SpoolWorkers:
         self._dir.mkdir(parents=True, exist_ok=True)
         self._checkpoint = checkpoint
         # Per-worker forward device, assigned from the VRAM budget
-        # (see _assign_spool_devices). Fixed at spawn time; respawns
-        # keep the dead worker's slot device.
+        # (see _assign_spool_devices). Respawns keep the slot's
+        # CURRENT device; reactive demotion (maybe_demote_for_
+        # headroom) may flip cuda slots to cpu mid-run.
         self._devices = _assign_spool_devices(
             n, getattr(args, "spool_worker_device", "auto"),
             cuda_cap=getattr(args, "spool_cuda_workers", None))
+        # Device-control seam for graceful demotion: workers read
+        # spool/ctl/w<i>.device between games and exit cleanly when
+        # it disagrees with their device; ensure_alive respawns the
+        # slot with the updated self._devices[i]. Cleared at startup
+        # so a previous run's demotions don't apply to this run's
+        # fresh budget.
+        self._ctl_dir = spool_dir / "ctl"
+        self._ctl_dir.mkdir(parents=True, exist_ok=True)
+        for stale in self._ctl_dir.glob("w*.device"):
+            stale.unlink(missing_ok=True)
         n_cuda = sum(1 for d in self._devices if d == "cuda")
         if 0 < n_cuda < n:
             log.info(f"spool devices: {n_cuda} cuda + {n - n_cuda} cpu "
@@ -1037,12 +1057,86 @@ class SpoolWorkers:
         )
 
     def ensure_alive(self) -> None:
-        """Respawn crashed workers (called once per iteration)."""
+        """Respawn dead workers (called once per iteration). A worker
+        that exited for a device-ctl demotion comes back on the
+        slot's updated device; a crash respawns as before."""
         for i, p in enumerate(self._procs):
             if p is None or p.poll() is not None:
                 rc = None if p is None else p.poll()
-                log.warning(f"spool worker {i} died (rc={rc}); respawning")
+                if rc != 0:
+                    log.warning(f"spool worker {i} died (rc={rc}); "
+                                f"respawning on {self._devices[i]}")
                 self._spawn(i)
+
+    def demote_one_cuda_worker(self, reason: str,
+                               hard: bool = False) -> bool:
+        """Flip the highest cuda slot to cpu. Graceful (default): the
+        worker finishes its current game, sees the ctl file, exits;
+        ensure_alive respawns it on cpu -- zero data loss, takes
+        effect within one game. `hard` (OOM emergency): terminate the
+        process NOW to free its VRAM (context ~300MB frees only on
+        process exit; loses at most that worker's one in-flight game)
+        and respawn immediately. Returns False if no cuda slot left."""
+        cuda_slots = [i for i, d in enumerate(self._devices)
+                      if d == "cuda"]
+        if not cuda_slots:
+            log.warning(f"demotion requested ({reason}) but no cuda "
+                        f"workers remain")
+            return False
+        i = cuda_slots[-1]
+        self._devices[i] = "cpu"
+        ctl = self._ctl_dir / f"w{i}.device"
+        tmp = self._ctl_dir / f".tmp_w{i}.device"
+        tmp.write_text("cpu", encoding="ascii")
+        os.replace(tmp, ctl)
+        log.warning(f"demoting spool worker {i} to cpu "
+                    f"({'HARD' if hard else 'graceful'}): {reason}; "
+                    f"{len(cuda_slots) - 1} cuda workers remain")
+        if hard:
+            p = self._procs[i]
+            if p is not None and p.poll() is None:
+                p.terminate()
+                try:
+                    p.wait(timeout=15)  # VRAM frees on process exit
+                except Exception:                   # noqa: BLE001
+                    p.kill()
+                    p.wait(timeout=15)
+            self._spawn(i)
+        return True
+
+    def maybe_demote_for_headroom(
+            self, trainer_peak_mb, *,
+            cuda_available: Optional[bool] = None,
+            total_vram: Optional[int] = None) -> bool:
+        """Reactive VRAM guard, called once per iteration with the
+        iteration's trainer backward peak: demote one cuda worker
+        whenever projected headroom falls under
+        DEMOTION_HEADROOM_BYTES. One-way ratchet, at most one
+        demotion per call (peak growth is gradual -- a few hundred
+        MB/iter -- so single steps converge without churn).
+        `cuda_available`/`total_vram` injectable for tests."""
+        if trainer_peak_mb is None:
+            return False
+        if cuda_available is None:
+            import torch
+            cuda_available = torch.cuda.is_available()
+        if not cuda_available:
+            return False
+        n_cuda = sum(1 for d in self._devices if d == "cuda")
+        if n_cuda == 0:
+            return False
+        if total_vram is None:
+            import torch
+            total_vram = torch.cuda.get_device_properties(0).total_memory
+        headroom = (total_vram - int(trainer_peak_mb) * 2**20
+                    - n_cuda * SPOOL_WORKER_VRAM_BYTES)
+        if headroom >= DEMOTION_HEADROOM_BYTES:
+            return False
+        return self.demote_one_cuda_worker(
+            f"headroom {headroom / 2**30:.2f}GiB < "
+            f"{DEMOTION_HEADROOM_BYTES / 2**30:.1f}GiB margin "
+            f"(trainer peak {trainer_peak_mb}MB, {n_cuda} cuda "
+            f"workers x {SPOOL_WORKER_VRAM_BYTES // 2**20}MB)")
 
     def collect(self, policy, want: int,
                 timeout_s: float = 3600.0) -> List["GameOutcome"]:
@@ -1584,7 +1678,25 @@ def run_iteration(
     if train_at_end:
         # One gradient step over all queued trajectories.
         train_t0 = time.perf_counter()
-        train_stats = policy.train_step()
+        try:
+            train_stats = policy.train_step()
+        except Exception as e:
+            # OOM emergency path (2026-07-20): free the allocator
+            # cache, hard-demote one cuda worker (its ~300MB CUDA
+            # context frees only on process death), retry ONCE. The
+            # step is retryable (replay-buffer sampling); a second
+            # OOM re-raises to the supervisor.
+            import torch
+            if not isinstance(e, torch.cuda.OutOfMemoryError):
+                raise
+            log.error("CUDA OOM in train_step; emptying cache, "
+                      "hard-demoting one cuda spool worker, "
+                      "retrying once")
+            torch.cuda.empty_cache()
+            if spool is not None:
+                spool.demote_one_cuda_worker("train_step OOM",
+                                             hard=True)
+            train_stats = policy.train_step()
         train_dt = time.perf_counter() - train_t0
         # getattr-guarded: non-trainable/stub policies (openers, dummy)
         # may return a minimal stats object without the aux field.
@@ -1634,6 +1746,13 @@ def run_iteration(
     # appends a CSV row to disk. Tests don't pass one, so this is
     # a no-op there. Keeping the return type a plain List[GameOutcome]
     # avoids touching every test that asserts on it.
+    # Reactive VRAM guard (2026-07-20): this iteration's trainer
+    # backward peak decides whether the cuda worker fleet must
+    # shrink -- BEFORE the next iteration's backward can OOM.
+    # Independent of snapshot_sink (tests/smokes stay guarded).
+    _peak_mb = _gpu_mem_peak_mb(reset=True)
+    if spool is not None:
+        spool.maybe_demote_for_headroom(_peak_mb)
     if snapshot_sink is not None:
         # Econ aggregates across all games this iter.
         mean_end_gold_s1 = (
@@ -1724,7 +1843,7 @@ def run_iteration(
             # high-water ratchet on variable-length batches.
             "gpu_mem_alloc_mb":    _gpu_mem_mb()[0],
             "gpu_mem_reserved_mb": _gpu_mem_mb()[1],
-            "gpu_mem_peak_mb":     _gpu_mem_peak_mb(reset=True),
+            "gpu_mem_peak_mb":     _peak_mb,
             "z_win_frac":   (getattr(train_stats, "z_win_frac", None)
                              if train_stats else None),
             "z_loss_frac":  (getattr(train_stats, "z_loss_frac", None)

@@ -1,5 +1,35 @@
 # Project review — bugs and improvements
 
+## 2026-07-20 — reactive VRAM demotion (no more crash-then-retune)
+
+After the second trainer OOM in three days (both from the backward
+peak GROWING mid-campaign past a spawn-time worker budget), the
+worker split is now self-correcting instead of constant-tuned:
+
+- **Headroom guard**: each iteration the learner computes
+  `total − trainer_peak − n_cuda × per_worker` from the measured
+  `gpu_mem_peak_mb` and, under a 2 GiB margin
+  (`DEMOTION_HEADROOM_BYTES`, derivation in design_constants.md),
+  gracefully demotes ONE cuda worker: it writes
+  `spool/ctl/w<i>.device`, the worker checks the file BETWEEN games
+  (same seam as checkpoint hot-reload) and exits cleanly, and
+  `ensure_alive` respawns the slot on cpu. Zero data loss; takes
+  effect within one game. One-way ratchet, one step per iteration.
+- **OOM catch-retry**: `train_step` OOM no longer kills the run —
+  empty cache, HARD-demote one cuda worker (terminate + immediate
+  respawn on cpu; frees the ~300 MB CUDA context a live process
+  pins; costs at most that worker's in-flight game), retry the step
+  once. A second OOM re-raises to the supervisor as before.
+- Stale ctl files are cleared at SpoolWorkers startup so a previous
+  run's demotions never apply to a fresh budget. Torn/garbage ctl
+  reads are ignored worker-side.
+- The spawn-time constants (640 MiB/worker, 15 GiB reserve) remain
+  as the initial split; the ratchet makes them non-load-bearing.
+
+Tests: graceful + hard demotion, headroom thresholds, ctl protocol,
+stale-ctl cleanup (test_spool_vram_budget.py, 13 total). The live
+box (pinned 8 cuda workers) picks this up at its next restart.
+
 ## 2026-07-20 — training mix: absolute proportions + sum-to-1 guard
 
 User redesign: the five game categories (midgame / mini / drill /

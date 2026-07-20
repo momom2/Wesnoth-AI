@@ -81,6 +81,21 @@ def _build_policy(ckpt: Path, device, args):
                                     False)), base
 
 
+def _ctl_wants_exit(ctl_path: Path, current_device: str) -> bool:
+    """True when the learner's device-ctl file exists and names a
+    device other than the one this worker runs on (the graceful-
+    demotion signal; see SpoolWorkers.demote_one_cuda_worker).
+    Unreadable/garbage ctl content is ignored -- never kill a
+    healthy worker on a torn read."""
+    try:
+        if not ctl_path.exists():
+            return False
+        want = ctl_path.read_text(encoding="ascii").strip()
+    except OSError:
+        return False
+    return want in ("cpu", "cuda") and want != current_device
+
+
 def main(argv) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--worker-id", type=int, required=True)
@@ -169,7 +184,18 @@ def main(argv) -> int:
     n = 0
     hb_decisions = 0
     hb_started = time.time()
+    ctl_path = args.spool_dir / "ctl" / f"w{args.worker_id}.device"
     while True:
+        # Graceful demotion seam (2026-07-20): the learner flips
+        # spool/ctl/w<id>.device when the VRAM headroom guard wants
+        # this slot off the card. Checked BETWEEN games, so nothing
+        # in flight is lost -- exit cleanly and let ensure_alive
+        # respawn us on the slot's new device.
+        if _ctl_wants_exit(ctl_path,
+                           "cuda" if device is not None else "cpu"):
+            log.info("device ctl disagrees with our device; exiting "
+                     "for respawn")
+            return 0
         # Hot-reload the learner's latest weights between games.
         try:
             m = args.checkpoint.stat().st_mtime
