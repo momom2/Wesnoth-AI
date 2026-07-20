@@ -159,7 +159,7 @@ def _actor_loop(
     from tools.inference_seam import RemoteEncoder, RemoteModel
     from tools.mcts_policy import MCTSPolicy
     from tools.sim_self_play import _play_one_game_safe, _recruit_cost_lookup
-    from tools.scenario_pool import random_setup
+    from tools.scenario_pool import random_setup, roll_mix
     from wesnoth_sim import PvPDefaults
 
     client = _IPCInferenceClient(actor_id, req_q, resp_q)
@@ -191,9 +191,18 @@ def _actor_loop(
                                _decision_step=int(decision_step0))
         policy = MCTSPolicy(base, mcts_cfg)
         rng = random.Random(base_seed)
+        # Split the mix ratios (absolute, sum to 1; no midgame --
+        # the parent CLI rejects --midgame-ratio with --actor-pool)
+        # from the pass-through setup options.
+        mix = {k: scenario_opts.get(f"{k}_ratio", 0.0)
+               for k in ("mini", "drill", "fogless")}
+        mix["ladder"] = scenario_opts.get("ladder_ratio", 1.0)
+        setup_opts = {k: v for k, v in scenario_opts.items()
+                      if not k.endswith("_ratio")}
         try:
             for g in range(n_games):
-                setup = random_setup(rng, **scenario_opts)
+                cat = roll_mix(rng, **mix)
+                setup = random_setup(rng, category=cat, **setup_opts)
                 gl = f"iter{iter_idx}_a{actor_id}_g{g}"
                 outcome = _play_one_game_safe(
                     setup=setup, max_turns=max_turns, pvp_defaults=pvp,

@@ -179,7 +179,7 @@ def main(argv: List[str]) -> int:
     shapes = []
     with args.out.open("w", encoding="utf-8") as fout:
         for g in range(args.games):
-            setup = random_setup(rng, mini_ratio=0.0, drill_ratio=0.0)
+            setup = random_setup(rng)
             gs = build_scenario_gamestate(
                 setup, base_income=pvp.base_income,
                 village_gold=pvp.village_gold,

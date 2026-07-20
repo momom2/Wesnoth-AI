@@ -116,8 +116,14 @@ def profile_rollout(
     cost = _recruit_cost_lookup()
     pvp = PvPDefaults()
 
-    probe = random_setup(rng, forced_faction=forced_faction,
-                         mini_ratio=mini_ratio)
+    # Two-category profile mix: mini_ratio is the absolute fraction
+    # of mini games, remainder regular ladder.
+    def _mixed_setup():
+        cat = "mini" if rng.random() < mini_ratio else "ladder"
+        return random_setup(rng, forced_faction=forced_faction,
+                            category=cat)
+
+    probe = _mixed_setup()
     from tools.scenario_pool import build_scenario_gamestate
     from wesnoth_sim import WesnothSim
     SimCls = type(WesnothSim(build_scenario_gamestate(probe),
@@ -143,8 +149,7 @@ def profile_rollout(
         # Warmup (clears CUDA context / cuDNN autotune / first-call JIT);
         # timers run but are zeroed before the measured games.
         if warmup_turns > 0:
-            setup = random_setup(rng, forced_faction=forced_faction,
-                                 mini_ratio=mini_ratio)
+            setup = _mixed_setup()
             _play_one_game_safe(setup=setup, max_turns=warmup_turns,
                                 pvp_defaults=pvp, policy=mcts_policy,
                                 reward_fn=lambda d: 0.0, cost_lookup=cost,
@@ -155,8 +160,7 @@ def profile_rollout(
         t0 = time.perf_counter()
         n_actions = 0
         for g in range(n_games):
-            setup = random_setup(rng, forced_faction=forced_faction,
-                                 mini_ratio=mini_ratio)
+            setup = _mixed_setup()
             out = _play_one_game_safe(
                 setup=setup, max_turns=max_turns, pvp_defaults=pvp,
                 policy=mcts_policy, reward_fn=lambda d: 0.0,

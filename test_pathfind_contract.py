@@ -45,8 +45,7 @@ def test_every_masked_move_target_is_sim_landable():
     from tools.wesnoth_sim import WesnothSim
 
     rng = random.Random(11)
-    setup = random_setup(rng, forced_faction=None, mini_maps=False,
-                         fogless_ratio=0.0)
+    setup = random_setup(rng, forced_faction=None, mini_maps=False)
     gs = build_scenario_gamestate(setup)
     sim = WesnothSim(gs, scenario_id=setup.scenario_id, max_turns=12)
     enc = GameStateEncoder()
@@ -95,7 +94,7 @@ def test_masked_moves_never_crowfly_unreachable():
 
     rng = random.Random(3)
     setup = random_setup(rng, forced_faction=None, mini_maps=False,
-                         fogless_ratio=1.0)
+                         category="fogless")
     gs = build_scenario_gamestate(setup)
     sim = WesnothSim(gs, scenario_id=setup.scenario_id, max_turns=8)
     _advance(sim, 4)
@@ -130,7 +129,7 @@ def test_mask_less_caller_cannot_hang_the_sim():
 
     rng = random.Random(5)
     setup = random_setup(rng, forced_faction=None, mini_maps=False,
-                         fogless_ratio=1.0)
+                         category="fogless")
     gs = build_scenario_gamestate(setup)
     sim = WesnothSim(gs, scenario_id=setup.scenario_id, max_turns=4)
     side0 = sim.gs.global_info.current_side

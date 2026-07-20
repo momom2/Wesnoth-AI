@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Fogless-ratio mixing (2026-07-11).
+"""Fogless mixing (2026-07-11; absolute-mix redesign 2026-07-20).
 
-`random_setup(fogless_ratio=r)` plays a fraction r of LADDER-pool
-games with fog of war off: `setup.fogless=True` makes
+`random_setup(category="fogless")` plays a LADDER-pool game with
+fog of war off: `setup.fogless=True` makes
 `build_scenario_gamestate` set `global_info._fog = False`, which
 `visibility.units_visible_to` and the encoder's village fog rule
-consume. Mini/drill games always keep fog.
+consume. Mixing is the caller's job via `roll_mix` (absolute
+proportions over all five categories, guarded to sum to 1).
 """
 
 from __future__ import annotations
@@ -18,14 +19,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent / "tools"))
 
+import pytest
+
 from tools.scenario_pool import (LADDER_SCENARIO_IDS,
-                                 build_scenario_gamestate, random_setup)
+                                 build_scenario_gamestate, random_setup,
+                                 roll_mix, validate_mix)
 
 
-def test_ratio_one_marks_every_ladder_game_fogless():
+def test_fogless_category_marks_every_ladder_game_fogless():
     rng = random.Random(7)
     for _ in range(10):
-        setup = random_setup(rng, fogless_ratio=1.0)
+        setup = random_setup(rng, category="fogless")
         assert setup.scenario_id in LADDER_SCENARIO_IDS
         assert setup.fogless
 
@@ -38,16 +42,44 @@ def test_default_is_fogged():
 
 def test_mini_and_drill_games_always_keep_fog():
     rng = random.Random(7)
-    for _ in range(20):
-        setup = random_setup(rng, mini_ratio=0.5, drill_ratio=0.5,
-                             fogless_ratio=1.0)
-        assert not setup.fogless, \
-            "fogless applies to the ladder pool only"
+    for cat in ("mini", "drill"):
+        for _ in range(10):
+            setup = random_setup(rng, category=cat)
+            assert not setup.fogless, \
+                "fogless applies to the ladder pool only"
+
+
+def test_roll_mix_respects_absolute_proportions():
+    rng = random.Random(7)
+    counts = {}
+    n = 4000
+    for _ in range(n):
+        c = roll_mix(rng, midgame=0.2, mini=0.2, drill=0.0,
+                     fogless=0.2, ladder=0.4)
+        counts[c] = counts.get(c, 0) + 1
+    assert counts.get("drill", 0) == 0
+    # 4000 rolls: each category lands well within +-0.05.
+    for cat, expect in (("midgame", 0.2), ("mini", 0.2),
+                        ("fogless", 0.2), ("ladder", 0.4)):
+        assert abs(counts.get(cat, 0) / n - expect) < 0.05, \
+            (cat, counts)
+
+
+def test_mix_guard_rejects_bad_sums():
+    with pytest.raises(ValueError):
+        validate_mix(midgame=0.2, mini=0.2, drill=0.0,
+                     fogless=0.2, ladder=0.5)   # sums to 1.1
+    with pytest.raises(ValueError):
+        validate_mix(midgame=0.2, ladder=0.4)   # sums to 0.6
+    with pytest.raises(ValueError):
+        validate_mix(midgame=-0.1, ladder=1.1)  # out of range
+    validate_mix(midgame=0.2, mini=0.2, drill=0.0,
+                 fogless=0.2, ladder=0.4)       # exact -> OK
 
 
 def test_fogless_setup_sets_fog_attr_and_survives_deepcopy():
     rng = random.Random(7)
-    setup = random_setup(rng, fogless_ratio=1.0)
+    setup = random_setup(rng, category="fogless")
     gs = build_scenario_gamestate(setup)
     assert getattr(gs.global_info, "_fog", True) is False
     # MCTS deepcopies states before encoding; the underscore attr

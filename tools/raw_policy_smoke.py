@@ -70,7 +70,7 @@ def main(argv) -> int:
         for g in range(args.games):
             setup = random_setup(
                 rng, forced_faction=None, mini_maps=mini,
-                fogless_ratio=1.0 if fogless else 0.0)
+                category="fogless" if fogless else "ladder")
             gs = build_scenario_gamestate(setup)
             sim = WesnothSim(gs, scenario_id=setup.scenario_id,
                              max_turns=args.max_turns)

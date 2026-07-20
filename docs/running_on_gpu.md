@@ -38,7 +38,7 @@ python tools/sim_self_play.py \
   --replay-buffer --replay-updates 16 --value-coef 1.0 \
     --replay-minibatch 128 --replay-capacity 6000 \
   --train-batch-size 128 \
-  --mini-ratio 0.5 --drill-ratio 0.3 \
+  --mini-ratio 0.4 --drill-ratio 0.2 --ladder-ratio 0.4 \
   --time-budget HH:MM:SS --iterations 100000 --save-every 2
 ```
 
@@ -63,7 +63,7 @@ run and confirm:
 
 ```
 python tools/sim_self_play.py --device cuda --mcts --mcts-sims 8 \
-  --iterations 2 --games-per-iter 2 --max-turns 12 --mini-ratio 1.0 \
+  --iterations 2 --games-per-iter 2 --max-turns 12 --mini-ratio 1.0 --ladder-ratio 0.0 \
   --replay-buffer --replay-updates 2 --replay-minibatch 16 \
   --replay-min-size 1 --train-batch-size 8 \
   --checkpoint-out /tmp/gpu_smoke.pt --log-level INFO

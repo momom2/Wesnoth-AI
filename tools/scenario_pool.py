@@ -369,14 +369,57 @@ def classify_scenario(scenario_id: str) -> str:
     return "mini"
 
 
+# Training-mix categories (2026-07-20 user redesign): the game mix
+# is specified as ABSOLUTE proportions of all games, one categorical
+# roll per game -- no cascading "fraction of the remainder"
+# multiplication. "midgame" is rolled here but sampled by the caller
+# (it needs the human value corpus, not a scenario pool);
+# "fogless" is a LADDER-pool game with fog off.
+MIX_CATEGORIES = ("midgame", "mini", "drill", "fogless", "ladder")
+
+
+def validate_mix(*, midgame: float = 0.0, mini: float = 0.0,
+                 drill: float = 0.0, fogless: float = 0.0,
+                 ladder: float = 1.0) -> None:
+    """Raise ValueError unless every ratio is in [0, 1] and the five
+    sum to 1 (the user must account for the full distribution
+    explicitly -- no silent remainders)."""
+    vals = {"midgame": midgame, "mini": mini, "drill": drill,
+            "fogless": fogless, "ladder": ladder}
+    for name, v in vals.items():
+        if not (0.0 <= v <= 1.0):
+            raise ValueError(
+                f"scenario-mix ratio {name}={v} outside [0, 1]")
+    total = sum(vals.values())
+    if abs(total - 1.0) > 1e-6:
+        raise ValueError(
+            f"scenario-mix ratios must sum to 1, got {total:.6f}: "
+            + ", ".join(f"{k}={v}" for k, v in vals.items()))
+
+
+def roll_mix(rng: random.Random, *, midgame: float = 0.0,
+             mini: float = 0.0, drill: float = 0.0,
+             fogless: float = 0.0, ladder: float = 1.0) -> str:
+    """One categorical roll over MIX_CATEGORIES with absolute
+    weights. Validates the mix on every call (cheap; one call per
+    game)."""
+    validate_mix(midgame=midgame, mini=mini, drill=drill,
+                 fogless=fogless, ladder=ladder)
+    r = rng.random()
+    for name, w in (("midgame", midgame), ("mini", mini),
+                    ("drill", drill), ("fogless", fogless)):
+        if r < w:
+            return name
+        r -= w
+    return "ladder"
+
+
 def random_setup(
     rng: random.Random,
     *,
     forced_faction: Optional[str] = ...,
     mini_maps: bool = False,
-    mini_ratio: float = 0.0,
-    drill_ratio: float = 0.0,
-    fogless_ratio: float = 0.0,
+    category: str = "ladder",
 ) -> ScenarioSetup:
     """Pick a random scenario + 2 (faction, leader) pairs.
 
@@ -390,67 +433,39 @@ def random_setup(
 
     `mini_maps`: when True, sample only from the 5-map subset in
     MINI_MAP_SCENARIO_IDS (smallest Ladder maps, ~700-870 cells).
-    Used for the engagement-curriculum phase -- restrict to maps
-    where leaders start ~12-15 hexes apart so the policy gradient
-    has a chance to discover engagement before the long-march
-    cost dominates. Default False = full 21-map pool.
+    Legacy "100% mini" toggle; overrides `category`.
 
-    `mini_ratio`: in [0, 1]. When `mini_maps=False`, this is the
-    probability that THIS call samples from the mini pool instead
-    of the ladder pool. Used to MIX mini and ladder scenarios in
-    one training run -- a `mini_ratio=0.3` mix gives the policy
-    ~30% mini-map games (cheap engagement training signal) and
-    ~70% ladder-map games (the real production distribution) per
-    iter. When `mini_maps=True`, this parameter is ignored
-    (already 100% mini).
-
-    `drill_ratio`: in [0, 1], same mixing semantics for the
-    capability-drill pool (DRILL_SCENARIO_IDS). One uniform roll
-    decides the pool: mini with `mini_ratio`, else drill with
-    `drill_ratio`, else ladder -- so mini_ratio + drill_ratio must
-    be <= 1.
-
-    `fogless_ratio`: in [0, 1]. Probability that a LADDER-pool game
-    is played with fog of war off (`setup.fogless=True` ->
-    `global_info._fog = False`). Mini / drill games always keep fog:
-    the knob exists to give the value/policy heads full-information
-    ladder games where army positions are mutually visible, as an
-    engagement-learning aid (user request 2026-07-11).
+    `category`: which pool THIS game comes from -- "ladder" (fogged
+    21-map pool), "fogless" (ladder pool, fog of war off), "mini"
+    (MINI_MAP_SCENARIO_IDS), or "drill" (DRILL_SCENARIO_IDS).
+    Mixing is the CALLER's job: roll once per game with `roll_mix`
+    (absolute proportions summing to 1) and pass the result here.
+    "midgame" is not accepted -- midgame starts are sampled from
+    the human value corpus by the training loop, not from a
+    scenario pool.
 
     Leaders are sampled from each faction's `random_leader=` pool,
     matching Wesnoth's `type=random` behavior.
     """
     if forced_faction is ...:
         forced_faction = FORCED_FACTION
-    if mini_ratio + drill_ratio > 1.0:
-        raise ValueError(
-            f"mini_ratio ({mini_ratio}) + drill_ratio ({drill_ratio}) "
-            f"> 1")
     factions = load_factions()
     if not factions:
         raise RuntimeError("no factions loaded")
-    # Resolve which pool to sample from this call. `mini_maps=True`
-    # is the legacy "100% mini" toggle (preserved for backwards
-    # compat); otherwise one uniform roll splits ladder / mini /
-    # drill by the requested ratios.
     if mini_maps:
-        scenario_pool = MINI_MAP_SCENARIO_IDS
-    else:
-        roll = rng.random() if (mini_ratio > 0.0
-                                or drill_ratio > 0.0) else 1.0
-        if roll < mini_ratio:
-            scenario_pool = MINI_MAP_SCENARIO_IDS
-        elif roll < mini_ratio + drill_ratio:
-            scenario_pool = DRILL_SCENARIO_IDS
-        else:
-            scenario_pool = LADDER_SCENARIO_IDS
-    scenario_id = rng.choice(scenario_pool)
-    # Fogless roll: ladder games only (mini/drill scenarios are
+        category = "mini"
+    pools = {"ladder": LADDER_SCENARIO_IDS,
+             "fogless": LADDER_SCENARIO_IDS,
+             "mini": MINI_MAP_SCENARIO_IDS,
+             "drill": DRILL_SCENARIO_IDS}
+    if category not in pools:
+        raise ValueError(f"unknown scenario category {category!r} "
+                         f"(expected one of {sorted(pools)})")
+    scenario_id = rng.choice(pools[category])
+    # Only ladder-pool games play fogless (mini/drill scenarios are
     # engagement drills where fog barely matters and the pools
     # should stay comparable across runs).
-    fogless = (scenario_pool is LADDER_SCENARIO_IDS
-               and fogless_ratio > 0.0
-               and rng.random() < fogless_ratio)
+    fogless = (category == "fogless")
 
     if forced_faction is not None and forced_faction in factions:
         # Pick which side gets the forced faction (50/50). The other

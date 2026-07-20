@@ -52,7 +52,8 @@ the real 5M arch):
 ```
 python tools/sim_self_play.py --device cuda \
   --mcts --mcts-sims 8 --iterations 2 --games-per-iter 2 --max-turns 12 \
-  --mini-ratio 1.0 --replay-buffer --replay-updates 2 --replay-minibatch 16 \
+  --mini-ratio 1.0 --ladder-ratio 0.0 \
+  --replay-buffer --replay-updates 2 --replay-minibatch 16 \
   --replay-min-size 1 --train-batch-size 8 \
   --d-model 256 --num-layers 6 --num-heads 8 --d-ff 1024 \
   --checkpoint-in training/checkpoints/tier_a_5m.pt \
@@ -86,7 +87,7 @@ the 15GB T4 at iter 1 (12.7GB allocated, +818MB refused); 64/32 +
 PYTORCH_ALLOC_CONF=expandable_segments:True \
 python tools/sim_self_play.py --device cuda \
   --mcts --mcts-sims 32 --iterations 20 --games-per-iter 8 --max-turns 24 \
-  --mini-ratio 0.5 --drill-ratio 0.3 \
+  --mini-ratio 0.4 --drill-ratio 0.2 --ladder-ratio 0.4 \
   --replay-buffer --replay-updates 16 --value-coef 1.0 \
   --replay-minibatch 64 --replay-capacity 6000 --train-batch-size 32 \
   --d-model 256 --num-layers 6 --num-heads 8 --d-ff 1024 \
@@ -156,7 +157,7 @@ python tools/sim_self_play.py --device cuda \
   --replay-buffer --replay-updates 16 --value-coef 1.0 \
     --replay-minibatch 128 --replay-capacity 6000 \
   --train-batch-size 128 --mcts-batch-size 16 \
-  --mini-ratio 0.5 --drill-ratio 0.3 \
+  --mini-ratio 0.4 --drill-ratio 0.2 --ladder-ratio 0.4 \
   --holdout-size 512 \
   --abort-decisive-rate 0.05 --abort-window 40 \
   --abort-holdout-stall 150 \

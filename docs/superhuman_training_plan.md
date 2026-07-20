@@ -51,7 +51,7 @@ re-check before committing spend.
 | Training so far | decision_step ≈ **5.68M** | checkpoint metadata |
 | Method | AlphaZero-style MCTS (Gumbel root, PUCT, exact combat-outcome enumeration, tree reuse) + REINFORCE fallback; experience replay | `tools/sim_self_play.py`, `tools/mcts.py`, `trainer.py` |
 | Simulator | pure-Python, bit-exact combat (731/731 strikes), ~1000× faster than real Wesnoth | `tools/wesnoth_sim.py` |
-| Curriculum | ladder (21 maps) / mini (8) / drill (3) pools, mixed via `--mini-ratio`/`--drill-ratio` | `tools/scenario_pool.py` |
+| Curriculum | ladder (21 maps) / mini (8) / drill (3) / fogless / midgame, mixed via absolute `--*-ratio` flags summing to 1 | `tools/scenario_pool.py` |
 | Device | CPU-only locally (AMD RX 6600, DirectML dead-ended); **CUDA path wired but never exercised** | `docs/running_on_gpu.md` |
 | Strength | **far from superhuman.** At iter-168, *zero* leaderkills on full ladder maps (army never threatens the enemy leader in 24 turns); decisive games only on mini/drill | `BACKLOG.md` |
 | Validation | win-rate vs built-in **RCA AI** (`eval_vs_builtin.py`) + vs self-play (`eval_sim.py`); Wilson CIs. **No human-calibrated rating.** | eval tooling |

@@ -140,11 +140,12 @@ EOF
     fi
 fi
 
-# Stage the human value corpus for midgame starts. Without it,
-# --midgame-ratio silently degrades to fresh starts (hit 2026-07-15:
-# first 56 min of the run trained with midgame 0/0 -- the warning
-# was in train.log but nothing staged the data). Idempotent: skips
-# when the index is already on disk.
+# Stage the human value corpus for midgame starts. Since the
+# 2026-07-20 absolute-mix redesign, training ERRORS at startup when
+# --midgame-ratio > 0 and the corpus is missing (the 2026-07-15
+# incident -- 56 min trained with midgame 0/0 on an unseen warning
+# -- can no longer happen silently; it now fails loudly here
+# instead). Idempotent: skips when the index is already on disk.
 if [ ! -f replays_dataset/value_corpus_index.jsonl ] \
         && { [ -n "${HF_TOKEN:-}" ] || [ -f "$WORKDIR/.hf_token" ]; }; then
     HF_SEED_TOKEN="${HF_TOKEN:-}" \
@@ -299,6 +300,14 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 # 2026-07-02: OSError errno 24 in multiprocessing resource_sharer).
 ulimit -n 65536 2>/dev/null || ulimit -n 4096 2>/dev/null || true
 echo "[onstart] fd limit: $(ulimit -n)"
+# Record the RESOLVED training mix in train.log (2026-07-20: the
+# overnight campaign's effective mix was unrecoverable from the repo
+# -- env overrides lived only on the box; one echo makes every
+# future run's distribution auditable from the escrowed log alone).
+echo "[onstart] training mix: midgame=${MIDGAME_RATIO:-0.2}" \
+     "mini=${MINI_RATIO:-0.2} drill=${DRILL_RATIO:-0.0}" \
+     "fogless=${FOGLESS_RATIO:-0.2} ladder=${LADDER_RATIO:-0.4}" \
+     >> "$WORKDIR/train.log"
 # Supervised launch: relaunch on ordinary crashes (rc 1/2 -- OOM,
 # transient CUDA errors) with a 60s backoff, capped at 20 restarts
 # per onstart so a hard config bug can't burn the box all night
@@ -317,12 +326,13 @@ nohup bash -c "
       --replay-buffer --replay-updates 16 --value-coef 1.0 \
       --replay-minibatch ${REPLAY_MINIBATCH:-128} --replay-capacity 24000 \
       --train-batch-size ${TRAIN_BATCH:-64} --mcts-batch-size 16 \
-      --mini-ratio ${MINI_RATIO:-0.5} --drill-ratio ${DRILL_RATIO:-0.3} \
+      --mini-ratio ${MINI_RATIO:-0.2} --drill-ratio ${DRILL_RATIO:-0.0} \
+      --midgame-ratio ${MIDGAME_RATIO:-0.2} --fogless-ratio ${FOGLESS_RATIO:-0.2} \
+      --ladder-ratio ${LADDER_RATIO:-0.4} \
       ${MAX_TURNS:+--max-turns $MAX_TURNS} \
       --mcts-aux-score --mcts-moves-left \
       --mcts-moves-left-utility 0.2 \
       ${AUX_VALUE_BONUS:+--mcts-aux-value-bonus $AUX_VALUE_BONUS} \
-      ${FOGLESS_RATIO:+--fogless-ratio $FOGLESS_RATIO}       ${MIDGAME_RATIO:+--midgame-ratio $MIDGAME_RATIO} \
       ${VALIDATE_EXPORT_EVERY:+--validate-export-every $VALIDATE_EXPORT_EVERY} \
       --value-label-smoothing 0.02 \
       --holdout-size 512 --holdout-per-game-cap 64 \

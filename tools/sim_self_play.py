@@ -851,6 +851,7 @@ def _worker_loop(
     drill_ratio: float = 0.0,
     fogless_ratio: float = 0.0,
     midgame_ratio: float = 0.0,
+    ladder_ratio: float = 1.0,
     midgame_dataset: Optional[Path] = None,
 ):
     """Per-thread rollout loop. Each worker pulls a game index from
@@ -859,25 +860,28 @@ def _worker_loop(
     to `shared.outcomes`. Stops when `next_game` would exceed
     target_games. Uses scenario_pool.random_setup for the seed --
     no replay pool involved."""
-    from tools.scenario_pool import random_setup
+    from tools.scenario_pool import random_setup, roll_mix
     while True:
         with shared["lock"]:
             if shared["next_game"] >= shared["target_games"]:
                 return
             g_idx = shared["next_game"]
             shared["next_game"] += 1
+        cat = roll_mix(worker_rng, midgame=midgame_ratio,
+                       mini=mini_ratio, drill=drill_ratio,
+                       fogless=fogless_ratio, ladder=ladder_ratio)
         setup = None
-        if midgame_ratio > 0 and worker_rng.random() < midgame_ratio:
+        if cat == "midgame":
             from tools.midgame_starts import sample_midgame_start
             mg = sample_midgame_start(
                 worker_rng, midgame_dataset or Path("replays_dataset"))
             if mg is not None:
                 setup = ("__midgame__",) + mg
+            else:
+                cat = "ladder"  # degraded sample -> regular game
         if setup is None:
             setup = random_setup(worker_rng, forced_faction=forced_faction,
-                                 mini_maps=mini_maps, mini_ratio=mini_ratio,
-                                 drill_ratio=drill_ratio,
-                                 fogless_ratio=fogless_ratio)
+                                 mini_maps=mini_maps, category=cat)
         game_label = (f"iter{shared['iter_idx']}_"
                       f"w{worker_id}_g{g_idx}")
         outcome = _play_one_game_safe(
@@ -994,17 +998,16 @@ class SpoolWorkers:
             "--checkpoint", str(checkpoint),
             "--spool-dir", str(spool_dir),
             "--mcts-sims", str(args.mcts_sims),
-            "--mini-ratio", str(max(0.0, min(1.0, args.mini_ratio))),
-            "--drill-ratio", str(max(0.0, min(1.0, args.drill_ratio))),
+            "--mini-ratio", str(args.mini_ratio),
+            "--drill-ratio", str(args.drill_ratio),
             "--max-turns", str(args.max_turns),
             "--draw-tiebreak-cap", str(max(0.0, args.draw_tiebreak_cap)),
             "--moves-left-utility", str(args.mcts_moves_left_utility),
             "--aux-value-bonus", str(getattr(
                 args, "mcts_aux_value_bonus", 0.0)),
-            "--fogless-ratio", str(max(0.0, min(1.0, getattr(
-                args, "fogless_ratio", 0.0)))),
-            "--midgame-ratio", str(max(0.0, min(1.0, getattr(
-                args, "midgame_ratio", 0.0)))),
+            "--fogless-ratio", str(getattr(args, "fogless_ratio", 0.0)),
+            "--midgame-ratio", str(getattr(args, "midgame_ratio", 0.0)),
+            "--ladder-ratio", str(getattr(args, "ladder_ratio", 1.0)),
             "--midgame-dataset", str(getattr(
                 args, "midgame_dataset", Path("replays_dataset"))),
             "--validate-export-every", str(getattr(
@@ -1131,6 +1134,7 @@ def run_iteration(
     drill_ratio:   float = 0.0,
     fogless_ratio: float = 0.0,
     midgame_ratio: float = 0.0,
+    ladder_ratio:  float = 1.0,
     midgame_dataset: Optional[Path] = None,
     game_log_dir: Optional[Path] = None,
     snapshot_sink: Optional[Callable[[Dict], None]] = None,
@@ -1201,21 +1205,23 @@ def run_iteration(
             policy._queue.extend(pool_exps)
     elif workers <= 0:
         # Serial path -- simplest, used for tests and smoke runs.
-        from tools.scenario_pool import random_setup
+        from tools.scenario_pool import random_setup, roll_mix
         for g_idx in range(games_per_iter):
+            cat = roll_mix(rng, midgame=midgame_ratio,
+                           mini=mini_ratio, drill=drill_ratio,
+                           fogless=fogless_ratio, ladder=ladder_ratio)
             setup = None
-            if midgame_ratio > 0 and rng.random() < midgame_ratio:
+            if cat == "midgame":
                 from tools.midgame_starts import sample_midgame_start
                 mg = sample_midgame_start(
                     rng, midgame_dataset or Path("replays_dataset"))
                 if mg is not None:
                     setup = ("__midgame__",) + mg
+                else:
+                    cat = "ladder"  # degraded sample -> regular game
             if setup is None:
                 setup = random_setup(rng, forced_faction=forced_faction,
-                                     mini_maps=mini_maps,
-                                     mini_ratio=mini_ratio,
-                                     drill_ratio=drill_ratio,
-                                     fogless_ratio=fogless_ratio)
+                                     mini_maps=mini_maps, category=cat)
             game_label = f"iter{iter_idx}_g{g_idx}"
             outcome = _play_one_game_safe(
                 setup=setup, max_turns=max_turns,
@@ -1254,6 +1260,7 @@ def run_iteration(
                     drill_ratio=drill_ratio,
                     fogless_ratio=fogless_ratio,
                     midgame_ratio=midgame_ratio,
+                    ladder_ratio=ladder_ratio,
                     midgame_dataset=midgame_dataset,
                 ),
                 daemon=True,
@@ -2245,31 +2252,35 @@ def main(argv: List[str]) -> int:
                          "can discover engagement before the "
                          "long-march cost dominates. See "
                          "scenario_pool.MINI_MAP_SCENARIO_IDS.")
+    # Training-mix ratios (2026-07-20 redesign): each is an ABSOLUTE
+    # fraction of ALL games -- one categorical roll per game, no
+    # cascading remainders. The five ratios (mini, drill, midgame,
+    # fogless, ladder) must sum to exactly 1 or startup errors.
     ap.add_argument("--mini-ratio", type=float, default=0.0,
-                    help="Fraction of games per iter that sample from "
-                         "the mini-maps pool (rest go to ladder). "
-                         "Range [0, 1]. Used to MIX mini and ladder "
-                         "in one run -- e.g. 0.3 = ~30%% mini for "
-                         "engagement gradient, 70%% ladder for the "
-                         "production distribution. Ignored when "
-                         "--mini-maps is also set (already 100%% "
-                         "mini). Default 0.0 = pure ladder.")
+                    help="Absolute fraction of all games sampled from "
+                         "the mini-maps pool (cheap engagement "
+                         "signal). Ignored when --mini-maps is set "
+                         "(already 100%% mini). All five *-ratio "
+                         "flags must sum to 1.")
     ap.add_argument("--drill-ratio", type=float, default=0.0,
-                    help="Fraction of games per iter that sample from "
+                    help="Absolute fraction of all games sampled from "
                          "the capability-drill pool (drill_duel / "
                          "drill_village_rush / drill_chokepoint -- "
-                         "see scenario_pool.DRILL_SCENARIO_IDS). "
-                         "Combines with --mini-ratio: one roll "
-                         "splits ladder/mini/drill, so the two "
-                         "ratios must sum to <= 1. Default 0.0.")
+                         "see scenario_pool.DRILL_SCENARIO_IDS).")
     ap.add_argument("--midgame-ratio", type=float, default=0.0,
-                    help="Fraction of games starting from a human-"
-                         "corpus MID-GAME position (uniform game, "
-                         "uniform turn in [1, end]) played out by "
-                         "self-play -- backward curriculum vs the "
-                         "never-meet stalemate equilibrium "
-                         "(2026-07-12). Requires the value corpus "
-                         "at --midgame-dataset.")
+                    help="Absolute fraction of all games starting "
+                         "from a human-corpus MID-GAME position "
+                         "(uniform game, uniform turn in [1, end]) "
+                         "played out by self-play -- backward "
+                         "curriculum vs the never-meet stalemate "
+                         "equilibrium (2026-07-12). Requires the "
+                         "value corpus at --midgame-dataset.")
+    ap.add_argument("--ladder-ratio", type=float, default=1.0,
+                    help="Absolute fraction of all games on the "
+                         "regular fogged ladder pool (the production "
+                         "distribution). Default 1.0 = pure fogged "
+                         "ladder; lower it explicitly when raising "
+                         "the other ratios so the five sum to 1.")
     ap.add_argument("--midgame-dataset", type=Path,
                     default=Path("replays_dataset"),
                     help="Value-corpus dir (index + json.gz games).")
@@ -2293,12 +2304,12 @@ def main(argv: List[str]) -> int:
                          "(iter_NNNNNN/games.jsonl). Pass an empty "
                          "string to disable.")
     ap.add_argument("--fogless-ratio", type=float, default=0.0,
-                    help="Fraction of LADDER-pool games played with "
-                         "fog of war OFF (mini/drill games always "
-                         "keep fog). Full-information games give the "
-                         "value head mutually-visible armies -- an "
-                         "engagement-learning aid. Range [0, 1]. "
-                         "Default 0.0 = all games fogged.")
+                    help="Absolute fraction of all games played on "
+                         "the ladder pool with fog of war OFF "
+                         "(mini/drill games always keep fog). "
+                         "Full-information games give the value head "
+                         "mutually-visible armies -- an engagement-"
+                         "learning aid.")
     # MCTS-mode flags. Default OFF: the existing REINFORCE path runs.
     # When --mcts is set, action selection runs an AlphaZero-style
     # tree search and the trainer minimizes CE against visit-count
@@ -2538,6 +2549,15 @@ def main(argv: List[str]) -> int:
                     help="JSON overriding the draw-tiebreak weights "
                          "(takes precedence over --draw-tiebreak-cap).")
     args = ap.parse_args(argv[1:])
+    # Mix guard (2026-07-20): the five category ratios are absolute
+    # proportions and must account for the full distribution.
+    from tools.scenario_pool import validate_mix
+    try:
+        validate_mix(midgame=args.midgame_ratio, mini=args.mini_ratio,
+                     drill=args.drill_ratio, fogless=args.fogless_ratio,
+                     ladder=args.ladder_ratio)
+    except ValueError as e:
+        ap.error(str(e))
     if args.game_log_dir is not None and str(args.game_log_dir) in ("", "."):
         args.game_log_dir = None
     if int(getattr(args, "validate_export_every", 0)) > 0:
@@ -2549,11 +2569,14 @@ def main(argv: List[str]) -> int:
     if float(getattr(args, "midgame_ratio", 0.0)) > 0:
         from tools.midgame_starts import midgame_available
         if not midgame_available(args.midgame_dataset):
-            log.warning(
-                f"--midgame-ratio {args.midgame_ratio} requested but no "
-                f"value corpus at {args.midgame_dataset} -- ALL games "
-                f"will be fresh starts (midgame_games column will read "
-                f"0).")
+            # Hard error since the 2026-07-20 absolute-mix redesign:
+            # silently degrading midgame games to fresh starts would
+            # falsify the requested distribution (2026-07-15 lesson:
+            # 56 min trained with midgame 0/0 on a warning nobody
+            # saw). Stage the corpus or zero the ratio.
+            ap.error(
+                f"--midgame-ratio {args.midgame_ratio} requested but "
+                f"no value corpus at {args.midgame_dataset}")
 
     logging.basicConfig(
         level=getattr(logging, args.log_level),
@@ -3074,12 +3097,18 @@ def main(argv: List[str]) -> int:
                       "(actors do not apply openers)"); return 2
         import atexit
         from tools.actor_pool import ActorPool
+        if float(args.midgame_ratio) > 0:
+            log.error("--actor-pool does not support --midgame-ratio "
+                      "(actors cannot splice midgame starts); fold "
+                      "its share into the other ratios")
+            return 2
         scenario_opts = dict(
             forced_faction=forced_faction_arg,
             mini_maps=args.mini_maps,
-            mini_ratio=max(0.0, min(1.0, float(args.mini_ratio))),
-            drill_ratio=max(0.0, min(1.0, float(args.drill_ratio))),
-            fogless_ratio=max(0.0, min(1.0, float(args.fogless_ratio))),
+            mini_ratio=float(args.mini_ratio),
+            drill_ratio=float(args.drill_ratio),
+            fogless_ratio=float(args.fogless_ratio),
+            ladder_ratio=float(args.ladder_ratio),
         )
         actor_pool = ActorPool(
             policy, args.actor_pool, mcts_cfg,
@@ -3161,10 +3190,11 @@ def main(argv: List[str]) -> int:
             workers=args.workers,
             forced_faction=forced_faction_arg,
             mini_maps=args.mini_maps,
-            mini_ratio=max(0.0, min(1.0, float(args.mini_ratio))),
-            drill_ratio=max(0.0, min(1.0, float(args.drill_ratio))),
-            fogless_ratio=max(0.0, min(1.0, float(args.fogless_ratio))),
-            midgame_ratio=max(0.0, min(1.0, float(args.midgame_ratio))),
+            mini_ratio=float(args.mini_ratio),
+            drill_ratio=float(args.drill_ratio),
+            fogless_ratio=float(args.fogless_ratio),
+            midgame_ratio=float(args.midgame_ratio),
+            ladder_ratio=float(args.ladder_ratio),
             midgame_dataset=args.midgame_dataset,
             game_log_dir=args.game_log_dir,
             snapshot_sink=(history_csv.append if history_csv else None),

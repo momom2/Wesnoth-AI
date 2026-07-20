@@ -229,7 +229,7 @@ def main(argv) -> int:
             )
         else:
             setup = random_setup(
-                rng, fogless_ratio=1.0 if args.fogless else 0.0)
+                rng, category="fogless" if args.fogless else "ladder")
         log.info(
             f"from-scratch setup: scenario={setup.scenario_id} "
             f"factions={setup.faction1} vs {setup.faction2} "

@@ -10,7 +10,7 @@ production: the spool directory is the seam between rollout and
 learning.
 
 Protocol:
-  - One game per loop: fresh random setup (mini/drill ratios from
+  - One game per loop: fresh random setup (absolute mix ratios from
     args), MCTS self-play via the production play_one_game, then the
     game's MCTSExperiences + GameOutcome are pickled ATOMICALLY
     (tmp + os.replace) to <spool>/game_<worker>_<n>.pkl.
@@ -28,7 +28,7 @@ Usage (normally spawned by sim_self_play --spool-workers):
     python tools/selfplay_worker.py --worker-id 0 \
         --checkpoint training/checkpoints/tier_a_campaign.pt \
         --spool-dir /workspace/spool --mcts-sims 32 \
-        --mini-ratio 0.5 --drill-ratio 0.3 --max-turns 200 \
+        --mini-ratio 0.2 --ladder-ratio 0.8 --max-turns 200 \
         --moves-left-utility 0.2 --seed 1234
 """
 
@@ -87,8 +87,10 @@ def main(argv) -> int:
     ap.add_argument("--checkpoint", type=Path, required=True)
     ap.add_argument("--spool-dir", type=Path, required=True)
     ap.add_argument("--mcts-sims", type=int, default=32)
-    ap.add_argument("--mini-ratio", type=float, default=0.5)
-    ap.add_argument("--drill-ratio", type=float, default=0.3)
+    # Mix ratios: ABSOLUTE fractions of all games; the five must sum
+    # to 1 (roll_mix validates). The parent passes all of them.
+    ap.add_argument("--mini-ratio", type=float, default=0.0)
+    ap.add_argument("--drill-ratio", type=float, default=0.0)
     ap.add_argument("--max-turns", type=int, default=200)
     ap.add_argument("--draw-tiebreak-cap", type=float, default=0.3)
     ap.add_argument("--train-draw-tiebreak", action="store_true",
@@ -98,6 +100,7 @@ def main(argv) -> int:
     ap.add_argument("--aux-value-bonus", type=float, default=0.0)
     ap.add_argument("--fogless-ratio", type=float, default=0.0)
     ap.add_argument("--midgame-ratio", type=float, default=0.0)
+    ap.add_argument("--ladder-ratio", type=float, default=1.0)
     ap.add_argument("--midgame-dataset", type=Path,
                     default=Path("replays_dataset"))
     ap.add_argument("--validate-export-every", type=int, default=100)
@@ -135,7 +138,8 @@ def main(argv) -> int:
 
     # Heavy imports AFTER thread cap.
     from tools.actor_pool import _zero_reward, _set_fd_safe_sharing
-    from tools.scenario_pool import build_scenario_gamestate, random_setup
+    from tools.scenario_pool import (build_scenario_gamestate,
+                                     random_setup, roll_mix)
     from tools.sim_self_play import _recruit_cost_lookup, play_one_game
     from wesnoth_sim import PvPDefaults, WesnothSim
 
@@ -181,15 +185,19 @@ def main(argv) -> int:
 
         setup = None
         midgame_cut = None
-        if args.midgame_ratio > 0 and rng.random() < args.midgame_ratio:
+        cat = roll_mix(rng, midgame=args.midgame_ratio,
+                       mini=args.mini_ratio, drill=args.drill_ratio,
+                       fogless=args.fogless_ratio,
+                       ladder=args.ladder_ratio)
+        if cat == "midgame":
             from tools.midgame_starts import sample_midgame_start
             mg = sample_midgame_start(rng, args.midgame_dataset)
             if mg is not None:
                 setup = ("__midgame__",) + mg
+            else:
+                cat = "ladder"  # degraded sample -> regular game
         if setup is None:
-            setup = random_setup(rng, mini_ratio=args.mini_ratio,
-                                 drill_ratio=args.drill_ratio,
-                                 fogless_ratio=args.fogless_ratio)
+            setup = random_setup(rng, category=cat)
         if isinstance(setup, tuple) and setup[0] == "__midgame__":
             _, gs, scen_id, midgame_cut, begin_side, mg_prov = setup
             sim = WesnothSim(gs, scenario_id=scen_id,

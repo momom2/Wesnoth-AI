@@ -1,5 +1,27 @@
 # Project review — bugs and improvements
 
+## 2026-07-20 — training mix: absolute proportions + sum-to-1 guard
+
+User redesign: the five game categories (midgame / mini / drill /
+fogless / ladder) are now ABSOLUTE fractions of all games — one
+categorical roll per game (`scenario_pool.roll_mix`) — replacing
+the old cascading semantics (midgame rolled first, mini/drill
+splitting the remainder, fogless a fraction of ladder games only).
+New `--ladder-ratio` flag (default 1.0) makes the regular-game
+share explicit; startup errors unless the five sum to exactly 1
+(`validate_mix`), and `--midgame-ratio` without a staged value
+corpus is now a hard error instead of a warning (2026-07-15
+lesson: 56 min trained on midgame 0/0 behind an unseen warning).
+`random_setup` takes the resolved `category=` instead of rolling
+internally; callers roll. Actor-pool rejects midgame explicitly
+(actors can't splice). Approved campaign mix, now the onstart
+defaults: **0.2 midgame / 0.2 mini / 0.2 fogless / 0.4 ladder /
+0 drill**. Docs/notebook example commands updated for the guard
+(profile_rollout's --mini-ratio is its own two-category knob,
+unguarded, unchanged). Distribution + guard tests in
+test_fogless_mixing.py; mixed smoke run verified all categories
+land and count correctly.
+
 ## 2026-07-20 — gold-bank + unused-MP watch metrics; export-test flake noted
 
 User watch metrics for the behaviors spotted in the demo replays
