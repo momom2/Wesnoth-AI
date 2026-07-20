@@ -330,6 +330,7 @@ nohup bash -c "
       --midgame-ratio ${MIDGAME_RATIO:-0.2} --fogless-ratio ${FOGLESS_RATIO:-0.2} \
       --ladder-ratio ${LADDER_RATIO:-0.4} \
       ${MAX_TURNS:+--max-turns $MAX_TURNS} \
+      --max-turns-min ${MAX_TURNS_MIN:-60} \
       --mcts-aux-score --mcts-moves-left \
       --mcts-moves-left-utility 0.2 \
       ${AUX_VALUE_BONUS:+--mcts-aux-value-bonus $AUX_VALUE_BONUS} \

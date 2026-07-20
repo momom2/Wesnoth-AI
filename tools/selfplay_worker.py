@@ -116,6 +116,9 @@ def main(argv) -> int:
     ap.add_argument("--fogless-ratio", type=float, default=0.0)
     ap.add_argument("--midgame-ratio", type=float, default=0.0)
     ap.add_argument("--ladder-ratio", type=float, default=1.0)
+    ap.add_argument("--max-turns-min", type=int, default=None,
+                    help="Per-game turn-cap jitter floor (see "
+                         "sim_self_play --max-turns-min).")
     ap.add_argument("--midgame-dataset", type=Path,
                     default=Path("replays_dataset"))
     ap.add_argument("--validate-export-every", type=int, default=100)
@@ -155,7 +158,9 @@ def main(argv) -> int:
     from tools.actor_pool import _zero_reward, _set_fd_safe_sharing
     from tools.scenario_pool import (build_scenario_gamestate,
                                      random_setup, roll_mix)
-    from tools.sim_self_play import _recruit_cost_lookup, play_one_game
+    from tools.sim_self_play import (_recruit_cost_lookup,
+                                    _roll_max_turns,
+                                    play_one_game)
     from wesnoth_sim import PvPDefaults, WesnothSim
 
     _set_fd_safe_sharing()
@@ -211,6 +216,7 @@ def main(argv) -> int:
 
         setup = None
         midgame_cut = None
+        mt = _roll_max_turns(rng, args.max_turns, args.max_turns_min)
         cat = roll_mix(rng, midgame=args.midgame_ratio,
                        mini=args.mini_ratio, drill=args.drill_ratio,
                        fogless=args.fogless_ratio,
@@ -227,7 +233,7 @@ def main(argv) -> int:
         if isinstance(setup, tuple) and setup[0] == "__midgame__":
             _, gs, scen_id, midgame_cut, begin_side, mg_prov = setup
             sim = WesnothSim(gs, scenario_id=scen_id,
-                             max_turns=args.max_turns,
+                             max_turns=mt,
                              apply_scenario_events=False,
                              begin_side=begin_side)
             sim._midgame_start = True
@@ -239,7 +245,7 @@ def main(argv) -> int:
                 village_upkeep=pvp.village_support,
                 experience_modifier=pvp.experience_modifier)
             sim = WesnothSim(gs, scenario_id=setup.scenario_id,
-                             max_turns=args.max_turns)
+                             max_turns=mt)
         label = f"w{args.worker_id}g{n}"
         ds_before = base._decision_step
         outcome = play_one_game(sim, policy, _zero_reward,

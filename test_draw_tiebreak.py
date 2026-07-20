@@ -59,7 +59,10 @@ def test_each_component_moves_the_score():
     base = _gs()
     assert draw_tiebreak_z(base, 1, CFG) == 0.0
     assert draw_tiebreak_z(_gs(villages=(2, 0)), 1, CFG) > 0.0
-    assert draw_tiebreak_z(_gs(gold=(140, 100)), 1, CFG) > 0.0
+    # BANKED gold must NOT move the score (weight_gold=0 since
+    # 2026-07-20: no MP carryover; gold-at-par taught hoarding --
+    # user decision, BACKLOG 2026-07-20). Units still score.
+    assert draw_tiebreak_z(_gs(gold=(140, 100)), 1, CFG) == 0.0
     assert draw_tiebreak_z(_gs(unit_costs=((20, 20), ())), 1, CFG) > 0.0
 
 

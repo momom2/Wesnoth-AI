@@ -246,3 +246,19 @@ def test_worker_ctl_exit_protocol(tmp_path):
     assert not _ctl_wants_exit(ctl, "cpu")        # already there
     ctl.write_text("garbage\n")
     assert not _ctl_wants_exit(ctl, "cuda")       # torn read ignored
+
+
+def test_max_turns_jitter_bounds_and_passthrough(tmp_path,
+                                                 monkeypatch):
+    """_roll_max_turns stays in [min, max] (anti-horizon-gaming,
+    2026-07-20) and the spool parent forwards --max-turns-min."""
+    import random
+    from tools.sim_self_play import _roll_max_turns
+    rng = random.Random(7)
+    draws = {_roll_max_turns(rng, 100, 60) for _ in range(300)}
+    assert min(draws) >= 60 and max(draws) <= 100
+    assert len(draws) > 20                    # actually jitters
+    assert _roll_max_turns(rng, 100, None) == 100     # off by default
+    assert _roll_max_turns(rng, 100, 100) == 100      # degenerate
+    sw, spawned, _ = _make_spool(tmp_path, monkeypatch)
+    assert "--max-turns-min" not in spawned[0].argv   # unset -> absent

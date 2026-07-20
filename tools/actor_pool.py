@@ -145,6 +145,7 @@ def _set_fd_safe_sharing() -> None:
 def _actor_loop(
     actor_id: int, ctrl_q, req_q, resp_q, result_q,
     mcts_cfg, scenario_opts: Dict, max_turns: int,
+    max_turns_min,
     pvp_kwargs: Optional[Dict], log_level: int, torch_threads: int,
 ) -> None:
     """Persistent actor process body. Builds a seam-backed MCTSPolicy
@@ -201,11 +202,13 @@ def _actor_loop(
                       if not k.endswith("_ratio")}
         try:
             for g in range(n_games):
+                from tools.sim_self_play import _roll_max_turns
+                mt = _roll_max_turns(rng, max_turns, max_turns_min)
                 cat = roll_mix(rng, **mix)
                 setup = random_setup(rng, category=cat, **setup_opts)
                 gl = f"iter{iter_idx}_a{actor_id}_g{g}"
                 outcome = _play_one_game_safe(
-                    setup=setup, max_turns=max_turns, pvp_defaults=pvp,
+                    setup=setup, max_turns=mt, pvp_defaults=pvp,
                     policy=policy, reward_fn=_zero_reward,
                     cost_lookup=cost_lookup, game_label=gl)
                 if outcome is not None:
@@ -242,6 +245,7 @@ class ActorPool:
     def __init__(
         self, policy, n_actors: int, mcts_cfg, *,
         scenario_opts: Optional[Dict] = None, max_turns: int = 60,
+        max_turns_min: Optional[int] = None,
         pvp_defaults=None, device: Optional[torch.device] = None,
         max_batch: Optional[int] = None, serve_timeout: float = 0.005,
         log_level: int = logging.WARNING, actor_torch_threads: int = 1,
@@ -255,6 +259,7 @@ class ActorPool:
         self._mcts_cfg = mcts_cfg
         self._scenario_opts = scenario_opts or {}
         self._max_turns = max_turns
+        self._max_turns_min = max_turns_min
         self._pvp_kwargs = (dict(pvp_defaults.__dict__)
                             if pvp_defaults is not None else None)
         self._device = device
@@ -291,6 +296,7 @@ class ActorPool:
                 args=(aid, self._ctrl_qs[aid], self._req_q,
                       self._resp_qs[aid], self._result_q, self._mcts_cfg,
                       self._scenario_opts, self._max_turns,
+                      self._max_turns_min,
                       self._pvp_kwargs, self._log_level,
                       self._actor_threads),
                 daemon=True, name=f"actor-{aid}")

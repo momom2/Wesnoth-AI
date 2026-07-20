@@ -854,6 +854,7 @@ def _worker_loop(
     midgame_ratio: float = 0.0,
     ladder_ratio: float = 1.0,
     midgame_dataset: Optional[Path] = None,
+    max_turns_min: Optional[int] = None,
 ):
     """Per-thread rollout loop. Each worker pulls a game index from
     `shared.next_game` (atomic under the master lock), assigns
@@ -886,7 +887,9 @@ def _worker_loop(
         game_label = (f"iter{shared['iter_idx']}_"
                       f"w{worker_id}_g{g_idx}")
         outcome = _play_one_game_safe(
-            setup=setup, max_turns=max_turns,
+            setup=setup,
+            max_turns=_roll_max_turns(worker_rng, max_turns,
+                                      max_turns_min),
             pvp_defaults=pvp_defaults, policy=policy,
             reward_fn=reward_fn, cost_lookup=cost_lookup,
             game_label=game_label,
@@ -917,6 +920,18 @@ TRAINER_VRAM_RESERVE_BYTES = 15 * 2**30
 # headroom drops below this margin. 2GiB ≈ 4x the largest observed
 # single-iteration peak growth -- see docs/design_constants.md.
 DEMOTION_HEADROOM_BYTES = 2 * 2**30
+
+
+def _roll_max_turns(rng, max_turns: int, max_turns_min=None) -> int:
+    """Per-game turn cap. With a min set, uniform in [min, max]:
+    anti-horizon-gaming (2026-07-20 user directive) -- a FIXED cap
+    let the policy learn to bank gold until a known last turn; a
+    jittered cap makes end-hoarding unreliable so material must be
+    converted as it accrues. Training paths only (eval/demo keep
+    fixed caps; the eval contract is unchanged)."""
+    if not max_turns_min or max_turns_min >= max_turns:
+        return max_turns
+    return rng.randint(max_turns_min, max_turns)
 
 
 def _assign_spool_devices(n: int, mode: str,
@@ -1023,6 +1038,8 @@ class SpoolWorkers:
             "--mini-ratio", str(args.mini_ratio),
             "--drill-ratio", str(args.drill_ratio),
             "--max-turns", str(args.max_turns),
+        ] + (["--max-turns-min", str(args.max_turns_min)]
+             if getattr(args, "max_turns_min", None) else []) + [
             "--draw-tiebreak-cap", str(max(0.0, args.draw_tiebreak_cap)),
             "--moves-left-utility", str(args.mcts_moves_left_utility),
             "--aux-value-bonus", str(getattr(
@@ -1231,6 +1248,7 @@ def run_iteration(
     fogless_ratio: float = 0.0,
     midgame_ratio: float = 0.0,
     ladder_ratio:  float = 1.0,
+    max_turns_min: Optional[int] = None,
     midgame_dataset: Optional[Path] = None,
     game_log_dir: Optional[Path] = None,
     snapshot_sink: Optional[Callable[[Dict], None]] = None,
@@ -1320,7 +1338,9 @@ def run_iteration(
                                      mini_maps=mini_maps, category=cat)
             game_label = f"iter{iter_idx}_g{g_idx}"
             outcome = _play_one_game_safe(
-                setup=setup, max_turns=max_turns,
+                setup=setup,
+                max_turns=_roll_max_turns(rng, max_turns,
+                                          max_turns_min),
                 pvp_defaults=pvp_defaults, policy=policy,
                 reward_fn=reward_fn, cost_lookup=cost_lookup,
                 game_label=game_label,
@@ -1358,6 +1378,7 @@ def run_iteration(
                     midgame_ratio=midgame_ratio,
                     ladder_ratio=ladder_ratio,
                     midgame_dataset=midgame_dataset,
+                    max_turns_min=max_turns_min,
                 ),
                 daemon=True,
                 name=f"selfplay-w{w}",
@@ -2168,6 +2189,14 @@ def main(argv: List[str]) -> int:
                          "no limit for normal PvP (most games end in "
                          "20-40 turns by leader-kill). The sim's "
                          "max_actions_per_side is the real safety net.")
+    ap.add_argument("--max-turns-min", type=int, default=None,
+                    help="Per-game turn-cap jitter: each training "
+                         "game's cap is drawn uniformly from "
+                         "[this, --max-turns] (anti-horizon-gaming, "
+                         "2026-07-20: a FIXED cap taught banking "
+                         "until a known last turn). Default None = "
+                         "fixed cap. Training only; eval/demo caps "
+                         "stay fixed.")
     ap.add_argument("--save-every", type=int, default=10,
                     help="Save checkpoint every N iterations.")
     ap.add_argument("--holdout-size", type=int, default=0,
@@ -2679,6 +2708,10 @@ def main(argv: List[str]) -> int:
                      ladder=args.ladder_ratio)
     except ValueError as e:
         ap.error(str(e))
+    if (args.max_turns_min is not None
+            and not (1 <= args.max_turns_min <= args.max_turns)):
+        ap.error(f"--max-turns-min {args.max_turns_min} outside "
+                 f"[1, --max-turns={args.max_turns}]")
     if args.game_log_dir is not None and str(args.game_log_dir) in ("", "."):
         args.game_log_dir = None
     if int(getattr(args, "validate_export_every", 0)) > 0:
@@ -3234,6 +3267,7 @@ def main(argv: List[str]) -> int:
         actor_pool = ActorPool(
             policy, args.actor_pool, mcts_cfg,
             scenario_opts=scenario_opts, max_turns=args.max_turns,
+            max_turns_min=args.max_turns_min,
             pvp_defaults=pvp_defaults, device=device,
             max_batch=(args.actor_max_batch or None),
             log_level=logging.getLogger().level)
@@ -3316,6 +3350,7 @@ def main(argv: List[str]) -> int:
             fogless_ratio=float(args.fogless_ratio),
             midgame_ratio=float(args.midgame_ratio),
             ladder_ratio=float(args.ladder_ratio),
+            max_turns_min=args.max_turns_min,
             midgame_dataset=args.midgame_dataset,
             game_log_dir=args.game_log_dir,
             snapshot_sink=(history_csv.append if history_csv else None),

@@ -23,13 +23,19 @@ turn-cap-terminal leaves (mcts._terminal_value), so what the
 search optimizes at the horizon is exactly what the value head
 learns.
 
-Scale rationale (defaults): gold and unit value get weight 0.05 so
-20 gold == 1 point == 1 village (a village yields 2 gold/turn plus
-upkeep support, i.e. a ~10-turn-horizon equivalence -- the standard
-folk valuation). `score_scale=5.0` means a 5-point lead (5 villages,
-or ~100 gold of army advantage) reaches tanh(1) ~ 76% of the cap.
-`cap=0.3` keeps the best possible draw far below a real win:
-the search must always prefer a leaderkill (+1) over any hoard.
+Scale rationale (defaults): unit value gets weight 0.05 so 20 gold
+WORTH OF UNITS == 1 point == 1 village (a village yields 2 gold/turn
+plus upkeep support, i.e. a ~10-turn-horizon equivalence -- the
+standard folk valuation). BANKED gold gets weight 0 (2026-07-20):
+MP Wesnoth has no carryover, so end-of-game gold is worthless in the
+real game, and pricing it at par with units made the margin
+indifferent between hoarding and recruiting -- measured to teach the
+prior 2.8x hoarding vs the SL baseline (BACKLOG 2026-07-20). Only
+units score; converting gold into army is strictly rewarded.
+`score_scale=5.0` means a 5-point lead (5 villages, or ~100 gold of
+army advantage) reaches tanh(1) ~ 76% of the cap. `cap=0.3` keeps
+the best possible draw far below a real win: the search must always
+prefer a leaderkill (+1) over any material lead.
 
 All knobs live in `configs/draw_tiebreak.json` (or any JSON passed
 via --draw-tiebreak-config); a modder can re-weight or disable
@@ -59,7 +65,14 @@ class DrawTiebreakConfig:
     # 20-village map -> ~0.10 (same order as the old per-village 0.20
     # but map-invariant). Derivation: docs/design_constants.md.
     weight_village:    float = 10.0
-    weight_gold:       float = 0.05
+    # weight_gold = 0 since 2026-07-20: banked gold is WORTHLESS in
+    # MP Wesnoth (no carryover), and pricing it equal to unit value
+    # made the margin indifferent between hoarding and recruiting --
+    # measured to teach the prior 2.8x hoarding vs the SL baseline
+    # (BACKLOG 2026-07-20; A/B in bank_ab). Units score, gold
+    # doesn't: conversion is now strictly rewarded. Mid-game gold's
+    # instrumental value is the value head's job to learn.
+    weight_gold:       float = 0.0
     weight_unit_value: float = 0.05
     score_scale:       float = 5.0
 

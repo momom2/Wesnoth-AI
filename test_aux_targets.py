@@ -45,7 +45,13 @@ def test_material_margin_is_uncapped_vs_draw_z():
     gs = sim.gs
     gs.sides[0].current_gold = 1000
     gs.sides[1].current_gold = 0
-    cfg = DrawTiebreakConfig(cap=0.3, score_scale=1.0)
+    # weight_gold is explicitly nonzero HERE because this test needs a
+    # deterministic huge material lead and gold is the easiest lever;
+    # the production default is 0 (banked gold scores nothing --
+    # 2026-07-20 hoarding fix, see DrawTiebreakConfig). The cap-vs-
+    # uncapped mechanics under test are driver-agnostic.
+    cfg = DrawTiebreakConfig(cap=0.3, score_scale=1.0,
+                             weight_gold=0.05)
     m = material_margin(gs, 1, cfg)
     z = draw_tiebreak_z(gs, 1, cfg)
     assert m > cfg.cap, f"uncapped margin should exceed the draw cap: {m}"
