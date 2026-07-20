@@ -139,6 +139,19 @@ def main(argv) -> int:
                     help="Play (and export) the game with fog of war "
                          "OFF -- the ladder pool's fogless condition "
                          "(ScenarioSetup.fogless).")
+    ap.add_argument("--mcts", action="store_true",
+                    help="SHOWCASE mode: drive both sides with full "
+                         "MCTS in the eval-contract configuration "
+                         "(MCTSConfig defaults = training crutches "
+                         "OFF, pure search over the checkpoint's own "
+                         "heads; identical to elo_ladder's "
+                         "'mcts:<sims>:<ckpt>' players). This is the "
+                         "project's play-quality-with-all-advantages "
+                         "view; the default (raw sampling) shows the "
+                         "bare prior instead. ~10-100x slower.")
+    ap.add_argument("--mcts-sims", type=int, default=32,
+                    help="Simulations per decision for --mcts "
+                         "(32 = training/eval convention).")
     ap.add_argument("--max-turns", type=int, default=40,
                     help="Per-game turn cap.")
     ap.add_argument("--seed", type=int, default=None,
@@ -272,6 +285,17 @@ def main(argv) -> int:
         d_ff=int(_arch.get("d_ff", 2048)),
     )
     policy.load_checkpoint(ckpt)
+    if args.mcts:
+        # Eval-contract search wrapper (mirrors tools/elo_ladder's
+        # 'mcts:' players): MCTSConfig defaults keep aux_value_bonus
+        # and draw_tiebreak OFF -- pure search strength, the
+        # convention our Elo numbers are measured under.
+        from tools.mcts import MCTSConfig
+        from tools.mcts_policy import MCTSPolicy
+        policy = MCTSPolicy(policy, mcts_config=MCTSConfig(
+            n_simulations=int(args.mcts_sims)))
+        log.info(f"MCTS showcase mode: {args.mcts_sims} sims/decision "
+                 f"(eval contract -- no training crutches)")
     log.info("running one game (this is headless -- progress in stderr)...")
     t0 = time.perf_counter()
     game_label = "demo"
@@ -284,7 +308,8 @@ def main(argv) -> int:
         # reforward sees later. See the contract in
         # `transformer_policy.select_action`'s docstring.
         pre_state = copy.deepcopy(sim.gs)
-        action = policy.select_action(pre_state, game_label=game_label)
+        action = policy.select_action(pre_state, game_label=game_label,
+                                      sim=sim)
         sim.step(action)
     # Drop any pending trajectory transitions so policy state stays
     # clean. observe(done=True) would normally close them; we don't
