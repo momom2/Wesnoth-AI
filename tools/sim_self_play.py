@@ -1462,13 +1462,13 @@ def run_iteration(
         "eng_first_contact_turn": _emean(
             lambda e: e.get("first_contact_turn")),
         "eng_scouted_frac": _emean(lambda e: _e2mean(e, "scouted_frac")),
-        "eng_unused_mp_frac": _emean(
-            lambda e: _e2mean(e, "unused_mp_frac")),
-        # Per-SIDE time-averaged bank gold (sampled at each of the
-        # side's end_turns) -- the gold-hoarding watch metric (user
-        # 2026-07-20). Kept per side, unlike the side-averaged
-        # fractions: hoarding asymmetry between the winner and loser
-        # is part of the signal.
+        # Per-SIDE watch metrics (user 2026-07-20). Kept per side,
+        # unlike the side-averaged fractions: asymmetry between the
+        # winner and loser is part of the signal.
+        "eng_unused_mp_s1": _emean(
+            lambda e: (e.get("unused_mp_frac") or {}).get(1)),
+        "eng_unused_mp_s2": _emean(
+            lambda e: (e.get("unused_mp_frac") or {}).get(2)),
         "eng_gold_bank_s1": _emean(
             lambda e: (e.get("gold_bank_mean") or {}).get(1)),
         "eng_gold_bank_s2": _emean(
@@ -1868,9 +1868,10 @@ class _TrainerHistoryCSV:
         "eng_advancements_pg",
         "eng_poison_cured_pg", "eng_poison_damage_pg",
         "eng_contact_rate", "eng_first_contact_turn",
-        "eng_scouted_frac", "eng_unused_mp_frac",
-        # Gold-hoarding watch (2026-07-20): per-side time-averaged
-        # treasury at the side's own end_turns.
+        "eng_scouted_frac",
+        # Per-side watch metrics (2026-07-20): unspent-MP fraction
+        # and time-averaged treasury at the side's own end_turns.
+        "eng_unused_mp_s1", "eng_unused_mp_s2",
         "eng_gold_bank_s1", "eng_gold_bank_s2",
         "eng_villages_frac", "eng_material_end_pg",
         "search_q_spread", "search_overturn_frac",
