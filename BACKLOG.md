@@ -1,5 +1,54 @@
 # Project review — bugs and improvements
 
+## 2026-07-20 — gold hoarding is LEARNED and REGRESSING; margin
+## indifference between gold and units is the prime suspect
+
+User observation (demo replays: under-recruiting) quantified, then
+traced. Data:
+
+- **A/B, raw policy, 8 shared fogged-ladder seeds, max_turns 40**
+  (scratchpad bank_ab.py): SL prior (supervised_5m_epoch3) bank
+  mean **35.7**, end gold 72, 25.5 recruits/game, 13.8 turns.
+  Campaign checkpoint (tier_a_campaign_20260719, ~2.79M decision
+  steps of self-play) bank mean **100.0** (2.8x), end gold 202,
+  FEWER recruits (21.9) despite LONGER games (19.9 turns); 2/8
+  games ran to the turn cap with banks of 245-317. Self-play has
+  taught the prior to hoard relative to human pretraining.
+- **Era trend, turns-matched fogged ladder** (per-game JSONL):
+  overnight final epoch 80.3 end gold (362 games, 27.3 turns) ->
+  today 91.0 (82 games, 25.7 turns), ~2.7 sigma. Regressing, not
+  plateaued. (Laptop era not length-comparable: 7.7-turn games.)
+- Search partially masks it: mcts-32 training games show fogged-
+  ladder bank ~42 vs the raw prior's ~100 -- the played games look
+  better than the prior actually is.
+
+**Mechanism hypothesis (code-cited, not yet ablation-proven):**
+`draw_tiebreak.material_margin` (draw_tiebreak.py:126) scores
+`weight_gold*(gold diff) + weight_unit_value*(unit-value diff)`
+with **weight_gold == weight_unit_value == 0.05** -- the margin is
+INDIFFERENT between banked gold and standing units. Converting
+gold to units gains nothing in margin terms but adds risk (units
+die; banked gold never does), so under margin pressure hoarding
+dominates. Two channels feed it into the policy: (1) the search
+draw-tiebreak (cap 0.3) directly rewards hoarded gold in every
+drawish line during self-play (draws/timeouts 15-25%% of games);
+(2) the aux margin head (aux_coef 0.15, --mcts-aux-score) trains
+the SHARED trunk on the same gold-counting margin every state.
+Note: MP Wesnoth has no gold carryover -- end-of-game gold is
+genuinely worthless in the real game, so weight_gold=0 (or well
+below unit value) is the Wesnoth-faithful terminal valuation; the
+instrumental value of mid-game gold should be learned by the value
+head from what gold BECOMES, not granted to the stock.
+
+**Options (user decision -- incentive design):** (a) weight_gold
+-> 0 or ~0.01 in DrawTiebreakConfig (both tiebreak + aux margin
+share it), keeping unit value 0.05, so conversion is rewarded;
+(b) exclude gold above a small float (e.g. >40) so working capital
+stays neutral but hoards score nothing; (c) fold into the planned
+incentive/horizon design discussion. Applying any change needs a
+box restart (config read at startup). Re-run bank_ab.py + watch
+eng_gold_bank_* to verify the fix bites.
+
 ## 2026-07-20 — reactive VRAM demotion (no more crash-then-retune)
 
 After the second trainer OOM in three days (both from the backward
