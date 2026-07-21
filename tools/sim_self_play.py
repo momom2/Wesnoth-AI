@@ -819,7 +819,15 @@ def _play_one_game_safe(
             policy.drop_pending(game_label)
             return None
     # Map pvp_defaults onto build_scenario_gamestate kwargs.
-    sg = (pvp_defaults.starting_gold if pvp_defaults else 100)
+    # starting_gold is NOT mapped (bugfix 2026-07-21): passing the
+    # PvP default overrode every scenario's own [side] gold= --
+    # minis designed for 50g trained on 100, Arcanclave's 175 got
+    # cut, drills designed around gold=0 fixed armies silently
+    # gained recruiting. Scenario settings are ground truth (user
+    # ruling); None = scenario value, 100 fallback for the many
+    # maps that specify none. The eval path (elo_ladder) was
+    # already scenario-first -- this also closes a train/eval gap.
+    sg = None
     bi = (pvp_defaults.base_income   if pvp_defaults else 2)
     vg = (pvp_defaults.village_gold  if pvp_defaults else 2)
     vu = (pvp_defaults.village_support if pvp_defaults else 1)

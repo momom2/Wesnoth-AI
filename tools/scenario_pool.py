@@ -648,6 +648,8 @@ def build_scenario_gamestate(
     # specifies gold=175; most maps don't, falling back to the
     # `starting_gold` arg or 100.
     side_gold: Dict[int, int] = {}
+    side_income: Dict[int, int] = {}   # [side] income= OFFSET (engine
+    #                                    adds it to the global base)
     side_pre_villages: Dict[int, List[Position]] = {}
     # Sides the ENGINE never gives a turn: controller=null parses to
     # an empty team, and playsingle_controller::skip_empty_sides
@@ -674,6 +676,17 @@ def build_scenario_gamestate(
         if "gold" in s.attrs:
             try:
                 side_gold[sn] = int(s.attrs["gold"])
+            except ValueError:
+                pass
+        # [side] income= is an OFFSET on the global base income, not
+        # a replacement: team.hpp (1.18.4) `base_income() { return
+        # info_.income + game_config::base_income; }`. Thousand
+        # Stings Garrison sets income=-2 (net 0 on the no-villages
+        # garrison map); ignoring it overpaid both sides 2/turn
+        # (found 2026-07-21 with the starting-gold override bug).
+        if "income" in s.attrs:
+            try:
+                side_income[sn] = int(s.attrs["income"])
             except ValueError:
                 pass
         # Pre-owned villages from [village] subblocks. Wesnoth
@@ -792,7 +805,7 @@ def build_scenario_gamestate(
             "faction": setup.faction1,
             "gold": _gold_for(1),
             "recruit": list(factions[setup.faction1].recruit),
-            "base_income": base_income,
+            "base_income": base_income + side_income.get(1, 0),
             "nb_villages_controlled": len(side_pre_villages.get(1, [])),
         },
         {
@@ -800,7 +813,7 @@ def build_scenario_gamestate(
             "faction": setup.faction2,
             "gold": _gold_for(2),
             "recruit": list(factions[setup.faction2].recruit),
-            "base_income": base_income,
+            "base_income": base_income + side_income.get(2, 0),
             "nb_villages_controlled": len(side_pre_villages.get(2, [])),
         },
     ]

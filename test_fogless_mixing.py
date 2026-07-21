@@ -129,3 +129,52 @@ def test_outcome_carries_fog_flag_and_village_metrics():
     out2 = play_one_game(sim2, mp, lambda d: 0.0, game_label="g2",
                          cost_lookup=cost)
     assert out2.fogless is True
+
+
+# ---------------------------------------------------------------------
+# Scenario-economy fidelity (2026-07-21 bugfixes): scenario [side]
+# gold= and income= are ground truth; nothing in the training path
+# may override them (user ruling: "scenarios were never meant to
+# start at a different value than the one specified").
+
+def test_scenario_gold_is_ground_truth():
+    from tools.scenario_pool import (ScenarioSetup,
+                                     build_scenario_gamestate)
+    s = ScenarioSetup(scenario_id="multiplayer_Arcanclave_Citadel",
+                      faction1="Rebels", leader1="Elvish Captain",
+                      faction2="Loyalists", leader2="Lieutenant",
+                      fogless=False, tod_start=1)
+    gs = build_scenario_gamestate(s)
+    assert [sd.current_gold for sd in gs.sides[:2]] == [175, 175]
+
+
+def test_side_income_offset_does_not_leak_across_sides():
+    """[side] income= is an OFFSET on game_config::base_income
+    (team.hpp 1.18.4: `base_income() { return info_.income +
+    game_config::base_income; }`) and is parsed per PLAYER side.
+    Thousand Stings Garrison's income=-2 sits on SIDE 3 (the
+    garrison) -- player sides must stay at the base 2. No current
+    ladder-pool map sets player-side income, so the offset
+    mechanism is dormant; this pins that side-3 attrs don't leak
+    and the default stays correct."""
+    from tools.scenario_pool import (ScenarioSetup,
+                                     build_scenario_gamestate)
+    s = ScenarioSetup(
+        scenario_id="multiplayer_Thousand_Stings_Garrison",
+        faction1="Rebels", leader1="Elvish Captain",
+        faction2="Loyalists", leader2="Lieutenant",
+        fogless=False, tod_start=1)
+    gs = build_scenario_gamestate(s)
+    assert [sd.base_income for sd in gs.sides[:2]] == [2, 2]
+
+
+def test_training_path_does_not_override_scenario_gold():
+    """_play_one_game_safe passed PvPDefaults.starting_gold=100 over
+    every scenario's own gold until 2026-07-21 (minis designed for
+    ~50g trained on 100; drills designed for gold=0 gained
+    recruiting). The mapping must stay None."""
+    import inspect
+    from tools import sim_self_play
+    src = inspect.getsource(sim_self_play._play_one_game_safe)
+    assert "sg = None" in src
+    assert "pvp_defaults.starting_gold" not in src

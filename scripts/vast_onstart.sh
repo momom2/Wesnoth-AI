@@ -308,6 +308,12 @@ echo "[onstart] training mix: midgame=${MIDGAME_RATIO:-0.2}" \
      "mini=${MINI_RATIO:-0.2} drill=${DRILL_RATIO:-0.0}" \
      "fogless=${FOGLESS_RATIO:-0.2} ladder=${LADDER_RATIO:-0.4}" \
      >> "$WORKDIR/train.log"
+# moves-left UTILITY parked indefinitely (user 2026-07-21, "the
+# training signal is already complicated enough"): the -0.2*Q*M
+# PUCT term made losing positions prefer dragging (draw-inflation
+# suspect). No --mcts-moves-left-utility flag -> default 0 = OFF.
+# The HEAD still trains (--mcts-moves-left, ~0.03% of gradient) as
+# telemetry only.
 # Supervised launch: relaunch on ordinary crashes (rc 1/2 -- OOM,
 # transient CUDA errors) with a 60s backoff, capped at 20 restarts
 # per onstart so a hard config bug can't burn the box all night
@@ -332,7 +338,6 @@ nohup bash -c "
       ${MAX_TURNS:+--max-turns $MAX_TURNS} \
       --max-turns-min ${MAX_TURNS_MIN:-60} \
       --mcts-aux-score --mcts-moves-left \
-      --mcts-moves-left-utility 0.2 \
       ${AUX_VALUE_BONUS:+--mcts-aux-value-bonus $AUX_VALUE_BONUS} \
       ${VALIDATE_EXPORT_EVERY:+--validate-export-every $VALIDATE_EXPORT_EVERY} \
       --value-label-smoothing 0.02 \

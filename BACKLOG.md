@@ -1,5 +1,21 @@
 # Project review — bugs and improvements
 
+## PARKED (user, 2026-07-21) — moves-left utility OFF, indefinitely
+
+The -0.2*Q*M PUCT term (mcts.py moves_left_utility) is disabled on
+the box (flag removed from vast_onstart; MCTSConfig default 0).
+Rationale: "the training signal is already complicated enough, I'd
+rather we reduce the number of ad hoc fixes" — and its
+drag-when-losing half was a draw-inflation suspect. Its original
+motivation (nothing priced time; 42/66 pre-rebuild eval games died
+to action caps) is stale post-movement-rebuild. The moves-left HEAD
+still trains (~0.03% of the gradient) as telemetry; drop it too if
+even that complication offends. Related capacity discussion queued:
+oracle mixture-of-experts (spare NN capacity with exact algorithms,
+e.g. the tactical oracle) vs net scaling — decide after the
+label-noise-fix leg shows whether holdout CE moves without a size
+change.
+
 ## IDEA (user, 2026-07-21) — tactical oracle: dominated-move detector
 
 Detect strictly suboptimal behavior by PERMUTING a turn's moves
