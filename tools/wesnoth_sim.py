@@ -422,7 +422,14 @@ class WesnothSim:
     # competitive 2p maps where a typical game ends in 20-40 turns and
     # ~150-300 player actions per side.
     DEFAULT_MAX_TURNS   = 80
-    DEFAULT_MAX_ACTIONS_PER_SIDE = 500
+    # 500 -> 2000 (2026-07-21, user-approved): at the measured ~11
+    # actions per side-turn of army-dense games, 500 imposed a hidden
+    # ~45-turn horizon INSIDE the legitimate 60-100 turn caps -- 21%
+    # of campaign games were truncated into z=0 "draws" while
+    # actively fighting (label noise on won/lost positions). 2000
+    # clears the worst legitimate game (~100 turns x ~11/side) with
+    # ~2x margin; it is a pure runaway guard again.
+    DEFAULT_MAX_ACTIONS_PER_SIDE = 2000
 
     def __init__(
         self,

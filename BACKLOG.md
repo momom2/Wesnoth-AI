@@ -1,5 +1,34 @@
 # Project review — bugs and improvements
 
+## IDEA (user, 2026-07-21) — tactical oracle: dominated-move detector
+
+Detect strictly suboptimal behavior by PERMUTING a turn's moves
+(and/or substituting alternatives) and checking whether some
+permutation dominates the played line under the sim (same moves,
+different order, strictly better expected outcome — attack before
+moving a blocker, heal before exposing, etc.). Add a reward penalty
+when the played line is strictly dominated — akin to how humans
+learn tactics from a stronger player pointing out concrete errors.
+Before enabling in the reward: run OBSERVE-ONLY and collect
+firing-rate data to calibrate (how often it fires, on what action
+classes, cost per decision, false-domination rate under combat
+stochasticity — "strictly dominated" needs care when outcomes are
+distributions). Existing plumbing that helps: the engagement event
+sink, the combat-outcomes DP (exact distributions for comparing
+lines), and the observe-mode pattern from the no-progress rule.
+
+## REVISIT (user, 2026-07-21) — drills, redesigned
+
+Current capability drills are wrong and cannot be used as-is (user
+verdict; one concrete defect found 2026-07-21: the training path's
+PvPDefaults gold override gave 100g to scenarios DESIGNED around
+gold=0 fixed armies, silently enabling recruiting on them — see the
+starting-gold entry). DRILL_RATIO stays 0. A refined version could
+still be useful later to teach specific mechanics — revisit with:
+per-drill custom victory/termination conditions, scenario-faithful
+economies, and a measured transfer test (does drill skill move
+ladder Elo?) before giving them mix share again.
+
 ## 2026-07-20 — gold hoarding is LEARNED and REGRESSING; margin
 ## indifference between gold and units is the prime suspect
 
