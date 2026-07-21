@@ -167,6 +167,11 @@ class GameOutcome:
     # None on outcomes from pre-telemetry producers (getattr-guard
     # all consumers).
     engagement: Optional[Dict] = None
+    # No-progress tracker readout (wesnoth_sim.noprogress_summary):
+    # max_quiet / tail_quiet / resumed_streaks -- collected on EVERY
+    # game so candidate stalemate-K values can be evaluated offline
+    # before enforcement (2026-07-21).
+    noprogress: Optional[Dict] = None
     villages_mean_s1: float = 0.0
     villages_mean_s2: float = 0.0
     villages_end_s1: int = 0
@@ -622,6 +627,8 @@ def play_one_game(
         fogless=not getattr(sim.gs.global_info, "_fog", True),
         midgame=getattr(sim, "_midgame_start", False),
         engagement=engagement,
+        noprogress=(sim.noprogress_summary()
+                    if hasattr(sim, "noprogress_summary") else None),
         villages_mean_s1=(sum(v[0] for v in village_turn_samples)
                           / len(village_turn_samples)
                           if village_turn_samples else 0.0),
@@ -768,7 +775,7 @@ def _gather_replay_pool(replay_pool: Path) -> List[Path]:
 
 def _play_one_game_safe(
     *, setup, max_turns, pvp_defaults, policy, reward_fn,
-    cost_lookup, game_label,
+    cost_lookup, game_label, no_progress_turns: int = 0,
 ) -> Optional[GameOutcome]:
     """Run one game end-to-end from a `ScenarioSetup` (random
     scenario + faction + leader picks). Catches exceptions, drops
@@ -791,7 +798,8 @@ def _play_one_game_safe(
             sim = WesnothSim(gs, scenario_id=scen_id,
                              max_turns=max_turns,
                              apply_scenario_events=False,
-                             begin_side=begin_side)
+                             begin_side=begin_side,
+                             no_progress_turns=no_progress_turns)
             sim._midgame_start = True
             sim._midgame_provenance = mg_prov
         except Exception as e:                        # noqa: BLE001
@@ -824,7 +832,8 @@ def _play_one_game_safe(
             experience_modifier=em,
         )
         sim = WesnothSim(gs, scenario_id=setup.scenario_id,
-                         max_turns=max_turns)
+                         max_turns=max_turns,
+                         no_progress_turns=no_progress_turns)
     except Exception as e:
         log.warning(f"skipping {setup.label()}: {e}")
         return None
@@ -855,6 +864,7 @@ def _worker_loop(
     ladder_ratio: float = 1.0,
     midgame_dataset: Optional[Path] = None,
     max_turns_min: Optional[int] = None,
+    no_progress_turns: int = 0,
 ):
     """Per-thread rollout loop. Each worker pulls a game index from
     `shared.next_game` (atomic under the master lock), assigns
@@ -892,7 +902,7 @@ def _worker_loop(
                                       max_turns_min),
             pvp_defaults=pvp_defaults, policy=policy,
             reward_fn=reward_fn, cost_lookup=cost_lookup,
-            game_label=game_label,
+            game_label=game_label, no_progress_turns=no_progress_turns,
         )
         if outcome is not None:
             with shared["lock"]:
@@ -1038,6 +1048,8 @@ class SpoolWorkers:
             "--mini-ratio", str(args.mini_ratio),
             "--drill-ratio", str(args.drill_ratio),
             "--max-turns", str(args.max_turns),
+            "--no-progress-turns", str(getattr(
+                args, "no_progress_turns", 0)),
         ] + (["--max-turns-min", str(args.max_turns_min)]
              if getattr(args, "max_turns_min", None) else []) + [
             "--draw-tiebreak-cap", str(max(0.0, args.draw_tiebreak_cap)),
@@ -1249,6 +1261,7 @@ def run_iteration(
     midgame_ratio: float = 0.0,
     ladder_ratio:  float = 1.0,
     max_turns_min: Optional[int] = None,
+    no_progress_turns: int = 0,
     midgame_dataset: Optional[Path] = None,
     game_log_dir: Optional[Path] = None,
     snapshot_sink: Optional[Callable[[Dict], None]] = None,
@@ -1344,6 +1357,7 @@ def run_iteration(
                 pvp_defaults=pvp_defaults, policy=policy,
                 reward_fn=reward_fn, cost_lookup=cost_lookup,
                 game_label=game_label,
+                no_progress_turns=no_progress_turns,
             )
             if outcome is not None:
                 outcomes.append(outcome)
@@ -1379,6 +1393,7 @@ def run_iteration(
                     ladder_ratio=ladder_ratio,
                     midgame_dataset=midgame_dataset,
                     max_turns_min=max_turns_min,
+                    no_progress_turns=no_progress_turns,
                 ),
                 daemon=True,
                 name=f"selfplay-w{w}",
@@ -1523,6 +1538,7 @@ def run_iteration(
                     "fogless": getattr(o, "fogless", False),
                     "midgame": getattr(o, "midgame", False),
                     "action_counts": o.action_counts,
+                    "noprogress": getattr(o, "noprogress", None),
                     "units_end": [o.side1_units_end, o.side2_units_end],
                     "closest_approach": [o.side1_closest_approach,
                                          o.side2_closest_approach],
@@ -2189,6 +2205,14 @@ def main(argv: List[str]) -> int:
                          "no limit for normal PvP (most games end in "
                          "20-40 turns by leader-kill). The sim's "
                          "max_actions_per_side is the real safety net.")
+    ap.add_argument("--no-progress-turns", type=int, default=0,
+                    help="Stalemate rule (chess 50-move analog, "
+                         "2026-07-21): end a game as a draw after N "
+                         "consecutive FULL turns with no objective "
+                         "progress (no damage, kill, recruit, or "
+                         "village-ownership change). 0 = rule off; "
+                         "the tracker still logs would-fire stats "
+                         "per game (games.jsonl 'noprogress').")
     ap.add_argument("--max-turns-min", type=int, default=None,
                     help="Per-game turn-cap jitter: each training "
                          "game's cap is drawn uniformly from "
@@ -3351,6 +3375,7 @@ def main(argv: List[str]) -> int:
             midgame_ratio=float(args.midgame_ratio),
             ladder_ratio=float(args.ladder_ratio),
             max_turns_min=args.max_turns_min,
+            no_progress_turns=int(args.no_progress_turns),
             midgame_dataset=args.midgame_dataset,
             game_log_dir=args.game_log_dir,
             snapshot_sink=(history_csv.append if history_csv else None),

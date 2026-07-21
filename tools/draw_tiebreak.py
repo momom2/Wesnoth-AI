@@ -23,19 +23,19 @@ turn-cap-terminal leaves (mcts._terminal_value), so what the
 search optimizes at the horizon is exactly what the value head
 learns.
 
-Scale rationale (defaults): unit value gets weight 0.05 so 20 gold
-WORTH OF UNITS == 1 point == 1 village (a village yields 2 gold/turn
-plus upkeep support, i.e. a ~10-turn-horizon equivalence -- the
-standard folk valuation). BANKED gold gets weight 0 (2026-07-20):
-MP Wesnoth has no carryover, so end-of-game gold is worthless in the
-real game, and pricing it at par with units made the margin
-indifferent between hoarding and recruiting -- measured to teach the
-prior 2.8x hoarding vs the SL baseline (BACKLOG 2026-07-20). Only
-units score; converting gold into army is strictly rewarded.
-`score_scale=5.0` means a 5-point lead (5 villages, or ~100 gold of
-army advantage) reaches tanh(1) ~ 76% of the cap. `cap=0.3` keeps
-the best possible draw far below a real win: the search must always
-prefer a leaderkill (+1) over any material lead.
+Scale rationale (defaults, re-derived 2026-07-21): BANKED gold gets
+weight 0 (2026-07-20): MP Wesnoth has no carryover, so end-of-game
+gold is worthless in the real game, and pricing it at par with units
+taught the prior 2.8x hoarding vs the SL baseline (BACKLOG
+2026-07-20) -- only units score, converting gold into army is
+strictly rewarded. Village and unit weights are calibrated to the
+MEASURED distribution of drawn games (medians: |dV|/total ~= 0.5,
+|d unit-gold| ~= 56): the previous weights put the median draw in
+tanh saturation, so differentials barely moved z; the current
+weights place it at score ~2 (tanh(0.4) ~= 38% of cap), the linear
+regime. `cap=0.3` keeps the best possible draw far below a real
+win: the search must always prefer a leaderkill (+1) over any
+material lead.
 
 All knobs live in `configs/draw_tiebreak.json` (or any JSON passed
 via --draw-tiebreak-config); a modder can re-weight or disable
@@ -60,11 +60,15 @@ class DrawTiebreakConfig:
     cap:               float = 0.3
     # Village term is Δvillages / MAP_TOTAL_VILLAGES (2026-07-12):
     # normalized so "half the map's villages" means the same signal
-    # on every map. weight_village=10 with score_scale=5 calibrates:
-    # half-map differential -> tanh(1.0) ~= 0.76; one village on a
-    # 20-village map -> ~0.10 (same order as the old per-village 0.20
-    # but map-invariant). Derivation: docs/design_constants.md.
-    weight_village:    float = 10.0
+    # on every map. De-saturation (2026-07-21, user directive):
+    # measured drawn-game medians under the previous weights
+    # (village=10 -> 5.0 pts, units=0.05 -> ~2.8 pts, score_scale 5)
+    # sat in tanh saturation -- differentials barely moved z.
+    # village/5 and units/3 put the median drawn game at score ~2
+    # (tanh(0.4) ~= 0.38 of cap, z ~= 0.11), the LINEAR regime, so
+    # the tiebreak now GRADES draws instead of clipping them.
+    # Derivation + measurements: docs/design_constants.md.
+    weight_village:    float = 2.0
     # weight_gold = 0 since 2026-07-20: banked gold is WORTHLESS in
     # MP Wesnoth (no carryover), and pricing it equal to unit value
     # made the margin indifferent between hoarding and recruiting --
@@ -73,7 +77,7 @@ class DrawTiebreakConfig:
     # doesn't: conversion is now strictly rewarded. Mid-game gold's
     # instrumental value is the value head's job to learn.
     weight_gold:       float = 0.0
-    weight_unit_value: float = 0.05
+    weight_unit_value: float = 0.016667   # = 0.05/3, de-saturation
     score_scale:       float = 5.0
 
     @classmethod

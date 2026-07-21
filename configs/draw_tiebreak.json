@@ -1,9 +1,9 @@
 {
   "_about": "Material tiebreaker for drawn games (MCTS value signal). A turn-cap draw scores cap*tanh((wv*dVillages + wg*dGold + wu*dUnitValue)/score_scale) from each side's perspective instead of a flat 0, so the value head gets gradient while the policy is too weak to win outright. See tools/draw_tiebreak.py for the full rationale.",
-  "_units": "weight_unit_value 0.05 => 20 gold-worth of units == 1 village == 1 point (village = 2g/turn + upkeep support, ~10-turn horizon). weight_gold 0 since 2026-07-20: banked gold is worthless in MP Wesnoth (no carryover) and pricing it at par with units taught the policy to hoard (2.8x the SL prior, BACKLOG 2026-07-20) -- only UNITS score, so converting gold is strictly rewarded. score_scale 5.0 => a 5-point lead reaches 76% of cap. cap 0.3 keeps any draw far below a real win (+1).",
+  "_units": "2026-07-21 de-saturation: weights calibrated to MEASURED drawn-game medians (|dV|/total ~0.5, |d unit-gold| ~56) so the median draw scores ~2 => tanh(0.4) ~= 38% of cap -- the LINEAR regime (old weights sat in tanh saturation; differentials barely moved z). weight_gold 0 since 2026-07-20: no MP carryover; gold-at-par taught hoarding (2.8x SL prior). cap 0.3 keeps any draw far below a real win (+1).",
   "cap": 0.3,
-  "weight_village": 10.0,
+  "weight_village": 2.0,
   "weight_gold": 0.0,
-  "weight_unit_value": 0.05,
+  "weight_unit_value": 0.016667,
   "score_scale": 5.0
 }

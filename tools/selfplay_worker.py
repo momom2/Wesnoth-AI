@@ -116,6 +116,7 @@ def main(argv) -> int:
     ap.add_argument("--fogless-ratio", type=float, default=0.0)
     ap.add_argument("--midgame-ratio", type=float, default=0.0)
     ap.add_argument("--ladder-ratio", type=float, default=1.0)
+    ap.add_argument("--no-progress-turns", type=int, default=0)
     ap.add_argument("--max-turns-min", type=int, default=None,
                     help="Per-game turn-cap jitter floor (see "
                          "sim_self_play --max-turns-min).")
@@ -235,6 +236,7 @@ def main(argv) -> int:
             sim = WesnothSim(gs, scenario_id=scen_id,
                              max_turns=mt,
                              apply_scenario_events=False,
+                             no_progress_turns=args.no_progress_turns,
                              begin_side=begin_side)
             sim._midgame_start = True
             sim._midgame_provenance = mg_prov
@@ -245,7 +247,8 @@ def main(argv) -> int:
                 village_upkeep=pvp.village_support,
                 experience_modifier=pvp.experience_modifier)
             sim = WesnothSim(gs, scenario_id=setup.scenario_id,
-                             max_turns=mt)
+                             max_turns=mt,
+                             no_progress_turns=args.no_progress_turns)
         label = f"w{args.worker_id}g{n}"
         ds_before = base._decision_step
         outcome = play_one_game(sim, policy, _zero_reward,

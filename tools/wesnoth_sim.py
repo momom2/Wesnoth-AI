@@ -375,7 +375,7 @@ class SimResult:
     turns:         int          # final turn number reached
     side1_actions: int          # how many actions side 1's policy emitted
     side2_actions: int
-    ended_by:      str          # 'leader_killed' | 'max_turns' | 'max_actions' | 'no_legal'
+    ended_by:      str          # 'leader_killed' | 'max_turns' | 'max_actions' | 'no_progress' | 'no_legal'
     trajectory:    List["SimStep"] = field(default_factory=list)
 
 
@@ -432,11 +432,25 @@ class WesnothSim:
         max_actions_per_side: int = DEFAULT_MAX_ACTIONS_PER_SIDE,
         apply_scenario_events: bool = True,
         begin_side: int = 1,
+        no_progress_turns: int = 0,
     ):
         self.gs = initial_state
         self.scenario_id = scenario_id
         self.max_turns = max_turns
         self.max_actions_per_side = max_actions_per_side
+        # No-progress stalemate rule (2026-07-21, chess 50-move-rule
+        # analog): a "progress event" is any objective state change --
+        # unit count changed (kill/recruit), net HP dropped (combat/
+        # poison damage), or village ownership changed. After
+        # `no_progress_turns` consecutive FULL turns without one, the
+        # game ends as a draw (ended_by='no_progress'). 0 = rule OFF;
+        # the TRACKER always runs (cheap fingerprint per step) so
+        # observe-mode data collects would-fire statistics.
+        self.no_progress_turns = int(no_progress_turns)
+        self._last_progress_turn = initial_state.global_info.turn_number
+        self._max_quiet = 0
+        self._quiet_resumed: list = []   # lengths of quiet streaks >=3
+        #                                  that ended with real progress
 
         # Wire scenario-specific events (time_area, store_locations,
         # Aethermaw morph, etc.) -- mirrors what replay_dataset does
@@ -563,6 +577,10 @@ class WesnothSim:
         out.scenario_id = self.scenario_id
         out.max_turns = self.max_turns
         out.max_actions_per_side = self.max_actions_per_side
+        out.no_progress_turns = self.no_progress_turns
+        out._last_progress_turn = self._last_progress_turn
+        out._max_quiet = 0
+        out._quiet_resumed = []
         out.done     = self.done
         out.winner   = self.winner
         out.ended_by = self.ended_by
@@ -706,8 +724,57 @@ class WesnothSim:
 
     def step(self, action: dict) -> bool:
         """Apply one action. Returns True if the game is over after
-        this step. The action dict is the same shape the policy
-        produces (see action_sampler.SampledAction.action)."""
+        this step. Wraps `_step_inner` with the no-progress tracker:
+        a cheap state fingerprint (unit count, total HP, village
+        ownership) taken before/after detects objective progress;
+        full quiet turns are counted at each turn increment and --
+        when `no_progress_turns` > 0 -- end the game as a stalemate
+        draw. Nested step() calls (move-to-attack pre-moves) run the
+        wrapper too; that is harmless (each level sees its own
+        delta)."""
+        if self.done:
+            return True
+        gi = self.gs.global_info
+        t0 = gi.turn_number
+        n0 = len(self.gs.map.units)
+        hp0 = sum(u.current_hp for u in self.gs.map.units)
+        vo0 = dict(getattr(gi, "_village_owner", None) or {})
+        over = self._step_inner(action)
+        gi = self.gs.global_info
+        progressed = (
+            len(self.gs.map.units) != n0
+            or sum(u.current_hp for u in self.gs.map.units) < hp0
+            or dict(getattr(gi, "_village_owner", None) or {}) != vo0)
+        if progressed:
+            quiet = max(0, gi.turn_number - self._last_progress_turn - 1)
+            if quiet >= 3:
+                self._quiet_resumed.append(quiet)
+            self._last_progress_turn = gi.turn_number
+        elif gi.turn_number > t0:
+            # A turn boundary passed without progress this step.
+            quiet = max(0, gi.turn_number - self._last_progress_turn - 1)
+            self._max_quiet = max(self._max_quiet, quiet)
+            if (self.no_progress_turns > 0 and not self.done
+                    and quiet >= self.no_progress_turns):
+                self.done = True
+                self.winner = 0
+                self.ended_by = "no_progress"
+                return True
+        return over
+
+    def noprogress_summary(self) -> dict:
+        """Per-game tracker readout for telemetry / offline
+        evaluation of candidate K values. `tail_quiet` is the quiet
+        streak the game ENDED on (never resumed)."""
+        tail = max(0, self.gs.global_info.turn_number
+                   - self._last_progress_turn - 1)
+        return {
+            "max_quiet": max(self._max_quiet, tail),
+            "tail_quiet": tail,
+            "resumed_streaks": list(self._quiet_resumed),
+        }
+
+    def _step_inner(self, action: dict) -> bool:
         if self.done:
             return True
 
