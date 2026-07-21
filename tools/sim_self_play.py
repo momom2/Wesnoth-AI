@@ -172,6 +172,9 @@ class GameOutcome:
     # game so candidate stalemate-K values can be evaluated offline
     # before enforcement (2026-07-21).
     noprogress: Optional[Dict] = None
+    # The game's ACTUAL turn cap (jittered per game since 2026-07-20;
+    # logged since 2026-07-21 -- capped-game analysis needed it).
+    max_turns: Optional[int] = None
     villages_mean_s1: float = 0.0
     villages_mean_s2: float = 0.0
     villages_end_s1: int = 0
@@ -629,6 +632,7 @@ def play_one_game(
         engagement=engagement,
         noprogress=(sim.noprogress_summary()
                     if hasattr(sim, "noprogress_summary") else None),
+        max_turns=getattr(sim, "max_turns", None),
         villages_mean_s1=(sum(v[0] for v in village_turn_samples)
                           / len(village_turn_samples)
                           if village_turn_samples else 0.0),
@@ -938,6 +942,30 @@ TRAINER_VRAM_RESERVE_BYTES = 15 * 2**30
 # headroom drops below this margin. 2GiB ≈ 4x the largest observed
 # single-iteration peak growth -- see docs/design_constants.md.
 DEMOTION_HEADROOM_BYTES = 2 * 2**30
+
+
+_GAME_LOG_RUN_ID: Optional[int] = None
+
+
+def _game_log_run_id(game_log_dir: Path) -> int:
+    """Stable per-PROCESS run number for game-log dirs
+    (iter_MMM_NNNNNN). First call scans existing run prefixes and
+    claims max+1; cached for the process lifetime. Old-format
+    unprefixed dirs (iter_NNNNNN) are ignored -- they never collide
+    with the new names."""
+    global _GAME_LOG_RUN_ID
+    if _GAME_LOG_RUN_ID is None:
+        import re
+        seen = [-1]
+        try:
+            for d in Path(game_log_dir).iterdir():
+                m = re.match(r"iter_(\d{3})_\d{6}$", d.name)
+                if m:
+                    seen.append(int(m.group(1)))
+        except OSError:
+            pass
+        _GAME_LOG_RUN_ID = max(seen) + 1
+    return _GAME_LOG_RUN_ID
 
 
 def _roll_max_turns(rng, max_turns: int, max_turns_min=None) -> int:
@@ -1529,9 +1557,13 @@ def run_iteration(
             f"{sum(1 for o in _mg_log if o.winner != 0)}/{len(_mg_log)}")
     # Per-game JSONL (2026-07-12 user spec): one directory PER
     # ITERATION so records stay browsable, one JSON line per game
-    # with the full engagement telemetry.
+    # with the full engagement telemetry. Directory names carry a
+    # per-PROCESS run number (iter_MMM_NNNNNN, user 2026-07-21):
+    # the in-process iteration counter restarts at 0 on every
+    # relaunch, so unprefixed dirs interleaved epochs and offline
+    # analysis had to segment appends by block size.
     if game_log_dir is not None and outcomes:
-        _dir = game_log_dir / f"iter_{iter_idx:06d}"
+        _dir = game_log_dir / f"iter_{_game_log_run_id(game_log_dir):03d}_{iter_idx:06d}"
         _dir.mkdir(parents=True, exist_ok=True)
         # NB json.dumps stringifies the engagement dicts' int side
         # keys ("1"/"2"); offline readers must not use int keys.
@@ -1547,6 +1579,7 @@ def run_iteration(
                     "midgame": getattr(o, "midgame", False),
                     "action_counts": o.action_counts,
                     "noprogress": getattr(o, "noprogress", None),
+                    "max_turns": getattr(o, "max_turns", None),
                     "units_end": [o.side1_units_end, o.side2_units_end],
                     "closest_approach": [o.side1_closest_approach,
                                          o.side2_closest_approach],
