@@ -1031,6 +1031,26 @@ def _scrape_map_keep_positions(map_data: str) -> Dict[int, Tuple[int, int]]:
     return out
 
 
+def _scrape_all_keep_tiles(map_data: str) -> set:
+    """All keep tiles (terrain code starting with 'K'), marked with a
+    side prefix or not, as WML 1-indexed (x, y). Recruits are legal
+    from ANY keep the leader occupies -- multi-keep maps (Arcanclave
+    Citadel etc.) have unmarked K* castles a leader can relocate to
+    (validator false positive found 2026-07-21)."""
+    keeps = set()
+    from tools.replay_dataset import split_map_grid
+    rows, border = split_map_grid(map_data)
+    for y_b, row in enumerate(rows):
+        for x_b, tile in enumerate(t.strip() for t in row.split(",")):
+            code = re.sub(r'^\d+\s+', '', tile)   # drop side marker
+            # Keep terrain codes start with 'K' (Kh, Kud, Kv...);
+            # overlay forms like 'Gg^K...' don't exist for keeps in
+            # 1.18 base terrains, so the prefix test suffices.
+            if code.startswith("K"):
+                keeps.add((x_b - border + 1, y_b - border + 1))
+    return keeps
+
+
 def _scrape_scenario_starting_gold(cfg_path: Path) -> Dict[int, int]:
     """Walk a `2p_*.cfg` for per-side `gold=N` attrs. Some scenarios
     (Arcanclave, Weldyn Channel) override the default 100 starting

@@ -12,7 +12,9 @@ lightweight unit-occupancy tracker — deliberately NOT our full sim,
 whose coordinate conventions are exactly what's under test:
 
   1. Leaders spawn on the map's `<N> K*` keep markers; every
-     [recruit]/[recall]'s [from] hex must BE the acting side's keep.
+     [recruit]/[recall]'s [from] hex must be A keep tile (any K*,
+     marked or not -- leaders may relocate to secondary keeps on
+     multi-keep maps like Arcanclave Citadel; 2026-07-21).
   2. Every [move]'s source hex must be occupied by a tracked unit
      (the first desync symptom is "move from an empty hex").
   3. Every [attack]'s [source] must be occupied.
@@ -37,7 +39,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from tools.replay_dataset import split_map_grid
 from tools.replay_extract import parse_replay_file
-from tools.sim_to_replay import _scrape_map_keep_positions
+from tools.sim_to_replay import (_scrape_all_keep_tiles,
+                                     _scrape_map_keep_positions)
 
 
 def _map_dims(map_data: str) -> Tuple[int, int]:
@@ -71,6 +74,12 @@ def validate_replay(path: Path) -> List[str]:
         return [f"{path.name}: no map_data in [scenario]"]
     width, height = _map_dims(map_data)
     keeps = _scrape_map_keep_positions(map_data)   # side -> WML (x,y)
+    # ALL keep tiles (marked or not): recruits are legal from ANY
+    # keep the leader stands on, not just the starting one --
+    # multi-keep maps like Arcanclave Citadel have unmarked K*
+    # castles a leader can relocate to (found 2026-07-21 via a
+    # false positive on a legitimate second-keep recruit).
+    all_keeps = _scrape_all_keep_tiles(map_data)   # set of WML (x,y)
 
     def in_bounds(x: int, y: int) -> bool:
         return 1 <= x <= width and 1 <= y <= height
@@ -136,11 +145,13 @@ def validate_replay(path: Path) -> List[str]:
                 frm = ch.first("from")
                 fx = _ints(frm.attrs.get("x", "0"))[0] if frm else 0
                 fy = _ints(frm.attrs.get("y", "0"))[0] if frm else 0
-                if side in keeps and (fx, fy) != keeps[side]:
+                if (fx, fy) not in all_keeps:
                     problems.append(
                         f"cmd#{n_cmd} [{ch.tag}] side {side} from "
-                        f"({fx},{fy}) but the map's keep is "
-                        f"{keeps[side]} — coordinate-frame mismatch")
+                        f"({fx},{fy}) which is not a keep tile "
+                        f"(starting keep {keeps.get(side)}) — "
+                        f"coordinate-frame mismatch or illegal "
+                        f"recruit hex")
                 if not in_bounds(x, y):
                     problems.append(
                         f"cmd#{n_cmd} [{ch.tag}] target ({x},{y}) out "
