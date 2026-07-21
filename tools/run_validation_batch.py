@@ -49,6 +49,24 @@ def _hf_pull(dest: Path, repo: str, token_file: Path) -> int:
         if not rf.startswith("validate_exports/"):
             continue
         rel = rf[len("validate_exports/"):]
+        if rel.startswith("bundles/") and rel.endswith(".tar"):
+            # Per-iteration replay bundle (full recording,
+            # 2026-07-21): extract the member replays into dest
+            # (members carry their category subdirs); a .done
+            # marker skips re-extraction on later pulls.
+            marker = dest / rel.replace(".tar", ".done")
+            if marker.exists():
+                continue
+            got = hf_hub_download(repo, rf, repo_type="model",
+                                  token=token)
+            import tarfile
+            with tarfile.open(got) as tf:
+                tf.extractall(dest, filter="data")
+                n_new += len(tf.getnames())
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.write_text("", encoding="ascii")
+            log.info(f"pulled + extracted {rel}")
+            continue
         out = dest / rel
         if out.exists():
             continue

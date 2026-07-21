@@ -102,14 +102,25 @@ def main() -> int:
             # local batch runner can pull and verify during the run.
             vdir = Path("training/validate_exports")
             if vdir.is_dir():
-                for f in sorted(vdir.rglob("*.bz2")):
+                # Per-iteration replay BUNDLES (full recording,
+                # 2026-07-21) plus any loose .bz2 stragglers. Loose
+                # files are transient under bundling (the learner
+                # tars + deletes them each iteration), so each
+                # upload gets its own try: a file vanishing mid-
+                # sweep must not abort the rest of the cycle.
+                sweep = sorted((vdir / "bundles").glob("*.tar")) +                     sorted(f for f in vdir.rglob("*.bz2")
+                           if "bundles" not in f.parts)
+                for f in sweep:
                     rel = f.relative_to(vdir).as_posix()
                     if rel in uploaded_validation:
                         continue
-                    api.upload_file(
-                        path_or_fileobj=str(f),
-                        path_in_repo=f"validate_exports/{rel}",
-                        repo_id=repo, repo_type="model")
+                    try:
+                        api.upload_file(
+                            path_or_fileobj=str(f),
+                            path_in_repo=f"validate_exports/{rel}",
+                            repo_id=repo, repo_type="model")
+                    except FileNotFoundError:
+                        continue      # bundled away mid-sweep
                     uploaded_validation.add(rel)
                     print(f"hf_upload_loop: validation export "
                           f"uploaded: {rel}", flush=True)

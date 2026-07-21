@@ -340,7 +340,7 @@ nohup bash -c "
       --max-turns-min ${MAX_TURNS_MIN:-60} \
       --mcts-aux-score \
       ${AUX_VALUE_BONUS:+--mcts-aux-value-bonus $AUX_VALUE_BONUS} \
-      ${VALIDATE_EXPORT_EVERY:+--validate-export-every $VALIDATE_EXPORT_EVERY} \
+      --validate-export-every ${VALIDATE_EXPORT_EVERY:-1} \
       --value-label-smoothing 0.02 \
       --holdout-size 512 --holdout-per-game-cap 64 \
       ${HUMAN_ANCHOR_FILE:+--human-anchor-file $HUMAN_ANCHOR_FILE} \

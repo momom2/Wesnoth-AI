@@ -262,3 +262,30 @@ def test_max_turns_jitter_bounds_and_passthrough(tmp_path,
     assert _roll_max_turns(rng, 100, 100) == 100      # degenerate
     sw, spawned, _ = _make_spool(tmp_path, monkeypatch)
     assert "--max-turns-min" not in spawned[0].argv   # unset -> absent
+
+
+def test_replay_bundling_tars_and_clears_loose_files(tmp_path,
+                                                     monkeypatch):
+    """Full replay recording (2026-07-21): each iteration tars the
+    loose per-category exports into bundles/ (HF file-count
+    guidelines) and removes the originals; bundles are never
+    re-bundled; run ids increment per process."""
+    import tarfile
+    import tools.sim_self_play as ssp
+    ed = tmp_path / "ve"
+    for cat, name in (("ladder", "a.bz2"), ("mini", "b.bz2")):
+        (ed / cat).mkdir(parents=True)
+        (ed / cat / name).write_bytes(b"x")
+    monkeypatch.setattr(ssp, "_BUNDLE_RUN_ID", None)
+    out = ssp._bundle_validation_exports(ed, 7)
+    assert out is not None and out.name == "replays_r000_i000007.tar"
+    with tarfile.open(out) as tf:
+        assert sorted(tf.getnames()) == ["ladder/a.bz2", "mini/b.bz2"]
+    assert not list((ed / "ladder").glob("*.bz2"))
+    # Nothing loose -> no new bundle; existing tar not re-bundled.
+    assert ssp._bundle_validation_exports(ed, 8) is None
+    # A new process claims the next run id.
+    monkeypatch.setattr(ssp, "_BUNDLE_RUN_ID", None)
+    (ed / "ladder" / "c.bz2").write_bytes(b"y")
+    out2 = ssp._bundle_validation_exports(ed, 0)
+    assert out2.name == "replays_r001_i000000.tar"

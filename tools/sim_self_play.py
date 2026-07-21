@@ -968,6 +968,60 @@ def _game_log_run_id(game_log_dir: Path) -> int:
     return _GAME_LOG_RUN_ID
 
 
+_BUNDLE_RUN_ID: Optional[int] = None
+
+
+def _bundle_validation_exports(export_dir: Optional[Path],
+                               iter_idx: int) -> Optional[Path]:
+    """Tar all LOOSE validation-export replays into one
+    per-iteration bundle under <export_dir>/bundles/ and remove the
+    loose files. Full replay recording (--validate-export-every 1,
+    user 2026-07-21) writes ~2k replays/day; as loose files that
+    blows HF's <10k-per-folder / <100k-per-repo guidance within
+    weeks, while one tar per iteration is ~40 files/day. Loose
+    .bz2s are complete on arrival (atomic tmp+os.replace in the
+    exporter), so tarring never sees partial files; replays landing
+    mid-tar simply ride the next bundle -- bundle names are a
+    sequence, not a strict game-set claim. Bundle run ids are
+    claimed like game-log run ids (max existing + 1 per process)."""
+    if export_dir is None:
+        return None
+    export_dir = Path(export_dir)
+    if not export_dir.is_dir():
+        return None
+    loose = sorted(f for f in export_dir.rglob("*.bz2")
+                   if "bundles" not in f.parts)
+    if not loose:
+        return None
+    bdir = export_dir / "bundles"
+    bdir.mkdir(parents=True, exist_ok=True)
+    global _BUNDLE_RUN_ID
+    if _BUNDLE_RUN_ID is None:
+        import re
+        seen = [-1]
+        for d in bdir.glob("replays_r*.tar"):
+            m = re.match(r"replays_r(\d{3})_i\d{6}\.tar$", d.name)
+            if m:
+                seen.append(int(m.group(1)))
+        _BUNDLE_RUN_ID = max(seen) + 1
+    out = bdir / f"replays_r{_BUNDLE_RUN_ID:03d}_i{iter_idx:06d}.tar"
+    tmp = bdir / (out.name + ".tmp")
+    import tarfile
+    try:
+        with tarfile.open(tmp, "w") as tf:
+            for f in loose:
+                tf.add(f, arcname=f.relative_to(export_dir).as_posix())
+        os.replace(tmp, out)
+    except OSError as e:
+        log.warning(f"replay bundling failed (iter {iter_idx}): {e}")
+        tmp.unlink(missing_ok=True)
+        return None
+    for f in loose:
+        f.unlink(missing_ok=True)
+    log.info(f"bundled {len(loose)} replays -> {out.name}")
+    return out
+
+
 def _roll_max_turns(rng, max_turns: int, max_turns_min=None) -> int:
     """Per-game turn cap. With a min set, uniform in [min, max]:
     anti-horizon-gaming (2026-07-20 user directive) -- a FIXED cap
@@ -3429,6 +3483,9 @@ def main(argv: List[str]) -> int:
         # policies (OpenerPolicy) and REINFORCE lack the method --
         # the probe simply isn't persisted there.
         getattr(policy, "maybe_persist_holdout", lambda: None)()
+        if VALIDATION_EXPORTER is not None:
+            _bundle_validation_exports(
+                getattr(args, "validate_export_dir", None), it)
         if not outcomes:
             consecutive_dead += 1
             if consecutive_dead >= DEAD_ITER_LIMIT:
