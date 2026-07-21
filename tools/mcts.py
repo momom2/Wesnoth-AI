@@ -565,6 +565,45 @@ class MCTSNode:
         self._bucket_copy_from: Optional["MCTSNode"] = None
 
 
+def tree_depth_stats(root: "MCTSNode") -> Tuple[int, float, int]:
+    """(max_depth, visit_weighted_depth, n_nodes) of a finished
+    search tree; root depth = 0.
+
+    `visit_weighted_depth` weights each non-root node's depth by its
+    incoming-edge visits and divides by total incoming visits -- an
+    "average lookahead" in ACTIONS (not turns: at ~7 actions per
+    side-turn, depth 7 is ~one own side-turn of lookahead). Answers
+    the standing question "how deep does MCTS actually search?"
+    (user 2026-07-21) -- visit counts concentrate depth near the
+    root, so max_depth alone flatters the search. Cost: one walk of
+    <= n_sims nodes per finished search; only called from the
+    per-decision diag hook."""
+    max_depth = 0
+    w_sum = 0.0
+    v_sum = 0
+    n_nodes = 1
+    stack = [(root, 0)]
+    seen = {id(root)}
+    while stack:
+        node, depth = stack.pop()
+        for e in node.edges:
+            for child in e.children.values():
+                if id(child) in seen:      # TT can alias subtrees
+                    continue
+                seen.add(id(child))
+                d = depth + 1
+                n_nodes += 1
+                max_depth = max(max_depth, d)
+                # Edge visits aggregate across outcomes; apportion
+                # to children by their own subtree visits + 1 (the
+                # +1 counts the visit that created the node).
+                cv = child._total_visits + 1
+                w_sum += d * cv
+                v_sum += cv
+                stack.append((child, d))
+    return max_depth, (w_sum / v_sum if v_sum else 0.0), n_nodes
+
+
 # ---------------------------------------------------------------------
 # Core operations
 # ---------------------------------------------------------------------

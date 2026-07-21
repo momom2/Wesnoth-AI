@@ -191,6 +191,14 @@ def test_outcome_engagement_end_to_end():
     assert e["search"] is not None
     assert 0.0 <= e["search"]["overturn_frac"] <= 1.0
     assert e["search"]["n_searches"] > 0
+    # Tree-shape / reuse / end_turn-context diagnostics (2026-07-21).
+    assert 0.0 <= e["search"]["reuse_frac"] <= 1.0
+    assert e["search"]["depth_max"] >= 1
+    assert 0.0 < e["search"]["depth_w_mean"] <= e["search"]["depth_max"]
+    assert e["search"]["nodes_mean"] > 1.0
+    # A finished game contains at least one chosen end_turn.
+    assert e["search"]["et_n"] > 0
+    assert 0.0 <= e["search"]["et_visit_frac_mean"] <= 1.0
 
 
 def test_first_contact_is_player_vs_player_only():

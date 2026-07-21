@@ -207,34 +207,98 @@ class MCTSPolicy:
         self._inference_model = base._inference_model
         self._inference_encoder = base._inference_encoder
 
-    def _note_search_diag(self, game_label, root, action) -> None:
+    def _note_search_diag(self, game_label, root, action,
+                          reused: bool = False) -> None:
         edges = getattr(root, "edges", None) or []
-        qs = [e.q_value for e in edges if e.n_visits > 0]
-        if len(qs) < 2 or action is None:
+        if action is None:
             return
-        import statistics as _st
-        spread = _st.pstdev(qs)
-        prior_best = max(edges, key=lambda e: e.prior)
-        # Actions are the edge dicts by identity (gumbel_action and
-        # best_action both return edge.action).
-        overturned = prior_best.action is not action
+        # Tree shape + reuse: recorded for EVERY decision (the
+        # spread/overturn pair below needs >= 2 visited edges).
+        # Depth is in ACTIONS; see tree_depth_stats.
+        from tools.mcts import tree_depth_stats
+        dmax, dw, nodes = tree_depth_stats(root)
+        # end_turn decision context (premature-end investigation,
+        # 2026-07-21): when the search CHOSE end_turn, how many own
+        # units still had MP, and how much prior/visit mass the
+        # end_turn edge held. gs is the root fork's decision state.
+        et_chosen = action.get("type") == "end_turn"
+        et_ctx = None
+        if et_chosen:
+            gs = root.sim.gs
+            side = gs.global_info.current_side
+            movable = sum(1 for u in gs.map.units
+                          if u.side == side and u.current_moves > 0)
+            unstruck = sum(1 for u in gs.map.units
+                           if u.side == side and not u.has_attacked)
+            et_edge = next((e for e in edges
+                            if e.action.get("type") == "end_turn"),
+                           None)
+            tot_v = sum(e.n_visits for e in edges) or 1
+            et_ctx = (movable, unstruck,
+                      et_edge.prior if et_edge else 0.0,
+                      (et_edge.n_visits / tot_v) if et_edge else 0.0)
+        qs = [e.q_value for e in edges if e.n_visits > 0]
+        spread = overturned = None
+        if len(qs) >= 2:
+            import statistics as _st
+            spread = _st.pstdev(qs)
+            prior_best = max(edges, key=lambda e: e.prior)
+            # Actions are the edge dicts by identity (gumbel_action
+            # and best_action both return edge.action).
+            overturned = prior_best.action is not action
         with self._lock:
             d = self._search_diag.setdefault(
-                game_label, {"n": 0, "spread_sum": 0.0, "overturns": 0})
-            d["n"] += 1
-            d["spread_sum"] += spread
-            d["overturns"] += 1 if overturned else 0
+                game_label,
+                {"n": 0, "spread_sum": 0.0, "overturns": 0,
+                 "n_all": 0, "reuse_hits": 0, "depth_max": 0,
+                 "depth_w_sum": 0.0, "nodes_sum": 0,
+                 "et_n": 0, "et_movable_sum": 0, "et_unstruck_sum": 0,
+                 "et_with_movable": 0, "et_prior_sum": 0.0,
+                 "et_visit_frac_sum": 0.0})
+            d["n_all"] += 1
+            d["reuse_hits"] += 1 if reused else 0
+            d["depth_max"] = max(d["depth_max"], dmax)
+            d["depth_w_sum"] += dw
+            d["nodes_sum"] += nodes
+            if et_ctx is not None:
+                movable, unstruck, et_p, et_vf = et_ctx
+                d["et_n"] += 1
+                d["et_movable_sum"] += movable
+                d["et_unstruck_sum"] += unstruck
+                d["et_with_movable"] += 1 if movable > 0 else 0
+                d["et_prior_sum"] += et_p
+                d["et_visit_frac_sum"] += et_vf
+            if spread is not None:
+                d["n"] += 1
+                d["spread_sum"] += spread
+                d["overturns"] += 1 if overturned else 0
 
     def pop_search_diag(self, game_label: str):
-        """Return {'n_searches','q_spread_mean','overturn_frac'} for
-        the game and clear its slot (None if nothing recorded)."""
+        """Per-game search diagnostics dict (games.jsonl
+        engagement.search); None if nothing recorded. Depth in
+        actions, et_* = end_turn decision context."""
         with self._lock:
             d = self._search_diag.pop(game_label, None)
-        if not d or not d["n"]:
+        if not d or not d["n_all"]:
             return None
-        return {"n_searches": d["n"],
-                "q_spread_mean": d["spread_sum"] / d["n"],
-                "overturn_frac": d["overturns"] / d["n"]}
+        out = {"n_searches": d["n_all"],
+               "reuse_frac": d["reuse_hits"] / d["n_all"],
+               "depth_max": d["depth_max"],
+               "depth_w_mean": d["depth_w_sum"] / d["n_all"],
+               "nodes_mean": d["nodes_sum"] / d["n_all"]}
+        if d["n"]:
+            out["q_spread_mean"] = d["spread_sum"] / d["n"]
+            out["overturn_frac"] = d["overturns"] / d["n"]
+        if d["et_n"]:
+            out["et_n"] = d["et_n"]
+            out["et_movable_mean"] = d["et_movable_sum"] / d["et_n"]
+            out["et_unstruck_mean"] = d["et_unstruck_sum"] / d["et_n"]
+            out["et_with_movable_frac"] = (
+                d["et_with_movable"] / d["et_n"])
+            out["et_prior_mean"] = d["et_prior_sum"] / d["et_n"]
+            out["et_visit_frac_mean"] = (
+                d["et_visit_frac_sum"] / d["et_n"])
+        return out
 
     # ------------------------------------------------------------------
     # Policy duck-type
@@ -340,7 +404,8 @@ class MCTSPolicy:
                     root, self._mcts_config.temperature, self._rng)
             else:
                 action = best_action(root)
-        self._note_search_diag(game_label, root, action)
+        self._note_search_diag(game_label, root, action,
+                               reused=reuse_root is not None)
         if action is None:
             # No legal action and no terminal — pathological state.
             # The base policy's select_action would have raised; we
