@@ -265,6 +265,18 @@ Wose strike: afternoon vs night). The controller attribute, not
 the armament, decides who acts: minis' tentacle sides are
 controller=ai and legitimately fight.
 
+**The converse holds too: a controller!=null side keeps its turn
+with ZERO living units.** `is_empty()` is the ONLY skip in the
+turn loop above -- there is no "no units left" branch. An ai side
+whose units all died still gets `[init_side]` + (no-op AI) +
+`[end_turn]` recorded every round to game end. Empirically
+confirmed 2026-07-21: exported tentacle-mini replays that dropped
+side 3 after extinction fail playback at exactly the first omitted
+turn ("received a synced [command] from side 1. Expacted was a
+[command] from side 3" + "found corrupt movement in replay").
+Both directions of the same census rule: WHO ACTS = declared
+controller attribute, never the live unit roster.
+
 ### Hidden-unit visibility: live adjacency + persistent UNCOVERED
 
 `wesnoth_src/src/units/unit.cpp:2596-2637` (`unit::invisible`):

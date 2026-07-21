@@ -964,24 +964,23 @@ class WesnothSim:
             # in MCTS forks too -- search must anticipate tentacle
             # retaliation.
             if side_now == 2 and not self.done:
-                from visibility import is_scenery_unit
-                # controller=null sides NEVER act: the engine's turn
-                # loop skips empty teams entirely
+                # Whether side 3 acts is decided by its CONTROLLER
+                # attribute, censused once at setup
+                # (_neutral_actor_sides = declared sides > 2 with
+                # controller != null), NEVER by a living-unit check:
+                # the engine's only turn-loop skip is
+                # team::is_empty() == controller=null
                 # (playsingle_controller.cpp:198-210
-                # skip_empty_sides), so emitting a sim turn (and its
-                # exported [init_side]) for one desynchronizes
-                # playback's turn counter and drifts ToD -- the
-                # 2026-07-19 Silverhead damage desync ("Nani the
-                # Shapeshifter" is an ARMED null-side tentacle).
-                # Minis' tentacle sides are controller=ai and keep
-                # their turn.
-                _null_sides = getattr(
-                    self.gs.global_info, "_null_controller_sides",
-                    None) or frozenset()
-                if any(u.side not in (1, 2)
-                       and u.side not in _null_sides
-                       and not is_scenery_unit(u)
-                       for u in self.gs.map.units):
+                # skip_empty_sides -- the 2026-07-19 Silverhead
+                # desync was emitting turns for such a side). An ai
+                # side keeps taking (possibly empty) turns after its
+                # last unit dies: gating on unit existence dropped
+                # side 3 from the rotation at tentacle extinction
+                # and every exported mini replay desynced there
+                # (2026-07-21 OOS, "Expacted was a [command] from
+                # side 3").
+                if getattr(self.gs.global_info,
+                           "_neutral_actor_sides", None):
                     from tools.neutral_ai import run_neutral_side_turn
                     run_neutral_side_turn(self, side=3)
                     if self.done and self.gs.global_info.current_side \

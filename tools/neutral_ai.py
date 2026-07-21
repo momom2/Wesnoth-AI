@@ -183,12 +183,14 @@ def run_neutral_side_turn(sim, side: int = 3) -> int:
     from classes import Position
 
     gs = sim.gs
-    combatants = [u for u in gs.map.units
-                  if u.side == side and not is_scenery_unit(u)]
-    if not combatants:
-        return 0
     # Side turn opens with init_side: healing (regenerate!), poison,
     # resting flags -- the same parity-verified loop players use.
+    # Emitted UNCONDITIONALLY: the engine gives every controller!=
+    # null side its turn even with zero living units, and playback
+    # expects the [init_side]/[end_turn] pair each round. An early
+    # return on "no combatants" dropped the pair after tentacle
+    # extinction -> OOS on every exported tentacle game that
+    # outlived its tentacles (2026-07-21).
     from tools.wesnoth_sim import RecordedCommand
     sim._apply_with_stats(["init_side", side])
     sim.command_history.append(RecordedCommand(

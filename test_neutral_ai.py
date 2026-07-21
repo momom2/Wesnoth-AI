@@ -76,6 +76,28 @@ def test_no_neutral_turn_without_side3_combatants():
     assert sim.gs.global_info.turn_number == 2
 
 
+def test_side3_turn_survives_tentacle_extinction():
+    """Side 3 must stay in the rotation after its last unit dies:
+    the engine's only turn-loop skip is controller=null, so playback
+    expects [init_side]3/[end_turn] every round to game end. The
+    old living-unit gate dropped side 3 at extinction and every
+    exported tentacle game that outlived its tentacles desynced
+    there (2026-07-21 OOS: 'Expacted was a [command] from side 3')."""
+    sim = _sim()
+    assert getattr(sim.gs.global_info, "_neutral_actor_sides",
+                   frozenset()) == frozenset({3})
+    for u in list(sim.gs.map.units):
+        if u.side == 3:
+            sim.gs.map.units.discard(u)
+    for _ in range(2):                       # two full rounds
+        sim.step({"type": "end_turn"})
+        sim.step({"type": "end_turn"})
+    s3 = [rc.kind for rc in sim.command_history if rc.side == 3]
+    assert s3 == ["init_side", "end_turn"] * 2
+    assert sim.gs.global_info.turn_number == 3
+    assert sim.gs.global_info.current_side == 1
+
+
 def test_rating_gate_declines_bad_fight():
     """A full-HP impact-resistant Steelclad next to a lone tentacle:
     ctk ~ 0, heavy retaliation -- rating <= 0, the tentacle idles

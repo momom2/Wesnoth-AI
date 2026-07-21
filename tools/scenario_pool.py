@@ -664,6 +664,13 @@ def build_scenario_gamestate(
     # night). Minis' tentacle sides declare controller=ai and keep
     # their turn.
     null_controller_sides: set = set()
+    # The converse census: extra sides that DO act. The engine's
+    # only turn-loop skip is team::is_empty() (= controller=null);
+    # any other declared side keeps its turn every round even after
+    # its last unit dies (2026-07-21 mini OOS: dropping side 3 at
+    # tentacle extinction desynced every exported tentacle game --
+    # playback errored "Expacted was a [command] from side 3").
+    neutral_actor_sides: set = set()
     for s in mp.all("side"):
         try:
             sn = int(s.attrs.get("side", "0"))
@@ -671,6 +678,8 @@ def build_scenario_gamestate(
             continue
         if s.attrs.get("controller", "").strip() == "null":
             null_controller_sides.add(sn)
+        elif sn not in (1, 2):
+            neutral_actor_sides.add(sn)
         if sn not in (1, 2):
             continue
         if "gold" in s.attrs:
@@ -872,4 +881,10 @@ def build_scenario_gamestate(
     if null_controller_sides:
         setattr(gs.global_info, "_null_controller_sides",
                 frozenset(null_controller_sides))
+    # Acting extra sides (controller != null, side > 2): the sim's
+    # neutral-turn gate keys on THIS static census, never on living
+    # units -- see the census comment at the [side] parse above.
+    if neutral_actor_sides:
+        setattr(gs.global_info, "_neutral_actor_sides",
+                frozenset(neutral_actor_sides))
     return gs
