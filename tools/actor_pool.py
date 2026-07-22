@@ -263,8 +263,9 @@ class ActorPool:
         pvp_defaults=None, device: Optional[torch.device] = None,
         max_batch: Optional[int] = None, serve_timeout: float = 0.005,
         log_level: int = logging.WARNING, actor_torch_threads: int = 1,
-        iteration_timeout: Optional[float] = 1800.0,
+        iteration_timeout: Optional[float] = 3600.0,
         liveness_interval: float = 2.0,
+        serve_threads: int = 2,
     ):
         if n_actors < 1:
             raise ValueError("n_actors must be >= 1")
@@ -296,6 +297,12 @@ class ActorPool:
         # reporting done.
         self._iteration_timeout = iteration_timeout
         self._liveness_interval = liveness_interval
+        # Serving threads (2026-07-22): >1 overlaps one thread's
+        # wire/put with another's encode+forward. The default 1800s
+        # iteration timeout also rose to 3600 -- at production game
+        # lengths (cap 2000 actions, 100 turns) 1800s truncated the
+        # first box bench 28/48 games in.
+        self._serve_threads = max(1, int(serve_threads))
         self._started = False
 
     # -- lifecycle ----------------------------------------------------
@@ -372,71 +379,113 @@ class ActorPool:
         experiences: List = []
         outstanding = set(range(self._n))   # actors not yet _R_DONE
         total_decisions = 0                 # summed across actors this iter
-        served = 0
         t_start = time.monotonic()
         last_liveness = t_start
+
+        # Serving runs in dedicated threads (2026-07-22: the single-
+        # threaded serve loop capped the box at ~243 leaves/s with the
+        # GPU at 50%). Each thread owns the full get -> coalesce ->
+        # infer -> wire -> put chain; numpy/torch stages release the
+        # GIL, so N threads overlap one thread's serialization with
+        # another's encode+forward. Per-stage timers are accumulated
+        # and logged at iteration end so the bottleneck stays visible.
+        stop_ev = threading.Event()
+        serve_stats: List[Dict] = []
+        servers = [threading.Thread(
+            target=self._serve_worker, args=(stop_ev, serve_stats),
+            daemon=True, name=f"serve-{i}")
+            for i in range(self._serve_threads)]
+        for th in servers:
+            th.start()
+
         while outstanding:
-            # 1) Drain results (non-blocking).
-            while True:
-                try:
-                    kind, aid, payload = self._result_q.get_nowait()
-                except _queue.Empty:
-                    break
-                if kind == _R_OUTCOME:
-                    outcomes.append(payload)
-                elif kind == _R_EXPS:
-                    # Each _R_EXPS payload is ONE GAME's experiences
-                    # (actors ship per game) -- exactly the granularity
-                    # the learner's holdout probe needs. Offer the
-                    # whole game; only train on it if not diverted.
-                    offer = getattr(self._policy, "offer_holdout_game",
-                                    None)
-                    if offer is None or not offer(payload):
-                        experiences.extend(payload)
-                elif kind == _R_DONE:
-                    outstanding.discard(aid)
-                    total_decisions += int(payload or 0)
-                elif kind == _R_ERROR:
-                    log.error(f"actor {aid} error:\n{payload}")
+            # Drain results; blocking with a short timeout (serving no
+            # longer happens on this thread, so waiting here is free).
+            try:
+                kind, aid, payload = self._result_q.get(timeout=0.2)
+            except _queue.Empty:
+                kind = None
+            if kind == _R_OUTCOME:
+                outcomes.append(payload)
+            elif kind == _R_EXPS:
+                # Each _R_EXPS payload is ONE GAME's experiences
+                # (actors ship per game) -- exactly the granularity
+                # the learner's holdout probe needs. Offer the
+                # whole game; only train on it if not diverted.
+                offer = getattr(self._policy, "offer_holdout_game",
+                                None)
+                if offer is None or not offer(payload):
+                    experiences.extend(payload)
+            elif kind == _R_DONE:
+                outstanding.discard(aid)
+                total_decisions += int(payload or 0)
+            elif kind == _R_ERROR:
+                log.error(f"actor {aid} error:\n{payload}")
             if not outstanding:
                 break
-            # 2) Serve one batch of inference requests.
+            now = time.monotonic()
+            if (self._iteration_timeout is not None
+                    and now - t_start > self._iteration_timeout):
+                log.error(
+                    f"iter {iter_idx}: wall-clock deadline "
+                    f"({self._iteration_timeout:.0f}s) exceeded with "
+                    f"actors {sorted(outstanding)} still outstanding; "
+                    f"abandoning the iteration with partial results "
+                    f"({len(outcomes)} games, {len(experiences)} exps).")
+                break
+            if now - last_liveness > self._liveness_interval:
+                last_liveness = now
+                dead = {aid for aid in outstanding
+                        if not self._procs[aid].is_alive()}
+                if dead:
+                    for aid in sorted(dead):
+                        log.error(
+                            f"iter {iter_idx}: actor {aid} died without "
+                            f"reporting done (exitcode="
+                            f"{self._procs[aid].exitcode}); dropping it.")
+                    outstanding -= dead
+
+        stop_ev.set()
+        for th in servers:
+            th.join(timeout=10.0)
+        # Advance the global anneal counter by the decisions generated this
+        # iteration (sum across actors), so the combat-oracle bias keeps
+        # annealing across the campaign instead of freezing at ds0.
+        self._advance_decision_step(total_decisions)
+        agg = {k: sum(s[k] for s in serve_stats)
+               for k in ("wait", "infer", "wire", "put",
+                         "leaves", "batches")} if serve_stats else {}
+        served = int(agg.get("leaves", 0))
+        elapsed = max(1e-9, time.monotonic() - t_start)
+        if agg.get("batches"):
+            log.info(
+                f"iter {iter_idx}: serve stages ({self._serve_threads} "
+                f"threads): wait={agg['wait']:.1f}s "
+                f"infer={agg['infer']:.1f}s wire={agg['wire']:.1f}s "
+                f"put={agg['put']:.1f}s leaves/batch="
+                f"{agg['leaves'] / agg['batches']:.1f} "
+                f"throughput={served / elapsed:.0f} leaves/s")
+        log.info(f"iter {iter_idx}: pool served {served} forwards, "
+                 f"{len(outcomes)} games, {len(experiences)} experiences, "
+                 f"decision_step {ds0} -> {self._global_decision_step()}")
+        return outcomes, experiences
+
+    def _serve_worker(self, stop_ev, stats_out: List[Dict]) -> None:
+        """One serving thread: get -> coalesce to max_batch leaves ->
+        encode+forward -> wire-serialize -> reply. Stage times are
+        accumulated locally (no locks on the hot path) and appended
+        to `stats_out` on exit."""
+        from tools.inference_seam import output_to_wire
+        st = {"wait": 0.0, "infer": 0.0, "wire": 0.0, "put": 0.0,
+              "leaves": 0, "batches": 0}
+        while not stop_ev.is_set():
+            t0 = time.monotonic()
             batch = []
             try:
                 batch.append(self._req_q.get(timeout=self._serve_timeout))
             except _queue.Empty:
-                # No requests in flight. This is the only place the loop
-                # can idle, so run the watchdog here (throttled).
-                now = time.monotonic()
-                if (self._iteration_timeout is not None
-                        and now - t_start > self._iteration_timeout):
-                    log.error(
-                        f"iter {iter_idx}: wall-clock deadline "
-                        f"({self._iteration_timeout:.0f}s) exceeded with "
-                        f"actors {sorted(outstanding)} still outstanding; "
-                        f"abandoning the iteration with partial results "
-                        f"({len(outcomes)} games, {len(experiences)} exps).")
-                    break
-                if now - last_liveness > self._liveness_interval:
-                    last_liveness = now
-                    dead = {aid for aid in outstanding
-                            if not self._procs[aid].is_alive()}
-                    if dead:
-                        for aid in sorted(dead):
-                            log.error(
-                                f"iter {iter_idx}: actor {aid} died without "
-                                f"reporting done (exitcode="
-                                f"{self._procs[aid].exitcode}); dropping it.")
-                        outstanding -= dead
-                        if not outstanding:
-                            break
+                st["wait"] += time.monotonic() - t0
                 continue
-            # Requests are batch-granular: each message carries one
-            # forward_batch's worth of raws. Coalesce messages until
-            # ~max_batch LEAVES are in hand, run ONE model batch over
-            # the concatenation, and answer each request with its
-            # slice (wire-serialized numpy -- see _IPCInferenceClient).
-            from tools.inference_seam import output_to_wire
             n_leaves = sum(len(it[2]) for it in batch)
             while n_leaves < self._max_batch:
                 try:
@@ -445,23 +494,25 @@ class ActorPool:
                     break
                 batch.append(it)
                 n_leaves += len(it[2])
+            t1 = time.monotonic()
             flat = [r for (_a, _r, raws) in batch for r in raws]
             outs = self._server.infer_batch(flat)
+            t2 = time.monotonic()
             wires = [output_to_wire(o) for o in outs]
+            t3 = time.monotonic()
             i = 0
             for (aid, rid, raws) in batch:
                 k = len(raws)
                 self._resp_qs[aid].put((rid, wires[i:i + k]))
                 i += k
-            served += len(flat)
-        # Advance the global anneal counter by the decisions generated this
-        # iteration (sum across actors), so the combat-oracle bias keeps
-        # annealing across the campaign instead of freezing at ds0.
-        self._advance_decision_step(total_decisions)
-        log.info(f"iter {iter_idx}: pool served {served} forwards, "
-                 f"{len(outcomes)} games, {len(experiences)} experiences, "
-                 f"decision_step {ds0} -> {self._global_decision_step()}")
-        return outcomes, experiences
+            t4 = time.monotonic()
+            st["wait"] += t1 - t0
+            st["infer"] += t2 - t1
+            st["wire"] += t3 - t2
+            st["put"] += t4 - t3
+            st["leaves"] += len(flat)
+            st["batches"] += 1
+        stats_out.append(st)
 
     def shutdown(self, timeout: float = 15.0) -> None:
         if not self._started:
