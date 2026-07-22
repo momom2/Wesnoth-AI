@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import logging
 import multiprocessing as mp
+import os
 import queue as _queue
 import random
 import threading
@@ -147,6 +148,17 @@ def _actor_loop(
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
     torch.set_num_threads(max(1, torch_threads))
     _set_fd_safe_sharing()
+    # Deprioritize actors below the central server (POSIX only;
+    # no-op elsewhere). 2026-07-22 diagnosis: 44 actors saturating
+    # all cores scheduler-starved the server's host-side work to
+    # ~11.9ms/leaf when the same path runs at 1.1ms/leaf on an idle
+    # box -- every actor blocks on the server, so the server MUST
+    # win CPU contention or the whole fleet idles at its starved
+    # rate.
+    try:
+        os.nice(5)
+    except (AttributeError, OSError):
+        pass
 
     # Heavy imports happen here (post-spawn), not at module import time.
     from tools.inference_seam import RemoteEncoder, RemoteModel
