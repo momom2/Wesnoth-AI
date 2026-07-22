@@ -97,6 +97,33 @@ def test_output_wire_roundtrip_is_lossless():
     assert not any(torch.is_tensor(v) for _tag, v in w.values())
 
 
+def test_batched_outputs_to_cpu_matches_per_sample():
+    """The coalesced one-transfer-per-field path (2026-07-22, the
+    9xB-serialized-syncs fix) must be byte-identical to per-sample
+    move_model_output — values, shapes, dtypes — across samples of
+    DIFFERENT shapes (that's the case the flatten-cat-split must
+    get right)."""
+    from tools.inference_seam import (batched_outputs_to_cpu,
+                                      move_model_output)
+    pol = _policy()
+    enc, mdl, server, renc, rmodel = _seam(pol)
+    sims = _states(3)
+    raws = [renc.encode(s.gs)._raw for s in sims]
+    with torch.no_grad():
+        encs = enc.encode_from_raw_batch(raws)
+        outs = mdl.forward_batch(encs)
+    ref = [move_model_output(o, torch.device("cpu")) for o in outs]
+    got = batched_outputs_to_cpu(outs)
+    assert len(ref) == len(got)
+    import dataclasses
+    for r, g in zip(ref, got):
+        _assert_outputs_match(r, g)
+        for f in dataclasses.fields(r):
+            a, b = getattr(r, f.name), getattr(g, f.name)
+            if torch.is_tensor(a):
+                assert a.shape == b.shape and a.dtype == b.dtype
+
+
 def test_single_forward_parity():
     pol = _policy()
     enc, mdl, server, renc, rmodel = _seam(pol)

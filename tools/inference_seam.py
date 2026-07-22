@@ -72,6 +72,39 @@ def move_model_output(out: ModelOutput, device: torch.device) -> ModelOutput:
     return type(out)(**kw)
 
 
+def batched_outputs_to_cpu(outs: List[ModelOutput]) -> List[ModelOutput]:
+    """Move a whole batch of (device-resident) ModelOutputs to CPU
+    with ONE device->host transfer per tensor FIELD: per field,
+    flatten every sample's tensor to 1D, cat on-device (one kernel),
+    one .cpu(), then split+reshape host-side (shapes/dtypes are
+    per-sample and preserved; a field is same-dtype across samples).
+    Semantically identical to per-sample move_model_output -- pinned
+    by test_batched_outputs_to_cpu_matches_per_sample -- but 9
+    transfers per batch instead of 9xB serialized syncs."""
+    if not outs:
+        return []
+    cpu = torch.device("cpu")
+    fields = dataclasses.fields(outs[0])
+    tensor_names = [f.name for f in fields
+                    if torch.is_tensor(getattr(outs[0], f.name))]
+    per_field: Dict[str, List[torch.Tensor]] = {}
+    for name in tensor_names:
+        ts = [getattr(o, name) for o in outs]
+        shapes = [t.shape for t in ts]
+        flat = torch.cat([t.reshape(-1) for t in ts]).to(cpu)
+        parts = flat.split([t.numel() for t in ts])
+        per_field[name] = [p.reshape(s) for p, s in zip(parts, shapes)]
+    rebuilt = []
+    for i, o in enumerate(outs):
+        kw = {}
+        for f in fields:
+            v = getattr(o, f.name)
+            kw[f.name] = (per_field[f.name][i]
+                          if f.name in per_field else v)
+        rebuilt.append(type(o)(**kw))
+    return rebuilt
+
+
 def output_to_wire(out: ModelOutput) -> Dict:
     """ModelOutput -> plain-numpy dict for mp-queue transport.
 
@@ -183,6 +216,15 @@ class InferenceServer:
             encs = self._encoder.encode_from_raw_batch(
                 raws, device=self._device)
             outs = self._model.forward_batch(encs)
+            if (self._out_dev.type == "cpu"
+                    and outs and torch.is_tensor(outs[0].actor_logits)
+                    and outs[0].actor_logits.device.type != "cpu"):
+                # Coalesced device->host: one flatten-cat + one .cpu()
+                # per FIELD per batch (9 transfers) instead of one
+                # sync per field per sample (9xB -- ~414 serialized
+                # cudaMemcpy per 46-leaf batch = the 11.9ms/leaf
+                # serve ceiling measured on the 4090, 2026-07-22).
+                return batched_outputs_to_cpu(outs)
         return [move_model_output(o, self._out_dev) for o in outs]
 
 
