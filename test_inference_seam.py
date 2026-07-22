@@ -73,6 +73,30 @@ def _assert_outputs_match(ref, got):
             assert a == b, f"{f.name}: {a} != {b}"
 
 
+def test_output_wire_roundtrip_is_lossless():
+    """output_to_wire/output_from_wire (the actor-pool queue payload,
+    2026-07-22 batch-granular transport): numpy round-trip must
+    reproduce every ModelOutput field exactly — values, dtypes
+    (actor_kind is long), and non-tensor passthroughs."""
+    from tools.inference_seam import output_to_wire, output_from_wire
+    pol = _policy()
+    enc, mdl, server, renc, rmodel = _seam(pol)
+    sim = _states(1)[0]
+    raw = renc.encode(sim.gs)._raw
+    ref = server.infer(raw)
+    got = output_from_wire(output_to_wire(ref))
+    _assert_outputs_match(ref, got)
+    import dataclasses
+    for f in dataclasses.fields(ref):
+        a, b = getattr(ref, f.name), getattr(got, f.name)
+        if torch.is_tensor(a):
+            assert a.dtype == b.dtype, f"{f.name} dtype changed"
+    # The wire dict itself must hold NO torch tensors (plain numpy
+    # pickles inline; tensors would re-enter the shm machinery).
+    w = output_to_wire(ref)
+    assert not any(torch.is_tensor(v) for _tag, v in w.values())
+
+
 def test_single_forward_parity():
     pol = _policy()
     enc, mdl, server, renc, rmodel = _seam(pol)

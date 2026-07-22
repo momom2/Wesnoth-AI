@@ -74,11 +74,15 @@ _R_ERROR   = "error"       # traceback string (non-fatal; logged)
 # =====================================================================
 
 class _IPCInferenceClient:
-    """RemoteModel transport inside an actor: ship a RawEncoded over
-    the shared request queue, block on this actor's private response
-    queue for the matching reply. Matching by request id keeps
-    `forward_batch` (multiple outstanding) correct; the serial Gumbel
-    path has a single outstanding request at a time."""
+    """RemoteModel transport inside an actor. BATCH-GRANULAR
+    (2026-07-22 rework): one message carries a whole forward_batch's
+    RawEncodeds, and one reply carries all its wire-serialized
+    outputs. The old per-leaf protocol (B messages each way per
+    forward_batch, each reply pickling ~9 torch tensors through the
+    shm tensor-sharing machinery) capped the central server at
+    ~200 req/s with the GPU idle -- the reason spool workers
+    replaced the pool. Payloads are plain numpy (inference_seam
+    output_to_wire/output_from_wire), which pickle inline."""
 
     def __init__(self, actor_id: int, req_q, resp_q):
         self._aid = actor_id
@@ -86,33 +90,21 @@ class _IPCInferenceClient:
         self._resp = resp_q
         self._next_id = 0
 
-    def _send(self, raw) -> int:
-        rid = self._next_id
-        self._next_id += 1
-        self._req.put((self._aid, rid, raw))
-        return rid
-
     def infer(self, raw):
-        rid = self._send(raw)
-        while True:
-            r_rid, out = self._resp.get()
-            if r_rid == rid:
-                return out
-            # Stale/out-of-order (only possible after a forward_batch);
-            # the batch collector below tolerates it, so drop here.
+        return self.infer_batch([raw])[0]
 
     def infer_batch(self, raws):
         if not raws:
             return []
-        ids = [self._send(r) for r in raws]
-        need = set(ids)
-        got: Dict[int, object] = {}
-        while need:
-            r_rid, out = self._resp.get()
-            if r_rid in need:
-                got[r_rid] = out
-                need.discard(r_rid)
-        return [got[i] for i in ids]
+        from tools.inference_seam import output_from_wire
+        rid = self._next_id
+        self._next_id += 1
+        self._req.put((self._aid, rid, list(raws)))
+        while True:
+            r_rid, wires = self._resp.get()
+            if r_rid == rid:
+                return [output_from_wire(w) for w in wires]
+            # Stale reply from an abandoned request id: drop.
 
 
 def _zero_reward(_delta) -> float:
@@ -197,7 +189,11 @@ def _actor_loop(
         # from the pass-through setup options.
         mix = {k: scenario_opts.get(f"{k}_ratio", 0.0)
                for k in ("mini", "drill", "fogless")}
-        mix["ladder"] = scenario_opts.get("ladder_ratio", 1.0)
+        # Absent ladder_ratio -> the complement (the old flat 1.0
+        # default summed to 2 with any explicit other ratio and blew
+        # the sum-to-1 guard in every actor, 2026-07-22 smoke).
+        mix["ladder"] = scenario_opts.get(
+            "ladder_ratio", max(0.0, 1.0 - sum(mix.values())))
         setup_opts = {k: v for k, v in scenario_opts.items()
                       if not k.endswith("_ratio")}
         try:
@@ -263,7 +259,12 @@ class ActorPool:
         self._pvp_kwargs = (dict(pvp_defaults.__dict__)
                             if pvp_defaults is not None else None)
         self._device = device
-        self._max_batch = max_batch or max(8, n_actors)
+        # LEAVES per server-side model batch (2026-07-22: requests
+        # are batch-granular, so this caps the coalesced total, not a
+        # message count). 2 leaves/actor lets two full B=16 actor
+        # requests ride one GPU call at 48 actors without starving
+        # latecomers.
+        self._max_batch = max_batch or max(64, 2 * n_actors)
         self._serve_timeout = serve_timeout
         self._log_level = log_level
         self._actor_threads = actor_torch_threads
@@ -412,15 +413,29 @@ class ActorPool:
                         if not outstanding:
                             break
                 continue
-            while len(batch) < self._max_batch:
+            # Requests are batch-granular: each message carries one
+            # forward_batch's worth of raws. Coalesce messages until
+            # ~max_batch LEAVES are in hand, run ONE model batch over
+            # the concatenation, and answer each request with its
+            # slice (wire-serialized numpy -- see _IPCInferenceClient).
+            from tools.inference_seam import output_to_wire
+            n_leaves = sum(len(it[2]) for it in batch)
+            while n_leaves < self._max_batch:
                 try:
-                    batch.append(self._req_q.get_nowait())
+                    it = self._req_q.get_nowait()
                 except _queue.Empty:
                     break
-            outs = self._server.infer_batch([it[2] for it in batch])
-            for (aid, rid, _raw), out in zip(batch, outs):
-                self._resp_qs[aid].put((rid, out))
-            served += len(batch)
+                batch.append(it)
+                n_leaves += len(it[2])
+            flat = [r for (_a, _r, raws) in batch for r in raws]
+            outs = self._server.infer_batch(flat)
+            wires = [output_to_wire(o) for o in outs]
+            i = 0
+            for (aid, rid, raws) in batch:
+                k = len(raws)
+                self._resp_qs[aid].put((rid, wires[i:i + k]))
+                i += k
+            served += len(flat)
         # Advance the global anneal counter by the decisions generated this
         # iteration (sum across actors), so the combat-oracle bias keeps
         # annealing across the campaign instead of freezing at ds0.

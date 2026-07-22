@@ -2529,9 +2529,10 @@ def main(argv: List[str]) -> int:
                          "is no longer bit-deterministic (dynamic "
                          "cross-actor batching).")
     ap.add_argument("--actor-max-batch", type=int, default=0,
-                    help="Max inference batch the actor-pool server "
-                         "fuses per GPU forward. 0 (default) = "
-                         "max(8, --actor-pool).")
+                    help="Max LEAVES the actor-pool server fuses per "
+                         "GPU forward (requests are batch-granular "
+                         "since 2026-07-22). 0 (default) = "
+                         "max(64, 2 * --actor-pool).")
     ap.add_argument("--forced-faction", default=None,
                     help="If set, every game has at least one side "
                          "playing this faction. Pass 'none' to "

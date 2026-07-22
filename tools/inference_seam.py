@@ -72,6 +72,35 @@ def move_model_output(out: ModelOutput, device: torch.device) -> ModelOutput:
     return type(out)(**kw)
 
 
+def output_to_wire(out: ModelOutput) -> Dict:
+    """ModelOutput -> plain-numpy dict for mp-queue transport.
+
+    Plain numpy arrays pickle INLINE into the queue byte stream;
+    torch tensors instead route through torch.multiprocessing's
+    tensor-sharing machinery -- one staged shm file (+fd) per tensor
+    per message under the 'file_system' strategy. At ~9 tensors per
+    ModelOutput that constant cost is what capped the old per-leaf
+    protocol at ~200 req/s with the GPU idle (and fed the
+    2026-07-03 fd-leak incident under 'file_descriptor')."""
+    w = {}
+    for f in dataclasses.fields(out):
+        v = getattr(out, f.name)
+        if torch.is_tensor(v):
+            w[f.name] = ("t", v.detach().cpu().numpy())
+        else:
+            w[f.name] = ("p", v)
+    return w
+
+
+def output_from_wire(w: Dict) -> ModelOutput:
+    """Inverse of output_to_wire (actor side). torch.from_numpy is
+    zero-copy; MCTS only reads these tensors."""
+    kw = {}
+    for name, (tag, v) in w.items():
+        kw[name] = torch.from_numpy(v) if tag == "t" else v
+    return ModelOutput(**kw)
+
+
 def build_light_encoded(
     raw: RawEncoded, device: torch.device,
 ) -> EncodedState:
