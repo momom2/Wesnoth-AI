@@ -188,20 +188,38 @@ def _actor_loop(
         # the parent CLI rejects --midgame-ratio with --actor-pool)
         # from the pass-through setup options.
         mix = {k: scenario_opts.get(f"{k}_ratio", 0.0)
-               for k in ("mini", "drill", "fogless")}
+               for k in ("midgame", "mini", "drill", "fogless")}
         # Absent ladder_ratio -> the complement (the old flat 1.0
         # default summed to 2 with any explicit other ratio and blew
         # the sum-to-1 guard in every actor, 2026-07-22 smoke).
         mix["ladder"] = scenario_opts.get(
             "ladder_ratio", max(0.0, 1.0 - sum(mix.values())))
+        midgame_dataset = scenario_opts.get("midgame_dataset")
         setup_opts = {k: v for k, v in scenario_opts.items()
-                      if not k.endswith("_ratio")}
+                      if not k.endswith("_ratio")
+                      and k != "midgame_dataset"}
         try:
             for g in range(n_games):
                 from tools.sim_self_play import _roll_max_turns
                 mt = _roll_max_turns(rng, max_turns, max_turns_min)
                 cat = roll_mix(rng, **mix)
-                setup = random_setup(rng, category=cat, **setup_opts)
+                setup = None
+                if cat == "midgame":
+                    # Same midgame path as selfplay_worker (2026-07-22
+                    # port; the old "actors cannot splice midgame
+                    # starts" CLI rejection predates
+                    # _play_one_game_safe handling the tuple form).
+                    from tools.midgame_starts import sample_midgame_start
+                    from pathlib import Path as _P
+                    mg = sample_midgame_start(
+                        rng, midgame_dataset or _P("replays_dataset"))
+                    if mg is not None:
+                        setup = ("__midgame__",) + mg
+                    else:
+                        cat = "ladder"   # degraded sample
+                if setup is None:
+                    setup = random_setup(rng, category=cat,
+                                         **setup_opts)
                 gl = f"iter{iter_idx}_a{actor_id}_g{g}"
                 outcome = _play_one_game_safe(
                     setup=setup, max_turns=mt, pvp_defaults=pvp,

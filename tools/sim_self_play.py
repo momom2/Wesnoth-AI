@@ -3400,11 +3400,6 @@ def main(argv: List[str]) -> int:
                       "(actors do not apply openers)"); return 2
         import atexit
         from tools.actor_pool import ActorPool
-        if float(args.midgame_ratio) > 0:
-            log.error("--actor-pool does not support --midgame-ratio "
-                      "(actors cannot splice midgame starts); fold "
-                      "its share into the other ratios")
-            return 2
         scenario_opts = dict(
             forced_faction=forced_faction_arg,
             mini_maps=args.mini_maps,
@@ -3412,6 +3407,10 @@ def main(argv: List[str]) -> int:
             drill_ratio=float(args.drill_ratio),
             fogless_ratio=float(args.fogless_ratio),
             ladder_ratio=float(args.ladder_ratio),
+            # Actors splice midgame starts exactly like spool workers
+            # (2026-07-22 port; the old rejection is gone).
+            midgame_ratio=float(args.midgame_ratio),
+            midgame_dataset=args.midgame_dataset,
         )
         actor_pool = ActorPool(
             policy, args.actor_pool, mcts_cfg,
