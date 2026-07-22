@@ -269,8 +269,155 @@ def _terrain_maps_for(unit, gs) -> Dict[Coord, Tuple[int, int]]:
     return m
 
 
+# Array-form terrain cache (2026-07-22 enumerate optimization): same
+# key discipline as _TERRAIN_MAPS_CACHE, but flat numpy arrays indexed
+# by hex id so unit_reach's inner loop does array reads instead of
+# tuple-keyed dict.get (1.69M dict lookups per 240 enumerates on
+# midgame states -- ~60% of the legality mask's cost).
+_TERRAIN_ARRAYS_CACHE: Dict = {}
+
+
+def _terrain_arrays_for(unit, gs):
+    """(pos_to_idx, positions, nbr_idx[H,6], mcost[H], dsub[H]) for
+    this (map, unit-type) pair. nbr_idx column order == hex_neighbors
+    order (unit_reach's push order -- and therefore its heap
+    tie-break behavior -- depends on it). -1 = off-map."""
+    import numpy as np
+    from tools.abilities import hex_neighbors
+
+    codes = getattr(gs.global_info, "_terrain_codes", {}) or {}
+    thash = getattr(gs.global_info, "_terrain_epoch", None)
+    key = None
+    if thash is not None or codes:
+        if thash is None:
+            thash = hash(frozenset(codes.items()))
+        slowed = "slowed" in (unit.statuses or set())
+        _dt = getattr(unit, "_defense_table", None)
+        _dt_hash = hash(frozenset(_dt.items())) if _dt is not None else 0
+        key = ("arr", thash, unit.name, slowed, _dt_hash)
+        cached = _TERRAIN_ARRAYS_CACHE.get(key)
+        if cached is not None:
+            return cached
+
+    tmaps = _terrain_maps_for(unit, gs)
+    positions = [(h.position.x, h.position.y) for h in gs.map.hexes]
+    pos_to_idx = {p: i for i, p in enumerate(positions)}
+    # Plain Python lists, NOT numpy: the Dijkstra reads these one
+    # scalar at a time, and numpy scalar indexing is several times
+    # slower than list indexing (measured 2026-07-22: the numpy
+    # variant was 1.8x SLOWER than the tuple-dict original).
+    mcost = [0] * len(positions)
+    dsub = [0] * len(positions)
+    nbrs = []
+    for i, p in enumerate(positions):
+        c, d = tmaps[p]
+        mcost[i] = int(c)
+        dsub[i] = int(d)
+        nbrs.append(tuple(pos_to_idx.get(npos, -1)
+                          for npos in hex_neighbors(p[0], p[1])))
+    out = (pos_to_idx, positions, nbrs, mcost, dsub)
+    if key is not None:
+        _TERRAIN_ARRAYS_CACHE[key] = out
+        if len(_TERRAIN_ARRAYS_CACHE) > 512:
+            _TERRAIN_ARRAYS_CACHE.clear()
+            _TERRAIN_ARRAYS_CACHE[key] = out
+    return out
+
+
 def unit_reach(unit, gs, ctx: ReachContext,
                budget: Optional[int] = None) -> UnitReach:
+    """Array-index port of `_unit_reach_reference` (2026-07-22):
+    IDENTICAL algorithm, float composition, and heap/neighbor order
+    -- so mp/cost/prev/landable are bit-exact (pinned by
+    test_pathfind_parity) -- with hex-id arrays replacing the
+    tuple-keyed dicts that dominated the profile.
+    """
+    start = (unit.position.x, unit.position.y)
+    if budget is None:
+        budget = int(unit.current_moves)
+    skirmisher = "skirmisher" in (unit.abilities or set())
+    pos_to_idx, positions, nbrs, mcost, dsub = \
+        _terrain_arrays_for(unit, gs)
+    H = len(positions)
+    s_idx = pos_to_idx[start]
+
+    # ctx sets -> byte flags (sets are small; H is a few hundred).
+    zoc = bytearray(H)
+    for p in ctx.zoc_hexes:
+        i = pos_to_idx.get(p)
+        if i is not None:
+            zoc[i] = 1
+    enemy = bytearray(H)
+    for p in ctx.enemy_hexes:
+        i = pos_to_idx.get(p)
+        if i is not None:
+            enemy[i] = 1
+    ally = bytearray(H)
+    for p in ctx.ally_hexes:
+        i = pos_to_idx.get(p)
+        if i is not None:
+            ally[i] = 1
+
+    INF = float("inf")
+    mp_l = [-1] * H
+    cost_l = [INF] * H
+    prev_l = [-1] * H
+    mp_l[s_idx] = 0
+    cost_l[s_idx] = 0.0
+
+    seq = 0
+    heap: List[Tuple[float, int, int]] = [(0.0, 0, s_idx)]
+    while heap:
+        c, _, i = heappop(heap)
+        if c > cost_l[i]:
+            continue
+        spent = mp_l[i]
+        if i != s_idx and not skirmisher and zoc[i]:
+            continue
+        if spent >= budget:
+            continue
+        remaining = budget - spent
+        for ni in nbrs[i]:
+            if ni < 0 or enemy[ni]:
+                continue
+            terrain_cost = mcost[ni]
+            if terrain_cost >= UNREACHABLE or terrain_cost > remaining:
+                continue
+            if not skirmisher and zoc[ni]:
+                mp_charge = remaining          # pathfind.cpp:806
+            else:
+                mp_charge = terrain_cost
+            subcost = dsub[ni]
+            if ally[ni]:
+                subcost += 1                   # pathfind.cpp:785
+            ncost = c + mp_charge + subcost * _SUBCOST_SCALE
+            if ncost < cost_l[ni]:
+                cost_l[ni] = ncost
+                mp_l[ni] = spent + mp_charge
+                prev_l[ni] = i
+                seq += 1
+                heappush(heap, (ncost, seq, ni))
+
+    mp: Dict[Coord, int] = {}
+    cost: Dict[Coord, float] = {}
+    prev: Dict[Coord, Coord] = {}
+    for i in range(H):
+        if mp_l[i] >= 0:
+            p = positions[i]
+            mp[p] = mp_l[i]
+            cost[p] = cost_l[i]
+            if prev_l[i] >= 0:
+                prev[p] = positions[prev_l[i]]
+    landable = {
+        pos for pos in mp
+        if pos != start and pos not in ctx.occupied_visible
+    }
+    return UnitReach(start=start, mp=mp, cost=cost, prev=prev,
+                     landable=landable)
+
+
+def _unit_reach_reference(unit, gs, ctx: ReachContext,
+                          budget: Optional[int] = None) -> UnitReach:
     """Dijkstra over Wesnoth's single-turn cost model.
 
     Per entered hex (pathfind.cpp:742-820):
