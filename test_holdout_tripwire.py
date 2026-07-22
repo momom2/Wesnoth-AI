@@ -222,6 +222,12 @@ def test_eval_value_loss_matches_step_mcts_scale():
     # a normalization bug (e.g. missing /N) would double it.
     k_atoms = policy._model._value_atoms.numel()
     assert 0.0 < loss < math.log(k_atoms) + 1.0
+    # ce_std (2026-07-22: fresh_value_ce is the default success
+    # metric; the std qualifies its moves): finite, non-negative,
+    # and its weighted mean path must agree with "ce".
+    m = policy._trainer.eval_value_metrics(list(mp._holdout))
+    assert m["ce_std"] >= 0.0 and m["ce_std"] == m["ce_std"]
+    assert abs(m["ce"] - loss) < 1e-6
 
 
 # ---------------------------------------------------------------------

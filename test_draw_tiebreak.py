@@ -215,13 +215,30 @@ def test_z_composition_stats():
     from trainer import MCTSExperience, TrainStats
 
     class _E:
-        def __init__(self, z): self.z = z
+        def __init__(self, z, gw=1.0):
+            self.z = z
+            self.game_weight = gw
     st = TrainStats()
     MCTSPolicy._attach_z_composition(
         st, [_E(1.0), _E(1.0), _E(-1.0), _E(0.0), _E(0.12), _E(-0.2)])
     assert abs(st.z_win_frac - 2 / 6) < 1e-9
     assert abs(st.z_loss_frac - 1 / 6) < 1e-9
     assert abs(st.z_draw_frac - 3 / 6) < 1e-9
+    # Uniform weights: weighted == census.
+    assert abs(st.z_win_frac_w - st.z_win_frac) < 1e-9
+    assert abs(st.z_draw_frac_w - st.z_draw_frac) < 1e-9
+
+    # One 4-state draw (gw=0.25 each) + one 1-state win (gw=1):
+    # census says 80% draw, but each GAME contributes weight 1 --
+    # the gradient share is 50/50. The weighted column must say so
+    # (the 2026-07-22 misread: census 0.19 draws taken for a ~20%
+    # gradient share when the weighted share was ~5%).
+    st2 = TrainStats()
+    MCTSPolicy._attach_z_composition(
+        st2, [_E(0.0, 0.25)] * 4 + [_E(1.0, 1.0)])
+    assert abs(st2.z_draw_frac - 4 / 5) < 1e-9
+    assert abs(st2.z_draw_frac_w - 0.5) < 1e-9
+    assert abs(st2.z_win_frac_w - 0.5) < 1e-9
 
 
 def test_draw_value_weight_zero_removes_draw_gradient():

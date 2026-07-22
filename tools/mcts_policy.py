@@ -750,7 +750,8 @@ class MCTSPolicy:
         # games and drifts off-distribution). ~1 forward pass over
         # <=256 states.
         nan = float("nan")
-        fresh = {"ce": nan, "pred_entropy": nan, "marginal_ce_floor": nan}
+        fresh = {"ce": nan, "ce_std": nan, "pred_entropy": nan,
+                 "marginal_ce_floor": nan}
         # getattr-guarded: instrumentation only -- trainer test stubs
         # (and any custom trainer) without eval_value_metrics just
         # skip the probe rather than break training.
@@ -800,6 +801,7 @@ class MCTSPolicy:
     @staticmethod
     def _attach_fresh_metrics(stats: TrainStats, fresh: Dict) -> None:
         stats.fresh_value_ce = fresh["ce"]
+        stats.fresh_ce_std = fresh.get("ce_std", float("nan"))
         stats.fresh_pred_entropy = fresh["pred_entropy"]
         stats.fresh_ce_floor = fresh["marginal_ce_floor"]
         stats.fresh_decisive_ce = fresh.get("decisive_ce", float("nan"))
@@ -807,14 +809,36 @@ class MCTSPolicy:
     @staticmethod
     def _attach_z_composition(stats: TrainStats, batch) -> None:
         """Target-composition of this iteration's incoming
-        experiences: the 'draw-spike dominates the value gradient'
-        diagnosis (2026-07-10) as a per-iteration measurement."""
+        experiences, in TWO normalizations:
+
+        - z_*_frac: raw transition census (the 2026-07-10
+          'draw-spike' diagnosis). NOT a gradient metric: long games
+          inflate it in proportion to their length.
+        - z_*_frac_w: game_weight-weighted -- each game contributes
+          its total gw (=1 for non-midgame), matching the gradient
+          contribution step_mcts's per-game normalization actually
+          produces. THIS is the column to read for 'what is the
+          value head training on' (2026-07-22: the unweighted
+          census at 0.19 draws was misread as 20% of the gradient
+          when the weighted share was ~5%)."""
         n = len(batch)
         if not n:
             return
         stats.z_win_frac = sum(1 for e in batch if e.z >= 0.999) / n
         stats.z_loss_frac = sum(1 for e in batch if e.z <= -0.999) / n
         stats.z_draw_frac = 1.0 - stats.z_win_frac - stats.z_loss_frac
+        tw = ww = lw = 0.0
+        for e in batch:
+            gw = float(getattr(e, "game_weight", 1.0))
+            tw += gw
+            if e.z >= 0.999:
+                ww += gw
+            elif e.z <= -0.999:
+                lw += gw
+        if tw > 0:
+            stats.z_win_frac_w = ww / tw
+            stats.z_loss_frac_w = lw / tw
+            stats.z_draw_frac_w = 1.0 - (ww + lw) / tw
 
     def _sync_inference_weights(self) -> None:
         """Propagate the freshly-updated `_model` weights into the

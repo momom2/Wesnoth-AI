@@ -1327,7 +1327,8 @@ def _trainer_eval_value_metrics(
     """
     nan = float("nan")
     if not experiences:
-        return {"ce": nan, "pred_entropy": nan, "marginal_ce_floor": nan}
+        return {"ce": nan, "ce_std": nan, "pred_entropy": nan,
+                "marginal_ce_floor": nan}
     dev = self.device or next(self.model.parameters()).device
     N = len(experiences)
     B = max(1, self.config.train_batch_size)
@@ -1350,6 +1351,11 @@ def _trainer_eval_value_metrics(
     total_gw_e = max(float(gws_e.sum().item()), 1e-9)
     total = 0.0
     entropy_sum = 0.0
+    # Per-state CE values, for the weighted spread ("ce_std").
+    # fresh_value_ce is the DEFAULT success metric (user 2026-07-22);
+    # the std says whether an iteration-to-iteration move is signal
+    # or probe noise (~256-state sample).
+    ce_states: List[torch.Tensor] = []
     with torch.no_grad():
         for start in range(0, N, B):
             chunk = experiences[start:start + B]
@@ -1369,10 +1375,21 @@ def _trainer_eval_value_metrics(
                 vl_t, z_t, atoms, weights=gw_c).item()) / total_gw_e
             logp = torch.log_softmax(vl_t, dim=-1)
             entropy_sum += float(-(logp.exp() * logp).sum().item())
+            ce_states.append(
+                -(_project_returns_to_atoms(z_t, atoms) * logp)
+                .sum(dim=-1))
         marginal = _project_returns_to_atoms(zs, atoms).mean(dim=0)
         floor = float(
             -(marginal * marginal.clamp_min(1e-9).log()).sum().item())
-    return {"ce": total, "pred_entropy": entropy_sum / N,
+        ce_all = torch.cat(ce_states)
+        # gw-weighted spread around the gw-weighted mean (matches
+        # how "ce" itself is normalized).
+        mean_w = float((ce_all * gws_e).sum().item()) / total_gw_e
+        var_w = float(((ce_all - mean_w).pow(2) * gws_e).sum().item()) \
+            / total_gw_e
+        ce_std = var_w ** 0.5
+    return {"ce": total, "ce_std": ce_std,
+            "pred_entropy": entropy_sum / N,
             "marginal_ce_floor": floor}
 
 

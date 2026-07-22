@@ -1841,9 +1841,25 @@ def run_iteration(
             aux_str += (f" z_comp={_zw:.2f}/"
                         f"{getattr(train_stats, 'z_loss_frac', 0):.2f}/"
                         f"{getattr(train_stats, 'z_draw_frac', 0):.2f}")
+        # Weighted variant = the gradient's actual composition
+        # (per-game normalization); the census above is length-
+        # inflated by long games (misread 2026-07-22).
+        _zww = getattr(train_stats, "z_win_frac_w", float("nan"))
+        if _zww == _zww:
+            aux_str += (
+                f" z_comp_w={_zww:.2f}/"
+                f"{getattr(train_stats, 'z_loss_frac_w', 0):.2f}/"
+                f"{getattr(train_stats, 'z_draw_frac_w', 0):.2f}")
         _fce = getattr(train_stats, "fresh_value_ce", float("nan"))
         if _fce == _fce:                       # not NaN
-            aux_str += f" fresh_value_ce={_fce:.4f}"
+            # DEFAULT success metric (user 2026-07-22): distribution-
+            # matched, pre-update. +-std says whether a move is
+            # signal or ~256-state probe noise. The frozen holdout
+            # CE is the stall TRIPWIRE, not the success gauge (it
+            # drifts off-distribution as play evolves).
+            _fstd = getattr(train_stats, "fresh_ce_std", float("nan"))
+            aux_str += (f" fresh_value_ce={_fce:.4f}"
+                        + (f"+-{_fstd:.4f}" if _fstd == _fstd else ""))
             _fent = getattr(train_stats, "fresh_pred_entropy",
                             float("nan"))
             _ffloor = getattr(train_stats, "fresh_ce_floor",
@@ -1954,6 +1970,8 @@ def run_iteration(
             "holdout_n":           holdout_n,
             "fresh_value_ce":      (getattr(train_stats, "fresh_value_ce",
                                             None) if train_stats else None),
+            "fresh_ce_std":        (getattr(train_stats, "fresh_ce_std",
+                                            None) if train_stats else None),
             "fresh_pred_entropy":  (getattr(train_stats,
                                             "fresh_pred_entropy",
                                             None) if train_stats else None),
@@ -1982,6 +2000,14 @@ def run_iteration(
                              if train_stats else None),
             "z_draw_frac":  (getattr(train_stats, "z_draw_frac", None)
                              if train_stats else None),
+            # game_weight-normalized composition = actual gradient
+            # share (the unweighted census above is length-inflated).
+            "z_win_frac_w": (getattr(train_stats, "z_win_frac_w", None)
+                             if train_stats else None),
+            "z_loss_frac_w": (getattr(train_stats, "z_loss_frac_w",
+                                      None) if train_stats else None),
+            "z_draw_frac_w": (getattr(train_stats, "z_draw_frac_w",
+                                      None) if train_stats else None),
             "human_anchor_loss": human_anchor_loss,
             "value_signal_states": (getattr(train_stats,
                                             "value_signal_states", None)
@@ -2077,7 +2103,8 @@ class _TrainerHistoryCSV:
         # distribution-matched generalization, no training data lost)
         # + prediction entropy (overconfidence curve) + the state-
         # blind marginal floor (outcome-mix predictability cap).
-        "fresh_value_ce", "fresh_pred_entropy", "fresh_ce_floor",
+        "fresh_value_ce", "fresh_ce_std", "fresh_pred_entropy",
+        "fresh_ce_floor",
         # Per-map-class decisive split (2026-07-03; aggregate decisive
         # over a mixed curriculum is misleading) + per-class SIDE
         # split (2026-07-07; asymmetries were anecdotes before).
@@ -2099,6 +2126,8 @@ class _TrainerHistoryCSV:
         # Value-target composition + human rehearsal (2026-07-10
         # draw-spike diagnosis / anchor fix).
         "z_win_frac", "z_loss_frac", "z_draw_frac",
+        # game_weight-normalized composition (gradient share).
+        "z_win_frac_w", "z_loss_frac_w", "z_draw_frac_w",
         "human_anchor_loss", "value_signal_states",
         "fresh_decisive_ce",
         # Ladder fog/fogless condition split (2026-07-11): is the
