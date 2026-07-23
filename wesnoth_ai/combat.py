@@ -542,6 +542,11 @@ class CombatResult:
     # if both sides have plague AND both die in the same combat —
     # see replay_dataset's plague handler for resolution.
     plague_spawned_attacker_died: bool = False
+    # Attacker turned to stone by the defender's petrifying COUNTER
+    # (rare -- needs a petrifying counter-weapon; no default-era unit
+    # has one). Symmetric to `defender_petrified`. Defaulted so
+    # constructors predating petrify handling stay valid.
+    attacker_petrified: bool = False
     rng_calls_used:    int = 0
     # Per-strike checkup payloads in engine order: for EVERY strike
     # attempt (misses included) Wesnoth's attack::perform_hit runs
@@ -715,6 +720,7 @@ def resolve_attack(
         defender_petrified=defender.is_petrified,
         attacker_poisoned=attacker.is_poisoned,
         attacker_slowed=attacker.is_slowed,
+        attacker_petrified=attacker.is_petrified,
         plague_spawned=plague_spawned,
         plague_spawned_attacker_died=plague_spawned_attacker_died,
         rng_calls_used=rng.calls - starting_calls,

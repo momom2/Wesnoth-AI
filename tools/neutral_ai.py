@@ -133,7 +133,10 @@ def rate_attack(gs, attacker, defender, action: dict,
     e_d_hp = 0.0
     e_a_hp = 0.0
     p_a_dies = 0.0
-    for (a_hp, d_hp, _asl, _dsl, _apo, _dpo), p in dist.probs.items():
+    # Index rather than positional-unpack: the OutcomeKey grows over
+    # time (petrify, later advancement); we only need the HP fields.
+    for key, p in dist.probs.items():
+        a_hp, d_hp = key[0], key[1]
         if d_hp <= 0:
             ctk += p
         if a_hp <= 0:

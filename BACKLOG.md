@@ -1,5 +1,19 @@
 # Project review — bugs and improvements
 
+## IDEA (2026-07-23) — combat_outcomes: exact DP past the complexity caps
+
+`enumerate_attack_outcomes` still returns `None` (caller samples) when
+the strike DP blows past `MAX_SCHEDULE=512` / `MAX_DP_STATES=4096` --
+chiefly BERSERK fights, whose refilled schedule explodes the state
+space. Petrify and advancement no longer bail (petrify modeled
+exactly 2026-07-23; advancement handled separately), but this
+complexity case does. Room for improvement: a bounded/pruned or
+closed-form DP for berserk (or live-cell state-merging that caps work
+without losing exactness) would let the swap detector score berserk
+fights instead of marking them `inconclusive`, and let MCTS enumerate
+them exactly instead of sampling. Cold-ish today (few default-era
+berserkers -- Dwarvish Ulfserker/Berserker), so low priority; log-only.
+
 ## PARKED (user, 2026-07-21) — moves-left utility OFF, indefinitely
 
 The -0.2*Q*M PUCT term (mcts.py moves_left_utility) is disabled on

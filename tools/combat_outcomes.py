@@ -49,8 +49,9 @@ from wesnoth_ai.classes import GameState, Unit
 
 log = logging.getLogger("combat_outcomes")
 
-# (a_hp, d_hp, a_slowed, d_slowed, a_poisoned, d_poisoned)
-OutcomeKey = Tuple[int, int, bool, bool, bool, bool]
+# (a_hp, d_hp, a_slowed, d_slowed, a_poisoned, d_poisoned,
+#  a_petrified, d_petrified)
+OutcomeKey = Tuple[int, int, bool, bool, bool, bool, bool, bool]
 
 # Bail-out caps. The engine's threshold is on a different quantity
 # (hp_a * hp_b * slow planes > 50,000); ours bound the actual DP
@@ -77,13 +78,16 @@ class OutcomeDistribution:
 
 def _canonical(key: OutcomeKey) -> OutcomeKey:
     """Zero a dead unit's status flags: the unit is gone, so its
-    slow/poison state is meaningless and must not split outcomes."""
-    a_hp, d_hp, a_sl, d_sl, a_po, d_po = key
+    slow/poison/petrified state is meaningless and must not split
+    outcomes. (A killing blow with the petrifies special is a death,
+    never a petrify -- see combat._perform_hit_body -- so a_hp<=0 with
+    a_petrified never arises; canonicalizing is a belt-and-braces.)"""
+    a_hp, d_hp, a_sl, d_sl, a_po, d_po, a_pe, d_pe = key
     if a_hp <= 0:
-        a_sl = a_po = False
+        a_sl = a_po = a_pe = False
     if d_hp <= 0:
-        d_sl = d_po = False
-    return (max(0, a_hp), max(0, d_hp), a_sl, d_sl, a_po, d_po)
+        d_sl = d_po = d_pe = False
+    return (max(0, a_hp), max(0, d_hp), a_sl, d_sl, a_po, d_po, a_pe, d_pe)
 
 
 def _build_schedule(a_stats, d_stats) -> Optional[List[bool]]:
@@ -144,19 +148,21 @@ def _max_xp_gain(unit_level: int, opp_level: int) -> int:
 # least once) for the engine's poison-probability formula; with
 # track_touched=False they stay False, so outcome enumeration pays
 # no extra states for them.
-_ExtKey = Tuple[int, int, bool, bool, bool, bool, bool, bool]
+# (a_hp, d_hp, a_sl, d_sl, a_po, d_po, a_petrified, d_petrified, a_t, d_t)
+_ExtKey = Tuple[int, int, bool, bool, bool, bool, bool, bool, bool, bool]
 
 
 def _canonical_ext(key: _ExtKey) -> _ExtKey:
     """Zero a dead unit's status flags (see `_canonical`). Touched
     flags are kept: death implies the unit was hit, and the chooser's
     marginals must count that mass."""
-    a_hp, d_hp, a_sl, d_sl, a_po, d_po, a_t, d_t = key
+    a_hp, d_hp, a_sl, d_sl, a_po, d_po, a_pe, d_pe, a_t, d_t = key
     if a_hp <= 0:
-        a_sl = a_po = False
+        a_sl = a_po = a_pe = False
     if d_hp <= 0:
-        d_sl = d_po = False
-    return (max(0, a_hp), max(0, d_hp), a_sl, d_sl, a_po, d_po, a_t, d_t)
+        d_sl = d_po = d_pe = False
+    return (max(0, a_hp), max(0, d_hp), a_sl, d_sl, a_po, d_po,
+            a_pe, d_pe, a_t, d_t)
 
 
 def _strike_dp(
@@ -174,6 +180,7 @@ def _strike_dp(
         a_cu.hp, d_cu.hp,
         a_cu.is_slowed, d_cu.is_slowed,
         a_cu.is_poisoned, d_cu.is_poisoned,
+        a_cu.is_petrified, d_cu.is_petrified,
         False, False,
     )
     states: Dict[_ExtKey, float] = {init: 1.0}
@@ -186,9 +193,9 @@ def _strike_dp(
 
         live_mass = 0.0
         for key, p in states.items():
-            a_hp, d_hp, a_sl, d_sl, a_po, d_po, a_t, d_t = key
-            if a_hp <= 0 or d_hp <= 0:
-                _add(key, p)          # fight already over: absorb
+            a_hp, d_hp, a_sl, d_sl, a_po, d_po, a_pe, d_pe, a_t, d_t = key
+            if a_hp <= 0 or d_hp <= 0 or a_pe or d_pe:
+                _add(key, p)          # fight over (death or petrify): absorb
                 continue
             live_mass += p
             if attacker_strikes:
@@ -219,7 +226,8 @@ def _strike_dp(
             if dmg <= 0:
                 # A hit that deals no damage applies no statuses
                 # either (mirrors the early `return True`).
-                _add((a_hp, d_hp, a_sl, d_sl, a_po, d_po, a_t2, d_t2),
+                _add((a_hp, d_hp, a_sl, d_sl, a_po, d_po, a_pe, d_pe,
+                      a_t2, d_t2),
                      p * cth)
                 continue
             tg_hp_new = max(0, tg_hp - dmg)
@@ -235,6 +243,7 @@ def _strike_dp(
                     st_hp_new = st_hp + heal
             # Status application only when the target survives.
             a_sl2, d_sl2, a_po2, d_po2 = a_sl, d_sl, a_po, d_po
+            a_pe2, d_pe2 = a_pe, d_pe
             if tg_hp_new > 0:
                 if st.poisons and not tg_cu.is_unpoisonable:
                     if attacker_strikes:
@@ -246,12 +255,26 @@ def _strike_dp(
                         d_sl2 = True
                     else:
                         a_sl2 = True
+                # Petrify: a surviving petrifying hit turns the target
+                # to stone and ENDS the fight -- both sides' remaining
+                # strikes forfeit (combat._perform_hit_body sets
+                # is_petrified, n_attacks 0/-1; attack.cpp sets
+                # STATE_PETRIFIED). We only flag it here; the resulting
+                # state is terminal and gets frozen against the rest of
+                # the schedule by the absorb check at the top of the
+                # loop. A KILLING petrify blow is a death, not a petrify
+                # (this block is survive-only) -- matches the engine.
+                if st.petrifies:
+                    if attacker_strikes:
+                        d_pe2 = True
+                    else:
+                        a_pe2 = True
             if attacker_strikes:
                 nkey = (st_hp_new, tg_hp_new,
-                        a_sl2, d_sl2, a_po2, d_po2, a_t2, d_t2)
+                        a_sl2, d_sl2, a_po2, d_po2, a_pe2, d_pe2, a_t2, d_t2)
             else:
                 nkey = (tg_hp_new, st_hp_new,
-                        a_sl2, d_sl2, a_po2, d_po2, a_t2, d_t2)
+                        a_sl2, d_sl2, a_po2, d_po2, a_pe2, d_pe2, a_t2, d_t2)
             _add(_canonical_ext(nkey) if (tg_hp_new <= 0) else nkey,
                  p * cth)
 
@@ -297,8 +320,12 @@ def enumerate_attack_outcomes(
     a_stats, d_stats = _stats_pair(ctx)
 
     # --- soundness guards: fall back to sampling -----------------
-    if a_stats.petrifies or (d_stats is not None and d_stats.petrifies):
-        return None
+    # Petrify is now modeled exactly in _strike_dp (a surviving
+    # petrifying hit ends the fight with the target stoned), so it no
+    # longer bails. Possible ADVANCEMENT still returns None here --
+    # MCTS samples those fights, and the swap detector opts in
+    # separately (docs/swap_detector_design.md); threading the
+    # advancement-choice distribution through the DP is a later step.
     a_cu, d_cu = ctx.att_cu, ctx.dfd_cu
     if (a_cu.experience + _max_xp_gain(a_cu.level, d_cu.level)
             >= a_cu.max_experience):
@@ -317,7 +344,7 @@ def enumerate_attack_outcomes(
     for key, p in states.items():
         if p < PROB_EPSILON:
             continue
-        ck = _canonical(key[:6])
+        ck = _canonical(key[:8])
         probs[ck] = probs.get(ck, 0.0) + p
     total = sum(probs.values())
     if not probs or total <= 0:
@@ -363,16 +390,17 @@ def outcome_key_for_child(
     """Extract the outcome key realized by a sampled successor
     state. A dead unit is simply absent from the child's unit set
     (hp 0, flags canonicalized)."""
-    def _of(uid) -> Tuple[int, bool, bool]:
+    def _of(uid) -> Tuple[int, bool, bool, bool]:
         u = next((x for x in child_gs.map.units if x.id == uid), None)
         if u is None:
-            return 0, False, False
+            return 0, False, False, False
         return (u.current_hp,
                 "slowed" in u.statuses,
-                "poisoned" in u.statuses)
-    a_hp, a_sl, a_po = _of(attacker_id)
-    d_hp, d_sl, d_po = _of(defender_id)
-    return _canonical((a_hp, d_hp, a_sl, d_sl, a_po, d_po))
+                "poisoned" in u.statuses,
+                "petrified" in u.statuses)
+    a_hp, a_sl, a_po, a_pe = _of(attacker_id)
+    d_hp, d_sl, d_po, d_pe = _of(defender_id)
+    return _canonical((a_hp, d_hp, a_sl, d_sl, a_po, d_po, a_pe, d_pe))
 
 
 # ---------------------------------------------------------------------
@@ -460,7 +488,8 @@ def _engine_marginals(
     P(hit at least once) incrementally; ours is exact -- a documented
     (and strictly smaller-error) deviation."""
     a_death = d_death = a_avg = d_avg = a_touch = d_touch = 0.0
-    for (a_hp, d_hp, _asl, _dsl, _apo, _dpo, a_t, d_t), p in states.items():
+    for (a_hp, d_hp, _asl, _dsl, _apo, _dpo, _ape, _dpe,
+         a_t, d_t), p in states.items():
         if a_hp <= 0:
             a_death += p
         else:

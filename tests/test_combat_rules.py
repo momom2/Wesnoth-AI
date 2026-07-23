@@ -330,3 +330,72 @@ def test_wc_scorpion_variation_overrides_win():
     assert scorpion["resistance"]["pierce"] == 80
     assert scorpion["resistance"]["impact"] == 110
     assert scorpion["resistance"]["arcane"] == 80
+
+
+# ---------------------------------------------------------------------
+# petrify (turned to stone) -- combat result + outcome DP
+# ---------------------------------------------------------------------
+
+def test_petrify_stones_surviving_defender_and_ends_fight():
+    """A surviving petrifying hit sets defender_petrified, forfeits the
+    rest of the fight (attacker's other strikes + defender's counter),
+    and awards COMBAT xp, not kill xp. Mirrors attack.cpp's
+    STATE_PETRIFIED + n_attacks 0/-1 (verified vs the 1.18.4 source)."""
+    gaze = cb.Weapon("gaze", damage=5, number=3, range="ranged",
+                     type="cold", specials=["petrifies"])
+    claw = cb.Weapon("claw", damage=9, number=2, range="melee",
+                     type="blade")
+    attacker = _mkunit([gaze], hp=40)
+    defender = _mkunit([claw], defense_pct=100, hp=40)   # cth=100: sure hit
+    result = cb.resolve_attack(attacker, defender, 0, 0, 0, 0,
+                               cb.MTRng("deadbeef"))
+    assert result.defender_petrified is True
+    assert result.defender_alive is True
+    assert result.defender_hp_after == 35     # ONE 5-dmg hit, then stop
+    assert result.attacker_hp_after == 40     # defender never counters
+    assert result.attacker_petrified is False
+    # combat xp (defender level 1), NOT kill xp
+    assert result.attacker_xp_after == cb.COMBAT_EXPERIENCE
+
+
+def test_petrify_that_kills_is_a_death_not_a_stone():
+    """A petrifying blow that drops the target to 0 hp is a death, not a
+    petrify -- the petrify branch is survive-only (_perform_hit_body)."""
+    gaze = cb.Weapon("gaze", damage=50, number=1, range="ranged",
+                     type="cold", specials=["petrifies"])
+    attacker = _mkunit([gaze], hp=40)
+    defender = _mkunit([cb.Weapon("claw", 9, 2, "melee", "blade")],
+                       defense_pct=100, hp=40)
+    result = cb.resolve_attack(attacker, defender, 0, 0, 0, 0,
+                               cb.MTRng("deadbeef"))
+    assert result.defender_alive is False
+    assert result.defender_petrified is False
+    assert result.attacker_xp_after == cb.KILL_EXPERIENCE   # kill, not combat
+
+
+def test_outcome_dp_enumerates_petrified_states():
+    """combat_outcomes._strike_dp models petrify exactly (no None bail):
+    a petrifying weapon yields d_petrified outcomes with the defender
+    alive and the attacker unharmed (fight ended before any counter)."""
+    from tools import combat_outcomes as co
+    gaze = cb.Weapon("gaze", damage=5, number=2, range="ranged",
+                     type="cold", specials=["petrifies"])
+    claw = cb.Weapon("claw", damage=6, number=2, range="melee",
+                     type="blade")
+    attacker = _mkunit([gaze], hp=40)
+    defender = _mkunit([claw], defense_pct=60, hp=40)    # cth=60: a mix
+    a_stats = cb._compute_battle_stats(attacker, defender, 0, 0, 0, 0,
+                                       is_attacker=True)
+    d_stats = cb._compute_battle_stats(defender, attacker, 0, 0, 0, 0,
+                                       is_attacker=False)
+    states = co._strike_dp(a_stats, d_stats, attacker, defender)
+    assert states is not None
+    # _ExtKey = (a_hp, d_hp, a_sl, d_sl, a_po, d_po, a_pe, d_pe, a_t, d_t)
+    petrified = [(k, p) for k, p in states.items() if k[7]]   # d_petrified
+    assert petrified, "petrifying weapon must produce petrified outcomes"
+    for k, _p in petrified:
+        assert k[1] > 0    # d_hp > 0 (petrify is survive-only)
+        assert k[0] > 0    # attacker alive (a dead attacker ends by death,
+                           # not petrify; it may still be counter-damaged
+                           # if it missed earlier strikes before stoning)
+    assert abs(sum(states.values()) - 1.0) < 1e-9   # mass conserved

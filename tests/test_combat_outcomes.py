@@ -81,11 +81,11 @@ def test_dp_is_a_distribution_and_matches_sampling():
     assert abs(total - 1.0) < 1e-9
     assert all(p > 0 for p in dist.probs.values())
     # Dead units carry canonicalized (False) flags.
-    for (a_hp, d_hp, a_sl, d_sl, a_po, d_po) in dist.probs:
+    for (a_hp, d_hp, a_sl, d_sl, a_po, d_po, a_pe, d_pe) in dist.probs:
         if a_hp == 0:
-            assert not a_sl and not a_po
+            assert not a_sl and not a_po and not a_pe
         if d_hp == 0:
-            assert not d_sl and not d_po
+            assert not d_sl and not d_po and not d_pe
 
     # Empirical cross-check: salted sim forks ARE the ground truth.
     N = 400

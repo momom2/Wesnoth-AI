@@ -1921,6 +1921,21 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             dfd_statuses.add("slowed")
         if result.defender_poisoned:
             dfd_statuses.add("poisoned")
+        # Petrify (turned to stone) must propagate like slow/poison.
+        # resolve_attack ended the fight and set is_petrified on the
+        # snapshot; without persisting the status the unit would keep
+        # acting. Every downstream system already keys off "petrified"
+        # in statuses -- action_sampler skips it as an actor
+        # (action_sampler.py:1165), it projects no ZoC / adjacency
+        # abilities (abilities.py), reads as scenery (visibility,
+        # encoder), and can't be targeted (the attack mask) -- so
+        # setting the status is the complete freeze. A killing
+        # petrifying blow is a death, never a petrify, so the flag only
+        # rides with a surviving unit (see combat._perform_hit_body).
+        if result.attacker_petrified:
+            att_statuses.add("petrified")
+        if result.defender_petrified:
+            dfd_statuses.add("petrified")
         # Feeding (data/lua/feeding.lua): when a unit with the
         # `feeding` ability kills another unit, the killer gains
         # +1 max_hp AND +1 current_hp, UNLESS the victim has the
