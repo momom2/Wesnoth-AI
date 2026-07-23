@@ -48,6 +48,9 @@ add-ons/wesnoth_ai/scenarios/eval/*
 # Kaggle run artifacts pulled via `kaggle kernels output` (checkpoints,
 # profile.json, run logs) — analyzed locally, not versioned.
 kaggle/kaggle_output/
+# Kaggle API credential — a secret, must never be committed.
+kaggle/kaggle_token.txt
+kaggle/*token*
 
 # External Wesnoth source — refreshed from the Steam install (see
 # CLAUDE.md "Wesnoth data provenance"). Mostly untracked, EXCEPT the
