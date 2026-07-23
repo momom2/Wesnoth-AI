@@ -27,7 +27,7 @@ python tools/sim_self_play.py `
     --checkpoint-out training/checkpoints/sim_selfplay.pt `
     --iterations 50 --games-per-iter 8 --max-turns 60 `
     --reward-config configs/reward_selfplay.json
-#   add --mcts for AlphaZero-style PUCT search instead of REINFORCE.
+#   add --mcts for AlphaZero-style PUCT search instead of REINFORCE: better but much longer.
 
 # 4. Watch a trained model play one game (exports a Wesnoth-loadable .bz2).
 python tools/sim_demo_game.py
@@ -104,5 +104,5 @@ add-ons/wesnoth_ai/   Lua side of the eval bridge.
   internally. The ±1 conversion lives only in
   `wesnoth_ai/state_converter.py` — don't sprinkle it elsewhere.
 - **Version pin:** `unit_stats.json` / `terrain_db.json` are committed
-  1.18.4 scrapes. Unit stats drift between releases and break combat
+  1.18.4 scrapes. Unit stats might drift between releases and break combat
   parity — never re-scrape from a different Wesnoth version.
