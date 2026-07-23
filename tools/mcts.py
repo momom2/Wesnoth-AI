@@ -790,6 +790,22 @@ def _select_one(
     that reached the state. Backup is unaffected -- it walks the
     edges of the path, not the nodes themselves.
     """
+    if chance_nodes and sample_rng is None:
+        # Guard the RNG-leak footgun: with chance_nodes the search
+        # re-forks and re-steps stochastic edges, and the fork's combat
+        # seed is only decorrelated from the live game when a fresh
+        # salt is set (see the `resample and sample_rng is not None`
+        # branch below + wesnoth_sim._next_seed). With sample_rng=None
+        # the salt is never set, so the fork inherits the live,
+        # counter-based seed and reproduces the game's ACTUAL rolls --
+        # a god-view leak. Fail loudly instead: every real driver
+        # passes a sample_rng.
+        raise ValueError(
+            "MCTS chance_nodes=True requires a sample_rng; without it "
+            "the search fork would reproduce the game's true combat "
+            "RNG (god-view leak). Pass a sample_rng or disable "
+            "chance_nodes."
+        )
     path: List[Tuple[MCTSNode, MCTSEdge]] = []
     # Parallel to `path`: the OutcomeKey descended into at each step
     # when that edge is a bucketed chance edge, else None. _backup
