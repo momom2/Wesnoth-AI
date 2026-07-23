@@ -58,7 +58,7 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from transformer_policy import TransformerPolicy
+from wesnoth_ai.transformer_policy import TransformerPolicy
 from tools.replay_dataset import (
     _apply_command,
     _build_initial_gamestate,
@@ -318,7 +318,7 @@ def main(argv):
                 policy._model.load_state_dict(ms, strict=False)
                 enc_state = raw.get("encoder_state")
                 if enc_state is not None:
-                    from encoder import pad_legacy_encoder_state
+                    from wesnoth_ai.encoder import pad_legacy_encoder_state
                     enc_state = pad_legacy_encoder_state(
                         enc_state, policy._encoder)
                     policy._encoder.load_state_dict(enc_state, strict=False)

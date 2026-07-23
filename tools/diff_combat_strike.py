@@ -35,7 +35,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT))
 sys.path.insert(0, str(_ROOT / "tools"))
 
-import combat as cb
+from wesnoth_ai import combat as cb
 from tools.replay_dataset import (
     _build_initial_gamestate, _apply_command, _setup_scenario_events,
     _stats_for, _to_combat_unit, _terrain_keys_at, _terrain_def_pct,

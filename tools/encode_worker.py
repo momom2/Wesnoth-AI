@@ -86,7 +86,7 @@ def worker_main(
         sys.path.insert(0, str(_TOOLS_DIR))
 
     # Local imports so they happen post-bootstrap.
-    from encoder import encode_raw
+    from wesnoth_ai.encoder import encode_raw
     from replay_dataset import iter_replay_pairs
 
     logging.basicConfig(level=log_level, format="%(message)s")

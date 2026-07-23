@@ -63,14 +63,14 @@ _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
-from classes import GameState, Unit
+from wesnoth_ai.classes import GameState, Unit
 from tools.scenario_pool import LADDER_SCENARIO_IDS
 from tools.scenario_pool import classify_scenario as _classify_scenario
-from rewards import (
+from wesnoth_ai.rewards import (
     OUTCOME_DRAW, OUTCOME_LOSS, OUTCOME_ONGOING, OUTCOME_TIMEOUT, OUTCOME_WIN,
     StepDelta, WeightedReward, compute_delta, hex_distance, load_reward_config,
 )
-from transformer_policy import TransformerPolicy
+from wesnoth_ai.transformer_policy import TransformerPolicy
 from wesnoth_sim import PvPDefaults, SimResult, WesnothSim
 import openers as openers_mod
 from openers import Opener, OpenerPolicy
@@ -321,7 +321,7 @@ def play_one_game(
     # Count via TERRAIN (map-build truth): the VILLAGE *modifier* is
     # only stamped on owned villages at capture time
     # (replay_dataset._parse_hex_code vs _capture_village).
-    from classes import Terrain as _T
+    from wesnoth_ai.classes import Terrain as _T
     map_total_villages = sum(
         1 for h in sim.gs.map.hexes if _T.VILLAGE in h.terrain_types)
     start_gold = {i + 1: int(sd.current_gold)

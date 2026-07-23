@@ -45,8 +45,8 @@ _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT))
 sys.path.insert(0, str(_ROOT / "tools"))
 
-from dummy_policy import DummyPolicy
-from rewards import WeightedReward
+from wesnoth_ai.dummy_policy import DummyPolicy
+from wesnoth_ai.rewards import WeightedReward
 from sim_self_play import (
     GameOutcome, _recruit_cost_lookup, play_one_game,
 )

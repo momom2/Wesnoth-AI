@@ -70,7 +70,7 @@ _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
-from classes import GameState, Position, SideInfo
+from wesnoth_ai.classes import GameState, Position, SideInfo
 from replay_dataset import (
     _apply_command,
     _build_initial_gamestate,
@@ -1386,7 +1386,7 @@ class WesnothSim:
                 (u for u in self.gs.map.units
                  if u.position.x == target.x and u.position.y == target.y),
                 None)
-            from visibility import is_scenery_unit
+            from wesnoth_ai.visibility import is_scenery_unit
             if dfd_u is not None and is_scenery_unit(dfd_u):
                 # Wesnoth-as-played refuses attacks on incapacitated
                 # or scenery units (UI gate, mouse_events.cpp:753 --
@@ -1429,7 +1429,7 @@ class WesnothSim:
             # rejects ("cannot recruit unit: ..."). Violation = the
             # caller ignored the mask -> loud reject + re-decide
             # (bounded by the consecutive-reject guard).
-            from visibility import leader_castle_network
+            from wesnoth_ai.visibility import leader_castle_network
             _leader = next(
                 (u for u in self.gs.map.units
                  if u.side == self.current_side and u.is_leader), None)
@@ -1546,7 +1546,7 @@ def _smoke(argv: List[str]) -> int:
     ap.add_argument("--max-turns", type=int, default=40)
     args = ap.parse_args(argv[1:])
 
-    from dummy_policy import DummyPolicy
+    from wesnoth_ai.dummy_policy import DummyPolicy
     sim = WesnothSim.from_replay(args.replay, max_turns=args.max_turns)
     print(f"scenario:   {sim.scenario_id}")
     print(f"factions:   "

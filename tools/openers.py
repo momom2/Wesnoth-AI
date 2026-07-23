@@ -8,12 +8,12 @@ re-trained model.
 Pattern::
 
     from tools.openers import Opener, OpenerPolicy
-    from transformer_policy import TransformerPolicy
+    from wesnoth_ai.transformer_policy import TransformerPolicy
 
     def grab_first_village(state, side):
         # Return an action dict if this opener wants to act this
         # decision, else None (falls through to the base policy).
-        from classes import Position
+        from wesnoth_ai.classes import Position
         for u in state.map.units:
             if u.side == side and u.is_leader:
                 # Move leader one hex south as a placeholder example.
@@ -85,7 +85,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
-from classes import GameState
+from wesnoth_ai.classes import GameState
 
 
 # Type alias for an opener move: takes (state, acting_side), returns
@@ -231,7 +231,7 @@ def recruit_type(unit_type: str) -> OpenerMove:
     """Opener move: recruit `unit_type` on a free castle hex adjacent
     to our leader. Returns None if our leader isn't on a keep, no
     free castle adjacent, or recruit list doesn't include unit_type."""
-    from classes import Position, TerrainModifiers
+    from wesnoth_ai.classes import Position, TerrainModifiers
     from tools.abilities import hex_neighbors
 
     def _move(state: GameState, side: int) -> Optional[Dict]:

@@ -69,7 +69,7 @@ _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
-from classes import GameState
+from wesnoth_ai.classes import GameState
 from tools.device_select import select_inference_device, describe_device
 from tools.scenario_pool import build_scenario_gamestate, random_setup
 from tools.sim_self_play import (
@@ -78,7 +78,7 @@ from tools.sim_self_play import (
     _update_closest_approach,
     _would_recruit_bounce,
 )
-from transformer_policy import TransformerPolicy
+from wesnoth_ai.transformer_policy import TransformerPolicy
 from wesnoth_sim import PvPDefaults, WesnothSim
 
 

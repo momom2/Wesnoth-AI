@@ -51,9 +51,9 @@ from typing import Dict, List, Optional, Protocol
 
 import torch
 
-from classes import GameState
-from encoder import EncodedState, RawEncoded, encode_raw
-from model import ModelOutput
+from wesnoth_ai.classes import GameState
+from wesnoth_ai.encoder import EncodedState, RawEncoded, encode_raw
+from wesnoth_ai.model import ModelOutput
 
 
 # ---------------------------------------------------------------------

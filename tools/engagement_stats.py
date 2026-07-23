@@ -161,7 +161,7 @@ class EngagementStats:
         if (self.first_contact_turn is None and dfd is not None
                 and dfd.side in (1, 2) and dfd.side != side):
             self.first_contact_turn = gs.global_info.turn_number
-        from visibility import is_scenery_unit
+        from wesnoth_ai.visibility import is_scenery_unit
         invalid = (dfd is None
                    or dfd.side == side
                    or is_scenery_unit(dfd))
@@ -179,7 +179,7 @@ class EngagementStats:
             self._gold_sum[side] += float(gs.sides[side - 1].current_gold)
             self._gold_n[side] += 1
         if getattr(gs.global_info, "_fog", True):
-            from visibility import visible_fraction_for
+            from wesnoth_ai.visibility import visible_fraction_for
             self._scout_sum[side] += visible_fraction_for(gs, side)
             self._scout_n[side] += 1
 

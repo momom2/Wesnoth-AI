@@ -553,7 +553,7 @@ def _smoke() -> int:
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from transformer_policy import TransformerPolicy
+    from wesnoth_ai.transformer_policy import TransformerPolicy
     from tools.mcts import MCTSConfig
     from tools.mcts_policy import MCTSPolicy, ReplayConfig
     from tools.draw_tiebreak import DrawTiebreakConfig

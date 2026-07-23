@@ -56,7 +56,7 @@ from __future__ import annotations
 from collections import deque
 from typing import Dict, Iterable, List, Set, Tuple
 
-from classes import GameState, Unit
+from wesnoth_ai.classes import GameState, Unit
 from tools.abilities import hex_neighbors
 
 

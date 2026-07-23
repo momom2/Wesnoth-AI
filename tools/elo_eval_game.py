@@ -45,7 +45,7 @@ log = logging.getLogger("elo_eval_game")
 
 def _build_player(spec: str, label: str, sims: int, device):
     if spec == "dummy":
-        from dummy_policy import DummyPolicy
+        from wesnoth_ai.dummy_policy import DummyPolicy
         return _ScriptedAdapter(DummyPolicy())
     policy = _load_policy(Path(spec), device, label=label)
     if sims > 0:

@@ -37,7 +37,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from classes import GameState, Hex, Position, SideInfo, TerrainModifiers
+from wesnoth_ai.classes import GameState, Hex, Position, SideInfo, TerrainModifiers
 from tools.replay_extract import WMLNode, parse_wml
 
 
@@ -489,7 +489,7 @@ def _terrain_action(gs: GameState, action: WMLNode) -> None:
     # bookkeeping and to update Hex.terrain_types/modifiers on the
     # parsed grid (so combat defense queries see the change).
     from tools.replay_dataset import _parse_hex_code
-    from classes import Hex, Position
+    from wesnoth_ai.classes import Hex, Position
     new_terr, new_mods = _parse_hex_code(new_code)
 
     # Strip overlay from the new terrain code; the base part is what
@@ -1228,8 +1228,8 @@ def _apply_effect_to_unit(u, eff: WMLNode) -> None:
         / `new_animation`: cosmetic, no-op.
     """
     apply_to = (eff.attrs.get("apply_to", "") or "").strip().strip('"')
-    from classes import Attack
-    from combat import DAMAGE_TYPES
+    from wesnoth_ai.classes import Attack
+    from wesnoth_ai.combat import DAMAGE_TYPES
     from dataclasses import replace as _dc_replace
 
     if apply_to == "attack":
@@ -1290,7 +1290,7 @@ def _apply_effect_to_unit(u, eff: WMLNode) -> None:
             type_id_idx = DAMAGE_TYPES.index(wtype.lower())
         except ValueError:
             type_id_idx = 0  # fallback to blade
-        from classes import DamageType
+        from wesnoth_ai.classes import DamageType
         try:
             type_id = list(DamageType)[type_id_idx]
         except (ValueError, IndexError):

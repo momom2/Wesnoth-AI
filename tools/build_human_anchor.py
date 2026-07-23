@@ -77,7 +77,7 @@ def main(argv: List[str]) -> int:
     args = ap.parse_args(argv[1:])
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-    from transformer_policy import TransformerPolicy
+    from wesnoth_ai.transformer_policy import TransformerPolicy
     # Vocab comes from any policy construction (frozen, shared across
     # all campaign checkpoints).
     net = TransformerPolicy(d_model=32, num_layers=1, num_heads=4,

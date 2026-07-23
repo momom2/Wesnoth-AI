@@ -39,7 +39,7 @@ import hashlib
 from dataclasses import dataclass
 from typing import Dict, FrozenSet, List, Optional, Tuple
 
-from classes import Attack, DamageType, Unit
+from wesnoth_ai.classes import Attack, DamageType, Unit
 
 
 # ----------------------------------------------------------------------
@@ -305,7 +305,7 @@ def roll_traits(unit_type: str, race: str, *,
     # makes it into out).
 
     if seed_hex:
-        from combat import MTRng
+        from wesnoth_ai.combat import MTRng
         rng = MTRng(seed_hex)
         # Wesnoth's `unit::init` consumes synced random calls in this
         # order, BEFORE we get to the trait rolls:

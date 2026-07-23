@@ -159,12 +159,20 @@ and `main.py --display` were retired 2026-05-11; `tools/sim_demo_game.py`
 + `tools/sim_to_replay.export_replay_from_scratch` cover the demo
 case by exporting a Wesnoth-loadable `.bz2`. The only remaining live-
 Wesnoth consumer is `tools/eval_vs_builtin.py` (via `tools/eval_runner.py`
-+ `wesnoth_interface.py`), which needs real Wesnoth subprocesses to
++ `wesnoth_ai/wesnoth_interface.py`), which needs real Wesnoth subprocesses to
 pit the trained model against the built-in RCA AI.
 
 ## Architecture
 
 ### Two paths that share encoder + model + trainer
+
+**Source layout (2026-07-23 reorg).** The core library modules listed
+below now live in the **`wesnoth_ai/`** package (imported as
+`from wesnoth_ai.X import ...`), not at the repo root. Scripts keep
+their `tools/` prefix; the test suite moved to **`tests/`**
+(`tests/conftest.py` bootstraps `sys.path`); `main.py` (the setup CLI)
+stays at the root. So a bare name like `classes.py` below means
+`wesnoth_ai/classes.py`.
 
 **Production path: in-process simulator.**
 - `tools/wesnoth_sim.py` — pure-Python game logic. Reuses the
@@ -185,7 +193,7 @@ pit the trained model against the built-in RCA AI.
 **Live-Wesnoth path (eval only).**
 - `main.py` — setup / maintenance CLI (`--check-setup`,
   `--clean-games`). No longer drives training or `--display`.
-- `wesnoth_interface.py` — one Wesnoth process per eval game; state
+- `wesnoth_ai/wesnoth_interface.py` — one Wesnoth process per eval game; state
   channel uses `std_print` → log-file tail (CA-blacklist bypass via
   custom Lua AI stage); actions written atomically as `action.lua`
   and read via `wesnoth.read_file`.
@@ -201,22 +209,23 @@ pit the trained model against the built-in RCA AI.
   `sim_to_replay.export_replay_from_scratch` (composes save WML
   from `wesnoth_src/` templates, no replays_raw/ dependency).
 
-**Shared by both paths:**
-- `classes.py` — `GameState`, `Unit`, `Hex`, `Map`, `SideInfo`,
-  `state_key`.
-- `encoder.py` — `GameState` → tensors (per-unit, per-hex, recruit
-  phantom features, global features).
-- `model.py` — `WesnothModel` transformer with distributional C51
-  value head; emits `ModelOutput(actor_logits, type_logits,
-  target_logits, weapon_logits, value, value_logits, cliffness, ...)`.
-- `action_sampler.py` — legal-action enumeration with priors;
-  combat-oracle attack-bias on target logits.
-- `transformer_policy.py` — Policy adapter (`select_action`,
+**Shared by both paths (all under `wesnoth_ai/`):**
+- `wesnoth_ai/classes.py` — `GameState`, `Unit`, `Hex`, `Map`,
+  `SideInfo`, `state_key`.
+- `wesnoth_ai/encoder.py` — `GameState` → tensors (per-unit, per-hex,
+  recruit phantom features, global features).
+- `wesnoth_ai/model.py` — `WesnothModel` transformer with
+  distributional C51 value head; emits `ModelOutput(actor_logits,
+  type_logits, target_logits, weapon_logits, value, value_logits,
+  cliffness, ...)`.
+- `wesnoth_ai/action_sampler.py` — legal-action enumeration with
+  priors; combat-oracle attack-bias on target logits.
+- `wesnoth_ai/transformer_policy.py` — Policy adapter (`select_action`,
   `observe`, `train_step`, `save_checkpoint`, `finalize_game`).
-- `trainer.py` — REINFORCE + value baseline (`step`) and
+- `wesnoth_ai/trainer.py` — REINFORCE + value baseline (`step`) and
   AlphaZero-style soft-target distillation (`step_mcts`); both
   use the categorical CE value loss against C51 atom projections.
-- `rewards.py` / `configs/reward_selfplay.json` — shaping
+- `wesnoth_ai/rewards.py` / `configs/reward_selfplay.json` — shaping
   reward (terminal ±1, gold/damage/village deltas, per-turn penalty,
   unit-type bonuses, turn-conditional bonuses).
 
@@ -224,17 +233,10 @@ pit the trained model against the built-in RCA AI.
 
 - **Wesnoth uses 1-indexed hex coordinates.**
 - **Python uses 0-indexed hex coordinates everywhere internally.**
-- Conversion happens in `state_converter.py` (both directions). Keep it
-  there; do not sprinkle `±1` around the codebase.
+- Conversion happens in `wesnoth_ai/state_converter.py` (both
+  directions). Keep it there; do not sprinkle `±1` around the codebase.
 
 ## Architecture Principles
-
-### 1. Start simple, measure, then complicate
-This project has suffered from premature architectural ambition. We
-have a transformer with a memory module, a consistency loss, and
-parallel games — and zero training steps. Default stance: the simplest
-thing that measurably improves over the previous baseline wins. Add
-complexity only when a metric demands it.
 
 ### 2. Self-play is non-negotiable
 The learning signal comes from self-play. Bootstrapping methods
@@ -248,16 +250,19 @@ in data/config, not buried in network weights or scattered constants.
 When you add a new behavior, ask: "could a modder flip this without
 touching model code?"
 
-### 4. Simulator parity is bit-exact for combat
+### 4. The simulator must be perfectly faithful to Wesnoth
 The simulator's combat math is verified against Wesnoth's own
 `[mp_checkup]` oracle on strict-sync replays (731/731 strikes
 matched). Any sim change that touches combat, healing, or
 advancement must keep that parity. `tools/diff_replay.py` is the
 regression check (runs the simulator over a corpus, compares
-against the recorded WML command stream); aim to keep clean rate
-≥98.5% on competitive-2p. New scenario events go in
+against the recorded WML command stream). New scenario events go in
 `tools/scenario_events.py`; new abilities in `tools/abilities.py`;
 both with citations to `wesnoth_src/` file:line.
+
+Any mismatch between the simulator and Wesnoth (usually surfaced
+by OOS errors when strict syncing sim-produced replays) is a
+critical issue to be investigated and solved at the root.
 
 When live Wesnoth is in the loop (display, eval), the same
 narrow-waist principle applies: state crosses the bridge as one
@@ -381,13 +386,13 @@ many line-coverage tests.
   pytest spawns a Python process that imports torch + the model;
   parallel runs balloon memory (5+ GB per process) and a stuck
   test compounds the problem. Wait for each command to fully
-  return (foreground) before launching the next. If a test
-  hangs, kill the process before starting another — don't queue
-  a second behind it. No "let me also kick off X while we wait"
-  patterns. (Lesson from 2026-05-10: four parallel pytest jobs
-  stuck on a hanging `_select_one` loop produced multiple
-  multi-GB zombie Python processes that locked up the user's
-  machine.)
+  return (foreground) or be killed before launching the next. 
+  If a test hangs, kill the process before starting another — 
+  don't queue a second behind it. No "let me also kick off X 
+  while we wait" patterns. (Lesson from 2026-05-10: four parallel 
+  pytest jobs stuck on a hanging `_select_one` loop produced 
+  multiple multi-GB zombie Python processes that locked up the 
+  user's machine.)
 - Use `constants.py` values in assertions (not hardcoded duplicates).
 - Never weaken a test without explicit user confirmation. A failing
   test is a signal — find the root cause first.

@@ -47,7 +47,7 @@ def main(argv) -> int:
     ap.add_argument("--device", default="cpu")
     args = ap.parse_args(argv[1:])
 
-    import constants
+    from wesnoth_ai import constants
     constants.FORBID_IDLE_END_TURN = (args.idle_gate == "on")
     log.info(f"idle end_turn gate: {args.idle_gate}")
 

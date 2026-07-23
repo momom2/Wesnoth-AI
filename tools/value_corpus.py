@@ -48,7 +48,7 @@ from typing import Iterator, List, Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from trainer import MCTSExperience
+from wesnoth_ai.trainer import MCTSExperience
 
 log = logging.getLogger("value_corpus")
 
@@ -117,7 +117,7 @@ def game_raw_experiences(gz_path: Path, winner: int, *,
     the parallel value fine-tune. `type_to_id`/`faction_to_id` MUST be
     the model's frozen vocab (encode_raw is read-only; out-of-vocab ->
     overflow bucket)."""
-    from encoder import encode_raw
+    from wesnoth_ai.encoder import encode_raw
     from tools.mcts_policy import MOVES_LEFT_NORM_TURNS
     from tools.replay_dataset import (_apply_command,
                                       _build_initial_gamestate,
@@ -212,7 +212,7 @@ def main(argv: List[str]) -> int:
 
     if args.eval_ckpt and all_exps:
         import torch
-        from transformer_policy import TransformerPolicy
+        from wesnoth_ai.transformer_policy import TransformerPolicy
         raw = torch.load(args.eval_ckpt, map_location="cpu",
                          weights_only=False)
         a = raw["arch"]

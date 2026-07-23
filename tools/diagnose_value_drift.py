@@ -70,7 +70,7 @@ def main(argv: List[str]) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     import torch
-    from transformer_policy import TransformerPolicy
+    from wesnoth_ai.transformer_policy import TransformerPolicy
 
     with args.experiences.open("rb") as f:
         pool = pickle.load(f)

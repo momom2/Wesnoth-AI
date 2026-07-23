@@ -125,7 +125,7 @@ def grow_checkpoint(
     larger) target arch, block-transfer the trained weights into it,
     carry the vocab + decision_step, and save a new checkpoint ready to
     `--checkpoint-in`. Unspecified arch dims default to the source's."""
-    from transformer_policy import TransformerPolicy
+    from wesnoth_ai.transformer_policy import TransformerPolicy
 
     dev = device or torch.device("cpu")
     raw = torch.load(src_path, map_location="cpu", weights_only=False)

@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from typing import Iterable, List, Optional, Set, Tuple
 
-from classes import Unit
+from wesnoth_ai.classes import Unit
 
 
 # ----------------------------------------------------------------------

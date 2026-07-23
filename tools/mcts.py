@@ -94,13 +94,13 @@ _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
-from action_sampler import (
+from wesnoth_ai.action_sampler import (
     LegalActionPrior,
     enumerate_legal_actions_with_priors,
 )
-from classes import GameState, state_key
-from encoder import GameStateEncoder
-from model import WesnothModel
+from wesnoth_ai.classes import GameState, state_key
+from wesnoth_ai.encoder import GameStateEncoder
+from wesnoth_ai.model import WesnothModel
 from wesnoth_sim import WesnothSim
 from draw_tiebreak import DrawTiebreakConfig, draw_tiebreak_z
 from combat_outcomes import (

@@ -33,13 +33,13 @@ _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
-from action_sampler import sample_action
-from classes import GameState
-from constants import MAX_ACTIONS_PER_GAME, SCENARIOS_PATH
-from encoder import GameStateEncoder
-from model import WesnothModel
-from state_converter import StateConverter
-from wesnoth_interface import WesnothGame
+from wesnoth_ai.action_sampler import sample_action
+from wesnoth_ai.classes import GameState
+from wesnoth_ai.constants import MAX_ACTIONS_PER_GAME, SCENARIOS_PATH
+from wesnoth_ai.encoder import GameStateEncoder
+from wesnoth_ai.model import WesnothModel
+from wesnoth_ai.state_converter import StateConverter
+from wesnoth_ai.wesnoth_interface import WesnothGame
 
 
 log = logging.getLogger("eval_runner")

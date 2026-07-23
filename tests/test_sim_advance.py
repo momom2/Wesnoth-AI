@@ -1,0 +1,342 @@
+#!/usr/bin/env python3
+"""Test: post-attack advancement detection + [choose] WML emission.
+
+When an attacker or defender crosses its XP threshold mid-attack,
+Wesnoth's `attack_unit_and_advance` (attack.cpp:1556-1573) records the
+chosen advance in a `[command] dependent="yes" [choose]` block — one
+per advancing unit, attacker first then defender. Without these the
+replay engine fires "expecting a user choice" the first time a model
+lands a level-up.
+
+We verify both:
+  - the sim's `step()` correctly stashes `advance_choices` on the
+    RecordedCommand for kill-based AND damage-based advances;
+  - the exporter's `_build_replay_wml` emits the [choose] blocks in
+    the right order.
+"""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
+
+import pytest
+from wesnoth_ai.classes import Position, Unit
+from tools.replay_dataset import _build_recruit_unit
+from tools.sim_to_replay import _build_replay_wml
+from tools.wesnoth_sim import RecordedCommand, WesnothSim
+
+
+def _make(unit_type, side, x, y, uid, *, current_hp=None, current_exp=0,
+          is_leader=False, exp_modifier=100):
+    """Produce a Unit at full MP / specified HP / specified XP."""
+    base = _build_recruit_unit(unit_type, side=side, x=x, y=y,
+                               next_uid=uid, game_id="t",
+                               trait_seed_hex="12345678",
+                               exp_modifier=exp_modifier)
+    fresh = Unit(
+        id=base.id, name=base.name, name_id=base.name_id, side=side,
+        is_leader=is_leader, position=Position(x, y),
+        max_hp=base.max_hp, max_moves=base.max_moves, max_exp=base.max_exp,
+        cost=base.cost, alignment=base.alignment,
+        levelup_names=list(base.levelup_names),
+        current_hp=current_hp if current_hp is not None else base.max_hp,
+        current_moves=base.max_moves,
+        current_exp=current_exp,
+        has_attacked=False,
+        attacks=list(base.attacks),
+        resistances=list(base.resistances),
+        defenses=list(base.defenses),
+        movement_costs=list(base.movement_costs),
+        abilities=set(base.abilities),
+        traits=set(base.traits),
+        statuses=set(),
+    )
+    for k, v in base.__dict__.items():
+        if k.startswith("_"):
+            setattr(fresh, k, v)
+    return fresh
+
+
+@pytest.fixture
+def fresh_sim():
+    """A from-scratch WesnothSim shell; the unit roster is cleared
+    and replaced per test (pure state surgery).
+
+    Built via the production scenario path (sim_test_helpers), which
+    sets `_experience_modifier=70` (PvP default) — XP-threshold tests
+    like `test_kill_based_advance_detected` expect a Skeleton's
+    max_exp to scale to ~27 (39 base * 70%). The Freelands board is
+    big enough for the surgery coordinates (up to (21, 20))."""
+    from sim_test_helpers import fresh_scenario_sim
+    sim = fresh_scenario_sim(
+        seed=7, max_turns=10, scenario_id="multiplayer_The_Freelands")
+    assert sim.gs.map.size_x > 22 and sim.gs.map.size_y > 21, (
+        "fixture map too small for the surgery coordinates")
+    sim.gs.map.units.clear()
+    return sim
+
+
+def _run_attack(sim, *units):
+    """Place units, set side 1's turn, run a (10,10)->(11,10) attack."""
+    for u in units:
+        sim.gs.map.units.add(u)
+    sim.gs.global_info.current_side = 1
+    sim._begin_side_turn(1)
+    sim.step({
+        "type": "attack",
+        "start_hex": Position(10, 10),
+        "target_hex": Position(11, 10),
+        "attack_index": 0,
+    })
+    return sim.command_history[-1]
+
+
+def test_no_advance_no_choose(fresh_sim):
+    """An attack with no level-ups produces no advance_choices entry."""
+    sim = fresh_sim
+    xpmod = int(getattr(sim.gs.global_info, "_experience_modifier", 100) or 100)
+    rc = _run_attack(
+        sim,
+        _make("Skeleton", 1, 10, 10, 1, current_exp=0, exp_modifier=xpmod),
+        _make("Spearman", 2, 11, 10, 2, exp_modifier=xpmod),  # full HP
+        _make("Skeleton", 1, 20, 20, 100, is_leader=True, exp_modifier=xpmod),
+        _make("Skeleton", 2, 21, 20, 101, is_leader=True, exp_modifier=xpmod),
+    )
+    assert rc.kind == "attack"
+    assert "advance_choices" not in rc.extras
+
+
+def test_kill_based_advance_detected(fresh_sim):
+    """Attacker kills a level-1 victim and crosses XP threshold."""
+    sim = fresh_sim
+    xpmod = int(getattr(sim.gs.global_info, "_experience_modifier", 100) or 100)
+    sk = _make("Skeleton", 1, 10, 10, 1,
+               current_exp=22, exp_modifier=xpmod)  # +8 from kill -> >= max_exp
+    rc = _run_attack(
+        sim, sk,
+        _make("Spearman", 2, 11, 10, 2, current_hp=1, exp_modifier=xpmod),
+        _make("Skeleton", 1, 20, 20, 100, is_leader=True, exp_modifier=xpmod),
+        _make("Skeleton", 2, 21, 20, 101, is_leader=True, exp_modifier=xpmod),
+    )
+    assert "advance_choices" in rc.extras
+    choices = rc.extras["advance_choices"]
+    assert choices == [(1, 0)], f"expected attacker-side=1 idx=0, got {choices}"
+
+
+def test_damage_based_advance_detected(fresh_sim):
+    """Attacker DOESN'T kill defender but gains enough XP to advance."""
+    sim = fresh_sim
+    xpmod = int(getattr(sim.gs.global_info, "_experience_modifier", 100) or 100)
+    sk = _make("Skeleton", 1, 10, 10, 1,
+               current_exp=26, exp_modifier=xpmod)  # +1 per attack on lvl-1
+    rc = _run_attack(
+        sim, sk,
+        _make("Spearman", 2, 11, 10, 2, exp_modifier=xpmod),  # full HP
+        _make("Skeleton", 1, 20, 20, 100, is_leader=True, exp_modifier=xpmod),
+        _make("Skeleton", 2, 21, 20, 101, is_leader=True, exp_modifier=xpmod),
+    )
+    # Defender survives high-HP; attacker advances on damage XP.
+    post_att = next((u for u in sim.gs.map.units if u.id == sk.id), None)
+    if post_att and post_att.name == "Skeleton":
+        pytest.skip("attacker did not advance (no XP gained?); test premise failed")
+    assert "advance_choices" in rc.extras
+
+
+def test_simultaneous_advance_order(fresh_sim):
+    """Both attacker and defender cross threshold -- attacker recorded
+    first per Wesnoth's attack_unit_and_advance order."""
+    sim = fresh_sim
+    xpmod = int(getattr(sim.gs.global_info, "_experience_modifier", 100) or 100)
+    rc = _run_attack(
+        sim,
+        _make("Skeleton", 1, 10, 10, 1, current_exp=26, exp_modifier=xpmod),
+        # Defender at xp >= max_exp already so retaliation tips it.
+        _make("Spearman", 2, 11, 10, 2, current_exp=39, current_hp=40,
+              exp_modifier=xpmod),
+        _make("Skeleton", 1, 20, 20, 100, is_leader=True, exp_modifier=xpmod),
+        _make("Skeleton", 2, 21, 20, 101, is_leader=True, exp_modifier=xpmod),
+    )
+    choices = rc.extras.get("advance_choices", [])
+    sides_in_order = [s for s, _ in choices]
+    # Attacker side first (1), defender side second (2).
+    assert sides_in_order == [1, 2], (
+        f"expected attacker-first defender-second order, got {sides_in_order}")
+
+
+def test_choose_emitted_after_random_seed():
+    """`_build_replay_wml` orders [choose] AFTER the attack's
+    [random_seed] follow-up, in attacker-then-defender order."""
+    history = [
+        RecordedCommand(kind="init_side", side=1, cmd=["init_side", 1]),
+        RecordedCommand(
+            kind="attack", side=1,
+            cmd=["attack", 5, 5, 6, 5, 0, -1, "deadbeef"],
+            extras={"advance_choices": [(1, 0), (2, 1)]}),
+        RecordedCommand(kind="end_turn", side=1, cmd=["end_turn"]),
+    ]
+    wml = _build_replay_wml(history)
+    pa = wml.find("[attack]")
+    ps = wml.find("[random_seed]", pa)
+    pc1 = wml.find("[choose]", ps)
+    pc2 = wml.find("[choose]", pc1 + 1)
+    assert pa > 0 and ps > pa and pc1 > ps and pc2 > pc1, (
+        f"order violated: attack={pa} seed={ps} choose1={pc1} choose2={pc2}")
+    # BOTH chooses carry the ACTING side (the attack's from_side) --
+    # corpus-verified 106/106 across human replays 2026-07-19,
+    # defender advancements included; the previous owner-side
+    # expectation made strict-sync playback reject defender
+    # advancements (see test_attack_fidelity_fixes.py::
+    # test_choose_from_side_is_the_acting_side). Ordering (attacker's
+    # choose first, then defender's) is unchanged.
+    import re
+    sides = re.findall(r'from_side="(\d+)"\s*\n\[choose\]', wml)
+    values = re.findall(r'\[choose\]\s*\nvalue="(\d+)"', wml)
+    assert sides == ["1", "1"], sides
+    assert values == ["0", "1"], values
+
+
+def test_no_advance_no_choose_in_wml():
+    """Attack without `advance_choices` extras should produce zero
+    [choose] blocks (regression: an attack on a non-leveling unit
+    shouldn't emit anything advance-related)."""
+    history = [
+        RecordedCommand(
+            kind="attack", side=1,
+            cmd=["attack", 5, 5, 6, 5, 0, -1, "deadbeef"],
+            extras={}),  # no advance_choices
+        RecordedCommand(kind="end_turn", side=1, cmd=["end_turn"]),
+    ]
+    wml = _build_replay_wml(history)
+    assert "[choose]" not in wml
+
+
+def test_plague_spawn_type_resolution():
+    """`_spawn_plague_corpse`'s type-resolution logic, derived from
+    Wesnoth source (verified 2026-04-28):
+
+      - WEAPON_SPECIAL_PLAGUE (weapon_specials.cfg:47-57) hardcodes
+        `type=Walking Corpse`. Every default-era plague kill spawns
+        a Walking Corpse, regardless of attacker (WC, Soulless,
+        Necromancer, or any variation thereof). attack.cpp:159-164
+        only falls back to attacker.parent_id when type= is empty,
+        which never happens for the canned macro.
+      - The killed unit's `undead_variation` is applied as a
+        [variation] modification (attack.cpp:1299-1306). Variation
+        comes solely from the dead unit's race; attacker's
+        variation never propagates.
+
+    So:
+      Walking Corpse           kills Cavalryman -> Walking Corpse:mounted
+      Soulless                 kills Cavalryman -> Walking Corpse:mounted (NOT Soulless:mounted!)
+      Walking Corpse:falcon    kills Cavalryman -> Walking Corpse:mounted
+      Soulless:mounted         kills Cavalryman -> Walking Corpse:mounted
+      Walking Corpse           kills Spearman   -> Walking Corpse (no variation)
+      Walking Corpse:mounted   kills Spearman   -> Walking Corpse
+    """
+    from tools.replay_dataset import _stats_for
+
+    def _resolve(_attacker_name: str, dead_name: str) -> str:
+        """Mirror the post-fix _spawn_plague_corpse type resolution.
+        The attacker name is INTENTIONALLY ignored -- spawn type is
+        always 'Walking Corpse' for default-era plague."""
+        dead_stats = _stats_for(dead_name)
+        base_type = "Walking Corpse"
+        variation = str(dead_stats.get("undead_variation", "")).strip()
+        return f"{base_type}:{variation}" if variation else base_type
+
+    # Variation always comes from the dead's undead_variation.
+    # Spawn TYPE is always Walking Corpse, regardless of attacker.
+    assert _resolve("Walking Corpse",          "Cavalryman") == "Walking Corpse:mounted"
+    assert _resolve("Walking Corpse:mounted",  "Cavalryman") == "Walking Corpse:mounted"
+    assert _resolve("Walking Corpse:falcon",   "Cavalryman") == "Walking Corpse:mounted"
+    # Soulless attacker ALSO spawns Walking Corpse (NOT Soulless).
+    # This was the bug in the original commit.
+    assert _resolve("Soulless",         "Cavalryman") == "Walking Corpse:mounted"
+    assert _resolve("Soulless:mounted", "Cavalryman") == "Walking Corpse:mounted"
+    # Empty-undead-variation dead: no variation applied.
+    assert _resolve("Walking Corpse",         "Spearman") == "Walking Corpse"
+    assert _resolve("Walking Corpse:mounted", "Spearman") == "Walking Corpse"
+    assert _resolve("Soulless",               "Spearman") == "Walking Corpse"
+
+
+def test_replay_recon_recall_flags_state(fresh_sim, caplog):
+    """In replay-recon, hitting a `recall` action sets
+    `_has_recall=True` + appends to `_recall_log`, AND emits an
+    ERROR log so the corpus issue is visible. PvP shouldn't have
+    recalls; the flag lets `tools/flag_replays_with_recalls.py`
+    pick the replay out for inspection."""
+    import logging
+    from tools.replay_dataset import _apply_command
+
+    sim = fresh_sim
+    sim.gs.global_info.current_side = 1
+    sim.gs.global_info.turn_number = 7
+    sim.gs.game_id = "weird_pvp_replay_42"
+
+    # Pre-existing flags should be absent.
+    assert not getattr(sim.gs.global_info, "_has_recall", False)
+
+    with caplog.at_level(logging.ERROR, logger="replay_dataset"):
+        _apply_command(sim.gs, ["recall", "fighter_42", 5, 6])
+
+    # The recon doesn't crash; flag is set; log captures the event.
+    assert getattr(sim.gs.global_info, "_has_recall") is True
+    log = getattr(sim.gs.global_info, "_recall_log", [])
+    assert len(log) == 1
+    entry = log[0]
+    assert entry["turn"] == 7
+    assert entry["side"] == 1
+    assert entry["unit_id"] == "fighter_42"
+    assert entry["x"] == 5
+    assert entry["y"] == 6
+    # Ensure the ERROR log mentions both the game_id and the
+    # remediation utility.
+    err_text = " ".join(rec.message for rec in caplog.records
+                        if rec.levelno == logging.ERROR)
+    assert "weird_pvp_replay_42" in err_text
+    assert "flag_replays_with_recalls" in err_text
+
+
+def test_replay_recon_two_recalls_both_logged(fresh_sim):
+    """Multiple recalls in one replay each append to the log."""
+    from tools.replay_dataset import _apply_command
+
+    sim = fresh_sim
+    sim.gs.global_info.current_side = 2
+    sim.gs.game_id = "double_recall"
+    _apply_command(sim.gs, ["recall", "u1", 1, 1])
+    _apply_command(sim.gs, ["recall", "u2", 2, 2])
+
+    log = getattr(sim.gs.global_info, "_recall_log", [])
+    assert len(log) == 2
+    assert {(e["unit_id"], e["x"], e["y"]) for e in log} == {
+        ("u1", 1, 1),
+        ("u2", 2, 2),
+    }
+
+
+def test_recall_action_rejected_to_end_turn(fresh_sim):
+    """The sim has no recall list and the exporter would emit a
+    broken `[recall]` block citing a unit_id that's not on Wesnoth's
+    recall list. `_action_to_command` rejects recall actions outright
+    so they translate to end_turn -- the recorded command kind must
+    NEVER be 'recall'."""
+    sim = fresh_sim
+    # Place at least one leader so the sim doesn't error on missing leader.
+    leader = _make("Skeleton", 1, 5, 5, 1, is_leader=True)
+    leader2 = _make("Skeleton", 2, 6, 5, 2, is_leader=True)
+    sim.gs.map.units.add(leader)
+    sim.gs.map.units.add(leader2)
+    sim._begin_side_turn(1)
+    pre_count = len(sim.command_history)
+    sim.step({"type": "recall", "unit_id": "u1",
+              "target_hex": Position(5, 6)})
+    new_kinds = [rc.kind for rc in sim.command_history[pre_count:]]
+    assert "recall" not in new_kinds, (
+        f"recall command leaked through to history: {new_kinds}")
+    # The recall should have triggered an end_turn fallback.
+    assert "end_turn" in new_kinds, (
+        f"expected end_turn fallback, got {new_kinds}")

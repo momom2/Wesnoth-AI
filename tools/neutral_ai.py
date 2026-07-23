@@ -91,7 +91,7 @@ def _xp_scaled_cost(u) -> float:
 
 
 def _attacker_on_village(gs, u) -> bool:
-    from classes import Terrain
+    from wesnoth_ai.classes import Terrain
     for h in gs.map.hexes:
         if h.position.x == u.position.x and h.position.y == u.position.y:
             return Terrain.VILLAGE in h.terrain_types
@@ -179,8 +179,8 @@ def run_neutral_side_turn(sim, side: int = 3) -> int:
     _begin_side_turn."""
     from tools.abilities import hex_neighbors
     from tools.replay_dataset import _apply_command
-    from visibility import is_scenery_unit
-    from classes import Position
+    from wesnoth_ai.visibility import is_scenery_unit
+    from wesnoth_ai.classes import Position
 
     gs = sim.gs
     # Side turn opens with init_side: healing (regenerate!), poison,

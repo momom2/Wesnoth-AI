@@ -76,7 +76,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT))
 sys.path.insert(0, str(_ROOT / "tools"))
 
-from classes import GameState, Position, TerrainModifiers, Unit
+from wesnoth_ai.classes import GameState, Position, TerrainModifiers, Unit
 from tools.replay_dataset import (
     _apply_command, _build_initial_gamestate, _setup_scenario_events,
     _stats_for,

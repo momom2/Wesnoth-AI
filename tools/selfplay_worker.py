@@ -55,7 +55,7 @@ def _build_policy(ckpt: Path, device, args):
     from tools.draw_tiebreak import DrawTiebreakConfig
     from tools.mcts import MCTSConfig
     from tools.mcts_policy import MCTSPolicy
-    from transformer_policy import TransformerPolicy
+    from wesnoth_ai.transformer_policy import TransformerPolicy
 
     raw = torch.load(ckpt, map_location="cpu", weights_only=False)
     arch = raw.get("arch", {})

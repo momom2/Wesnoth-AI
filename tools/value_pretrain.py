@@ -69,7 +69,7 @@ def main(argv: List[str]) -> int:
 
     import json
     import torch
-    from transformer_policy import TransformerPolicy
+    from wesnoth_ai.transformer_policy import TransformerPolicy
     from tools.value_corpus import game_experiences
 
     raw = torch.load(args.checkpoint_in, map_location="cpu",

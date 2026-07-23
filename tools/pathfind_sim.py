@@ -94,7 +94,7 @@ class ReachContext:
                  exclude_unit=None) -> "ReachContext":
         from tools.abilities import hex_neighbors
         from replay_dataset import _stats_for
-        from visibility import units_visible_to, is_scenery_unit
+        from wesnoth_ai.visibility import units_visible_to, is_scenery_unit
 
         playable = frozenset(
             (h.position.x, h.position.y) for h in gs.map.hexes)
@@ -554,8 +554,8 @@ def walk_move_path(gs, unit, xs: List[int], ys: List[int],
     # hider also breaks its hiding) or already uncovered don't
     # ambush; the snapshot is NOT updated as the mover walks (engine
     # reads the pre-move invisibility cache, unit.cpp:2613-2618).
-    from visibility import _hide_cover_active as _cover_active
-    from visibility import is_scenery_unit as _is_scenery
+    from wesnoth_ai.visibility import _hide_cover_active as _cover_active
+    from wesnoth_ai.visibility import is_scenery_unit as _is_scenery
     def _is_hidden_hider(u) -> bool:
         if u.side == side or u.id in uncovered:
             return False
@@ -589,7 +589,7 @@ def walk_move_path(gs, unit, xs: List[int], ys: List[int],
     zoc_hexes: Set[Coord] = set()
     if not skirmisher:
         from replay_dataset import _stats_for
-        from visibility import units_visible_to
+        from wesnoth_ai.visibility import units_visible_to
         for u in units_visible_to(gs, side):
             if u.side == side:
                 continue

@@ -45,9 +45,9 @@ def main(argv) -> int:
                     help="Print detail for the first N misses.")
     args = ap.parse_args(argv[1:])
 
-    from encoder import GameStateEncoder
-    from model import UnitActionType
-    from action_sampler import _build_legality_masks
+    from wesnoth_ai.encoder import GameStateEncoder
+    from wesnoth_ai.model import UnitActionType
+    from wesnoth_ai.action_sampler import _build_legality_masks
     from tools.replay_dataset import iter_replay_pairs
 
     files = sorted(args.dataset.glob("*.json.gz"))

@@ -43,7 +43,7 @@ def main() -> int:
     )
 
     import torch
-    from transformer_policy import TransformerPolicy
+    from wesnoth_ai.transformer_policy import TransformerPolicy
     from tools.mcts import mcts_search, MCTSConfig
     from tools.scenario_pool import (
         random_setup, build_scenario_gamestate, load_factions,

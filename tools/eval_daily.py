@@ -53,7 +53,7 @@ _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
-from constants import WESNOTH_USERDATA_PATH
+from wesnoth_ai.constants import WESNOTH_USERDATA_PATH
 
 
 log = logging.getLogger("eval_daily")

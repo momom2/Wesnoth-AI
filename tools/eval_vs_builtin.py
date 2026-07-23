@@ -56,8 +56,8 @@ _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
-from constants import ADDONS_PATH, MAX_ACTIONS_PER_GAME, SCENARIOS_PATH
-from encoder import GameStateEncoder
+from wesnoth_ai.constants import ADDONS_PATH, MAX_ACTIONS_PER_GAME, SCENARIOS_PATH
+from wesnoth_ai.encoder import GameStateEncoder
 from eval_runner import GameResult, play_many
 from eval_scenarios import (
     FACTIONS,
@@ -69,8 +69,8 @@ from eval_scenarios import (
     cross_pairs,
     generate_eval_scenarios,
 )
-from model import WesnothModel
-from state_converter import StateConverter
+from wesnoth_ai.model import WesnothModel
+from wesnoth_ai.state_converter import StateConverter
 
 
 log = logging.getLogger("eval_vs_builtin")
@@ -138,7 +138,7 @@ def _load_checkpoint(
     if m_unexpected:
         log.warning(f"  model: {len(m_unexpected)} unexpected key(s) "
                     f"in checkpoint (ignored): {m_unexpected}")
-    from encoder import pad_legacy_encoder_state
+    from wesnoth_ai.encoder import pad_legacy_encoder_state
     e_missing, e_unexpected = encoder.load_state_dict(
         pad_legacy_encoder_state(ckpt["encoder_state"], encoder),
         strict=False)

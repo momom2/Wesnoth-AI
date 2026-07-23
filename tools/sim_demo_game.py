@@ -51,7 +51,7 @@ sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
 from sim_to_replay import export_replay, find_source_bz2
-from transformer_policy import TransformerPolicy
+from wesnoth_ai.transformer_policy import TransformerPolicy
 from wesnoth_sim import PvPDefaults, WesnothSim
 
 

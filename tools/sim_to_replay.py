@@ -1557,7 +1557,7 @@ def _cli(argv: List[str]) -> int:
         return 2
     log.info(f"using source bz2: {src_bz2}")
 
-    from dummy_policy import DummyPolicy
+    from wesnoth_ai.dummy_policy import DummyPolicy
     sim = WesnothSim.from_replay(args.source_json_gz, max_turns=args.max_turns)
     res = sim.run_game(DummyPolicy(), DummyPolicy())
     log.info(f"sim done: winner={res.winner} turns={res.turns} "

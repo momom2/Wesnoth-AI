@@ -255,7 +255,7 @@ class Player:
         if self.spec == "random":
             self.policy = _load_policy(None, device, label=self.label)
         elif self.spec == "dummy":
-            from dummy_policy import DummyPolicy
+            from wesnoth_ai.dummy_policy import DummyPolicy
             self.policy = _ScriptedAdapter(DummyPolicy())
         elif self.spec.startswith("mcts:"):
             _, sims_s, inner = self.spec.split(":", 2)

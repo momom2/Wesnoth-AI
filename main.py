@@ -24,7 +24,7 @@ if hasattr(sys.stdout, "reconfigure"):
     except (OSError, AttributeError):
         pass
 
-from constants import (
+from wesnoth_ai.constants import (
     ADDON_INSTALL_PATH,
     ADDONS_PATH,
     CHECKPOINTS_PATH,

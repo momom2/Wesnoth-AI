@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from classes import GameState, Position
+from wesnoth_ai.classes import GameState, Position
 from tools.replay_dataset import (
     _build_initial_gamestate, _setup_scenario_events,
 )

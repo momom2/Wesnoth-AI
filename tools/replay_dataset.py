@@ -33,11 +33,11 @@ from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Tuple
 
 # Re-use existing game-state dataclasses.
-from classes import (
+from wesnoth_ai.classes import (
     Alignment as AlignmentEnum, Attack, DamageType, GameState, GlobalInfo,
     Hex, Map, Position, SideInfo, Terrain, TerrainModifiers, Unit,
 )
-import combat as cb
+from wesnoth_ai import combat as cb
 
 
 log = logging.getLogger("replay_dataset")
@@ -721,7 +721,7 @@ def _build_initial_gamestate(data: dict) -> GameState:
         # Mark VILLAGE modifier on each pre-owned hex so the encoder
         # treats it as captured (matches what _capture_village does
         # when a unit walks onto a village mid-game).
-        from classes import TerrainModifiers as _TM
+        from wesnoth_ai.classes import TerrainModifiers as _TM
         for (vx, vy) in owner_map:
             for h in gs.map.hexes:
                 if h.position.x == vx and h.position.y == vy:
@@ -2323,7 +2323,7 @@ def _action_indices(gs: GameState, cmd: list) -> Optional[ActionIndices]:
     # copy silently rotted when the encoder became fog-filtered,
     # mislabeling 19%+ of behavior-cloning pairs; root-caused and
     # de-mirrored 2026-07-16.)
-    from visibility import (hexes_in_slot_order, own_recruit_types,
+    from wesnoth_ai.visibility import (hexes_in_slot_order, own_recruit_types,
                             visible_units_in_slot_order)
     current_side = gs.global_info.current_side
     units_sorted = visible_units_in_slot_order(gs, current_side)
@@ -2354,7 +2354,7 @@ def _action_indices(gs: GameState, cmd: list) -> Optional[ActionIndices]:
         # of model.UnitActionType to avoid a hard dep cycle (model
         # already imports replay_dataset transitively via the
         # encoder).
-        from model import UnitActionType
+        from wesnoth_ai.model import UnitActionType
         return ActionIndices("move", actor_idx=actor, target_idx=target,
                              type_idx=UnitActionType.MOVE)
 
@@ -2369,7 +2369,7 @@ def _action_indices(gs: GameState, cmd: list) -> Optional[ActionIndices]:
         target = pos_to_hex_idx.get((dx, dy))
         if target is None:
             return None
-        from model import UnitActionType
+        from wesnoth_ai.model import UnitActionType
         return ActionIndices("attack", actor_idx=actor,
                              target_idx=target, weapon_idx=weapon,
                              type_idx=UnitActionType.ATTACK)

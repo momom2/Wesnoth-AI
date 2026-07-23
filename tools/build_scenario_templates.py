@@ -70,7 +70,7 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from constants import WESNOTH_PATH
+from wesnoth_ai.constants import WESNOTH_PATH
 from tools.scenario_pool import (
     DRILL_SCENARIO_IDS, LADDER_SCENARIO_IDS, MINI_MAP_SCENARIO_IDS,
 )

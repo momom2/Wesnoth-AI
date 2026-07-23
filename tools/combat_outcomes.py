@@ -44,8 +44,8 @@ _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
-import combat as cb
-from classes import GameState, Unit
+from wesnoth_ai import combat as cb
+from wesnoth_ai.classes import GameState, Unit
 
 log = logging.getLogger("combat_outcomes")
 

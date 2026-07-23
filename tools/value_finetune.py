@@ -98,7 +98,7 @@ def main(argv) -> int:
                         format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
 
     import torch
-    from transformer_policy import TransformerPolicy
+    from wesnoth_ai.transformer_policy import TransformerPolicy
     from tools.mcts_policy import MOVES_LEFT_NORM_TURNS
     from tools.value_corpus import game_raw_experiences
 

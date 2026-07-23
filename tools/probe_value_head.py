@@ -80,7 +80,7 @@ def main(argv: List[str]) -> int:
     args = ap.parse_args(argv[1:])
 
     import torch
-    from transformer_policy import TransformerPolicy
+    from wesnoth_ai.transformer_policy import TransformerPolicy
     from tools.value_corpus import game_experiences
 
     rows = [json.loads(l) for l in

@@ -45,7 +45,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from constants import WESNOTH_PATH
+from wesnoth_ai.constants import WESNOTH_PATH
 
 log = logging.getLogger("validate_replay_wesnoth")
 

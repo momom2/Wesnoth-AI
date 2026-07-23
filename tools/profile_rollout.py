@@ -55,7 +55,7 @@ _COMPONENTS = ["sim.step", "sim.fork", "encode", "enumerate", "forward"]
 
 def _build_policy(args, device):
     """An MCTSPolicy at the requested arch (checkpoint or fresh init)."""
-    from transformer_policy import TransformerPolicy
+    from wesnoth_ai.transformer_policy import TransformerPolicy
     from tools.mcts import MCTSConfig
     from tools.mcts_policy import MCTSPolicy
 

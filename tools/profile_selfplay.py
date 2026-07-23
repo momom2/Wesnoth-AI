@@ -82,8 +82,8 @@ from tools.sim_self_play import (
     _TrainerHistoryCSV,
     run_iteration,
 )
-from rewards import WeightedReward, load_reward_config
-from transformer_policy import TransformerPolicy
+from wesnoth_ai.rewards import WeightedReward, load_reward_config
+from wesnoth_ai.transformer_policy import TransformerPolicy
 from wesnoth_sim import PvPDefaults
 
 

@@ -44,9 +44,9 @@ import torch.nn.functional as F
 # Project imports — assume cwd is the repo root.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from classes import GameState
-from encoder import GameStateEncoder, RawEncoded, encode_raw
-from model import WesnothModel
+from wesnoth_ai.classes import GameState
+from wesnoth_ai.encoder import GameStateEncoder, RawEncoded, encode_raw
+from wesnoth_ai.model import WesnothModel
 # Import replay_dataset from the same tools/ dir.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from replay_dataset import ActionIndices, filter_competitive_2p, iter_replay_pairs
@@ -549,7 +549,7 @@ def _loss_parts_for_output(
     """
     if type_loss_weights is None:
         type_loss_weights = _DEFAULT_ACTION_TYPE_LOSS_WEIGHT
-    from model import UnitActionType
+    from wesnoth_ai.model import UnitActionType
 
     zero = torch.zeros((), device=device)
     actor_logits = output.actor_logits        # [1, A]
@@ -1077,7 +1077,7 @@ def train(
         if m_unexpected:
             log.warning(f"  model: {len(m_unexpected)} unexpected key(s) "
                         f"in checkpoint (ignored): {m_unexpected}")
-        from encoder import pad_legacy_encoder_state
+        from wesnoth_ai.encoder import pad_legacy_encoder_state
         e_missing, e_unexpected = encoder.load_state_dict(
             pad_legacy_encoder_state(ckpt["encoder_state"], encoder),
             strict=False)
@@ -1095,7 +1095,7 @@ def train(
                 opt.load_state_dict(ckpt["optimizer_state"])
                 # Padded legacy encoder tensors need their Adam
                 # moments padded too (see encoder.py helper).
-                from encoder import repair_optimizer_state_shapes
+                from wesnoth_ai.encoder import repair_optimizer_state_shapes
                 repair_optimizer_state_shapes(opt)
             except Exception as e:
                 log.warning(f"  optimizer state restore failed ({e}); "

@@ -42,8 +42,8 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from classes import GameState, state_key
-from trainer import MCTSExperience, TrainStats
+from wesnoth_ai.classes import GameState, state_key
+from wesnoth_ai.trainer import MCTSExperience, TrainStats
 from tools.draw_tiebreak import draw_tiebreak_z, material_margin
 from tools.mcts import (
     MCTSConfig, mcts_search, extract_visit_counts, best_action,

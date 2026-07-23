@@ -118,7 +118,7 @@ def _walk_prefix_commands(data: dict, boundary_idx: int):
     reconstruction, harvesting per-command extras exactly like
     `WesnothSim.step` does. Returns (RecordedCommand list, final gs).
     """
-    from classes import Position  # noqa: F401  (Position via gs)
+    from wesnoth_ai.classes import Position  # noqa: F401  (Position via gs)
     from tools.replay_dataset import (_apply_command,
                                       _build_initial_gamestate,
                                       _setup_scenario_events)
@@ -175,7 +175,7 @@ def export_midgame_replay(sim, out_path: Path) -> None:
     import gzip
     import json
 
-    from classes import Position
+    from wesnoth_ai.classes import Position
     from tools.sim_to_replay import build_save_wml
     from tools.wesnoth_sim import PvPDefaults
 
