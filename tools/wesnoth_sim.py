@@ -597,6 +597,23 @@ class WesnothSim:
         out.command_history  = []   # forks don't track history
         return out
 
+    def enable_uniform_advancement(self) -> None:
+        """Self-play: pick advancements UNIFORMLY over `advances_to`
+        (non-AMLA, >1 options) instead of the deterministic targets[0]
+        (until a model advancement head replaces it). The choice is
+        drawn from a SEPARATE, reproducible RNG channel (see
+        replay_dataset._draw_uniform_advance) that never touches the
+        combat seed counter, so strict-sync export parity is untouched.
+
+        State lives on gs.global_info, so fork() carries it and MCTS
+        search forks branch over advancement too; the per-step salt
+        sync in _step_inner decorrelates those forks. Default OFF, so
+        replay reconstruction / diff_replay keep the deterministic path
+        ([choose] queue, else targets[0])."""
+        self.gs.global_info._advance_uniform = True
+        if not hasattr(self.gs.global_info, "_advance_counter"):
+            self.gs.global_info._advance_counter = 0
+
     def enable_engagement_stats(self):
         """Attach a per-game EngagementStats accumulator to THIS sim.
         fork() never carries it, so MCTS search forks stay
@@ -784,6 +801,14 @@ class WesnothSim:
     def _step_inner(self, action: dict) -> bool:
         if self.done:
             return True
+
+        # Keep the advancement RNG channel's salt in sync with the combat
+        # salt, so MCTS search forks (which set _seed_salt on the fork
+        # before stepping) sample INDEPENDENT advancement targets rather
+        # than the live game's choice. Only when the channel is enabled;
+        # no-op for live sims (empty salt) and reconstruction.
+        if getattr(self.gs.global_info, "_advance_uniform", False):
+            self.gs.global_info._advance_salt = self._seed_salt
 
         _es = getattr(self, "_engagement", None)
         if _es is not None and action.get("type") == "attack":

@@ -804,6 +804,7 @@ def _play_one_game_safe(
                              apply_scenario_events=False,
                              begin_side=begin_side,
                              no_progress_turns=no_progress_turns)
+            sim.enable_uniform_advancement()
             sim._midgame_start = True
             sim._midgame_provenance = mg_prov
         except Exception as e:                        # noqa: BLE001
@@ -846,6 +847,7 @@ def _play_one_game_safe(
         sim = WesnothSim(gs, scenario_id=setup.scenario_id,
                          max_turns=max_turns,
                          no_progress_turns=no_progress_turns)
+        sim.enable_uniform_advancement()
     except Exception as e:
         log.warning(f"skipping {setup.label()}: {e}")
         return None

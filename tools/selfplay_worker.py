@@ -238,6 +238,7 @@ def main(argv) -> int:
                              apply_scenario_events=False,
                              no_progress_turns=args.no_progress_turns,
                              begin_side=begin_side)
+            sim.enable_uniform_advancement()
             sim._midgame_start = True
             sim._midgame_provenance = mg_prov
         else:
@@ -249,6 +250,7 @@ def main(argv) -> int:
             sim = WesnothSim(gs, scenario_id=setup.scenario_id,
                              max_turns=mt,
                              no_progress_turns=args.no_progress_turns)
+            sim.enable_uniform_advancement()
         label = f"w{args.worker_id}g{n}"
         ds_before = base._decision_step
         outcome = play_one_game(sim, policy, _zero_reward,

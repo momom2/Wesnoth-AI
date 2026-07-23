@@ -1139,6 +1139,31 @@ def _record_advance_event(gs: GameState, side: int, choice: int) -> None:
     events.append((int(side), int(choice)))
 
 
+def _draw_uniform_advance(gs: GameState, n: int) -> int:
+    """Uniform index in [0, n) from the sim's SEPARATE advancement RNG
+    channel (enabled via WesnothSim.enable_uniform_advancement).
+
+    Deterministic/reproducible like the combat RNG, but on its OWN
+    counter with a distinct 'sim_advance:' namespace, so it never
+    perturbs the combat seed stream (`_rng_requests`): the explicitly
+    exported combat [random_seed]s stay bit-identical and strict-sync /
+    diff_replay parity is untouched. Salt-aware -- the sim mirrors its
+    combat `_seed_salt` onto `gs.global_info._advance_salt` each step,
+    so MCTS search forks sample INDEPENDENT advancement targets instead
+    of the live game's pick (same god-view protection combat has). All
+    state lives on gs.global_info, so it survives fork()/deepcopy."""
+    import hashlib
+    from wesnoth_ai import combat as cb
+    gi = gs.global_info
+    counter = int(getattr(gi, "_advance_counter", 0) or 0) + 1
+    setattr(gi, "_advance_counter", counter)
+    salt = getattr(gi, "_advance_salt", "") or ""
+    base = (f"sim_advance:{salt}:{counter}" if salt
+            else f"sim_advance:{counter}")
+    seed = hashlib.sha256(base.encode()).hexdigest()[:8]
+    return cb.MTRng(seed).get_random_int(0, n - 1)
+
+
 def _advance_unit_once(gs: GameState, u: Unit) -> Unit:
     """Apply exactly one advancement step to `u` (either a real
     type advance or an AMLA), returning the new unit. Pulled out
@@ -1220,6 +1245,17 @@ def _advance_unit_once(gs: GameState, u: Unit) -> Unit:
             new_type = choice
         else:
             new_type = targets[0]
+    elif len(targets) > 1 and getattr(gs.global_info,
+                                      "_advance_uniform", False):
+        # Self-play with no recorded [choose]: pick UNIFORMLY over the
+        # offered advancements (the advancement head will inform this
+        # later). Uses the sim's separate, reproducible, salt-aware
+        # advancement RNG channel; the chosen index is recorded below
+        # via _record_advance_event and exported as a [choose] block,
+        # so the game still reconstructs deterministically. When the
+        # channel is OFF (replay reconstruction / diff_replay), we keep
+        # the deterministic targets[0].
+        new_type = targets[_draw_uniform_advance(gs, len(targets))]
     else:
         new_type = targets[0]
     # Variation persistence: a "Walking Corpse:mounted" advances to

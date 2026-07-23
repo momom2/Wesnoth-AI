@@ -340,3 +340,43 @@ def test_recall_action_rejected_to_end_turn(fresh_sim):
     # The recall should have triggered an end_turn fallback.
     assert "end_turn" in new_kinds, (
         f"expected end_turn fallback, got {new_kinds}")
+
+
+# ---------------------------------------------------------------------
+# uniform advancement channel (self-play): separate salted RNG
+# ---------------------------------------------------------------------
+
+def test_uniform_advancement_varies_by_salt_reproducibly():
+    """enable_uniform_advancement makes a >1-option advance (Skeleton ->
+    Revenant/Deathblade) draw from the SEPARATE, salt-aware RNG channel:
+    reproducible per salt, spanning both options across salts, and
+    recorded for [choose] export. Combat is bypassed (direct
+    _maybe_advance_unit) so the test isolates the CHOICE, not whether
+    the advance fires. Default-OFF is covered by the existing tests
+    above (they record idx=0)."""
+    from sim_test_helpers import fresh_scenario_sim
+    from tools.replay_dataset import _maybe_advance_unit, _stats_for
+
+    targets = _stats_for("Skeleton").get("advances_to", [])
+    assert len(targets) == 2, f"premise: Skeleton has 2 advances, got {targets}"
+
+    def advanced_name(salt):
+        sim = fresh_scenario_sim(seed=7, max_turns=10,
+                                 scenario_id="multiplayer_The_Freelands")
+        sim.gs.map.units.clear()
+        sim.enable_uniform_advancement()
+        sim.gs.global_info._advance_salt = salt        # bypass step() sync
+        u = _make("Skeleton", 1, 10, 10, 1)
+        u.current_exp = u.max_exp                       # one advance, carryover 0
+        sim.gs.map.units.add(u)
+        out = _maybe_advance_unit(sim.gs, u)
+        assert out is not None and out.name in targets
+        ev = list(getattr(sim.gs.global_info, "_last_advance_events", []))
+        assert ev and ev[-1][0] == 1                    # (side=1, idx)
+        assert targets[ev[-1][1]] == out.name           # recorded idx matches
+        return out.name
+
+    assert advanced_name("s1") == advanced_name("s1")   # reproducible per salt
+    seen = {advanced_name(f"s{i}") for i in range(12)}
+    assert seen == set(targets), (                      # both options reachable
+        f"uniform draw should reach both advances, got {seen}")
