@@ -380,3 +380,69 @@ def test_uniform_advancement_varies_by_salt_reproducibly():
     seen = {advanced_name(f"s{i}") for i in range(12)}
     assert seen == set(targets), (                      # both options reachable
         f"uniform draw should reach both advances, got {seen}")
+
+
+def test_feeding_advance_includes_kill_bump():
+    """A feeding unit that kills-and-advances (Necrophage->Ghast) keys the
+    advanced form at base+1 HP: data/lua/feeding.lua fires the +1 on the
+    "die" event, which precedes advancement (1.18.4 attack.cpp), so the
+    advanced type includes this kill's bump. The DP must match the sim.
+    Guards the 2026-07-24 feeding fix in combat_outcomes._side_outcome_branches."""
+    from sim_test_helpers import fresh_scenario_sim
+    from tools.replay_dataset import (enumerate_advancement_outcomes,
+                                      _maybe_advance_unit, _stats_for, _rebuild_unit)
+    assert "feeding" in _stats_for("Necrophage").get("abilities", [])
+    assert _stats_for("Necrophage").get("advances_to") == ["Ghast"]
+    sim = fresh_scenario_sim(seed=7, max_turns=10,
+                             scenario_id="multiplayer_The_Freelands")
+    sim.gs.map.units.clear()
+    xpmod = int(getattr(sim.gs.global_info, "_experience_modifier", 100) or 100)
+    necro = _make("Necrophage", 1, 10, 10, 1, exp_modifier=xpmod)
+    ghast_full = _stats_for("Ghast")["hitpoints"] + 1        # +1 feed bump
+
+    # The feed-bumped post-combat unit _side_outcome_branches builds for
+    # a feeding kill: max_hp+1 and _feeding_count incremented.
+    post = _rebuild_unit(necro, max_hp=necro.max_hp + 1)
+    setattr(post, "_feeding_count", 1)
+    dp = enumerate_advancement_outcomes(sim.gs, post, hp_after=necro.max_hp + 1,
+                                        xp_after=necro.max_exp, choice="uniform")
+    assert dp == {("Ghast", ghast_full): 1.0}, dp
+
+    # Parity: the sim's own advance of the same feed-bumped unit.
+    u2 = _rebuild_unit(necro, current_hp=necro.max_hp + 1,
+                       current_exp=necro.max_exp, max_hp=necro.max_hp + 1)
+    setattr(u2, "_feeding_count", 1)
+    sim.gs.map.units.add(u2)
+    sim.gs.global_info._advance_choices = [0]
+    adv = _maybe_advance_unit(sim.gs, u2)
+    assert (adv.name, adv.current_hp) == ("Ghast", ghast_full)
+
+
+def test_petrified_unit_gets_no_init_side_healing_or_poison():
+    """Wesnoth's calculate_healing skips incapacitated (petrified) patients
+    -- no heal, no poison tick (heal.cpp; docs/wesnoth_rules.md). The sim's
+    init_side heal loop must match. Guards the 2026-07-24 petrified-healing
+    fix (replay_dataset.py)."""
+    from sim_test_helpers import fresh_scenario_sim
+    from tools.replay_dataset import _rebuild_unit
+    from wesnoth_ai.combat import POISON_AMOUNT
+    sim = fresh_scenario_sim(seed=7, max_turns=10,
+                             scenario_id="multiplayer_The_Freelands")
+    sim.gs.map.units.clear()
+    # Two poisoned side-1 units, one petrified; plus leaders for validity.
+    alive = _rebuild_unit(_make("Skeleton", 1, 10, 10, 1),
+                          current_hp=25, statuses={"poisoned"})
+    stone = _rebuild_unit(_make("Skeleton", 1, 12, 12, 2),
+                          current_hp=25, statuses={"poisoned", "petrified"})
+    for u in (alive, stone,
+              _make("Skeleton", 1, 20, 20, 100, is_leader=True),
+              _make("Skeleton", 2, 21, 20, 101, is_leader=True)):
+        sim.gs.map.units.add(u)
+
+    sim._begin_side_turn(1)                                  # fires init_side
+    post = {u.id: u for u in sim.gs.map.units}
+    # control: the non-petrified poisoned unit takes the poison tick
+    assert post[alive.id].current_hp == 25 - POISON_AMOUNT
+    # fix: the petrified unit is frozen -- no poison tick, still stoned
+    assert post[stone.id].current_hp == 25
+    assert "petrified" in post[stone.id].statuses

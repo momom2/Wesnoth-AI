@@ -1664,7 +1664,16 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         pos_idx = build_pos_index(gs.map.units)
         new_units = set()
         for u in gs.map.units:
-            if u.side != side:
+            # Skip non-own-side units, AND petrified own-side units:
+            # Wesnoth's calculate_healing (heal.cpp) bails on
+            # `patient.incapacitated()` (== STATE_PETRIFIED) before any
+            # rest/village/regen/healer heal, poison tick, or `resting`
+            # set -- a petrified patient is frozen and receives NO healing
+            # and takes NO poison tick (docs/wesnoth_rules.md: "petrified
+            # patient receives no healing"). Pass both through unchanged.
+            # (The move-reset is skipped too, but petrified units never
+            # act -- action_sampler excludes them -- so it is inert.)
+            if u.side != side or "petrified" in (u.statuses or set()):
                 new_units.add(u); continue
 
             stats = _stats_for(u.name)

@@ -555,8 +555,12 @@ def _build_replay_wml(history: List[RecordedCommand]) -> str:
         # Advancement [choose] follow-ups: emitted AFTER the attack's
         # [random_seed] so the order matches Wesnoth's
         # `attack_unit_and_advance` path (attack -> RNG follow-up ->
-        # advancer per side, attacker first then defender). Sim's
-        # `_maybe_advance_unit` always picks targets[0], so value=0.
+        # advancer per side, attacker first then defender). The recorded
+        # index can be non-zero: self-play enables uniform advancement
+        # (WesnothSim.enable_uniform_advancement), so `_advance_unit_once`
+        # draws targets[idx] and records that idx; we emit it verbatim
+        # below (do NOT hardcode value=0 -- that would advance the wrong
+        # type on Wesnoth playback and desync strict-sync export).
         if rc.kind == "attack":
             # from_side = the ATTACK's side, not the advancing
             # unit's owner (see _wml_choose_command; the recorded

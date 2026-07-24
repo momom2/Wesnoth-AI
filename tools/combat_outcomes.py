@@ -302,7 +302,7 @@ def _kill_xp(level: int) -> int:
 
 
 def _side_outcome_branches(gs, unit, cu, hp, sl, po, pe, *,
-                           opp_died, opp_level, choice):
+                           opp_died, opp_level, opp_unit, choice):
     """Branches for ONE combatant in a single combat outcome, as
     {(type_name, hp, slowed, poisoned, petrified): prob}.
 
@@ -311,18 +311,35 @@ def _side_outcome_branches(gs, unit, cu, hp, sl, po, pe, *,
     into the advancement chain (advanced type, full HP, statuses
     cleared), weighted by `choice` -- via
     replay_dataset.enumerate_advancement_outcomes, which reuses the sim's
-    own advance for bit-exact HP."""
+    own advance for bit-exact HP.
+
+    Feeding is modeled to match the sim: a surviving feeder that kills a
+    plagueable opponent gains +1 HP / +1 max HP (data/lua/feeding.lua,
+    on the "die" event -- which fires BEFORE advancement per 1.18.4
+    attack.cpp, so the advanced form's HP includes this kill's bump)."""
     if hp <= 0:
         return {("", 0, False, False, False): 1.0}          # dead / absent
-    base = {(unit.name, hp, sl, po, pe): 1.0}
+    from tools.replay_dataset import (
+        enumerate_advancement_outcomes, _is_unplagueable, _rebuild_unit)
+    feed = (opp_died and "feeding" in (unit.abilities or set())
+            and opp_unit is not None and not _is_unplagueable(opp_unit))
+    hp_eff = hp + (1 if feed else 0)
+    base = {(unit.name, hp_eff, sl, po, pe): 1.0}
     if choice is None:
         return base
     gain = _kill_xp(opp_level) if opp_died else cb.COMBAT_EXPERIENCE * opp_level
     xp_after = cu.experience + gain
     if xp_after < cu.max_experience:
         return base                                          # no advance here
-    from tools.replay_dataset import enumerate_advancement_outcomes
-    adv = enumerate_advancement_outcomes(gs, unit, hp, xp_after, choice)
+    # Post-combat unit for advancement: apply the feed bump (max_hp +1 and
+    # the persistent _feeding_count) so a real advance reads base+count and
+    # an AMLA reads the +1'd max_hp -- exactly as the sim's write-back does.
+    post = unit
+    if feed:
+        post = _rebuild_unit(unit, max_hp=unit.max_hp + 1)
+        setattr(post, "_feeding_count",
+                int(getattr(unit, "_feeding_count", 0) or 0) + 1)
+    adv = enumerate_advancement_outcomes(gs, post, hp_eff, xp_after, choice)
     # Advancement heals to full and clears poisoned/slowed/petrified.
     return {(name, fhp, False, False, False): pr
             for (name, fhp), pr in adv.items()}
@@ -395,11 +412,11 @@ def enumerate_attack_outcomes(
         d_hp = max(0, d_hp)
         a_br = _side_outcome_branches(
             gs, att, a_cu, a_hp, a_sl, a_po, a_pe,
-            opp_died=(d_hp <= 0), opp_level=d_cu.level,
+            opp_died=(d_hp <= 0), opp_level=d_cu.level, opp_unit=dfd,
             choice=advancement_choice)
         d_br = _side_outcome_branches(
             gs, dfd, d_cu, d_hp, d_sl, d_po, d_pe,
-            opp_died=(a_hp <= 0), opp_level=a_cu.level,
+            opp_died=(a_hp <= 0), opp_level=a_cu.level, opp_unit=att,
             choice=advancement_choice)
         for (a_ty, ah, asl, apo, ape), pa in a_br.items():
             for (d_ty, dh, dsl, dpo, dpe), pd in d_br.items():

@@ -272,3 +272,59 @@ def test_selfplay_attack_resolves_counter_and_retaliates():
         "across 40 independent rolls the defender never landed a "
         "counter-strike -- retaliation is not being applied"
     )
+
+
+def test_advancement_multi_option_exact_matches_sampling():
+    """2-target advancement (Skeleton -> Revenant/Deathblade): the DP's
+    uniform split AND the advanced full-HP/type keys must match the sim's
+    salted forks. The single-target test above can't exercise the uniform
+    branch, the multi-advance recursion, or the type-in-key matching --
+    this closes that coverage gap (2026-07-24 adversarial review)."""
+    from tools.replay_dataset import (_build_recruit_unit, _stats_for,
+                                      _rebuild_unit)
+    assert len(_stats_for("Skeleton").get("advances_to", [])) == 2
+    sim, action = _engineered_fight()
+    xpmod = int(getattr(sim.gs.global_info, "_experience_modifier", 100) or 100)
+    a_pos, d_pos = action["start_hex"], action["target_hex"]
+    old_att = next(u for u in sim.gs.map.units
+                   if u.position.x == a_pos.x and u.position.y == a_pos.y)
+    old_dfd = next(u for u in sim.gs.map.units
+                   if u.position.x == d_pos.x and u.position.y == d_pos.y)
+    # Side-1 Skeleton at the brink of leveling; frail defender so the
+    # Skeleton reliably survives and crosses its XP threshold (+1 combat
+    # XP alone suffices) -> advances uniformly to Revenant or Deathblade.
+    sk = _build_recruit_unit("Skeleton", side=old_att.side, x=a_pos.x,
+                             y=a_pos.y, next_uid=9001, game_id="t",
+                             trait_seed_hex="12345678", exp_modifier=xpmod)
+    sk = _rebuild_unit(sk, current_exp=sk.max_exp - 1)
+    sim.gs.map.units.discard(old_att)
+    sim.gs.map.units.add(sk)
+    sim.gs.map.units.discard(old_dfd)
+    sim.gs.map.units.add(_rebuild_unit(old_dfd, current_hp=1))
+    sim.enable_uniform_advancement()
+
+    dist = enumerate_attack_outcomes(sim.gs, action,
+                                     advancement_choice="uniform")
+    assert dist is not None, "advancing fight must enumerate with a choice"
+    adv_types = {k[8] for k in dist.probs} | {k[9] for k in dist.probs}
+    assert {"Revenant", "Deathblade"} <= adv_types, (
+        f"both advances must appear in DP support, got {adv_types}")
+
+    N = 1500
+    counts = {}
+    for i in range(N):
+        f = sim.fork()
+        f._seed_salt = f"adv2-{i}"
+        f.step(action)
+        key = outcome_key_for_child(f.gs, dist.attacker_id, dist.defender_id)
+        counts[key] = counts.get(key, 0) + 1
+    unknown = set(counts) - set(dist.probs)
+    assert not unknown, (
+        f"sampled advancement outcomes missing from DP support "
+        f"(silent fallback to sampling): {unknown}")
+    tv = 0.5 * sum(abs(counts.get(k, 0) / N - p) for k, p in dist.probs.items()) \
+       + 0.5 * sum(counts.get(k, 0) / N for k in unknown)
+    assert tv < 0.15, (
+        f"TV {tv:.3f} between DP and {N} salted sim forks\n"
+        f"DP:        {sorted(dist.probs.items())}\n"
+        f"empirical: {sorted((k, c / N) for k, c in counts.items())}")
