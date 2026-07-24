@@ -1,32 +1,33 @@
 # Project review — bugs and improvements
 
-## NEXT INCREMENT (2026-07-24) — swap detector: advancement inside the side-turn reconstruction
+## NEXT INCREMENT (2026-07-24) — swap detector: wire full-reconstruction generators
 
-The distributional side-turn verifier is built and proven faithful
-(`tools/swap_detector.py`: `enumerate_children_via_sim` +
-`reconstruct_side_turn_dist` + `compare_state_distributions`; the
+The distributional side-turn verifier is built, proven faithful, and now
+resolves advancement (`tools/swap_detector.py`: `enumerate_children_via_sim`
++ `reconstruct_side_turn_dist` + `compare_state_distributions`; the
 enumerator drives the sim's own `_apply_command` with a scripted hit/miss
-RNG and is DP-parity-tested). It reconstructs the EXACT joint over a
-window's combats and compares full end-state distributions. ONE gap:
-`enumerate_children_via_sim` BAILS to `None` on any fight that can level a
-unit, so advancing multi-action windows read `inconclusive`.
+RNG, DP-parity-tested WITH and WITHOUT `advancement_choice="uniform"`). It
+reconstructs the EXACT joint over a window's combats — including uniform
+advancement — and compares full end-state distributions.
 
-Fix = an n-way advancement-choice branch in the enumerator's DFS: when a
-combat leaf crosses an XP threshold, branch over the offered advancement
-targets, forcing each via the `_advance_choices` queue and weighting 1/n
-(uniform) — matching `enumerate_attack_outcomes(advancement_choice=
-"uniform")`, which the parity test can then assert against on a levelling
-fight. Advancement's own RNG lives on the SEPARATE salted channel
-(`_draw_uniform_advance`), so it never disturbs the scripted combat RNG.
-Non-regressive today (backstab/leadership resolve advancement via the
-single-attack `_verify_reorder` path); this only unblocks multi-action
-windows whose fights kill+level. See docs/swap_detector_design.md
-"Reconstruction limitation" / "Deferred".
+What's left is to CONSUME it in generators:
 
-After it lands, the remaining designed generators (`village_first`,
-`strong_attacker_first`) can be verified end-to-end via full
-reconstruction, and backstab/leadership can OPTIONALLY upgrade from
-single-attack to full-side-turn dominance certificates.
+1. `strong_attacker_first` / `village_first` — reconstruct the two
+   orderings and verify via `compare_state_distributions`. These need the
+   pure-position dimension to be '=' (same final hexes) for a product-order
+   verdict; XP-reallocating cases (strong_attacker_first) will land
+   INCOMPARABLE under product order and want the lex views (existence>XP>HP
+   etc.) to fire — so a lex-view rollup over the same per-dimension vector
+   is the companion piece.
+2. OPTIONAL: upgrade `backstab_setup` / `leadership_setup` from the
+   single-attack `_verify_reorder` to full-side-turn reconstruction
+   (strictly stronger — catches side effects on other units). Now
+   non-regressive since advancement is handled.
+3. The (pos,MP) reachability criterion is currently only in
+   `compare_states` (concrete states) / per-branch banking; lifting it
+   into the DISTRIBUTIONAL rollup needs care (reachability depends on the
+   stochastic board — which enemies died), so the distributional path uses
+   conservative pure-position for now.
 
 ## LIMITATION (user, 2026-07-24) — swap detector: identical units near each other can confound reorder matching
 

@@ -128,17 +128,20 @@ no per-ability bound table needed — built sim-faithfully:
   (good direction mirrored for enemies), pure position by marginal
   equality, plus own gold — fed through the same product-order rollup.
 
-**Reconstruction limitation (advancement).** The sim-driven enumerator
-currently BAILS to `None` on a fight that can level a unit (it gates on
-`enumerate_attack_outcomes(advancement_choice=None)`), so advancing
-multi-action windows read `inconclusive`. This is sound and NON-regressive
-(backstab/leadership still resolve advancement via the single-attack
-`_verify_reorder(advancement_choice="uniform")` path). Making the
-reconstruction handle advancement needs an extra n-way choice-branch in
-the DFS (force each advancement target via the `_advance_choices` queue,
-1/n for uniform) — advancement's own draw already lives on the SEPARATE
+**Advancement (RESOLVED).** With `advancement_choice="uniform"` the
+enumerator (and `reconstruct_side_turn_dist`, which threads it through)
+resolves levelling fights: a combat leaf whose fight levels a unit is
+re-run once per advancement-target combination, forcing each choice via
+the `_advance_choices` queue (1/n uniform, attacker-first). The sim
+decides ELIGIBILITY; we only enumerate the CHOICE, so there is no XP /
+eligibility re-implementation. Advancement's own draw is on the SEPARATE
 salted channel (`_draw_uniform_advance`), so it never touches the scripted
-combat RNG. Deferred (see "Deferred").
+combat RNG (the `rng.calls == n_strikes` invariant still holds). Proven by
+a parity test against `enumerate_attack_outcomes(advancement_choice=
+"uniform")` on a Spearman→{Swordsman,Pikeman} kill. Without an
+`advancement_choice` the enumerator still bails to `None` (matches the DP).
+Only the `"uniform"` policy is wired; a `{type: prob}` dict or model-head
+choice distribution would slot into the same 1/n split.
 
 ## Classification (mechanical, sim-decided)
 
@@ -242,13 +245,6 @@ improvement exists" is the signal.
   `advancement_choice` is supplied). Never sampled; always
   `inconclusive`. (Petrify and choice-supplied advancement are now
   resolved exactly — see "Exactness gate".)
-- **Advancement inside `reconstruct_side_turn_dist`.** The sim-driven
-  enumerator bails on any levelling fight (see "Reconstruction
-  limitation"). Fix = an n-way advancement-choice branch in the DFS
-  (force each target via `_advance_choices`, 1/n uniform); the separate
-  salted advancement channel means it won't disturb the scripted combat
-  RNG. Non-regressive today (single-attack path handles advancement), so
-  this only blocks multi-action windows whose fights level a unit.
 - **Bounds shortcut / per-ability bound table.** The exact joint is
   shipped instead (always sound); the compositional-bounds fast path is a
   pure perf optimization for wide windows and is unbuilt.
