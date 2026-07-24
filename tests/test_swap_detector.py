@@ -169,3 +169,30 @@ def test_leadership_setup_is_strictly_better():
     assert cmp.verdict is Verdict.STRICTLY_BETTER, (cmp.verdict, cmp.vector)
     assert cmp.vector["enemy_hp"] == ">"
     assert "<" not in cmp.vector.values()
+
+
+def test_pos_mp_dominance_criterion():
+    """(position, MP) dominance: a unit at X with m MP dominates (Y, n)
+    iff it can ACTUALLY reach Y (terrain/ZoC) landing with >= n MP."""
+    from tools.swap_detector import pos_mp_dominates, _reach
+    from sim_test_helpers import fresh_scenario_sim
+    from tools.replay_dataset import _build_recruit_unit
+    sim = fresh_scenario_sim(seed=7, max_turns=10,
+                             scenario_id="multiplayer_The_Freelands")
+    sim.gs.map.units.clear()
+    xpmod = int(getattr(sim.gs.global_info, "_experience_modifier", 100) or 100)
+    u = _build_recruit_unit("Spearman", side=1, x=10, y=10, next_uid=1,
+                            game_id="t", trait_seed_hex="12345678",
+                            exp_modifier=xpmod)
+    sim.gs.map.units.add(u)
+    m = int(u.current_moves)
+    # same hex: dominates (X, n) for n <= m, not for n > m.
+    assert pos_mp_dominates(sim.gs, u, (10, 10), m)
+    assert not pos_mp_dominates(sim.gs, u, (10, 10), m + 1)
+    # a reachable hex Y: dominates (Y, mp[Y]) exactly, not (Y, mp[Y]+1).
+    r = _reach(sim.gs, u)
+    Y = next((h for h in r.landable if h != (10, 10)), None)
+    assert Y is not None, "spearman should reach some hex"
+    n = r.mp[Y]
+    assert pos_mp_dominates(sim.gs, u, Y, n)
+    assert not pos_mp_dominates(sim.gs, u, Y, n + 1)

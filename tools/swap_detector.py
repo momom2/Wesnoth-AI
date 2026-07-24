@@ -36,6 +36,7 @@ from tools.abilities import (                                      # noqa: E402
 from tools.combat_outcomes import (                                # noqa: E402
     OutcomeDistribution, enumerate_attack_outcomes,
 )
+from tools.pathfind_sim import ReachContext, unit_reach            # noqa: E402
 from tools.replay_extract import extract_replay                    # noqa: E402
 from tools.replay_dataset import (                                 # noqa: E402
     _build_initial_gamestate, _setup_scenario_events,
@@ -414,6 +415,45 @@ def _verify_reorder(gs: GameState, attack_cmd: list,
 # Harness
 # =====================================================================
 
+def _reach(gs: GameState, mover):
+    """Actual-movement reachability for `mover` in `gs` (god-view: the
+    detector reasons over the TRUE board -- it is not the fogged policy).
+    UnitReach: {hex: cost}, {hex: remaining_mp}, `landable` set."""
+    ctx = ReachContext.for_side(gs, mover.side, god_view=True, exclude_unit=mover)
+    return unit_reach(mover, gs, ctx, budget=int(mover.current_moves))
+
+
+def pos_mp_dominates(gs: GameState, mover, dest: Tuple[int, int],
+                     mp_target: int) -> bool:
+    """(position, MP) dominance (user criterion 2026-07-24): a unit at its
+    current hex with its current MP is >= a unit at `dest` with
+    `mp_target` MP iff it can ACTUALLY reach `dest` (terrain/ZoC/blockers)
+    and land there with >= mp_target MP left. Same hex -> cost 0 ->
+    more-MP dominates."""
+    if dest == (mover.position.x, mover.position.y):
+        return int(mover.current_moves) >= mp_target   # already here, m MP
+    r = _reach(gs, mover)
+    return dest in r.landable and r.mp.get(dest, -1) >= mp_target
+
+
+def _banked_mp(gs: GameState, mover, target_pos: Tuple[int, int],
+               dest: Tuple[int, int]) -> Optional[float]:
+    """MP the mover would spend reaching `dest` with the target REMOVED
+    (the kill branch: the dead target no longer blocks/ZoCs, so this is a
+    lower bound on the alive cost) -- i.e. the MP banked by NOT making the
+    surround move on the kill branch. None if `dest` is unreachable even
+    then."""
+    g2 = _copy.deepcopy(gs)
+    t = _unit_at(g2, target_pos)
+    if t is not None:
+        g2.map.units.discard(t)
+    m2 = _unit_at(g2, (mover.position.x, mover.position.y))
+    if m2 is None:
+        return None
+    r = _reach(g2, m2)
+    return r.cost.get(dest) if dest in r.landable else None
+
+
 def attacks_before_commit_findings(st: SideTurn) -> Tuple[List[Finding], int]:
     """A killable attack (P(kill) > 0) followed LATER in the turn by a
     move that ends ADJACENT to the same target -- a 'surround/support'
@@ -456,13 +496,25 @@ def attacks_before_commit_findings(st: SideTurn) -> Tuple[List[Finding], int]:
                             if (dest in tgt_adj and mst is not None
                                     and mst != (ax, ay)):
                                 mv = _unit_at(gs, mst)
+                                if mv is None:
+                                    break
+                                # Validate + quantify via the (pos,MP)
+                                # criterion: the banked mover (stays at X,
+                                # keeps its MP) dominates the committed one
+                                # (at Y with n MP) because it can still
+                                # reach Y. Gain = P(kill) x MP banked.
+                                banked = _banked_mp(gs, mv, (dx, dy), dest)
+                                if banked is None:
+                                    break     # surround hex not reachable
                                 findings.append(Finding(
                                     st.game_id, st.turn, st.side,
                                     "attacks_before_commit",
                                     att.name, dfd.name, (ax, ay), (dx, dy),
                                     "banking_opportunity",
                                     {"kill_prob": f"{p_kill:.2f}",
-                                     "banks": mv.name if mv else "?"}))
+                                     "mover": mv.name,
+                                     "banks_mp": f"{banked:.0f}",
+                                     "gain_mp": f"{p_kill * banked:.2f}"}))
                                 break
         _apply_command(gs, cmd)
     return findings, inconclusive
@@ -532,10 +584,25 @@ def main(argv=None) -> int:
         n = len(by_motif.get(m, []))
         print(f"{m:20s} {n:6d} {n / atk:12.4%} {rep['inconclusive'][m]:8d}")
     print(f"\ntotal firings: {len(rep['findings'])}")
-    for f in rep["findings"][:60]:
-        nz = {k: v for k, v in f.vector.items() if v != "="}
-        print(f"  [{f.motif}] g={f.game_id} t{f.turn} s{f.side} "
-              f"{f.attacker}{f.attacker_pos}->{f.defender}{f.defender_pos} {nz}")
+
+    def _gain(f: Finding) -> float:
+        try:
+            return float(f.vector.get("gain_mp", 0.0))
+        except (TypeError, ValueError):
+            return 0.0
+
+    for f in rep["findings"]:            # Tier-1 (theorem-grade): show all
+        if f.motif in ("backstab_setup", "leadership_setup"):
+            nz = {k: v for k, v in f.vector.items() if v != "="}
+            print(f"  [{f.motif}] g={f.game_id} t{f.turn} s{f.side} "
+                  f"{f.attacker}{f.attacker_pos}->{f.defender}{f.defender_pos} {nz}")
+    abc = sorted((f for f in rep["findings"]
+                  if f.motif == "attacks_before_commit"),
+                 key=_gain, reverse=True)
+    print(f"\n  top attacks_before_commit by banked-MP gain (of {len(abc)}):")
+    for f in abc[:12]:
+        print(f"    g={f.game_id} t{f.turn} s{f.side} "
+              f"{f.attacker}->{f.defender} {f.vector}")
     return 0
 
 
