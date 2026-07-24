@@ -343,3 +343,60 @@ def test_reconstruct_side_turn_and_compare_backstab():
     assert "<" not in cmp.vector.values()
     assert cmp.vector.get(f"hp:{dfd.id}") == ">", cmp.vector      # enemy lower
     assert cmp.vector.get(f"pos:{flk.id}") == "=", cmp.vector     # same hex
+
+
+def test_enumerate_children_via_sim_matches_dp_with_advancement():
+    """With advancement_choice='uniform' the sim-driven enumerator must
+    still reproduce the exact DP distribution, INCLUDING the uniform spread
+    over advancement targets. A Spearman one XP short of levelling (2
+    targets: Swordsman / Pikeman) attacks a weak defender it can kill; the
+    enumerator forces each advancement choice (1/2) and must match
+    enumerate_attack_outcomes(advancement_choice='uniform')."""
+    from tools.swap_detector import (
+        enumerate_children_via_sim, hex_neighbors, _advance_targets)
+    from tools.combat_outcomes import (
+        enumerate_attack_outcomes, outcome_key_for_child,
+        choose_counter_weapon)
+    from sim_test_helpers import fresh_scenario_sim
+    from tools.replay_dataset import _build_recruit_unit
+    assert len(_advance_targets("Spearman")) > 1, "test premise: 2 advances"
+
+    sim = fresh_scenario_sim(seed=13, max_turns=10,
+                             scenario_id="multiplayer_The_Freelands")
+    gs = sim.gs
+    gs.map.units.clear()
+    xpmod = int(getattr(gs.global_info, "_experience_modifier", 100) or 100)
+    ax, ay = 10, 10
+    dx, dy = next((h for h in hex_neighbors(ax, ay)
+                   if 0 <= h[0] < gs.map.size_x and 0 <= h[1] < gs.map.size_y))
+    att = _build_recruit_unit("Spearman", side=1, x=ax, y=ay, next_uid=1,
+                              game_id="t", trait_seed_hex="00000001",
+                              exp_modifier=xpmod)
+    att.current_exp = att.max_exp - 1          # any XP levels it
+    dfd = _build_recruit_unit("Walking Corpse", side=2, x=dx, y=dy, next_uid=2,
+                              game_id="t", trait_seed_hex="00000002",
+                              exp_modifier=xpmod)
+    gs.map.units.add(att)
+    gs.map.units.add(dfd)
+    d_weapon = choose_counter_weapon(gs, att, dfd, 0)
+    attack_cmd = ["attack", ax, ay, dx, dy, 0, d_weapon, "deadbeef"]
+    action = {"type": "attack", "start_hex": Position(ax, ay),
+              "target_hex": Position(dx, dy), "attack_index": 0}
+
+    dp = enumerate_attack_outcomes(gs, action, advancement_choice="uniform")
+    assert dp is not None
+    children = enumerate_children_via_sim(
+        gs, attack_cmd, advancement_choice="uniform")
+    assert children is not None
+    # the Spearman must actually advance in some outcome (2 keyed types)
+    adv_types = {outcome_key_for_child(c, att.id, dfd.id)[8] for c, _ in children}
+    assert {"Swordsman", "Pikeman"} & adv_types, adv_types
+
+    agg = {}
+    for child, p in children:
+        key = outcome_key_for_child(child, att.id, dfd.id)
+        agg[key] = agg.get(key, 0.0) + p
+    assert abs(sum(agg.values()) - 1.0) < 1e-9
+    for key in set(agg) | set(dp.probs):
+        assert abs(agg.get(key, 0.0) - dp.probs.get(key, 0.0)) < 1e-6, (
+            key, agg.get(key, 0.0), dp.probs.get(key, 0.0))

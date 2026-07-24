@@ -23,6 +23,7 @@ import tarfile
 import tempfile
 from dataclasses import dataclass
 from enum import Enum
+from itertools import product as _product
 from pathlib import Path
 from typing import Callable, Dict, Iterator, List, Optional, Tuple
 
@@ -467,49 +468,62 @@ def _attack_action(attack_cmd: list) -> dict:
             "target_hex": Position(dx, dy), "attack_index": int(w)}
 
 
+def _advance_targets(name: str) -> list:
+    return list(_stats_for(name).get("advances_to", []) or [])
+
+
 def enumerate_children_via_sim(
-    gs: GameState, attack_cmd: list, *, max_leaves: int = 512,
+    gs: GameState, attack_cmd: list, *, advancement_choice=None,
+    max_leaves: int = 512,
 ) -> Optional[List[Tuple[GameState, float]]]:
     """Faithful outcome distribution for an attack command, as a list of
-    (child_state, prob) normalized to 1 -- or None on advancement
-    (deferred, like the DP) or complexity blow-up.
+    (child_state, prob) normalized to 1 -- or None if the exact DP bails
+    (complexity blow-up; or a levelling fight when `advancement_choice` is
+    None) or the leaf count blows up.
 
     All post-combat bookkeeping is the sim's; we only enumerate which
     strikes land. DFS over strike hit/miss prefixes: at each node run the
     fight with the prefix forced (rest default-hit); if the engine drew a
     strike beyond the prefix, branch it (per its own chance-to-hit), else
     it's a leaf whose probability is the product of its realized strikes'
-    per-strike chances."""
-    # Bail exactly where the exact DP bails (advancement / caps): that
-    # keeps advancement's own RNG from ever entangling with the scripted
-    # strike RNG, and matches the "inconclusive, never sampled" contract.
+    per-strike chances.
+
+    `advancement_choice="uniform"`: a leaf whose fight levels a unit is
+    re-run once per advancement-target combination (the sim decides
+    ELIGIBILITY; we only enumerate the CHOICE by forcing it via the
+    `_advance_choices` queue, weighted 1/n uniform, attacker-first).
+    Advancement's own draw lives on the separate salted channel, so it
+    never disturbs the scripted combat RNG."""
     if enumerate_attack_outcomes(gs, _attack_action(attack_cmd),
-                                 advancement_choice=None) is None:
+                                 advancement_choice=advancement_choice) is None:
         return None
+    ax, ay, dx, dy = attack_cmd[1], attack_cmd[2], attack_cmd[3], attack_cmd[4]
+    att0, dfd0 = _unit_at(gs, (ax, ay)), _unit_at(gs, (dx, dy))
+    if att0 is None or dfd0 is None:
+        return None
+    pre_type = {att0.id: att0.name, dfd0.id: dfd0.name}
+    order = (att0.id, dfd0.id)             # attacker-first choice consumption
+
+    def _run(prefix: List[bool], choices: Optional[list] = None):
+        g = _copy.deepcopy(gs)
+        if choices:
+            g.global_info._advance_choices = list(choices)
+        rng = _EnumRNG(prefix)
+        _apply_attack_scripted(g, attack_cmd, rng)
+        strikes = [s for s in
+                   (getattr(g.global_info, "_last_checkup_strikes", []) or [])
+                   if "chance" in s]
+        return g, rng, strikes
 
     leaves: List[Tuple[GameState, float]] = []
     stack: List[List[bool]] = [[]]
     while stack:
         prefix = stack.pop()
-        g2 = _copy.deepcopy(gs)
-        rng = _EnumRNG(prefix)
-        _apply_attack_scripted(g2, attack_cmd, rng)
-        strikes = [s for s in
-                   (getattr(g2.global_info, "_last_checkup_strikes", []) or [])
-                   if "chance" in s]
+        g2, rng, strikes = _run(prefix)
         if rng.calls != len(strikes):
             return None                    # unexpected extra draws (defensive)
         k = len(prefix)
-        if rng.calls <= k:                 # fight resolved within the prefix
-            prob = 1.0
-            for s in strikes:
-                c = float(s["chance"]) / 100.0
-                prob *= c if s["hits"] else (1.0 - c)
-            if prob > _EPS:
-                leaves.append((g2, prob))
-            if len(leaves) > max_leaves:
-                return None
-        else:                              # a strike past the prefix exists
+        if rng.calls > k:                  # a strike past the prefix exists
             c = float(strikes[k]["chance"])
             if c >= 100.0:
                 stack.append(prefix + [True])
@@ -518,6 +532,38 @@ def enumerate_children_via_sim(
             else:
                 stack.append(prefix + [True])
                 stack.append(prefix + [False])
+            continue
+        # leaf: the prefix fully resolved the fight.
+        prob = 1.0
+        for s in strikes:
+            c = float(s["chance"]) / 100.0
+            prob *= c if s["hits"] else (1.0 - c)
+        if prob <= _EPS:
+            continue
+        # Advancement-choice enumeration (uniform). g2 used the default
+        # targets[0]; re-run per combo only when a real (multi-target)
+        # choice exists.
+        advancers = []                     # (id, n_targets) in attacker-first order
+        if advancement_choice == "uniform":
+            for uid in order:
+                u = _unit_by_id(g2, uid)
+                if u is not None and u.name != pre_type[uid]:
+                    advancers.append((uid, max(1, len(_advance_targets(pre_type[uid])))))
+        n_combos = 1
+        for _, n in advancers:
+            n_combos *= n
+        if advancers and n_combos > 1:
+            wsplit = prob / float(n_combos)
+            counts = [n for _, n in advancers]
+            for combo in _product(*[range(n) for n in counts]):
+                g3, _r3, _s3 = _run(prefix, list(combo))
+                leaves.append((g3, wsplit))
+                if len(leaves) > max_leaves:
+                    return None
+        else:
+            leaves.append((g2, prob))
+            if len(leaves) > max_leaves:
+                return None
     total = sum(p for _, p in leaves)
     if not leaves or total <= 0:
         return None
@@ -529,7 +575,8 @@ def enumerate_children_via_sim(
 # =====================================================================
 
 def reconstruct_side_turn_dist(
-    pre_state: GameState, actions: List[list], *, max_particles: int = 512,
+    pre_state: GameState, actions: List[list], *, advancement_choice=None,
+    max_particles: int = 512,
 ) -> Optional[List[Tuple[GameState, float]]]:
     """Forward distributional reconstruction of an ORDERED action list into
     the exact joint distribution over end-states: [(state, prob)] normalized
@@ -547,7 +594,8 @@ def reconstruct_side_turn_dist(
         if cmd[0] == "attack":
             nxt: List[Tuple[GameState, float]] = []
             for st, p in particles:
-                children = enumerate_children_via_sim(st, cmd)
+                children = enumerate_children_via_sim(
+                    st, cmd, advancement_choice=advancement_choice)
                 if children is None:
                     return None
                 for child, pc in children:
@@ -644,7 +692,7 @@ def compare_state_distributions(
 
     def xp(uid):
         return lambda st: (lambda u: 0 if u is None
-                           else int(getattr(u, "experience", 0)))(
+                           else int(getattr(u, "current_exp", 0)))(
             _unit_by_id(st, uid))
 
     def pos(uid):
