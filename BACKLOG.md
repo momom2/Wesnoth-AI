@@ -1,5 +1,43 @@
 # Project review — bugs and improvements
 
+## IDEA (user, 2026-07-24) — Wesnoth add-on: human vs a trained model
+
+Ship a Wesnoth add-on that lets a human play IN the real Wesnoth client
+against a model checkpoint produced by our training -- human on one
+side, the trained policy on the other. Builds on the existing
+live-Wesnoth bridge (`wesnoth_ai/wesnoth_interface.py` +
+`add-ons/wesnoth_ai/` Lua: `state_collector` / `turn_stage` /
+`action_executor`), which today is EVAL-ONLY (model vs built-in RCA,
+driven by `tools/eval_vs_builtin.py`). The new piece is a human-vs-model
+setup: the human controls a normal side; the add-on hands the other
+side's turns to the Python policy over the same IPC seam (state out as
+one serialization, action back as one schema, Lua stays dumb -- no new
+IPC).
+
+**Key requirement -- AUTO-DETECT as many parameters as possible from the
+checkpoint**, so a user can point it at ANY `.pt` without hand-specifying
+the architecture:
+  - **Network dimensions** (`d_model`, `num_layers`, `num_heads`,
+    `d_ff`) are already persisted in the checkpoint's `arch` dict
+    (`transformer_policy.save_checkpoint`) -- read them, don't require
+    flags.
+  - **Optional heads** (`aux_score`, `moves_left`, and any future head
+    such as an advancement head) are persisted as top-level flags and/or
+    inferable from the `model_state` key set -- detect which heads a
+    checkpoint actually has and wire them up (or ignore absent ones)
+    automatically.
+  - **Vocab** (`unit_type_to_id` / `faction_to_id`) already travels with
+    the checkpoint -- load it so unit-type embeddings line up.
+Fail loud on a genuine arch mismatch (as `load_checkpoint` already
+does), but otherwise the flow is "load checkpoint -> play" with zero
+manual config.
+
+Nice-to-haves: pick faction/era/map from the Wesnoth UI; let the model
+make its own advancement choice once the advancement head lands; an
+optional value/cliffness debug overlay. Fits the project's
+customization-first goal (a modder points the add-on at a checkpoint and
+plays, no code changes).
+
 ## IDEA (2026-07-23) — combat_outcomes: exact DP past the complexity caps
 
 `enumerate_attack_outcomes` still returns `None` (caller samples) when
