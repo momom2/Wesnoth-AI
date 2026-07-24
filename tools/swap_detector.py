@@ -974,11 +974,87 @@ def attacks_before_commit_findings(st: SideTurn) -> Tuple[List[Finding], int]:
     return findings, inconclusive
 
 
+def _solo_kill_prob(gs: GameState, start: Tuple[int, int],
+                    target: Tuple[int, int], weapon: int,
+                    target_id) -> Optional[float]:
+    """P(the unit at `start` SOLO-kills the unit at `target`) from `gs`,
+    via the faithful enumerator (advancement resolved). None if the fight
+    is inconclusive (blow-up)."""
+    from tools.combat_outcomes import choose_counter_weapon
+    att = _unit_at(gs, start)
+    dfd = _unit_at(gs, target)
+    if att is None or dfd is None:
+        return None
+    dw = choose_counter_weapon(gs, att, dfd, weapon)
+    cmd = ["attack", start[0], start[1], target[0], target[1],
+           int(weapon), dw, "deadbeef"]
+    children = enumerate_children_via_sim(gs, cmd, advancement_choice="uniform")
+    if children is None:
+        return None
+    return sum(p for c, p in children if _unit_by_id(c, target_id) is None)
+
+
+def strong_attacker_first_findings(st: SideTurn) -> Tuple[List[Finding], int]:
+    """Two own units attack the SAME target in one side-turn. Leading with
+    the unit MORE LIKELY to solo-kill it banks the OTHER unit's action on
+    the kill branch, so the best lead maximizes P(leader solo-kills) x
+    (banked unit's MP). Fire iff the recorded order does NOT lead with the
+    better unit (reordering strictly raises that banking value).
+
+    Like `attacks_before_commit` this is a banking OPPORTUNITY (product-
+    incomparable by design: the banked unit keeps MP, which pure position
+    can't see), reported with its solo-kill probabilities and MP gain -- NOT
+    a stochastic-dominance certificate."""
+    gs = _copy.deepcopy(st.pre_state)
+    # first two attack commands per target hex, in recorded order.
+    by_target: Dict[Tuple[int, int], List[int]] = {}
+    for idx, a in enumerate(st.actions):
+        if a[0] == "attack":
+            by_target.setdefault((a[3], a[4]), []).append(idx)
+    findings: List[Finding] = []
+    inconclusive = 0
+    done = set()
+    for i, cmd in enumerate(st.actions):
+        if cmd[0] == "attack":
+            tgt = (cmd[3], cmd[4])
+            idxs = by_target.get(tgt, [])
+            if tgt not in done and len(idxs) >= 2 and i == idxs[0]:
+                done.add(tgt)
+                cmd_x, cmd_y = st.actions[idxs[0]], st.actions[idxs[1]]
+                sx, sy = (cmd_x[1], cmd_x[2]), (cmd_y[1], cmd_y[2])
+                x, y, t = _unit_at(gs, sx), _unit_at(gs, sy), _unit_at(gs, tgt)
+                if (x is not None and y is not None and t is not None
+                        and x.id != y.id):
+                    p_x = _solo_kill_prob(gs, sx, tgt, cmd_x[5], t.id)
+                    p_y = _solo_kill_prob(gs, sy, tgt, cmd_y[5], t.id)
+                    if p_x is None or p_y is None:
+                        inconclusive += 1
+                    else:
+                        # value(lead U) = P(U solo-kills) x banked(other).MP
+                        val_x = p_x * int(y.current_moves)   # lead X, bank Y
+                        val_y = p_y * int(x.current_moves)   # lead Y, bank X
+                        # recorded leads with X (the earlier attack).
+                        if val_y > val_x + 1e-9:
+                            findings.append(Finding(
+                                st.game_id, st.turn, st.side,
+                                "strong_attacker_first",
+                                x.name, t.name, sx, tgt,
+                                "banking_opportunity",
+                                {"recorded_lead": x.name,
+                                 "better_lead": y.name,
+                                 "p_kill_lead": f"{p_x:.2f}",
+                                 "p_kill_better": f"{p_y:.2f}",
+                                 "gain_mp": f"{val_y - val_x:.2f}"}))
+        _apply_command(gs, cmd)
+    return findings, inconclusive
+
+
 # Motif registry: name -> side-turn generator. Extend here.
 GENERATORS = {
     "backstab_setup":        backstab_setup_findings,
     "leadership_setup":      leadership_setup_findings,
     "attacks_before_commit": attacks_before_commit_findings,
+    "strong_attacker_first": strong_attacker_first_findings,
 }
 
 
@@ -1050,13 +1126,13 @@ def main(argv=None) -> int:
             nz = {k: v for k, v in f.vector.items() if v != "="}
             print(f"  [{f.motif}] g={f.game_id} t{f.turn} s{f.side} "
                   f"{f.attacker}{f.attacker_pos}->{f.defender}{f.defender_pos} {nz}")
-    abc = sorted((f for f in rep["findings"]
-                  if f.motif == "attacks_before_commit"),
-                 key=_gain, reverse=True)
-    print(f"\n  top attacks_before_commit by banked-MP gain (of {len(abc)}):")
-    for f in abc[:12]:
-        print(f"    g={f.game_id} t{f.turn} s{f.side} "
-              f"{f.attacker}->{f.defender} {f.vector}")
+    for motif in ("attacks_before_commit", "strong_attacker_first"):
+        ranked = sorted((f for f in rep["findings"] if f.motif == motif),
+                        key=_gain, reverse=True)
+        print(f"\n  top {motif} by banked-MP gain (of {len(ranked)}):")
+        for f in ranked[:12]:
+            print(f"    g={f.game_id} t{f.turn} s{f.side} "
+                  f"{f.attacker}->{f.defender} {f.vector}")
     return 0
 
 

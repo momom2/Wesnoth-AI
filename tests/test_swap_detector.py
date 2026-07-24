@@ -429,3 +429,57 @@ def test_lex_verdict_resolves_product_incomparable():
     # all-equal -> EQUAL
     assert lex_verdict({"hp:u1": Sym.EQ}, ("existence", "hp")
                        ).verdict is Verdict.EQUAL
+
+
+def test_strong_attacker_first_flags_weaker_lead():
+    """Two own units attack the same target; the recorded order leads with
+    the LOWER solo-kill-probability unit (a Thief that can't kill an 18-HP
+    Walking Corpse) ahead of the higher one (an Orcish Grunt that can), so
+    reordering to lead with the Grunt banks the Thief on the kill branch.
+    strong_attacker_first must fire, naming the Grunt as the better lead."""
+    from tools.swap_detector import (
+        strong_attacker_first_findings, SideTurn, hex_neighbors)
+    from tools.combat_outcomes import choose_counter_weapon
+    from sim_test_helpers import fresh_scenario_sim
+    from tools.replay_dataset import _build_recruit_unit
+
+    sim = fresh_scenario_sim(seed=9, max_turns=10,
+                             scenario_id="multiplayer_The_Freelands")
+    gs = sim.gs
+    gs.map.units.clear()
+    xpmod = int(getattr(gs.global_info, "_experience_modifier", 100) or 100)
+
+    def inb(h):
+        return 0 <= h[0] < gs.map.size_x and 0 <= h[1] < gs.map.size_y
+
+    dx, dy = 12, 12
+    nb = [h for h in hex_neighbors(dx, dy) if inb(h)]
+    sx, syx = nb[0], nb[1]
+    tgt = _build_recruit_unit("Walking Corpse", side=2, x=dx, y=dy, next_uid=1,
+                              game_id="t", trait_seed_hex="00000001",
+                              exp_modifier=xpmod)
+    thief = _build_recruit_unit("Thief", side=1, x=sx[0], y=sx[1], next_uid=2,
+                                game_id="t", trait_seed_hex="00000002",
+                                exp_modifier=xpmod)
+    grunt = _build_recruit_unit("Orcish Grunt", side=1, x=syx[0], y=syx[1],
+                                next_uid=3, game_id="t",
+                                trait_seed_hex="00000003", exp_modifier=xpmod)
+    for u in (tgt, thief, grunt):
+        gs.map.units.add(u)
+
+    dw_t = choose_counter_weapon(gs, thief, tgt, 0)
+    dw_g = choose_counter_weapon(gs, grunt, tgt, 0)
+    # recorded order leads with the WEAKER attacker (the Thief).
+    actions = [
+        ["attack", sx[0], sx[1], dx, dy, 0, dw_t, "deadbeef"],
+        ["attack", syx[0], syx[1], dx, dy, 0, dw_g, "deadbeef"],
+    ]
+    st = SideTurn("t", 1, 1, gs, actions)
+    findings, inc = strong_attacker_first_findings(st)
+    assert inc == 0
+    assert len(findings) == 1, findings
+    f = findings[0]
+    assert f.motif == "strong_attacker_first"
+    assert f.vector["recorded_lead"] == "Thief"
+    assert f.vector["better_lead"] == "Orcish Grunt"
+    assert float(f.vector["p_kill_better"]) > float(f.vector["p_kill_lead"])
