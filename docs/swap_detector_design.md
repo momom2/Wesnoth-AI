@@ -101,6 +101,45 @@ EXACT distribution or `None` — it never approximates. Current behaviour
 Any attack that comes back `None` makes the comparison `inconclusive`;
 the detector NEVER samples to fill the gap.
 
+## Side-turn reconstruction (IMPLEMENTED — exact joint, not the bounds shortcut)
+
+The bounds shortcut above is a deferred OPTIMIZATION. What v1 actually
+ships for the multi-action window is the **exact joint** — always sound,
+no per-ability bound table needed — built sim-faithfully:
+
+- `swap_detector.enumerate_children_via_sim(gs, attack_cmd)` returns one
+  attack's FULL outcome distribution as `[(child_state, prob)]`. It does
+  NOT re-implement any post-combat bookkeeping (XP, feeding, petrify,
+  death, status write-back) — that would drift from the sim. Instead it
+  drives the sim's OWN applier (`replay_dataset._apply_command`) with a
+  scripted hit/miss PRNG (`_EnumRNG`, via a temporary `combat.MTRng` swap)
+  and enumerates strike patterns by DFS, reading each strike's probability
+  from the engine's own `checkup_strikes`. Proven bit-faithful by a parity
+  test asserting its outcome-key distribution equals
+  `enumerate_attack_outcomes`.
+- `swap_detector.reconstruct_side_turn_dist(pre_state, actions)` walks an
+  ordered action list into the exact joint over end-states: deterministic
+  actions (move/recruit) apply via `_apply_command` to every particle,
+  attacks branch every particle through the enumerator. `None` on any
+  inconclusive attack or a particle-count blow-up.
+- `swap_detector.compare_state_distributions(base, cand, side)` is the
+  distributional generalization of `compare_states`: per-unit (by id)
+  first-order stochastic dominance on health / poisoned / slowed / XP
+  (good direction mirrored for enemies), pure position by marginal
+  equality, plus own gold — fed through the same product-order rollup.
+
+**Reconstruction limitation (advancement).** The sim-driven enumerator
+currently BAILS to `None` on a fight that can level a unit (it gates on
+`enumerate_attack_outcomes(advancement_choice=None)`), so advancing
+multi-action windows read `inconclusive`. This is sound and NON-regressive
+(backstab/leadership still resolve advancement via the single-attack
+`_verify_reorder(advancement_choice="uniform")` path). Making the
+reconstruction handle advancement needs an extra n-way choice-branch in
+the DFS (force each advancement target via the `_advance_choices` queue,
+1/n for uniform) — advancement's own draw already lives on the SEPARATE
+salted channel (`_draw_uniform_advance`), so it never touches the scripted
+combat RNG. Deferred (see "Deferred").
+
 ## Classification (mechanical, sim-decided)
 
 - sequential: swapped order illegal in a forked sim -> unswappable.
@@ -203,4 +242,14 @@ improvement exists" is the signal.
   `advancement_choice` is supplied). Never sampled; always
   `inconclusive`. (Petrify and choice-supplied advancement are now
   resolved exactly — see "Exactness gate".)
+- **Advancement inside `reconstruct_side_turn_dist`.** The sim-driven
+  enumerator bails on any levelling fight (see "Reconstruction
+  limitation"). Fix = an n-way advancement-choice branch in the DFS
+  (force each target via `_advance_choices`, 1/n uniform); the separate
+  salted advancement channel means it won't disturb the scripted combat
+  RNG. Non-regressive today (single-attack path handles advancement), so
+  this only blocks multi-action windows whose fights level a unit.
+- **Bounds shortcut / per-ability bound table.** The exact joint is
+  shipped instead (always sound); the compositional-bounds fast path is a
+  pure perf optimization for wide windows and is unbuilt.
 - EV-mode and any reward/label/training coupling (as in the header).

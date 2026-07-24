@@ -1,5 +1,33 @@
 # Project review — bugs and improvements
 
+## NEXT INCREMENT (2026-07-24) — swap detector: advancement inside the side-turn reconstruction
+
+The distributional side-turn verifier is built and proven faithful
+(`tools/swap_detector.py`: `enumerate_children_via_sim` +
+`reconstruct_side_turn_dist` + `compare_state_distributions`; the
+enumerator drives the sim's own `_apply_command` with a scripted hit/miss
+RNG and is DP-parity-tested). It reconstructs the EXACT joint over a
+window's combats and compares full end-state distributions. ONE gap:
+`enumerate_children_via_sim` BAILS to `None` on any fight that can level a
+unit, so advancing multi-action windows read `inconclusive`.
+
+Fix = an n-way advancement-choice branch in the enumerator's DFS: when a
+combat leaf crosses an XP threshold, branch over the offered advancement
+targets, forcing each via the `_advance_choices` queue and weighting 1/n
+(uniform) — matching `enumerate_attack_outcomes(advancement_choice=
+"uniform")`, which the parity test can then assert against on a levelling
+fight. Advancement's own RNG lives on the SEPARATE salted channel
+(`_draw_uniform_advance`), so it never disturbs the scripted combat RNG.
+Non-regressive today (backstab/leadership resolve advancement via the
+single-attack `_verify_reorder` path); this only unblocks multi-action
+windows whose fights kill+level. See docs/swap_detector_design.md
+"Reconstruction limitation" / "Deferred".
+
+After it lands, the remaining designed generators (`village_first`,
+`strong_attacker_first`) can be verified end-to-end via full
+reconstruction, and backstab/leadership can OPTIONALLY upgrade from
+single-attack to full-side-turn dominance certificates.
+
 ## LIMITATION (user, 2026-07-24) — swap detector: identical units near each other can confound reorder matching
 
 `tools/swap_detector.py` identifies units and matches reorder candidates
