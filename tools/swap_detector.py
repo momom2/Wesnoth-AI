@@ -656,30 +656,25 @@ def _rollup(vec_syms: Dict[str, Sym]) -> Comparison:
     return Comparison(Verdict.EQUAL, vec)
 
 
-def compare_state_distributions(
-    base_parts: Optional[List[Tuple[GameState, float]]],
-    cand_parts: Optional[List[Tuple[GameState, float]]],
+def _side_turn_syms(
+    base_parts: List[Tuple[GameState, float]],
+    cand_parts: List[Tuple[GameState, float]],
     side: int,
-) -> Comparison:
-    """Product-order dominance of two reconstructed side-turn end-state
-    DISTRIBUTIONS (each from `reconstruct_side_turn_dist`) from `side`'s
-    view. Per unit (matched by id): first-order stochastic dominance on
-    health (hp, dead = -1), poisoned, slowed and XP -- with the good
-    direction MIRRORED for enemy units (we want them lower-HP / more-
-    debuffed / less XP) -- plus own gold. PURE POSITION is compared by
-    marginal equality only (instrumental; the reachability (pos,MP)
-    criterion needs a concrete board and lives in `compare_states` /
-    per-branch banking, not here), so a unit that ends on a different hex
-    with positive probability reads INCOMPARABLE -- conservative and sound.
-    A None distribution -> INCONCLUSIVE (never sampled)."""
-    if base_parts is None or cand_parts is None:
-        return Comparison(Verdict.INCONCLUSIVE, {})
-
+) -> Dict[str, Sym]:
+    """The fine-grained per-dimension symbol vector (candidate vs baseline)
+    over two reconstructed end-state distributions. Per unit (by id):
+    existence, health (hp, dead=-1), poisoned, slowed, XP -- good direction
+    MIRRORED for enemy units -- pure position (marginal equality), plus own
+    gold. The maximal-granularity primitive both the product rollup and the
+    lex views coarsen over (`docs/swap_detector_design.md`)."""
     id_side: Dict[object, int] = {}
     for parts in (base_parts, cand_parts):
         for st, _ in parts:
             for u in st.map.units:
                 id_side.setdefault(u.id, u.side)
+
+    def exist(uid):
+        return lambda st: (1 if _unit_by_id(st, uid) is not None else 0)
 
     def health(uid):
         return lambda st: (lambda u: -1 if u is None else int(u.current_hp))(
@@ -703,6 +698,7 @@ def compare_state_distributions(
     syms: Dict[str, Sym] = {}
     for uid, uside in id_side.items():
         own = (uside == side)
+        syms[f"exist:{uid}"] = _num_sym(cand_parts, base_parts, exist(uid), own)
         syms[f"hp:{uid}"] = _num_sym(cand_parts, base_parts, health(uid), own)
         syms[f"pois:{uid}"] = _num_sym(
             cand_parts, base_parts, status(uid, "poisoned"), not own)
@@ -717,8 +713,88 @@ def compare_state_distributions(
         s = next((s for s in st.sides if s.player == side), None)
         return getattr(s, "current_gold", 0) if s else 0
     syms["gold"] = _num_sym(cand_parts, base_parts, gold, True)
+    return syms
 
-    return _rollup(syms)
+
+def compare_state_distributions(
+    base_parts: Optional[List[Tuple[GameState, float]]],
+    cand_parts: Optional[List[Tuple[GameState, float]]],
+    side: int,
+) -> Comparison:
+    """PRODUCT-order (Tier-1, theorem-grade) dominance of two reconstructed
+    side-turn end-state DISTRIBUTIONS from `side`'s view -- sound against any
+    consistent valuation. See `_side_turn_syms` for the dimensions. A None
+    distribution -> INCONCLUSIVE (never sampled)."""
+    if base_parts is None or cand_parts is None:
+        return Comparison(Verdict.INCONCLUSIVE, {})
+    return _rollup(_side_turn_syms(base_parts, cand_parts, side))
+
+
+# Lex view = ordered list of dimension CATEGORIES (each a dim-name prefix
+# set). A view is a HYPOTHESIS, not a theorem (see design doc): it fires at
+# the first category whose product-rollup symbol is non-EQ.
+_LEX_CATEGORIES: Dict[str, Tuple[str, ...]] = {
+    "existence": ("exist:",),
+    "hp":        ("hp:",),
+    "xp":        ("xp:",),
+    "status":    ("pois:", "slow:"),
+    "position":  ("pos:",),
+    "gold":      ("gold",),
+}
+
+# Shipped views (design doc): each flag carries its certifying order; the
+# per-order fire-rate columns adjudicate trust.
+LEX_VIEWS: Dict[str, Tuple[str, ...]] = {
+    "L1_exist_hp_xp": ("existence", "hp", "xp"),
+    "L2_exist_xp_hp": ("existence", "xp", "hp"),
+}
+
+
+def _category_sym(members: List[Sym]) -> Sym:
+    """Product-order rollup of a category's per-unit symbols into one."""
+    vals = set(members)
+    if Sym.INCOMP in vals:
+        return Sym.INCOMP
+    has_gt, has_lt = Sym.GT in vals, Sym.LT in vals
+    if has_gt and has_lt:
+        return Sym.INCOMP
+    if has_gt:
+        return Sym.GT
+    if has_lt:
+        return Sym.LT
+    return Sym.EQ
+
+
+def lex_verdict(syms: Dict[str, Sym], order: Tuple[str, ...]) -> Comparison:
+    """Partial-order lexicographic verdict over the fine sym vector: walk
+    `order`'s categories; the first non-EQ category decides (GT ->
+    STRICTLY_BETTER, LT -> WORSE, INCOMP -> INCOMPARABLE). Categories not in
+    `order` are dropped (read as '='). A HYPOTHESIS view, not theorem-grade."""
+    vec = {name: s.value for name, s in syms.items()}
+    for cat in order:
+        prefixes = _LEX_CATEGORIES[cat]
+        members = [s for name, s in syms.items() if name.startswith(prefixes)]
+        cs = _category_sym(members)
+        if cs is Sym.EQ:
+            continue
+        if cs is Sym.GT:
+            return Comparison(Verdict.STRICTLY_BETTER, vec)
+        if cs is Sym.LT:
+            return Comparison(Verdict.WORSE, vec)
+        return Comparison(Verdict.INCOMPARABLE, vec)
+    return Comparison(Verdict.EQUAL, vec)
+
+
+def compare_state_distributions_lex(
+    base_parts: Optional[List[Tuple[GameState, float]]],
+    cand_parts: Optional[List[Tuple[GameState, float]]],
+    side: int, view: str = "L1_exist_hp_xp",
+) -> Comparison:
+    """Lexicographic (hypothesis) verdict under a named `LEX_VIEWS` order."""
+    if base_parts is None or cand_parts is None:
+        return Comparison(Verdict.INCONCLUSIVE, {})
+    return lex_verdict(_side_turn_syms(base_parts, cand_parts, side),
+                       LEX_VIEWS[view])
 
 
 # =====================================================================

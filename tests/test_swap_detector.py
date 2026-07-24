@@ -400,3 +400,32 @@ def test_enumerate_children_via_sim_matches_dp_with_advancement():
     for key in set(agg) | set(dp.probs):
         assert abs(agg.get(key, 0.0) - dp.probs.get(key, 0.0)) < 1e-6, (
             key, agg.get(key, 0.0), dp.probs.get(key, 0.0))
+
+
+def test_lex_verdict_resolves_product_incomparable():
+    """A lex view breaks a product-order tie: candidate kills the enemy
+    more often (existence GT) but ends a unit at lower HP (hp LT). Product
+    order -> INCOMPARABLE; L1 (existence>hp>xp) -> STRICTLY_BETTER (decides
+    at existence); an hp-first view -> WORSE. Categories are product-rolled
+    across their per-unit members."""
+    from tools.swap_detector import (
+        lex_verdict, LEX_VIEWS, Sym, _rollup, _category_sym)
+    syms = {
+        "exist:e1": Sym.GT,    # enemy dead more often -> good for us
+        "hp:u1": Sym.LT,       # our unit ends lower HP -> bad
+        "xp:u1": Sym.EQ,
+        "pos:u1": Sym.EQ,
+        "gold": Sym.EQ,
+    }
+    assert _rollup(syms).verdict is Verdict.INCOMPARABLE       # GT and LT
+    assert lex_verdict(syms, LEX_VIEWS["L1_exist_hp_xp"]
+                       ).verdict is Verdict.STRICTLY_BETTER
+    assert lex_verdict(syms, ("hp", "existence", "xp")
+                       ).verdict is Verdict.WORSE
+    # a category with internally mixed members -> INCOMP -> INCOMPARABLE
+    mixed = {"xp:u1": Sym.GT, "xp:u2": Sym.LT}
+    assert _category_sym(list(mixed.values())) is Sym.INCOMP
+    assert lex_verdict(mixed, ("xp",)).verdict is Verdict.INCOMPARABLE
+    # all-equal -> EQUAL
+    assert lex_verdict({"hp:u1": Sym.EQ}, ("existence", "hp")
+                       ).verdict is Verdict.EQUAL
