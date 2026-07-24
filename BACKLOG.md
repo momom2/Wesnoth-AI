@@ -1,5 +1,52 @@
 # Project review — bugs and improvements
 
+## DETECTOR TRAINING SIGNAL (approved 2026-07-24) — improvement items
+
+Design spec: `docs/detector_training_signal.md`. Principle: the detector
+PROPOSES reorderings, the model's OWN value net JUDGES them (ΔV), and the
+ΔV-weighted proposal enters as a distillation target + annealed prior --
+so a stronger model learns to IGNORE the signal where it deviates
+deliberately (exp management). Approved MVP = Tier-1 certificates only,
+cheap ΔV arbiter (value net on the reconstructed end-state distribution),
+input-feature + ΔV-weighted distillation (NO new reward term).
+
+Deferred improvement items (build after the MVP validates the pipeline):
+
+- **Potential-based reward-shaping channel** (fork 1 alt): a learned-
+  potential shaping reward `F = γΦ(s') − Φ(s)` as an alternative/addition
+  to the distillation-target channel. Policy-invariant in the limit; more
+  moving parts + circular-eval risk. Only if the distillation channel
+  proves insufficient.
+- **MCTS-arbitration of proposals** (fork 2 upgrade): replace/augment the
+  cheap value-net-on-end-state ΔV with a short MCTS from the reordered
+  position. More robust off-distribution, costs rollouts (we're CPU-bound)
+  -- add only if ΔV proves noisy.
+- **Banking-tier findings** (fork 3 extension): extend from Tier-1 certs to
+  `attacks_before_commit` / `strong_attacker_first` once the gate is
+  trained. These are product-incomparable (trade MP/position vs XP), so
+  they need the learned gate to be safe.
+- **Learned gate head** `gate(state, finding) ∈ [0,1]`: trained on realized
+  outcomes (did following help?). MVP uses plain `max(0, ΔV)` weighting;
+  the gate makes trust explicit + readable and is what makes the banking
+  tier safe.
+- **Off-distribution value-net eval**: the value net scores reconstructed
+  (reordered) states it wasn't trained on. Mitigation = mix some reordered
+  states into value-net training, or lean on MCTS-arbitration.
+- **Prospective-detector self-play cost**: running generators +
+  reconstruction + ΔV during self-play adds cost. Gain-threshold the
+  findings, cache per state-key, batch the value-net evals.
+- **Reconstruction-bail fallback**: findings whose ΔV can't be computed
+  (reconstruction returns None -- advancement past cap / blow-up) fall
+  back to advice-token-only (no distillation push). Track what fraction
+  that is; it bounds signal coverage.
+- **Readability trace**: per-game log of {findings fired, ΔV, gate,
+  followed?} -- the "study its strategies" artifact (a model that deviated
+  from a Tier-1 suggestion with the value net agreeing is a readable
+  tactical-reasoning record).
+- **Anneal-schedule calibration**: the detector→value-net anneal (reuse
+  `--reset-decision-step` semantics + the combat-oracle anneal precedent);
+  tune the rate + tier weights in `configs/`.
+
 ## NEXT INCREMENT (2026-07-24) — swap detector: wire full-reconstruction generators
 
 The distributional side-turn verifier is built, proven faithful, and now
