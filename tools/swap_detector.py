@@ -294,6 +294,12 @@ class Finding:
     defender_pos: Tuple[int, int]
     verdict:      str
     vector:       Dict[str, str]
+    # Indices into the side-turn's action list of the two reordered
+    # actions (attack that would gain, and the move that sets it up), so
+    # the advisor can rebuild the proposed ordering. None for motifs that
+    # don't carry a pair reorder (banking motifs quantify differently).
+    attack_idx:   Optional[int] = None
+    move_idx:     Optional[int] = None
 
 
 def backstab_setup_findings(st: SideTurn) -> Tuple[List[Finding], int]:
@@ -320,7 +326,7 @@ def backstab_setup_findings(st: SideTurn) -> Tuple[List[Finding], int]:
                         if j != i and move_dests[j] == opp:
                             fin, inc = _verify_reorder(
                                 gs, cmd, opp, st.actions[j], st,
-                                "backstab_setup")
+                                "backstab_setup", attack_idx=i, move_idx=j)
                             inconclusive += inc
                             if fin is not None:
                                 findings.append(fin)
@@ -368,7 +374,7 @@ def leadership_setup_findings(st: SideTurn) -> Tuple[List[Finding], int]:
                                 and _unit_level(mv.name) > att_lvl):
                             fin, inc = _verify_reorder(
                                 gs, cmd, md, st.actions[j], st,
-                                "leadership_setup")
+                                "leadership_setup", attack_idx=i, move_idx=j)
                             inconclusive += inc
                             if fin is not None:
                                 findings.append(fin)
@@ -379,7 +385,10 @@ def leadership_setup_findings(st: SideTurn) -> Tuple[List[Finding], int]:
 
 def _verify_reorder(gs: GameState, attack_cmd: list,
                     relocate_hex: Tuple[int, int], move_cmd: list,
-                    st: SideTurn, motif: str) -> Tuple[Optional[Finding], int]:
+                    st: SideTurn, motif: str,
+                    attack_idx: Optional[int] = None,
+                    move_idx: Optional[int] = None,
+                    ) -> Tuple[Optional[Finding], int]:
     """Verify a pair-reorder: relocate `move_cmd`'s mover onto
     `relocate_hex` before `attack_cmd`, then compare the attack's outcome
     distribution WITH the mover in place (candidate) vs the actual state
@@ -409,7 +418,8 @@ def _verify_reorder(gs: GameState, attack_cmd: list,
         return Finding(
             st.game_id, st.turn, st.side, motif,
             att.name, dfd.name, (ax, ay), (dx, dy),
-            cmp.verdict.value, cmp.vector), 0
+            cmp.verdict.value, cmp.vector,
+            attack_idx=attack_idx, move_idx=move_idx), 0
     return None, 0
 
 
