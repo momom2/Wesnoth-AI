@@ -1,5 +1,25 @@
 # Project review — bugs and improvements
 
+## LIMITATION (user, 2026-07-24) — swap detector: identical units near each other can confound reorder matching
+
+`tools/swap_detector.py` identifies units and matches reorder candidates
+by POSITION, not by unit id: `_unit_at(gs, pos)`, `_move_start` /
+`_move_dest` (the compact move commands carry hexes, not ids), and the
+candidate-state relocation in `_verify_reorder` / `_banked_mp`. At any
+single timestep this is unambiguous (one unit per hex), but once a motif
+reorders actions the analysis can mis-attribute a move / flank / MP-bank
+to the WRONG unit if two IDENTICAL units (same type -- also
+indistinguishable in the OutcomeKey) sit close together: e.g. two
+Footpads near the target, where the "surround mover" or the relocated
+flanker could be the other copy. Because the units are identical the
+resulting distribution is usually the same, so the verdict is rarely
+actually wrong -- the user judged it unlikely enough to NEGLECT for v1.
+
+Fix direction: thread unit IDs through the reorder (reconstruction
+preserves `Unit.id`) and identify the mover / flanker / attacker by id
+rather than re-looking-up a hex after positions have shifted; add a
+regression case with two identical units flanking the same target.
+
 ## IDEA (user, 2026-07-24) — Wesnoth add-on: human vs a trained model
 
 Ship a Wesnoth add-on that lets a human play IN the real Wesnoth client
