@@ -116,3 +116,56 @@ def test_none_distribution_is_inconclusive():
     d = enumerate_attack_outcomes(gs, action, advancement_choice="uniform")
     assert compare_distributions(None, d).verdict is Verdict.INCONCLUSIVE
     assert compare_distributions(d, None).verdict is Verdict.INCONCLUSIVE
+
+
+def _spearman_with_optional_leader(with_leader: bool):
+    """A side-`s` Spearman (L1) adjacent to the enemy leader; optionally a
+    same-side Lieutenant (L2, leadership) on a free hex adjacent to the
+    Spearman -- which grants +25% leadership damage."""
+    load_factions()
+    setup = random_setup(random.Random(3), forced_faction=None)
+    gs = build_scenario_gamestate(setup)
+    sim = WesnothSim(gs, scenario_id=setup.scenario_id, max_turns=30)
+    gs = sim.gs
+    xpmod = int(getattr(gs.global_info, "_experience_modifier", 100) or 100)
+    side = gs.global_info.current_side
+    dfd = next((u for u in gs.map.units if u.side != side and u.is_leader), None)
+    if dfd is None:
+        pytest.skip("no enemy leader")
+    occ = {(u.position.x, u.position.y) for u in gs.map.units}
+    a_hex = next(((ax, ay) for (ax, ay) in hex_neighbors(dfd.position.x, dfd.position.y)
+                  if (ax, ay) not in occ and 0 <= ax < gs.map.size_x
+                  and 0 <= ay < gs.map.size_y), None)
+    if a_hex is None:
+        pytest.skip("no free hex adjacent to the enemy leader")
+    occ.add(a_hex)
+    l_hex = next(((lx, ly) for (lx, ly) in hex_neighbors(a_hex[0], a_hex[1])
+                  if (lx, ly) not in occ and (lx, ly) != (dfd.position.x, dfd.position.y)
+                  and 0 <= lx < gs.map.size_x and 0 <= ly < gs.map.size_y), None)
+    if l_hex is None:
+        pytest.skip("no free hex adjacent to the attacker for a leader")
+
+    from tools.swap_detector import _has_leadership, _unit_level
+    assert _has_leadership("Lieutenant") and _unit_level("Lieutenant") > _unit_level("Spearman")
+    gs.map.units.add(_build_recruit_unit(
+        "Spearman", side=side, x=a_hex[0], y=a_hex[1], next_uid=8100,
+        game_id="t", trait_seed_hex="12345678", exp_modifier=xpmod))
+    if with_leader:
+        gs.map.units.add(_build_recruit_unit(
+            "Lieutenant", side=side, x=l_hex[0], y=l_hex[1], next_uid=8101,
+            game_id="t", trait_seed_hex="12345678", exp_modifier=xpmod))
+    action = {"type": "attack", "start_hex": Position(a_hex[0], a_hex[1]),
+              "target_hex": dfd.position, "attack_index": 0}
+    return gs, action
+
+
+def test_leadership_setup_is_strictly_better():
+    gs_base, action = _spearman_with_optional_leader(with_leader=False)
+    gs_cand, _ = _spearman_with_optional_leader(with_leader=True)
+    d_base = enumerate_attack_outcomes(gs_base, action, advancement_choice="uniform")
+    d_cand = enumerate_attack_outcomes(gs_cand, action, advancement_choice="uniform")
+    assert d_base is not None and d_cand is not None
+    cmp = compare_distributions(d_base, d_cand)
+    assert cmp.verdict is Verdict.STRICTLY_BETTER, (cmp.verdict, cmp.vector)
+    assert cmp.vector["enemy_hp"] == ">"
+    assert "<" not in cmp.vector.values()

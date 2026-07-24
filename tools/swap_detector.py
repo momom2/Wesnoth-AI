@@ -30,7 +30,9 @@ _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
-from tools.abilities import is_backstab_active, opposite_hex       # noqa: E402
+from tools.abilities import (                                      # noqa: E402
+    is_backstab_active, opposite_hex, hex_neighbors, leadership_bonus,
+)
 from tools.combat_outcomes import (                                # noqa: E402
     OutcomeDistribution, enumerate_attack_outcomes,
 )
@@ -313,8 +315,9 @@ def backstab_setup_findings(st: SideTurn) -> Tuple[List[Finding], int]:
                 if opp is not None and _unit_at(gs, opp) is None:
                     for j in range(len(st.actions)):
                         if j != i and move_dests[j] == opp:
-                            fin, inc = _verify_backstab(
-                                gs, cmd, opp, st.actions[j], st)
+                            fin, inc = _verify_reorder(
+                                gs, cmd, opp, st.actions[j], st,
+                                "backstab_setup")
                             inconclusive += inc
                             if fin is not None:
                                 findings.append(fin)
@@ -323,12 +326,64 @@ def backstab_setup_findings(st: SideTurn) -> Tuple[List[Finding], int]:
     return findings, inconclusive
 
 
-def _verify_backstab(gs: GameState, attack_cmd: list,
-                     opp: Tuple[int, int], move_cmd: list,
-                     st: SideTurn) -> Tuple[Optional[Finding], int]:
+def _has_leadership(name: str) -> bool:
+    return "leadership" in (_stats_for(name).get("abilities", []) or [])
+
+
+def _unit_level(name: str) -> int:
+    try:
+        return int(_stats_for(name).get("level", 1))
+    except (TypeError, ValueError):
+        return 1
+
+
+def leadership_setup_findings(st: SideTurn) -> Tuple[List[Finding], int]:
+    """A leadership-ability ally, strictly HIGHER level than the attacker,
+    that moves ADJACENT to the attacker only AFTER the attack: reordering
+    it first activates the +25%-per-level leadership damage bonus, whose
+    outcome distribution strictly dominates the baseline."""
+    gs = _copy.deepcopy(st.pre_state)
+    move_dests = [_move_dest(a) for a in st.actions]
+    findings: List[Finding] = []
+    inconclusive = 0
+    for i, cmd in enumerate(st.actions):
+        if cmd[0] == "attack":
+            ax, ay, dx, dy, w = cmd[1], cmd[2], cmd[3], cmd[4], cmd[5]
+            att = _unit_at(gs, (ax, ay))
+            dfd = _unit_at(gs, (dx, dy))
+            if (att is not None and dfd is not None
+                    and leadership_bonus(att, gs.map.units) == 0):
+                adj = set(hex_neighbors(ax, ay))
+                att_lvl = _unit_level(att.name)
+                for j in range(len(st.actions)):
+                    if j == i:
+                        continue
+                    md = move_dests[j]
+                    if md is not None and md in adj and _unit_at(gs, md) is None:
+                        mv = _unit_at(gs, _move_start(st.actions[j]))
+                        if (mv is not None and _has_leadership(mv.name)
+                                and _unit_level(mv.name) > att_lvl):
+                            fin, inc = _verify_reorder(
+                                gs, cmd, md, st.actions[j], st,
+                                "leadership_setup")
+                            inconclusive += inc
+                            if fin is not None:
+                                findings.append(fin)
+                            break
+        _apply_command(gs, cmd)
+    return findings, inconclusive
+
+
+def _verify_reorder(gs: GameState, attack_cmd: list,
+                    relocate_hex: Tuple[int, int], move_cmd: list,
+                    st: SideTurn, motif: str) -> Tuple[Optional[Finding], int]:
+    """Verify a pair-reorder: relocate `move_cmd`'s mover onto
+    `relocate_hex` before `attack_cmd`, then compare the attack's outcome
+    distribution WITH the mover in place (candidate) vs the actual state
+    (baseline). Returns (Finding, inc): Finding iff candidate strictly
+    dominates; inc=1 iff the engine was inconclusive."""
     ax, ay, dx, dy, w = attack_cmd[1:6]
-    action = {"type": "attack",
-              "start_hex": Position(ax, ay),
+    action = {"type": "attack", "start_hex": Position(ax, ay),
               "target_hex": Position(dx, dy), "attack_index": int(w)}
     d_base = enumerate_attack_outcomes(gs, action, advancement_choice="uniform")
 
@@ -338,7 +393,8 @@ def _verify_backstab(gs: GameState, attack_cmd: list,
     if mover is None:
         return None, 0
     cand.map.units.discard(mover)
-    cand.map.units.add(_rebuild_unit(mover, position=Position(opp[0], opp[1])))
+    cand.map.units.add(_rebuild_unit(
+        mover, position=Position(relocate_hex[0], relocate_hex[1])))
     d_cand = enumerate_attack_outcomes(cand, action, advancement_choice="uniform")
 
     cmp = compare_distributions(d_base, d_cand)
@@ -348,7 +404,7 @@ def _verify_backstab(gs: GameState, attack_cmd: list,
         att = _unit_at(gs, (ax, ay))
         dfd = _unit_at(gs, (dx, dy))
         return Finding(
-            st.game_id, st.turn, st.side, "backstab_setup",
+            st.game_id, st.turn, st.side, motif,
             att.name, dfd.name, (ax, ay), (dx, dy),
             cmp.verdict.value, cmp.vector), 0
     return None, 0
@@ -358,9 +414,72 @@ def _verify_backstab(gs: GameState, attack_cmd: list,
 # Harness
 # =====================================================================
 
+def attacks_before_commit_findings(st: SideTurn) -> Tuple[List[Finding], int]:
+    """A killable attack (P(kill) > 0) followed LATER in the turn by a
+    move that ends ADJACENT to the same target -- a 'surround/support'
+    move the kill would waste. Reordering the attack first BANKS that
+    mover's MP on the kill branch.
+
+    Unlike backstab/leadership this is NOT a Tier-1 dominance verdict: on
+    the kill branch the mover ends on a DIFFERENT hex (it stays put), and
+    'pure position' is product-incomparable by design -- so this is a
+    structural / MP-lex-view OPPORTUNITY, reported with its kill
+    probability (the banking gain), not a stochastic-dominance certificate.
+    Heuristic: we can't read the mover's intent, only that its MP is at
+    risk on the kill branch."""
+    gs = _copy.deepcopy(st.pre_state)
+    findings: List[Finding] = []
+    inconclusive = 0
+    for i, cmd in enumerate(st.actions):
+        if cmd[0] == "attack":
+            ax, ay, dx, dy, w = cmd[1], cmd[2], cmd[3], cmd[4], cmd[5]
+            att = _unit_at(gs, (ax, ay))
+            dfd = _unit_at(gs, (dx, dy))
+            if att is not None and dfd is not None:
+                action = {"type": "attack", "start_hex": Position(ax, ay),
+                          "target_hex": Position(dx, dy),
+                          "attack_index": int(w)}
+                dist = enumerate_attack_outcomes(
+                    gs, action, advancement_choice="uniform")
+                if dist is None:
+                    inconclusive += 1
+                else:
+                    p_kill = sum(p for k, p in dist.probs.items()
+                                 if k[1] <= 0)          # defender dead
+                    if p_kill > 1e-9:
+                        tgt_adj = set(hex_neighbors(dx, dy))
+                        for j in range(i + 1, len(st.actions)):
+                            m = st.actions[j]
+                            if m[0] != "move":
+                                continue
+                            dest, mst = _move_dest(m), _move_start(m)
+                            if (dest in tgt_adj and mst is not None
+                                    and mst != (ax, ay)):
+                                mv = _unit_at(gs, mst)
+                                findings.append(Finding(
+                                    st.game_id, st.turn, st.side,
+                                    "attacks_before_commit",
+                                    att.name, dfd.name, (ax, ay), (dx, dy),
+                                    "banking_opportunity",
+                                    {"kill_prob": f"{p_kill:.2f}",
+                                     "banks": mv.name if mv else "?"}))
+                                break
+        _apply_command(gs, cmd)
+    return findings, inconclusive
+
+
+# Motif registry: name -> side-turn generator. Extend here.
+GENERATORS = {
+    "backstab_setup":        backstab_setup_findings,
+    "leadership_setup":      leadership_setup_findings,
+    "attacks_before_commit": attacks_before_commit_findings,
+}
+
+
 def run_over_bundles(bundle_paths: List[Path]) -> dict:
     findings: List[Finding] = []
-    n_games = n_turns = n_attacks = n_inconclusive = errors = 0
+    n_games = n_turns = n_attacks = errors = 0
+    inconclusive = {m: 0 for m in GENERATORS}
     for bp in bundle_paths:
         try:
             saw = False
@@ -368,9 +487,10 @@ def run_over_bundles(bundle_paths: List[Path]) -> dict:
                 saw = True
                 n_turns += 1
                 n_attacks += sum(1 for a in st.actions if a[0] == "attack")
-                fs, inc = backstab_setup_findings(st)
-                findings.extend(fs)
-                n_inconclusive += inc
+                for m, gen in GENERATORS.items():
+                    fs, inc = gen(st)
+                    findings.extend(fs)
+                    inconclusive[m] += inc
             if saw:
                 n_games += 1
         except Exception as e:                    # noqa: BLE001
@@ -378,13 +498,12 @@ def run_over_bundles(bundle_paths: List[Path]) -> dict:
             print(f"swap_detector: {Path(bp).name} failed: {e!r}")
     return {
         "games": n_games, "side_turns": n_turns, "attacks": n_attacks,
-        "backstab_inconclusive": n_inconclusive, "errors": errors,
-        "findings": findings,
+        "inconclusive": inconclusive, "errors": errors, "findings": findings,
     }
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="Swap detector v1 (backstab_setup)")
+    ap = argparse.ArgumentParser(description="Improvement (swap) detector")
     ap.add_argument("--bundles", default="training/validate_exports/bundles",
                     help="dir of .tar bundles (or a glob)")
     ap.add_argument("--limit", type=int, default=0, help="max bundles (0=all)")
@@ -399,17 +518,24 @@ def main(argv=None) -> int:
     print(f"swap_detector: scanning {len(paths)} bundle(s)")
 
     rep = run_over_bundles([Path(p) for p in paths])
-    print("\n=== swap_detector v1 (backstab_setup) ===")
-    print(f"games:            {rep['games']}")
-    print(f"side-turns:       {rep['side_turns']}")
-    print(f"attacks:          {rep['attacks']}")
-    print(f"backstab firings: {len(rep['findings'])}")
-    print(f"inconclusive:     {rep['backstab_inconclusive']}")
-    print(f"load errors:      {rep['errors']}")
-    for f in rep["findings"][:40]:
-        print(f"  FIRE g={f.game_id} t{f.turn} s{f.side} "
-              f"{f.attacker}{f.attacker_pos}->{f.defender}{f.defender_pos} "
-              f"{f.vector}")
+    atk = rep["attacks"] or 1
+    print("\n=== improvement detector ===")
+    print(f"games:       {rep['games']}")
+    print(f"side-turns:  {rep['side_turns']}")
+    print(f"attacks:     {rep['attacks']}")
+    print(f"load errors: {rep['errors']}")
+    by_motif: Dict[str, List[Finding]] = {}
+    for f in rep["findings"]:
+        by_motif.setdefault(f.motif, []).append(f)
+    print(f"\n{'motif':20s} {'fires':>6s} {'rate/attack':>12s} {'inconcl':>8s}")
+    for m in GENERATORS:
+        n = len(by_motif.get(m, []))
+        print(f"{m:20s} {n:6d} {n / atk:12.4%} {rep['inconclusive'][m]:8d}")
+    print(f"\ntotal firings: {len(rep['findings'])}")
+    for f in rep["findings"][:60]:
+        nz = {k: v for k, v in f.vector.items() if v != "="}
+        print(f"  [{f.motif}] g={f.game_id} t{f.turn} s{f.side} "
+              f"{f.attacker}{f.attacker_pos}->{f.defender}{f.defender_pos} {nz}")
     return 0
 
 
