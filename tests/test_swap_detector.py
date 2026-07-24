@@ -281,3 +281,65 @@ def test_enumerate_children_via_sim_matches_dp():
     for key in set(agg) | set(dp.probs):
         assert abs(agg.get(key, 0.0) - dp.probs.get(key, 0.0)) < 1e-6, (
             key, agg.get(key, 0.0), dp.probs.get(key, 0.0))
+
+
+def test_reconstruct_side_turn_and_compare_backstab():
+    """End-to-end: the SAME side-turn ({attack, flanker-move}) reconstructed
+    in its two orderings. Baseline [attack, move] attacks before the flanker
+    arrives (no backstab); candidate [move, attack] moves the flanker onto
+    the opposite hex first (backstab active). Both end with the flanker on
+    the same hex, so pure position is '=' and the verdict is STRICTLY_BETTER
+    (enemy HP stochastically lower, nothing worse). The defender is beefed
+    so the fight never kills -> no advancement bail. Exercises the move
+    command path in the reconstruction too."""
+    from tools.swap_detector import (
+        reconstruct_side_turn_dist, compare_state_distributions,
+        hex_neighbors, opposite_hex)
+    from tools.combat_outcomes import choose_counter_weapon
+    from sim_test_helpers import fresh_scenario_sim
+    from tools.replay_dataset import _build_recruit_unit
+
+    sim = fresh_scenario_sim(seed=5, max_turns=10,
+                             scenario_id="multiplayer_The_Freelands")
+    gs = sim.gs
+    gs.map.units.clear()
+    xpmod = int(getattr(gs.global_info, "_experience_modifier", 100) or 100)
+
+    def inb(h):
+        return 0 <= h[0] < gs.map.size_x and 0 <= h[1] < gs.map.size_y
+
+    dx, dy = 12, 12
+    A = next(h for h in hex_neighbors(dx, dy) if inb(h))
+    opp = opposite_hex((dx, dy), A)
+    assert opp is not None and inb(opp)
+    # flanker start hex: adjacent to opp (one-step move), not D/A/opp
+    S = next(h for h in hex_neighbors(*opp)
+             if inb(h) and h not in {(dx, dy), A, opp})
+
+    dfd = _build_recruit_unit("Orcish Grunt", side=2, x=dx, y=dy, next_uid=1,
+                              game_id="t", trait_seed_hex="00000001",
+                              exp_modifier=xpmod)
+    dfd.current_hp = 200          # can't die -> fight never advances
+    dfd.max_hp = 200
+    att = _build_recruit_unit("Thief", side=1, x=A[0], y=A[1], next_uid=2,
+                              game_id="t", trait_seed_hex="00000002",
+                              exp_modifier=xpmod)
+    flk = _build_recruit_unit("Thief", side=1, x=S[0], y=S[1], next_uid=3,
+                              game_id="t", trait_seed_hex="00000003",
+                              exp_modifier=xpmod)
+    for u in (dfd, att, flk):
+        gs.map.units.add(u)
+
+    dw = choose_counter_weapon(gs, att, dfd, 0)
+    attack_cmd = ["attack", A[0], A[1], dx, dy, 0, dw, "deadbeef"]
+    move_cmd = ["move", [S[0], opp[0]], [S[1], opp[1]]]
+
+    pb = reconstruct_side_turn_dist(gs, [attack_cmd, move_cmd])   # no backstab
+    pc = reconstruct_side_turn_dist(gs, [move_cmd, attack_cmd])   # backstab
+    assert pb is not None and pc is not None
+
+    cmp = compare_state_distributions(pb, pc, 1)
+    assert cmp.verdict is Verdict.STRICTLY_BETTER, (cmp.verdict, cmp.vector)
+    assert "<" not in cmp.vector.values()
+    assert cmp.vector.get(f"hp:{dfd.id}") == ">", cmp.vector      # enemy lower
+    assert cmp.vector.get(f"pos:{flk.id}") == "=", cmp.vector     # same hex

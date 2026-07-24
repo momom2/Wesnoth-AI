@@ -525,6 +525,155 @@ def enumerate_children_via_sim(
 
 
 # =====================================================================
+# Side-turn reconstruction + distributional state comparison
+# =====================================================================
+
+def reconstruct_side_turn_dist(
+    pre_state: GameState, actions: List[list], *, max_particles: int = 512,
+) -> Optional[List[Tuple[GameState, float]]]:
+    """Forward distributional reconstruction of an ORDERED action list into
+    the exact joint distribution over end-states: [(state, prob)] normalized
+    to 1, or None if any attack is inconclusive (advancement / blow-up) or
+    the particle set exceeds `max_particles`.
+
+    Deterministic actions (move / recruit / recall) apply via the sim's own
+    `_apply_command` to every particle; each attack branches every particle
+    through the faithful sim-driven enumerator. The caller supplies a
+    COHERENT ordering (each command's coordinates valid in that order); the
+    baseline as-recorded list always is, and generators build reordered
+    lists that are."""
+    particles: List[Tuple[GameState, float]] = [(_copy.deepcopy(pre_state), 1.0)]
+    for cmd in actions:
+        if cmd[0] == "attack":
+            nxt: List[Tuple[GameState, float]] = []
+            for st, p in particles:
+                children = enumerate_children_via_sim(st, cmd)
+                if children is None:
+                    return None
+                for child, pc in children:
+                    nxt.append((child, p * pc))
+                if len(nxt) > max_particles:
+                    return None
+            particles = nxt
+        else:
+            for st, _ in particles:
+                _apply_command(st, cmd)           # deterministic, in place
+    total = sum(p for _, p in particles)
+    if not particles or total <= 0:
+        return None
+    return [(st, p / total) for st, p in particles]
+
+
+def _pmarginal(particles: List[Tuple[GameState, float]],
+               value_fn: Callable[[GameState], object]) -> Dict[object, float]:
+    m: Dict[object, float] = {}
+    for st, p in particles:
+        v = value_fn(st)
+        m[v] = m.get(v, 0.0) + p
+    return m
+
+
+def _num_sym(pc, pb, value_fn, more_is_better: bool) -> Sym:
+    """Per-dimension symbol from first-order stochastic dominance of the
+    candidate marginal over the baseline marginal (numeric value)."""
+    mc, mb = _pmarginal(pc, value_fn), _pmarginal(pb, value_fn)
+    fwd = _dominates(mc, mb, more_is_better)
+    if fwd is True:
+        return Sym.GT
+    if fwd is False:
+        return Sym.EQ
+    rev = _dominates(mb, mc, more_is_better)
+    return Sym.LT if rev is not None else Sym.INCOMP
+
+
+def _marg_close(ma: Dict[object, float], mb: Dict[object, float]) -> bool:
+    for k in set(ma) | set(mb):
+        if abs(ma.get(k, 0.0) - mb.get(k, 0.0)) > 1e-9:
+            return False
+    return True
+
+
+def _rollup(vec_syms: Dict[str, Sym]) -> Comparison:
+    vec = {name: s.value for name, s in vec_syms.items()}
+    vals = set(vec_syms.values())
+    if Sym.INCOMP in vals:
+        return Comparison(Verdict.INCOMPARABLE, vec)
+    has_gt, has_lt = Sym.GT in vals, Sym.LT in vals
+    if has_gt and has_lt:
+        return Comparison(Verdict.INCOMPARABLE, vec)
+    if has_gt:
+        return Comparison(Verdict.STRICTLY_BETTER, vec)
+    if has_lt:
+        return Comparison(Verdict.WORSE, vec)
+    return Comparison(Verdict.EQUAL, vec)
+
+
+def compare_state_distributions(
+    base_parts: Optional[List[Tuple[GameState, float]]],
+    cand_parts: Optional[List[Tuple[GameState, float]]],
+    side: int,
+) -> Comparison:
+    """Product-order dominance of two reconstructed side-turn end-state
+    DISTRIBUTIONS (each from `reconstruct_side_turn_dist`) from `side`'s
+    view. Per unit (matched by id): first-order stochastic dominance on
+    health (hp, dead = -1), poisoned, slowed and XP -- with the good
+    direction MIRRORED for enemy units (we want them lower-HP / more-
+    debuffed / less XP) -- plus own gold. PURE POSITION is compared by
+    marginal equality only (instrumental; the reachability (pos,MP)
+    criterion needs a concrete board and lives in `compare_states` /
+    per-branch banking, not here), so a unit that ends on a different hex
+    with positive probability reads INCOMPARABLE -- conservative and sound.
+    A None distribution -> INCONCLUSIVE (never sampled)."""
+    if base_parts is None or cand_parts is None:
+        return Comparison(Verdict.INCONCLUSIVE, {})
+
+    id_side: Dict[object, int] = {}
+    for parts in (base_parts, cand_parts):
+        for st, _ in parts:
+            for u in st.map.units:
+                id_side.setdefault(u.id, u.side)
+
+    def health(uid):
+        return lambda st: (lambda u: -1 if u is None else int(u.current_hp))(
+            _unit_by_id(st, uid))
+
+    def status(uid, name):
+        return lambda st: (lambda u: 0 if u is None
+                           else (1 if name in (u.statuses or set()) else 0))(
+            _unit_by_id(st, uid))
+
+    def xp(uid):
+        return lambda st: (lambda u: 0 if u is None
+                           else int(getattr(u, "experience", 0)))(
+            _unit_by_id(st, uid))
+
+    def pos(uid):
+        return lambda st: (lambda u: None if u is None
+                           else (u.position.x, u.position.y))(
+            _unit_by_id(st, uid))
+
+    syms: Dict[str, Sym] = {}
+    for uid, uside in id_side.items():
+        own = (uside == side)
+        syms[f"hp:{uid}"] = _num_sym(cand_parts, base_parts, health(uid), own)
+        syms[f"pois:{uid}"] = _num_sym(
+            cand_parts, base_parts, status(uid, "poisoned"), not own)
+        syms[f"slow:{uid}"] = _num_sym(
+            cand_parts, base_parts, status(uid, "slowed"), not own)
+        syms[f"xp:{uid}"] = _num_sym(cand_parts, base_parts, xp(uid), own)
+        mc = _pmarginal(cand_parts, pos(uid))
+        mb = _pmarginal(base_parts, pos(uid))
+        syms[f"pos:{uid}"] = Sym.EQ if _marg_close(mc, mb) else Sym.INCOMP
+
+    def gold(st):
+        s = next((s for s in st.sides if s.player == side), None)
+        return getattr(s, "current_gold", 0) if s else 0
+    syms["gold"] = _num_sym(cand_parts, base_parts, gold, True)
+
+    return _rollup(syms)
+
+
+# =====================================================================
 # Harness
 # =====================================================================
 
