@@ -1284,7 +1284,16 @@ def extract_replay(path: Path) -> Optional[dict]:
                 # replay) and DO apply normally. The signal is strictly
                 # `results>0 AND no next_unit_id`.
                 chk = cmd.first("checkup") or cmd.first("mp_checkup")
-                if chk is not None:
+                # Undo/interruption heuristic (human replays only): an
+                # attack whose checkup has [result]s but no next_unit_id
+                # is an undone/aborted action -> skip. Sim exports
+                # (generated_by_sim) record ONLY executed commands and
+                # emit per-strike {chance,damage,hits}+{dies} results with
+                # no next_unit_id on EVERY legit attack -- so this must
+                # NOT fire on them (mirrors the recruit-heuristic gate
+                # below). Without this guard the loader silently dropped
+                # every sim-exported attack.
+                if chk is not None and not generated_by_sim:
                     results = chk.all("result")
                     if results and not any(
                             "next_unit_id" in r.attrs for r in results):
