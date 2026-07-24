@@ -847,8 +847,14 @@ def _select_one(
                     and edge.action.get("type") == "attack"):
                 if edge.outcome_probs is _OUTCOMES_UNSET:
                     try:
+                        # "uniform" matches the sim's self-play advancement
+                        # (WesnothSim.enable_uniform_advancement): the exact
+                        # path then resolves advancing fights instead of
+                        # bailing, and its outcomes line up with the
+                        # uniformly-advanced sampled children.
                         edge.outcome_probs = enumerate_attack_outcomes(
-                            node.sim.gs, edge.action)
+                            node.sim.gs, edge.action,
+                            advancement_choice="uniform")
                     except Exception as e:
                         log.warning(
                             f"mcts: outcome enumeration failed ({e}); "

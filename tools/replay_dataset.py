@@ -1121,6 +1121,82 @@ def _maybe_advance_unit(gs: GameState, u: Unit) -> Unit:
     return u
 
 
+def _advancement_choice_probs(choice, gs, unit, targets) -> List[float]:
+    """Resolve the advancement-choice distribution over `targets`.
+
+    `choice`: "uniform" / None -> uniform; a {type_name: prob} dict; or
+    a callable(gs, unit, targets) -> probs (the future model head).
+    Always returns a normalized list of len(targets); degenerate inputs
+    (wrong length, non-positive mass) fall back to uniform."""
+    n = len(targets)
+    if n == 0:
+        return []
+    if choice is None or choice == "uniform":
+        return [1.0 / n] * n
+    if callable(choice):
+        raw = list(choice(gs, unit, targets))
+    elif isinstance(choice, dict):
+        raw = [float(choice.get(t, 0.0)) for t in targets]
+    else:
+        raw = [1.0 / n] * n
+    s = float(sum(raw))
+    if len(raw) != n or s <= 0:
+        return [1.0 / n] * n
+    return [p / s for p in raw]
+
+
+def enumerate_advancement_outcomes(
+    gs: GameState, unit: Unit, hp_after: int, xp_after: int,
+    choice="uniform",
+) -> Dict[Tuple[str, int], float]:
+    """All (final_type_name, final_hp) outcomes with probabilities for
+    `unit` after combat left it at (hp_after, xp_after), under the
+    advancement-choice distribution `choice`.
+
+    Fully enumerates multi-advance CHAINS (each link its own choice) and
+    AMLAs. Post-advance state is produced by the sim's OWN
+    `_advance_unit_once` on an isolated throwaway carrier, so HP (traits,
+    feeding, AMLA) is bit-identical to live play -- parity by
+    construction, not reimplemented. If the unit doesn't cross its XP
+    threshold, returns {(unit.name, hp_after): 1.0}."""
+    from types import SimpleNamespace
+    exp_mod = int(getattr(gs.global_info, "_experience_modifier", 100) or 100)
+
+    def _advance_one(u: Unit, forced_idx: int) -> Unit:
+        # Reuse the sim's single-step advance on an isolated carrier: it
+        # only mutates carrier.map.units (discard/add) and a few
+        # carrier.global_info fields, so the real gs is never touched and
+        # the forced choice (not the uniform channel) drives the pick.
+        u_copy = _rebuild_unit(u)
+        carrier = SimpleNamespace(
+            map=SimpleNamespace(units={u_copy}),
+            global_info=SimpleNamespace(
+                _experience_modifier=exp_mod,
+                _advance_choices=[forced_idx],
+                _last_advance_events=[]),
+        )
+        return _advance_unit_once(carrier, u_copy)
+
+    def _enum(u: Unit) -> Dict[Tuple[str, int], float]:
+        if u is None:
+            return {}
+        if u.current_exp < u.max_exp:                 # terminal: no (further) advance
+            return {(u.name, u.current_hp): 1.0}
+        targets = list(_stats_for(u.name).get("advances_to", []))
+        if not targets:                               # AMLA: one deterministic link
+            return _enum(_advance_one(u, 0))
+        probs = _advancement_choice_probs(choice, gs, u, targets)
+        out: Dict[Tuple[str, int], float] = {}
+        for i, p_i in enumerate(probs):
+            if p_i <= 0:
+                continue
+            for k, p in _enum(_advance_one(u, i)).items():
+                out[k] = out.get(k, 0.0) + p_i * p
+        return out
+
+    return _enum(_rebuild_unit(unit, current_hp=hp_after, current_exp=xp_after))
+
+
 def _record_advance_event(gs: GameState, side: int, choice: int) -> None:
     """Side-channel for replay export (mirrors _last_checkup_strikes):
     every advancement step -- type advance OR AMLA, including each

@@ -23,18 +23,23 @@ from tools.outcome_buckets import (   # noqa: E402
 
 
 def _k(a_hp, d_hp, a_sl=False, d_sl=False, a_po=False, d_po=False,
-       a_pe=False, d_pe=False):
-    return (a_hp, d_hp, a_sl, d_sl, a_po, d_po, a_pe, d_pe)
+       a_pe=False, d_pe=False, a_ty="A", d_ty="D"):
+    # Mirror combat_outcomes._canonical: a dead unit's type is "".
+    if a_hp <= 0:
+        a_ty = ""
+    if d_hp <= 0:
+        d_ty = ""
+    return (a_hp, d_hp, a_sl, d_sl, a_po, d_po, a_pe, d_pe, a_ty, d_ty)
 
 
 # ---- event class -----------------------------------------------------
 
 def test_event_class_splits_on_death_and_status():
-    assert event_class(_k(10, 8)) == (False,) * 8
+    assert event_class(_k(10, 8)) == (False,) * 8 + ("A", "D")
     assert event_class(_k(0, 8)) == (True, False, False, False, False, False,
-                                     False, False)
+                                     False, False, "", "D")
     assert event_class(_k(10, 0)) == (False, True, False, False, False, False,
-                                      False, False)
+                                      False, False, "A", "")
     # poison/slow/petrify are part of the class
     assert event_class(_k(10, 8, d_po=True)) != event_class(_k(10, 8))
     assert event_class(_k(10, 8, d_pe=True)) != event_class(_k(10, 8))
@@ -56,7 +61,7 @@ def test_initial_buckets_group_by_event_class_and_conserve_mass():
         all_members |= set(b.members)
     assert all_members == set(probs)
     # the both-alive class holds exactly the 3 alive outcomes
-    alive = next(b for b in buckets if b.event == (False,) * 8)
+    alive = next(b for b in buckets if b.event == (False,) * 8 + ("A", "D"))
     assert set(alive.members) == {_k(10, 8), _k(10, 5), _k(7, 8)}
 
 

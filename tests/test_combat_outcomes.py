@@ -81,7 +81,7 @@ def test_dp_is_a_distribution_and_matches_sampling():
     assert abs(total - 1.0) < 1e-9
     assert all(p > 0 for p in dist.probs.values())
     # Dead units carry canonicalized (False) flags.
-    for (a_hp, d_hp, a_sl, d_sl, a_po, d_po, a_pe, d_pe) in dist.probs:
+    for (a_hp, d_hp, a_sl, d_sl, a_po, d_po, a_pe, d_pe, a_ty, d_ty) in dist.probs:
         if a_hp == 0:
             assert not a_sl and not a_po and not a_pe
         if d_hp == 0:
@@ -126,6 +126,54 @@ def test_advancement_risk_refuses_enumeration():
     assert enumerate_attack_outcomes(sim.gs, action) is None, (
         "a fight that could advance a unit must fall back to sampling"
     )
+
+
+def test_advancement_exact_path_matches_sampling():
+    """With advancement_choice set, the exact path RESOLVES an advancing
+    fight (no None bail) and its outcomes match the sim's uniformly-
+    advanced sampled children -- so MCTS's exact path never silently
+    falls back to sampling for advancement. If advancement weren't
+    modelled, the advanced children's keys would be MISSING from the
+    support and the coverage assert below would fire."""
+    sim, action = _engineered_fight()
+    att = next(u for u in sim.gs.map.units
+               if u.position is action["start_hex"])
+    dfd = next(u for u in sim.gs.map.units
+               if u.position is action["target_hex"])
+    if int(getattr(dfd, "level", 1) or 1) < 1:
+        pytest.skip("defender is level 0 -> no combat XP -> no forced advance")
+    att.current_exp = max(0, att.max_exp - 1)   # any combat XP crosses
+    dfd.current_hp = 1                          # near-certain kill
+    sim.enable_uniform_advancement()
+
+    dist = enumerate_attack_outcomes(sim.gs, action,
+                                     advancement_choice="uniform")
+    assert dist is not None, "advancing fight must enumerate with a choice"
+
+    N = 600
+    counts = {}
+    for i in range(N):
+        f = sim.fork()
+        f._seed_salt = f"adv-xcheck-{i}"
+        f.step(action)
+        key = outcome_key_for_child(f.gs, dist.attacker_id, dist.defender_id)
+        counts[key] = counts.get(key, 0) + 1
+
+    assert any(k[0] > 0 for k in counts), (
+        "attacker never survived -- can't exercise advancement")
+    # COVERAGE: every sampled outcome (incl. the advanced ones) is in the
+    # exact support -- the whole point of routing MCTS through it.
+    unknown = set(counts) - set(dist.probs)
+    assert not unknown, (
+        f"exact path missed sampled advancement outcomes: {unknown}\n"
+        f"DP support: {sorted(dist.probs)}")
+    tv = 0.5 * sum(
+        abs(counts.get(k, 0) / N - p) for k, p in dist.probs.items()
+    ) + 0.5 * sum(counts.get(k, 0) / N for k in unknown)
+    assert tv < 0.15, (
+        f"TV {tv:.3f} between DP and {N} advancing samples\n"
+        f"DP:        {sorted(dist.probs.items())}\n"
+        f"empirical: {sorted((k, c / N) for k, c in counts.items())}")
 
 
 def test_mcts_edge_exact_outcome_bookkeeping():

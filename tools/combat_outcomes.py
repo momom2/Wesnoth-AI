@@ -50,8 +50,13 @@ from wesnoth_ai.classes import GameState, Unit
 log = logging.getLogger("combat_outcomes")
 
 # (a_hp, d_hp, a_slowed, d_slowed, a_poisoned, d_poisoned,
-#  a_petrified, d_petrified)
-OutcomeKey = Tuple[int, int, bool, bool, bool, bool, bool, bool]
+#  a_petrified, d_petrified, a_type, d_type)
+# a_type/d_type are the units' type-names (u.name -- the same "cheap
+# proxy for unit type" state_key uses). They change when a unit
+# ADVANCES, disambiguating advancement targets even when post-advance
+# HP collides; "" for a dead (absent) unit. Constant for non-advancement
+# fights, so they don't split those outcomes.
+OutcomeKey = Tuple[int, int, bool, bool, bool, bool, bool, bool, str, str]
 
 # Bail-out caps. The engine's threshold is on a different quantity
 # (hp_a * hp_b * slow planes > 50,000); ours bound the actual DP
@@ -82,12 +87,15 @@ def _canonical(key: OutcomeKey) -> OutcomeKey:
     outcomes. (A killing blow with the petrifies special is a death,
     never a petrify -- see combat._perform_hit_body -- so a_hp<=0 with
     a_petrified never arises; canonicalizing is a belt-and-braces.)"""
-    a_hp, d_hp, a_sl, d_sl, a_po, d_po, a_pe, d_pe = key
+    a_hp, d_hp, a_sl, d_sl, a_po, d_po, a_pe, d_pe, a_ty, d_ty = key
     if a_hp <= 0:
         a_sl = a_po = a_pe = False
+        a_ty = ""            # dead unit: type is meaningless / absent
     if d_hp <= 0:
         d_sl = d_po = d_pe = False
-    return (max(0, a_hp), max(0, d_hp), a_sl, d_sl, a_po, d_po, a_pe, d_pe)
+        d_ty = ""
+    return (max(0, a_hp), max(0, d_hp), a_sl, d_sl, a_po, d_po,
+            a_pe, d_pe, a_ty, d_ty)
 
 
 def _build_schedule(a_stats, d_stats) -> Optional[List[bool]]:
@@ -287,15 +295,57 @@ def _strike_dp(
     return states
 
 
+def _kill_xp(level: int) -> int:
+    """XP for KILLING an opponent of `level` (mirrors
+    combat.resolve_attack: level*KILL_EXPERIENCE, level-0 halved)."""
+    return cb.KILL_EXPERIENCE * level if level else cb.KILL_EXPERIENCE // 2
+
+
+def _side_outcome_branches(gs, unit, cu, hp, sl, po, pe, *,
+                           opp_died, opp_level, choice):
+    """Branches for ONE combatant in a single combat outcome, as
+    {(type_name, hp, slowed, poisoned, petrified): prob}.
+
+    Normally a singleton (the post-combat state). If `choice` is set AND
+    this outcome pushes the survivor across its XP threshold, expands
+    into the advancement chain (advanced type, full HP, statuses
+    cleared), weighted by `choice` -- via
+    replay_dataset.enumerate_advancement_outcomes, which reuses the sim's
+    own advance for bit-exact HP."""
+    if hp <= 0:
+        return {("", 0, False, False, False): 1.0}          # dead / absent
+    base = {(unit.name, hp, sl, po, pe): 1.0}
+    if choice is None:
+        return base
+    gain = _kill_xp(opp_level) if opp_died else cb.COMBAT_EXPERIENCE * opp_level
+    xp_after = cu.experience + gain
+    if xp_after < cu.max_experience:
+        return base                                          # no advance here
+    from tools.replay_dataset import enumerate_advancement_outcomes
+    adv = enumerate_advancement_outcomes(gs, unit, hp, xp_after, choice)
+    # Advancement heals to full and clears poisoned/slowed/petrified.
+    return {(name, fhp, False, False, False): pr
+            for (name, fhp), pr in adv.items()}
+
+
 def enumerate_attack_outcomes(
     gs:     GameState,
     action: dict,
+    *,
+    advancement_choice=None,
 ) -> Optional[OutcomeDistribution]:
     """Exact outcome distribution for an attack action dict
     ({"type": "attack", "start_hex", "target_hex", "attack_index"}),
     or None when enumeration is unsound/too expensive and the caller
-    should sample instead (petrify, possible advancement, complexity
-    caps, missing units)."""
+    should sample instead (complexity caps, missing units, or -- when
+    `advancement_choice` is None -- a fight where a unit could advance).
+
+    `advancement_choice` (None = legacy behaviour): "uniform" (matches
+    self-play), a {type_name: prob} dict, or a callable(gs, unit,
+    targets) -> probs (a model head). When set, outcomes crossing an XP
+    threshold are RESOLVED into the advancement chain (new type + full
+    HP), so both the swap detector and MCTS's exact path see advancement
+    rather than bailing. Petrify is always modeled exactly."""
     from tools.replay_dataset import build_attack_context
 
     start = action.get("start_hex")
@@ -318,38 +368,48 @@ def enumerate_attack_outcomes(
 
     ctx = build_attack_context(gs, att, dfd, a_weapon, d_weapon)
     a_stats, d_stats = _stats_pair(ctx)
-
-    # --- soundness guards: fall back to sampling -----------------
-    # Petrify is now modeled exactly in _strike_dp (a surviving
-    # petrifying hit ends the fight with the target stoned), so it no
-    # longer bails. Possible ADVANCEMENT still returns None here --
-    # MCTS samples those fights, and the swap detector opts in
-    # separately (docs/swap_detector_design.md); threading the
-    # advancement-choice distribution through the DP is a later step.
     a_cu, d_cu = ctx.att_cu, ctx.dfd_cu
-    if (a_cu.experience + _max_xp_gain(a_cu.level, d_cu.level)
-            >= a_cu.max_experience):
-        return None
-    if (d_cu.experience + _max_xp_gain(d_cu.level, a_cu.level)
-            >= d_cu.max_experience):
+
+    # Possible advancement: with no advancement_choice, keep the legacy
+    # bail-to-None (MCTS samples, the detector opts in). With a choice,
+    # RESOLVE it in the fold below.
+    a_may_adv = (a_cu.experience + _max_xp_gain(a_cu.level, d_cu.level)
+                 >= a_cu.max_experience)
+    d_may_adv = (d_cu.experience + _max_xp_gain(d_cu.level, a_cu.level)
+                 >= d_cu.max_experience)
+    if advancement_choice is None and (a_may_adv or d_may_adv):
         return None
 
     states = _strike_dp(a_stats, d_stats, a_cu, d_cu)
     if states is None:
         return None
 
-    # Fold away the (constant-False) touched flags, canonicalize,
-    # drop dust, renormalize.
+    # Fold combat states into OutcomeKeys, expanding advancement per
+    # side; canonicalize, drop dust, renormalize.
     probs: Dict[OutcomeKey, float] = {}
     for key, p in states.items():
         if p < PROB_EPSILON:
             continue
-        ck = _canonical(key[:8])
-        probs[ck] = probs.get(ck, 0.0) + p
+        a_hp, d_hp, a_sl, d_sl, a_po, d_po, a_pe, d_pe = key[:8]
+        a_hp = max(0, a_hp)
+        d_hp = max(0, d_hp)
+        a_br = _side_outcome_branches(
+            gs, att, a_cu, a_hp, a_sl, a_po, a_pe,
+            opp_died=(d_hp <= 0), opp_level=d_cu.level,
+            choice=advancement_choice)
+        d_br = _side_outcome_branches(
+            gs, dfd, d_cu, d_hp, d_sl, d_po, d_pe,
+            opp_died=(a_hp <= 0), opp_level=a_cu.level,
+            choice=advancement_choice)
+        for (a_ty, ah, asl, apo, ape), pa in a_br.items():
+            for (d_ty, dh, dsl, dpo, dpe), pd in d_br.items():
+                ck = _canonical((ah, dh, asl, dsl, apo, dpo,
+                                 ape, dpe, a_ty, d_ty))
+                probs[ck] = probs.get(ck, 0.0) + p * pa * pd
     total = sum(probs.values())
     if not probs or total <= 0:
         return None
-    probs = {k: p / total for k, p in probs.items()}
+    probs = {k: v / total for k, v in probs.items()}
     return OutcomeDistribution(
         probs=probs,
         attacker_id=att.id,
@@ -390,17 +450,22 @@ def outcome_key_for_child(
     """Extract the outcome key realized by a sampled successor
     state. A dead unit is simply absent from the child's unit set
     (hp 0, flags canonicalized)."""
-    def _of(uid) -> Tuple[int, bool, bool, bool]:
+    def _of(uid) -> Tuple[int, bool, bool, bool, str]:
         u = next((x for x in child_gs.map.units if x.id == uid), None)
         if u is None:
-            return 0, False, False, False
+            return 0, False, False, False, ""
+        # u.name is the current type -- already the ADVANCED type if the
+        # unit levelled up in this child, which is exactly what the DP's
+        # advancement branch keys on.
         return (u.current_hp,
                 "slowed" in u.statuses,
                 "poisoned" in u.statuses,
-                "petrified" in u.statuses)
-    a_hp, a_sl, a_po, a_pe = _of(attacker_id)
-    d_hp, d_sl, d_po, d_pe = _of(defender_id)
-    return _canonical((a_hp, d_hp, a_sl, d_sl, a_po, d_po, a_pe, d_pe))
+                "petrified" in u.statuses,
+                u.name)
+    a_hp, a_sl, a_po, a_pe, a_ty = _of(attacker_id)
+    d_hp, d_sl, d_po, d_pe, d_ty = _of(defender_id)
+    return _canonical((a_hp, d_hp, a_sl, d_sl, a_po, d_po,
+                       a_pe, d_pe, a_ty, d_ty))
 
 
 # ---------------------------------------------------------------------

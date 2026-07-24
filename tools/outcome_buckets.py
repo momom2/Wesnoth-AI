@@ -60,26 +60,28 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 # (a_hp, d_hp, a_slowed, d_slowed, a_poisoned, d_poisoned,
-#  a_petrified, d_petrified) -- the same tuple tools/combat_outcomes
-# produces. Imported lazily in callers; re-stated here so this module
-# has no import-time dependency.
-OutcomeKey = Tuple[int, int, bool, bool, bool, bool, bool, bool]
+#  a_petrified, d_petrified, a_type, d_type) -- the same tuple
+# tools/combat_outcomes produces. Imported lazily in callers; re-stated
+# here so this module has no import-time dependency.
+OutcomeKey = Tuple[int, int, bool, bool, bool, bool, bool, bool, str, str]
 
 # Event-class = the discrete (non-HP) signature. `dead` is derived
 # from hp <= 0; combat_outcomes._canonical already zeroes a dead
-# unit's status flags, so the class is consistent.
-EventClass = Tuple[bool, bool, bool, bool, bool, bool, bool, bool]
+# unit's status flags / type, so the class is consistent.
+EventClass = Tuple[bool, bool, bool, bool, bool, bool, bool, bool, str, str]
 
 
 def event_class(key: OutcomeKey) -> EventClass:
     """Discrete signature of an outcome: (a_dead, d_dead, a_slowed,
-    d_slowed, a_poisoned, d_poisoned, a_petrified, d_petrified).
-    Outcomes in different classes are NEVER bucketed together
-    (different units alive / statuses = structurally different game).
-    Petrified rides here too: a stoned unit is a different game state
-    from a live one at the same HP."""
-    a_hp, d_hp, a_sl, d_sl, a_po, d_po, a_pe, d_pe = key
-    return (a_hp <= 0, d_hp <= 0, a_sl, d_sl, a_po, d_po, a_pe, d_pe)
+    d_slowed, a_poisoned, d_poisoned, a_petrified, d_petrified,
+    a_type, d_type). Outcomes in different classes are NEVER bucketed
+    together (different units alive / statuses / TYPE = structurally
+    different game). Petrified rides here (a stoned unit differs from a
+    live one at the same HP); so does the type-name, so an ADVANCED unit
+    buckets apart from its pre-advance self."""
+    a_hp, d_hp, a_sl, d_sl, a_po, d_po, a_pe, d_pe, a_ty, d_ty = key
+    return (a_hp <= 0, d_hp <= 0, a_sl, d_sl, a_po, d_po, a_pe, d_pe,
+            a_ty, d_ty)
 
 
 @dataclass

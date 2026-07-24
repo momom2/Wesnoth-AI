@@ -161,7 +161,8 @@ def test_in_search_split_glue_repartitions_and_retires_rep():
     from tools.outcome_buckets import initial_buckets, event_class
 
     def k(d_hp):
-        return (10, d_hp, False, False, False, False, False, False)
+        # 10-tuple OutcomeKey: both combatants alive -> non-empty types.
+        return (10, d_hp, False, False, False, False, False, False, "A", "D")
 
     probs = {k(h): 0.25 for h in (8, 6, 4, 2)}     # one event-class
     buckets = initial_buckets(probs)
