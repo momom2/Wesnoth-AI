@@ -436,6 +436,74 @@ def pos_mp_dominates(gs: GameState, mover, dest: Tuple[int, int],
     return dest in r.landable and r.mp.get(dest, -1) >= mp_target
 
 
+def _unit_by_id(gs: GameState, uid):
+    return next((u for u in gs.map.units if u.id == uid), None)
+
+
+def _unit_state_sym(base_gs: GameState, cand_gs: GameState, b, c) -> Sym:
+    """Per-unit dominance of candidate vs baseline end-state, product order
+    over (existence, HP, (pos,MP)). `b`/`c` are the same unit (by id) in
+    the baseline / candidate state, or None if absent (dead/never-there)."""
+    if b is None and c is None:
+        return Sym.EQ
+    if b is None:                 # exists in candidate only -> better for us
+        return Sym.GT
+    if c is None:                 # exists in baseline only -> worse
+        return Sym.LT
+    b_pos, b_mp = (b.position.x, b.position.y), int(b.current_moves)
+    c_pos, c_mp = (c.position.x, c.position.y), int(c.current_moves)
+    cand_ge = (c.current_hp >= b.current_hp
+               and pos_mp_dominates(cand_gs, c, b_pos, b_mp))
+    base_ge = (b.current_hp >= c.current_hp
+               and pos_mp_dominates(base_gs, b, c_pos, c_mp))
+    if cand_ge and base_ge:
+        return Sym.EQ
+    if cand_ge:
+        return Sym.GT
+    if base_ge:
+        return Sym.LT
+    return Sym.INCOMP
+
+
+def compare_states(base_gs: GameState, cand_gs: GameState,
+                   side: int) -> Comparison:
+    """Product-order dominance of two CONCRETE end-states from `side`'s
+    view: per own-unit (matched by id) over existence/HP/(pos,MP) -- using
+    the reachability (pos,MP) criterion -- plus side gold. The building
+    block for the side-turn-level verifier (a distributional layer over
+    reordered turns comes on top)."""
+    ids = {u.id for u in base_gs.map.units if u.side == side}
+    ids |= {u.id for u in cand_gs.map.units if u.side == side}
+    vec: Dict[str, str] = {}
+    syms = set()
+    for uid in sorted(ids, key=str):
+        s = _unit_state_sym(base_gs, cand_gs,
+                            _unit_by_id(base_gs, uid),
+                            _unit_by_id(cand_gs, uid))
+        vec[f"unit:{uid}"] = s.value
+        syms.add(s)
+    # side gold (more is better).
+    def _gold(gs):
+        s = next((s for s in gs.sides if s.player == side), None)
+        return getattr(s, "current_gold", 0) if s else 0
+    gb, gc = _gold(base_gs), _gold(cand_gs)
+    if gc != gb:
+        gs_sym = Sym.GT if gc > gb else Sym.LT
+        vec["gold"] = gs_sym.value
+        syms.add(gs_sym)
+
+    if Sym.INCOMP in syms:
+        return Comparison(Verdict.INCOMPARABLE, vec)
+    has_gt, has_lt = Sym.GT in syms, Sym.LT in syms
+    if has_gt and has_lt:
+        return Comparison(Verdict.INCOMPARABLE, vec)
+    if has_gt:
+        return Comparison(Verdict.STRICTLY_BETTER, vec)
+    if has_lt:
+        return Comparison(Verdict.WORSE, vec)
+    return Comparison(Verdict.EQUAL, vec)
+
+
 def _banked_mp(gs: GameState, mover, target_pos: Tuple[int, int],
                dest: Tuple[int, int]) -> Optional[float]:
     """MP the mover would spend reaching `dest` with the target REMOVED

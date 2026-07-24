@@ -196,3 +196,40 @@ def test_pos_mp_dominance_criterion():
     n = r.mp[Y]
     assert pos_mp_dominates(sim.gs, u, Y, n)
     assert not pos_mp_dominates(sim.gs, u, Y, n + 1)
+
+
+def test_compare_states_uses_pos_mp_criterion():
+    """Side-turn state dominance: identical -> EQUAL; a unit that stayed
+    put with full MP strictly dominates the same unit that spent MP moving
+    to a hex it can still reach (the banking principle, generalized)."""
+    import copy
+    from tools.swap_detector import compare_states, _reach, _unit_by_id
+    from sim_test_helpers import fresh_scenario_sim
+    from tools.replay_dataset import _build_recruit_unit, _rebuild_unit
+    sim = fresh_scenario_sim(seed=7, max_turns=10,
+                             scenario_id="multiplayer_The_Freelands")
+    sim.gs.map.units.clear()
+    xpmod = int(getattr(sim.gs.global_info, "_experience_modifier", 100) or 100)
+    u = _build_recruit_unit("Spearman", side=1, x=10, y=10, next_uid=1,
+                            game_id="t", trait_seed_hex="12345678",
+                            exp_modifier=xpmod)
+    sim.gs.map.units.add(u)
+    stayed = sim.gs
+    assert compare_states(stayed, copy.deepcopy(stayed), 1).verdict is Verdict.EQUAL
+
+    r = _reach(stayed, u)
+    Y = next((h for h in r.landable if h != (10, 10)), None)
+    assert Y is not None
+    n = r.mp[Y]
+    assert n < int(u.current_moves)             # moving there actually costs MP
+    moved = copy.deepcopy(stayed)
+    um = _unit_by_id(moved, u.id)
+    moved.map.units.discard(um)
+    moved.map.units.add(_rebuild_unit(
+        um, position=Position(Y[0], Y[1]), current_moves=n))
+
+    # candidate = stayed (X, full MP); baseline = moved (Y, n MP).
+    cmp = compare_states(moved, stayed, 1)
+    assert cmp.verdict is Verdict.STRICTLY_BETTER, (cmp.verdict, cmp.vector)
+    # and the reverse is WORSE.
+    assert compare_states(stayed, moved, 1).verdict is Verdict.WORSE
