@@ -23,11 +23,14 @@ strictly on ≥1 dimension with positive probability.
 
 Why distributional beats coupling here:
 
-- **Kills the hindsight class structurally.** An `independent` reorder
-  (same actions, params identical) has the SAME distribution → `=` on
-  every dimension automatically. There is no realized difference to
-  cherry-pick, so the coupling design's "NEVER flag realized
-  differences" caveat becomes a theorem, not a guard.
+- **Kills the hindsight class structurally.** A genuinely `independent`
+  reorder (identical params AND no resolved-fight interaction — see
+  Classification) has the SAME distribution → `=` on every dimension
+  automatically. There is no realized difference to cherry-pick, so the
+  coupling design's "NEVER flag realized differences" caveat becomes a
+  theorem, not a guard. (Same-target-killable pairs are NOT independent
+  — kill-XP / MP differ by ordering — so they are classed `correlated`
+  and dominance-verified, never force-`=`.)
 - **Drops the strict-sync dependency.** No strike-for-strike stream
   alignment is required, so differing CTH / strike counts are fine and
   nothing is skipped for alignment reasons. v1 needs only the
@@ -35,39 +38,84 @@ Why distributional beats coupling here:
   `[random_seed]` / `[checkup]` data is a gate-1 reconstruction check,
   not a criterion input.
 
-**Bounds shortcut (the usual fast path).** While no unit's alive/dead
-status varies across the outcome space, every dimension is monotone in
-the hit-pattern, so its support is an interval `[lo, hi]` at the
-all-miss / all-hit extremes. `lo(candidate) ≥ hi(baseline)`
-(more-is-better) certifies almost-sure dominance on that dimension with
-no enumeration; symmetric for less-is-better. Overlapping intervals are
-inconclusive by bounds alone (v1 does not claim).
+**Bounds shortcut (the usual fast path).** A dimension's value is a
+function of the hit-pattern; we certify `lo(candidate) ≥ hi(baseline)`
+(more-is-better; symmetric otherwise) from per-dimension intervals. Two
+levels:
 
-**Death = the one discontinuity.** When a unit's end-HP interval
-straddles 0, its death restructures what follows (no retaliation, hex
-freed, re-target changes), so bounds no longer suffice and the cases
-split die/survive (and by timing). v1 renders a verdict only where a
-sound per-dimension dominance survives the split; the GENERAL rule for
-first-order dominance across death-branches with differing `P(death)`
+- **Single stochastic action:** the interval is just `min`/`max` over
+  that combat's exact DP support (`enumerate_attack_outcomes`).
+  Ability-complete *for free* — the DP already models drain, slow,
+  petrify, plague, feeding, berserk, … exactly — so NO per-ability
+  reasoning is needed, and the endpoints are exact.
+- **Multi-action window:** to avoid the joint we bound compositionally,
+  which needs the WORST-/BEST-realizable hit-pattern per dimension —
+  and the couplers flip which corner that is, so it is NOT the naive
+  all-miss/all-hit. For own-HP, enemy hits lower it, but the unit's OWN
+  hits RAISE it: via **drain** (self-heal), via **slow** (cuts the
+  enemy's later damage), and via a **kill/petrify** (truncates
+  retaliation). So the true min is at (own all-miss, enemy all-hit), and
+  threshold events (death / petrify / kill-XP) split the branch (as
+  "Death is a discontinuity" below). These live in a **per-ability bound
+  table**, keyed `(dimension × ability) → (corner, threshold)`:
+
+  > **Bound table (filled LAZILY).** Charted so far: base damage, drain,
+  > slow, kill/petrify truncation. Any ability present in a
+  > multi-action window with **no table entry for the dimension** →
+  > **log a warning and proceed with the best bound we can** (fall back
+  > to the exact joint where its support is tractable — always sound;
+  > else a flagged best-effort corner). v1 is **observe-only** (no
+  > reward/label channel), so a warning-flagged best-effort bound is
+  > acceptable, and the warnings are the to-do list for growing the
+  > table. Single-action support is always exact regardless.
+
+Overlapping intervals are inconclusive by bounds alone (v1 does not
+claim).
+
+**Death and petrify are discontinuities.** When a unit's end-HP
+interval straddles 0, its death restructures what follows (no
+retaliation, hex freed, re-target changes); a surviving **petrify**
+truncates the schedule the same way while the unit stays alive. So
+bounds no longer suffice and the cases split die/survive (resp.
+petrify/not, and by timing). v1 renders a verdict only where a sound
+per-dimension dominance survives the split; the GENERAL rule for
+first-order dominance across such branches with differing `P(event)`
 is deferred (see "Deferred"). Backstab does not need it (see gate 2).
 
 **Exactness gate on the outcome engine.** Distributions come from
 `tools/combat_outcomes.enumerate_attack_outcomes`, which returns the
-EXACT distribution or `None` — it never approximates. It returns `None`
-for petrify, *possible advancement* (a level-up changes the unit
-mid-window), and complexity blow-ups (berserk's refilled schedule past
-`MAX_SCHEDULE=512` / `MAX_DP_STATES=4096`). Any attack in either
-ordering that comes back `None` makes the comparison `inconclusive`;
+EXACT distribution or `None` — it never approximates. Current behaviour
+(as of commits 8ee5b99 / 43bd6a7):
+
+- **Petrify is modeled exactly** — a surviving petrifying hit stones the
+  target and ends the fight (a second fight-ending discontinuity, see
+  above); it no longer returns `None`.
+- **Advancement is resolved into the distribution** when the detector
+  passes `advancement_choice=` (`"uniform"` / a `{type: prob}` dict / a
+  `callable` model head); the advanced type + full HP are keyed exactly.
+  Without an `advancement_choice`, a fight that could level a unit
+  returns `None` (the legacy bail).
+- `None` remains for complexity blow-ups (berserk's refilled schedule
+  past `MAX_SCHEDULE=512` / `MAX_DP_STATES=4096`).
+
+Any attack that comes back `None` makes the comparison `inconclusive`;
 the detector NEVER samples to fill the gap.
 
 ## Classification (mechanical, sim-decided)
 
 - sequential: swapped order illegal in a forked sim -> unswappable.
-- independent: swap legal AND all action params identical both ways
-  -> distributions provably equal -> `=` on every dimension (no
-  realized difference exists to cherry-pick).
-- correlated: swap legal, params differ -> verify distributional
-  dominance (above).
+- independent: swap legal AND the two actions do not INTERACT -- action
+  params identical both ways AND no shared resolved-fight coupling.
+  Then the distributions are provably equal -> `=` on every dimension.
+  The interaction test keys on RESOLVED fight context, not the raw
+  action dict: two attacks on the SAME defender that CAN die are NOT
+  independent even with identical `(target, weapon)` -- whichever lands
+  the lethal blow banks kill-XP (8x combat-XP) and keeps different
+  surround-move MP, so the XP and MP dimensions differ by ordering.
+  Such pairs fall to `correlated`.
+- correlated: swap legal, but params differ OR the actions interact
+  (shared killable target, or one's outcome feeds the other's
+  XP / MP / position) -> verify distributional dominance (above).
 
 ## Per-dimension comparison vector (the stored primitive)
 
@@ -150,7 +198,9 @@ improvement exists" is the signal.
   generators (`strong_attacker_first`, XP reallocation); NOT by
   backstab. Until designed, any comparison that reaches this case is
   `inconclusive`.
-- **Non-exact combat** (`enumerate_attack_outcomes -> None`: petrify,
-  possible advancement, berserk/complexity blow-up). Never sampled;
-  always `inconclusive`.
+- **Non-exact combat** (`enumerate_attack_outcomes -> None`:
+  berserk/complexity blow-up, or an advancement fight when no
+  `advancement_choice` is supplied). Never sampled; always
+  `inconclusive`. (Petrify and choice-supplied advancement are now
+  resolved exactly — see "Exactness gate".)
 - EV-mode and any reward/label/training coupling (as in the header).
