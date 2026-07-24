@@ -975,23 +975,19 @@ def attacks_before_commit_findings(st: SideTurn) -> Tuple[List[Finding], int]:
 
 
 def _solo_kill_prob(gs: GameState, start: Tuple[int, int],
-                    target: Tuple[int, int], weapon: int,
-                    target_id) -> Optional[float]:
-    """P(the unit at `start` SOLO-kills the unit at `target`) from `gs`,
-    via the faithful enumerator (advancement resolved). None if the fight
-    is inconclusive (blow-up)."""
-    from tools.combat_outcomes import choose_counter_weapon
-    att = _unit_at(gs, start)
-    dfd = _unit_at(gs, target)
-    if att is None or dfd is None:
+                    target: Tuple[int, int], weapon: int) -> Optional[float]:
+    """P(the unit at `start` SOLO-kills the unit at `target`) from `gs`.
+    Uses the exact DP directly -- P(kill) is a scalar marginal (defender
+    HP <= 0), so no need to materialize child states (the sim-driven
+    enumerator would deepcopy the whole board per strike pattern; the DP is
+    orders of magnitude faster). None if the DP is inconclusive."""
+    action = {"type": "attack", "start_hex": Position(start[0], start[1]),
+              "target_hex": Position(target[0], target[1]),
+              "attack_index": int(weapon)}
+    dist = enumerate_attack_outcomes(gs, action, advancement_choice="uniform")
+    if dist is None:
         return None
-    dw = choose_counter_weapon(gs, att, dfd, weapon)
-    cmd = ["attack", start[0], start[1], target[0], target[1],
-           int(weapon), dw, "deadbeef"]
-    children = enumerate_children_via_sim(gs, cmd, advancement_choice="uniform")
-    if children is None:
-        return None
-    return sum(p for c, p in children if _unit_by_id(c, target_id) is None)
+    return sum(p for k, p in dist.probs.items() if k[1] <= 0)  # defender dead
 
 
 def strong_attacker_first_findings(st: SideTurn) -> Tuple[List[Finding], int]:
@@ -1025,8 +1021,8 @@ def strong_attacker_first_findings(st: SideTurn) -> Tuple[List[Finding], int]:
                 x, y, t = _unit_at(gs, sx), _unit_at(gs, sy), _unit_at(gs, tgt)
                 if (x is not None and y is not None and t is not None
                         and x.id != y.id):
-                    p_x = _solo_kill_prob(gs, sx, tgt, cmd_x[5], t.id)
-                    p_y = _solo_kill_prob(gs, sy, tgt, cmd_y[5], t.id)
+                    p_x = _solo_kill_prob(gs, sx, tgt, cmd_x[5])
+                    p_y = _solo_kill_prob(gs, sy, tgt, cmd_y[5])
                     if p_x is None or p_y is None:
                         inconclusive += 1
                     else:
@@ -1042,6 +1038,8 @@ def strong_attacker_first_findings(st: SideTurn) -> Tuple[List[Finding], int]:
                                 "banking_opportunity",
                                 {"recorded_lead": x.name,
                                  "better_lead": y.name,
+                                 "lead_pos": str(sx),
+                                 "better_pos": str(sy),
                                  "p_kill_lead": f"{p_x:.2f}",
                                  "p_kill_better": f"{p_y:.2f}",
                                  "gain_mp": f"{val_y - val_x:.2f}"}))
