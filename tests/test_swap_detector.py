@@ -233,3 +233,51 @@ def test_compare_states_uses_pos_mp_criterion():
     assert cmp.verdict is Verdict.STRICTLY_BETTER, (cmp.verdict, cmp.vector)
     # and the reverse is WORSE.
     assert compare_states(stayed, moved, 1).verdict is Verdict.WORSE
+
+
+def test_enumerate_children_via_sim_matches_dp():
+    """The sim-driven outcome enumerator (drives _apply_command with a
+    scripted hit/miss RNG) must reproduce the exact DP distribution --
+    proving its materialization is bit-faithful without re-implementing
+    any post-combat bookkeeping."""
+    from tools.swap_detector import (
+        enumerate_children_via_sim, hex_neighbors)
+    from tools.combat_outcomes import (
+        enumerate_attack_outcomes, outcome_key_for_child,
+        choose_counter_weapon)
+    from sim_test_helpers import fresh_scenario_sim
+    from tools.replay_dataset import _build_recruit_unit
+    sim = fresh_scenario_sim(seed=11, max_turns=10,
+                             scenario_id="multiplayer_The_Freelands")
+    gs = sim.gs
+    gs.map.units.clear()
+    xpmod = int(getattr(gs.global_info, "_experience_modifier", 100) or 100)
+    ax, ay = 10, 10
+    dx, dy = next((h for h in hex_neighbors(ax, ay)
+                   if 0 <= h[0] < gs.map.size_x and 0 <= h[1] < gs.map.size_y))
+    att = _build_recruit_unit("Spearman", side=1, x=ax, y=ay, next_uid=1,
+                              game_id="t", trait_seed_hex="00000001",
+                              exp_modifier=xpmod)
+    dfd = _build_recruit_unit("Orcish Grunt", side=2, x=dx, y=dy, next_uid=2,
+                              game_id="t", trait_seed_hex="00000002",
+                              exp_modifier=xpmod)
+    gs.map.units.add(att)
+    gs.map.units.add(dfd)
+    d_weapon = choose_counter_weapon(gs, att, dfd, 0)
+    attack_cmd = ["attack", ax, ay, dx, dy, 0, d_weapon, "deadbeef"]
+    action = {"type": "attack", "start_hex": Position(ax, ay),
+              "target_hex": Position(dx, dy), "attack_index": 0}
+
+    dp = enumerate_attack_outcomes(gs, action, advancement_choice=None)
+    assert dp is not None
+    children = enumerate_children_via_sim(gs, attack_cmd)
+    assert children is not None and len(children) > 1
+
+    agg = {}
+    for child, p in children:
+        key = outcome_key_for_child(child, att.id, dfd.id)
+        agg[key] = agg.get(key, 0.0) + p
+    assert abs(sum(agg.values()) - 1.0) < 1e-9
+    for key in set(agg) | set(dp.probs):
+        assert abs(agg.get(key, 0.0) - dp.probs.get(key, 0.0)) < 1e-6, (
+            key, agg.get(key, 0.0), dp.probs.get(key, 0.0))

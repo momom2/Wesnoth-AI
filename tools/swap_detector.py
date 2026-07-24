@@ -42,6 +42,7 @@ from tools.replay_dataset import (                                 # noqa: E402
     _build_initial_gamestate, _setup_scenario_events,
     _apply_command, _stats_for, _rebuild_unit,
 )
+from wesnoth_ai import combat as _cb                               # noqa: E402
 from wesnoth_ai.classes import GameState, Position                 # noqa: E402
 
 _EPS = 1e-9
@@ -409,6 +410,118 @@ def _verify_reorder(gs: GameState, attack_cmd: list,
             att.name, dfd.name, (ax, ay), (dx, dy),
             cmp.verdict.value, cmp.vector), 0
     return None, 0
+
+
+# =====================================================================
+# Sim-driven outcome enumeration (faithful materialization)
+# =====================================================================
+# The distributional side-turn verifier needs the FULL end-state
+# distribution of a reordered turn, which means materializing every
+# combat outcome. We do NOT re-implement the post-combat bookkeeping
+# (XP, feeding, petrify, death, status write-back) -- that would drift
+# from the sim. Instead we drive the sim's OWN applier
+# (replay_dataset._apply_command) with a scripted hit/miss RNG and
+# enumerate strike patterns by DFS, reading each strike's probability
+# from the engine's own checkup. Result: bit-faithful children, proven
+# against the exact DP by test_swap_detector's parity test.
+
+class _EnumRNG:
+    """Scripted PRNG for combat outcome enumeration. `resolve_attack`
+    draws one `get_next_random() % 100` per strike (`hit = r < cth`). We
+    force the first len(prefix) strikes (True->hit->0, False->miss->99);
+    any draw BEYOND the prefix defaults to hit (0) and still bumps
+    `calls`, so the DFS driver learns another strike exists to branch on."""
+    __slots__ = ("prefix", "calls")
+
+    def __init__(self, prefix: List[bool]):
+        self.prefix = prefix
+        self.calls = 0
+
+    def get_next_random(self) -> int:
+        i = self.calls
+        self.calls += 1
+        if i < len(self.prefix):
+            return 0 if self.prefix[i] else 99
+        return 0
+
+    def get_random_int(self, low: int, high: int) -> int:   # defensive
+        return low
+
+
+def _apply_attack_scripted(gs: GameState, attack_cmd: list, rng: _EnumRNG) -> None:
+    """Apply `attack_cmd` to `gs` with the sim's combat RNG replaced by
+    `rng` (offline, single-threaded: a temporary global swap of
+    combat.MTRng, which _apply_command's attack branch constructs exactly
+    once)."""
+    orig = _cb.MTRng
+    _cb.MTRng = lambda *_a, **_k: rng      # noqa: E731
+    try:
+        _apply_command(gs, attack_cmd)
+    finally:
+        _cb.MTRng = orig
+
+
+def _attack_action(attack_cmd: list) -> dict:
+    ax, ay, dx, dy, w = attack_cmd[1:6]
+    return {"type": "attack", "start_hex": Position(ax, ay),
+            "target_hex": Position(dx, dy), "attack_index": int(w)}
+
+
+def enumerate_children_via_sim(
+    gs: GameState, attack_cmd: list, *, max_leaves: int = 512,
+) -> Optional[List[Tuple[GameState, float]]]:
+    """Faithful outcome distribution for an attack command, as a list of
+    (child_state, prob) normalized to 1 -- or None on advancement
+    (deferred, like the DP) or complexity blow-up.
+
+    All post-combat bookkeeping is the sim's; we only enumerate which
+    strikes land. DFS over strike hit/miss prefixes: at each node run the
+    fight with the prefix forced (rest default-hit); if the engine drew a
+    strike beyond the prefix, branch it (per its own chance-to-hit), else
+    it's a leaf whose probability is the product of its realized strikes'
+    per-strike chances."""
+    # Bail exactly where the exact DP bails (advancement / caps): that
+    # keeps advancement's own RNG from ever entangling with the scripted
+    # strike RNG, and matches the "inconclusive, never sampled" contract.
+    if enumerate_attack_outcomes(gs, _attack_action(attack_cmd),
+                                 advancement_choice=None) is None:
+        return None
+
+    leaves: List[Tuple[GameState, float]] = []
+    stack: List[List[bool]] = [[]]
+    while stack:
+        prefix = stack.pop()
+        g2 = _copy.deepcopy(gs)
+        rng = _EnumRNG(prefix)
+        _apply_attack_scripted(g2, attack_cmd, rng)
+        strikes = [s for s in
+                   (getattr(g2.global_info, "_last_checkup_strikes", []) or [])
+                   if "chance" in s]
+        if rng.calls != len(strikes):
+            return None                    # unexpected extra draws (defensive)
+        k = len(prefix)
+        if rng.calls <= k:                 # fight resolved within the prefix
+            prob = 1.0
+            for s in strikes:
+                c = float(s["chance"]) / 100.0
+                prob *= c if s["hits"] else (1.0 - c)
+            if prob > _EPS:
+                leaves.append((g2, prob))
+            if len(leaves) > max_leaves:
+                return None
+        else:                              # a strike past the prefix exists
+            c = float(strikes[k]["chance"])
+            if c >= 100.0:
+                stack.append(prefix + [True])
+            elif c <= 0.0:
+                stack.append(prefix + [False])
+            else:
+                stack.append(prefix + [True])
+                stack.append(prefix + [False])
+    total = sum(p for _, p in leaves)
+    if not leaves or total <= 0:
+        return None
+    return [(g, p / total) for g, p in leaves]
 
 
 # =====================================================================
