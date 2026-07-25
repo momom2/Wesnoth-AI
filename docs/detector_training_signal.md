@@ -87,6 +87,51 @@ valuation" → "trust the value net"** over training — the pattern the
 combat-oracle attack-bias already uses and `--reset-decision-step` already
 manages.
 
+## Revised coupling: a learnable scale on the ACTING path (user, 2026-07-25)
+
+The MVP's "sign(ΔV) gate + fixed per-tier strength" was rejected: it throws
+away ΔV's magnitude (offline validation saw +0.0107 vs +0.0001 -- a real
+confidence difference). The replacement is a LEARNABLE, magnitude-aware
+scale. Where it lives is forced by one fact:
+
+- **A learnable multiplier on the distillation target is self-defeating.**
+  If `weight = λ·max(0,ΔV)` blends the proposal into the visit-count target
+  and λ is trained by the distillation loss `CE(policy, π')`, then
+  `∂loss/∂λ` moves λ to make π' match the CURRENT policy. When the policy
+  doesn't already favour the proposal (exactly when the advice is novel),
+  `log p_proposed` is very negative, so the gradient drives **λ → 0**: the
+  scale learns to switch the advice off. So the scale's gradient must come
+  from the TRUE objective (winning), not the imitation loss -- i.e. it must
+  sit on the ACTING path, not the training-target path.
+
+So the coupling is:
+
+1. **Prospective advice tokens (decision-time, acting path).** A cheap
+   pre-filter detects setup opportunities among the AVAILABLE actions
+   (e.g. a backstab-weapon unit adjacent to an enemy with an available
+   flanker move to the opposite hex). Each becomes an encoder ADVICE TOKEN
+   carrying {motif, tier, guaranteed-gain features, ref to the setup move,
+   optional prospective ΔV}. The model attends to it.
+2. **A gate head** emits `s = softplus(gate(state, advice_features))`; the
+   advice token's contribution to the trunk is `s`-scaled. The policy
+   learns its response -- including how to weight the magnitude -- from the
+   TRUE reward. Learnable, magnitude-aware, non-circular. This IS the
+   learnable scaling factor, and it unifies scaling with "learn to ignore":
+   the gate shrinks toward 0 exactly where deviating wins (exp management).
+3. **Zero-init graft.** The gate/advice output projection inits to zero, so
+   the advice contributes nothing at load: `load_state_dict(strict=False)`
+   fills the rest from an existing checkpoint (tier_a loads cleanly) and
+   the model LEARNS the scale up from zero. No checkpoint is invalidated.
+4. **ΔV stays as a retrospective exploration SEED** (optional, later): a
+   small annealed distillation push toward the reordered action so it
+   appears in the training data for the gate to learn from. This push is
+   fixed/annealed (NOT the learnable scale) -- it only seeds exploration.
+
+MVP order: model-side plumbing (advice tokens + gate head + zero-init,
+config-gated OFF) first; prospective advisor + self-play wiring next.
+Prospective ΔV in the token (needs decision-time reconstruction + value) is
+an enhancement over gain-vector-only tokens.
+
 ## Why "learnable to ignore" holds — three independent mechanisms
 
 1. **Value-net-as-judge (ΔV):** a stronger value net → better ΔV → a

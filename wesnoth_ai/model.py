@@ -222,12 +222,14 @@ class WesnothModel(nn.Module):
         max_attacks: int = MAX_ATTACKS,
         aux_score:   bool = False,
         moves_left:  bool = False,
+        advice:      bool = False,
     ):
         super().__init__()
         self.d_model     = d_model
         self.max_attacks = max_attacks
         self.has_aux_score = bool(aux_score)
         self.has_moves_left = bool(moves_left)
+        self.has_advice = bool(advice)
 
         # Distinguish streams at attention time.
         self.token_kind_embed = nn.Embedding(TokenKind.COUNT, d_model)
@@ -302,6 +304,30 @@ class WesnothModel(nn.Module):
         # the default arch (and existing checkpoints) are unchanged.
         self.moves_left_head = (
             nn.Linear(d_model, 1) if self.has_moves_left else None)
+        # Optional detector-advice path (docs/detector_training_signal.md).
+        # A SEPARATE cross-attention block, NOT part of the main transformer
+        # (which never sees advice tokens), so an existing checkpoint's main
+        # weights load byte-identically. Actor tokens (queries) attend to the
+        # advice tokens (keys/values); a per-actor GATE emits the LEARNABLE
+        # SCALE (softplus), and the gated result refines the actor tokens
+        # before the policy heads -- so the value net's ΔV magnitude and the
+        # detector's gain are scaled by a factor the policy learns from the
+        # TRUE reward (not the imitation loss -> non-circular). ZERO-INIT
+        # graft: `advice_out` starts at 0, so the advice contributes nothing
+        # at load and the model learns the scale up from zero.
+        if self.has_advice:
+            self.advice_kind = nn.Parameter(torch.zeros(d_model))
+            self.advice_attn = nn.MultiheadAttention(
+                d_model, num_heads, dropout=dropout, batch_first=True)
+            self.advice_gate = nn.Linear(d_model, 1)
+            self.advice_out = nn.Linear(d_model, d_model)
+            nn.init.zeros_(self.advice_out.weight)
+            nn.init.zeros_(self.advice_out.bias)
+        else:
+            self.advice_kind = None
+            self.advice_attn = None
+            self.advice_gate = None
+            self.advice_out = None
 
     def forward(self, encoded: "EncodedState") -> ModelOutput:
         device = encoded.hex_tokens.device
@@ -338,6 +364,19 @@ class WesnothModel(nn.Module):
         # Actor-slot tokens, same order used by actor_kind.
         actor_ctx = torch.cat([unit_ctx, recruit_ctx, end_turn_ctx], dim=1)
         # Shape: [1, A, d] where A = U + R + 1.
+
+        # Detector-advice refinement (zero at init via advice_out=0). Actor
+        # tokens attend to the advice tokens; a per-actor softplus GATE is the
+        # learnable scale; the gated result refines actor_ctx before every
+        # policy head. Value head (global_ctx) is untouched -- advice steers
+        # ACTION choice, not the value estimate.
+        if (self.has_advice and encoded.advice_tokens is not None
+                and encoded.advice_tokens.size(1) > 0):
+            adv = encoded.advice_tokens + self.advice_kind      # [1, A_adv, d]
+            attn_out, _ = self.advice_attn(
+                actor_ctx, adv, adv, need_weights=False)        # [1, A, d]
+            gate = F.softplus(self.advice_gate(actor_ctx))      # [1, A, 1]
+            actor_ctx = actor_ctx + gate * self.advice_out(attn_out)
 
         actor_kind = torch.tensor(
             [ActorKind.UNIT] * U
