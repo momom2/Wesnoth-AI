@@ -86,3 +86,26 @@ def test_advice_false_checkpoint_grafts_cleanly():
         out_grafted = grafted(encoded)                # advice_tokens = None
     assert torch.allclose(out_base.actor_logits, out_grafted.actor_logits, atol=1e-6)
     assert torch.allclose(out_base.value, out_grafted.value, atol=1e-6)
+
+
+def test_build_advice_tokens_shape_and_forward():
+    enc, gs = _encoded()
+    model = WesnothModel(advice=True, **_ARCH).eval()
+    encoded = enc.encode(gs)
+    U, H = encoded.unit_tokens.shape[1], encoded.hex_tokens.shape[1]
+    assert U > 0 and H > 0
+    motif_ids = torch.tensor([0, 1], dtype=torch.long)
+    feats = torch.tensor([[1., 0.5, 0., 0.], [1., 0.2, 0.01, 1.]])
+    muidx = torch.tensor([0, min(1, U - 1)], dtype=torch.long)
+    dhidx = torch.tensor([0, min(1, H - 1)], dtype=torch.long)
+    tok = model.build_advice_tokens(encoded, motif_ids, feats, muidx, dhidx)
+    assert tok.shape == (1, 2, _ARCH["d_model"])
+    with torch.no_grad():
+        encoded.advice_tokens = tok
+        out = model(encoded)
+    assert out.actor_logits.shape[0] == 1
+    # empty opportunities -> empty tokens
+    empty = model.build_advice_tokens(
+        encoded, torch.zeros(0, dtype=torch.long), torch.zeros(0, 4),
+        torch.zeros(0, dtype=torch.long), torch.zeros(0, dtype=torch.long))
+    assert empty.shape == (1, 0, _ARCH["d_model"])

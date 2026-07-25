@@ -39,7 +39,7 @@ from tools.swap_detector import (                                 # noqa: E402
     backstab_setup_findings, leadership_setup_findings,
 )
 from tools.replay_dataset import _apply_command                   # noqa: E402
-from wesnoth_ai.classes import GameState                          # noqa: E402
+from wesnoth_ai.classes import GameState, Position                 # noqa: E402
 
 # gs -> scalar value from gs's acting-side perspective (e.g. the C51 value
 # head's expected value in [-1, +1]). reconstruct_side_turn_dist applies a
@@ -180,3 +180,140 @@ def advice_signals(st: SideTurn, value_fn: ValueFn, *,
                 attacker_pos=f.attacker_pos, defender_pos=f.defender_pos,
                 gain_vector=f.vector, delta_v=dv))
     return out
+
+
+# =====================================================================
+# Prospective advisor (decision-time) + model bridge
+# =====================================================================
+# The retrospective advice_signals() above judges a PLAYED side-turn (for
+# offline validation / the exploration seed). At decision time the model
+# instead needs PROSPECTIVE advice: among the currently available actions,
+# which setup move would enable a Tier-1 certificate? These become the
+# encoder advice tokens the model conditions on (with its learnable gate).
+
+# Motif -> id for the model's advice_motif_embed (must stay < N_ADVICE_MOTIFS).
+ADVICE_MOTIF_IDS = {"backstab_setup": 0, "leadership_setup": 1}
+
+
+@dataclass
+class AdviceOpportunity:
+    """One decision-time setup opportunity: doing the setup move (mover ->
+    dest) now would enable a Tier-1 certificate for attacker -> target."""
+    motif:        str
+    mover_pos:    Tuple[int, int]     # the setup move's mover, current hex
+    dest_pos:     Tuple[int, int]     # the setup move's destination hex
+    target_pos:   Tuple[int, int]     # the enemy the setup helps attack
+    attacker_pos: Tuple[int, int]     # the attacker that gains
+    gain:         float               # expected enemy-HP drop (certificate mag)
+    delta_v:      Optional[float] = None
+
+
+def prospective_backstab_opportunities(
+    gs: GameState, side: Optional[int] = None,
+) -> List[AdviceOpportunity]:
+    """Own backstab-weapon unit adjacent to an attackable enemy with the
+    OPPOSITE hex free and reachable this turn by another own unit -> moving
+    that flanker onto the opposite hex first activates the backstab (a
+    Tier-1 certificate, DP-verified). Cheap: DP + reach, no value net."""
+    from tools.swap_detector import (
+        _unit_at, _weapon_has_backstab, opposite_hex, hex_neighbors,
+        enumerate_attack_outcomes, compare_distributions, Verdict, _reach,
+        _marginal, ATTACK_DIMS)
+    from tools.abilities import is_backstab_active
+    side = side if side is not None else gs.global_info.current_side
+    own = [u for u in gs.map.units if u.side == side]
+    enemy_hp = next(d for d in ATTACK_DIMS if d.name == "enemy_hp")
+    opps: List[AdviceOpportunity] = []
+    for u in own:
+        if not _weapon_has_backstab(u.name, 0):
+            continue
+        for (ex, ey) in hex_neighbors(u.position.x, u.position.y):
+            e = _unit_at(gs, (ex, ey))
+            if (e is None or e.side == side
+                    or is_backstab_active(u, e, gs.map.units)):
+                continue
+            opp = opposite_hex((ex, ey), (u.position.x, u.position.y))
+            if (opp is None or _unit_at(gs, opp) is not None
+                    or not (0 <= opp[0] < gs.map.size_x
+                            and 0 <= opp[1] < gs.map.size_y)):
+                continue
+            action = {"type": "attack", "start_hex": u.position,
+                      "target_hex": e.position, "attack_index": 0}
+            d_base = enumerate_attack_outcomes(gs, action,
+                                               advancement_choice="uniform")
+            if d_base is None:
+                continue
+            g2 = _copy.deepcopy(gs)
+            ph = _copy.deepcopy(u)
+            ph.position = Position(opp[0], opp[1])
+            ph.id = "adv_phantom_flanker"
+            g2.map.units.add(ph)
+            d_cand = enumerate_attack_outcomes(g2, action,
+                                               advancement_choice="uniform")
+            if d_cand is None:
+                continue
+            if compare_distributions(d_base, d_cand).verdict \
+                    is not Verdict.STRICTLY_BETTER:
+                continue
+            mover = next(
+                (c for c in own if c.id != u.id and int(c.current_moves) > 0
+                 and opp in _reach(gs, c).landable), None)
+            if mover is None:
+                continue
+            base_e = sum(v * p for v, p in _marginal(d_base, enemy_hp.value).items())
+            cand_e = sum(v * p for v, p in _marginal(d_cand, enemy_hp.value).items())
+            opps.append(AdviceOpportunity(
+                "backstab_setup",
+                (mover.position.x, mover.position.y), opp, (ex, ey),
+                (u.position.x, u.position.y), max(0.0, base_e - cand_e)))
+    return opps
+
+
+def prospective_opportunities(
+    gs: GameState, side: Optional[int] = None,
+) -> List[AdviceOpportunity]:
+    """All Tier-1 decision-time opportunities. (Backstab only for now;
+    leadership_setup is the next motif -- same shape.)"""
+    return prospective_backstab_opportunities(gs, side)
+
+
+def opportunities_to_features(encoded, opps: List[AdviceOpportunity]):
+    """Resolve opportunities against `encoded` into the model builder's
+    inputs: (motif_ids[A], feats[A,4], mover_uidx[A], dest_hidx[A]). Drops
+    any opportunity whose mover/dest isn't in the encoded frame (fogged
+    mover, off-board dest). Returns tensors on the encoded's device."""
+    import torch
+    dev = encoded.unit_tokens.device
+    upos = {(p.x, p.y): i for i, p in enumerate(encoded.unit_positions)}
+    hpos = encoded.pos_to_hex
+    motif_ids, feats, muidx, dhidx = [], [], [], []
+    for o in opps:
+        ui = upos.get(o.mover_pos)
+        hi = hpos.get(o.dest_pos)
+        mid = ADVICE_MOTIF_IDS.get(o.motif)
+        if ui is None or hi is None or mid is None:
+            continue
+        dv = 0.0 if o.delta_v is None else float(o.delta_v)
+        motif_ids.append(mid)
+        feats.append([1.0, float(o.gain), dv, 0.0 if o.delta_v is None else 1.0])
+        muidx.append(ui)
+        dhidx.append(hi)
+    return (torch.tensor(motif_ids, dtype=torch.long, device=dev),
+            torch.tensor(feats, dtype=torch.float32, device=dev).reshape(-1, 4),
+            torch.tensor(muidx, dtype=torch.long, device=dev),
+            torch.tensor(dhidx, dtype=torch.long, device=dev))
+
+
+def encode_with_advice(encoder, model, gs: GameState):
+    """Encode `gs` and, if the model has the advice path, attach prospective
+    advice tokens. Shared by self-play (acting) and the trainer reforward
+    (learning) so advice is consistent between the two. Returns (encoded,
+    opportunities)."""
+    encoded = encoder.encode(gs)
+    if not getattr(model, "has_advice", False):
+        return encoded, []
+    opps = prospective_opportunities(gs)
+    motif_ids, feats, muidx, dhidx = opportunities_to_features(encoded, opps)
+    encoded.advice_tokens = model.build_advice_tokens(
+        encoded, motif_ids, feats, muidx, dhidx)
+    return encoded, opps

@@ -130,3 +130,45 @@ def test_model_value_fn_scalar_and_drives_advisor():
     sigs = advice_signals(st, vf)
     assert len(sigs) == 1
     assert isinstance(sigs[0].delta_v, float)
+
+
+def test_prospective_backstab_opportunity():
+    """At decision time the prospective advisor finds the backstab setup:
+    a flanker can reach the hex opposite the thief's target, so moving it
+    first would activate the backstab. Gain (enemy-HP drop) is positive."""
+    from tools.detector_advisor import prospective_opportunities
+    st, _thief, flk, _tgt = _backstab_side_turn()
+    gs = st.pre_state
+    gs.global_info.current_side = 1
+    opps = prospective_opportunities(gs, side=1)
+    assert len(opps) >= 1
+    o = next(o for o in opps if o.motif == "backstab_setup")
+    assert o.mover_pos == (flk.position.x, flk.position.y)
+    assert o.dest_pos != o.mover_pos
+    assert o.gain > 0.0
+
+
+def test_encode_with_advice_end_to_end():
+    """encode_with_advice attaches prospective advice tokens the model
+    consumes; with no advice path it is a plain encode (no tokens)."""
+    from tools.detector_advisor import encode_with_advice
+    from wesnoth_ai.encoder import GameStateEncoder
+    from wesnoth_ai.model import WesnothModel
+    st, *_ = _backstab_side_turn()
+    gs = st.pre_state
+    gs.global_info.current_side = 1
+    enc = GameStateEncoder(d_model=32)
+    adv = WesnothModel(d_model=32, num_layers=2, num_heads=4, d_ff=64,
+                       advice=True).eval()
+    encoded, opps = encode_with_advice(enc, adv, gs)
+    assert encoded.advice_tokens is not None
+    assert encoded.advice_tokens.shape[1] == len(opps) >= 1
+    import torch
+    with torch.no_grad():
+        out = adv(encoded)
+    assert out.actor_logits.shape[0] == 1
+    # a non-advice model -> plain encode, no tokens
+    plain = WesnothModel(d_model=32, num_layers=2, num_heads=4, d_ff=64).eval()
+    enc2 = GameStateEncoder(d_model=32)
+    encoded2, opps2 = encode_with_advice(enc2, plain, gs)
+    assert encoded2.advice_tokens is None and opps2 == []

@@ -58,6 +58,10 @@ VALUE_N_ATOMS = 51
 VALUE_V_MIN   = -1.0
 VALUE_V_MAX   = +1.0
 
+# Detector-advice token builder dims (docs/detector_training_signal.md).
+N_ADVICE_MOTIFS = 4        # backstab_setup, leadership_setup, + headroom
+ADVICE_FEAT_DIM = 4        # per-opportunity: [tier, gain, delta_v, has_delta_v]
+
 
 # Token-kind tags added to every stream so the transformer can tell
 # "this is a hex" from "this is a recruit" during self-attention.
@@ -316,6 +320,11 @@ class WesnothModel(nn.Module):
         # graft: `advice_out` starts at 0, so the advice contributes nothing
         # at load and the model learns the scale up from zero.
         if self.has_advice:
+            # Token builder (grounds each opportunity on its mover/dest
+            # tokens). NOT zero-init -- the graft's zero is on advice_out.
+            self.advice_motif_embed = nn.Embedding(N_ADVICE_MOTIFS, d_model)
+            self.advice_feat_proj = nn.Linear(ADVICE_FEAT_DIM, d_model)
+            # Cross-attention refinement (zero-init output => graft-safe).
             self.advice_kind = nn.Parameter(torch.zeros(d_model))
             self.advice_attn = nn.MultiheadAttention(
                 d_model, num_heads, dropout=dropout, batch_first=True)
@@ -324,10 +333,29 @@ class WesnothModel(nn.Module):
             nn.init.zeros_(self.advice_out.weight)
             nn.init.zeros_(self.advice_out.bias)
         else:
+            self.advice_motif_embed = None
+            self.advice_feat_proj = None
             self.advice_kind = None
             self.advice_attn = None
             self.advice_gate = None
             self.advice_out = None
+
+    def build_advice_tokens(self, encoded, motif_ids, feats,
+                            mover_uidx, dest_hidx):
+        """Build advice tokens `[1, A_adv, d]` from per-opportunity features,
+        grounded on the mover's unit token + the destination hex token so
+        the advice lives in the same space as the board. Called BEFORE
+        `forward` -- by self-play AND the trainer's reforward -- to populate
+        `encoded.advice_tokens`. Builder params are free to be random-init;
+        the zero-init graft lives on the cross-attn output (`advice_out`)."""
+        dev = encoded.unit_tokens.device
+        if not self.has_advice or motif_ids.numel() == 0:
+            return torch.zeros(1, 0, self.d_model, device=dev)
+        m = self.advice_motif_embed(motif_ids)                    # [A, d]
+        f = self.advice_feat_proj(feats)                          # [A, d]
+        u = encoded.unit_tokens[0].index_select(0, mover_uidx)    # [A, d]
+        h = encoded.hex_tokens[0].index_select(0, dest_hidx)      # [A, d]
+        return (m + f + u + h).unsqueeze(0)                       # [1, A, d]
 
     def forward(self, encoded: "EncodedState") -> ModelOutput:
         device = encoded.hex_tokens.device
