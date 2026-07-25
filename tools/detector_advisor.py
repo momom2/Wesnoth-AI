@@ -51,6 +51,28 @@ TIER1_GENERATORS = {
 }
 
 
+def model_value_fn(model, encoder) -> ValueFn:
+    """Wrap a WesnothModel + GameStateEncoder into a `ValueFn`: gs -> the
+    C51 value head's mean (in [-1, +1]) from gs's ACTING-side perspective.
+
+    - RAW value, NOT the MCTS aux-adjusted one: the aux bonus is a material
+      training crutch (see the eval contract) and would contaminate ΔV.
+    - Acting-side perspective is exactly what the advisor wants: the encoder
+      frames the state from `current_side`, and reconstruct_side_turn_dist
+      does not end the turn, so played and proposed end-states share the
+      acting side -> ΔV needs no sign flip.
+    - Pass the INFERENCE (eval-mode) model so dropout doesn't make ΔV
+      stochastic; this wrapper does not toggle the model's mode (no side
+      effects on a possibly-shared module)."""
+    import torch
+
+    def f(gs: GameState) -> float:
+        with torch.no_grad():
+            out = model(encoder.encode(gs))
+        return float(out.value.squeeze().item())
+    return f
+
+
 @dataclass
 class AdviceSignal:
     """One value-net-judged piece of advice for a played side-turn."""

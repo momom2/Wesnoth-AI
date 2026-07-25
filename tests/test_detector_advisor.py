@@ -107,3 +107,26 @@ def test_advisor_delta_v_none_when_no_reorder_indices():
     f = findings[0]
     f.attack_idx = None                       # simulate an unindexed finding
     assert delta_v_for_finding(st, f, _enemy_hp_value(1)) is None
+
+
+def test_model_value_fn_scalar_and_drives_advisor():
+    """The real value adapter returns a scalar in [-1,1] from the C51 mean,
+    is deterministic in eval mode, and drives the advisor end-to-end (delta_v
+    is a float; sign is arbitrary for an untrained net)."""
+    from wesnoth_ai.encoder import GameStateEncoder
+    from wesnoth_ai.model import WesnothModel
+    from tools.detector_advisor import model_value_fn
+
+    encoder = GameStateEncoder()
+    model = WesnothModel()
+    model.eval()
+    vf = model_value_fn(model, encoder)
+
+    st, *_ = _backstab_side_turn()
+    v = vf(st.pre_state)
+    assert isinstance(v, float) and -1.0 <= v <= 1.0
+    assert vf(st.pre_state) == v                       # deterministic (eval)
+
+    sigs = advice_signals(st, vf)
+    assert len(sigs) == 1
+    assert isinstance(sigs[0].delta_v, float)
