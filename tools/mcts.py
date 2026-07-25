@@ -202,6 +202,14 @@ class MCTSConfig:
     # 100-turn games -- nothing in-horizon rewarded expansion.
     # 0.0 = off (legacy).
     aux_value_bonus:  float = 0.0
+    # Detector-advice at the ROOT (docs/detector_training_signal.md). When
+    # on AND the model has the advice path, the root's priors are computed
+    # with prospective advice tokens attached, so the played action + the
+    # visit-count training target are advice-conditioned (via the learnable
+    # gate). Root-only: leaves feed value backups, which advice never
+    # touches, so paying the advisor's cost per leaf would be wasted. OFF =
+    # unchanged (existing checkpoints have no advice path anyway).
+    advice:           bool = False
     # PUCT exploration constant. Higher = more exploration. AlphaZero
     # uses ~1.0; chess-AlphaZero uses ~1.25-2.5. We default 1.5
     # because legal-action counts on a typical Wesnoth state vary
@@ -642,9 +650,14 @@ def _expand(
     *,
     decision_step: int = 0,
     aux_value_bonus: float = 0.0,
+    advice: bool = False,
 ) -> float:
     """Forward the model on `node.sim.gs`, build edges from the
     legal-action priors, return v(s) from node.side's perspective.
+
+    `advice` (root only): attach prospective detector advice tokens to the
+    encoding so the priors are advice-conditioned through the model's
+    learnable gate. No-op unless the model has the advice path.
 
     `decision_step` drives the combat-oracle anneal in the priors (see
     `combat_alphas_at`); it MUST be the same value the trainer's
@@ -658,7 +671,11 @@ def _expand(
         node.expanded = True
         return _terminal_value(node.sim, node.side, tiebreak)
     with torch.no_grad():
-        encoded = encoder.encode(node.sim.gs)
+        if advice and getattr(model, "has_advice", False):
+            from tools.detector_advisor import encode_with_advice
+            encoded, _opps = encode_with_advice(encoder, model, node.sim.gs)
+        else:
+            encoded = encoder.encode(node.sim.gs)
         output = model(encoded)
         # Sampler-on-CPU split: one bulk D2H here instead of dozens of
         # per-actor syncs inside the enumeration (no-op on CPU).
@@ -1644,7 +1661,7 @@ def mcts_search(
     if not root.expanded:
         _expand(root, model, encoder, tiebreak=config.draw_tiebreak,
                 aux_value_bonus=config.aux_value_bonus,
-                decision_step=decision_step)
+                decision_step=decision_step, advice=config.advice)
     # Gumbel mode replaces Dirichlet noise at the root: exploration
     # comes from sampling the candidate set without replacement.
     use_gumbel = bool(config.gumbel_root and root.edges

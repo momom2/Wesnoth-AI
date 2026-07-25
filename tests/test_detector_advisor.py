@@ -142,8 +142,13 @@ def test_prospective_backstab_opportunity():
     gs.global_info.current_side = 1
     opps = prospective_opportunities(gs, side=1)
     assert len(opps) >= 1
-    o = next(o for o in opps if o.motif == "backstab_setup")
-    assert o.mover_pos == (flk.position.x, flk.position.y)
+    # the flanker-moves-to-opposite setup must be AMONG the opportunities
+    # (both Thieves can attack, so more than one setup may be found).
+    flk_pos = (flk.position.x, flk.position.y)
+    matches = [o for o in opps
+               if o.motif == "backstab_setup" and o.mover_pos == flk_pos]
+    assert matches, [(o.attacker_pos, o.mover_pos) for o in opps]
+    o = matches[0]
     assert o.dest_pos != o.mover_pos
     assert o.gain > 0.0
 

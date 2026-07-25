@@ -266,6 +266,10 @@ def prospective_backstab_opportunities(
                 "backstab_setup",
                 (mover.position.x, mover.position.y), opp, (ex, ey),
                 (u.position.x, u.position.y), max(0.0, base_e - cand_e)))
+    # Deterministic order: gs.map.units iterates in set order, so sort the
+    # opportunities (the model's cross-attention is order-invariant, but a
+    # stable order keeps runs reproducible + tests robust).
+    opps.sort(key=lambda o: (o.attacker_pos, o.dest_pos, o.mover_pos))
     return opps
 
 

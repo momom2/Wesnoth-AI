@@ -2728,6 +2728,16 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--mcts-aux-coef", type=float, default=0.15,
                     help="Weight of the auxiliary margin MSE loss "
                          "(--mcts-aux-score). KataGo uses ~0.15.")
+    ap.add_argument("--mcts-advice", action="store_true",
+                    help="Detector training signal (docs/"
+                         "detector_training_signal.md): add the model's "
+                         "advice cross-attention (learnable gate) and, in "
+                         "MCTS mode, attach prospective detector advice "
+                         "tokens at the ROOT so priors + the visit-count "
+                         "target are advice-conditioned. Zero-init graft: "
+                         "warm-starts an advice-free checkpoint cleanly. "
+                         "Root-only; acting-side for now (trainer reforward "
+                         "advice = the gate-learning follow-up).")
     ap.add_argument("--mcts-moves-left", action="store_true",
                     help="Add the Lc0-style moves-left head: the model "
                          "predicts the fraction of the turn budget "
@@ -2955,6 +2965,7 @@ def main(argv: List[str]) -> int:
     arch_kwargs: Dict[str, int] = {}
     ckpt_aux_score = False
     ckpt_moves_left = False
+    ckpt_advice = False
     if args.checkpoint_in and args.checkpoint_in.exists():
         # Resolve to a LOADABLE checkpoint: prefer the primary, but if it's
         # unreadable (truncated by a kill mid-write on a preemptible node),
@@ -2988,6 +2999,7 @@ def main(argv: List[str]) -> int:
                     arch_kwargs[k] = int(saved_arch[k])
             ckpt_aux_score = bool(raw.get("aux_score", False))
             ckpt_moves_left = bool(raw.get("moves_left", False))
+            ckpt_advice = bool(raw.get("advice", False))
             if arch_kwargs:
                 log.info(f"warm-start arch from checkpoint: {arch_kwargs}"
                          f"{' +aux_score' if ckpt_aux_score else ''}"
@@ -3031,9 +3043,14 @@ def main(argv: List[str]) -> int:
     # construction.
     aux_score_flag = bool(args.mcts_aux_score) or ckpt_aux_score
     moves_left_flag = bool(args.mcts_moves_left) or ckpt_moves_left
+    advice_flag = bool(args.mcts_advice) or ckpt_advice
     policy = TransformerPolicy(device=device, aux_score=aux_score_flag,
                                moves_left=moves_left_flag,
+                               advice=advice_flag,
                                **arch_kwargs)
+    if advice_flag:
+        log.info("detector advice path ON (root-conditioned priors; "
+                 "zero-init graft; docs/detector_training_signal.md)")
     if aux_score_flag:
         policy._trainer.config.aux_coef = float(args.mcts_aux_coef)
         log.info(f"auxiliary margin head ON (aux_coef="
@@ -3158,6 +3175,7 @@ def main(argv: List[str]) -> int:
             n_simulations=args.mcts_sims,
             moves_left_utility=args.mcts_moves_left_utility,
             aux_value_bonus=args.mcts_aux_value_bonus,
+            advice=advice_flag,
             c_puct=args.mcts_c_puct,
             batch_size=_mbs,
             fpu_reduction=(None if args.mcts_fpu_reduction < 0

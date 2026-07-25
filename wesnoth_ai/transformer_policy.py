@@ -85,6 +85,7 @@ class TransformerPolicy:
         trainer_config: Optional[TrainerConfig] = None,
         aux_score: bool = False,
         moves_left: bool = False,
+        advice: bool = False,
     ):
         # Default device is CPU. DML runs work for rollout (single-sample
         # forwards are competitive with CPU once the MHA/TransformerEncoder
@@ -118,6 +119,7 @@ class TransformerPolicy:
 
         self._aux_score = bool(aux_score)
         self._moves_left = bool(moves_left)
+        self._advice = bool(advice)
         self._encoder = GameStateEncoder(d_model=d_model).to(self._device)
         self._model = WesnothModel(
             d_model=d_model,
@@ -126,6 +128,7 @@ class TransformerPolicy:
             d_ff=d_ff,
             aux_score=self._aux_score,
             moves_left=self._moves_left,
+            advice=self._advice,
         ).to(self._device)
         self._trainer = Trainer(
             self._model,
@@ -162,6 +165,7 @@ class TransformerPolicy:
             d_ff=d_ff,
             aux_score=self._aux_score,
             moves_left=self._moves_left,
+            advice=self._advice,
         ).to(self._device)
         self._inference_encoder.load_state_dict(self._encoder.state_dict())
         self._inference_model.load_state_dict(self._model.state_dict())
@@ -595,6 +599,7 @@ class TransformerPolicy:
                 # partial-loads via the EXPECTED_MISSING whitelist.
                 "aux_score":       self._aux_score,
                 "moves_left":      self._moves_left,
+                "advice":          self._advice,
                 "model_state":     self._model.state_dict(),
                 "encoder_state":   self._encoder.state_dict(),
                 "unit_type_to_id": dict(self._encoder.unit_type_to_id),
@@ -758,7 +763,12 @@ class TransformerPolicy:
                 miss = list(getattr(res, "missing_keys", []) or [])
                 extra = list(getattr(res, "unexpected_keys", []) or [])
                 expected = EXPECTED_MISSING_KEYS_BY_LABEL.get(label, set())
-                unexpected_missing = [k for k in miss if k not in expected]
+                # Any advice_* key missing is expected: an advice=True model
+                # grafting an advice-free checkpoint (zero-init advice path,
+                # see docs/detector_training_signal.md).
+                unexpected_missing = [
+                    k for k in miss
+                    if k not in expected and not k.startswith("advice_")]
                 if miss or extra:
                     self._logger.warning(
                         f"partial {label} load: {len(miss)} missing key(s), "
