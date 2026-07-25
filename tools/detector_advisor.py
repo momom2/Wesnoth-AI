@@ -32,10 +32,13 @@ _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
+import copy as _copy                                              # noqa: E402
+
 from tools.swap_detector import (                                 # noqa: E402
     SideTurn, Finding, reconstruct_side_turn_dist,
     backstab_setup_findings, leadership_setup_findings,
 )
+from tools.replay_dataset import _apply_command                   # noqa: E402
 from wesnoth_ai.classes import GameState                          # noqa: E402
 
 # gs -> scalar value from gs's acting-side perspective (e.g. the C51 value
@@ -116,20 +119,40 @@ def _expected_value(dist: Optional[List[Tuple[GameState, float]]],
 
 def delta_v_for_finding(
     st: SideTurn, finding: Finding, value_fn: ValueFn, *,
-    advancement_choice: str = "uniform",
+    advancement_choice: str = "uniform", window: bool = True,
 ) -> Optional[float]:
-    """V(proposed ordering) - V(played ordering), both reconstructed to the
-    side-turn end and scored by `value_fn`. None if the finding carries no
-    reorder indices or either reconstruction bails (advancement past cap /
-    blow-up) -- the caller then falls back to advice-token-only."""
-    if finding.attack_idx is None or finding.move_idx is None:
+    """V(proposed ordering) - V(played ordering) scored by `value_fn`. None
+    if the finding carries no reorder indices or either reconstruction bails
+    (advancement past cap / blow-up) -> the caller falls back to
+    advice-token-only.
+
+    `window=True` (default) reconstructs only the REORDER WINDOW
+    [min(attack,move) .. max(attack,move)] distributionally, CONDITIONING on
+    the recorded prefix (applied deterministically with its recorded seeds).
+    Actions before the window are identical in both orderings, so the prefix
+    is a common factor; the suffix is identical too and its value-to-go is
+    what value_fn estimates at the window end. Full-side-turn reconstruction
+    (`window=False`) blows up on real games (the joint over every combat in
+    the turn) -- offline validation measured 0/10 findings judgeable -- so
+    windowing is what makes the signal have coverage."""
+    ai, mi = finding.attack_idx, finding.move_idx
+    if ai is None or mi is None:
         return None
+    if window:
+        lo, hi = min(ai, mi), max(ai, mi)
+        start = _copy.deepcopy(st.pre_state)
+        for cmd in st.actions[:lo]:                 # recorded prefix (realized)
+            _apply_command(start, cmd)
+        played_actions = st.actions[lo:hi + 1]
+        proposed_actions = _reorder_before(played_actions, mi - lo, ai - lo)
+    else:
+        start = st.pre_state
+        played_actions = st.actions
+        proposed_actions = _reorder_before(st.actions, mi, ai)
     played = reconstruct_side_turn_dist(
-        st.pre_state, st.actions, advancement_choice=advancement_choice)
-    proposed_actions = _reorder_before(
-        st.actions, finding.move_idx, finding.attack_idx)
+        start, played_actions, advancement_choice=advancement_choice)
     proposed = reconstruct_side_turn_dist(
-        st.pre_state, proposed_actions, advancement_choice=advancement_choice)
+        start, proposed_actions, advancement_choice=advancement_choice)
     v_played = _expected_value(played, value_fn)
     v_proposed = _expected_value(proposed, value_fn)
     if v_played is None or v_proposed is None:
