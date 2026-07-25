@@ -199,6 +199,36 @@ value net. Findings that shaped the design:
   are independent, apply them deterministically like the prefix) is the
   fix. Tracked in BACKLOG.
 
+## Build status + local iteration (2026-07-25)
+
+**Acting side COMPLETE + validated + profiled.** Wired end-to-end behind
+`--mcts-advice` (OFF by default): model advice path (gated learnable scale,
+zero-init graft) -> advice-token builder -> prospective advisor (decision-
+time) -> MCTS root `_expand(advice=)` -> config/CLI/checkpoint round-trip.
+
+- **Profiling** (micro-benchmark, 256-d/6-layer): the prospective advisor
+  adds **~0 ms** on a plain state (no backstab-weapon unit -> the pre-check
+  is free) and **~3 ms** on a state with a setup (the DP verification).
+  Root-only + rare -> negligible next to a decision's 16-200 leaf forwards.
+- **Validation** (short MCTS self-play, warm-start tier_a_campaign_final):
+  the graft loaded with 12 missing `advice_*` keys / 0 unexpected (clean),
+  advice path ON, a full game rolled + a train_step ran + the checkpoint
+  saved. No crashes.
+
+**Remaining: the trainer reforward advice (gate learning).** The signal is
+wired but currently INERT: `advice_out` is zero-init, and the trainer's
+(batched) reforward does not yet attach advice tokens, so `advice_out`/gate
+get no gradient and stay at zero -> advice contributes nothing. To make the
+gate LEARN, the reforward forward must include advice tokens so `advice_out`
+gets a policy-loss gradient (it bootstraps first; the gate follows once
+`advice_out != 0`). Plan: store each decision's opportunities (POSITIONS +
+motif + gain, not indices -- `gs.map.units` set order isn't stable) in the
+MCTSExperience; at reforward re-resolve them against the re-encoded frame
+(`opportunities_to_features`) and build advice tokens; handle the batched
+variable-length advice with a key-padding mask in `advice_attn`. This
+touches the training hot loop, so it is a focused pass with the full slow
+tier -- deliberately NOT rushed at the tail of the wiring.
+
 ## Risks / open questions
 
 - **Off-distribution value-net eval** on reordered states it wasn't trained

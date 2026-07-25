@@ -10,6 +10,18 @@ deliberately (exp management). Approved MVP = Tier-1 certificates only,
 cheap ΔV arbiter (value net on the reconstructed end-state distribution),
 input-feature + ΔV-weighted distillation (NO new reward term).
 
+**NEXT (2026-07-25): trainer reforward advice (gate learning).** The
+acting side is wired + validated + profiled (behind `--mcts-advice`), but
+the signal is INERT: `advice_out` is zero-init and the trainer's batched
+reforward doesn't attach advice tokens, so the gate/advice_out get no
+gradient. To make the gate learn: store each decision's opportunities
+(POSITIONS + motif + gain -- NOT indices, `gs.map.units` set order isn't
+stable) in the MCTSExperience; at reforward re-resolve via
+`opportunities_to_features` + `model.build_advice_tokens`; add a
+key-padding mask to `advice_attn` for the batched variable-length case.
+Touches the training hot loop -> focused pass + full slow tier. See
+docs/detector_training_signal.md "Build status".
+
 Offline validation (2026-07-25, `tools/validate_advisor.py` on
 tier_a_campaign_final over the 19 HF games) surfaced two concrete items,
 plus the earlier deferred set:
