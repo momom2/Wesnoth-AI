@@ -127,6 +127,33 @@ manages.
    `max(0, ΔV)` (learned gate deferred), config-gated + annealed.
 4. **Readability trace**: per-game log of findings / ΔV / followed.
 
+## Offline validation results (2026-07-25, tier_a_campaign_final)
+
+`tools/validate_advisor.py` over the 19 HF ladder games with the tier_a
+value net. Findings that shaped the design:
+
+- **Full-turn reconstruction has ~0 coverage.** All 10 Tier-1 findings
+  scored `delta_v = None` -- the joint over every combat in a real
+  side-turn blows up. Fixed by WINDOW reconstruction (see
+  `delta_v_for_finding`, `window=True`): reconstruct only
+  [min(attack,move)..max], conditioning on the recorded prefix.
+- **Backstab certificates judge dv > 0.** With windowing the three
+  single-combat backstab windows judged +0.0001 / +0.0015 / +0.0107 -- the
+  value net AGREES with the product-order certificate, as expected. No
+  negatives in this (certificate-tier) sample; the "ignore" case (dv<=0)
+  is expected to surface in the banking tier (XP trades), which is where
+  deliberate exp-management lives.
+- **delta_v magnitudes are small** (1e-4 .. 1e-2 win-prob): one reorder
+  barely moves the game. So the distillation weight CANNOT be raw
+  `max(0, delta_v)` -- it needs a **scale/temperature** (or use
+  `sign(delta_v)` as a gate and the detector's guaranteed-gain magnitude
+  as the weight). A config knob, tracked in BACKLOG.
+- **Leadership windows still bail** (2/2): both were two-attackers-on-one-
+  hex turns, so the window spans two combats and the joint blows up.
+  Window TRIMMING (drop combats not involving the reorder's units -- they
+  are independent, apply them deterministically like the prefix) is the
+  fix. Tracked in BACKLOG.
+
 ## Risks / open questions
 
 - **Off-distribution value-net eval** on reordered states it wasn't trained

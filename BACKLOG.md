@@ -10,6 +10,23 @@ deliberately (exp management). Approved MVP = Tier-1 certificates only,
 cheap ΔV arbiter (value net on the reconstructed end-state distribution),
 input-feature + ΔV-weighted distillation (NO new reward term).
 
+Offline validation (2026-07-25, `tools/validate_advisor.py` on
+tier_a_campaign_final over the 19 HF games) surfaced two concrete items,
+plus the earlier deferred set:
+
+- **delta_v scale / temperature for the coupling weight** (validation).
+  Raw delta_v for a single Tier-1 reorder is 1e-4..1e-2 win-prob, so a
+  `max(0, delta_v)` distillation weight is ~0. The coupling needs a scale
+  factor (config knob), OR use `sign(delta_v)` as the gate and the
+  detector's guaranteed-gain magnitude as the weight, OR normalize by the
+  value net's local scale (cliffness/std). Decide when wiring the trainer.
+- **Window trimming for multi-combat coverage** (validation). The reorder
+  window [min(attack,move)..max] can still span >1 combat (e.g. leadership
+  turns with two attackers on one hex -> 2/2 bailed). Combats NOT involving
+  the reorder's units are independent -> apply them deterministically (with
+  recorded seeds), like the prefix, so only the reorder's own combat is
+  enumerated. Raises judgeable coverage beyond the single-combat case.
+
 Deferred improvement items (build after the MVP validates the pipeline):
 
 - **Potential-based reward-shaping channel** (fork 1 alt): a learned-
