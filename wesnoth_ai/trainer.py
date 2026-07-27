@@ -1050,6 +1050,21 @@ def _trainer_step_mcts(
         L = len(chunk)
         raw_chunk = raw_cache[start:start + B]
         encoded_chunk = self.encoder.encode_from_raw_batch(raw_chunk)
+        # Detector-advice reforward (docs/detector_training_signal.md): with
+        # grad ON, rebuild each sample's prospective advice tokens from its
+        # stored game_state and attach them, so the advice cross-attn (gate
+        # + advice_out) gets a policy-loss gradient and LEARNS. Deterministic
+        # from the state (same advisor as acting time); re-resolved against
+        # THIS encoding's frame so the grounding indices are consistent.
+        # Cheap: the advisor is ~0 ms unless a setup is present.
+        if getattr(self.model, "has_advice", False):
+            from tools.detector_advisor import (
+                prospective_opportunities, opportunities_to_features)
+            for e, encoded in zip(chunk, encoded_chunk):
+                opps = prospective_opportunities(e.game_state)
+                mids, feats, mu, dh = opportunities_to_features(encoded, opps)
+                encoded.advice_tokens = self.model.build_advice_tokens(
+                    encoded, mids, feats, mu, dh)
         outputs = self.model.forward_batch(encoded_chunk)
 
         chunk_policy_losses: List[torch.Tensor] = []

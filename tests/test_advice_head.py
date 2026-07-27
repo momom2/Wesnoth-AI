@@ -109,3 +109,39 @@ def test_build_advice_tokens_shape_and_forward():
         encoded, torch.zeros(0, dtype=torch.long), torch.zeros(0, 4),
         torch.zeros(0, dtype=torch.long), torch.zeros(0, dtype=torch.long))
     assert empty.shape == (1, 0, _ARCH["d_model"])
+
+
+def test_advice_out_bootstraps_from_zero_init():
+    """At the zero-init graft advice_out=0 (advice contributes nothing), but
+    its GRADIENT is non-zero (gate*attn_out) -> it bootstraps up under
+    training. The gate's own grad is ~0 until advice_out!=0 (intended)."""
+    enc, gs = _encoded()
+    model = WesnothModel(advice=True, **_ARCH).train()
+    encoded = enc.encode(gs)
+    encoded.advice_tokens = torch.randn(1, 3, _ARCH["d_model"])
+    model(encoded).actor_logits.sum().backward()
+    assert model.advice_out.weight.grad is not None
+    assert model.advice_out.weight.grad.abs().sum() > 0
+
+
+def test_reforward_advice_gives_advice_gradients():
+    """Mimic the trainer reforward: prospective advisor -> features -> build
+    tokens (grad on) -> forward -> backward reaches the advice params, so the
+    gate path LEARNS from the policy loss."""
+    from tools.detector_advisor import (
+        prospective_opportunities, opportunities_to_features)
+    from test_detector_advisor import _backstab_side_turn
+    st, *_ = _backstab_side_turn()
+    gs = st.pre_state
+    gs.global_info.current_side = 1
+    enc = GameStateEncoder(d_model=_ARCH["d_model"])
+    model = WesnothModel(advice=True, **_ARCH).train()
+    encoded = enc.encode(gs)
+    opps = prospective_opportunities(gs, side=1)
+    assert len(opps) >= 1
+    mids, feats, mu, dh = opportunities_to_features(encoded, opps)
+    encoded.advice_tokens = model.build_advice_tokens(encoded, mids, feats, mu, dh)
+    model(encoded).actor_logits.sum().backward()
+    assert model.advice_out.weight.grad.abs().sum() > 0
+    assert model.advice_motif_embed.weight.grad is not None
+    assert model.advice_feat_proj.weight.grad is not None

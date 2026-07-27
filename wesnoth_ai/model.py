@@ -497,6 +497,16 @@ class WesnothModel(nn.Module):
             return []
         if B == 1:
             return [self.forward(encoded_list[0])]
+        # The detector-advice cross-attention isn't wired into the padded
+        # batched kernel yet; when any sample carries advice tokens, fall
+        # back to per-sample forward (correct + advice-aware). Advice is
+        # rare (most decisions have no setup), so the vast majority of
+        # training chunks still take the fast batched path. Batching the
+        # advice path (padded advice + key mask) is a perf follow-up.
+        if self.has_advice and any(
+                getattr(e, "advice_tokens", None) is not None
+                and e.advice_tokens.size(1) > 0 for e in encoded_list):
+            return [self.forward(e) for e in encoded_list]
 
         d = self.d_model
         device = encoded_list[0].hex_tokens.device
