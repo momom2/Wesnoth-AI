@@ -17,11 +17,14 @@ training byte-unchanged). Remaining are non-blocking follow-ups:
 - **Batched advice in `model.forward_batch`** (perf): advice-carrying B>1
   chunks fall back to per-sample forward; a padded-advice + key-mask kernel
   batches them for advice-dense CUDA training.
-- **Run the full slow tier** (`pytest -m ""`) before a real advice campaign
-  -- the dev machine kept sleeping mid-run, so it hasn't gone clean-through
-  (fast tier is green, 563).
+- ~~Run the full slow tier before a real advice campaign~~ **DONE
+  2026-07-25**: full suite green -- 563 fast + 10 slow (run in groups to
+  dodge the sleeping dev box) = 573 passed, 2 skipped, 0 failed.
 - **leadership_setup prospective motif** -- the prospective advisor covers
   backstab_setup only; leadership is the same shape.
+- **Run an actual `--mcts-advice` training campaign** -- the signal is built
+  + fully tested but UNPROVEN on real games; a campaign is what shows the
+  gate learns and whether advice moves Elo. (Needs a box -> user launches.)
 
 Offline validation (2026-07-25, `tools/validate_advisor.py` on
 tier_a_campaign_final over the 19 HF games) surfaced two concrete items,
