@@ -497,16 +497,6 @@ class WesnothModel(nn.Module):
             return []
         if B == 1:
             return [self.forward(encoded_list[0])]
-        # The detector-advice cross-attention isn't wired into the padded
-        # batched kernel yet; when any sample carries advice tokens, fall
-        # back to per-sample forward (correct + advice-aware). Advice is
-        # rare (most decisions have no setup), so the vast majority of
-        # training chunks still take the fast batched path. Batching the
-        # advice path (padded advice + key mask) is a perf follow-up.
-        if self.has_advice and any(
-                getattr(e, "advice_tokens", None) is not None
-                and e.advice_tokens.size(1) > 0 for e in encoded_list):
-            return [self.forward(e) for e in encoded_list]
 
         d = self.d_model
         device = encoded_list[0].hex_tokens.device
@@ -599,6 +589,45 @@ class WesnothModel(nn.Module):
         if self.moves_left_head is not None:
             moves_left_b = torch.sigmoid(
                 self.moves_left_head(global_ctx_b.squeeze(1)))        # [B, 1]
+
+        # Detector-advice refinement, batched. Mirror the single-sample
+        # path (advice refines the actor tokens before the heads), but over
+        # the padded batch: concat the three actor blocks, cross-attend to
+        # each sample's advice tokens (padded to A_max with a key mask), gate
+        # (the learnable scale), and add the zero-init `advice_out` output
+        # scaled by a per-sample has-advice flag (so no-advice rows -- and
+        # their all-masked keys -- contribute nothing and can't NaN). Split
+        # back. Equivalent to per-sample forward (test_advice_head).
+        if self.has_advice and any(
+                getattr(e, "advice_tokens", None) is not None
+                and e.advice_tokens.size(1) > 0 for e in encoded_list):
+            A_list = [(e.advice_tokens.size(1)
+                       if getattr(e, "advice_tokens", None) is not None else 0)
+                      for e in encoded_list]
+            A_max = max(max(A_list), 1)
+            adv_pad = torch.zeros(B, A_max, d, device=device, dtype=dtype)
+            adv_mask = torch.ones(B, A_max, dtype=torch.bool, device=device)
+            for b in range(B):
+                ab = A_list[b]
+                if ab > 0:
+                    adv_pad[b, :ab] = (encoded_list[b].advice_tokens[0]
+                                       + self.advice_kind)
+                    adv_mask[b, :ab] = False
+                else:
+                    adv_mask[b, 0] = False   # keep 1 unmasked -> no NaN softmax
+            has_adv = torch.tensor(
+                [1.0 if A_list[b] > 0 else 0.0 for b in range(B)],
+                device=device, dtype=dtype).view(B, 1, 1)
+            actor_ctx_b = torch.cat(
+                [unit_ctx_b, recruit_ctx_b, end_turn_ctx_b], dim=1)
+            attn_out, _ = self.advice_attn(
+                actor_ctx_b, adv_pad, adv_pad,
+                key_padding_mask=adv_mask, need_weights=False)
+            gate = F.softplus(self.advice_gate(actor_ctx_b))
+            actor_ctx_b = actor_ctx_b + has_adv * gate * self.advice_out(attn_out)
+            unit_ctx_b     = actor_ctx_b[:, :U_max]
+            recruit_ctx_b  = actor_ctx_b[:, U_max:U_max + R_max]
+            end_turn_ctx_b = actor_ctx_b[:, U_max + R_max:U_max + R_max + 1]
 
         # Heads applied to the padded streams once each — replaces the
         # old per-sample loop that called actor_head / target_q_proj /

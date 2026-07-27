@@ -177,3 +177,55 @@ def test_encode_with_advice_end_to_end():
     enc2 = GameStateEncoder(d_model=32)
     encoded2, opps2 = encode_with_advice(enc2, plain, gs)
     assert encoded2.advice_tokens is None and opps2 == []
+
+
+def test_prospective_leadership_opportunity():
+    """The prospective advisor finds a leadership setup: a Lieutenant (L2,
+    leadership) can reach a free hex adjacent to a Spearman that is attacking
+    an enemy without the bonus -> moving the leader first activates it."""
+    from tools.detector_advisor import prospective_opportunities
+    from tools.swap_detector import hex_neighbors
+    from sim_test_helpers import fresh_scenario_sim
+    from tools.replay_dataset import _build_recruit_unit
+
+    sim = fresh_scenario_sim(seed=8, max_turns=10,
+                             scenario_id="multiplayer_The_Freelands")
+    gs = sim.gs
+    gs.map.units.clear()
+    gs.global_info.current_side = 1
+    xpmod = int(getattr(gs.global_info, "_experience_modifier", 100) or 100)
+
+    def inb(h):
+        return 0 <= h[0] < gs.map.size_x and 0 <= h[1] < gs.map.size_y
+
+    dx, dy = 12, 12
+    A = next(h for h in hex_neighbors(dx, dy) if inb(h))
+    a_nbrs = set(hex_neighbors(*A))
+    dest = next(h for h in hex_neighbors(*A)
+                if inb(h) and h not in {(dx, dy), A})
+    # leader start: reaches `dest` (1 step) but is NOT already adjacent to A
+    lstart = next(h for h in hex_neighbors(*dest)
+                  if inb(h) and h not in {(dx, dy), A, dest}
+                  and h not in a_nbrs)
+
+    enemy = _build_recruit_unit("Orcish Grunt", side=2, x=dx, y=dy, next_uid=1,
+                                game_id="t", trait_seed_hex="00000001",
+                                exp_modifier=xpmod)
+    enemy.current_hp = 200
+    enemy.max_hp = 200
+    spear = _build_recruit_unit("Spearman", side=1, x=A[0], y=A[1], next_uid=2,
+                                game_id="t", trait_seed_hex="00000002",
+                                exp_modifier=xpmod)
+    lieut = _build_recruit_unit("Lieutenant", side=1, x=lstart[0], y=lstart[1],
+                                next_uid=3, game_id="t",
+                                trait_seed_hex="00000003", exp_modifier=xpmod)
+    for u in (enemy, spear, lieut):
+        gs.map.units.add(u)
+
+    opps = prospective_opportunities(gs, side=1)
+    lead = [o for o in opps if o.motif == "leadership_setup"]
+    assert lead, [(o.motif, o.attacker_pos, o.mover_pos) for o in opps]
+    o = lead[0]
+    assert o.mover_pos == (lstart[0], lstart[1])
+    assert o.attacker_pos == (A[0], A[1])
+    assert o.gain > 0.0

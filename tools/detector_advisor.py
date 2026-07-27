@@ -273,12 +273,81 @@ def prospective_backstab_opportunities(
     return opps
 
 
+def prospective_leadership_opportunities(
+    gs: GameState, side: Optional[int] = None,
+) -> List[AdviceOpportunity]:
+    """Own attacker adjacent to an attackable enemy, NOT currently under
+    leadership, with a higher-level leadership ally that can reach a free
+    hex adjacent to the attacker this turn -> moving that leader adjacent
+    first activates the +25%/level leadership bonus (a Tier-1 certificate,
+    DP-verified). Same shape as backstab; cheap (DP + reach)."""
+    from tools.swap_detector import (
+        _unit_at, hex_neighbors, enumerate_attack_outcomes,
+        compare_distributions, Verdict, _reach, _marginal, ATTACK_DIMS,
+        _has_leadership, _unit_level)
+    from tools.abilities import leadership_bonus
+    side = side if side is not None else gs.global_info.current_side
+    own = [u for u in gs.map.units if u.side == side]
+    leaders = [u for u in own
+               if _has_leadership(u.name) and int(u.current_moves) > 0]
+    if not leaders:
+        return []
+    enemy_hp = next(d for d in ATTACK_DIMS if d.name == "enemy_hp")
+    opps: List[AdviceOpportunity] = []
+    for u in own:
+        if leadership_bonus(u, gs.map.units) != 0:      # already boosted
+            continue
+        adj_enemy = next(
+            ((ex, ey) for (ex, ey) in hex_neighbors(u.position.x, u.position.y)
+             if (e := _unit_at(gs, (ex, ey))) is not None and e.side != side),
+            None)
+        if adj_enemy is None:
+            continue
+        free_adj = [h for h in hex_neighbors(u.position.x, u.position.y)
+                    if _unit_at(gs, h) is None
+                    and 0 <= h[0] < gs.map.size_x and 0 <= h[1] < gs.map.size_y]
+        u_lvl = _unit_level(u.name)
+        for lead in leaders:
+            if lead.id == u.id or _unit_level(lead.name) <= u_lvl:
+                continue
+            r = _reach(gs, lead)
+            dest = next((h for h in free_adj if h in r.landable), None)
+            if dest is None:
+                continue
+            action = {"type": "attack", "start_hex": u.position,
+                      "target_hex": Position(adj_enemy[0], adj_enemy[1]),
+                      "attack_index": 0}
+            d_base = enumerate_attack_outcomes(gs, action,
+                                               advancement_choice="uniform")
+            if d_base is None:
+                continue
+            g2 = _copy.deepcopy(gs)
+            ph = _copy.deepcopy(lead)
+            ph.position = Position(dest[0], dest[1])
+            ph.id = "adv_phantom_leader"
+            g2.map.units.add(ph)
+            d_cand = enumerate_attack_outcomes(g2, action,
+                                               advancement_choice="uniform")
+            if d_cand is None or compare_distributions(d_base, d_cand).verdict \
+                    is not Verdict.STRICTLY_BETTER:
+                continue
+            base_e = sum(v * p for v, p in _marginal(d_base, enemy_hp.value).items())
+            cand_e = sum(v * p for v, p in _marginal(d_cand, enemy_hp.value).items())
+            opps.append(AdviceOpportunity(
+                "leadership_setup",
+                (lead.position.x, lead.position.y), dest, adj_enemy,
+                (u.position.x, u.position.y), max(0.0, base_e - cand_e)))
+            break                                       # one leader per attacker
+    opps.sort(key=lambda o: (o.attacker_pos, o.dest_pos, o.mover_pos))
+    return opps
+
+
 def prospective_opportunities(
     gs: GameState, side: Optional[int] = None,
 ) -> List[AdviceOpportunity]:
-    """All Tier-1 decision-time opportunities. (Backstab only for now;
-    leadership_setup is the next motif -- same shape.)"""
-    return prospective_backstab_opportunities(gs, side)
+    """All Tier-1 decision-time opportunities (backstab + leadership setups)."""
+    return (prospective_backstab_opportunities(gs, side)
+            + prospective_leadership_opportunities(gs, side))
 
 
 def opportunities_to_features(encoded, opps: List[AdviceOpportunity]):

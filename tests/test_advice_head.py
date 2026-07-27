@@ -145,3 +145,28 @@ def test_reforward_advice_gives_advice_gradients():
     assert model.advice_out.weight.grad.abs().sum() > 0
     assert model.advice_motif_embed.weight.grad is not None
     assert model.advice_feat_proj.weight.grad is not None
+
+
+def test_batched_advice_equals_per_sample():
+    """forward_batch's batched advice path == per-sample forward: advice
+    refines the same actors, the key mask excludes pads, and no-advice rows
+    (all-masked keys) contribute nothing without NaN. Mixed advice lengths
+    (2 / none / 3) with an ACTIVE advice_out."""
+    enc, gs = _encoded()
+    model = WesnothModel(advice=True, **_ARCH).eval()
+    with torch.no_grad():
+        model.advice_out.weight.normal_(0.0, 0.3)
+        model.advice_out.bias.normal_(0.0, 0.3)
+    d = _ARCH["d_model"]
+    e0 = enc.encode(gs); e0.advice_tokens = torch.randn(1, 2, d)
+    e1 = enc.encode(gs)                                   # no advice
+    e2 = enc.encode(gs); e2.advice_tokens = torch.randn(1, 3, d)
+    encs = [e0, e1, e2]
+    with torch.no_grad():
+        batched = model.forward_batch(encs)
+        per = [model.forward(e) for e in encs]
+    for b, p in zip(batched, per):
+        assert torch.allclose(b.actor_logits, p.actor_logits, atol=1e-5), \
+            (b.actor_logits - p.actor_logits).abs().max()
+        assert torch.allclose(b.target_logits, p.target_logits, atol=1e-5)
+        assert torch.allclose(b.value, p.value, atol=1e-5)
