@@ -81,34 +81,37 @@ Deferred improvement items (build after the MVP validates the pipeline):
   `--reset-decision-step` semantics + the combat-oracle anneal precedent);
   tune the rate + tier weights in `configs/`.
 
-## NEXT INCREMENT (2026-07-24) — swap detector: wire full-reconstruction generators
+## swap detector: full-reconstruction generators (mostly OBE 2026-07-25)
 
-The distributional side-turn verifier is built, proven faithful, and now
-resolves advancement (`tools/swap_detector.py`: `enumerate_children_via_sim`
-+ `reconstruct_side_turn_dist` + `compare_state_distributions`; the
-enumerator drives the sim's own `_apply_command` with a scripted hit/miss
-RNG, DP-parity-tested WITH and WITHOUT `advancement_choice="uniform"`). It
-reconstructs the EXACT joint over a window's combats — including uniform
-advancement — and compares full end-state distributions.
+Reassessed while wiring the online signal. The framing "consume
+`compare_state_distributions` in the offline generators" turned out to be
+largely the wrong lever for the CURRENT motifs, because the point is the
+ONLINE signal (prospective advisor + learnable gate), not offline verdicts:
 
-What's left is to CONSUME it in generators:
+- **`strong_attacker_first` -> ONLINE, DONE 2026-07-25.** It's a BANKING
+  motif: the value is in the runner-up's banked action, and its final
+  positions differ, so `compare_state_distributions` (conservative pure-
+  position) returns INCOMPARABLE by design -- full reconstruction adds
+  nothing over the P(kill) heuristic. The right realization is the online
+  Tier-2 advice motif (`prospective_strong_attacker_first_opportunities`),
+  which is in and gate-weighted.
+- **`village_first` -- NOT a reorder; reclassify.** Village capture is
+  order-independent within a turn (it happens when the unit LANDS on the
+  village, regardless of when that move is sequenced), so there is no
+  "capture earlier" reordering to detect. The useful version is a
+  MISSED-MOVE / assignment signal ("this unit could take that village and
+  isn't") -- a different detector category from the reorder detector, worth
+  its own design if we want it online.
+- **Still genuinely open (validation, low priority):** upgrade the
+  CERTIFICATE offline generators (`backstab_setup` / `leadership_setup`)
+  from single-attack `_verify_reorder` to full-side-turn reconstruction
+  (catches side effects on other units), and lift the (pos,MP) criterion
+  into the distributional rollup (reachability depends on which enemies
+  died -> needs care; pure-position is the conservative stand-in). These
+  strengthen OFFLINE analysis; they don't change the online signal.
 
-1. `strong_attacker_first` / `village_first` — reconstruct the two
-   orderings and verify via `compare_state_distributions`. These need the
-   pure-position dimension to be '=' (same final hexes) for a product-order
-   verdict; XP-reallocating cases (strong_attacker_first) will land
-   INCOMPARABLE under product order and want the lex views (existence>XP>HP
-   etc.) to fire — so a lex-view rollup over the same per-dimension vector
-   is the companion piece.
-2. OPTIONAL: upgrade `backstab_setup` / `leadership_setup` from the
-   single-attack `_verify_reorder` to full-side-turn reconstruction
-   (strictly stronger — catches side effects on other units). Now
-   non-regressive since advancement is handled.
-3. The (pos,MP) reachability criterion is currently only in
-   `compare_states` (concrete states) / per-branch banking; lifting it
-   into the DISTRIBUTIONAL rollup needs care (reachability depends on the
-   stochastic board — which enemies died), so the distributional path uses
-   conservative pure-position for now.
+Online advice motifs now: backstab_setup + leadership_setup (Tier-1
+certificates) + strong_attacker_first (Tier-2 banking).
 
 ## LIMITATION (user, 2026-07-24) — swap detector: identical units near each other can confound reorder matching
 
