@@ -10,17 +10,18 @@ deliberately (exp management). Approved MVP = Tier-1 certificates only,
 cheap ΔV arbiter (value net on the reconstructed end-state distribution),
 input-feature + ΔV-weighted distillation (NO new reward term).
 
-**NEXT (2026-07-25): trainer reforward advice (gate learning).** The
-acting side is wired + validated + profiled (behind `--mcts-advice`), but
-the signal is INERT: `advice_out` is zero-init and the trainer's batched
-reforward doesn't attach advice tokens, so the gate/advice_out get no
-gradient. To make the gate learn: store each decision's opportunities
-(POSITIONS + motif + gain -- NOT indices, `gs.map.units` set order isn't
-stable) in the MCTSExperience; at reforward re-resolve via
-`opportunities_to_features` + `model.build_advice_tokens`; add a
-key-padding mask to `advice_attn` for the batched variable-length case.
-Touches the training hot loop -> focused pass + full slow tier. See
-docs/detector_training_signal.md "Build status".
+**DONE (2026-07-25): the detector training signal is fully wired -- the
+gate learns.** Acting side (root advice) + learning side (trainer reforward
+advice) both in, behind `--mcts-advice` (zero-init graft; advice-free
+training byte-unchanged). Remaining are non-blocking follow-ups:
+- **Batched advice in `model.forward_batch`** (perf): advice-carrying B>1
+  chunks fall back to per-sample forward; a padded-advice + key-mask kernel
+  batches them for advice-dense CUDA training.
+- **Run the full slow tier** (`pytest -m ""`) before a real advice campaign
+  -- the dev machine kept sleeping mid-run, so it hasn't gone clean-through
+  (fast tier is green, 563).
+- **leadership_setup prospective motif** -- the prospective advisor covers
+  backstab_setup only; leadership is the same shape.
 
 Offline validation (2026-07-25, `tools/validate_advisor.py` on
 tier_a_campaign_final over the 19 HF games) surfaced two concrete items,

@@ -215,19 +215,28 @@ time) -> MCTS root `_expand(advice=)` -> config/CLI/checkpoint round-trip.
   advice path ON, a full game rolled + a train_step ran + the checkpoint
   saved. No crashes.
 
-**Remaining: the trainer reforward advice (gate learning).** The signal is
-wired but currently INERT: `advice_out` is zero-init, and the trainer's
-(batched) reforward does not yet attach advice tokens, so `advice_out`/gate
-get no gradient and stay at zero -> advice contributes nothing. To make the
-gate LEARN, the reforward forward must include advice tokens so `advice_out`
-gets a policy-loss gradient (it bootstraps first; the gate follows once
-`advice_out != 0`). Plan: store each decision's opportunities (POSITIONS +
-motif + gain, not indices -- `gs.map.units` set order isn't stable) in the
-MCTSExperience; at reforward re-resolve them against the re-encoded frame
-(`opportunities_to_features`) and build advice tokens; handle the batched
-variable-length advice with a key-padding mask in `advice_attn`. This
-touches the training hot loop, so it is a focused pass with the full slow
-tier -- deliberately NOT rushed at the tail of the wiring.
+**Learning side DONE -- the gate learns.** The trainer's MCTS policy-loss
+reforward rebuilds each sample's prospective advice tokens (grad ON) from
+its stored `game_state` and attaches them, so the advice cross-attn gets a
+policy-loss gradient: `advice_out` bootstraps first (its grad
+= gate*attn_out is non-zero even at zero-init), the gate follows once
+`advice_out != 0`. Deterministic from the state (same advisor as acting)
+and re-resolved against the reforward's own encoding frame, so grounding
+indices are self-consistent (no reliance on unstable `gs.map.units` set
+order). `has_advice`-gated -> advice-free training is byte-unchanged.
+Validated: `advice_out` bootstraps (non-zero grad from zero-init) and the
+full reforward path reaches the advice params (tests); an end-to-end local
+MCTS iteration ran a train_step without crashing.
+
+**Follow-ups (not blockers):**
+- **Batched advice in `forward_batch`.** For B>1, chunks that carry advice
+  fall back to per-sample forward (correct, just slower). Advice is rare so
+  most chunks stay batched; a padded-advice + key-mask kernel is the perf
+  optimization for advice-dense CUDA training.
+- **Full slow tier before a real advice campaign.** The fast tier is green
+  (563); the slow e2e tier hasn't been run clean-through (the dev machine
+  kept sleeping mid-run). Run `pytest -m ""` before launching an advice
+  training run.
 
 ## Risks / open questions
 
