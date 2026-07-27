@@ -192,19 +192,22 @@ def advice_signals(st: SideTurn, value_fn: ValueFn, *,
 # encoder advice tokens the model conditions on (with its learnable gate).
 
 # Motif -> id for the model's advice_motif_embed (must stay < N_ADVICE_MOTIFS).
-ADVICE_MOTIF_IDS = {"backstab_setup": 0, "leadership_setup": 1}
+ADVICE_MOTIF_IDS = {
+    "backstab_setup": 0, "leadership_setup": 1, "strong_attacker_first": 2}
 
 
 @dataclass
 class AdviceOpportunity:
-    """One decision-time setup opportunity: doing the setup move (mover ->
-    dest) now would enable a Tier-1 certificate for attacker -> target."""
+    """One decision-time opportunity: preferring the advised action (ground
+    it on `mover_pos` -> `dest_pos`) now would enable a certificate (Tier-1)
+    or a banking gain (Tier-2). `tier` and `motif` let the model weight it."""
     motif:        str
-    mover_pos:    Tuple[int, int]     # the setup move's mover, current hex
-    dest_pos:     Tuple[int, int]     # the setup move's destination hex
-    target_pos:   Tuple[int, int]     # the enemy the setup helps attack
+    mover_pos:    Tuple[int, int]     # the action's actor, current hex
+    dest_pos:     Tuple[int, int]     # the action's destination / target hex
+    target_pos:   Tuple[int, int]     # the enemy involved
     attacker_pos: Tuple[int, int]     # the attacker that gains
-    gain:         float               # expected enemy-HP drop (certificate mag)
+    gain:         float               # motif-specific magnitude (see each gen)
+    tier:         int = 1             # 1 = product certificate, 2 = banking
     delta_v:      Optional[float] = None
 
 
@@ -342,12 +345,64 @@ def prospective_leadership_opportunities(
     return opps
 
 
+def prospective_strong_attacker_first_opportunities(
+    gs: GameState, side: Optional[int] = None,
+) -> List[AdviceOpportunity]:
+    """Two+ own units can attack the SAME enemy this turn; leading with the
+    one most likely to SOLO-kill it banks the other's action on the kill
+    branch. Advise attacking with the higher-solo-kill unit. TIER-2 banking
+    motif (product-incomparable -- it trades the banked unit's action/XP, so
+    the learnable gate decides trust; this is exactly the exp-management case
+    the gate exists for). gain = P(best solo-kills) x (runner-up's MP)."""
+    from tools.swap_detector import (
+        hex_neighbors, enumerate_attack_outcomes)
+    side = side if side is not None else gs.global_info.current_side
+    own_can_act = [u for u in gs.map.units
+                   if u.side == side and int(u.current_moves) > 0]
+    enemies = [u for u in gs.map.units if u.side != side]
+    opps: List[AdviceOpportunity] = []
+    for e in enemies:
+        adj = set(hex_neighbors(e.position.x, e.position.y))
+        attackers = [u for u in own_can_act
+                     if (u.position.x, u.position.y) in adj]
+        if len(attackers) < 2:
+            continue
+        scored = []
+        for u in attackers:
+            action = {"type": "attack", "start_hex": u.position,
+                      "target_hex": e.position, "attack_index": 0}
+            d = enumerate_attack_outcomes(gs, action,
+                                          advancement_choice="uniform")
+            if d is None:
+                continue
+            p_kill = sum(p for k, p in d.probs.items() if k[1] <= 0)
+            scored.append((p_kill, u))
+        if len(scored) < 2:
+            continue
+        scored.sort(key=lambda t: -t[0])
+        (best_p, best_u), (second_p, second_u) = scored[0], scored[1]
+        if best_p <= second_p + 1e-6:               # no clearly better lead
+            continue
+        opps.append(AdviceOpportunity(
+            "strong_attacker_first",
+            (best_u.position.x, best_u.position.y),      # actor to attack with
+            (e.position.x, e.position.y),                # its target
+            (e.position.x, e.position.y),
+            (best_u.position.x, best_u.position.y),
+            gain=best_p * int(second_u.current_moves), tier=2))
+    opps.sort(key=lambda o: (o.attacker_pos, o.dest_pos, o.mover_pos))
+    return opps
+
+
 def prospective_opportunities(
     gs: GameState, side: Optional[int] = None,
 ) -> List[AdviceOpportunity]:
-    """All Tier-1 decision-time opportunities (backstab + leadership setups)."""
+    """All decision-time advice opportunities: Tier-1 certificates (backstab
+    + leadership setups) and Tier-2 banking motifs (strong_attacker_first).
+    The model's per-motif embedding + learnable gate weight each."""
     return (prospective_backstab_opportunities(gs, side)
-            + prospective_leadership_opportunities(gs, side))
+            + prospective_leadership_opportunities(gs, side)
+            + prospective_strong_attacker_first_opportunities(gs, side))
 
 
 def opportunities_to_features(encoded, opps: List[AdviceOpportunity]):
@@ -368,7 +423,8 @@ def opportunities_to_features(encoded, opps: List[AdviceOpportunity]):
             continue
         dv = 0.0 if o.delta_v is None else float(o.delta_v)
         motif_ids.append(mid)
-        feats.append([1.0, float(o.gain), dv, 0.0 if o.delta_v is None else 1.0])
+        feats.append([float(o.tier), float(o.gain), dv,
+                      0.0 if o.delta_v is None else 1.0])
         muidx.append(ui)
         dhidx.append(hi)
     return (torch.tensor(motif_ids, dtype=torch.long, device=dev),

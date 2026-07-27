@@ -229,3 +229,43 @@ def test_prospective_leadership_opportunity():
     assert o.mover_pos == (lstart[0], lstart[1])
     assert o.attacker_pos == (A[0], A[1])
     assert o.gain > 0.0
+
+
+def test_prospective_strong_attacker_first():
+    """Two own units adjacent to a killable enemy; the advisor advises
+    leading with the higher-solo-kill unit (the Grunt, not the Thief) as a
+    Tier-2 banking opportunity."""
+    from tools.detector_advisor import prospective_opportunities
+    from tools.swap_detector import hex_neighbors
+    from sim_test_helpers import fresh_scenario_sim
+    from tools.replay_dataset import _build_recruit_unit
+
+    sim = fresh_scenario_sim(seed=9, max_turns=10,
+                             scenario_id="multiplayer_The_Freelands")
+    gs = sim.gs
+    gs.map.units.clear()
+    gs.global_info.current_side = 1
+    xpmod = int(getattr(gs.global_info, "_experience_modifier", 100) or 100)
+    dx, dy = 12, 12
+    nb = [h for h in hex_neighbors(dx, dy)
+          if 0 <= h[0] < gs.map.size_x and 0 <= h[1] < gs.map.size_y]
+    A1, A2 = nb[0], nb[1]
+    wc = _build_recruit_unit("Walking Corpse", side=2, x=dx, y=dy, next_uid=1,
+                             game_id="t", trait_seed_hex="00000001",
+                             exp_modifier=xpmod)
+    thief = _build_recruit_unit("Thief", side=1, x=A1[0], y=A1[1], next_uid=2,
+                                game_id="t", trait_seed_hex="00000002",
+                                exp_modifier=xpmod)
+    grunt = _build_recruit_unit("Orcish Grunt", side=1, x=A2[0], y=A2[1],
+                                next_uid=3, game_id="t",
+                                trait_seed_hex="00000003", exp_modifier=xpmod)
+    for u in (wc, thief, grunt):
+        gs.map.units.add(u)
+
+    opps = prospective_opportunities(gs, side=1)
+    saf = [o for o in opps if o.motif == "strong_attacker_first"]
+    assert saf, [(o.motif, o.mover_pos) for o in opps]
+    o = saf[0]
+    assert o.tier == 2
+    assert o.mover_pos == (grunt.position.x, grunt.position.y)   # lead the Grunt
+    assert o.gain > 0.0
