@@ -14,14 +14,15 @@ input-feature + ΔV-weighted distillation (NO new reward term).
 gate learns.** Acting side (root advice) + learning side (trainer reforward
 advice) both in, behind `--mcts-advice` (zero-init graft; advice-free
 training byte-unchanged). Remaining are non-blocking follow-ups:
-- **Batched advice in `model.forward_batch`** (perf): advice-carrying B>1
-  chunks fall back to per-sample forward; a padded-advice + key-mask kernel
-  batches them for advice-dense CUDA training.
+- ~~Batched advice in `model.forward_batch`~~ **DONE 2026-07-25**:
+  padded-advice + key-mask batched path, proven equal to per-sample forward
+  (test_advice_head). No more per-sample fallback for advice-dense chunks.
 - ~~Run the full slow tier before a real advice campaign~~ **DONE
   2026-07-25**: full suite green -- 563 fast + 10 slow (run in groups to
   dodge the sleeping dev box) = 573 passed, 2 skipped, 0 failed.
-- **leadership_setup prospective motif** -- the prospective advisor covers
-  backstab_setup only; leadership is the same shape.
+- ~~leadership_setup prospective motif~~ **DONE 2026-07-25**: the
+  prospective advisor now covers backstab + leadership setups (DP-verified,
+  gain-scored, tested). Banking-tier motifs remain (deferred set below).
 - **Run an actual `--mcts-advice` training campaign** -- the signal is built
   + fully tested but UNPROVEN on real games; a campaign is what shows the
   gate learns and whether advice moves Elo. (Needs a box -> user launches.)
