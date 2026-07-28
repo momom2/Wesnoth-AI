@@ -20,7 +20,7 @@ the tool takes optimizer steps and reports whether ||advice_out|| grows off
 zero and whether the rest of the path then starts receiving gradient.
 
 Usage:
-  python -m tools.measure_advice_gradient --checkpoint training/checkpoints/tier_a_campaign_final.pt
+  python -m tools.measure_advice_gradient --checkpoint training/checkpoints/tier_a_campaign_20260719.pt
   python -m tools.measure_advice_gradient --fresh --states 400 --grad-states 12 --steps 3
 """
 from __future__ import annotations

@@ -41,7 +41,7 @@ training byte-unchanged). Remaining are non-blocking follow-ups:
   gate learns and whether advice moves Elo. (Needs a box -> user launches.)
 
 Offline validation (2026-07-25, `tools/validate_advisor.py` on
-tier_a_campaign_final over the 19 HF games) surfaced two concrete items,
+tier_a_campaign_20260713 over the 19 HF games) surfaced two concrete items,
 plus the earlier deferred set:
 
 - **delta_v scale / temperature for the coupling weight** (validation).

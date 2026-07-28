@@ -172,7 +172,7 @@ an enhancement over gain-vector-only tokens.
    `max(0, ΔV)` (learned gate deferred), config-gated + annealed.
 4. **Readability trace**: per-game log of findings / ΔV / followed.
 
-## Offline validation results (2026-07-25, tier_a_campaign_final)
+## Offline validation results (2026-07-25, tier_a_campaign_20260713)
 
 `tools/validate_advisor.py` over the 19 HF ladder games with the tier_a
 value net. Findings that shaped the design:
@@ -210,7 +210,7 @@ time) -> MCTS root `_expand(advice=)` -> config/CLI/checkpoint round-trip.
   adds **~0 ms** on a plain state (no backstab-weapon unit -> the pre-check
   is free) and **~3 ms** on a state with a setup (the DP verification).
   Root-only + rare -> negligible next to a decision's 16-200 leaf forwards.
-- **Validation** (short MCTS self-play, warm-start tier_a_campaign_final):
+- **Validation** (short MCTS self-play, warm-start tier_a_campaign_20260713):
   the graft loaded with 12 missing `advice_*` keys / 0 unexpected (clean),
   advice path ON, a full game rolled + a train_step ran + the checkpoint
   saved. No crashes.
