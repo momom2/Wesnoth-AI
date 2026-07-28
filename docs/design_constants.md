@@ -176,3 +176,44 @@ card/model combination. A residual OOM (a single-step jump past
 2 GiB) is caught in `run_iteration`'s train_step retry: empty
 cache, HARD-demote one worker (process kill frees its ~300 MB CUDA
 context; costs that worker's one in-flight game), retry once.
+
+## Gumbel q-transform: `c_visit = 50`, `c_scale = 0.1`, rescale to [0,1]
+
+`tools/mcts.py` — `_gumbel_sigma` / `_rescale_q`, consumed by BOTH
+sequential-halving selection and `extract_gumbel_policy_target`.
+
+    sigma(q) = (c_visit + max_b N(b)) * c_scale * rescale(q)
+    rescale(q) = (q - min q) / max(max q - min q, 1e-8)     -> [0, 1]
+
+**Where the numbers come from.** They are the reference implementation's
+defaults, not free knobs: DeepMind's `mctx`
+(`_src/qtransforms.py::qtransform_completed_by_mix_value`) ships
+`value_scale=0.1`, `maxvisit_init=50.0`, `rescale_values=True`, and
+`_rescale_qvalues` min-maxes the completed-Q vector into [0,1]. Verified
+against the source 2026-07-28.
+
+**Why the rescale is load-bearing (not cosmetic).**
+
+1. *Bounded sharpening.* The logit spread sigma can contribute is exactly
+   `c_scale * (c_visit + max_N)` — about **8.2** at 32 sims — regardless of
+   whether this node's raw Q values span 0.02 or 2.0. Without it, sharpening
+   is at the mercy of the value head's current scale.
+2. *Offset invariance.* Adding a constant to every Q leaves the target
+   unchanged. This matters concretely: a side-to-move bias in the value head
+   was measured drifting 0.06 -> 0.37 over ~1M decision steps, which without
+   the rescale becomes a ~30-logit shove on every cross-turn comparison.
+
+**The bug this replaced (2026-07-28).** We ran the PAPER's `c_scale = 1.0`
+on RAW q in [-1, 1] with no rescale — the paper's constant without the
+paper's normalization. That multiplies Q differences by `(50 + max_N)`
+≈ 50-82, saturating the softmax: the distillation target became a near
+one-hot label, so every iteration distilled `argmax` rather than a policy
+improvement. Measured on the live campaign: an action whose PRIOR was ~0.16
+received target mass **0.000-0.002 across four independent searches** of the
+same state, while `end_turn` was inflated from a ~0.10 prior to 0.43-1.00
+target. That is a systematic teaching signal, and it tracked the observed
+collapse in recruiting (prior p90 mass 0.48 -> 0.30 over the regressing leg).
+
+Guarded by `tests/test_gumbel_qtransform.py` (reference defaults, unit
+interval, softer-than-old, offset invariance, monotonicity). `MCTSConfig.
+gumbel_rescale_q` exists only as an A/B escape hatch.

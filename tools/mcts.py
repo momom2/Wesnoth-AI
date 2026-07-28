@@ -312,11 +312,24 @@ class MCTSConfig:
     # instead of an implicit zero, so no simulation is wasted.
     # Interior nodes keep PUCT + FPU (the paper's interior variant
     # is a smaller win; documented divergence).
-    # sigma(q) = (c_visit + max_b N(b)) * c_scale * q, paper defaults.
+    # sigma(q) = (c_visit + max_b N(b)) * c_scale * rescale(q).
+    # c_scale=0.1 + the min-max rescale MATCH THE REFERENCE
+    # IMPLEMENTATION (mctx qtransform_completed_by_mix_value:
+    # value_scale=0.1, maxvisit_init=50, rescale_values=True).
+    # 2026-07-28: we previously ran c_scale=1.0 on RAW q in [-1,1] with
+    # no rescale -- the paper's constant without the paper's
+    # normalization -- which multiplied Q differences by ~50-80 and
+    # collapsed the distillation target to near-one-hot (measured:
+    # recruit target mass 0.000-0.002 across independent searches while
+    # its prior was ~0.16). See docs/design_constants.md.
     gumbel_root:    bool  = True
     gumbel_m:       int   = 16
     gumbel_c_visit: float = 50.0
-    gumbel_c_scale: float = 1.0
+    gumbel_c_scale: float = 0.1
+    # Min-max the node's completed-Q into [0,1] before sigma. Also buys
+    # OFFSET INVARIANCE: a drifting value baseline (side-to-move bias)
+    # can no longer shift the target. Escape hatch for A/B only.
+    gumbel_rescale_q: bool = True
 
     # Chance nodes for stochastic actions (combat, recruit traits).
     # When ON, every traversal of a stochastic edge re-forks the
@@ -1467,10 +1480,37 @@ def _run_sim_batch(
     return completed
 
 
-def _gumbel_sigma(q: float, max_visits: float, config: MCTSConfig) -> float:
-    """The paper's monotone Q transform: sigma(q) =
-    (c_visit + max_b N(b)) * c_scale * q. Scaling by the visit count
-    keeps logits and Q commensurate as the search deepens."""
+def _rescale_q(qs: np.ndarray) -> np.ndarray:
+    """Min-max the node's completed-Q vector into [0, 1] -- a port of
+    mctx `_rescale_qvalues` (qtransforms.py, `rescale_values=True` by
+    default). Two properties matter and both are load-bearing:
+
+      * SCALE: the logit spread contributed by sigma is bounded by
+        (c_visit + max_N) * c_scale, independent of how wide or narrow
+        this node's raw Q values happen to be.
+      * OFFSET INVARIANCE: adding a constant to every Q leaves the
+        target unchanged, so a drifting value baseline (e.g. a
+        side-to-move bias) cannot distort the policy target.
+
+    See docs/design_constants.md "Gumbel q-transform".
+    """
+    lo = float(np.min(qs))
+    hi = float(np.max(qs))
+    return (qs - lo) / max(hi - lo, 1e-8)
+
+
+def _gumbel_sigma(qs: np.ndarray, max_visits: float,
+                  config: MCTSConfig) -> np.ndarray:
+    """The monotone Q transform sigma(q) = (c_visit + max_b N(b)) *
+    c_scale * q, applied to the node's WHOLE Q vector so the rescale
+    has the min/max it needs.
+
+    Takes and returns an array (not a scalar): min-max rescaling is a
+    property of the node, not of one action.
+    """
+    q = np.asarray(qs, dtype=np.float64)
+    if config.gumbel_rescale_q:
+        q = _rescale_q(q)
     return (config.gumbel_c_visit + max_visits) * config.gumbel_c_scale * q
 
 
@@ -1506,7 +1546,11 @@ def _gumbel_root_search(
     cands: List[int] = list(np.argsort(-base)[:m])
 
     def _score(ci: int, max_v: float) -> float:
-        return base[ci] + _gumbel_sigma(edges[ci].q_value, max_v, config)
+        # Recomputed per call: q_values move as sims accumulate, and the
+        # rescale needs the node's CURRENT min/max. O(edges) against a
+        # backdrop of model forwards -- immaterial.
+        qs = np.array([e.q_value for e in edges], dtype=np.float64)
+        return base[ci] + float(_gumbel_sigma(qs, max_v, config)[ci])
 
     # Batched leaf evaluation: when batch_size > 1 (GPU), evaluate each
     # phase's sims through one model.forward_batch with virtual loss
@@ -1821,8 +1865,11 @@ def extract_gumbel_policy_target(
 
     max_v = float(visits.max()) if len(visits) else 0.0
     completed_q = np.where(visited, qs, v_mix)
-    t = logits + (config.gumbel_c_visit + max_v) \
-        * config.gumbel_c_scale * completed_q
+    # Same transform as the sequential-halving selection (_gumbel_sigma),
+    # so search and target agree. The rescale is what keeps this a SOFT
+    # target: without it, raw Q in [-1,1] times a ~50-80 visit factor
+    # saturates the softmax into a near-one-hot label.
+    t = logits + _gumbel_sigma(completed_q, max_v, config)
     t -= t.max()
     p = np.exp(t)
     p /= p.sum()
