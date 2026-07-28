@@ -313,9 +313,30 @@ echo "[onstart] fd limit: $(ulimit -n)"
 # overnight campaign's effective mix was unrecoverable from the repo
 # -- env overrides lived only on the box; one echo makes every
 # future run's distribution auditable from the escrowed log alone).
-echo "[onstart] training mix: midgame=${MIDGAME_RATIO:-0.2}" \
-     "mini=${MINI_RATIO:-0.2} drill=${DRILL_RATIO:-0.0}" \
-     "fogless=${FOGLESS_RATIO:-0.2} ladder=${LADDER_RATIO:-0.4}" \
+# The five scenario-mix ratios MUST sum to 1 or sim_self_play exits rc=2.
+# They used to be five independent env vars whose DEFAULTS happened to sum
+# to 1, so changing any single one (e.g. DRILL_RATIO=0 after the drills were
+# retired) silently produced 0.95 and an unbootable box -- the supervisor
+# then relaunched into the same error 20 times. Derive LADDER as the
+# remainder so any single-ratio change is valid by construction; an
+# explicit LADDER_RATIO still wins, and an over-subscribed mix fails loudly
+# here rather than 20 relaunches deep.
+MIDGAME_RATIO="${MIDGAME_RATIO:-0.2}"
+MINI_RATIO="${MINI_RATIO:-0.2}"
+DRILL_RATIO="${DRILL_RATIO:-0.0}"
+FOGLESS_RATIO="${FOGLESS_RATIO:-0.2}"
+if [ -z "${LADDER_RATIO:-}" ]; then
+    LADDER_RATIO=$("$PY" -c "r = round(1.0 - ($MIDGAME_RATIO + $MINI_RATIO + $DRILL_RATIO + $FOGLESS_RATIO), 6); print(r if r >= 0 else 'NEGATIVE')")
+    if [ "$LADDER_RATIO" = "NEGATIVE" ] || [ -z "$LADDER_RATIO" ]; then
+        echo "[onstart] FATAL: mix ratios over-subscribe 1.0 (midgame=$MIDGAME_RATIO"\
+             "mini=$MINI_RATIO drill=$DRILL_RATIO fogless=$FOGLESS_RATIO)"
+        exit 1
+    fi
+fi
+
+echo "[onstart] training mix: midgame=${MIDGAME_RATIO}" \
+     "mini=${MINI_RATIO} drill=${DRILL_RATIO}" \
+     "fogless=${FOGLESS_RATIO} ladder=${LADDER_RATIO}" \
      >> "$WORKDIR/train.log"
 # moves-left parked ENTIRELY (user 2026-07-21, "the training
 # signal is already complicated enough"): neither the -0.2*Q*M
@@ -342,9 +363,9 @@ nohup bash -c "
       --replay-buffer --replay-updates 16 --value-coef 1.0 \
       --replay-minibatch ${REPLAY_MINIBATCH:-128} --replay-capacity 24000 \
       --train-batch-size ${TRAIN_BATCH:-64} --mcts-batch-size 16 \
-      --mini-ratio ${MINI_RATIO:-0.2} --drill-ratio ${DRILL_RATIO:-0.0} \
-      --midgame-ratio ${MIDGAME_RATIO:-0.2} --fogless-ratio ${FOGLESS_RATIO:-0.2} \
-      --ladder-ratio ${LADDER_RATIO:-0.4} \
+      --mini-ratio ${MINI_RATIO} --drill-ratio ${DRILL_RATIO} \
+      --midgame-ratio ${MIDGAME_RATIO} --fogless-ratio ${FOGLESS_RATIO} \
+      --ladder-ratio ${LADDER_RATIO} \
       ${MAX_TURNS:+--max-turns $MAX_TURNS} \
       --max-turns-min ${MAX_TURNS_MIN:-60} \
       --mcts-aux-score \
