@@ -243,8 +243,49 @@ per-drill custom victory/termination conditions, scenario-faithful
 economies, and a measured transfer test (does drill skill move
 ladder Elo?) before giving them mix share again.
 
+## 2026-07-28 — the anti-hoarding fix DID NOT WORK (negative result)
+
+`0df57e2` (2026-07-20 20:43) set `weight_gold=0` in the material margin to
+kill the gold/unit indifference below. It is still in force
+(`configs/draw_tiebreak.json`, `tools/draw_tiebreak.py`, asserted by
+`tests/test_draw_tiebreak.py`). The campaign then trained ~1M further
+decision steps WITH the fix (2.75M @ 07-19 -> 3.74M @ 07-22). Result:
+
+| checkpoint | bank | end gold | recruits/game |
+|---|---|---|---|
+| 07-19 (2.75M, pre-fix)  | 123.5 | 233.7 | 32.0 |
+| 07-22 (3.74M, post-fix) | 132.1 | **352.0** | **29.7** |
+
+(raw policy, 3 shared fogged-ladder seeds, max_turns 30.) Hoarding got
+WORSE, not better: end gold +51%, recruits -7%. And the ladder says that
+same post-fix checkpoint is the weakest of the recent lineage (0-1-3 vs
+each predecessor, `docs/eval_20260728.md` §0). So the
+margin-indifference hypothesis is DISCONFIRMED as the (sole) driver.
+
+**Why the lever was probably always too weak:** `material_margin` feeds
+only (a) MCTS terminal values in SEARCH and (b) the aux head's target. It
+does NOT feed the main value target — since 2026-07-10 draws train toward
+0 (`train_draw_tiebreak` defaults False). So it can only bias drawn-game
+preference and an auxiliary head, which is a thin channel to be driving a
+whole-policy behaviour.
+
+**Worth checking next (do NOT assume, measure):**
+- Whether `weight_gold=0` made hoarding SAFER rather than costlier: gold
+  now scores 0 while a lost unit lowers the margin, so declining to
+  recruit carries no margin penalty at all. That would make the "fix"
+  mildly pro-hoarding, matching the data.
+- Whether hoarding is a SYMPTOM of engagement avoidance (fewer units ->
+  fewer losses -> more draws) rather than a gold-valuation bug. Cross-check
+  against the eng_gold_bank / eng_unused_mp telemetry and the decisiveness
+  rate.
+- Whether recruiting is being blocked mechanically (keep access / castle
+  network) rather than chosen against — separates "won't" from "can't".
+
+Sample caveat: 3 seeds per checkpoint; the direction is consistent across
+all three metrics but the magnitudes are noisy.
+
 ## 2026-07-20 — gold hoarding is LEARNED and REGRESSING; margin
-## indifference between gold and units is the prime suspect
+## indifference between gold and units is the prime suspect (SUPERSEDED — see above)
 
 User observation (demo replays: under-recruiting) quantified, then
 traced. Data:
