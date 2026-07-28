@@ -217,3 +217,18 @@ collapse in recruiting (prior p90 mass 0.48 -> 0.30 over the regressing leg).
 Guarded by `tests/test_gumbel_qtransform.py` (reference defaults, unit
 interval, softer-than-old, offset invariance, monotonicity). `MCTSConfig.
 gumbel_rescale_q` exists only as an A/B escape hatch.
+
+**Two implementation notes.**
+
+*Completed-Q, not raw Q.* Both call sites feed `_completed_q(root, edges)`
+into sigma: visited edges keep their own q, unvisited ones take `v_mix`.
+Using raw `edge.q_value` would inject **0.0** for every unvisited edge, and
+on a node whose visited Q are all negative those zeros anchor the rescale
+window's upper bound — distorting the transform state-dependently. Caught
+in review of 4fecbca; guarded by
+`test_completed_q_uses_v_mix_not_zero_for_unvisited`.
+
+*The escape hatch is not "the old behaviour".* `gumbel_rescale_q=False`
+alone, at the new `c_scale=0.1`, is a THIRD regime (soft but unrescaled).
+To A/B against the pre-2026-07-28 setting you must set BOTH
+`gumbel_rescale_q=False` AND `gumbel_c_scale=1.0`.

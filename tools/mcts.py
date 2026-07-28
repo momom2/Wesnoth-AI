@@ -1499,6 +1499,32 @@ def _rescale_q(qs: np.ndarray) -> np.ndarray:
     return (qs - lo) / max(hi - lo, 1e-8)
 
 
+def _completed_q(root: "MCTSNode", edges) -> np.ndarray:
+    """The node's COMPLETED-Q vector, mctx-style: visited edges keep their
+    own q, unvisited edges fall back to the mixed value estimate v_mix
+    (prior-weighted visited Q blended with the node's own value).
+
+    Shared by sequential-halving selection and target extraction so the two
+    cannot diverge. Using raw `edge.q_value` instead would feed 0.0 for
+    every unvisited edge (see MCTSEdge.q_value) -- on a node whose visited
+    Q are all negative, those zeros would anchor the rescale window's upper
+    bound and distort the transform state-dependently.
+    """
+    priors = np.maximum(
+        np.array([e.prior for e in edges], dtype=np.float64), 1e-12)
+    visits = np.array([float(e.n_visits) for e in edges])
+    qs = np.array([e.q_value for e in edges], dtype=np.float64)
+    visited = visits > 0
+    sum_visits = float(visits.sum())
+    if visited.any():
+        p_vis = priors[visited]
+        weighted_q = float((p_vis * qs[visited]).sum() / p_vis.sum())
+        v_mix = (root.value + sum_visits * weighted_q) / (1.0 + sum_visits)
+    else:
+        v_mix = root.value
+    return np.where(visited, qs, v_mix)
+
+
 def _gumbel_sigma(qs: np.ndarray, max_visits: float,
                   config: MCTSConfig) -> np.ndarray:
     """The monotone Q transform sigma(q) = (c_visit + max_b N(b)) *
@@ -1547,10 +1573,12 @@ def _gumbel_root_search(
 
     def _score(ci: int, max_v: float) -> float:
         # Recomputed per call: q_values move as sims accumulate, and the
-        # rescale needs the node's CURRENT min/max. O(edges) against a
-        # backdrop of model forwards -- immaterial.
-        qs = np.array([e.q_value for e in edges], dtype=np.float64)
-        return base[ci] + float(_gumbel_sigma(qs, max_v, config)[ci])
+        # rescale needs the node's CURRENT min/max. COMPLETED-Q (not raw
+        # q_value) so unvisited edges contribute v_mix rather than 0.0 --
+        # same vector target extraction uses. O(edges) against a backdrop of
+        # model forwards -- immaterial.
+        return base[ci] + float(
+            _gumbel_sigma(_completed_q(root, edges), max_v, config)[ci])
 
     # Batched leaf evaluation: when batch_size > 1 (GPU), evaluate each
     # phase's sims through one model.forward_batch with virtual loss
@@ -1852,19 +1880,9 @@ def extract_gumbel_policy_target(
         np.array([e.prior for e in edges], dtype=np.float64), 1e-12)
     logits = np.log(priors)
     visits = np.array([float(e.n_visits) for e in edges])
-    qs = np.array([e.q_value for e in edges], dtype=np.float64)
-    visited = visits > 0
-
-    sum_visits = float(visits.sum())
-    if visited.any():
-        p_vis = priors[visited]
-        weighted_q = float((p_vis * qs[visited]).sum() / p_vis.sum())
-        v_mix = (root.value + sum_visits * weighted_q) / (1.0 + sum_visits)
-    else:
-        v_mix = root.value
-
     max_v = float(visits.max()) if len(visits) else 0.0
-    completed_q = np.where(visited, qs, v_mix)
+    # Shared with sequential-halving selection -- see _completed_q.
+    completed_q = _completed_q(root, edges)
     # Same transform as the sequential-halving selection (_gumbel_sigma),
     # so search and target agree. The rescale is what keeps this a SOFT
     # target: without it, raw Q in [-1,1] times a ~50-80 visit factor

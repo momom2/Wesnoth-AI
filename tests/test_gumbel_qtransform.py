@@ -109,3 +109,49 @@ def test_monotone_in_q():
     logits = np.log(np.array([0.25, 0.25, 0.25, 0.25]))
     p = _target(logits, np.array([0.3, 0.1, -0.1, -0.3]), 32.0, cfg)
     assert list(np.argsort(-p)) == [0, 1, 2, 3]
+
+
+class _FakeEdge:
+    __slots__ = ("prior", "n_visits", "w_value")
+
+    def __init__(self, prior, n_visits, q):
+        self.prior = prior
+        self.n_visits = n_visits
+        self.w_value = q * n_visits
+
+    @property
+    def q_value(self):
+        return 0.0 if self.n_visits == 0 else self.w_value / self.n_visits
+
+
+class _FakeRoot:
+    def __init__(self, value, edges):
+        self.value = value
+        self.edges = edges
+
+
+def test_completed_q_uses_v_mix_not_zero_for_unvisited():
+    """Regression (found by Fable reviewing 4fecbca): unvisited edges report
+    q_value == 0.0. If the rescale window is built from raw q_value, those
+    zeros anchor the MAX on a node whose visited Q are all negative, which
+    distorts the transform state-dependently. Completed-Q must substitute
+    v_mix instead, matching mctx.
+    """
+    from tools.mcts import _completed_q
+    edges = [_FakeEdge(0.5, 8, -0.40), _FakeEdge(0.3, 4, -0.60)]
+    edges += [_FakeEdge(0.1, 0, 0.0) for _ in range(20)]   # unvisited
+    root = _FakeRoot(value=-0.5, edges=edges)
+    cq = _completed_q(root, edges)
+    assert cq.max() < 0.0, (
+        f"unvisited edges leaked 0.0 into an all-negative node: max={cq.max()}")
+    # visited entries keep their own q
+    assert abs(cq[0] - (-0.40)) < 1e-9 and abs(cq[1] - (-0.60)) < 1e-9
+    # unvisited all share the same v_mix
+    assert len(set(np.round(cq[2:], 12))) == 1
+
+
+def test_completed_q_all_unvisited_falls_back_to_root_value():
+    from tools.mcts import _completed_q
+    edges = [_FakeEdge(0.5, 0, 0.0), _FakeEdge(0.5, 0, 0.0)]
+    root = _FakeRoot(value=0.3, edges=edges)
+    assert np.allclose(_completed_q(root, edges), 0.3)
