@@ -38,7 +38,16 @@ local copy may be stale relative to the Hub.
 | `selfplay_local_20260718.pt`  | 2,299,999 | ladder-comparable to the above |
 | `tier_a_campaign_5h_20260715.pt` | 2,290,529 | |
 | `tier_a_campaign_20260713.pt` | 1,866,523 | was misnamed `_final` |
-| `tier_a_campaign.pt` | (07-03 local copy) | RESERVED pipeline name |
+| `tier_a_campaign.pt` | (07-03 local copy) | RESERVED pipeline name — STALE locally |
+
+**The Hub's `tier_a_campaign.pt` is the SAME checkpoint as
+`tier_a_campaign_20260719.pt`** (decision_step 2,747,117, saved
+2026-07-19 11:28) — verified from the local HF cache
+(`~/.cache/huggingface/hub/models--momom2--wesnoth-tier-a`), not from the
+stale local `tier_a_campaign.pt` (07-03). So a box restart resumes the
+newest lineage whether it uses its own disk copy or re-seeds from HF. Note
+the HF token is provisioned in the Vast instance env, not on the dev
+laptop, so local HF API calls 401 by design.
 
 Measured strength (see `docs/eval_20260728.md`): the 07-19 checkpoint beats
 the 07-13 one 8-0-0 in the sim ladder, but is statistically indistinguishable
