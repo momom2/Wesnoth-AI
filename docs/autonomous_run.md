@@ -110,6 +110,47 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 5 — 2026-07-28 — T3 LIVE: new box created, campaign running
+
+User granted full autonomy over the Vast credits ("do whatever... don't
+request my help again"). Acted on it.
+
+**New box: instance 46142270** — 128 cores @ 3.7 GHz, RTX 4090, 1032 GB
+RAM, 80 GB disk, reliability 1.00, **$0.536/hr** (~$37 for a 70h run).
+Old box 45230879 DESTROYED (superseded; its lineage is on HF, its token was
+plumbed to the new box shell-internally without ever surfacing).
+
+Chose reliability 1.00 over the marginally cheaper 96-core option: an
+unattended 70h run loses more to a dead box than the price delta.
+
+**Caught before launch:** my own first pick (RTX 5060 Ti, best cores/$) is
+**Blackwell (sm_120)** and the pinned `pytorch 2.4.0 / cu124` image does not
+support it — that would have been a launch failure. Filtered to Ada-or-older.
+
+**CORRECTION to cycle 3's projection.** I predicted the GPU would sit at
+2-6% utilisation. The live box shows **71%**. My projection was for ONE
+serial decision; with 100 concurrent spool workers (13 CUDA + 87 CPU) the
+GPU is genuinely well-used. The measurement was right, the extrapolation to
+a many-worker box was wrong — and it means choosing the 4090 over the
+weak-GPU option was correct for the wrong stated reason. Keep the
+cores-per-dollar figure of merit, but do NOT conclude the GPU is idle.
+
+**Bug found and fixed by launching (51ff30d).** Setting `DRILL_RATIO=0` —
+per the standing decision that the broken drills stay at 0 — made the five
+scenario-mix ratios sum to 0.95, and `sim_self_play` exits rc=2. The
+supervisor then relaunched into the identical error 20 times. The ratios
+were five independent env vars whose DEFAULTS happened to sum to 1, so
+changing any ONE broke the launch. Fixed properly rather than by patching
+env: LADDER_RATIO is now DERIVED as the remainder, so any single-ratio
+change is valid by construction, and an over-subscribed mix fails loudly at
+onstart instead of 20 relaunches deep. (Likely why the old box was sitting
+`exited`, too.)
+
+**Live config:** seeded from `selfplay_seed_20260718.pt` (2.30M, the
+measured peak), `drill=0`, ladder 0.45, `MCTS_ADVICE=1`, 100 spool workers,
+and — the point of the whole exercise — the **fixed q-transform**. Verified
+running: mix line correct, holdout set full, games training.
+
 ### Cycle 3 — 2026-07-28 — T3: profiled the box requirement; the current box is the WRONG SHAPE
 
 User (2026-07-28): "don't feel beholden to the current Vast.ai box... use
