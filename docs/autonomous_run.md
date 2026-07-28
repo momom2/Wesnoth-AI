@@ -110,6 +110,70 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 3 — 2026-07-28 — T3: profiled the box requirement; the current box is the WRONG SHAPE
+
+User (2026-07-28): "don't feel beholden to the current Vast.ai box... use
+profiling to determine the characteristics of the box you most want."
+
+**MEASURED — the workload is CPU-bound, not GPU-bound.** One MCTS decision
+(32 sims), real 5M net vs a tiny net that makes the forward ~free:
+
+```
+real 5M net (d256/6L)   9094 ms / decision
+tiny net (forward ~0)    940 ms / decision
+-> CPU side (sim + encode + enumerate + MCTS bookkeeping) = 940 ms
+-> model forward on CPU                                   = 8154 ms (90%)
+```
+
+On a GPU box the forward collapses to ~0.5-2 ms/leaf, i.e. 16-64 ms per
+decision, so:
+
+| GPU leaf time | decision | GPU share | **CPU share** |
+|---|---|---|---|
+| 0.5 ms | 956 ms | 1.7% | **98.3%** |
+| 1.0 ms | 972 ms | 3.3% | **96.7%** |
+| 2.0 ms | 1004 ms | 6.4% | **93.6%** |
+
+**A 4090 sits ~2-6% utilised during rollout.** We are paying for silicon we
+do not use. The figure of merit is CPU throughput per dollar
+(cores x GHz / $), subject to **>= 2 GB RAM per core** — spool workers are
+separate processes, each with its own torch runtime.
+
+**Market scan (50 offers, >=32 effective cores, 1 GPU, <$1.50/hr):**
+
+| cores | GHz | $/hr | GPU | RAM | GB/core | rel | id |
+|---|---|---|---|---|---|---|---|
+| **96** | **3.4** | **0.268** | RTX 5060 Ti | 252 | 2.6 | 1.00 | **33925788** |
+| 80 | 3.6 | 0.283 | RTX 4060 Ti | 252 | 3.1 | 1.00 | 46008923 |
+| 128 | 3.7 | 0.486 | RTX 4090 | 336 | 2.6 | 0.97 | 42902076 |
+| *64* | *?* | *0.500* | *RTX 4090* | *516* | *8.1* | — | *45230879 (current)* |
+
+**DECISION: replace the current box with 33925788** (96 cores @ 3.4 GHz,
+252 GB, RTX 5060 Ti, $0.268/hr, reliability 1.00): **1.5x the cores at 54%
+of the price**, and a GPU still ~20x larger than rollout needs. Backup for
+headroom if T2 lands a bigger net: 42902076 (128 cores @ 3.7 GHz + 4090,
+same price as today's box for 2x the cores). Creating an instance is a
+CREATE, which the user launches, and it needs `-e HF_TOKEN=...` supplied by
+them (env is baked at create time).
+
+**SECOND FINDING, and it matters: `DRILL_RATIO=0.15` on the current box.**
+The standing decision (BACKLOG 2026-07-21) is that the capability drills
+are broken and **DRILL_RATIO stays 0**. The box was created ~2026-07-18,
+BEFORE that verdict, and Vast bakes env at create time — so **the entire
+regressing leg (2.75M -> 3.74M) trained with 15% known-broken drill
+scenarios.** That is a second concrete contributor to the regression,
+independent of the q-transform bug, and it is corrected simply by creating
+the new box with the right env.
+
+Also confirmed: `HF_SEED_FILE=selfplay_seed_20260718.pt` already seeds a
+FRESH instance from the 2.30M checkpoint — the peak region per the ladder
+(2.30M vs 2.75M was 3-1-4, statistically tied). So no upload is needed and
+the new campaign starts from the peak by construction.
+
+Onstart delivery is a thin bootstrap (`scripts/vast_onstart_bootstrap.sh`)
+that git-pulls the real script, so the q-transform fix, the advice signal
+and the telemetry all reach the new box automatically.
+
 ### Cycle 2 — 2026-07-28 — T1 ROOT CAUSE FOUND AND FIXED: the Gumbel q-transform
 
 **Fable found the regression's root cause; I verified and landed it (4fecbca).**
