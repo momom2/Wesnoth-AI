@@ -110,6 +110,53 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 2 — 2026-07-28 — T1 ROOT CAUSE FOUND AND FIXED: the Gumbel q-transform
+
+**Fable found the regression's root cause; I verified and landed it (4fecbca).**
+
+`sigma(q) = (c_visit + max_N) * c_scale * q` ran with `c_scale=1.0` on RAW
+q in [-1,1] and NO rescale. That multiplies Q differences by ~50-82 and
+saturates the softmax, so `extract_gumbel_policy_target` emitted a near
+ONE-HOT label: **every training iteration distilled argmax instead of a
+policy improvement.**
+
+MEASURED (Fable, real box search config, 32 sims, 18 offered-recruit states):
+
+| | 2.75M | 3.74M |
+|---|---|---|
+| recruit prior -> target mass | 0.159 -> 0.142 (**crushed to <=0.006 in 12/18**) | 0.188 -> 0.355 |
+| end_turn prior -> target mass | 0.126 -> **0.278** | 0.174 -> 0.054 |
+
+Repeat probe: recruit target mass **0.000-0.002 across 4 independent
+searches** of the same state — systematic teaching, not noise.
+
+Also measured and worth keeping: the value head is NOT pro-hoarding (it
+moved strongly PRO-recruit, +0.72 by 3.74M, while behaviour hoarded more —
+opposite directions), and the draw-z=0 framing is **disconfirmed** (draws
+were only 4-23% of training games). Both earlier hypotheses are dead; the
+amplifier was the mechanism all along.
+
+**Fix = match the reference, verified against mctx source by me
+independently** (`qtransform_completed_by_mix_value`: value_scale=0.1,
+maxvisit_init=50, rescale_values=True). The subtle part, and how the bug
+survived review: our CONSTANTS were the paper's — what was missing was the
+paper's NORMALIZATION. `_rescale_q` (min-max to [0,1]) + `c_scale=0.1`,
+applied through a vector-valued `_gumbel_sigma` used by BOTH
+sequential-halving selection and target extraction so they cannot drift.
+Buys bounded sharpening (~8.2 logits at 32 sims, independent of the value
+head's scale) and OFFSET INVARIANCE. Full suite green (572 fast + 10 slow);
+derivation in `docs/design_constants.md`; 6 tests in
+`tests/test_gumbel_qtransform.py`.
+
+**Open, flagged to Fable:** the min-max rescale always spans full [0,1], so
+sharpening is uniform across nodes and Q-scale information is discarded.
+That is reference behaviour and I implemented it rather than inventing a
+variant — but it deserves a second opinion.
+
+**Consequence for T3:** the regressing leg was trained under a broken
+target. Seeding the next campaign from the PEAK (2.75M / 2.30M) with this
+fix landed is now the plan, per `docs/eval_20260728.md` §0.
+
 ### Cycle 1 — 2026-07-28 — T2: the scaling constraint is SEQUENCE LENGTH, not parameters
 
 MEASURED (CPU, 4 torch threads, 40 real mid-game states, current 5M net):
