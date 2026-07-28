@@ -339,6 +339,7 @@ nohup bash -c "
       ${MAX_TURNS:+--max-turns $MAX_TURNS} \
       --max-turns-min ${MAX_TURNS_MIN:-60} \
       --mcts-aux-score \
+      ${MCTS_ADVICE:+--mcts-advice} \
       ${AUX_VALUE_BONUS:+--mcts-aux-value-bonus $AUX_VALUE_BONUS} \
       --validate-export-every ${VALIDATE_EXPORT_EVERY:-1} \
       --value-label-smoothing 0.02 \
