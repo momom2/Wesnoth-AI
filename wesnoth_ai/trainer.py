@@ -237,6 +237,22 @@ class TrainStats:
     n_trajectories: int   = 0
     aux_loss:       float = 0.0   # auxiliary margin loss (KataGo §3.5); 0 when off
     moves_left_loss: float = 0.0  # Lc0-style moves-left MSE; 0 when off
+    # Detector-advice telemetry (docs/detector_training_signal.md). The
+    # success metric for a training SIGNAL is whether it delivers GRADIENT,
+    # so a campaign must log it. nan/0 when the advice path is off.
+    #   advice_fire_rate  fraction of this step's states carrying >=1
+    #                     prospective opportunity (offline baseline: 13%)
+    #   advice_opps_mean  mean opportunities per firing state (~1.4)
+    #   advice_grad_share ||g_advice|| / ||g_total|| BEFORE clipping/step
+    #                     (offline zero-init baseline: ~5.7%; the
+    #                     moves-left head sits at ~0.03% as telemetry)
+    #   advice_out_norm   ||advice_out.weight||: the BOOTSTRAP tracker --
+    #                     0 at the zero-init graft, must grow off zero
+    #                     before the rest of the advice path can learn
+    advice_fire_rate:  float = float("nan")
+    advice_opps_mean:  float = float("nan")
+    advice_grad_share: float = float("nan")
+    advice_out_norm:   float = float("nan")
     # Value CE on THIS iteration's incoming games, measured BEFORE any
     # gradient step touched them (nan when unavailable). Distribution-
     # matched generalization signal: unlike the frozen holdout it
@@ -1017,6 +1033,8 @@ def _trainer_step_mcts(
     total_value_w = float(_w_full.sum().item())
     n_value_signal = int((_w_full > 0).sum().item())
     sum_actor_nlp_weighted = 0.0  # for "entropy"-style logging
+    # Detector-advice telemetry counters (see TrainStats.advice_*).
+    n_advice_states = n_advice_fired = n_advice_opps = 0
 
     # Optimization #7 (2026-06-14): run the training forwards in eval()
     # (not train()), mirroring the REINFORCE step(). The model's 9
@@ -1062,6 +1080,10 @@ def _trainer_step_mcts(
                 prospective_opportunities, opportunities_to_features)
             for e, encoded in zip(chunk, encoded_chunk):
                 opps = prospective_opportunities(e.game_state)
+                n_advice_states += 1
+                if opps:
+                    n_advice_fired += 1
+                    n_advice_opps += len(opps)
                 mids, feats, mu, dh = opportunities_to_features(encoded, opps)
                 encoded.advice_tokens = self.model.build_advice_tokens(
                     encoded, mids, feats, mu, dh)
@@ -1150,6 +1172,25 @@ def _trainer_step_mcts(
         del chunk_policy_losses, chunk_values, val_t, z_t, chunk_loss
         del encoded_chunk, outputs
 
+    # Advice gradient share, measured BEFORE clipping (clipping rescales
+    # every parameter's grad and would distort the ratio) and before the
+    # optimizer step. This is THE success metric for the advice signal:
+    # what fraction of the gradient actually flows through that path.
+    advice_grad_share = advice_out_norm = float("nan")
+    if getattr(self.model, "has_advice", False):
+        adv_sq = tot_sq = 0.0
+        for _name, _p in self.model.named_parameters():
+            if _p.grad is None:
+                continue
+            _s = float(_p.grad.detach().pow(2).sum())
+            tot_sq += _s
+            if _name.startswith("advice_"):
+                adv_sq += _s
+        advice_grad_share = ((adv_sq ** 0.5) / (tot_sq ** 0.5)
+                             if tot_sq > 0 else float("nan"))
+        advice_out_norm = float(
+            self.model.advice_out.weight.detach().norm())
+
     grad_norm = torch.nn.utils.clip_grad_norm_(
         list(self.model.parameters()) + list(self.encoder.parameters()),
         self.config.grad_clip,
@@ -1183,6 +1224,12 @@ def _trainer_step_mcts(
         aux_loss       = float(sum_aux_loss),
         moves_left_loss = float(sum_ml_loss),
         value_signal_states = n_value_signal,
+        advice_fire_rate = (n_advice_fired / n_advice_states
+                            if n_advice_states else float("nan")),
+        advice_opps_mean = (n_advice_opps / n_advice_fired
+                            if n_advice_fired else float("nan")),
+        advice_grad_share = advice_grad_share,
+        advice_out_norm   = advice_out_norm,
     )
 
 

@@ -1870,6 +1870,21 @@ def run_iteration(
                 aux_str += f" fresh_pred_entropy={_fent:.4f}"
             if _ffloor == _ffloor:
                 aux_str += f" fresh_ce_floor={_ffloor:.4f}"
+        # Detector-advice telemetry (docs/detector_training_signal.md): the
+        # success metric for the advice SIGNAL is the gradient it delivers,
+        # so surface fire rate / grad share / the bootstrap tracker on the
+        # train_step line. Absent (nan) unless --mcts-advice is on.
+        _afr = getattr(train_stats, "advice_fire_rate", float("nan"))
+        if _afr == _afr:
+            _aom = getattr(train_stats, "advice_opps_mean", float("nan"))
+            _ags = getattr(train_stats, "advice_grad_share", float("nan"))
+            _aon = getattr(train_stats, "advice_out_norm", float("nan"))
+            aux_str += (f" advice_fire={_afr:.3f}"
+                        + (f" advice_opps={_aom:.2f}" if _aom == _aom else "")
+                        + (f" advice_grad_share={_ags:.4f}"
+                           if _ags == _ags else "")
+                        + (f" advice_out_norm={_aon:.4f}"
+                           if _aon == _aon else ""))
         log.info(
             f"iter {iter_idx}: train_step in {train_dt:.1f}s "
             f"trajectories={train_stats.n_trajectories} transitions={train_stats.n_transitions} "
