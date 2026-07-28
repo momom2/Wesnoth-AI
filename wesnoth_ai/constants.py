@@ -24,7 +24,16 @@ WESNOTH_LOGS_PATH = WESNOTH_USERDATA_PATH / "logs"
 
 # Project layout — all source files of the add-on live here. Wesnoth
 # sees them via the junction installed by main.install_addon().
-BASE_PATH       = Path(__file__).parent
+#
+# BASE_PATH is the REPO ROOT, not this package's dir: `add-ons/`,
+# `training/` and `logs/` all live at the root. This file used to sit at
+# the root, so `Path(__file__).parent` was the root -- the 2026-07-23
+# package reorg moved it into `wesnoth_ai/` and silently pushed every
+# derived path one level too deep (`wesnoth_ai/add-ons/...`,
+# `wesnoth_ai/training/checkpoints`). It went unnoticed because the
+# training entry points pass explicit paths; it broke `--check-setup` and
+# the live-Wesnoth RCA eval, which resolve the add-on through here.
+BASE_PATH       = Path(__file__).resolve().parent.parent
 LOGS_PATH       = BASE_PATH / "logs"
 ADDONS_PATH     = BASE_PATH / "add-ons" / "wesnoth_ai"
 SCENARIOS_PATH  = ADDONS_PATH / "scenarios"
