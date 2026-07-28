@@ -243,6 +243,89 @@ per-drill custom victory/termination conditions, scenario-faithful
 economies, and a measured transfer test (does drill skill move
 ladder Elo?) before giving them mix share again.
 
+## 2026-07-28 — recruiting is NOT mechanically blocked (it's LEARNED), plus a real map defect
+
+Joint investigation (Claude + Fable) of "is recruiting blocked
+mechanically?" (user). **Answer: no — the model CAN recruit and
+increasingly WON'T.** A genuine but secondary mechanical defect was also
+found (off-keep starts on two maps). Both halves below; they are
+complementary and the second does NOT explain the regression.
+
+### A. The dominant effect: a learned preference shift (Fable, 1,190 decisions)
+
+Probe over 2 games/checkpoint (shared seeds, raw policy mirroring
+`select_action`), recording per decision whether a recruit was OFFERED and
+what was chosen:
+
+| | 0719 (2.75M) | 0722 (3.74M) |
+|---|---|---|
+| recruit legally offered | 62.4% | **69.1%** |
+| leader on keep at turn start | 70.0% | 77.5% |
+| blocked: leader off keep | 25.2% | 18.4% |
+| blocked: castle full | 45 | 30 |
+| MASK_BUG (preconditions met, no offer) | **0** | **0** |
+| recruit prior mass when offered (mean / p90) | 0.152 / 0.482 | 0.138 / **0.295** |
+| P(chose recruit \| offered) | 15.6% | **12.8%** |
+
+**Mechanical opportunity IMPROVED (62%→69% offered, off-keep 25%→18%)
+while recruiting DECLINED** — so mechanics cannot explain the trend. Ruled
+out with evidence: castle/keep detection (0 mask bugs in 1,190 decisions),
+recruit-list/vocab (never empty), the rejection set (`_recruit_rejected_
+hexes` empty at EVERY decision), and priors being crushed by the
+combat-oracle bias (recruit mass is set at the ACTOR softmax;
+`_masked_actor_logits` applies only ownership × legality — the attack/type
+bias enters downstream, on unit actors only). The committed-recruiting tail
+collapsed (decisions with recruit mass > 0.4: 35 -> 9).
+
+**So the pathology lives in the training signal (reward / value / credit
+assignment), not in masking or the sim.** Next step: trace the value
+estimate around recruit vs hoard-and-end_turn decisions to find which term
+pays the model for banking.
+
+### B. A real but SECONDARY defect: off-keep starts on two maps
+
+MEASURED, over 60 random ladder setups (120 leader-sides):
+
+- **9/120 leader-sides (7.5%) start OFF a keep** ->
+  `visibility.leader_castle_network` returns `(False, empty set)` ->
+  the legality mask offers **ZERO recruit actions** for that side.
+- **`multiplayer_Tombs_of_Kesorak`: 6/6 — BOTH leaders, every time.**
+- `multiplayer_Sablestone_Delta`: 3/6 — side 1 only (side 2 is fine).
+- Confirmed at the prior level: on an affected turn-1 state (100 gold, 7
+  recruit types), `enumerate_legal_actions_with_priors` returns
+  `recruit_actions=0` and 0.0% recruit prior mass for ALL checkpoints
+  (SL prior, 2.75M and 3.74M alike) -- so it is not a learned aversion,
+  the actions do not exist.
+
+**Mechanism (traced, not inferred):** the start hexes carry no KEEP
+modifier in the SHIPPED map data.
+- `2p_Tombs_of_Kesorak.map`: markers are `1 Co` / `2 Co` -- `Co` is orcish
+  CASTLE, not a keep (`Ko`).
+- `2p_Sablestone_Delta.map`: side-1 marker is `1 Gs^Ft` (grass+forest);
+  side 2 is `2 Kud`, a proper keep.
+Both files are **byte-identical to the Steam 1.18.7 install**, and the
+scenario `[side]` blocks define no `x=`/`y=`, so Wesnoth uses the map
+marker too. `scenario_pool.extract_player_starts` reads the marker
+correctly and `build_scenario_gamestate` places the leader there
+faithfully; a keep sits 1-2 hexes away in each case.
+
+**Why this matters (calibrated against part A):** on those games a side
+cannot recruit until it walks its leader onto a keep, so training sees
+games where hoarding is FORCED — a plausible CONTRIBUTOR to the learned
+under-recruiting, and worth fixing on its own merits. But it is NOT the
+root cause of the regression: part A shows off-keep blocking SHRANK
+(25%→18%) across exactly the leg where hoarding worsened.
+
+**OPEN — verify before "fixing":** does real Wesnoth also leave the leader
+off-keep on these maps (i.e. we are faithful and the maps are simply
+hostile), or does the engine snap the leader to a nearby keep / treat the
+start position differently? Check `wesnoth_src/src/` (game setup /
+`place_sides_in_preferred_locations`, `unit_creator`) and add the rule to
+`docs/wesnoth_rules.md`. Options once known: exclude the affected maps from
+the training pool, or correct placement to the connected keep. Do NOT
+silently "snap to keep" if the engine does not -- that would break sim
+fidelity (architecture principle 4).
+
 ## 2026-07-28 — the anti-hoarding fix DID NOT WORK (negative result)
 
 `0df57e2` (2026-07-20 20:43) set `weight_gold=0` in the material margin to
