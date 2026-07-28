@@ -212,6 +212,24 @@ head's scale) and OFFSET INVARIANCE. Full suite green (572 fast + 10 slow);
 derivation in `docs/design_constants.md`; 6 tests in
 `tests/test_gumbel_qtransform.py`.
 
+**CORRECTION (cycle 4, Fable's T1-B):** the "side-to-move bias drifting
+0.06 -> 0.37" line above is WRONG and is retracted. A clean boundary probe
+at natural end_turns shows the bias is **inherited from the SL prior**
+(+0.43/+0.65), dipped at 2.75M and rebounded at 3.74M — it is structural,
+not campaign drift. The encoder's side-identity feature is EXONERATED
+(mirror-state V is antisymmetric to within ~0). My original number
+conflated the structural bias with the genuine badness of ending a turn
+prematurely at offered-recruit states. Leading hypothesis now: per-side
+recorded-state imbalance (the stronger side logs more decisions, so
+winner-perspective states dominate the value target). Gated on a
+covariance test before any fix lands.
+
+**Review fix (bbe1132):** Fable's review of 4fecbca caught that `_score`
+rescaled over RAW `edge.q_value`, which is 0.0 for unvisited edges — on an
+all-negative node those zeros anchored the window's top, distorting
+sharpness state-dependently and diverging from the very reference the fix
+cites. Factored `_completed_q()`; both call sites now consume it.
+
 **Open, flagged to Fable:** the min-max rescale always spans full [0,1], so
 sharpening is uniform across nodes and Q-scale information is discarded.
 That is reference behaviour and I implemented it rather than inventing a
