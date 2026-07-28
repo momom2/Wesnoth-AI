@@ -238,6 +238,45 @@ MCTS iteration ran a train_step without crashing.
   kept sleeping mid-run). Run `pytest -m ""` before launching an advice
   training run.
 
+## Does the signal produce GRADIENT? (2026-07-25 — the success metric)
+
+Elo is the wrong metric for a training SIGNAL (far too noisy and
+downstream). The right one is whether the path it feeds actually receives
+learning signal — the same idiom the repo already uses for the moves-left
+head ("~0.03% of the gradient", kept as telemetry).
+`tools/measure_advice_gradient.py` measures it on REAL decision states from
+the 19 HF ladder games (states strided across each game's whole arc, turns
+4–42; a head-of-game sample reads a meaningless 0% because the opening is
+pre-contact).
+
+**1. Fire rate — advice is present on 13.0% of decisions (39/300),** 1.36
+opportunities per firing state. By motif over 300 states: 28
+`strong_attacker_first`, 22 `backstab_setup`, 3 `leadership_setup`. (Far
+denser than the RETROSPECTIVE detector's 0.4%/attack: prospective advice
+fires whenever the opportunity EXISTS, not only when the player later took
+the setup.)
+
+**2. Gradient share at the zero-init graft — 5.7%** of the total gradient
+norm on advice-carrying states, under the real training loss
+(`_mcts_factored_policy_loss` + categorical value CE) with the tier_a
+checkpoint. That is ~190× the moves-left telemetry floor (0.03%), so the
+path is a real learner, not a decoration.
+
+**3. The bootstrap works as designed.** At step 0 the ENTIRE advice
+gradient sits in `advice_out` and every other advice group is exactly 0 —
+precisely what the zero-init graft predicts (everything upstream flows
+through `advice_out`, which is 0). By step 1 `|advice_out|` has grown off
+zero (0 → 84) and `advice_attn`, `advice_gate`, `advice_feat_proj`,
+`advice_motif_embed`, `advice_kind` all start receiving gradient. The gate
+path switches itself on.
+
+**Caveat, stated plainly:** steps 1+ used a toy optimizer (SGD lr=0.05
+repeatedly fitting the SAME 8 states), so the rising share (13% → 28% →
+41%) is inflated — the total gradient shrinks as that fixed mini-batch is
+fit. The trustworthy numbers are the fire rate and the step-0 share; the
+later steps establish the DIRECTION (bootstrap → whole path active), not a
+magnitude prediction for real training.
+
 ## Risks / open questions
 
 - **Off-distribution value-net eval** on reordered states it wasn't trained

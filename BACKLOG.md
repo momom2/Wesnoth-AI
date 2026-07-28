@@ -23,6 +23,19 @@ training byte-unchanged). Remaining are non-blocking follow-ups:
 - ~~leadership_setup prospective motif~~ **DONE 2026-07-25**: the
   prospective advisor now covers backstab + leadership setups (DP-verified,
   gain-scored, tested). Banking-tier motifs remain (deferred set below).
+- ~~Does the signal produce significant GRADIENT?~~ **MEASURED 2026-07-25**
+  (`tools/measure_advice_gradient.py`, user: the metric for a training
+  signal is gradient, not Elo): on real decision states from the 19 HF
+  games -- **fire rate 13.0%** (39/300 decisions carry advice; 28
+  strong_attacker_first / 22 backstab / 3 leadership opportunities) and
+  **5.7% gradient share at the zero-init graft** (~190x the moves-left
+  telemetry floor of 0.03%), with the bootstrap confirmed: at step 0 all
+  advice gradient is in `advice_out` (everything else exactly 0, as the
+  graft predicts), by step 1 `advice_out` is off zero and the whole path
+  (attn / gate / embeddings) receives gradient. Caveat: steps 1+ used a toy
+  optimizer on a fixed 8-state batch, so the rising share is inflated --
+  trust the fire rate + step-0 share. Details in
+  docs/detector_training_signal.md.
 - **Run an actual `--mcts-advice` training campaign** -- the signal is built
   + fully tested but UNPROVEN on real games; a campaign is what shows the
   gate learns and whether advice moves Elo. (Needs a box -> user launches.)
