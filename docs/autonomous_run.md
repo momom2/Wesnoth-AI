@@ -110,6 +110,42 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 7 — 2026-07-29 — two config bugs on the live box; the CUDA guard pays for itself immediately
+
+**1. The trainer stalled, and the cause was config, not code.** After 45 min:
+0 train_steps, workers healthy (100 procs, 43 min CPU each, 131% CPU, load
+130), 812 GB free, no OOM, trainer alive but nearly idle (54 s CPU in
+33 min). Root cause: `games-per-iter` was HARD-TIED to `SPOOL_WORKERS`, so
+100 workers meant the trainer waited for **100 finished games** before a
+single gradient step. Measured game time ~9-40 min => roughly ONE iteration
+per hour, i.e. ~70 iterations and ~1100 gradient updates for a 70h run.
+Fixed (f2d8765): `GAMES_PER_ITER` is its own knob, default
+`min(SPOOL_WORKERS, 24)`. Extra cores now DEEPEN the replay buffer instead
+of lengthening the iteration. (Also caught in my own edit before it shipped:
+the arithmetic read `SPOOL_WORKERS` before its default was applied, which
+would have produced `games_per_iter=0`.)
+
+**2. `$WORKDIR/env.sh` exists — a live box can be retuned without
+recreating it.** The onstart sources it and it beats create-time `-e`
+values. This removes the "env is frozen at create" constraint I had been
+planning around; recorded here because it changes what is cheap to change.
+
+**3. Fable's CUDA smoke test found a real defect on the box I picked,
+within seconds of landing.** The pinned `pytorch 2.4.0/cu124` image reports
+compiled archs `['sm_50','sm_60','sm_61','sm_70','sm_75','sm_80','sm_86',
+'sm_90']` — **`sm_89` is absent, and the RTX 4090 IS sm_89**. The GPU is
+running via **PTX JIT fallback**. `torch.cuda.is_available()` returns True
+throughout, which is exactly the blind spot the guard was written for. This
+is a candidate contributor to the slow throughput (GPU util was 71%, so GPU
+work is not negligible).
+
+**Decision point, deliberately gated on measurement:** with the cadence
+fixed to 24 games/iter, watch the first iterations. If throughput is
+acceptable, keep the box and accept JIT (kernels cache after first use). If
+throughput is poor, recreate on an image whose torch includes sm_89
+(pytorch >= 2.5 / cu124). Recreating is cheap RIGHT NOW — zero completed
+iterations means nothing is lost — and gets more expensive every hour.
+
 ### Cycle 6 — 2026-07-28 — T1-D gate says NO; a correction to my offset-invariance claim
 
 **The gate worked: Fable disconfirmed its own hypothesis before I built it.**
