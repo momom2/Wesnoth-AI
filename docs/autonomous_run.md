@@ -110,6 +110,59 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 6 — 2026-07-28 — T1-D gate says NO; a correction to my offset-invariance claim
+
+**The gate worked: Fable disconfirmed its own hypothesis before I built it.**
+T1-D measured whether the winner records more states (which would bias the
+value target toward "to move => winning"): over 8 decisive games the
+winner's share of recorded states is **0.519 mean, above 0.5 in only 4/8**,
+and the marginal E[z] over states is **+0.03..+0.05**. To explain the
+measured boundary bias (+0.4..+0.65) the mechanism would need an order of
+magnitude more. **DISCONFIRMED — the per-(game,side) value reweighting is
+NOT landing.** It would have been plausible-looking, harmless-looking, and
+useless. This is exactly why proposals get a measurement gate before code.
+(Caveat retained: on the skill-imbalanced HUMAN corpus the count mechanism
+could be larger; untestable locally, unclaimed.)
+
+**CORRECTION TO MY OWN CLAIM (important).** I wrote that the q-transform's
+offset invariance immunises the target against the side-to-move bias. That
+is WRONG as stated, and Fable is right: the bias is not a uniform offset
+across a node's children — only children that CROSS A TURN BOUNDARY are
+evaluated from the opponent's perspective and negated, so it acts as an
+**end_turn-child-specific relative handicap** (~-2b in Q). Min-max rescale
+is monotone, so the end_turn child still ranks ~2b too low in every target
+and every interior PUCT comparison. Offset invariance protects against a
+*global* baseline drift; it does not touch this. The 0722 probe
+(end_turn 0.174 prior -> 0.054 target) is consistent with the handicap
+operating right now, i.e. the search systematically UNDER-ends turns.
+
+Fable's proposed instrument (not built, needs review): a boundary-consistency
+penalty `lambda*(V(s_i) + V(s_{i+1}))^2` over consecutive recorded states
+where the side switches, since the true sum is ~0 in expectation. Gated on:
+boundary-sum metric drops materially on a short local leg WITHOUT
+fresh_value_ce degradation.
+
+**T1-E tripwire recorded** (when to take the denominator floor
+`max(hi-lo, 0.1)` off the shelf): fixed 20-state probe set, 2 independent
+full-budget searches per state, total-variation distance between the two
+extracted targets; trigger at mean TV > 0.20 (or > 0.30 on the contested
+subset) on 2 consecutive evaluations. Secondary corroboration: fresh
+value CE improving while ladder decisiveness and strength stay flat.
+
+**DISAGREEMENT ON RECORD — MCTS_ADVICE during the first post-fix leg.**
+Fable argues the first leg should isolate the q-transform fix, since advice
+ON adds a second simultaneous variable and we will not be able to attribute
+a change. The objection is methodologically correct. **My ruling: keep
+advice ON, because the confound is MEASURABLE rather than assumed.** The
+advice path is a zero-init graft — it contributes exactly nothing until
+`advice_out` grows off zero — and we log `advice_out_norm` and
+`advice_grad_share` every train_step. So: if `advice_out_norm` stays ~0
+through the leg, there is provably no confound and we got the fix cleanly;
+if it grows, we know precisely when attribution became ambiguous and can
+split the leg there. Flipping it off would also cost a reboot and restart
+of a run that is already rolling. Revisit if the telemetry shows
+`advice_out_norm` climbing early.
+
 ### Cycle 5 — 2026-07-28 — T3 LIVE: new box created, campaign running
 
 User granted full autonomy over the Vast credits ("do whatever... don't
