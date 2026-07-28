@@ -110,6 +110,56 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 1 — 2026-07-28 — T2: the scaling constraint is SEQUENCE LENGTH, not parameters
+
+MEASURED (CPU, 4 torch threads, 40 real mid-game states, current 5M net):
+
+| | encode | forward | enumerate | total | fwd share |
+|---|---|---|---|---|---|
+| 5M (d256/6L) | 3.6 ms | **95.7 ms** | 5.5 ms | 104.8 ms | **91.3%** |
+| 14.8M (d384/8L) | 3.8 | 225.7 | 5.7 | 235.1 | 96.0% |
+| 38.9M (d512/12L) | 4.3 | 616.5 | 6.2 | 626.9 | 98.3% |
+
+So on CPU the forward DOMINATES the decision (91%), and naive parameter
+scaling costs ~linearly in wall-clock (x2.24 for 14.8M, x5.98 for 38.9M).
+My prior assumption that "the rollout is CPU/sim-bound so a bigger net is
+nearly free" is REFUTED for the dev box. (On the CUDA box the split will
+differ — the 2026-07-22 perf campaign found the CPU side was the pie there
+— but that is unverified while the box is down, so treat it as open.)
+
+Then the diagnostic that matters. Sequence composition on a 29x22 map:
+
+```
+SEQ LEN = H 638 + U 1 + R 8 + 2 = 649   -> hex tokens are 98.3% of it
+H=638 seq=649  forward=120.3 ms
+H=319 seq=330  forward= 46.0 ms   (2.6x faster for 2x fewer tokens)
+H=159 seq=170  forward= 20.6 ms   (5.8x faster for 4x fewer tokens)
+```
+
+**The model spends essentially all of its compute doing self-attention over
+every hex of the map, and the cost is SUPER-linear in hex count** (quadratic
+attention + linear FFN). Parameter count is not the binding constraint;
+sequence length is.
+
+**T2 thesis (revised):** the cheapest path to a larger network is to stop
+paying for a 638-token hex stream, then reinvest the savings in depth/width.
+A 3-4x sequence cut buys roughly the 14.8M net for free.
+
+**Design direction to evaluate next (NOT yet decided — needs Fable's
+adversarial review before any code):** every hex currently gets a token, but
+the pointer-network target head masks all illegal destinations anyway, so
+most hex tokens only ever act as context. Candidate: restrict hex tokens to
+a RELEVANT set (union of unit reach, attack-adjacent hexes, villages, castle
+network) plus a context margin. Risks to settle first: (a) the target head
+indexes hex tokens, so every legal target MUST keep a token — the relevant
+set must provably cover the legality mask; (b) it changes what the net sees,
+so warm-starting an existing checkpoint shifts its input distribution;
+(c) a per-decision "relevant set" computation must not cost more than it
+saves, and must be a pure function of OBSERVABLE state (mask contract,
+CLAUDE.md §6). Alternative if (a)/(b) prove ugly: keep all hexes as pointer
+TARGETS but take them out of the self-attention stack (units cross-attend to
+hexes), which preserves the action space exactly.
+
 ### Cycle 0 — 2026-07-28 — setup
 - Wrote this doc; relayed the mandate to Fable; started the persistent loop.
 - Inherited state: advice signal landed; lineage regression + RCA losses
