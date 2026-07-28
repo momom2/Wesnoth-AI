@@ -110,6 +110,50 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 10 — 2026-07-29 — BOTH telemetry channels read ZERO on the box's actual path
+
+Campaign healthy (post-reboot iter 0: train_step 247s, loss 2.9346,
+z_comp 0.52/0.48/0.00, fresh_value_ce 1.3870). But the instrumentation I
+landed is **blind on the configuration the box runs**:
+
+```
+trainer_history_local.csv, latest row:
+  boundary_sum = 'nan'      boundary_pairs_n = '0'
+train_step log line: no advice_fire / advice_grad_share / advice_out_norm
+```
+
+Verified on the box that the CODE is present (`advice_fire` x2 and
+`boundary_sum` x4 in sim_self_play.py, `has_advice` guard in trainer.py,
+"detector advice path ON" logged, 2 boundary columns in the CSV). So the
+code ships and the values are simply never populated:
+
+- `boundary_pairs_n = 0` => `finalize_game` harvesting never fires. The box
+  runs **spool workers**: games are played in 100 SEPARATE PROCESSES and
+  shipped to the trainer as experiences, so the trainer process's
+  `MCTSPolicy.finalize_game` — where adjacency is knowable and pairs are
+  harvested — does not run for those games.
+- advice telemetry NaN => `n_advice_states == 0`, i.e. the advice-attach
+  block in `_trainer_step_mcts` is not executing on this path either
+  (`Trainer.step_mcts = _trainer_step_mcts` IS the entry point, so the
+  cause is more specific than "wrong function" and needs tracing).
+
+**Consequences, stated plainly:**
+1. The advice signal is very likely INERT in this campaign. That
+   incidentally VINDICATES Fable's methodological objection from cycle 6
+   from the opposite direction — there is no confound because there is no
+   effect — but it also means `MCTS_ADVICE=1` is currently buying nothing.
+2. We have no boundary baseline, so the T1-F penalty decision is still
+   unmeasured.
+3. **General lesson: instrumentation validated only against the
+   in-process path can be silently dead on the production path.** Both my
+   advice telemetry and Fable's boundary telemetry were verified locally
+   (in-process) and both read zero in the campaign. Any future telemetry
+   must be validated against the SPOOL path before being trusted.
+
+Not yet fixed — delegated with the diagnosis above. The campaign continues
+meanwhile: it is producing decisive games and the q-transform fix (the
+thing that actually mattered) is active in the workers' search.
+
 ### Cycle 9 — 2026-07-29 — campaign steady; rebooted onto the telemetry build
 
 Two iterations before the reboot, ~18 min each => **~230 iterations
