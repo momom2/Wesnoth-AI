@@ -110,6 +110,36 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 8 — 2026-07-29 — TRAINING IS HEALTHY; box decision made; boundary telemetry landed
+
+**First iteration completed and the numbers are good:**
+
+```
+iter 0: rolled 24 games in 521.7s (3880 actions, 581 turns; 7 actions/s)
+iter 0: train_step in 313.4s  loss=2.9040 policy=2.2274 value=0.6652
+        z_comp=0.54/0.46/0.00      <-- 54% win / 46% loss / ZERO draws
+```
+
+~14 min/iteration => ~300 iterations over the run (vs the ~70 the old
+cadence would have allowed). **Zero draws** is the headline: draw-inflation
+was this lineage's chronic pathology, and the first post-fix iteration is
+fully decisive. z_comp_w 0.51/0.49 — balanced, no side collapse.
+
+**BOX DECISION: KEEP (no recreate).** The sm_89 gap is real but PTX JIT
+compiles to native SASS at module load and caches; steady-state cost is
+small and the warmup is already paid. A recreate costs ~20 min plus
+fresh-image risk for a speculative gain, against a campaign that is now
+producing healthy decisive data. Revisit only if throughput degrades.
+
+**Boundary-sum telemetry landed (a9d6e4f)** — Fable's diff, reviewed and
+tested here. Deliberately shipped BEFORE the proposed consistency penalty
+so we get a baseline series from the live campaign: if `boundary_sum`
+trends toward 0 on its own under the fixed q-transform, the penalty is
+unnecessary and T1-F dies the way T1-D did. Tests pin the extraction
+contract (switch-only pairing, single-side game, side-3 interleave,
+playout-cap gaps, NaN below threshold). 579 fast + 5 slow green including
+the concurrent rollout/train-step races.
+
 ### Cycle 7 — 2026-07-29 — two config bugs on the live box; the CUDA guard pays for itself immediately
 
 **1. The trainer stalled, and the cause was config, not code.** After 45 min:
