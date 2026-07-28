@@ -66,6 +66,31 @@ fi
 import sys, torch
 assert sys.version_info >= (3, 11), f"need Python >=3.11, got {sys.version}"
 assert torch.cuda.is_available(), "no CUDA device visible"
+# is_available() PASSES on a torch build that lacks this GPU's SM arch
+# (e.g. a pre-Blackwell wheel on an sm_120 card). The real failure would
+# otherwise surface hours in, at the first kernel launch, as "no kernel
+# image is available for execution on the device". One tiny real matmul
+# NOW is the ground truth -- a rented box must fail in the first seconds,
+# not after we have paid for an evening of nothing.
+_cap = torch.cuda.get_device_capability(0)
+_sm = f"sm_{_cap[0]}{_cap[1]}"
+try:
+    _x = torch.randn(64, 64, device="cuda")
+    _s = float((_x @ _x).sum().item())
+    assert _s == _s, "CUDA matmul returned NaN"
+except Exception as e:
+    raise SystemExit(
+        f"[onstart] FATAL: CUDA kernel smoke test failed on "
+        f"{torch.cuda.get_device_name(0)} ({_sm}): {e}\n"
+        f"torch {torch.__version__} was compiled for "
+        f"{torch.cuda.get_arch_list()} -- this build cannot drive this "
+        f"GPU. Use a newer image/wheel, or pick an older-arch GPU.")
+# A matmul can still SUCCEED via PTX JIT on an arch-mismatched build:
+# functional, but the first kernels are slow and perf is unpredictable.
+if _sm not in torch.cuda.get_arch_list():
+    print(f"[onstart] WARNING: {_sm} not in compiled arch list "
+          f"{torch.cuda.get_arch_list()} -- running via PTX JIT fallback; "
+          f"expect slow first kernels and possible perf loss.")
 print(f"[onstart] python {sys.version.split()[0]}, torch {torch.__version__}, "
       f"gpu {torch.cuda.get_device_name(0)}, "
       f"vcpus reported: {__import__('os').cpu_count()}")
