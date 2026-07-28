@@ -1885,6 +1885,14 @@ def run_iteration(
                            if _ags == _ags else "")
                         + (f" advice_out_norm={_aon:.4f}"
                            if _aon == _aon else ""))
+        # Boundary-consistency telemetry (T1-F, 2026-07-29): mean
+        # V(pre)+V(post) at sampled side switches. ~0 = calibrated;
+        # +0.4..+0.6 = the fogged-play WYSIATI bias (both sides read
+        # optimistic at a turn handoff). NaN until >=4 pairs exist.
+        _bsum = getattr(train_stats, "boundary_sum", float("nan"))
+        if _bsum == _bsum:
+            aux_str += (f" boundary_sum={_bsum:+.3f}"
+                        f"/n={getattr(train_stats, 'boundary_pairs_n', 0)}")
         log.info(
             f"iter {iter_idx}: train_step in {train_dt:.1f}s "
             f"trajectories={train_stats.n_trajectories} transitions={train_stats.n_transitions} "
@@ -2032,6 +2040,11 @@ def run_iteration(
             "fresh_decisive_ce": (getattr(train_stats,
                                           "fresh_decisive_ce", None)
                                   if train_stats else None),
+            "boundary_sum": (getattr(train_stats, "boundary_sum", None)
+                             if train_stats else None),
+            "boundary_pairs_n": (getattr(train_stats,
+                                         "boundary_pairs_n", None)
+                                 if train_stats else None),
             "ladder_games":        ladder_n,
             "ladder_decisive":     ladder_dec,
             "other_games":         other_n,
@@ -2181,6 +2194,12 @@ class _TrainerHistoryCSV:
         "eng_gold_bank_s1", "eng_gold_bank_s2",
         "eng_villages_frac", "eng_material_end_pg",
         "search_q_spread", "search_overturn_frac",
+        # Boundary-consistency telemetry (T1-F, 2026-07-29): mean
+        # V(pre)+V(post) over sampled side-switch pairs (~0 =
+        # calibrated; +0.4..0.6 = fogged WYSIATI bias). Appended
+        # LAST; a pre-existing CSV gets rotated to .oldschema by
+        # the header-mismatch guard in __init__.
+        "boundary_sum", "boundary_pairs_n",
     ]
 
     def __init__(self, path: Path):

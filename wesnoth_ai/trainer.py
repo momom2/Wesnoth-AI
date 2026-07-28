@@ -253,6 +253,14 @@ class TrainStats:
     advice_opps_mean:  float = float("nan")
     advice_grad_share: float = float("nan")
     advice_out_norm:   float = float("nan")
+    # Boundary-consistency telemetry (T1-F, 2026-07-29): mean of
+    # V(s_pre)+V(s_post) over sampled side-switch pairs of recorded
+    # states (no_grad, post-update net). Zero-sum calibration
+    # predicts ~0; the fogged-play WYSIATI bias measured +0.4..+0.65
+    # on the 2026-07-28 lineage (fogless ~0). Attached by
+    # MCTSPolicy._attach_boundary_sum; nan when <4 pairs collected.
+    boundary_sum:     float = float("nan")
+    boundary_pairs_n: int   = 0
     # Value CE on THIS iteration's incoming games, measured BEFORE any
     # gradient step touched them (nan when unavailable). Distribution-
     # matched generalization signal: unlike the frozen holdout it

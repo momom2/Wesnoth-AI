@@ -166,6 +166,16 @@ class MCTSPolicy:
         self._holdout: List[MCTSExperience] = []
         self._holdout_games = 0
         self._holdout_rng = random.Random(0x5EED)
+        # Boundary pairs (T1-F telemetry, 2026-07-29): (gs_pre,
+        # gs_post) for consecutive RECORDED states straddling a side
+        # switch, harvested in finalize_game while adjacency is still
+        # known (experience shuffling/replay destroys it). References
+        # to the same GameState objects the experiences retain --
+        # ~zero extra memory. Consumed by the train_step boundary-sum
+        # probe; the planned batch-mean consistency penalty will read
+        # the same FIFO.
+        self._boundary_pairs: deque = deque(maxlen=4096)
+        self._boundary_rng = random.Random(0xB0DA)
         # Per-game pending: game_label -> List[_PendingMCTSState].
         # Mid-game states accumulate here; `finalize_game` drains
         # them into `_queue` with their terminal z attached.
@@ -480,6 +490,16 @@ class MCTSPolicy:
         with self._lock:
             states = self._pending.pop(game_label, [])
             self._reuse.pop(game_label, None)
+        # T1-F: harvest side-switch pairs while adjacency is known
+        # (recorded order; robust to playout-cap gaps -- the pair is
+        # simply "last recorded of p's turn, first recorded of q's
+        # turn", and sides are read off the records, not assumed
+        # alternating).
+        if len(states) >= 2:
+            with self._lock:
+                for _a, _b in zip(states, states[1:]):
+                    if _a.side != _b.side:
+                        self._boundary_pairs.append((_a.gs, _b.gs))
         tiebreak = self._mcts_config.draw_tiebreak
         if winner == 0 and tiebreak is not None and final_gs is None \
                 and states:
@@ -740,6 +760,7 @@ class MCTSPolicy:
                 return TrainStats()
             result = self._base._trainer.step_mcts(batch)
             self._sync_inference_weights()
+            self._attach_boundary_sum(result)
             return result
 
         # --- Experience replay + multi-epoch (default-off) -----------
@@ -783,6 +804,7 @@ class MCTSPolicy:
             self._sync_inference_weights()
             self._attach_fresh_metrics(result, fresh)
             self._attach_z_composition(result, batch)
+            self._attach_boundary_sum(result)
             return result
 
         pool = list(self._replay)
@@ -796,6 +818,7 @@ class MCTSPolicy:
         combined = self._combine_stats(stats, buffer_size=n)
         self._attach_fresh_metrics(combined, fresh)
         self._attach_z_composition(combined, batch)
+        self._attach_boundary_sum(combined)
         return combined
 
     @staticmethod
@@ -839,6 +862,37 @@ class MCTSPolicy:
             stats.z_win_frac_w = ww / tw
             stats.z_loss_frac_w = lw / tw
             stats.z_draw_frac_w = 1.0 - (ww + lw) / tw
+
+    def _attach_boundary_sum(self, stats: TrainStats,
+                             k: int = 16) -> None:
+        """Mean V(s_pre)+V(s_post) over up to `k` sampled boundary
+        pairs, no_grad, on the freshly-updated TRAINING net.
+
+        Zero-sum calibration predicts ~0. Measured 2026-07-29 on the
+        campaign lineage: +0.4..+0.65 in fogged play, ~0 fogless --
+        the WYSIATI miscalibration (the head under-discounts unseen
+        enemy assets, so BOTH sides read optimistic at a turn
+        handoff). This is the observability for that bias class; the
+        planned batch-mean consistency penalty (T1-F) consumes the
+        same FIFO. Cost: <=2k no-grad forwards per train_step.
+        Leaves the NaN defaults when fewer than 4 pairs exist."""
+        import torch
+        with self._lock:
+            pairs = list(self._boundary_pairs)
+        if len(pairs) < 4:
+            return
+        if len(pairs) > k:
+            pairs = self._boundary_rng.sample(pairs, k)
+        model = self._base._model
+        enc = self._base._encoder
+        tot = 0.0
+        with torch.no_grad():
+            for gs_a, gs_b in pairs:
+                va = float(model(enc.encode(gs_a)).value.squeeze().item())
+                vb = float(model(enc.encode(gs_b)).value.squeeze().item())
+                tot += va + vb
+        stats.boundary_sum = tot / len(pairs)
+        stats.boundary_pairs_n = len(pairs)
 
     def _sync_inference_weights(self) -> None:
         """Propagate the freshly-updated `_model` weights into the
