@@ -359,6 +359,19 @@ if [ -z "${LADDER_RATIO:-}" ]; then
     fi
 fi
 
+# Training CADENCE is decoupled from data PRODUCTION rate. games-per-iter
+# used to be hard-tied to SPOOL_WORKERS, so scaling workers up (100 on a
+# 128-core box) also made the trainer wait for 100 finished games before a
+# single gradient step -- at ~10-40 min/game that is roughly ONE iteration
+# per hour, i.e. ~70 iterations for a 70h run. Extra workers should DEEPEN
+# the replay buffer, not lengthen the iteration. Cap the default so more
+# cores buy more data per iteration, not slower iterations; an explicit
+# GAMES_PER_ITER still wins.
+SPOOL_WORKERS="${SPOOL_WORKERS:-16}"   # default HERE: the arithmetic below
+                                       # would read an unset var as 0.
+GAMES_PER_ITER="${GAMES_PER_ITER:-$(( SPOOL_WORKERS < 24 ? SPOOL_WORKERS : 24 ))}"
+
+echo "[onstart] games_per_iter=${GAMES_PER_ITER} (workers=${SPOOL_WORKERS})"
 echo "[onstart] training mix: midgame=${MIDGAME_RATIO}" \
      "mini=${MINI_RATIO} drill=${DRILL_RATIO}" \
      "fogless=${FOGLESS_RATIO} ladder=${LADDER_RATIO}" \
@@ -405,7 +418,7 @@ nohup bash -c "
       ${DRAW_VALUE_WEIGHT:+--draw-value-weight $DRAW_VALUE_WEIGHT} \
       --abort-decisive-rate 0.05 --abort-window 40 \
       --abort-holdout-stall 150 \
-      --spool-workers ${SPOOL_WORKERS:-16} --games-per-iter ${SPOOL_WORKERS:-16} \
+      --spool-workers ${SPOOL_WORKERS} --games-per-iter ${GAMES_PER_ITER} \
       --spool-worker-device ${SPOOL_WORKER_DEVICE:-auto} \
       ${SPOOL_CUDA_WORKERS:+--spool-cuda-workers $SPOOL_CUDA_WORKERS} \
       \$RESET \
