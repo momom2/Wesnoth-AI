@@ -110,6 +110,31 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 9 — 2026-07-29 — campaign steady; rebooted onto the telemetry build
+
+Two iterations before the reboot, ~18 min each => **~230 iterations
+projected** for the run:
+
+```
+iter 0: train_step 313.4s loss=2.9040 policy=2.2274 value=0.6652
+iter 1: train_step 363.9s loss=2.9429 policy=2.2622 value=0.6652
+iter 0: decisive -- ladder 6/6,  mini/drill 12/12
+iter 1: decisive -- ladder 11/11, mini/drill 7/8
+```
+
+Near-total decisiveness on ladder maps, which is the distribution the eval
+actually cares about. Loss is flat across two iterations — expected this
+early and not yet informative.
+
+**Rebooted onto `4069190`** to pick up the boundary telemetry. Cost ~1
+iteration out of ~230 (0.4%); the payoff is a `boundary_sum` baseline
+covering the whole remaining run, which is what decides whether the T1-F
+penalty is needed at all. Verified: resumed from the campaign checkpoint
+(decision_step 2,298,935 — carried, NOT reset), 101 workers back up.
+
+NEXT CYCLE: confirm `boundary_sum` is appearing on the train_step line and
+start the baseline series.
+
 ### Cycle 8 — 2026-07-29 — TRAINING IS HEALTHY; box decision made; boundary telemetry landed
 
 **First iteration completed and the numbers are good:**
