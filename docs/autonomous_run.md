@@ -159,6 +159,81 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 34 — 2026-07-29 — 32 sims is NOT the constraint; a committed rule was measured wrong; a determinism test is flaky
+
+**Box.** Iteration 9, 77 workers, zero aborts. Credit **$11.02** (~33 h).
+`fresh_value_ce` 0.3855 then 0.7933 (±1.52) — still no readable trend;
+`boundary_sum` +0.096, −0.118, rolling |mean| far under 0.25.
+
+**The premise of my own package failed, and that IS the finding.** I
+asked for a quality-vs-sims curve against a high-budget reference as
+"ground truth". Measured: **two independent 512-sim searches on the same
+state differ by TV 0.85-1.00** (7-state floor: mean 0.59). The m=16
+Gumbel target does not CONVERGE with budget — it **concentrates**. σ
+scales with `(c_visit + max_N)`, so from N=32→512 max weight goes
+0.39→0.62, shelter mass 0.18→0.04, entropy 2.4→1.15, and the mass lands
+on a winner picked by the Gumbel draw among 16 prior-selected
+candidates. **Coverage never widens with N: visited = 16 at every
+budget.** `m` is the coverage knob; N only sharpens the tournament.
+
+So cycle 32's E0 generalizes: it is not "32 sims can't resolve the
+advised action's merit" but **"no N in this family resolves
+individual-action merit per decision; the signal exists only in
+expectation across draws."**
+
+**Answer to the question asked: 32 is at or near compute-optimal.**
+Class-level bias to the 512-ref: 0.24 (N=8), 0.21 (32), 0.22 (64), 0.17
+(128), 0.12 (256). **Quality-per-sim strictly declines above 32**; 64 is
+not better than 32 (0.223 vs 0.210, within noise) at 2× cost;
+compute-matched pairs (2×N vs 1×2N at equal total sims) split 9-12/20,
+point estimates favouring MORE STATES over more sims. **Keep 32 sims,
+m=16.**
+
+**A rule I committed last cycle is measured WRONG — amended.**
+`tools/recruit_prior_drift.py` told a future reader to prefer
+`gumbel_m` 16→8 if the tripwire fires. Measured at 32 sims: m=8 moves
+midgame recruit mass **−0.0135 vs m=16 — the wrong direction** (CI
+[−0.052..+0.015]), leaves the cut band unchanged, and raises shelter
+mass 0.20→0.32. The original reasoning ("halve the tried-and-cut
+population") was plausible and still wrong, which is exactly why naming
+the lever in code beat leaving it as folklore. Levers now in EVIDENCE
+order: (1) playout-cap randomization (`--mcts-playout-cap`, already
+implemented) at full-move N=128 with matched average cost — 128-targets
+roughly halve the class bias, caveats being fewer targets/game and a
+hotter label temperature, both unmeasured end-to-end; (2)
+extraction-semantics changes, cheaply testable by re-running the
+target-quality probe on a new checkpoint rather than by Elo. **Not
+`gumbel_m`→8.**
+
+**The tax vs N: constant magnitude, changing meaning.** The cut band
+(q̂−v_mix) is ≈ **−0.07 at every N from 32 to 512** while visits-at-cut
+go 1→8. It does not shrink — but its interpretation flips from
+selection-on-noise (1-visit cuts) to mostly-real inferiority (8-visit
+cuts), and its class-mass consequence fades anyway because sharpening
+drains both cut and shelter mass into winners. Also measured: 32 sims
+under-delivers recruit mass **mainly where recruiting is RIGHT** (the
+low-N gap concentrates in 3/15 states where the 512-ref puts recruit at
++0.60/+0.62/+0.20), and mostly agrees, attenuated, where it is wrong.
+n=15, so magnitude indicative, direction solid.
+
+**A determinism test is FLAKY, and that is a real signal.**
+`tests/test_inference_seam.py::test_mcts_search_through_seam_matches_direct`
+failed once in three full fast-tier runs this cycle (620 passed / 619+1
+failed / 620 passed) and passes in isolation. My only change was
+docstrings, so it is not order-dependence from my edit — it is
+intermittent. It corroborates Fable's independent observation that
+**root edge enumeration order permutes run-to-run** (same key set) and
+that root priors on a fixed state stepped by ≤8e-3 after a search.
+**Not weakened, not quarantined** — handed to Fable to root-cause.
+
+Mechanism hypothesis, **LABELLED INFERRED**: lazy unit-type/vocab
+registration during search leaf encodes (uniform advancement reaching a
+type absent from the checkpoint vocab → a fresh embedding row). Note
+vocab growth here is INTENTIONAL and armed in production
+(`watch_vocab_growth`, and `freeze_vocab()` is the existing lock), so
+this is not obviously a bug — which is why nothing training-critical was
+changed on the hypothesis.
+
 ### Cycle 33 — 2026-07-29 — the cycle-30 tripwire is now real code, and it reproduces the finding exactly
 
 **Box.** Iteration 7, 77 workers, learner alive, zero aborts. Credit

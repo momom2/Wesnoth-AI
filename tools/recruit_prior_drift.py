@@ -27,10 +27,35 @@ uniform policy shift.
 ESCALATION RULE (cycle 30): the tax graduates from "recorded" to
 "actionable" only if midgame recruit prior keeps bleeding below ~0.05
 while strength is flat/negative, or if recruits/turn starts falling
-(it was flat, 2.12 -> 2.19, when this was written). If it graduates,
-prefer `gumbel_m` 16->8 -- a documented mctx knob that halves the
-tried-and-cut population -- over `max(q_hat, v_mix)`, which rewrites
-completed-Q semantics away from the reference.
+(it was flat, 2.12 -> 2.19, when this was written).
+
+WHICH LEVER (AMENDED 2026-07-29, cycle 34 -- read this before acting).
+This file originally said to prefer `gumbel_m` 16->8. **That was wrong
+and is now measured wrong.** A target-quality probe (~296 searches at
+N in {8..512} on 20 preserved states) found m=16->8 at 32 sims moves
+midgame recruit mass -0.0135 relative to m=16 -- the WRONG DIRECTION,
+CI [-0.052..+0.015] -- leaves the cut band unchanged, and raises shelter
+mass 0.20 -> 0.32. The reasoning behind the original guidance ("halve
+the tried-and-cut population") was sound and the measurement still
+refuted it, which is exactly why the lever is named here rather than
+left as folklore.
+
+Levers now in EVIDENCE order:
+  1. Playout-cap randomization (already implemented,
+     `--mcts-playout-cap`): full-move N=128 at matched average cost.
+     128-sim targets roughly HALVE the class-level bias. Caveats, both
+     unmeasured end-to-end: fewer targets per game, hotter label
+     temperature.
+  2. Extraction-semantics changes (a `max(q_hat, v_mix)` floor, or
+     voiding 1-visit edges). Cheaply testable by re-running the
+     target-quality probe on a new checkpoint -- NOT by Elo, which has
+     +-68 resolution at n=100.
+  NOT `gumbel_m` -> 8.
+
+Do NOT raise the sim count as the remedy: quality-per-sim strictly
+DECLINES above 32, and 64 is not better than 32 (0.223 vs 0.210, within
+noise) at twice the cost. The information bottleneck is the m=16 draw
+structure, not N.
 
 USAGE
     # once: snapshot recruit-offered states (uses the production
@@ -132,9 +157,13 @@ def escalates(summary_latest: Dict[str, float],
               midgame_floor: float = 0.05) -> bool:
     """Cycle-30 escalation rule, as a function so it cannot drift from
     the prose. True when the midgame recruit prior has bled below the
-    floor -- at which point the `gumbel_m` 16->8 experiment is the first
-    thing to try. Deliberately does NOT consider strength: strength is
-    measured separately and far more expensively.
+    floor. Deliberately does NOT consider strength: strength is measured
+    separately and far more expensively.
+
+    On firing, see "WHICH LEVER" in this module's docstring -- the first
+    thing to try is playout-cap randomization at full-move N=128, NOT
+    `gumbel_m` 16->8, which was this file's original advice and was
+    measured to move recruit mass the wrong way (cycle 34).
     """
     return (summary_latest.get("n_mid", 0) > 0
             and summary_latest["rec_mean_mid"] < midgame_floor)
