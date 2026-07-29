@@ -92,6 +92,22 @@ review. Findings from a review go in the log below even when rejected.
 
 ## Standing decisions
 
+- (2026-07-29) **T2 relevant-hex flag: PLUMBED AND VALIDATED-AS-MECHANISM,
+  NOT validated-as-drop-in.** Warm-start value MAE is **0.217** vs the
+  net2net acceptance precedent of ~0.017 — an order of magnitude over. The
+  weights load; the function they compute does NOT carry over, because
+  cutting ~62% of hex tokens shifts the attention/pooling statistics. So:
+  **cross-flag evaluations are INCOMPARABLE at warm-start.** The flag's
+  first real use must be a FINE-TUNED leg gated on `fresh_value_ce`
+  recovering to its pre-switch level (not a fixed iteration count), or
+  better, start the next campaign leg flag-ON from its seed and compare
+  leg-vs-leg. Do NOT run a same-weights ON-vs-OFF eval and read it as the
+  encoding's ceiling — it measures warm-start damage.
+- (2026-07-29) **Speedup numbers, kept distinct:** 4.3-4.8x is the
+  FORWARD-COMPONENT figure. End-to-end decision throughput is Amdahl-bounded
+  by the 91% forward share at **<= ~3.4x**, and the trainer's padded batches
+  get ~2x. Plan with ~3x.
+
 - (2026-07-28) The detector advice signal is built, tested and gradient-
   verified (13% fire rate, 5.7% grad share at graft). `MCTS_ADVICE=1` is
   the box default. It is a candidate lever for T1 but NOT assumed to be the
@@ -117,6 +133,45 @@ review. Findings from a review go in the log below even when rejected.
 
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
+
+### Cycle 24 — 2026-07-29 — T2-C fails its own gate: the encoding is NOT a drop-in
+
+**Fable ran the warm-start validation it specified, and it failed the bar
+it set** — the most useful kind of result.
+
+| | flag-OFF vs flag-ON warm-start (220 shared states) |
+|---|---|
+| **value MAE** | **0.217** (p90 0.446, max 0.708) |
+| aux-margin MAE | 0.253 (max 0.663) |
+| hex fraction ON/OFF | mean 0.385 (min 0.068, max 0.829) |
+
+Against the net2net precedent (~0.017) that is **an order of magnitude over
+the bar**. Cutting ~62% of hex tokens moves the value head by ±0.2-0.45 on
+its ±1 scale: the weights load, the FUNCTION does not carry over.
+
+Fable then **cancelled its own part-2 experiment** rather than run it: a
+same-weights ON-vs-OFF ladder eval would measure warm-start damage, not the
+encoding's ceiling, so the 200 games buy nothing. Its earlier prediction
+("degradation <= noise") was wrong and it said so plainly. Recorded as a
+standing decision above so a future cycle cannot misread T2's status.
+
+**Both judgement calls I sent it came back with corrections:**
+
+1. **The speedup number I had been quoting is the component figure.**
+   4.3-4.8x is the forward-cost win; end-to-end decision throughput is
+   Amdahl-bounded by the 91% forward share at **<= ~3.4x**, trainer batches
+   ~2x. My "~3x instinct" was right as the planning number and the 4.3-4.8x
+   should not be repeated as a throughput claim.
+2. **My ingest drop-and-continue was right for the transient but incomplete.**
+   Adopted its escalation (3d8650a): >=50% of an iteration's games rejected
+   for 2 CONSECUTIVE iterations exits code 6, which lands in the
+   supervisor's tripwire range so it writes ABORTED_6 and blocks
+   auto-relaunch. Drop handles noise; a systemic mismatch must halt rather
+   than quietly train on starved iterations — the same silent-boundary class
+   as the three bugs already found. A streak is required so one bad
+   iteration cannot halt a healthy run.
+
+598 fast + 3 slow green.
 
 ### Cycle 23 — 2026-07-29 — T2 fully plumbed (holdout basis stamp closes it)
 
