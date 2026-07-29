@@ -118,6 +118,44 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 22 — 2026-07-29 — relevant-set config gate complete; the seam is now guarded
+
+**Loop scheduling: cron 23fee23c confirmed alive** (`CronList`), so this
+cycle did NOT add a competing ScheduleWakeup — two schedulers would
+double-fire and burn tokens. Rule for future cycles: check `CronList`
+first; the cron IS the loop.
+
+**T2 wiring finished (685b1c2), still default OFF.** `--relevant-set-hexes`
+-> `TransformerPolicy` -> BOTH encoders -> spool workers, flag recorded in
+the checkpoint.
+
+The load-bearing part is the seam, not the flag. The hex stream defines
+what `target_idx` MEANS, so ingesting a worker payload built under the
+other basis poisons every replayed transition **silently** — no exception,
+just wrong gradients. So workers STAMP each payload with its basis and the
+learner REJECTS a mismatch loudly and drops the game. A stale worker after
+a flag change is the realistic cause; dropping its games costs one
+iteration, accepting them costs the run.
+
+**This is the third bug of that class this run** (dead spool telemetry,
+`_combine_stats` swallowing advice stats, dead acting-side advice), so the
+guard is a test that READS the boundary: AST-checks that the worker parses
+the flag, builds its policy with it, and stamps the payload; and that the
+learner forwards the flag and rejects a mismatch. The pattern is now
+explicit — *anything that must hold across worker/learner gets a boundary
+test, not a comment*.
+
+596 fast + 4 slow green, including the spool-workers e2e that exercises
+this exact seam.
+
+**Remaining for T2:** only the holdout-stamp guard (discard a holdout file
+whose basis differs — its stored indices are meaningless in the other
+space), then the warm-start validation Fable specced (value MAE + a
+same-weights ladder eval) before any A/B.
+
+Campaign: restarted onto coherent advice at 07:11; first post-restart
+iteration still in flight at cycle time.
+
 ### Cycle 21 — 2026-07-29 — loop moved to a cron; box restarted onto coherent advice
 
 **Scheduling fixed STRUCTURALLY.** The self-re-arming wakeup chain died
