@@ -440,6 +440,7 @@ class WesnothSim:
         apply_scenario_events: bool = True,
         begin_side: int = 1,
         no_progress_turns: int = 0,
+        begin_turn: bool = True,
     ):
         self.gs = initial_state
         self.scenario_id = scenario_id
@@ -527,7 +528,24 @@ class WesnothSim:
         # landed on (adversarial review 2026-07-12 C1: hardcoding side
         # 1 skipped side 2's turn and double-turned side 1 -- free
         # income+healing tempo bias in every continuation).
-        self._begin_side_turn(begin_side)
+        #
+        # `begin_turn=False` is for the ONE case where firing it is
+        # wrong: reconstructing a state captured MID-turn (a probe
+        # replaying a recorded decision point). init_side pays income,
+        # applies healing/poison, refreshes movement and advances the
+        # turn counter, so firing it over an already-mid-turn state
+        # silently hands out a free turn's worth of gold and HP -- the
+        # corruption is invisible because the state stays structurally
+        # valid. It also appends an init_side to `command_history`,
+        # which would desync a replay export.
+        #
+        # A caller passing False owns the consequences: `gs` must
+        # ALREADY carry the correct current_side, turn number and ToD,
+        # because nothing here will set them. Callers that want a
+        # fresh turn (i.e. essentially all game-playing code) must
+        # leave this True.
+        if begin_turn:
+            self._begin_side_turn(begin_side)
 
     # ----- factory ---------------------------------------------------
 
