@@ -126,6 +126,14 @@ review. Findings from a review go in the log below even when rejected.
    it place differently? Check `wesnoth_src/src/` before changing placement.
 3. What is the actual throughput ceiling on the box, and what net size is
    trainable within it? (T2.)
+4. **Why did box load double (130 -> 272) and iteration time rise (~16 ->
+   >25 min) when acting-side advice went live, given the advisor measures
+   0.3 ms/decision on midgame states?** Refuted: the advisor itself.
+   Unchecked: model-side cost of the advice module, spool churn from
+   shorter games, trainer reforward cost, or an unrelated coincidence.
+5. **Does the q-transform fix actually produce a stronger policy?** First
+   read at 113k steps: Elo -137 +-260 vs seed, i.e. undetermined. Needs a
+   later checkpoint and more games.
 
 ---
 
@@ -133,6 +141,38 @@ review. Findings from a review go in the log below even when rejected.
 
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
+
+### Cycle 26 — 2026-07-29 — first STRENGTH read: no improvement detected (and a refuted hypothesis)
+
+**The primary-objective measurement, stated without spin.** Ladder, 8
+games, shared seeds, LIVE post-fix checkpoint (2,403,615) vs the SEED it
+started from (2,290,529), i.e. 113k steps of the post-fix leg:
+
+```
+live_2p40M vs seed_2p29M:  2-1-5 (W-D-L)   ->  Elo -137 +-260
+```
+
+**Point estimate NEGATIVE, CI spans -397..+123.** So: *no evidence of
+improvement*, and not evidence of harm either — the sample cannot
+distinguish them. I am recording this as the headline rather than leading
+with the caveats, because the q-transform fix is the run's central claim
+and its first strength test came back unfavourable.
+
+Caveats that are real but do NOT rescue the result: 113k steps is small
+against the 450k-1M that separated earlier legs; 8 games is a wide CI; the
+leg is SPLIT (advice acting-side dead for iterations 0-16, live after); and
+the eval runs max_turns 30 while training runs 100, a genuine distribution
+mismatch. What would settle it is more games at a later checkpoint, not
+argument.
+
+**Hypothesis refuted by measurement.** Iterations slowed (>25 min vs
+~16 min) and box load doubled (130 -> 272 on 128 cores) right after
+acting-side advice went live, so I predicted the prospective advisor was
+the cost. **Measured on midgame states (7.8 own units): 0.3 ms/decision.**
+Not the cause. The slowdown is UNEXPLAINED and is now an open question, not
+a theory I keep repeating. (My cycle-1 "~0-3 ms" figure was measured on a
+turn-1 state with ONE unit; the midgame number vindicates it, which is why
+I re-measured rather than trusting it.)
 
 ### Cycle 25 — 2026-07-29 — first behavioural read of the post-fix leg (and a confound caught)
 
