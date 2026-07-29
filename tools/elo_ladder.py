@@ -19,6 +19,16 @@ Why this, and what it is NOT:
     progress, gauge-fixed by pinning one anchor player (default the
     random-init baseline) at a chosen Elo.
 
+Game protocol (2026-07-29): games are played as MIRRORED SETUP PAIRS
+-- each sampled setup (map + factions + leaders + ToD) is played once
+per side by each player, so map/faction/side advantages cancel within
+the pair. Mirror-pair sweep counts are reported alongside Elo (a
+sweep is paired evidence of a strength gap; a 1-1 split is a
+setup-decided pair, i.e. no evidence). The eval horizon defaults to
+100 turns to sit inside the training horizon band; report headers and
+saved JSON always carry max_turns/seed/draw_weight so a result cannot
+be quoted without its protocol.
+
 Rating model (dependency-free; numpy only):
   Bradley-Terry  P(i beats j) = gamma_i / (gamma_i + gamma_j), draws
   counted as half a win to each side. Fit by the MM algorithm (Hunter,
@@ -69,7 +79,8 @@ sys.path.insert(0, str(_THIS.parent))
 from tools.device_select import select_inference_device, describe_device
 from tools.scenario_pool import build_scenario_gamestate, random_setup
 from tools.sim_self_play import _recruit_cost_lookup
-from tools.eval_sim import _PolicyPair, _load_policy, _play_one_eval_game
+from tools.eval_sim import (_PolicyPair, _load_policy,
+                            _play_one_eval_game, peek_checkpoint_arch)
 from wesnoth_sim import WesnothSim
 
 
@@ -259,17 +270,23 @@ class Player:
             self.policy = _ScriptedAdapter(DummyPolicy())
         elif self.spec.startswith("mcts:"):
             _, sims_s, inner = self.spec.split(":", 2)
-            base = _load_policy(
-                None if inner == "random" else Path(inner),
-                device, label=self.label)
+            ckpt = None if inner == "random" else Path(inner)
+            base = _load_policy(ckpt, device, label=self.label)
             from tools.mcts import MCTSConfig
             from tools.mcts_policy import MCTSPolicy
             # Eval contract: MCTSConfig defaults keep the training
             # crutches OFF (aux_value_bonus=0.0, draw_tiebreak=None)
             # -- pure search over the checkpoint's own heads.
+            # Root advice is NOT a crutch: it is learned model
+            # conditioning (a gated module in the checkpoint), so an
+            # advice-trained checkpoint plays as trained -- advice ON
+            # at the root exactly when the checkpoint carries the
+            # path. For others the flag is inert either way.
+            advice = bool(peek_checkpoint_arch(
+                ckpt, self.label).get("advice", False))
             self.policy = MCTSPolicy(
                 base, mcts_config=MCTSConfig(
-                    n_simulations=int(sims_s)))
+                    n_simulations=int(sims_s), advice=advice))
         else:
             self.policy = _load_policy(Path(self.spec), device,
                                        label=self.label)
@@ -319,53 +336,126 @@ class LadderResult:
     anchor:  str
     n_games: int
     wall_seconds: float = 0.0
+    max_turns: int = 0                       # eval horizon, so no report
+                                             # can hide a train/eval
+                                             # horizon mismatch
+    mirror:  Dict[str, Dict[str, int]] = field(default_factory=dict)
+                                             # "i__vs__j" -> mirror-pair
+                                             # tallies (sweeps/splits)
+
+
+@dataclass
+class MirrorStats:
+    """Per-pair tallies over mirrored setup pairs (same setup, sides
+    swapped). Under H0 (equal strength) sweeps_i and sweeps_j are
+    exchangeable, so the sweep counts feed a paired sign test that is
+    more powerful than the pooled win rate when setups are lopsided
+    (a map/faction draw that decides the winner produces a 1-1 split,
+    which the sign test correctly treats as no evidence)."""
+    sweeps_i: int = 0     # pi won both orientations of a setup
+    sweeps_j: int = 0     # pj won both orientations
+    splits:   int = 0     # 1-1, each side won once (setup-decided)
+    mixed:    int = 0     # at least one draw/timeout/skip in the pair
+
+
+def _play_single_game(
+    pi: Player, pj: Player, pi_side: int, setup, max_turns: int,
+    game_label: str,
+) -> Optional[str]:
+    """Build a fresh sim from `setup` and play one game with pi as
+    pair_a on `pi_side`. Returns the outcome from pi's perspective
+    ('win'/'loss'/'draw'/'timeout'/'errored'), or None if the game
+    could not be built/completed (not counted)."""
+    try:
+        gs = build_scenario_gamestate(setup)
+        sim = WesnothSim(gs, scenario_id=setup.scenario_id,
+                         max_turns=max_turns)
+    except Exception as e:
+        log.warning(f"skip {setup.label()}: {e}")
+        return None
+    for pl in (pi, pj):
+        if hasattr(pl.policy, "reset_game"):
+            pl.policy.reset_game(game_label)
+    pair_i = _PolicyPair(policy=pi.policy, label=pi.label, side=pi_side)
+    pair_j = _PolicyPair(policy=pj.policy, label=pj.label,
+                         side=(3 - pi_side))
+    try:
+        r = _play_one_eval_game(sim, pair_i, pair_j,
+                                game_label=game_label)
+    except Exception as e:
+        log.exception(f"game crashed ({pi.label} v {pj.label}): {e}")
+        pi.policy.drop_pending(game_label)
+        pj.policy.drop_pending(game_label)
+        return None
+    return r.outcome
+
+
+def _count_outcome(rec: PairRecord, outcome: Optional[str]) -> None:
+    """Fold one pi-perspective outcome into the pair record.
+    None / 'errored' are dropped (not counted)."""
+    if outcome == "win":
+        rec.wins_i += 1
+    elif outcome == "loss":
+        rec.wins_j += 1
+    elif outcome in ("draw", "timeout"):
+        rec.draws += 1
 
 
 def _play_pair(
     pi: Player, pj: Player, games: int, rng: random.Random,
     max_turns: int, forced_faction, progress_prefix: str,
-) -> PairRecord:
-    """Play `games` between two players, splitting sides 50/50 with
-    fresh random setups. pi is always pair_a, so outcomes are read
-    from pi's perspective."""
+) -> Tuple[PairRecord, MirrorStats]:
+    """Play `games` between two players as MIRRORED SETUP PAIRS: each
+    sampled setup (map + factions + leaders + ToD slot) is played
+    TWICE, once with pi on side 1 and once with pi on side 2, so
+    map/faction/side advantages cancel within the pair instead of
+    adding noise (Wesnoth side bias is real, and the forced-faction
+    sampler makes matchup composition lumpy at small n). The mirror
+    game is NOT a deterministic replay: policies sample their actions
+    (Gumbel-max over the softmax), so paired games explore different
+    lines from an identical start. An odd trailing game plays an
+    unpaired fresh setup with pi on side 2 (matching the old code's
+    side split for the remainder).
+
+    pi is always pair_a, so outcomes are read from pi's perspective.
+
+    NOTE (seed compatibility): pairing halves the number of
+    `random_setup` draws per pair, so a given --seed produces a
+    different setup sequence than pre-2026-07-29 unpaired runs.
+    """
     rec = PairRecord()
-    half = games // 2
-    for g in range(games):
-        pi_side = 1 if g < half else 2
+    mir = MirrorStats()
+    n_pairs = games // 2
+    for g in range(n_pairs):
         setup = random_setup(rng, forced_faction=forced_faction)
-        game_label = f"elo_{pi.label}_{pj.label}_{g}"
-        try:
-            gs = build_scenario_gamestate(setup)
-            sim = WesnothSim(gs, scenario_id=setup.scenario_id,
-                             max_turns=max_turns)
-        except Exception as e:
-            log.warning(f"skip {setup.label()}: {e}")
-            continue
-        for pl in (pi, pj):
-            if hasattr(pl.policy, "reset_game"):
-                pl.policy.reset_game(game_label)
-        pair_i = _PolicyPair(policy=pi.policy, label=pi.label, side=pi_side)
-        pair_j = _PolicyPair(policy=pj.policy, label=pj.label,
-                             side=(3 - pi_side))
-        try:
-            r = _play_one_eval_game(sim, pair_i, pair_j,
-                                    game_label=game_label)
-        except Exception as e:
-            log.exception(f"game crashed ({pi.label} v {pj.label}): {e}")
-            pi.policy.drop_pending(game_label)
-            pj.policy.drop_pending(game_label)
-            continue
-        if r.outcome == "win":
-            rec.wins_i += 1
-        elif r.outcome == "loss":
-            rec.wins_j += 1
-        elif r.outcome in ("draw", "timeout"):
-            rec.draws += 1
-        # "errored" -> dropped (not counted)
+        out_1 = _play_single_game(
+            pi, pj, 1, setup, max_turns,
+            game_label=f"elo_{pi.label}_{pj.label}_p{g}a")
+        out_2 = _play_single_game(
+            pi, pj, 2, setup, max_turns,
+            game_label=f"elo_{pi.label}_{pj.label}_p{g}b")
+        _count_outcome(rec, out_1)
+        _count_outcome(rec, out_2)
+        if out_1 == "win" and out_2 == "win":
+            mir.sweeps_i += 1
+        elif out_1 == "loss" and out_2 == "loss":
+            mir.sweeps_j += 1
+        elif {out_1, out_2} == {"win", "loss"}:
+            mir.splits += 1
+        else:
+            mir.mixed += 1
+    if games % 2:
+        setup = random_setup(rng, forced_faction=forced_faction)
+        _count_outcome(rec, _play_single_game(
+            pi, pj, 2, setup, max_turns,
+            game_label=f"elo_{pi.label}_{pj.label}_odd"))
     sys.stderr.write(
         f"  {progress_prefix} {pi.label} vs {pj.label}: "
-        f"{rec.wins_i}-{rec.draws}-{rec.wins_j} (W-D-L)\n")
-    return rec
+        f"{rec.wins_i}-{rec.draws}-{rec.wins_j} (W-D-L)  "
+        f"mirror: {mir.sweeps_i} swept-by-{pi.label} / {mir.splits} "
+        f"split / {mir.sweeps_j} swept-by-{pj.label} / "
+        f"{mir.mixed} mixed\n")
+    return rec, mir
 
 
 def run_ladder(
@@ -378,15 +468,17 @@ def run_ladder(
         raise SystemExit("need >= 2 players for a ladder")
     rng = random.Random(seed)
     pair_recs: Dict[Tuple[int, int], PairRecord] = {}
+    mirror_recs: Dict[Tuple[int, int], MirrorStats] = {}
     n_pairs = n * (n - 1) // 2
     t0 = time.perf_counter()
     done = 0
     for i, j in combinations(range(n), 2):
         done += 1
-        rec = _play_pair(players[i], players[j], games_per_pair, rng,
-                         max_turns, forced_faction,
-                         progress_prefix=f"[pair {done}/{n_pairs}]")
+        rec, mir = _play_pair(players[i], players[j], games_per_pair, rng,
+                              max_turns, forced_faction,
+                              progress_prefix=f"[pair {done}/{n_pairs}]")
         pair_recs[(i, j)] = rec
+        mirror_recs[(i, j)] = mir
     wall = time.perf_counter() - t0
 
     # Anchor: explicit label, else "random" if present, else player 0.
@@ -405,6 +497,7 @@ def run_ladder(
     # Per-player W/L/D totals and pairwise dict for the report.
     record = [{"win": 0, "loss": 0, "draw": 0} for _ in range(n)]
     pairs_out: Dict[str, Dict[str, int]] = {}
+    mirror_out: Dict[str, Dict[str, int]] = {}
     for (i, j), rec in pair_recs.items():
         record[i]["win"] += rec.wins_i
         record[i]["loss"] += rec.wins_j
@@ -412,8 +505,13 @@ def run_ladder(
         record[j]["win"] += rec.wins_j
         record[j]["loss"] += rec.wins_i
         record[j]["draw"] += rec.draws
-        pairs_out[f"{players[i].label}__vs__{players[j].label}"] = {
+        key = f"{players[i].label}__vs__{players[j].label}"
+        pairs_out[key] = {
             "wins": rec.wins_i, "draws": rec.draws, "losses": rec.wins_j}
+        mir = mirror_recs[(i, j)]
+        mirror_out[key] = {
+            "sweeps_i": mir.sweeps_i, "splits": mir.splits,
+            "sweeps_j": mir.sweeps_j, "mixed": mir.mixed}
 
     return LadderResult(
         labels=[p.label for p in players],
@@ -422,6 +520,8 @@ def run_ladder(
         anchor=players[anchor_idx].label,
         n_games=sum(r.games for r in pair_recs.values()),
         wall_seconds=wall,
+        max_turns=max_turns,
+        mirror=mirror_out,
     )
 
 
@@ -436,7 +536,8 @@ def print_ladder(res: LadderResult) -> None:
     print("=" * 72)
     print(f"Internal Elo ladder  (anchor {res.anchor!r} = "
           f"{res.elo[res.labels.index(res.anchor)]:.0f}; "
-          f"{res.n_games} games, {res.wall_seconds:.0f}s)")
+          f"{res.n_games} games, max_turns {res.max_turns}, "
+          f"{res.wall_seconds:.0f}s)")
     print("=" * 72)
     print(f"{'rank':>4}  {'player':<22} {'Elo':>7}  {'+/-95%':>7}  "
           f"{'W-D-L':>12}")
@@ -447,6 +548,14 @@ def print_ladder(res: LadderResult) -> None:
         wdl = f"{rc['win']}-{rc['draw']}-{rc['loss']}"
         print(f"{rank:>4}  {res.labels[k]:<22} {res.elo[k]:>7.0f}  "
               f"{ci:>7.0f}  {wdl:>12}")
+    print("-" * 72)
+    # Mirror-pair summary: sweeps are the paired evidence of a
+    # strength gap; splits are setup-decided games (no evidence).
+    for key, m in res.mirror.items():
+        a, b = key.split("__vs__")
+        print(f"  {a} vs {b}: {m['sweeps_i']} swept by {a}, "
+              f"{m['splits']} split, {m['sweeps_j']} swept by {b}, "
+              f"{m['mixed']} with draws")
     print("=" * 72)
 
 
@@ -466,9 +575,18 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--include-dummy", action="store_true",
                     help="Add the scripted DummyPolicy as a player.")
     ap.add_argument("--games-per-pair", type=int, default=30,
-                    help="Games for each unordered player pair "
-                         "(split 50/50 across sides).")
-    ap.add_argument("--max-turns", type=int, default=60)
+                    help="Games for each unordered player pair, played "
+                         "as mirrored setup pairs (each sampled setup "
+                         "is played once per side by each player).")
+    ap.add_argument("--max-turns", type=int, default=100,
+                    help="Eval horizon. Default 100 sits inside the "
+                         "training band (training rolls each game's "
+                         "horizon in [--max-turns-min 60, MAX_TURNS]; "
+                         "the 2026-07 box sets 100). Evaluating BELOW "
+                         "the training minimum (e.g. the 30 used in "
+                         "the 2026-07-28/29 evals) truncates games the "
+                         "policies were trained to finish and measures "
+                         "a different game.")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--device", default="auto")
     ap.add_argument("--forced-faction", default=None,
@@ -487,7 +605,11 @@ def main(argv: List[str]) -> int:
                     help="Fraction of a draw credited as a win to each "
                          "side. Default 0.0 DROPS draws: a Wesnoth draw "
                          "is a turn-budget timeout, not equality "
-                         "evidence. 0.5 = textbook half-win.")
+                         "evidence. 0.5 = textbook half-win, and is "
+                         "what tools/elo_collect.py calls PURE -- the "
+                         "two tools DIFFER by default, so never quote "
+                         "one as the other (the header and saved JSON "
+                         "carry draw_weight for exactly this reason).")
     ap.add_argument("--save-json", type=Path, default=None)
     ap.add_argument("--log-level", default="WARNING",
                     choices=["DEBUG", "INFO", "WARNING"])
@@ -535,8 +657,13 @@ def main(argv: List[str]) -> int:
                 for k in range(len(res.labels))],
             "anchor": res.anchor, "anchor_elo": args.anchor_elo,
             "prior_games": args.prior_games,
-            "pairs": res.pairs, "n_games": res.n_games,
+            "pairs": res.pairs, "mirror": res.mirror,
+            "n_games": res.n_games,
             "games_per_pair": args.games_per_pair,
+            # Protocol knobs that change what the Elo MEANS -- recorded
+            # so no saved result can be quoted without them.
+            "max_turns": res.max_turns, "seed": args.seed,
+            "draw_weight": args.draw_weight,
             "wall_seconds": res.wall_seconds, "backend": "sim",
         }
         args.save_json.write_text(json.dumps(payload, indent=2, default=str),

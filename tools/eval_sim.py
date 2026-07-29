@@ -234,26 +234,66 @@ def _play_one_eval_game(
 # Policy loading
 # ---------------------------------------------------------------------
 
+# Structural flags a checkpoint may carry. Each one gates a MODULE
+# that owns weights, so a policy built without it silently drops
+# those tensors on load (they arrive as "unexpected keys") and then
+# evaluates a different model than the one that trained.
+CHECKPOINT_STRUCT_FLAGS = ("aux_score", "moves_left", "advice",
+                           "relevant_set_hexes")
+
+
+def peek_checkpoint_arch(
+    ckpt_path: Optional[Path], label: str = "ckpt",
+) -> Dict[str, object]:
+    """Read the constructor kwargs a checkpoint was trained with:
+    the arch ints plus `CHECKPOINT_STRUCT_FLAGS`. ONE read, so every
+    eval entry point agrees on what a checkpoint is.
+
+    On an unreadable checkpoint this logs and returns {} -- callers
+    then build default paths, which is the pre-2026-07-29 behaviour.
+    It is logged rather than swallowed because a silent {} here means
+    "evaluated a structurally different model", which is exactly the
+    failure this function exists to prevent."""
+    out: Dict[str, object] = {}
+    if not (ckpt_path and ckpt_path.exists()):
+        return out
+    import torch
+    try:
+        raw = torch.load(ckpt_path, map_location="cpu",
+                         weights_only=False)
+    except Exception as e:
+        log.warning(f"[{label}] couldn't peek arch from {ckpt_path}: "
+                    f"{e!r}; building DEFAULT paths, which may not "
+                    f"match this checkpoint")
+        return out
+    for k in ("d_model", "num_layers", "num_heads", "d_ff"):
+        v = (raw.get("arch") or {}).get(k)
+        if v is not None:
+            out[k] = int(v)
+    for k in CHECKPOINT_STRUCT_FLAGS:
+        if raw.get(k):
+            out[k] = True
+    return out
+
+
 def _load_policy(
     ckpt_path: Optional[Path], device, label: str,
 ) -> TransformerPolicy:
     """Build a TransformerPolicy at the checkpoint's saved arch and
     load weights. `ckpt_path=None` means "random init" -- useful as
     a lowest-bar reference. Mirrors the arch-peek pattern in
-    sim_self_play.main."""
-    import torch
-    arch_kwargs: Dict[str, int] = {}
-    if ckpt_path and ckpt_path.exists():
-        try:
-            raw = torch.load(ckpt_path, map_location="cpu",
-                             weights_only=False)
-            for k in ("d_model", "num_layers", "num_heads", "d_ff"):
-                v = (raw.get("arch") or {}).get(k)
-                if v is not None:
-                    arch_kwargs[k] = int(v)
-        except Exception as e:
-            log.warning(f"[{label}] couldn't peek arch from "
-                        f"{ckpt_path}: {e!r}")
+    sim_self_play.main.
+
+    Structural flags (aux_score / moves_left / advice /
+    relevant_set_hexes) are peeked from the checkpoint too, so the
+    policy is BUILT with the paths the checkpoint carries and every
+    weight loads. Without this, an advice-trained checkpoint loaded
+    with its advice tensors silently DROPPED as unexpected keys --
+    inert for raw-policy eval (advice only attaches at an MCTS root),
+    but an eval through `mcts:` would then measure a different model
+    than the one that trained (the probe-bug class from the 2026-07-29
+    hoarding probe, found again here by reading the load warnings)."""
+    arch_kwargs = peek_checkpoint_arch(ckpt_path, label)
     policy = TransformerPolicy(device=device, **arch_kwargs)
     if ckpt_path and ckpt_path.exists():
         try:
