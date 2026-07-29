@@ -1292,6 +1292,16 @@ class SpoolWorkers:
                 exps = payload["experiences"]
                 offer = getattr(policy, "offer_holdout_game", None)
                 if offer is None or not offer(exps):
+                    # T1-F boundary telemetry: spool games never run
+                    # the learner-side finalize_game (the worker ran
+                    # its own), so pairs must be reconstructed HERE.
+                    # Valid because each payload is one game's exps
+                    # in recorded order. getattr-guarded like the
+                    # holdout offer above (non-MCTS/stub policies).
+                    _hv = getattr(policy, "harvest_boundary_pairs",
+                                  None)
+                    if _hv is not None:
+                        _hv(exps)
                     with policy._lock:
                         policy._queue.extend(exps)
                 outcomes.append(payload["outcome"])

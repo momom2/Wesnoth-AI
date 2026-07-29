@@ -55,3 +55,67 @@ def test_stats_fields_exist_and_default_to_nan():
     s = TrainStats()
     assert s.boundary_sum != s.boundary_sum      # NaN default
     assert s.boundary_pairs_n == 0
+
+
+# --------------------------------------------------------------------
+# Spool path (T1-H): the box runs 100 WORKER PROCESSES, so the learner's
+# finalize_game never sees those games. Pairs are reconstructed at ingest
+# from each experience's own recorded side.
+# --------------------------------------------------------------------
+
+class _Exp:
+    def __init__(self, side, tag):
+        class _GI:
+            current_side = side
+        class _GS:
+            global_info = _GI()
+        self.game_state = _GS()
+        self.game_state._tag = tag
+
+
+def _harvest(exps):
+    from tools.mcts_policy import MCTSPolicy
+    sink = []
+
+    class _Shim:
+        _boundary_pairs = sink
+
+        class _L:
+            def __enter__(self): return None
+            def __exit__(self, *a): return False
+        _lock = _L()
+    MCTSPolicy.harvest_boundary_pairs(_Shim(), exps)
+    return sink
+
+
+def test_spool_harvest_pairs_on_side_switches():
+    exps = [_Exp(1, "a"), _Exp(1, "b"), _Exp(2, "c"), _Exp(2, "d"), _Exp(1, "e")]
+    assert len(_harvest(exps)) == 2
+
+
+def test_spool_harvest_single_side_and_short_games():
+    assert _harvest([_Exp(1, "a"), _Exp(1, "b")]) == []
+    assert _harvest([_Exp(1, "a")]) == []
+    assert _harvest([]) == []
+
+
+def test_combine_stats_carries_advice_fields():
+    """REGRESSION: _combine_stats built a fresh TrainStats naming only 11
+    fields, so every advice_* stat set inside step_mcts reverted to its NaN
+    default under --replay-buffer -- telemetry that looked fine on the
+    in-process path was dead in production. This test pins the chokepoint
+    so the NEXT stat added in step_mcts cannot die silently."""
+    from tools.mcts_policy import MCTSPolicy
+    from wesnoth_ai.trainer import TrainStats
+    a = TrainStats(advice_fire_rate=0.10, advice_opps_mean=1.5,
+                   advice_grad_share=0.04, advice_out_norm=0.0)
+    b = TrainStats(advice_fire_rate=0.20, advice_opps_mean=2.5,
+                   advice_grad_share=0.06, advice_out_norm=7.5)
+    out = MCTSPolicy._combine_stats([a, b], 2)
+    assert abs(out.advice_fire_rate - 0.15) < 1e-9
+    assert abs(out.advice_opps_mean - 2.0) < 1e-9
+    assert abs(out.advice_grad_share - 0.05) < 1e-9
+    assert out.advice_out_norm == 7.5          # LAST non-NaN, like grad_norm
+    # all-NaN must stay NaN so the log guard still suppresses the fields
+    n = MCTSPolicy._combine_stats([TrainStats(), TrainStats()], 2)
+    assert n.advice_fire_rate != n.advice_fire_rate

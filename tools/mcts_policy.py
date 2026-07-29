@@ -490,16 +490,6 @@ class MCTSPolicy:
         with self._lock:
             states = self._pending.pop(game_label, [])
             self._reuse.pop(game_label, None)
-        # T1-F: harvest side-switch pairs while adjacency is known
-        # (recorded order; robust to playout-cap gaps -- the pair is
-        # simply "last recorded of p's turn, first recorded of q's
-        # turn", and sides are read off the records, not assumed
-        # alternating).
-        if len(states) >= 2:
-            with self._lock:
-                for _a, _b in zip(states, states[1:]):
-                    if _a.side != _b.side:
-                        self._boundary_pairs.append((_a.gs, _b.gs))
         tiebreak = self._mcts_config.draw_tiebreak
         if winner == 0 and tiebreak is not None and final_gs is None \
                 and states:
@@ -577,6 +567,11 @@ class MCTSPolicy:
         # uses for its per-game _R_EXPS payloads.
         diverted = self.offer_holdout_game(exps)
         if not diverted:
+            # T1-F: harvest boundary pairs only for games that TRAIN
+            # (holdout games must not feed the future consistency
+            # penalty). exps preserve `states` order 1:1, so the
+            # side-switch scan is equivalent to scanning states.
+            self.harvest_boundary_pairs(exps)
             with self._lock:
                 self._queue.extend(exps)
         if states:
@@ -863,6 +858,30 @@ class MCTSPolicy:
             stats.z_loss_frac_w = lw / tw
             stats.z_draw_frac_w = 1.0 - (ww + lw) / tw
 
+    def harvest_boundary_pairs(self, exps) -> None:
+        """Harvest side-switch boundary pairs (T1-F) from ONE game's
+        experiences in recorded order.
+
+        Works wherever a per-game, order-preserving experience list
+        exists: `finalize_game` (in-process rollouts), the SPOOL
+        ingest (sim_self_play's collect loop -- spool payloads are
+        atomic per game and preserve finalize order; the learner-side
+        finalize_game never runs for those games, which is exactly
+        how the 2026-07-29 campaign shipped boundary telemetry that
+        read n=0), and the actor-pool drain's per-game payloads.
+
+        The recorded side is the stored state's `current_side`. MUST
+        be called with a SINGLE game's experiences -- mixing games
+        would fabricate pairs across game boundaries."""
+        if exps is None or len(exps) < 2:
+            return
+        with self._lock:
+            for a, b in zip(exps, exps[1:]):
+                ga, gb = a.game_state, b.game_state
+                if (ga.global_info.current_side
+                        != gb.global_info.current_side):
+                    self._boundary_pairs.append((ga, gb))
+
     def _attach_boundary_sum(self, stats: TrainStats,
                              k: int = 16) -> None:
         """Mean V(s_pre)+V(s_post) over up to `k` sampled boundary
@@ -922,6 +941,11 @@ class MCTSPolicy:
         if not stats:
             return TrainStats()
         k = len(stats)
+
+        def _nanmean(vals) -> float:
+            xs = [v for v in vals if v == v]          # drop NaNs
+            return sum(xs) / len(xs) if xs else float("nan")
+
         return TrainStats(
             value_signal_states=sum(
                 getattr(s, "value_signal_states", 0) for s in stats),
@@ -935,6 +959,24 @@ class MCTSPolicy:
             n_trajectories=buffer_size,
             aux_loss=sum(s.aux_loss for s in stats) / k,
             moves_left_loss=sum(s.moves_left_loss for s in stats) / k,
+            # Telemetry set INSIDE step_mcts must be carried
+            # explicitly: this constructor silently dropped the
+            # advice_* fields, so under --replay-buffer the advice
+            # telemetry was NaN in production while the in-process
+            # legacy path showed it fine (found live 2026-07-29).
+            # Means are NaN-aware (an all-NaN column stays NaN);
+            # advice_out_norm takes the LAST value (post-update
+            # magnitude, mirroring grad_norm's semantics).
+            advice_fire_rate=_nanmean(
+                [s.advice_fire_rate for s in stats]),
+            advice_opps_mean=_nanmean(
+                [s.advice_opps_mean for s in stats]),
+            advice_grad_share=_nanmean(
+                [s.advice_grad_share for s in stats]),
+            advice_out_norm=next(
+                (s.advice_out_norm for s in reversed(stats)
+                 if s.advice_out_norm == s.advice_out_norm),
+                float("nan")),
         )
 
     # ------------------------------------------------------------------
