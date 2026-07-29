@@ -110,6 +110,50 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 20 — 2026-07-29 — the ACTING half of the advice signal never ran in production
+
+**My process error first: the loop stopped because I ended cycle 19 without
+calling ScheduleWakeup.** The user had to restart it. Re-armed; noting it
+so the failure mode is on the record rather than silently repeated.
+
+**Found while wiring the relevant-set config gate: `grep advice
+tools/selfplay_worker.py` returned NOTHING.** The spool workers generate
+every training game, and they built BOTH `TransformerPolicy` and
+`MCTSConfig` with no advice. So with `MCTS_ADVICE=1` on the box and the
+learner dutifully reporting `advice_out_norm` climbing, **all 100 workers
+played every game with zero advice conditioning at the search root**, and
+each worker's checkpoint load was dropping the grafted advice weights as
+unexpected keys.
+
+The design's acting half — root-conditioned priors, the entire point of the
+prospective advisor — has never run in production. Only the trainer
+reforward saw advice tokens.
+
+**This REVISES cycle 12.** I recorded attribution for this leg as
+"ambiguous because advice is active". It is much less ambiguous than that:
+the games were generated identically to an advice-OFF run, and only the
+gradient path differed. My mitigation-by-telemetry reasoning was sound, but
+the thing I was watching (`advice_out_norm`) was measuring the LEARNING
+half while the ACTING half was dead — so the confound I conceded to Fable
+was largely imaginary.
+
+Fixed (9a17d65): worker parses `--mcts-advice` and honours it in the model
+(also enabling it when the CHECKPOINT carries the flag, so grafted weights
+load) and in the search config; the learner forwards it in the spawn tail.
+Tests AST-inspect the seam rather than trusting a comment — the third bug
+of this exact class (T1-H telemetry, `_combine_stats` swallow, this), so
+the pattern is now: **anything that must hold across the worker/learner
+boundary gets a test that reads the boundary.**
+
+**Flaky test observed, NOT caused by this change:**
+`test_inference_seam::test_mcts_search_through_seam_matches_direct` failed
+once in the full tier (one edge differing by a single visit), then passed
+3/3 in isolation AND on the stashed prior tree, and the next full tier was
+green (594). Recording the hypothesis rather than dismissing it: the
+q-transform rescale normalises Q to [0,1], which AMPLIFIES tiny float
+differences between the direct and seam paths, so near-ties can flip. If it
+recurs, that is where to look.
+
 ### Cycle 19 — 2026-07-29 — the superset assert SHIPS, and it fires
 
 **Landed f4a0bf8:** `hex_subset` marker on RawEncoded/EncodedState (stamped
