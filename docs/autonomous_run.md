@@ -110,6 +110,45 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 19 — 2026-07-29 — the superset assert SHIPS, and it fires
+
+**Landed f4a0bf8:** `hex_subset` marker on RawEncoded/EncodedState (stamped
+in `encode_raw`, propagated through BOTH `encode_from_raw` paths — the
+batched one is what the trainer uses, and T1-H's lesson was that the
+production path is exactly where guards quietly die), plus the assert at
+the two raw-position lookups that can drop an offered action (the landable
+loop and `_recruit_hex_mask`).
+
+Why mode-aware rather than unconditional: under the FULL board a position
+miss legitimately means off-board. Under the subset it means **the mask
+offered an action with no token to point at** — an unorderable action, with
+no error anywhere. Silent action-space shrinkage is the whole risk of this
+design, so the guard exists precisely for it.
+
+**The test asserts that the assert FIRES**, not that it exists: shrink the
+relevant set behind the encoder's back to a third of its hexes while the
+mask still offers them, and `enumerate_legal_actions_with_priors` must
+raise `"relevant-set gap"`. It does. Also pinned: the marker really reaches
+EncodedState — without that the guard would be dead code that passes every
+test.
+
+592 fast + 4 slow green. Still default OFF; campaign untouched.
+
+**Campaign at 12 iterations — the value metric is NOISIER than any trend
+claim I have made.** `fresh_value_ce` jumped to **1.1860** after touching
+0.3912 the iteration before. Full within-process series:
+
+```
+1.018  0.530  0.718  0.491  0.485  0.500  0.709  0.391  1.186
+```
+
+That is a 3x swing between consecutive iterations. Recording it plainly:
+the "-51% then plateau" reading from cycle 16 stands as a description of
+the early drop, but **no trend claim on this metric is supportable at this
+noise level** — including any I might be tempted to make from a future low
+reading. What would be needed is a fixed-probe-set evaluation rather than
+one computed on each iteration's own incoming games.
+
 ### Cycle 18 — 2026-07-29 — encoder wiring landed (default OFF); H 870 -> 119 measured
 
 Took the wiring myself (Fable's context spent). **Landed a964fbe:**
