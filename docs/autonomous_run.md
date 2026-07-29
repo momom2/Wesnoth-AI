@@ -79,6 +79,14 @@ review. Findings from a review go in the log below even when rejected.
 6. **Box:** stop it when the next step waits on a human; never leave it
    idling. Verify what a restart RESUMES from before paying for it.
 7. Prefer measurement over inference; label inferred claims as inferred.
+8. **The loop runs on a RECURRING CRON (job 23fee23c, `7,37 * * * *`), not
+   a self-re-arming ScheduleWakeup chain.** The chain died twice — once
+   because I forgot to re-arm (cycle 19), once because the link itself
+   failed after a confirmed schedule (cycle 20) — and each death cost a
+   user rescue that is no longer available. A cron fires independently of
+   whether any single cycle remembers anything. Do NOT go back to the
+   chain. If a future cycle finds no cron, recreate it before doing
+   anything else.
 
 ---
 
@@ -109,6 +117,43 @@ review. Findings from a review go in the log below even when rejected.
 
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
+
+### Cycle 21 — 2026-07-29 — loop moved to a cron; box restarted onto coherent advice
+
+**Scheduling fixed STRUCTURALLY.** The self-re-arming wakeup chain died
+twice (cycle 19: I forgot; cycle 20: the link failed after a confirmed
+schedule), and the user is away ~3 days with no further rescues available.
+Replaced with recurring cron **23fee23c** at `7,37 * * * *` — it fires
+whether or not any cycle remembers to re-arm, and auto-expires after 7 days
+(covers the mandate). Recorded in the guardrails so a future cycle
+recreates it rather than reverting to the chain.
+
+**Box restarted onto the acting-side advice fix — and I changed my mind
+about whether to.** My first instinct was to leave the leg clean, since
+advice-at-act-time had never run and that made this a pure q-transform
+measurement. Reasoning it through reversed that:
+
+The state was NOT "advice inert, baseline clean". The trainer attaches
+advice tokens to stored states and shapes the gate against MCTS targets
+**generated without advice** — so the gate was being trained on a
+distribution where advice had NO CAUSAL ROLE in the target. That is a
+train/act mismatch: advice is uninformative noise with respect to the
+objective it is fitted against, and `advice_out_norm` climbing 0.19 -> 0.31
+under that objective is fitting noise, not learning a gate. A defect beats
+a clean baseline, so: restart.
+
+Cost ~1 iteration. Verified after reboot: box on 7034de0, 101 workers,
+`pgrep` confirms **`--mcts-advice` is now actually in the worker command
+line** (the check that would have caught the original bug), decision_step
+2,395,399 carried not reset.
+
+Leg is now split: iterations 0-16 = q-transform only, acting-side advice
+dead; iterations 17+ = coherent advice loop. Recorded so no later analysis
+treats the leg as homogeneous. T3-A already ruled attribution is not being
+bought this run, so the split costs little.
+
+Campaign at 16 iterations pre-restart: `fresh_value_ce` 0.3803,
+`advice_out_norm` 0.3073.
 
 ### Cycle 20 — 2026-07-29 — the ACTING half of the advice signal never ran in production
 
