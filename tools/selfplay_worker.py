@@ -34,6 +34,14 @@ Usage (normally spawned by sim_self_play --spool-workers):
 
 from __future__ import annotations
 
+# MUST precede torch/numpy import: OpenMP/MKL/OpenBLAS read these at load
+# time. One worker per core means every pool should be 1 -- see the
+# oversubscription note beside set_num_threads below.
+import os as _os
+for _v in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
+           "NUMEXPR_NUM_THREADS"):
+    _os.environ.setdefault(_v, "1")
+
 import argparse
 import json
 import logging
@@ -169,6 +177,18 @@ def main(argv) -> int:
 
     import torch
     torch.set_num_threads(max(1, args.torch_threads))
+    # set_num_threads bounds only torch's INTRA-op pool. The inter-op pool
+    # and any BLAS backend (OpenMP/MKL/OpenBLAS) are separately unbounded,
+    # and with ~100 worker PROCESSES on one box each extra busy thread is
+    # multiplied 100x. Observed 2026-07-29: box load doubled (130 -> 272 on
+    # 128 cores) which is ~+1.4 runnable threads per worker -- an
+    # oversubscription signature, not "same threads working harder". Cap
+    # them here where the worker owns its own process.
+    try:
+        torch.set_num_interop_threads(1)
+    except RuntimeError:
+        pass          # already initialised; only settable once per process
+
 
     # Heavy imports AFTER thread cap.
     from tools.actor_pool import _zero_reward, _set_fd_safe_sharing
