@@ -110,6 +110,51 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 12 — 2026-07-29 — the baseline lands and KILLS T1-F; my cycle-10 inference was wrong
+
+First live reads of both channels, and they overturn two of my own claims.
+
+| metric | iter 0 | iter 1 | I predicted |
+|---|---|---|---|
+| `boundary_sum` (n=16) | **-0.143** | **-0.015** | +0.4..+0.6 |
+| `advice_fire` | 0.053 | 0.052 | ~0.13 |
+| `advice_grad_share` | 0.0129 | 0.0150 | — |
+| `advice_out_norm` | 0.195 | **0.214** | ~0 if inert |
+| `fresh_value_ce` | 1.0182 | **0.5295** | — |
+| loss | 2.8640 | 2.6883 | — |
+
+**1. The boundary bias is NOT present in the live campaign — T1-F should
+die.** Predicted +0.4..+0.6 from the fogged-lineage probes; measured
+-0.143 then -0.015, i.e. essentially zero and if anything the wrong sign.
+The consistency penalty was designed to remove a systematic offset that
+this campaign does not exhibit. **This is exactly what landing telemetry
+BEFORE the penalty was for** — the third proposal killed by its own gate
+(after T1-D and the draw-framing). Candidate reasons the probes and the
+campaign disagree: the probes measured the RAW 0722 policy under the OLD
+q-transform, while this is the training net seeded from 2.30M under the
+FIXED transform, on a mix that is 20% fogless. Not resolved, and it does
+not need to be to decline building the penalty.
+
+**2. My cycle-10 inference "the advice signal is likely INERT" was WRONG.**
+`advice_out_norm` is 0.195 -> 0.214 and CLIMBING, with a 1.3-1.5% gradient
+share. The advice reforward had been working the whole time; only the
+REPORTING died in `_combine_stats`. I inferred a broken mechanism from a
+broken instrument — the exact error the telemetry existed to prevent.
+Retracted.
+
+**3. Consequence for the cycle-6 disagreement, on my own stated terms.** I
+kept `MCTS_ADVICE=1` arguing the confound was measurable via
+`advice_out_norm`, and committed to naming the split point if it climbed.
+It has climbed from the first iteration, so: **attribution for this leg is
+ambiguous between the q-transform fix and the advice signal from iter 0
+onward.** Fable's methodological objection was right; my mitigation
+correctly detected it rather than assuming it away, but the mitigation does
+not undo the ambiguity. A clean attribution needs an advice-OFF arm.
+
+**4. `fresh_value_ce` 1.0182 -> 0.5295** on the project's default success
+metric, with loss 2.864 -> 2.688. Two points is not a trend (the +-
+spreads are 1.27 and 0.52), but the direction is right.
+
 ### Cycle 11 — 2026-07-29 — telemetry fixed on the spool path (+ a holdout leak caught)
 
 Fable traced both channels exactly, and one cause is a general hazard:
