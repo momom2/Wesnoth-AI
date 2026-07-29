@@ -118,9 +118,15 @@ review. Findings from a review go in the log below even when rejected.
 
 ## Open questions (kill or answer, don't let them rot)
 
-1. Which term in the training signal pays the model to bank gold and
-   decline recruits? (T1's first probe: C51 value around recruit vs
-   hoard-and-end_turn, bucketed by turn.)
+1. ~~Which term in the training signal pays the model to bank gold?~~
+   **ANSWERED, cycle 29: none does.** Every gold channel is inert under
+   `--mcts` (`MCTSPolicy.observe` is a no-op), the value head is
+   pro-recruit (+0.229), search does not starve recruits, and end_turn is
+   taught DOWN. What is real is the "tried-and-cut tax" in
+   `extract_gumbel_policy_target` — ≤2-visit halving losers grade below
+   v_mix while ~98% untried mass shelters at v_mix, so concentrated-prior
+   classes (midgame recruit) pay most. Whether that is pathology or good
+   play is deferred to question #5.
 2. Does the real engine leave a leader off-keep on Tombs_of_Kesorak /
    Sablestone_Delta (7.5% of leader-sides can't recruit at start), or does
    it place differently? Check `wesnoth_src/src/` before changing placement.
@@ -146,6 +152,95 @@ review. Findings from a review go in the log below even when rejected.
 
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
+
+### Cycle 29 — 2026-07-29 — T1 ANSWERED: nothing pays for gold; the tax is in target extraction
+
+**Open question #1 is answered** (Fable's probe; instruments in scratchpad,
+70 affordability-gated recruit states from the live checkpoint, box search
+config, advice=True, loaded via `peek_checkpoint_arch` so advice tensors
+actually load). Verdict, in one line: **no active term in the training
+signal pays for banked gold.**
+
+What was RULED OUT, each with a cite:
+- `rewards.py` gold terms are **structurally inert under `--mcts`** —
+  `MCTSPolicy.observe` is a no-op (`mcts_policy.py:469-476`), gated by
+  `uses_step_rewards` (`sim_self_play.py:346`). **This finally explains
+  why the old `weight_gold=0` fix "did nothing": it could not have done
+  anything.** A whole prior investigation was aimed at a dead channel.
+- Combat-oracle attack bias: alphas are literally 0.0
+  (`constants.py:164-165`) — dead machinery.
+- Draw tiebreak / aux margin: `weight_gold=0.0` (`draw_tiebreak.py:79`);
+  `--train-draw-tiebreak` not passed.
+- Value head pro-hoarding: **refuted** — V(after recruit) − V(after
+  end_turn) = **+0.229 paired, recruit better in 45/70**.
+- Visit starvation: **refuted** — recruit visit share 0.307 ≥ prior 0.270.
+- end_turn taught as a hoard move: **refuted** — taught DOWN in 63/64
+  states once 6 already-decided positions are excluded.
+
+**What IS real — the "tried-and-cut tax."** `extract_gumbel_policy_target`
+(`tools/mcts.py:1855`) grades VISITED edges by backed-up q̂ but parks
+UNVISITED edges at v_mix (`_completed_q`, `mcts.py:1502`). At the box
+budget (32 sims, `gumbel_m=16`) only 16 of 100-1300 legal actions are
+visited and ~8 are cut after 1-2 sims. Measured per edge:
+
+```
+cut candidates (1-2 visits): -0.018 BELOW v_mix (68/120)
+survivors       (3-6 visits): +0.054 ABOVE v_mix (30/40)
+~98% of legal actions never sampled -> shelter AT v_mix
+```
+
+So **being sampled and cut costs probability mass; never being sampled is
+free.** Selection-on-noise makes a cut edge's q̂ biased low. This is NOT
+recruit-specific in the search (paired q−v_mix: recruit −0.020, move
+−0.044, attack −0.025 — recruit is treated *mildest*); recruit loses
+because its prior is CONCENTRATED, so it reliably enters the candidate
+set (56/70) while diffuse move mass shelters. The predicted drift matches
+the leg: turn≥3 recruit prior **0.264 → 0.122** over 113k steps (down in
+49/53) while turn≤2 ROSE 0.700 → 0.731. Reproducible: same sign 22/24 on
+an independent-rng repeat.
+
+Note the aggregate hides the sign: recruit mass goes DOWN at gold<25 and
+turns 3-4, but **UP at turn 1-2 (+0.043) and UP at gold>50 (+0.021,
+median 0.238 → 0.595)** — i.e. the target pushes recruiting up exactly
+where gold is piled up. That is evidence AGAINST "it is taught to hoard".
+
+**Env assumption closed (Claude, box-side).** No `env.sh` exists, so
+nothing overrides the baked config, and the live command carries
+`--mcts-sims 32 --max-turns 100 --max-turns-min 60 --draw-value-weight
+0.25`. `--mcts-aux-score` IS set but that is the boolean enabling the aux
+training HEAD — a different thing from `--mcts-aux-value-bonus`, the
+search-time material shaper, which is absent and therefore **0.0**.
+
+**Throughput, measured definitively** as a delta between two steady-state
+samples (so uncounted in-flight decisions cancel):
+
+```
+T0 10:42:10 iters=1 games=42 dec=5767
+T1 10:58:52 iters=2 games=52 dec=7797
+--> +2030 decisions / 16.7 min = ~7,300 decision-steps/hour
+--> ~17 min/iteration at steady state (earlier 27-38 min included warmup)
+```
+
+**Strategic consequence, and the cycle's decision.** ~41 h of remaining
+credit x 7,300/h = **~300k decision steps**, against a 450k-1M gap that
+has ever separated checkpoints detectably on this lineage. **More
+training cannot buy a measurable strength gain on this budget.**
+Measurement can, and is orders of magnitude cheaper (46.5 s/game
+raw-policy eval vs ~80 min for one MCTS self-play game). So: training
+continues (it is cheap and still accrues steps + validation exports), but
+the RUN's effort reallocates to settling open question #5 at n≈200.
+
+Fable's own recommendation agrees and is adopted: **do not touch target
+extraction until Q5 resolves** — whether midgame recruit down-teaching is
+pathology or good play is exactly what a strength eval arbitrates, and
+both proposed levers (`max(q̂, v_mix)`, `gumbel_m` 16→8) diverge from the
+mctx reference that the cycle-2 fix deliberately restored.
+
+**Carried forward:** `WesnothSim.__init__` unconditionally fires
+`_begin_side_turn` (`wesnoth_sim.py:530` — income, healing, MP refresh),
+so any tool reconstructing a MID-TURN state via the ctor silently
+corrupts it. Fable hit this and worked around it with a sacrificial-copy
+swap plus gold/side asserts. Needs a principled guard, with a test.
 
 ### Cycle 28 — 2026-07-29 — the budget is the binding constraint (credit $13.90)
 
