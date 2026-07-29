@@ -544,6 +544,22 @@ class WesnothSim:
         # because nothing here will set them. Callers that want a
         # fresh turn (i.e. essentially all game-playing code) must
         # leave this True.
+        #
+        # NOTE this is NOT a bug fix -- the ctor firing init_side is
+        # correct by contract, and the production midgame-splicing
+        # path (`tools/midgame_starts.py`) RELIES on it: it cuts
+        # BEFORE the boundary init_side and lets the ctor fire it.
+        # The flag exists only for callers holding a genuine mid-turn
+        # GameState (a probe replaying a stored decision point).
+        #
+        # Two further caveats such a caller inherits, both shared with
+        # `fork()`:
+        #   - `_rng_requests` starts at 0, so bit-exact stochastic
+        #     continuation requires the caller to restore it; without
+        #     that, trait/damage rolls will NOT match the original
+        #     line even though the state looks right.
+        #   - `command_history` starts empty, so replay EXPORT from
+        #     such a sim is unsupported.
         if begin_turn:
             self._begin_side_turn(begin_side)
 

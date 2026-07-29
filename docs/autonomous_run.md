@@ -142,9 +142,15 @@ review. Findings from a review go in the log below even when rejected.
    contention from co-tenants (now the leading one, and it would make
    this a non-bug), model-side cost of the advice module, or trainer
    reforward cost. Test: watch iteration time on the new box.
-5. **Does the q-transform fix actually produce a stronger policy?** First
-   read at 113k steps: Elo -137 +-260 vs seed, i.e. undetermined. Needs a
-   later checkpoint and more games.
+5. **Does the q-transform fix actually produce a stronger policy?**
+   **MEASURED at n=100 (cycle 30): Elo +35 ±68, 55-0-45, mirror sweeps
+   11/6 — UNDETERMINED.** Supersedes the cycle-26 −137 ±260. Neither
+   supported nor contradicted; the lean is favourable, the CI covers
+   zero. Not answerable by more games at THIS step gap (113k) — it needs
+   a checkpoint separated by something closer to the historical
+   450k-1M, which the current budget cannot buy (cycle 28/29).
+   **Recommend closing it as "undetermined, and not cheaply
+   determinable" rather than re-running.**
 
 ---
 
@@ -152,6 +158,82 @@ review. Findings from a review go in the log below even when rejected.
 
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
+
+### Cycle 30 — 2026-07-29 — Q5 measured at n=100: UNDETERMINED (+35 ±68), and my tail theory was wrong
+
+**Open question #5, the run's central claim, measured at 4x the power of
+cycle 26.** Players verified by READING `decision_step`, not filenames —
+and the filename trap fired again: `selfplay_local_20260718.pt` reads
+2,299,999 and is NOT the seed.
+
+```
+LIVE campaign_live_20260729.pt  ds 2,403,615
+SEED seed_20260718.pt           ds 2,290,529
+protocol: 4e445c2 mirrored pairs, raw policy, max_turns=100,
+          draw_weight=0.0, 19 chunks (seeds 101-119), 0 pairs abandoned
+pooled:   55-0-45 (live)   Elo(live) = +35 +-68
+mirror:   11 swept-by-live / 33 split / 6 swept-by-seed / 0 mixed
+          sign test on sweeps p=0.33; binomial on decisives p=0.37
+```
+
+**Verdict: the q-transform fix is neither supported nor contradicted.**
+The +35 lean points the right way and the CI is 4x tighter than cycle
+26's −137 ±260 (**which this supersedes**), but it comfortably covers
+zero. 113k steps is small against the 450k-1M gaps that ever separated
+checkpoints. Honest headline: **no detectable strength change.**
+
+**My tail explanation was WRONG — recorded because I published it.** In
+`20f75e7` I attributed the long-game tail to "passive shuffling games"
+running to the cap. Measured: **0 cap-endings in 116 games** (0/100
+cross-play, 0/8 live self-play, 0/8 seed self-play; `timeout` maps
+exactly to `ended_by in ("max_turns","max_actions")`, `eval_sim.py:200`).
+The wall-clock monsters are long **decisive** games. There is no
+live-vs-seed passivity difference to find — both are 100% decisive at
+this horizon. Scope note: this is measured on RAW-POLICY eval games;
+whether the BOX's MCTS training games ever cap out is still unmeasured,
+so the iteration-time half of question #4 stays open with its leading
+explanation now removed.
+
+Bonus: this extends cycle 25's decisiveness observation to n=116 and
+removes cap-truncation as a label-noise concern for current training.
+
+**Timing tail, for whoever plans the next eval:** median ~45-65 s/game
+(so 46.5 s/game was a fair MEDIAN), mean ~76 s, single games up to
+~16 min. Budgeting off the median underestimates ~1.6x on the mean and
+misses the tail entirely; per-pair JSON checkpointing is what made it
+survivable.
+
+**T1 verdict with the eval in hand: pull NEITHER lever.** The
+tried-and-cut tax is a real structural bias whose measured consequences
+sit below every detection floor we have — strength undetermined at ±68,
+recruits/turn flat (2.12→2.19), zero passivity endgames. Changing target
+extraction now would put a THIRD regime into an already-split leg.
+Decision: **keep the mctx reference semantics; arm a cheap tripwire**
+(watch midgame-recruit prior drift in the concentrated-prior buckets —
+the bucket-for-bucket match was the original evidence). It graduates to
+actionable only if drift accelerates or recruits/turn falls. If it ever
+does, prefer `gumbel_m` 16→8 (a documented mctx *knob*) over
+`max(q̂, v_mix)` (which rewrites completed-Q *semantics*).
+
+**Disagreement, and the synthesis (Claude's call).** Fable argued the
+`begin_turn` bool I landed in `5a62f80` is the wrong shape: the ctor
+firing init_side is *correct by contract* — production midgame-splicing
+(`midgame_starts.py:62-104`) deliberately cuts BEFORE the boundary
+init_side and relies on the ctor firing it — so the invariant "ctor
+states are boundary states" is worth preserving, and a
+`from_midturn_state` classmethod mirroring `fork()` would touch zero
+existing paths. **Fable is right about the contract and I have recorded
+it in the code**, which my original comment got wrong by implying the
+ctor was buggy. I am keeping the bool as the primitive, because a
+classmethod built on `__new__` duplicates ctor field-init and drifts as
+fields are added. The synthesis: a future `from_midturn_state` should
+simply CALL the ctor with `begin_turn=False` and additionally restore
+`_rng_requests` — sugar over the primitive, no duplication.
+
+Fable's two subtleties applied to the shipped flag (both were real gaps
+in what I wrote): `_rng_requests` starts at 0, so bit-exact stochastic
+continuation needs the caller to restore it, and `command_history`
+starts empty, so replay export is unsupported. Both now documented.
 
 ### Cycle 29 — 2026-07-29 — T1 ANSWERED: nothing pays for gold; the tax is in target extraction
 
