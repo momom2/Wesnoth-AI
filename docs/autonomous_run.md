@@ -159,6 +159,67 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 33 — 2026-07-29 — the cycle-30 tripwire is now real code, and it reproduces the finding exactly
+
+**Box.** Iteration 7, 77 workers, learner alive, zero aborts. Credit
+**$11.95** (~35 h at $0.334/hr).
+
+```
+fresh_value_ce  0.4321, 0.5081, 0.7148, 0.4664   (noisy, no trend at n=7)
+boundary_sum    +0.168, +0.208, -0.024, -0.002
+  rolling |mean| last 3 = 0.061  -> well clear of the 0.25 band
+advice_out_norm 0.3594 -> 0.3711  (RETIRED as evidence, cycle 32)
+```
+
+**A decision was one directory sweep from being unenforceable.** Cycle 30
+decided to leave target extraction alone and "arm a cheap tripwire
+instead". That tripwire existed only as probe scripts in the temp
+scratchpad, which gets cleaned. Promoted to **`tools/recruit_prior_drift.py`**
+(`e215314`) with `collect`/`compare` subcommands — the right shape,
+because snapshots are game STATES and therefore checkpoint-independent:
+collect once, re-compare as the lineage advances. Fixed what made the
+scripts unshippable (a hardcoded absolute Windows ROOT; a dead
+comprehension).
+
+Design point worth keeping: the analysis core (`summarize` /
+`paired_delta` / `escalates`) is deliberately **torch-free**, so the
+DECISION is unit-testable even though collection needs a checkpoint and
+a sim. `paired_delta` RAISES on mismatched state lists rather than
+truncating, because a length mismatch means the checkpoints did not score
+the same states and the pairing — the entire point — would be a lie. The
+cycle-30 escalation rule is a function, not prose, so it cannot drift
+from its own justification.
+
+**Validated end-to-end against Fable's independent implementation** on
+the same 70 states, reproducing cycle 29 exactly:
+
+```
+seed_20260718 (2,290,529) -> campaign_live_20260729 (2,403,615)
+  turn>=3 : rec mean 0.264 -> 0.122   median 0.123 -> 0.037
+  turn<=2 : rec mean 0.700 -> 0.731   (opening ROSE)
+  paired  : midgame UP in only 4/53
+```
+
+Two independent implementations agreeing is a genuine check on both.
+**Escalation did NOT fire**: 0.122 is still above the 0.05 floor, so the
+tax stays "recorded", not "actionable" — exactly as cycle 30 specified.
+620 fast tests pass. Snapshots are regenerable via `collect` and are
+deliberately NOT committed (pickled `GameState`s are class-version
+fragile and would bloat the repo); the T1 set is preserved locally at
+`training/logs/recruit_snaps/` (gitignored).
+
+**Fable dispatched: is 32 sims the root constraint?** Two independent
+findings now trace to one root — the tried-and-cut tax exists because at
+32 sims/`gumbel_m=16` only ~16 of 100-1300 actions are visited and ~8 are
+cut after 1-2 sims, and cycle 32's E0 showed the target cannot resolve a
+specific action's merit at that budget. The package is a
+**quality-vs-sims curve measured against a high-budget (512-1024 sim)
+reference, normalized by COMPUTE not by sims** — because sims and games
+trade off, so a 64-sim target must be more than twice as informative per
+unit compute to be worth it. Plus: does the cut-vs-shelter gap shrink
+with N, and at what N does it stop mattering? Framed so that "32 is
+fine" and "undetermined at affordable cost" are both acceptable answers.
+
 ### Cycle 32 — 2026-07-29 — the ADVICE channel carries no information (and `advice_out_norm` was never evidence)
 
 **A claim I published repeatedly is REFUTED.** I read `advice_out_norm`
