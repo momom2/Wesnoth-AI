@@ -436,7 +436,8 @@ nohup bash -c "
       echo \"[onstart] signal exit; supervisor stands down\" >> '$WORKDIR/train.log'
       break
     fi
-    # Tripwire aborts (3=reserved, 4=all-draws, 5=holdout stall)
+    # Tripwire aborts (3=reserved, 4=all-draws, 5=holdout stall,
+    # 6=systemic index-basis mismatch between workers and learner)
     # need a human: marker blocks auto-relaunch until removed.
     if [ \$rc -ge 3 ] && [ \$rc -le 9 ]; then
       touch '$WORKDIR/ABORTED_'\$rc; break

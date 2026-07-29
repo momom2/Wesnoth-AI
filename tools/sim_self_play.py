@@ -1270,6 +1270,7 @@ class SpoolWorkers:
         training; delete the file."""
         import pickle as _pickle
         outcomes: List[GameOutcome] = []
+        _basis_rejects = 0
         deadline = time.perf_counter() + timeout_s
         while len(outcomes) < want:
             files = sorted(self._dir.glob("game_*.pkl"))
@@ -1303,6 +1304,7 @@ class SpoolWorkers:
                     False))
                 _got_rs = bool(payload.get("relevant_set", False))
                 if _got_rs != _want_rs:
+                    _basis_rejects += 1
                     log.error(
                         f"spool: REJECTING {f.name} -- relevant_set="
                         f"{_got_rs} but this learner encodes with "
@@ -1330,6 +1332,31 @@ class SpoolWorkers:
                         policy._queue.extend(exps)
                 outcomes.append(payload["outcome"])
                 f.unlink(missing_ok=True)
+        # Escalation (Fable, T2-C): dropping a basis-mismatched game handles
+        # the realistic TRANSIENT -- a stale worker across a flag change.
+        # But if the mismatch is SYSTEMIC (every worker stale, or the
+        # learner misconfigured) the drop path degrades into a run that
+        # trains on starvation while logging errors nobody reads. That is
+        # the silent-boundary failure class this run has already hit three
+        # times, so persistent mismatch halts LOUDLY with a distinct code
+        # (the all-draws-abort pattern).
+        if _basis_rejects >= max(1, want // 2):
+            self._basis_reject_streak = getattr(
+                self, "_basis_reject_streak", 0) + 1
+            log.error(
+                f"spool: {_basis_rejects}/{want} games rejected for "
+                f"index-basis mismatch "
+                f"(streak {self._basis_reject_streak}/2)")
+            if self._basis_reject_streak >= 2:
+                log.error(
+                    "spool: SYSTEMIC index-basis mismatch -- workers and "
+                    "learner disagree about --relevant-set-hexes. Halting "
+                    "rather than training on starved iterations. Fix the "
+                    "flag on both sides (see docs/autonomous_run.md) and "
+                    "restart.")
+                raise SystemExit(6)
+        else:
+            self._basis_reject_streak = 0
         return outcomes
 
     def shutdown(self) -> None:

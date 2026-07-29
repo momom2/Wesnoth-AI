@@ -253,3 +253,22 @@ def test_holdout_probe_is_discarded_across_an_index_basis_change(tmp_path):
     f2.write_bytes(pickle.dumps({"experiences": [], "games": 1,
                                  "target": 4, "relevant_set": False}))
     assert p_off.load_holdout(f2) is True
+
+
+def test_systemic_basis_mismatch_escalates_to_a_halt():
+    """Dropping a mismatched game handles the TRANSIENT (a stale worker
+    across a flag change). A SYSTEMIC mismatch must halt loudly instead of
+    degrading into a run that trains on starved iterations while logging
+    errors nobody reads -- the silent-boundary failure class this project
+    has hit three times. Exit 6 is in the supervisor's tripwire range, so
+    it writes ABORTED_6 and stops auto-relaunch."""
+    import pathlib, re
+    src = pathlib.Path("tools/sim_self_play.py").read_text(encoding="utf-8")
+    assert "_basis_reject_streak" in src
+    assert "SystemExit(6)" in src
+    # must require a STREAK, not fire on a single bad iteration
+    assert re.search(r"_basis_reject_streak\s*>=\s*2", src), \
+        "escalation must require consecutive iterations"
+    onstart = pathlib.Path("scripts/vast_onstart.sh").read_text(encoding="utf-8")
+    assert "6=systemic index-basis mismatch" in onstart, \
+        "exit code must be documented where the supervisor lists tripwires"
