@@ -1,6 +1,7 @@
 # classes.py
 # Data structures for Wesnoth AI
 
+import copy as _copy
 from dataclasses import dataclass
 from typing import List, Optional, Set
 from enum import IntEnum
@@ -223,7 +224,17 @@ class Map:
         `_replace_unit` (new frozen-style Unit, set membership
         replaced). A new set is required so add/remove on one copy
         doesn't leak to the other; the Unit *contents* are shared
-        because the codebase never mutates a Unit in place.
+        because the codebase never mutates a Unit in place (audited
+        2026-07-29: the one violator, `scenario_events._object_action`,
+        now uses the replace-unit pattern; `_apply_effect_to_unit`
+        documents the fork-private contract).
+
+        The full aliased-vs-copied contract for a fork (this method +
+        GlobalInfo.__deepcopy__) is pinned as an executable spec in
+        tests/test_fork_isolation.py::test_fork_alias_contract. If you
+        change what's aliased here, update that test and the audit
+        note in docs/autonomous_run.md. `SIM_FORK_GUARD=1` (tools/
+        mcts.py) asserts the contract around every search.
 
         Net: ~10x faster than the default deepcopy for typical
         2p mid-game state.
@@ -278,14 +289,23 @@ class GlobalInfo:
         ad-hoc by the sim / replay-recon and would silently leak
         across MCTS branches if not copied. Copy each by type:
 
-          - dict      -> dict(...) (shallow; values are typically
-                         scalars / tuples)
+          - `_scenario_events` -> per-fork list; UNFIRED events are
+                         shallow-COPIED (the `fired` latch is mutable
+                         state -- see the branch comment below),
+                         already-fired events stay shared
+          - `_terrain_codes` -> ALIAS (see branch comment below)
+          - dict      -> dict(...) (shallow; VALUES are shared, so
+                         they must be replaced, never mutated in
+                         place -- all current writers comply, audit
+                         2026-07-29)
           - set       -> set(...)
-          - list      -> list(...)
+          - list      -> list(...) (shallow; ELEMENTS shared, same
+                         replace-don't-mutate rule)
           - other     -> alias (assumed immutable)
 
         If you add a new mutable stash attr, extend the copy logic
-        below or set it AFTER the deepcopy at the call site.
+        below or set it AFTER the deepcopy at the call site. The
+        contract is pinned in tests/test_fork_isolation.py.
         """
         if id(self) in memo:
             return memo[id(self)]
@@ -303,7 +323,26 @@ class GlobalInfo:
         for k, v in self.__dict__.items():
             if not k.startswith("_"):
                 continue
-            if k == "_terrain_codes":
+            if k == "_scenario_events":
+                # Per-fork COPIES of any event that can still fire:
+                # `ScenarioEvent.fired` is MUTABLE state, and a search
+                # fork crossing a turn boundary latches first_time_only
+                # events (`fire_event` / `_fire_event_action`). With
+                # shared elements the LIVE game inherited the fork's
+                # latch and skipped the event forever -- Aethermaw's
+                # turn-4/5/6 morphs never fired (found 2026-07-29,
+                # same bug class as the village bit fa95da5; test:
+                # tests/test_fork_isolation.py). Already-fired events
+                # stay shared: their only later mutation is an
+                # idempotent re-latch to True, and sharing keeps the
+                # steady-state cost at zero copies (most scenarios
+                # latch everything at prestart). `ev.actions` (parsed
+                # WML) is read-only after parse and stays shared via
+                # the shallow per-event copy.
+                setattr(new, k,
+                        [ev if getattr(ev, "fired", False)
+                         else _copy.copy(ev) for ev in v])
+            elif k == "_terrain_codes":
                 # ALIAS (don't copy). Terrain codes are immutable during
                 # 2p-ladder self-play -- only terrain-MORPH events mutate
                 # them in place (scenario_events._terrain_action), the
@@ -431,3 +470,74 @@ def state_key(gs: "GameState") -> int:
     )
     return hash((units_key, sides_key, villages_key, global_key,
                  hidden_state_key))
+
+
+def deep_state_fingerprint(gs: "GameState") -> int:
+    """DEBUG/test-only content hash of EVERYTHING a search fork could
+    corrupt in the parent state.
+
+    `state_key` answers "same MCTS node?" and deliberately excludes
+    surfaces that are immutable within a game session (terrain, hex
+    modifiers, unit stat/attack tables, scenario-event latches). But
+    those are exactly the surfaces the fork-shared-mutable-state bug
+    class mutates (terrain morph 2026-07-18, village bit fa95da5,
+    event latch 2026-07-29) -- each real instance was INVISIBLE to
+    `state_key`. This fingerprint covers them all: use it to assert
+    "the parent did not change" across a search (`SIM_FORK_GUARD=1`
+    in tools/mcts.py) or across any fork-side mutation (see
+    tests/test_fork_isolation.py).
+
+    O(full state) -- fine for a debug guard and tests, do NOT put it
+    on an always-on hot path.
+    """
+    units_deep = tuple(sorted(
+        (
+            u.id, u.side,
+            u.max_hp, u.max_moves, u.max_exp, u.cost, int(u.alignment),
+            tuple(u.levelup_names),
+            tuple(
+                (int(a.type_id), a.number_strikes, a.damage_per_strike,
+                 a.is_ranged,
+                 tuple(sorted(str(s) for s in a.weapon_specials)))
+                for a in u.attacks
+            ),
+            tuple(u.resistances), tuple(u.defenses),
+            tuple(u.movement_costs),
+            tuple(sorted(str(a) for a in u.abilities)),
+            tuple(sorted(str(t) for t in u.traits)),
+        )
+        for u in gs.map.units
+    ))
+    hexes_deep = tuple(sorted(
+        (
+            (h.position.x, h.position.y),
+            tuple(sorted(int(t) for t in h.terrain_types)),
+            tuple(sorted(int(m) for m in h.modifiers)),
+        )
+        for h in gs.map.hexes
+    ))
+    fog_key = tuple(sorted((p.x, p.y) for p in gs.map.fog))
+    mask_key = tuple(sorted((p.x, p.y) for p in gs.map.mask))
+    gi = gs.global_info
+    codes_key = tuple(sorted(
+        (getattr(gi, "_terrain_codes", None) or {}).items()))
+    events_key = tuple(
+        (ev.name, bool(getattr(ev, "first_time_only", True)),
+         bool(getattr(ev, "fired", False)))
+        for ev in (getattr(gi, "_scenario_events", None) or ())
+    )
+    time_areas_key = tuple(sorted(
+        (pos, tuple(cycle))
+        for pos, cycle in (getattr(gi, "_time_areas", None) or {}).items()
+    ))
+    scenario_vars_key = tuple(sorted(
+        (k, tuple(sorted(v)) if isinstance(v, (set, frozenset)) else str(v))
+        for k, v in (getattr(gi, "_scenario_vars", None) or {}).items()
+    ))
+    wml_vars_key = tuple(sorted(
+        (getattr(gi, "_wml_variables", None) or {}).items()))
+    return hash((
+        state_key(gs), units_deep, hexes_deep, fog_key, mask_key,
+        codes_key, events_key, time_areas_key, scenario_vars_key,
+        wml_vars_key,
+    ))

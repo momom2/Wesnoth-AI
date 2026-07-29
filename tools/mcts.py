@@ -81,6 +81,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -98,7 +99,9 @@ from wesnoth_ai.action_sampler import (
     LegalActionPrior,
     enumerate_legal_actions_with_priors,
 )
-from wesnoth_ai.classes import GameState, state_key
+from wesnoth_ai.classes import (
+    GameState, deep_state_fingerprint, state_key,
+)
 from wesnoth_ai.encoder import GameStateEncoder
 from wesnoth_ai.model import WesnothModel
 from wesnoth_sim import WesnothSim
@@ -115,6 +118,15 @@ from outcome_buckets import (
 
 
 log = logging.getLogger("mcts")
+
+# SIM_FORK_GUARD=1: assert around every mcts_search that the CALLER's
+# live state is bit-identical before and after the search. Catches the
+# whole fork-shared-mutable-state bug class (terrain morph 2026-07-18,
+# village bit fa95da5, event latch 2026-07-29 -- each invisible to
+# state_key, all covered by deep_state_fingerprint). Costs two full-
+# state hashes per search, so it's an opt-in debug flag for smoke runs
+# and repro hunts, not a production default.
+_FORK_GUARD = os.environ.get("SIM_FORK_GUARD", "") not in ("", "0")
 
 # Action types whose sim.step consumes synced RNG (combat damage
 # rolls; recruit trait rolls). Chance-node sampling re-forks and
@@ -1700,6 +1712,10 @@ def mcts_search(
         rng = np.random.default_rng()
     import time as _time
 
+    # Opt-in leak detector: the caller's live state must be untouched
+    # by the search (see _FORK_GUARD comment at module top).
+    _guard_fp = deep_state_fingerprint(sim.gs) if _FORK_GUARD else None
+
     if (reuse_root is not None and reuse_root.expanded
             and not reuse_root.is_terminal):
         root = reuse_root
@@ -1816,6 +1832,15 @@ def mcts_search(
             f"mcts: TT hits={tt_stats['hits']} "
             f"misses={tt_stats['misses']} "
             f"hit_rate={tt_stats['hits'] / max(1, tt_stats['hits'] + tt_stats['misses']):.1%}"
+        )
+    if _guard_fp is not None and deep_state_fingerprint(sim.gs) != _guard_fp:
+        raise AssertionError(
+            "SIM_FORK_GUARD: the caller's live state changed during "
+            "mcts_search. A search fork mutated a structure the "
+            "fast-path deepcopy shares across forks (Map.__deepcopy__ /"
+            " GlobalInfo.__deepcopy__ aliasing) -- the bug class of the"
+            " village bit (fa95da5) and the Aethermaw event latch. "
+            "Diff deep_state_fingerprint components to locate the leak."
         )
     return root
 

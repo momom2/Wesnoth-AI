@@ -1213,7 +1213,18 @@ def _parse_increase(raw: str, base: int) -> int:
 
 def _apply_effect_to_unit(u, eff: WMLNode) -> None:
     """Apply a single `[effect]` block's mutation to one unit, in
-    place. Supports the apply_to forms used by 2p ladder scenarios
+    place.
+
+    CONTRACT: `u` must be a FORK-PRIVATE unit -- either freshly built
+    and not yet inserted into `gs.map.units` (`_unit_action`), or a
+    `copy.copy` swapped in via the replace-unit pattern
+    (`_object_action`). Unit objects in `gs.map.units` are SHARED
+    across MCTS forks (Map.__deepcopy__), so mutating one in place
+    here would leak into the live game. Every branch below REBINDS
+    fields with freshly-built containers (never `.append`/`.add` on
+    an existing one), which is what makes a shallow copy sufficient.
+
+    Supports the apply_to forms used by 2p ladder scenarios
     (Hornshark Island, Caves of the Basilisk, Sullas Ruins,
     Silverhead Crossing, Thousand Stings Garrison):
 
@@ -1396,9 +1407,27 @@ def _object_action(gs: GameState, action: WMLNode) -> None:
         targets.append(u)
     if not targets:
         return
-    for eff in action.all("effect"):
-        for u in targets:
-            _apply_effect_to_unit(u, eff)
+    # REPLACE-UNIT pattern (fork-shared-mutable-state class, audit
+    # 2026-07-29; same class as the terrain COW 2026-07-18 and the
+    # village bit fa95da5): `targets` are the Unit objects that
+    # `Map.__deepcopy__` SHARES across every MCTS fork, so applying
+    # effects in place on them would rewrite the live game (and all
+    # sibling forks) whenever an [object] event fires inside a search.
+    # Apply effects to a shallow copy instead and swap it into the
+    # (fork-local) unit set -- every `_apply_effect_to_unit` branch
+    # REBINDS fields with freshly-built containers, so the shallow
+    # copy fully isolates the original. Unit eq/hash is (id, side),
+    # so discard+add replaces in place. Per-unit effect order equals
+    # the original effects-outer loop: each effect touches only the
+    # one unit it's applied to.
+    effects = action.all("effect")
+    import copy as _copy
+    for u in targets:
+        new_u = _copy.copy(u)
+        for eff in effects:
+            _apply_effect_to_unit(new_u, eff)
+        gs.map.units.discard(u)
+        gs.map.units.add(new_u)
 
 
 # Action-tag dispatch table.
