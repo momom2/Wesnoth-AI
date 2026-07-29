@@ -110,6 +110,43 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 15 — 2026-07-29 — fresh_value_ce is now trending, not bouncing
+
+Eight iterations. The series that matters:
+
+| loss | fresh_value_ce | advice_out_norm | boundary_sum |
+|---|---|---|---|
+| 2.9346 | 1.3870 | — | — |
+| 2.8640 | 1.0182 | 0.1947 | -0.143 |
+| 2.6883 | 0.5295 | 0.2139 | -0.015 |
+| 2.8711 | 0.7178 | 0.2276 | — |
+| 2.7082 | 0.4910 | 0.2381 | -0.019 |
+| 3.0504 | **0.4854** | **0.2552** | — |
+
+**`fresh_value_ce` 1.387 -> 0.485 over six points (-65%).** In cycle 14 I
+cautioned that the 0.53 was not an achievement because the series bounced;
+with six points the decline survives that bounce, so this now reads as
+signal rather than noise. Still NOT claimed as a win — the metric depends
+on the incoming game distribution, and the campaign is young.
+
+**Loss is flat-to-noisy** (2.93..3.05, no trend) — worth stating because it
+is the metric one would naively quote. The generalization metric moving
+while train loss does not is the expected shape when the value head stops
+being fed a saturated target.
+
+`advice_out_norm` monotone across all five readings (0.195 -> 0.255).
+Tripwire: boundary rolling |mean| 0.059 over 3 readings, clear of 0.25.
+
+**Minor instrument gap noted, not chased:** `boundary_sum` is NaN on 2 of 5
+telemetry-carrying iterations, implying <4 pairs despite 24 games each.
+Flagged to Fable as low priority; the tripwire still has readings.
+
+T2-A dispatched: the relevant-set size measurement that gates the whole
+sequence-length scaling design, including the empirical superset check
+against the legality mask. Explicitly told Fable that "the set is 60-70% of
+the board and the win is ~1.4x" is an acceptable answer that would kill the
+direction — better learned from a measurement than after an encoder rewrite.
+
 ### Cycle 14 — 2026-07-29 — ablation harness landed; fresh_value_ce is NOISY, not a trend
 
 **Harness landed (0a7ca78), unused until there is a checkpoint worth
