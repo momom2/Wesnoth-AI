@@ -110,6 +110,56 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 17 — 2026-07-29 — relevant-hex core landed (INERT); wiring specced to insertion points
+
+**Landed c4a2504:** `relevant_hex_positions` / `relevant_hexes_in_slot_order`
+in `visibility.py`, beside `hexes_in_slot_order` where the slot contract
+lives, built from the SAME primitives the mask consumes (shared code, not a
+mirror — the 2026-07-16 lesson). 4 contract tests; 586 fast green.
+**Nothing calls it, so behaviour is unchanged** — verified by grep, not
+assumed.
+
+Determinism is BY CONSTRUCTION: the set derives only from deterministic
+observable-state components, and ordering comes from FILTERING the
+canonical `(y,x)` sort rather than re-sorting, so it cannot drift even if
+set-iteration order does. This is the requirement most likely to bite
+subtly, because the trainer re-encodes stored states and replays
+`target_idx` — any nondeterminism corrupts every replayed transition.
+
+Fable stopped here deliberately (context budget) rather than ship a
+half-verified encoder diff. Correct call by this run's standard, and it
+left the derivation rather than a vague TODO:
+
+**REMAINING WIRING — each item bounded, insertion points exact:**
+1. `encoder.py:997` — `hexes = relevant_hexes_in_slot_order(gs) if
+   relevant_set else hexes_in_slot_order(gs)`; `relevant_set: bool = False`
+   on `encode_raw` (:954), threaded from a
+   `GameStateEncoder(relevant_set_hexes=False)` ctor flag at BOTH call
+   paths (`encode()` :446/:455 and the raw-cache path the trainer uses);
+   add `hex_subset: bool` to RawEncoded/EncodedState.
+2. **Shipping debug assert** — the two raw-position lookups where an
+   excluded hex would silently vanish: the landable loop's
+   `pos_to_hex.get(_lpos)` (action_sampler ~:1189) and `_recruit_hex_mask`
+   (~:1441). `if __debug__ and encoded.hex_subset: assert _j is not None`.
+   Gated on the marker so full-hex mode is untouched. Test by
+   monkeypatching the set to drop one landable hex — the assert MUST fire.
+3. **Config gate** `--relevant-set-hexes` -> TransformerPolicy -> both
+   encoders, AND the spool workers must get the same flag; the payload
+   carries `"relevant_set": bool` and ingest REJECTS a mismatch loudly.
+   (T1-H's lesson applied in advance: the worker/learner seam is exactly
+   where a silent mismatch would corrupt every replayed index.)
+4. **Persistent-crossing guards** — live buffers are safe by construction
+   (in-memory, flag is process-lifetime), but stamp the CHECKPOINT with the
+   flag and discard a HOLDOUT file whose stamp mismatches: its stored
+   indices are meaningless in the other hex space.
+
+**Warm-start validation plan (specified, NOT run):** value MAE between
+flag-OFF and flag-ON-warm-started forwards on ~200 shared states (net2net
+precedent: ~0.017 acceptable); short ladder eval same-weights ON vs OFF
+(~100-200 games, expect degradation <= noise); a smoke leg watching
+`fresh_value_ce` re-settle over ~10-20 iterations. Gate any A/B campaign on
+the first two; treat cross-flag evals as INCOMPARABLE until then.
+
 ### Cycle 16 — 2026-07-29 — T2-A says GO (4.3-4.8x); TWO of my cycle-15 claims corrected
 
 **T2-A verdict: the relevant-set design SURVIVES measurement.** Fable, over
