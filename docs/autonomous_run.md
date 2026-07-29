@@ -110,6 +110,58 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 16 — 2026-07-29 — T2-A says GO (4.3-4.8x); TWO of my cycle-15 claims corrected
+
+**T2-A verdict: the relevant-set design SURVIVES measurement.** Fable, over
+**1,840 decisions across 10 ladder maps** (H = 696-2162):
+
+- **|relevant set| / board: mean 0.30, median 0.29, p90 0.44-0.62, p99
+  0.58-0.76, max 0.789.** f > 0.5 on ~10% of decisions, > 0.7 on ~1%.
+- **Superset check: ZERO violations in 1,840 decisions.** Every
+  mask-offerable target (move, attack, recruit) was in the set, with the
+  set built from independent primitives rather than from the mask. The
+  kill case (0.6-0.7 of board, ~1.4x) is not close.
+- **Reach dominates** (0.22-0.32); the statics I worried would bloat it are
+  tiny — castles 3-6%, villages ~2%, network ~1%, visible units ~2%. So
+  the myopia mitigation is nearly FREE, which was the objection that made
+  me shrink the expected win.
+- **Throughput gain 1/E[f^alpha] = 4.3x (alpha=1.27) to 4.8x (alpha=1.38)**
+  on the rollout forward (the measured 91% bottleneck). At equal
+  wall-clock that buys roughly **d_model 256 -> 512, i.e. the 5M net ->
+  ~20M class**. Honest caveats from Fable: the TRAINER's batched forward
+  pads to the batch max (~p99 0.6) so its win is nearer 2x (fine — not the
+  bottleneck), and f will GROW if a stronger policy fields bigger armies,
+  so 4.3x is today's number, not a constant.
+
+**CORRECTION 1 — there is no instrument gap.** Cycle 15 recorded
+"boundary_sum NaN on 2 of 5 iterations". Fable deduced this was impossible
+within one process (the FIFO only grows) and must mean a learner RESTART.
+Checked: correct. The "missing" rows were pre-telemetry iterations from
+EARLIER learner processes that my log-tail conflated with the current run.
+Since the last restart, boundary_sum is present on EVERY iteration. My
+report of a gap was a parsing error, not a defect.
+
+**CORRECTION 2 — the headline number was inflated by the same mistake.**
+Cycle 15 claimed `fresh_value_ce` 1.387 -> 0.485, "-65%, trending". The
+1.387 came from a DIFFERENT learner process. Within the current process the
+series is:
+
+```
+1.0182  0.5295  0.7178  0.4910  0.4854  0.5002
+```
+
+i.e. **-51%, and FLAT for the last three iterations** (0.491, 0.485,
+0.500). The drop is real; the trend is not continuing. "Improved then
+plateaued" is the accurate description, and I should not have quoted a
+cross-process delta as a trend.
+
+**Tripwire, now on 6 clean readings:** rolling mean **-0.0077**, |mean|
+0.008 vs the 0.25 trigger — and it oscillates in BOTH signs (-0.143,
+-0.015, +0.160, -0.019, +0.069, -0.098), which is what no systematic bias
+looks like. T1-F closure is solid on live data, not just on probes.
+
+`advice_out_norm` monotone across all six: 0.1947 -> 0.2598.
+
 ### Cycle 15 — 2026-07-29 — fresh_value_ce is now trending, not bouncing
 
 Eight iterations. The series that matters:
