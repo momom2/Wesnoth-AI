@@ -1188,6 +1188,16 @@ def _build_legality_masks(
         if can_move:
             for _lpos in reach.landable:
                 _j = pos_to_hex.get(_lpos)
+                # Under the RELEVANT-SUBSET hex stream a miss is a hard
+                # error, not an off-board coordinate: the mask is offering a
+                # destination that has no token to point at, i.e. the action
+                # space silently shrank. Full-board mode legitimately misses
+                # (off-board neighbours), so the check is gated on the
+                # marker. See docs/autonomous_run.md cycles 16-19.
+                assert not (__debug__ and getattr(encoded, "hex_subset", False)
+                            and _j is None), (
+                    f"relevant-set gap: landable hex {_lpos} is mask-valid "
+                    f"but absent from the hex stream")
                 if _j is not None:
                     move_row[_j] = True
             # Per-turn move-rejection set: hexes that bounced an
@@ -1323,6 +1333,7 @@ def _build_legality_masks(
             recruit_hex_row = _recruit_hex_mask(
                 game_state, pos_to_hex, unit_at, leader, H,
                 rejected_hexes=rejected,
+                hex_subset=getattr(encoded, "hex_subset", False),
             )
             if recruit_hex_row.any():
                 # Prefer the zero-copy numpy view the encoder
@@ -1413,6 +1424,7 @@ def _recruit_hex_mask(
     H:          int,
     *,
     rejected_hexes: Optional[set] = None,
+    hex_subset: bool = False,
 ) -> np.ndarray:
     """Compute [H] bool mask of hexes that form the leader's castle
     network AND are visibly empty AND haven't been rejected this turn.
@@ -1441,6 +1453,9 @@ def _recruit_hex_mask(
     mask = np.zeros(H, dtype=bool)
     for (x, y) in valid:
         j = pos_to_hex.get((x, y))
+        assert not (__debug__ and hex_subset and j is None), (
+            f"relevant-set gap: recruit hex {(x, y)} is mask-valid but "
+            f"absent from the hex stream")
         if j is not None:
             mask[j] = True
     return mask

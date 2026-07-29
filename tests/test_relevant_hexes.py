@@ -146,3 +146,52 @@ def test_default_encoder_still_emits_the_full_board():
     gs = _pool_state()
     e = GameStateEncoder(d_model=32).encode(gs)
     assert e.hex_tokens.size(1) == len(hexes_in_slot_order(gs))
+
+
+def test_marker_propagates_through_encode():
+    """hex_subset must reach EncodedState, or the assert below is dead."""
+    from wesnoth_ai.encoder import GameStateEncoder
+    gs = _pool_state()
+    assert GameStateEncoder(d_model=32).encode(gs).hex_subset is False
+    assert GameStateEncoder(d_model=32,
+                            relevant_set_hexes=True).encode(gs).hex_subset is True
+
+
+def test_superset_assert_FIRES_when_the_set_is_short():
+    """The guard is only worth having if it actually trips. Shrink the
+    relevant set behind the encoder's back and require the mask build to
+    raise -- a silently shrunken action space is the failure mode this
+    exists to prevent (an excluded hex is an unorderable hex)."""
+    import pytest, torch
+    from wesnoth_ai.encoder import GameStateEncoder
+    from wesnoth_ai.model import WesnothModel
+    from wesnoth_ai.action_sampler import enumerate_legal_actions_with_priors
+    import wesnoth_ai.visibility as vis
+
+    gs = _pool_state()
+    enc = GameStateEncoder(d_model=32, relevant_set_hexes=True)
+    model = WesnothModel(d_model=32, num_layers=2, num_heads=4, d_ff=64).eval()
+
+    # sanity: intact set enumerates without tripping
+    encoded = enc.encode(gs)
+    with torch.no_grad():
+        out = model(encoded)
+    enumerate_legal_actions_with_priors(encoded, out, gs)
+
+    # now drop hexes from the stream while the mask still offers them
+    full = vis.relevant_hexes_in_slot_order(gs)
+    orig = vis.relevant_hexes_in_slot_order
+    try:
+        vis.relevant_hexes_in_slot_order = lambda g: full[: max(1, len(full) // 3)]
+        import importlib, wesnoth_ai.encoder as enc_mod
+        importlib.reload(enc_mod)
+        enc2 = enc_mod.GameStateEncoder(d_model=32, relevant_set_hexes=True)
+        e2 = enc2.encode(gs)
+        with torch.no_grad():
+            o2 = model(e2)
+        with pytest.raises(AssertionError, match="relevant-set gap"):
+            enumerate_legal_actions_with_priors(e2, o2, gs)
+    finally:
+        vis.relevant_hexes_in_slot_order = orig
+        import importlib, wesnoth_ai.encoder as enc_mod
+        importlib.reload(enc_mod)

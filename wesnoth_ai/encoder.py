@@ -278,6 +278,14 @@ class EncodedState:
     # behavior is unchanged there.
     visible_unit_ids: Optional[frozenset] = None
 
+    # True when the hex stream is the RELEVANT SUBSET rather than the whole
+    # board (see encode_raw's `relevant_set`). Consumers that resolve a raw
+    # board position to a slot index MUST treat a miss as a hard error in
+    # this mode: under the full board a miss means off-board, but under the
+    # subset it would mean an action the mask offered has no token to point
+    # at -- i.e. a silently shrunken action space.
+    hex_subset: bool = False
+
     # Detector advice tokens (docs/detector_training_signal.md): one token
     # per prospective setup opportunity among the available actions, already
     # projected to d_model. `None`/empty => no advice this decision (the
@@ -373,6 +381,15 @@ class RawEncoded:
     global_feats:     np.ndarray            # float32 [GLOBAL_FEAT_DIM]
     our_faction_id:   int
     their_faction_id: int
+
+
+    # True when the hex stream is the RELEVANT SUBSET rather than the whole
+    # board (see encode_raw's `relevant_set`). Consumers that resolve a raw
+    # board position to a slot index MUST treat a miss as a hard error in
+    # this mode: under the full board a miss means off-board, but under the
+    # subset it would mean an action the mask offered has no token to point
+    # at -- i.e. a silently shrunken action space.
+    hex_subset: bool = False
 
 
 class GameStateEncoder(nn.Module):
@@ -754,6 +771,7 @@ class GameStateEncoder(nn.Module):
         }
 
         return EncodedState(
+            hex_subset=raw.hex_subset,
             hex_tokens=hex_tokens,
             hex_positions=raw.hex_positions,
             pos_to_hex=pos_to_hex,
@@ -922,6 +940,7 @@ class GameStateEncoder(nn.Module):
                 (p.x, p.y): j for j, p in enumerate(raw.hex_positions)
             }
             results.append(EncodedState(
+                hex_subset=raw.hex_subset,
                 hex_tokens=hex_per[b],
                 hex_positions=raw.hex_positions,
                 pos_to_hex=pos_to_hex,
@@ -1234,6 +1253,7 @@ def encode_raw(
     their_faction_id = _lookup_id(them_fac, faction_to_id, MAX_FACTIONS)
 
     return RawEncoded(
+        hex_subset=relevant_set,
         hex_positions=hex_positions,
         hex_xs=hex_xs_np,
         hex_ys=hex_ys_np,
