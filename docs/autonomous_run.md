@@ -159,6 +159,64 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 36 — 2026-07-29 — a carried-forward "fix" REFUTED before it was written
+
+**Box.** Iteration 10, 77 workers, learner alive, zero aborts. Credit
+**$10.74** (~32 h).
+
+```
+fresh_value_ce  0.7267, 0.3855, 0.7933 (+-1.52)   still no readable trend
+boundary_sum    -0.002, +0.096, -0.118
+  rolling |mean| last 3 = 0.008   -> very clear of the 0.25 band
+advice_out_norm 0.3737 -> 0.3845  (RETIRED as evidence, cycle 32)
+```
+
+**Cycle 35 carried forward a spec to fix "cross-process encoding
+nondeterminism". Measured first; it is REFUTED.** The concern was that
+`encoder.py` tie-breaks multi-terrain hexes with
+`next(iter(terrain_types))`, and that enum-set iteration order is
+address- or `PYTHONHASHSEED`-dependent — which would let ~76 worker
+processes and the learner encode the same hex differently, the same
+act/train desync class as the village bug. That would have been serious.
+
+It is not real: **`Terrain` and `TerrainModifiers` are `IntEnum`**, so
+`hash(member) == hash(member.value)` — an int hash, identical in every
+process. Verified in fresh interpreters at `PYTHONHASHSEED` 1/17/424242:
+iteration order byte-identical every time.
+
+Two things this bought beyond the answer: no production change, and no
+encoder-input change that would have needed its own before/after
+fresh-CE validation we cannot currently afford. **Measuring the premise
+was cheaper than the fix would have been.**
+
+Kept as a **guard**, not a note (`7a8dc9f`): the property is
+load-bearing and invisible, and `IntEnum -> Enum` looks like a harmless
+refactor while silently restoring identity-derived hashing. One test
+pins the hash basis; the other spawns fresh interpreters at differing
+hash seeds and asserts the orders agree — the only way to actually prove
+a cross-process property. 624 fast tests pass.
+
+**Pattern worth naming:** Fable's instinct about the fork-shared-state
+CLASS produced the village bug (real, serious); this particular instance
+was not real. That is a good trade, and it is exactly why claims get
+labelled inferred — being cheaply wrong about an instance is the price
+of being right about a class.
+
+**Fable dispatched: audit the rest of the class.** The village bug's
+shape was "`Map.__deepcopy__` aliases a structure for speed, something
+mutates it during search, hypothetical futures rewrite the real
+present". The fast-path deepcopy is an optimization all of MCTS depends
+on, so the aliasing is not wrong — the mutations are, and there is no
+reason to think we found the only one. Package: enumerate what
+`Map.__deepcopy__` / `GlobalInfo.__deepcopy__` / `fork()` alias vs copy
+(that list belongs in the codebase regardless of findings), find every
+in-place mutation of those structures reachable during search, classify
+LEAKS / SAFE / UNREACHABLE with evidence, and measure the top suspect
+(`scenario_events.py:1263-1308` rebinding `u.attacks` on fork-shared
+Units) rather than settling for the inference. Also asked whether a
+general guard — a debug assertion that a parent's `state_key` is
+unchanged across a search — beats N specific fixes.
+
 ### Cycle 35 — 2026-07-29 — the flaky test was a REAL production bug: search imagination rewrote the real game
 
 **The biggest correctness find of the run**, and it came from refusing to
