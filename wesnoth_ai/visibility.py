@@ -465,3 +465,70 @@ def hexes_in_slot_order(state: GameState) -> List:
     """Target slots: the hex list sorted row-major (y, x)."""
     return sorted(state.map.hexes,
                   key=lambda h: (h.position.y, h.position.x))
+
+
+def relevant_hex_positions(state: GameState,
+                           side: int) -> Set[Tuple[int, int]]:
+    """The RELEVANT-SET hex positions for `side` (T2-B, 2026-07-29):
+    union of
+      a. own-unit single-turn reach (landable, shared planner on the
+         side's OBSERVABLE context -- same primitive the legality
+         mask consumes),
+      b. visible-unit hexes (own + visible enemies + scenery; covers
+         every legal attack-target hex),
+      c. leader castle network incl. fog castle hexes + leader hex,
+      d. all village hexes,   e. all castle/keep hexes.
+
+    PURE FUNCTION OF OBSERVABLE STATE (legality-mask contract,
+    CLAUDE.md #6): every component derives from terrain or the
+    side's fog-filtered view; no god-view input. Measured 2026-07-29
+    (T2-A): superset of every mask-offerable target hex on 1,840
+    decisions x 10 ladder maps, zero violations; mean |set|/H ~0.30.
+
+    Determinism: a set derived from deterministic components; ORDER
+    is imposed by the caller filtering `hexes_in_slot_order` (see
+    `relevant_hexes_in_slot_order`), so two calls on equal states
+    yield identical slot orderings -- required because the trainer
+    re-encodes stored states and replays target indices."""
+    rel: Set[Tuple[int, int]] = set()
+    from wesnoth_ai.classes import Terrain, TerrainModifiers
+    for h in state.map.hexes:
+        p = (h.position.x, h.position.y)
+        if Terrain.VILLAGE in h.terrain_types:
+            rel.add(p)
+        mods = h.modifiers or set()
+        if TerrainModifiers.CASTLE in mods or TerrainModifiers.KEEP in mods:
+            rel.add(p)
+    for u in units_visible_to(state, side):
+        rel.add((u.position.x, u.position.y))
+    leader = next((u for u in state.map.units
+                   if u.side == side and u.is_leader), None)
+    if leader is not None:
+        _on_keep, net = leader_castle_network(state, leader)
+        rel |= net
+        rel.add((leader.position.x, leader.position.y))
+    # Lazy import (codebase pattern: action_sampler does the same) --
+    # visibility must not pull tools.* at module load.
+    from tools.pathfind_sim import ReachContext, unit_reach
+    ctx = ReachContext.for_side(state, side)
+    for u in state.map.units:
+        if u.side != side or "petrified" in (u.statuses or set()):
+            continue
+        if u.current_moves <= 0:
+            continue
+        rel |= set(unit_reach(u, state, ctx).landable)
+    return rel
+
+
+def relevant_hexes_in_slot_order(state: GameState) -> List:
+    """Relevant-set variant of `hexes_in_slot_order` for the
+    current side: the SAME row-major (y, x) ordering, filtered to
+    `relevant_hex_positions`. Consumers (encoder / label builder)
+    must choose one of the two functions per the relevant-set
+    config flag -- never mix within a run (stored target indices
+    are meaningless across the two hex spaces; flush buffers at
+    the boundary)."""
+    side = state.global_info.current_side
+    rel = relevant_hex_positions(state, side)
+    return [h for h in hexes_in_slot_order(state)
+            if (h.position.x, h.position.y) in rel]
