@@ -67,9 +67,14 @@ def _build_policy(ckpt: Path, device, args):
         device=device,
         aux_score=bool(raw.get("aux_score", False)),
         moves_left=bool(raw.get("moves_left", False)),
+        # Build the advice path when the CHECKPOINT carries it, so the
+        # grafted weights load instead of being dropped as unexpected keys.
+        advice=bool(raw.get("advice", False)) or bool(
+            getattr(args, "mcts_advice", False)),
     )
     base.load_checkpoint(ckpt)
     cfg = MCTSConfig(
+        advice=bool(getattr(args, "mcts_advice", False)),
         n_simulations=args.mcts_sims,
         draw_tiebreak=DrawTiebreakConfig(cap=args.draw_tiebreak_cap),
         moves_left_utility=args.moves_left_utility,
@@ -108,6 +113,11 @@ def main(argv) -> int:
     ap.add_argument("--drill-ratio", type=float, default=0.0)
     ap.add_argument("--max-turns", type=int, default=200)
     ap.add_argument("--draw-tiebreak-cap", type=float, default=0.3)
+    ap.add_argument("--mcts-advice", action="store_true",
+                    help="Detector advice at the search ROOT. Must mirror "
+                         "the learner: workers GENERATE the training games, "
+                         "so without this the acting-side half of the advice "
+                         "design is inert no matter what the learner does.")
     ap.add_argument("--train-draw-tiebreak", action="store_true",
                     help="LEGACY: material-tiebreak z on drawn games'"
                          " training labels (see sim_self_play).")

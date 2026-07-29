@@ -1145,6 +1145,8 @@ class SpoolWorkers:
         ] + (["--max-turns-min", str(args.max_turns_min)]
              if getattr(args, "max_turns_min", None) else []) + [
             "--draw-tiebreak-cap", str(max(0.0, args.draw_tiebreak_cap)),
+        ] + (["--mcts-advice"] if getattr(args, "mcts_advice", False)
+             else []) + [
             "--moves-left-utility", str(args.mcts_moves_left_utility),
             "--aux-value-bonus", str(getattr(
                 args, "mcts_aux_value_bonus", 0.0)),

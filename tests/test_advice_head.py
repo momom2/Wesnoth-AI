@@ -170,3 +170,35 @@ def test_batched_advice_equals_per_sample():
             (b.actor_logits - p.actor_logits).abs().max()
         assert torch.allclose(b.target_logits, p.target_logits, atol=1e-5)
         assert torch.allclose(b.value, p.value, atol=1e-5)
+
+
+def test_spool_worker_honours_the_advice_flag():
+    """REGRESSION: workers GENERATE every training game in spool mode, and
+    they were building TransformerPolicy/MCTSConfig without `advice`, so the
+    ACTING half of the advice design was inert in production no matter what
+    the learner did -- only the trainer reforward saw advice. This pins the
+    worker/learner seam: same class of bug as the telemetry that was dead on
+    the spool path (T1-H)."""
+    import ast, pathlib
+    src = pathlib.Path("tools/selfplay_worker.py").read_text(encoding="utf-8")
+    assert "--mcts-advice" in src, "worker must parse the advice flag"
+    tree = ast.parse(src)
+    # TransformerPolicy(...) must receive an `advice` kwarg
+    tp = [n for n in ast.walk(tree) if isinstance(n, ast.Call)
+          and getattr(n.func, "id", None) == "TransformerPolicy"]
+    assert tp and any(k.arg == "advice" for k in tp[0].keywords), \
+        "worker's TransformerPolicy must be built with advice="
+    # MCTSConfig(...) must receive an `advice` kwarg
+    mc = [n for n in ast.walk(tree) if isinstance(n, ast.Call)
+          and getattr(n.func, "id", None) == "MCTSConfig"]
+    assert mc and any(k.arg == "advice" for k in mc[0].keywords), \
+        "worker's MCTSConfig must be built with advice="
+
+
+def test_learner_ships_advice_flag_to_workers():
+    """The flag must actually reach the spawn command, or the worker-side
+    plumbing above is unreachable in production."""
+    import pathlib
+    src = pathlib.Path("tools/sim_self_play.py").read_text(encoding="utf-8")
+    assert '"--mcts-advice"]' in src or '["--mcts-advice"]' in src, \
+        "spool spawn tail must forward --mcts-advice"
