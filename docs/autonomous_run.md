@@ -159,6 +159,80 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 37 — 2026-07-29 — the fork-shared-state audit: a THIRD live instance, and a general guard
+
+**A live sim-fidelity violation, found by auditing the class rather than
+waiting for a symptom.** `_scenario_events` is a shallow-copied list, so
+its `ScenarioEvent` ELEMENTS are shared across every fork — and
+`fire_event` latches `ev.fired = True`. A search fork stepping `end_turn`
+crosses a turn boundary (`_begin_side_turn` -> `_apply_command(init_side)`
+-> `_fire_turn_events`), latches the shared event, and **the LIVE game
+then never fires it.**
+
+Measured in production init: **Aethermaw (ladder pool #1) carries exactly
+8 unfired `first_time_only` morph events past init — the map's walls
+never opened.** Since the 2026-07-18 terrain COW fix this was the leak's
+residue (before that it was masked by the larger terrain leak). Impact:
+Aethermaw self-play games since 07-18 effectively morphless (symmetric,
+1/21 maps — not campaign-invalidating), a sim-fidelity violation, and
+**Aethermaw validation exports carry OOS risk**, since Wesnoth replaying
+them WOULD morph. Sibling forks within one search also saw inconsistent
+futures.
+
+**Second instance, dormant but code-real:** `_object_action` pulled
+shared units out of `gs.map.units` and `_apply_effect_to_unit` rebound
+their fields in place. This was the `u.attacks` suspicion from cycle 35,
+now confirmed AT THE CODE LEVEL and measured DORMANT — every
+`[object]`-bearing event in the current pool latches pre-fork
+(prestart/turn-1 fire inside `__init__`). One scenario addition from
+live, and the mini-map tentacles roadmap heads exactly there.
+
+**The attack surface, now pinned three ways** (docstrings on both
+`__deepcopy__`s, plus an executable spec
+`tests/test_fork_isolation.py::test_fork_alias_contract`):
+
+```
+ALIASED across forks (mutation = leak):
+  map.mask, map.fog, map.hexes (+ each Hex's terrain_types/modifiers)
+  GlobalInfo._terrain_codes (deliberate, Dijkstra-cache keying)
+  Unit OBJECTS (units is a fresh set; contents shared)
+  _scenario_events ELEMENTS   <- this was the hole
+  values inside shallow-copied stash dicts/lists
+PER-FORK: sides (deep), stash containers, command_history, _actions_by_side
+```
+
+**Fixes.** `GlobalInfo.__deepcopy__` now shallow-copies only UNFIRED
+events (fired ones stay shared — their sole later write is an idempotent
+re-latch, so steady-state cost is zero copies; the branch was already an
+O(n) list rebuild, so the added cost is a `getattr` per element).
+Verified independently: `fired` is the only mutable field on
+`ScenarioEvent` (`actions` is read-only after parse), so a shallow copy
+is exactly sufficient. `_object_action` moves to the replace-unit
+pattern, and `_apply_effect_to_unit` documents+upholds "rebind fresh
+containers, never mutate in place".
+
+**A general guard, default OFF (`SIM_FORK_GUARD=1`).** Three instances of
+this class in 11 days, and **all three were invisible to `state_key`** —
+which is why a general detector earns its cost where N specific fixes
+would not. `deep_state_fingerprint(gs)` hashes exactly what `state_key`
+deliberately excludes (hex modifiers, attack tables, event latches,
+terrain codes) and the flag asserts it unchanged around every
+`mcts_search`. Reviewed: module-level constant read once, `None` when
+off, so the cost when disabled is one `if` per search. A sensitivity test
+proves it flips on all three historical surfaces; an e2e test proves no
+false positive on a real 8-sim search. Plan: enable for ONE box smoke
+iteration at the next campaign start, then off.
+
+**Note this fix needs no fresh-CE gate**, unlike `fa95da5`: it changes
+sim MECHANICS, not encoder inputs, so it is safe to pick up whenever the
+box next restarts for other reasons.
+
+**Not ruled out (Fable's own list):** `combat_outcomes.py`'s DP
+enumeration was not line-audited for parent writes (evidence is indirect;
+a box smoke with the guard closes it properly); the Aethermaw export OOS
+is a RISK STATEMENT, not measured — whether any exported replay actually
+traverses the 13 morph hexes is unverified.
+
 ### Cycle 36 — 2026-07-29 — a carried-forward "fix" REFUTED before it was written
 
 **Box.** Iteration 10, 77 workers, learner alive, zero aborts. Credit
