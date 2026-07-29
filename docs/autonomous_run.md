@@ -126,11 +126,16 @@ review. Findings from a review go in the log below even when rejected.
    it place differently? Check `wesnoth_src/src/` before changing placement.
 3. What is the actual throughput ceiling on the box, and what net size is
    trainable within it? (T2.)
-4. **Why did box load double (130 -> 272) and iteration time rise (~16 ->
-   >25 min) when acting-side advice went live, given the advisor measures
-   0.3 ms/decision on midgame states?** Refuted: the advisor itself.
-   Unchecked: model-side cost of the advice module, spool churn from
-   shorter games, trainer reforward cost, or an unrelated coincidence.
+4. **Why did iteration time rise (~16 -> >25 min) when acting-side advice
+   went live, given the advisor measures 0.3 ms/decision?** Refuted: the
+   advisor itself. **The "load doubled 130 -> 272" half is also refuted
+   as evidence about us** — `/proc/loadavg` in a Vast container is
+   HOST-wide (cycle 27), so it counted co-tenants. On the new box our
+   processes use 91.6 of a 92.16-core quota, i.e. quota-saturated, not
+   oversubscribed. Remaining live hypotheses for the *time* rise: host
+   contention from co-tenants (now the leading one, and it would make
+   this a non-bug), model-side cost of the advice module, or trainer
+   reforward cost. Test: watch iteration time on the new box.
 5. **Does the q-transform fix actually produce a stronger policy?** First
    read at 113k steps: Elo -137 +-260 vs seed, i.e. undetermined. Needs a
    later checkpoint and more games.
@@ -141,6 +146,87 @@ review. Findings from a review go in the log below even when rejected.
 
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
+
+### Cycle 27 — 2026-07-29 — box replaced; the load signal was never ours; eval made steerable
+
+**T3 — the box died and is replaced.** Instance 46142270 (host 18135) went
+`actual_status: offline` with both SSH routes dead; a reboot did not
+recover it after ~9 min. Nothing was lost: HF `tier_a_campaign.pt` escrows
+decision_step **2,403,615**, identical to the local pull.
+
+New instance **46182445** (machine 24774): 96-core quota, RTX 3090,
+seeded from HF, **RESUME** (no `--reset-decision-step`, so the
+combat-oracle anneal correctly continues), 76 workers, `games_per_iter=24`.
+
+Two operational lessons, both cheap and both learned the hard way:
+- **`vastai create` returns `success: False` while still handing back a
+  contract id.** The first replacement (46180515, 192 cores) returned
+  `False`, sat in `loading` for 26 min, and never created a container
+  (`vastai logs` -> "No such container"). A second create on another
+  machine returned `success: True` and was up in **under a minute**.
+  Treat `success: False` as failed regardless of the contract id.
+- **Hedge instead of waiting.** Racing a second box cost cents and saved
+  ~half an hour. Only ONE may survive: two boxes both seed from and
+  upload to `tier_a_campaign.pt` and would clobber each other's lineage.
+
+**Open question #4 is half-answered, and the premise was wrong.**
+`/proc/loadavg` inside a Vast container is **HOST-wide** (no lxcfs), so
+"box load doubled 130 -> 272" was never a measurement of *our* workload —
+it included co-tenants. Measured on the new box with the true quota known
+(cgroup `cpu.cfs_quota_us/period` = **92.16 cores**):
+
+```
+host loadavg          173.16      <- includes other tenants, NOT us
+our processes, sum %CPU  91.6      <- we use ~100% of our 92.16 quota
+threads per worker         3       <- thread cap in force (2997de3)
+```
+
+So we are **quota-saturated, not oversubscribed**. What remains of #4 is
+the *iteration-time* rise (~16 -> >25 min), which was an our-side
+measurement; host contention from co-tenants now explains it at least as
+well as any code cause, and is testable by watching iteration time here.
+Recorded as: the load half is REFUTED as evidence about us.
+
+**T-eval — Fable's package, reviewed and landed as `4e445c2`.** The run's
+primary metric could not be steered by (cycle 26: ±260 Elo at n=8).
+Fable confirmed by reading code, not assuming: horizon mismatch REAL but
+not dominant (eval ran max_turns 30, below the training band's 60 floor,
+yet 7/8 games were decisive by turn 30); low power REAL and dominant;
+no pairing REAL (`_play_pair` drew a fresh setup per game). Now: mirrored
+setup pairs (same setup, sides swapped) with sweep/split counts as paired
+evidence, horizon default 100, and protocol (`max_turns`/`seed`/
+`draw_weight`) stamped into every header and saved JSON.
+
+Power, stated honestly: CI95 ≈ **681/√N** — n=50 -> ±96, n=200 -> ±48.
+**8 games can never settle anything**; ~200 is the ±50 point, ~2.6 h
+locally at a measured 46.5 s/game.
+
+**A live bug, same class as the others.** `eval_sim._load_policy` built
+policies without the checkpoint's structural flags, so an advice-trained
+checkpoint's advice tensors were silently dropped as unexpected keys.
+Confirmed live: the campaign checkpoint reports `advice: True`. Inert for
+raw-policy eval, but it would have biased any `mcts:` eval **against the
+live model specifically**. This is the fourth bug of the form "the
+convenient path differs from the production path".
+
+**Review changes on top of Fable's work.** The flag peek existed in three
+copies each with a silent `except: pass`; collapsed into one
+`eval_sim.peek_checkpoint_arch` that LOGS on failure, since a silent
+fallback there means "evaluated a structurally different model".
+
+**Disagreement recorded (Claude's call).** Fable asked to align
+`elo_ladder`'s `draw_weight=0` to `elo_collect`'s PURE 0.5, citing the
+user's 2026-07-11 decision. **Declined** — on checking, that decision
+rules that *material* must not factor into evaluation, which both tools
+already obey; the draw *weight* is a separate statistical question and
+`elo_ladder` documents its own rationale (a Wesnoth draw is a turn-budget
+timeout, not equality evidence). Documented the divergence instead so
+neither can be quoted as the other. Fable was invited to push back with
+an argument about what a timeout is evidence OF.
+
+**Next:** confirm iteration time on the new box; re-measure strength at a
+later checkpoint with n≈200 under the new protocol (open question #5);
+Fable is on T1 (which term pays the model to hoard gold).
 
 ### Cycle 26 — 2026-07-29 — first STRENGTH read: no improvement detected (and a refuted hypothesis)
 
