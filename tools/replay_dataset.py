@@ -718,15 +718,12 @@ def _build_initial_gamestate(data: dict) -> GameState:
         owner_map[(vx, vy)] = vs
         side_increments[vs] = side_increments.get(vs, 0) + 1
     if owner_map:
-        # Mark VILLAGE modifier on each pre-owned hex so the encoder
-        # treats it as captured (matches what _capture_village does
-        # when a unit walks onto a village mid-game).
-        from wesnoth_ai.classes import TerrainModifiers as _TM
-        for (vx, vy) in owner_map:
-            for h in gs.map.hexes:
-                if h.position.x == vx and h.position.y == vy:
-                    h.modifiers.add(_TM.VILLAGE)
-                    break
+        # Ownership is carried ONLY by `_village_owner` (below); the
+        # encoder derives its owned-village bit from it. We deliberately
+        # do NOT stamp TerrainModifiers.VILLAGE on the hexes -- Hex
+        # objects are aliased across MCTS forks (Map.__deepcopy__), and
+        # the modifier-as-ownership-cache pattern is what caused the
+        # 2026-07-29 fork-isolation leak (see _capture_village).
         # Bump nb_villages_controlled per side.
         for sn, n in side_increments.items():
             old = gs.sides[sn - 1]
@@ -2384,7 +2381,22 @@ def _capture_village(gs: GameState, x: int, y: int, capturing_side: int) -> None
     """Mark the village at (x,y) as belonging to `capturing_side` and
     update side village counts. We track ownership via a per-game
     `_village_owner: Dict[(x,y) -> side]` we stash on gs.global_info
-    (lightweight; survives within iter_replay_pairs)."""
+    (lightweight; survives within iter_replay_pairs).
+
+    FORK ISOLATION (2026-07-29): this function must NEVER mutate the
+    Hex object. `Map.__deepcopy__` ALIASES `hexes` across MCTS forks,
+    so the historical `hex_obj.modifiers.add(TerrainModifiers.VILLAGE)`
+    here leaked every HYPOTHETICAL capture inside a search back into
+    the real game's state -- the parent's encoder input changed
+    (~1e-3 prior shift on every root action via softmax renorm),
+    which is what made
+    test_inference_seam::test_mcts_search_through_seam_matches_direct
+    flaky. Ownership lives ONLY in the per-fork `_village_owner`
+    (deep-copied by GlobalInfo.__deepcopy__ and hashed by state_key);
+    the encoder derives its owned-village bit from it (encoder.py
+    encode_raw). Regression guard:
+    test_village_ownership::test_fork_capture_does_not_mutate_parent_encoding.
+    """
     by_xy_hex, _ = _hex_lookup(gs)
     hex_obj = by_xy_hex.get((x, y))
     if hex_obj is None:
@@ -2407,18 +2419,12 @@ def _capture_village(gs: GameState, x: int, y: int, capturing_side: int) -> None
     # side 1's village count from 8 -> 6 mid-turn after two leader
     # revisits and underpaid income by 4 gold/turn for several turns.
     if prev_owner == capturing_side:
-        # Defensive: still mark the modifier so the encoder agrees with
-        # an explicit owned-village state, but skip the count math.
-        hex_obj.modifiers.add(TerrainModifiers.VILLAGE)
         owner_map[(x, y)] = capturing_side  # idempotent
         setattr(gs.global_info, "_village_owner", owner_map)
         return
 
     owner_map[(x, y)] = capturing_side
     setattr(gs.global_info, "_village_owner", owner_map)
-
-    # Mark static modifier so encoder sees a "owned" village.
-    hex_obj.modifiers.add(TerrainModifiers.VILLAGE)
 
     # Decrement old owner's count (if any), increment new.
     if prev_owner and 1 <= prev_owner <= len(gs.sides):

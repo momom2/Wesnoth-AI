@@ -209,10 +209,13 @@ class Map:
         Treats the following as IMMUTABLE for the purposes of cloning:
           - mask, fog: never mutated by self-play (no side moves them).
           - hexes: terrain_types and modifiers ARE Sets that *could*
-            mutate (scenario events like Aethermaw morph; village
-            capture re-adds VILLAGE), but in 2p ladder games they
-            don't, and `_capture_village`'s add() is idempotent on
-            actual villages anyway. **Non-self-play callers that
+            mutate (scenario events like Aethermaw morph), but the
+            self-play step path no longer touches them: village
+            capture historically did `modifiers.add(VILLAGE)` on the
+            shared hex, which leaked hypothetical MCTS-search captures
+            into the parent's encoding (found 2026-07-29 via the flaky
+            seam-determinism test; ownership now lives ONLY in the
+            per-fork `_village_owner`). **Non-self-play callers that
             run terrain-mutating events should `copy.deepcopy` each
             hex explicitly OR use `Map.deep_clone()` (slow path).**
 

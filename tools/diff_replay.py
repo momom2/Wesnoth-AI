@@ -230,8 +230,14 @@ def _check_move(gs: GameState, cmd: list) -> Optional[Tuple[str, str]]:
         if not has_teleport:
             return ("move:path_non_adjacent",
                     f"step {i}: ({px},{py})->({cx},{cy}) not adjacent")
-        s_is_v = TerrainModifiers.VILLAGE in _hex_modifiers(gs, px, py)
-        t_is_v = TerrainModifiers.VILLAGE in _hex_modifiers(gs, cx, cy)
+        # Owned-village check mirrors encoder.encode_raw's disjunction:
+        # ownership lives in _village_owner (capture no longer stamps
+        # the VILLAGE modifier -- 2026-07-29 fork-isolation fix); the
+        # modifier is honored for converter-built states.
+        s_is_v = ((px, py) in owner_map
+                  or TerrainModifiers.VILLAGE in _hex_modifiers(gs, px, py))
+        t_is_v = ((cx, cy) in owner_map
+                  or TerrainModifiers.VILLAGE in _hex_modifiers(gs, cx, cy))
         if not (s_is_v and t_is_v):
             return ("move:teleport_not_villages",
                     f"teleport step {i} endpoints not both villages: "

@@ -115,6 +115,96 @@ def test_perspective_flips_with_current_side():
         "side 2 sees its own village as ours"
 
 
+def test_owner_map_alone_marks_owned_village():
+    """The sim no longer stamps TerrainModifiers.VILLAGE on capture
+    (2026-07-29 fork-isolation fix); the encoder derives the
+    owned-village bit from `_village_owner` directly. Pins that an
+    owner-map-only village -- the sim-lineage representation,
+    including scenario-pool pre-owned villages -- carries the static
+    owned bit AND the ownership flags. (The legacy modifier is still
+    honored for the live-Wesnoth converter path; see the disjunction
+    in encoder.encode_raw.)"""
+    gs = _village_gs(owner_map={(1, 1): 2})
+    # Strip the modifier from (1,1): sim-lineage hexes never carry it.
+    h = next(x for x in gs.map.hexes
+             if (x.position.x, x.position.y) == (1, 1))
+    gs.map.hexes.discard(h)
+    gs.map.hexes.add(Hex(position=Position(1, 1),
+                         terrain_types={Terrain.VILLAGE},
+                         modifiers=set()))
+    raw = encode_raw(gs, type_to_id={}, faction_to_id={})
+    for i, p in enumerate(raw.hex_positions):
+        if (p.x, p.y) == (1, 1):
+            assert raw.hex_modifier_flags[i][0] == 1.0, \
+                "owner-map-only village must carry the owned bit"
+            assert raw.hex_dynamic_flags[i][1] == 0.0
+            assert raw.hex_dynamic_flags[i][2] == 1.0  # enemy, in vision
+            return
+    raise AssertionError("hex (1,1) missing from the raw hex stream")
+
+
+def test_fork_capture_does_not_mutate_parent_encoding():
+    """MCTS forks alias Hex objects (Map.__deepcopy__ fast path). A
+    village capture stepped on a FORK must not change the parent
+    state's encoding. Pre-2026-07-29, _capture_village stamped
+    TerrainModifiers.VILLAGE onto the shared hex, so a HYPOTHETICAL
+    capture inside a search leaked into the real game's encoder input
+    -- root priors on a fixed state stepped by ~1e-3 after a search,
+    which is what made test_mcts_search_through_seam_matches_direct
+    flaky (the direct search leaked before the seam search ran)."""
+    import dataclasses
+    from sim_test_helpers import fresh_scenario_sim
+    from tools.abilities import hex_neighbors
+
+    captured = False
+    for seed in (21, 20, 22, 23, 24):
+        sim = fresh_scenario_sim(seed=seed, max_turns=12, mini=True)
+        gs = sim.gs
+        villages = {(h.position.x, h.position.y) for h in gs.map.hexes
+                    if Terrain.VILLAGE in h.terrain_types}
+        occupied = {(u.position.x, u.position.y) for u in gs.map.units}
+        side = gs.global_info.current_side
+        raw0 = encode_raw(gs, type_to_id={}, faction_to_id={})
+        mods0 = {(h.position.x, h.position.y): set(h.modifiers)
+                 for h in gs.map.hexes}
+        for u in sorted((u for u in gs.map.units
+                         if u.side == side and u.current_moves > 0),
+                        key=lambda u: u.id):
+            for (nx, ny) in hex_neighbors(u.position.x, u.position.y):
+                if (nx, ny) not in villages or (nx, ny) in occupied:
+                    continue
+                fork = sim.fork()
+                try:
+                    fork.step({"type": "move",
+                               "start_hex": u.position,
+                               "target_hex": Position(x=nx, y=ny)})
+                except Exception:
+                    continue
+                if (nx, ny) in (getattr(fork.gs.global_info,
+                                        "_village_owner", None) or {}):
+                    captured = True
+                    break
+            if captured:
+                break
+        if captured:
+            break
+    assert captured, "premise: no reachable one-step village capture " \
+                     "found across seeds 20-24 (test needs a new recipe)"
+
+    raw1 = encode_raw(gs, type_to_id={}, faction_to_id={})
+    for f in dataclasses.fields(raw0):
+        a, b = getattr(raw0, f.name), getattr(raw1, f.name)
+        if isinstance(a, np.ndarray):
+            assert a.shape == b.shape and bool((a == b).all()), \
+                f"fork capture leaked into parent encoding: {f.name}"
+        else:
+            assert a == b, \
+                f"fork capture leaked into parent encoding: {f.name}"
+    mods1 = {(h.position.x, h.position.y): set(h.modifiers)
+             for h in gs.map.hexes}
+    assert mods0 == mods1, "fork capture mutated shared Hex modifiers"
+
+
 def test_pad_helper_covers_direct_encoder_loads():
     """Tools (eval_vs_builtin, supervised_train, collect_cliffness,
     eval_mcts_vs_reinforce) load encoder state WITHOUT going through

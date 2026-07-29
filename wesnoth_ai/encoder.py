@@ -1090,6 +1090,7 @@ def encode_raw(
         mod_castle  = TerrainModifiers.CASTLE
         for i, h in enumerate(hexes):
             p = h.position
+            key = (p.x, p.y)
             hex_xs_np[i] = 0 if p.x < 0 else (MAP_LIMIT if p.x > MAP_LIMIT else p.x)
             hex_ys_np[i] = 0 if p.y < 0 else (MAP_LIMIT if p.y > MAP_LIMIT else p.y)
             tt = h.terrain_types
@@ -1102,17 +1103,26 @@ def encode_raw(
             else:
                 hex_terrain_ids_np[i] = next(iter(tt)).value
             mods = h.modifiers
-            if mod_village in mods: hex_modifier_flags_np[i, 0] = 1.0
+            # Owned-village bit. Source of truth is the per-fork
+            # `_village_owner` map (state_key hashes it; forks copy
+            # it); the sim no longer stamps TerrainModifiers.VILLAGE
+            # on capture, because the Hex objects are ALIASED across
+            # MCTS forks and the stamp leaked hypothetical in-search
+            # captures into the real game's encoding (2026-07-29).
+            # The modifier is still honored for the live-Wesnoth
+            # converter path and hand-built states.
+            _owned_village = mod_village in mods or key in village_owner_map
+            if _owned_village:          hex_modifier_flags_np[i, 0] = 1.0
             if mod_keep    in mods: hex_modifier_flags_np[i, 1] = 1.0
             if mod_castle  in mods: hex_modifier_flags_np[i, 2] = 1.0
             # Dynamic flag: recruit-rejected this turn.
-            if (p.x, p.y) in rejected_hexes:
+            if key in rejected_hexes:
                 hex_dynamic_flags_np[i, 0] = 1.0
             # Dynamic flags 1-2: village ownership as seen by the
             # side to move (fog rule documented at
             # NUM_HEX_DYNAMIC_FLAGS above).
-            if mod_village in mods:
-                _owner = village_owner_map.get((p.x, p.y), 0)
+            if _owned_village:
+                _owner = village_owner_map.get(key, 0)
                 if _owner == current_side:
                     hex_dynamic_flags_np[i, 1] = 1.0
                 elif _owner not in (0, current_side):

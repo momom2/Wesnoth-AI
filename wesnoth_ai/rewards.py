@@ -262,10 +262,17 @@ class TurnConditionalBonus:
 
     Example -- "+1.0 if our leader is on a village by turn 3"::
 
-        from wesnoth_ai.classes import TerrainModifiers
         def leader_on_village(state, side):
+            # Owned villages live in the per-fork _village_owner map
+            # (sim path); TerrainModifiers.VILLAGE covers converter-
+            # built states. Same disjunction as encoder.encode_raw.
+            from wesnoth_ai.classes import TerrainModifiers
+            owner_map = getattr(state.global_info,
+                                "_village_owner", None) or {}
             for u in state.map.units:
                 if u.side == side and u.is_leader:
+                    if (u.position.x, u.position.y) in owner_map:
+                        return True
                     for h in state.map.hexes:
                         if (h.position.x, h.position.y) == (
                             u.position.x, u.position.y):
@@ -1307,15 +1314,26 @@ def _our_leader_pos(state: GameState, side: int):
 # Names match what reward-config JSON/YAML files reference.
 
 def _pred_leader_on_village(state: GameState, side: int) -> bool:
-    """Our leader is currently standing on a village hex."""
+    """Our leader is currently standing on an owned-village hex.
+
+    Ownership check mirrors encoder.encode_raw's disjunction: the
+    per-fork `_village_owner` map is the sim's source of truth
+    (capture no longer stamps TerrainModifiers.VILLAGE on the shared
+    Hex -- 2026-07-29 fork-isolation fix); the modifier is still
+    honored for live-Wesnoth-converter states. Standing on a village
+    captures it, so 'on a village' and 'on an owned village' coincide
+    by the time this predicate is evaluated."""
     from wesnoth_ai.classes import TerrainModifiers
     leader = next((u for u in state.map.units
                    if u.side == side and u.is_leader), None)
     if leader is None:
         return False
+    owner_map = getattr(state.global_info, "_village_owner", None) or {}
+    lpos = (leader.position.x, leader.position.y)
+    if lpos in owner_map:
+        return True
     for h in state.map.hexes:
-        if (h.position.x, h.position.y) == (leader.position.x,
-                                            leader.position.y):
+        if (h.position.x, h.position.y) == lpos:
             return TerrainModifiers.VILLAGE in h.modifiers
     return False
 
