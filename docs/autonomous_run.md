@@ -159,6 +159,90 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 35 — 2026-07-29 — the flaky test was a REAL production bug: search imagination rewrote the real game
+
+**The biggest correctness find of the run**, and it came from refusing to
+dismiss a 1-in-3 flaky test. Landed as `fa95da5`.
+
+`_capture_village` stamped `TerrainModifiers.VILLAGE` onto a `Hex` that
+`Map.__deepcopy__` **ALIASES across every MCTS fork**
+(`classes.py:238`, `hexes = self.hexes  # alias`). So a **hypothetical**
+village capture explored inside a search **permanently rewrote the live
+game's encoder input**. The aliasing docstring claimed the add was
+"idempotent on actual villages anyway" — measured FALSE: scenario-pool
+builds never stamp the modifier, so the first capture is a real
+mutation.
+
+Divergence chain, measured end to end:
+
+```
+modifier flips -> encoder.py:1105 reads it into the hex token
+  -> all logits shift -> priors renormalize ~1e-4..1e-3
+  -> _expand's stable sort reorders near-ties
+  -> rng.gumbel assigns noise BY POSITION
+  -> different candidate tournament -> different visits
+```
+
+Both earlier symptoms reduce to this: "root priors stepped ≤8e-3 after a
+search" IS the leak (magnitude scales with how many captures the search
+imagined), and "enumeration order permutes run-to-run" is the leak
+re-sorting the prior-ordered edge list.
+
+**Why it mattered beyond the test.** Stored transitions hold
+**references** to game states whose hexes alias the live map, and the
+trainer re-encodes them at train time (`trainer.py:449`, `:1075`,
+`:1440`). Any search-imagined capture occurring AFTER a state was stored
+silently changed that state's training encoding — **distillation was fit
+against inputs the search never saw.** It also violates the CLAUDE.md §6
+observable-state contract: the bit encoded "some search line once
+imagined capturing this", which no player can observe.
+
+**Sim fidelity untouched** — verified by grep over every reader: no
+mechanics path reads the modifier (healing uses terrain codes, income
+uses `_village_owner`), so replay parity and the combat oracle are
+unaffected. `encoder.py:1315`'s reader is dead code (no callers).
+
+**My inferred hypothesis was REFUTED.** I recorded lazy vocab
+registration as the likely mechanism (cycle 34, labelled inferred).
+Vocab held at 44 entries through every failing iteration and the leak
+reproduces with zero growth. No vocab change is warranted. Recorded
+because the label "inferred" is what made it cheap to be wrong.
+
+**Fix:** ownership has ONE source of truth, the per-fork
+`_village_owner` map (already deep-copied per fork, already hashed by
+`state_key`). Encoder/rewards/diff_replay read `owner-map OR modifier`,
+keeping the modifier honored for the live-Wesnoth converter path which
+legitimately stamps it. Repro loop went **12/24 leaking to 0/24**;
+622 fast + 11 slow green; the flaky test itself untouched.
+
+**Behaviour delta accepted (Claude's call):** scenario-pool PRE-OWNED
+villages now encode as owned from turn 1 — which `scenario_pool.py:859-864`
+always said should happen — and imagined captures now read unowned. The
+alternative (copy-on-write hex replacement) would preserve today's bits
+exactly, but preserving a measured inconsistency is worse.
+
+**Decision: do NOT restart the box to pick this up.** The fix changes
+encoder inputs, and warm-starting a checkpoint into changed encoder
+semantics without a fresh-CE gate is exactly the T2-C hazard (warm-start
+MAE 0.217). The running leg's marginal value is already near zero
+(cycles 28-30: ~180k steps against a 450k-1M detectable gap), so the
+trade is "unvalidated lineage disturbance" against "a small, measured,
+non-collapse-scale corruption for ~33 more hours". The fix's value is for
+FUTURE legs, and its first use should be gated on a fresh-CE check.
+
+**Carried forward (specs only, not implemented):**
+- Cross-process encoding nondeterminism: `encoder.py:1104` and
+  `_first_terrain_id` (`:1300`) use `next(iter(terrain_types))`, and
+  enum-set order is address-dependent — so multi-terrain hexes can
+  encode differently across process restarts (resume/serve boundaries).
+  Within-process stable, so unrelated to this flake. Fix = deterministic
+  pick (`min(tt, key=...)`), needs its own before/after CE check.
+- Same bug class, dormant (INFERRED, not measured):
+  `scenario_events.py:1263-1308` `[effect]` handlers rebind `u.attacks`
+  in place on `Unit` objects shared across forks. A turn-boundary event
+  mutating a STATIONARY unit inside a search would leak exactly like the
+  village bit. Worth a probe on Hornshark before trusting it.
+
 ### Cycle 34 — 2026-07-29 — 32 sims is NOT the constraint; a committed rule was measured wrong; a determinism test is flaky
 
 **Box.** Iteration 9, 77 workers, zero aborts. Credit **$11.02** (~33 h).
