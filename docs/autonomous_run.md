@@ -110,6 +110,46 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 11 — 2026-07-29 — telemetry fixed on the spool path (+ a holdout leak caught)
+
+Fable traced both channels exactly, and one cause is a general hazard:
+
+1. **Boundary:** workers build their OWN `MCTSPolicy` and run
+   `finalize_game` worker-side; the learner ingests
+   `payload["experiences"]` straight into `policy._queue`
+   (`sim_self_play.py:1292`), so the LEARNER's `finalize_game` never runs
+   and its FIFO stays empty.
+2. **Advice: `_combine_stats` is a default-swallowing chokepoint.** Under
+   `--replay-buffer`, `train_step` aggregates through it, and it built a
+   fresh `TrainStats` naming only ELEVEN fields — the four `advice_*` stats
+   silently reverted to NaN defaults and the log guard then hid them. The
+   legacy no-replay path returns the step's stats directly, which is
+   *exactly* why every in-process validation showed advice working.
+
+**Fix:** `harvest_boundary_pairs(exps)` reconstructs pairs at INGEST from
+each experience's own `current_side` — chosen over shipping pairs because
+it needs no wire-format change (mixed worker/trainer versions survive a
+rolling restart) and adjacency is intact (spool payloads are atomic per
+game and order-preserving). `_combine_stats` now carries the advice fields
+(NaN-aware means; last-non-NaN for `advice_out_norm`, mirroring
+`grad_norm`).
+
+**Fable also caught a HOLDOUT LEAK in its own previously-landed harvest:**
+pairs were collected BEFORE holdout diversion, so holdout games would have
+fed the future consistency penalty. Now harvested only for games that
+TRAIN.
+
+Validated by Fable on the PRODUCTION topology (spool workers + replay
+buffer + advice), not the in-process path that hid the bug. Tests pin both,
+including the `_combine_stats` chokepoint so the next stat added inside
+`step_mcts` cannot die silently. 582 fast + 6 slow green (incl. the
+spool-workers e2e). Landed 100ea16; box rebooted onto it.
+
+**Expected signatures on the next box iteration** (these ARE the reads that
+matter): `advice_fire ~ 0.13` and `boundary_sum ~ +0.4..+0.6 / n=16`.
+Anything else is new information — and that boundary number IS the T1-F
+baseline we have been missing.
+
 ### Cycle 10 — 2026-07-29 — BOTH telemetry channels read ZERO on the box's actual path
 
 Campaign healthy (post-reboot iter 0: train_step 247s, loss 2.9346,
