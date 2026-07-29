@@ -134,6 +134,42 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 25 — 2026-07-29 — first behavioural read of the post-fix leg (and a confound caught)
+
+Pulled the LIVE campaign checkpoint off the box (decision_step 2,403,615)
+and the seed it started from (2,290,529) — **113,086 steps into the
+post-fix leg** — and ran the hoarding probe on shared seeds.
+
+| checkpoint | bank | end gold | recruits/game | turns | **recruits/TURN** |
+|---|---|---|---|---|---|
+| SEED 2.29M | 38.3 | 30.7 | 41.7 | 19.7 | **2.12** |
+| LIVE 2.40M | 44.2 | 61.3 | 26.3 | **12.0** | **2.19** |
+
+**Read naively this says the pathology got worse** — recruits down 37%,
+end gold doubled. It does not. **Game length nearly halved** (19.7 -> 12.0
+turns), which mechanically depresses recruits-per-game and inflates end
+gold. Normalised, the recruiting RATE is 2.12 -> 2.19 per turn: **flat**.
+
+What actually changed is that games got much SHORTER, which is consistent
+with the near-total ladder decisiveness logged since the fix (6/6, 11/11).
+INFERRED, not measured: shorter decisive games are what a working policy
+improvement looks like here; but 3 seeds and 113k steps cannot support a
+strength claim, and this is explicitly NOT one.
+
+**Probe bugs found by using it (3512584):**
+1. It built `TransformerPolicy` without `advice=`, so the live checkpoint
+   loaded with **12 unexpected keys** and its advice tensors were silently
+   DROPPED. Inert for this probe (no advice tokens attach at act time), but
+   a probe that quietly discards weights is one assumption away from lying.
+   **Fourth instance of this class this run.**
+2. `recruits/game` is confounded by game length. The probe now prints
+   `recruits/TURN` so the un-confounded number is the one on screen — the
+   confound nearly produced a false "hoarding got worse" headline in this
+   very cycle.
+
+Campaign: 2 post-restart iterations, `advice_out_norm` 0.3066 -> 0.3326,
+boundary |mean| 0.0605, 101 workers.
+
 ### Cycle 24 — 2026-07-29 — T2-C fails its own gate: the encoding is NOT a drop-in
 
 **Fable ran the warm-start validation it specified, and it failed the bar
