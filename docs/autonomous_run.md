@@ -118,6 +118,38 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 23 — 2026-07-29 — T2 fully plumbed (holdout basis stamp closes it)
+
+**Landed edc8349:** the holdout probe stores its index basis and
+`load_holdout` DISCARDS a probe whose basis differs. This one is subtle
+enough to state: the probe is persisted *precisely so* holdout CE is one
+continuous comparable curve across restarts (2026-07-18 — resampling per
+relaunch made levels jump 0.44<->0.88 and made the capacity question
+unanswerable). Restoring a foreign-basis probe would keep that curve
+looking continuous while silently making it a DIFFERENT measurement — the
+worst failure mode for the one metric relied on for cross-restart
+comparison.
+
+**T2 is now fully plumbed, all default OFF:** shared source-of-truth set
+(c4a2504) -> encoder threading (a964fbe) -> hex_subset marker + firing
+superset assert (f4a0bf8) -> config gate + worker/learner payload rejection
+(685b1c2) -> holdout basis stamp (edc8349). 597 fast + slow green
+throughout. Remaining before any A/B: Fable's warm-start validation
+(value MAE + same-weights ladder eval), now dispatched as T2-C.
+
+**Campaign (post-restart, coherent advice):** 1 iteration —
+`fresh_value_ce` 0.7698, `advice_out_norm` 0.3066 (resumed from 0.3073, so
+the weights carried), `advice_fire` 0.040, boundary +0.014. 101 workers.
+Tripwire |mean| 0.014. Too early to read anything.
+
+**Two judgement calls sent to Fable rather than assumed:** whether the
+4.3-4.8x projection survives the actual wired encoder (my H=870->119 was
+ONE state; pooled f=0.30 predicts nearer 3x, and the projection assumed
+unpadded per-state forwards), and whether my ingest rejection should DROP
+the game (my choice: a stale worker after a flag change is the realistic
+cause, so dropping costs an iteration where aborting costs the run) or be
+fatal.
+
 ### Cycle 22 — 2026-07-29 — relevant-set config gate complete; the seam is now guarded
 
 **Loop scheduling: cron 23fee23c confirmed alive** (`CronList`), so this
