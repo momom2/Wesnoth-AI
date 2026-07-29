@@ -72,3 +72,46 @@ def test_forest_overlay_is_worst_of_movement():
     assert mvt_cost("Gg^Fp", costs) == max(
         mvt_cost("Gg", costs), mvt_cost("Gg^Fp", costs))
     assert mvt_cost("Gg^Fp", costs) > 1
+
+
+def test_terrain_event_preserves_overlay_in_codes():
+    """A scenario [terrain] event whose new code carries an overlay
+    must store the FULL code in `_terrain_codes` -- the movement /
+    defense resolvers walk the alias graph from that code, and the
+    overlay can dominate it.
+
+    Regression (found 2026-07-29 via the Aethermaw export census):
+    `_terrain_action` stored the overlay-STRIPPED base ('Chw^Xo' ->
+    'Chw'), so Aethermaw's turn-6 whirlpool walls (WML (22,19) /
+    (28,22)) priced as walkable water-castles. Self-play moved units
+    onto them, and the exported replays fail strict-sync in real
+    Wesnoth ("found corrupt movement in replay" -- engine-verified
+    on 2/2 such exports). Engine truth: ^Xo is the Impassable
+    Overlay, mvt_alias=Xt (wesnoth_src/data/core/terrain.cfg:
+    1743-1751), so the composite is impassable for every movetype.
+    """
+    from sim_test_helpers import fresh_scenario_sim
+    from tools.replay_dataset import _fire_turn_events
+    from tools.wesnoth_sim import _move_cost_at_hex
+
+    sim = fresh_scenario_sim(0, scenario_id="multiplayer_Aethermaw")
+    gs = sim.gs
+    # Production event path, both sides' full morph schedule.
+    for side, turn in [(1, 4), (2, 4), (1, 5), (2, 5), (1, 6), (2, 6)]:
+        _fire_turn_events(gs, side, turn)
+
+    codes = getattr(gs.global_info, "_terrain_codes")
+    # The two wall hexes keep their overlay (WML (22,19)/(28,22) ->
+    # python (21,18)/(27,21))...
+    assert codes[(21, 18)] == "Chw^Xo"
+    assert codes[(27, 21)] == "Chw^Xo"
+
+    # ...and price impassable for a real unit from the scenario.
+    u = next(x for x in gs.map.units if x.side == 1)
+    assert _move_cost_at_hex(u, gs, 21, 18) >= 99
+    assert _move_cost_at_hex(u, gs, 27, 21) >= 99
+
+    # Control -- the plain-code morphs stay walkable water-castles
+    # (don't over-block): WML (13,13) -> python (12,12).
+    assert codes[(12, 12)] == "Chw"
+    assert _move_cost_at_hex(u, gs, 12, 12) < 99

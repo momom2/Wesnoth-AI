@@ -135,7 +135,12 @@ _TERRAIN_BASE = {
     # Castle variants — Chr (river), Chw (water), Cha (snow), Chs (sand)
     # all behave as castles for combat (defense_pct from the unit's
     # `castle` defense entry). Caves of the Basilisk uses Cha; Aethermaw
-    # uses Chw / Chw^Xo when the barrier morphs into walkable castles.
+    # morphs its central barrier into walkable Chw castles at turns 4-6.
+    # (Its two Chw^Xo whirlpool hexes are NOT walkable: ^Xo is the
+    # Impassable Overlay, mvt_alias=Xt — the movement resolver reads
+    # the full code from `_terrain_codes` and prices them 99. This
+    # base-code table only feeds Hex.terrain_types/defense-key
+    # fallbacks, which never legalize standing there.)
     "Ch": Terrain.CASTLE, "Cha": Terrain.CASTLE,
     "Chr": Terrain.CASTLE, "Chs": Terrain.CASTLE, "Chw": Terrain.CASTLE,
     # Off-board placeholder. Aethermaw initially fences the central

@@ -492,9 +492,20 @@ def _terrain_action(gs: GameState, action: WMLNode) -> None:
     from wesnoth_ai.classes import Hex, Position
     new_terr, new_mods = _parse_hex_code(new_code)
 
-    # Strip overlay from the new terrain code; the base part is what
-    # the WML defense table is keyed by (e.g., 'Wwf^Bsb/' → 'Wwf').
-    new_base_code = new_code.split("^", 1)[0]
+    # NOTE: `_terrain_codes` stores the FULL code including any
+    # overlay, matching the map-load path (parse_terrain_codes). The
+    # movement/defense resolvers (terrain_resolver.mvt_cost/def_pct
+    # via _move_cost_at_hex / _terrain_def_pct) walk the alias graph
+    # from that code, and an overlay can DOMINATE it: ^Xo is the
+    # Impassable Overlay with mvt_alias=Xt (wesnoth_src/data/core/
+    # terrain.cfg:1743-1751), so 'Chw^Xo' is impassable despite the
+    # castle base. A previous version stored the overlay-stripped
+    # base here ('Chw^Xo' -> 'Chw'), which made Aethermaw's turn-6
+    # whirlpool walls walkable in the sim -- units moved onto them
+    # and the exported replays failed strict-sync in real Wesnoth
+    # ("found corrupt movement in replay", engine-verified
+    # 2026-07-29). See test_terrain_overlay_resolution.py::
+    # test_terrain_event_preserves_overlay_in_codes.
 
     # COPY-ON-WRITE (adversarial-review HIGH finding, 2026-07-18):
     # `Map.__deepcopy__` / `GlobalInfo.__deepcopy__` ALIAS
@@ -534,12 +545,13 @@ def _terrain_action(gs: GameState, action: WMLNode) -> None:
         ))
 
         # Mirror the change into the per-game terrain-code dict that
-        # `_terrain_keys_at` uses for alias resolution. Without this
-        # the post-event hex still resolves through the OLD code and
-        # combat defense math is wrong (Drake on Ford should get its
-        # grass defense, not shallow-water defense).
+        # `_terrain_keys_at` / `_move_cost_at_hex` resolve through.
+        # Without this the post-event hex still resolves through the
+        # OLD code and combat defense math is wrong (Drake on Ford
+        # should get its grass defense, not shallow-water defense).
+        # FULL code, overlay included -- see the ^Xo note above.
         if new_codes is not None:
-            new_codes[(py_x, py_y)] = new_base_code
+            new_codes[(py_x, py_y)] = new_code
 
         # Raw map_data string: border-included → WML (X, Y) is at
         # raw_cells[Y][X] directly (file row Y col X with the border
