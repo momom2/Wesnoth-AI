@@ -159,6 +159,93 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 32 — 2026-07-29 — the ADVICE channel carries no information (and `advice_out_norm` was never evidence)
+
+**A claim I published repeatedly is REFUTED.** I read `advice_out_norm`
+growing from zero-init (0.3417 -> 0.3711 over 7 iterations) as the model
+"learning the scale up rather than ignoring it". Fable reproduced that
+growth signature **identically with informationally void tokens**. A
+zero-init parameter under Adam moves whether or not the signal carries
+information. **`advice_out_norm` is retired as evidence of anything
+except "the optimizer is running."**
+
+**The control.** Placebo = cross-state permutation of complete advice
+content (motif ids, feats, grounding vectors moved as a unit, a
+per-seed derangement, train permuted only within train). This holds
+parameter count, token count/shape, gradient pathway, fire pattern and
+the batch-marginal token distribution EXACTLY fixed, varying only the
+token<->state correspondence. Token-construction parity with
+`build_advice_tokens` is asserted via `torch.allclose`, so the
+reconstruction cannot drift from production. Explicitly NOT controlled:
+presence information ("an opportunity exists here") cancels between arms,
+so the test is silent on presence-only value.
+
+**Three instruments agree.**
+
+```
+E0  does the 32-sim Gumbel target up-weight the advised action?
+    prior-matched controls: mean D = +0.0010 +-0.0094
+    same-class controls:    mean D = -0.0022 +-0.0092
+    -> target treats the advised action like ANY same-prior edge
+
+E1a live checkpoint, no training, 104 states:
+    CE none 3.10 / real 3.11 / permuted 3.11   (real-perm ~ +0.001)
+
+E1b fresh graft, matched training, 2 seeds:
+    out_norm  real 5.13/5.55   placebo 5.06/5.58   (indistinguishable)
+    heldout   paired real-placebo: +0.13 and -0.21 (OPPOSITE signs)
+    both arms DEGRADE heldout CE -> what is learned is memorization
+```
+
+**Mechanism, and it is cycle 29's tax again.** The advised edge attracts
+visits (1.03 vs 0.43 for controls), so it tends to be sampled, cut, and
+graded below the unvisited v_mix shelter — the apparent same-actor
+asymmetry is a prior-magnitude artifact that vanishes under
+prior-matching. At 32 sims the target **cannot resolve the merit of a
+specific advised action**, so there is no content signal in the objective
+for the gate to couple to. This is an information-starved OBJECTIVE, not
+a broken pathway — E3 shows the pathway learns fine when the target does
+contain signal.
+
+**Verdict: not carrying information, at this search budget with this
+coupling.** Honest scope: E0 ran with advice OFF in search to avoid
+circularity while the box runs advice ON (justified by the tiny act-time
+footprint, prior-TV ~0.015 — but it IS a deviation); E1b's frozen-trunk,
+62-state, hot-lr regime is a learnability probe, not a box replica. The
+strong claim rests on E0 bounding what the target offers to learn.
+
+**The user's requirement IS met, and is being exercised.** "A stronger
+model may learn to ignore the signal (e.g. exp management)" — softplus is
+asymptotically 0 with never-vanishing-sign gradient, exact zero is in
+`advice_out`'s span, and empirically a suppress phase closed the CE gap
+from +1.01 to **+0.0002** in 150 steps, while a selectivity phase reached
+contribution **20.6 on follow-advice states vs 3.8 on ignore states**.
+Production corroboration: the LIVE gate reads 0.28 mean vs 0.55-0.85 for
+a fresh graft on the same states — the model is training the gate DOWN,
+which is the opposite of the story `advice_out_norm` seemed to tell.
+
+**Design-doc gap, verified and corrected.** `detector_training_signal.md`
+promised `softplus(gate(state, advice_features))`; the code implements
+`softplus(Linear(d_model,1)(actor_ctx))` (`model.py:331,406`) — state
+only. The doc was wrong, not the code. State-conditional ignoring (the
+user's case) still works; what is lost is reading the gate scalar as
+"trust in THIS finding" — that would need attention weights. Doc fixed.
+
+**Decision: keep `MCTS_ADVICE=1` for now.** It is a user-requested
+feature, the measured cost is small (advisor ~0.3 ms/decision, ~1% of
+gradient, act-time TV ~0.015), and flipping it mid-leg would add a THIRD
+regime to an already-split leg — the same reasoning that kept target
+extraction untouched in cycle 30. What changes is the JUSTIFICATION: it
+is retained as a cheap standing experiment, NOT because telemetry shows
+it working. If it is to become real, the candidate couplings are the
+not-yet-implemented ΔV-weighted retrospective distillation push, or a
+search budget large enough to actually judge advised actions.
+
+**Note on box/code skew:** the box runs the tree as of its launch clone
+(`2997de3`). `d03d50c` (boundary `pool=`), `5a62f80` and `b0d5468` are
+NOT live there and will not appear in this leg's logs; picking them up
+would need a restart, which is not worth it for telemetry.
+
 ### Cycle 31 — 2026-07-29 — box steady; boundary reading made watchable; two stale cycle-prompt facts
 
 **Box health.** Instance 46182445, iteration 5 at 14:01Z, 77 workers,

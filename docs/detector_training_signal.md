@@ -112,12 +112,31 @@ So the coupling is:
    flanker move to the opposite hex). Each becomes an encoder ADVICE TOKEN
    carrying {motif, tier, guaranteed-gain features, ref to the setup move,
    optional prospective ΔV}. The model attends to it.
-2. **A gate head** emits `s = softplus(gate(state, advice_features))`; the
-   advice token's contribution to the trunk is `s`-scaled. The policy
-   learns its response -- including how to weight the magnitude -- from the
-   TRUE reward. Learnable, magnitude-aware, non-circular. This IS the
-   learnable scaling factor, and it unifies scaling with "learn to ignore":
-   the gate shrinks toward 0 exactly where deviating wins (exp management).
+2. **A gate head** emits `s = softplus(gate(...))`; the advice token's
+   contribution to the trunk is `s`-scaled. The policy learns its response
+   -- including how to weight the magnitude -- from the TRUE reward.
+   Learnable, magnitude-aware, non-circular. This IS the learnable scaling
+   factor, and it unifies scaling with "learn to ignore": the gate shrinks
+   toward 0 exactly where deviating wins (exp management).
+
+   **AS IMPLEMENTED (corrected 2026-07-29):** the gate is
+   `softplus(nn.Linear(d_model, 1)(actor_ctx))` (`model.py:331,406`) --
+   it reads the **actor state, NOT the advice features**. This spec
+   originally said `gate(state, advice_features)`; the code never did
+   that, and the doc was wrong rather than the code being behind.
+
+   What still holds: the gate is per-actor-state, so **state-conditional**
+   ignoring -- the exp-management case the user asked for -- works, and is
+   demonstrated (2026-07-29: a suppress phase closed the CE gap from
+   +1.01 to +0.0002 in 150 steps; a selectivity phase reached contribution
+   20.6 on follow-advice states vs 3.8 on ignore states). Per-FINDING
+   trust is still representable, but only inside the attention/output
+   path.
+
+   What does NOT hold: you cannot read the gate scalar as "trust in THIS
+   finding". It is one number per actor state, so a per-finding readout
+   would have to come from attention weights. The interpretability story
+   is weaker than this doc originally promised.
 3. **Zero-init graft.** The gate/advice output projection inits to zero, so
    the advice contributes nothing at load: `load_state_dict(strict=False)`
    fills the rest from an existing checkpoint (tier_a loads cleanly) and
