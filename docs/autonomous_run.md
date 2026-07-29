@@ -147,6 +147,55 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 28 — 2026-07-29 — the budget is the binding constraint (credit $13.90)
+
+**The number that should drive T3 planning, found by looking:**
+`vastai show user` reports **credit = $13.90**, not the large balance the
+run had been assuming. At the current box's $0.334/hr that is **~41 h of
+runtime against ~58 h of mandate remaining.**
+
+**Decision: do NOT upgrade the box.** I had costed a migration to a
+192-core host (192x2.6GHz = 499 core-GHz vs this box's 96x3.4 = 326, so
+~1.5x throughput for 1.8x price). At $13.90 that buys only ~23 h. The
+current box stays. Recorded so a future cycle doesn't re-derive it.
+
+**A stall scare that was not a stall.** Iteration 1 ran >45 min with zero
+heartbeat movement (30 workers / 40 games / 5,226 decisions, unchanged
+over 3 min). Checked before concluding: worker process states were
+**76 `Rl` (running)**, the learner `Sl` blocked in `collect()`, no worker
+tracebacks, no crashed workers. Nothing is stuck — self-play games are
+simply very long:
+
+```
+worker 0: 1 game, 243 decisions, 56.6 min   -> ~20 s per decision
+avg over completed games: 130.7 decisions/game (high variance)
+```
+
+At ~20 s/decision a 243-decision game costs ~80 min of one worker, which
+is why most workers were still inside their FIRST game 80 min in.
+
+**Two measurement traps hit and avoided in this cycle, both worth
+remembering.** (a) `spool/stats/w*.json` is a **per-worker heartbeat
+written at game completion**, NOT a per-game record — an early reading of
+"18 -> 19 files per 60s" as a game rate was wrong. (b) Because heartbeats
+land only at completion, in-flight decisions are uncounted, so the naive
+"5,226 decisions / 82 min = ~4,100 decisions/hr" **understates** steady
+state, possibly by ~2x. Estimates by different methods spanned
+4k-13.7k decisions/hr, which is too wide to plan on.
+
+**So no throughput figure is published here yet.** The definitive
+measurement is a `decision_step` delta across a known wall-clock
+interval; it is in progress. This matters because the historical gaps
+that ever separated checkpoints detectably were 450k-1M steps, and
+whether 41 h of credit clears that bar depends entirely on which end of
+that range is real.
+
+**Next:** land the decision_step/hr measurement; then decide between
+(a) continue training, or (b) reallocate credit to a decisive n~200
+strength eval — Fable measured raw-policy eval at 46.5 s/game vs ~80 min
+for an MCTS self-play game, so measurement is orders of magnitude cheaper
+than training and may be the better buy.
+
 ### Cycle 27 — 2026-07-29 — box replaced; the load signal was never ours; eval made steerable
 
 **T3 — the box died and is replaced.** Instance 46142270 (host 18135) went
