@@ -68,7 +68,8 @@ NUM_SIDE_CODES  = 3     # 0 = ours, 1 = theirs, 2 = neutral
 # mods can override in one place. Empty string is reserved for
 # "unknown/unset" -> id 0.
 from wesnoth_ai.constants import DEFAULT_FACTIONS as _DEFAULT_FACTIONS
-from wesnoth_ai.visibility import (hexes_in_slot_order, own_recruit_types,
+from wesnoth_ai.visibility import (
+    relevant_hexes_in_slot_order, hexes_in_slot_order, own_recruit_types,
                         units_visible_to,
                         visible_units_in_slot_order)
 
@@ -382,9 +383,14 @@ class GameStateEncoder(nn.Module):
         d_model: int = 128,
         unit_type_to_id: Optional[Dict[str, int]] = None,
         faction_to_id: Optional[Dict[str, int]] = None,
+        relevant_set_hexes: bool = False,
     ):
         super().__init__()
         self.d_model = d_model
+        # Opt-in relevant-hex stream (see encode_raw). Default OFF: this
+        # changes the ACTION SPACE's index basis, so a checkpoint or replay
+        # buffer built under one setting is meaningless under the other.
+        self.relevant_set_hexes = bool(relevant_set_hexes)
 
         # We maintain our OWN name→id map. StateConverter also maintains
         # one (Unit.name_id comes from it), but we intentionally ignore
@@ -456,6 +462,7 @@ class GameStateEncoder(nn.Module):
             game_state,
             type_to_id=self.unit_type_to_id,
             faction_to_id=self.faction_to_id,
+            relevant_set=self.relevant_set_hexes,
         )
         return self.encode_from_raw(raw)
 
@@ -956,6 +963,7 @@ def encode_raw(
     *,
     type_to_id: Dict[str, int],
     faction_to_id: Dict[str, int],
+    relevant_set: bool = False,
 ) -> RawEncoded:
     """Build a `RawEncoded` from a GameState using read-only vocab.
 
@@ -994,7 +1002,17 @@ def encode_raw(
     # collector already excludes invisible enemy units from
     # `gs.map.units` for the side we're encoding for, so any
     # hidden unit isn't in the input we see anyway.
-    hexes = hexes_in_slot_order(game_state)   # slot contract
+    # Hex stream: the FULL board, or (opt-in) only the hexes that can
+    # matter this decision. T2-A measured the relevant set at mean 0.30 of
+    # the board with ZERO superset violations over 1,840 decisions, which
+    # buys a 4.3-4.8x rollout forward -- the sequence length, not the
+    # parameter count, is what gates scaling here. Both orderings come from
+    # the SAME canonical (y,x) sort (relevant_hexes_in_slot_order FILTERS
+    # it rather than re-sorting), so slot indices stay deterministic --
+    # load-bearing, because the trainer replays target_idx against
+    # re-encoded states.
+    hexes = (relevant_hexes_in_slot_order(game_state) if relevant_set
+             else hexes_in_slot_order(game_state))   # slot contract
 
     hex_positions = [h.position for h in hexes]
     H = len(hex_positions)

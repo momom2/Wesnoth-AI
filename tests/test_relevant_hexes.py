@@ -86,3 +86,63 @@ def test_degenerate_no_units(pool_state):
     assert len(relevant_hexes_in_slot_order(gs)) == len(
         {p for p in rel
          if p in {(h.position.x, h.position.y) for h in gs.map.hexes}})
+
+
+# --------------------------------------------------------------------
+# Encoder wiring (T2-B item 1). The flag changes the ACTION SPACE's index
+# basis, so these properties are load-bearing, not cosmetic: the trainer
+# re-encodes stored states and replays target_idx against them.
+# --------------------------------------------------------------------
+
+def _pool_state(seed=901):
+    import random
+    from tools.scenario_pool import (random_setup, build_scenario_gamestate,
+                                     load_factions)
+    from tools.wesnoth_sim import WesnothSim
+    load_factions()
+    setup = random_setup(random.Random(seed), forced_faction=None)
+    sim = WesnothSim(build_scenario_gamestate(setup),
+                     scenario_id=setup.scenario_id, max_turns=20)
+    return sim.gs
+
+
+def test_encoder_flag_defaults_off_and_is_opt_in():
+    from wesnoth_ai.encoder import GameStateEncoder
+    assert GameStateEncoder().relevant_set_hexes is False
+    assert GameStateEncoder(relevant_set_hexes=True).relevant_set_hexes is True
+
+
+def test_relevant_encoding_is_subset_in_filter_order():
+    """Ordering must be the FILTER of the canonical (y,x) sort, never a
+    re-sort: slot indices have to stay comparable and deterministic."""
+    from wesnoth_ai.encoder import GameStateEncoder
+    gs = _pool_state()
+    ef = GameStateEncoder(d_model=32).encode(gs)
+    er = GameStateEncoder(d_model=32, relevant_set_hexes=True).encode(gs)
+    pf = [(p.x, p.y) for p in ef.hex_positions]
+    pr = [(p.x, p.y) for p in er.hex_positions]
+    assert len(pr) < len(pf), "relevant set should be smaller on a real map"
+    assert set(pr) <= set(pf)
+    assert pr == [q for q in pf if q in set(pr)]
+
+
+def test_relevant_encoding_is_deterministic_across_reencode():
+    """The trainer re-encodes STORED states and replays target_idx; any
+    nondeterminism here corrupts every replayed transition."""
+    import copy
+    from wesnoth_ai.encoder import GameStateEncoder
+    gs = _pool_state()
+    a = GameStateEncoder(d_model=32, relevant_set_hexes=True).encode(gs)
+    b = GameStateEncoder(d_model=32, relevant_set_hexes=True).encode(
+        copy.deepcopy(gs))
+    assert [(p.x, p.y) for p in a.hex_positions] == \
+           [(p.x, p.y) for p in b.hex_positions]
+
+
+def test_default_encoder_still_emits_the_full_board():
+    """Regression guard: the flag must not perturb the default path."""
+    from wesnoth_ai.encoder import GameStateEncoder
+    from wesnoth_ai.visibility import hexes_in_slot_order
+    gs = _pool_state()
+    e = GameStateEncoder(d_model=32).encode(gs)
+    assert e.hex_tokens.size(1) == len(hexes_in_slot_order(gs))
