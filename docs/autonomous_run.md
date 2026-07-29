@@ -110,6 +110,59 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 13 — 2026-07-29 — T1-F closed on evidence; attribution deliberately NOT bought
+
+**T1-F closed, and the reconciliation is now measured rather than argued.**
+Fable probed the one checkpoint it had never measured — the 2.30M SEED this
+campaign started from — and got **-0.190 fogged (n=73)**. Lineage series:
+
+| SL | **2.30M (seed)** | 2.75M | 3.74M |
+|---|---|---|---|
+| +0.43/+0.65 | **-0.19** | +0.24/+0.45 | +0.43/+0.62 |
+
+So the live ~0 needs no "fogless dilution" or "fixed-transform" explanation:
+**the seed simply does not carry the bias.** Probes and live instrument
+agree once lineage is accounted for. Also settles my named residual — with
+the offset ~0 on the actual training distribution, end_turn children carry
+only the legitimate unspent-moves negativity, not a binding artifact.
+
+**But the same series shows the bias RE-EMERGED once before** (-0.19 ->
++0.35 -> +0.52 across the old leg), so the tripwire is load-bearing, not
+ceremonial. **TRIPWIRE ADOPTED: 8-iteration rolling |mean boundary_sum| >
+0.25 reopens T1-F.** Two-sided (2.30M shows it can point either way), and
+the threshold already accounts for the pair FIFO pooling ~20% fogless games
+(a fogged-only +0.30 reads ~+0.24 pooled). Checked each cycle from the
+train_step series; current rolling |mean| = 0.079 over 2 readings — clear.
+
+**T3-A: attribution is NOT worth buying now — accepted with its reasoning.**
+Fable's statistics, which corrected my read of our own logs: the `+-1.27` /
+`+-0.52` I quoted is the PER-STATE spread of the ~256-state probe; the
+MEAN's SE is only ~0.03-0.08. What actually binds an arm comparison is
+between-iteration variance, and early-leg that is **trend-dominated**
+(1.02 -> 0.53 in one iteration — the curve is falling faster than any
+plausible arm gap), so a split started now measures the TREND, not the arm.
+On the strength endpoint, each-vs-reference needs ~800 games/arm for +50
+Elo, and option (a) buys that with doubled spend and n=1 run per arm whose
+run-level variance is unmeasured and plausibly larger than the effect.
+
+Staged plan adopted:
+1. **Now:** dose telemetry only. If `out_norm` plateaus small with
+   `grad_share ~1.5%`, that alone justifies "effect <= noise".
+2. **At checkpoint K, IF the leg improves:** inference-time ablation —
+   same weights, advice attached vs not at act time, ~400 ladder games
+   (~$1-2, zero training cost, +-34 Elo resolution). Bounds the acting
+   channel; does NOT measure trunk shaping (stated, not hidden).
+3. **Only if non-null:** paired branch continuations FORKED FROM THE SAME
+   checkpoint K, 30-50 iterations each (~$5-10), compared head-to-head
+   (~400 games total for 50 Elo — half the cost of each-vs-reference).
+   This keeps my option-(b) cheapness while killing its flaw: the flip
+   point becomes a FORK point, so both arms share full history.
+4. **Pre-committed floor:** if stage-2's CI covers zero and branches are
+   within noise, record "below detection floor; confound accepted; advice
+   stays ON (costs ~nothing, out_norm shows it learning)" and STOP. A
+   legitimate terminal answer, agreed in advance so it cannot be
+   rationalised away later.
+
 ### Cycle 12 — 2026-07-29 — the baseline lands and KILLS T1-F; my cycle-10 inference was wrong
 
 First live reads of both channels, and they overturn two of my own claims.
