@@ -221,6 +221,26 @@ T1 10:58:52 iters=2 games=52 dec=7797
 --> ~17 min/iteration at steady state (earlier 27-38 min included warmup)
 ```
 
+**CORRECTION (same day, from more data).** The ~7,300/hr above was
+measured over a single 16.7-min window and is an OVERESTIMATE — it
+happened to land on a fast stretch. Iteration cadence over a longer
+span: iter 0 at 09:55, iter 3 by 12:05 = **~43 min/iteration**, i.e.
+**~4,400 decision-steps/hour**. Iteration time is highly variable
+(16.7 min for 1->2, ~67 min for 2->3).
+
+The cause is almost certainly the same heavy tail Fable independently
+hit in eval, where per-pair times spanned 8 s to 900 s+: an iteration
+blocks until all 24 games finish, so a few pathologically long
+"passive shuffling" games gate the whole iteration. One phenomenon,
+two symptoms. Note this is ALSO a behavioural signal about the policy,
+not just a cost problem, and it was invisible at the old eval horizon
+of 30 turns where such games got truncated.
+
+The budget conclusion is unchanged and in fact STRENGTHENED: at
+4,400/hr, ~41 h buys ~180k steps, further below the 450k-1M
+detectable gap. Use **4,400-7,300/hr with high variance** as the
+honest figure, not the single-window number.
+
 **Strategic consequence, and the cycle's decision.** ~41 h of remaining
 credit x 7,300/h = **~300k decision steps**, against a 450k-1M gap that
 has ever separated checkpoints detectably on this lineage. **More
