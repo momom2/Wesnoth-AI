@@ -119,3 +119,85 @@ def test_combine_stats_carries_advice_fields():
     # all-NaN must stay NaN so the log guard still suppresses the fields
     n = MCTSPolicy._combine_stats([TrainStats(), TrainStats()], 2)
     assert n.advice_fire_rate != n.advice_fire_rate
+
+
+# --------------------------------------------------------------------
+# Sampling contract (2026-07-29). The reading is a MEAN over sampled
+# pairs, so its sampling SE scales 1/sqrt(k) -- and it is watched
+# against a +-0.25 band that the campaign's first readings swing most
+# of on their own. These pin that the sample cap is deliberate and
+# that the POOL size is reported, since boundary_pairs_n saturates at
+# the cap and so cannot on its own tell you whether more sampling
+# would help.
+# --------------------------------------------------------------------
+
+def _attach(n_pairs, k=None):
+    """Run the production _attach_boundary_sum over `n_pairs` synthetic
+    pairs, stubbing ONLY at the model/encoder boundary."""
+    import random
+    import torch
+    from wesnoth_ai.trainer import TrainStats
+    from tools.mcts_policy import MCTSPolicy
+
+    class _Out:
+        value = torch.tensor(0.25)
+
+    class _Model:
+        def __call__(self, x):
+            return _Out()
+
+    class _Enc:
+        def encode(self, gs):
+            return gs
+
+    class _Base:
+        _model = _Model()
+        _encoder = _Enc()
+
+    class _L:
+        def __enter__(self): return None
+        def __exit__(self, *a): return False
+
+    class _Shim:
+        _boundary_pairs = [(object(), object()) for _ in range(n_pairs)]
+        _boundary_rng = random.Random(0)
+        _lock = _L()
+        _base = _Base()
+
+    stats = TrainStats()
+    if k is None:
+        MCTSPolicy._attach_boundary_sum(_Shim(), stats)
+    else:
+        MCTSPolicy._attach_boundary_sum(_Shim(), stats, k=k)
+    return stats
+
+
+def test_sample_cap_is_64_and_deliberate():
+    """Pinned so a change to telemetry precision is a decision, not a
+    drive-by edit."""
+    from tools.mcts_policy import MCTSPolicy
+    assert MCTSPolicy.BOUNDARY_SAMPLE_K == 64
+
+
+def test_pool_size_is_reported_separately_from_sample_size():
+    """The whole point: n saturates at the cap, pool does not."""
+    stats = _attach(500)
+    assert stats.boundary_pairs_n == 64      # capped
+    assert stats.boundary_pool_n == 500      # true population
+    # 0.25 per state, two states per pair -> mean 0.5
+    assert abs(stats.boundary_sum - 0.5) < 1e-6
+
+
+def test_small_pool_reports_equal_n_and_pool():
+    """Below the cap the two agree -- which is exactly why reporting
+    only n was ambiguous."""
+    stats = _attach(10)
+    assert stats.boundary_pairs_n == 10
+    assert stats.boundary_pool_n == 10
+
+
+def test_too_few_pairs_leaves_defaults_untouched():
+    stats = _attach(3)
+    assert stats.boundary_sum != stats.boundary_sum   # still NaN
+    assert stats.boundary_pairs_n == 0
+    assert stats.boundary_pool_n == 0

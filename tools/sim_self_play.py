@@ -1953,7 +1953,8 @@ def run_iteration(
         _bsum = getattr(train_stats, "boundary_sum", float("nan"))
         if _bsum == _bsum:
             aux_str += (f" boundary_sum={_bsum:+.3f}"
-                        f"/n={getattr(train_stats, 'boundary_pairs_n', 0)}")
+                        f"/n={getattr(train_stats, 'boundary_pairs_n', 0)}"
+                        f"/pool={getattr(train_stats, 'boundary_pool_n', 0)}")
         log.info(
             f"iter {iter_idx}: train_step in {train_dt:.1f}s "
             f"trajectories={train_stats.n_trajectories} transitions={train_stats.n_transitions} "

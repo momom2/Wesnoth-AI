@@ -903,8 +903,20 @@ class MCTSPolicy:
                         != gb.global_info.current_side):
                     self._boundary_pairs.append((ga, gb))
 
+    # Boundary-pair sample cap. 64 rather than 16: the reading is a
+    # MEAN over sampled pairs, so its sampling SE scales as 1/sqrt(k)
+    # -- k=16 -> 64 halves it. That matters because this statistic is
+    # watched against a +-0.25 band, and the 2026-07-29 campaign's
+    # first five readings (+0.053, +0.334, -0.066, +0.168, +0.208)
+    # swing most of that band on their own, which makes a single
+    # reading nearly uninformative. Cost is <=2k no-grad forwards
+    # (128) against a train_step measured at ~184 s on the box, i.e.
+    # negligible. Not a CLI knob: it is telemetry precision, not a
+    # behavioural parameter.
+    BOUNDARY_SAMPLE_K = 64
+
     def _attach_boundary_sum(self, stats: TrainStats,
-                             k: int = 16) -> None:
+                             k: int = BOUNDARY_SAMPLE_K) -> None:
         """Mean V(s_pre)+V(s_post) over up to `k` sampled boundary
         pairs, no_grad, on the freshly-updated TRAINING net.
 
@@ -921,6 +933,7 @@ class MCTSPolicy:
             pairs = list(self._boundary_pairs)
         if len(pairs) < 4:
             return
+        pool_n = len(pairs)
         if len(pairs) > k:
             pairs = self._boundary_rng.sample(pairs, k)
         model = self._base._model
@@ -933,6 +946,7 @@ class MCTSPolicy:
                 tot += va + vb
         stats.boundary_sum = tot / len(pairs)
         stats.boundary_pairs_n = len(pairs)
+        stats.boundary_pool_n = pool_n
 
     def _sync_inference_weights(self) -> None:
         """Propagate the freshly-updated `_model` weights into the

@@ -261,6 +261,13 @@ class TrainStats:
     # MCTSPolicy._attach_boundary_sum; nan when <4 pairs collected.
     boundary_sum:     float = float("nan")
     boundary_pairs_n: int   = 0
+    # Size of the boundary-pair POOL the reading was sampled from.
+    # Reported separately because boundary_pairs_n saturates at the
+    # sample cap, so on its own it cannot distinguish "only 16 pairs
+    # exist" from "4000 exist and we sampled 16" -- i.e. it cannot
+    # tell you whether the reading's noise is fixable by sampling
+    # more.
+    boundary_pool_n:  int   = 0
     # Value CE on THIS iteration's incoming games, measured BEFORE any
     # gradient step touched them (nan when unavailable). Distribution-
     # matched generalization signal: unlike the frozen holdout it
