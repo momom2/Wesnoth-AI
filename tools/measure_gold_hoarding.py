@@ -25,7 +25,18 @@ def load_policy(path):
     kw = {k: int(arch[k]) for k in
           ("d_model", "num_layers", "num_heads", "d_ff") if k in arch}
     p = TransformerPolicy(aux_score=bool(raw.get("aux_score")),
-                          moves_left=bool(raw.get("moves_left")), **kw)
+                          moves_left=bool(raw.get("moves_left")),
+                          # Build the advice path when the checkpoint has
+                          # one, else its 12 advice_* tensors load as
+                          # "unexpected keys" and are DROPPED. Harmless for
+                          # this probe (no advice tokens are attached at
+                          # act time, so the path is inert either way), but
+                          # a probe that silently discards weights is one
+                          # bad assumption away from lying.
+                          advice=bool(raw.get("advice", False)),
+                          relevant_set_hexes=bool(
+                              raw.get("relevant_set_hexes", False)),
+                          **kw)
     p.load_checkpoint(pathlib.Path(path))
     return p
 
