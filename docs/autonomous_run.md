@@ -110,6 +110,41 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 18 — 2026-07-29 — encoder wiring landed (default OFF); H 870 -> 119 measured
+
+Took the wiring myself (Fable's context spent). **Landed a964fbe:**
+`encode_raw(relevant_set=)` + `GameStateEncoder(relevant_set_hexes=False)`.
+
+Measured on a real pool state: **full board H=870 -> relevant H=119**
+(0.137 there; T2-A's pooled mean is 0.30). That is the saving that buys
+`d_model` 256->512 at equal wall-clock.
+
+The flag changes the ACTION SPACE's index basis, so the properties that
+matter are ordering and determinism, and all four were VERIFIED rather than
+assumed:
+
+```
+relevant is a SUBSET of full:            True
+ordering is the filter of full order:    True    <- filtered, never re-sorted
+deterministic across re-encode:          True
+default encoder unchanged (full board):  True
+```
+
+The third is the one that would have bitten silently: the trainer
+re-encodes STORED states and replays `target_idx` against them, so a
+re-sort or any set-iteration nondeterminism corrupts every replayed
+transition without an error. 590 fast + 4 slow green (incl. spool-workers
+e2e, ladder export validation).
+
+**Still OFF by default — the running campaign is untouched.** Remaining:
+the shipping debug assert, the config gate with worker/learner flag
+agreement (loud rejection at the seam), and the holdout stamp guard. All
+specced at insertion points in cycle 17.
+
+Campaign at 11 iterations: `fresh_value_ce` **0.3912**, a new low
+(series 1.018, 0.530, 0.718, 0.491, 0.485, 0.500, 0.709, 0.391 — noisy,
+but the floor keeps dropping). `advice_out_norm` 0.2742, still monotone.
+
 ### Cycle 17 — 2026-07-29 — relevant-hex core landed (INERT); wiring specced to insertion points
 
 **Landed c4a2504:** `relevant_hex_positions` / `relevant_hexes_in_slot_order`
