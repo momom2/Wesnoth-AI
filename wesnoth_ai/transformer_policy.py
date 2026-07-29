@@ -86,6 +86,7 @@ class TransformerPolicy:
         aux_score: bool = False,
         moves_left: bool = False,
         advice: bool = False,
+        relevant_set_hexes: bool = False,
     ):
         # Default device is CPU. DML runs work for rollout (single-sample
         # forwards are competitive with CPU once the MHA/TransformerEncoder
@@ -120,7 +121,13 @@ class TransformerPolicy:
         self._aux_score = bool(aux_score)
         self._moves_left = bool(moves_left)
         self._advice = bool(advice)
-        self._encoder = GameStateEncoder(d_model=d_model).to(self._device)
+        # Relevant-hex stream (docs/autonomous_run.md cycles 16-19). Changes
+        # the ACTION SPACE's index basis, so BOTH encoders must agree -- a
+        # split would make replayed target_idx meaningless.
+        self._relevant_set_hexes = bool(relevant_set_hexes)
+        self._encoder = GameStateEncoder(
+            d_model=d_model,
+            relevant_set_hexes=self._relevant_set_hexes).to(self._device)
         self._model = WesnothModel(
             d_model=d_model,
             num_layers=num_layers,
@@ -157,7 +164,9 @@ class TransformerPolicy:
         # is safe under CPython's GIL for the read-mostly access
         # pattern. New types registered during a rollout become
         # visible to the trainer's encoder too.
-        self._inference_encoder = GameStateEncoder(d_model=d_model).to(self._device)
+        self._inference_encoder = GameStateEncoder(
+            d_model=d_model,
+            relevant_set_hexes=self._relevant_set_hexes).to(self._device)
         self._inference_model = WesnothModel(
             d_model=d_model,
             num_layers=num_layers,
@@ -600,6 +609,7 @@ class TransformerPolicy:
                 "aux_score":       self._aux_score,
                 "moves_left":      self._moves_left,
                 "advice":          self._advice,
+                "relevant_set_hexes": self._relevant_set_hexes,
                 "model_state":     self._model.state_dict(),
                 "encoder_state":   self._encoder.state_dict(),
                 "unit_type_to_id": dict(self._encoder.unit_type_to_id),

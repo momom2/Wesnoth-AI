@@ -1146,7 +1146,8 @@ class SpoolWorkers:
              if getattr(args, "max_turns_min", None) else []) + [
             "--draw-tiebreak-cap", str(max(0.0, args.draw_tiebreak_cap)),
         ] + (["--mcts-advice"] if getattr(args, "mcts_advice", False)
-             else []) + [
+             else []) + (["--relevant-set-hexes"] if getattr(
+                 args, "relevant_set_hexes", False) else []) + [
             "--moves-left-utility", str(args.mcts_moves_left_utility),
             "--aux-value-bonus", str(getattr(
                 args, "mcts_aux_value_bonus", 0.0)),
@@ -1289,6 +1290,27 @@ class SpoolWorkers:
                     f.unlink(missing_ok=True)
                     continue
                 base = getattr(policy, "_base", policy)
+                # Index-basis agreement. The hex stream defines what
+                # target_idx MEANS, so ingesting a payload built under the
+                # other basis silently poisons every replayed transition --
+                # no error, just wrong gradients. Refuse it loudly instead:
+                # a stale worker after a flag change is the realistic cause,
+                # and dropping its games costs one iteration while accepting
+                # them costs the run. (Same seam that hid the dead advice
+                # wiring; see docs/autonomous_run.md cycle 20.)
+                _want_rs = bool(getattr(
+                    getattr(base, "_encoder", None), "relevant_set_hexes",
+                    False))
+                _got_rs = bool(payload.get("relevant_set", False))
+                if _got_rs != _want_rs:
+                    log.error(
+                        f"spool: REJECTING {f.name} -- relevant_set="
+                        f"{_got_rs} but this learner encodes with "
+                        f"relevant_set={_want_rs}; its target_idx values "
+                        f"index a different hex basis. Stale worker? "
+                        f"Dropping the game.")
+                    f.unlink(missing_ok=True)
+                    continue
                 with base._lock:
                     base._decision_step += int(payload["n_decisions"])
                 exps = payload["experiences"]
@@ -2774,6 +2796,15 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--mcts-aux-coef", type=float, default=0.15,
                     help="Weight of the auxiliary margin MSE loss "
                          "(--mcts-aux-score). KataGo uses ~0.15.")
+    ap.add_argument("--relevant-set-hexes", action="store_true",
+                    help="Encode only the RELEVANT hexes (unit reach + "
+                         "villages + castles + visible units) instead of the "
+                         "whole board. Measured: mean 0.30 of the board, "
+                         "zero superset violations over 1,840 decisions, "
+                         "4.3-4.8x rollout-forward speedup. Changes the "
+                         "ACTION SPACE's index basis, so a checkpoint or "
+                         "replay buffer built one way is meaningless the "
+                         "other; learner and workers MUST agree.")
     ap.add_argument("--mcts-advice", action="store_true",
                     help="Detector training signal (docs/"
                          "detector_training_signal.md): add the model's "
@@ -3090,10 +3121,15 @@ def main(argv: List[str]) -> int:
     aux_score_flag = bool(args.mcts_aux_score) or ckpt_aux_score
     moves_left_flag = bool(args.mcts_moves_left) or ckpt_moves_left
     advice_flag = bool(args.mcts_advice) or ckpt_advice
+    relevant_set_flag = bool(getattr(args, "relevant_set_hexes", False))
     policy = TransformerPolicy(device=device, aux_score=aux_score_flag,
                                moves_left=moves_left_flag,
                                advice=advice_flag,
+                               relevant_set_hexes=relevant_set_flag,
                                **arch_kwargs)
+    if relevant_set_flag:
+        log.info("relevant-hex encoding ON (action-space index basis "
+                 "differs from full-board runs; see docs/autonomous_run.md)")
     if advice_flag:
         log.info("detector advice path ON (root-conditioned priors; "
                  "zero-init graft; docs/detector_training_signal.md)")

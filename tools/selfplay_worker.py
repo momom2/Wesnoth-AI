@@ -71,6 +71,7 @@ def _build_policy(ckpt: Path, device, args):
         # grafted weights load instead of being dropped as unexpected keys.
         advice=bool(raw.get("advice", False)) or bool(
             getattr(args, "mcts_advice", False)),
+        relevant_set_hexes=bool(getattr(args, "relevant_set_hexes", False)),
     )
     base.load_checkpoint(ckpt)
     cfg = MCTSConfig(
@@ -113,6 +114,10 @@ def main(argv) -> int:
     ap.add_argument("--drill-ratio", type=float, default=0.0)
     ap.add_argument("--max-turns", type=int, default=200)
     ap.add_argument("--draw-tiebreak-cap", type=float, default=0.3)
+    ap.add_argument("--relevant-set-hexes", action="store_true",
+                    help="Must mirror the learner: the hex stream defines "
+                         "the action space's index basis, so a mismatch "
+                         "makes every replayed target_idx meaningless.")
     ap.add_argument("--mcts-advice", action="store_true",
                     help="Detector advice at the search ROOT. Must mirror "
                          "the learner: workers GENERATE the training games, "
@@ -274,6 +279,10 @@ def main(argv) -> int:
             "n_decisions": base._decision_step - ds_before,
             "worker": args.worker_id,
             "ckpt_step": ds_before,
+            # Index-basis stamp: the learner REJECTS a payload whose basis
+            # differs from its own. Without this, a worker/learner flag
+            # split would silently poison every replayed target_idx.
+            "relevant_set": bool(getattr(args, "relevant_set_hexes", False)),
         }
         tmp = spool / f".tmp_w{args.worker_id}_{n}"
         final = spool / f"game_w{args.worker_id}_{n:06d}.pkl"

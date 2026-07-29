@@ -195,3 +195,36 @@ def test_superset_assert_FIRES_when_the_set_is_short():
         vis.relevant_hexes_in_slot_order = orig
         import importlib, wesnoth_ai.encoder as enc_mod
         importlib.reload(enc_mod)
+
+
+def test_policy_threads_flag_to_both_encoders():
+    """Trainer and inference encoders must AGREE: a split would make the
+    replayed target_idx index a different hex basis than the one the action
+    was chosen in."""
+    from wesnoth_ai.transformer_policy import TransformerPolicy
+    on = TransformerPolicy(d_model=32, num_layers=2, num_heads=4, d_ff=64,
+                           relevant_set_hexes=True)
+    assert on._encoder.relevant_set_hexes and on._inference_encoder.relevant_set_hexes
+    off = TransformerPolicy(d_model=32, num_layers=2, num_heads=4, d_ff=64)
+    assert not off._encoder.relevant_set_hexes
+    assert not off._inference_encoder.relevant_set_hexes
+
+
+def test_worker_learner_index_basis_seam_is_wired():
+    """AST/source guard on the seam: worker must parse the flag, honour it
+    in its policy, and STAMP the payload; the learner must forward the flag
+    and REJECT a mismatched payload. Third bug of this class (dead spool
+    telemetry, _combine_stats swallow, dead acting-side advice), so the
+    boundary gets a test that reads the boundary."""
+    import ast, pathlib
+    w = pathlib.Path("tools/selfplay_worker.py").read_text(encoding="utf-8")
+    assert "--relevant-set-hexes" in w
+    assert '"relevant_set"' in w, "worker must stamp the payload"
+    tree = ast.parse(w)
+    tp = [n for n in ast.walk(tree) if isinstance(n, ast.Call)
+          and getattr(n.func, "id", None) == "TransformerPolicy"]
+    assert tp and any(k.arg == "relevant_set_hexes" for k in tp[0].keywords)
+    l = pathlib.Path("tools/sim_self_play.py").read_text(encoding="utf-8")
+    assert '"--relevant-set-hexes"]' in l, "learner must forward the flag"
+    assert "REJECTING" in l and "relevant_set" in l, \
+        "learner must reject a mismatched index basis loudly"
