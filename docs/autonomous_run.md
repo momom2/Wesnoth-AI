@@ -159,6 +159,66 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 31 — 2026-07-29 — box steady; boundary reading made watchable; two stale cycle-prompt facts
+
+**Box health.** Instance 46182445, iteration 5 at 14:01Z, 77 workers,
+learner alive, **no automated tripwire fired**, HF escrow uploading.
+Credit **$12.54** (~37 h at $0.334/hr).
+
+```
+advice_out_norm   0.3417 -> 0.3533 -> 0.3594 -> 0.3633  (zero-init, growing)
+advice_grad_share ~0.010-0.013                           (~1% of gradient)
+boundary_sum      +0.053, +0.334, -0.066, +0.168, +0.208
+  rolling |mean| last 3 = 0.103  -> clear of the 0.25 band
+fresh_value_ce    0.47, 0.60, 0.58, 0.43, 0.51  (n=5, no trend readable)
+```
+
+**Two facts in the recurring cycle prompt are STALE — do not act on them
+without checking:**
+1. It names the box as `141.0.85.212:45924`. That host died in cycle 27.
+   The live box is `ssh2.vast.ai:22444` (instance 46182445).
+2. It lists T2 relevant-set wiring as remaining work. **Verified
+   complete**: `transformer_policy.py:89,127` (ctor gate),
+   `selfplay_worker.py:82,125` (flag + pass-through),
+   `sim_self_play.py:1307-1309` (spool payload basis REJECTION),
+   `mcts_policy.py:679,726` (holdout stamp). What actually remains on
+   T2 is the T2-C problem — warm-start MAE 0.217 vs the ~0.017
+   precedent, so the flag is not a drop-in and needs a fine-tuned leg
+   gated on `fresh_value_ce` recovery. That is compute-blocked (cycle
+   28/29 budget), NOT wiring-blocked.
+
+**Clarification: the 0.25 boundary threshold is a MANUAL watch item,
+not an automated tripwire**, despite the cycle prompt calling it one.
+Only `--abort-decisive-rate` and the holdout-stall check actually abort
+a run (`sim_self_play.py`). So a noisy boundary reading was never a
+false-abort risk — it was a legibility problem.
+
+**Landed `d03d50c` — boundary telemetry precision.** The reading is
+watched against ±0.25 but was a mean over only k=16 sampled pairs, and
+the five readings above swing most of that band on their own, making a
+single reading close to uninformative. Sample cap 16 -> **64** (mean, so
+sampling SE scales 1/sqrt(k); cost ≤128 no-grad forwards against a
+~184 s train_step — negligible). Kept as a named constant, not a CLI
+knob: telemetry precision, not a behavioural parameter.
+
+Also now reports the **pool** size. `boundary_pairs_n` saturates at the
+cap, so alone it could not distinguish "only 16 pairs exist" from "4000
+exist, sampled 16" — i.e. it could not answer whether the noise was
+fixable by sampling more, which is exactly what raising the cap assumes.
+Iter line now reads `boundary_sum=<v>/n=<sampled>/pool=<population>`.
+Tests call the production `_attach_boundary_sum` (stubbed only at the
+model/encoder boundary) and pin all four properties. Full slow tier run
+as required: **613 fast + 11 slow**.
+
+**Fable dispatched:** is the ADVICE channel carrying information, or
+drifting? `advice_out_norm` growing from zero-init is NOT evidence of
+usefulness — a zero-init parameter under gradient moves regardless. The
+package is a **placebo control** (structurally identical but
+informationally void advice tokens, holding parameter count, token count
+and gradient pathway fixed), plus the architectural question of whether
+the gate can suppress to ~zero — which is the user's own stated
+requirement that "a stronger model may learn to ignore the signal".
+
 ### Cycle 30 — 2026-07-29 — Q5 measured at n=100: UNDETERMINED (+35 ±68), and my tail theory was wrong
 
 **Open question #5, the run's central claim, measured at 4x the power of
