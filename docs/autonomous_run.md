@@ -161,6 +161,23 @@ decided, what is next. Keep entries short and factual.
 
 ### Cycle 37 — 2026-07-29 — the fork-shared-state audit: a THIRD live instance, and a general guard
 
+**Box (21:10Z).** Iteration 12, 77 workers, zero aborts. Landed
+`933888d` (fix) + slow tier verified 630 fast + 11 slow.
+
+```
+fresh_value_ce  0.7933, 0.6140, 0.5399
+boundary_sum    -0.118, -0.317, -0.073   <- now NEGATIVE
+  rolling |mean| last 3 = 0.169  (highest yet; still under 0.25, but
+  the -0.317 reading individually exceeds the band)
+```
+
+WATCH ITEM, with the caveat stated: the box runs its launch-time clone,
+so this is still the **noisy k=16** estimator — `d03d50c` raised the
+sample cap to 64 but is not live there. A single −0.317 at k=16 is well
+within what cycle 31 showed this estimator does on its own, so the sign
+flip is not yet evidence of anything. Re-read after any restart, when
+k=64 makes a single reading worth interpreting.
+
 **A live sim-fidelity violation, found by auditing the class rather than
 waiting for a symptom.** `_scenario_events` is a shallow-copied list, so
 its `ScenarioEvent` ELEMENTS are shared across every fork — and
