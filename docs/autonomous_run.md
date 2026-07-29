@@ -159,6 +159,86 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 38 — 2026-07-30 — both audit items closed; a FOURTH bug, engine-verified
+
+**Box (22:20Z).** Iteration 13, 77 workers, zero aborts. Credit **$9.64**
+(~29 h). `boundary_sum` −0.073, −0.119 — rolling |mean| back down; the
+cycle-37 −0.317 reads as k=16 noise, as flagged.
+
+**Item 1 — `combat_outcomes.py` DP: CLOSED-clean, with a legible
+negative.** Line audit found no parent write (`_strike_dp` pure over
+locals; `build_attack_context`/`_to_combat_unit` build fresh snapshots;
+advancement runs on an isolated carrier with `_rebuild_unit` copies).
+Empirical: `SIM_FORK_GUARD=1` **silent over ~1,025 searches**, 14 games,
+8 maps, exercising **1,725 DP enumerations (100% exact, zero fallbacks),
+2,628 advancement enumerations, 254 live + 1,750 fork attacks, 677
+advancement applications, 253 turn-boundary event fires**. That is what
+makes the negative worth something. Bonus: in a cut=2 Aethermaw playout
+**all 8 live morphs fired on schedule (walls opened turns 4-6)** — first
+end-to-end production confirmation that `933888d` works with search live.
+
+Guard gap recorded: `deep_state_fingerprint` covers `u.defenses` but NOT
+the `_defense_table` stash dict, so a future in-place mutation there
+would be guard-invisible. No current writer mutates it in place.
+
+**Item 2 — Aethermaw export OOS: CLOSED-found-a-bug, a DIFFERENT bug
+than hypothesized.** Landed `a21030c`.
+
+The hypothesized channel is **refuted**: engine-side morphs only ever
+make terrain MORE permissive, so recorded actions stay legal. The real
+bug: `_terrain_action` stored the overlay-**STRIPPED** base code into
+`_terrain_codes` (`'Chw^Xo' -> 'Chw'`). Movement/defense resolvers walk
+the alias graph from that code and an overlay can DOMINATE it — `^Xo` is
+the Impassable Overlay, `mvt_alias=Xt`
+(`wesnoth_src/data/core/terrain.cfg:1746-1748`, verified independently).
+So Aethermaw's whirlpool walls — impassable at ALL times — were priced as
+walkable water-castles and self-play walked onto them.
+
+The old code was inconsistent **on its own terms**: `parse_terrain_codes`
+documents that it returns the "full WML terrain code INCLUDING overlay"
+because the overlay is what resolves defense keys. The stale comment
+claiming the base is what the defense table keys by was simply wrong.
+
+```
+census of 49 Aethermaw exports in the HF pull:
+  ladder/fogless : 0/32 touch ANY morph hex despite all reaching turn>=4
+                   (the signature of latch-bugged morphless play)
+  midgame        : 776 engine-LEGAL touches, PLUS 9 engine-ILLEGAL moves
+                   across 6/17 files -- every violation onto (22,19) or
+                   (28,22), the never-passable walls
+engine-verified 4/4: the 2 violating exports OOS with exactly "found
+  corrupt movement in replay"; a 236-touch midgame and an 83-turn
+  morphless ladder export played CLEAN (1313/1313, 1129/1129)
+```
+
+Also corrects the record: the morphs cover **22 hexes across 8 events**,
+not 13.
+
+**Interaction worth remembering: bug 3 was MASKING bug 4.** The event
+latch kept ladder games morphless, so they never reached the walls. Now
+that `933888d` makes fresh games fire morphs, from-scratch exports would
+have started hitting the overlay bug. Fixing one bug armed the next —
+which is an argument for auditing a class exhaustively rather than
+stopping at the first live instance.
+
+**Restart calculus, updated but unchanged in conclusion.** These two
+fixes change sim MECHANICS only, so on their own they would need no
+fresh-CE gate. But a restart necessarily also picks up `fa95da5`, which
+DOES change encoder inputs — so the T2-C warm-start hazard still gates
+it. Decision: **still no mid-leg restart**; instead, run the fresh-CE
+gate as real measured work, THEN decide. Consequence to record honestly:
+this leg's Aethermaw ladder games remain morphless, and its Aethermaw
+midgame exports may contain the illegal-move signature — that subset is
+suspect fidelity evidence, and the signature is now known exactly.
+
+**Known-bad artifacts on HF:** 6 midgame Aethermaw exports contain
+engine-illegal moves (the 2026-07-15 `ladder_fogless` OOS on record is
+the pre-07-18 terrain-leak era realizing the same class). Morphless-era
+ladder exports remain valid REPLAYS but document games played under wrong
+terrain from turn 4+. Cosmetic residue deliberately untouched: the
+encoder still shows the two walls as castle terrain (`_parse_hex_code`
+ignores `^Xo`) — changing that IS encoder-input territory.
+
 ### Cycle 37 — 2026-07-29 — the fork-shared-state audit: a THIRD live instance, and a general guard
 
 **Box (21:10Z).** Iteration 12, 77 workers, zero aborts. Landed
