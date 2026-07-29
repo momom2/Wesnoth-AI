@@ -236,11 +236,24 @@ pathology or good play is exactly what a strength eval arbitrates, and
 both proposed levers (`max(q̂, v_mix)`, `gumbel_m` 16→8) diverge from the
 mctx reference that the cycle-2 fix deliberately restored.
 
-**Carried forward:** `WesnothSim.__init__` unconditionally fires
-`_begin_side_turn` (`wesnoth_sim.py:530` — income, healing, MP refresh),
-so any tool reconstructing a MID-TURN state via the ctor silently
-corrupts it. Fable hit this and worked around it with a sacrificial-copy
-swap plus gold/side asserts. Needs a principled guard, with a test.
+**Carried forward — CLOSED same cycle as `5a62f80`.**
+`WesnothSim.__init__` unconditionally fired `_begin_side_turn`
+(income, healing, MP refresh, turn bump), so any tool reconstructing a
+MID-TURN state via the ctor silently got a free turn's worth of gold and
+HP — invisible, because the state stays structurally valid. Fable hit it
+and worked around it with a sacrificial-copy swap. Now there is a
+`begin_turn: bool = True` opt-out: default unchanged (no game-playing
+caller affected), and skipping also keeps a stray `init_side` out of
+`command_history`, which would desync a replay export. Tests pin BOTH
+directions so the guard cannot rot into a no-op. Slow tier run as
+required for a sim change: 609 fast + 11 slow, all green.
+
+One testing trap recorded from it: units live on `map.units`, **not**
+`hex.unit`. The first draft of the HP/MP assertion read them off hexes,
+found zero, and compared `{} == {}` — green while proving nothing. The
+test now asserts non-emptiness before comparing. Worth remembering: a
+passing assertion over an empty collection is indistinguishable from a
+real one unless you check.
 
 ### Cycle 28 — 2026-07-29 — the budget is the binding constraint (credit $13.90)
 
