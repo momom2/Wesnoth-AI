@@ -228,3 +228,28 @@ def test_worker_learner_index_basis_seam_is_wired():
     assert '"--relevant-set-hexes"]' in l, "learner must forward the flag"
     assert "REJECTING" in l and "relevant_set" in l, \
         "learner must reject a mismatched index basis loudly"
+
+
+def test_holdout_probe_is_discarded_across_an_index_basis_change(tmp_path):
+    """holdout CE is the ONE curve we rely on being comparable across
+    restarts -- that's why the probe is persisted. Restoring a probe
+    encoded under the other hex basis would keep the curve looking
+    continuous while silently making it a different measurement."""
+    from tools.mcts_policy import MCTSPolicy
+    from wesnoth_ai.transformer_policy import TransformerPolicy
+    from tools.mcts import MCTSConfig
+    import pickle
+
+    arch = dict(d_model=32, num_layers=2, num_heads=4, d_ff=64)
+    p_off = MCTSPolicy(TransformerPolicy(**arch), MCTSConfig(), holdout_size=4)
+    # hand-write a probe stamped with the OPPOSITE basis
+    f = tmp_path / "probe.holdout"
+    f.write_bytes(pickle.dumps({"experiences": [], "games": 1,
+                                "target": 4, "relevant_set": True}))
+    assert p_off.load_holdout(f) is False, "must refuse a foreign basis"
+
+    # matching basis loads (empty list is still a successful restore)
+    f2 = tmp_path / "probe2.holdout"
+    f2.write_bytes(pickle.dumps({"experiences": [], "games": 1,
+                                 "target": 4, "relevant_set": False}))
+    assert p_off.load_holdout(f2) is True

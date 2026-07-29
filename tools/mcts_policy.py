@@ -670,6 +670,15 @@ class MCTSPolicy:
                 "experiences": list(self._holdout),
                 "games": self._holdout_games,
                 "target": self._holdout_target,
+                # Index-basis stamp: holdout experiences carry target_idx
+                # values that only mean anything under the hex stream they
+                # were encoded with. Restoring across a flag change would
+                # make holdout CE a silently WRONG number -- and holdout CE
+                # is the one curve we rely on being comparable across
+                # restarts, which is why the probe is persisted at all.
+                "relevant_set": bool(getattr(
+                    getattr(self._base, "_encoder", None),
+                    "relevant_set_hexes", False)),
             }
         path = _P(path)
         tmp = path.with_name(path.name + ".tmp")
@@ -712,6 +721,18 @@ class MCTSPolicy:
                 payload = pickle.load(f)
             exps = list(payload["experiences"])
             games = int(payload.get("games", 0))
+            _wanted = bool(getattr(
+                getattr(self._base, "_encoder", None),
+                "relevant_set_hexes", False))
+            _stored = bool(payload.get("relevant_set", False))
+            if _stored != _wanted:
+                log.warning(
+                    f"holdout probe DISCARDED ({path}): stored under "
+                    f"relevant_set={_stored} but this run encodes with "
+                    f"relevant_set={_wanted}; its target_idx values index a "
+                    f"different hex basis, so its CE would be meaningless. "
+                    f"Sampling a fresh probe.")
+                return False
         except Exception as e:  # noqa: BLE001 -- any corrupt file
             log.warning(f"holdout probe load failed ({path}): "
                         f"{type(e).__name__}: {e}; sampling fresh")
