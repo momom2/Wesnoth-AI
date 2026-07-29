@@ -110,6 +110,38 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 14 — 2026-07-29 — ablation harness landed; fresh_value_ce is NOISY, not a trend
+
+**Harness landed (0a7ca78), unused until there is a checkpoint worth
+testing.** The property that makes it evidence rather than decoration: it
+reproduces TWO known-nulls before being trusted — OFF/OFF returns exactly
+0.5 (0-2-0), and ON/OFF on a zero-init graft returns the theoretically
+required null (gate=0 => identical play). Fable also priced it honestly
+against my 30-minute ask: `sims=8`/400 games projects to **60-130 min, not
+30**; fitting configs are `sims=4 --max-turns 24` at 400 games, or
+`sims=8` at 200 games with the CI widening to ~+-48 Elo. A box-side null
+settles the true rate before the live config is sized.
+
+**Campaign series (6 iterations), with the honest reading:**
+
+| iter | loss | fresh_value_ce | advice_out_norm |
+|---|---|---|---|
+| 0 | 2.8640 | 1.0182 | 0.1947 |
+| 1 | 2.6883 | **0.5295** | 0.2139 |
+| 2 | 2.8711 | **0.7178** | 0.2276 |
+
+`fresh_value_ce` went 1.02 -> 0.53 -> 0.72: **not monotonic**. My cycle-12
+note already said two points were not a trend; this is the confirmation,
+and it is a caution against reading the 0.53 as an achievement. Loss
+likewise bounced (2.86 -> 2.69 -> 2.87). Nothing here yet distinguishes
+improvement from noise, and the pre-committed discipline is to keep
+collecting rather than narrate a story around three points.
+
+`advice_out_norm` is the one clean monotone series: 0.1947 -> 0.2139 ->
+0.2276, i.e. the gate keeps learning up from its zero-init graft.
+
+Tripwire: boundary_sum rolling |mean| still well under 0.25.
+
 ### Cycle 13 — 2026-07-29 — T1-F closed on evidence; attribution deliberately NOT bought
 
 **T1-F closed, and the reconciliation is now measured rather than argued.**
