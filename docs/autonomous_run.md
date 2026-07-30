@@ -159,6 +159,71 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 40 — 2026-07-30 — dual-import audit: NINE modules, and one bug that can't exist single-flavour
+
+**Box post-restart: healthy, tripwire not yet readable.** HEAD
+`8780c0c`, resumed at 2,515,896, 77 workers, **zero errors, zero ABORTED
+markers**, and our processes at **9181% of the 9216% CPU quota (99.6%)**.
+But **0 iterations 55 min after restart** vs 37 min on the original cold
+launch. Diagnosed, not assumed: generation is at full quota and games run
+50-80 min each (cycle 28), and post-restart the spool starts cold AND the
+holdout must refill — so 60-90 min to the first iteration is within
+expectation. **Not a regression from the four fixes.** The `fresh_value_ce`
+tripwire (>~0.749 sustained 3 iters vs a ~0.649 pre-restart level) is
+therefore still UNREAD; next cycle must check it.
+
+**Measurement trap found, worth remembering:** the worker-heartbeat
+aggregate is **NON-MONOTONIC across a restart**. Each worker writes
+`stats/w{id}.json` with its own counters, so new worker processes
+overwrite old files with fresh (lower) counts — I watched games go
+229 -> 227 and decisions 75,094 -> 74,247 over three minutes. Cross-restart
+heartbeat deltas are meaningless; use summed process CPU against the
+cgroup quota instead. (Cycle 28 already found this file is a heartbeat,
+not a per-game record; this is the second trap in the same file.)
+
+**The dual-import audit (landed `8b68a25`) was far bigger than either of
+us framed it.** Not one module — **NINE**, and `wesnoth_sim` was the
+widest with 20 bare importers, with `mcts.py` the bare-side hub for three
+more. My cycle-39 note saying "`wesnoth_sim.py` imports bare" was true
+but understated.
+
+**Four pairs co-reside in every production worker process, and a FIFTH
+was live in the learner:** spool payloads pickle `GameOutcome` under
+`tools.sim_self_play` while the learner runs that same file as
+`__main__`, so the first unpickle **re-executed the entire 3,700-line
+module** as a second in-process copy.
+
+**One REAL reachable bug, and note the shape:** `scenario_events.py`
+checked `composite in _UNIT_DB` against the PREFIXED copy while games are
+constructed through the BARE copy. In any process without the encoder
+warm (probes, reconstruction tools) the prefixed DB is still the pre-load
+`{}`, so variation-carrying spawns silently degrade to base type. **This
+bug cannot exist single-flavour** — it is a pure dual-import artifact.
+Production escaped it only because the encoder touches the prefixed copy
+at decision 1: correct by luck, not by construction.
+
+Everything else classified with evidence rather than waved through: the
+unit/movetype/race DBs and `wesnoth_sim`'s cost caches are
+deterministic-identical (HARMLESS, though the box wastes a second ~400KB
+JSON parse per worker × 77); `VALIDATION_EXPORTER` is coherent only
+because `selfplay_worker` installs it on the matching flavour by hand;
+`openers._REGISTRY` would fail LOUDLY. Four of the nine have no
+module-level mutable state at all. No `isinstance`/`except`/enum
+comparison crosses flavours anywhere, and **no test monkeypatches a dual
+module**, so nothing was silently weakened by this class.
+
+**Guard:** `tests/test_no_dual_imports.py` pairs a static AST lint (which
+catches function-level imports a runtime check cannot see) with a runtime
+`sys.modules` detector that permits same-object aliases so the `__main__`
+pin stays legal. Both verified RED against planted violations. Residual
+risk recorded: bare imports still RESOLVE since `tools/` stays on
+`sys.path` — only the lint forbids them; stripping `sys.path` was
+considered and rejected as a much riskier diff.
+
+633 fast + 11 slow green, the slow tier covering spool-workers e2e,
+concurrent train-step and export validation — exactly the seams touched.
+Needs no fresh-CE gate: no encoder inputs, no sim mechanics.
+
 ### Cycle 39 — 2026-07-30 — the gate ran, and the box RESTARTED onto all four fixes
 
 **The gate result, reported as registered.** Thresholds were written into
