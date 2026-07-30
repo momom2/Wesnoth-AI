@@ -160,6 +160,54 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 47 — 2026-07-30 — campaign accruing on fixed code; credit now the binding constraint
+
+**Box.** 77 workers, learner alive, **zero aborts**, HEAD `42fa1ab`.
+Decision step **2,546,945** — +20,150 since the cycle-45 resume, i.e. the
+campaign is accruing normally on fully-fixed code (all four sim/encoder
+fixes plus the dual-import normalization).
+
+```
+iter 2  CE 0.7985  floor 0.9134  -> -0.115   boundary -0.254/n=64  draws 0.08
+iter 3  CE 0.6252  floor 0.8005  -> -0.175   boundary -0.116/n=64  draws 0.04
+iter 4  CE 1.0076  floor 1.0592  -> -0.052   boundary -0.088/n=64  draws 0.17
+```
+
+CE-minus-floor over the leg: −0.157, −0.145, −0.091, −0.175, −0.052.
+Two crossings of the −0.10 bar, **never 3 consecutive → tripwire NOT
+tripped.** Boundary rolling |mean| 0.153, under 0.25 (one individual
+reading, −0.254, marginally exceeds it; on the now-trustworthy k=64
+estimator that is worth noting but not acting on at n=1).
+
+**Credit is the binding constraint again: $5.60 (~17 h).** The 72h mandate
+has ~27 h left, so **the box will expire before the run does.** No action
+needed — the campaign simply runs until credit exhausts, which is the
+correct use given cycle 46 measured this window as genuinely productive.
+Deliberately NOT topping up or re-provisioning: the user authorized
+spending the existing credit, not acquiring more.
+
+**Dispatched: the EXTERNAL anchor.** Every strength number this run has
+produced is **within-lineage** — Elo against our own ancestors. The
+founding thesis recorded "loses to the built-in RCA AI, ~9 decisive games,
+0 wins", and that reading is now stale in BOTH directions: taken at
+pre-fix 3.74M weights, before the q-transform fix, the four sim fixes, and
+the measured +133. It is the only non-self-referential number available and
+maps most directly onto the user's actual goal.
+
+Package framed feasibility-first, because the live-Wesnoth path has been
+eval-only since 2026-05-11 and the package reorg has already broken one
+entry point (`main.py --check-setup`, fixed earlier this run) — so "here
+is precisely what bit-rotted, and the minimal fix" is an acceptable
+deliverable rather than sinking the package into a blind repair. Fallback
+if it is not viable at acceptable cost: the direct **new_2p52M vs
+2,747,117** edge, which would close cycle 46's one stated gap (the
+untested co-peak candidate) at ~2 h.
+
+Constraints restated in the dispatch: headless/minimized only (no focus
+stealing, per standing user veto), pure-outcome eval contract verified
+rather than assumed, and a game budget fixed up front since real Wesnoth
+subprocesses run 7-15 min/game.
+
 ### Cycle 46 — 2026-07-30 — ABSOLUTE PROGRESS: the regression is recovered and surpassed
 
 **The run's best result, and it answers open question #5.** Triangulation
