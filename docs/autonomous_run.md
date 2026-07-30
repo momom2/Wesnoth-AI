@@ -142,15 +142,16 @@ review. Findings from a review go in the log below even when rejected.
    contention from co-tenants (now the leading one, and it would make
    this a non-bug), model-side cost of the advice module, or trainer
    reforward cost. Test: watch iteration time on the new box.
-5. **Does the q-transform fix actually produce a stronger policy?**
-   **MEASURED at n=100 (cycle 30): Elo +35 ±68, 55-0-45, mirror sweeps
-   11/6 — UNDETERMINED.** Supersedes the cycle-26 −137 ±260. Neither
-   supported nor contradicted; the lean is favourable, the CI covers
-   zero. Not answerable by more games at THIS step gap (113k) — it needs
-   a checkpoint separated by something closer to the historical
-   450k-1M, which the current budget cannot buy (cycle 28/29).
-   **Recommend closing it as "undetermined, and not cheaply
-   determinable" rather than re-running.**
+5. ~~Does the q-transform fix actually produce a stronger policy?~~
+   **ANSWERED YES, cycle 46.** Triangulated against a fixed anchor over
+   340 games in one joint fit: **new_2p52M +133 ±57** vs the 2.29M
+   peak-region seed, direct arm +146 [+72,+219] at p=0.0001, and the
+   transitive check (direct 146 vs chained 134) rules out
+   style-exploitation. Cycle 30's "+35 ±68, undetermined" was not wrong,
+   just **too early**: undetectable at 113k steps, clearly detectable at
+   225k. The 2026-07-28 regression is recovered and surpassed. Residual:
+   the co-peak candidate 2,747,117 was not directly tested, and vs-RCA
+   remains unmeasured.
 
 ---
 
@@ -158,6 +159,78 @@ review. Findings from a review go in the log below even when rejected.
 
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
+
+### Cycle 46 — 2026-07-30 — ABSOLUTE PROGRESS: the regression is recovered and surpassed
+
+**The run's best result, and it answers open question #5.** Triangulation
+against a FIXED external anchor, 340 games in one joint Bradley-Terry fit,
+seed anchored at 0, predictions and interpretation rules registered at
+07:28:39Z before any game:
+
+```
+player                      joint Elo (ref=0)   CI95
+ref_2p29M (seed, peak-region)      0             --
+old_2p40M (2,403,615)            +30            50
+new_2p52M (2,515,896)           +133            57
+random_init                     -300           232
+
+arm A direct: new +146 [+72,+219], 70-30-0, sweeps 23-3, p=0.0001
+```
+
+**The check that matters — no style-exploitation signature.** Direct
++146 vs chained (+35)+(+99) = +134; difference **12**, nowhere near the
+pre-registered ±145 inconsistency band. So this is **not** a lineage
+beating its own parent while going nowhere — the exact failure mode I
+asked Fable to look for, and the one this lineage has historically shown.
+**Verdict: ABSOLUTE_PROGRESS**, the registered cell.
+
+**Open question #5 — ANSWERED.** The q-transform fix (cycle 2, the run's
+central claim) produces a measurably stronger policy. Cycle 30's
+pessimism is revised rather than contradicted: **undetectable at 113k
+steps (+35 ±68), clearly detectable at 225k (+133 ±57).** The fixed
+signal buys real strength; the earlier read was simply taken too early.
+
+**The 2026-07-28 regression is recovered and surpassed** relative to the
+2.30M peak-region anchor — with the honest limit Fable stated: the other
+tied peak candidate (2,747,117, locally available) was not directly
+tested, and the tie (3-1-4) is what licenses the word "region". A direct
+edge costs ~2h if belt-and-braces is wanted.
+
+**Method notes worth keeping.** Arm B (seed-vs-old, n=40 on shared
+setups) replicated cycle 30 within noise (20-0-20, z=−0.54), which
+independently confirms that `fa95da5`'s encoding delta does not move this
+measurement — the reused edge was safe. A sensitivity fit dropping the
+pre-fix edge entirely gives new +130 ±63: conclusion unchanged. The
+random-init gauge came in at −300 and, notably, **random took one game
+off the new checkpoint (5-1)**, missing the registered ≥90% bar — but at
+n=6 that has P≈0.47 even at a true 90% win rate, so it is recorded and
+NOT interpreted. That restraint is right.
+
+**This vindicates the cycle-45 reversal**, and by extension makes the
+cycle-44 stop the clear error it was recorded as: the campaign was
+gaining absolute strength throughout the window I halted it in.
+
+**Standing caveats, unchanged:** the anchor is within-lineage (vs-RCA
+remains unmeasured, and the last such reading is stale in both directions
+— taken at pre-fix 3.74M); scope is the ladder pool; and **the mini
+passivity drift remains real and untouched** — correctly scoped now as a
+mini-pool behavioural problem, not a strength regression.
+
+**Landed `tools/mini_anatomy.py`** — the early-warning instrument for that
+drift. It plays mini-pool games under the box's exact production search
+config and records per-side per-turn trajectories (units, HP, gold,
+villages, distance to enemy leader, attacks, recruits, unused-MP, idle
+fraction, ended_by, the jittered cap). Its value is that the GRADED
+precursors move well before the first draw appears — non-end_turn actions
+per side-turn 2.55 -> 1.49 and median end turn 10 -> 30 while games are
+still decisive — so it detects the pathology earlier than any draw-rate
+column can. Chunk-friendly (`--append`/`--seed`) for the 9-min guardrail;
+no network, no box access. 633 fast tests pass.
+
+**Box:** 77 workers, zero aborts, iterating (iter 4 at 11:12Z).
+CE-minus-floor across the leg: −0.157, −0.145, −0.091, −0.175, −0.052 —
+two crossings of the −0.10 bar but never 3 consecutive, so the amended
+tripwire is NOT tripped.
 
 ### Cycle 45 — 2026-07-30 — I WAS WRONG: the primary metric reverses cycle 44; campaign RESUMED
 
