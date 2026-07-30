@@ -33,6 +33,18 @@ Measured on 2026-07-28 (`docs/eval_20260728.md`):
   blocked (62-69% of decisions offer a recruit, zero mask bugs) — it is a
   learned actor-preference shift. The prior `weight_gold=0` fix did nothing.
 
+**THESIS UPDATE (cycle 48, 2026-07-30).** The signal WAS broken, in four
+separately-measured ways, and those are fixed; the lineage now provably
+improves against its own past (**+133 ±57 vs the 2.29M anchor**, with a
+transitive check ruling out style-exploitation). **But the external anchor
+did not move: 0-0-30 vs the built-in RCA AI, median leader death turn 10** —
+re-confirming the founding number at 3.3x the sample. Both are true. The
+honest summary is *"the learning signal was broken and is now fixed, and
+the external gap is still wide"*, NOT *"the policy got good"*. Note also
+that the +133 was measured WITH search while the RCA eval is RAW policy, so
+the search-enabled policy has never been measured externally — currently
+the sharpest open question in the project.
+
 => **Scaling compute or parameters on top of a broken learning signal buys
 nothing.** But diagnosing forever is also failure. So run three tracks in
 parallel, and let the scale track proceed while the signal track digs:
@@ -159,6 +171,76 @@ review. Findings from a review go in the log below even when rejected.
 
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
+
+### Cycle 48 — 2026-07-30 — EXTERNAL ANCHOR: 0-0-30 vs RCA. The run's headline needs qualifying.
+
+**The most important corrective of the run, and it cuts against our own
+best result.** The live-Wesnoth path is INTACT (`main.py --check-setup`
+clean; 30 games, zero errors, zero timeouts, ~41 min) — so this is a real
+measurement, not a harness failure.
+
+```
+campaign_live_20260730.pt (2,515,896) vs built-in RCA AI
+  W-D-L 0-0-30    win rate 0%   Wilson 95% CI [0%, 11.4%]
+  15 as side 1, 15 as side 2 (The Freelands, 15 cross-faction pairs x swap)
+  leader death at turn: min 4 / MEDIAN 10 / max 15
+  median 63 policy actions/game  -> the side is ACTIVE, not stalled
+```
+
+**"0 wins vs RCA" is NOT superseded — it is RE-CONFIRMED at 3.3x the
+sample.** The founding-thesis number (0 wins in ~9 decisive games, taken
+at pre-fix 3.74M) was stale but **accurate**. The q-transform fix, four
+sim/encoder fixes, and +133 in-lineage Elo moved the external anchor **not
+at all** at this protocol.
+
+**The asymmetry that decides how to read this, verified by Fable:** the
+**+133 was measured WITH SEARCH** (`elo_eval_game.py` plays checkpoints
+through MCTSPolicy at 32 sims), while **this eval is RAW POLICY** (single
+forward + stochastic sample). That matches the 07-28 baseline, so the
+supersession comparison is apples-to-apples — but it means **we have never
+measured the search-enabled policy against RCA.** The two numbers are
+different objects and must not be spoken of as one.
+
+**How the run's headline should now be worded.** "The regression is
+recovered and surpassed" is TRUE **within-lineage** and remains so. But the
+only external anchor we have says the lineage's **raw policy remains far
+below the built-in AI** — and 0/30 with median leader death at turn 10 is
+not "close but noisy", it is a decisive gap. Cycle 46's caveat ("the anchor
+is within-lineage; vs-RCA unmeasured") was the right caveat, and it has now
+been cashed out unfavourably.
+
+**Strategic reading (mine, stated as judgement):** we have strong evidence
+the training signal now improves the policy *relative to its own past*, and
+no evidence it is closing on an external opponent. Those are consistent —
+a lineage can climb its own ladder while sitting far below an outside
+baseline — but only the second is the user's actual goal. The run should
+not be reported as "the policy got good"; it should be reported as "the
+learning signal was broken in four measurable ways, those are fixed and
+the lineage now provably improves, and the external gap is still wide."
+
+**Pre-flight rigor worth recording** (all verified, not assumed):
+checkpoint identity by `decision_step` (2,515,896) with vocab present (196
+types / 7 factions — no repeat of the 2026-07-02 empty-vocab hazard); the
+eval loader drops `advice`/`moves_left` but that is **forward-equivalent**
+(advice refinement only fires when advice tokens are built, and nothing
+builds them at eval; `moves_left_head` is a pure aux head off `global_ctx`);
+the eval contract holds (winner from leader death / terminal frames only,
+decisive-only win rate, no material tiebreak, no aux bonus, and the
+combat-oracle alphas are globally 0.0); and no focus stealing
+(`SW_SHOWMINNOACTIVE` + minimize watcher, no AppActivate/SendKeys),
+compliant with the standing user veto.
+
+**Open, and now the sharpest question in the project:** does SEARCH flip
+games against RCA? Wiring MCTSPolicy into the live loop is **not a
+drop-in** — MCTS needs the sim as its forward model from a
+*bridge-converted* GameState that was never designed to be sim-steppable,
+and the cycle-35 imagined-action-mutates-real-state bug class lives exactly
+there. Real effort, real hazard, dispatched as "find the cheapest CREDIBLE
+route", including the option of a sim-side RCA opponent if its fidelity can
+be established.
+
+Also still open: the fallback co-peak edge (new_2p52M vs 2,747,117) was not
+run, since the primary package succeeded.
 
 ### Cycle 47 — 2026-07-30 — campaign accruing on fixed code; credit now the binding constraint
 
