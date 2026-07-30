@@ -159,6 +159,74 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 45 — 2026-07-30 — I WAS WRONG: the primary metric reverses cycle 44; campaign RESUMED
+
+**Cycle 44's stop was not supported. I reversed it.** The campaign is
+running again on HEAD `42fa1ab` (all fixes plus the dual-import
+normalization), 77 workers, no ABORTED marker, resumed from **2,526,795**
+— nothing lost by the stop/start.
+
+**The measurement, with my prediction registered before it.** I asked for
+a pre-registered prediction precisely so this could not be rationalized
+afterwards. Mine: *old ahead, new at −45, P(new significantly ahead) =
+0.05.* The result landed in that 5% cell.
+
+```
+LADDER, n=100, 4e445c2 protocol (mirrored pairs, max_turns 100, one BT fit)
+  pooled W-D-L (old's view):   36-0-64
+  new_2p52M:  Elo +99   CI95 [+28, +169]   <- excludes zero, favouring NEW
+  mirror: 5 swept old / 26 split / 19 swept new
+  sign test p=0.0066 ; binomial on decisives p=0.0066  (three instruments agree)
+  0 draws in 100; new wins FASTER (median turn 14 vs 19)
+
+MINI, n=100 (30 registered + 70 post-hoc, disclosed as such)
+  old 58-1-41 ; new -60 +-69, CI [-129, +9]  -> old-lean, NOT significant
+  only 1 non-decisive game in 100
+```
+
+**What was actually true.** The drift is real — the matched-seed
+p=0.0008 stands — but it is **map-scoped and behavioural, not a general
+strength regression**. The window traded a modest, mostly
+self-play-visible mini passivity (15% of the mix) for a **significant
+ladder improvement** (45% of the mix), and produced the first significant
+window-on-window Elo gap this lineage has managed (the prior window was
++35 ±68, undetermined). Head-to-head, an aggressive opponent punishes the
+stall, so the self-play draw pathology **does not convert into
+head-to-head draws**.
+
+**BEST-KNOWN CHECKPOINT FLIPS.** By the primary metric it is
+**`campaign_live_20260730.pt` (2,515,896)**, not `..._20260729.pt`
+(2,403,615) as cycle 44 claimed. The box is now 11k steps beyond that, at
+2,526,795 (unmeasured).
+
+**My error, stated precisely.** The controlled experiment was sound; the
+INFERENCE I drew from it was not. I generalized a behavioural finding
+measured on 15% of the curriculum to the whole policy, and then took an
+irreversible-feeling action on it. **The sequencing was the mistake**: I
+had a free, local, already-built Elo harness and a standing lesson that
+this project's plausible-reasoning levers keep measuring wrong
+(`gumbel_m` 16->8). The correct order was measure-then-decide, and I
+decided first. "Training value ~0, now negative" is refuted for this
+window — it was the most productive 112k steps recently measured.
+
+Cycle 44's own hedge ("a flat Elo would be consistent with a mini-only
+pathology") turned out to be the wrong worry: the metric was not blind,
+it saw an *improvement*, in the opposite direction from my concern.
+
+**Limitation carried forward, flagged by Fable and not used as an
+excuse:** adjacent-checkpoint head-to-head measures relative exploitation
+WITHIN a lineage, not absolute strength — a newer checkpoint can beat its
+predecessor while both drift somewhere unhelpful. Triangulating both
+against a common reference (`seed_20260718.pt`) would settle it, ~2h per
+pairing.
+
+**What stands from cycle 44:** the mini passivity is real, accelerating,
+mutual (the materially-ahead side declines free leader-kills), and
+mechanistically the founding thesis — banks gold, declines to commit. It
+is now correctly scoped as a *mini-pool behavioural* problem worth an
+early-warning instrument (`tools/mini_anatomy.py`), not a reason to halt
+training.
+
 ### Cycle 44 — 2026-07-30 — CAMPAIGN STOPPED: the policy was measurably degrading
 
 **The most consequential decision of the run. Box training killed, instance
