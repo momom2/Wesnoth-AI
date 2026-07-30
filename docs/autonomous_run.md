@@ -159,6 +159,72 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 41 — 2026-07-30 — the tripwire READ: raw bar exceeded, but it is CONFOUNDED; draws 0% -> 25%
+
+**The reading I committed to taking.** First post-restart iteration landed
+02:30:13Z (55 min, as predicted). Against the original cold launch on
+pre-fix code, **same config, same curriculum mix**:
+
+```
+post-restart iter 0: CE 0.9250 +-1.3421  floor 1.0817  z_comp_w 0.42/0.33/0.25
+original     iter 0: CE 0.4654 +-0.6201  floor 0.6823  z_comp_w 0.56/0.44/0.00
+                                                        draws 0% -> 25%
+```
+
+**The raw tripwire bar (>~0.749) IS exceeded at 0.9250.** Stated first
+and without softening, because it is the unfavourable reading for my
+cycle-39 restart decision.
+
+**But the bar is confounded, and the confound is identifiable
+independently of the outcome.** `fresh_ce_floor` — the marginal-label CE
+baseline — jumped **0.6823 -> 1.0817**, because the label distribution
+gained a 25% draw class and a three-way distribution has higher marginal
+entropy. CE measured against a 1.08 floor is not the same quantity as CE
+against 0.68. Floor-relative:
+
+```
+post-restart:  0.157 BELOW floor      original:  0.217 below floor
+```
+
+So the model still beats its marginal baseline, by somewhat less. **I am
+not using this to rescue the result** — the corrected metric is also
+mildly worse, and I am recording that. The tripwire should have been
+specified floor-relative from the start; that is a flaw in how I wrote
+it, not a licence to move it now. **Amendment, stated before further
+data: read the tripwire as CE-minus-floor, bar = 3 sustained iterations
+at worse than −0.10** (vs −0.217 pre-restart, −0.157 now). Held to 1/3.
+
+**The real signal is the draw rate: 0% -> 25% under identical config.**
+Not explainable by the curriculum mix, which is unchanged (mini 0.15,
+ladder 0.45, sims 32, max-turns 100 — verified bit-for-bit after the
+reboot). It also sits in direct tension with Fable's cycle-38 measurement
+of **ZERO cap-endings in 116 games**, which must be reconciled.
+
+**Hypothesis, labelled INFERRED and dispatched for refutation:** the
+event-latch fix (`933888d`) means `first_time_only` turn events now fire
+in LIVE games across **all** scenarios, not only Aethermaw — previously
+ANY search fork crossing a turn boundary latched them and suppressed them
+live, everywhere. If ladder scenarios broadly carry turn-triggered
+events, games are now materially different and **more draws could be the
+CORRECT behaviour we were previously missing** — a fidelity improvement
+surfacing as a metric regression. The falsifier is sharp: if only
+Aethermaw qualifies (~2% of games at ladder-ratio 0.45), 1/21 maps cannot
+produce a 25% draw rate and the hypothesis is dead.
+
+The alternative that would mean **my restart was wrong** is `fa95da5`'s
+encoder change pushing play toward passivity globally. Fable was asked to
+give that a fair test and to say so plainly if it holds — reverting is
+preferable to defending the decision.
+
+Note `8b68a25` (dual-import) is NOT on the box: pushed after the restart,
+box remains `8780c0c`.
+
+**Vindication of `d03d50c`:** `boundary_sum=-0.323/n=64/**pool=1721**`.
+The pool is 1721 pairs, so sampling 16 of them was indeed the noise
+source, and k=64 was justified. This also means the reading is
+individually interpretable for the first time — and |−0.323| is outside
+the 0.25 band. Second watch item, now on a trustworthy estimator.
+
 ### Cycle 40 — 2026-07-30 — dual-import audit: NINE modules, and one bug that can't exist single-flavour
 
 **Box post-restart: healthy, tripwire not yet readable.** HEAD
