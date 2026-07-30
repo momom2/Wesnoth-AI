@@ -165,7 +165,7 @@ def _actor_loop(
     from tools.mcts_policy import MCTSPolicy
     from tools.sim_self_play import _play_one_game_safe, _recruit_cost_lookup
     from tools.scenario_pool import random_setup, roll_mix
-    from wesnoth_sim import PvPDefaults
+    from tools.wesnoth_sim import PvPDefaults
 
     client = _IPCInferenceClient(actor_id, req_q, resp_q)
     rmodel = RemoteModel(client)

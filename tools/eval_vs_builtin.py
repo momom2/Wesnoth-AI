@@ -58,8 +58,8 @@ sys.path.insert(0, str(_THIS.parent))
 
 from wesnoth_ai.constants import ADDONS_PATH, MAX_ACTIONS_PER_GAME, SCENARIOS_PATH
 from wesnoth_ai.encoder import GameStateEncoder
-from eval_runner import GameResult, play_many
-from eval_scenarios import (
+from tools.eval_runner import GameResult, play_many
+from tools.eval_scenarios import (
     FACTIONS,
     FACTION_BY_NAME,
     MAPS,

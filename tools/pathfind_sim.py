@@ -93,7 +93,7 @@ class ReachContext:
     def for_side(cls, gs, side: int, *, god_view: bool = False,
                  exclude_unit=None) -> "ReachContext":
         from tools.abilities import hex_neighbors
-        from replay_dataset import _stats_for
+        from tools.replay_dataset import _stats_for
         from wesnoth_ai.visibility import units_visible_to, is_scenery_unit
 
         playable = frozenset(
@@ -160,7 +160,7 @@ def defense_pct_at(unit, gs, x: int, y: int) -> int:
     """Chance-to-be-hit percent for `unit` standing on (x, y) --
     Wesnoth's `defense_modifier` (higher = worse), used as the
     per-hex tie-break subcost (pathfind.cpp:815-820)."""
-    from replay_dataset import _stats_for, _terrain_keys_at
+    from tools.replay_dataset import _stats_for, _terrain_keys_at
     from tools.terrain_resolver import def_pct
 
     codes = getattr(gs.global_info, "_terrain_codes", {}) or {}
@@ -588,7 +588,7 @@ def walk_move_path(gs, unit, xs: List[int], ys: List[int],
     # engine's plot).
     zoc_hexes: Set[Coord] = set()
     if not skirmisher:
-        from replay_dataset import _stats_for
+        from tools.replay_dataset import _stats_for
         from wesnoth_ai.visibility import units_visible_to
         for u in units_visible_to(gs, side):
             if u.side == side:
@@ -668,7 +668,7 @@ def walk_move_path(gs, unit, xs: List[int], ys: List[int],
 
 
 def _is_capturable_village(gs, x: int, y: int, side: int) -> bool:
-    from replay_dataset import _terrain_at
+    from tools.replay_dataset import _terrain_at
     if _terrain_at(gs, x, y) != "village":
         return False
     owners = getattr(gs.global_info, "_village_owner", {}) or {}

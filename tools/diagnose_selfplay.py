@@ -56,7 +56,7 @@ from wesnoth_ai.classes import GameState, Unit
 from wesnoth_ai.rewards import hex_distance
 from tools.scenario_pool import build_scenario_gamestate, random_setup
 from wesnoth_ai.transformer_policy import TransformerPolicy
-from wesnoth_sim import PvPDefaults, WesnothSim
+from tools.wesnoth_sim import PvPDefaults, WesnothSim
 from tools.sim_self_play import _would_recruit_bounce, _recruit_cost_lookup
 
 

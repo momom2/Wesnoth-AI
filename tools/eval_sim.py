@@ -79,7 +79,7 @@ from tools.sim_self_play import (
     _would_recruit_bounce,
 )
 from wesnoth_ai.transformer_policy import TransformerPolicy
-from wesnoth_sim import PvPDefaults, WesnothSim
+from tools.wesnoth_sim import PvPDefaults, WesnothSim
 
 
 log = logging.getLogger("eval_sim")

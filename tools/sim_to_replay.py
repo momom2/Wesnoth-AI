@@ -64,7 +64,7 @@ _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
-from wesnoth_sim import PvPDefaults, RecordedCommand, WesnothSim, request_seed
+from tools.wesnoth_sim import PvPDefaults, RecordedCommand, WesnothSim, request_seed
 
 
 log = logging.getLogger("sim_to_replay")

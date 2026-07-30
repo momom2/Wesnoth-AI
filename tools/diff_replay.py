@@ -84,7 +84,7 @@ from tools.replay_dataset import (
 # `_move_cost_at_hex` lives in `tools/wesnoth_sim.py`, not
 # `tools/replay_dataset.py`. We import it here for the pre-check that
 # validates a recorded move's MP cost against the unit's current_moves.
-from wesnoth_sim import _move_cost_at_hex
+from tools.wesnoth_sim import _move_cost_at_hex
 from tools.abilities import hex_neighbors
 
 

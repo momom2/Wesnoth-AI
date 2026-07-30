@@ -81,7 +81,7 @@ from tools.scenario_pool import build_scenario_gamestate, random_setup
 from tools.sim_self_play import _recruit_cost_lookup
 from tools.eval_sim import (_PolicyPair, _load_policy,
                             _play_one_eval_game, peek_checkpoint_arch)
-from wesnoth_sim import WesnothSim
+from tools.wesnoth_sim import WesnothSim
 
 
 log = logging.getLogger("elo_ladder")

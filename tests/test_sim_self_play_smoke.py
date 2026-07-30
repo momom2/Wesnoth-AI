@@ -76,7 +76,7 @@ class _NoStats:
 def test_one_game_emits_observe_per_step():
     """play_one_game calls policy.observe at least once per accepted
     action + once per terminal. Verify shape on a counting stub."""
-    from sim_self_play import play_one_game, _recruit_cost_lookup
+    from tools.sim_self_play import play_one_game, _recruit_cost_lookup
 
     class _CountingPolicy:
         """Always end-turn so the game terminates fast."""
@@ -130,7 +130,7 @@ def test_unit_type_bonus_fires_through_pipeline():
     exactly weight × n_recruits_of_target_type. Twin sims guarantee
     the two runs share a byte-identical starting state, so the
     histories match and only the reward weighting differs."""
-    from sim_self_play import play_one_game, _recruit_cost_lookup
+    from tools.sim_self_play import play_one_game, _recruit_cost_lookup
 
     cost_lookup = _recruit_cost_lookup()
     twins = list(twin_scenario_sims(seed=2, max_turns=3, mini=True))
@@ -175,7 +175,7 @@ def test_turn_conditional_once_resets_between_games():
     would still hold game-1's flag and the bonus wouldn't re-fire,
     so side-1 reward in game 2 would be zero (other terms are
     zero-weighted)."""
-    from sim_self_play import _recruit_cost_lookup, run_iteration
+    from tools.sim_self_play import _recruit_cost_lookup, run_iteration
     import random
 
     rf = WeightedReward(

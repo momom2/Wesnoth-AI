@@ -84,7 +84,7 @@ from tools.sim_self_play import (
 )
 from wesnoth_ai.rewards import WeightedReward, load_reward_config
 from wesnoth_ai.transformer_policy import TransformerPolicy
-from wesnoth_sim import PvPDefaults
+from tools.wesnoth_sim import PvPDefaults
 
 
 log = logging.getLogger("profile_selfplay")

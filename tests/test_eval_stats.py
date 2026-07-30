@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 import pytest
 
-from eval_vs_builtin import _wilson_interval, _wr
+from tools.eval_vs_builtin import _wilson_interval, _wr
 
 
 def test_wilson_50_percent_n10():
@@ -70,7 +70,7 @@ def test_wr_handles_zero_decisive():
 # ---------------------------------------------------------------------
 
 def test_wr_short_format():
-    from eval_vs_builtin import _wr_short
+    from tools.eval_vs_builtin import _wr_short
     s = _wr_short({"win": 7, "loss": 3, "draw": 1, "timeout": 0, "errored": 0})
     assert "70.0%" in s
     assert "(7/10)" in s
@@ -80,7 +80,7 @@ def test_wr_short_format():
 
 
 def test_wr_short_handles_zero_decisive():
-    from eval_vs_builtin import _wr_short
+    from tools.eval_vs_builtin import _wr_short
     s = _wr_short({"win": 0, "loss": 0, "draw": 0, "timeout": 0, "errored": 0})
     assert s == "n/a"
 
@@ -95,8 +95,8 @@ def test_heatmap_appears_in_aggregate_output(capsys):
 
     Build a tiny synthetic eval: 4 games on `caves`, two factions,
     all four matchups represented, mix of wins / losses."""
-    from eval_vs_builtin import aggregate_and_report
-    from eval_runner import GameResult
+    from tools.eval_vs_builtin import aggregate_and_report
+    from tools.eval_runner import GameResult
 
     matchups = [
         {"map_short": "caves", "our_faction": "Drakes",

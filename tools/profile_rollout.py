@@ -91,7 +91,7 @@ def profile_rollout(
     import tools.mcts as mcts_mod
     from tools.scenario_pool import random_setup
     from tools.sim_self_play import _play_one_game_safe, _recruit_cost_lookup
-    from wesnoth_sim import PvPDefaults
+    from tools.wesnoth_sim import PvPDefaults
 
     sync = (device.type == "cuda")
     acc: Dict[str, List[float]] = {c: [0, 0.0] for c in _COMPONENTS}
@@ -125,7 +125,7 @@ def profile_rollout(
 
     probe = _mixed_setup()
     from tools.scenario_pool import build_scenario_gamestate
-    from wesnoth_sim import WesnothSim
+    from tools.wesnoth_sim import WesnothSim
     SimCls = type(WesnothSim(build_scenario_gamestate(probe),
                              scenario_id=probe.scenario_id, max_turns=2))
 

@@ -274,7 +274,7 @@ def test_abort_tripwire_exits_4_and_saves(tmp_path):
     """2-turn mini-map games always draw -> decisive rate 0 -> the
     tripwire must fire once the window fills, after saving the
     checkpoint and the (line-buffered) history CSV."""
-    from sim_self_play import main
+    from tools.sim_self_play import main
 
     ckpt = tmp_path / "trip.pt"
     csv = tmp_path / "history.csv"
@@ -305,7 +305,7 @@ def test_spool_workers_end_to_end(tmp_path):
     consumes + trains from it. Pins the whole seam: worker boot from
     the saved checkpoint, atomic spool files, collect() routing
     (decision-step advance + holdout offer + queue), train_step."""
-    from sim_self_play import main
+    from tools.sim_self_play import main
 
     ckpt = tmp_path / "spool.pt"
     rc = main([
@@ -339,7 +339,7 @@ def test_holdout_stall_tripwire_exits_5(tmp_path):
     can register a holdout improvement, so the stall counter must hit
     the limit deterministically once the holdout probe activates ->
     exit code 5 with a saved checkpoint."""
-    from sim_self_play import main
+    from tools.sim_self_play import main
 
     ckpt = tmp_path / "stall.pt"
     rc = main([

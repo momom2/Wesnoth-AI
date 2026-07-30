@@ -51,7 +51,7 @@ def _build_policy_and_reward():
 
 
 def _cost_lookup():
-    from sim_self_play import _recruit_cost_lookup
+    from tools.sim_self_play import _recruit_cost_lookup
     return _recruit_cost_lookup()
 
 
@@ -71,7 +71,7 @@ def test_parallel_iteration_queue_parity(small_replay_pool):
     we want to exercise. What matters HERE is the parity between
     outcomes and queue size: that's the signal that no trajectory
     was lost or duplicated under concurrent workers."""
-    from sim_self_play import run_iteration
+    from tools.sim_self_play import run_iteration
 
     policy, reward_fn = _build_policy_and_reward()
     rng = random.Random(0)
@@ -94,7 +94,7 @@ def test_parallel_iteration_no_pending_leaks(small_replay_pool):
     """After all workers finish, _pending should be empty (every
     started trajectory got a terminal observe OR drop_pending on
     crash)."""
-    from sim_self_play import run_iteration
+    from tools.sim_self_play import run_iteration
 
     policy, reward_fn = _build_policy_and_reward()
     rng = random.Random(1)
@@ -112,7 +112,7 @@ def test_parallel_iteration_with_train_step(small_replay_pool):
     """Run the full parallel path INCLUDING train_step. Verifies
     that the queue drains cleanly under the lock and that
     train_step doesn't crash on a multi-worker-fed queue."""
-    from sim_self_play import run_iteration
+    from tools.sim_self_play import run_iteration
 
     policy, reward_fn = _build_policy_and_reward()
     rng = random.Random(2)
@@ -140,7 +140,7 @@ def test_concurrent_train_step_during_rollouts(small_replay_pool):
     thread mid-rollout. The snapshot lock should keep everything
     safe: no NaN, no exceptions, train_step processes the queue
     contents at the moment it ran."""
-    from sim_self_play import run_iteration
+    from tools.sim_self_play import run_iteration
     import torch
 
     policy, reward_fn = _build_policy_and_reward()

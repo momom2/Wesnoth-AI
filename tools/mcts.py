@@ -104,12 +104,12 @@ from wesnoth_ai.classes import (
 )
 from wesnoth_ai.encoder import GameStateEncoder
 from wesnoth_ai.model import WesnothModel
-from wesnoth_sim import WesnothSim
-from draw_tiebreak import DrawTiebreakConfig, draw_tiebreak_z
-from combat_outcomes import (
+from tools.wesnoth_sim import WesnothSim
+from tools.draw_tiebreak import DrawTiebreakConfig, draw_tiebreak_z
+from tools.combat_outcomes import (
     enumerate_attack_outcomes, outcome_key_for_child,
 )
-from outcome_buckets import (
+from tools.outcome_buckets import (
     event_class as _event_class,
     initial_buckets as _initial_buckets,
     propose_split as _propose_split,

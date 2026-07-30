@@ -50,9 +50,9 @@ _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
-from sim_to_replay import export_replay, find_source_bz2
+from tools.sim_to_replay import export_replay, find_source_bz2
 from wesnoth_ai.transformer_policy import TransformerPolicy
-from wesnoth_sim import PvPDefaults, WesnothSim
+from tools.wesnoth_sim import PvPDefaults, WesnothSim
 
 
 log = logging.getLogger("sim_demo_game")

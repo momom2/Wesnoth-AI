@@ -49,8 +49,8 @@ from wesnoth_ai.encoder import GameStateEncoder, RawEncoded, encode_raw
 from wesnoth_ai.model import WesnothModel
 # Import replay_dataset from the same tools/ dir.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from replay_dataset import ActionIndices, filter_competitive_2p, iter_replay_pairs
-from encode_worker import worker_main as _encode_worker_main
+from tools.replay_dataset import ActionIndices, filter_competitive_2p, iter_replay_pairs
+from tools.encode_worker import worker_main as _encode_worker_main
 
 
 log = logging.getLogger("supervised_train")

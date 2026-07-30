@@ -71,9 +71,9 @@ from wesnoth_ai.rewards import (
     StepDelta, WeightedReward, compute_delta, hex_distance, load_reward_config,
 )
 from wesnoth_ai.transformer_policy import TransformerPolicy
-from wesnoth_sim import PvPDefaults, SimResult, WesnothSim
-import openers as openers_mod
-from openers import Opener, OpenerPolicy
+from tools.wesnoth_sim import PvPDefaults, SimResult, WesnothSim
+from tools import openers as openers_mod
+from tools.openers import Opener, OpenerPolicy
 
 
 log = logging.getLogger("sim_self_play")
@@ -3781,4 +3781,21 @@ def main(argv: List[str]) -> int:
 
 
 if __name__ == "__main__":
+    # Canonicalize the module identity BEFORE anything unpickles a spool
+    # payload. Spool workers pickle GameOutcome under its import name
+    # "tools.sim_self_play"; without this alias, the learner (running
+    # this same file as __main__) would RE-EXECUTE the whole module on
+    # first unpickle and hold two copies of every module global and
+    # class (dual-import hazard, audited 2026-07-30). With the alias,
+    # unpickle resolves to THIS module object and classes stay `is`-
+    # identical to the ones the learner's own code uses.
+    sys.modules.setdefault("tools.sim_self_play", sys.modules[__name__])
+    if sys.modules["tools.sim_self_play"] is sys.modules[__name__]:
+        # Also pin the parent-package attribute so attribute-style
+        # access (`import tools.sim_self_play; tools.sim_self_play.X`)
+        # sees the same object; a sys.modules cache hit alone does not
+        # set it. `tools` is already imported (module-level imports
+        # above pulled tools.scenario_pool).
+        setattr(sys.modules["tools"], "sim_self_play",
+                sys.modules[__name__])
     sys.exit(main(sys.argv))

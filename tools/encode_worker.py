@@ -87,7 +87,7 @@ def worker_main(
 
     # Local imports so they happen post-bootstrap.
     from wesnoth_ai.encoder import encode_raw
-    from replay_dataset import iter_replay_pairs
+    from tools.replay_dataset import iter_replay_pairs
 
     logging.basicConfig(level=log_level, format="%(message)s")
     log = logging.getLogger("encode_worker")

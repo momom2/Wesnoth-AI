@@ -140,7 +140,7 @@ def main(argv: List[str]) -> int:
     from tools.sim_self_play import _recruit_cost_lookup, play_one_game
     from tools.sim_to_replay import export_replay_from_scratch
     from wesnoth_ai.transformer_policy import TransformerPolicy
-    from wesnoth_sim import PvPDefaults, WesnothSim
+    from tools.wesnoth_sim import PvPDefaults, WesnothSim
 
     raw = torch.load(args.checkpoint, map_location="cpu",
                      weights_only=False)

@@ -1022,12 +1022,18 @@ def _unit_action(gs: GameState, action: WMLNode) -> None:
     if wml_x <= 0 or wml_y <= 0:
         return
     # Defer import to avoid circular: replay_dataset imports us.
-    from tools.replay_dataset import (
-        _build_unit, _UNIT_DB, _stats_for,
-    )
+    from tools import replay_dataset as _rd
+    from tools.replay_dataset import _build_unit, _stats_for
     if variation:
+        # Force the DB load before the membership check: `_load_unit_db`
+        # REBINDS the module global, so a from-imported `_UNIT_DB` taken
+        # pre-load would stay the orphaned empty dict and this check
+        # would silently drop the variation (dual-import audit,
+        # 2026-07-30). Reading through the module attribute post-load is
+        # correct regardless of who warmed the DB first.
+        _rd._load_unit_db()
         composite = f"{utype}:{variation}"
-        if composite in _UNIT_DB:
+        if composite in _rd._UNIT_DB:
             utype = composite
     from tools.traits import apply_traits_to_unit
 

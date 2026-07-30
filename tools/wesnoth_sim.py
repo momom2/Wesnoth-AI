@@ -71,7 +71,7 @@ sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
 from wesnoth_ai.classes import GameState, Position, SideInfo
-from replay_dataset import (
+from tools.replay_dataset import (
     _apply_command,
     _build_initial_gamestate,
     _setup_scenario_events,
@@ -142,7 +142,7 @@ def apply_pvp_defaults(gs: GameState, defaults: PvPDefaults) -> None:
     # on a different xp threshold than its own recruits in the same game.
     # Idempotent: recomputing at the same modifier yields the same value.
     import dataclasses
-    from replay_dataset import _stats_for, _scaled_max_exp
+    from tools.replay_dataset import _stats_for, _scaled_max_exp
     target_mod = int(defaults.experience_modifier)
     rescaled = set()
     for u in gs.map.units:
@@ -292,7 +292,7 @@ def _move_cost_at_hex(unit, gs, x: int, y: int) -> int:
         # No raw terrain code recorded for this hex (synthetic
         # tests, partial state). Fall through to the defense-keys
         # path which gives us a semantically-decent flat fallback.
-        from replay_dataset import _terrain_keys_at
+        from tools.replay_dataset import _terrain_keys_at
         keys = _terrain_keys_at(gs, x, y) or ["flat"]
         costs = _movetype_costs(unit.name, slowed=slowed)
         per_key = [int(costs.get(k, 1) or 1) for k in keys]

@@ -47,14 +47,14 @@ sys.path.insert(0, str(_ROOT / "tools"))
 
 from wesnoth_ai.dummy_policy import DummyPolicy
 from wesnoth_ai.rewards import WeightedReward
-from sim_self_play import (
+from tools.sim_self_play import (
     GameOutcome, _recruit_cost_lookup, play_one_game,
 )
 from tools.scenario_pool import (
     LADDER_SCENARIO_IDS, build_scenario_gamestate, load_factions,
     random_setup,
 )
-from wesnoth_sim import PvPDefaults, WesnothSim
+from tools.wesnoth_sim import PvPDefaults, WesnothSim
 
 
 log = logging.getLogger("sim_dummy_smoke")

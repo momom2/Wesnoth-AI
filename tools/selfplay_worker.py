@@ -197,7 +197,7 @@ def main(argv) -> int:
     from tools.sim_self_play import (_recruit_cost_lookup,
                                     _roll_max_turns,
                                     play_one_game)
-    from wesnoth_sim import PvPDefaults, WesnothSim
+    from tools.wesnoth_sim import PvPDefaults, WesnothSim
 
     _set_fd_safe_sharing()
 

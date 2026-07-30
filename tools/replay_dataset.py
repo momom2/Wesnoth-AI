@@ -2661,7 +2661,7 @@ def filter_competitive_2p(dataset_dir: Path) -> List[Path]:
     """
     # Import here to keep replay_dataset importable even if tools/ isn't
     # on sys.path (the main training entry point does the insert).
-    from scenarios import is_competitive_2p
+    from tools.scenarios import is_competitive_2p
 
     PLAYER_FACTIONS = {"Drakes", "Knalgan Alliance", "Rebels",
                        "Loyalists", "Northerners", "Undead"}

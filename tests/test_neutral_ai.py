@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 from wesnoth_ai.classes import Position
 from tools.abilities import hex_neighbors
 from tools.scenario_pool import ScenarioSetup, build_scenario_gamestate
-from wesnoth_sim import WesnothSim
+from tools.wesnoth_sim import WesnothSim
 
 
 def _sim():
