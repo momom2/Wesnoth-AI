@@ -172,6 +172,64 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 49 — 2026-07-30 — search-vs-RCA IS running; box OOM crash diagnosed (auto-recovered)
+
+**Route verdict on "does search flip games vs RCA?"**
+
+- **Route 2 (sim-side RCA) REJECTED, and rightly.** `neutral_ai.py` is
+  **stationary-combat-only by explicit scope**; a full-fidelity RCA port is
+  weeks. Cheap partial fidelity would answer a *different question* than
+  "vs RCA" — a number we could not trust is worse than no number.
+- **Route 1 (MCTSPolicy in the live loop) is viable and RUNNING.** ~29
+  games remaining, ~6 h.
+
+**Predictions registered BEFORE the driver was even written**
+(`search_vs_rca_registration.md`): **P1 = 0.35** that search wins ≥1 of 30;
+**P2 = 0.75** that survival materially improves (median leader-death ≥14,
+or ≥8/30 games reaching turn 20+). Plus a registered *asymmetry* worth
+keeping: **a P2-false outcome indicts the forward-model construction before
+it indicts search** — i.e. if survival does not move at all, suspect the
+bridge-converted forward model, not the algorithm. My own prior was lower
+than P1 (0/30 with death by turn 10 reads as a fast tactical loss, which
+search depth may not repair); Fable has studied these games far more
+closely and registered higher.
+
+**A fidelity check fell out of the instrumentation, which is the part I
+like most:** `reuse_frac` measures how often an imagined deterministic
+transition bit-matches the engine's real next state on full state-key. It
+came in at **0.53 on game 0**, which means the bridge-converted forward
+model is genuinely tracking the engine — exactly the cycle-35 hazard class
+(imagined state diverging from real) turned into a live instrument rather
+than an assumption.
+
+**Early signal, n=1, explicitly NOT a trend:** game 0 was still a loss, but
+leader death at **turn 12 vs raw's turn 7** in the identical matchup, with
+**96 actions vs 26**. One game. Recorded because it is the first evidence
+either way; it settles nothing.
+
+**Box: second CUDA OOM crash, auto-recovered.**
+
+```
+13:11:05  CUDA OOM in train_step; retry also OOM'd -> rc=1
+13:12:20  supervisor relaunch 1/20 -> 76 workers back up
+step 2,562,078 (6 iterations since the cycle-45 resume)
+```
+
+Root cause: the RTX 3060 has **11.64 GiB** vs the dead 4090 box's 24 GiB,
+and the learner alone holds 11.63 GiB at the fault. Two such crashes now
+(23:38Z, 13:11Z) ≈ one per 13 h, each costing ~1 h (relaunch is instant;
+the spool refill is the real cost). Also seen twice: `spool collect timed
+out with 23/24, 20/24 games` — the same memory pressure surfacing as slow
+collection.
+
+**Decision: NOT fixing this mid-leg.** Every candidate (smaller
+`--replay-minibatch`, `expandable_segments`) requires a restart costing
+~1 h of spool refill, against ~15 h of remaining credit and a supervisor
+that already recovers unattended. Recorded for the next campaign instead:
+**size the GPU for the learner, or lower the minibatch, when the card is
+12 GB.** A momentary `workers=1` reading during respawn is also NOT a
+collapse — check for a matching `relaunch` line before concluding.
+
 ### Cycle 48 — 2026-07-30 — EXTERNAL ANCHOR: 0-0-30 vs RCA. The run's headline needs qualifying.
 
 **The most important corrective of the run, and it cuts against our own
