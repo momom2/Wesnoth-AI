@@ -159,6 +159,49 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 43 — 2026-07-30 — the mandated reading is STILL PENDING (and why that is expected)
+
+**Box.** 03:20Z, 77 workers, zero aborts, HEAD `8780c0c`. Credit ~$8.
+
+**The cycle-42 test could not be run: iteration 1 has not landed.** 50 min
+after iter 0 (02:30:13Z), still only one post-restart iteration exists.
+Recorded rather than glossed, because cycle 42 named iters 1-3 as this
+cycle's mandated reading.
+
+**Why this is expected, labelled INFERRED:** it follows from Fable's own
+composition finding. A cold-start batch is mini-heavy because tiny maps
+finish first and the batch takes the first 24 completions — so iter 0
+harvested the FAST games, and iter 1 must wait on the slower ladder games
+only now completing. Pre-restart steady-state was 17-43 min/iteration, but
+that was a steady mix; the first post-cold-start balanced batch should be
+slower than either. Falsifiable: if iter 1 still has not landed by ~90 min
+after iter 0, this explanation is wrong and something is wrong with
+generation instead.
+
+**Nothing was read into the pending gap.** No tripwire evaluation, no
+draw-rate claim, no CE trend — one artifact iteration (excluded by the
+cycle-42 amendment) is all the post-restart data that exists. The reading
+carries to the next cycle unchanged:
+
+- read **CE-minus-floor from iter 1 onward** (iter-0-after-restart
+  excluded);
+- Fable's prediction to test: iters 1-3 resemble the 01:23 row — CE
+  ~0.4-0.7, floor ~0.68, draws ~0-10%;
+- **if draws hold ≥20% at steady composition**, the mini-drift graduates
+  from watch-item to real campaign-health problem.
+
+**Dispatched:** the mini-map draw drift — is it the founding
+passivity/hoarding thesis re-emerging where it is most visible (fewest
+hexes, fewest options, stalling cheapest), a structural property of tiny
+maps, or noise on small n? Package asks for the drawn games characterised
+BEHAVIOURALLY (recruits/turn, gold trajectory, attacks, idle units,
+distance to enemy leader), symmetric-vs-asymmetric stalling, which
+termination actually fires (`max_turns` vs `max_actions_per_side`), and the
+trend across the whole leg rather than two endpoints. Explicitly barred
+from proposing a training-config change on this evidence alone — the run's
+standing lesson is that levers chosen from plausible reasoning measure
+wrong (`gumbel_m` 16->8).
+
 ### Cycle 42 — 2026-07-30 — draw jump is BENIGN: the box ran the control itself; my hypothesis dead
 
 **My cycle-41 hypothesis is REFUTED, exactly by the falsifier I set.**
