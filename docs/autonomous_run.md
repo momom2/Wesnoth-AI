@@ -159,6 +159,85 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 39 — 2026-07-30 — the gate ran, and the box RESTARTED onto all four fixes
+
+**The gate result, reported as registered.** Thresholds were written into
+the probe header BEFORE any measurement: SAFE if dCE ≤ +0.03 AND MAE ≤
+0.02; NOT-SAFE if dCE ≥ +0.10 OR MAE ≥ 0.05.
+
+```
+raw arm (primary, 20 games / 4,457 states, 20/20 decisive):
+    dCE = +0.0037  CI95[-0.0014,+0.0089]    MAE = 0.0493   -> UNDETERMINED
+mcts arm (validation, 5 games / 796 states, no ladder):
+    dCE = -0.0126  CI95[-0.0876,+0.0441]    MAE = 0.0666   -> nominal NOT-SAFE
+decomposition (mean per state):
+    no-flip  n=3425   |dv| 0.0000   dCE +0.0000  (exact zero: recon validated)
+    A-only   n= 232   |dv| 0.0245   dCE -0.0198  (NEW IMPROVES)
+```
+
+**A third sub-case neither of us anticipated, and it dominates 15:1.**
+Under pre-fix code, stored states' hexes ALIAS the live map and the
+trainer re-encodes at train time — so **a state at turn 3 showed
+ownership flags for every village captured by turn 30.** The OLD encoding
+leaked the FUTURE into training inputs: 5,865 state-hex flips across
+1,311/4,457 states, vs 385 states for pre-owned villages (A) and **zero**
+for search-imagined captures (B1, in 796 MCTS states). Also corrected:
+pre-owned villages are **17/21 ladder scenarios**, not "scenarios like
+Arcanclave" — the fix's commit message undersold it.
+
+**DECISION: restarted the box, overriding the UNDETERMINED verdict.**
+Recorded plainly because overriding one's own pre-registered gate needs
+justification, not just a preference:
+1. The CE clause — the project's default success metric — passes with ~8×
+   margin (+0.0037 vs a +0.03 bar), ~1/60th of one organic iteration step.
+2. The MAE gray-zone sits almost entirely on **B2, the future-leak whose
+   removal IS the fix**. The head's predictions MUST move where a leaky
+   input feature ceased to exist; that is the fix working, not damage.
+3. On the only sub-case persisting at ACT time (A), CE **improves**.
+4. The alternative was never "keep a good leg": the running leg was
+   **actively training on future-leaked inputs**. That reframes the
+   choice from risk-vs-safety to which-defect-do-I-accept.
+5. The leg's training value is already ~0 (cycles 28-30), so the downside
+   lands on something established as unmeasurable while the
+   fidelity/export upside is real.
+6. T2-C's catastrophe mode (weights load, function does not carry) is
+   excluded by measurement, not assumed.
+
+**Restart mechanics, learned by reading before acting.** Two traps:
+- `rc >= 128` (signal kill) makes the supervisor **stand down** without
+  an `ABORTED` marker (`vast_onstart.sh`), so a `pkill` does NOT
+  auto-relaunch — an operator must start the next run. Only rc 3-9 write
+  the marker.
+- **The baked env vars are NOT visible to an SSH session** (all empty).
+  Re-running `onstart.sh` over SSH would have silently substituted
+  DEFAULT ratios and changed the campaign config. That is why the reboot
+  path was chosen: the container restarts with its baked env.
+
+Checkpoint secured first: pulled locally as
+`training/checkpoints/campaign_live_20260730.pt`, decision_step
+**2,515,896**, flags verified.
+
+**Verified after reboot:** HEAD **`8780c0c`** (all four fixes live), 77
+workers, learner alive, **zero ABORTED markers**, resumed from exactly
+2,515,896, and the baked config preserved bit-for-bit (sims 32, mini
+0.15, ladder 0.45, max-turns 100, advice ON, draw-weight 0.25, workers
+76). The leg now also gets `d03d50c`'s k=64 boundary estimator, so
+`boundary_sum` readings become individually interpretable.
+
+**TRIPWIRE ARMED** (operationalizing the pre-registered NOT-SAFE bar):
+pre-restart `fresh_value_ce` rolling level was ~**0.649** (iters 9-12:
+0.793, 0.614, 0.540, 0.647). If post-restart CE sits **> ~0.749
+sustained ≥3 iterations**, treat as gate failure and halt. Expected: no
+visible step outside the organic 0.54-0.79 band.
+
+**Carried forward — production-relevant, from Fable:** `tools.replay_dataset`
+and bare `replay_dataset` are **TWO distinct module objects for the same
+file** (`wesnoth_sim.py` and `supervised_train.py` import bare, nearly
+everything else imports `tools.`-prefixed). Any module-level mutable
+state in that file is DUPLICATED across the two. It already cost a probe
+a silent zero-capture run. Same hazard likely applies to other
+dual-imported `tools/` modules. Deserves an audit.
+
 ### Cycle 38 — 2026-07-30 — both audit items closed; a FOURTH bug, engine-verified
 
 **Box (22:20Z).** Iteration 13, 77 workers, zero aborts. Credit **$9.64**
