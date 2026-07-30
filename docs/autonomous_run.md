@@ -159,6 +159,92 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 44 — 2026-07-30 — CAMPAIGN STOPPED: the policy was measurably degrading
+
+**The most consequential decision of the run. Box training killed, instance
+STOPPED, credit preserved at ~$7.27.**
+
+**The evidence that forced it** — Fable's controlled matched-seed
+experiment, same code (post-fix local HEAD), same 24 seeds (same
+scenarios, factions, caps), two checkpoints from this lineage:
+
+```
+                       decision_step  mini draws  endings          median end turn
+campaign_live_20260729   2,403,615     0/24       24x leader_killed      10
+campaign_live_20260730   2,515,896     9/24       9x max_turns, 15 kill  64
+Fisher one-sided p = 0.0008
+```
+
+~112k decisions turned a policy that kills in **10** median turns into one
+that draws 3/8 of mini games. Because the 0/24 arm ran OLD weights on
+POST-fix code, this is also an independent, code-held-constant
+confirmation of cycle 42: **the fixes don't cause draws; the weights do.**
+
+**Mechanism — "mutual armistice at arm's length":** non-end_turn actions
+per side-turn **0.20** in draws vs 2.55 pre-drift; unused-MP fraction
+**0.95** vs 0.33; idle-unit fraction ~0.94. The armies are **ADJACENT**
+(median min-separation 2-3 hexes, `dist_to_enemy_leader` min 1-3), so this
+is no-commit, not never-meet. Combat ceases outright — 6/9 draws have ≤1
+turn-with-HP-loss in the back half, back-half HP flat (85→85, 92→92,
+122→122). Gold banks to a mean max of **303**/side (peaks 428-486) vs 86,
+with 0-3 recruits, while the pre-drift arm recruits 3.6/side on the SAME
+maps. **This is the founding thesis verbatim: banks gold, declines to
+commit.**
+
+**It is graded, not draw-only:** even still-DECISIVE games at current
+weights show median 30 turns (vs 10), unused-MP 0.68 (vs 0.33), gold-max
+138 (vs 86). Draws are the thresholded tip of a continuous slowdown.
+
+**Symmetry matters for any future fix:** 7/9 draws are *mutually* quiet in
+the back half — the materially-ahead side, standing adjacent to a near-dead
+opponent (seed 100: 81 HP vs 23), **also stops attacking**, forfeiting a
+free +1 leader-kill. So "help the stuck side close" would miss the point.
+
+**Structural explanation DEAD:** minis are not inherently drawish (0/24
+pre-drift, median kill turn 10, caps 60-100 give 6-10x headroom); every
+draw ends by `max_turns`, `max_actions` never fires; draws concentrate on
+the *plain smallest* maps while the two largest minis are 0/6. Also
+fact-checked: `DrawTiebreakConfig.weight_gold = 0` since 2026-07-20, so
+"hoarding is paid in-tree" is NOT the mechanism.
+
+**Trend is ACCELERATING, not saturating:** 0/55 draws over 65k decisions
+-> ~10% over the next 30k -> 26-37% in the last ~15k.
+
+**Why I stopped rather than watched.** Training value was already ~0
+(cycles 28-30: ~180k affordable steps against a 450k-1M detectable gap).
+This makes it **negative** — continuing would spend the user's credit
+making the checkpoint worse. Stopping preserves both the credit and the
+better checkpoint. Restarting from 2,403,615 was considered and rejected:
+without a fix the same signal reproduces the same drift.
+
+Box stopped cleanly: no ABORTED marker, final step 2,526,795. Best-known
+checkpoint is **`campaign_live_20260729.pt` (2,403,615)**, secured locally
+and on HF.
+
+**Box-ops trap, recorded:** `pkill -f sim_self_play.py` also matches the
+SSH session's OWN bash (its command line contains that string), killing
+the session mid-command — my first attempt truncated its output and left
+the learner alive with its workers dead. `pgrep -fc` likewise counts the
+supervisor `bash -c` wrapper. **Kill by PID** (supervisor first so it
+cannot relaunch, then the learner).
+
+**Honest correction to my own bar.** The overall draw mass FELL across the
+post-restart iterations (0.25 -> 0.10 -> 0.05) as composition normalized,
+so the box telemetry alone would **not** have triggered my ≥20% condition
+— only the mini-specific column I happened to nominate (4/6) did, on n=6.
+**The controlled local experiment is what carried this finding**, not the
+telemetry. CE-minus-floor read -0.157, -0.145, -0.091, so iter 2 crossed
+the amended -0.10 bar (1 of 3).
+
+**Dispatched:** confirm the regression on the PRIMARY metric — head-to-head
+Elo, 2,403,615 vs 2,515,896, n≈100 under the `4e445c2` protocol, with the
+prediction registered BEFORE measuring. Explicitly asked whether stopping
+was correct, and flagged the confound that matters: the ladder eval runs
+ladder maps, which are 100% decisive in every iteration, so **a flat Elo
+would be consistent with a mini-only pathology rather than a refutation
+of it** — and if the honest answer is "our primary metric is blind to this
+pathology", that is itself an important limitation to record.
+
 ### Cycle 43 — 2026-07-30 — the mandated reading is STILL PENDING (and why that is expected)
 
 **Box.** 03:20Z, 77 workers, zero aborts, HEAD `8780c0c`. Credit ~$8.
