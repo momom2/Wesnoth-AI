@@ -159,6 +159,85 @@ review. Findings from a review go in the log below even when rejected.
 Newest first. Each entry: what was attempted, what was MEASURED, what was
 decided, what is next. Keep entries short and factual.
 
+### Cycle 42 — 2026-07-30 — draw jump is BENIGN: the box ran the control itself; my hypothesis dead
+
+**My cycle-41 hypothesis is REFUTED, exactly by the falsifier I set.**
+WML census over all pools: **only Aethermaw** carries latch-suppressible
+events (its 8 morphs). Every other ladder/mini/drill scenario's turn
+events are `first_time_only=no`, which `fire_event` never latch-suppresses
+(`scenario_events.py:1503`). 1/21 maps cannot produce 25% draws.
+Doubly dead: the draws concentrate in the MINI pool, which has no
+suppressible events, and the spike batches contained 0-1 ladder games —
+Aethermaw was not even present.
+
+**The box ran the controlled experiment itself and nobody noticed.** The
+trainer restarted **twice** that night. Verified independently on the box:
+`training exited rc=1 at 2026-07-29T23:38:15Z` + `relaunch 1/20 in 60s` —
+an ordinary crash down the supervisor's rc-1 path (no marker), on the
+pre-fix launch clone. So there is a **pre-fix cold-start arm** for exactly
+this question:
+
+```
+                  code      weights   draws  zD_w   CE     floor   bnd_n
+00:19:38 iter 0   PRE-fix   2.51M     5/24   0.213  0.943  1.073   16
+02:30:16 iter 0   POST-fix  2.52M     6/24   0.250  0.925  1.082   64
+Fisher on mini draws 5/19 vs 6/18:  p = 0.46
+floor-relative: post -0.157  vs  pre -0.130   (post mildly BETTER)
+```
+
+Fable's proof the 00:19 row is pre-fix is clean and I verified the logic:
+`boundary_pairs_n = 16` (the k=64 estimator shipped only with the reboot
+and flips to 64 exactly at the 02:30 row), and decision_step 2,511,831 <
+2,515,896 — the step of the checkpoint I secured before rebooting.
+
+**So: none of the four fixes caused the draw jump, and `fa95da5` is NOT
+GUILTY.** My restart decision is not implicated. Ladder + fogless +
+midgame decisiveness is **100% in every row of the leg**, including all
+post-restart rows — there is no global-passivity signal.
+
+**Two stacked effects explain the anomaly.**
+1. **Iteration-0-after-any-restart is a COMPOSITION artifact.** Every
+   cold start is mini-heavy — "other" (= mini pool) is 17, 19, 18 of 24
+   games at the three restart iter-0s, with 0-1 ladder games — because
+   tiny maps finish first and the batch takes the first 24 completions.
+   CE, floor and z-mix at a restart iter-0 are **not comparable to steady
+   state, full stop.** My cycle-41 comparison was invalid on both sides.
+2. **A real, slow, PRE-EXISTING drift toward mini-map turn-cap draws.**
+   Within pre-fix code at matched cold-start composition: 0/17 mini draws
+   at 2.40M vs 5/19 at 2.51M (**p = 0.031**); corroborated mid-leg on old
+   code, 0/55 minis at iters 0-8 vs 2/20 at iters 9-13 (p = 0.068). It
+   began around iter 9, **before any fix existed.** All 11 post-restart
+   draws are mini games (`draws` == `other_games − other_decisive`
+   exactly, every row).
+
+**TRIPWIRE PROTOCOL AMENDED (adopted):** exclude **iter-0-after-any-restart
+entirely**, and read CE-minus-floor from iter 1 onward. The cycle-41 bar
+was doubly wrong — raw instead of floor-relative, AND applied to a
+composition artifact.
+
+**Falsifiable prediction now on the record** (Fable's, adopted as the
+next cycle's test): post-reboot iters 1-3 should resemble the 01:23 row —
+CE ~0.4-0.7, floor ~0.68, draws ~0-10%. **If draws instead hold ≥20% at
+steady composition, the mini-drift graduates to a real campaign-health
+problem** — and that, not the fixes, is the thing to watch (column:
+`other_decisive/other_games`; the abort tripwire at 0.05 decisive is
+nowhere near firing). Only iter 0 exists as of 02:58Z, so this is next
+cycle's reading.
+
+**Corrections to the record.** The 0/116 cap-endings measurement is
+**cycle 30**, not cycle 38 as cycle 41 said. The draw label is honest
+(`winner==0` -> z=0 exactly; `--train-draw-tiebreak` not passed;
+`--draw-value-weight 0.25` is a LOSS weight, not a game weight — zD_w
+6/24 = 0.250 exactly confirms game-weight 1). Draws are turn-cap /
+`max_actions` timeouts, consistent with mean_turns 20 -> 40+ under caps
+jittered 60-100. Also: `campaign_live_20260730.pt` contains two extra
+old-code iterations (~8k decisions) nobody knew about — harmless, but the
+record should say so.
+
+**Reconciliation with cycle 30's 0/116:** no tension once split by map
+class. That eval was raw-policy on **ladder** maps, and ladder games are
+100% decisive in training too. **The draws are mini-only.**
+
 ### Cycle 41 — 2026-07-30 — the tripwire READ: raw bar exceeded, but it is CONFOUNDED; draws 0% -> 25%
 
 **The reading I committed to taking.** First post-restart iteration landed
