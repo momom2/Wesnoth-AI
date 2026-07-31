@@ -71,10 +71,23 @@ steps (= T2 below), or (c) a better learning signal. Do not default to
      but document games played under wrong terrain from turn 4+.
    - `tools/eval_vs_builtin.py` has `--limit` but no `--offset`, so
      chunked runs need a driver. One-flag fix.
-   - Open question #2 (never investigated): does the real engine leave a
-     leader off-keep on Tombs_of_Kesorak / Sablestone_Delta? 7.5% of
-     leader-sides cannot recruit at start. Check `wesnoth_src/src/`
-     before changing placement.
+   - ~~Open question #2: does the real engine leave a leader off-keep?~~
+     **ANSWERED 2026-07-31 — our sim is FAITHFUL, there is nothing to
+     fix.** Full rule written up in `docs/wesnoth_rules.md`. Summary:
+     keeps are defined by `recruit_from=yes` (not by name or the `K`
+     prefix), and our substring test reproduces that set with **zero
+     false positives and zero false negatives across all 284
+     `[terrain_type]` blocks**. The engine does **not** snap leaders to
+     keeps — `place_sides_in_preferred_locations()` assigns the map
+     marker with no relocation — and **5 of 29 shipped 2p maps really do
+     start a leader off-keep** (Tombs both sides on `Co`, Hornshark both
+     on `Ce`, Sablestone side 1 on `Gs^Ft`). The "7.5% cannot recruit"
+     figure was measured on turn-1 START states only: recruiting costs no
+     MP, our sim has no moved-gate, and the mask recomputes
+     `leader_on_keep` from the leader's CURRENT hex — so the leader walks
+     onto the keep and recruits the same turn, exactly like the engine.
+     **Lesson for future measurement: never read recruit availability
+     from a turn-start snapshot.**
 
 ## Explicitly NOT doing (user decision, 2026-07-31)
 

@@ -1706,6 +1706,66 @@ typically live.
 
 ---
 
+### Keeps are defined by `recruit_from=yes`, NOT by the terrain's name or its `K` prefix
+
+`wesnoth_src/data/core/terrain.cfg` — the two mechanics are separate keys:
+
+```
+[terrain_type]                     [terrain_type]
+    id=orcish_fort                     id=orcish_keep
+    name= _ "Castle"                   name= _ "Keep"
+    string=Co                          string=Ko
+    aliasof=Ct                         aliasof=Ct
+    recruit_onto=yes                   recruit_from=yes
+[/terrain_type]                        recruit_onto=yes
+                                   [/terrain_type]
+```
+
+- **`recruit_from=yes`** = a leader standing here MAY recruit (this is
+  what "keep" means mechanically).
+- **`recruit_onto=yes`** = recruited units may APPEAR here (castle).
+- **Every keep also has `recruit_onto=yes`**, so keeps are valid recruit
+  TARGETS as well as recruit sources.
+
+**Why non-obvious:** the display `name=` of `Co` is literally `"Castle"`
+and of `Ko` is `"Keep"`, but a name is not a mechanic — and neither block
+contains a `castle=`/`keep=` key, so grepping for those finds nothing.
+
+**Audited 2026-07-31 across all 284 `[terrain_type]` blocks:** our sim's
+substring test (`"K" in base or "K" in overlay` → KEEP) reproduces
+`recruit_from=yes` with **zero false positives and zero false negatives**.
+The 24 engine keeps are `Kd Kdr Ke Kea Ker Ket Kf Kfa Kfr Kh Kha Khr Khs
+Khw Km Kme Ko Koa Kte Kud Kv Kva Kvr ^Kov` — note **`^Kov` is an OVERLAY**,
+so any keep test that only inspects the base code is wrong (same class as
+the `^Xo` overlay bug, `a21030c`).
+
+### Leaders are placed on the map's start marker — the engine does NOT snap them to a keep
+
+When a `[side]` has no `x=`/`y=`, the leader goes to the map's
+starting-position marker, full stop. `src/game_state.cpp`
+`place_sides_in_preferred_locations()` assigns start positions
+(`board_.map().set_starting_position(i->side, i->pos)`) with **no
+relocation and no keep-seeking**; the wiki states the leader "is placed on
+the tile represented by this number according to the map's starting
+positions". `find_vacant_tile` exists only for OCCUPIED hexes, not
+non-keep ones.
+
+**Consequence (verified 2026-07-31): 5 of 29 shipped 2p maps start a
+leader OFF a keep** — `2p_Tombs_of_Kesorak` both sides on `Co`,
+`2p_Hornshark_Island` both sides on `Ce`, `2p_Sablestone_Delta` side 1 on
+`Gs^Ft` (grass+forest, not even a castle; side 2 starts on `Kud`). Those
+leaders cannot recruit until they walk to a keep — **this is correct
+Wesnoth behaviour, not a sim defect.**
+
+**Why non-obvious:** a turn-1-start snapshot shows those sides with ZERO
+legal recruit actions, which reads like a mask bug. It is not: recruiting
+costs no MP, so the leader may move onto a keep and recruit **in the same
+turn**, and the mask recomputes `leader_on_keep` from the leader's current
+position on every decision. Measure recruit availability across the turn,
+never from the turn-start state alone.
+
+---
+
 ## Verification protocol
 
 When establishing a new rule, follow this protocol so the entry
