@@ -139,10 +139,16 @@ found by a **targeted census, not a sweep**.
   by round-trip (`decision_step` 2,515,896 intact). Deliberately NOT
   uploaded over the reserved rolling name `tier_a_campaign.pt`, which
   holds the newer-but-unmeasured 2,670,682.
-  **Still open for the other 62MB tier_a-era files**, which remain
-  local-only despite the `.gitignore` policy ("the 2026-06 machine loss
-  proved local-only copies aren't safe"). Escrow or commit them if they
-  matter; otherwise delete them deliberately rather than by neglect.
+  The other tier_a-era checkpoints were **deleted 2026-07-31** (user
+  decision), freeing 954 MB: `training/checkpoints` is now 146 MB and
+  holds only git-tracked files plus `campaign_live_20260730.pt`.
+  **What that cost, recorded so nobody re-derives it by surprise:** the
+  intermediate triangulation anchor `campaign_live_20260729.pt`
+  (2,403,615) and the co-peak candidate `tier_a_campaign_20260719.pt`
+  (2,747,117) are gone. The +133 result's two ENDPOINTS survive on HF
+  (seed 2,290,529 as `selfplay_seed_20260718.pt`, best 2,515,896 as
+  `campaign_live_20260730.pt`), so the headline is reproducible; the
+  three-point table and any co-peak comparison are not.
 - **Overlays dominate base terrain codes.** `^Xo` is impassable over a
   walkable base, and `^Kov` is a keep with no `K` base. Any code that
   inspects only the base of a `Base^Overlay` code is wrong. (Both bit us.)
