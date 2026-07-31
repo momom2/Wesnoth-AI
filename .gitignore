@@ -103,3 +103,10 @@ test_replays_temp/
 
 # per-run log artifacts (escrowed to HF, never tracked)
 training/logs/trainer_history*.csv*
+
+# Validation-export working dir: replays pulled from HF (`--hf-pull`) plus
+# locally generated bundles. Regenerable and rewritten on every run, so it
+# should never show up as untracked churn.
+training/validate_exports/
+# Supervised-run eval log (regenerable telemetry, not a checkpoint).
+training/checkpoints/supervised_5m_eval.jsonl
