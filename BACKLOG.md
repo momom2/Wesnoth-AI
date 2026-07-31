@@ -1,5 +1,94 @@
 # Project review — bugs and improvements
 
+---
+
+# NEXT ACTIONS (as of 2026-07-31)
+
+Everything below this block is historical detail, newest-first. This
+section is the short list. Full provenance for the 2026-07-28..31
+autonomous run is in `docs/autonomous_run.md` (cycle log, newest first).
+
+## Where the project actually stands
+
+- **The learning signal was broken in four measurable ways. Fixed.** The
+  lineage now provably improves against its own past: **+133 ±57 Elo**
+  (2,515,896 vs the 2,290,529 anchor), triangulated, with a transitive
+  check ruling out "beats its own parent while going nowhere".
+- **The external gap is unchanged: 0-0-30 vs the built-in RCA AI**,
+  median leader death turn 10. Re-confirms the founding number at 3.3x
+  the sample. Read the run as *"the signal was broken and is now fixed"*,
+  NOT *"the policy got good"*.
+- Last campaign checkpoint: **decision_step 2,670,682** on HF
+  (`momom2/wesnoth-tier-a`, `tier_a_campaign.pt`). Best *measured* one is
+  **2,515,896** = `training/checkpoints/campaign_live_20260730.pt`.
+- Vast credit is **$0**; the box is stopped/exited. No compute is running.
+
+## The strategic question to answer before spending again
+
+The lineage improves at ~4,000-7,000 decision-steps/hour, and the step
+gaps that have ever been *detectable* on it are 450k-1M. That is 100-200
+box-hours per measurable increment. So: **buying more of the same compute
+is the expensive path, and there is no evidence yet that it closes an
+external gap.** Decide deliberately between (a) more compute on the
+current signal, (b) a cheaper/faster net so the same money buys more
+steps (= T2 below), or (c) a better learning signal. Do not default to
+(a) by momentum.
+
+## Do next (ordered)
+
+1. **T2 fine-tune leg for the relevant-set encoder.** This is the only
+   route on the table to "the same money buys more steps". The encoder is
+   built, wired and tested behind `--relevant-set-hexes` (default OFF);
+   it cuts hex tokens ~870 -> ~119. Speedup is Amdahl-bounded to
+   **<= ~3.4x end-to-end** (NOT the 4.3-4.8x forward-component figure).
+   Blocker is T2-C: warm-start value MAE **0.217** vs a ~0.017 precedent
+   — weights load, function does not carry. **Needed: a short fine-tune
+   leg with the flag ON, gated on `fresh_value_ce` recovering to its
+   flag-OFF level.** Do NOT judge it with a same-weights eval — that
+   measures warm-start damage, not the encoding's ceiling.
+2. **Mini-map passivity drift — root cause.** Real, weights-driven,
+   accelerating, and it is the founding thesis in miniature: banks gold,
+   declines to commit, armies ADJACENT but not fighting, and the
+   materially-ahead side declines free leader-kills. Controlled:
+   0/24 mini draws at 2.40M vs 9/24 at 2.52M (p=0.0008). Instrument
+   exists: `tools/mini_anatomy.py` (its GRADED precursors — non-end_turn
+   actions/side-turn, unused-MP, median end turn — move well before any
+   draw appears). Scope note: ladder/fogless/midgame stayed 100%
+   decisive, and head-to-head an aggressive opponent punishes the stall,
+   so this is behavioural on ~15% of the mix, not a strength regression.
+3. **Next-campaign hygiene (cheap, do before any new box).**
+   - **Size the GPU for the learner.** Two CUDA OOMs in ~26h on the 12GB
+     3060 (learner alone held 11.63 GiB); each cost ~1h of spool refill.
+     Either take a >=24GB card or lower `--replay-minibatch`.
+   - Consider arming `SIM_FORK_GUARD=1` for ONE smoke iteration at
+     campaign start (catches the fork-aliasing bug class; free when off).
+4. **Small, well-defined loose ends.**
+   - `deep_state_fingerprint` does not cover the `_defense_table` stash,
+     so an in-place mutation there would be guard-invisible. No current
+     writer does it.
+   - 6 midgame Aethermaw exports on HF contain engine-illegal moves
+     (pre-fix artifacts); morphless-era ladder exports are valid replays
+     but document games played under wrong terrain from turn 4+.
+   - `tools/eval_vs_builtin.py` has `--limit` but no `--offset`, so
+     chunked runs need a driver. One-flag fix.
+   - Open question #2 (never investigated): does the real engine leave a
+     leader off-keep on Tombs_of_Kesorak / Sablestone_Delta? 7.5% of
+     leader-sides cannot recruit at start. Check `wesnoth_src/src/`
+     before changing placement.
+
+## Explicitly NOT doing (user decision, 2026-07-31)
+
+- **Finish search-vs-RCA (5/30 done).** We know the answer: 0/30 raw,
+  0/5 with search, median death turn 11 vs 10. The one residual question
+  it could have answered — does the bridge forward-model track the
+  engine? — is already covered more cheaply by `reuse_frac` (0.53 on
+  full state-key).
+- **Co-peak comparison** (2,515,896 vs 2,747,117). Within-lineage; would
+  not change any decision.
+
+---
+
+
 ## DETECTOR TRAINING SIGNAL (approved 2026-07-24) — improvement items
 
 Design spec: `docs/detector_training_signal.md`. Principle: the detector

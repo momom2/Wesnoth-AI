@@ -54,7 +54,65 @@ Most replays in `replays_raw/` are from 1.18.x clients; pin
 accordingly. If a replay's `[scenario] version=` says something
 other than 1.18.x, scrape from that version's tag instead.
 
-## Current status (2026-07-02)
+## Current status (2026-07-31)
+
+**A 72h autonomous run (Claude + Fable, 2026-07-28..31) fixed four
+measurable defects in the learning signal. The lineage now provably
+improves against its own past; the external gap is unchanged.**
+82 commits; suite **633 fast + 11 slow, green**. Full provenance:
+`docs/autonomous_run.md` (cycle log, newest first).
+**Read `BACKLOG.md`'s "NEXT ACTIONS" block first — it is the short list.**
+
+**Measured performance (both numbers matter, do not quote one alone):**
+- **In-lineage: +133 ±57 Elo** — 2,515,896 vs the 2,290,529 anchor, 340
+  games, one joint Bradley-Terry fit, prediction pre-registered. A
+  transitive check (direct +146 vs chained +134 against a ±145 band)
+  rules out "beats its own parent while going nowhere". The 2026-07-28
+  regression is recovered and surpassed *within-lineage*.
+- **External: 0-0-30 vs the built-in RCA AI**, median leader death turn
+  10, 15 games per side. Re-confirms the founding number at 3.3x the
+  sample. Four fixes and +133 moved it **not at all**.
+- Honest summary: *"the signal was broken and is now fixed"*, NOT *"the
+  policy got good"*. Note the +133 was measured WITH search and the RCA
+  eval is RAW policy — different objects; never merge them.
+
+**What was actually fixed** (all with fail-before/pass-after tests):
+- `fa95da5` — a search-imagined village capture permanently rewrote the
+  REAL game's encoder input (`Map.__deepcopy__` aliases hexes). Stored
+  transitions are re-encoded at train time, so a state at turn 3 showed
+  ownership for villages captured by turn 30: **the old encoding leaked
+  the future into training inputs.**
+- `933888d` — search forks latched `first_time_only` scenario events, so
+  Aethermaw's morphs never fired in live games (walls never opened).
+- `a21030c` — terrain events stripped overlays from `_terrain_codes`, so
+  impassable whirlpool walls were priced walkable; produced
+  engine-verified OOS ("found corrupt movement in replay").
+- `8b68a25` — nine `tools/` modules were imported both as `tools.X` and
+  bare `X` (two module objects, duplicated module state), including a
+  bug that **cannot exist single-flavour**.
+- Guard: `SIM_FORK_GUARD=1` (`deep_state_fingerprint`) catches that whole
+  class — all three instances were invisible to `state_key`. Free when off.
+
+**Diagnoses that closed old questions:** nothing in the training signal
+pays for banking gold — the shaping-reward path is **structurally inert
+under `--mcts`** (`MCTSPolicy.observe` is a no-op), which finally explains
+why the old `weight_gold=0` fix did nothing. The real mechanism is a
+"tried-and-cut tax" in Gumbel target extraction (edges sampled and cut
+grade below `v_mix`; never-sampled mass shelters at it). Also measured:
+the **detector-advice channel carries no information** (placebo control),
+and raising `--mcts-sims` is the WRONG lever — the Gumbel target
+*concentrates* rather than converges, with coverage fixed at `m`=16
+visited edges at every N.
+
+**Compute state:** Vast credit **$0**, box stopped/exited, nothing
+running. Last campaign checkpoint **decision_step 2,670,682** on HF
+(`momom2/wesnoth-tier-a`, `tier_a_campaign.pt`); best *measured* is
+**2,515,896** (`training/checkpoints/campaign_live_20260730.pt`).
+Throughput was ~4,000-7,000 decision-steps/hour, and detectable step gaps
+on this lineage are 450k-1M — i.e. **100-200 box-hours per measurable
+increment.** Weigh that before buying more of the same compute.
+
+## Current status (2026-07-02, superseded — kept for provenance)
 
 **Kaggle pre-flight DONE (2026-07-02): Phase 0 executed, repo made
 self-contained, a warm-start-corrupting vocab bug found+fixed; next
