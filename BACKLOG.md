@@ -134,11 +134,15 @@ found by a **targeted census, not a sweep**.
   checkpoint is **`campaign_live_20260730.pt` (2,515,896)**.
   **Always verify a checkpoint by reading `decision_step`, never by
   filename** — this trap has fired three times.
-- **`campaign_live_20260730.pt` may exist only locally.** `.gitignore`
-  records a deliberate policy that checkpoints are tracked because "the
-  2026-06 machine loss proved local-only copies aren't safe" — but the
-  62-66MB tier_a-era files are untracked. Escrow the best-measured one to
-  HF, or commit it.
+- ~~`campaign_live_20260730.pt` may exist only locally.~~ **ESCROWED
+  2026-07-31**: uploaded to HF as `campaign_live_20260730.pt` and verified
+  by round-trip (`decision_step` 2,515,896 intact). Deliberately NOT
+  uploaded over the reserved rolling name `tier_a_campaign.pt`, which
+  holds the newer-but-unmeasured 2,670,682.
+  **Still open for the other 62MB tier_a-era files**, which remain
+  local-only despite the `.gitignore` policy ("the 2026-06 machine loss
+  proved local-only copies aren't safe"). Escrow or commit them if they
+  matter; otherwise delete them deliberately rather than by neglect.
 - **Overlays dominate base terrain codes.** `^Xo` is impassable over a
   walkable base, and `^Kov` is a keep with no `K` base. Any code that
   inspects only the base of a `Base^Overlay` code is wrong. (Both bit us.)
