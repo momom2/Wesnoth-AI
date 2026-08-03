@@ -127,6 +127,32 @@ instance-create time:
   host raise workers, leave cadence near the default, and re-tune on
   the node — the laptop sweep does not carry over.
 
+## 4b. Host requirements — derived from actual failures, not preference
+
+Every line cites the incident that motivates it. An offer failing any of
+these is excluded outright; these are crash causes.
+
+| Requirement | Why (incident) |
+|---|---|
+| **VRAM ≥ 40 GB** | The 5M learner held **11.63 GiB of an 11.64 GiB card** and OOM'd twice in ~26h (`autonomous_run.md` cycle 49); the earlier 24 GiB 4090 was fine. Tier-b scales activations ~2.0x → **~23 GiB**, so a 24 GB card reproduces that 100%-utilization failure exactly. |
+| **`gpu_frac` == 1.0** | A shared GPU means a co-tenant's spike OOMs us — same crash, someone else's cause, undebuggable from our logs. |
+| **RAM ≥ 128 GB** | Replay buffer holds `--replay-capacity 24000` deep-copied GameStates in host RAM (`vast_onstart.sh`); Tier-a wanted ≥32 GB at capacity 6000. |
+| **duration ≥ 30 days** | Host 18135 went away mid-campaign. Detectable increments need hundreds of box-hours. |
+| **reliability ≥ 0.98** | Same. |
+| **disk ≥ 60 GB**, **inet_up ≥ 100 Mbps** | 63 MB checkpoint escrowed every 30 min; the 2026-07-19 balance exhaustion nearly stranded checkpoints on an unreachable disk. |
+| **CUDA ≥ 12.0, Python ≥ 3.11** | Already hard-checked in `vast_onstart.sh`, including a real matmul (an arch-mismatched wheel passes `is_available()` and fails hours later at the first kernel). |
+
+**Not a crash risk, but budget for it:** `SpoolDir.collect`'s deadline is a
+hardcoded 3600 s (`sim_self_play.py:1266`) with no CLI flag. On slower
+cores with a 2.6x heavier net, an iteration collects *fewer* games and
+logs `spool collect timed out with N/M` — already seen on the 3060. It
+degrades gracefully; it does not crash.
+
+**The VRAM number above is an estimate, and must not be trusted.** Run a
+bounded smoke and read actual peak VRAM before committing to the long
+run. `PYTORCH_ALLOC_CONF=expandable_segments:True` and a lower
+`--replay-minibatch` are the tuning levers.
+
 ## 5. What to measure, and when to stop
 
 Measure exactly as Tier-a did (`docs/tier_a_runbook.md` "What to
