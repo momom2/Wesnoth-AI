@@ -101,6 +101,24 @@ found by a **targeted census, not a sweep**.
 
 ## Standing user ideas and decisions (preserved)
 
+- **DECISION (user, 2026-08-03) — evaluation runs on a RENTED BOX, not
+  the laptop.** Operate under this assumption: do not plan, schedule or
+  cost any eval as local work. A *separate, cheap, short-lived* box from
+  the Tier-b campaign box — many cores, `--device cpu`, no GPU (one CUDA
+  context per concurrent game exhausts VRAM before the cores are busy),
+  hours not weeks. Runbook + the T-B/T-C queue: **`docs/eval_box.md`**.
+  Why: measured 2026-08-03, the laptop has 7.6 GB RAM and ran a single
+  eval game for **9 minutes of wall clock on ~1 second of CPU**,
+  producing nothing — it page-thrashes, and had already crashed once.
+  The "free local measurement track" was never free.
+- **DECISION (user, 2026-08-02) — Tier-b directly**, accepting that
+  Tier-a's exit gate (≥90% vs RCA) was not met (0-0-30). Arch locked at
+  `d384/L8/H12/ff1536` = 15.55M on measurement, seed escrowed on HF as
+  `tier_b_15m.pt`. **The grow is NOT a drop-in (value MAE 0.226 vs the
+  0.017 precedent), so a recovery leg is mandatory before any strength
+  number from it is interpretable** — see `docs/tier_b_runbook.md` §3
+  and `docs/superhuman_training_plan.md` §11. Box is parked, not booked.
+
 - **IDEA — Wesnoth add-on: human vs a trained model.** Let a human play in
   the real client against a checkpoint. Builds on the existing
   live-Wesnoth bridge (`wesnoth_ai/wesnoth_interface.py` +

@@ -108,6 +108,17 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--time-budget-min", type=float, default=55.0,
                     help="Stop cleanly after this long. Re-run to continue.")
     ap.add_argument("--min-free-mb", type=float, default=DEFAULT_MIN_FREE_MB)
+    ap.add_argument("--device", default="auto",
+                    choices=("auto", "cpu", "cuda"),
+                    help="Passed to each game. Use 'cpu' with --jobs > 1 on "
+                         "a GPU box: one CUDA context per concurrent game "
+                         "exhausts VRAM well before the cores are busy.")
+    ap.add_argument("--jobs", type=int, default=1,
+                    help="Concurrent games. Each is a separate process (the "
+                         "pattern that saturated a 4090 where a central pool "
+                         "could not). Size to CORES, not to GPUs; every job "
+                         "needs its own memory headroom, so the free-RAM "
+                         "floor is multiplied by --jobs.")
     ap.add_argument("--per-game-timeout-min", type=float, default=20.0,
                     help="Kill a single game that overruns; its slot is "
                          "skipped and the run continues.")
@@ -119,8 +130,12 @@ def main(argv: List[str]) -> int:
 
     args.outdir.mkdir(parents=True, exist_ok=True)
     deadline = time.perf_counter() + args.time_budget_min * 60.0
+    jobs = max(1, args.jobs)
+    # Every concurrent game needs its own headroom, so the floor scales.
+    floor = args.min_free_mb * jobs
     done = played = failed = 0
 
+    pending = []
     for i in range(args.games):
         side_a = 1 if i % 2 == 0 else 2
         seed = args.seed_base + i
@@ -128,45 +143,74 @@ def main(argv: List[str]) -> int:
                                         side_a, seed)
         if out.exists():
             done += 1
-            continue
-        if time.perf_counter() > deadline:
-            log.info("time budget reached — stopping cleanly")
-            break
+        else:
+            pending.append((i, side_a, seed, out))
+    log.info("%d already done, %d pending, %d concurrent, device=%s",
+             done, len(pending), jobs, args.device)
 
-        fm = free_mb()
-        if fm is not None and fm < args.min_free_mb:
-            log.error(
-                "only %.0f MB free (need %.0f). A torch process below this "
-                "thrashes instead of running. Close some applications and "
-                "re-run; finished games are kept.", fm, args.min_free_mb)
-            break
-
+    def launch(slot):
+        i, side_a, seed, _out = slot
         cmd = [sys.executable, "-u", str(_THIS.parent / "elo_eval_game.py"),
                args.label_a, args.spec_a, args.label_b, args.spec_b,
                str(side_a), str(seed), str(args.outdir),
                "--mcts-sims", str(args.mcts_sims),
-               "--max-turns", str(args.max_turns)]
-        t0 = time.perf_counter()
-        try:
-            r = subprocess.run(cmd, capture_output=True, text=True,
-                               timeout=args.per_game_timeout_min * 60.0)
-            ok = r.returncode == 0 and out.exists()
-            if not ok:
-                failed += 1
-                log.warning("game %d (side %d, seed %d) failed rc=%s: %s",
-                            i, side_a, seed, r.returncode,
-                            (r.stderr or "").strip()[-200:])
-            else:
+               "--max-turns", str(args.max_turns),
+               "--device", args.device]
+        return (subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.PIPE, text=True),
+                time.perf_counter(), slot)
+
+    running = []
+    stop = False
+    while (pending or running) and not stop:
+        while pending and len(running) < jobs and not stop:
+            if time.perf_counter() > deadline:
+                log.info("time budget reached — no new games; "
+                         "draining %d in flight", len(running))
+                stop = True
+                break
+            fm = free_mb()
+            if fm is not None and fm < floor and not running:
+                # Only hard-stop when nothing is in flight; otherwise let
+                # the running games finish and free their memory first.
+                log.error(
+                    "only %.0f MB free (need %.0f for %d job(s)). A torch "
+                    "process below this thrashes instead of running. Close "
+                    "applications or lower --jobs, then re-run; finished "
+                    "games are kept.", fm, floor, jobs)
+                stop = True
+                break
+            if fm is not None and fm < floor:
+                break                       # wait for a slot to free memory
+            running.append(launch(pending.pop(0)))
+
+        if not running:
+            break
+        time.sleep(2.0)
+        for entry in list(running):
+            proc, t0, (i, side_a, seed, out) = entry
+            elapsed = time.perf_counter() - t0
+            if proc.poll() is None:
+                if elapsed > args.per_game_timeout_min * 60.0:
+                    proc.kill()
+                    running.remove(entry)
+                    failed += 1
+                    log.warning("game %d timed out after %.0f min; slot "
+                                "skipped", i, args.per_game_timeout_min)
+                continue
+            running.remove(entry)
+            if proc.returncode == 0 and out.exists():
                 played += 1
-        except subprocess.TimeoutExpired:
-            failed += 1
-            log.warning("game %d timed out after %.0f min; skipping slot",
-                        i, args.per_game_timeout_min)
-            continue
-        log.info("game %d/%d done in %.1f min (played=%d failed=%d, "
-                 "%.0f MB free)", i + 1, args.games,
-                 (time.perf_counter() - t0) / 60.0, played, failed,
-                 fm if fm is not None else -1)
+            else:
+                failed += 1
+                err = (proc.stderr.read() if proc.stderr else "") or ""
+                log.warning("game %d (side %d, seed %d) failed rc=%s: %s",
+                            i, side_a, seed, proc.returncode,
+                            err.strip()[-200:])
+            log.info("game %d done in %.1f min (played=%d failed=%d, "
+                     "%d pending, %d in flight)", i,
+                     elapsed / 60.0, played, failed, len(pending),
+                     len(running))
 
     total = len(list(args.outdir.glob("game_*.json")))
     # Report as a fraction, never a percentage or an extrapolation.

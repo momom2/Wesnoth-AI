@@ -83,13 +83,30 @@ def main(argv) -> int:
     ap.add_argument("outdir", type=Path)
     ap.add_argument("--max-turns", type=int, default=200)
     ap.add_argument("--mcts-sims", type=int, default=32)
+    ap.add_argument("--device", default="auto", choices=("auto", "cpu", "cuda"),
+                    help="'auto' (default) uses CUDA when visible. Use 'cpu' "
+                         "for MASSIVELY PARALLEL eval: this script is one "
+                         "game per process, so N concurrent games on a GPU "
+                         "box means N CUDA contexts (~300-600 MB each) and "
+                         "VRAM runs out long before the cores are busy. "
+                         "Eval is CPU-bound anyway.")
     ap.add_argument("--log-level", default="WARNING")
     args = ap.parse_args(argv[1:])
     logging.basicConfig(level=getattr(logging, args.log_level))
 
     import torch
     torch.set_num_threads(2)
-    device = (torch.device("cuda") if torch.cuda.is_available() else None)
+    if args.device == "cpu":
+        device = None
+    elif args.device == "cuda":
+        if not torch.cuda.is_available():
+            raise SystemExit("--device cuda requested but no CUDA device is "
+                             "visible; refusing to silently fall back to CPU "
+                             "(an eval that quietly changes device is an "
+                             "eval whose timings mean nothing).")
+        device = torch.device("cuda")
+    else:
+        device = (torch.device("cuda") if torch.cuda.is_available() else None)
 
     args.outdir.mkdir(parents=True, exist_ok=True)
     out_path = args.outdir / (
