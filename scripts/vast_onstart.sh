@@ -118,7 +118,28 @@ fi
 # reset; any restart after that resumes the campaign checkpoint
 # WITHOUT it. The campaign file doubles as the marker (it exists iff
 # training has saved at least once; the save is atomic + .bak'd).
-CAMPAIGN=training/checkpoints/tier_a_campaign.pt
+# Architecture + campaign identity. Defaults reproduce the Tier-a
+# calibration run exactly; a Tier-b campaign overrides all six at
+# instance-create time (or via $WORKDIR/env.sh on a live box).
+#
+# THESE MUST AGREE WITH THE SEED CHECKPOINT'S `arch` -- sim_self_play
+# raises on a warm-start arch mismatch, which is the guard that keeps
+# a half-changed override from training a differently-shaped net.
+#
+# CAMPAIGN_FILE is also the run's IDENTITY: it names the local rolling
+# checkpoint AND the HF escrow object. `tier_a_campaign.pt` is
+# RESERVED for the Tier-a lineage -- a Tier-b run that leaves it at
+# the default would roll its own weights forward over that name.
+D_MODEL="${D_MODEL:-256}"
+NUM_LAYERS="${NUM_LAYERS:-6}"
+NUM_HEADS="${NUM_HEADS:-8}"
+D_FF="${D_FF:-1024}"
+CAMPAIGN_FILE="${CAMPAIGN_FILE:-tier_a_campaign.pt}"
+SEED_CKPT="${SEED_CKPT:-training/checkpoints/tier_a_5m.pt}"
+echo "[onstart] arch d_model=$D_MODEL layers=$NUM_LAYERS heads=$NUM_HEADS" \
+     "d_ff=$D_FF | campaign=$CAMPAIGN_FILE | seed=$SEED_CKPT"
+
+CAMPAIGN="training/checkpoints/$CAMPAIGN_FILE"
 
 # Detector advice signal ON by default (2026-07-28). Env vars are baked at
 # instance-CREATE time, so a plain restart of an existing box cannot add
@@ -152,7 +173,8 @@ if [ ! -f "$CAMPAIGN" ]; then
     if [ -n "${HF_TOKEN:-}" ] || [ -f "$WORKDIR/.hf_token" ]; then
         "$PY" -m pip install --quiet huggingface_hub || true
         HF_SEED_TOKEN="${HF_TOKEN:-}" \
-        HF_SEED_FILE="${HF_SEED_FILE:-tier_a_campaign.pt}" \
+        HF_SEED_FILE="${HF_SEED_FILE:-$CAMPAIGN_FILE}" \
+        HF_SEED_DEST="$CAMPAIGN" \
         "$PY" - <<'EOF' && echo "[onstart] seeded campaign from HF" \
             || echo "[onstart] HF seed unavailable (first campaign?)"
 import os, pathlib, shutil, sys
@@ -166,7 +188,11 @@ try:
 except Exception as e:                                  # noqa: BLE001
     print(f"[onstart] hf seed download failed: {e}")
     sys.exit(1)
-dst = pathlib.Path("training/checkpoints/tier_a_campaign.pt")
+# Must land on THIS campaign's path: onstart decides first-launch vs
+# resume by testing that exact file, so seeding a renamed campaign to
+# the old hardcoded path would silently start over from scratch.
+dst = pathlib.Path(os.environ.get(
+    "HF_SEED_DEST", "training/checkpoints/tier_a_campaign.pt"))
 dst.parent.mkdir(parents=True, exist_ok=True)
 shutil.copy2(p, dst)
 print(f"[onstart] seed file: {fname}")
@@ -204,11 +230,49 @@ print(f"[onstart] corpus: {len(list(dst.glob('*.json.gz')))} games")
 EOF
 fi
 
+# Fetch the FIRST-LAUNCH seed from HF when it is not in the git clone.
+# Tier-a's 5M seed is committed (20 MB); larger tier seeds are escrowed
+# on HF instead of bloating the repo, so a fresh box must be able to
+# pull one. Only runs when the campaign has not started AND the seed is
+# genuinely absent -- never overwrites a local file, and never touches
+# a resume (which reads $CAMPAIGN, not $SEED_CKPT).
+if [ ! -f "$CAMPAIGN" ] && [ ! -f "$SEED_CKPT" ] \
+        && { [ -n "${HF_TOKEN:-}" ] || [ -f "$WORKDIR/.hf_token" ]; }; then
+    "$PY" -m pip install --quiet huggingface_hub || true
+    HF_SEED_TOKEN="${HF_TOKEN:-}" HF_SEED_DEST="$SEED_CKPT" \
+    HF_SEED_NAME="$(basename "$SEED_CKPT")" \
+    "$PY" - <<'EOF' || echo "[onstart] WARN: seed fetch failed"
+import os, pathlib, shutil, sys
+from huggingface_hub import hf_hub_download
+tok = os.environ.get("HF_SEED_TOKEN") or pathlib.Path(
+    os.environ.get("WORKDIR", "/workspace"), ".hf_token").read_text().strip()
+name = os.environ["HF_SEED_NAME"]
+try:
+    p = hf_hub_download("momom2/wesnoth-tier-a", name, token=tok)
+except Exception as e:                                  # noqa: BLE001
+    print(f"[onstart] seed download failed ({name}): {e}")
+    sys.exit(1)
+dst = pathlib.Path(os.environ["HF_SEED_DEST"])
+dst.parent.mkdir(parents=True, exist_ok=True)
+shutil.copy2(p, dst)
+print(f"[onstart] fetched first-launch seed: {name} -> {dst}")
+EOF
+fi
+
+# A missing seed must fail HERE, loudly, rather than inside the training
+# launch several steps later (where it would land in the relaunch loop
+# and burn restarts against an unfixable condition).
+if [ ! -f "$CAMPAIGN" ] && [ ! -f "$SEED_CKPT" ]; then
+    echo "[onstart] FATAL: no campaign at $CAMPAIGN and no seed at $SEED_CKPT."
+    echo "[onstart] Commit the seed, or escrow it on HF and pass HF_TOKEN."
+    exit 1
+fi
+
 if [ -f "$CAMPAIGN" ]; then
     CKPT_IN="$CAMPAIGN"; RESET=""
     echo "[onstart] RESUME from $CAMPAIGN (no --reset-decision-step)"
 else
-    CKPT_IN=training/checkpoints/tier_a_5m.pt
+    CKPT_IN="$SEED_CKPT"
     RESET="--reset-decision-step"
     echo "[onstart] FIRST LAUNCH from $CKPT_IN (+anneal reset)"
 fi
@@ -271,7 +335,8 @@ fi
 pkill -f 'hf_upload_loo[p].py' 2>/dev/null || true
 if [ -n "${HF_TOKEN:-}" ] || [ -f "$WORKDIR/.hf_token" ]; then
     "$PY" -m pip install --quiet huggingface_hub || true
-    WORKDIR="$WORKDIR" nohup "$PY" scripts/hf_upload_loop.py \
+    WORKDIR="$WORKDIR" CAMPAIGN_FILE="$CAMPAIGN_FILE" \
+        nohup "$PY" scripts/hf_upload_loop.py \
         >> "$WORKDIR/hf_upload.log" 2>&1 &
     echo "[onstart] HF checkpoint uploader ON (see hf_upload.log)"
 else
@@ -304,7 +369,7 @@ if [ "${SL_MODE:-0}" = "1" ]; then
     pkill -f 'supervised_trai[n].py' 2>/dev/null || true
     sleep 2
     echo "[onstart] SL_MODE: behavior cloning, resume from $SL_RESUME"
-    nohup "$PY" tools/supervised_train.py replays_dataset         --checkpoint "$SL_OUT"         --resume "$SL_RESUME"         --epochs "${SL_EPOCHS:-8}"         --bs "${SL_BS:-64}"         --lr "${SL_LR:-1e-4}"         --device cuda         --workers "${SL_WORKERS:-24}"         --d-model 256 --num-layers 6 --num-heads 8 --d-ff 1024         --holdout-games "${SL_HOLDOUT:-300}"         --value-loss-weight "${SL_VALUE_WEIGHT:-1.0}"         --value-states-per-game "${SL_VALUE_SPG:-16}"         --eval-every "${SL_EVAL_EVERY:-50000}"         --eval-pairs "${SL_EVAL_PAIRS:-1200}"         >> "$WORKDIR/train.log" 2>&1 &
+    nohup "$PY" tools/supervised_train.py replays_dataset         --checkpoint "$SL_OUT"         --resume "$SL_RESUME"         --epochs "${SL_EPOCHS:-8}"         --bs "${SL_BS:-64}"         --lr "${SL_LR:-1e-4}"         --device cuda         --workers "${SL_WORKERS:-24}"         --d-model $D_MODEL --num-layers $NUM_LAYERS --num-heads $NUM_HEADS --d-ff $D_FF         --holdout-games "${SL_HOLDOUT:-300}"         --value-loss-weight "${SL_VALUE_WEIGHT:-1.0}"         --value-states-per-game "${SL_VALUE_SPG:-16}"         --eval-every "${SL_EVAL_EVERY:-50000}"         --eval-pairs "${SL_EVAL_PAIRS:-1200}"         >> "$WORKDIR/train.log" 2>&1 &
     echo "[onstart] SL training launched (tail -f $WORKDIR/train.log)"
     exit 0
 fi
@@ -397,7 +462,8 @@ nohup bash -c "
     [ -f '$CAMPAIGN' ] && RESET=''
     '$PY' tools/sim_self_play.py --device cuda \
       --mcts --mcts-sims 32 \
-      --d-model 256 --num-layers 6 --num-heads 8 --d-ff 1024 \
+      --d-model $D_MODEL --num-layers $NUM_LAYERS \
+      --num-heads $NUM_HEADS --d-ff $D_FF \
       --replay-buffer --replay-updates 16 --value-coef 1.0 \
       --replay-minibatch ${REPLAY_MINIBATCH:-128} --replay-capacity 24000 \
       --train-batch-size ${TRAIN_BATCH:-64} --mcts-batch-size 16 \

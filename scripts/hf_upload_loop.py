@@ -30,15 +30,22 @@ from pathlib import Path
 UPLOAD_EVERY = int(os.environ.get("HF_UPLOAD_EVERY", "1800"))
 WORKDIR = Path(os.environ.get("WORKDIR", "/workspace"))
 
+# The campaign's identity, shared with vast_onstart.sh's CAMPAIGN_FILE.
+# It names both the local rolling checkpoint and the HF escrow object,
+# so a run on a different lineage MUST override it -- otherwise this
+# loop uploads that run's weights over the reserved `tier_a_campaign.pt`
+# escrow. Kept as one variable so the two can never drift apart.
+CAMPAIGN_FILE = os.environ.get("CAMPAIGN_FILE", "tier_a_campaign.pt")
+
 FILES = [
-    ("training/checkpoints/tier_a_campaign.pt", "tier_a_campaign.pt"),
+    (f"training/checkpoints/{CAMPAIGN_FILE}", CAMPAIGN_FILE),
     ("training/logs/trainer_history_local.csv", "trainer_history_local.csv"),
     # Persisted holdout probe (2026-07-18): without it, a destroyed/
     # reseeded box resamples the probe and the holdout-CE curve loses
     # cross-box comparability (the balance-exhaustion stop of
     # 2026-07-19 nearly stranded it on an unreachable disk).
-    ("training/checkpoints/tier_a_campaign.pt.holdout",
-     "tier_a_campaign.pt.holdout"),
+    (f"training/checkpoints/{CAMPAIGN_FILE}.holdout",
+     f"{CAMPAIGN_FILE}.holdout"),
 ]
 # HF_EXTRA_FILES="src:dst,src:dst" adds run-specific artifacts (e.g.
 # the supervised pass: supervised.pt + its eval curve, 2026-07-16).

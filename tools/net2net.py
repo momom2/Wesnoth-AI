@@ -90,7 +90,8 @@ def transfer_state_dict(
     If you re-grow a pre-2026-07-11 checkpoint, route its encoder
     state through `encoder.pad_legacy_encoder_state` FIRST so those
     slots transfer as zeros."""
-    report = {"exact": [], "grown": [], "skipped": [], "fresh": []}
+    report = {"exact": [], "grown": [], "skipped": [], "fresh": [],
+              "dropped": []}
     new_sd = {k: v.clone() for k, v in dst_model.state_dict().items()}
     with torch.no_grad():
         for name, dst in new_sd.items():
@@ -107,6 +108,13 @@ def transfer_state_dict(
             else:
                 _transfer_param(name, dst, src)
                 report["grown"].append(name)
+    # TRAINED WEIGHTS WITH NOWHERE TO GO. The loop above iterates over the
+    # DESTINATION's params, so a source tensor whose module doesn't exist
+    # on the destination is silently discarded. That is how an optional
+    # head (advice cross-attention, moves_left) disappears when the
+    # destination policy was built without its flag -- the grow "succeeds"
+    # and the head is simply gone. Surfaced so a caller can refuse.
+    report["dropped"] = [k for k in src_sd if k not in new_sd]
     dst_model.load_state_dict(new_sd)
     return report
 
@@ -120,11 +128,21 @@ def grow_checkpoint(
     d_model: Optional[int] = None, num_layers: Optional[int] = None,
     num_heads: Optional[int] = None, d_ff: Optional[int] = None,
     aux_score: Optional[bool] = None, device=None,
+    moves_left: Optional[bool] = None, advice: Optional[bool] = None,
+    relevant_set_hexes: Optional[bool] = None,
 ) -> Dict:
     """Load a checkpoint, build a TransformerPolicy at the (possibly
     larger) target arch, block-transfer the trained weights into it,
     carry the vocab + decision_step, and save a new checkpoint ready to
-    `--checkpoint-in`. Unspecified arch dims default to the source's."""
+    `--checkpoint-in`. Unspecified arch dims default to the source's.
+
+    OPTIONAL-HEAD FLAGS ARE CARRIED FROM THE SOURCE, not defaulted off.
+    `TransformerPolicy.__init__` defaults `moves_left`/`advice`/
+    `relevant_set_hexes` to False, so building the destination from
+    `arch` alone silently drops those heads' trained weights (the
+    transfer walks the DESTINATION's params — a source tensor with no
+    destination slot vanishes). Pass a flag explicitly only to override
+    the source; `None` means "keep what the source had"."""
     from wesnoth_ai.transformer_policy import TransformerPolicy
 
     dev = device or torch.device("cpu")
@@ -144,9 +162,27 @@ def grow_checkpoint(
             f"--d-model ({arch['d_model']}).")
     aux = src_aux if aux_score is None else bool(aux_score)
 
-    pol = TransformerPolicy(device=dev, aux_score=aux, **arch)
+    def _keep(override, key):
+        return bool(raw.get(key, False)) if override is None else bool(override)
+
+    flags = {
+        "moves_left":         _keep(moves_left, "moves_left"),
+        "advice":             _keep(advice, "advice"),
+        "relevant_set_hexes": _keep(relevant_set_hexes, "relevant_set_hexes"),
+    }
+
+    pol = TransformerPolicy(device=dev, aux_score=aux, **flags, **arch)
     model_rep = transfer_state_dict(raw["model_state"], pol._model)
     enc_rep = transfer_state_dict(raw["encoder_state"], pol._encoder)
+    dropped = model_rep["dropped"] + enc_rep["dropped"]
+    if dropped:
+        raise SystemExit(
+            f"grow would DISCARD {len(dropped)} trained tensor(s) with no "
+            f"destination slot: {sorted(dropped)[:8]}"
+            f"{' ...' if len(dropped) > 8 else ''}. The destination policy "
+            f"lacks a module the source trained (check the optional-head "
+            f"flags: aux_score={aux}, {flags}). Refusing to write a "
+            f"silently mutilated checkpoint.")
 
     # Carry the vocab so transferred embedding ROWS stay aligned with
     # their unit-type / faction ids; keep the inference encoder sharing
@@ -163,13 +199,14 @@ def grow_checkpoint(
     pol.save_checkpoint(out_path)
     report = {
         "src_arch": src_arch, "dst_arch": arch,
-        "aux_score": aux, "decision_step": pol._decision_step,
+        "aux_score": aux, "flags": flags,
+        "decision_step": pol._decision_step,
         "model": {k: len(v) for k, v in model_rep.items()},
         "encoder": {k: len(v) for k, v in enc_rep.items()},
     }
     log.info(
         f"grew {Path(src_path).name} {src_arch} -> {arch} "
-        f"(aux_score={aux}); model copied/grown/fresh/skipped="
+        f"(aux_score={aux}, {flags}); model copied/grown/fresh/skipped="
         f"{report['model']}; encoder={report['encoder']}")
     return report
 
@@ -191,6 +228,17 @@ def main(argv: List[str]) -> int:
     aux.add_argument("--no-aux-score", dest="aux_score",
                      action="store_false",
                      help="Force the aux head OFF in the grown net.")
+    # Optional heads default to the SOURCE's setting (None); these only
+    # exist to deliberately add or drop a head during a grow.
+    for _f, _h in (("moves-left", "moves-left head"),
+                   ("advice", "advice cross-attention"),
+                   ("relevant-set-hexes", "relevant-set hex encoding")):
+        _g = ap.add_mutually_exclusive_group()
+        _d = _f.replace("-", "_")
+        _g.add_argument(f"--{_f}", dest=_d, action="store_true", default=None,
+                        help=f"Force the {_h} ON (default: keep source's).")
+        _g.add_argument(f"--no-{_f}", dest=_d, action="store_false",
+                        help=f"Force the {_h} OFF.")
     ap.add_argument("--log-level", default="INFO",
                     choices=["DEBUG", "INFO", "WARNING"])
     args = ap.parse_args(argv[1:])
@@ -204,7 +252,9 @@ def main(argv: List[str]) -> int:
     grow_checkpoint(
         args.src, args.out, d_model=args.d_model,
         num_layers=args.num_layers, num_heads=args.num_heads,
-        d_ff=args.d_ff, aux_score=args.aux_score)
+        d_ff=args.d_ff, aux_score=args.aux_score,
+        moves_left=args.moves_left, advice=args.advice,
+        relevant_set_hexes=args.relevant_set_hexes)
     return 0
 
 

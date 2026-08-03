@@ -380,6 +380,14 @@ validated on the CPU laptop before renting.
 = 5.0M model params** (from 471K). Mid the plan's 3–10M Tier-a target.
 Reproduce param counts with `TransformerPolicy(**arch)`.
 
+> **SCOPE CORRECTION (2026-08-02).** The numbers in this subsection were
+> measured growing the **471K supervised** checkpoint to 5M. They do NOT
+> generalize to the Tier-b grow from the 5M campaign checkpoint, where
+> every candidate measured 0.13–0.34 (see §11). In particular the
+> "width grow best preserves value" ordering below **inverts** at that
+> scale — there, width is the *more* damaging axis. Read §11 before
+> planning any further grow.
+
 **Warm-start — Net2Net from the current 471K checkpoint IS worth it (not
 fresh init).** Measured output divergence of the grown net vs the trained
 net on 24 held-out states (`tools/net2net.py` grow, then compare):
@@ -424,6 +432,65 @@ domain). Verified mid-2026:
 in-process rollout's per-leaf `.item()`/`.tolist()` on GPU tensors (adopt
 the actor-pool's sampler-on-CPU split), B2 (per-leaf value/cliffness batch
 read), B3 (pinned H2D). See BACKLOG §2026-07-01.
+
+---
+
+## 11. Tier-b grow: measured, 2026-08-02
+
+Measured with `tools/measure_warm_start.py` (built for this question)
+growing `campaign_live_20260730.pt` (5.0M, decision_step 2,515,896),
+32 shared states from the policy's own play, `--max-decisions 25` so
+the sample spreads over ~11 games. **An identity grow scores 0.0000
+across every metric in the same run** — that control is what licenses
+reading the rest.
+
+| grow | Δ from source | params | value MAE | C51 KL |
+|---|---|---|---|---|
+| 256/L6/H8/ff1024 | identity (control) | 5.35M | **0.0000** | 0.0000 |
+| 256/L8/H8/ff1024 | depth only, L6→L8 | 6.93M | 0.081 | 0.028 |
+| 320/L6/H10/ff1280 | width only, →320 | 8.35M | 0.130 | 0.029 |
+| 384/L6/H12/ff1536 | width only, →384 | 12.01M | 0.152 | 0.039 |
+| 384/L8/H12/ff1536 | width + depth | 15.55M | 0.226 | 0.277 |
+| 512/L8/H16/ff2048 | width + depth | 27.62M | 0.248 | 0.122 |
+| 384/L8/**H8**/ff1536 | width + depth, d_head 32→48 | 15.55M | 0.339 | 0.351 |
+| 512/L8/**H8**/ff2048 | width + depth, d_head 32→64 | 27.62M | 0.327 | 0.781 |
+
+**Three conclusions, in order of how much they change what you do.**
+
+**(1) KEEP d_head = 32 — set `num_heads = d_model / 32`.**
+`nn.MultiheadAttention` packs head *h* at rows [h·d_head, (h+1)·d_head)
+inside each stacked Q/K/V block, and `net2net._transfer_param` copies a
+*leading block* per Q/K/V — it knows about the QKV split but not about
+heads. So the copy is head-aligned only when d_head is unchanged;
+otherwise every old head is sheared across two new ones. Measured cost
+of getting this wrong: **0.226 → 0.339** at d384 and 0.248 → 0.327 at
+d512, with C51 KL up to 6.4x worse. The §10 precedent was head-aligned
+only by luck of its numbers (128/4 → 256/8 is d_head 32 → 32).
+**This makes the §3.2 table's `d_model 512 / heads 8` row wrong for a
+grow** — use heads 16 there.
+
+**(2) No Tier-b grow is a drop-in, at any size.** The best candidate is
+13x the §10 acceptance precedent (0.017) and above the bar at which
+T2-C's relevant-set encoding was *rejected* (0.217, `docs/
+autonomous_run.md` cycle 24). The rule from that cycle therefore applies
+unchanged here: **a grown net's first strength number is meaningless
+until a recovery leg has run.** Gate the recovery on holdout /
+`fresh_value_ce` returning to its pre-grow level (floor-relative,
+skipping iteration-0-after-restart), not on an iteration count.
+
+**(3) Damage is roughly additive across axes, and width dominates** —
+the inverse of §10's ordering at 471K. Depth alone 0.081, width alone
+0.152, together 0.226. Two consequences: a *progressive* grow (width
+step, recover, depth step) has a real cost argument behind it, and
+choosing between 15.55M and 27.62M should be decided on **throughput,
+not warm-start** — their warm-start damage is within 10% of each other
+while their forward cost is not.
+
+**Honest limits of this measurement.** 32 states, biased early/midgame
+by the 25-decision cap, single seed, CPU. The identity control and the
+consistency of the aligned-vs-sheared ordering across both sizes make
+the *ranking* trustworthy; treat individual MAEs as ±. It says nothing
+about how fast a recovery leg closes the gap — that is a GPU question.
 
 ---
 
