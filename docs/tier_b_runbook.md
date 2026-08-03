@@ -111,8 +111,54 @@ Two caveats that must travel with these numbers:
   the run) and its basis can reset across boxes. It is a secondary
   read; the floor-relative CE is the gate.
 
-- The raw CSV is kept at `training/logs/trainer_history_hf.csv` so this
-  baseline can be recomputed rather than trusted.
+- The raw CSV is **gitignored** (`.gitignore:105`, it is regenerable).
+  Re-pull with `hf_hub_download("momom2/wesnoth-tier-a",
+  "trainer_history_local.csv")` to recompute rather than trust these.
+
+### Drift, not degradation — the gate on Tier-b spend, 2026-08-03
+
+A value-head AUC regression was measured across the +133 interval on
+**human-corpus** states (2,290,529 → 2,515,896: open 0.713→0.636, mid
+0.784→0.727, late 0.683→0.609). Extended to 160 games with a
+game-cluster bootstrap it is **probably real but not decisive**: pooled
+**−0.078**, CI95 [−0.153, +0.001], and a clean out-of-sample replication
+on the 120 games the hypothesis was *not* formed on (−0.078, one-sided
+p≈0.049). A within-game check (−0.068) excludes a cross-game calibration
+artifact. Alongside it, an unambiguous **C51 confidence collapse**:
+Z-entropy 0.591→0.505 (CI excludes 0), max-atom mass 0.669→0.835, late
+game averaging **0.905 on a single atom**.
+
+That raised a real gate: if the training signal degrades its own
+evaluator while climbing in-lineage Elo, scaling capacity inherits the
+pathology and signal work must precede Tier-b spend.
+
+**The discriminator says drift.** In-distribution value telemetry over
+the same campaign CSV moved the *other* way, and more strongly:
+
+| metric (floor-relative; more negative = better) | first half | last half | delta |
+|---|---|---|---|
+| `fresh_value_ce` − floor | −0.087 | −0.285 | **−0.198** (t=−3.62) |
+| `fresh_decisive_ce` − floor | −0.160 | −0.407 | **−0.246** (t=−3.56) |
+
+In-distribution value learning **improved**, at roughly twice the
+t-statistic of the human-corpus decline. Improving on self-play states
+while declining on human states is the signature of **distribution
+drift**, not a degrading evaluator — so **the capacity argument for
+Tier-b survives** and this is not a reason to halt the scale-up.
+
+Three caveats that must travel with that conclusion:
+- **Coverage is imperfect.** The CSV spans 2,406,235→2,670,682, so it
+  misses the first 115,706 steps of the +133 interval and extends
+  154,786 past it. It is not a clean overlay of the same interval.
+- Iterations are **autocorrelated**, so the t-values overstate
+  significance; read them as "large relative to spread", not as p.
+- The series is non-monotonic across a resume, so first/last half is
+  approximate time ordering.
+
+The collapse finding stands regardless of drift-vs-degradation, and is
+an independent argument against **value-side** self-distillation: a head
+already sharpening toward delta-spikes would take a bootstrapped target
+faster than terminal z could correct it.
 - If holdout CE plateaus above the pre-grow level for a long window,
   that is the real result: the capacity did not pay for its own
   warm-start damage. Report it; do not keep buying hours.
