@@ -84,8 +84,35 @@ the bar at which T2-C's encoding change was rejected (0.217). So:
   flag-OFF, pre-grow level**, read **floor-relative** (CE − floor; raw
   CE moves with the label mix), **skipping iteration-0-after-restart**.
 - Gate on the curve, **not on an iteration count**.
-- Record the pre-grow holdout CE from the 5M campaign's CSV *before*
-  launching, or there is nothing to recover *to*.
+### The pre-grow baseline — RECORDED 2026-08-03
+
+Measured from the Tier-a campaign's `trainer_history_local.csv` (pulled
+from HF; 41 logged iterations, `holdout_n` 526 throughout). **This is
+the number the recovery leg must return to.**
+
+| metric | last 10 iters | last 20 iters |
+|---|---|---|
+| **`fresh_value_ce` − floor** | **−0.228** (sd 0.138) | −0.277 (sd 0.156) |
+| `holdout_value_loss` | 1.396 (sd 0.330) | 1.486 (sd 0.480) |
+
+**Use floor-relative CE as the gate, and use a trailing mean.** Raw
+`fresh_value_ce` moves with the label mix, so only CE − floor is
+comparable across legs. And a single iteration is worthless here: the
+floor-relative value swings between −0.02 and −0.56 from iteration to
+iteration (sd 0.14–0.16), so **any recovery claim needs a trailing mean
+over ≥10 iterations**, not a good-looking row. Concretely: recovered
+means the trailing-10 mean of (CE − floor) is back at roughly **−0.23**,
+i.e. comfortably negative, not merely improving.
+
+Two caveats that must travel with these numbers:
+- The step series is **non-monotonic** near 2,534,542 → 2,529,503 — a
+  resume. Treat the CSV as concatenated legs, not one continuous curve.
+- `holdout_value_loss` is the noisier of the two (range 0.71–2.56 across
+  the run) and its basis can reset across boxes. It is a secondary
+  read; the floor-relative CE is the gate.
+
+- The raw CSV is kept at `training/logs/trainer_history_hf.csv` so this
+  baseline can be recomputed rather than trusted.
 - If holdout CE plateaus above the pre-grow level for a long window,
   that is the real result: the capacity did not pay for its own
   warm-start damage. Report it; do not keep buying hours.
