@@ -106,8 +106,15 @@ def main(argv: List[str]) -> int:
             device=torch.device("cpu"),
             d_model=a["d_model"], num_layers=a["num_layers"],
             num_heads=a["num_heads"], d_ff=a["d_ff"],
+            # ALL optional heads must be carried, not just two. The
+            # constructor defaults them off, and load_checkpoint only
+            # WARNS about the resulting unexpected keys -- so omitting
+            # `advice` silently probed a model missing the whole advice
+            # cross-attention (12 tensors on campaign_live_20260730.pt).
             aux_score=bool(raw.get("aux_score")),
-            moves_left=bool(raw.get("moves_left")))
+            moves_left=bool(raw.get("moves_left")),
+            advice=bool(raw.get("advice")),
+            relevant_set_hexes=bool(raw.get("relevant_set_hexes")))
         p.load_checkpoint(ck)
         m, enc = p._model, p._encoder
         m.eval()
