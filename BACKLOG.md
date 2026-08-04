@@ -36,8 +36,11 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
   - **Export sweep: 538/574 clean.** 2 fogless OOS = known-fixed
     (9133cca, bare-clone schedules.cfg); **30 midgame OOS = phantom
     advancement `[choose]`s in exports** (e.g. 5 chooses on one
-    no-advancement attack — a side-channel accumulation bug, exact leak
-    site not yet reproduced at HEAD); **2 mini OOS = spawned-tentacle
+    no-advancement attack, plus a real advancement with NO choose —
+    prime suspect is the midgame SPLICER's extras harvest, since
+    midgame is the only spliced category and the only one with the
+    class; an 85-decision MCTS fork-pollution probe at HEAD found
+    nothing); **2 mini OOS = spawned-tentacle
     divergence** (engine re-rolls the `random_traits=yes` turn-1 spawn;
     our reconstruction is self-consistent, engine's monster differs).
 - **All boxes stopped 2026-08-04** (eval box work complete; T2 box start
