@@ -245,10 +245,15 @@ def _validate_once(replay: Path, timeout: float = 420.0,
     pos = 0
     t0 = time.time()
     last_growth = t0
+    last_progress = t0    # last time `progress` ADVANCED
     _last_nudge = 0.0
     _last_enter = 0.0
     try:
-        while time.time() - t0 < timeout:
+        # `timeout` is progress-idle: a slow-but-advancing playback
+        # (14 parallel instances sharing cores, 2026-08-04) must not
+        # be killed mid-game; 3x flat cap as the hard backstop.
+        while (time.time() - last_progress < timeout
+               and time.time() - t0 < 3 * timeout):
             if not minimized:
                 minimized = _minimize(proc.pid)
             if log_file is None:
@@ -274,7 +279,10 @@ def _validate_once(replay: Path, timeout: float = 420.0,
                     low = line.lower()
                     m = _PROGRESS_RE.search(low)
                     if m:
-                        progress = max(progress, int(m.group(1)))
+                        x = int(m.group(1))
+                        if x > progress:
+                            progress = x
+                            last_progress = time.time()
                         total = int(m.group(2))
                     if any(mk in low for mk in _OOS_MARKERS):
                         offending.append(line.strip())
@@ -289,7 +297,12 @@ def _validate_once(replay: Path, timeout: float = 420.0,
                 # whose locally-generated [choose] answers mismatch
                 # the recorded stream -- a FALSE OOS (2026-07-19
                 # false-positive class; see validate_in_wesnoth's
-                # retry).
+                # retry). A startup modal (version-info dialog etc.)
+                # eats play clicks indefinitely — 9 games stuck at
+                # action 1 for 84 nudges, 2026-08-04 — so dismiss
+                # with ENTER first (no-op on the dialog-less viewer,
+                # same assumption as the mid-stall ENTER below).
+                _post_enter(proc.pid)
                 _post_play_hotkey(proc.pid)
                 _last_nudge = time.time()
             elif not skip_sent:
@@ -329,8 +342,9 @@ def _validate_once(replay: Path, timeout: float = 420.0,
             time.sleep(1.0)
         else:
             offending.append(
-                f"TIMEOUT after {timeout}s "
-                f"(progress {progress}/{total})")
+                f"TIMEOUT ({timeout}s progress-idle, "
+                f"{3 * timeout:.0f}s hard cap; "
+                f"progress {progress}/{total})")
         if progress < _MIN_PROGRESS:
             offending.append(
                 f"INCONCLUSIVE: playback never progressed past "
