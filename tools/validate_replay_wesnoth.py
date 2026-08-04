@@ -178,7 +178,22 @@ else:
         return True                     # Xvfb: nothing on screen
 
     def _post_play_hotkey(pid: int) -> None:
-        _xdo_key(pid, "p")
+        # The Steam-profile 'p'=play hotkey binding in _PREFERENCES
+        # does NOT take on a source-built 1.18.4 -- 'p' falls back to
+        # planning-mode toggle (diagnosed by screenshot 2026-08-04:
+        # "Planning mode deactivated!"). CLICK the replay-toolbar
+        # Play button instead: fixed (14, 46) at the forced 1024x768,
+        # and each instance owns a private Xvfb display, so a global
+        # mousemove cannot hit the wrong window. Re-clicking while
+        # already playing is a no-op (button disabled during play).
+        if not _XDO or not os.environ.get("DISPLAY"):
+            return
+        try:
+            subprocess.run([_XDO, "mousemove", "14", "46",
+                            "click", "1"],
+                           capture_output=True, timeout=10)
+        except Exception:
+            pass
 
     def _post_skip_hotkey(pid: int) -> None:
         _xdo_key(pid, "s")
