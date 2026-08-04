@@ -64,6 +64,15 @@ kaggle/*token*
 wesnoth_src/*
 !wesnoth_src/data/
 wesnoth_src/data/*
+# core/macros/schedules.cfg is REQUIRED on bare clones: scenario
+# [time_area] blocks invoke {DAWN}/{FIRST_WATCH}/... and without the
+# definitions the parser drops them, silently mispricing per-hex ToD
+# (2026-08-04 OOS: Kesorak darkened hex ran neutral instead of night).
+!wesnoth_src/data/core/
+wesnoth_src/data/core/*
+!wesnoth_src/data/core/macros/
+wesnoth_src/data/core/macros/*
+!wesnoth_src/data/core/macros/schedules.cfg
 !wesnoth_src/data/multiplayer/
 wesnoth_src/data/multiplayer/*
 !wesnoth_src/data/multiplayer/factions/

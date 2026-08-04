@@ -229,6 +229,17 @@ def _load_core_macros() -> Dict[str, Tuple[List[str], str]]:
     macros: Dict[str, Tuple[List[str], str]] = {}
     macros_dir = WESNOTH_SRC / "data" / "core" / "macros"
     if not macros_dir.exists():
+        # A bare git clone carries only the tracked runtime subset.
+        # schedules.cfg IS tracked (2026-08-04) precisely because
+        # [time_area] ToD macros must expand -- without them the
+        # parser dropped {FIRST_WATCH} etc. and Kesorak's darkened
+        # hex silently ran NEUTRAL instead of night (engine-verified
+        # OOS: recorded 10 dmg vs engine 7). Fail loudly, not silently.
+        log.warning(
+            "core macros dir missing (%s): scenario ToD macros "
+            "({DAWN}/{FIRST_WATCH}/...) will not expand -- "
+            "[time_area] cycles WILL be wrong on maps that use them "
+            "(Tombs of Kesorak, Elensefar Courtyard)", macros_dir)
         return macros
     for cfg in macros_dir.glob("*.cfg"):
         try:
