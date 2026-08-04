@@ -27,23 +27,42 @@ re-litigation of that decision.
 
 ## Pending inputs (blocking the spend)
 
-- **T-B, teacher advantage (RUNNING, eval box, 3 shards):** paired
-  AUC of the 32-sim search root value vs the raw head on identical
-  human-corpus states, campaign search config, checkpoint 2,515,896.
-  Pre-registered bar: **delta ≤ +0.02 ⇒ kill the value-distillation
-  channel** before the Tier-b campaign inherits it. Analyzer:
-  `tools/analyze_teacher_advantage.py`. Also read directionally: if
-  search values DO carry signal the raw head misses, that is the
-  repair direction for the flat-value side of mini passivity.
-- **Side-2 passivity root cause (workflow RUNNING):** why side 2's
-  end_turn prior collapses (late-game 78% vs 40% at p>0.8, conditioned
-  beyond value level). If the mechanism is a training-signal artifact
-  (draw-tiebreak leakage / Gumbel target asymmetry), it ships with the
-  Tier-b campaign unless fixed first — a fix-before-campaign decision
-  belongs in this brief once the verdict lands.
-- **Export-fidelity sweep (RUNNING, 574 post-fix replays):** zero real
-  OOS so far. A new OOS class in live categories would pause the spend
-  (sim faithfulness is load-bearing for everything).
+- **T-B, teacher advantage (MEASURED 2026-08-04): KILL, decisively.**
+  3,658 paired states / 150 human-corpus games, checkpoint 2,515,896,
+  campaign search config, zero error rows. Pooled AUC: raw head
+  **0.667**, 32-sim search root value **0.525** — delta **−0.141**
+  (game-cluster bootstrap 95% CI [−0.201, −0.079]), and the search is
+  worse in EVERY phase (open −0.086, mid −0.203, late −0.127). Not
+  merely "≤ +0.02": the search teacher is barely above coin-flip and
+  substantially DEGRADES the raw head's outcome prediction. The
+  value-distillation channel is dead, and so is "repair the flat value
+  head from search values" as a passivity fix direction. Shards:
+  scratchpad tb_part{0,50,100}.jsonl; analyzer
+  `tools/analyze_teacher_advantage.py`.
+- **Side-2 passivity root cause (workflow verdict, adversarially
+  verified 2026-08-04):** the asymmetry is confined to the 3 mini maps
+  WITHOUT `random_start_time` (deterministic ToD); on the other 4 the
+  sides are symmetric. No reward-path asymmetry exists (draws z=0 both
+  sides, verified). Mechanism: a self-referential Gumbel PRIOR ratchet
+  (~3.9-logit side-2 prior gap vs ~0.5 logits of value restoring
+  force; the ±0.37 value bias cancels in ranking). Confounded 3/4
+  splits (board size, branching 10-20 vs 40-238, declared-fog
+  mismatch) are not separable at N=7 maps; the decisive de-confound is
+  forcing `random_start_time` on for the mini pool (changes ToD
+  determinism only). Config-level repairs that survived verification:
+  mini random-ToD flag, price the clock (`--no-progress-turns`),
+  `_rescale_q` floor 1e-8 → ~0.01. NOT a Tier-b blocker per se (mini
+  category only), but the ratchet mechanism is category-agnostic.
+- **Export-fidelity sweep (DONE 2026-08-04): 538/574 clean; 34 real
+  OOS in 3 classes, none blocking after triage.** (1) 2× ladder_fogless
+  damage mismatches, both at Tombs of Kesorak's darkened hex (19,12) —
+  KNOWN-FIXED by `9133cca` (bare clones dropped `schedules.cfg`, ToD
+  macros didn't expand, time_area lawful_bonus defaulted 0); exports
+  predate the fix. (2) 30× midgame "found dependent command while
+  is_synced=false" — a replay-STRUCTURE bug in the midgame export
+  prologue (not physics); root-cause in progress. (3) 2× mini combat
+  mismatches vs Tentacle of the Deep — under investigation. Ladder
+  (167) and remaining fogless (104): fully clean.
 
 ## Cost frame (from the runbook and measured throughput)
 
@@ -52,10 +71,21 @@ step gaps of 450k-1M ⇒ ~100-200 box-hours per measurable increment;
 Tier-b's ~1.9x forward cost stretches that further. The campaign box
 should not start until the three pending inputs above are read.
 
-## Recommendation slot (to fill when T-B lands)
+## Recommendation (filled 2026-08-04, all three inputs measured)
 
-- [ ] T-B verdict: ______ (delta, CI, per-phase)
-- [ ] Value-distillation channel: keep / kill
-- [ ] Passivity fix: pre-campaign / deferred (workflow verdict: ____)
-- [ ] Sweep: clean / new OOS class (____)
-- [ ] GO / NO-GO to rent the Tier-b campaign box
+- [x] T-B verdict: **KILL** (delta −0.141, CI [−0.201, −0.079];
+      worse in all three phases)
+- [x] Value-distillation channel: **kill** — do not carry into Tier-b
+- [ ] Passivity fix: **user decision pending** — mini-only symptom,
+      but the prior-ratchet mechanism is category-agnostic; the cheap
+      pre-campaign options are the mini random-ToD flag and the
+      `_rescale_q` floor (both config-level, hours not days)
+- [x] Sweep: **no blocking class** — 2 known-fixed (9133cca),
+      30 midgame = export-structure bug (validation tooling, not
+      training physics), 2 tentacle-combat under investigation
+- [ ] GO / NO-GO: **assistant recommendation: GO is defensible on
+      sim fidelity and transfer evidence (T-C +61.2±18 raw), but the
+      T-B result argues the campaign's SEARCH is adding little at 32
+      sims — consider spending some pre-campaign effort on the
+      prior-ratchet repairs, since Tier-b capacity cannot fix a
+      target-side ratchet. User call.**

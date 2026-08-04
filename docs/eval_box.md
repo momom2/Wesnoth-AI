@@ -128,4 +128,19 @@ Reading vs the pre-set bars: the kill-the-concern bar was >= +67
 **raw transfer is REAL and carries roughly half the search-measured
 gain** -- the distillation-transfer catastrophe scenario is dead; the
 escalate-to-signal-lever trigger (CI within +-50 of 0) did NOT fire.
-T-B remains the open queue item.
+
+**T-B COMPLETE: teacher advantage = -0.141 AUC (KILL).** 3,658 paired
+states / 150 human-corpus games, checkpoint 2,515,896, campaign search
+config (32 sims, tiebreak cap 0.3), zero error rows. Pooled AUC: raw
+head 0.667 vs search root value 0.525; delta -0.141, game-cluster
+bootstrap 95% CI [-0.201, -0.079]. Per phase: open -0.086, mid -0.203,
+late -0.127 -- the search value is WORSE everywhere, not merely under
+the +0.02 bar. Consequences: (a) the value-distillation channel stays
+dead -- there is nothing to distill at the campaign budget; (b) the
+"repair the flat value head from search values" direction for mini
+passivity is dead too; (c) NB this measures the visit-weighted root Q
+as a *distillation teacher* on human states -- it does not contradict
+T-C's finding that search helps *move selection* in self-play.
+Instrument: tools/probe_teacher_advantage.py; analyzer:
+tools/analyze_teacher_advantage.py; shards archived in the session
+scratchpad (tb_part{0,50,100}.jsonl).
