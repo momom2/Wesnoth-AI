@@ -472,6 +472,7 @@ nohup bash -c "
       --ladder-ratio ${LADDER_RATIO} \
       ${MAX_TURNS:+--max-turns $MAX_TURNS} \
       --max-turns-min ${MAX_TURNS_MIN:-60} \
+      ${RELEVANT_SET_HEXES:+--relevant-set-hexes} \
       --mcts-aux-score \
       ${MCTS_ADVICE:+--mcts-advice} \
       ${AUX_VALUE_BONUS:+--mcts-aux-value-bonus $AUX_VALUE_BONUS} \
