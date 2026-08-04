@@ -147,17 +147,44 @@ if os.name == "nt":
     def _post_enter(pid: int) -> None:
         _post_hotkey(pid, _VK_RETURN)
 else:
-    def _minimize(pid: int) -> bool:      # pragma: no cover
-        return False
+    # Linux/headless (2026-08-04): the play/skip hotkeys that Windows
+    # posts via PostMessage are sent with xdotool against the Xvfb
+    # DISPLAY. Without them --with-replay sits at the stopped viewer
+    # forever (the same trap that stalled the 08-04 local forensics).
+    import shutil as _shutil
 
-    def _post_play_hotkey(pid: int) -> None:  # pragma: no cover
-        pass
+    _XDO = _shutil.which("xdotool")
 
-    def _post_skip_hotkey(pid: int) -> None:  # pragma: no cover
-        pass
+    def _xdo_windows(pid: int) -> list:
+        if not _XDO or not os.environ.get("DISPLAY"):
+            return []
+        try:
+            out = subprocess.run(
+                [_XDO, "search", "--pid", str(pid)],
+                capture_output=True, text=True, timeout=10)
+            return [w for w in out.stdout.split() if w.strip()]
+        except Exception:
+            return []
 
-    def _post_enter(pid: int) -> None:  # pragma: no cover
-        pass
+    def _xdo_key(pid: int, key: str) -> None:
+        for w in _xdo_windows(pid):
+            try:
+                subprocess.run([_XDO, "key", "--window", w, key],
+                               capture_output=True, timeout=10)
+            except Exception:
+                pass
+
+    def _minimize(pid: int) -> bool:
+        return True                     # Xvfb: nothing on screen
+
+    def _post_play_hotkey(pid: int) -> None:
+        _xdo_key(pid, "p")
+
+    def _post_skip_hotkey(pid: int) -> None:
+        _xdo_key(pid, "s")
+
+    def _post_enter(pid: int) -> None:
+        _xdo_key(pid, "Return")
 
 
 def _engine_logs() -> set:

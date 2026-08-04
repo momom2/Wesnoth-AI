@@ -11,9 +11,13 @@ from pathlib import Path
 # Paths
 # ----------------------------------------------------------------------
 
-# Wesnoth executable. Steam install on Windows by default.
+# Wesnoth executable. Steam install on Windows by default; the
+# WESNOTH_EXE env var overrides (2026-08-04: lets the export-fidelity
+# sweep run a source-built 1.18.4 on a headless Linux eval box).
+import os as _os
 WESNOTH_PATH = Path(
-    r"C:\Program Files (x86)\Steam\steamapps\common\wesnoth\wesnoth.exe"
+    _os.environ.get("WESNOTH_EXE")
+    or r"C:\Program Files (x86)\Steam\steamapps\common\wesnoth\wesnoth.exe"
 )
 
 # Wesnoth userdata — where add-ons live, where Wesnoth writes its logs,
