@@ -87,3 +87,49 @@ def test_midgame_continuation_through_production_path():
     assert out.midgame is True
     assert out.engagement is not None
     assert out.engagement["attacks_invalid_wesnoth"] == {1: 0, 2: 0}
+
+
+def test_midgame_start_carries_no_walk_residue():
+    """Phantom-[choose] regression (2026-08-04 sweep, 30/127 midgame
+    exports OOS): the sampling walk applies the human prefix via
+    _apply_command, which appends advancement events / checkup strikes
+    to gs.global_info side-channels. Those are prefix bookkeeping —
+    if they survive onto the returned start state, the sim's first
+    attack exports them as phantom dependent [choose]s and the engine
+    aborts playback ("found dependent command while is_synced=false").
+
+    Power requirement: at least one sampled prefix must actually
+    contain an advancement (seeds 1/6/13 do on the standard corpus,
+    verified fail-before), otherwise the assertion is vacuous.
+    """
+    from tools.midgame_starts import sample_midgame_start
+
+    saw_advancement_prefix = False
+    checked = 0
+    for seed in range(1, 40):
+        mg = sample_midgame_start(random.Random(seed), DATASET)
+        if mg is None:
+            continue
+        gs = mg[0]
+        checked += 1
+        assert not getattr(gs.global_info, "_last_advance_events", None), (
+            f"seed {seed}: start state carries advancement-event "
+            f"residue from the human prefix walk")
+        assert not getattr(gs.global_info, "_last_checkup_strikes", None), (
+            f"seed {seed}: start state carries checkup-strike residue")
+        # Power check: re-walk this prefix and count real advancements.
+        if not saw_advancement_prefix:
+            from tools.validation_exports import _walk_prefix_commands
+            import gzip as _gzip, json as _json
+            prov = mg[4]
+            with _gzip.open(Path(prov["dataset_dir"]) / prov["file"],
+                            "rt", encoding="utf-8") as f:
+                data = _json.load(f)
+            hist, _ = _walk_prefix_commands(data, prov["boundary_idx"])
+            if any(rc.extras.get("advance_choices") for rc in hist):
+                saw_advancement_prefix = True
+        if checked >= 8 and saw_advancement_prefix:
+            break
+    assert checked > 0, "no midgame samples produced — corpus problem"
+    assert saw_advancement_prefix, (
+        "no sampled prefix contained an advancement; test has no power")

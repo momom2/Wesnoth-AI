@@ -123,6 +123,18 @@ def sample_midgame_start(
             "boundary_idx": boundary_idx,
             "begin_side": begin_side,
         }
+        # The walk's per-command side-channels are PREFIX bookkeeping,
+        # not position state — the validation exporter re-harvests
+        # them from its own prefix re-walk (_walk_prefix_commands).
+        # Leaving them on the start state made the sim's FIRST attack
+        # flush the whole human prefix's advancement list as phantom
+        # [choose]s → engine "found dependent command while
+        # is_synced=false" on 30/127 midgame exports (2026-08-04
+        # sweep).
+        if hasattr(gs.global_info, "_last_advance_events"):
+            gs.global_info._last_advance_events = []
+        if hasattr(gs.global_info, "_last_checkup_strikes"):
+            gs.global_info._last_checkup_strikes = None
         return (copy.deepcopy(gs), data.get("scenario_id", ""),
                 gs.global_info.turn_number, begin_side, provenance)
     except Exception as e:                            # noqa: BLE001
