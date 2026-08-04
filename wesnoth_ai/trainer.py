@@ -448,7 +448,10 @@ class Trainer:
             raw_cache = [
                 encode_raw(t.game_state,
                            type_to_id=type_to_id,
-                           faction_to_id=faction_to_id)
+                           faction_to_id=faction_to_id,
+                           relevant_set=getattr(self.encoder,
+                                                "relevant_set_hexes",
+                                                False))
                 for t in flat
             ]
 
@@ -1074,7 +1077,9 @@ def _trainer_step_mcts(
     raw_cache = [
         encode_raw(e.game_state,
                    type_to_id=type_to_id,
-                   faction_to_id=faction_to_id)
+                   faction_to_id=faction_to_id,
+                   relevant_set=getattr(self.encoder,
+                                        "relevant_set_hexes", False))
         for e in experiences
     ]
 
@@ -1439,7 +1444,10 @@ def _trainer_eval_value_metrics(
             raw_chunk = [
                 encode_raw(e.game_state,
                            type_to_id=type_to_id,
-                           faction_to_id=faction_to_id)
+                           faction_to_id=faction_to_id,
+                           relevant_set=getattr(self.encoder,
+                                                "relevant_set_hexes",
+                                                False))
                 for e in chunk
             ]
             encoded_chunk = self.encoder.encode_from_raw_batch(raw_chunk)
