@@ -20,7 +20,28 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
   *"the policy got good"*.
 - Caveat that must travel with those two numbers: **+133 was measured WITH
   search; the RCA eval is RAW policy.** Different objects — never merge.
-- **Nothing is running.** Vast credit $0, instance stopped.
+- **2026-08-04 eval results (full detail: `docs/tier_b_brief.md` +
+  `docs/eval_box.md`):**
+  - **T-C: +61.2 ±18 Elo raw-vs-raw** in-lineage (395 games) — search
+    gains DO reach the deployed raw policy (~half of +133).
+  - **T-B: KILL** — the 32-sim search root value scores **−0.141 AUC
+    WORSE** than the raw head at outcome prediction on human states
+    (CI [−0.201, −0.079], worse in every phase). No value-distillation
+    channel; "repair the value head from search values" is dead.
+  - **Mini passivity mechanism found** (workflow, adversarially
+    verified): confined to the 3 fixed-ToD mini maps; a self-referential
+    Gumbel PRIOR ratchet (~3.9-logit prior gap vs ~0.5 logits of value
+    restoring force), no reward asymmetry. Decisive de-confound pending:
+    force `random_start_time` for the mini pool.
+  - **Export sweep: 538/574 clean.** 2 fogless OOS = known-fixed
+    (9133cca, bare-clone schedules.cfg); **30 midgame OOS = phantom
+    advancement `[choose]`s in exports** (e.g. 5 chooses on one
+    no-advancement attack — a side-channel accumulation bug, exact leak
+    site not yet reproduced at HEAD); **2 mini OOS = spawned-tentacle
+    divergence** (engine re-rolls the `random_traits=yes` turn-1 spawn;
+    our reconstruction is self-consistent, engine's monster differs).
+- **All boxes stopped 2026-08-04** (eval box work complete; T2 box start
+  was queued by the host, then canceled — resume deliberately).
 
 ## The decision to make before spending again
 
@@ -52,6 +73,11 @@ forward pass is ~91% of decision cost.
   4.3-4.8x figure — that is the forward-component win only.
 - **Blocker (T2-C):** warm-start value MAE **0.217** against a ~0.017
   precedent. The weights load; the function does not carry.
+  **NB 2026-08-04: this number is SUSPECT** — it was measured through
+  `eval_value_metrics`, which until `cdf263a` dropped the
+  `relevant_set` flag on its encode path (same bug family as the
+  8e8 policy-loss explosion). Re-measure through the fixed path
+  before treating 0.217 as real warm-start damage.
 - **Needed:** a short fine-tune leg with the flag ON, gated on
   `fresh_value_ce` recovering to its flag-OFF level (read it
   **floor-relative**, and skip iteration-0-after-restart).
