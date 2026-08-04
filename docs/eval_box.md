@@ -113,3 +113,19 @@ games are embarrassingly parallel, so wall-clock ≈ games ÷ jobs ×
 per-game time. **Per-game time is currently UNMEASURED** — every local
 attempt ran under memory pressure and none completed. Measure one game
 on the box before sizing the run; do not extrapolate from the laptop.
+
+## Results (2026-08-04)
+
+**T-C COMPLETE: raw-vs-raw in-lineage = +61.2 ± 18 Elo** for
+campaign_live_20260730 (2,515,896) over selfplay_seed_20260718
+(2,290,529): 163-0-232 over 395 ladder games, --mcts-sims 0, cpu,
+sides alternated, seeds by game index. ZERO draws in 395 raw ladder
+games. PURE == material-sign here (no draws to score).
+
+Reading vs the pre-set bars: the kill-the-concern bar was >= +67
+(half the with-search +133); +61 +-18 lands just under it but the CI
+[43, 79] straddles the half-mark and decisively excludes ~0. Verdict:
+**raw transfer is REAL and carries roughly half the search-measured
+gain** -- the distillation-transfer catastrophe scenario is dead; the
+escalate-to-signal-lever trigger (CI within +-50 of 0) did NOT fire.
+T-B remains the open queue item.
