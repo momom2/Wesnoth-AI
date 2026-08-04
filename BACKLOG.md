@@ -35,12 +35,11 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
     force `random_start_time` for the mini pool.
   - **Export sweep: 538/574 clean.** 2 fogless OOS = known-fixed
     (9133cca, bare-clone schedules.cfg); **30 midgame OOS = phantom
-    advancement `[choose]`s in exports** (e.g. 5 chooses on one
-    no-advancement attack, plus a real advancement with NO choose —
-    prime suspect is the midgame SPLICER's extras harvest, since
-    midgame is the only spliced category and the only one with the
-    class; an 85-decision MCTS fork-pollution probe at HEAD found
-    nothing); **2 mini OOS = spawned-tentacle
+    advancement `[choose]`s — ROOT-CAUSED AND FIXED (6712c70)**:
+    `sample_midgame_start`'s prefix walk left accumulated advancement
+    events on the start state; the sim's first attack flushed them
+    into the export. Residual open item: one real advancement exported
+    with NO [choose] (Den of Onis attack 168) — rarer, separate; **2 mini OOS = spawned-tentacle
     divergence** (engine re-rolls the `random_traits=yes` turn-1 spawn;
     our reconstruction is self-consistent, engine's monster differs).
 - **All boxes stopped 2026-08-04** (eval box work complete; T2 box start
