@@ -87,6 +87,11 @@ forward pass is ~91% of decision cost.
   warm-start damage, not the encoding's ceiling.
 
 ### 2. Mini-map passivity drift — root cause
+**ANSWERED 2026-08-04 (workflow verdict, adversarially verified — see
+"Where the project stands" above and `docs/tier_b_brief.md`).** What
+remains here is the DE-CONFOUND EXPERIMENT (force `random_start_time`
+for the mini pool) and the config-level repairs (`--no-progress-turns`,
+`_rescale_q` floor). Original framing kept below for context.
 
 Real, weights-driven, accelerating, and it is the founding thesis in
 miniature: banks gold, declines to commit, armies **adjacent** but not
@@ -101,7 +106,11 @@ fighting, and the materially-ahead side declining free leader-kills.
   head-to-head an aggressive opponent punishes the stall. This is
   behavioural on ~15% of the mix, **not** a strength regression.
 
-### 3. Unfinished: systematic export-fidelity sweep
+### 3. Systematic export-fidelity sweep
+**DONE 2026-08-04: 538/574 clean, every failure root-caused** (2
+known-fixed 9133cca, 30 fixed 6712c70, 2 tentacle-spawn open — see
+"Where the project stands"). Remaining: re-export + re-validate midgame
+after 6712c70, and the tentacle forensics. Original framing below.
 
 **Started, never completed** (the agent stopped without a result). The
 question is NOT "clean up 6 known-bad files" — it is *how much sim
