@@ -1011,3 +1011,75 @@ def test_chance_nodes_off_freezes_first_sample():
     assert len(edge.children) == 1, (
         "legacy mode: first sampled outcome is frozen"
     )
+
+
+def test_distill_target_damping_and_stats():
+    """lambda/T damping (2026-08-05 prior-ratchet repair): defaults
+    reproduce the legacy target exactly; on a sharp-prior/flat-Q root
+    (the ratchet setting -- value evidence gives no reason for
+    sharpness) lambda<1 and T>1 both soften the target below the
+    prior; telemetry lands on root._distill_stats with sharpen_top
+    negative exactly when the damping is doing work."""
+    import numpy as np
+    from tools.mcts import MCTSConfig, extract_gumbel_policy_target
+
+    def make_root():
+        root = _make_node(side=1)
+        root.value = 0.0
+        e1 = _attach(root, _make_node(side=2), prior=0.9)
+        e1.action = {"type": "end_turn"}
+        e1.n_visits, e1.w_value = 4, 0.0
+        e2 = _attach(root, _make_node(side=2), prior=0.1)
+        e2.action = {"type": "move"}
+        e2.n_visits, e2.w_value = 4, 0.0
+        root._total_visits = 8
+        return root
+
+    def probs(cfg):
+        root = make_root()
+        tgt = extract_gumbel_policy_target(root, cfg)
+        return [w for (_, _, _, w, _) in tgt], root._distill_stats
+
+    p_legacy, st_legacy = probs(MCTSConfig())
+    p_explicit, _ = probs(MCTSConfig(distill_prior_discount=1.0,
+                                     distill_target_temp=1.0))
+    assert np.allclose(p_legacy, p_explicit)
+    # Flat Q: sigma is constant across edges, so the legacy target
+    # reproduces the prior -- the self-reference this knob attacks.
+    assert abs(p_legacy[0] - 0.9) < 0.05
+    assert abs(st_legacy["sharpen_top"]) < 0.05
+    assert st_legacy["prior_top"] > 0.85
+    assert st_legacy["et_prior"] > 0.85
+    assert st_legacy["et_target"] > 0.8
+
+    p_lam, st_lam = probs(MCTSConfig(distill_prior_discount=0.5))
+    # lambda=0.5 halves the prior logit gap: 0.9/0.1 -> ~0.75/0.25.
+    assert p_lam[0] < p_legacy[0] - 0.05
+    assert st_lam["sharpen_top"] < -0.05
+    assert st_lam["tgt_entropy"] > st_legacy["tgt_entropy"]
+
+    p_temp, st_temp = probs(MCTSConfig(distill_target_temp=2.0))
+    assert p_temp[0] < p_legacy[0] - 0.05
+    assert st_temp["sharpen_top"] < -0.05
+
+
+def test_distill_stats_drain():
+    """MCTSPolicy.drain_distill_stats: aggregates means, resets the
+    accumulator, returns None when empty."""
+    import threading
+    from types import SimpleNamespace
+    from tools.mcts_policy import MCTSPolicy
+
+    stub = SimpleNamespace(_lock=threading.Lock(), _distill_acc={
+        "n": 2, "tgt_entropy": 2.0, "prior_entropy": 3.0,
+        "sharpen_top": -0.2, "top80": 1,
+        "et_n": 1, "et_prior": 0.9, "et_target": 0.8})
+    out = MCTSPolicy.drain_distill_stats(stub)
+    assert out["distill_tgt_entropy"] == 1.0
+    assert out["distill_prior_entropy"] == 1.5
+    assert out["distill_sharpen_top"] == -0.1
+    assert out["distill_prior_top80"] == 0.5
+    assert out["distill_et_prior"] == 0.9
+    assert out["distill_et_target"] == 0.8
+    assert stub._distill_acc == {}
+    assert MCTSPolicy.drain_distill_stats(stub) is None

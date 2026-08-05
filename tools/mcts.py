@@ -342,6 +342,29 @@ class MCTSConfig:
     # OFFSET INVARIANCE: a drifting value baseline (side-to-move bias)
     # can no longer shift the target. Escape hatch for A/B only.
     gumbel_rescale_q: bool = True
+    # Distillation-target damping (2026-08-05; the prior-ratchet
+    # repair, see BACKLOG "mini passivity" + docs/tier_b_brief.md).
+    # The Gumbel target is SELF-REFERENTIAL in the prior:
+    # softmax(log(prior) + sigma(q)). Measured on the fixed-ToD mini
+    # maps: prior gaps ~3.9 logits vs ~0.5 logits of sigma restoring
+    # force, so distillation re-teaches the prior each round and the
+    # iteration's fixed point is one-hot (end_turn p>0.9 collapse).
+    # Two independent knobs; 1.0 = exact legacy behavior:
+    #   distill_prior_discount (lambda < 1): the target uses
+    #     lambda*log(prior). The prior becomes a decaying memory of
+    #     accumulated search evidence; equilibrium logit gap
+    #     = sigma_gap / (1 - lambda) -- bounded by value EVIDENCE,
+    #     not by prior history. Preferred knob: sigma keeps full
+    #     strength.
+    #   distill_target_temp (T > 1): divides the summed target
+    #     logits by T (Hinton distillation temperature, used
+    #     defensively); equilibrium gap ~ sigma_gap / (T - 1), but
+    #     dampens the sigma evidence too.
+    # Sizing rule: pick so a REAL 2-3-logit value signal still
+    # yields a confident prior while ~0.5 logits cannot sustain
+    # p>0.9 (e.g. lambda=0.9 -> equilibrium gap 10x sigma_gap).
+    distill_prior_discount: float = 1.0
+    distill_target_temp:    float = 1.0
 
     # Chance nodes for stochastic actions (combat, recruit traits).
     # When ON, every traversal of a stochastic edge re-forks the
@@ -557,7 +580,8 @@ class MCTSNode:
                  "tt_hits", "tt_misses",
                  "cliffness", "value", "gumbel_action",
                  "moves_left",
-                 "_bucket_copy_from")
+                 "_bucket_copy_from",
+                 "_distill_stats")
 
     def __init__(self, sim: WesnothSim):
         self.sim:           WesnothSim   = sim
@@ -566,6 +590,10 @@ class MCTSNode:
         self.is_terminal:   bool         = sim.done
         self.expanded:      bool         = False
         self._total_visits: int          = 0
+        # Distillation-target telemetry, written by
+        # extract_gumbel_policy_target on the ROOT only (None
+        # elsewhere); accumulated by MCTSPolicy.drain_distill_stats.
+        self._distill_stats: Optional[Dict] = None
         # TT stats are populated only on the ROOT node returned by
         # mcts_search (default 0 elsewhere); see the search loop.
         self.tt_hits:       int          = 0
@@ -1912,10 +1940,38 @@ def extract_gumbel_policy_target(
     # so search and target agree. The rescale is what keeps this a SOFT
     # target: without it, raw Q in [-1,1] times a ~50-80 visit factor
     # saturates the softmax into a near-one-hot label.
-    t = logits + _gumbel_sigma(completed_q, max_v, config)
+    # lambda/T damping (see MCTSConfig.distill_prior_discount): both
+    # 1.0 by default = the exact legacy target.
+    lam = float(getattr(config, "distill_prior_discount", 1.0))
+    temp = float(getattr(config, "distill_target_temp", 1.0))
+    t = lam * logits + _gumbel_sigma(completed_q, max_v, config)
+    if temp != 1.0:
+        t = t / max(temp, 1e-6)
     t -= t.max()
     p = np.exp(t)
     p /= p.sum()
+    # Distillation telemetry, stashed on the root for MCTSPolicy to
+    # accumulate (per-iteration means land in the trainer-history
+    # CSV). `sharpen_top` is the ratchet gauge: target mass minus
+    # prior mass ON THE PRIOR'S OWN TOP ACTION -- positive means the
+    # target re-teaches the prior sharper still (ratchet ON),
+    # negative means the damping/value evidence is softening it.
+    prior_p = priors / priors.sum()
+    top = int(prior_p.argmax())
+    stats = {
+        "tgt_entropy":   float(-(p * np.log(p + 1e-12)).sum()),
+        "prior_entropy": float(-(prior_p
+                                 * np.log(prior_p + 1e-12)).sum()),
+        "sharpen_top":   float(p[top] - prior_p[top]),
+        "prior_top":     float(prior_p[top]),
+    }
+    for k, e in enumerate(edges):
+        if isinstance(e.action, dict) and \
+                e.action.get("type") == "end_turn":
+            stats["et_prior"] = float(prior_p[k])
+            stats["et_target"] = float(p[k])
+            break
+    root._distill_stats = stats
     return [
         (e.actor_idx, e.target_idx, e.weapon_idx, float(w), e.type_idx)
         for e, w in zip(edges, p) if w > 1e-9

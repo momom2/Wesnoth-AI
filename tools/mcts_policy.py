@@ -194,6 +194,15 @@ class MCTSPolicy:
         # the search RNG) so replay runs are reproducible given a seed.
         self._replay_rng = random.Random(0)
         self._lock = threading.Lock()
+        # Distillation-target telemetry accumulator (2026-08-05,
+        # prior-ratchet repair observability): running sums of the
+        # per-decision stats extract_gumbel_policy_target stashes on
+        # the root. Drained per iteration by
+        # `drain_distill_stats` into the trainer-history CSV.
+        # In-process/threaded rollouts only -- actor-pool workers
+        # hold their own policy object, so their decisions don't
+        # land here (telemetry reads None; the knobs still apply).
+        self._distill_acc: Dict[str, float] = {}
         # RNG for temperature sampling at the root (AlphaZero's
         # tau=1 phase). Unseeded like mcts_search's noise RNG --
         # self-play data generation wants diversity, not
@@ -439,11 +448,26 @@ class MCTSPolicy:
             else:
                 visits = extract_visit_counts(root)
             side = game_state.global_info.current_side
+            ds = getattr(root, "_distill_stats", None)
             with self._lock:
                 self._pending.setdefault(game_label, []).append(
                     _PendingMCTSState(gs=game_state, visit_counts=visits,
                                       side=side, decision_step=decision_step)
                 )
+                if ds:
+                    a = self._distill_acc
+                    a["n"] = a.get("n", 0) + 1
+                    for k in ("tgt_entropy", "prior_entropy",
+                              "sharpen_top"):
+                        a[k] = a.get(k, 0.0) + ds[k]
+                    a["top80"] = a.get("top80", 0) + (
+                        1 if ds["prior_top"] > 0.8 else 0)
+                    if "et_prior" in ds:
+                        a["et_n"] = a.get("et_n", 0) + 1
+                        a["et_prior"] = (a.get("et_prior", 0.0)
+                                         + ds["et_prior"])
+                        a["et_target"] = (a.get("et_target", 0.0)
+                                          + ds["et_target"])
         # Stash the played edge's outcome children for
         # state-key-checked reuse at the next decision. Action dicts
         # are returned by identity from the edge, so `is` finds the
@@ -589,6 +613,43 @@ class MCTSPolicy:
             self._pending.pop(game_label, None)
             self._reuse.pop(game_label, None)
             self._last_recorded.pop(game_label, None)
+
+    def drain_distill_stats(self) -> Optional[Dict[str, float]]:
+        """Per-iteration means of the distillation-target telemetry
+        (2026-08-05 prior-ratchet repair). Resets the accumulator.
+        Returns None when no full-budget Gumbel decision was recorded
+        since the last drain (gumbel off / REINFORCE / actor-pool).
+
+        Keys (also trainer-history CSV columns):
+          distill_sharpen_top   -- mean(target - prior mass on the
+                                   prior's own argmax). The ratchet
+                                   gauge: >0 = targets sharpen the
+                                   already-top action, <0 = damping/
+                                   value evidence is softening it.
+          distill_prior_top80   -- fraction of decisions whose prior
+                                   argmax already exceeds 0.8 (the
+                                   collapse-rate endpoint used by the
+                                   mini passivity probes).
+          distill_tgt_entropy / distill_prior_entropy -- mean nats.
+          distill_et_prior / distill_et_target -- means over the
+                                   decisions with an end_turn edge
+                                   (passivity-specific)."""
+        with self._lock:
+            acc, self._distill_acc = self._distill_acc, {}
+        n = acc.get("n", 0)
+        if not n:
+            return None
+        et_n = acc.get("et_n", 0)
+        return {
+            "distill_tgt_entropy":   acc["tgt_entropy"] / n,
+            "distill_prior_entropy": acc["prior_entropy"] / n,
+            "distill_sharpen_top":   acc["sharpen_top"] / n,
+            "distill_prior_top80":   acc.get("top80", 0) / n,
+            "distill_et_prior":  (acc["et_prior"] / et_n) if et_n
+                                 else None,
+            "distill_et_target": (acc["et_target"] / et_n) if et_n
+                                 else None,
+        }
 
     def drop_last_pending(self, game_label: str) -> bool:
         """Undo the most recent select_action for `game_label` after a

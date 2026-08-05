@@ -2026,7 +2026,28 @@ def run_iteration(
                 f"{k}={v:+.3f}" for k, v in sorted(
                     reward_components.items(), key=lambda kv: -abs(kv[1])))
             log.info(f"iter {iter_idx}: reward components -- {comp_str}")
+        # Distillation-target telemetry (prior-ratchet repair
+        # observability): drained per iteration from MCTSPolicy;
+        # None-safe for the REINFORCE / actor-pool paths.
+        distill = (getattr(policy, "drain_distill_stats", None)
+                   and policy.drain_distill_stats()) or {}
+        if distill:
+            _et_p, _et_t = (distill.get("distill_et_prior"),
+                            distill.get("distill_et_target"))
+            _et_str = (f"et prior {_et_p:.3f} -> target {_et_t:.3f}; "
+                       if _et_p is not None and _et_t is not None
+                       else "")
+            log.info(
+                f"iter {iter_idx}: distill target -- "
+                f"sharpen_top {distill['distill_sharpen_top']:+.4f} "
+                f"(<0 = ratchet damped), "
+                f"prior>0.8 rate "
+                f"{distill['distill_prior_top80']:.3f}; "
+                f"{_et_str}"
+                f"H(target) {distill['distill_tgt_entropy']:.3f} vs "
+                f"H(prior) {distill['distill_prior_entropy']:.3f}")
         snapshot_sink({
+            **distill,
             "iter":                iter_idx,
             "n_games":             len(outcomes),
             "rollout_seconds":     rollout_dt,
@@ -2258,10 +2279,17 @@ class _TrainerHistoryCSV:
         "search_q_spread", "search_overturn_frac",
         # Boundary-consistency telemetry (T1-F, 2026-07-29): mean
         # V(pre)+V(post) over sampled side-switch pairs (~0 =
-        # calibrated; +0.4..0.6 = fogged WYSIATI bias). Appended
-        # LAST; a pre-existing CSV gets rotated to .oldschema by
-        # the header-mismatch guard in __init__.
+        # calibrated; +0.4..0.6 = fogged WYSIATI bias).
         "boundary_sum", "boundary_pairs_n",
+        # Distillation-target telemetry (2026-08-05 prior-ratchet
+        # repair; MCTSPolicy.drain_distill_stats). sharpen_top > 0 =
+        # the target re-teaches the prior's own top action sharper
+        # (ratchet ON); prior_top80 = collapse-rate endpoint the
+        # passivity probes use. Appended LAST; a pre-existing CSV
+        # gets rotated to .oldschema by the header-mismatch guard.
+        "distill_tgt_entropy", "distill_prior_entropy",
+        "distill_sharpen_top", "distill_prior_top80",
+        "distill_et_prior", "distill_et_target",
     ]
 
     def __init__(self, path: Path):
@@ -2728,6 +2756,20 @@ def main(argv: List[str]) -> int:
                          "sims early in development.")
     ap.add_argument("--mcts-c-puct", type=float, default=1.5,
                     help="PUCT exploration constant (--mcts only).")
+    ap.add_argument("--distill-prior-discount", type=float, default=1.0,
+                    help="Lambda on log(prior) in the Gumbel "
+                         "distillation target (--mcts only; 1.0 = "
+                         "legacy). <1 damps the target's self-"
+                         "reference: equilibrium prior sharpness "
+                         "becomes sigma_gap/(1-lambda), bounded by "
+                         "value evidence -- the prior-ratchet repair "
+                         "(2026-08-05). Try 0.9.")
+    ap.add_argument("--distill-target-temp", type=float, default=1.0,
+                    help="Temperature dividing the Gumbel "
+                         "distillation-target logits (--mcts only; "
+                         "1.0 = legacy). >1 softens the whole "
+                         "target incl. the value term; prefer "
+                         "--distill-prior-discount.")
     ap.add_argument("--mcts-batch-size", type=int, default=None,
                     help="Batched leaf evaluation (--mcts only). Default is "
                          "device-aware: B=1 on CPU, B=16 on CUDA (a batched "
@@ -3303,6 +3345,8 @@ def main(argv: List[str]) -> int:
             playout_cap_randomization=args.mcts_playout_cap,
             playout_cap_prob=args.mcts_playout_cap_prob,
             playout_cap_fast_sims=args.mcts_playout_cap_fast_sims,
+            distill_prior_discount=args.distill_prior_discount,
+            distill_target_temp=args.distill_target_temp,
         )
         if mcts_cfg.outcome_buckets and not mcts_cfg.gumbel_root:
             # Bucketing rides the serial _run_one_sim path the Gumbel
