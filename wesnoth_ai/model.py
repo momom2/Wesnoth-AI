@@ -358,6 +358,28 @@ class WesnothModel(nn.Module):
         return (m + f + u + h).unsqueeze(0)                       # [1, A, d]
 
     def forward(self, encoded: "EncodedState") -> ModelOutput:
+        # Opt-in bf16 inference autocast (2026-08-05 throughput
+        # program; the 15M profile put forward at 53% of rollout at
+        # 20.7ms/leaf batch-1). Set `model.infer_autocast_bf16 = True`
+        # (CLI --infer-bf16) to run the trunk+heads in bf16 on CUDA;
+        # OUTPUTS are cast back to float32 in _finalize_output so
+        # numpy consumers (action_sampler) never see bf16. Inference
+        # only: `self.training` forwards keep full fp32 -- the
+        # trainer's loss math is untouched.
+        if (getattr(self, "infer_autocast_bf16", False)
+                and not self.training
+                and encoded.hex_tokens.device.type == "cuda"):
+            import dataclasses
+            with torch.autocast("cuda", dtype=torch.bfloat16):
+                out = self._forward_impl(encoded)
+            return dataclasses.replace(out, **{
+                f.name: v.float()
+                for f in dataclasses.fields(out)
+                if isinstance((v := getattr(out, f.name)), torch.Tensor)
+                and v.dtype == torch.bfloat16})
+        return self._forward_impl(encoded)
+
+    def _forward_impl(self, encoded: "EncodedState") -> ModelOutput:
         device = encoded.hex_tokens.device
         d      = self.d_model
 

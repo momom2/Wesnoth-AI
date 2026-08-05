@@ -126,6 +126,37 @@ found by a **targeted census, not a sweep**.
   available.
 - Quarantine by manifest; **do not delete anything on HF unilaterally.**
 
+### 3b. Throughput program (user orders 2026-08-05, from the 15M profile)
+
+Profile (15M, 3060, single actor): forward 53% at 20.7ms/leaf with ONE
+forward per sim (batch-1 -- sequential halving cannot batch within a
+game), enumerate 17%, encode 16%, sim 7%. Orders:
+
+- **T2 relevant-set encoder: FINISH IT** (user, emphatic). Re-measure
+  the suspect 0.217 MAE through the fixed eval path (cdf263a), then
+  the fine-tune leg. <= ~3.4x end-to-end, attacks forward AND encode.
+- **Batched central inference: ALREADY BUILT -- validate + activate.**
+  `tools/actor_pool.py` is a full SEED-RL-pattern server (weightless
+  actor processes, central GPU dynamic batching, no weight sync; B2 on
+  the B1 seam; un-broken in the 2026-07 pre-flight), and it takes the
+  learner's MCTSConfig object DIRECTLY, so the distill knobs and
+  playout-cap ride along with no extra plumbing (unlike spool, which
+  re-parses CLI flags -- two forwarding bugs caught there already).
+  Remaining work is a box A/B: `--actor-pool N` vs the 76-spool shape,
+  decision-steps/hour at 15M, playout-cap on. Near-mandatory for
+  Tier-b: 15M CPU forwards would drop the spool to ~2k steps/hr.
+- **Playout-cap randomization: ON by default -- DONE** (CLI layer
+  only; library MCTSConfig and eval paths stay uncapped; workers now
+  receive the trio on their command line).
+- **Forward-kernel: improve** -- bf16 inference autocast + compile,
+  opt-in flags, A/B on the box before defaulting.
+- **CPU-side quantization (int8 dynamic) for spool workers: DEFERRED
+  by user ruling 2026-08-05** ("no CPU-side quantization for now").
+  Revisit when the batched-inference server lands: if workers stop
+  doing forwards entirely, the item dies; if CPU forwards remain in
+  the loop, int8 is a ~2-4x candidate that needs a target-quality
+  check (pre-registered A/B) before shipping.
+
 ### 4. Next-campaign hygiene (cheap, do before provisioning)
 
 - **Size the GPU for the learner.** Two CUDA OOMs in ~26h on a 12GB 3060

@@ -80,6 +80,7 @@ def _build_policy(ckpt: Path, device, args):
         advice=bool(raw.get("advice", False)) or bool(
             getattr(args, "mcts_advice", False)),
         relevant_set_hexes=bool(getattr(args, "relevant_set_hexes", False)),
+        infer_compile=bool(getattr(args, "infer_compile", False)),
     )
     base.load_checkpoint(ckpt)
     cfg = MCTSConfig(
@@ -91,6 +92,12 @@ def _build_policy(ckpt: Path, device, args):
         distill_prior_discount=getattr(
             args, "distill_prior_discount", 1.0),
         distill_target_temp=getattr(args, "distill_target_temp", 1.0),
+        playout_cap_randomization=(
+            getattr(args, "playout_cap_prob", -1.0) >= 0.0),
+        playout_cap_prob=max(0.0, getattr(
+            args, "playout_cap_prob", -1.0)),
+        playout_cap_fast_sims=getattr(
+            args, "playout_cap_fast_sims", 0),
     )
     return MCTSPolicy(
         base, cfg,
@@ -140,6 +147,11 @@ def main(argv) -> int:
     ap.add_argument("--moves-left-utility", type=float, default=0.0)
     ap.add_argument("--distill-prior-discount", type=float, default=1.0)
     ap.add_argument("--distill-target-temp", type=float, default=1.0)
+    # Playout-cap: prob < 0 = OFF (the learner encodes the on/off
+    # bit in the sign so one flag carries both).
+    ap.add_argument("--playout-cap-prob", type=float, default=-1.0)
+    ap.add_argument("--playout-cap-fast-sims", type=int, default=0)
+    ap.add_argument("--infer-compile", action="store_true")
     ap.add_argument("--aux-value-bonus", type=float, default=0.0)
     ap.add_argument("--fogless-ratio", type=float, default=0.0)
     ap.add_argument("--midgame-ratio", type=float, default=0.0)

@@ -1158,6 +1158,15 @@ class SpoolWorkers:
                 args, "distill_prior_discount", 1.0)),
             "--distill-target-temp", str(getattr(
                 args, "distill_target_temp", 1.0)),
+            # Playout-cap trio: same worker-side-targets argument as
+            # the distill knobs above.
+            "--playout-cap-prob", str(
+                getattr(args, "mcts_playout_cap_prob", 0.25)
+                if getattr(args, "mcts_playout_cap", True) else -1.0),
+            "--playout-cap-fast-sims", str(getattr(
+                args, "mcts_playout_cap_fast_sims", 0)),
+        ] + (["--infer-compile"] if getattr(
+            args, "infer_compile", False) else []) + [
             "--fogless-ratio", str(getattr(args, "fogless_ratio", 0.0)),
             "--midgame-ratio", str(getattr(args, "midgame_ratio", 0.0)),
             "--ladder-ratio", str(getattr(args, "ladder_ratio", 1.0)),
@@ -2773,6 +2782,16 @@ def main(argv: List[str]) -> int:
                          "becomes sigma_gap/(1-lambda), bounded by "
                          "value evidence -- the prior-ratchet repair "
                          "(2026-08-05). Try 0.9.")
+    ap.add_argument("--infer-bf16", action="store_true",
+                    help="bf16 autocast for INFERENCE forwards on "
+                         "CUDA (trainer stays fp32; outputs cast "
+                         "back to fp32). Throughput program "
+                         "2026-08-05; A/B before defaulting.")
+    ap.add_argument("--infer-compile", action="store_true",
+                    help="torch.compile the inference model "
+                         "(reduce-overhead). Opt-in; no-ops with a "
+                         "warning where inductor is unavailable "
+                         "(e.g. Windows).")
     ap.add_argument("--distill-target-temp", type=float, default=1.0,
                     help="Temperature dividing the Gumbel "
                          "distillation-target logits (--mcts only; "
@@ -2848,7 +2867,8 @@ def main(argv: List[str]) -> int:
                     help="Significance threshold (in SEs of the half-"
                          "mean difference) for splitting a bucket "
                          "(--mcts-outcome-buckets).")
-    ap.add_argument("--mcts-playout-cap", action="store_true",
+    ap.add_argument("--mcts-playout-cap",
+                    action=argparse.BooleanOptionalAction, default=True,
                     help="Playout-cap randomization (KataGo): only a "
                          "random fraction of self-play moves "
                          "(--mcts-playout-cap-prob) run the full sim "
@@ -2856,7 +2876,11 @@ def main(argv: List[str]) -> int:
                          "run a cheap budget (--mcts-playout-cap-fast-"
                          "sims) and record nothing. ~3-10x more games "
                          "per GPU-hour; value targets still attach to "
-                         "every recorded full move.")
+                         "every recorded full move. ON by default "
+                         "(user ruling 2026-08-05) for the TRAINING "
+                         "entry point only -- library MCTSConfig and "
+                         "eval paths stay uncapped; disable with "
+                         "--no-mcts-playout-cap.")
     ap.add_argument("--mcts-playout-cap-prob", type=float, default=0.25,
                     help="P(full-budget, recorded move) under "
                          "--mcts-playout-cap (default 0.25).")
@@ -3205,6 +3229,10 @@ def main(argv: List[str]) -> int:
                                moves_left=moves_left_flag,
                                advice=advice_flag,
                                relevant_set_hexes=relevant_set_flag,
+                               infer_bf16=getattr(args, "infer_bf16",
+                                                  False),
+                               infer_compile=getattr(
+                                   args, "infer_compile", False),
                                **arch_kwargs)
     if relevant_set_flag:
         log.info("relevant-hex encoding ON (action-space index basis "

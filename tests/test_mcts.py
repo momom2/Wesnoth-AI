@@ -1097,3 +1097,48 @@ def test_spool_forwards_distill_knobs():
         encoding="utf-8")
     assert '"--distill-prior-discount"' in worker_src
     assert "distill_prior_discount=getattr" in worker_src
+    # Playout-cap rides the same channel (default ON at the CLI as of
+    # 2026-08-05; the learner encodes on/off in the prob's sign).
+    assert '"--playout-cap-prob"' in tail
+    assert '"--playout-cap-prob"' in worker_src
+    assert "playout_cap_randomization=(" in worker_src
+
+
+def test_playout_cap_cli_default_on():
+    """User ruling 2026-08-05: playout-cap randomization is ON by
+    default at the TRAINING entry point (and only there -- library
+    MCTSConfig stays False so eval paths search full-budget)."""
+    import pathlib
+    src = pathlib.Path("tools/sim_self_play.py").read_text(
+        encoding="utf-8")
+    i = src.index('"--mcts-playout-cap"')
+    window = src[i:i + 400]
+    assert "BooleanOptionalAction" in window and "default=True" in window
+    from tools.mcts import MCTSConfig
+    assert MCTSConfig().playout_cap_randomization is False
+
+
+def test_infer_bf16_flag_noop_on_cpu():
+    """--infer-bf16 wiring: the model flag exists, the wrapper split
+    (forward -> _forward_impl) is transparent, and on CPU the flag is
+    an exact no-op (autocast path is CUDA-gated)."""
+    import torch
+    from wesnoth_ai.encoder import GameStateEncoder
+    from wesnoth_ai.model import WesnothModel
+    from tools.scenario_pool import random_setup, build_scenario_gamestate
+    import random as _r
+    enc = GameStateEncoder(d_model=64)
+    mdl = WesnothModel(d_model=64, num_layers=1, num_heads=2, d_ff=128)
+    mdl.eval()
+    gs = build_scenario_gamestate(
+        random_setup(_r.Random(5), category="mini"), starting_gold=None,
+        base_income=2, village_gold=2, village_upkeep=1,
+        experience_modifier=70)
+    enc.register_names(gs)
+    e = enc.encode(gs)
+    with torch.no_grad():
+        out_off = mdl(e)
+        mdl.infer_autocast_bf16 = True
+        out_on = mdl(e)
+    assert torch.equal(out_off.actor_logits, out_on.actor_logits)
+    assert torch.equal(out_off.value_logits, out_on.value_logits)

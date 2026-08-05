@@ -87,6 +87,8 @@ class TransformerPolicy:
         moves_left: bool = False,
         advice: bool = False,
         relevant_set_hexes: bool = False,
+        infer_bf16: bool = False,
+        infer_compile: bool = False,
     ):
         # Default device is CPU. DML runs work for rollout (single-sample
         # forwards are competitive with CPU once the MHA/TransformerEncoder
@@ -185,6 +187,26 @@ class TransformerPolicy:
         # Inference always in eval mode -- never trained directly.
         self._inference_encoder.eval()
         self._inference_model.eval()
+        # Opt-in inference speedups (2026-08-05 throughput program,
+        # CLI --infer-bf16 / --infer-compile). Applied to the
+        # INFERENCE instance only; the trainer's model keeps fp32
+        # eager. bf16 is a flag the model's forward checks (outputs
+        # cast back to fp32 there); compile wraps the module --
+        # load_state_dict delegates to _orig_mod, so the per-step
+        # weight snapshot keeps working. Both no-op on CPU/Windows
+        # (compile needs a working inductor backend; guarded).
+        self._infer_bf16 = bool(infer_bf16)
+        if self._infer_bf16:
+            self._inference_model.infer_autocast_bf16 = True
+        if infer_compile:
+            try:
+                self._inference_model = torch.compile(
+                    self._inference_model, mode="reduce-overhead")
+                self._logger.info("inference model torch.compile'd "
+                                  "(reduce-overhead)")
+            except Exception as e:                       # noqa: BLE001
+                self._logger.warning(
+                    f"--infer-compile unavailable: {e}")
 
         import threading
         # Unified policy lock. Protects ALL shared mutable state:
