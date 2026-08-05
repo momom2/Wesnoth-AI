@@ -60,10 +60,10 @@ import logging
 import random
 import sys
 import time
-from collections import Counter, defaultdict
-from dataclasses import asdict, dataclass, field
+from collections import defaultdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
@@ -73,13 +73,12 @@ from wesnoth_ai.classes import GameState
 from tools.device_select import select_inference_device, describe_device
 from tools.scenario_pool import build_scenario_gamestate, random_setup
 from tools.sim_self_play import (
-    _leader_of,
     _recruit_cost_lookup,
     _update_closest_approach,
     _would_recruit_bounce,
 )
 from wesnoth_ai.transformer_policy import TransformerPolicy
-from tools.wesnoth_sim import PvPDefaults, WesnothSim
+from tools.wesnoth_sim import WesnothSim
 
 
 log = logging.getLogger("eval_sim")
@@ -441,7 +440,6 @@ def main(argv: List[str]) -> int:
     ref_path: Optional[Path] = None
     if args.reference == "random":
         ref_path = None
-        ref_label = "random"
     elif args.reference == "auto":
         ckpt_dir = args.checkpoint.parent
         archives = sorted(
@@ -465,16 +463,13 @@ def main(argv: List[str]) -> int:
         if ref_path is None:
             log.warning("no reference checkpoint found under "
                         f"{ckpt_dir}; falling back to random init")
-            ref_label = "random"
         else:
-            ref_label = ref_path.name
             log.info(f"auto-picked reference: {ref_path}")
     else:
         ref_path = Path(args.reference)
         if not ref_path.exists():
             log.error(f"reference not found: {ref_path}")
             return 1
-        ref_label = ref_path.name
 
     # Build both policies on the resolved device.
     device = select_inference_device(args.device)
@@ -492,7 +487,6 @@ def main(argv: List[str]) -> int:
 
     cost_lookup = _recruit_cost_lookup()
     _ = cost_lookup  # touched to surface missing unit_stats.json early
-    pvp_defaults = PvPDefaults()
 
     rng = random.Random(args.seed)
     results: List[GameResult] = []
@@ -513,8 +507,10 @@ def main(argv: List[str]) -> int:
         except Exception as e:
             log.warning(f"skipping {setup.label()}: {e}")
             continue
-        if hasattr(cand, "reset_game"): cand.reset_game(game_label)
-        if hasattr(ref,  "reset_game"): ref.reset_game(game_label)
+        if hasattr(cand, "reset_game"):
+            cand.reset_game(game_label)
+        if hasattr(ref,  "reset_game"):
+            ref.reset_game(game_label)
         pair_cand = _PolicyPair(policy=cand, label="cand",
                                 side=our_side)
         pair_ref  = _PolicyPair(policy=ref,  label="ref",

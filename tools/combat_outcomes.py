@@ -208,11 +208,11 @@ def _strike_dp(
             live_mass += p
             if attacker_strikes:
                 st, st_hp, st_sl = a_stats, a_hp, a_sl
-                tg, tg_hp = d_stats, d_hp
+                tg_hp = d_hp
                 tg_cu, st_cu = d_cu, a_cu
             else:
                 st, st_hp, st_sl = d_stats, d_hp, d_sl
-                tg, tg_hp = a_stats, a_hp
+                tg_hp = a_hp
                 tg_cu, st_cu = a_cu, d_cu
 
             cth = max(0, min(100, st.cth)) / 100.0

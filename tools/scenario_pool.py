@@ -29,13 +29,13 @@ from __future__ import annotations
 
 import logging
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
 
 from wesnoth_ai.classes import GameState, Position
 from tools.replay_dataset import (
-    _build_initial_gamestate, _setup_scenario_events,
+    _build_initial_gamestate,
 )
 from tools.scenario_events import load_scenario_wml
 

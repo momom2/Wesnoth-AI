@@ -83,7 +83,7 @@ def main(argv: List[str]) -> int:
     from wesnoth_ai.transformer_policy import TransformerPolicy
     from tools.value_corpus import game_experiences
 
-    rows = [json.loads(l) for l in
+    rows = [json.loads(ln) for ln in
             (args.dataset_dir / "value_corpus_index.jsonl")
             .open(encoding="utf-8")]
     # Same seed-0 shuffle every training run uses, so --skip-games can
@@ -142,8 +142,8 @@ def main(argv: List[str]) -> int:
                     ev = float((torch.softmax(
                         out.value_logits.squeeze(), -1) * atoms).sum())
                     bk = bucket(e.game_state.global_info.turn_number)
-                    w, l = buckets[bk]
-                    (w if e.z > 0 else l).append(ev)
+                    wins, losses = buckets[bk]
+                    (wins if e.z > 0 else losses).append(ev)
                     if mat_cfg is not None:
                         side = e.game_state.global_info.current_side
                         mm = material_margin(e.game_state, side,
@@ -151,12 +151,12 @@ def main(argv: List[str]) -> int:
                         tri[bk].append((ev, e.z, mm))
         print(f"== {ck.name} (step="
               f"{raw.get('decision_step', '?')}) ==")
-        for name, (w, l) in buckets.items():
-            if w and l:
-                print(f"  {name:11} n={len(w) + len(l):5}  "
-                      f"E[V]win={st.mean(w):+.3f}  "
-                      f"E[V]loss={st.mean(l):+.3f}  "
-                      f"AUC={auc(w, l):.3f}")
+        for name, (wins, losses) in buckets.items():
+            if wins and losses:
+                print(f"  {name:11} n={len(wins) + len(losses):5}  "
+                      f"E[V]win={st.mean(wins):+.3f}  "
+                      f"E[V]loss={st.mean(losses):+.3f}  "
+                      f"AUC={auc(wins, losses):.3f}")
         if mat_cfg is not None:
             for name, rows_ in tri.items():
                 if len(rows_) > 10:

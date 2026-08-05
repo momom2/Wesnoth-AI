@@ -107,7 +107,7 @@ def main(argv: List[str]) -> int:
 
     # ---- game-level split (whole games; no state leakage) ----------
     index = args.dataset_dir / "value_corpus_index.jsonl"
-    rows = [json.loads(l) for l in index.open(encoding="utf-8")]
+    rows = [json.loads(ln) for ln in index.open(encoding="utf-8")]
     rng = random.Random(args.seed)
     rng.shuffle(rows)
     if args.limit_games:
@@ -153,8 +153,10 @@ def main(argv: List[str]) -> int:
             while len(batch) >= args.batch:
                 chunk, batch = batch[:args.batch], batch[args.batch:]
                 stats = trainer.step_mcts(chunk)
-                vloss_sum += stats.value_loss; vloss_n += 1
-                n_pairs += len(chunk); n_batches += 1
+                vloss_sum += stats.value_loss
+                vloss_n += 1
+                n_pairs += len(chunk)
+                n_batches += 1
                 if n_batches % 50 == 0:
                     log.info(f"  epoch {epoch}: {n_batches} batches, "
                              f"{n_pairs} pairs, train_v="

@@ -104,7 +104,7 @@ class Position:
     """Position on hex grid."""
     x: int
     y: int
-    
+
     def __hash__(self):
         return hash((self.x, self.y))
 
@@ -188,7 +188,7 @@ class Hex:
     position: Position
     terrain_types: Set[Terrain]
     modifiers: Set[TerrainModifiers]
-    
+
     def __hash__(self):
         return hash(self.position)
 

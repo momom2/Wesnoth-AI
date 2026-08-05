@@ -40,7 +40,6 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import torch
 
@@ -104,7 +103,7 @@ def _load_policy(checkpoint: Path) -> TransformerPolicy:
     )
     try:
         policy.load_checkpoint(checkpoint)
-    except RuntimeError as e:
+    except RuntimeError:
         ms = raw.get("model_state", {})
         vh = ms.get("value_head.2.weight", None)
         if vh is not None and vh.shape[0] == 1:

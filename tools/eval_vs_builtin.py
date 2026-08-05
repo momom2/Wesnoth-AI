@@ -47,7 +47,7 @@ import time
 from collections import defaultdict
 from dataclasses import asdict
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 import torch
 
@@ -60,8 +60,6 @@ from wesnoth_ai.constants import ADDONS_PATH, MAX_ACTIONS_PER_GAME, SCENARIOS_PA
 from wesnoth_ai.encoder import GameStateEncoder
 from tools.eval_runner import GameResult, play_many
 from tools.eval_scenarios import (
-    FACTIONS,
-    FACTION_BY_NAME,
     MAPS,
     MAP_BY_SHORT,
     all_pairs,
@@ -151,7 +149,8 @@ def _load_checkpoint(
     encoder.unit_type_to_id = dict(ckpt.get("unit_type_to_id", {}))
     if "faction_to_id" in ckpt:
         encoder.faction_to_id = dict(ckpt["faction_to_id"])
-    encoder.eval(); model.eval()
+    encoder.eval()
+    model.eval()
     log.info(
         f"loaded {ckpt_path.name}: "
         f"{len(encoder.unit_type_to_id)} unit types, "

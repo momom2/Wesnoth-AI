@@ -1,0 +1,31 @@
+# Lint config (adopted 2026-08-05, user request).
+#
+# Philosophy: real-bug classes (F, E9) at full strength everywhere;
+# style rules on except where they fight the codebase's established
+# layout. Run `ruff check .` before committing (see CLAUDE.md
+# "Code Style"); `ruff check --fix` applies the safe fixes.
+target-version = "py311"
+line-length = 100
+# Kaggle notebooks are deploy artifacts (cells edited in-platform);
+# their embedded shell/setup cells don't follow module conventions.
+extend-exclude = ["kaggle"]
+
+[lint]
+select = ["E", "F", "W"]
+ignore = [
+    # Long lines: comment/docstring prose and log f-strings routinely
+    # exceed any limit worth enforcing retroactively. Keep new CODE
+    # near ~79 by convention (CLAUDE.md), unenforced.
+    "E501",
+    # Lambda assignment: small sinks/hooks (search_stats_sink etc.)
+    # are idiomatic here.
+    "E731",
+]
+
+[lint.per-file-ignores]
+# Scripts and tests bootstrap sys.path before their imports by
+# design (repo has no installed package); E402 is structural there.
+"tools/*" = ["E402"]
+"tests/*" = ["E402"]
+"scripts/*" = ["E402"]
+"main.py" = ["E402"]

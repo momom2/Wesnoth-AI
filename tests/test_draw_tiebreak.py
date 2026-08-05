@@ -213,7 +213,7 @@ def test_midgame_game_weight_floor():
 
 def test_z_composition_stats():
     from tools.mcts_policy import MCTSPolicy
-    from wesnoth_ai.trainer import MCTSExperience, TrainStats
+    from wesnoth_ai.trainer import TrainStats
 
     class _E:
         def __init__(self, z, gw=1.0):

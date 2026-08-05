@@ -65,7 +65,7 @@ def _instrument_perform_hit():
     real = cb._perform_hit
 
     def wrapped(*args, **kwargs):
-        s, t, ss, ts = args[0], args[1], args[2], args[3]
+        s, t, ss, _ts = args[0], args[1], args[2], args[3]
         cth = ss.cth
         # Wesnoth's mp_checkup records the UNCLAMPED weapon damage
         # stat (attack.cpp:1004 `damage = attacker.damage_;`), not
@@ -237,7 +237,6 @@ def main(argv: List[str]) -> int:
     n_checked = 0
     n_clean = 0
     first_mismatch: Optional[StrikeMismatch] = None
-    first_mismatch_attack: Optional[int] = None
 
     for i, cmd in enumerate(cmds):
         if cmd[0] == "attack":
@@ -253,7 +252,6 @@ def main(argv: List[str]) -> int:
             mismatches = _verify_attack(gs, cmd, recorded.strikes)
             if mismatches:
                 first_mismatch = mismatches[0]
-                first_mismatch_attack = attack_idx
                 print(f"  FAIL cmd[{i}] (attack #{attack_idx}): "
                       f"{first_mismatch.detail}")
                 # Show context.

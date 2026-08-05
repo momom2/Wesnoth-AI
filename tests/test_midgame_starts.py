@@ -120,7 +120,8 @@ def test_midgame_start_carries_no_walk_residue():
         # Power check: re-walk this prefix and count real advancements.
         if not saw_advancement_prefix:
             from tools.validation_exports import _walk_prefix_commands
-            import gzip as _gzip, json as _json
+            import gzip as _gzip
+            import json as _json
             prov = mg[4]
             with _gzip.open(Path(prov["dataset_dir"]) / prov["file"],
                             "rt", encoding="utf-8") as f:

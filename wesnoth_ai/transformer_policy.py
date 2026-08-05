@@ -565,7 +565,6 @@ class TransformerPolicy:
             self._snapshot_inference_weights()
         # Keep the historical log key names so dashboards don't break.
         n_transitions_total = trans_count
-        queue = taken  # for the log line below
         dt = time.perf_counter() - t0
         # DEBUG: duplicates the `train_step in N.Ns trajectories=...
         # loss=...` line in sim_self_play.run_iteration that the

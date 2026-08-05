@@ -32,12 +32,12 @@ import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from wesnoth_ai.classes import GameState, Hex, Position, SideInfo, TerrainModifiers
+from wesnoth_ai.classes import GameState, Hex, Position, SideInfo
 from tools.replay_extract import WMLNode, parse_wml
 
 
@@ -500,7 +500,6 @@ def _terrain_action(gs: GameState, action: WMLNode) -> None:
     # bookkeeping and to update Hex.terrain_types/modifiers on the
     # parsed grid (so combat defense queries see the change).
     from tools.replay_dataset import _parse_hex_code
-    from wesnoth_ai.classes import Hex, Position
     new_terr, new_mods = _parse_hex_code(new_code)
 
     # NOTE: `_terrain_codes` stores the FULL code including any
@@ -1159,7 +1158,8 @@ def _unit_action(gs: GameState, action: WMLNode) -> None:
     if status_node is not None:
         petr = (status_node.attrs.get("petrified", "") or "").strip().lower()
         if petr in ("yes", "true", "1"):
-            new_st = set(base_unit.statuses); new_st.add("petrified")
+            new_st = set(base_unit.statuses)
+            new_st.add("petrified")
             base_unit = _dc_replace(base_unit, statuses=new_st,
                                     current_moves=0, has_attacked=True,
                                     attacks=[])
@@ -1270,11 +1270,9 @@ def _apply_effect_to_unit(u, eff: WMLNode) -> None:
     apply_to = (eff.attrs.get("apply_to", "") or "").strip().strip('"')
     from wesnoth_ai.classes import Attack
     from wesnoth_ai.combat import DAMAGE_TYPES
-    from dataclasses import replace as _dc_replace
 
     if apply_to == "attack":
         weapon_range = (eff.attrs.get("range", "") or "").strip().strip('"')
-        weapon_name = (eff.attrs.get("name", "") or "").strip().strip('"')
         ss = eff.first("set_specials")
         new_specials = {ch.tag for ch in ss.children} if ss is not None else set()
         inc_attacks_raw = eff.attrs.get("increase_attacks", "")
@@ -1388,9 +1386,13 @@ def _apply_effect_to_unit(u, eff: WMLNode) -> None:
         add = (eff.attrs.get("add", "") or "").strip().strip('"')
         rem = (eff.attrs.get("remove", "") or "").strip().strip('"')
         if add:
-            new_st = set(u.statuses); new_st.add(add); u.statuses = new_st
+            new_st = set(u.statuses)
+            new_st.add(add)
+            u.statuses = new_st
         if rem and rem in u.statuses:
-            new_st = set(u.statuses); new_st.discard(rem); u.statuses = new_st
+            new_st = set(u.statuses)
+            new_st.discard(rem)
+            u.statuses = new_st
         return
 
     # apply_to in {ellipse, image_mod, overlay, profile, new_animation,

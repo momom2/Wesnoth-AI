@@ -67,7 +67,6 @@ from wesnoth_ai.classes import GameState, Position, TerrainModifiers, Unit
 from wesnoth_ai.combat_oracle import expected_attack_net_damage
 from wesnoth_ai.encoder import EncodedState
 from wesnoth_ai.model import ActorKind, ModelOutput
-from wesnoth_ai.rewards import hex_distance
 
 
 log = logging.getLogger("action_sampler")
@@ -84,7 +83,7 @@ _ORACLE_WARN_SEEN: Dict[Tuple[str, str], bool] = {}
 # fraction of their configured value over a horizon of training
 # decisions, with a floor (default 0.1×) so the bias persists at
 # small strength forever.
-from wesnoth_ai.constants import (
+from wesnoth_ai.constants import (  # noqa: E402 -- kept beside the tuning-knob comment block above
     COMBAT_TARGET_ALPHA,
     COMBAT_TYPE_ALPHA,
     COMBAT_ANNEAL_HORIZON,
@@ -240,7 +239,6 @@ def sample_action(
     """
     from wesnoth_ai.model import UnitActionType
 
-    device = output.actor_logits.device
     value_est = float(output.value.squeeze().item())
 
     masks = _build_legality_masks(encoded, game_state,
@@ -873,7 +871,6 @@ def predict_priors(
     actor_p = _safe_softmax(actor_logits, dim=-1)            # [1, A]
 
     A = actor_logits.size(-1)
-    H = output.target_logits.size(-1)
     W = output.weapon_logits.size(-1)
 
     # 2) Type | actor (UNIT actors only). type_valid is 0 for

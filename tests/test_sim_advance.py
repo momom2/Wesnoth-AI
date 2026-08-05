@@ -26,7 +26,7 @@ import pytest
 from wesnoth_ai.classes import Position, Unit
 from tools.replay_dataset import _build_recruit_unit
 from tools.sim_to_replay import _build_replay_wml
-from tools.wesnoth_sim import RecordedCommand, WesnothSim
+from tools.wesnoth_sim import RecordedCommand
 
 
 def _make(unit_type, side, x, y, uid, *, current_hp=None, current_exp=0,

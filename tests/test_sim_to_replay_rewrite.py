@@ -32,7 +32,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import List
 
-import pytest
 
 from tools.sim_to_replay import _rewrite_sides_for_sim
 

@@ -20,10 +20,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 from dataclasses import replace
 
 from wesnoth_ai.action_sampler import _build_legality_masks
-from wesnoth_ai.classes import (GameState, GlobalInfo, Hex, Map, Position,
-                     SideInfo, TerrainModifiers, Terrain)
+from wesnoth_ai.classes import (TerrainModifiers, Terrain)
 from wesnoth_ai.encoder import GameStateEncoder
-from test_action_type_head import _gs_with_unit_and_enemy, _u
+from test_action_type_head import _gs_with_unit_and_enemy
 
 
 def _masks_for(gs):

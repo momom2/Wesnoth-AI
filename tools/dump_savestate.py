@@ -58,7 +58,6 @@ from __future__ import annotations
 
 import argparse
 import gzip
-import json
 import sys
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
@@ -72,7 +71,7 @@ from wesnoth_ai.classes import (
 )
 from wesnoth_ai import combat as cb
 from tools.replay_dataset import (
-    iter_replay_pairs_with_state, _stats_for, _terrain_at,
+    iter_replay_pairs_with_state, _stats_for,
 )
 
 
@@ -355,7 +354,7 @@ def _trait_block_wml(trait_id: str) -> List[str]:
         if apply_to == "hitpoints_per_level":
             out.append("\t\t\t\t[effect]")
             out.append('\t\t\t\t\tapply_to="hitpoints"')
-            out.append(f'\t\t\t\t\ttimes="per level"')
+            out.append('\t\t\t\t\ttimes="per level"')
             out.append(f'\t\t\t\t\t{key}={_wml_value(value)}')
             out.append("\t\t\t\t[/effect]")
         elif apply_to == "attack":

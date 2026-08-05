@@ -179,7 +179,6 @@ def diff_replay_moves(raw_path: Path, extracted_path: Path,
     # Filter to moves that have a real final_hex (some old replays
     # have moves without [checkup] -- skip those rather than false
     # alarm).
-    oracles_with_truth = [o for o in oracles if o.final_x >= 0]
 
     with gzip.open(extracted_path, "rt", encoding="utf-8") as f:
         data = json.load(f)

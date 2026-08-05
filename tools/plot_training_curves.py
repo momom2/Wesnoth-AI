@@ -331,7 +331,8 @@ def main(argv: List[str]) -> int:
     if args.last:
         rows = rows[-args.last:]
     if not rows:
-        print("no rows in CSV"); return 1
+        print("no rows in CSV")
+        return 1
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(build_html(rows, note), encoding="utf-8")
     last = rows[-1]

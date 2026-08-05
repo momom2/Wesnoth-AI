@@ -232,7 +232,7 @@ def main(argv: List[str]) -> int:
 
     if suspicious:
         print()
-        print(f"Suspicious cases (potential false drops):")
+        print("Suspicious cases (potential false drops):")
         for fname, last0, first1 in suspicious:
             print(f"  {fname}")
             print(f"    dropped (block0 last):  {last0}")

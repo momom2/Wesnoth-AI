@@ -163,9 +163,9 @@ def _summarize(
         print(f"  actions     median={actions[len(actions)//2]:3d}  "
               f"mean={sum(actions)/len(actions):5.1f}  "
               f"max={max(actions)}")
-        print(f"  ended_by    " + ", ".join(
+        print("  ended_by    " + ", ".join(
             f"{k}={v}" for k, v in sorted(ended.items())))
-        print(f"  winners     " + ", ".join(
+        print("  winners     " + ", ".join(
             f"side{k}={v}" for k, v in sorted(winners.items())))
         rate = sum(actions) / wall_seconds if wall_seconds else 0
         print(f"  speed       {rate:7.1f} actions/s  "

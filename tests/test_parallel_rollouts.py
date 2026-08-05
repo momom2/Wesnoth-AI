@@ -17,7 +17,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
-import glob
 import random
 import threading
 
@@ -208,8 +207,6 @@ def test_observe_is_thread_safe():
     """Many threads concurrently observing into the same policy
     don't corrupt _pending / _queue. Uses the simplest possible
     sequence: select_action -> observe(done=True) repeated."""
-    import torch
-    from wesnoth_ai.rewards import WeightedReward
     from wesnoth_ai.transformer_policy import TransformerPolicy
     from wesnoth_ai.classes import (
         Alignment, Attack, DamageType, GameState, GlobalInfo, Hex, Map,

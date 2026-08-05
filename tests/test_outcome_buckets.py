@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 from tools.outcome_buckets import (   # noqa: E402
-    Bucket, MemberStat, event_class, initial_buckets, propose_split, split,
+    event_class, initial_buckets, propose_split, split,
 )
 
 
@@ -204,10 +204,12 @@ def test_repeated_splits_converge_to_singletons():
         guard += 1
         b = frontier.pop()
         if len(b.members) == 1:
-            singletons.append(b); continue
+            singletons.append(b)
+            continue
         out = propose_split(b, v_min=1, z_sig=2.0)
         if out is None:
-            singletons.append(b); continue
+            singletons.append(b)
+            continue
         lo, hi = split(b, out[0], out[1])
         frontier.extend([lo, hi])
     assert all(len(b.members) == 1 for b in singletons)

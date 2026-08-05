@@ -22,8 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 from wesnoth_ai.transformer_policy import TransformerPolicy            # noqa: E402
 from wesnoth_ai.action_sampler import enumerate_legal_actions_with_priors  # noqa: E402
 from tools.inference_seam import (                           # noqa: E402
-    InferenceServer, RemoteEncoder, RemoteModel, build_light_encoded,
-    move_model_output,
+    InferenceServer, RemoteEncoder, RemoteModel, move_model_output,
 )
 from sim_test_helpers import fresh_scenario_sim              # noqa: E402
 

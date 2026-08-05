@@ -25,12 +25,11 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
-import glob
 import pytest
 
 from wesnoth_ai.rewards import (
-    StepDelta, WeightedReward,
-    UnitTypeBonus, TurnConditionalBonus, register_predicate,
+    WeightedReward,
+    UnitTypeBonus, TurnConditionalBonus,
 )
 
 

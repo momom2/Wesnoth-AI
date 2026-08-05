@@ -174,7 +174,6 @@ def test_batched_training_loop_actually_steps(tmp_path):
     tests on _flush_batch itself cannot catch call-site bugs; this
     drives train() end-to-end in batched mode and requires actual
     optimizer steps."""
-    import re
     from tools.supervised_train import train
 
     out = tmp_path / "sl_it.pt"

@@ -36,7 +36,7 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -44,8 +44,7 @@ import torch.nn.functional as F
 # Project imports — assume cwd is the repo root.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from wesnoth_ai.classes import GameState
-from wesnoth_ai.encoder import GameStateEncoder, RawEncoded, encode_raw
+from wesnoth_ai.encoder import GameStateEncoder, RawEncoded
 from wesnoth_ai.model import WesnothModel
 # Import replay_dataset from the same tools/ dir.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -83,14 +82,16 @@ def _apply_size_filters(
     for p in files:
         n_cmds = by_file.get(p.name, 0)
         if max_commands and n_cmds and n_cmds > max_commands:
-            n_dropped_cmds += 1; continue
+            n_dropped_cmds += 1
+            continue
         if max_starting:
             # Need to open for starting_units. Cheap (~5KB compressed).
             try:
                 with gzip.open(p, "rt", encoding="utf-8") as f:
                     data = json.load(f)
                 if len(data.get("starting_units", [])) > max_starting:
-                    n_dropped_units += 1; continue
+                    n_dropped_units += 1
+                    continue
             except Exception:
                 continue
         out.append(p)
@@ -549,7 +550,6 @@ def _loss_parts_for_output(
     """
     if type_loss_weights is None:
         type_loss_weights = _DEFAULT_ACTION_TYPE_LOSS_WEIGHT
-    from wesnoth_ai.model import UnitActionType
 
     zero = torch.zeros((), device=device)
     actor_logits = output.actor_logits        # [1, A]
@@ -822,7 +822,8 @@ def _evaluate(
     encoder vocab is not intentionally grown here; unseen names hit
     the overflow bucket exactly as they would at rollout time."""
     was_training = model.training
-    model.eval(); encoder.eval()
+    model.eval()
+    encoder.eval()
     hits = {"actor": 0, "type": 0, "target": 0, "weapon": 0}
     fired = {"actor": 0, "type": 0, "target": 0, "weapon": 0}
     ce_sum, n = 0.0, 0
@@ -867,7 +868,8 @@ def _evaluate(
                     if int(output.weapon_logits[0, ai.actor_idx].argmax())                             == ai.weapon_idx:
                         hits["weapon"] += 1
     if was_training:
-        model.train(); encoder.train()
+        model.train()
+        encoder.train()
     out = {"n": n, "ce": (ce_sum / n) if n else float("nan")}
     for k in hits:
         out[f"{k}_top1"] = (hits[k] / fired[k]) if fired[k] else None
@@ -1028,7 +1030,8 @@ def train(
                            num_heads=num_heads, d_ff=d_ff,
                            aux_score=aux_flag,
                            moves_left=moves_flag).to(device)
-    model.train(); encoder.train()
+    model.train()
+    encoder.train()
     arch_record = {"d_model": d_model, "num_layers": num_layers,
                    "num_heads": num_heads, "d_ff": d_ff}
 
@@ -1283,7 +1286,8 @@ def train(
     # global counter and per-epoch snapshot filenames don't
     # collide between links.
     for epoch in range(resumed_epoch, epochs):
-        if stop: break
+        if stop:
+            break
         random.shuffle(files)
         step = 0
         t_epoch = time.time()
@@ -1352,7 +1356,9 @@ def train(
                     # Abandon any partial gradient or batch from this
                     # file — its data is incomplete.
                     opt.zero_grad()
-                    batch_encoded.clear(); batch_ais.clear(); batch_zw.clear()
+                    batch_encoded.clear()
+                    batch_ais.clear()
+                    batch_zw.clear()
                     losses_in_batch = 0
                     continue
 
@@ -1402,10 +1408,14 @@ def train(
                     except Exception as e:
                         log.debug(f"  batch flush failed: {e}")
                         opt.zero_grad()
-                        batch_encoded.clear(); batch_ais.clear(); batch_zw.clear()
+                        batch_encoded.clear()
+                        batch_ais.clear()
+                        batch_zw.clear()
                         continue
                     running_count += len(batch_encoded)
-                    batch_encoded.clear(); batch_ais.clear(); batch_zw.clear()
+                    batch_encoded.clear()
+                    batch_ais.clear()
+                    batch_zw.clear()
                     step_just_landed = True
                 else:
                     # === Per-pair flow: forward+backward per pair, step
@@ -1542,7 +1552,9 @@ def train(
                 except Exception as e:
                     log.debug(f"  end-of-epoch flush failed: {e}")
                     opt.zero_grad()
-                batch_encoded.clear(); batch_ais.clear(); batch_zw.clear()
+                batch_encoded.clear()
+                batch_ais.clear()
+                batch_zw.clear()
             elif not use_batched and losses_in_batch > 0:
                 torch.nn.utils.clip_grad_norm_(params_for_clip, 1.0)
                 opt.step()

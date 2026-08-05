@@ -35,7 +35,7 @@ reinvent state diffing.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Protocol, Set, Tuple
+from typing import Callable, Dict, List, Optional, Protocol, Tuple
 
 from wesnoth_ai.classes import GameState
 
@@ -771,10 +771,11 @@ def hex_distance(a_x: int, a_y: int, b_x: int, b_y: int) -> int:
 # action_sampler, and rewards share one implementation of the
 # fog-of-war contract. Local module-level aliases preserve the
 # (now thin) namespace consumers used to import.
-from wesnoth_ai.visibility import (visible_fraction_for as _visible_fraction,
-                        visible_hexes_for as _compute_visible_hexes,
-                        sight_radius_for as _sight_radius_for)
-__all__ = (_visible_fraction, _compute_visible_hexes, _sight_radius_for)  # quiet linters
+from wesnoth_ai.visibility import (  # noqa: E402, F401 -- late import documented above; aliases re-exported for legacy consumers
+    visible_fraction_for as _visible_fraction,
+    visible_hexes_for as _compute_visible_hexes,
+    sight_radius_for as _sight_radius_for,
+)
 
 
 def _action_had_visible_effect(

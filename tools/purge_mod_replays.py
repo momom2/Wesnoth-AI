@@ -192,7 +192,7 @@ def main(argv: list[str]) -> int:
 
     total = len(bz2_files)
     print()
-    print(f"Bucket totals (raw):")
+    print("Bucket totals (raw):")
     for b in ("keep", "set_aside", "purge"):
         n = bucket_counter[b]
         print(f"  {b:>10s}  {n:7d}  ({100*n/max(1,total):5.1f}%)")
@@ -200,7 +200,7 @@ def main(argv: list[str]) -> int:
     print(f"Dataset entries to delete: {len(to_delete_dataset)}")
     print(f"Dataset entries to set-aside: {len(to_setaside_dataset)}")
     print()
-    print(f"Top 30 mods seen:")
+    print("Top 30 mods seen:")
     for k, v in mod_counter.most_common(30):
         print(f"  {v:7d}  {k}")
 

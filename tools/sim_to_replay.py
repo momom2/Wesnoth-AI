@@ -55,7 +55,6 @@ import bz2
 import logging
 import re
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -64,7 +63,7 @@ _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
-from tools.wesnoth_sim import PvPDefaults, RecordedCommand, WesnothSim, request_seed
+from tools.wesnoth_sim import PvPDefaults, RecordedCommand, WesnothSim
 
 
 log = logging.getLogger("sim_to_replay")
@@ -938,16 +937,16 @@ def _render_side_block(
     RNG at scenario start, matching the seeds in our [replay]."""
     parts = ["[side]"]
     parts += [
-        f'\tallow_changes="yes"',
-        f'\tallow_player="yes"',
-        f'\tcanrecruit="yes"',
-        f'\tchose_random="no"',
+        '\tallow_changes="yes"',
+        '\tallow_player="yes"',
+        '\tcanrecruit="yes"',
+        '\tchose_random="no"',
         f'\tcolor="{color}"',
-        f'\tcontroller="human"',
+        '\tcontroller="human"',
         f'\tcurrent_player="Sim Player {side_num}"',
         f'\tfaction="{faction}"',
         f'\tfaction_name="{faction}"',
-        f'\tfog="no"',  # PvP default ladder has fog off
+        '\tfog="no"',  # PvP default ladder has fog off
         f'\tgold="{gold}"',
         # [side] income is an OFFSET over game_config::base_income=2
         # (team.hpp:179). Default-era games emit 0; corpus games with
@@ -956,11 +955,11 @@ def _render_side_block(
         # validation catch 2026-07-15).
         f'\tincome="{income_offset}"',
         f'\tis_host="{"yes" if side_num == 1 else "no"}"',
-        f'\tis_local="yes"',
+        '\tis_local="yes"',
         f'\tname="Sim Player {side_num}"',
         f'\tplayer_id="sim_player_{side_num}"',
         f'\trecruit="{",".join(recruit)}"',
-        f'\tshroud="no"',
+        '\tshroud="no"',
         f'\tside="{side_num}"',
         f'\tteam_name="{team_name}"',
         f'\ttype="{leader_type}"',
@@ -1508,7 +1507,8 @@ def find_source_bz2(json_gz_path: Path,
     """Given the path of a `replays_dataset/<id>.json.gz`, find the
     corresponding `replays_raw/<date>/<game_id>.bz2`. Returns None
     if not found (e.g., the user reorganized replays_raw)."""
-    import gzip, json
+    import gzip
+    import json
     with gzip.open(json_gz_path, "rt", encoding="utf-8") as f:
         data = json.load(f)
     game_id = data.get("game_id", "")

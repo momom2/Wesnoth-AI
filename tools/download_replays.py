@@ -68,12 +68,14 @@ def main() -> int:
     start = date.fromisoformat(sys.argv[1])
     end   = date.fromisoformat(sys.argv[2])
     if end < start:
-        print("END must be >= START"); return 2
+        print("END must be >= START")
+        return 2
 
     days: list[date] = []
     d = start
     while d <= end:
-        days.append(d); d += timedelta(days=1)
+        days.append(d)
+        d += timedelta(days=1)
 
     print(f"Covering {len(days)} days: {start} .. {end}")
     all_jobs: list[tuple[date, str]] = []
@@ -89,9 +91,11 @@ def main() -> int:
         for i, f in enumerate(as_completed(futs), 1):
             name, size, status = f.result()
             if status == "ok":
-                ok += 1; total_bytes += size
+                ok += 1
+                total_bytes += size
             elif status == "skip":
-                skipped += 1; total_bytes += size
+                skipped += 1
+                total_bytes += size
             else:
                 err += 1
             if i % 200 == 0:

@@ -21,8 +21,8 @@ Phase 3.2 will pad and batch when the trainer needs it.
 from __future__ import annotations
 
 import threading
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -67,10 +67,9 @@ NUM_SIDE_CODES  = 3     # 0 = ours, 1 = theirs, 2 = neutral
 # Pre-seeded faction vocab. Re-exported from constants.py so era
 # mods can override in one place. Empty string is reserved for
 # "unknown/unset" -> id 0.
-from wesnoth_ai.constants import DEFAULT_FACTIONS as _DEFAULT_FACTIONS
-from wesnoth_ai.visibility import (
+from wesnoth_ai.constants import DEFAULT_FACTIONS as _DEFAULT_FACTIONS  # noqa: E402 -- re-export point documented above
+from wesnoth_ai.visibility import (  # noqa: E402
     relevant_hexes_in_slot_order, hexes_in_slot_order, own_recruit_types,
-                        units_visible_to,
                         visible_units_in_slot_order)
 
 
@@ -201,13 +200,13 @@ GLOBAL_FEAT_DIM = 6
 # Normalization divisors. Re-exported from `constants.py` so era
 # mods can override them in one place; see the comment block in
 # constants.py for scale rationale.
-from wesnoth_ai.constants import (
+from wesnoth_ai.constants import (  # noqa: E402 -- re-export point documented above
     HP_NORM, MOVES_NORM, EXP_NORM, COST_NORM,
     GOLD_NORM, INCOME_NORM, VILLAGES_NORM, TURN_NORM,
 )
 
 
-import logging
+import logging  # noqa: E402 -- follows the module's feature-table prelude
 log = logging.getLogger("encoder")
 
 # Serializes the append-only vocab growth in `register_names`. Training
@@ -832,7 +831,9 @@ class GameStateEncoder(nn.Module):
         Hs = [r.hex_xs.shape[0] for r in raws]
         Us = [r.unit_xs.shape[0] for r in raws]
         Rs = [r.recruit_type_ids.shape[0] for r in raws]
-        H_total = sum(Hs); U_total = sum(Us); R_total = sum(Rs)
+        H_total = sum(Hs)
+        U_total = sum(Us)
+        R_total = sum(Rs)
         B = len(raws)
 
         def _cat_to_dev(arrays, dtype):
@@ -1112,9 +1113,12 @@ def encode_raw(
             # The modifier is still honored for the live-Wesnoth
             # converter path and hand-built states.
             _owned_village = mod_village in mods or key in village_owner_map
-            if _owned_village:          hex_modifier_flags_np[i, 0] = 1.0
-            if mod_keep    in mods: hex_modifier_flags_np[i, 1] = 1.0
-            if mod_castle  in mods: hex_modifier_flags_np[i, 2] = 1.0
+            if _owned_village:
+                hex_modifier_flags_np[i, 0] = 1.0
+            if mod_keep    in mods:
+                hex_modifier_flags_np[i, 1] = 1.0
+            if mod_castle  in mods:
+                hex_modifier_flags_np[i, 2] = 1.0
             # Dynamic flag: recruit-rejected this turn.
             if key in rejected_hexes:
                 hex_dynamic_flags_np[i, 0] = 1.0

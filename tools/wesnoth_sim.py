@@ -977,7 +977,6 @@ class WesnothSim:
                 f"{self._consecutive_rejects} consecutive rejects "
                 f"-> forced end_turn (loop guard)")
             cmd = ["end_turn"]
-            terrain_cost = None
         self._consecutive_rejects = 0
         if cmd is None:
             # Action was illegal-shaped or referred to a missing unit.
@@ -987,7 +986,6 @@ class WesnothSim:
                 f"attempted {_describe_action(action)}; "
                 f"untranslatable -> end_turn")
             cmd = ["end_turn"]
-            terrain_cost = None
 
         if cmd[0] == "end_turn":
             if _es is not None:

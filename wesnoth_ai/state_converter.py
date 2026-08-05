@@ -5,7 +5,7 @@
 # conversion happens here and ONLY here — do not sprinkle ±1 around.
 
 import json
-from typing import Dict, List, Set, Optional
+from typing import Dict, Set
 
 from wesnoth_ai.classes import (
     GameState, Map, Unit, Attack, Position, Hex, GlobalInfo, SideInfo,
@@ -15,7 +15,7 @@ from wesnoth_ai.classes import (
 
 class StateConverter:
     """Converts the Lua-emitted JSON state payload to GameState objects."""
-    
+
     # Mapping dictionaries for enums
     ALIGNMENT_MAP = {
         'lawful': Alignment.LAWFUL,
@@ -23,7 +23,7 @@ class StateConverter:
         'chaotic': Alignment.CHAOTIC,
         'liminal': Alignment.LIMINAL
     }
-    
+
     DAMAGE_TYPE_MAP = {
         'blade': DamageType.SLASH,
         'pierce': DamageType.PIERCE,
@@ -32,7 +32,7 @@ class StateConverter:
         'cold': DamageType.COLD,
         'arcane': DamageType.ARCANE
     }
-    
+
     ABILITY_MAP = {
         'ambush': UnitAbility.AMBUSH,
         'concealment': UnitAbility.CONCEALMENT,
@@ -49,7 +49,7 @@ class StateConverter:
         'submerge': UnitAbility.SUBMERGE,
         'teleport': UnitAbility.TELEPORT
     }
-    
+
     TRAIT_MAP = {
         'intelligent': UnitTrait.INTELLIGENT,
         'quick': UnitTrait.QUICK,
@@ -64,14 +64,14 @@ class StateConverter:
         'undead': UnitTrait.UNDEAD,
         'weak': UnitTrait.WEAK
     }
-    
+
     STATUS_MAP = {
         'poisoned': UnitStatus.POISONED,
         'slowed': UnitStatus.SLOW,
         'petrified': UnitStatus.PETRIFIED,
         'stunned': UnitStatus.STUNNED
     }
-    
+
     ATTACK_SPECIAL_MAP = {
         'backstab': AttackSpecial.BACKSTAB,
         'berserk': AttackSpecial.BERSERK,
@@ -84,7 +84,7 @@ class StateConverter:
         'poison': AttackSpecial.POISON,
         'slow': AttackSpecial.SLOW
     }
-    
+
     # Terrain parsing (simplified - handles base^overlay format)
     TERRAIN_BASE_MAP = {
         'Aa': Terrain.FROZEN,
@@ -106,7 +106,7 @@ class StateConverter:
         'Xu': Terrain.IMPASSABLE,
         'Uu': Terrain.UNWALKABLE,
     }
-    
+
     def __init__(self):
         # Create unit type to ID mapping (shared across all games)
         self.unit_type_to_id = {}
@@ -122,29 +122,29 @@ class StateConverter:
         # modifier overlaid) is still cheap and sidesteps aliasing
         # concerns with prev-state references held in game_manager.
         self._static_map: Dict[str, Dict] = {}
-    
+
     def get_unit_type_id(self, unit_type_name: str) -> int:
         """Get or create ID for unit type."""
         if unit_type_name not in self.unit_type_to_id:
             self.unit_type_to_id[unit_type_name] = self.next_unit_id
             self.next_unit_id += 1
         return self.unit_type_to_id[unit_type_name]
-    
+
     def wesnoth_to_python_coords(self, x: int, y: int) -> tuple:
         """Convert Wesnoth 1-indexed coordinates to Python 0-indexed."""
         return (x - 1, y - 1)
-    
+
     def python_to_wesnoth_coords(self, x: int, y: int) -> tuple:
         """Convert Python 0-indexed coordinates to Wesnoth 1-indexed."""
         return (x + 1, y + 1)
-    
+
     def convert_attack(self, attack_data: Dict) -> Attack:
         """Convert attack from parsed data to Attack object."""
         damage_type = self.DAMAGE_TYPE_MAP.get(
             attack_data.get('type', 'blade'),
             DamageType.SLASH
         )
-        
+
         specials = set()
         specials_list = attack_data.get('specials', [])
         if isinstance(specials_list, list):
@@ -152,7 +152,7 @@ class StateConverter:
                 special = self.ATTACK_SPECIAL_MAP.get(special_name.lower())
                 if special:
                     specials.add(special)
-        
+
         return Attack(
             type_id=damage_type,
             number_strikes=attack_data.get('strikes', 1),
@@ -160,13 +160,13 @@ class StateConverter:
             is_ranged=attack_data.get('is_ranged', False),
             weapon_specials=specials
         )
-    
+
     def convert_unit(self, unit_data: Dict) -> Unit:
         """Convert unit from parsed data to Unit object."""
         # Convert coordinates from Wesnoth (1-indexed) to Python (0-indexed)
         x, y = self.wesnoth_to_python_coords(unit_data['x'], unit_data['y'])
         position = Position(x=x, y=y)
-        
+
         # Convert attacks
         attacks = []
         attacks_data = unit_data.get('attacks', [])
@@ -174,7 +174,7 @@ class StateConverter:
             attacks_data = [attacks_data]
         for attack in attacks_data:
             attacks.append(self.convert_attack(attack))
-        
+
         # Convert abilities
         abilities = set()
         abilities_list = unit_data.get('abilities', [])
@@ -183,7 +183,7 @@ class StateConverter:
                 ability = self.ABILITY_MAP.get(ability_name.lower())
                 if ability:
                     abilities.add(ability)
-        
+
         # Convert traits
         traits = set()
         traits_list = unit_data.get('traits', [])
@@ -192,7 +192,7 @@ class StateConverter:
                 trait = self.TRAIT_MAP.get(trait_name.lower())
                 if trait:
                     traits.add(trait)
-        
+
         # Convert status
         statuses = set()
         status_list = unit_data.get('statuses', [])
@@ -201,13 +201,13 @@ class StateConverter:
                 status = self.STATUS_MAP.get(status_name.lower())
                 if status:
                     statuses.add(status)
-        
+
         # Convert alignment
         alignment = self.ALIGNMENT_MAP.get(
             unit_data.get('alignment', 'neutral').lower(),
             Alignment.NEUTRAL
         )
-        
+
         # Convert defenses
         defense_list = []
         defense_dict = unit_data.get('defenses', {})
@@ -218,13 +218,13 @@ class StateConverter:
         ]
         for terrain in terrain_keys:
             defense_list.append(defense_dict.get(terrain, 100) / 100.0)
-        
+
         # Convert movement costs
         movement_cost_list = []
         movement_dict = unit_data.get('movement_costs', {})
         for terrain in terrain_keys:
             movement_cost_list.append(movement_dict.get(terrain, 99))
-        
+
         return Unit(
             id=unit_data.get('id', ''),
             name=unit_data['name'],
@@ -250,21 +250,21 @@ class StateConverter:
             traits=traits,
             statuses=statuses
         )
-    
+
     def parse_terrain_code(self, terrain_code: str) -> Set[Terrain]:
         """Parse terrain code and return terrain types."""
         terrains = set()
-        
+
         # Split base and overlay
         if '^' in terrain_code:
             base, overlay = terrain_code.split('^', 1)
         else:
             base, overlay = terrain_code, ''
-        
+
         # Map base terrain
         base_terrain = self.TERRAIN_BASE_MAP.get(base, Terrain.FLAT)
         terrains.add(base_terrain)
-        
+
         # Check for special overlays
         if 'V' in overlay:  # Village
             terrains.add(Terrain.VILLAGE)
@@ -272,9 +272,9 @@ class StateConverter:
             terrains.add(Terrain.FOREST)
         if 'K' in overlay or 'C' in base:  # Keep or Castle
             terrains.add(Terrain.CASTLE)
-        
+
         return terrains
-    
+
     def convert_hex(self, hex_data: Dict) -> Hex:
         """Convert hex from parsed data to Hex object.
 
@@ -341,7 +341,7 @@ class StateConverter:
         game_manager when a game is torn down, so cache doesn't grow
         unboundedly over a long training run (each game_id is unique)."""
         self._static_map.pop(game_id, None)
-    
+
     def convert_payload_to_game_state(self, payload: str) -> GameState:
         """Parse the JSON state payload emitted by the Lua state_collector
         and return a populated GameState.
@@ -403,7 +403,7 @@ class StateConverter:
         units = set(self.convert_unit(u) for u in map_data.get('units', []))
         fog = set(Position(x=pos['x'] - 1, y=pos['y'] - 1)
                   for pos in map_data.get('fog', []))
-        
+
         # Create map
         game_map = Map(
             size_x=map_data['width'],
@@ -413,15 +413,15 @@ class StateConverter:
             hexes=hexes,
             units=units
         )
-        
+
         # Convert global info
         current_side = data['current_side']
         sides_data = data.get('sides', [])
         if isinstance(sides_data, dict):
             sides_data = [sides_data]
-        
+
         current_side_data = sides_data[current_side - 1] if sides_data else {}
-        
+
         global_info = GlobalInfo(
             current_side=current_side,
             turn_number=data['turn_number'],
@@ -430,14 +430,14 @@ class StateConverter:
             village_upkeep=current_side_data.get('village_support', 1),
             base_income=current_side_data.get('base_income', 0)
         )
-        
+
         # Convert side info
         sides = []
         for side_data in sides_data:
             recruits = side_data.get('recruits', [])
             if not isinstance(recruits, list):
                 recruits = [recruits] if recruits else []
-            
+
             side_info = SideInfo(
                 player=f"Side {len(sides) + 1}",
                 recruits=recruits,
@@ -451,7 +451,7 @@ class StateConverter:
                 faction=side_data.get('faction', '') or '',
             )
             sides.append(side_info)
-        
+
         return GameState(
             game_id=data.get('game_id', 'unknown'),
             map=game_map,
@@ -460,11 +460,11 @@ class StateConverter:
             game_over=data.get('game_over', False),
             winner=data.get('winner', None)
         )
-    
+
     def convert_action_to_json(self, action: Dict) -> Dict:
         """Convert internal action to format for Wesnoth (now used for Lua file)."""
         action_type = action.get('type')
-        
+
         if action_type == 'move':
             # Convert coordinates back to Wesnoth 1-indexed
             start_x, start_y = self.python_to_wesnoth_coords(
@@ -473,7 +473,7 @@ class StateConverter:
             target_x, target_y = self.python_to_wesnoth_coords(
                 action['target_hex'].x, action['target_hex'].y
             )
-            
+
             return {
                 'type': 'move',
                 'start_x': start_x,
@@ -481,7 +481,7 @@ class StateConverter:
                 'target_x': target_x,
                 'target_y': target_y
             }
-        
+
         elif action_type == 'attack':
             start_x, start_y = self.python_to_wesnoth_coords(
                 action['start_hex'].x, action['start_hex'].y
@@ -489,7 +489,7 @@ class StateConverter:
             target_x, target_y = self.python_to_wesnoth_coords(
                 action['target_hex'].x, action['target_hex'].y
             )
-            
+
             return {
                 'type': 'attack',
                 'start_x': start_x,
@@ -498,35 +498,35 @@ class StateConverter:
                 'target_y': target_y,
                 'weapon_index': action.get('attack_index', 0)
             }
-        
+
         elif action_type == 'recruit':
             target_x, target_y = self.python_to_wesnoth_coords(
                 action['target_hex'].x, action['target_hex'].y
             )
-            
+
             return {
                 'type': 'recruit',
                 'unit_type': action['unit_type'],
                 'target_x': target_x,
                 'target_y': target_y
             }
-        
+
         elif action_type == 'recall':
             target_x, target_y = self.python_to_wesnoth_coords(
                 action['target_hex'].x, action['target_hex'].y
             )
-            
+
             return {
                 'type': 'recall',
                 'unit_id': action['unit_id'],
                 'target_x': target_x,
                 'target_y': target_y
             }
-        
+
         elif action_type == 'end_turn':
             return {
                 'type': 'end_turn'
             }
-        
+
         else:
             raise ValueError(f"Unknown action type: {action_type}")

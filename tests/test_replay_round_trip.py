@@ -30,15 +30,11 @@ Dependents: regression CI.
 """
 from __future__ import annotations
 
-import bz2
 import gzip
 import json
 import tempfile
-from dataclasses import dataclass
 from pathlib import Path
-from typing import List
 
-import pytest
 
 from tools.replay_extract import extract_replay
 from tools.sim_to_replay import export_replay

@@ -56,7 +56,7 @@ import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 
 log = logging.getLogger("scrape_terrain")
@@ -281,8 +281,10 @@ def parse_terrain_cfg(path: Path = _TERRAIN_CFG) -> Dict[str, TerrainEntry]:
             heals_v = 0
         def _int_or(default):
             def f(s):
-                try: return int(s.strip())
-                except (TypeError, ValueError, AttributeError): return default
+                try:
+                    return int(s.strip())
+                except (TypeError, ValueError, AttributeError):
+                    return default
             return f
         light_v = _int_or(0)(attrs.get("light", "0"))
         # max_light / min_light default to the light value when absent.

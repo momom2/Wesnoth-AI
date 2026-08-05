@@ -7,7 +7,11 @@ Measures, per checkpoint, on shared fogged-ladder seeds with the RAW policy
   recruits  recruit actions per game
   turns     game length
 """
-import copy, pathlib, random, sys, torch
+import copy
+import pathlib
+import random
+import sys
+import torch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[0]))
 ROOT = pathlib.Path(r"C:\Users\amaur\Desktop\Perso\projects\Wesnoth_AI")

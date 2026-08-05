@@ -189,9 +189,8 @@ _DEFENSE_KEYS_FOR_CODE: Dict[str, List[str]] = {
     "Hhd":  ["hills"], "Mv": ["mountains"],
     "Tb":   ["flat"], "Iwr": ["flat"],
     "Rb":   ["flat"],
-    "Wwt": ["shallow_water"],
     "Qxua": ["unwalkable"], "Qxu":  ["unwalkable"], "Wog": ["deep_water"],
-    "Qlf":  ["cave"], "Md":   ["mountains"],
+    "Qlf":  ["cave"],
     "_off": ["impassable"],
 }
 
@@ -715,7 +714,9 @@ def _build_initial_gamestate(data: dict) -> GameState:
     side_increments: Dict[int, int] = {}
     for v in starting_villages:
         try:
-            vx = int(v["x"]); vy = int(v["y"]); vs = int(v["side"])
+            vx = int(v["x"])
+            vy = int(v["y"])
+            vs = int(v["side"])
         except (KeyError, ValueError, TypeError):
             continue
         if vs <= 0 or vs > len(gs.sides):
@@ -1676,7 +1677,8 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             # (The move-reset is skipped too, but petrified units never
             # act -- action_sampler excludes them -- so it is inert.)
             if u.side != side or "petrified" in (u.statuses or set()):
-                new_units.add(u); continue
+                new_units.add(u)
+                continue
 
             stats = _stats_for(u.name)
             abilities = set(u.abilities) | set(stats.get("abilities", []))
@@ -1858,7 +1860,8 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         new_units = set()
         for u in gs.map.units:
             if u.side != ending_side or "slowed" not in u.statuses:
-                new_units.add(u); continue
+                new_units.add(u)
+                continue
             new_statuses = set(u.statuses)
             new_statuses.discard("slowed")
             unslowed = _rebuild_unit(u, statuses=new_statuses)
@@ -2034,8 +2037,10 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         # next turn's combat sees the unit as un-slowed and damage math
         # diverges (e.g., a slowed Drake firing at a Wose deals 4 dmg
         # per hit instead of 9, letting the Wose live one extra turn).
-        att_statuses = set(att.statuses); att_statuses.discard("resting")
-        dfd_statuses = set(dfd.statuses); dfd_statuses.discard("resting")
+        att_statuses = set(att.statuses)
+        att_statuses.discard("resting")
+        dfd_statuses = set(dfd.statuses)
+        dfd_statuses.discard("resting")
         if result.attacker_slowed:
             att_statuses.add("slowed")
         if result.attacker_poisoned:
@@ -2491,7 +2496,8 @@ def _action_indices(gs: GameState, cmd: list) -> Optional[ActionIndices]:
         actor = None
         for i, u in enumerate(units_sorted):
             if u.position.x == sx and u.position.y == sy and u.side == current_side:
-                actor = i; break
+                actor = i
+                break
         if actor is None:
             return None
         target = pos_to_hex_idx.get((tx, ty))
@@ -2510,7 +2516,8 @@ def _action_indices(gs: GameState, cmd: list) -> Optional[ActionIndices]:
         actor = None
         for i, u in enumerate(units_sorted):
             if u.position.x == ax and u.position.y == ay and u.side == current_side:
-                actor = i; break
+                actor = i
+                break
         if actor is None:
             return None
         target = pos_to_hex_idx.get((dx, dy))
@@ -2556,8 +2563,7 @@ def _setup_scenario_events(gs: GameState, scenario_id: str):
     """
     try:
         from tools.scenario_events import (
-            load_events_for_scenario, load_scenario_wml,
-            fire_event, setup_static_time_areas,
+            load_scenario_wml, fire_event, setup_static_time_areas,
         )
     except ImportError:
         # If scenario_events isn't importable for some reason, silently
@@ -2692,9 +2698,11 @@ def filter_competitive_2p(dataset_dir: Path) -> List[Path]:
 def main(argv: List[str]) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     if len(argv) != 2:
-        print("usage: replay_dataset.py DATASET_DIR"); return 2
+        print("usage: replay_dataset.py DATASET_DIR")
+        return 2
     d = Path(argv[1])
-    n_files = 0; n_pairs = 0
+    n_files = 0
+    n_pairs = 0
     type_counts: Dict[str, int] = {}
     for gz in sorted(d.glob("*.json.gz")):
         n_files += 1

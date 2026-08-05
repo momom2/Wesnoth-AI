@@ -19,7 +19,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 from tools.elo_ladder import (   # noqa: E402
     PairRecord, fit_elo, fit_bradley_terry, _win_and_game_matrices,
-    elo_standard_errors,
 )
 
 

@@ -26,7 +26,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import pytest
 
 from wesnoth_ai.classes import (
     Alignment, GameState, GlobalInfo, Map, Position, SideInfo,

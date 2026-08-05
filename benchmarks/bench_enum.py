@@ -20,7 +20,7 @@ from wesnoth_ai.action_sampler import enumerate_legal_actions_with_priors  # noq
 from tools.scenario_pool import (  # noqa: E402
     random_setup, build_scenario_gamestate, load_factions,
 )
-from tools.wesnoth_sim import WesnothSim, PvPDefaults  # noqa: E402
+from tools.wesnoth_sim import WesnothSim  # noqa: E402
 
 
 def main() -> int:
@@ -51,7 +51,7 @@ def main() -> int:
                 encoded, output, sim.gs)
         if not laps:
             break
-        lap = nrng.choices(laps, weights=[l.prior for l in laps])[0]
+        lap = nrng.choices(laps, weights=[ln.prior for ln in laps])[0]
         try:
             sim.step(lap.action)
         except Exception:

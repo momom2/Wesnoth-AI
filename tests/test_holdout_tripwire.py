@@ -27,7 +27,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
-import glob
 import pytest
 import torch
 
@@ -130,8 +129,7 @@ def test_value_label_smoothing_train_only():
     """Smoothing must change the TRAIN loss (bounded away from the
     hard-target CE) while eval_value_loss stays unsmoothed, so holdout
     curves remain comparable across runs with different smoothing."""
-    from wesnoth_ai.trainer import (MCTSExperience, _categorical_value_loss,
-                         _project_returns_to_atoms)
+    from wesnoth_ai.trainer import (MCTSExperience, _categorical_value_loss)
     policy = TransformerPolicy()
     atoms = policy._model._value_atoms
     logits = torch.randn(4, atoms.numel())

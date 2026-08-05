@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import pytest
 
 from wesnoth_ai.classes import (
-    Alignment, GameState, GlobalInfo, Hex, Map, Position, SideInfo, Unit,
+    Alignment, GameState, GlobalInfo, Map, Position, SideInfo, Unit,
 )
 from wesnoth_ai.rewards import (
     OUTCOME_DRAW, OUTCOME_LOSS, OUTCOME_ONGOING, OUTCOME_TIMEOUT, OUTCOME_WIN,

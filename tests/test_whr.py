@@ -12,13 +12,12 @@ import math
 import sys
 from pathlib import Path
 
-import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
-from tools.whr import fit_whr, whr_fit, walk_links_from_times   # noqa: E402
+from tools.whr import fit_whr, walk_links_from_times   # noqa: E402
 
 
 def _decisive(a, b, n=20):

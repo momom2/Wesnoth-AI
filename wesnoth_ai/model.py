@@ -505,7 +505,9 @@ class WesnothModel(nn.Module):
         Us = [e.unit_tokens.size(1)    for e in encoded_list]
         Rs = [e.recruit_tokens.size(1) for e in encoded_list]
         Hs = [e.hex_tokens.size(1)     for e in encoded_list]
-        U_max = max(Us); R_max = max(Rs); H_max = max(Hs)
+        U_max = max(Us)
+        R_max = max(Rs)
+        H_max = max(Hs)
 
         def _pad(t, L_target, L_cur):
             if L_cur == L_target:
@@ -527,9 +529,12 @@ class WesnothModel(nn.Module):
 
         # Token-kind additive embeddings.
         kk = self.token_kind_embed.weight
-        if H_max > 0: hex_batch      = hex_batch     + kk[TokenKind.HEX]
-        if U_max > 0: unit_batch     = unit_batch    + kk[TokenKind.UNIT]
-        if R_max > 0: recruit_batch  = recruit_batch + kk[TokenKind.RECRUIT]
+        if H_max > 0:
+            hex_batch      = hex_batch     + kk[TokenKind.HEX]
+        if U_max > 0:
+            unit_batch     = unit_batch    + kk[TokenKind.UNIT]
+        if R_max > 0:
+            recruit_batch  = recruit_batch + kk[TokenKind.RECRUIT]
         global_batch   = global_batch   + kk[TokenKind.GLOBAL]
         end_turn_batch = end_turn_batch + kk[TokenKind.END_TURN]
 

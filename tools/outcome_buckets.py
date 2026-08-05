@@ -56,7 +56,7 @@ exactly sampling a member by its full probability -> unbiased.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 # (a_hp, d_hp, a_slowed, d_slowed, a_poisoned, d_poisoned,

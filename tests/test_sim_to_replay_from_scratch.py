@@ -31,10 +31,7 @@ Dependents: regression CI.
 """
 from __future__ import annotations
 
-import bz2
-from pathlib import Path
 
-import pytest
 
 from tools.scenario_pool import (
     LADDER_SCENARIO_IDS, ScenarioSetup,
@@ -45,7 +42,7 @@ from tools.sim_to_replay import (
     _scrape_map_keep_positions, _scrape_scenario_starting_gold,
     build_save_wml, export_replay_from_scratch,
 )
-from tools.wesnoth_sim import PvPDefaults, WesnothSim
+from tools.wesnoth_sim import WesnothSim
 
 
 # ---------------------------------------------------------------------
@@ -225,7 +222,6 @@ def test_all_21_ladder_maps_emit_without_error(tmp_path):
     """Generate a tiny save for every ladder map -- catches per-map
     regressions in the scenario-template walking (case-insensitive
     id matches, weird map_file paths, missing keep markers, etc.)."""
-    factions = load_factions()
     failures = []
     for sid in LADDER_SCENARIO_IDS:
         try:

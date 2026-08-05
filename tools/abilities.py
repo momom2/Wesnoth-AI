@@ -24,7 +24,7 @@ Dependents:   tools.replay_dataset, combat (via flag passing)
 """
 from __future__ import annotations
 
-from typing import Iterable, List, Optional, Set, Tuple
+from typing import Iterable, List, Optional, Tuple
 
 from wesnoth_ai.classes import Unit
 

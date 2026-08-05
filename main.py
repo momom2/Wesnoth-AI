@@ -197,7 +197,7 @@ def check_setup() -> bool:
     if n_cleaned:
         print(f"✓ Cleaned {n_cleaned} stale g<NN> game-state dir(s)")
 
-    print(f"✓ Project dirs ready")
+    print("✓ Project dirs ready")
 
     # turn_stage.lua is the active AI stage (custom Lua engine that
     # replaces the default Wesnoth RCA, bypassing its blacklist-on-
@@ -222,7 +222,7 @@ def check_setup() -> bool:
         if not f.exists():
             print(f"ERROR: missing {f}")
             return False
-    print(f"✓ Add-on source files present")
+    print("✓ Add-on source files present")
 
     if not install_addon():
         return False

@@ -22,9 +22,6 @@ Dependents: regression CI.
 """
 from __future__ import annotations
 
-import gzip
-import json
-import tempfile
 from pathlib import Path
 
 from tools.replay_extract import extract_replay

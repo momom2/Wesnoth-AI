@@ -15,10 +15,9 @@ from __future__ import annotations
 import logging
 from typing import List
 
-import pytest
 
 from wesnoth_ai.classes import (
-    Alignment, GameState, GlobalInfo, Hex, Map, Position, SideInfo, Unit,
+    Alignment, GameState, GlobalInfo, Map, Position, SideInfo, Unit,
 )
 from wesnoth_ai.encoder import GameStateEncoder
 

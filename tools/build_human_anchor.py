@@ -87,7 +87,7 @@ def main(argv: List[str]) -> int:
     del net
 
     index = args.dataset_dir / "value_corpus_index.jsonl"
-    rows = [json.loads(l) for l in index.open(encoding="utf-8")]
+    rows = [json.loads(ln) for ln in index.open(encoding="utf-8")]
     random.Random(0).shuffle(rows)      # the shared corpus shuffle
     rows = rows[args.skip_games:]
     random.Random(args.seed).shuffle(rows)

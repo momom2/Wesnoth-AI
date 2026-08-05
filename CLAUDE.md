@@ -401,6 +401,14 @@ Target ~600 lines. Split by responsibility when a file grows past that.
 - Private members: `_leading_underscore`
 - Lua: same conventions (Lua allows `snake_case` fine)
 
+### Linting (adopted 2026-08-05)
+- **Run `ruff check .` before committing** — config in `ruff.toml`
+  (rules E/F/W; E501/E731 off; E402 allowed in tools//tests//scripts
+  for the sys.path bootstrap pattern). The check must come back clean;
+  `ruff check --fix` applies the safe autofixes.
+- Intentional exceptions get a targeted `# noqa: <rule>` with a short
+  reason, never a blanket file ignore.
+
 ### Imports
 - No unused imports.
 - No circular imports — if A needs data from B, pass it explicitly.

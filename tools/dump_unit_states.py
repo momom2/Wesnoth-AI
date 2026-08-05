@@ -31,7 +31,7 @@ import gzip
 import json
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import List, Tuple
 
 _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT))
@@ -39,7 +39,6 @@ sys.path.insert(0, str(_ROOT / "tools"))
 
 from tools.replay_dataset import (
     _build_initial_gamestate, _apply_command, _setup_scenario_events,
-    _stats_for,
 )
 
 
@@ -93,7 +92,6 @@ def main(argv: List[str]) -> int:
     cmds = data.get("commands", [])
     limit = args.until if args.until is not None else len(cmds)
 
-    cur_turn = 1
     for i, cmd in enumerate(cmds[:limit]):
         kind = cmd[0]
         if kind == "init_side":

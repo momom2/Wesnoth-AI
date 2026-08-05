@@ -158,9 +158,11 @@ def test_batched_advice_equals_per_sample():
         model.advice_out.weight.normal_(0.0, 0.3)
         model.advice_out.bias.normal_(0.0, 0.3)
     d = _ARCH["d_model"]
-    e0 = enc.encode(gs); e0.advice_tokens = torch.randn(1, 2, d)
+    e0 = enc.encode(gs)
+    e0.advice_tokens = torch.randn(1, 2, d)
     e1 = enc.encode(gs)                                   # no advice
-    e2 = enc.encode(gs); e2.advice_tokens = torch.randn(1, 3, d)
+    e2 = enc.encode(gs)
+    e2.advice_tokens = torch.randn(1, 3, d)
     encs = [e0, e1, e2]
     with torch.no_grad():
         batched = model.forward_batch(encs)
@@ -179,7 +181,8 @@ def test_spool_worker_honours_the_advice_flag():
     the learner did -- only the trainer reforward saw advice. This pins the
     worker/learner seam: same class of bug as the telemetry that was dead on
     the spool path (T1-H)."""
-    import ast, pathlib
+    import ast
+    import pathlib
     src = pathlib.Path("tools/selfplay_worker.py").read_text(encoding="utf-8")
     assert "--mcts-advice" in src, "worker must parse the advice flag"
     tree = ast.parse(src)

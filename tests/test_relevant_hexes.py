@@ -162,7 +162,8 @@ def test_superset_assert_FIRES_when_the_set_is_short():
     relevant set behind the encoder's back and require the mask build to
     raise -- a silently shrunken action space is the failure mode this
     exists to prevent (an excluded hex is an unorderable hex)."""
-    import pytest, torch
+    import pytest
+    import torch
     from wesnoth_ai.encoder import GameStateEncoder
     from wesnoth_ai.model import WesnothModel
     from wesnoth_ai.action_sampler import enumerate_legal_actions_with_priors
@@ -183,7 +184,8 @@ def test_superset_assert_FIRES_when_the_set_is_short():
     orig = vis.relevant_hexes_in_slot_order
     try:
         vis.relevant_hexes_in_slot_order = lambda g: full[: max(1, len(full) // 3)]
-        import importlib, wesnoth_ai.encoder as enc_mod
+        import importlib
+        import wesnoth_ai.encoder as enc_mod
         importlib.reload(enc_mod)
         enc2 = enc_mod.GameStateEncoder(d_model=32, relevant_set_hexes=True)
         e2 = enc2.encode(gs)
@@ -193,7 +195,8 @@ def test_superset_assert_FIRES_when_the_set_is_short():
             enumerate_legal_actions_with_priors(e2, o2, gs)
     finally:
         vis.relevant_hexes_in_slot_order = orig
-        import importlib, wesnoth_ai.encoder as enc_mod
+        import importlib
+        import wesnoth_ai.encoder as enc_mod
         importlib.reload(enc_mod)
 
 
@@ -216,7 +219,8 @@ def test_worker_learner_index_basis_seam_is_wired():
     and REJECT a mismatched payload. Third bug of this class (dead spool
     telemetry, _combine_stats swallow, dead acting-side advice), so the
     boundary gets a test that reads the boundary."""
-    import ast, pathlib
+    import ast
+    import pathlib
     w = pathlib.Path("tools/selfplay_worker.py").read_text(encoding="utf-8")
     assert "--relevant-set-hexes" in w
     assert '"relevant_set"' in w, "worker must stamp the payload"
@@ -224,9 +228,9 @@ def test_worker_learner_index_basis_seam_is_wired():
     tp = [n for n in ast.walk(tree) if isinstance(n, ast.Call)
           and getattr(n.func, "id", None) == "TransformerPolicy"]
     assert tp and any(k.arg == "relevant_set_hexes" for k in tp[0].keywords)
-    l = pathlib.Path("tools/sim_self_play.py").read_text(encoding="utf-8")
-    assert '"--relevant-set-hexes"]' in l, "learner must forward the flag"
-    assert "REJECTING" in l and "relevant_set" in l, \
+    src = pathlib.Path("tools/sim_self_play.py").read_text(encoding="utf-8")
+    assert '"--relevant-set-hexes"]' in src, "learner must forward the flag"
+    assert "REJECTING" in src and "relevant_set" in src, \
         "learner must reject a mismatched index basis loudly"
 
 
@@ -262,7 +266,8 @@ def test_systemic_basis_mismatch_escalates_to_a_halt():
     errors nobody reads -- the silent-boundary failure class this project
     has hit three times. Exit 6 is in the supervisor's tripwire range, so
     it writes ABORTED_6 and stops auto-relaunch."""
-    import pathlib, re
+    import pathlib
+    import re
     src = pathlib.Path("tools/sim_self_play.py").read_text(encoding="utf-8")
     assert "_basis_reject_streak" in src
     assert "SystemExit(6)" in src

@@ -41,9 +41,9 @@ import argparse
 import gzip
 import json
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List
 
 _HERE = Path(__file__).resolve().parent
 _ROOT = _HERE.parent

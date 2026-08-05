@@ -57,7 +57,7 @@ _CASTLE_SEARCH_RADIUS = 3
 # so the dummy policy can't generate moves that exist in Cartesian
 # space but not on Wesnoth's hex grid (Wesnoth's replay engine
 # rejects those as 'corrupt movement').
-from tools.abilities import hex_neighbors as _hex_neighbors
+from tools.abilities import hex_neighbors as _hex_neighbors  # noqa: E402 -- kept beside the hex-grid caveat comment above
 
 
 class DummyPolicy:

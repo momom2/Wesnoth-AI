@@ -56,7 +56,8 @@ def _combat_sim():
         u.name = "Spearman"
         u.attacks = _attacks_from_stats(_stats_for("Spearman"))
         u.current_hp = u.max_hp = 60     # high HP -> both survive, many outcomes
-        u.statuses.discard("slowed"); u.statuses.discard("poisoned")
+        u.statuses.discard("slowed")
+        u.statuses.discard("poisoned")
         if hasattr(u, "_defense_table"):
             del u._defense_table
     occ = {(u.position.x, u.position.y) for u in gs.map.units}
@@ -72,7 +73,8 @@ def _combat_sim():
 def _policy():
     pol = TransformerPolicy(device=torch.device("cpu"),
                             d_model=64, num_layers=2, num_heads=4, d_ff=128)
-    pol._encoder.eval(); pol._model.eval()
+    pol._encoder.eval()
+    pol._model.eval()
     return pol
 
 
@@ -140,8 +142,6 @@ def test_bucketing_is_deterministic():
     _, f2, r2 = _forced_attack_run(pol, sim, True, seed=7)
     assert f1 == f2, "same seed must give the same forward count"
     # identical outcome-child visit structure
-    v1 = sorted((str(k), c._total_visits) for k, c in r1.edges[0].children.items()) \
-        if r1.edges else []
     # compare the attack edge's children visit multiset
     a1 = next(e for e in r1.edges if e.action.get("type") == "attack")
     a2 = next(e for e in r2.edges if e.action.get("type") == "attack")

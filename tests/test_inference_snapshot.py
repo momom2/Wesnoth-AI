@@ -21,19 +21,17 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import List
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
-import glob
 import pytest
 import torch
 
 from wesnoth_ai.classes import (
     Alignment, Attack, DamageType, GameState, GlobalInfo, Hex, Map,
-    Position, SideInfo, Terrain, TerrainModifiers, Unit,
+    Position, SideInfo, Terrain, Unit,
 )
 from wesnoth_ai.transformer_policy import TransformerPolicy
 
@@ -119,7 +117,7 @@ def test_trainer_weight_mutation_does_not_affect_inference():
     policy = TransformerPolicy()
     gs = _gs()
     # First inference call -- record action.
-    a1 = policy.select_action(gs, game_label="g1")
+    policy.select_action(gs, game_label="g1")
 
     # Mutate trainer's weights directly. Use a separate game label
     # for the second select_action so the debug-tripwire (same-state-
@@ -131,7 +129,7 @@ def test_trainer_weight_mutation_does_not_affect_inference():
     # Second call (different game label, same state). Should match
     # the first if the inference model wasn't affected by the
     # trainer-side mutation.
-    a2 = policy.select_action(gs, game_label="g2")
+    policy.select_action(gs, game_label="g2")
     # Both calls used the SAME _inference_model state. With the
     # trainer mutating in between but no snapshot, the inference
     # model is unchanged. The actions should match (DummyPolicy-

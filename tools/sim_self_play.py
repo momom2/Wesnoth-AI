@@ -47,7 +47,6 @@ from __future__ import annotations
 
 import argparse
 import copy
-import gzip
 import json
 import logging
 import os
@@ -71,9 +70,9 @@ from wesnoth_ai.rewards import (
     StepDelta, WeightedReward, compute_delta, hex_distance, load_reward_config,
 )
 from wesnoth_ai.transformer_policy import TransformerPolicy
-from tools.wesnoth_sim import PvPDefaults, SimResult, WesnothSim
+from tools.wesnoth_sim import PvPDefaults, WesnothSim
 from tools import openers as openers_mod
-from tools.openers import Opener, OpenerPolicy
+from tools.openers import OpenerPolicy
 
 
 log = logging.getLogger("sim_self_play")
@@ -757,7 +756,7 @@ def _gather_replay_pool(replay_pool: Path) -> List[Path]:
                 f"scenarios, {n_dropped_factions} co-op / AI sides 1-2)"
             )
             log.info(
-                f"  per-map: " + ", ".join(
+                "  per-map: " + ", ".join(
                     f"{name.replace('multiplayer_', '')}={count}"
                     for name, count in sorted(
                         per_map.items(), key=lambda kv: -kv[1])
@@ -1625,8 +1624,10 @@ def run_iteration(
                     if o.side1_closest_approach is not None]
         ca2_vals = [o.side2_closest_approach for o in outcomes
                     if o.side2_closest_approach is not None]
-        if ca1_vals: mean_ca1 = sum(ca1_vals) / len(ca1_vals)
-        if ca2_vals: mean_ca2 = sum(ca2_vals) / len(ca2_vals)
+        if ca1_vals:
+            mean_ca1 = sum(ca1_vals) / len(ca1_vals)
+        if ca2_vals:
+            mean_ca2 = sum(ca2_vals) / len(ca2_vals)
         ca_str = (f"  closest_approach s1="
                   f"{f'{mean_ca1:.1f}' if mean_ca1 is not None else 'n/a'}"
                   f" s2="
@@ -3565,13 +3566,15 @@ def main(argv: List[str]) -> int:
     actor_pool = None
     if args.actor_pool > 0:
         if not args.mcts:
-            log.error("--actor-pool requires --mcts"); return 2
+            log.error("--actor-pool requires --mcts")
+            return 2
         if args.workers > 0:
             log.error("--actor-pool is mutually exclusive with --workers")
             return 2
         if args.opener_spec:
             log.error("--actor-pool does not support --opener-spec "
-                      "(actors do not apply openers)"); return 2
+                      "(actors do not apply openers)")
+            return 2
         import atexit
         from tools.actor_pool import ActorPool
         scenario_opts = dict(
@@ -3603,10 +3606,12 @@ def main(argv: List[str]) -> int:
     spool = None
     if args.spool_workers > 0:
         if not args.mcts:
-            log.error("--spool-workers requires --mcts"); return 2
+            log.error("--spool-workers requires --mcts")
+            return 2
         if args.actor_pool > 0 or args.workers > 0:
             log.error("--spool-workers is mutually exclusive with "
-                      "--actor-pool / --workers"); return 2
+                      "--actor-pool / --workers")
+            return 2
         if args.opener_spec:
             log.error("--spool-workers does not support --opener-spec")
             return 2

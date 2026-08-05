@@ -135,14 +135,21 @@ def _split_macro_args(s: str) -> List[str]:
                 in_quote = False
             continue
         if ch == '"':
-            cur.append(ch); in_quote = True; continue
+            cur.append(ch)
+            in_quote = True
+            continue
         if ch == "(":
-            cur.append(ch); depth += 1; continue
+            cur.append(ch)
+            depth += 1
+            continue
         if ch == ")":
-            cur.append(ch); depth = max(0, depth - 1); continue
+            cur.append(ch)
+            depth = max(0, depth - 1)
+            continue
         if depth == 0 and ch.isspace():
             if cur:
-                args.append("".join(cur)); cur = []
+                args.append("".join(cur))
+                cur = []
             continue
         cur.append(ch)
     if cur:
@@ -328,7 +335,6 @@ def extract_races(units_cfg: Path, macros: Dict[str, List[str]]) -> Dict[str, di
     cur_race: Optional[str] = None
     inside_race_depth = 0
     for line in lines:
-        stripped = line.strip()
         m_open  = TAG_OPEN_RE.match(line)
         m_close = TAG_CLOSE_RE.match(line)
         if m_open and m_open.group(1) == "race":
@@ -776,7 +782,9 @@ def _scan_unit_ability_macros(raw_text: str) -> List[str]:
     for line in lines:
         s = line.strip()
         if s.startswith("[abilities]"):
-            in_abil = True; depth = 1; continue
+            in_abil = True
+            depth = 1
+            continue
         if not in_abil:
             continue
         # Track nested tag depth so we don't consume macros from

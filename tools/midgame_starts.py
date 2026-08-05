@@ -26,7 +26,10 @@ import json
 import logging
 import random
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple
+
+if TYPE_CHECKING:
+    from wesnoth_ai.classes import GameState
 
 log = logging.getLogger("midgame_starts")
 
@@ -40,7 +43,7 @@ def _load_index(dataset_dir: Path) -> List[dict]:
         rows = []
         if idx.is_file():
             with idx.open(encoding="utf-8") as f:
-                rows = [json.loads(l) for l in f if l.strip()]
+                rows = [json.loads(ln) for ln in f if ln.strip()]
         _INDEX_CACHE[key] = rows
     return _INDEX_CACHE[key]
 
@@ -52,7 +55,7 @@ def midgame_available(dataset_dir: Path) -> bool:
 def sample_midgame_start(
     rng: random.Random,
     dataset_dir: Path,
-) -> Optional[Tuple["GameState", str, int, int]]:
+) -> Optional[Tuple["GameState", str, int, int, dict]]:
     """Return (game_state, scenario_id, cut_turn, begin_side) for
     one uniformly
     sampled corpus game cut at a uniform-random turn in

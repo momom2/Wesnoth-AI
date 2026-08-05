@@ -79,7 +79,6 @@ sys.path.insert(0, str(_THIS.parent))
 
 from tools.sim_self_play import (
     _recruit_cost_lookup,
-    _TrainerHistoryCSV,
     run_iteration,
 )
 from wesnoth_ai.rewards import WeightedReward, load_reward_config
@@ -391,7 +390,7 @@ def _write_summary(
             lines.append(f"  max    = {max(utils):5.1f}%")
             lines.append(f"  min    = {min(utils):5.1f}%")
             if mem_used:
-                lines.append(f"GPU memory used (MiB):")
+                lines.append("GPU memory used (MiB):")
                 lines.append(f"  mean   = {_stats.mean(mem_used):8.0f}")
                 lines.append(f"  max    = {max(mem_used):8.0f}")
 

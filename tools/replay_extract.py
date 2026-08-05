@@ -156,14 +156,16 @@ def parse_wml(text: str) -> WMLNode:
         line = lines[i]
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
-            i += 1; continue
+            i += 1
+            continue
 
         m = TAG_OPEN_RE.match(line)
         if m:
             node = WMLNode(m.group(1))
             stack[-1].children.append(node)
             stack.append(node)
-            i += 1; continue
+            i += 1
+            continue
 
         # `[+tag]` form — captured separately so a post-parse pass can
         # merge into the preceding sibling (or append, depending on
@@ -173,13 +175,15 @@ def parse_wml(text: str) -> WMLNode:
             node = WMLNode(m.group(1), is_plus_form=True)
             stack[-1].children.append(node)
             stack.append(node)
-            i += 1; continue
+            i += 1
+            continue
 
         m = TAG_CLOSE_RE.match(line)
         if m:
             if stack and stack[-1].tag == m.group(1):
                 stack.pop()
-            i += 1; continue
+            i += 1
+            continue
 
         m = KEY_RE.match(line)
         if m:
@@ -441,7 +445,8 @@ def build_initial_state(root: WMLNode) -> GameState:
     next_uid = 0
     for side_node in snap.all("side"):
         side_num = int(side_node.attrs.get("side", 0) or 0)
-        if side_num == 0: continue
+        if side_num == 0:
+            continue
         # WML `income=` is an OFFSET added to `game_config::base_income`
         # (=2 by default; see Wesnoth's team.hpp: `base_income() const
         # { return info_.income + game_config::base_income; }`). When
@@ -572,7 +577,8 @@ def _find_unit_at(gs: GameState, x: int, y: int) -> Optional[Unit]:
 
 
 def _parse_int_list(s: str) -> List[int]:
-    if not s: return []
+    if not s:
+        return []
     return [int(t) for t in s.split(",") if t.strip()]
 
 
@@ -616,7 +622,8 @@ def apply_command(gs: GameState, cmd: WMLNode) -> Optional[dict]:
         if tag == "move":
             xs = _parse_int_list(sub.attrs.get("x", ""))
             ys = _parse_int_list(sub.attrs.get("y", ""))
-            if not xs or len(xs) != len(ys): continue
+            if not xs or len(xs) != len(ys):
+                continue
             sx, sy, tx, ty = xs[0], ys[0], xs[-1], ys[-1]
             u = _find_unit_at(gs, sx, sy)
             side = u.side if u else (int(from_side) if from_side else 0)
@@ -1862,12 +1869,14 @@ def main(argv: List[str]) -> int:
                     with bz2.open(p, "rb") as fz:
                         head = fz.read(512 * 1024)
                 except Exception:
-                    stats["files_err"] += 1; continue
+                    stats["files_err"] += 1
+                    continue
                 # Check era_id in header.
                 head_text = head.decode("utf-8", errors="replace")[:20000]
                 if 'era_id="default"' not in head_text \
                         and 'era_id="era_default"' not in head_text:
-                    stats["files_skipped_era"] += 1; continue
+                    stats["files_skipped_era"] += 1
+                    continue
                 # Drop campaign-style "multiplayer" replays. WC_II_2p
                 # and similar carry `era_id="era_default"` but layer
                 # custom map / heroes / mod resources on top, with
@@ -1877,7 +1886,8 @@ def main(argv: List[str]) -> int:
                 # true PvP, non-empty for campaign-style mp_campaigns.
                 m_camp = re.search(r'^campaign="([^"]+)"', head_text, re.MULTILINE)
                 if m_camp and m_camp.group(1).strip():
-                    stats["files_skipped_campaign"] += 1; continue
+                    stats["files_skipped_campaign"] += 1
+                    continue
                 # Drop replays whose scenario or any [side] enables
                 # shroud — encoder fidelity assumes side-only fog and
                 # we don't model permanent shroud-clearing. PvP default
@@ -1886,7 +1896,8 @@ def main(argv: List[str]) -> int:
                 # `auto_shroud=` or `mp_shroud=`).
                 if re.search(r'(?:^|\s)shroud\s*=\s*"?(yes|true|1)"?',
                              head_text, re.M):
-                    stats["files_skipped_shroud"] += 1; continue
+                    stats["files_skipped_shroud"] += 1
+                    continue
 
                 # Full parse.
                 try:
@@ -1896,7 +1907,8 @@ def main(argv: List[str]) -> int:
                     log.debug(f"  err {p.name}: {e}")
                     continue
                 if rep is None:
-                    stats["files_no_commands"] += 1; continue
+                    stats["files_no_commands"] += 1
+                    continue
 
                 # Write compact gzipped JSON. Hash-named so duplicate
                 # game_ids from concurrent reruns don't clobber.

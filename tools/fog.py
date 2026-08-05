@@ -54,7 +54,7 @@ Dependents:   training-time encoder (not yet wired up here; plain API)
 from __future__ import annotations
 
 from collections import deque
-from typing import Dict, Iterable, List, Set, Tuple
+from typing import Dict, Iterable, Set, Tuple
 
 from wesnoth_ai.classes import GameState, Unit
 from tools.abilities import hex_neighbors

@@ -15,7 +15,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from wesnoth_ai.wesnoth_interface import WesnothGame
-from wesnoth_ai.classes import Position
 
 def print_header(text):
     """Print a formatted header."""
@@ -31,21 +30,21 @@ def print_test(name, passed):
 def test_action_file_writing():
     """Test writing action files."""
     print_header("Test 2: Action File Writing")
-    
+
     with TemporaryDirectory() as tmpdir:
         game = WesnothGame("test_game", Path("dummy.cfg"))
         game.game_dir = Path(tmpdir)
         # Repoint the action file at the test's temp dir.
         from wesnoth_ai.constants import ACTION_FILE_NAME
         game.action_path = game.game_dir / ACTION_FILE_NAME
-        
+
         test_actions = [
             {'type': 'end_turn'},
             {'type': 'move', 'start_x': 5, 'start_y': 10, 'target_x': 6, 'target_y': 10},
             {'type': 'attack', 'start_x': 5, 'start_y': 10, 'target_x': 6, 'target_y': 10, 'weapon_index': 0},
             {'type': 'recruit', 'unit_type': 'Dwarvish Guardsman', 'target_x': 20, 'target_y': 20},
         ]
-        
+
         # Plain asserts (a returned bool passes silently under pytest).
         for action in test_actions:
             assert game.send_action(action), \
@@ -60,18 +59,18 @@ def test_action_file_writing():
 def test_special_characters():
     """Test handling of special characters in Lua strings."""
     print_header("Test 3: Special Characters Handling")
-    
+
     with TemporaryDirectory() as tmpdir:
         game = WesnothGame("test_game", Path("dummy.cfg"))
         game.game_dir = Path(tmpdir)
-        
+
         test_cases = [
             # (input_value, description)
             ("Unit's Name", "apostrophe"),
             ('Unit "Leader"', "quotes"),
             ("Mixed's \"Characters\"", "mixed quotes"),
         ]
-        
+
         # Plain asserts (a returned bool passes silently under pytest).
         for test_value, description in test_cases:
             action = {'type': 'recruit', 'unit_type': test_value}
@@ -83,14 +82,14 @@ def test_special_characters():
 def test_action_roundtrip():
     """Test that actions can be written and would be readable by Lua."""
     print_header("Test 4: Action Roundtrip")
-    
+
     with TemporaryDirectory() as tmpdir:
         game = WesnothGame("test_game", Path("dummy.cfg"))
         game.game_dir = Path(tmpdir)
         # Repoint the action file at the test's temp dir.
         from wesnoth_ai.constants import ACTION_FILE_NAME
         game.action_path = game.game_dir / ACTION_FILE_NAME
-        
+
         actions = [
             {
                 'type': 'move',
@@ -117,7 +116,7 @@ def test_action_roundtrip():
                 'type': 'end_turn'
             }
         ]
-        
+
         # Plain asserts: the old version swallowed failures into a
         # returned bool, which pytest treats as a PASS (it only
         # warns on non-None returns) -- a False result was silent.
@@ -134,13 +133,13 @@ def main():
     print("\n" + "=" * 70)
     print("  Lua Action File Test Suite")
     print("=" * 70)
-    
+
     tests = [
         ("Action File Writing", test_action_file_writing),
         ("Special Characters", test_special_characters),
         ("Action Roundtrip", test_action_roundtrip),
     ]
-    
+
     results = []
     for name, test_func in tests:
         try:
@@ -151,18 +150,18 @@ def main():
             import traceback
             traceback.print_exc()
             results.append((name, False))
-    
+
     # Summary
     print_header("Test Summary")
     passed_count = sum(1 for _, passed in results if passed)
     total_count = len(results)
-    
+
     for name, passed in results:
         status = "âœ“" if passed else "âœ—"
         print(f"{status} {name}")
-    
+
     print(f"\nPassed: {passed_count}/{total_count}")
-    
+
     if passed_count == total_count:
         print("\nðŸŽ‰ All tests passed!")
         return 0

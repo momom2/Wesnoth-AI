@@ -168,11 +168,11 @@ def test_projection_interpolates_linearly_between_bins():
     atoms = torch.linspace(VALUE_V_MIN, VALUE_V_MAX, VALUE_N_ATOMS)
     delta = (atoms[1] - atoms[0]).item()
     # Pick a non-edge atom and offset by half a bin.
-    l = 10
-    r = atoms[l].item() + delta * 0.5
+    lo = 10
+    r = atoms[lo].item() + delta * 0.5
     target = _project_returns_to_atoms(torch.tensor([r]), atoms)
-    assert target[0, l].item() == pytest.approx(0.5, abs=1e-5)
-    assert target[0, l + 1].item() == pytest.approx(0.5, abs=1e-5)
+    assert target[0, lo].item() == pytest.approx(0.5, abs=1e-5)
+    assert target[0, lo + 1].item() == pytest.approx(0.5, abs=1e-5)
 
 
 # ---------------------------------------------------------------------
@@ -189,7 +189,7 @@ def test_ce_loss_minimized_when_logits_match_target():
     # Use a return at an exact atom so the projection is one-hot.
     K_idx = 25
     r = atoms[K_idx].item()
-    target = _project_returns_to_atoms(torch.tensor([r]), atoms)
+    _project_returns_to_atoms(torch.tensor([r]), atoms)
     # Near-one-hot logits matching the target.
     logits = torch.full((1, VALUE_N_ATOMS), -100.0)
     logits[0, K_idx] = 0.0

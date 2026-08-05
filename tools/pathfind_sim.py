@@ -282,7 +282,6 @@ def _terrain_arrays_for(unit, gs):
     this (map, unit-type) pair. nbr_idx column order == hex_neighbors
     order (unit_reach's push order -- and therefore its heap
     tie-break behavior -- depends on it). -1 = off-map."""
-    import numpy as np
     from tools.abilities import hex_neighbors
 
     codes = getattr(gs.global_info, "_terrain_codes", {}) or {}

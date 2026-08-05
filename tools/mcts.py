@@ -100,7 +100,7 @@ from wesnoth_ai.action_sampler import (
     enumerate_legal_actions_with_priors,
 )
 from wesnoth_ai.classes import (
-    GameState, deep_state_fingerprint, state_key,
+    deep_state_fingerprint, state_key,
 )
 from wesnoth_ai.encoder import GameStateEncoder
 from wesnoth_ai.model import WesnothModel
@@ -110,7 +110,6 @@ from tools.combat_outcomes import (
     enumerate_attack_outcomes, outcome_key_for_child,
 )
 from tools.outcome_buckets import (
-    event_class as _event_class,
     initial_buckets as _initial_buckets,
     propose_split as _propose_split,
     split as _bucket_split,
@@ -1483,7 +1482,7 @@ def _run_sim_batch(
             unique_leaves.setdefault(id(leaf), leaf)
         unique_list = list(unique_leaves.values())
         with torch.no_grad():
-            encoded_list = [encoder.encode(l.sim.gs) for l in unique_list]
+            encoded_list = [encoder.encode(ln.sim.gs) for ln in unique_list]
             outputs = model.forward_batch(encoded_list)
         # B2 (gpu_perf_patches.md #2): read every leaf's scalar value
         # + cliffness in ONE batched D2H transfer instead of 2

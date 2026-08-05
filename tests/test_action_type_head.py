@@ -30,20 +30,19 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
-import glob
 import pytest
 import torch
 
 from wesnoth_ai.action_sampler import (
-    LegalActionPrior, _build_legality_masks, sample_action,
+    _build_legality_masks, sample_action,
     reforward_logprob_entropy,
 )
 from wesnoth_ai.classes import (
     Alignment, Attack, DamageType, GameState, GlobalInfo, Hex, Map, Position,
-    SideInfo, Terrain, TerrainModifiers, Unit,
+    SideInfo, Terrain, Unit,
 )
 from wesnoth_ai.encoder import GameStateEncoder
-from wesnoth_ai.model import ActorKind, ModelOutput, UnitActionType, WesnothModel
+from wesnoth_ai.model import UnitActionType, WesnothModel
 
 
 # ---------------------------------------------------------------------
@@ -320,7 +319,6 @@ def test_legality_mask_type_bias_only_on_attack():
     encoder.register_names(gs)
     encoded = encoder.encode(gs)
     masks = _build_legality_masks(encoded, gs, decision_step=0)
-    A, T = masks.type_bias.shape[1], masks.type_bias.shape[2]
     # MOVE column is always zero.
     assert (masks.type_bias[0, :, UnitActionType.MOVE].abs().sum().item()
             == pytest.approx(0.0))
@@ -386,7 +384,6 @@ def test_mcts_factored_loss_consumes_type_idx():
     the type term."""
     from wesnoth_ai.action_sampler import enumerate_legal_actions_with_priors
     from wesnoth_ai.trainer import _mcts_factored_policy_loss
-    from wesnoth_ai.model import UnitActionType
 
     gs = _gs_with_unit_and_enemy()
     encoder = GameStateEncoder()

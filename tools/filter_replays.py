@@ -18,7 +18,7 @@ from __future__ import annotations
 import bz2
 import re
 import sys
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
 
 
@@ -169,15 +169,18 @@ def scan_dir(root: Path) -> None:
                 # actually bloats file size.
                 raw = f.read(4 * 1024 * 1024)
         except OSError:
-            errors += 1; continue
+            errors += 1
+            continue
         except Exception:
-            errors += 1; continue
+            errors += 1
+            continue
 
         try:
             info = parse_header(raw)
             clf = classify(info)
         except Exception:
-            errors += 1; continue
+            errors += 1
+            continue
 
         versions[clf["version"]] += 1
         eras[clf["era_kind"]] += 1
@@ -213,7 +216,6 @@ def scan_dir(root: Path) -> None:
         print(f"  {e!r:30s} {c}")
 
     print("\n=== Campaign type ===")
-    campaign_ct = Counter();
     # Gather in a re-walk would be wasteful; just skip — eras + n_sides already tell most.
 
     print("\n=== Side count distribution ===")
@@ -232,21 +234,22 @@ def scan_dir(root: Path) -> None:
         a, b = sorted(clf["factions"])
         matchups[(a, b)] += 1
         scenarios_2p[clf["scenario_id"] or "?"] += 1
-    print(f"  Matchup distribution (top 15):")
+    print("  Matchup distribution (top 15):")
     for (a, b), c in matchups.most_common(15):
         print(f"    {a!r:25s} vs {b!r:25s} {c}")
-    print(f"  Scenario distribution (top 15):")
+    print("  Scenario distribution (top 15):")
     for s, c in scenarios_2p.most_common(15):
         print(f"    {s!r:45s} {c}")
 
     print("\n=== Default-era 2p KNALGAN vs DRAKES ===")
     print(f"  Count: {len(kd_games)}")
-    print(f"  Scenario id distribution:")
+    print("  Scenario id distribution:")
     for s, c in scenarios_kd.most_common(10):
         print(f"    {s!r:40s} {c}")
 
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print("usage: filter_replays.py REPLAYS_DIR"); sys.exit(2)
+        print("usage: filter_replays.py REPLAYS_DIR")
+        sys.exit(2)
     scan_dir(Path(sys.argv[1]))

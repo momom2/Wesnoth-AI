@@ -28,7 +28,7 @@ Pieces:
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 import torch
@@ -44,7 +44,7 @@ from wesnoth_ai.action_sampler import (
     reforward_logprob_entropy,
 )
 from wesnoth_ai.classes import GameState
-from wesnoth_ai.device import dml_sync, is_dml
+from wesnoth_ai.device import dml_sync
 from wesnoth_ai.encoder import encode_raw
 
 
@@ -422,7 +422,8 @@ class Trainer:
         # downstream caller that re-uses the model post-step.
         prev_model_training   = self.model.training
         prev_encoder_training = self.encoder.training
-        self.model.eval(); self.encoder.eval()
+        self.model.eval()
+        self.encoder.eval()
         try:
             # Build the raw-encoded cache ONCE for the whole train_step.
             # `encode()` = `register_names` + `encode_raw` + `encode_from_raw`.
@@ -466,7 +467,6 @@ class Trainer:
             # If this is the bottleneck on CUDA, sub-batch into
             # bigger Bs in TrainerConfig.) Logging the natural
             # sync rather than adding a redundant one.
-            on_dml = is_dml(dev)
             values_np: List[float] = []
             with torch.no_grad():
                 for start in range(0, N, B):
@@ -622,12 +622,12 @@ def _project_returns_to_atoms(
     # D2H syncs per chunk on CUDA for a fixed, non-learned buffer.
     r = returns.clamp(atoms[0], atoms[-1])
     b = (r - atoms[0]) / delta            # [B], real-valued in [0, K-1]
-    l = b.floor().long().clamp(0, K - 2)  # [B], lower-bin index, room above
-    weight_l = (l.float() + 1) - b        # [B], mass on bin l
-    weight_u = b - l.float()              # [B], mass on bin l+1
+    lo = b.floor().long().clamp(0, K - 2)  # [B], lower-bin index, room above
+    weight_l = (lo.float() + 1) - b       # [B], mass on bin lo
+    weight_u = b - lo.float()             # [B], mass on bin lo+1
     target = torch.zeros(B, K, device=returns.device, dtype=atoms.dtype)
-    target.scatter_add_(1, l.unsqueeze(1), weight_l.unsqueeze(1))
-    target.scatter_add_(1, (l + 1).unsqueeze(1), weight_u.unsqueeze(1))
+    target.scatter_add_(1, lo.unsqueeze(1), weight_l.unsqueeze(1))
+    target.scatter_add_(1, (lo + 1).unsqueeze(1), weight_u.unsqueeze(1))
     return target
 
 
@@ -1062,7 +1062,8 @@ def _trainer_step_mcts(
     # making the value-head training forward deterministic. The
     # unconditional eval() at function end already leaves the model in
     # eval() for the caller, so the post-condition is unchanged.
-    self.model.eval(); self.encoder.eval()
+    self.model.eval()
+    self.encoder.eval()
 
     # Pre-compute the raw-encoded cache (one encode_raw per experience)
     # so the policy-loss helper -- which already calls encode internally
@@ -1217,7 +1218,8 @@ def _trainer_step_mcts(
     )
     self.optimizer.step()
 
-    self.model.eval(); self.encoder.eval()
+    self.model.eval()
+    self.encoder.eval()
 
     # "Entropy" slot reports mean -log p(actor | s), weighted by
     # visits, for logging continuity with the REINFORCE path.
@@ -1271,7 +1273,8 @@ def _trainer_step_value_from_raw(
     human data.
     """
     import torch.nn.functional as F
-    self.model.train(); self.encoder.train()
+    self.model.train()
+    self.encoder.train()
     dev = self.device or next(self.model.parameters()).device
     N = len(raws)
     z_all = torch.tensor(zs, device=dev, dtype=torch.float32)
@@ -1327,7 +1330,8 @@ def _trainer_values_from_raw(
         return []
     dev = self.device or next(self.model.parameters()).device
     B = max(1, self.config.train_batch_size)
-    self.model.eval(); self.encoder.eval()
+    self.model.eval()
+    self.encoder.eval()
     atoms = self.model._value_atoms
     out: List[float] = []
     with torch.no_grad():
@@ -1358,7 +1362,8 @@ def _trainer_eval_value_metrics_from_raw(
     if self.config.value_clip is not None:
         z_all.clamp_(min=-float(self.config.value_clip),
                      max=+float(self.config.value_clip))
-    self.model.eval(); self.encoder.eval()
+    self.model.eval()
+    self.encoder.eval()
     atoms = self.model._value_atoms
     total = entropy_sum = 0.0
     with torch.no_grad():
@@ -1420,7 +1425,8 @@ def _trainer_eval_value_metrics(
     if self.config.value_clip is not None:
         zs.clamp_(min=-float(self.config.value_clip),
                   max=+float(self.config.value_clip))
-    self.model.eval(); self.encoder.eval()
+    self.model.eval()
+    self.encoder.eval()
     register_names = self.encoder.register_names
     for e in experiences:
         register_names(e.game_state)

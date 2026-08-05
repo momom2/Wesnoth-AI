@@ -25,10 +25,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 import numpy as np
 import torch
 
-from wesnoth_ai.classes import (GameState, GlobalInfo, Hex, Map, Position,
-                     SideInfo, Terrain, TerrainModifiers, Unit)
+from wesnoth_ai.classes import (Hex, Position,
+                     Terrain, TerrainModifiers)
 from wesnoth_ai.encoder import NUM_HEX_DYNAMIC_FLAGS, encode_raw
-from test_inference_snapshot import _gs, _u
+from test_inference_snapshot import _gs
 
 
 def _village_gs(*, owner_map, current_side=1, fog=True):
@@ -273,9 +273,11 @@ def test_legacy_optimizer_state_repairs_after_pad(tmp_path):
     for entry in raw["optimizer_state"]["state"].values():
         for k, t in list(entry.items()):
             if isinstance(t, torch.Tensor) and tuple(t.shape) == (32, 3):
-                entry[k] = t[:, :1].clone(); n_sliced += 1
+                entry[k] = t[:, :1].clone()
+                n_sliced += 1
             elif isinstance(t, torch.Tensor) and tuple(t.shape) == (3, 32):
-                entry[k] = t[:2, :].clone(); n_sliced += 1
+                entry[k] = t[:2, :].clone()
+                n_sliced += 1
     assert n_sliced >= 4, "premise: moments for both padded params"
     torch.save(raw, ck)
 

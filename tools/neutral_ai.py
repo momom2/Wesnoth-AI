@@ -51,7 +51,7 @@ here.
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional
 
 log = logging.getLogger("neutral_ai")
 
@@ -155,7 +155,6 @@ def rate_attack(gs, attacker, defender, action: dict,
     # so for side>=3 it is constant FALSE -- no aggression=1.0, no
     # x5 (independent review 2026-07-14 M1: the first port inverted
     # this and made tentacles kamikaze into enemy leaders).
-    leader_threat = False
 
     value = ctk * target_value - avg_losses * (1.0 - aggression)
     # exposure: exactly 0 (stationary attacker; tq == alt_tq).
@@ -181,7 +180,6 @@ def run_neutral_side_turn(sim, side: int = 3) -> int:
     init_side(1)) and restores current_side afterwards via
     _begin_side_turn."""
     from tools.abilities import hex_neighbors
-    from tools.replay_dataset import _apply_command
     from wesnoth_ai.visibility import is_scenery_unit
     from wesnoth_ai.classes import Position
 

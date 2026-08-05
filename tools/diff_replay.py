@@ -65,7 +65,7 @@ import gzip
 import json
 import logging
 import sys
-from collections import Counter, defaultdict
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
@@ -76,7 +76,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT))
 sys.path.insert(0, str(_ROOT / "tools"))
 
-from wesnoth_ai.classes import GameState, Position, TerrainModifiers, Unit
+from wesnoth_ai.classes import GameState, TerrainModifiers, Unit
 from tools.replay_dataset import (
     _apply_command, _build_initial_gamestate, _setup_scenario_events,
     _stats_for,

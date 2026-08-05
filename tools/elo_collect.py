@@ -22,7 +22,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from itertools import combinations
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -48,7 +47,7 @@ def build_pairs(
            Dict[Tuple[int, int], PairRecord]]:
     labels = sorted({g["label_a"] for g in games}
                     | {g["label_b"] for g in games})
-    idx = {l: i for i, l in enumerate(labels)}
+    idx = {lab: i for i, lab in enumerate(labels)}
     pure: Dict[Tuple[int, int], PairRecord] = {}
     mat:  Dict[Tuple[int, int], PairRecord] = {}
     for g in games:
@@ -105,7 +104,8 @@ def main(argv) -> int:
 
     games = load_games(args.games_dir)
     if not games:
-        print("no game files found"); return 2
+        print("no game files found")
+        return 2
     labels, pure, mat = build_pairs(games, args.eps)
     anchor_idx = (labels.index(args.anchor)
                   if args.anchor in labels else 0)
@@ -116,8 +116,8 @@ def main(argv) -> int:
         elo, se = fit_elo(n, pairs, anchor_idx, anchor_elo=0.0,
                           prior_games=1.0, draw_weight=0.5)
         _print_table(title, labels, elo, se, pairs)
-        results[title] = {l: {"elo": float(e), "se": float(s)}
-                          for l, e, s in zip(labels, elo, se)}
+        results[title] = {lab: {"elo": float(e), "se": float(s)}
+                          for lab, e, s in zip(labels, elo, se)}
     print(f"\ngames: {len(games)} | anchor: {labels[anchor_idx]} = 0")
     if args.save_json:
         args.save_json.write_text(

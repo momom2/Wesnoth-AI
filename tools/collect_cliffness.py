@@ -173,8 +173,8 @@ def _format_markdown(
         f"decision steps across {n_replays} replays.",
         "",
         f"- **Checkpoint:** `{checkpoint}`",
-        f"- **Atom range:** [-1, +1] over K=51 atoms",
-        f"- **Theoretical max (point mass at +/-1):** ~1.0",
+        "- **Atom range:** [-1, +1] over K=51 atoms",
+        "- **Theoretical max (point mass at +/-1):** ~1.0",
         f"- **Uniform-prior baseline (current default `cliffness_max`):** "
         f"{uniform_std:.3f}",
         "",
@@ -214,11 +214,11 @@ def _format_markdown(
         f"is mostly unreached. Consider lowering `cliffness_max` to "
         f"the empirical p95 ({pct_vals[-3]:.3f}) so the budget actually "
         f"varies across positions.",
-        f"- If p99 > default, the model has more value uncertainty than "
-        f"a uniform prior would predict (suggests the C51 head has "
-        f"learned to spread mass on bimodal positions); keep "
-        f"`cliffness_max` near the uniform baseline or raise it to "
-        f"p99 to avoid clipping.",
+        "- If p99 > default, the model has more value uncertainty than "
+        "a uniform prior would predict (suggests the C51 head has "
+        "learned to spread mass on bimodal positions); keep "
+        "`cliffness_max` near the uniform baseline or raise it to "
+        "p99 to avoid clipping.",
         f"- For `cliffness_bootstrap_alpha`: with empirical std at "
         f"{float(cliffs.std()):.3f}, alpha=1.0 (Bayes-optimal) means a "
         f"typical leaf's contribution to ancestor Q is downweighted by "
@@ -306,7 +306,7 @@ def main(argv):
         try:
             policy.load_checkpoint(args.checkpoint)
             ckpt_label = str(args.checkpoint)
-        except RuntimeError as e:
+        except RuntimeError:
             if pre_c51:
                 # Load with strict=False semantics: monkey-patch by
                 # stripping pre-C51 value-head keys from the state.

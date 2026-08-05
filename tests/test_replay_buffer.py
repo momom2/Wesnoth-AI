@@ -132,9 +132,11 @@ def test_reproducible_sampling_given_seed():
     e1 = _exps(20)
     for i, e in enumerate(e1):
         e.z = float(i)
-    pol1._queue = list(e1); pol2._queue = list(e1)
+    pol1._queue = list(e1)
+    pol2._queue = list(e1)
     import random as _r
     pol1._replay_rng = _r.Random(123)
     pol2._replay_rng = _r.Random(123)
-    pol1.train_step(); pol2.train_step()
+    pol1.train_step()
+    pol2.train_step()
     assert tr1.calls == tr2.calls

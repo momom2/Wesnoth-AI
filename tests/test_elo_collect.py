@@ -13,8 +13,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
-import glob
-import pytest
 
 from tools.elo_collect import build_pairs
 from tools.elo_ladder import fit_elo

@@ -46,7 +46,6 @@ def main(argv) -> int:
     args = ap.parse_args(argv[1:])
 
     from wesnoth_ai.encoder import GameStateEncoder
-    from wesnoth_ai.model import UnitActionType
     from wesnoth_ai.action_sampler import _build_legality_masks
     from tools.replay_dataset import iter_replay_pairs
 

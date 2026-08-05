@@ -46,7 +46,7 @@ import logging
 import sys
 import traceback
 from pathlib import Path
-from typing import Any, Dict
+from typing import Dict
 
 
 # Resolve the project root from this file's location so workers can

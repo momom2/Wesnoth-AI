@@ -34,7 +34,8 @@ def _build_case():
     pol = TransformerPolicy(device=torch.device("cpu"),
                             d_model=64, num_layers=2, num_heads=4, d_ff=128)
     enc, mdl = pol._encoder, pol._model
-    enc.eval(); mdl.eval()                       # deterministic forward
+    enc.eval()
+    mdl.eval()                       # deterministic forward
     sim = fresh_scenario_sim(seed=11, max_turns=6, mini=True)
     gs = sim.gs
     # Pre-register vocab once so re-encodes are identical.
@@ -98,7 +99,7 @@ def test_both_modes_run_and_are_differentiable():
     """Guards the vectorized path's basic contract: positive
     total_visits, finite scalar loss, real gradients."""
     enc, mdl, gs, vc = _build_case()
-    l, tv, g = _loss_and_grads(enc, mdl, gs, vc, vectorized=True)
+    loss, tv, g = _loss_and_grads(enc, mdl, gs, vc, vectorized=True)
     assert tv > 0
-    assert l == l  # not NaN
+    assert loss == loss  # not NaN
     assert any(v.abs().sum().item() > 0 for v in g.values())

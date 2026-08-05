@@ -35,7 +35,6 @@ Dependents:   pytest only
 
 from __future__ import annotations
 
-import math
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -239,8 +238,8 @@ def test_puct_select_picks_highest_prior_when_no_visits():
     PUCT degenerates to picking the largest prior."""
     node = _make_node(side=1)
     node.expanded = True
-    e_low = _attach(node, _make_node(side=2), prior=0.1)
-    e_mid = _attach(node, _make_node(side=2), prior=0.4)
+    _attach(node, _make_node(side=2), prior=0.1)
+    _attach(node, _make_node(side=2), prior=0.4)
     e_high = _attach(node, _make_node(side=2), prior=0.5)
     chosen = _puct_select(node, c_puct=1.5)
     assert chosen is e_high
@@ -692,7 +691,7 @@ def test_fpu_q_init_clamped_to_value_range():
     visited = _attach(node, _make_node(side=2), prior=0.5)
     visited.n_visits = 1
     visited.w_value = -0.999    # q = -0.999: nearly-lost move
-    unvisited = _attach(node, _make_node(side=2), prior=0.5)
+    _attach(node, _make_node(side=2), prior=0.5)
     node._total_visits = 1
     # q_init = clamp(-0.95 - 0.25) = -1.0 < -0.999 -> visited wins.
     assert _puct_select(node, c_puct=0.001, fpu_reduction=0.25) is visited
@@ -705,7 +704,6 @@ def test_fpu_q_init_clamped_to_value_range():
 def _root_with_visits(*visit_counts):
     """Root whose i-th edge has action {"id": i} and the given visit
     count."""
-    import numpy as _np
     from tools.mcts import sample_action  # noqa: F401  (import check)
     root = _make_node(side=1)
     for i, n in enumerate(visit_counts):
@@ -835,7 +833,6 @@ def test_gumbel_target_completed_q_math():
     cfg = MCTSConfig()
     target = extract_gumbel_policy_target(root, cfg)
     assert len(target) >= 2
-    probs = {t[0]: t[3] for t in target}   # keyed by actor_idx=0 all..
     # All weights form a distribution.
     total = sum(t[3] for t in target)
     assert abs(total - 1.0) < 1e-9

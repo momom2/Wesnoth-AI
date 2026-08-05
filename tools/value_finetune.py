@@ -129,7 +129,7 @@ def main(argv) -> int:
     t2i = dict(policy._encoder.unit_type_to_id)
     f2i = dict(policy._encoder.faction_to_id)
 
-    rows = [json.loads(l) for l in
+    rows = [json.loads(ln) for ln in
             (args.dataset_dir / "value_corpus_index.jsonl")
             .open(encoding="utf-8")]
     rng = random.Random(args.seed)
@@ -150,7 +150,8 @@ def main(argv) -> int:
                     args.dataset_dir / r["file"], r["winner"],
                     type_to_id=t2i, faction_to_id=f2i,
                     stride=args.probe_stride, rng=rng):
-                probe_raw.append(rw); probe_z.append(z)
+                probe_raw.append(rw)
+                probe_z.append(z)
         except Exception:                       # noqa: BLE001
             continue
     probe_raw, probe_z = probe_raw[:args.probe_states], probe_z[:args.probe_states]
@@ -177,10 +178,13 @@ def main(argv) -> int:
                 errs += 1
                 continue
             for rw, z, ml in res:
-                br.append(rw); bz.append(z); bm.append(ml)
+                br.append(rw)
+                bz.append(z)
+                bm.append(ml)
                 if len(br) >= args.batch:
                     st = trainer.step_value_from_raw(br, bz, bm)
-                    vsum += st["value_loss"]; n_batches += 1
+                    vsum += st["value_loss"]
+                    n_batches += 1
                     step_ctr["n"] += 1
                     n_pairs += len(br)
                     if n_batches % 50 == 0:
@@ -198,7 +202,8 @@ def main(argv) -> int:
                                  f"ent={me['pred_entropy']:.4f}")
                     br, bz, bm = [], [], []
         if br:
-            trainer.step_value_from_raw(br, bz, bm); n_pairs += len(br)
+            trainer.step_value_from_raw(br, bz, bm)
+            n_pairs += len(br)
         return n_pairs, errs, time.time() - t0
 
     def _epoch_tasks(epoch):

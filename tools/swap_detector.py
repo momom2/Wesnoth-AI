@@ -357,7 +357,7 @@ def leadership_setup_findings(st: SideTurn) -> Tuple[List[Finding], int]:
     inconclusive = 0
     for i, cmd in enumerate(st.actions):
         if cmd[0] == "attack":
-            ax, ay, dx, dy, w = cmd[1], cmd[2], cmd[3], cmd[4], cmd[5]
+            ax, ay, dx, dy = cmd[1], cmd[2], cmd[3], cmd[4]
             att = _unit_at(gs, (ax, ay))
             dfd = _unit_at(gs, (dx, dy))
             if (att is not None and dfd is not None

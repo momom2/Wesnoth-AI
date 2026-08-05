@@ -26,7 +26,7 @@ from tools.scenario_pool import (                                 # noqa: E402
     random_setup, build_scenario_gamestate, load_factions,
 )
 from tools.swap_detector import (                                 # noqa: E402
-    compare_distributions, Verdict, ATTACK_DIMS,
+    compare_distributions, Verdict,
 )
 from tools.wesnoth_sim import WesnothSim                          # noqa: E402
 from wesnoth_ai.classes import Position                           # noqa: E402

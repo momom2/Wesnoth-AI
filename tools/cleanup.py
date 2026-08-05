@@ -61,7 +61,7 @@ import re
 import shutil
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -128,10 +128,14 @@ def _parse_tier_spec(spec: str) -> List[RetentionTier]:
         if s in ("inf", "infinity", ""):
             return float("inf")
         mult = 1
-        if s.endswith("h"):     mult, s = 3_600,         s[:-1]
-        elif s.endswith("d"):   mult, s = 86_400,        s[:-1]
-        elif s.endswith("w"):   mult, s = 7 * 86_400,    s[:-1]
-        elif s.endswith("m"):   mult, s = 30 * 86_400,   s[:-1]
+        if s.endswith("h"):
+            mult, s = 3_600,         s[:-1]
+        elif s.endswith("d"):
+            mult, s = 86_400,        s[:-1]
+        elif s.endswith("w"):
+            mult, s = 7 * 86_400,    s[:-1]
+        elif s.endswith("m"):
+            mult, s = 30 * 86_400,   s[:-1]
         return float(s) * mult
     out: List[RetentionTier] = []
     for part in spec.split(","):
@@ -286,9 +290,12 @@ _DEMO_GLOB       = "sim_demo_*.bz2"
 
 def _human_bytes(n: int) -> str:
     """B / KB / MB / GB. Pure presentation."""
-    if n < 1024:                 return f"{n} B"
-    if n < 1024 ** 2:            return f"{n / 1024:.1f} KB"
-    if n < 1024 ** 3:            return f"{n / 1024 ** 2:.1f} MB"
+    if n < 1024:
+        return f"{n} B"
+    if n < 1024 ** 2:
+        return f"{n / 1024:.1f} KB"
+    if n < 1024 ** 3:
+        return f"{n / 1024 ** 2:.1f} MB"
     return                            f"{n / 1024 ** 3:.1f} GB"
 
 
@@ -384,8 +391,10 @@ def prune_archive_snapshots(
         log.info(f"[archive-prune] {len(archives)} snapshot(s); "
                  f"keep {len(keep)}, drop {len(drop)}")
         for f in keep:
-            try:    rel = f.relative_to(root)
-            except ValueError: rel = f
+            try:
+                rel = f.relative_to(root)
+            except ValueError:
+                rel = f
             log.info(f"  K {rel}")
     return _commit(drop, dry_run=dry_run,
                    label="archive-snapshots", root=root)
@@ -585,32 +594,37 @@ def main(argv: List[str]) -> int:
             args.ckpt_dir, tiers=tiers,
             dry_run=dry_run, root=PROJECT_ROOT, now=now,
         )
-        total_files += n; total_bytes += b
+        total_files += n
+        total_bytes += b
 
     if "legacy-checkpoints" in cats:
         n, b = prune_legacy_checkpoints(
             args.ckpt_dir, dry_run=dry_run, root=PROJECT_ROOT,
         )
-        total_files += n; total_bytes += b
+        total_files += n
+        total_bytes += b
 
     if "old-supervised-epochs" in cats:
         n, b = prune_supervised_epochs(
             args.ckpt_dir, dry_run=dry_run, root=PROJECT_ROOT,
         )
-        total_files += n; total_bytes += b
+        total_files += n
+        total_bytes += b
 
     if "demo-replays" in cats:
         n, b = prune_demo_replays(
             args.local_logs_dir, keep=args.keep_demos,
             dry_run=dry_run, root=PROJECT_ROOT,
         )
-        total_files += n; total_bytes += b
+        total_files += n
+        total_bytes += b
 
     if "debug-artifacts" in cats:
         n, b = prune_debug_artifacts(
             args.local_logs_dir, dry_run=dry_run, root=PROJECT_ROOT,
         )
-        total_files += n; total_bytes += b
+        total_files += n
+        total_bytes += b
 
     if "logs" in cats:
         n, b = prune_logs(
@@ -618,7 +632,8 @@ def main(argv: List[str]) -> int:
             prefixes=args.log_prefixes,
             dry_run=dry_run, root=PROJECT_ROOT,
         )
-        total_files += n; total_bytes += b
+        total_files += n
+        total_bytes += b
 
     log.info(f"{'WOULD RECLAIM' if dry_run else 'RECLAIMED'}: "
              f"{total_files} files, {_human_bytes(total_bytes)}")

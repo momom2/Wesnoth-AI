@@ -91,7 +91,7 @@ Dependents: rewards (visible_fraction_for), encoder
 
 from __future__ import annotations
 
-from typing import FrozenSet, Iterable, List, Optional, Set, Tuple
+from typing import List, Optional, Set, Tuple
 
 import numpy as np
 

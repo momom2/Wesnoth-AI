@@ -386,7 +386,7 @@ def validate_in_wesnoth(replay: Path, timeout: float = 420.0,
     (camp0719_fog_2, 2026-07-18/19).
     """
     verdict = _validate_once(replay, timeout=timeout, settle=settle)
-    if verdict and _CHOOSE_ANSWER_RE.search(verdict[0])             and not any("SYNC: In attack" in l for l in verdict):
+    if verdict and _CHOOSE_ANSWER_RE.search(verdict[0])             and not any("SYNC: In attack" in ln for ln in verdict):
         log.warning(
             "[choose]-first OOS with no damage-SYNC lines -- "
             "possible hotkey-derailment false positive; retrying "

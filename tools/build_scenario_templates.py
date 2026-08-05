@@ -64,7 +64,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
@@ -255,10 +255,10 @@ def transform(pp_text: str, scenario_id: str, source_note: str) -> str:
     body = lines[start + 1:end - 1]
 
     # Drop #textdomain markers (saves carry none).
-    body = [l for l in body if not l.strip().startswith("#textdomain")]
+    body = [ln for ln in body if not ln.strip().startswith("#textdomain")]
     # Strip translation markers everywhere in the cfg-derived body
     # (the era boilerplate below is spliced raw and keeps its own).
-    body = [re.sub(r'_\s*"', '"', l) for l in body]
+    body = [re.sub(r'_\s*"', '"', ln) for ln in body]
     body = _strip_player_sides(body)
     if (scenario_id not in MINI_MAP_SCENARIO_IDS
             and scenario_id not in DRILL_SCENARIO_IDS):
@@ -267,8 +267,8 @@ def transform(pp_text: str, scenario_id: str, source_note: str) -> str:
         body = _inline_map_data(body, scenario_id)
 
     # Inject save-only attrs not already defined by the cfg.
-    present = {m.group(1) for l in body
-               for m in [re.match(r"\s*(\w+)\s*=", l)] if m}
+    present = {m.group(1) for ln in body
+               for m in [re.match(r"\s*(\w+)\s*=", ln)] if m}
     injected = [f'{k}="{v}"' for k, v in _INJECTED_ATTRS
                 if k not in present]
 

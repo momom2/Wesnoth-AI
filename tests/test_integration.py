@@ -112,7 +112,8 @@ def test_full_pipeline():
               f"sides={len(game_state.sides)}")
     except Exception as e:
         print(f"  ✗ Failed to parse: {e}")
-        import traceback; traceback.print_exc()
+        import traceback
+        traceback.print_exc()
         return False
 
     print("\nStep 2: Selecting an action...")
@@ -140,7 +141,8 @@ def test_full_pipeline():
         print(f"  ✓ Wesnoth action: {wesnoth_action}")
     except Exception as e:
         print(f"  ✗ {e}")
-        import traceback; traceback.print_exc()
+        import traceback
+        traceback.print_exc()
         return False
 
     print("\nStep 4: Writing action.lua...")
@@ -160,7 +162,8 @@ def test_full_pipeline():
             print(f"  ✓ {lua_content.strip()}")
     except Exception as e:
         print(f"  ✗ {e}")
-        import traceback; traceback.print_exc()
+        import traceback
+        traceback.print_exc()
         return False
 
     print("\n" + "=" * 70)
@@ -227,7 +230,8 @@ def test_multiple_turns():
         return True
     except Exception as e:
         print(f"  ✗ {e}")
-        import traceback; traceback.print_exc()
+        import traceback
+        traceback.print_exc()
         return False
 
 
@@ -243,7 +247,8 @@ def main():
             results.append(t())
         except Exception as e:
             print(f"\n✗ Test crashed: {e}")
-            import traceback; traceback.print_exc()
+            import traceback
+            traceback.print_exc()
             results.append(False)
 
     passed, total = sum(results), len(results)

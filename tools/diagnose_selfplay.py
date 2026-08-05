@@ -56,7 +56,7 @@ from wesnoth_ai.classes import GameState, Unit
 from wesnoth_ai.rewards import hex_distance
 from tools.scenario_pool import build_scenario_gamestate, random_setup
 from wesnoth_ai.transformer_policy import TransformerPolicy
-from tools.wesnoth_sim import PvPDefaults, WesnothSim
+from tools.wesnoth_sim import WesnothSim
 from tools.sim_self_play import _would_recruit_bounce, _recruit_cost_lookup
 
 
@@ -293,7 +293,7 @@ def aggregate_and_print(diags: List[GameDiagnostics]) -> None:
     # Outcome line.
     print(f"Outcomes: side1_wins={winners[1]}  side2_wins={winners[2]}  "
           f"draws={winners[0]}  (decisive: {decisive}/{n})")
-    print(f"Ended by: " + ", ".join(
+    print("Ended by: " + ", ".join(
         f"{k}={v}" for k, v in sorted(ended_by_counts.items(),
                                        key=lambda kv: -kv[1])))
     print()
@@ -327,8 +327,8 @@ def aggregate_and_print(diags: List[GameDiagnostics]) -> None:
     print("No-kills indicators:")
     s1_approach = _present("closest_approach", 1)
     s2_approach = _present("closest_approach", 2)
-    print(f"  closest approach to ENEMY leader (smaller = more "
-          f"threatening):")
+    print("  closest approach to ENEMY leader (smaller = more "
+          "threatening):")
     print(f"    s1: min={min(s1_approach) if s1_approach else 'n/a'}  "
           f"median={_fmt_mean(sorted(s1_approach)[len(s1_approach)//2:len(s1_approach)//2+1])}  "
           f"mean={_fmt_mean(s1_approach)}")
@@ -337,7 +337,7 @@ def aggregate_and_print(diags: List[GameDiagnostics]) -> None:
           f"mean={_fmt_mean(s2_approach)}")
     s1_ldm = [d.leader_max_dist.get(1, 0) for d in diags]
     s2_ldm = [d.leader_max_dist.get(2, 0) for d in diags]
-    print(f"  leader max distance from start (0 = never moved):")
+    print("  leader max distance from start (0 = never moved):")
     print(f"    s1: mean={_fmt_mean(s1_ldm)}  max={max(s1_ldm) if s1_ldm else 0}")
     print(f"    s2: mean={_fmt_mean(s2_ldm)}  max={max(s2_ldm) if s2_ldm else 0}")
     n_attack_games_s1 = sum(1 for d in diags if d.actions.get(1, Counter()).get("attack", 0) > 0)
@@ -468,7 +468,6 @@ def main(argv: List[str]) -> int:
 
     # -- 5. Play games --
     rng = random.Random(args.seed)
-    pvp_defaults = PvPDefaults()  # standard 2p ladder economy
     diags: List[GameDiagnostics] = []
     t0 = time.perf_counter()
     for i in range(args.games):

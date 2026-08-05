@@ -95,11 +95,6 @@ def classify(turns: List[dict]) -> str:
                         if t["min_separation"] is not None),
                        default=99)
     total_combats = sum(t["combats"] for t in turns)
-    # units lost across the game (recruits complicate; use HP trend
-    # of the back half)
-    half = turns[len(turns) // 2:]
-    hp_traded = (half[0]["hp"][1] + half[0]["hp"][2]
-                 - half[-1]["hp"][1] - half[-1]["hp"][2]) if half else 0
     min_leader_exp = min((min(t["leader_exposure"].values())
                           for t in turns if t["leader_exposure"]),
                          default=99)

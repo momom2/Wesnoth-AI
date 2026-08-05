@@ -76,8 +76,10 @@ def _build_player(spec: str, label: str, sims: int, device):
 
 def main(argv) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("label_a"); ap.add_argument("spec_a")
-    ap.add_argument("label_b"); ap.add_argument("spec_b")
+    ap.add_argument("label_a")
+    ap.add_argument("spec_a")
+    ap.add_argument("label_b")
+    ap.add_argument("spec_b")
     ap.add_argument("side_a", type=int, choices=(1, 2))
     ap.add_argument("seed", type=int)
     ap.add_argument("outdir", type=Path)

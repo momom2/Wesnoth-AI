@@ -42,12 +42,10 @@ import datetime as dt
 import json
 import logging
 import os
-import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
@@ -149,8 +147,12 @@ def _muted_wesnoth_sound(prefs_path: Path):
     # style. If the file is empty we default to "\n".
     line_end = "\n"
     for ln in original_lines:
-        if ln.endswith("\r\n"):     line_end = "\r\n"; break
-        elif ln.endswith("\n"):     line_end = "\n";   break
+        if ln.endswith("\r\n"):
+            line_end = "\r\n"
+            break
+        elif ln.endswith("\n"):
+            line_end = "\n"
+            break
 
     muted_lines = list(original_lines)
     # Ensure the file ends with a newline before appending new keys
