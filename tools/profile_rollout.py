@@ -79,7 +79,9 @@ def _build_policy(args, device):
     cfg = MCTSConfig(
         n_simulations=args.mcts_sims, gumbel_root=True,
         gumbel_m=args.mcts_gumbel_m, chance_nodes=True,
-        exact_outcome_enumeration=True, batch_size=1, add_root_noise=False)
+        exact_outcome_enumeration=True,
+        batch_size=max(1, args.mcts_batch_size),
+        add_root_noise=False)
     return MCTSPolicy(base, cfg), base, arch
 
 
@@ -239,6 +241,11 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--mini-ratio", type=float, default=0.0,
                     help="0 = full ladder maps (representative); 1 = "
                          "mini maps (faster, understates sim/encode).")
+    ap.add_argument("--mcts-batch-size", type=int, default=1,
+                    help="Intra-search batched leaf evaluation "
+                         "(2026-08-05: the 20.7ms/leaf batch-1 "
+                         "profile ran with this OFF; pass 16 to "
+                         "measure the batched path).")
     ap.add_argument("--forced-faction", default=None)
     ap.add_argument("--warmup-turns", type=int, default=4)
     ap.add_argument("--seed", type=int, default=0)

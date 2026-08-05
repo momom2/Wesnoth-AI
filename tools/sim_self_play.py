@@ -1165,6 +1165,8 @@ class SpoolWorkers:
                 if getattr(args, "mcts_playout_cap", True) else -1.0),
             "--playout-cap-fast-sims", str(getattr(
                 args, "mcts_playout_cap_fast_sims", 0)),
+            "--mcts-batch-size", str(getattr(
+                args, "mcts_batch_size", None) or -1),
         ] + (["--infer-compile"] if getattr(
             args, "infer_compile", False) else []) + [
             "--fogless-ratio", str(getattr(args, "fogless_ratio", 0.0)),

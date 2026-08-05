@@ -220,7 +220,15 @@ def main(argv: List[str]) -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--source", type=Path, required=True,
                     help="Trained checkpoint to grow FROM.")
-    ap.add_argument("--arch", action="append", required=True,
+    ap.add_argument("--dest", type=Path, default=None,
+                    help="Compare --source against THIS checkpoint "
+                         "directly (arch+flags read from it) instead "
+                         "of net2net-growing --arch candidates. The "
+                         "T2 re-measure mode (2026-08-05): the 0.217 "
+                         "record predates the cdf263a encode-path "
+                         "fix and needs re-derivation on a clean "
+                         "instrument.")
+    ap.add_argument("--arch", action="append", required=False,
                     help="Candidate 'd_model,num_layers,num_heads,d_ff'. "
                          "Repeatable; all scored on the same states.")
     ap.add_argument("--states", type=int, default=200)
@@ -271,9 +279,43 @@ def main(argv: List[str]) -> int:
         max_turns=args.max_turns, mini_every=args.mini_every,
         max_decisions=args.max_decisions)
 
+    if not args.dest and not args.arch:
+        ap.error("pass --arch (grow mode) or --dest (two-checkpoint)")
+
     results = []
+    if args.dest:
+        # Two-checkpoint mode: no grow; flags/arch from the dest raw.
+        draw = torch.load(args.dest, map_location="cpu",
+                          weights_only=False)
+        darch = draw.get("arch", {}) or {}
+        dflags = {k: bool(draw.get(k, False))
+                  for k in ("moves_left", "advice",
+                            "relevant_set_hexes")}
+        dst_pol = TransformerPolicy(
+            device=torch.device("cpu"),
+            aux_score=bool(draw.get("aux_score", False)),
+            **dflags, **darch)
+        dst_pol.load_checkpoint(args.dest)
+        row = {"arch": darch,
+               "params_m": round(sum(
+                   p.numel() for p in dst_pol._model.parameters())
+                   / 1e6, 2),
+               "d_head_src": (src_arch.get("d_model", 0)
+                              // max(1, src_arch.get("num_heads", 1))),
+               "d_head_dst": (darch.get("d_model", 0)
+                              // max(1, darch.get("num_heads", 1)))}
+        row["head_aligned"] = row["d_head_src"] == row["d_head_dst"]
+        row.update(compare(src_pol, dst_pol, states))
+        results.append(row)
+        log.info("%s vs %s | value MAE %.4f (p90 %.4f max %.4f) | "
+                 "C51 KL %.4f | actor KL %.4f | %s",
+                 args.source.name, args.dest.name, row["value_mae"],
+                 row["value_p90"], row["value_max"],
+                 row["c51_kl_nats"], row["actor_kl_nats"],
+                 row["verdict"])
+
     with tempfile.TemporaryDirectory() as td:
-        for spec in args.arch:
+        for spec in (args.arch or []):
             arch = _parse_arch(spec)
             d_head_src = (src_arch.get("d_model", 0)
                           // max(1, src_arch.get("num_heads", 1)))
