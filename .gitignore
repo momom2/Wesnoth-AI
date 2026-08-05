@@ -26,10 +26,19 @@ training/profiles/
 training/replays/
 training/spool/
 
-# Trained checkpoints + their learning-curve CSVs are deliberately
-# TRACKED: months of training are not regenerable and the 2026-06
-# machine loss proved local-only copies aren't safe. Keep the
-# runtime stop-flag and job logs out.
+# Trained checkpoints live on HF (momom2/wesnoth-tier-a), NOT in git
+# (user ruling 2026-08-05). The 2026-06 machine-loss concern that
+# originally argued for git-tracking is covered by the HF escrow;
+# 60MB+ nets in git would bloat every clone, and bare clones must
+# stay cheap (GPU-node bootstrap). The pre-HF-era checkpoints below
+# stay tracked for bootstrap/provenance (tier_a_5m.pt seeds Kaggle
+# Phase 1); everything newer is ignored by default.
+training/checkpoints/*.pt
+!training/checkpoints/tier_a_5m.pt
+!training/checkpoints/sim_selfplay.pt
+!training/checkpoints/sim_selfplay_archive_*.pt
+!training/checkpoints/supervised.pt
+!training/checkpoints/supervised_epoch9.pt
 training/checkpoints/done.flag
 !training/logs/
 training/logs/*
