@@ -83,9 +83,13 @@ should not start until the three pending inputs above are read.
 - [x] Sweep: **no blocking class** — 2 known-fixed (9133cca),
       30 midgame = export-structure bug (validation tooling, not
       training physics), 2 tentacle-combat under investigation
-- [ ] GO / NO-GO: **assistant recommendation: GO is defensible on
-      sim fidelity and transfer evidence (T-C +61.2±18 raw), but the
-      T-B result argues the campaign's SEARCH is adding little at 32
-      sims — consider spending some pre-campaign effort on the
-      prior-ratchet repairs, since Tier-b capacity cannot fix a
-      target-side ratchet. User call.**
+- [x] GO / NO-GO: **GO — user decision 2026-08-05: full move to
+      Tier-b; all training on the 15M net from now on unless stated
+      otherwise.** Pre-campaign context now in hand: throughput
+      program measured (playout-cap landed 2.3x; spool is the shape
+      on 3060-class hardware; the campaign GPU should be chosen for
+      real batch throughput), distillation damping validated
+      (lambda=0.9), per-side normalization live, and the mini-draw
+      mechanism identified as an honest mutual-passivity equilibrium
+      whose incentive-level repairs (train-draw-tiebreak, no-progress
+      clock) await a user ruling before the campaign launches.

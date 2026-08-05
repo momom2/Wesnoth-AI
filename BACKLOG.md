@@ -239,6 +239,17 @@ game), enumerate 17%, encode 16%, sim 7%. Orders:
 
 ## Standing user ideas and decisions (preserved)
 
+- **DECISION (user, 2026-08-05) — FULL MOVE TO TIER-B.** All training
+  from now on runs the MEDIUM net (15.55M, d384/L8/H12/ff1536) unless
+  stated otherwise. The Tier-a 5M lineage is measurement history, not
+  a training target. Consequences: every launcher/runbook default
+  should assume the 15M arch; throughput planning uses the 15M cost
+  model (box_bench with a 15M checkpoint); the T2 relevant-set
+  adoption question moves to "how does the 15M net get the encoder"
+  (re-grow from a recovered T2-5M — d_head stays 32, head-aligned —
+  vs switch+recover directly at 15M), with recovery-leg feasibility
+  proven at 5M (fresh CE beat floor by widening margins in 8 iters).
+
 - **DECISION (user, 2026-08-03) — evaluation runs on a RENTED BOX, not
   the laptop.** Operate under this assumption: do not plan, schedule or
   cost any eval as local work. A *separate, cheap, short-lived* box from
