@@ -199,6 +199,22 @@ game), enumerate 17%, encode 16%, sim 7%. Orders:
   sequential halving everywhere -- measured at random init: end_turn
   is the fattest edge on ladder (2.9x median) though rank 3-14 on
   mini. Successor to flat halving in mcts.py; moderate.
+- **DISCRIMINATOR MEASURED (2026-08-05 late): the passivity gradient
+  is an HONEST self-play equilibrium, not target-math.** Cut-edge
+  probe (125 pairs, live mini roots, 15M probe ckpt): cut
+  alternatives under-graded by only +0.07 (loser's curse real but
+  modest), while END_TURN deep-searches HIGHER than its shallow
+  value (+0.42 -> +0.61 median, 0/27 revised down; paired
+  differential ~0). Against the current passive opponent, passing
+  genuinely evaluates well -- MUTUAL passivity is self-reinforcing
+  equilibrium: each side's passivity makes the other's correct.
+  Eliminated tonight as primary pumps: structural prior (refuted at
+  init), combat oracle (was already zero), tried-and-cut tax
+  (secondary, +0.07), indifference (gradient is positive). The
+  escape is changing the GAME, not the search: make draw-bound
+  material matter (train-draw-tiebreak) and/or price the clock,
+  and/or exploration/opponent-diversity so punishment lines get
+  discovered.
 - **Mini-draw incentive repair pending user ruling:** draws measured
   as 100% mini artifact (leg: ladder 51/51 + midgame 24/24 decisive,
   mini 30/45 with the draw rate CLIMBING under lambda=0.9). The
