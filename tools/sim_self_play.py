@@ -1150,6 +1150,14 @@ class SpoolWorkers:
             "--moves-left-utility", str(args.mcts_moves_left_utility),
             "--aux-value-bonus", str(getattr(
                 args, "mcts_aux_value_bonus", 0.0)),
+            # Distillation-damping knobs (2026-08-05): the WORKERS
+            # build the training targets, so omitting these here
+            # would silently train undamped while the learner's own
+            # config says otherwise.
+            "--distill-prior-discount", str(getattr(
+                args, "distill_prior_discount", 1.0)),
+            "--distill-target-temp", str(getattr(
+                args, "distill_target_temp", 1.0)),
             "--fogless-ratio", str(getattr(args, "fogless_ratio", 0.0)),
             "--midgame-ratio", str(getattr(args, "midgame_ratio", 0.0)),
             "--ladder-ratio", str(getattr(args, "ladder_ratio", 1.0)),

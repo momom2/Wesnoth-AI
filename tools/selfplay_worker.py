@@ -88,6 +88,9 @@ def _build_policy(ckpt: Path, device, args):
         draw_tiebreak=DrawTiebreakConfig(cap=args.draw_tiebreak_cap),
         moves_left_utility=args.moves_left_utility,
         aux_value_bonus=getattr(args, "aux_value_bonus", 0.0),
+        distill_prior_discount=getattr(
+            args, "distill_prior_discount", 1.0),
+        distill_target_temp=getattr(args, "distill_target_temp", 1.0),
     )
     return MCTSPolicy(
         base, cfg,
@@ -135,6 +138,8 @@ def main(argv) -> int:
                     help="LEGACY: material-tiebreak z on drawn games'"
                          " training labels (see sim_self_play).")
     ap.add_argument("--moves-left-utility", type=float, default=0.0)
+    ap.add_argument("--distill-prior-discount", type=float, default=1.0)
+    ap.add_argument("--distill-target-temp", type=float, default=1.0)
     ap.add_argument("--aux-value-bonus", type=float, default=0.0)
     ap.add_argument("--fogless-ratio", type=float, default=0.0)
     ap.add_argument("--midgame-ratio", type=float, default=0.0)

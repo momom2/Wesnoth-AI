@@ -1080,3 +1080,20 @@ def test_distill_stats_drain():
     assert out["distill_et_target"] == 0.8
     assert stub._distill_acc == {}
     assert MCTSPolicy.drain_distill_stats(stub) is None
+
+
+def test_spool_forwards_distill_knobs():
+    """The spool WORKERS build the training targets, so the distill
+    damping knobs must ride the worker command line -- omitting them
+    would silently train undamped while the learner's own MCTSConfig
+    says otherwise (caught 2026-08-05 pre-launch)."""
+    import pathlib
+    learner_src = pathlib.Path("tools/sim_self_play.py").read_text(
+        encoding="utf-8")
+    tail = learner_src.split("_cmd_tail", 1)[1][:4000]
+    assert '"--distill-prior-discount"' in tail
+    assert '"--distill-target-temp"' in tail
+    worker_src = pathlib.Path("tools/selfplay_worker.py").read_text(
+        encoding="utf-8")
+    assert '"--distill-prior-discount"' in worker_src
+    assert "distill_prior_discount=getattr" in worker_src
