@@ -969,7 +969,6 @@ def _game_log_run_id(game_log_dir: Path) -> int:
     return _GAME_LOG_RUN_ID
 
 
-_BUNDLE_RUN_ID: Optional[int] = None
 
 
 def _bundle_validation_exports(export_dir: Optional[Path],
@@ -996,16 +995,11 @@ def _bundle_validation_exports(export_dir: Optional[Path],
         return None
     bdir = export_dir / "bundles"
     bdir.mkdir(parents=True, exist_ok=True)
-    global _BUNDLE_RUN_ID
-    if _BUNDLE_RUN_ID is None:
-        import re
-        seen = [-1]
-        for d in bdir.glob("replays_r*.tar"):
-            m = re.match(r"replays_r(\d{3})_i\d{6}\.tar$", d.name)
-            if m:
-                seen.append(int(m.group(1)))
-        _BUNDLE_RUN_ID = max(seen) + 1
-    out = bdir / f"replays_r{_BUNDLE_RUN_ID:03d}_i{iter_idx:06d}.tar"
+    # Run identity = the shared UTC launch tag (2026-08-05; the old
+    # claimed 3-digit counter carried no provenance and interleaved
+    # unrelated runs' bundles as r000..rNNN in one directory).
+    from tools.validation_exports import run_tag
+    out = bdir / f"replays_r{run_tag()}_i{iter_idx:06d}.tar"
     tmp = bdir / (out.name + ".tmp")
     import tarfile
     try:
@@ -3042,6 +3036,12 @@ def main(argv: List[str]) -> int:
                     help="JSON overriding the draw-tiebreak weights "
                          "(takes precedence over --draw-tiebreak-cap).")
     args = ap.parse_args(argv[1:])
+    # One run = one provenance tag, shared with every spawned worker
+    # via the environment (see validation_exports.run_tag).
+    import time as _time
+    os.environ.setdefault(
+        "WESNOTH_RUN_TAG",
+        _time.strftime("%Y%m%d-%H%M%S", _time.gmtime()))
     # Mix guard (2026-07-20): the five category ratios are absolute
     # proportions and must account for the full distribution.
     from tools.scenario_pool import validate_mix

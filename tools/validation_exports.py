@@ -39,6 +39,27 @@ from typing import Dict, Optional
 log = logging.getLogger("validation_exports")
 
 
+_RUN_TAG: str = ""
+
+
+def run_tag() -> str:
+    """Per-RUN provenance tag for export/bundle filenames: UTC launch
+    time, `YYYYMMDD-HHMMSS`. Replaces the old `p{pid}` field
+    (2026-08-05): a PID is meaningless provenance -- it collides
+    across runs, doesn't sort in time, and was repeatedly misread as
+    an iteration number. The learner stamps WESNOTH_RUN_TAG into the
+    environment before spawning workers, so every process of one run
+    shares one tag; a process started standalone mints its own at
+    first use (lazy, so the env set in main() wins over import
+    order)."""
+    global _RUN_TAG
+    if not _RUN_TAG:
+        import time as _time
+        _RUN_TAG = (os.environ.get("WESNOTH_RUN_TAG")
+                    or _time.strftime("%Y%m%d-%H%M%S", _time.gmtime()))
+    return _RUN_TAG
+
+
 def category_of(sim) -> str:
     """Validation category of a finished sim game. Midgame trumps
     map class (a midgame game on a ladder map is validated as
@@ -79,7 +100,7 @@ class ValidationExporter:
             sub = self.out_dir / cat
             sub.mkdir(parents=True, exist_ok=True)
             sid = getattr(sim, "scenario_id", "") or "unknown"
-            fname = (f"{cat}_n{n:05d}_p{os.getpid()}_{sid}"
+            fname = (f"{cat}_n{n:05d}_r{run_tag()}_{sid}"
                      f"{('_' + game_label) if game_label else ''}.bz2")
             out = sub / fname
             if cat == "midgame":
