@@ -185,6 +185,32 @@ game), enumerate 17%, encode 16%, sim 7%. Orders:
   the loop, int8 is a ~2-4x candidate that needs a target-quality
   check (pre-registered A/B) before shipping.
 
+### 3c. Passivity mechanics follow-ups (user session 2026-08-05 evening)
+
+- **Combat oracle RETIRED** (user order; alphas were already 0.0 --
+  pinned by test_combat_oracle_retired). Stage 2: strip the dead
+  attack_bias/type_bias plumbing (~60 sites in action_sampler +
+  trainer re-forward paths, symmetric) + delete combat_oracle.py +
+  the anneal machinery. Mechanical, own commit, full suite.
+- **Hierarchical Gumbel search** (principled fix for the factored-
+  prior edge asymmetry): halve over ACTORS first with un-split actor
+  mass, then targets within survivors. Fixes single-edge actions
+  (end_turn) structurally out-competing split-mass actors in
+  sequential halving everywhere -- measured at random init: end_turn
+  is the fattest edge on ladder (2.9x median) though rank 3-14 on
+  mini. Successor to flat halving in mcts.py; moderate.
+- **Mini-draw incentive repair pending user ruling:** draws measured
+  as 100% mini artifact (leg: ladder 51/51 + midgame 24/24 decisive,
+  mini 30/45 with the draw rate CLIMBING under lambda=0.9). The
+  "rational passivity" reading is refuted by free-damage-taking
+  (user observation) -- it's INDIFFERENCE: draw-bound => all actions
+  EV 0 => no opposing gradient. Candidate: --train-draw-tiebreak
+  (existing, default-off) restores a material gradient in drawn
+  games (training only; eval stays pure per the eval contract), plus
+  --no-progress-turns pricing the clock. DISCRIMINATOR still owed:
+  are cut alternatives' completed-Q taxed below deep-searched truth
+  (tried-and-cut mechanism) or honestly ~0 (pure indifference)?
+
 ### 4. Next-campaign hygiene (cheap, do before provisioning)
 
 - **Size the GPU for the learner.** Two CUDA OOMs in ~26h on a 12GB 3060

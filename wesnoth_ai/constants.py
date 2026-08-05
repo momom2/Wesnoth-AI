@@ -165,6 +165,11 @@ TURN_NORM     = 60.0    # default 2p ladder turn limit ~30, 60 for safety
 # on its own legs". Machinery (bias computation + anneal schedule)
 # stays intact; alphas 0.0 make every bias exactly zero at any
 # decision_step. Restore by setting the old values (0.1 / 0.1).
+# RETIRED (user order 2026-08-05): the combat-oracle crutch is
+# permanently off -- "we're past its use." Both alphas MUST stay 0.0
+# (pinned by tests/test_mcts.py::test_combat_oracle_retired); the
+# remaining attack_bias/type_bias plumbing is dead machinery queued
+# for removal (BACKLOG throughput/cleanup).
 COMBAT_TARGET_ALPHA = 0.0
 COMBAT_TYPE_ALPHA   = 0.0
 # Backwards-compat alias (used by the rare external caller); the

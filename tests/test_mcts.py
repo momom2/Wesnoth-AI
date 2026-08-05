@@ -1142,3 +1142,15 @@ def test_infer_bf16_flag_noop_on_cpu():
         out_on = mdl(e)
     assert torch.equal(out_off.actor_logits, out_on.actor_logits)
     assert torch.equal(out_off.value_logits, out_on.value_logits)
+
+
+def test_combat_oracle_retired():
+    """User order 2026-08-05: the combat-oracle attack/type bias is
+    retired for good. The alphas must be exactly 0.0 (which zeroes
+    every attack_bias/type_bias through the whole pipeline, anneal
+    and floor included); re-enabling requires deliberately breaking
+    this test."""
+    from wesnoth_ai.constants import (COMBAT_TARGET_ALPHA,
+                                      COMBAT_TYPE_ALPHA)
+    assert COMBAT_TARGET_ALPHA == 0.0
+    assert COMBAT_TYPE_ALPHA == 0.0
