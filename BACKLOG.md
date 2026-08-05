@@ -128,6 +128,34 @@ found by a **targeted census, not a sweep**.
 
 ### 3b. Throughput program (user orders 2026-08-05, from the 15M profile)
 
+**Stage-1 measurements (2026-08-05 evening, all on the 3060 box):**
+
+- **Distill damping VALIDATED on the trained 15M net** (paired arms,
+  same weights, seeds shared): sharpen_top +0.130 undamped vs +0.030
+  at lambda=0.9 (4.3x damping; end_turn re-teaching +0.124 -> +0.020).
+  Honest note: the pre-registered bar was <= +0.02; measured +0.030 on
+  a 3-game sample -- direction emphatic, bar narrowly missed. Next
+  campaign can consider lambda=0.8 (pre-register first).
+- **Intra-search batch-16: ~1.3-1.4x only.** Forward CALLS drop 9.4x
+  but padded variable-length batches blunt the 3060 gain (per-call
+  123ms for ~8 leaves), and serial per-leaf encode (18.6%) +
+  enumerate (17.1%) become co-dominant. Keep learner default 16 on
+  CUDA; not the lever.
+- **bf16 inference: NO-GO on the 3060** -- 10.52ms vs 9.52ms fp32
+  (cast overhead > tensor-core gain at batch-1/d384). Flag stays
+  opt-in; re-bench on datacenter GPUs or at real batch sizes.
+- **T2 checkpoint re-measure (clean --dest instrument): MAE 0.3513,
+  NOT-A-WARM-START** -- worse than the suspect 0.217, so the artifact
+  hypothesis is dead. Caveat: t2_relevant_set.pt trained briefly under
+  the broken 8e8-loss trainer, so 0.351 = switch + poisoned gradients.
+  Stage-2 measures the PURE switch (same weights, flag off vs on) and
+  runs the recovery leg FRESH from tier_a_campaign.pt on the fixed
+  trainer.
+- **Probe run itself (the 2x24-game 15M leg): clean end-to-end.**
+  policy loss 2.75/3.21 (sane), value 0.67 -> 0.45, holdout CE 2.406
+  baseline, 0 draws in 48 games, VRAM peak ~2.4GB of 12.
+
+
 Profile (15M, 3060, single actor): forward 53% at 20.7ms/leaf with ONE
 forward per sim (batch-1 -- sequential halving cannot batch within a
 game), enumerate 17%, encode 16%, sim 7%. Orders:
