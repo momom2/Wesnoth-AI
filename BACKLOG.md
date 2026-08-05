@@ -239,6 +239,22 @@ game), enumerate 17%, encode 16%, sim 7%. Orders:
 
 ## Standing user ideas and decisions (preserved)
 
+- **DECISION (user, 2026-08-05b): the 15M net gets the relevant-set
+  encoder by RE-GROW from the T2-5M checkpoint** (net2net, d_head 32
+  head-aligned), then a 15M recovery leg — not switch+recover at 15M.
+- **DECISION (user, 2026-08-05b): `--train-draw-tiebreak` stays OFF.**
+  The "mutual-passivity equilibrium" reading is NOT accepted as root
+  cause — evidence audit: target-math ruled out as primary (measured)
+  and the trap is self-play-local (aggressive opponents punish,
+  earlier measurement), BUT deep_q(end_turn)~+0.61 for BOTH sides
+  violates zero-sum consistency, matching the T1-F boundary bias
+  (V(pre)+V(post) ~ +0.4..0.6 under fog). LIVE COMPETITOR: the
+  side-to-move optimism bias may be UPSTREAM (both sides chase an
+  illusion; passivity is its behavioral shadow). DISCRIMINATOR OWED:
+  paired full-depth evals of identical mini states from both
+  perspectives across a pass — sums ~0 = equilibrium story, ~+0.5 =
+  bias is the pump and the fix is the T1-F value-consistency repair
+  (batch-mean boundary penalty), not incentive surgery.
 - **DECISION (user, 2026-08-05) — FULL MOVE TO TIER-B.** All training
   from now on runs the MEDIUM net (15.55M, d384/L8/H12/ff1536) unless
   stated otherwise. The Tier-a 5M lineage is measurement history, not
