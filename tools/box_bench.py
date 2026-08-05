@@ -115,6 +115,11 @@ def main(argv):
         return (time.perf_counter() - t0) / n * 1000.0   # ms
 
     # ---- CPU-side per-state costs ----
+    # Model a SPOOL WORKER, not the idle machine: workers run 2 torch
+    # threads each (the 2026-08-05 idle calibration measured 25ms
+    # all-cores vs the ~60-100ms a real worker pays -- a ~70x spool
+    # projection error before this clamp).
+    torch.set_num_threads(2)
     encoded = [enc.encode(gs) for gs in states]
     t_enc = timeit(lambda: enc.encode(states[0]), 10)
     with torch.no_grad():
