@@ -547,8 +547,26 @@ class MCTSPolicy:
         # gw = 1/max(n, 8): games shorter than 8 states contribute
         # n/8 of a full game; pure self-play keeps exact equal-per-
         # game weighting (floor 1).
+        #
+        # Per-SIDE normalization (user directive 2026-08-05): each
+        # side of each game contributes an equal HALF of the game's
+        # unit weight, i.e. weight = 1 / (2 * max(side_floor,
+        # n_side)). The old per-game pooling made gradient mass
+        # track decision count: the winner (more units alive, more
+        # actions per turn) out-weighted the loser ~54/46 in the
+        # value targets, and a prior-collapsed passive side --
+        # taking few actions -- starved its own correction (the
+        # passivity workflow's L7 amplifier). Per-side, z_comp_w is
+        # exactly 0.5/0.5 on decisive games and every side's play
+        # gets equal say regardless of army size. The midgame floor
+        # halves per side (8-per-game -> 4-per-side), preserving
+        # its "a 1-3 state human-credited stub can't own a
+        # minibatch" purpose at the same effective scale.
         floor = MIDGAME_GW_FLOOR if midgame else 1
-        gw = 1.0 / max(floor, len(states))
+        side_floor = max(1, floor // 2)
+        n_by_side: Dict[int, int] = {}
+        for s in states:
+            n_by_side[s.side] = n_by_side.get(s.side, 0) + 1
         for i, s in enumerate(states):
             if winner == 0:
                 if (self._train_draw_tiebreak and tiebreak is not None
@@ -582,7 +600,8 @@ class MCTSPolicy:
                 aux_target=aux,
                 moves_left_target=ml,
                 decision_step=s.decision_step,
-                game_weight=gw,
+                game_weight=1.0 / (2.0 * max(side_floor,
+                                             n_by_side[s.side])),
             ))
         # Holdout diversion: while the probe set is below target, the
         # WHOLE game goes there instead of training (states within one

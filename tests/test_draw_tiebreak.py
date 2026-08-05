@@ -272,3 +272,34 @@ def test_draw_value_weight_zero_removes_draw_gradient():
     assert st_draw.value_signal_states == 0
     assert st_draw.value_loss == 0.0, \
         "all-draw batch at weight 0 -> zero value loss"
+
+
+def test_per_side_game_weight_normalization():
+    """Per-(game, side) normalization (user directive 2026-08-05):
+    each SIDE contributes half the game's unit weight, so the winner's
+    larger decision count no longer buys it more gradient (the
+    passivity workflow's L7 amplifier). Unbalanced 3-vs-1 game:
+    old pooled weighting gave side 1 a 0.75 share; per-side gives
+    each side exactly 0.5."""
+    import torch
+    from tools.mcts import MCTSConfig
+    from tools.mcts_policy import MCTSPolicy, _PendingMCTSState
+    from wesnoth_ai.transformer_policy import TransformerPolicy
+
+    base = TransformerPolicy(device=torch.device("cpu"), d_model=32,
+                             num_layers=1, num_heads=4, d_ff=64)
+    mp = MCTSPolicy(base, MCTSConfig(draw_tiebreak=CFG))
+    mp._pending["u"] = [
+        _PendingMCTSState(gs=_finalize_gs(), visit_counts=[], side=s)
+        for s in (1, 1, 1, 2)]
+    mp.finalize_game("u", winner=1, final_gs=_finalize_gs())
+    w_by_side = {1: 0.0, 2: 0.0}
+    for e in mp._queue:
+        w_by_side[1 if e.z > 0 else 2] += e.game_weight
+    assert abs(w_by_side[1] - 0.5) < 1e-9, w_by_side
+    assert abs(w_by_side[2] - 0.5) < 1e-9, w_by_side
+    # Per-state: side 1's three states carry 1/6 each, side 2's one
+    # state carries 1/2.
+    weights = sorted(e.game_weight for e in mp._queue)
+    assert abs(weights[0] - 1 / 6) < 1e-9
+    assert abs(weights[-1] - 0.5) < 1e-9
