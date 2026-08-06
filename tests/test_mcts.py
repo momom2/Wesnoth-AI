@@ -1309,3 +1309,72 @@ def test_hierarchical_gumbel_actor_mass_competition():
     wsrc = pathlib.Path("tools/selfplay_worker.py").read_text(
         encoding="utf-8")
     assert "gumbel_hierarchical=getattr" in wsrc
+
+
+def test_prof_hooks_arm_measure_report(tmp_path):
+    """Production profiling chain (WESNOTH_PROF lever): arm() patches
+    the REAL WesnothSim class + enumerate seam, a real mini game step
+    accumulates counts, snapshot() serializes into a heartbeat-shaped
+    JSON, and prof_report aggregates it. disarm() restores originals
+    (other tests must see unpatched classes)."""
+    import json
+    import pathlib
+    from types import SimpleNamespace
+    from tools import prof_hooks
+    from tools.prof_report import aggregate, render
+    from tools.scenario_pool import random_setup, build_scenario_gamestate
+    from tools.wesnoth_sim import WesnothSim
+    import random as _r
+
+    orig_step = WesnothSim.step
+    enc = SimpleNamespace(encode=lambda gs: "enc")
+    mdl = SimpleNamespace(forward=lambda x: "fwd",
+                          forward_batch=lambda xs: ["fwd"])
+    try:
+        prof_hooks.arm(enc, mdl)
+        assert prof_hooks.armed()
+        prof_hooks.arm(enc, mdl)          # idempotent, no double-wrap
+        assert not getattr(WesnothSim.step, "_prof_wrapped", False) or \
+            not getattr(orig_step, "_prof_wrapped", False)
+
+        setup = random_setup(_r.Random(3), category="mini")
+        gs = build_scenario_gamestate(setup)
+        sim = WesnothSim(gs, scenario_id=setup.scenario_id, max_turns=5)
+        sim.step({"type": "end_turn"})
+        enc.encode(None)
+        mdl.forward(None)
+        snap = prof_hooks.snapshot()
+        assert snap["sim.step"]["n"] >= 1
+        assert snap["encode"]["n"] == 1
+        assert snap["forward"]["n"] == 1
+        assert all(e["s"] >= 0.0 for e in snap.values())
+
+        # Heartbeat-shaped file -> fleet aggregation.
+        hb = {"worker": 0, "games": 2, "decisions": 40,
+              "started": 100.0, "updated": 220.0, "prof": snap}
+        (tmp_path / "w0.json").write_text(json.dumps(hb),
+                                          encoding="utf-8")
+        (tmp_path / "w1.json").write_text(json.dumps(
+            {"worker": 1, "games": 1, "decisions": 10,
+             "started": 0.0, "updated": 60.0}), encoding="utf-8")
+        agg = aggregate(tmp_path)
+        # w1 has no prof section: contributes nothing (not armed).
+        assert agg["workers"] == 1 and agg["games"] == 2
+        assert agg["wall_s"] == 120.0
+        assert agg["components"]["sim.step"][0] == snap["sim.step"]["n"]
+        text = render(agg)
+        assert "unattributed" in text and "sim.step" in text
+    finally:
+        prof_hooks.disarm()
+    assert WesnothSim.step is orig_step
+    assert not prof_hooks.armed() and prof_hooks.snapshot() == {}
+
+    # The lever is actually plumbed: learner stamps env from --prof,
+    # worker arms on the env and folds snapshot into its heartbeat.
+    lsrc = pathlib.Path("tools/sim_self_play.py").read_text(
+        encoding="utf-8")
+    assert 'os.environ["WESNOTH_PROF"] = "1"' in lsrc
+    wsrc = pathlib.Path("tools/selfplay_worker.py").read_text(
+        encoding="utf-8")
+    assert 'os.environ.get("WESNOTH_PROF") == "1"' in wsrc
+    assert 'hb["prof"] = prof.snapshot()' in wsrc

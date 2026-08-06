@@ -2784,6 +2784,11 @@ def main(argv: List[str]) -> int:
                     help="Two-level Gumbel root: actors compete with "
                          "full prior mass, then edges within actors. "
                          "Default off; A/B lever (BACKLOG 3c).")
+    ap.add_argument("--prof", action="store_true",
+                    help="Arm per-component rollout timers in every "
+                         "spool worker (WESNOTH_PROF=1, env-"
+                         "inherited). ~<0.1%% overhead; read with "
+                         "tools/prof_report.py.")
     ap.add_argument("--mini-random-tod", action="store_true",
                     help="Force a RANDOM start-ToD slot on the "
                          "fixed-ToD mini templates (the 3 passivity-"
@@ -3055,6 +3060,12 @@ def main(argv: List[str]) -> int:
         _time.strftime("%Y%m%d-%H%M%S", _time.gmtime()))
     if getattr(args, "mini_random_tod", False):
         os.environ["WESNOTH_MINI_RANDOM_TOD"] = "1"
+    if getattr(args, "prof", False):
+        # Env-inherited worker lever (same pattern as the ToD lever
+        # above): spool workers arm tools/prof_hooks and report
+        # per-component seconds in their heartbeat JSONs. Read the
+        # fleet-wide breakdown anytime with tools/prof_report.py.
+        os.environ["WESNOTH_PROF"] = "1"
     # Mix guard (2026-07-20): the five category ratios are absolute
     # proportions and must account for the full distribution.
     from tools.scenario_pool import validate_mix

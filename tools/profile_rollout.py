@@ -60,6 +60,7 @@ def _build_policy(args, device):
     from tools.mcts_policy import MCTSPolicy
 
     arch: Dict[str, int] = {}
+    relevant_set = False
     if args.checkpoint_in and args.checkpoint_in.exists():
         raw = torch.load(args.checkpoint_in, map_location="cpu",
                          weights_only=False)
@@ -67,10 +68,15 @@ def _build_policy(args, device):
             v = (raw.get("arch") or {}).get(k)
             if v is not None:
                 arch[k] = int(v)
+        # The encoder mode is part of the checkpoint's identity: a
+        # relevant-set lineage profiled with the full-board encoder
+        # would misattribute ~all of encode+forward (2026-08-06).
+        relevant_set = bool(raw.get("relevant_set_hexes"))
     else:
         arch = dict(d_model=args.d_model, num_layers=args.num_layers,
                     num_heads=args.num_heads, d_ff=args.d_ff)
-    base = TransformerPolicy(device=device, **arch)
+    base = TransformerPolicy(device=device,
+                             relevant_set_hexes=relevant_set, **arch)
     if args.checkpoint_in and args.checkpoint_in.exists():
         try:
             base.load_checkpoint(args.checkpoint_in)
@@ -81,7 +87,10 @@ def _build_policy(args, device):
         gumbel_m=args.mcts_gumbel_m, chance_nodes=True,
         exact_outcome_enumeration=True,
         batch_size=max(1, args.mcts_batch_size),
-        add_root_noise=False)
+        add_root_noise=False,
+        playout_cap_randomization=args.playout_cap,
+        playout_cap_prob=args.playout_cap_prob,
+        playout_cap_fast_sims=args.playout_cap_fast_sims)
     return MCTSPolicy(base, cfg), base, arch
 
 
@@ -249,10 +258,22 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--forced-faction", default=None)
     ap.add_argument("--warmup-turns", type=int, default=4)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--playout-cap", action=argparse.BooleanOptionalAction,
+                    default=True,
+                    help="Playout-cap randomization, ON by default to "
+                         "match production (sim_self_play default).")
+    ap.add_argument("--playout-cap-prob", type=float, default=0.25)
+    ap.add_argument("--playout-cap-fast-sims", type=int, default=0)
+    ap.add_argument("--torch-threads", type=int, default=0,
+                    help="torch.set_num_threads cap; 2 models a spool "
+                         "worker (box_bench lesson: all-cores idle "
+                         "calibration was 70x optimistic).")
     ap.add_argument("--save-json", type=Path, default=None)
     ap.add_argument("--log-level", default="WARNING",
                     choices=["DEBUG", "INFO", "WARNING"])
     args = ap.parse_args(argv[1:])
+    if args.torch_threads > 0:
+        torch.set_num_threads(args.torch_threads)
     logging.basicConfig(level=getattr(logging, args.log_level),
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
 

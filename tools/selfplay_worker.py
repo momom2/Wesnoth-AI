@@ -242,6 +242,15 @@ def main(argv) -> int:
         device = None
         policy, base = _build_policy(args.checkpoint, None, args)
 
+    # Component profiling (tools/prof_hooks): armed fleet-wide via
+    # the learner's --prof -> WESNOTH_PROF=1 env stamp. Unarmed =
+    # nothing patched = zero overhead.
+    prof = None
+    if os.environ.get("WESNOTH_PROF") == "1":
+        from tools import prof_hooks as prof
+        prof.arm(base._inference_encoder, base._inference_model)
+        log.info("prof_hooks armed (WESNOTH_PROF=1)")
+
     spool = args.spool_dir / "games"
     spool.mkdir(parents=True, exist_ok=True)
     pvp = PvPDefaults()
@@ -356,6 +365,8 @@ def main(argv) -> int:
                 "started": hb_started,
                 "updated": time.time(),
             }
+            if prof is not None:
+                hb["prof"] = prof.snapshot()
             hb_tmp = stats_dir / f".tmp_w{args.worker_id}.json"
             hb_tmp.write_text(json.dumps(hb), encoding="utf-8")
             os.replace(hb_tmp, stats_dir / f"w{args.worker_id}.json")
