@@ -364,6 +364,10 @@ class MCTSConfig:
     # p>0.9 (e.g. lambda=0.9 -> equilibrium gap 10x sigma_gap).
     distill_prior_discount: float = 1.0
     distill_target_temp:    float = 1.0
+    # Min spread for the sigma rescale denominator (see _rescale_q).
+    # Legacy 1e-8; candidate repair value 0.01 (pre-register the A/B
+    # before flipping -- BACKLOG 3c).
+    gumbel_rescale_floor:   float = 1e-8
 
     # Chance nodes for stochastic actions (combat, recruit traits).
     # When ON, every traversal of a stochastic edge re-forks the
@@ -1519,7 +1523,8 @@ def _run_sim_batch(
     return completed
 
 
-def _rescale_q(qs: np.ndarray) -> np.ndarray:
+def _rescale_q(qs: np.ndarray,
+               spread_floor: float = 1e-8) -> np.ndarray:
     """Min-max the node's completed-Q vector into [0, 1] -- a port of
     mctx `_rescale_qvalues` (qtransforms.py, `rescale_values=True` by
     default). Two properties matter and both are load-bearing:
@@ -1535,7 +1540,15 @@ def _rescale_q(qs: np.ndarray) -> np.ndarray:
     """
     lo = float(np.min(qs))
     hi = float(np.max(qs))
-    return (qs - lo) / max(hi - lo, 1e-8)
+    # `spread_floor` (MCTSConfig.gumbel_rescale_floor): with the
+    # legacy 1e-8, a Q spread below the value head's own resolution
+    # (~1e-3 -- measured at 7.8% of side-2 late mini decisions,
+    # passivity workflow C4) still receives the FULL 7-8-logit sigma
+    # gain: pure rank noise amplified into a near-step target. A
+    # floor ~0.01 caps that amplification (spread 1e-3 -> sigma
+    # spread ~0.8 logits instead of ~8). Default stays legacy until
+    # the pre-registered A/B (BACKLOG 3c) reads out.
+    return (qs - lo) / max(hi - lo, spread_floor)
 
 
 def _completed_q(root: "MCTSNode", edges) -> np.ndarray:
@@ -1575,7 +1588,7 @@ def _gumbel_sigma(qs: np.ndarray, max_visits: float,
     """
     q = np.asarray(qs, dtype=np.float64)
     if config.gumbel_rescale_q:
-        q = _rescale_q(q)
+        q = _rescale_q(q, getattr(config, "gumbel_rescale_floor", 1e-8))
     return (config.gumbel_c_visit + max_visits) * config.gumbel_c_scale * q
 
 

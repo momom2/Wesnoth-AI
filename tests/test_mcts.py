@@ -1154,3 +1154,37 @@ def test_combat_oracle_retired():
                                       COMBAT_TYPE_ALPHA)
     assert COMBAT_TARGET_ALPHA == 0.0
     assert COMBAT_TYPE_ALPHA == 0.0
+
+
+def test_rescale_floor_caps_rank_noise_amplification():
+    """gumbel_rescale_floor (BACKLOG 3c lever): with the legacy 1e-8
+    floor, a sub-resolution Q spread (~1e-3) is stretched to the full
+    [0,1] sigma range; with floor 0.01 the same spread contributes at
+    most spread/floor of the range. Default stays legacy."""
+    import numpy as np
+    from tools.mcts import _rescale_q, MCTSConfig
+
+    qs = np.array([0.500, 0.5002, 0.501])   # spread 1e-3: rank noise
+    legacy = _rescale_q(qs)
+    assert abs(legacy.max() - 1.0) < 1e-9   # stretched to full range
+    floored = _rescale_q(qs, spread_floor=0.01)
+    assert floored.max() <= 0.11            # capped at spread/floor
+    assert MCTSConfig().gumbel_rescale_floor == 1e-8
+
+
+def test_mini_random_tod_env_lever(monkeypatch):
+    """WESNOTH_MINI_RANDOM_TOD forces random start slots on the
+    fixed-ToD mini templates only (env-inherited by workers; no CLI
+    forwarding to forget)."""
+    import random as _r
+    from tools.scenario_pool import sample_tod_start
+
+    monkeypatch.delenv("WESNOTH_MINI_RANDOM_TOD", raising=False)
+    assert sample_tod_start("2p_mini_edited", _r.Random(1)) == 0
+    monkeypatch.setenv("WESNOTH_MINI_RANDOM_TOD", "1")
+    slots = {sample_tod_start("2p_mini_edited", _r.Random(s))
+             for s in range(30)}
+    assert len(slots) > 1 and all(0 <= x <= 5 for x in slots)
+    # Non-mini fixed-ToD scenarios are untouched by the lever.
+    assert sample_tod_start("multiplayer_Weldyn_Channel",
+                            _r.Random(1)) in range(6)

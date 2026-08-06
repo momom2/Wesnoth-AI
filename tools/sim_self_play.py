@@ -2778,6 +2778,11 @@ def main(argv: List[str]) -> int:
                          "becomes sigma_gap/(1-lambda), bounded by "
                          "value evidence -- the prior-ratchet repair "
                          "(2026-08-05). Try 0.9.")
+    ap.add_argument("--mini-random-tod", action="store_true",
+                    help="Force a RANDOM start-ToD slot on the "
+                         "fixed-ToD mini templates (the 3 passivity-"
+                         "asymmetry maps). De-confound lever, BACKLOG "
+                         "3c; env-inherited by spool workers.")
     ap.add_argument("--infer-bf16", action="store_true",
                     help="bf16 autocast for INFERENCE forwards on "
                          "CUDA (trainer stays fp32; outputs cast "
@@ -3042,6 +3047,8 @@ def main(argv: List[str]) -> int:
     os.environ.setdefault(
         "WESNOTH_RUN_TAG",
         _time.strftime("%Y%m%d-%H%M%S", _time.gmtime()))
+    if getattr(args, "mini_random_tod", False):
+        os.environ["WESNOTH_MINI_RANDOM_TOD"] = "1"
     # Mix guard (2026-07-20): the five category ratios are absolute
     # proportions and must account for the full distribution.
     from tools.scenario_pool import validate_mix

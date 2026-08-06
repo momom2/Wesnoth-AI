@@ -28,6 +28,7 @@ Source files:
 from __future__ import annotations
 
 import logging
+import os
 import random
 from dataclasses import dataclass
 from pathlib import Path
@@ -546,9 +547,13 @@ def sample_tod_start(scenario_id: str, rng: random.Random) -> int:
 
     Mirrors 1.18.4 tod_manager.cpp:51-55 + resolve_random(): a
     `current_time` attr wins outright; otherwise
-    `random_start_time=yes` (the whole Mini_Maps pool) draws a
-    uniform slot, like the engine's synced-RNG draw at scenario
-    init; otherwise slot 0. Called by `random_setup` so training
+    `random_start_time=yes` draws a uniform slot, like the engine's
+    synced-RNG draw at scenario init; otherwise slot 0. NB the
+    Mini_Maps pool is NOT uniformly random-start: 2p_mini,
+    2p_mini_edited and Modified_Tiny_Close_Relation lack
+    `random_start_time` and are deterministic slot-0 -- exactly the
+    3 maps carrying the passivity side-asymmetry (workflow verdict
+    2026-08-04; the stale "whole pool" claim here hid that split). Called by `random_setup` so training
     minis start at a random ToD while set-time ladder maps keep
     their scenario value (user policy 2026-07-15). The replay
     exporter pins whatever slot the sim used, so Wesnoth playback
@@ -558,6 +563,15 @@ def sample_tod_start(scenario_id: str, rng: random.Random) -> int:
     if current_time is not None:
         return current_time
     if random_start:
+        return rng.randrange(n_slots)
+    # De-confound lever (BACKLOG 3c, pre-register before trusting):
+    # WESNOTH_MINI_RANDOM_TOD=1 forces a random start slot on the
+    # fixed-ToD mini templates. Env-inherited so spool workers pick
+    # it up with no CLI forwarding (three forwarding bugs taught
+    # that lesson). The replay exporter pins the sampled slot as
+    # always, so Wesnoth playback stays faithful either way.
+    if (os.environ.get("WESNOTH_MINI_RANDOM_TOD")
+            and scenario_id in MINI_MAP_SCENARIO_IDS):
         return rng.randrange(n_slots)
     return 0
 
