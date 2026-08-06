@@ -116,8 +116,15 @@ an old-code artifact (current code records unconditionally and
 validates clean). **Tentacle class root-caused:** the embedded
 scenario's side 3 carries controller="ai", so playback RE-RUNS a live
 RCA (tentacles wander) while the sim's neutrals are stationary by
-design — export-framing defect, not sim physics; fix experiment
-(controller rewrite at export + same-seed revalidate) in progress.
+design — export-framing defect — THEORY REFUTED BY EXPERIMENT
+(2026-08-06): a purpose-built repro (DummyPolicy tentacle games, 10
+exports across all 3 tentacle maps, 273+ side-3 commands) validated
+10/10 CLEAN in real Wesnoth — the engine replays AI-side recorded
+commands faithfully, controller=ai is NOT re-simulated. The class
+does not reproduce at HEAD; dispositioned as pre-provenance
+campaign-era artifacts (same closure as attack-168). SWEEP LEDGER
+FULLY CLOSED: all 574 verdicts explained, fixed, or shown
+unreproducible. Repro harness: scratchpad tentacle_repro*.py.
 Original framing below.
 
 **Started, never completed** (the agent stopped without a result). The
