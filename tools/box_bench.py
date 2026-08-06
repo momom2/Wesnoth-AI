@@ -51,6 +51,14 @@ def main(argv):
                          "default playout-cap = 14).")
     ap.add_argument("--states", type=int, default=8,
                     help="Distinct states per batch (padding realism).")
+    ap.add_argument("--fleet-efficiency", type=float, default=0.5,
+                    help="Scale on the spool projection for fleet "
+                         "contention (memory bandwidth, cache, "
+                         "hyperthread sharing): the solo-worker bench "
+                         "measured ~2x faster than the same box's "
+                         "full 76-worker fleet (2026-08-06 "
+                         "calibration vs the measured t2b leg). 1.0 "
+                         "= solo-extrapolated upper bound.")
     args = ap.parse_args(argv[1:])
 
     import os
@@ -65,12 +73,13 @@ def main(argv):
     # true ~60-100ms because 76 spool workers were running). Warn
     # loudly; results under load are NOT calibration-grade.
     try:
+        # getloadavg is absent on Windows (AttributeError, not OSError).
         load1 = os.getloadavg()[0]
         if load1 > n_cores * 0.25:
             print(f"WARNING: loadavg {load1:.0f} on {n_cores} cores "
                   f"-- box is busy; numbers below measure CONTENTION, "
                   f"re-run on an idle box before trusting them")
-    except OSError:
+    except (OSError, AttributeError):
         pass
     has_cuda = torch.cuda.is_available()
     gpu = (torch.cuda.get_device_name(0) if has_cuda else "none")
@@ -161,10 +170,12 @@ def main(argv):
     # ---- projection ----
     D, S = args.decisions, args.mean_sims
     per_leaf_cpu = t_cpu_fwd + t_enc + t_enum
-    spool = n_cores * 3600e3 / (D * S * per_leaf_cpu)
+    spool = (n_cores * args.fleet_efficiency * 3600e3
+             / (D * S * per_leaf_cpu))
     print()
     print(f"PROJECTION (D={D} decisions/game, mean sims {S}):")
-    print(f"  spool ({n_cores} cpu workers):  {spool:7.1f} games/hr")
+    print(f"  spool ({n_cores} cores x {args.fleet_efficiency} "
+          f"fleet-eff): {spool:7.1f} games/hr")
     if t_gpu:
         best_B, best = min(
             ((B, t / B) for B, t in t_gpu.items() if B > 1),
