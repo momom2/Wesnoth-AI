@@ -256,6 +256,34 @@ increments you are buying.
 
 ## 6. Hazards specific to this tier
 
+### 6.0 Hazards measured 2026-08-05/06 (the first 15M legs)
+
+- **`--save-every` defaults to 10 and saves happen ONLY at launch,
+  every Nth iteration, and clean exit.** A crash before iteration N
+  loses EVERYTHING since launch -- the 2026-08-05 overnight OOM at
+  iteration ~6 lost the whole night while the in-memory counter (and
+  the CSV) showed healthy progress. **Pass `--save-every 1` on every
+  paid run**; the save costs ~1s against 10-20min iterations.
+- **15M on a 12GB card: `--replay-minibatch 64 --train-batch-size 32`
+  is the measured-safe pair** (2.4 GiB backward peak). The 5M-era
+  128/64 OOMs the backward pass at 15M -- that exact carry-over
+  caused the overnight crash.
+- **Verify resumes by decision_step AND checkpoint mtime, never by
+  loss levels.** Post-crash loss values are incomparable across
+  holdout/replay-buffer regimes and false-confirmed a "continuation"
+  that was actually a from-seed restart (2026-08-06).
+- **Arm the on-box watchdog** (`watchdog.sh` pattern: relaunch on
+  learner death, max-restart budget, RUN_COMPLETE/WATCHDOG_GAVE_UP
+  beacons). Laptop-side monitors die with the operator's session --
+  the OOM night went 8h unnoticed. The box cannot self-stop (no API
+  key on rented hardware, by design); instance-stop decisions stay
+  operator-side.
+- **Seeding lineage (user rulings 2026-08-05):** the Tier-b working
+  seed is the RE-GROW of the recovered T2-5M relevant-set checkpoint
+  (t2_recovery -> t2b_15m_seed, d_head 32 head-aligned, grow-gate
+  MAE 0.2399), NOT the full-board tier_b_15m.pt. All training runs
+  the 15M net; playout-cap ON; lambda=0.9; train-draw-tiebreak OFF.
+
 - **`tier_a_campaign.pt` is a reserved name.** See §4.
 - **Do not compare a fresh grow to anything.** See §3.
 - **Head alignment**: any future grow keeps `d_head = 32`
