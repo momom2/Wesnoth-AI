@@ -23,6 +23,9 @@ Thumbs.db
 # Project runtime artifacts (regenerated on each run)
 logs/
 training/profiles/
+# Per-net-size metric archives: CSVs untracked (user order 2026-08-06),
+# README tracked so the convention survives.
+training/metrics/*.csv
 training/replays/
 training/spool/
 
