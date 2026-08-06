@@ -250,9 +250,14 @@ decision_step), `--save-every 1`, playout-cap default ON,
 `--distill-prior-discount 0.9`, `--relevant-set-hexes`,
 train-draw-tiebreak OFF, batches 64/32 (12 GiB) — scale up only
 after a measured peak on the actual card, abort tripwires ON, arm
-`watchdog.sh`, campaign identity = a DISTINCT rolling name
-(`t2b_campaign.pt`) + HF escrow under that name only, never the
-Tier-a rolling name. Iteration budget: at the leg's measured
+`watchdog.sh`, `--prof` ON (always-on component profiling, 88ea911:
+workers fold per-component seconds into their heartbeats at measured
+~0.006%/decision overhead; read anytime with
+`python tools/prof_report.py training/spool/stats`), campaign
+identity = a DISTINCT rolling name (`t2b_campaign.pt`) + HF escrow
+under that name only, never the Tier-a rolling name — escrow env
+since the 2026-08-06 repo rename: `HF_REPO=momom2/wesnoth-model-`
+`checkpoints HF_PREFIX=tier-b/ CAMPAIGN_FILE=t2b_campaign.pt`. Iteration budget: at the leg's measured
 ~15-20 min/iteration (~5.5k decisions/iter), a 450k-step detectable
 increment costs ~80-100 box-hours (~$16-20 on the incumbent) — set
 campaign length in iterations from that, not wall-clock.

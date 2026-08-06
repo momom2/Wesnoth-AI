@@ -143,6 +143,20 @@ found by a **targeted census, not a sweep**.
 
 ### 3b. Throughput program (user orders 2026-08-05, from the 15M profile)
 
+**Always-on fleet profiling LANDED (2026-08-06, 88ea911, user order):**
+`--prof` on the learner arms `tools/prof_hooks.py` in every spool
+worker (env-inherited `WESNOTH_PROF=1`); per-component seconds
+(sim.step, sim.fork, encode, forward, enumerate) accumulate into the
+existing heartbeat JSONs and `tools/prof_report.py` renders the
+fleet-wide breakdown on demand mid-campaign. Measured overhead
+0.23us/wrapped call (~0.006% of a decision) — cheap enough to keep ON
+for the whole campaign (armed in the §4c launch checklist). CUDA
+caveat: no synchronize in production, so GPU-worker forward
+attribution is async-skewed; the CPU fleet (the norm) is exact.
+`profile_rollout.py` gained production-parity flags in the same
+commit (checkpoint-driven relevant-set, playout-cap ON by default,
+--torch-threads).
+
 **Stage-1 measurements (2026-08-05 evening, all on the 3060 box):**
 
 - **Distill damping VALIDATED on the trained 15M net** (paired arms,
