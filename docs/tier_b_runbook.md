@@ -226,6 +226,37 @@ bounded smoke and read actual peak VRAM before committing to the long
 run. `PYTORCH_ALLOC_CONF=expandable_segments:True` and a lower
 `--replay-minibatch` are the tuning levers.
 
+## 4c. Campaign box selection — measured, 2026-08-06
+
+The §4b host requirements were derived for FULL-BOARD Tier-b and are
+superseded for the relevant-set lineage by direct measurement:
+
+- **Shape: spool (many CPU cores) + any modest GPU.** The learner
+  peaks at **2.4 GiB** VRAM at the measured-safe 64/32 batches; the
+  actor-pool loses to spool on consumer cards (flat batching curve,
+  measured on the 3060 at every batch size). Cores/$ is the metric.
+- **The incumbent 192-core + RTX 3060 box (~$0.20/h) beat every
+  2026-08-06 market offer on cores/$** (best alternates: 80-core
+  3060 @ $0.234, 64-core 3090 @ $0.148, 128-core 4060Ti @ $0.348).
+  Recommendation: campaign on the incumbent box class; re-run
+  `tools/box_bench.py --checkpoint <t2b ckpt>` on any candidate
+  before committing (2-minute answer, idle box only).
+- **RAM**: 76 workers ran in <60 GiB; 63 GiB hosts are adequate,
+  252 GiB is waste.
+
+Launch checklist (supersedes ad-hoc launchers; all from standing
+rulings): seed = the recovery leg's output (verify by
+decision_step), `--save-every 1`, playout-cap default ON,
+`--distill-prior-discount 0.9`, `--relevant-set-hexes`,
+train-draw-tiebreak OFF, batches 64/32 (12 GiB) — scale up only
+after a measured peak on the actual card, abort tripwires ON, arm
+`watchdog.sh`, campaign identity = a DISTINCT rolling name
+(`t2b_campaign.pt`) + HF escrow under that name only, never the
+Tier-a rolling name. Iteration budget: at the leg's measured
+~15-20 min/iteration (~5.5k decisions/iter), a 450k-step detectable
+increment costs ~80-100 box-hours (~$16-20 on the incumbent) — set
+campaign length in iterations from that, not wall-clock.
+
 ## 5. What to measure, and when to stop
 
 Measure exactly as Tier-a did (`docs/tier_a_runbook.md` "What to
