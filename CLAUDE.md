@@ -192,9 +192,12 @@ is a pure-Python headless reimplementation of Wesnoth 1.18.4's game
 logic, ~1000× faster than driving a Wesnoth
 subprocess. Combat math is bit-exact verified (731/731 strikes
 matched against `[mp_checkup]` oracle on strict-sync replays);
-full-replay reconstruction at 98.57% clean on the 4,841-replay
-competitive-2p corpus after the Stages 1–21 fidelity sweep
-(documented under BACKLOG.md).
+full-replay reconstruction at **99.93% clean (5,482/5,486)** on the
+re-extracted competitive-2p corpus (2026-05-11 sweep; the oft-quoted
+98.57% is the stale May-4 snapshot). 4 residual divergences remain
+un-root-caused (3 classes: recruit gold drift, defender_missing,
+src_missing) — parked 🟡 in the 2026-05-11 BACKLOG (commit 931b574),
+still open.
 
 **Self-play training is end-to-end ready.** `tools/sim_self_play.py`
 drives self-play in the simulator with either REINFORCE or MCTS
