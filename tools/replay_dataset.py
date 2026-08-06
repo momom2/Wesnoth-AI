@@ -560,6 +560,17 @@ def _build_unit(u: dict, apply_leader_traits: bool = False,
                 defense_table=defense_table,
             )
             setattr(base, "_defense_table", defense_table)
+            # The engine's quick_4mp_leaders post-pass explicitly
+            # refreshes the unit after adding the trait:
+            #   unit.moves = unit.max_moves
+            #   unit.hitpoints = unit.max_hitpoints
+            # (wesnoth_src/data/multiplayer/eras.lua:18-19). Without
+            # this, a 4-MP leader plays TURN 1 at 4/5 MP -- latent for
+            # months because leaders usually recruit on turn 1; first
+            # surfaced by an Aethermaw opening (move:mp_insufficient,
+            # 2026-08-06 plan-mod trial, user-diagnosed).
+            base.current_moves = base.max_moves
+            base.current_hp = base.max_hp
     return base
 
 

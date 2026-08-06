@@ -96,3 +96,32 @@ def test_vendored_seamless_variant_shares_event_logic():
     assert any(ev.name == "start" for ev in events)
     names = {a.tag for ev in events for a in ev.actions}
     assert "store_unit" in names and "if" in names
+
+
+def test_quick_4mp_leader_current_moves_refreshed():
+    """quick_4mp_leaders engine parity: after the auto-quick trait,
+    the engine refreshes moves AND hitpoints to max (eras.lua:18-19).
+    A 4-MP leader (Elder Wose) must therefore START with 5/5 MP --
+    the missing refresh made every such leader one MP short on turn
+    1 (2026-08-06, user-diagnosed from an Aethermaw replay)."""
+    from tools import replay_dataset as rd
+    gs = rd._build_initial_gamestate({
+        "game_id": "t", "scenario_id": "multiplayer_Aethermaw",
+        "factions": ["Undead", "Rebels"],
+        "experience_modifier": 70,
+        "starting_sides": [
+            {"side": 1, "gold": 100}, {"side": 2, "gold": 100}],
+        "starting_units": [
+            {"uid": 1, "type": "Dark Sorcerer", "side": 1, "x": 28,
+             "y": 17, "hp": 48, "max_hp": 48, "max_moves": 5,
+             "is_leader": True},
+            {"uid": 2, "type": "Elder Wose", "side": 2, "x": 20,
+             "y": 23, "hp": 64, "max_hp": 64, "max_moves": 4,
+             "is_leader": True}],
+        "starting_villages": [], "commands": [],
+    })
+    wose = next(u for u in gs.map.units if u.id == "u2")
+    assert "quick" in wose.traits
+    assert wose.max_moves == 5
+    assert wose.current_moves == 5, wose.current_moves
+    assert wose.current_hp == wose.max_hp
