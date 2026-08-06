@@ -318,8 +318,8 @@ def main(argv: List[str]) -> int:
             ".hf_token_wesnoth").read_text().strip() if Path.home(
             ).joinpath(".hf_token_wesnoth").exists() else Path(
             r"C:\Users\amaur\.hf_token_wesnoth").read_text().strip()
-        src = Path(hf_hub_download("momom2/wesnoth-tier-a",
-                                   "trainer_history_local.csv",
+        src = Path(hf_hub_download("momom2/wesnoth-model-checkpoints",
+                                   "tier-b/trainer_history_local.csv",
                                    token=tok, force_download=True))
         note = "source: HF escrow (<=30 min stale)"
     elif args.csv:

@@ -26,7 +26,7 @@ training/profiles/
 training/replays/
 training/spool/
 
-# Trained checkpoints live on HF (momom2/wesnoth-tier-a), NOT in git
+# Trained checkpoints live on HF (momom2/wesnoth-model-checkpoints), NOT in git
 # (user ruling 2026-08-05). The 2026-06 machine-loss concern that
 # originally argued for git-tracking is covered by the HF escrow;
 # 60MB+ nets in git would bloat every clone, and bare clones must

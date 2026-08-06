@@ -37,17 +37,21 @@ DEFAULT_DIR = Path("training/validate_exports")
 DEFAULT_TOKEN_FILE = Path.home() / ".hf_token_wesnoth"
 
 
-def _hf_pull(dest: Path, repo: str, token_file: Path) -> int:
-    """Download new validate_exports/* files from the campaign repo
-    into `dest`, preserving the category subdirs. Returns #new."""
+def _hf_pull(dest: Path, repo: str, token_file: Path,
+             prefix: str = "tier-b/") -> int:
+    """Download new <prefix>validate_exports/* files from the
+    campaign repo into `dest`, preserving the category subdirs.
+    Returns #new. `prefix` is the lineage folder (tier-a/ or
+    tier-b/; repo sorted 2026-08-06)."""
     from huggingface_hub import HfApi, hf_hub_download
     token = token_file.read_text(encoding="utf-8").strip()
     api = HfApi(token=token)
     n_new = 0
+    root = prefix + "validate_exports/"
     for rf in api.list_repo_files(repo, repo_type="model"):
-        if not rf.startswith("validate_exports/"):
+        if not rf.startswith(root):
             continue
-        rel = rf[len("validate_exports/"):]
+        rel = rf[len(root):]
         if rel.startswith("bundles/") and rel.endswith(".tar"):
             # Per-iteration replay bundle (full recording,
             # 2026-07-21): extract the member replays into dest
@@ -86,7 +90,10 @@ def main(argv) -> int:
     ap.add_argument("--hf-pull", action="store_true",
                     help="Pull new exports from the campaign HF repo "
                          "before validating.")
-    ap.add_argument("--hf-repo", default="momom2/wesnoth-tier-a")
+    ap.add_argument("--hf-repo", default="momom2/wesnoth-model-checkpoints")
+    ap.add_argument("--hf-prefix", default="tier-b/",
+                    help="Lineage folder in the repo (tier-a/ or "
+                         "tier-b/).")
     ap.add_argument("--hf-token-file", type=Path,
                     default=DEFAULT_TOKEN_FILE)
     ap.add_argument("--results", type=Path, default=None,
@@ -98,7 +105,8 @@ def main(argv) -> int:
     args = ap.parse_args(argv[1:])
 
     if args.hf_pull:
-        n = _hf_pull(args.dir, args.hf_repo, args.hf_token_file)
+        n = _hf_pull(args.dir, args.hf_repo, args.hf_token_file,
+                     prefix=args.hf_prefix)
         log.info(f"hf pull: {n} new file(s)")
 
     results_path = args.results or (args.dir / "results.csv")

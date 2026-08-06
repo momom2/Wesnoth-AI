@@ -82,7 +82,7 @@ Notes that decide whether the numbers mean anything:
 - Sides alternate automatically and seeds derive from the game index,
   so re-running the same command schedules the same games and two
   chunks never collide.
-- Pull the checkpoints from HF (`momom2/wesnoth-tier-a`) on the box;
+- Pull the checkpoints from HF (`momom2/wesnoth-model-checkpoints`) on the box;
   don't ship them from the laptop.
 
 ## 4. The queue this box exists to run

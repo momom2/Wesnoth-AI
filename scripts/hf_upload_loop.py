@@ -15,7 +15,10 @@ Config (env, or files next to WORKDIR for tokenless templates):
   HF_TOKEN   -- fine-grained write token scoped to the target repo,
                 or a token file at $WORKDIR/.hf_token
   HF_REPO    -- target repo id, or a file at $WORKDIR/.hf_repo
-                (default: momom2/wesnoth-tier-a)
+                (default: momom2/wesnoth-model-checkpoints)
+  HF_PREFIX  -- folder prefix inside the repo for every upload
+                (default: tier-b/ -- the repo sorts lineages into
+                tier-a/ and tier-b/ folders since 2026-08-06)
   WORKDIR    -- defaults to /workspace
 Run from the repo root (paths below are repo-relative).
 """
@@ -36,6 +39,11 @@ WORKDIR = Path(os.environ.get("WORKDIR", "/workspace"))
 # loop uploads that run's weights over the reserved `tier_a_campaign.pt`
 # escrow. Kept as one variable so the two can never drift apart.
 CAMPAIGN_FILE = os.environ.get("CAMPAIGN_FILE", "tier_a_campaign.pt")
+
+# Repo folder for this lineage. All training is Tier-b since
+# 2026-08-05 (user decision), so tier-b/ is the default; a tier-a
+# revival run must override. Applied to EVERY path_in_repo below.
+HF_PREFIX = os.environ.get("HF_PREFIX", "tier-b/")
 
 FILES = [
     (f"training/checkpoints/{CAMPAIGN_FILE}", CAMPAIGN_FILE),
@@ -66,7 +74,7 @@ def _read_opt(env: str, fallback_file: Path) -> str:
 def main() -> int:
     token = _read_opt("HF_TOKEN", WORKDIR / ".hf_token")
     repo = _read_opt("HF_REPO", WORKDIR / ".hf_repo") \
-        or "momom2/wesnoth-tier-a"
+        or "momom2/wesnoth-model-checkpoints"
     if not token:
         print("hf_upload_loop: no HF_TOKEN / .hf_token; exiting.",
               flush=True)
@@ -96,7 +104,8 @@ def main() -> int:
                 for src, dst in FILES:
                     if os.path.exists(src):
                         api.upload_file(
-                            path_or_fileobj=src, path_in_repo=dst,
+                            path_or_fileobj=src,
+                            path_in_repo=HF_PREFIX + dst,
                             repo_id=repo, repo_type="model")
                 last_sig = sig
                 print(f"hf_upload_loop: uploaded at "
@@ -124,7 +133,8 @@ def main() -> int:
                     try:
                         api.upload_file(
                             path_or_fileobj=str(f),
-                            path_in_repo=f"validate_exports/{rel}",
+                            path_in_repo=(f"{HF_PREFIX}"
+                                          f"validate_exports/{rel}"),
                             repo_id=repo, repo_type="model")
                     except FileNotFoundError:
                         continue      # bundled away mid-sweep

@@ -182,9 +182,9 @@ from huggingface_hub import hf_hub_download
 tok = os.environ.get("HF_SEED_TOKEN") or pathlib.Path(
     os.environ.get("WORKDIR", "/workspace"), ".hf_token"
 ).read_text().strip()
-fname = os.environ.get("HF_SEED_FILE", "tier_a_campaign.pt")
+fname = os.environ.get("HF_SEED_FILE", "tier-a/tier_a_campaign.pt")
 try:
-    p = hf_hub_download("momom2/wesnoth-tier-a", fname, token=tok)
+    p = hf_hub_download("momom2/wesnoth-model-checkpoints", fname, token=tok)
 except Exception as e:                                  # noqa: BLE001
     print(f"[onstart] hf seed download failed: {e}")
     sys.exit(1)
@@ -217,7 +217,7 @@ tok = os.environ.get("HF_SEED_TOKEN") or pathlib.Path(
     os.environ.get("WORKDIR", "/workspace"), ".hf_token"
 ).read_text().strip()
 try:
-    p = hf_hub_download("momom2/wesnoth-tier-a", "value_corpus.tar.gz",
+    p = hf_hub_download("momom2/wesnoth-model-checkpoints", "tier-a/value_corpus.tar.gz",
                         token=tok)
 except Exception as e:                                  # noqa: BLE001
     print(f"[onstart] corpus download failed: {e}")
@@ -248,7 +248,7 @@ tok = os.environ.get("HF_SEED_TOKEN") or pathlib.Path(
     os.environ.get("WORKDIR", "/workspace"), ".hf_token").read_text().strip()
 name = os.environ["HF_SEED_NAME"]
 try:
-    p = hf_hub_download("momom2/wesnoth-tier-a", name, token=tok)
+    p = hf_hub_download("momom2/wesnoth-model-checkpoints", name, token=tok)
 except Exception as e:                                  # noqa: BLE001
     print(f"[onstart] seed download failed ({name}): {e}")
     sys.exit(1)
@@ -300,7 +300,7 @@ if (dst / "value_corpus_index.jsonl").is_file():
     print("[onstart] value corpus already extracted")
     sys.exit(0)
 try:
-    p = hf_hub_download("momom2/wesnoth-tier-a", "value_corpus.tar.gz",
+    p = hf_hub_download("momom2/wesnoth-model-checkpoints", "tier-a/value_corpus.tar.gz",
                         token=tok)
 except Exception as e:                                  # noqa: BLE001
     print(f"[onstart] corpus download failed: {e}")

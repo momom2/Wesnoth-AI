@@ -227,7 +227,7 @@ improvement exists" is the signal.
    test asserts the per-dimension dominance directly from the two
    `OutcomeDistribution`s, not from sampled rolls.
 3. Run on the latest ~100 games (pull via
-   `run_validation_batch.py --hf-pull`, repo `momom2/wesnoth-tier-a`).
+   `run_validation_batch.py --hf-pull`, repo `momom2/wesnoth-model-checkpoints`).
    Report: per-motif and per-order fire rates, guaranteed-gain
    vectors, and the `inconclusive` census (what v1 skips: overlapping
    bounds, death-mixture, or `enumerate_attack_outcomes` -> None).

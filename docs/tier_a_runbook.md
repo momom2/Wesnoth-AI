@@ -227,7 +227,7 @@ throughput is understood.
   have different dynamics and pollute the Elo meaning). The ladder's
   default `random_setup` call already guarantees this; pinned by
   `test_elo_ladder_maps.py`. Checkpoints come from the HF Hub history
-  (`momom2/wesnoth-tier-a` — every 30-min upload is a revision; fetch
+  (`momom2/wesnoth-model-checkpoints` (tier-a/ folder) — every 30-min upload is a revision; fetch
   start/middle/end via `hf_hub_download(revision=...)`). Run the
   ladder ON the GPU node (reserve the last ~3-4h of credit: stop
   training, ~30 games/pair over 3 checkpoints + dummy ≈ 2-3h).

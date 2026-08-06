@@ -106,7 +106,7 @@ visited edges at every N.
 
 **Compute state:** Vast credit **$0**, box stopped/exited, nothing
 running. Last campaign checkpoint **decision_step 2,670,682** on HF
-(`momom2/wesnoth-tier-a`, `tier_a_campaign.pt`); best *measured* is
+(`momom2/wesnoth-model-checkpoints`, `tier-a/tier_a_campaign.pt`); best *measured* is
 **2,515,896** (`training/checkpoints/campaign_live_20260730.pt`).
 Throughput was ~4,000-7,000 decision-steps/hour, and detectable step gaps
 on this lineage are 450k-1M — i.e. **100-200 box-hours per measurable

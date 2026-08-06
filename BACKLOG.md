@@ -359,7 +359,7 @@ game), enumerate 17%, encode 16%, sim 7%. Orders:
 - **`training/checkpoints/tier_a_campaign.pt` is STALE locally**
   (`decision_step` 155464). That filename is *reserved* for the live
   campaign, so it will mislead. The real campaign is on HF
-  (`momom2/wesnoth-tier-a`) at **2,670,682**; the best *measured*
+  (`momom2/wesnoth-model-checkpoints`, tier-a/) at **2,670,682**; the best *measured*
   checkpoint is **`campaign_live_20260730.pt` (2,515,896)**.
   **Always verify a checkpoint by reading `decision_step`, never by
   filename** — this trap has fired three times.

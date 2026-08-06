@@ -48,7 +48,7 @@ the recent lineage (see `docs/eval_20260728.md` §0). Seed from an earlier
 file with `-e HF_SEED_FILE=...` if you want to restart from the peak.
 
 **Cache-vs-Hub trap:** an earlier check of the LOCAL HF cache
-(`~/.cache/huggingface/hub/models--momom2--wesnoth-tier-a`) reported the
+(`~/.cache/huggingface/hub/models--momom2--wesnoth-model-checkpoints`) reported the
 Hub campaign as the 07-19 / 2.75M checkpoint. That was wrong — the cache
 did not hold the newest revision. Always verify against the Hub itself
 (the token resolves via `huggingface_hub.get_token()` once

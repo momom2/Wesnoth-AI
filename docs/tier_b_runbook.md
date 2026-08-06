@@ -112,7 +112,7 @@ Two caveats that must travel with these numbers:
   read; the floor-relative CE is the gate.
 
 - The raw CSV is **gitignored** (`.gitignore:105`, it is regenerable).
-  Re-pull with `hf_hub_download("momom2/wesnoth-tier-a",
+  Re-pull with `hf_hub_download("momom2/wesnoth-model-checkpoints",
   "trainer_history_local.csv")` to recompute rather than trust these.
 
 ### Drift, not degradation — the gate on Tier-b spend, 2026-08-03
