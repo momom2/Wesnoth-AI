@@ -108,9 +108,17 @@ fighting, and the materially-ahead side declining free leader-kills.
 
 ### 3. Systematic export-fidelity sweep
 **DONE 2026-08-04: 538/574 clean, every failure root-caused** (2
-known-fixed 9133cca, 30 fixed 6712c70, 2 tentacle-spawn open — see
-"Where the project stands"). Remaining: re-export + re-validate midgame
-after 6712c70, and the tentacle forensics. Original framing below.
+known-fixed 9133cca, 30 fixed 6712c70, 2 tentacle-spawn open).
+**2026-08-06 closures:** midgame RE-VERIFIED post-fix — 15/15 fresh
+exports clean in real Wesnoth (one flaky playback stall passed on
+retry), which also closes the attack-168 missing-[choose] residual as
+an old-code artifact (current code records unconditionally and
+validates clean). **Tentacle class root-caused:** the embedded
+scenario's side 3 carries controller="ai", so playback RE-RUNS a live
+RCA (tentacles wander) while the sim's neutrals are stationary by
+design — export-framing defect, not sim physics; fix experiment
+(controller rewrite at export + same-seed revalidate) in progress.
+Original framing below.
 
 **Started, never completed** (the agent stopped without a result). The
 question is NOT "clean up 6 known-bad files" — it is *how much sim
