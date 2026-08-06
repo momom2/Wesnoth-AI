@@ -215,6 +215,17 @@ game), enumerate 17%, encode 16%, sim 7%. Orders:
   material matter (train-draw-tiebreak) and/or price the clock,
   and/or exploration/opponent-diversity so punishment lines get
   discovered.
+- **BOUNDARY DISCRIMINATOR MEASURED (2026-08-06): the pump is a
+  DEPTH-LEVEL ZUGZWANG ILLUSION.** 22 pass-boundary pairs, mini, full
+  32-sim search both perspectives: raw head sums +0.34 (mover
+  optimism, T1-F reproduced) but SEARCH INVERTS it to -0.22 (0/22
+  pairs > +0.15): at depth both movers read as LOSING (deep_a -0.14,
+  deep_b -0.31). A mover's-curse inconsistency directly rewards
+  passing for both sides (hand the curse to the opponent). Root
+  cause of mini passivity = value-consistency defect, inverted at
+  depth; the T1-F batch-mean boundary-consistency repair is
+  ACTIVATED (targets both signs). Supersedes both the "honest
+  equilibrium" and "raw-optimism pump" readings.
 - **Mini-draw incentive repair pending user ruling:** draws measured
   as 100% mini artifact (leg: ladder 51/51 + midgame 24/24 decisive,
   mini 30/45 with the draw rate CLIMBING under lambda=0.9). The
