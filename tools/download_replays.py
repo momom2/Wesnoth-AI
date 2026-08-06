@@ -36,14 +36,22 @@ USER_AGENT = "Wesnoth-AI-research-spike/0.1 (+local)"
 OUT_DIR = Path(__file__).resolve().parents[1] / "replays_raw"
 
 
-def list_day(d: date) -> list[str]:
+def list_day(d: date, _retries: int = 3) -> list[str]:
     """Return list of .bz2 filenames for a given date."""
+    import time as _time
     url = f"{BASE}/{d:%Y/%m/%d}/"
     req = Request(url, headers={"User-Agent": USER_AGENT})
     try:
         with urlopen(req, timeout=30) as r:
             html = r.read().decode("utf-8", errors="replace")
-    except (URLError, HTTPError) as e:
+    # OSError covers ConnectionResetError/timeouts DURING read() --
+    # the server resets connections under sustained load (observed
+    # 2026-08-06 ~460k requests in; an uncaught reset killed the whole
+    # sweep mid-listing). Retry with backoff before giving the day up.
+    except (URLError, HTTPError, OSError) as e:
+        if _retries > 0:
+            _time.sleep(5 * (4 - _retries))
+            return list_day(d, _retries - 1)
         # ASCII only: a piped stdout on Windows encodes cp1252, and a
         # non-ASCII arrow here crashed the whole bulk run at the first
         # missing day (2026-07-07: the entire 2024 chunk died on the
@@ -69,7 +77,7 @@ def fetch_one(d: date, name: str) -> tuple[str, int, str]:
             data = r.read()
         target.write_bytes(data)
         return (name, len(data), "ok")
-    except (URLError, HTTPError) as e:
+    except (URLError, HTTPError, OSError) as e:
         return (name, 0, f"err: {e}")
 
 
