@@ -21,3 +21,8 @@
 2pthousandstingsgarrison
 2ptombsofkesorak
 2pweldynchannel
+laddercompetitivemaps
+ladderclassicmaps
+ladderadventurousmaps
+ladderallmaps
+minimapsmappicker
