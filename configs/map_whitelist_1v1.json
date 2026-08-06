@@ -1,0 +1,450 @@
+{
+ "_doc": "1v1 map whitelist for replay filtering (user plan 2026-08-06). status: core = long-standing sim maps; include = audited clean (Opus 5 workflow wf_f89f5d9c-f8c, rubric: 2 human sides, AI sides passive/non-recruiting/non-reinforced, no gameplay events, no custom units); discuss = pending user call; exclude = disqualified. Replay filter keeps games whose embedded [replay_start] map matches a core/include entry.",
+ "maps": [
+  {
+   "name": "2p_Aethermaw",
+   "source": "mainline_1.18",
+   "status": "core",
+   "notes": "default competitive 2p; sim scenario-event support where needed"
+  },
+  {
+   "name": "2p_Arcanclave_Citadel",
+   "source": "mainline_1.18",
+   "status": "core",
+   "notes": "default competitive 2p; sim scenario-event support where needed"
+  },
+  {
+   "name": "2p_Caves_of_the_Basilisk",
+   "source": "mainline_1.18",
+   "status": "core",
+   "notes": "default competitive 2p; sim scenario-event support where needed"
+  },
+  {
+   "name": "2p_Clearing_Gushes",
+   "source": "mainline_1.18",
+   "status": "core",
+   "notes": "default competitive 2p; sim scenario-event support where needed"
+  },
+  {
+   "name": "2p_Cynsaun_Battlefield",
+   "source": "mainline_1.18",
+   "status": "core",
+   "notes": "default competitive 2p; sim scenario-event support where needed"
+  },
+  {
+   "name": "2p_Den_of_Onis",
+   "source": "mainline_1.18",
+   "status": "core",
+   "notes": "default competitive 2p; sim scenario-event support where needed"
+  },
+  {
+   "name": "2p_Elensefar_Courtyard",
+   "source": "mainline_1.18",
+   "status": "core",
+   "notes": "default competitive 2p; sim scenario-event support where needed"
+  },
+  {
+   "name": "2p_Fallenstar_Lake",
+   "source": "mainline_1.18",
+   "status": "core",
+   "notes": "default competitive 2p; sim scenario-event support where needed"
+  },
+  {
+   "name": "2p_Hamlets",
+   "source": "mainline_1.18",
+   "status": "core",
+   "notes": "default competitive 2p; sim scenario-event support where needed"
+  },
+  {
+   "name": "2p_Hellhole",
+   "source": "mainline_1.18",
+   "status": "core",
+   "notes": "default competitive 2p; sim scenario-event support where needed"
+  },
+  {
+   "name": "2p_Hornshark_Island",
+   "source": "mainline_1.18",
+   "status": "core",
+   "notes": "default competitive 2p; sim scenario-event support where needed"
+  },
+  {
+   "name": "2p_Howling_Ghost_Badlands",
+   "source": "mainline_1.18",
+   "status": "core",
+   "notes": "default competitive 2p; sim scenario-event support where needed"
+  },
+  {
+   "name": "2p_Ruined_Passage",
+   "source": "mainline_1.18",
+   "status": "core",
+   "notes": "default competitive 2p; sim scenario-event support where needed"
+  },
+  {
+   "name": "2p_Ruphus_Isle",
+   "source": "mainline_1.18",
+   "status": "core",
+   "notes": "default competitive 2p; sim scenario-event support where needed"
+  },
+  {
+   "name": "2p_Sablestone_Delta",
+   "source": "mainline_1.18",
+   "status": "core",
+   "notes": "default competitive 2p; sim scenario-event support where needed"
+  },
+  {
+   "name": "2p_Silverhead_Crossing",
+   "source": "mainline_1.18",
+   "status": "core",
+   "notes": "default competitive 2p; sim scenario-event support where needed"
+  },
+  {
+   "name": "2p_Sullas_Ruins",
+   "source": "mainline_1.18",
+   "status": "core",
+   "notes": "default competitive 2p; sim scenario-event support where needed"
+  },
+  {
+   "name": "2p_Swamp_of_Dread",
+   "source": "mainline_1.18",
+   "status": "core",
+   "notes": "default competitive 2p; sim scenario-event support where needed"
+  },
+  {
+   "name": "2p_The_Freelands",
+   "source": "mainline_1.18",
+   "status": "core",
+   "notes": "default competitive 2p; sim scenario-event support where needed"
+  },
+  {
+   "name": "2p_The_Walls_of_Pyrennis",
+   "source": "mainline_1.18",
+   "status": "core",
+   "notes": "default competitive 2p; sim scenario-event support where needed"
+  },
+  {
+   "name": "2p_Thousand_Stings_Garrison",
+   "source": "mainline_1.18",
+   "status": "core",
+   "notes": "default competitive 2p; sim scenario-event support where needed"
+  },
+  {
+   "name": "2p_Tombs_of_Kesorak",
+   "source": "mainline_1.18",
+   "status": "core",
+   "notes": "default competitive 2p; sim scenario-event support where needed"
+  },
+  {
+   "name": "2p_Weldyn_Channel",
+   "source": "mainline_1.18",
+   "status": "core",
+   "notes": "default competitive 2p; sim scenario-event support where needed"
+  },
+  {
+   "name": "2p_mini",
+   "source": "Mini_Maps_Collection",
+   "status": "core",
+   "notes": "vendored 1v1 mini; training curriculum map"
+  },
+  {
+   "name": "2p_mini_edited",
+   "source": "Mini_Maps_Collection",
+   "status": "core",
+   "notes": "vendored 1v1 mini; training curriculum map"
+  },
+  {
+   "name": "enclave_micro_isar",
+   "source": "Mini_Maps_Collection",
+   "status": "core",
+   "notes": "vendored 1v1 mini; training curriculum map"
+  },
+  {
+   "name": "Modified_Tiny_Close_Relation",
+   "source": "Mini_Maps_Collection",
+   "status": "core",
+   "notes": "vendored 1v1 mini; training curriculum map"
+  },
+  {
+   "name": "around_mini",
+   "source": "Mini_Maps_Collection",
+   "status": "core",
+   "notes": "vendored 1v1 mini; training curriculum map"
+  },
+  {
+   "name": "enclave_mini_fallenstar_1v1",
+   "source": "Mini_Maps_Collection",
+   "status": "core",
+   "notes": "vendored 1v1 mini; training curriculum map"
+  },
+  {
+   "name": "enclave_small_fallenstar_1v1",
+   "source": "Mini_Maps_Collection",
+   "status": "core",
+   "notes": "vendored 1v1 mini; training curriculum map"
+  },
+  {
+   "name": "Benji_Autumn_Siege_small",
+   "source": "Mini_Maps_Collection",
+   "status": "core",
+   "notes": "vendored 1v1 mini; training curriculum map"
+  },
+  {
+   "name": "2p - Ashy Island (WL_Ashy_Island)",
+   "source": "WL_Mappack",
+   "status": "include",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/WL_Mappack/maps/2p_Ashy_Island.map",
+   "notes": "Exactly 2 playable human sides, no AI/scenery sides at all. The one [event] (lines 36-47, name=prestart) holds nothing but an [objectives] block (win condition = kill enemy leader, i.e. the DEFAULT victory condition), which is UI-only. The PLACE_IMAGE macros (lines 31-35) verified to expand to decorative [item] overlays only. No custom unit types are named anywhere in the file (no type= at all), n"
+  },
+  {
+   "name": "2p - Autumn Harvest (WL_Autumn_Harvest)",
+   "source": "WL_Mappack",
+   "status": "include",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/WL_Mappack/maps/2p_Autumn_Harvest.map",
+   "notes": "Structurally identical to Ashy Island. Exactly 2 playable human sides, zero AI sides. The only [event] (lines 40-51) is a prestart [objectives] block \u2014 cosmetic UI, and its win condition is the default 'kill the enemy leader'. The nine PLACE_IMAGE macros (lines 31-39) are decorative [item] overlays with no gameplay effect. No type= anywhere, so no custom units can be referenced; no [unit], no Lua,"
+  },
+  {
+   "name": "2p - Cave Rivers (WL_Cave_Rivers)",
+   "source": "WL_Mappack",
+   "status": "include",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/WL_Mappack/maps/2p_Cave_Rivers.map",
+   "notes": "The cleanest of the four: exactly 2 playable human sides, no AI sides, no decorative item macros, and a single prestart [event] (lines 30-41) whose entire body is an [objectives] block (default kill-the-leader win condition) \u2014 cosmetic UI. No type= token anywhere in the file, so no custom unit can be referenced; no [unit], [modify_unit], [terrain], [gold], [lua], or spawn tags. Map file exists wit"
+  },
+  {
+   "name": "2p - Cold War (WL_Cold_War)",
+   "source": "WL_Mappack",
+   "status": "discuss",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/WL_Mappack/maps/2p_Cold_War.map",
+   "notes": "Everything about the side structure is INCLUDE-grade: exactly 2 playable human sides (lines 10-21, 22-33), zero AI/scenery sides, no custom units (no type= token anywhere in the file), no Lua, no [unit] placements, no terrain changes, no gold grants, no spawns, no non-default victory condition. The single disqualifier under a strict reading is the three [capture_village] tags in the prestart event"
+  },
+  {
+   "name": "2p \u2014 Rice Terraces (multiplayer_Rice_Terraces_Sandbox)",
+   "source": "Seamless_Map_Picker",
+   "status": "include",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/Seamless_Map_Picker/maps/2p_Rice_Terraces.map",
+   "notes": "Whole file is 41 lines and contains exactly two [side] blocks (lines 13-24, 25-40), both controller=human, canrecruit=yes \u2014 a clean 1v1 PvP. Zero [event] tags, zero [modification], no era lock, no force_lock_settings, no [victory_condition]/[endlevel] override, no Lua. No type= anywhere, so none of the add-on's custom units (DwarvishMinewalker / FreshWalkingCorpse / Totem in Seamless_Map_Picker/un"
+  },
+  {
+   "name": "2p \u2014 Scarred Foothills (multiplayer_Scarred_Foothills_Sandbox)",
+   "source": "Seamless_Map_Picker",
+   "status": "include",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/Seamless_Map_Picker/maps/2p_Scarred_Foothills.map",
+   "notes": "44-line file, structurally identical to Rice Terraces. Exactly two [side] blocks (lines 13-26, 27-43), both controller=human + canrecruit=yes => 1v1 PvP. No [event] tags at all, no [modification], no era lock, no force_lock_settings, no victory-condition override, no Lua, no type= (so no custom add-on units). Macros are only {DEFAULT_SCHEDULE_DAWN} / {DEFAULT_MUSIC_PLAYLIST} (lines 10-11); random_"
+  },
+  {
+   "name": "2p - Serpent Ford Summer (PYRA_Serpent_Ford_Summer)",
+   "source": "Seamless_Map_Picker",
+   "status": "include",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/Seamless_Map_Picker/maps/2p_Serpent_Ford_Summer.map",
+   "notes": "Shortest of the four (35 lines). Exactly two [side] blocks (lines 11-22, 23-34), both controller=human + canrecruit=yes, fully symmetric \u2014 no [village], no gold override, no starting [unit]. Zero [event] tags, no [modification], no era lock, no force_lock_settings, no victory-condition override, no Lua, no type= (no custom units). Macros are {DEFAULT_SCHEDULE} / {DEFAULT_MUSIC_PLAYLIST} (lines 8-9"
+  },
+  {
+   "name": "2p - Silverhead Crossing (multiplayer_qs_Silverhead_Crossing, Q edit)",
+   "source": "Seamless_Map_Picker",
+   "status": "exclude",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/Seamless_Map_Picker/maps/2p_Silverhead_Crossing_Q.map",
+   "notes": "DISQUALIFIER (primary): the prestart [event] at lines 59-97 applies an [object] to the side-3 unit at x,y=1,1 that rebuilds it into a unit type the sim has no representation of. Four [effect]s: (a) apply_to=attack increase_attacks=-2 increase_damage=296 (lines 68-72) \u2014 arbitrary stat surgery on the existing tentacle attack; (b) apply_to=new_attack 'evil eye', ranged/arcane, damage=100 number=1, ca"
+  },
+  {
+   "name": "2p \u2014 Maxplank",
+   "source": "Seamless_Map_Picker",
+   "status": "include",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/Seamless_Map_Picker/maps/2p_Maxplank.map",
+   "notes": "Exactly 2 [side] tags (lines 14-26, 28-44), both controller=human + canrecruit=yes (lines 20-21, 34-35). No third/AI/scenery side. No [event] tags authored in the file. The only WML that expands to events is 36 {PLACE_IMAGE ...} macro calls (lines 46-80), which is the mainline utils macro emitting an [event]name=prestart containing a single [item] image overlay \u2014 purely decorative (wells, boxes, s"
+  },
+  {
+   "name": "2p - Mining Colony",
+   "source": "Seamless_Map_Picker",
+   "status": "exclude",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/Seamless_Map_Picker/maps/2p_Mining_Colony.map",
+   "notes": "Two disqualifiers, either one sufficient. (1) CUSTOM UNIT: lines 85 and 95 spawn type=\"Dwarvish Minewalker\" via the file-local {ADU2} macro defined at lines 2-10. That unit is defined in the add-on at units/DwarvishMinewalker.cfg \u2014 a [base_unit] of Dwarvish Miner with an [abilities] block adding {ABILITY_TELEPORT}. Teleport between owned villages is not a mainline-Miner ability and is not in the s"
+  },
+  {
+   "name": "2p \u2014 Misty Swamp",
+   "source": "Seamless_Map_Picker",
+   "status": "exclude",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/Seamless_Map_Picker/maps/2p_Misty_Swamp.map",
+   "notes": "CUSTOM UNIT disqualifier: both playable sides get a type=Totem unit placed at prestart \u2014 side 1 at 13,10 (lines 29-38) and side 2 at 21,15 (lines 56-64), both petrified=yes. Totem is defined in the add-on at units/Totem.cfg (textdomain wesnoth-Mercenaries): race=mechanical, level 0, 1 HP, movement=0, invulnerable=yes, all six [resistance] values = 100, and \u2014 critically for reconstruction \u2014 jamming"
+  },
+  {
+   "name": "2p \u2014 Phenywesh",
+   "source": "Seamless_Map_Picker",
+   "status": "include",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/Seamless_Map_Picker/maps/2p_Phenywesh.map",
+   "notes": "The cleanest of the four. Exactly 2 [side] tags (lines 13-24, 25-40), both controller=human + canrecruit=yes (lines 19-20, 31-32). No third side, no AI side, no scenery side. Zero [event] tags and zero event-emitting macros \u2014 not even a PLACE_IMAGE. No type= anywhere, so no custom unit is referenced. The only non-default state is side 2's pre-owned [village] at 25,21 (lines 36-39), which is plain "
+  },
+  {
+   "name": "2p - Fantastic World (id=WL_Fantastic_World)",
+   "source": "WL_Mappack",
+   "status": "include",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/WL_Mappack/maps/2p_Fantastic_World.map",
+   "notes": "Exactly 2 [side] tags (lines 10-17, 18-29), both canrecruit=yes controller=human; no AI/scenery sides at all. Only one [event] (lines 30-41, name=prestart) and it contains nothing but an [objectives] block with a single condition=win 'Kill the enemy leader' objective plus a credits summary \u2014 purely cosmetic/UI, no state change. No type= anywhere, so no custom units; no [unit] placements, no [modif"
+  },
+  {
+   "name": "2p - Fire and Ice (id=WL_Fire_and_Ice)",
+   "source": "WL_Mappack",
+   "status": "include",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/WL_Mappack/maps/2p_Fire_and_Ice.map",
+   "notes": "Structurally identical to Fantastic World. Exactly 2 [side] tags (lines 10-17, 18-29), both canrecruit=yes controller=human, fog=yes; no AI or scenery sides. Single [event] name=prestart (lines 30-41) containing only [objectives] + credits \u2014 cosmetic. No type=, no [unit], no [modify_unit], no [gold], no [terrain_mask], no Lua, no [item]. random_start_time=\"no\" (line 6) with {DEFAULT_SCHEDULE} (lin"
+  },
+  {
+   "name": "2p - Marshy Fill (id=WL_Marshy_Fill)",
+   "source": "WL_Mappack",
+   "status": "discuss",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/WL_Mappack/maps/2p_Marshy_Fill.map",
+   "notes": "Sides are clean: exactly 2 [side] tags (lines 10-17, 18-29), both canrecruit=yes controller=human, fog=yes; no AI/scenery sides; no custom units anywhere (no type= in the file); no era/modification lock. Side 2 again gets an initial [village] x=20,y=17 (lines 25-28) \u2014 setup state, fine if the sim reads it. The disqualifying-in-principle item is the single [event] name=start (lines 30-80), which is"
+  },
+  {
+   "name": "2p - Spinning World (id=Spinning_World)",
+   "source": "WL_Mappack",
+   "status": "exclude",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/WL_Mappack/maps/2p_Spinning_World.map",
+   "notes": "Side structure would pass (exactly 2 [side] tags, lines 13-28 and 30-45, both canrecruit=yes controller=human gold=75 fog=yes, each with a starting [village]; the [ai] villages_per_scout=9 blocks at lines 14-16/31-33 are inert under controller=human; no AI/scenery sides; no custom units; no era or [modification] lock). It is disqualified by heavy gameplay WML that the sim does not implement: (1) R"
+  },
+  {
+   "name": "2p \u2014 Defiled Cathedral (multiplayer_Defiled_Cathedral)",
+   "source": "Seamless_Map_Picker",
+   "status": "exclude",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/Seamless_Map_Picker/maps/2p_Defiled_Cathedral.map",
+   "notes": "This is a SURVIVAL-flavoured PvP map: an AI side receives event-spawned reinforcement waves every 3 turns, it uses Lua micro_ai controllers, it retimes terrain, and it spawns a NON-MAINLINE unit type. Any one of these is disqualifying.\n\n(1) Custom unit type \u2014 `Fresh Walking Corpse` is spawned at lines 99, 114-119, 129, 131-132, 134, 144, 146-147, 149, 160, 163, 175, 178, 190, 193, 205, 208. It is "
+  },
+  {
+   "name": "2p - Den Of Onis (multiplayer_qs_Den_Of_Onis)",
+   "source": "Seamless_Map_Picker",
+   "status": "include",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/Seamless_Map_Picker/maps/2p_Den_Of_Onis_Q.map",
+   "notes": "Exactly 2 [side] tags (lines 15-26, 27-42), both controller=human, canrecruit=yes, no gold override (default), team_name south/north. No third side of any kind. No [event] tags at all. No unit type= references anywhere, so no custom units. The only non-side content is three {PLACE_IMAGE items/burial.png ...} macros (lines 11-13); the mainline definition (wesnoth_src/data/core/macros/image-utils.cf"
+  },
+  {
+   "name": "2p \u2014 Devious Dockyard (multiplayer_Devious_Dockyard_Sandbox)",
+   "source": "Seamless_Map_Picker",
+   "status": "include",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/Seamless_Map_Picker/maps/2p_Devious_Dockyard.map",
+   "notes": "The simplest of the four. Exactly 2 [side] tags (lines 13-28, 29-40), both controller=human with canrecruit=yes, teams east/west. Zero [event] tags. Zero macros beyond {DEFAULT_SCHEDULE_DAWN} and {DEFAULT_MUSIC_PLAYLIST} (lines 10-11). No type= anywhere, so no custom units. Side 1's `[village] x=36 y=1` (lines 24-27) is an ordinary starting-village grant. fog=yes on both sides (not penalized). Map"
+  },
+  {
+   "name": "2p \u2014 Fallenstar Shrine (multiplayer_Fallenstar_Shrine)",
+   "source": "Seamless_Map_Picker",
+   "status": "exclude",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/Seamless_Map_Picker/maps/2p_Fallenstar_Shrine.map",
+   "notes": "Four [side] tags, not two. Sides 1-2 are the human players (lines 16-28, 29-45, controller=human, gold=150). Sides 3 and 4 (lines 46-69, 70-93) are controller=ai / allow_player=no, and they are RECRUITING sides, which is the stated disqualifier:\n  - `canrecruit = yes` at line 48 (side 3) and line 72 (side 4);\n  - `gold = 100` at lines 49 and 73;\n  - each is granted two starting villages (side 3: 1"
+  },
+  {
+   "name": "2p - Wild Hunt (Q) \u2014 id multiplayer_qs_Wild_Hunt",
+   "source": "Seamless_Map_Picker",
+   "status": "include",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/Seamless_Map_Picker/maps/2p_Wild_Hunt.map",
+   "notes": "Read the entire file (65 lines, single [multiplayer] block). It contains ZERO [event] tags of any kind \u2014 cosmetic or gameplay. Nothing spawns units, changes terrain, grants gold, alters victory conditions, sets time-areas, or calls [modify_unit]/Lua. Sides: exactly 2, both human, both canrecruit; no third side. Custom units: no type= attribute appears anywhere in the file, so no unit type is named"
+  },
+  {
+   "name": "2p - Troll Toll (WL_Troll_Toll)",
+   "source": "Seamless_Map_Picker",
+   "status": "include",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/Seamless_Map_Picker/maps/2p_Troll_Toll.map",
+   "notes": "PROMOTED from DISCUSS: scenario body diff-identical to WL 2p_Troll_Toll (own .map variant); UNIT_PETRIFY statues already supported by scenario_events/scenario_pool. 3 [side] tags (lines 40, 50, 64). Sides 1 and 2 are controller=human, canrecruit=yes, gold=110 each (lines 40-63) -> exactly 2 playable human sides. Side 3 (lines 64-98) is controller=null, canrecruit"
+  },
+  {
+   "name": "2p - Twin Goddesses (White_Dragon_Twin_Goddesses)",
+   "source": "Seamless_Map_Picker",
+   "status": "include",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/Seamless_Map_Picker/maps/2p_Twin_Goddesses.map",
+   "notes": "Exactly 2 [side] tags (lines 12, 25), both controller=human, canrecruit=yes, gold=100. No third/AI/scenery side. ZERO [event] tags in the file - nothing spawns units, changes terrain, grants gold, or alters victory; default 'kill enemy leader' win condition. No type= anywhere, so no custom or even pre-placed units; the add-on's custom units (DwarvishMinewalker, FreshWalkingCorpse, Totem) are not r"
+  },
+  {
+   "name": "2p - Untainted Paradise (multiplayer_Untiainted_Paradise)",
+   "source": "Seamless_Map_Picker",
+   "status": "include",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/Seamless_Map_Picker/maps/2p_Untainted_Paradise.map",
+   "notes": "Exactly 2 [side] tags (lines 16, 29), both controller=human, canrecruit=yes, gold=125. No AI/scenery side. ZERO [event] tags; default victory condition, no [endlevel]. No type= anywhere -> no pre-placed and no custom units. The two {PLACE_IMAGE scenery/nest-full.png 3 3} / {PLACE_IMAGE scenery/nest-empty.png 43 25} calls (lines 13-14) expand to a bare [item] x/y/image (verified at wesnoth_src/data"
+  },
+  {
+   "name": "2p - Wellington (multiplayer_Wellington_Sandbox)",
+   "source": "Seamless_Map_Picker",
+   "status": "include",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/Seamless_Map_Picker/maps/2p_Wellington.map",
+   "notes": "Exactly 2 [side] tags (lines 13, 25), both controller=human, canrecruit=yes; no gold= override (engine default applies), no AI/scenery side. ZERO [event] tags; default victory, no [endlevel], no [modify_unit], no Lua. The ~50 {PLACE_IMAGE ...} calls (lines 42-112) are the only bulk content and every one expands to a bare [item] x/y/image (wesnoth_src/data/core/macros/image-utils.cfg:169-176) - pur"
+  },
+  {
+   "name": "2p_Summer_Frosts",
+   "source": "WL_Mappack",
+   "status": "discuss",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/WL_Mappack/maps/2p_Summer_Frosts.map",
+   "notes": "Structurally this is a clean 1v1: exactly 2 playable human sides, no AI/scenery side, no custom units, no era or modification lock, map file present. The ONLY blocker is one minor gameplay event \u2014 a prestart [capture_village] handing side 2 a second starting village. That is not cosmetic and is not 'initial-unit placement': it changes side 2's village count, hence its income from turn 1 onward and"
+  },
+  {
+   "name": "2p_Troll_Toll",
+   "source": "WL_Mappack",
+   "status": "include",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/WL_Mappack/maps/2p_Troll_Toll.map",
+   "notes": "Exactly 2 playable human sides (lines 39-47, 48-60), one inert scenery side, one cosmetic event, and every unit type is mainline default-era: the six statues are \"Troll\" and \"Troll Whelp\", both present in the repo's pinned 1.18.4 unit_stats.json (Troll 55hp/25g, Troll Whelp 42hp/13g). The add-on ships no units/ directory at all (_info.cfg type=\"map_pack\"; the package contains only COPYING.txt, _in"
+  },
+  {
+   "name": "2p_Winter_Steps",
+   "source": "WL_Mappack",
+   "status": "include",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/WL_Mappack/maps/2p_Winter_Steps.map",
+   "notes": "The cleanest of the four. Exactly 2 playable human sides (lines 10-18, 19-31), zero AI or scenery sides, zero custom units, no era/modification lock, one purely cosmetic prestart event, map file present. Side 2's single [side][village] at (28,28) is a real village ('Mm^Vhca') and is read by the supported [side]/[village] pre-ownership path (scenario_pool.py:725) \u2014 the asymmetry vs side 1 (no pre-o"
+  },
+  {
+   "name": "3p_Lake_of_Three_Kingdom",
+   "source": "WL_Mappack",
+   "status": "exclude",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/WL_Mappack/maps/3p_Lake_of_Three_Kingdom.map",
+   "notes": "Disqualified on side count alone: three playable human sides (lines 10-17, 18-25, 26-33), each controller=human canrecruit=yes with its own team_name, so this is a 3-player free-for-all, not 1v1 PvP. Your INCLUDE criterion requires exactly 2 playable human sides, and side 3 here is a full recruiting player \u2014 the opposite of the acceptable passive-scenery case. Beyond the contract, the sim cannot r"
+  },
+  {
+   "name": "2p - Garnet Gamma (2p_Garnet_Gamma-(v).cfg)",
+   "source": "Seamless_Map_Picker",
+   "status": "include",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/Seamless_Map_Picker/maps/2p_Garnet_Gamma.map",
+   "notes": "No [event] tag appears anywhere in the file. The only [event] that materializes after macro expansion comes from {DEFAULT_MUSIC_PLAYLIST} (line 9), which is one name=prestart event containing nothing but [music] blocks - purely cosmetic. {DEFAULT_SCHEDULE} (line 8) is the vanilla six-slot schedule. [side 2]/[village] x=2 y=25 (lines 34-37) is static initial state, not an event, and the sim already"
+  },
+  {
+   "name": "2p - Heart Mountains' Caves (2p_Heart_Mountains_Caves-(S).cfg)",
+   "source": "Seamless_Map_Picker",
+   "status": "include",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/Seamless_Map_Picker/maps/2p_Heart_Mountains_Caves.map",
+   "notes": "No [event] tag in the file. The sole expanded event is {DEFAULT_MUSIC_PLAYLIST}'s cosmetic name=prestart [music] block (line 12); {DEFAULT_SCHEDULE} (line 11) is the vanilla schedule. [side 2]/[village] x=25 y=7 (lines 37-40) is static initial ownership, already supported by the sim. No type= references, so no custom units - in particular none of the add-on's shipped Dwarvish Minewalker / Fresh Wa"
+  },
+  {
+   "name": "2p - Karphiol Valley (2p_Karphiol_Valley-(K).cfg)",
+   "source": "Seamless_Map_Picker",
+   "status": "include",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/Seamless_Map_Picker/maps/2p_Karphiol_Valley.map",
+   "notes": "The 62 {PLACE_IMAGE ...} macro calls (lines 13-73) look like content but are not events: PLACE_IMAGE expands to a bare top-level [item] carrying only x=, y=, image= (image-utils.cfg:169-176) - a pure visual overlay with no halo, no ability, no unit, no terrain change. The sim already treats [item] as a no-op (tools/scenario_events.py:1488), so these are safely inert. {DEFAULT_SCHEDULE_DAWN} (line "
+  },
+  {
+   "name": "2p - Marshy Fill (2p_Marshy_Fill-(R).cfg)",
+   "source": "Seamless_Map_Picker",
+   "status": "discuss",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/Seamless_Map_Picker/maps/2p_Marshy_Fill.map",
+   "notes": "Two playable human sides and no custom units, but the file is NOT event-free: the name=start event performs a real [modify_unit] on side 1's leader. I verified the target hex is in fact side 1's start keep - game coords (18,1) map to map-file row 2, field 19, which reads '1 Khs' - so this is not a stray no-op filter that happens to match nothing. The sim would skip the whole event SILENTLY, not lo"
+  },
+  {
+   "name": "2p - Caves Of The Basilisk (Q)",
+   "source": "Seamless_Map_Picker",
+   "status": "include",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/Seamless_Map_Picker/maps/2p_Caves_Of_The_Basilisk_Q.map",
+   "notes": "INCLUDE. Exactly 2 playable human sides (1 and 2, both controller=human + canrecruit=yes). The third side is inert scenery. No [event] tags at all \u2014 every unit placement is static [side]-level initial placement. No custom units: all 15 statue types (Sky Drake, Saurian Flanker, Saurian Oracle, Elvish Marksman, Direwolf Rider, Armageddon Drake, Sea Serpent, Giant Spider, Highwayman, Grand Knight, El"
+  },
+  {
+   "name": "2p \u2014 Circle of Storm (WD)",
+   "source": "Seamless_Map_Picker",
+   "status": "include",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/Seamless_Map_Picker/maps/2p_Circle_of_Storm.map",
+   "notes": "INCLUDE. This is the minimal vanilla 2p scenario shape: a map_file, a default schedule, a music playlist, and two symmetric human sides. Nothing in the file requires any engine feature beyond vanilla combat/movement/villages/recruiting. The only non-default values are the 125 starting gold and fog=yes, both explicitly out of scope for penalization. Map file confirmed present in the sibling maps/ d"
+  },
+  {
+   "name": "2p - Claudiuss (v)",
+   "source": "Seamless_Map_Picker",
+   "status": "include",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/Seamless_Map_Picker/maps/2p_Claudiuss.map",
+   "notes": "INCLUDE. Two playable human sides, no extra sides, no events, no custom units. The one attribute worth flagging is random_start_time=\"yes\" (line 6), which is unusual for a competitive 2p map and does affect combat math (the starting time-of-day slot shifts every lawful/chaotic damage bonus). I checked that the sim handles it rather than assuming: tools/replay_extract.py:1773-1790 resolves the engi"
+  },
+  {
+   "name": "2p \u2014 Coastal Clash (WD)",
+   "source": "Seamless_Map_Picker",
+   "status": "include",
+   "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/Seamless_Map_Picker/maps/2p_Coastal_Clash.map",
+   "notes": "INCLUDE. Two playable human sides, no extra sides, no events, no custom units. The only thing that needed checking rather than assuming was {DEFAULT_SCHEDULE_SECOND_WATCH} (line 9) instead of the usual {DEFAULT_SCHEDULE}: the scenario starts at second watch, which rotates the whole time-of-day cycle and therefore every lawful/chaotic damage bonus for the entire game \u2014 a silent-wrong-damage hazard "
+  }
+ ]
+}
