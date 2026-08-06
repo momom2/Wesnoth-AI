@@ -1857,3 +1857,57 @@ berserk fights are truncated by the 99%-dead-mass rule — the
 residual <1% "both still alive after N rounds" mass is simply left
 in place, which is the "ignores extremely low probability
 outcomes" behavior visible in-game.
+
+## Turn-1 init_side refreshes NOTHING (moves, healing, income)
+
+`play_controller.cpp:487-491` (1.18.4 tag):
+
+```cpp
+	// Healing/income happen if it's not the first turn of processing,
+	// or if we are loading a game.
+	if(turn() > 1) {
+		gamestate().board_.new_turn(current_side());
+		current_team().new_turn();
+```
+
+The WHOLE per-side new-turn refresh -- unit MP reset + healing +
+resting + income -- is gated on `turn() > 1`. During turn 1 this is
+false for EVERY side's init (the turn counter only advances at
+side 1's next init), so a `start`-event modification of a unit's
+current MP survives into side 1's first turn. Why non-obvious: our
+sim originally ported the income gate but reset MP/healing
+unconditionally -- invisible on vanilla starts (units are built at
+full MP/HP), exposed 2026-08-06 by WL_Marshy_Fill's start event that
+deliberately shaves side 1's leader MP (wiped by the extra reset).
+Ported in tools/replay_dataset.py init_side (`first_turn` gate).
+
+## [capture_village] = set_owner per matched hex
+
+`data/lua/wml-tags.lua:444-461` (1.18.4):
+
+```lua
+function wml_actions.capture_village(cfg)
+	local side = cfg.side
+	...
+	local locs = wesnoth.map.find(cfg)
+	for i, loc in ipairs(locs) do
+		wesnoth.map.set_owner(loc[1], loc[2], side, fire_event)
+	end
+end
+```
+
+Absent `side=`, ownership is cleared (village becomes neutral).
+Used at prestart by add-on maps (WL Cold War / Summer Frosts) for
+asymmetric starting villages. Sim: `_capture_village_action`
+(tools/scenario_events.py) mutating `_village_owner`.
+
+## [modify_unit] moves= writes CURRENT MP, not max
+
+`data/lua/wml/modify_unit.lua:14-17,41` (1.18.4): every scalar
+attribute passes verbatim into the stored unit WML
+(`wml.variables[unit_path.key] = value`) and the unit is re-created
+via [unstore_unit]. In unit WML, `moves` is the remaining-MP-this-
+turn attribute; `max_moves` is the separate stat. So `[modify_unit]
+moves=N` changes only the current turn's movement allowance. Sim:
+`_MODIFY_UNIT_SCALARS` maps moves->current_moves only.
+

@@ -93,6 +93,8 @@ wesnoth_src/data/multiplayer/*
 !wesnoth_src/data/add-ons/
 wesnoth_src/data/add-ons/*
 !wesnoth_src/data/add-ons/Mini_Maps_Collection/
+!wesnoth_src/data/add-ons/WL_Mappack/
+!wesnoth_src/data/add-ons/Seamless_Map_Picker/
 
 # Local data — corpus is too big for git; built by tools/download_replays.py
 # and tools/replay_extract.py respectively.

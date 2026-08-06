@@ -1664,9 +1664,21 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         # ~73% of all _adjacent_units calls in a typical replay walk
         # land in this loop, so the saving is the biggest non-RNG
         # win after the terrain cache.
+        # Engine gate (play_controller.cpp:487-491, 1.18.4): the whole
+        # per-unit new-turn refresh -- MP reset, healing, resting -- is
+        # inside `if(turn() > 1)`, alongside income. On turn 1 (BOTH
+        # sides: the counter only passes 1 at init_side(1) of turn 2)
+        # nothing refreshes. Invisible on vanilla starts (units are
+        # built at full MP/HP, resting set), but REQUIRED for start
+        # events that modify turn-1 MP: WL_Marshy_Fill's leader-shave
+        # was silently wiped by the unconditional reset (2026-08-06).
+        first_turn = gs.global_info.turn_number <= 1
         pos_idx = build_pos_index(gs.map.units)
         new_units = set()
         for u in gs.map.units:
+            if first_turn:
+                new_units.add(u)
+                continue
             # Skip non-own-side units, AND petrified own-side units:
             # Wesnoth's calculate_healing (heal.cpp) bails on
             # `patient.incapacitated()` (== STATE_PETRIFIED) before any

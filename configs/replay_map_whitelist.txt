@@ -1,0 +1,65 @@
+# Acceptable 1v1 maps for replay-bank filtering (2026-08-06).
+# One scenario id per line. A replay passes the MAP stage iff its
+# [replay_start] scenario id is listed here (picker-hosted games
+# resolve to the picked scenario's id). Sources: mainline 2p pool,
+# vendored Mini_Maps_Collection, audited WL_Mappack +
+# Seamless_Map_Picker (configs/map_whitelist_1v1.json).
+multiplayer_Aethermaw
+multiplayer_Arcanclave_Citadel
+multiplayer_Basilisk
+multiplayer_Clearing_Gushes
+multiplayer_Cynsaun_Battlefield
+multiplayer_Den_of_Onis
+multiplayer_elensefar_courtyard
+multiplayer_Fallenstar_Lake
+multiplayer_Hamlets
+multiplayer_Hellhole
+multiplayer_Hornshark_Island
+multiplayer_Howling_Ghost_Badlands
+multiplayer_Ruined_Passage
+multiplayer_Ruphus_Isle
+multiplayer_Sablestone_Delta
+multiplayer_Silverhead_Crossing
+multiplayer_Sullas_Ruins
+multiplayer_Swamp_of_Dread
+multiplayer_The_Freelands
+multiplayer_The_Walls_of_Pyrennis
+multiplayer_thousand_stings_garrison
+multiplayer_Tombs_of_Kesorak
+multiplayer_Weldyn_Channel
+2p_mini
+2p_mini_edited
+enclave_micro_isar
+Modified_Tiny_Close_Relation
+around_mini
+enclave_mini_fallenstar_1v1
+enclave_small_fallenstar_1v1
+Benji_Autumn_Siege_small
+MP_Maps_By_White_Dragon_Circle_of_Storm
+MP_Maps_By_White_Dragon_Coastal_Clash
+PYRA_Claudiuss
+PYRA_Garnet_Gamma
+PYRA_Serpent_Ford_Summer
+WL_Ashy_Island
+WL_Autumn_Harvest
+WL_Cave_Rivers
+WL_Cold_War
+WL_Fantastic_World
+WL_Fire_and_Ice
+WL_Marshy_Fill
+WL_Summer_Frosts
+WL_Troll_Toll
+WL_Winter_Steps
+White_Dragon_Twin_Goddesses
+multiplayer_Devious_Dockyard_Sandbox
+multiplayer_Heart_Mountains_Caves_Sandbox
+multiplayer_Karphiol_Sandbox
+multiplayer_Maxplank_Sandbox
+multiplayer_Phenywesh_Sandbox
+multiplayer_Rice_Terraces_Sandbox
+multiplayer_Scarred_Foothills_Sandbox
+multiplayer_Untiainted_Paradise
+multiplayer_Wellington_Sandbox
+multiplayer_qs_Caves_Of_The_Basilisk
+multiplayer_qs_Den_Of_Onis
+multiplayer_qs_Wild_Hunt

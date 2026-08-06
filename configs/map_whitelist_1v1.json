@@ -211,9 +211,9 @@
   {
    "name": "2p - Cold War (WL_Cold_War)",
    "source": "WL_Mappack",
-   "status": "discuss",
+   "status": "include",
    "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/WL_Mappack/maps/2p_Cold_War.map",
-   "notes": "Everything about the side structure is INCLUDE-grade: exactly 2 playable human sides (lines 10-21, 22-33), zero AI/scenery sides, no custom units (no type= token anywhere in the file), no Lua, no [unit] placements, no terrain changes, no gold grants, no spawns, no non-default victory condition. The single disqualifier under a strict reading is the three [capture_village] tags in the prestart event"
+   "notes": "INCLUDED per user order 2026-08-06: sim support added ([capture_village] prestart ownership; [store_unit]/[if]/[set_variable sub]/[modify_unit moves] chain; engine turn-1 init refresh gate ported). Everything about the side structure is INCLUDE-grade: exactly 2 playable human sides (lines 10-21, 22-33), zero AI/scenery sides, no custom units (no type= token anywhere in the file), no Lua, no [unit] placements, no terrain changes, no gold grants,"
   },
   {
    "name": "2p \u2014 Rice Terraces (multiplayer_Rice_Terraces_Sandbox)",
@@ -288,9 +288,9 @@
   {
    "name": "2p - Marshy Fill (id=WL_Marshy_Fill)",
    "source": "WL_Mappack",
-   "status": "discuss",
+   "status": "include",
    "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/WL_Mappack/maps/2p_Marshy_Fill.map",
-   "notes": "Sides are clean: exactly 2 [side] tags (lines 10-17, 18-29), both canrecruit=yes controller=human, fog=yes; no AI/scenery sides; no custom units anywhere (no type= in the file); no era/modification lock. Side 2 again gets an initial [village] x=20,y=17 (lines 25-28) \u2014 setup state, fine if the sim reads it. The disqualifying-in-principle item is the single [event] name=start (lines 30-80), which is"
+   "notes": "INCLUDED per user order 2026-08-06: sim support added ([capture_village] prestart ownership; [store_unit]/[if]/[set_variable sub]/[modify_unit moves] chain; engine turn-1 init refresh gate ported). Sides are clean: exactly 2 [side] tags (lines 10-17, 18-29), both canrecruit=yes controller=human, fog=yes; no AI/scenery sides; no custom units anywhere (no type= in the file); no era/modification lock. Side 2 again gets an initial [village] x=20,y="
   },
   {
    "name": "2p - Spinning World (id=Spinning_World)",
@@ -365,9 +365,9 @@
   {
    "name": "2p_Summer_Frosts",
    "source": "WL_Mappack",
-   "status": "discuss",
+   "status": "include",
    "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/WL_Mappack/maps/2p_Summer_Frosts.map",
-   "notes": "Structurally this is a clean 1v1: exactly 2 playable human sides, no AI/scenery side, no custom units, no era or modification lock, map file present. The ONLY blocker is one minor gameplay event \u2014 a prestart [capture_village] handing side 2 a second starting village. That is not cosmetic and is not 'initial-unit placement': it changes side 2's village count, hence its income from turn 1 onward and"
+   "notes": "INCLUDED per user order 2026-08-06: sim support added ([capture_village] prestart ownership; [store_unit]/[if]/[set_variable sub]/[modify_unit moves] chain; engine turn-1 init refresh gate ported). Structurally this is a clean 1v1: exactly 2 playable human sides, no AI/scenery side, no custom units, no era or modification lock, map file present. The ONLY blocker is one minor gameplay event \u2014 a prestart [capture_village] handing side 2 a second "
   },
   {
    "name": "2p_Troll_Toll",
@@ -414,9 +414,9 @@
   {
    "name": "2p - Marshy Fill (2p_Marshy_Fill-(R).cfg)",
    "source": "Seamless_Map_Picker",
-   "status": "discuss",
+   "status": "include",
    "map_file": "C:/Users/amaur/OneDrive/Documents/My Games/Wesnoth1.18/data/add-ons/Seamless_Map_Picker/maps/2p_Marshy_Fill.map",
-   "notes": "Two playable human sides and no custom units, but the file is NOT event-free: the name=start event performs a real [modify_unit] on side 1's leader. I verified the target hex is in fact side 1's start keep - game coords (18,1) map to map-file row 2, field 19, which reads '1 Khs' - so this is not a stray no-op filter that happens to match nothing. The sim would skip the whole event SILENTLY, not lo"
+   "notes": "INCLUDED per user order 2026-08-06: sim support added ([capture_village] prestart ownership; [store_unit]/[if]/[set_variable sub]/[modify_unit moves] chain; engine turn-1 init refresh gate ported). Two playable human sides and no custom units, but the file is NOT event-free: the name=start event performs a real [modify_unit] on side 1's leader. I verified the target hex is in fact side 1's start keep - game coords (18,1) map to map-file row 2, "
   },
   {
    "name": "2p - Caves Of The Basilisk (Q)",

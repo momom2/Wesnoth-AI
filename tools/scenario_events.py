@@ -903,19 +903,223 @@ def _set_variable_action(gs: GameState, action: WMLNode) -> None:
     if not name:
         return
     if "value" in action.attrs:
-        _wml_vars(gs)[name] = action.attrs["value"].strip().strip('"')
+        _wml_vars(gs)[name] = _subst_wml_vars(
+            gs, action.attrs["value"]).strip().strip('"')
     elif "literal" in action.attrs:
         _wml_vars(gs)[name] = action.attrs["literal"].strip().strip('"')
-    elif "add" in action.attrs:
+    if "add" in action.attrs:
         try:
-            cur = int(_wml_vars(gs).get(name, "0"))
+            cur = int(float(_wml_vars(gs).get(name, "0")))
         except ValueError:
             cur = 0
         try:
-            inc = int(action.attrs["add"].strip().strip('"'))
+            inc = int(float(_subst_wml_vars(
+                gs, action.attrs["add"]).strip().strip('"')))
         except ValueError:
             inc = 0
         _wml_vars(gs)[name] = str(cur + inc)
+    if "sub" in action.attrs:
+        # value= and sub= COMPOSE (Marshy Fill: value=9
+        # sub=$leader1.moves -> 9 - moves); Wesnoth applies the ops
+        # in sequence on the same variable.
+        try:
+            cur = int(float(_wml_vars(gs).get(name, "0")))
+        except ValueError:
+            cur = 0
+        try:
+            dec = int(float(_subst_wml_vars(
+                gs, action.attrs["sub"]).strip().strip('"')))
+        except ValueError:
+            dec = 0
+        _wml_vars(gs)[name] = str(cur - dec)
+
+
+_VAR_REF_RE = re.compile(r"\$([A-Za-z_][A-Za-z0-9_.\[\]]*)")
+
+
+def _subst_wml_vars(gs: GameState, raw: str) -> str:
+    """Substitute `$name` / `$name.path` references from the WML
+    variable namespace (see `_wml_vars`). Unknown refs resolve to ""
+    -- Wesnoth's own behavior for unset variables."""
+    if "$" not in (raw or ""):
+        return raw or ""
+    v = _wml_vars(gs)
+    return _VAR_REF_RE.sub(lambda m: v.get(m.group(1), ""), raw)
+
+
+def _num_or_none(s: str):
+    try:
+        return float(s)
+    except (TypeError, ValueError):
+        return None
+
+
+def _capture_village_action(gs: GameState, action: WMLNode) -> None:
+    """`[capture_village] side=N x= y=` -- transfer village ownership,
+    exactly wesnoth_src/data/lua/wml-tags.lua:444-461: for every
+    matched location, set the owner to `side` (absent side= makes the
+    village neutral). WL_Mappack's Cold War / Summer Frosts use this
+    at prestart for asymmetric starting villages; dropping it silently
+    drifts income by 1g/turn compounding (audit 2026-08-06)."""
+    side_raw = _subst_wml_vars(gs, action.attrs.get("side", "")).strip()
+    try:
+        side = int(side_raw) if side_raw else None
+    except ValueError:
+        return
+    owner = getattr(gs.global_info, "_village_owner", None)
+    if owner is None:
+        owner = {}
+        setattr(gs.global_info, "_village_owner", owner)
+    for wx, wy in _resolve_xy_attr(action.attrs.get("x", ""),
+                                   action.attrs.get("y", ""),
+                                   gs.map.size_x, gs.map.size_y):
+        key = (wx - 1, wy - 1)
+        if side is None:
+            owner.pop(key, None)
+        else:
+            owner[key] = side
+
+
+def _units_matching_filter(gs: GameState, flt: Optional[WMLNode]):
+    """Units matching a minimal [filter]: x/y hex lists, id=, side=.
+    Enough for the add-on start events we support; extend as needed."""
+    if flt is None:
+        return list(gs.map.units)
+    hexes = None
+    if flt.attrs.get("x") or flt.attrs.get("y"):
+        hexes = {(wx - 1, wy - 1) for wx, wy in _resolve_xy_attr(
+            flt.attrs.get("x", ""), flt.attrs.get("y", ""),
+            gs.map.size_x, gs.map.size_y)}
+    want_id = flt.attrs.get("id", "").strip().strip('"') or None
+    want_side = flt.attrs.get("side", "").strip() or None
+    out = []
+    for u in gs.map.units:
+        if hexes is not None and (u.position.x, u.position.y) not in hexes:
+            continue
+        if want_id and u.id != want_id:
+            continue
+        if want_side and str(u.side) != want_side:
+            continue
+        out.append(u)
+    return out
+
+
+def _store_unit_action(gs: GameState, action: WMLNode) -> None:
+    """`[store_unit] [filter]..[/filter] variable=V` -- snapshot the
+    matched units' scalar attributes into WML variables (`V.moves`,
+    `V.max_moves`, ...). kill= defaults to no in Wesnoth; we never
+    remove the unit. Multiple matches store the FIRST (the add-on
+    events we support filter a single hex)."""
+    var = action.attrs.get("variable", "").strip().strip('"')
+    if not var:
+        return
+    units = _units_matching_filter(gs, action.first("filter"))
+    if not units:
+        return
+    u = units[0]
+    v = _wml_vars(gs)
+    v[var + ".moves"] = str(u.current_moves)
+    v[var + ".max_moves"] = str(u.max_moves)
+    v[var + ".hitpoints"] = str(u.current_hp)
+    v[var + ".max_hitpoints"] = str(u.max_hp)
+    v[var + ".experience"] = str(u.current_exp)
+    v[var + ".side"] = str(u.side)
+    v[var + ".id"] = u.id
+    v[var + ".x"] = str(u.position.x + 1)
+    v[var + ".y"] = str(u.position.y + 1)
+    v[var + ".length"] = str(len(units))
+
+
+def _eval_variable_cond(gs: GameState, node: WMLNode) -> bool:
+    """One `[variable]` condition. Numeric comparisons when both sides
+    parse as numbers; string equality for the equals forms otherwise
+    (Wesnoth semantics)."""
+    name = node.attrs.get("name", "").strip().strip('"')
+    cur = _wml_vars(gs).get(name, "")
+    for op in ("equals", "not_equals", "numerical_equals",
+               "greater_than", "less_than",
+               "greater_than_equal_to", "less_than_equal_to"):
+        if op not in node.attrs:
+            continue
+        rhs = _subst_wml_vars(gs, node.attrs[op]).strip().strip('"')
+        a, b = _num_or_none(cur), _num_or_none(rhs)
+        if op == "equals":
+            return (a == b) if (a is not None and b is not None)                 else (cur == rhs)
+        if op == "not_equals":
+            return (a != b) if (a is not None and b is not None)                 else (cur != rhs)
+        if a is None or b is None:
+            return False
+        if op == "numerical_equals":
+            return a == b
+        if op == "greater_than":
+            return a > b
+        if op == "less_than":
+            return a < b
+        if op == "greater_than_equal_to":
+            return a >= b
+        return a <= b
+    return False
+
+
+def _eval_condition(gs: GameState, node: WMLNode) -> bool:
+    """Conjunction of direct [variable] children with nested
+    [and]/[or]/[not] (recursing). Empty condition is true, matching
+    Wesnoth's conditional evaluation."""
+    ok = True
+    for child in node.children:
+        if child.tag == "variable":
+            ok = ok and _eval_variable_cond(gs, child)
+        elif child.tag == "and":
+            ok = ok and _eval_condition(gs, child)
+        elif child.tag == "or":
+            ok = ok or _eval_condition(gs, child)
+        elif child.tag == "not":
+            ok = ok and not _eval_condition(gs, child)
+    return ok
+
+
+def _if_action(gs: GameState, action: WMLNode) -> None:
+    """`[if] <conditions> [then]...[/then] [else]...[/else]` with the
+    condition forms `_eval_condition` supports. Executes the selected
+    branch's actions through the normal dispatch (recursion via
+    _apply_action, same pattern as [switch])."""
+    branch = "then" if _eval_condition(gs, action) else "else"
+    for blk in action.all(branch):
+        for sub in blk.children:
+            _apply_action(gs, sub)
+
+
+_MODIFY_UNIT_SCALARS = {
+    # WML attr -> Unit field. CURRENT-value fields only: [modify_unit]
+    # moves= writes the stored unit WML `moves` attribute = remaining
+    # MP this turn (wesnoth_src/data/lua/wml/modify_unit.lua:14-17,41
+    # -- attributes pass straight into the stored unit; max_moves is a
+    # distinct attribute we intentionally do NOT map yet).
+    "moves": "current_moves",
+    "hitpoints": "current_hp",
+    "experience": "current_exp",
+}
+
+
+def _modify_unit_action(gs: GameState, action: WMLNode) -> None:
+    """`[modify_unit] [filter]..[/filter] attr=value` for the scalar
+    attrs in _MODIFY_UNIT_SCALARS. Marshy Fill's start event uses
+    moves=$leader1_moves to shave side 1's leader MP on turn 1 (the
+    anti-first-move-advantage tweak)."""
+    flt = action.first("filter")
+    if flt is None:
+        return
+    for u in _units_matching_filter(gs, flt):
+        for attr, ufield in _MODIFY_UNIT_SCALARS.items():
+            if attr not in action.attrs:
+                continue
+            raw = _subst_wml_vars(
+                gs, action.attrs[attr]).strip().strip('"')
+            try:
+                val = int(float(raw))
+            except ValueError:
+                continue
+            setattr(u, ufield, max(0, val))
 
 
 _FACTION_LUA_RE = re.compile(
@@ -1476,10 +1680,13 @@ _ACTION_HANDLERS: Dict[str, Callable[[GameState, WMLNode], None]] = {
     "switch":          _switch_action,
     "lua":             _lua_action,
     "unit":            _unit_action,
+    # WL_Mappack / Seamless start-event support (2026-08-06):
+    "capture_village": _capture_village_action,
+    "modify_unit":     _modify_unit_action,
+    "store_unit":      _store_unit_action,
+    "if":              _if_action,
     # state-affecting tags we don't (yet) interpret.
     "remove_unit": _no_op_action,
-    "modify_unit": _no_op_action,
-    "store_unit":  _no_op_action,
     # cosmetic / no-op
     "message":     _no_op_action,
     "note":        _no_op_action,
@@ -1492,7 +1699,6 @@ _ACTION_HANDLERS: Dict[str, Callable[[GameState, WMLNode], None]] = {
     "endlevel":    _no_op_action,
     "variable":    _no_op_action,
     "case":        _no_op_action,
-    "if":          _no_op_action,
 }
 
 

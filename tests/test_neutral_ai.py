@@ -188,11 +188,22 @@ def test_tentacle_leader_kill_ends_game_for_opponent():
 
 
 def test_wounded_tentacle_regenerates_on_its_turn():
+    """Regenerate fires at the tentacle's init_side -- but NOT on
+    turn 1: the engine gates the whole new-turn refresh (healing, MP,
+    resting) behind `if(turn() > 1)` (play_controller.cpp:487-491,
+    1.18.4; gate ported 2026-08-06 with the WL_Marshy_Fill start-event
+    work). A turn-1-wounded tentacle stays wounded through its turn-1
+    init and regenerates +8 at its TURN-2 init."""
     sim = _sim()
     tent = next(u for u in sim.gs.map.units if u.side == 3)
     tent.current_hp = 10
     sim.step({"type": "end_turn"})
     sim.step({"type": "end_turn"})
+    t1 = next(u for u in sim.gs.map.units if u.id == tent.id)
+    assert t1.current_hp == 10, \
+        "turn-1 init_side must NOT heal (engine turn()>1 gate)"
+    sim.step({"type": "end_turn"})
+    sim.step({"type": "end_turn"})
     t2 = next(u for u in sim.gs.map.units if u.id == tent.id)
     assert t2.current_hp == 18, \
-        "side-3 init_side must apply regenerate (+8)"
+        "side-3 turn-2 init_side must apply regenerate (+8)"
