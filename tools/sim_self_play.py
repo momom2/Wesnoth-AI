@@ -1161,6 +1161,8 @@ class SpoolWorkers:
                 args, "mcts_playout_cap_fast_sims", 0)),
             "--mcts-batch-size", str(getattr(
                 args, "mcts_batch_size", None) or -1),
+        ] + (["--hierarchical-gumbel"] if getattr(
+            args, "mcts_hierarchical_gumbel", False) else []) + [
         ] + (["--infer-compile"] if getattr(
             args, "infer_compile", False) else []) + [
             "--fogless-ratio", str(getattr(args, "fogless_ratio", 0.0)),
@@ -2778,6 +2780,10 @@ def main(argv: List[str]) -> int:
                          "becomes sigma_gap/(1-lambda), bounded by "
                          "value evidence -- the prior-ratchet repair "
                          "(2026-08-05). Try 0.9.")
+    ap.add_argument("--mcts-hierarchical-gumbel", action="store_true",
+                    help="Two-level Gumbel root: actors compete with "
+                         "full prior mass, then edges within actors. "
+                         "Default off; A/B lever (BACKLOG 3c).")
     ap.add_argument("--mini-random-tod", action="store_true",
                     help="Force a RANDOM start-ToD slot on the "
                          "fixed-ToD mini templates (the 3 passivity-"
@@ -3393,6 +3399,8 @@ def main(argv: List[str]) -> int:
             playout_cap_fast_sims=args.mcts_playout_cap_fast_sims,
             distill_prior_discount=args.distill_prior_discount,
             distill_target_temp=args.distill_target_temp,
+            gumbel_hierarchical=getattr(
+                args, "mcts_hierarchical_gumbel", False),
         )
         if mcts_cfg.outcome_buckets and not mcts_cfg.gumbel_root:
             # Bucketing rides the serial _run_one_sim path the Gumbel

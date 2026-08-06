@@ -217,7 +217,23 @@ game), enumerate 17%, encode 16%, sim 7%. Orders:
   (end_turn) structurally out-competing split-mass actors in
   sequential halving everywhere -- measured at random init: end_turn
   is the fattest edge on ladder (2.9x median) though rank 3-14 on
-  mini. Successor to flat halving in mcts.py; moderate.
+  mini. **IMPLEMENTED 2026-08-06 behind `MCTSConfig.gumbel_hierarchical`
+  (default OFF; CLI `--mcts-hierarchical-gumbel`, spool-forwarded).**
+  Two-level candidate pick in `_gumbel_root_search`: sample m ACTORS
+  without replacement by Gumbel(log total-actor-prior-mass), one
+  Gumbel-argmax representative edge per actor, halving score rebased
+  to the actor-level base (full mass survives cuts; sigma(q) and
+  target extraction untouched). Pinned by
+  test_hierarchical_gumbel_actor_mass_competition (distinct-actor
+  guarantee + mass-rate slot occupancy + flat-mode same-actor
+  double-booking pathology). **Pre-registered A/B (do not flip
+  without it):** arm = identical leg + `--mcts-hierarchical-gumbel`;
+  endpoints: (1) mini decisive rate up, (2) end_turn candidate-slot
+  share down at matched sims, (3) ladder in-lineage Elo not degraded
+  (the flat pathology is worst on ladder where end_turn is 2.9x
+  median mass). Prediction: helps mini passivity only via slot
+  composition, NOT expected to fix it alone (zugzwang illusion is
+  the deeper mechanism; see T1-F).
 - **DISCRIMINATOR MEASURED (2026-08-05 late): the passivity gradient
   is an HONEST self-play equilibrium, not target-math.** Cut-edge
   probe (125 pairs, live mini roots, 15M probe ckpt): cut

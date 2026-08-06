@@ -1234,3 +1234,78 @@ def test_mini_random_tod_env_lever(monkeypatch):
     # Non-mini fixed-ToD scenarios are untouched by the lever.
     assert sample_tod_start("multiplayer_Weldyn_Channel",
                             _r.Random(1)) in range(6)
+
+
+def test_hierarchical_gumbel_actor_mass_competition():
+    """Two-level Gumbel (BACKLOG 3c lever): an actor whose 0.60 prior
+    mass is split over 30 move targets competes at level 1 with its
+    FULL mass, and each candidate slot goes to a DISTINCT actor.
+    Under flat per-edge selection, m=2 slots are frequently BOTH
+    filled by 0.02 slivers of the same actor (the structural
+    end_turn/factored-prior pathology). Terminal children let sims
+    run with model=None (no forward on terminal leaves). Also pins
+    spool/worker forwarding of the flag."""
+    import numpy as np
+    import pathlib
+    from tools.mcts import MCTSConfig, _gumbel_root_search
+
+    # Root: unit actor 0 with 30 edges of 0.02 each (mass 0.60),
+    # end_turn actor 1 with one 0.30 edge, actor 2 with one 0.10.
+    def make_root():
+        node = _make_node(side=1)
+        node.expanded = True   # descend instead of leaf-evaluating root
+        node.value = 0.0
+        for k in range(30):
+            e = _attach(node, _make_node(side=2, done=True, winner=1),
+                        prior=0.02)
+            e.action = {"type": "move", "id": k}
+            e.actor_idx = 0
+        e2 = _attach(node, _make_node(side=2, done=True, winner=1),
+                     prior=0.30)
+        e2.action = {"type": "end_turn"}
+        e2.actor_idx = 1
+        # Deterministic action type: stochastic types (attack/recruit)
+        # would re-fork the stub sim under chance_nodes.
+        e3 = _attach(node, _make_node(side=2, done=True, winner=1),
+                     prior=0.10)
+        e3.action = {"type": "move", "id": 99}
+        e3.actor_idx = 2
+        return node
+
+    def run(seed, hier):
+        node = make_root()
+        rng = np.random.default_rng(seed)
+        cfg = MCTSConfig(gumbel_hierarchical=hier, gumbel_m=2)
+        # 4 sims, m=2: phase 1 visits both candidates, so the
+        # visited edges ARE the candidate set (leaves are terminal;
+        # model is never called).
+        _gumbel_root_search(node, None, None, cfg, {}, {}, rng,
+                            n_sims=4)
+        assert node.gumbel_action is not None
+        return [e.actor_idx for e in node.edges if e.n_visits > 0]
+
+    a0_slots, flat_dup = 0, 0
+    for seed in range(20):
+        h = run(seed, True)
+        # Structural guarantee: level-1 sampling is without
+        # replacement over ACTORS, so candidates are distinct actors.
+        assert len(set(h)) == len(h), h
+        if 0 in h:
+            a0_slots += 1
+        f = run(seed, False)
+        if f.count(0) > 1:
+            flat_dup += 1
+    # Actor 0 misses both hierarchical slots only when ranked last
+    # by Plackett-Luce over masses (.6,.3,.1): p ~ 0.076/seed, so
+    # expect ~18.5/20; >=15 is far outside noise.
+    assert a0_slots >= 15, a0_slots
+    # The pathology hierarchical removes: flat top-2 books BOTH
+    # slots with same-actor slivers ~35% of seeds.
+    assert flat_dup >= 2, flat_dup
+
+    src = pathlib.Path("tools/sim_self_play.py").read_text(
+        encoding="utf-8")
+    assert '"--hierarchical-gumbel"' in src.split("_cmd_tail", 1)[1][:4600]
+    wsrc = pathlib.Path("tools/selfplay_worker.py").read_text(
+        encoding="utf-8")
+    assert "gumbel_hierarchical=getattr" in wsrc

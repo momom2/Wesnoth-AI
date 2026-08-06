@@ -368,6 +368,11 @@ class MCTSConfig:
     # Legacy 1e-8; candidate repair value 0.01 (pre-register the A/B
     # before flipping -- BACKLOG 3c).
     gumbel_rescale_floor:   float = 1e-8
+    # Two-level Gumbel root candidate selection (see
+    # _gumbel_root_search): actors compete with their full prior
+    # mass instead of per-edge slivers. Default OFF; pre-registered
+    # A/B before any flip (BACKLOG 3c).
+    gumbel_hierarchical:    bool  = False
 
     # Chance nodes for stochastic actions (combat, recruit traits).
     # When ON, every traversal of a stochastic edge re-forks the
@@ -1621,7 +1626,40 @@ def _gumbel_root_search(
     base = g + logits
 
     m = max(1, min(config.gumbel_m, len(edges)))
-    cands: List[int] = list(np.argsort(-base)[:m])
+    if getattr(config, "gumbel_hierarchical", False):
+        # Two-level Gumbel (BACKLOG 3c, the factored-prior repair;
+        # default OFF pending the pre-registered A/B). Level 1:
+        # sample candidate ACTORS without replacement by TOTAL actor
+        # mass (g + log sum of the actor's edge priors) -- an actor
+        # whose mass is split over 40 destinations competes with the
+        # whole mass, not per-edge slivers, so single-edge actions
+        # (end_turn) lose their structural halving advantage.
+        # Level 2: within each sampled actor, its Gumbel-argmax edge
+        # by conditional prior represents it. The representative's
+        # halving score is REBASED to the actor-level score so the
+        # full mass carries through the cuts; sigma(q) rides on top
+        # unchanged, and target extraction is untouched.
+        by_actor: Dict[int, List[int]] = {}
+        for i, e in enumerate(edges):
+            by_actor.setdefault(int(e.actor_idx), []).append(i)
+        actors = list(by_actor.keys())
+        a_mass = np.array(
+            [sum(float(edges[i].prior) for i in by_actor[a])
+             for a in actors], dtype=np.float64)
+        a_base = (rng.gumbel(size=len(actors))
+                  + np.log(np.maximum(a_mass, 1e-12)))
+        cands = []
+        for ai in np.argsort(-a_base)[:m]:
+            idxs = by_actor[actors[int(ai)]]
+            w = np.array([float(edges[i].prior) for i in idxs],
+                         dtype=np.float64)
+            g2 = (rng.gumbel(size=len(idxs))
+                  + np.log(np.maximum(w, 1e-12)))
+            rep = idxs[int(np.argmax(g2))]
+            base[rep] = a_base[int(ai)]
+            cands.append(rep)
+    else:
+        cands = list(np.argsort(-base)[:m])
 
     def _score(ci: int, max_v: float) -> float:
         # Recomputed per call: q_values move as sims accumulate, and the

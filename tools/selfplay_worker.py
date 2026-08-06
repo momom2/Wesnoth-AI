@@ -100,6 +100,8 @@ def _build_policy(ckpt: Path, device, args):
             args, "playout_cap_fast_sims", 0),
         **({"batch_size": args.mcts_batch_size}
            if getattr(args, "mcts_batch_size", -1) > 0 else {}),
+        gumbel_hierarchical=getattr(
+            args, "hierarchical_gumbel", False),
     )
     return MCTSPolicy(
         base, cfg,
@@ -154,6 +156,7 @@ def main(argv) -> int:
     ap.add_argument("--playout-cap-prob", type=float, default=-1.0)
     ap.add_argument("--playout-cap-fast-sims", type=int, default=0)
     ap.add_argument("--infer-compile", action="store_true")
+    ap.add_argument("--hierarchical-gumbel", action="store_true")
     ap.add_argument("--mcts-batch-size", type=int, default=-1,
                     help="-1 = keep the worker default (1; CPU "
                          "batching was a wash at 5M -- untested at "
