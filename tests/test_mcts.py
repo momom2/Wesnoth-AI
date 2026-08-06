@@ -1144,16 +1144,62 @@ def test_infer_bf16_flag_noop_on_cpu():
     assert torch.equal(out_off.value_logits, out_on.value_logits)
 
 
-def test_combat_oracle_retired():
-    """User order 2026-08-05: the combat-oracle attack/type bias is
-    retired for good. The alphas must be exactly 0.0 (which zeroes
-    every attack_bias/type_bias through the whole pipeline, anneal
-    and floor included); re-enabling requires deliberately breaking
-    this test."""
+def test_prior_hardcoded_bias_defaults_off():
+    """User policy 2026-08-06 (rename of the retired combat oracle):
+    "prior hardcoded bias" instances ALL default OFF and activate
+    only on explicit user order (per-run env). Changing a default
+    here requires deliberately breaking this test."""
     from wesnoth_ai.constants import (COMBAT_TARGET_ALPHA,
-                                      COMBAT_TYPE_ALPHA)
+                                      COMBAT_TYPE_ALPHA,
+                                      PRIOR_BIAS_END_TURN_MINI_DEFAULT)
     assert COMBAT_TARGET_ALPHA == 0.0
     assert COMBAT_TYPE_ALPHA == 0.0
+    assert PRIOR_BIAS_END_TURN_MINI_DEFAULT == 0.0
+    import os
+    from wesnoth_ai.action_sampler import prior_bias_end_turn
+
+    class _GS:
+        class global_info:
+            _scenario_category = "mini"
+    assert os.environ.get("WESNOTH_PRIOR_BIAS_END_TURN_MINI") is None
+    assert prior_bias_end_turn(_GS) == 0.0
+
+
+def test_prior_bias_end_turn_mini_scoped(monkeypatch):
+    """The end_turn prior bias applies ONLY when (a) the env
+    activation is set AND (b) the state carries the mini category
+    stash; it shifts the end_turn actor logit pre-softmax so search
+    priors and distillation targets move together."""
+    import torch
+    from wesnoth_ai.action_sampler import (prior_bias_end_turn,
+                                           _masked_actor_logits)
+
+    class _GSMini:
+        class global_info:
+            _scenario_category = "mini"
+
+    class _GSLadder:
+        class global_info:
+            _scenario_category = "ladder"
+
+    monkeypatch.setenv("WESNOTH_PRIOR_BIAS_END_TURN_MINI", "-1.5")
+    assert prior_bias_end_turn(_GSMini) == -1.5
+    assert prior_bias_end_turn(_GSLadder) == 0.0
+    monkeypatch.delenv("WESNOTH_PRIOR_BIAS_END_TURN_MINI")
+    assert prior_bias_end_turn(_GSMini) == 0.0
+
+    # Logit application: end_turn slot (last) shifts by the bias.
+    from types import SimpleNamespace
+    A = 4
+    enc = SimpleNamespace(
+        unit_is_ours=torch.ones(1, 2),
+        recruit_is_ours=torch.ones(1, 1))
+    out = SimpleNamespace(actor_logits=torch.zeros(1, A))
+    valid = torch.ones(1, A)
+    base = _masked_actor_logits(enc, out, valid)
+    biased = _masked_actor_logits(enc, out, valid, end_turn_bias=-1.5)
+    assert torch.equal(base[0, :-1], biased[0, :-1])
+    assert abs((biased[0, -1] - base[0, -1]).item() + 1.5) < 1e-6
 
 
 def test_rescale_floor_caps_rank_noise_amplification():

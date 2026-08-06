@@ -165,13 +165,21 @@ TURN_NORM     = 60.0    # default 2p ladder turn limit ~30, 60 for safety
 # on its own legs". Machinery (bias computation + anneal schedule)
 # stays intact; alphas 0.0 make every bias exactly zero at any
 # decision_step. Restore by setting the old values (0.1 / 0.1).
-# RETIRED (user order 2026-08-05): the combat-oracle crutch is
-# permanently off -- "we're past its use." Both alphas MUST stay 0.0
-# (pinned by tests/test_mcts.py::test_combat_oracle_retired); the
-# remaining attack_bias/type_bias plumbing is dead machinery queued
-# for removal (BACKLOG throughput/cleanup).
-COMBAT_TARGET_ALPHA = 0.0
-COMBAT_TYPE_ALPHA   = 0.0
+# PRIOR HARDCODED BIAS (renamed from "combat oracle", user order
+# 2026-08-06): a general facility for hand-placed prior nudges.
+# POLICY: every instance defaults OFF (0.0) and is activated only in
+# specific situations on the user's explicit order (pinned by
+# tests/test_mcts.py::test_prior_hardcoded_bias_defaults_off).
+# Instances:
+#   - attack-target / attack-type bias (the original oracle shape;
+#     retired 2026-08-05, defaults stay 0.0)
+#   - end_turn bias on mini-category games (2026-08-06): activated
+#     per-run via WESNOTH_PRIOR_BIAS_END_TURN_MINI=<float> (negative
+#     = against passing); env-inherited so spool workers and the
+#     trainer re-forward see the identical bias (symmetry contract).
+COMBAT_TARGET_ALPHA = 0.0   # prior-bias instance: attack target
+COMBAT_TYPE_ALPHA   = 0.0   # prior-bias instance: attack type
+PRIOR_BIAS_END_TURN_MINI_DEFAULT = 0.0
 # Backwards-compat alias (used by the rare external caller); the
 # canonical names are the two above.
 COMBAT_LOGIT_ALPHA = COMBAT_TARGET_ALPHA

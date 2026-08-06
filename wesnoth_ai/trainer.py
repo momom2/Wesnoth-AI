@@ -36,6 +36,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from wesnoth_ai.action_sampler import (
+    prior_bias_end_turn as _prior_bias_end_turn,
     _build_legality_masks,
     _masked_actor_logits,
     _masked_target_logits,
@@ -715,7 +716,12 @@ def _mcts_factored_policy_loss(
 
     masks = _build_legality_masks(encoded, game_state,
                                   decision_step=decision_step)
-    actor_logits = _masked_actor_logits(encoded, output, masks.actor_valid)
+    # Prior-bias symmetry: the trainer re-forward must apply the
+    # SAME end_turn bias the rollout applied, or the CE would fight
+    # a target the live priors never produced.
+    actor_logits = _masked_actor_logits(
+        encoded, output, masks.actor_valid,
+        end_turn_bias=_prior_bias_end_turn(game_state))
     actor_logp = F.log_softmax(actor_logits.squeeze(0), dim=-1)  # [A]
 
     # Per-actor caches.

@@ -202,11 +202,15 @@ game), enumerate 17%, encode 16%, sim 7%. Orders:
 
 ### 3c. Passivity mechanics follow-ups (user session 2026-08-05 evening)
 
-- **Combat oracle RETIRED** (user order; alphas were already 0.0 --
-  pinned by test_combat_oracle_retired). Stage 2: strip the dead
-  attack_bias/type_bias plumbing (~60 sites in action_sampler +
-  trainer re-forward paths, symmetric) + delete combat_oracle.py +
-  the anneal machinery. Mechanical, own commit, full suite.
+- **Combat oracle -> PRIOR HARDCODED BIAS (user order 2026-08-06):**
+  the machinery is RETAINED as a general facility for hand-placed
+  prior nudges -- every instance defaults OFF, activated only in
+  specific situations on explicit user order (pinned by
+  test_prior_hardcoded_bias_defaults_off). The plumbing-strip plan
+  is OBSOLETE. First new instance: end_turn bias on mini games
+  (WESNOTH_PRIOR_BIAS_END_TURN_MINI=<float>, env-inherited for
+  worker/trainer symmetry; scoped by the _scenario_category stash).
+  NOT yet activated -- awaits the user's explicit per-run order.
 - **Hierarchical Gumbel search** (principled fix for the factored-
   prior edge asymmetry): halve over ACTORS first with un-split actor
   mass, then targets within survivors. Fixes single-edge actions

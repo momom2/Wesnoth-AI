@@ -321,6 +321,12 @@ class ScenarioSetup:
     # `fogless_ratio` fraction of LADDER-pool games; applied by
     # `build_scenario_gamestate` as `global_info._fog = False`.
     fogless: bool = False
+    # Pool category ("ladder"/"fogless"/"mini"/"drill"); stashed on
+    # `global_info._scenario_category` so category-scoped prior
+    # biases (action_sampler.prior_bias_end_turn) can detect it from
+    # the state alone -- trainer re-forwards included.
+    category: str = ""
+
     # Turn-1 ToD slot override (0=dawn .. 5=second_watch on the
     # default schedule). None -> the scenario's own set-time default
     # (`current_time` from the expanded template, e.g. Fallenstar
@@ -489,6 +495,7 @@ def random_setup(
         faction1=f1, leader1=l1,
         faction2=f2, leader2=l2,
         fogless=fogless,
+        category=category,
         tod_start=sample_tod_start(scenario_id, rng),
     )
 
@@ -889,6 +896,12 @@ def build_scenario_gamestate(
     # the encoder's village-ownership fog rule.
     if setup.fogless:
         setattr(gs.global_info, "_fog", False)
+    # Pool category stash: lets category-scoped prior biases
+    # (action_sampler.prior_bias_end_turn) detect mini games from
+    # the state alone, symmetrically at rollout and trainer
+    # re-forward. Str: aliased safely by GlobalInfo.__deepcopy__.
+    if getattr(setup, "category", ""):
+        setattr(gs.global_info, "_scenario_category", setup.category)
     # Engine-skipped sides (controller=null): the sim's neutral-turn
     # gate consults this so a null side never acts (see the census
     # comment at the [side] parse above).
