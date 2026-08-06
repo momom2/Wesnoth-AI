@@ -58,16 +58,24 @@ def scan_one(path_str: str) -> dict:
     row["era"] = m.group(1) if m else ""
     m = _RE["version"].search(head)
     row["version"] = m.group(1) if m else ""
-    mods = []
+    # TWO DISTINCT THINGS (conflating them mislabeled map packs as
+    # "mods", 2026-08-06): active_mods= lists gameplay MODIFICATIONS
+    # the host enabled; addon_id= entries are content DEPENDENCIES
+    # (eras, map packs) clients must have installed. Only the former
+    # can alter recorded gameplay.
+    active = []
     for am in _RE["active_mods"].finditer(head):
         for entry in am.group(1).split(","):
             entry = entry.strip().strip('"')
-            if entry and entry not in mods:
-                mods.append(entry)
+            if entry and entry not in active:
+                active.append(entry)
+    deps = []
     for ad in _RE["addon_id"].finditer(head):
-        if ad.group(1) not in mods:
-            mods.append(ad.group(1))
-    row["mods"] = mods
+        if ad.group(1) not in deps:
+            deps.append(ad.group(1))
+    row["active_mods"] = active
+    row["addon_deps"] = deps
+    row["mods"] = active          # back-compat alias; = ACTIVE only
     row["factions"] = _RE["faction"].findall(head)
     row["controllers"] = _RE["controller"].findall(head)
     row["ok"] = bool(row["scenario"] or row["era"])
