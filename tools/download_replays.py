@@ -2,6 +2,18 @@
 
 Usage:
     python tools/download_replays.py 2026-04-17 2026-04-23  # inclusive dates
+    python tools/download_replays.py START END --filter-maps configs/replay_download_maps.txt
+
+--filter-maps FILE: pre-select at LISTING time by map name. FILE holds
+one normalized token per line (lowercase alnum of the scenario title,
+e.g. "2pdenofonis"); a listed .bz2 is fetched iff its normalized
+filename starts with a token. Replay filenames are the GAME TITLE
+(default = scenario title), so this keeps default-titled games on the
+wanted maps and skips everything else BEFORE download -- custom-titled
+or localized-title games on wanted maps are lost (recall trade-off,
+accepted 2026-08-06; skip counts are printed per day so the loss is
+visible). Mods are invisible at filename level: run
+tools/sort_replays.py after download for the mod/era quarantine.
 
 Output layout: replays_raw/YYYY-MM-DD/<filename>.bz2
 
@@ -61,12 +73,25 @@ def fetch_one(d: date, name: str) -> tuple[str, int, str]:
         return (name, 0, f"err: {e}")
 
 
+def _norm(s: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", s.lower())
+
+
 def main() -> int:
-    if len(sys.argv) != 3:
-        print("usage: download_replays.py START_YYYY-MM-DD END_YYYY-MM-DD")
+    args = list(sys.argv[1:])
+    tokens: list[str] = []
+    if "--filter-maps" in args:
+        i = args.index("--filter-maps")
+        tokens = [_norm(line) for line in
+                  Path(args[i + 1]).read_text(encoding="utf-8").split()
+                  if line.strip()]
+        del args[i:i + 2]
+    if len(args) != 2:
+        print("usage: download_replays.py START_YYYY-MM-DD END_YYYY-MM-DD"
+              " [--filter-maps FILE]")
         return 2
-    start = date.fromisoformat(sys.argv[1])
-    end   = date.fromisoformat(sys.argv[2])
+    start = date.fromisoformat(args[0])
+    end   = date.fromisoformat(args[1])
     if end < start:
         print("END must be >= START")
         return 2
@@ -79,10 +104,20 @@ def main() -> int:
 
     print(f"Covering {len(days)} days: {start} .. {end}")
     all_jobs: list[tuple[date, str]] = []
+    tot_listed = tot_kept = 0
     for d in days:
         names = list_day(d)
-        print(f"  {d}: {len(names)} replays listed")
-        all_jobs.extend((d, n) for n in names)
+        if tokens:
+            kept = [n for n in names
+                    if any(_norm(n).startswith(tk) for tk in tokens)]
+        else:
+            kept = names
+        tot_listed += len(names)
+        tot_kept += len(kept)
+        print(f"  {d}: {len(names)} listed, {len(kept)} kept")
+        all_jobs.extend((d, n) for n in kept)
+    if tokens:
+        print(f"Filter recall: kept {tot_kept}/{tot_listed} listed files")
 
     print(f"Total files to fetch (pre-dedupe): {len(all_jobs)}")
     ok = skipped = err = total_bytes = 0
