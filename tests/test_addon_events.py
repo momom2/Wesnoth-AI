@@ -196,6 +196,9 @@ def test_pickadvance_extractor_plumbing():
     assert 'menu item pickadvance' in src
     assert '"pickadvance",' in src
     assert 'pending_pick_hex' in src
+    # forced-choice mode: the [input] follows a RECRUIT with no
+    # fire_event, so recruits must arm the pick target too.
+    assert src.count("pending_pick_hex = (") >= 2
 
 
 def test_turn1_healing_gate_split():

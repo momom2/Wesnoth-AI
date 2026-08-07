@@ -1076,6 +1076,16 @@ Wesnoth; runs as modification id `plan_unit_advance`):
   `[choose] value=N` indexes the NARROWED list, not the unit-type's
   vanilla `advances_to`. With a single-type pick every recorded
   choose collapses to `value=0`.
+- **Forced-choice mode** (`pickadvance_force_choice`, defaulted ON
+  for maps without recruiting and settable per game): the dialog
+  fires DIRECTLY inside the recruit event (main.lua:166-175), so the
+  dependent `[input]` follows the recruit's `[random_seed]` with **NO
+  `[fire_event]` marker at all** -- the pick target is the freshly
+  recruited unit. An extractor keyed only on the menu-item
+  fire_event silently drops every forced-mode pick (Tombs 113893:
+  the engine honored a Lancer pick, 9 MP, while the un-narrowed
+  reconstruction advanced Knight, 8 MP -- surfaced as
+  move:mp_insufficient at turn 16, 2026-08-06 sweep 2).
 - game_override semantics (main.lua:142-148): sets a per-side WML
   variable read by units of the type initialized LATER; current
   same-side same-type units get `set_advances(dialog.unit_override)`

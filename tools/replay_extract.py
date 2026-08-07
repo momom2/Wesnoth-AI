@@ -1495,6 +1495,14 @@ def extract_replay(path: Path) -> Optional[dict]:
                 # the slot stays "" and `last_action_slot` advances
                 # to the next RNG-consuming action below).
                 compact_commands.append(["recruit", unit_type, tx, ty, ""])
+                # Forced-choice pick_advance fires its dialog DIRECTLY
+                # on recruit (main.lua:166-175, pickadvance_force_choice)
+                # -- the resulting dependent [input] has NO preceding
+                # [fire_event], so arm the pick target from the recruit
+                # hex too (Tombs 113893: an unarmed Lancer pick left our
+                # advancement on Knight, 8 MP vs the engine's 9 --
+                # 2026-08-06 sweep 2).
+                pending_pick_hex = (tx, ty)
                 last_action_slot = len(compact_commands) - 1
                 last_action_kind = "recruit"
                 break
