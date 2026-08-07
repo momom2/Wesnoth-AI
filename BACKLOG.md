@@ -141,6 +141,24 @@ found by a **targeted census, not a sweep**.
   available.
 - Quarantine by manifest; **do not delete anything on HF unilaterally.**
 
+### Corpus fidelity status (2026-08-06 full sweep)
+
+**24,776 / 24,893 accepted replays reconstruct bit-exact (99.53%).**
+Full-corpus extract+diff sweep (35 min, 10 workers) after five
+engine-parity fixes found by two 1% samples: quick_4mp leader
+refresh, pick_advance narrowing (menu + forced mode), add-on
+map-header start offset, random-ToD derivation from attack labels,
+init_side healing-gate split. Residue: 78 divergent (payloads kept
+in the session scratchpad ledger; classes: src_missing/defender_
+missing cascades, late insufficient_gold, path_non_adjacent
+teleport-shaped, 5 small-shortfall turn-2 gold files), 39
+extract_none (mini_edited 15 + Aethermaw 7, un-diagnosed). Six
+provably OOS-corrupt recordings deleted (turn-1/2 spend exceeds
+recorded gold; engine itself OOS-errors, user-verified) --
+`tools/check_replay_consistency.py` proves this class from a file's
+own data; run it at ingestion. `training/logs/
+replay_dispositions.jsonl.gz` tracks every file's class.
+
 ### 3b. Throughput program (user orders 2026-08-05, from the 15M profile)
 
 **Always-on fleet profiling LANDED (2026-08-06, 88ea911, user order):**
