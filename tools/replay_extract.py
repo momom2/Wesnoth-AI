@@ -1026,6 +1026,12 @@ def extract_replay(path: Path) -> Optional[dict]:
     # within block i), DROP that compact entry -- it represents
     # an unfinished action that block i+1 will redo properly.
     boundary_set = set(block_boundary_indices)
+    # Compact recruit entries whose raw command carried a FULL
+    # pattern-A [checkup] (a [result] child with checksum /
+    # next_unit_id): engine-committed, exempt from the boundary
+    # trailer-drop below. Keyed by list-object identity so pops of
+    # other entries can't shift the marker.
+    full_checkup_recruit_ids: set = set()
     for cmd_idx, cmd in enumerate(commands_list):
         # Server-emitted [random_seed] commands attach to the most
         # recent player action that consumed RNG (recruit with trait
@@ -1465,9 +1471,28 @@ def extract_replay(path: Path) -> Optional[dict]:
                     #
                     # The lookahead trusts the seed regardless of
                     # what `_recruit_consumes_rng` thinks.
+                    # The window SKIPS chatter commands ([speak],
+                    # [label], [rename], observer/controller swaps...)
+                    # instead of counting them: server control-swap
+                    # traffic can push the seed reply well past a
+                    # fixed 3-command window. Concrete: Micro Isar
+                    # 2836 (the user's own game) — recruit at (1,4),
+                    # then "momom2 becomes an observer" / "Tayler
+                    # takes control" speaks, seed rid=4 arrives 5
+                    # commands later; the fixed window dropped the
+                    # recruit as undone and every later command
+                    # touching it went src_missing (user-verified:
+                    # playback is clean, three recruits stand).
+                    # Stops remain: a player ACTION before the seed =
+                    # the seed belongs to that action (undone); block
+                    # boundary = save-mid-action (trailer logic owns
+                    # that case); hard cap 20 as a runaway guard.
                     has_seed = False
                     la = cmd_idx + 1
-                    while la < min(cmd_idx + 4, len(commands_list)):
+                    while la < min(cmd_idx + 21, len(commands_list)):
+                        if any(cmd_idx <= b < la
+                               for b in block_boundary_indices):
+                            break
                         nxt = commands_list[la]
                         stop = False
                         for nsub in nxt.children:
@@ -1506,6 +1531,9 @@ def extract_replay(path: Path) -> Optional[dict]:
                 # the slot stays "" and `last_action_slot` advances
                 # to the next RNG-consuming action below).
                 compact_commands.append(["recruit", unit_type, tx, ty, ""])
+                if (checkup is not None
+                        and checkup.first("result") is not None):
+                    full_checkup_recruit_ids.add(id(compact_commands[-1]))
                 # Forced-choice pick_advance fires its dialog DIRECTLY
                 # on recruit (main.lua:166-175, pickadvance_force_choice)
                 # -- the resulting dependent [input] has NO preceding
@@ -1683,6 +1711,21 @@ def extract_replay(path: Path) -> Optional[dict]:
                 # Attacks ALWAYS need RNG; no-seed = unfinished.
                 should_drop = True
             elif trailer_kind == "recruit":
+                # Pattern-A trailer (full [checkup] with [result]:
+                # checksum / next_unit_id baked in) = the ENGINE
+                # COMMITTED this recruit; it is never a save-mid-
+                # recruit redo, whatever the next block contains.
+                # Without this exemption, check (d) below dropped
+                # every seedless (musthave-only) recruit that ended
+                # its block on the KEEP hex, because later turns
+                # recruit at the same keep hex: Silverhead 8566 lost
+                # a t2 Ghost + three more undead recruits at WML
+                # (25,15), src-missing every later move of theirs
+                # (engine playback clean, 2026-08-07).
+                if id(trailer) in full_checkup_recruit_ids:
+                    should_drop = False
+                    trailer_sig = None
+                    next_first = None
                 # Drop only if (a) next block redoes the same recruit
                 # at the same hex, OR (b) next block has a recruit at
                 # the SAME hex with a DIFFERENT type (undo + replace),
@@ -1693,7 +1736,8 @@ def extract_replay(path: Path) -> Optional[dict]:
                 # third condition catches the Silverhead case where
                 # block 1 doesn't redo the recruit at all (its first
                 # action is unrelated).
-                trailer_sig = _compact_action_sig(trailer)
+                else:
+                    trailer_sig = _compact_action_sig(trailer)
                 if (next_first is not None
                         and next_first[0] == "recruit"
                         and trailer_sig is not None

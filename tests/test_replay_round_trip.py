@@ -226,3 +226,112 @@ def test_round_trip_preserves_commands():
         )
     finally:
         out_path.unlink(missing_ok=True)
+
+
+def _fixture_with_first_recruit_mutated(chatter: str) -> bytes:
+    """Return the fixture text with (a) an empty [checkup] added inside
+    the first [recruit]'s [command] (so the undone-recruit heuristic
+    engages) and (b) `chatter` inserted between that command and its
+    [random_seed] reply."""
+    import bz2 as _bz2
+    text = _bz2.decompress(FIXTURE.read_bytes()).decode(
+        "utf-8", errors="replace")
+    i = text.find("[recruit]")
+    end = text.find("[/command]", i)
+    mutated = (text[:end] + "[checkup]\n[/checkup]\n" + text[end:])
+    seed_at = mutated.find('new_seed="3ca69f8d"')
+    cmd_start = mutated.rfind("[command]", 0, seed_at)
+    mutated = mutated[:cmd_start] + chatter + mutated[cmd_start:]
+    return _bz2.compress(mutated.encode("utf-8"))
+
+
+_SPEAK_CHATTER = "".join(
+    '[command]\nundo="no"\n[speak]\nid="server"\n'
+    f'message="chatter {i}"\n[/speak]\n[/command]\n'
+    for i in range(4)
+)
+
+
+def test_recruit_seed_found_past_chatter_window():
+    """A finalized recruit whose [random_seed] reply is pushed several
+    commands away by server chatter ([speak] control-swap traffic)
+    must still be emitted with its seed. Real case: Micro Isar 2836
+    (the user's own game) — 'becomes an observer'/'takes control'
+    speaks between recruit and seed; the old fixed 3-command window
+    dropped the recruit as undone and the whole file diverged
+    src_missing (engine playback is clean, user-verified 2026-08-07)."""
+    blob = _fixture_with_first_recruit_mutated(_SPEAK_CHATTER)
+    p = Path(tempfile.gettempdir()) / "chatter_fixture.bz2"
+    p.write_bytes(blob)
+    try:
+        base = extract_replay(FIXTURE)
+        data = extract_replay(p)
+        assert data is not None
+        # Chatter must be fully transparent: identical compact stream.
+        assert data["commands"] == base["commands"], (
+            "chatter between recruit and seed changed the extraction"
+        )
+        first = next(c for c in data["commands"] if c[0] == "recruit")
+        assert first[1] == "Gryphon Rider" and first[4] == "3ca69f8d"
+    finally:
+        p.unlink(missing_ok=True)
+
+
+def test_undone_recruit_still_dropped():
+    """Control: an empty-checkup recruit followed by a player ACTION
+    before any seed is genuinely undone and stays dropped — the
+    chatter-skip must not weaken the undone heuristic."""
+    action_chatter = (
+        "[command]\nfrom_side=1\n[end_turn]\n[/end_turn]\n[/command]\n"
+    )
+    blob = _fixture_with_first_recruit_mutated(action_chatter)
+    p = Path(tempfile.gettempdir()) / "undone_fixture.bz2"
+    p.write_bytes(blob)
+    try:
+        base = extract_replay(FIXTURE)
+        n_base = sum(1 for c in base["commands"] if c[0] == "recruit")
+        data = extract_replay(p)
+        assert data is not None
+        recruits = [c for c in data["commands"] if c[0] == "recruit"]
+        # The mutated first recruit must be gone; its orphaned seed
+        # must not have been back-filled anywhere.
+        assert len(recruits) == n_base - 1, recruits[:3]
+        assert all(c[4] != "3ca69f8d" for c in recruits), (
+            "undone recruit's seed leaked into another slot"
+        )
+    finally:
+        p.unlink(missing_ok=True)
+
+
+def test_full_checkup_recruit_survives_block_boundary():
+    """A recruit whose raw command carries a FULL pattern-A [checkup]
+    ([result] with checksum/next_unit_id) is engine-committed and must
+    survive the block-boundary trailer-drop even when its seed lands
+    in the next block. Real case: Silverhead 8566 — a seedless (Ghost)
+    recruit ending its block on the keep hex was dropped by the
+    "next block recruits at the same hex" check, because later turns
+    recruit at the same keep; engine playback is clean (2026-08-07)."""
+    import bz2 as _bz2
+    text = _bz2.decompress(FIXTURE.read_bytes()).decode(
+        "utf-8", errors="replace")
+    # Cut the first [replay] block right after the Gryphon recruit's
+    # command (its checkup is pattern-A full), pushing the seed and
+    # everything else into a second block.
+    i = text.find("[recruit]")
+    end = text.find("[/command]", i) + len("[/command]")
+    mutated = text[:end] + "\n[/replay]\n[replay]\n" + text[end:]
+    p = Path(tempfile.gettempdir()) / "boundary_fixture.bz2"
+    p.write_bytes(_bz2.compress(mutated.encode("utf-8")))
+    try:
+        base = extract_replay(FIXTURE)
+        data = extract_replay(p)
+        assert data is not None
+        first = next(c for c in data["commands"] if c[0] == "recruit")
+        assert first[1] == "Gryphon Rider", (
+            "committed full-checkup recruit was trailer-dropped"
+        )
+        n_base = sum(1 for c in base["commands"] if c[0] == "recruit")
+        n_mut = sum(1 for c in data["commands"] if c[0] == "recruit")
+        assert n_mut == n_base, (n_mut, n_base)
+    finally:
+        p.unlink(missing_ok=True)
