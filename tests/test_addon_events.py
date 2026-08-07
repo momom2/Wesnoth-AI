@@ -184,6 +184,26 @@ def test_pickadvance_narrows_advancement_resolution():
     adv3 = rd._maybe_advance_unit(gs, u3)
     assert adv3.name == "Elvish Captain", adv3.name
 
+    # RECRUITS initialized after a game-override inherit it too: the
+    # mod's initialize_unit runs on the "recruit" event (main.lua:231)
+    # and reads game_override for the type. Fail-before: a Wolf Rider
+    # recruited after game_override=Goblin Pillager advanced as
+    # Goblin Knight (vanilla index 0) where the engine made a
+    # Pillager — Hellhole 21368, weapon_oob on the Pillager's net at
+    # turn 22; engine playback clean end-to-end (2026-08-07).
+    gs.global_info.current_side = 1
+    rd._apply_command(gs, ["recruit", "Elvish Fighter", 6, 5,
+                           "1a2b3c4d"])
+    fresh = next(u for u in gs.map.units
+                 if (u.position.x, u.position.y) == (6, 5))
+    assert getattr(fresh, "_pickadvance", None) == ["Elvish Hero"], (
+        "post-override recruit must inherit the game pick"
+    )
+    fresh.current_exp = fresh.max_exp
+    setattr(gs.global_info, "_advance_choices", [0])
+    adv4 = rd._maybe_advance_unit(gs, fresh)
+    assert adv4.name == "Elvish Hero", adv4.name
+
 
 def test_pickadvance_extractor_plumbing():
     """The extractor pairs [fire_event] raise="menu item pickadvance"
@@ -265,6 +285,45 @@ def test_map_header_start_positions():
     pos = _parse_map_starting_positions(md)
     assert pos[1] == (0, 0), pos
     assert pos[2] == (1, 1), pos
+
+
+def test_object_effects_survive_advancement():
+    """Scenario [object] effects persist through advancement (Wesnoth
+    stores them in the unit's [modifications] and re-applies on
+    advance, like traits). Fail-before: Hornshark's MODIFY_BOWMAN
+    firststrike vanished when the preplaced (28,24) Bowman leveled to
+    Longbowman — every later defensive fight ran attacker-first and
+    the HP ledger forked (16349, engine playback clean, user viewer
+    frames 2026-08-07)."""
+    from tools import replay_dataset as rd
+    from wesnoth_ai.classes import AttackSpecial  # noqa: F401
+    gs = rd._build_initial_gamestate({
+        "game_id": "t", "scenario_id": "multiplayer_Hornshark_Island",
+        "factions": ["Rebels", "Loyalists"],
+        "starting_sides": [
+            {"side": 1, "gold": 100}, {"side": 2, "gold": 100}],
+        "starting_units": [
+            {"uid": 1, "type": "Elvish Captain", "side": 1, "x": 5,
+             "y": 5, "is_leader": True},
+            {"uid": 2, "type": "Bowman", "side": 2, "x": 27, "y": 23},
+            {"uid": 3, "type": "Dwarvish Lord", "side": 2, "x": 20,
+             "y": 5, "is_leader": True}],
+        "starting_villages": [], "commands": [],
+    })
+    rd._setup_scenario_events(gs, "multiplayer_Hornshark_Island")
+    u2 = next(u for u in gs.map.units if u.id == "u2")
+    ranged = next(a for a in u2.attacks if a.is_ranged)
+    assert "firststrike" in ranged.weapon_specials, (
+        "MODIFY_BOWMAN prestart object must grant ranged firststrike"
+    )
+    u2.current_exp = u2.max_exp
+    setattr(gs.global_info, "_advance_choices", [0])
+    adv = rd._maybe_advance_unit(gs, u2)
+    assert adv.name == "Longbowman", adv.name
+    ranged2 = next(a for a in adv.attacks if a.is_ranged)
+    assert "firststrike" in ranged2.weapon_specials, (
+        "object-granted specials must survive advancement"
+    )
 
 
 def test_end_turn_mp_deficit_clears_resting():

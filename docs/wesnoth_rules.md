@@ -1130,6 +1130,14 @@ Wesnoth; runs as modification id `plan_unit_advance`):
   (the UNIT list -- a mod quirk). Freshly-advanced units re-init for
   their new type ("post advance", main.lua:231), clearing the old
   narrowing.
+- **"Initialized LATER" includes NEW RECRUITS**: initialize_unit runs
+  on the "recruit" event (main.lua:231 event list), so a unit
+  recruited after a game_override inherits the narrowing. Missing
+  this made a post-override Wolf Rider advance as Goblin Knight
+  (vanilla index 0) where the engine made the overridden Goblin
+  Pillager -- surfaced 35 commands later as `attack:weapon_oob` on
+  the Pillager's third weapon (net), Hellhole 21368; engine playback
+  of the file is clean end-to-end (harness-verified 2026-08-07).
 
 **Why non-obvious**: the pick leaves NO trace on the advancement
 command itself. Our index-into-vanilla-list resolution silently

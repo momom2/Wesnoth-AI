@@ -1493,8 +1493,23 @@ def _advance_unit_once(gs: GameState, u: Unit) -> Unit:
         setattr(advanced, "_trait_order", list(trait_ids))
         gs.map.units.discard(fresh)
         gs.map.units.add(advanced)
-        return advanced
-    return fresh
+        out_unit = advanced
+    else:
+        out_unit = fresh
+    # Re-apply persistent scenario [object] effects: Wesnoth keeps
+    # the [object] in the unit's [modifications] and re-applies it on
+    # advancement, exactly like traits. Without this, the rebuilt
+    # attack list loses object-granted weapon specials — Hornshark's
+    # MODIFY_BOWMAN firststrike disappeared when the preplaced Bowman
+    # advanced to Longbowman, so every later defensive fight ran
+    # attacker-first and the whole HP ledger forked (16349,
+    # engine-clean, user viewer frames 2026-08-07).
+    eff_nodes = getattr(out_unit, "_object_effects", None) or []
+    if eff_nodes:
+        from tools.scenario_events import _apply_effect_to_unit
+        for eff in eff_nodes:
+            _apply_effect_to_unit(out_unit, eff)
+    return out_unit
 
 
 @dataclass
@@ -2317,6 +2332,20 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         # `_defense_table` for trait-modified defenses).
         spawned = _rebuild_unit(new_unit, current_moves=0,
                                 has_attacked=True)
+        # pick_advance game-override applies to units INITIALIZED
+        # LATER too: the mod's initialize_unit runs on recruit
+        # (main.lua:231 "recruit" in the event list) and reads
+        # game_override for the new unit's type. Missing this made a
+        # post-override Wolf Rider advance as Goblin Knight where the
+        # engine (game_override=Goblin Pillager, Hellhole 21368
+        # cmd 17/475) made a Pillager — surfacing at turn 22 as a
+        # weapon_oob on the Pillager's third weapon (net). Engine
+        # playback of that file is clean end-to-end (harness,
+        # 2026-08-07): genuine sim gap, not a corrupt recording.
+        _gmap = getattr(gs.global_info, "_pickadvance_game", None) or {}
+        _pick = _gmap.get((side, unit_type))
+        if _pick:
+            setattr(spawned, "_pickadvance", list(_pick))
         gs.map.units.add(spawned)
         # Bump Wesnoth's monotonic next_unit_id counter (see
         # _build_initial_gamestate setup).

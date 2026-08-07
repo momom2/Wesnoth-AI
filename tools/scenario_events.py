@@ -1691,6 +1691,19 @@ def _object_action(gs: GameState, action: WMLNode) -> None:
         new_u = _copy.copy(u)
         for eff in effects:
             _apply_effect_to_unit(new_u, eff)
+        # Persist the effect nodes on the unit: Wesnoth stores the
+        # [object] in the unit's [modifications] and RE-APPLIES it on
+        # advancement (same persistence rule as traits). Our
+        # advancement rebuilds attacks from the new type's base
+        # stats, which silently dropped object-granted weapon
+        # specials: Hornshark's MODIFY_BOWMAN firststrike vanished
+        # when the (28,24) Bowman leveled to Longbowman, flipping
+        # strike order in every later defense (16349, engine-clean,
+        # user viewer ledger 2026-08-07). `_advance_unit_once`
+        # re-applies this stash after its rebuild.
+        setattr(new_u, "_object_effects",
+                list(getattr(new_u, "_object_effects", []) or []) +
+                list(effects))
         gs.map.units.discard(u)
         gs.map.units.add(new_u)
 
