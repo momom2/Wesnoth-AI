@@ -1200,13 +1200,13 @@ def extract_replay(path: Path) -> Optional[dict]:
                        and (next_block_boundary is None
                             or lookahead_idx <= next_block_boundary)):
                     nxt = commands_list[lookahead_idx]
-                    nxt_chk = nxt.first("checkup") or nxt.first("mp_checkup")
-                    if nxt_chk is not None:
-                        final_x, final_y = _read_final(nxt_chk)
-                        break
-                    # Skip if next command is a player action
-                    # (move/recruit/attack/end_turn/init_side); the
-                    # checkup must precede those.
+                    # ACTION check must come FIRST: a normal action
+                    # command carries its OWN checkup, and reading it
+                    # as OUR final_hex glued an aborted move's source
+                    # to the next move's destination -- the fake
+                    # "teleport" jumps behind ALL 10 path_non_adjacent
+                    # divergences of the 2026-08-06 full-corpus sweep
+                    # (9 saves of one Arcanclave game + 1 Elensefar).
                     has_action = any(
                         c.tag in ("move", "recruit", "attack",
                                   "end_turn", "init_side", "recall")
@@ -1214,7 +1214,18 @@ def extract_replay(path: Path) -> Optional[dict]:
                     )
                     if has_action:
                         break
+                    nxt_chk = nxt.first("checkup") or nxt.first("mp_checkup")
+                    if nxt_chk is not None:
+                        final_x, final_y = _read_final(nxt_chk)
+                        break
                     lookahead_idx += 1
+                # Empty-checkup move (ack never recorded): the engine
+                # still EXECUTES it along the full recorded path --
+                # verified empirically 2026-08-06: dropping these
+                # strands the mover and every later command
+                # referencing the path end goes src_missing (10/10
+                # files). With final_x = None the code below simply
+                # keeps the whole path, which is the correct reading.
                 if xs and len(xs) == len(ys):
                     # If we got an explicit final_hex from [checkup] that
                     # disagrees with the path's last cell, truncate the
