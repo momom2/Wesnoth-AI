@@ -591,6 +591,44 @@ clears `resting`, which healthy units don't need). Also: DEFENDING
 breaks resting — `attack.cpp` calls `set_resting(false)` on both
 combatants.
 
+### Resting lifecycle: set after healing, cleared by MP deficit
+
+`src/play_controller.cpp` `do_init_side` (1.18.4, verified
+2026-08-07): after `calculate_healing(...)`:
+```cpp
+// Set resting now after the healing has been done.
+for(unit& patient : resources::gameboard->units()) {
+    if(patient.side() == current_side()) {
+        patient.set_resting(true);
+    }
+}
+```
+then the `turn refresh` WML event fires (`pump().fire("turn_refresh")`
+— space and underscore are interchangeable in event names: scenario
+WML writes `name=turn refresh` and it matches).
+
+`src/units/unit.cpp:1078-1091` `unit::end_turn` (via
+`game_board::end_turn(side)`, game_board.cpp:61-67, current side's
+units only):
+```cpp
+set_state(STATE_SLOWED,false);
+if((movement_ != total_movement()) && !(get_state(STATE_NOT_MOVED))) {
+    resting_ = false;
+}
+```
+**Why non-obvious**: resting is not "didn't move or fight" — it is
+"ended the turn at FULL MP". Any MP drain counts as activity, even
+one the unit didn't choose. Mini_Maps_Collection exploits this: a
+repeating `turn refresh` event `{MODIFY_UNIT (role=monster) moves 0}`
+(`enclave_micro_isar.cfg:86-91`) pins tentacles at 0 MP right after
+each refresh, so `end_turn` clears `resting` every round and they
+heal regen-only +8, never +10 (user-verified viewer frames, Micro
+Isar 38859: turn-4 heal 15→23; our former +2 rest produced a 1-HP
+survivor whose ZoC forked the whole game). Sim port:
+`tools/replay_dataset.py` end_turn handler + `turn refresh` firing
+at the end of init_side; MODIFY_UNIT expands to `[modify_unit]` in
+`tools/scenario_events.py::_load_core_macros`.
+
 ### Healing vs poison
 
 `heal.cpp` (same function, rest already added before the branch):
