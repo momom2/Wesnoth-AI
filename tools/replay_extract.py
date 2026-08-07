@@ -961,6 +961,7 @@ def extract_replay(path: Path) -> Optional[dict]:
     # last_action_kind: "recruit" or "attack" -- which slot in the
     # compact tuple to write to (recruits use slot 4, attacks slot 7).
     last_action_slot: Optional[int] = None
+    pending_pick_hex: Optional[Tuple[int, int]] = None   # "menu item pickadvance"
     last_action_kind: Optional[str] = None
     # Track the most-recent compact slot for moves (separate from
     # `last_action_slot` because moves don't consume RNG and so don't
@@ -1039,6 +1040,30 @@ def extract_replay(path: Path) -> Optional[dict]:
                     compact_commands[last_action_slot][7] = seed_hex
                 last_action_slot = None
                 last_action_kind = None
+            elif sub.tag == "input":
+                # pick_advance dialog result (mainline Plan Unit
+                # Advance mod): a dependent [input] following a
+                # [fire_event] raise="menu item pickadvance". Carries
+                # the player's advancement plan; the engine then
+                # NARROWS the unit's advances_to, so later [choose]
+                # indices are relative to the narrowed list.
+                # (Root-caused 2026-08-06: CotB replay 74713 — our
+                # index-into-vanilla-list resolution advanced a
+                # Fighter to Captain where the engine made a Hero.)
+                if pending_pick_hex is not None:
+                    ignore = sub.attrs.get("ignore", "no").strip('"')
+                    if ignore != "yes":
+                        compact_commands.append([
+                            "pickadvance",
+                            pending_pick_hex[0], pending_pick_hex[1],
+                            sub.attrs.get("unit_override", "").strip('"'),
+                            sub.attrs.get("game_override", "").strip('"'),
+                            1 if sub.attrs.get("is_unit_override", "no"
+                                               ).strip('"') == "yes" else 0,
+                            1 if sub.attrs.get("is_game_override", "no"
+                                               ).strip('"') == "yes" else 0,
+                        ])
+                    pending_pick_hex = None
             elif sub.tag == "choose":
                 # Advancement choice picked by the player — append to
                 # the most recent attack's advancement-choice list.
@@ -1063,6 +1088,17 @@ def extract_replay(path: Path) -> Optional[dict]:
                 break
             if t == "end_turn":
                 compact_commands.append(["end_turn"])
+                break
+            if t == "fire_event" and sub.attrs.get(
+                    "raise", "").strip('"') == "menu item pickadvance":
+                src = sub.first("source")
+                if src is not None:
+                    try:
+                        pending_pick_hex = (
+                            int(src.attrs.get("x", "0")) - 1,
+                            int(src.attrs.get("y", "0")) - 1)
+                    except ValueError:
+                        pending_pick_hex = None
                 break
             if t == "move":
                 # `from_side` attr on the parent [command] tells us

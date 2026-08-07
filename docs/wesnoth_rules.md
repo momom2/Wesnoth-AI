@@ -1004,6 +1004,57 @@ unit.cpp:855-893 (random-fill phase):
 - (no `availability=` attribute) → eligible for non-leader random
   pool only.
 
+### Plan Unit Advance (pickadvance): picks NARROW advances_to; [choose] indexes the narrowed list
+
+`data/modifications/pick_advance/main.lua` (MAINLINE, shipped with
+Wesnoth; runs as modification id `plan_unit_advance`):
+
+- A pick replaces the unit's advancement options via an object
+  effect (main.lua:46-56):
+```lua
+	unit:add_modification("object", {
+		pickadvance = true,
+		take_only_once = false,
+		T.effect {
+			apply_to = "new_advancement",
+			replace = true,
+			types = array
+		}
+	})
+```
+- The pick itself is a synced dialog (`wesnoth.sync.evaluate_single`,
+  main.lua:128) recorded in the replay as TWO commands:
+```
+	[command] from_side=N [fire_event]
+		raise="menu item pickadvance"
+		[source] x= y= [/source]
+	[/fire_event] [/command]
+	[command] dependent=yes from_side=N [input]
+		ignore=no
+		is_unit_override=yes|no  unit_override="Type1,Type2"
+		is_game_override=yes|no  game_override="..."
+	[/input] [/command]
+```
+- **Consequence for reconstruction**: a subsequent advancement's
+  `[choose] value=N` indexes the NARROWED list, not the unit-type's
+  vanilla `advances_to`. With a single-type pick every recorded
+  choose collapses to `value=0`.
+- game_override semantics (main.lua:142-148): sets a per-side WML
+  variable read by units of the type initialized LATER; current
+  same-side same-type units get `set_advances(dialog.unit_override)`
+  (the UNIT list -- a mod quirk). Freshly-advanced units re-init for
+  their new type ("post advance", main.lua:231), clearing the old
+  narrowing.
+
+**Why non-obvious**: the pick leaves NO trace on the advancement
+command itself. Our index-into-vanilla-list resolution silently
+advanced an Elvish Fighter to Captain (index 0) where the engine
+made the picked HERO; the +1-damage difference surfaced 200 commands
+later as a ZoC-blocked move (`move:src_missing`, CotB replay 74713,
+root-caused 2026-08-06 from the user's engine-viewer HP/XP ledger).
+Handled in `replay_extract.py` (compact `pickadvance` command) +
+`replay_dataset._apply_command` / `_advance_unit_once`.
+
 ### Recruit NAME GENERATION also uses the synced MP RNG (named races only)
 
 `wesnoth_src/src/utils/markov_generator.cpp:59-69` (1.18.4, comment

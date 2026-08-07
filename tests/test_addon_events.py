@@ -125,3 +125,74 @@ def test_quick_4mp_leader_current_moves_refreshed():
     assert wose.max_moves == 5
     assert wose.current_moves == 5, wose.current_moves
     assert wose.current_hp == wose.max_hp
+
+
+def test_pickadvance_narrows_advancement_resolution():
+    """Plan Unit Advance (mainline mod): a recorded pick REPLACES the
+    unit's advances_to, so later [choose] indices index the NARROWED
+    list. Fail-before: value=0 advanced a Fighter to Captain
+    (vanilla index 0) where the engine made the picked Hero (CotB
+    74713, root-caused 2026-08-06 with the user's viewer ledger)."""
+    from tools import replay_dataset as rd
+    gs = rd._build_initial_gamestate({
+        "game_id": "t", "scenario_id": "multiplayer_Weldyn_Channel",
+        "factions": ["Rebels", "Rebels"],
+        "experience_modifier": 70,
+        "starting_sides": [
+            {"side": 1, "gold": 100}, {"side": 2, "gold": 100}],
+        "starting_units": [
+            {"uid": 1, "type": "Elvish Captain", "side": 1, "x": 5,
+             "y": 5, "is_leader": True},
+            {"uid": 2, "type": "Elvish Fighter", "side": 1, "x": 7,
+             "y": 7},
+            {"uid": 3, "type": "Elvish Fighter", "side": 1, "x": 9,
+             "y": 9},
+            {"uid": 4, "type": "Elvish Captain", "side": 2, "x": 20,
+             "y": 5, "is_leader": True}],
+        "starting_villages": [], "commands": [],
+    })
+    u2 = next(u for u in gs.map.units if u.id == "u2")
+
+    # unit-scoped pick: only u2 narrowed
+    rd._apply_command(gs, ["pickadvance", 7, 7, "Elvish Hero", "", 1, 0])
+    assert getattr(u2, "_pickadvance", None) == ["Elvish Hero"]
+    u3 = next(u for u in gs.map.units if u.id == "u3")
+    assert getattr(u3, "_pickadvance", None) is None
+
+    # advancement: recorded choose value=0 must resolve on the
+    # narrowed list -> Hero (vanilla list is [Captain, Hero]).
+    u2.current_exp = u2.max_exp
+    setattr(gs.global_info, "_advance_choices", [0])
+    adv = rd._maybe_advance_unit(gs, u2)
+    assert adv.name == "Elvish Hero", adv.name
+    # the advanced unit re-initializes: old narrowing cleared
+    assert getattr(adv, "_pickadvance", None) is None
+
+    # game-scoped pick: all current same-side same-type units narrow
+    # via the unit list; future map recorded for new inits.
+    rd._apply_command(gs, ["pickadvance", 9, 9, "Elvish Hero",
+                           "Elvish Hero", 1, 1])
+    u3 = next(u for u in gs.map.units if u.id == "u3")
+    assert getattr(u3, "_pickadvance", None) == ["Elvish Hero"]
+    gmap = getattr(gs.global_info, "_pickadvance_game", {})
+    assert gmap.get((1, "Elvish Fighter")) == ["Elvish Hero"]
+
+    # sanity: a pick naming an illegal type is ignored at resolution
+    u3.current_exp = u3.max_exp
+    setattr(u3, "_pickadvance", ["Dwarvish Lord"])
+    setattr(gs.global_info, "_advance_choices", [0])
+    adv3 = rd._maybe_advance_unit(gs, u3)
+    assert adv3.name == "Elvish Captain", adv3.name
+
+
+def test_pickadvance_extractor_plumbing():
+    """The extractor pairs [fire_event] raise="menu item pickadvance"
+    with its dependent [input] and emits the compact pickadvance
+    command (0-indexed hex, override strings, flags); ignore=yes
+    picks are dropped."""
+    import pathlib
+    src = pathlib.Path("tools/replay_extract.py").read_text(
+        encoding="utf-8")
+    assert 'menu item pickadvance' in src
+    assert '"pickadvance",' in src
+    assert 'pending_pick_hex' in src

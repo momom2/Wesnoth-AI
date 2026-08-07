@@ -1322,6 +1322,15 @@ def _advance_unit_once(gs: GameState, u: Unit) -> Unit:
             current_exp=max(0, u.current_exp - u.max_exp),
             statuses=new_statuses,
         )
+    # pick_advance narrowing: the mod REPLACES the unit's
+    # advances_to via an [object] effect, so recorded [choose]
+    # indices are relative to the NARROWED list (which is how a
+    # `value=0` can mean "Elvish Hero" -- CotB 74713, 2026-08-06).
+    # Only types still legal for the unit count.
+    _pick = [x for x in (getattr(u, "_pickadvance", None) or [])
+             if x in targets]
+    if _pick:
+        targets = _pick
     # Pick the choice — pop from the per-attack queue if available
     # (replay [choose] commands push integer indices here, in
     # attacker-first / defender-second order per Wesnoth's
@@ -1354,6 +1363,15 @@ def _advance_unit_once(gs: GameState, u: Unit) -> Unit:
     # variation across when the destination has it. Falls back to the
     # base advances_to entry if no matching variation exists.
     _record_advance_event(gs, u.side, targets.index(new_type))
+    # The advanced unit re-initializes under the mod: its OLD
+    # narrowing is gone; a game_override for the NEW type applies
+    # (initialize_unit runs on "post advance" -- main.lua:231).
+    if hasattr(u, "_pickadvance"):
+        delattr(u, "_pickadvance")
+    _gmap = getattr(gs.global_info, "_pickadvance_game", None) or {}
+    _new_pick = _gmap.get((u.side, new_type))
+    if _new_pick:
+        setattr(u, "_pickadvance", list(_new_pick))
     if ":" in u.name:
         _, src_var = u.name.split(":", 1)
         if src_var:
@@ -1958,6 +1976,51 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         )
         if _terrain_at(gs, tx, ty) == "village":
             _capture_village(gs, tx, ty, moved.side)
+        return
+
+    if kind == "pickadvance":
+        # Plan Unit Advance pick (see replay_extract's [input]
+        # handler). Mod semantics, data/modifications/pick_advance/
+        # main.lua:124-148 (mainline, shipped with Wesnoth):
+        #   - is_unit_override: the picked unit's advances_to is
+        #     REPLACED by unit_override (filtered to legal options).
+        #   - is_game_override: ALL current same-side same-type units
+        #     get set_advances(dialog.unit_override) (the mod applies
+        #     the UNIT list there -- main.lua:146), and units of the
+        #     type INITIALIZED LATER (new recruits, freshly advanced)
+        #     read game_override.
+        # We stash the narrowed list on the unit (`_pickadvance`) and
+        # the side+type future map on global_info; advancement
+        # resolution indexes recorded [choose] values against the
+        # narrowed list. NEVER exposed to the encoder/legality mask.
+        px, py, unit_ov, game_ov = cmd[1], cmd[2], cmd[3], cmd[4]
+        is_unit, is_game = bool(cmd[5]), bool(cmd[6])
+
+        def _split_types(s):
+            return [x.strip() for x in (s or "").split(",")
+                    if x.strip() and x.strip() != "null"]
+
+        pu = _find_unit_at(gs, px, py)
+        if pu is None:
+            return
+        base_type = pu.name.split(":")[0]
+        u_list = _split_types(unit_ov)
+        if is_unit and u_list:
+            setattr(pu, "_pickadvance", u_list)
+        if is_game:
+            gmap = dict(getattr(gs.global_info, "_pickadvance_game",
+                                None) or {})
+            gmap[(pu.side, base_type)] = _split_types(game_ov)
+            setattr(gs.global_info, "_pickadvance_game", gmap)
+            for other in list(gs.map.units):
+                if (other.side == pu.side
+                        and other.name.split(":")[0] == base_type):
+                    if u_list:
+                        setattr(other, "_pickadvance", u_list)
+                    elif hasattr(other, "_pickadvance"):
+                        # empty unit list = clear narrowing (mod's
+                        # filter_overrides falls back to the full set)
+                        delattr(other, "_pickadvance")
         return
 
     if kind == "attack":
