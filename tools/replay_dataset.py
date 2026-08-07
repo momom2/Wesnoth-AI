@@ -1914,24 +1914,48 @@ def _apply_command(gs: GameState, cmd: list) -> None:
                 current_gold=new_gold, base_income=s.base_income,
                 nb_villages_controlled=owned, faction=s.faction,
             )
+        # "turn refresh" fires LAST in do_init_side (play_controller.
+        # cpp, 1.18.4: calculate_healing → set_resting(true) →
+        # pump().fire("turn_refresh")) — i.e. after the MP refresh and
+        # healing it is allowed to override. Mini Maps' repeating
+        # {MODIFY_UNIT (role=monster) moves 0} runs here every side
+        # turn, re-zeroing tentacle MP right after the refresh.
+        events = getattr(gs.global_info, "_scenario_events", None)
+        if events:
+            from tools.scenario_events import fire_event
+            fire_event(gs, events, "turn refresh")
         return
 
     if kind == "end_turn":
         # Port of game_board::end_turn(side) → unit::end_turn() per
-        # unit on the ending side. Currently we only need it for
-        # clearing the SLOWED state — Wesnoth keeps slow active
-        # throughout the slowed unit's own turn and drops it only at
-        # the very end. (resting/has_attacked are managed elsewhere.)
+        # unit on the ending side (unit.cpp:1078-1091, 1.18.4):
+        #   - SLOWED clears — Wesnoth keeps slow active throughout the
+        #     slowed unit's own turn and drops it only at the very end.
+        #   - `if((movement_ != total_movement()) && !STATE_NOT_MOVED)
+        #     resting_ = false;` — leftover-MP ≠ max kills the rest
+        #     heal. Normally redundant with our move/attack resting
+        #     discards, but MP-DRAINING events make it observable:
+        #     Mini Maps' repeating `turn refresh` {MODIFY_UNIT
+        #     (role=monster) moves 0} zeroes every tentacle's MP, so
+        #     its own end_turn clears resting and it never rest-heals
+        #     (user-verified frames, Micro Isar 38859: regen-only
+        #     15→23 on turn 4; our extra +2 left a 1-HP survivor
+        #     whose ZoC rerouted the leader's turn-5 keep ride).
+        #     STATE_NOT_MOVED is not modeled: nothing we interpret
+        #     sets it.
         ending_side = gs.global_info.current_side
         new_units = set()
         for u in gs.map.units:
-            if u.side != ending_side or "slowed" not in u.statuses:
+            drop = set()
+            if "slowed" in u.statuses:
+                drop.add("slowed")
+            if u.current_moves != u.max_moves:
+                drop.add("resting")
+            if u.side != ending_side or not (drop & u.statuses):
                 new_units.add(u)
                 continue
-            new_statuses = set(u.statuses)
-            new_statuses.discard("slowed")
-            unslowed = _rebuild_unit(u, statuses=new_statuses)
-            new_units.add(unslowed)
+            ended = _rebuild_unit(u, statuses=set(u.statuses) - drop)
+            new_units.add(ended)
         gs.map.units = new_units
         return
 

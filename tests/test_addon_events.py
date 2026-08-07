@@ -265,3 +265,86 @@ def test_map_header_start_positions():
     pos = _parse_map_starting_positions(md)
     assert pos[1] == (0, 0), pos
     assert pos[2] == (1, 1), pos
+
+
+def test_end_turn_mp_deficit_clears_resting():
+    """unit::end_turn (unit.cpp:1078-1091, 1.18.4): a unit ending its
+    side's turn with remaining MP != max MP loses `resting`, even if
+    it never moved or fought -- MP-draining events count as activity.
+    A unit at full MP keeps resting."""
+    from tools import replay_dataset as rd
+    gs = rd._build_initial_gamestate({
+        "game_id": "t", "scenario_id": "multiplayer_Weldyn_Channel",
+        "factions": ["Rebels", "Rebels"],
+        "starting_sides": [
+            {"side": 1, "gold": 100}, {"side": 2, "gold": 100}],
+        "starting_units": [
+            {"uid": 1, "type": "Elvish Captain", "side": 1, "x": 5,
+             "y": 5, "is_leader": True},
+            {"uid": 2, "type": "Elvish Fighter", "side": 1, "x": 7,
+             "y": 5, "is_leader": False}],
+        "starting_villages": [], "commands": [],
+    })
+    gs.global_info.current_side = 1
+    u1 = next(u for u in gs.map.units if u.id == "u1")
+    u2 = next(u for u in gs.map.units if u.id == "u2")
+    u1.statuses = set(u1.statuses) | {"resting"}
+    u2.statuses = set(u2.statuses) | {"resting"}
+    u1.current_moves = u1.max_moves - 1        # drained
+    u2.current_moves = u2.max_moves            # untouched
+    rd._apply_command(gs, ["end_turn"])
+    u1 = next(u for u in gs.map.units if u.id == "u1")
+    u2 = next(u for u in gs.map.units if u.id == "u2")
+    assert "resting" not in u1.statuses, \
+        "MP deficit at end_turn must clear resting"
+    assert "resting" in u2.statuses, "full-MP unit keeps resting"
+
+
+def test_micro_isar_tentacle_never_rest_heals():
+    """Full chain for the Micro Isar 38859 fix (2026-08-07): the
+    repeating `turn refresh` event {MODIFY_UNIT (role=monster) moves 0}
+    (enclave_micro_isar.cfg:86-91) zeroes tentacle MP every side turn,
+    so unit::end_turn's MP check clears `resting` and the tentacle
+    heals regen-only +8, never +10. User-verified viewer frames:
+    turn 3 heal 7->15, turn 4 heal 15->23 (not 25); our former +2 rest
+    left a 1-HP survivor whose ZoC forked the whole game."""
+    from tools import replay_dataset as rd
+
+    def tent(g):
+        return next(u for u in g.map.units
+                    if u.side == 3 and (u.position.x, u.position.y) == (3, 2))
+
+    gs = rd._build_initial_gamestate({
+        "game_id": "t", "scenario_id": "enclave_micro_isar",
+        "factions": ["Drakes", "Undead"],
+        "starting_sides": [
+            {"side": 1, "gold": 100}, {"side": 2, "gold": 100}],
+        "starting_units": [
+            {"uid": 1, "type": "Drake Flare", "side": 1, "x": 0,
+             "y": 5, "is_leader": True},
+            {"uid": 2, "type": "Revenant", "side": 2, "x": 7,
+             "y": 5, "is_leader": True}],
+        "starting_villages": [], "commands": [],
+    })
+    rd._setup_scenario_events(gs, "enclave_micro_isar")
+    rd._apply_command(gs, ["init_side", 1])    # turn-1 spawn + refresh
+    t = tent(gs)
+    assert getattr(t, "_wml_role", None) == "monster"
+    assert t.max_moves > 0 and t.current_moves == 0, \
+        "turn refresh MODIFY_UNIT must zero monster MP"
+    t.current_hp = 5                            # wounded
+    rd._apply_command(gs, ["end_turn"])
+    rd._apply_command(gs, ["init_side", 2])
+    rd._apply_command(gs, ["end_turn"])
+    rd._apply_command(gs, ["init_side", 3])     # own init: +8 regen
+    assert tent(gs).current_hp == 13, tent(gs).current_hp
+    rd._apply_command(gs, ["end_turn"])         # MP 0 != max: no rest
+    rd._apply_command(gs, ["init_side", 1])     # turn 2
+    rd._apply_command(gs, ["end_turn"])
+    rd._apply_command(gs, ["init_side", 2])
+    rd._apply_command(gs, ["end_turn"])
+    rd._apply_command(gs, ["init_side", 3])     # +8 only, NOT +10
+    t = tent(gs)
+    assert t.current_hp == 21, \
+        f"regen-only heal expected (13+8=21), got {t.current_hp}"
+    assert t.current_moves == 0, "turn-2 refresh must be re-zeroed"

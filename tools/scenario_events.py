@@ -252,6 +252,25 @@ def _load_core_macros() -> Dict[str, Tuple[List[str], str]]:
             params = (m.group(2) or "").split()
             body   = m.group(3)
             macros[name] = (params, body)
+    # MODIFY_UNIT's mainline body (data/core/macros/utils.cfg:271-301)
+    # is a [store_unit] kill=yes -> [foreach] set this_item.VAR ->
+    # [unstore_unit] round-trip -- tags we don't run. For scalar VARs
+    # that round-trip is exactly [modify_unit] semantics, which we DO
+    # interpret, so expand the macro to the reduced form. Load-bearing
+    # for Mini_Maps_Collection's repeating `turn refresh` event
+    # {MODIFY_UNIT (role=monster) moves 0} (enclave_micro_isar.cfg:
+    # 86-91): it pins every tentacle at 0 MP, which via unit::
+    # end_turn's movement_!=total_movement check permanently cancels
+    # its rest heal (Micro Isar 38859, 2026-08-07).
+    macros["MODIFY_UNIT"] = (
+        ["FILTER", "VAR", "VALUE"],
+        "[modify_unit]\n"
+        "    [filter]\n"
+        "        {FILTER}\n"
+        "    [/filter]\n"
+        "    {VAR}={VALUE}\n"
+        "[/modify_unit]\n",
+    )
     return macros
 
 
@@ -992,6 +1011,10 @@ def _units_matching_filter(gs: GameState, flt: Optional[WMLNode]):
             gs.map.size_x, gs.map.size_y)}
     want_id = flt.attrs.get("id", "").strip().strip('"') or None
     want_side = flt.attrs.get("side", "").strip() or None
+    # role= matches the WML role assigned at spawn ([unit] role=...,
+    # stashed as `_wml_role` by _unit_action). Mini Maps' tentacles
+    # carry role=monster (units-utils.cfg:9).
+    want_role = flt.attrs.get("role", "").strip().strip('"') or None
     out = []
     for u in gs.map.units:
         if hexes is not None and (u.position.x, u.position.y) not in hexes:
@@ -999,6 +1022,8 @@ def _units_matching_filter(gs: GameState, flt: Optional[WMLNode]):
         if want_id and u.id != want_id:
             continue
         if want_side and str(u.side) != want_side:
+            continue
+        if want_role and getattr(u, "_wml_role", None) != want_role:
             continue
         out.append(u)
     return out
@@ -1410,6 +1435,11 @@ def _unit_action(gs: GameState, action: WMLNode) -> None:
                     new_abilities.add(aid)
         if new_abilities != base_unit.abilities:
             base_unit = _dc_replace(base_unit, abilities=new_abilities)
+    # Stash the WML role so later [filter] role= matching can find
+    # this unit (Mini Maps' MODIFY_UNIT (role=monster) MP-zeroing).
+    role = (action.attrs.get("role", "") or "").strip().strip('"')
+    if role:
+        setattr(base_unit, "_wml_role", role)
     gs.map.units.add(base_unit)
     # Bump Wesnoth's monotonic next_unit_id counter — Wesnoth's
     # prestart [unit] events also assign sequential uids.
@@ -1714,10 +1744,15 @@ def _apply_action(gs: GameState, action: WMLNode) -> None:
 def fire_event(gs: GameState, events: List[ScenarioEvent], trigger: str) -> int:
     """Fire every event whose name matches `trigger`. Returns the number
     of events fired. Latches `first_time_only` so subsequent calls with
-    the same trigger don't re-fire."""
+    the same trigger don't re-fire.
+
+    Space and underscore are interchangeable in event names, as in the
+    engine: play_controller.cpp fires "turn_refresh" while scenario WML
+    writes `name=turn refresh`, and they match."""
     n = 0
+    trig = trigger.replace("_", " ")
     for ev in events:
-        if ev.name != trigger:
+        if ev.name.replace("_", " ") != trig:
             continue
         if ev.first_time_only and ev.fired:
             continue
