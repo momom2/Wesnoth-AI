@@ -450,6 +450,12 @@ class LossParts:
     weapon_fired: bool
     value:        torch.Tensor = None   # zero sentinel when off
     value_fired:  bool = False
+    # Policy-loss multiplier (imitation mode): 0.0 silences the policy
+    # heads for a pair kept only as a value state (loser-side states
+    # under winners-only training); per-game equal weighting scales it
+    # by median_actions/game_actions. Head tensors above stay RAW for
+    # logging; `total` and the batched re-sum apply this weight.
+    policy_w:     float = 1.0
 
 
 # Per-action-type loss weight on the actor head + the new type head.
@@ -510,6 +516,7 @@ def _loss_parts_for_output(
     type_loss_weights: Dict[str, float] = None,
     value_z: Optional[int] = None,      # game outcome for the mover
     value_weight: float = 0.0,          # lambda_v x per-game weight
+    policy_weight: float = 1.0,         # imitation: 0 = value-only pair
 ) -> LossParts:
     """Per-sample CE loss decomposed into actor/type/target/weapon
     heads.
@@ -640,7 +647,12 @@ def _loss_parts_for_output(
         value_loss = value_weight * value_loss_raw
         value_fired = True
 
-    total = (actor_loss + type_loss + target_loss + weapon_loss
+    # `policy_weight` scales the POLICY heads only (imitation mode:
+    # winners-only sets 0.0 on loser-side pairs kept as value states;
+    # per-game weighting scales by median/game action count). Value
+    # supervision is weighted separately via `value_weight`.
+    total = (policy_weight * (actor_loss + type_loss + target_loss
+                              + weapon_loss)
              + value_loss)
     # Per-head fields report the raw CE (no action-type weight, no
     # smoothing scale baked in) so the running-average log line stays
@@ -649,7 +661,8 @@ def _loss_parts_for_output(
     return LossParts(total, actor_loss_raw, type_loss_raw,
                      target_loss, weapon_loss,
                      True, type_fired, target_fired, weapon_fired,
-                     value=value_loss_raw, value_fired=value_fired)
+                     value=value_loss_raw, value_fired=value_fired,
+                     policy_w=policy_weight)
 
 
 def _loss_for_output(
@@ -698,13 +711,15 @@ def _loss_parts_for_pair(
     type_loss_weights: Optional[Dict[str, float]] = None,
     value_z: Optional[int] = None,
     value_weight: float = 0.0,
+    policy_weight: float = 1.0,
 ) -> LossParts:
     """Per-pair forward + per-head loss breakdown."""
     encoded = _encode_one(encoder, state_or_raw, device)
     output = model(encoded)
     return _loss_parts_for_output(
         output, ai, device, type_loss_weights=type_loss_weights,
-        value_z=value_z, value_weight=value_weight)
+        value_z=value_z, value_weight=value_weight,
+        policy_weight=policy_weight)
 
 
 def _flush_batch(
@@ -747,12 +762,13 @@ def _flush_batch(
     # Single padded transformer pass over B samples.
     outputs = model.forward_batch(batch_encoded)
 
-    zw = batch_zw if batch_zw else [(None, 0.0)] * len(batch_ais)
+    zw = batch_zw if batch_zw else [(None, 0.0, 1.0)] * len(batch_ais)
     parts_list = [
         _loss_parts_for_output(out, ai, device,
                                type_loss_weights=type_loss_weights,
-                               value_z=z, value_weight=w)
-        for out, ai, (z, w) in zip(outputs, batch_ais, zw)
+                               value_z=z, value_weight=w,
+                               policy_weight=pw)
+        for out, ai, (z, w, pw) in zip(outputs, batch_ais, zw)
     ]
 
     # Stack each head separately so we can both backprop through the
@@ -768,17 +784,23 @@ def _flush_batch(
     # omitting this stack would silently drop value training in the
     # batched (GPU) flow only.
     value_stack  = torch.stack([p.value  for p in parts_list])  # [B]
-    vw = torch.tensor([w for (_z, w) in zw],
+    vw = torch.tensor([w for (_z, w, _pw) in zw],
                       device=value_stack.device,
                       dtype=value_stack.dtype)
+    # Per-sample POLICY weight (imitation winners-only / per-game
+    # weighting). NOTE the raw per-head stacks are re-summed here
+    # rather than using p.total, so the policy weight MUST be applied
+    # explicitly -- same trap as the value term below.
+    pw_t = torch.tensor([p.policy_w for p in parts_list],
+                        device=value_stack.device,
+                        dtype=value_stack.dtype)
 
     # backward() through the same scalar that the per-pair path
     # produces: sum of all heads divided by batch_size. Linearity
     # guarantees identical gradients to B individual
     # `(part.total / bs).backward()` calls.
-    total_loss = (actor_stack.sum() + type_stack.sum()
-                  + target_stack.sum()
-                  + weapon_stack.sum()
+    total_loss = (((actor_stack + type_stack
+                    + target_stack + weapon_stack) * pw_t).sum()
                   + (value_stack * vw).sum()) / batch_size
     total_loss.backward()
 
@@ -796,6 +818,10 @@ def _flush_batch(
     for i, p in enumerate(parts_list):
         if not p.actor_fired:
             continue   # actor_idx out of range — pair contributed 0 to grad
+        if p.value_fired and running_loss_value is not None:
+            running_loss_value.append(value_floats[i])
+        if p.policy_w == 0.0:
+            continue   # value-only pair: keep policy averages clean
         a, ty, t, w = (actor_floats[i], type_floats[i],
                        target_floats[i], weapon_floats[i])
         running_loss.append(a + ty + t + w)   # total = sum of heads
@@ -806,8 +832,6 @@ def _flush_batch(
             running_loss_target.append(t)
         if p.weapon_fired:
             running_loss_weapon.append(w)
-        if p.value_fired and running_loss_value is not None:
-            running_loss_value.append(value_floats[i])
 
 
 def _evaluate(
@@ -955,6 +979,10 @@ def train(
                                      # (0 = only at epoch ends)
     eval_pairs: int = 1200,          # held-out pairs per eval
     eval_only: bool = False,         # evaluate --resume ckpt and exit
+    imitation_config: Optional[Path] = None,
+        # configs/imitation.json: winners-only policy loss, per-game
+        # weighting, manifest holdout. Requires manifest.jsonl in
+        # dataset_dir (tools/build_imitation_dataset.py).
     type_loss_weights: Optional[Dict[str, float]] = None,
         # per-action-type loss weights; None -> defaults
         # (_DEFAULT_ACTION_TYPE_LOSS_WEIGHT). Pass via --action-type-weights
@@ -1161,7 +1189,51 @@ def train(
     # metric -- logged periodically so training yields a curve, not
     # an endpoint.
     holdout_files: List[Path] = []
-    if holdout_games > 0 and len(files) > holdout_games * 2:
+    # Imitation mode (configs/imitation.json + the dataset's
+    # manifest.jsonl from tools/build_imitation_dataset.py):
+    #   - winners-only policy loss (loser pairs keep value duty),
+    #   - per-game equal weighting (median/game winner-action count,
+    #     clipped to [0.25, 4] to bound E[w^2] -- see the value-
+    #     subsampling comment below for why unbounded per-game
+    #     weights destabilize file-sequential batches),
+    #   - manifest-driven deterministic holdout split (stable across
+    #     rebuilds; replaces the shuffled last-N split).
+    imit_policy_w: Optional[Dict[str, float]] = None
+    imit_winners_only = False
+    imit_winner_map: Dict[str, int] = {}
+    if imitation_config is not None:
+        icfg = json.loads(
+            Path(imitation_config).read_text(encoding="utf-8"))
+        man_path = dataset_dir / "manifest.jsonl"
+        if not man_path.is_file():
+            raise RuntimeError(
+                f"--imitation-config given but {man_path} is missing; "
+                f"run tools/build_imitation_dataset.py first")
+        man_rows = [json.loads(line) for line in
+                    man_path.open(encoding="utf-8")]
+        imit_winners_only = bool(icfg.get("policy_winners_only", True))
+        per_game = bool(icfg.get("per_game_weight", True))
+        acts = sorted(r["winner_actions"] for r in man_rows
+                      if r["winner_actions"] > 0)
+        med_actions = acts[len(acts) // 2] if acts else 1
+        imit_policy_w = {}
+        for r in man_rows:
+            if per_game and r["winner_actions"] > 0:
+                w = med_actions / r["winner_actions"]
+                w = max(0.25, min(4.0, w))
+            else:
+                w = 1.0
+            imit_policy_w[r["file"]] = w
+            imit_winner_map[r["file"]] = int(r["winner_side"])
+        holdout_names = {r["file"] for r in man_rows if r["holdout"]}
+        holdout_files = [f for f in files if f.name in holdout_names]
+        files = [f for f in files if f.name not in holdout_names]
+        log.info(
+            f"Imitation mode: {len(man_rows)} manifest games, "
+            f"winners_only={imit_winners_only}, per_game={per_game} "
+            f"(median actions {med_actions}), holdout "
+            f"{len(holdout_files)}")
+    elif holdout_games > 0 and len(files) > holdout_games * 2:
         _split = sorted(files)
         random.Random(0).shuffle(_split)
         holdout_files = _split[-holdout_games:]
@@ -1211,6 +1283,12 @@ def train(
             value_loss_weight = 0.0
     else:
         log.info("joint value loss OFF (value_loss_weight=0)")
+    # Imitation manifest winners feed the same map: the winners-only
+    # policy filter and the holdout value-AUC probe both read it,
+    # independent of whether the value LOSS is enabled. (Files absent
+    # from value_corpus_index keep select_p 0.0, so this cannot
+    # enable value training by itself.)
+    winner_map.update(imit_winner_map)
 
     if eval_only:
         if not holdout_files:
@@ -1365,6 +1443,23 @@ def train(
                 # kind == "pair"
                 _, state_or_raw, ai, _gz_name = event
 
+                if isinstance(state_or_raw, RawEncoded):
+                    mover = 1 if state_or_raw.global_feats[1] < 0 else 2
+                else:
+                    mover = state_or_raw.global_info.current_side
+
+                # Imitation-mode policy weight: winners-only zeroes
+                # the policy heads on loser-side pairs (they can still
+                # carry value supervision below); per-game weighting
+                # scales by median/game winner-action count. 1.0 when
+                # no imitation manifest is loaded (legacy behavior).
+                p_w = 1.0
+                if imit_policy_w is not None:
+                    p_w = imit_policy_w.get(_gz_name, 1.0)
+                    if (imit_winners_only
+                            and winner_map.get(_gz_name) != mover):
+                        p_w = 0.0
+
                 # Joint value target: subsampled -- this state
                 # carries the value loss with prob k/n(game) at
                 # uniform weight lambda_v (see the selection-map
@@ -1373,12 +1468,13 @@ def train(
                 if (value_loss_weight > 0.0 and _gz_name in winner_map
                         and random.random()
                         < value_select_p.get(_gz_name, 0.0)):
-                    if isinstance(state_or_raw, RawEncoded):
-                        mover = 1 if state_or_raw.global_feats[1] < 0 else 2
-                    else:
-                        mover = state_or_raw.global_info.current_side
                     v_z = 1 if winner_map[_gz_name] == mover else -1
                     v_w = value_loss_weight
+
+                if p_w == 0.0 and v_z is None:
+                    # Loser-side pair not selected as a value state:
+                    # nothing to learn from -- skip before encoding.
+                    continue
 
                 if use_batched:
                     # === Batched flow: accumulate B, then forward_batch.
@@ -1389,7 +1485,7 @@ def train(
                         continue
                     batch_encoded.append(encoded)
                     batch_ais.append(ai)
-                    batch_zw.append((v_z, v_w))
+                    batch_zw.append((v_z, v_w, p_w))
                     if len(batch_encoded) < batch_size:
                         continue
                     try:
@@ -1428,6 +1524,7 @@ def train(
                             encoder, model, state_or_raw, ai, device,
                             type_loss_weights=type_loss_weights,
                             value_z=v_z, value_weight=v_w,
+                            policy_weight=p_w,
                         )
                     except Exception as e:
                         log.debug(f"  loss compute failed: {e}")
@@ -1436,16 +1533,17 @@ def train(
                     if parts.actor_fired:
                         # 5 .item() calls per pair on CPU is fine — the
                         # per-pair flow only runs on CPU, no GPU sync.
-                        running_loss.append(float(parts.total.item()))
-                        running_loss_actor.append(float(parts.actor.item()))
-                        if parts.type_fired:
-                            running_loss_type.append(float(parts.type.item()))
-                        if parts.target_fired:
-                            running_loss_target.append(float(parts.target.item()))
-                        if parts.weapon_fired:
-                            running_loss_weapon.append(float(parts.weapon.item()))
                         if parts.value_fired:
                             running_loss_value.append(float(parts.value.item()))
+                        if parts.policy_w > 0.0:
+                            running_loss.append(float(parts.total.item()))
+                            running_loss_actor.append(float(parts.actor.item()))
+                            if parts.type_fired:
+                                running_loss_type.append(float(parts.type.item()))
+                            if parts.target_fired:
+                                running_loss_target.append(float(parts.target.item()))
+                            if parts.weapon_fired:
+                                running_loss_weapon.append(float(parts.weapon.item()))
                     running_count += 1
                     losses_in_batch += 1
                     if losses_in_batch < batch_size:
@@ -1679,6 +1777,12 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--eval-only", action="store_true",
                     help="Evaluate the --resume checkpoint on the "
                          "holdout split and exit (baseline mode).")
+    ap.add_argument("--imitation-config", type=Path, default=None,
+                    help="configs/imitation.json — enables imitation "
+                         "mode: winners-only policy loss, per-game "
+                         "equal weighting, manifest-driven holdout. "
+                         "Needs manifest.jsonl in DATASET_DIR (from "
+                         "tools/build_imitation_dataset.py).")
     ap.add_argument("--action-type-weights", type=Path, default=None,
                     help="Path to action-type loss-weight JSON "
                          "(see tools/compute_action_type_weights.py). "
@@ -1721,6 +1825,7 @@ def main(argv: List[str]) -> int:
         eval_every=args.eval_every,
         eval_pairs=args.eval_pairs,
         eval_only=args.eval_only,
+        imitation_config=args.imitation_config,
         type_loss_weights=type_loss_weights,
     )
     return 0

@@ -1,0 +1,31 @@
+{
+  "_doc": [
+    "Imitation-learning dataset + loss configuration (2026-08-07).",
+    "Consumed by tools/build_imitation_dataset.py (dataset selection)",
+    "and tools/supervised_train.py --imitation-manifest (loss shaping).",
+    "All knobs are config, not code: outcome classes, winner filtering,",
+    "per-game weighting and value supervision can change without",
+    "touching model or trainer internals.",
+    "",
+    "outcome_classes: which replay_outcomes.jsonl.gz classes to include.",
+    "  Default: explicit only (leader death / surrender), per user",
+    "  decision 2026-08-07. 'inferred' games (material ratio <=",
+    "  inferred_ratio_max) can be added later without rebuilding stats.",
+    "policy_winners_only: policy CE trains on the winning side's actions",
+    "  only. The LOSING side's states still contribute value supervision",
+    "  (value_from_outcome), which is where loser data earns its keep.",
+    "per_game_weight: each GAME contributes equally to the gradient",
+    "  (sample weight 1/n_pairs_of_its_game) instead of each pair.",
+    "value_from_outcome_weight: weight of the C51 value CE against the",
+    "  game outcome (+1 winner-side states / -1 loser-side states).",
+    "  0 disables value supervision entirely.",
+    "holdout_fraction: games (not pairs) held out for eval curves."
+  ],
+  "outcome_classes": ["explicit"],
+  "inferred_ratio_max": 0.5,
+  "policy_winners_only": true,
+  "per_game_weight": true,
+  "value_from_outcome_weight": 1.0,
+  "holdout_fraction": 0.02,
+  "dataset_dir": "replays_dataset_imitation"
+}

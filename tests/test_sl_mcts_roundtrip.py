@@ -158,7 +158,7 @@ def test_flush_batch_carries_value_loss():
     ais = [ai for _, ai in pairs]
     dq = {k: deque(maxlen=20) for k in
           ("t", "a", "ty", "tg", "w", "v")}
-    _flush_batch(mdl, enc, batch, ais, [(1, 0.5), (-1, 0.5)],
+    _flush_batch(mdl, enc, batch, ais, [(1, 0.5, 1.0), (-1, 0.5, 1.0)],
                  opt, list(mdl.parameters()), 2, dev,
                  dq["t"], dq["a"], dq["ty"], dq["tg"], dq["w"],
                  dq["v"])
