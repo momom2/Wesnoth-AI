@@ -30,6 +30,7 @@ import gzip
 import json
 import logging
 import multiprocessing as mp
+import os
 import random
 import sys
 import time
@@ -1342,6 +1343,22 @@ def train(
     stop = False
     files_seen = 0
 
+    # Stage profiling (WESNOTH_PROF=1, same env flag as the rollout
+    # prof system): wall-time accumulators for the three loop stages.
+    #   wait   = producer stall (worker prefetch / disk / extract)
+    #   encode = phase-2 encoding on the main thread
+    #   flush  = forward + backward + opt step (on CUDA the .tolist()
+    #            sync inside _flush_batch absorbs async kernel time,
+    #            so `flush` is an honest GPU-side total)
+    # Reported in every log line and dumped to <ckpt>_prof.json at
+    # each eval -- the box-sizing readout (CPU-encode vs GPU-forward
+    # balance) for tier-b hardware selection.
+    prof_on = bool(int(os.environ.get("WESNOTH_PROF", "0") or 0))
+    prof_acc = {"wait": 0.0, "encode": 0.0, "flush": 0.0,
+                "other": 0.0, "pairs": 0}
+    prof_path = checkpoint_out.with_name(
+        checkpoint_out.stem + "_prof.json")
+
     # Auto-pick batched vs per-pair forward. Batched amortizes
     # per-forward kernel-launch overhead across `bs` pairs at the cost
     # of padding-to-max-seq waste; on GPU the launch overhead clearly
@@ -1405,9 +1422,17 @@ def train(
         params_for_clip = list(model.parameters()) + list(encoder.parameters())
         opt.zero_grad()
         try:
-            for event in stream:
+            _stream_iter = iter(stream)
+            while True:
                 if stop:
                     break
+                _tw = time.perf_counter() if prof_on else 0.0
+                try:
+                    event = next(_stream_iter)
+                except StopIteration:
+                    break
+                if prof_on:
+                    prof_acc["wait"] += time.perf_counter() - _tw
                 kind = event[0]
 
                 if kind == "file_done":
@@ -1478,16 +1503,22 @@ def train(
 
                 if use_batched:
                     # === Batched flow: accumulate B, then forward_batch.
+                    _te = time.perf_counter() if prof_on else 0.0
                     try:
                         encoded = _encode_one(encoder, state_or_raw, device)
                     except Exception as e:
                         log.debug(f"  encode failed: {e}")
                         continue
+                    finally:
+                        if prof_on:
+                            prof_acc["encode"] += time.perf_counter() - _te
+                            prof_acc["pairs"] += 1
                     batch_encoded.append(encoded)
                     batch_ais.append(ai)
                     batch_zw.append((v_z, v_w, p_w))
                     if len(batch_encoded) < batch_size:
                         continue
+                    _tf = time.perf_counter() if prof_on else 0.0
                     try:
                         _flush_batch(
                             model, encoder, batch_encoded, batch_ais,
@@ -1508,6 +1539,9 @@ def train(
                         batch_ais.clear()
                         batch_zw.clear()
                         continue
+                    finally:
+                        if prof_on:
+                            prof_acc["flush"] += time.perf_counter() - _tf
                     running_count += len(batch_encoded)
                     batch_encoded.clear()
                     batch_ais.clear()
@@ -1519,6 +1553,9 @@ def train(
                     # peak; fewer kernel-launch savings, but on CPU the
                     # batched path's padding-to-max-seq waste is far
                     # worse so per-pair wins.
+                    # (per-pair mode: encode happens inside the call,
+                    # so `flush` here covers encode+forward+backward)
+                    _tf = time.perf_counter() if prof_on else 0.0
                     try:
                         parts = _loss_parts_for_pair(
                             encoder, model, state_or_raw, ai, device,
@@ -1529,6 +1566,10 @@ def train(
                     except Exception as e:
                         log.debug(f"  loss compute failed: {e}")
                         continue
+                    finally:
+                        if prof_on:
+                            prof_acc["flush"] += time.perf_counter() - _tf
+                            prof_acc["pairs"] += 1
                     (parts.total / batch_size).backward()
                     if parts.actor_fired:
                         # 5 .item() calls per pair on CPU is fine — the
@@ -1582,6 +1623,15 @@ def train(
                         # learned WHAT to do but not WHERE. (Either
                         # head can be NaN early on if no pair has
                         # fired it yet.)
+                        prof_str = ""
+                        if prof_on:
+                            tot = max(1e-9, sum(
+                                prof_acc[k] for k in
+                                ("wait", "encode", "flush")))
+                            prof_str = (
+                                f" prof[wait={prof_acc['wait']/tot:.0%}"
+                                f" enc={prof_acc['encode']/tot:.0%}"
+                                f" flush={prof_acc['flush']/tot:.0%}]")
                         log.info(
                             f"  epoch={epoch} step={step} "
                             f"avg_loss={avg:.3f} "
@@ -1590,6 +1640,7 @@ def train(
                             f"value={_avg(running_loss_value):.3f}) "
                             f"pairs={running_count} rate={rate:.1f}/s "
                             f"wall={total_elapsed/60:.1f}m eta={eta}"
+                            f"{prof_str}"
                         )
                     if global_step % ckpt_every == 0:
                         # Mid-epoch periodic checkpoint: save the
@@ -1616,6 +1667,13 @@ def train(
                             winner_map=winner_map)
                         _log_eval(stats, epoch, global_step,
                                   running_count, checkpoint_out)
+                        if prof_on:
+                            prof_path.write_text(json.dumps({
+                                "pairs": running_count,
+                                "wall_s": time.time() - t_start,
+                                **{k: round(v, 2) for k, v in
+                                   prof_acc.items()},
+                            }), encoding="utf-8")
                     if max_pairs and running_count >= max_pairs:
                         log.info(f"Reached max_pairs={max_pairs}; stopping.")
                         stop = True
