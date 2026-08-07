@@ -196,3 +196,69 @@ def test_pickadvance_extractor_plumbing():
     assert 'menu item pickadvance' in src
     assert '"pickadvance",' in src
     assert 'pending_pick_hex' in src
+
+
+def test_turn1_healing_gate_split():
+    """Engine parity, play_controller.cpp:484-507 (1.18.4): healing
+    is gated by do_healing() -- false ONLY for the game's very first
+    side-init -- while MP refresh + income sit behind turn() > 1. A
+    regenerating unit damaged on turn 1 heals at its own turn-1 init
+    (Micro Isar tentacles, user-observed); nothing heals at the very
+    first init; turn-1 inits never refresh MP."""
+    from tools import replay_dataset as rd
+    gs = rd._build_initial_gamestate({
+        "game_id": "t", "scenario_id": "multiplayer_Weldyn_Channel",
+        "factions": ["Rebels", "Rebels"],
+        "experience_modifier": 70,
+        "starting_sides": [
+            {"side": 1, "gold": 100}, {"side": 2, "gold": 100}],
+        "starting_units": [
+            {"uid": 1, "type": "Elvish Captain", "side": 1, "x": 5,
+             "y": 5, "is_leader": True},
+            {"uid": 2, "type": "Wose", "side": 2, "x": 20, "y": 5,
+             "is_leader": True}],
+        "starting_villages": [], "commands": [],
+    })
+    u1 = next(u for u in gs.map.units if u.id == "u1")
+    u2 = next(u for u in gs.map.units if u.id == "u2")
+    u1.current_hp -= 10
+    u2.current_hp -= 10
+    u2.current_moves = 1          # must NOT refresh on turn 1
+
+    rd._apply_command(gs, ["init_side", 1])   # the game's FIRST init
+    u1 = next(u for u in gs.map.units if u.id == "u1")
+    assert u1.current_hp == u1.max_hp - 10, "no healing at first init"
+
+    rd._apply_command(gs, ["init_side", 2])   # turn-1, non-first init
+    u2 = next(u for u in gs.map.units if u.id == "u2")
+    assert u2.current_hp == u2.max_hp - 10 + 8, \
+        f"regen must heal at turn-1 non-first init (got {u2.current_hp})"
+    assert u2.current_moves == 1, "no MP refresh on turn 1"
+
+    rd._apply_command(gs, ["end_turn"])
+    rd._apply_command(gs, ["init_side", 1])   # turn 2 begins
+    u1 = next(u for u in gs.map.units if u.id == "u1")
+    assert u1.current_moves == u1.max_moves, "turn-2 init refreshes MP"
+    rd._apply_command(gs, ["end_turn"])
+    rd._apply_command(gs, ["init_side", 2])   # turn 2, side 2
+    u2 = next(u for u in gs.map.units if u.id == "u2")
+    # -10 +8 (t1 regen) = max-2; +8+2 at t2 clamps at max_hp.
+    assert u2.current_hp == u2.max_hp,         f"turn-2 regen+rest should clamp to full (got {u2.current_hp})"
+    assert u2.current_moves == u2.max_moves
+
+
+def test_map_header_start_positions():
+    """Add-on maps embed their .map header (border_size=/usage=) in
+    map_data; counting header lines as terrain rows shifted every
+    start hex by +2 in y, silently src-missing every leader command
+    of mini-map server replays (29/34 sampled 2p_mini_edited forked
+    from turn 1, 2026-08-06 sweep)."""
+    from tools.replay_extract import _parse_map_starting_positions
+    md = ("border_size=1\nusage=map\n\n"
+          "Wo, Wo, Wo, Wo\n"
+          "Wo, 1 Ke, Gg, Wo\n"
+          "Wo, Gg, 2 Ke, Wo\n"
+          "Wo, Wo, Wo, Wo\n")
+    pos = _parse_map_starting_positions(md)
+    assert pos[1] == (0, 0), pos
+    assert pos[2] == (1, 1), pos

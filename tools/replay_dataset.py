@@ -1701,13 +1701,32 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         # built at full MP/HP, resting set), but REQUIRED for start
         # events that modify turn-1 MP: WL_Marshy_Fill's leader-shave
         # was silently wiped by the unconditional reset (2026-08-06).
+        # TWO separate engine gates (play_controller.cpp:484-507,
+        # 1.18.4 -- read them verbatim, they are NOT one gate):
+        #   - `if(turn() > 1)`: MP/statuses refresh (board_.new_turn)
+        #     and income/upkeep. Turn 1 gets NEITHER -- this is what
+        #     preserves start-event MP mods (Marshy shave, 2026-08-06).
+        #   - `if(do_healing())`: HEALING (rest/village/regen/poison),
+        #     false ONLY for the game's very first side-init, then
+        #     set_do_healing(true) -- "Do healing on every side turn
+        #     except the very first side turn." A tentacle damaged on
+        #     turn 1 side 2 DOES regenerate at its turn-1 side-3 init
+        #     (user-observed in the viewer, Micro Isar 74914; folding
+        #     healing into the turn gate silently skipped it).
         first_turn = gs.global_info.turn_number <= 1
+        do_healing = bool(getattr(gs.global_info,
+                                  "_did_first_init_side", False))
+        setattr(gs.global_info, "_did_first_init_side", True)
         pos_idx = build_pos_index(gs.map.units)
         new_units = set()
         for u in gs.map.units:
-            if first_turn:
+            if first_turn and not do_healing:
                 new_units.add(u)
                 continue
+            if first_turn:
+                # Turn 1, non-first init: heal, but NO move refresh /
+                # income. Route through the healing-only path below.
+                pass
             # Skip non-own-side units, AND petrified own-side units:
             # Wesnoth's calculate_healing (heal.cpp) bails on
             # `patient.incapacitated()` (== STATE_PETRIFIED) before any
@@ -1840,12 +1859,18 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             # (will be cleared again by move/attack during the upcoming
             # turn). Subsequent moves and attacks discard "resting".
             new_statuses.add("resting")
+            # The MP/attack refresh belongs to the `turn() > 1` gate
+            # (board_.new_turn), NOT to healing: a turn-1 non-first
+            # init heals (regen tentacles) but must not refresh moves
+            # (start-event MP mods survive; engine parity 2026-08-06).
+            _refresh = ({} if first_turn
+                        else {"current_moves": u.max_moves,
+                              "has_attacked": False})
             healed = _rebuild_unit(
                 u,
-                current_moves=u.max_moves,
-                has_attacked=False,
                 current_hp=new_hp,
                 statuses=new_statuses,
+                **_refresh,
             )
             new_units.add(healed)
         gs.map.units = new_units

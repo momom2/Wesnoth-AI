@@ -410,8 +410,16 @@ def _parse_map_starting_positions(map_data: str) -> Dict[int, Tuple[int, int]]:
     {side_number: (x, y)} in Python 0-indexed coords (after border
     stripping — see parse_map_data)."""
     out: Dict[int, Tuple[int, int]] = {}
-    rows = [r for r in map_data.splitlines() if r.strip()]
-    border = 1
+    # Header-aware row split (border_size=/usage= lines): add-on maps
+    # embed their .map headers in map_data; counting them as terrain
+    # rows shifted every start position by +2 in y, so every leader
+    # command src-missed SILENTLY and mini-map server replays forked
+    # from turn 1 (29/34 sampled 2p_mini_edited diverged, 2026-08-06
+    # fidelity sweep). Same bug class split_map_grid was built for on
+    # the export path (2026-07-06) -- this parser predates it and
+    # never adopted it. Local import: replay_dataset imports us.
+    from tools.replay_dataset import split_map_grid
+    rows, border = split_map_grid(map_data)
     for y, row in enumerate(rows):
         cells = [c.strip() for c in row.split(",")]
         for x, cell in enumerate(cells):
@@ -437,7 +445,8 @@ def build_initial_state(root: WMLNode) -> GameState:
     # Map size: parse map_data to count rows/cols (rough).
     md = snap.attrs.get("map_data", "")
     if md:
-        rows = [r for r in md.splitlines() if r.strip()]
+        from tools.replay_dataset import split_map_grid
+        rows, _b = split_map_grid(md)
         if rows:
             gs.map_size = (len(rows[0].split(",")), len(rows))
     starting_positions = _parse_map_starting_positions(md)
@@ -1822,11 +1831,77 @@ def extract_replay(path: Path) -> Optional[dict]:
         else:
             rst = (snap.attrs.get("random_start_time", "no") or "no").strip().lower()
             if rst in ("yes", "true", "1"):
+                # The save records NO resolved time -- the engine
+                # re-rolls it identically at replay playback from the
+                # synced RNG: tod_manager::resolve_random (1.18.4
+                # tod_manager.cpp), boolean branch:
+                #   currentTime_ = fix_time_index(times_.size(),
+                #                                 r.next_random());
+                # i.e. ONE draw, modulo the schedule length, from the
+                # game's initial seed ([carryover_sides_start]
+                # random_seed= at random_calls= offset). Derive it the
+                # same way instead of dropping the replay (the old
+                # conservative gate silently dropped EVERY replay of
+                # random-ToD scenarios -- 32/248 of the 2026-08-06
+                # fidelity sample, all enclave_micro_isar + early
+                # mini_edited).
+                co = root.first("carryover_sides_start")
+                seed_hex = (co.attrs.get("random_seed", "").strip()
+                            if co is not None else "")
+                try:
+                    calls = int(co.attrs.get("random_calls", "0") or 0)                         if co is not None else 0
+                except ValueError:
+                    calls = 0
+                n_times = len(snap.all("time")) or 6
+                # List-form random_start_time ("2,4") has different
+                # draw semantics (two draws, value list) -- not seen
+                # in the corpus; keep dropping those for fidelity.
+                if rst not in ("yes", "true", "1") or not seed_hex:
+                    log.debug(
+                        f"{path.name}: unresolvable random_start_time "
+                        f"({rst!r}, seed={bool(seed_hex)}); dropping")
+                    return None
+                # PRIMARY derivation: recorded [attack] blocks carry
+                # tod= and turn= labels; slot(turn) = (start + turn-1)
+                # % n, so ONE attack pins the start index without
+                # modeling the engine's pre-ToD draw stream (which the
+                # 2026-08-06 brute-force showed is NOT a fixed offset
+                # from the carryover seed: true indices scattered over
+                # draw positions 1..5+ across 18 games).
+                _slot_ids = [tn.attrs.get("id", "").strip('"')
+                             for tn in snap.all("time")]
+                if not _slot_ids:
+                    _slot_ids = ["dawn", "morning", "afternoon",
+                                 "dusk", "first_watch", "second_watch"]
+                tod_start_index = None
+                for _rep in root.all("replay"):
+                    for _cmd in _rep.all("command"):
+                        _atk = _cmd.first("attack")
+                        if _atk is None:
+                            continue
+                        _lbl = _atk.attrs.get("tod", "").strip('"')
+                        try:
+                            _turn = int(_atk.attrs.get("turn", "0"))
+                        except ValueError:
+                            continue
+                        if _lbl in _slot_ids and _turn >= 1:
+                            tod_start_index = (
+                                (_slot_ids.index(_lbl) - (_turn - 1))
+                                % len(_slot_ids))
+                            break
+                    if tod_start_index is not None:
+                        break
+                if tod_start_index is None:
+                    # No labeled attack anywhere (ultra-short game):
+                    # fall back to the first synced draw -- right for
+                    # zero-pre-draw games, and a no-attack game can't
+                    # diverge on ToD-modified combat anyway.
+                    from wesnoth_ai.combat import MTRng
+                    _rng = MTRng(seed_hex, call_count=calls)
+                    tod_start_index = _rng.get_next_random() % n_times
                 log.debug(
-                    f"{path.name}: random_start_time=yes with no resolved "
-                    f"current_time; dropping for fidelity"
-                )
-                return None
+                    f"{path.name}: derived random start ToD index "
+                    f"{tod_start_index} of {n_times}")
 
     # `experience_modifier` lives in the top-level metadata or in
     # [multiplayer]; it scales every unit's max_xp via Wesnoth's

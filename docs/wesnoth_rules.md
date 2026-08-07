@@ -1004,6 +1004,43 @@ unit.cpp:855-893 (random-fill phase):
 - (no `availability=` attribute) → eligible for non-leader random
   pool only.
 
+### init_side: healing and MP-refresh/income sit behind DIFFERENT gates
+
+`wesnoth_src/src/play_controller.cpp:484-507` (1.18.4, do_init_side):
+```cpp
+	// Healing/income happen if it's not the first turn of processing,
+	// or if we are loading a game.
+	if(turn() > 1) {
+		gamestate().board_.new_turn(current_side());
+		current_team().new_turn();
+		...spend_gold(expense)...
+	}
+
+	if(do_healing()) {
+		calculate_healing(current_side(), !is_skipping_replay());
+	}
+
+	// Do healing on every side turn except the very first side turn.
+	// (1.14 and earlier did healing whenever turn >= 2.)
+	set_do_healing(true);
+```
+- **MP/attack refresh + income/upkeep**: only when `turn() > 1`.
+  Turn-1 inits get NEITHER — this is what lets start events that
+  modify turn-1 MP (Marshy Fill's leader shave) survive.
+- **Healing** (rest, village, regeneration, healers, poison ticks):
+  gated by `do_healing()`, which is false ONLY for the game's very
+  first side-init and true from the second onward — INCLUDING the
+  later sides of turn 1.
+
+**Why non-obvious**: the comment above the `turn() > 1` block says
+"Healing/income" but healing was split out in 1.16+ (the in-code
+1.14 note). Folding healing into the turn gate skipped the Micro
+Isar tentacles' turn-1 regeneration (+8 at side 3's first init,
+user-observed in the viewer): our sim's tentacle entered a turn-2
+fight at 11 HP where the engine's stood at 19, died vs survived on
+identical rolls, and the fork surfaced as attack:defender_missing
+two commands later (2026-08-06 fidelity sweep, 4 files).
+
 ### Plan Unit Advance (pickadvance): picks NARROW advances_to; [choose] indexes the narrowed list
 
 `data/modifications/pick_advance/main.lua` (MAINLINE, shipped with
