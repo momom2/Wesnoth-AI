@@ -1342,6 +1342,7 @@ def train(
     t_start = time.time()
     stop = False
     files_seen = 0
+    file_errors = 0
 
     # Stage profiling (WESNOTH_PROF=1, same env flag as the rollout
     # prof system): wall-time accumulators for the three loop stages.
@@ -1454,8 +1455,16 @@ def train(
 
                 if kind == "file_error":
                     files_seen += 1
+                    file_errors += 1
                     _, gz_name, err = event
-                    log.debug(f"  skip {gz_name}: {err}")
+                    # WARNING, not debug: a silent per-file error rate
+                    # is exactly what made the 2026-08-08 random-arm
+                    # underrun (epoch "done" at 171k of 2.5M pairs)
+                    # undiagnosable post-hoc. First few get the full
+                    # error; the rest count silently into the epoch
+                    # summary line.
+                    if file_errors <= 5:
+                        log.warning(f"  file_error {gz_name}: {err}")
                     # Abandon any partial gradient or batch from this
                     # file — its data is incomplete.
                     opt.zero_grad()
@@ -1738,6 +1747,11 @@ def train(
                          global_step, running_count, epoch=completed,
                          arch=arch_record, carry=carry)
         log.info(f"Epoch {epoch} saved to {checkpoint_out} and {epoch_path.name}")
+        # Accounting line: an epoch that "completes" with a large
+        # error count or far fewer pairs than the corpus holds is a
+        # broken run, not a fast one (2026-08-08 random-arm underrun).
+        log.info(f"  epoch accounting: files_seen={files_seen} "
+                 f"file_errors={file_errors} pairs={running_count}")
         if holdout_files:
             stats = _evaluate(model, encoder, holdout_files, device,
                               eval_pairs=eval_pairs,
