@@ -980,6 +980,10 @@ def train(
                                      # (0 = only at epoch ends)
     eval_pairs: int = 1200,          # held-out pairs per eval
     eval_only: bool = False,         # evaluate --resume ckpt and exit
+    reinit_value_head: bool = False,
+        # drop value_head.* from the --resume state (and skip the
+        # optimizer-state restore): warm trunk+policy, fresh value.
+        # Imitation A/B 2026-08-08 verdict -- see the resume block.
     imitation_config: Optional[Path] = None,
         # configs/imitation.json: winners-only policy loss, per-game
         # weighting, manifest holdout. Requires manifest.jsonl in
@@ -1101,6 +1105,22 @@ def train(
         # epoch-3 checkpoint predates it. We log the deltas so a
         # silent vocab/encoder regression can't sneak through
         # disguised as "ah, that's just the new head".
+        if reinit_value_head:
+            # Imitation A/B verdict (2026-08-08): the warm-started
+            # trunk+policy dominate everywhere (holdout CE 3.107 vs
+            # 3.449), but the warm VALUE head -- trained on search-
+            # backed z targets -- fights the outcome supervision all
+            # run (AUC oscillating 0.52-0.89, final 0.538) while a
+            # fresh head climbs cleanly to 0.951. Drop the value-head
+            # weights from the checkpoint so they train from random
+            # init while everything else warm-starts.
+            n_drop = 0
+            for k in list(ckpt["model_state"].keys()):
+                if k.startswith("value_head."):
+                    del ckpt["model_state"][k]
+                    n_drop += 1
+            log.info(f"  --reinit-value-head: dropped {n_drop} value "
+                     f"head tensor(s) from the resume state")
         m_missing, m_unexpected = model.load_state_dict(
             ckpt["model_state"], strict=False)
         if m_missing:
@@ -1122,7 +1142,14 @@ def train(
         encoder.unit_type_to_id = dict(ckpt.get("unit_type_to_id", {}))
         if "faction_to_id" in ckpt:
             encoder.faction_to_id = dict(ckpt["faction_to_id"])
-        if "optimizer_state" in ckpt:
+        if "optimizer_state" in ckpt and reinit_value_head:
+            # Fresh value-head params must not inherit the old head's
+            # Adam moments (state entries match by param order, so the
+            # stale moments would land ON the re-initialized tensors).
+            # A new training phase re-accumulates momentum cheaply.
+            log.info("  --reinit-value-head: skipping optimizer-state "
+                     "restore (fresh momentum)")
+        elif "optimizer_state" in ckpt:
             try:
                 opt.load_state_dict(ckpt["optimizer_state"])
                 # Padded legacy encoder tensors need their Adam
@@ -1849,6 +1876,11 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--eval-only", action="store_true",
                     help="Evaluate the --resume checkpoint on the "
                          "holdout split and exit (baseline mode).")
+    ap.add_argument("--reinit-value-head", action="store_true",
+                    help="Drop value_head.* from the --resume state "
+                         "and skip optimizer-state restore: warm "
+                         "trunk+policy, fresh value head (imitation "
+                         "A/B verdict 2026-08-08).")
     ap.add_argument("--imitation-config", type=Path, default=None,
                     help="configs/imitation.json — enables imitation "
                          "mode: winners-only policy loss, per-game "
@@ -1897,6 +1929,7 @@ def main(argv: List[str]) -> int:
         eval_every=args.eval_every,
         eval_pairs=args.eval_pairs,
         eval_only=args.eval_only,
+        reinit_value_head=args.reinit_value_head,
         imitation_config=args.imitation_config,
         type_loss_weights=type_loss_weights,
     )
