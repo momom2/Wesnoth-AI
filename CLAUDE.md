@@ -54,7 +54,62 @@ Most replays in `replays_raw/` are from 1.18.x clients; pin
 accordingly. If a replay's `[scenario] version=` says something
 other than 1.18.x, scrape from that version's tag instead.
 
-## Current status (2026-07-31)
+## Current status (2026-08-08)
+
+**The human-replay corpus is CERTIFIED 100% bit-exact (24,796/24,796)
+and the imitation-learning phase is running.** The 2026-08-06..07
+fidelity grind (viewer-ledger process with the user + an automated
+engine-OOS harness validated on 10/10 clean controls) closed every
+residual divergence: five sim/extractor root causes fixed
+(tentacle rest-heal `a41b059`, chatter-window + pattern-A trailer
+`d92f949`, pickadvance-recruit + [object]-through-advancement
+`422675c`), 57 corrupt recordings deleted engine-verified,
+39 empty saves deleted, 6 Dunefolk-fielded quarantined, 1 parked
+(`setaside_pickadvance_force` — pick_advance's force-mode RANDOM
+narrowing on ignored dialogs; docs/wesnoth_rules.md has the entry).
+Ledger: `training/logs/replay_dispositions.jsonl.gz`.
+
+**Imitation dataset + pipeline (commit `7dfe44b`, config-first):**
+preprocessing quarantined short (<5 turns, 3,644), duplicates
+(save-chain dedup by stream-prefix identity, 276) and uninformative
+(<10 attacks or <3 kills, 1,509) games → **training pool 19,367;
+17,124 with explicit winners = 2.57M winner-side pairs** in
+`replays_dataset_imitation/` (build: `tools/build_imitation_dataset.py`;
+outcome labels: `training/logs/replay_outcomes.jsonl.gz`). Trainer:
+`supervised_train.py --imitation-config configs/imitation.json` =
+winners-only policy CE + per-game equal weighting + both-sides ±1
+value supervision + manifest holdout (369 games).
+
+**Imitation A/B (HF `tier-b/imitation_ab_20260808/`): warm-start wins
+policy, fresh head wins value.** One epoch each, 15M net, 4090:
+seeded holdout CE **3.107** / actor@1 56.6% vs random 3.449 / 54.4%
+(seeded better at every matched pair count); but value AUC: fresh
+head **0.951** stable vs warm head 0.538 oscillating. Verdict wired
+as `--reinit-value-head` (`49df952`). Caveat: the seeded arm ran
+pre-instrumentation code and silently skipped ~21% of files; the
+rerun below is the clean version. `bfa96e7` added per-epoch
+accounting (`files_seen/file_errors/pairs`) so underruns are audible.
+
+**In flight:** the tier-b imitation starting checkpoint (warm
+trunk+policy + fresh value head, full 2.52M pairs) is training on a
+rented 4090 (instance 47310167, ~$0.32/h, ~14h ETA from 2026-08-08
+morning); on completion it self-escrows to HF as
+`tier-b/imitation_ab_20260808/imit_tierb_epoch0.pt` and touches
+`/workspace/RUN_DONE_ESCROWED`. **The box must be stopped manually
+after** (`vastai stop instance 47310167`). Profiling (supervised
+`WESNOTH_PROF=1`, commit `e283abb`): solo-4090 epoch is 76%
+forward/backward — GPU-bound; bigger card, not more cores, is the
+tier-b supervised lever. Old boxes 46182445/46775903/46776363 are
+stopped and slot-blocked (their GPUs re-rented; starts queue
+indefinitely — cancel queued starts or they fire unattended later).
+
+**Open training-design questions:** winners-only is the default;
+outcome-conditioning rejected for now (architecture identity with
+self-play preserved). Next after the checkpoint lands: evaluate it
+(vs RCA + probe metrics), then decide the imitation→self-play
+handoff for tier-b.
+
+## Current status (2026-07-31, superseded — kept for provenance)
 
 **A 72h autonomous run (Claude + Fable, 2026-07-28..31) fixed four
 measurable defects in the learning signal. The lineage now provably

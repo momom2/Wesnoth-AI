@@ -8,7 +8,33 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
 
 ---
 
-## Where the project stands
+## NEXT ACTIONS (2026-08-08 — the short list)
+
+1. **Collect the tier-b imitation checkpoint** — training on rented 4090
+   47310167 (self-escrows to HF `tier-b/imitation_ab_20260808/
+   imit_tierb_epoch0.pt`, touches `/workspace/RUN_DONE_ESCROWED`);
+   **stop the box after** (`vastai stop instance 47310167`).
+2. **Evaluate it**: holdout curve vs both A/B arms (expect ≤3.107 CE
+   with a ~0.95-AUC value head), then the external probes — this is the
+   first checkpoint with a plausible claim to move the 0-30 RCA number.
+3. **Decide the imitation → self-play handoff** (BACKLOG item: does
+   self-play from the imitation checkpoint keep its human-play CE? add
+   a periodic `--imitation-config --eval-only` probe to campaign legs).
+4. Multi-epoch question: one epoch left CE still falling slowly — a
+   second epoch is ~$4.50/14h; measure marginal gain before habit.
+5. Corpus follow-ups (cheap, parked): extractor gap for menu-picks
+   armed by MOVES (Necromancer-pick shape, zero measured corpus impact);
+   `setaside_pickadvance_force` support if force-choice games ever
+   matter; eras beyond default/dunefolk-clean re-ruling.
+
+Context for all of it: **CLAUDE.md §Current status (2026-08-08)** —
+corpus certified 100% (24,796), imitation pool 19,367 games / 2.57M
+winner pairs, A/B verdict (warm policy + fresh value head,
+`--reinit-value-head`).
+
+---
+
+## Where the project stands (2026-08-04, pre-imitation — kept for context)
 
 - **The learning signal was broken in four measurable ways. Fixed.** The
   lineage provably improves against its own past: **+133 ±57 Elo**
