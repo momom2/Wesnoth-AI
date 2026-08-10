@@ -1241,6 +1241,14 @@ def train(
                     man_path.open(encoding="utf-8")]
         imit_winners_only = bool(icfg.get("policy_winners_only", True))
         per_game = bool(icfg.get("per_game_weight", True))
+        # Config-first: the config's value_from_outcome_weight governs
+        # lambda_v in imitation mode (overrides the CLI flag — the
+        # techniques-inventory audit found this key silently dead,
+        # its _doc promising a disable that never happened).
+        if "value_from_outcome_weight" in icfg:
+            value_loss_weight = float(icfg["value_from_outcome_weight"])
+            log.info(f"  value_from_outcome_weight from config: "
+                     f"{value_loss_weight}")
         acts = sorted(r["winner_actions"] for r in man_rows
                       if r["winner_actions"] > 0)
         med_actions = acts[len(acts) // 2] if acts else 1
