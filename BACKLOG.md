@@ -28,8 +28,23 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
    itself OFF. t0 reference: CE 3.102.
 4. Multi-epoch question: one epoch left CE still falling slowly — a
    second epoch is ~$4.50/14h; measure marginal gain before habit.
-5. **Handoff-leg launch config — DECIDED 2026-08-10 (technique review
-   A-items, user rulings):** ACTIVATED: `--distill-prior-discount 0.9`
+5. **Handoff-leg launch — ASSEMBLED 2026-08-10; template is
+   launch-ready.** `scripts/vast_onstart.sh` now DEFAULTS to the
+   handoff leg: 15M arch, CAMPAIGN_FILE=tier_b_handoff.pt, seed
+   fetched from HF tier-b/imit_tierb_start.pt (flags fixed + re-
+   escrowed: aux/moves head booleans were still True after D2's
+   tensor strip), NO decision-step reset (anneal pinned off;
+   RESET_DECISION_STEP=1 to override), actor-pool topology (F3;
+   SPOOL_WORKERS>0 = debug fallback), --distill-prior-discount 0.9
+   (A1), MINI_RATIO 0 (A1 caveat), value-anchor build default ON
+   (A2), turn-cap jitter 60-100 (A3), tripwires 0.35/20 + floor-
+   relative stall 60 (A5), SIM_FORK_GUARD smoke gate before launch
+   (A6; PASSED locally vs the seed, ~30 min at 2x15 turns, trimmed
+   to 1x8), imitation dataset staged from HF
+   (tier-b/replays_dataset_imitation.tar.gz, 67 MB, uploaded),
+   holdout-probe + games-log escrow armed. Launching = one vast
+   create call; propose specs+cost to the user first (standing
+   rule). Original ruling record: ACTIVATED: `--distill-prior-discount 0.9`
    (A1), `--human-anchor-file` value rehearsal (A2, cache build
    pending), turn-cap jitter `--max-turns-min 60 --max-turns 100` (A3),
    `--replay-buffer` now DEFAULT ON at the training CLI (A4, shipped),

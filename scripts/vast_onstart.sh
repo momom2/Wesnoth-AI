@@ -130,12 +130,23 @@ fi
 # checkpoint AND the HF escrow object. `tier_a_campaign.pt` is
 # RESERVED for the Tier-a lineage -- a Tier-b run that leaves it at
 # the default would roll its own weights forward over that name.
-D_MODEL="${D_MODEL:-256}"
-NUM_LAYERS="${NUM_LAYERS:-6}"
-NUM_HEADS="${NUM_HEADS:-8}"
-D_FF="${D_FF:-1024}"
-CAMPAIGN_FILE="${CAMPAIGN_FILE:-tier_a_campaign.pt}"
-SEED_CKPT="${SEED_CKPT:-training/checkpoints/tier_a_5m.pt}"
+# Defaults = the tier-b HANDOFF leg (2026-08-10 technique-review
+# config): 15M arch, seeded from the imitation checkpoint
+# (imit_tierb_start.pt = rescued 2368k ckpt, aux heads stripped,
+# holdout CE 3.102 = the leg's t0 reference). A tier-a revival must
+# override all six.
+D_MODEL="${D_MODEL:-384}"
+NUM_LAYERS="${NUM_LAYERS:-8}"
+NUM_HEADS="${NUM_HEADS:-12}"
+D_FF="${D_FF:-1536}"
+CAMPAIGN_FILE="${CAMPAIGN_FILE:-tier_b_handoff.pt}"
+SEED_CKPT="${SEED_CKPT:-training/checkpoints/imit_tierb_start.pt}"
+# HF repo folder for this lineage -- shared with hf_upload_loop.py so
+# the seed-fetch and the escrow can never drift apart.
+HF_PREFIX="${HF_PREFIX:-tier-b/}"
+export HF_PREFIX
+# HF path of the first-launch seed (the fetch block below).
+SEED_HF_NAME="${SEED_HF_NAME:-${HF_PREFIX}$(basename "$SEED_CKPT")}"
 echo "[onstart] arch d_model=$D_MODEL layers=$NUM_LAYERS heads=$NUM_HEADS" \
      "d_ff=$D_FF | campaign=$CAMPAIGN_FILE | seed=$SEED_CKPT"
 
@@ -164,7 +175,7 @@ if [ ! -f "$CAMPAIGN" ]; then
     if [ -n "${HF_TOKEN:-}" ] || [ -f "$WORKDIR/.hf_token" ]; then
         "$PY" -m pip install --quiet huggingface_hub || true
         HF_SEED_TOKEN="${HF_TOKEN:-}" \
-        HF_SEED_FILE="${HF_SEED_FILE:-$CAMPAIGN_FILE}" \
+        HF_SEED_FILE="${HF_SEED_FILE:-${HF_PREFIX}$CAMPAIGN_FILE}" \
         HF_SEED_DEST="$CAMPAIGN" \
         "$PY" - <<'EOF' && echo "[onstart] seeded campaign from HF" \
             || echo "[onstart] HF seed unavailable (first campaign?)"
@@ -221,6 +232,35 @@ print(f"[onstart] corpus: {len(list(dst.glob('*.json.gz')))} games")
 EOF
 fi
 
+# Stage the IMITATION dataset (games + manifest) for the human-holdout
+# CE probe (the handoff observable) and the anchor builders. Escrowed
+# as tier-b/replays_dataset_imitation.tar.gz (2026-08-10). Idempotent.
+if [ ! -f replays_dataset_imitation/manifest.jsonl ] \
+        && { [ -n "${HF_TOKEN:-}" ] || [ -f "$WORKDIR/.hf_token" ]; }; then
+    HF_SEED_TOKEN="${HF_TOKEN:-}" \
+    "$PY" - <<'EOF' && echo "[onstart] imitation dataset staged" \
+        || echo "[onstart] WARN: imitation dataset staging failed (probe OFF)"
+import os, pathlib, sys, tarfile
+from huggingface_hub import hf_hub_download
+tok = os.environ.get("HF_SEED_TOKEN") or pathlib.Path(
+    os.environ.get("WORKDIR", "/workspace"), ".hf_token"
+).read_text().strip()
+try:
+    p = hf_hub_download("momom2/wesnoth-model-checkpoints",
+                        "tier-b/replays_dataset_imitation.tar.gz",
+                        token=tok)
+except Exception as e:                                  # noqa: BLE001
+    print(f"[onstart] imitation dataset download failed: {e}")
+    sys.exit(1)
+dst = pathlib.Path("replays_dataset_imitation")
+dst.mkdir(parents=True, exist_ok=True)
+with tarfile.open(p, "r:gz") as tf:
+    tf.extractall(dst)              # flat ./*.json.gz + manifest.jsonl
+print(f"[onstart] imitation dataset: "
+      f"{len(list(dst.glob('*.json.gz')))} games")
+EOF
+fi
+
 # Fetch the FIRST-LAUNCH seed from HF when it is not in the git clone.
 # Tier-a's 5M seed is committed (20 MB); larger tier seeds are escrowed
 # on HF instead of bloating the repo, so a fresh box must be able to
@@ -231,7 +271,7 @@ if [ ! -f "$CAMPAIGN" ] && [ ! -f "$SEED_CKPT" ] \
         && { [ -n "${HF_TOKEN:-}" ] || [ -f "$WORKDIR/.hf_token" ]; }; then
     "$PY" -m pip install --quiet huggingface_hub || true
     HF_SEED_TOKEN="${HF_TOKEN:-}" HF_SEED_DEST="$SEED_CKPT" \
-    HF_SEED_NAME="$(basename "$SEED_CKPT")" \
+    HF_SEED_NAME="$SEED_HF_NAME" \
     "$PY" - <<'EOF' || echo "[onstart] WARN: seed fetch failed"
 import os, pathlib, shutil, sys
 from huggingface_hub import hf_hub_download
@@ -264,8 +304,18 @@ if [ -f "$CAMPAIGN" ]; then
     echo "[onstart] RESUME from $CAMPAIGN (no --reset-decision-step)"
 else
     CKPT_IN="$SEED_CKPT"
-    RESET="--reset-decision-step"
-    echo "[onstart] FIRST LAUNCH from $CKPT_IN (+anneal reset)"
+    # Handoff default: NO decision-step reset. The combat-oracle
+    # alphas are pinned 0.0 (the anneal a reset used to restart), and
+    # keeping the imitation checkpoint's step (2,809,659) keeps the
+    # telemetry/lineage numbering monotonic across the handoff. Pass
+    # -e RESET_DECISION_STEP=1 for a genuinely fresh campaign.
+    if [ "${RESET_DECISION_STEP:-0}" = "1" ]; then
+        RESET="--reset-decision-step"
+        echo "[onstart] FIRST LAUNCH from $CKPT_IN (+decision-step reset)"
+    else
+        RESET=""
+        echo "[onstart] FIRST LAUNCH from $CKPT_IN (step carried)"
+    fi
 fi
 
 # ---- Human-anchor rehearsal cache -----------------------------------
@@ -275,6 +325,10 @@ fi
 # dynamic flags and side codes), so a fresh node REBUILDS it from
 # the escrowed value corpus (value_corpus.tar.gz: index + games at
 # tar root -> extracted into replays_dataset/). ~few minutes.
+# DEFAULT ON since 2026-08-10 (A2 ruling: value rehearsal protects
+# the fresh value head, AUC 0.951, from the documented self-play
+# erosion 0.88->0.60). Disable with -e HUMAN_ANCHOR_FILE= (empty).
+HUMAN_ANCHOR_FILE="${HUMAN_ANCHOR_FILE-replays_dataset/human_anchor.pkl}"
 if [ -n "${HUMAN_ANCHOR_FILE:-}" ] && [ ! -f "$HUMAN_ANCHOR_FILE" ]; then
     if [ -n "${HF_TOKEN:-}" ] || [ -f "$WORKDIR/.hf_token" ]; then
         "$PY" -m pip install --quiet huggingface_hub || true
@@ -424,7 +478,9 @@ echo "[onstart] fd limit: $(ulimit -n)"
 # explicit LADDER_RATIO still wins, and an over-subscribed mix fails loudly
 # here rather than 20 relaunches deep.
 MIDGAME_RATIO="${MIDGAME_RATIO:-0.2}"
-MINI_RATIO="${MINI_RATIO:-0.2}"
+# MINI default 0 since 2026-08-10 (A1 caveat: draw rate climbed under
+# prior-discount damping on minis; keep them out of the handoff leg).
+MINI_RATIO="${MINI_RATIO:-0.0}"
 FOGLESS_RATIO="${FOGLESS_RATIO:-0.2}"
 if [ -z "${LADDER_RATIO:-}" ]; then
     LADDER_RATIO=$("$PY" -c "r = round(1.0 - ($MIDGAME_RATIO + $MINI_RATIO + $FOGLESS_RATIO), 6); print(r if r >= 0 else 'NEGATIVE')")
@@ -435,21 +491,30 @@ if [ -z "${LADDER_RATIO:-}" ]; then
     fi
 fi
 
-# Training CADENCE is decoupled from data PRODUCTION rate. games-per-iter
-# used to be hard-tied to SPOOL_WORKERS, so scaling workers up (100 on a
-# 128-core box) also made the trainer wait for 100 finished games before a
-# single gradient step -- at ~10-40 min/game that is roughly ONE iteration
-# per hour, i.e. ~70 iterations for a 70h run. Extra workers should DEEPEN
-# the replay buffer, not lengthen the iteration. Cap the default so more
-# cores buy more data per iteration, not slower iterations; an explicit
-# GAMES_PER_ITER still wins.
-SPOOL_WORKERS="${SPOOL_WORKERS:-16}"   # default HERE: the arithmetic below
-                                       # would read an unset var as 0.
-GAMES_PER_ITER="${GAMES_PER_ITER:-$(( SPOOL_WORKERS < 24 ? SPOOL_WORKERS : 24 ))}"
+# Topology (F3 ruling 2026-08-10): the ACTOR POOL is the tier-b
+# production path -- weightless actor processes ship every leaf
+# forward to the learner's central GPU batching server. The measured
+# ~200 req/s server ceiling is 3-10x what 15M needs (20-62 req/s at
+# 4-7k steps/hr), while spool workers' 15M CPU forwards project to
+# ~2k steps/hr. Spool stays as the debug fallback: pass
+# -e SPOOL_WORKERS=N (>0) to get the old topology. Caveat: training
+# is not bit-deterministic under the pool (dynamic cross-actor
+# batching). games-per-iter stays decoupled from the actor count
+# (extra actors deepen the replay buffer, not the iteration).
+if [ "${SPOOL_WORKERS:-0}" -gt 0 ]; then
+    TOPO_ARGS="--spool-workers ${SPOOL_WORKERS} --spool-worker-device ${SPOOL_WORKER_DEVICE:-auto}${SPOOL_CUDA_WORKERS:+ --spool-cuda-workers $SPOOL_CUDA_WORKERS}"
+    TOPO_DESC="spool=${SPOOL_WORKERS}"
+else
+    ACTOR_POOL="${ACTOR_POOL:-$(( $(nproc) - 4 ))}"
+    [ "$ACTOR_POOL" -lt 8 ] && ACTOR_POOL=8
+    TOPO_ARGS="--actor-pool ${ACTOR_POOL}${ACTOR_MAX_BATCH:+ --actor-max-batch $ACTOR_MAX_BATCH}"
+    TOPO_DESC="actor-pool=${ACTOR_POOL}"
+fi
+GAMES_PER_ITER="${GAMES_PER_ITER:-24}"
 
-echo "[onstart] games_per_iter=${GAMES_PER_ITER} (workers=${SPOOL_WORKERS})"
+echo "[onstart] games_per_iter=${GAMES_PER_ITER} (${TOPO_DESC})"
 echo "[onstart] training mix: midgame=${MIDGAME_RATIO}" \
-     "mini=${MINI_RATIO} drill=${DRILL_RATIO}" \
+     "mini=${MINI_RATIO}" \
      "fogless=${FOGLESS_RATIO} ladder=${LADDER_RATIO}" \
      >> "$WORKDIR/train.log"
 # moves-left parked ENTIRELY (user 2026-07-21, "the training
@@ -459,6 +524,42 @@ echo "[onstart] training mix: midgame=${MIDGAME_RATIO}" \
 # moves_left loss column keeps logging (0) so the CSV schema and
 # log format stay stable. Checkpoint head weights load as
 # tolerated unexpected keys.
+# ---- SIM_FORK_GUARD smoke iteration (A6 ruling 2026-08-10) ----------
+# One cheap in-process iteration with the deep-state fingerprint guard
+# armed: the handoff is a new weight/config combination, and the guard
+# caught three fork-aliasing bugs invisible to state_key. Runs against
+# a THROWAWAY checkpoint path (never touches the campaign file); a
+# guard trip is a FATAL config bug -- abort the launch rather than
+# train on a corrupting fork. One ladder game at 8 turns exercises
+# the historical bug surface (scenario events, combat forks) in
+# ~10-15 min of 15M CPU forwards + fingerprint overhead (measured
+# 2026-08-10: 2 games x 15 turns took ~30 min on the laptop).
+# Skip: FORK_GUARD_SMOKE=0.
+if [ "${FORK_GUARD_SMOKE:-1}" = "1" ]; then
+    echo "[onstart] fork-guard smoke iteration (SIM_FORK_GUARD=1)..."
+    if SIM_FORK_GUARD=1 "$PY" tools/sim_self_play.py \
+        --mcts --mcts-sims 8 --device cpu \
+        --d-model $D_MODEL --num-layers $NUM_LAYERS \
+        --num-heads $NUM_HEADS --d-ff $D_FF \
+        --iterations 1 --games-per-iter 1 --max-turns 8 \
+        --ladder-ratio 1.0 --midgame-ratio 0 --mini-ratio 0 \
+        --fogless-ratio 0 \
+        --game-log-dir "" --validate-export-every 0 \
+        --checkpoint-in "$CKPT_IN" \
+        --checkpoint-out "$WORKDIR/fork_guard_smoke.pt" \
+        --save-every 1000 --log-level WARNING \
+        >> "$WORKDIR/onstart.log" 2>&1; then
+        echo "[onstart] fork-guard smoke PASSED"
+        rm -f "$WORKDIR/fork_guard_smoke.pt" \
+              "$WORKDIR/fork_guard_smoke.pt.holdout" 2>/dev/null || true
+    else
+        echo "[onstart] FATAL: fork-guard smoke FAILED -- a search fork"
+        echo "[onstart] mutated real game state (see onstart.log)."
+        touch "$WORKDIR/ABORTED_fork_guard"
+        exit 1
+    fi
+fi
+
 # Supervised launch: relaunch on ordinary crashes (rc 1/2 -- OOM,
 # transient CUDA errors) with a 60s backoff, capped at 20 restarts
 # per onstart so a hard config bug can't burn the box all night
@@ -496,9 +597,8 @@ nohup bash -c "
       --abort-decisive-rate ${ABORT_DECISIVE_RATE:-0.35} \
       --abort-window ${ABORT_WINDOW:-20} \
       --abort-holdout-stall ${ABORT_HOLDOUT_STALL:-60} \
-      --spool-workers ${SPOOL_WORKERS} --games-per-iter ${GAMES_PER_ITER} \
-      --spool-worker-device ${SPOOL_WORKER_DEVICE:-auto} \
-      ${SPOOL_CUDA_WORKERS:+--spool-cuda-workers $SPOOL_CUDA_WORKERS} \
+      --distill-prior-discount ${DISTILL_PRIOR_DISCOUNT:-0.9} \
+      ${TOPO_ARGS} --games-per-iter ${GAMES_PER_ITER} \
       \$RESET \
       --checkpoint-in  \$([ -f '$CAMPAIGN' ] && echo '$CAMPAIGN' || echo '$CKPT_IN') \
       --checkpoint-out $CAMPAIGN \
