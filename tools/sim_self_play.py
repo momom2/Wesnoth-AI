@@ -2758,11 +2758,22 @@ def main(argv: List[str]) -> int:
     # rewards are silently ignored in MCTS mode (AlphaZero distills
     # the terminal z onto every visited state); --reward-config is
     # still parsed so REINFORCE / MCTS configs can share JSON files.
-    ap.add_argument("--mcts", action="store_true",
-                    help="Use MCTS for action selection instead of "
-                         "raw policy sampling. Adds N_sim model "
-                         "forwards per move (much slower per game) "
-                         "in exchange for better policy targets.")
+    ap.add_argument("--mcts", action=argparse.BooleanOptionalAction,
+                    default=True,
+                    help="MCTS action selection + distillation "
+                         "targets. DEFAULT ON since 2026-08-10 (user "
+                         "decision, technique review D1): the default "
+                         "now describes the measured production path, "
+                         "so a bare invocation is a small campaign, "
+                         "not a different algorithm. Adds N_sim model "
+                         "forwards per move. Use --reinforce (or "
+                         "--no-mcts) for the legacy REINFORCE path — "
+                         "the light smoke-test flow and the only "
+                         "consumer of the shaping-reward seam.")
+    ap.add_argument("--reinforce", dest="mcts", action="store_false",
+                    help="Alias for --no-mcts: legacy REINFORCE "
+                         "training (raw policy sampling, shaping "
+                         "rewards live).")
     ap.add_argument("--mcts-sims", type=int, default=50,
                     help="Number of MCTS simulations per move "
                          "(--mcts only). 50 is a reasonable "
