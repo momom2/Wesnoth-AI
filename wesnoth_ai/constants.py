@@ -77,32 +77,6 @@ MAX_ACTIONS_PER_GAME = 500
 LOG_FREQUENCY        = 10
 CHECKPOINT_FREQUENCY = 100
 
-# Legality-mask rule (user 2026-07-15): end_turn is ILLEGAL while
-# (a) any of our units that is not the-leader-standing-on-a-keep
-# still has a legal move, or (b) any recruit is affordable and
-# placeable. Motivation: watched decisive replays showed the
-# policies mostly idling while a tentacle (which at least attacks
-# every turn) killed a leader. This is an action-SPACE constraint,
-# not a reward: the mask stays a pure function of observable state
-# (CLAUDE.md contract) -- both conditions read only visible units,
-# own gold, and the already-computed legal-move/recruit rows, and
-# by construction whenever end_turn is masked at least one other
-# action is legal (no deadlock). The leader-on-keep exception lets
-# the leader hold its recruiting spot without being forced to
-# wander. Flip to True to re-enable the crutch (A/B experiments).
-#
-# DEFAULT FALSE since 2026-07-18 (post-pathfinding-fix evidence):
-#   - gate OFF, raw epoch-3 SL policy: ladder 10/10 decisive,
-#     mini 9/10 (vs 10/10, 10/10 gated; seeds matched) -- the gate
-#     is no longer load-bearing for reaching conclusions;
-#   - gate ON it binds on 92.4% of decisions (1,680/1,819 probed)
-#     yet the free policy picks end_turn only ~7% of the time when
-#     allowed -- near-zero behavioral payoff;
-#   - it forbids 69% of HUMAN end_turns in the corpus (1,169/1,706
-#     over 60 games, check_mask_coverage), violating the "policy may
-#     attempt whatever a human could" mask contract and distorting
-#     the BC-cloned prior at inference.
-FORBID_IDLE_END_TURN = False
 
 # ----------------------------------------------------------------------
 # IPC (see wesnoth_interface.py)
