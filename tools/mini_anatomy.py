@@ -122,7 +122,7 @@ def main(argv: List[str]) -> int:
                          "invocations with disjoint seed ranges never "
                          "repeat a setup.")
     ap.add_argument("--category", default="mini",
-                    choices=["mini", "ladder", "fogless", "drill"])
+                    choices=["mini", "ladder", "fogless"])
     ap.add_argument("--max-turns", type=int, default=100)
     ap.add_argument("--max-turns-min", type=int, default=60,
                     help="Production jitter floor (launch script "

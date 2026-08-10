@@ -200,7 +200,7 @@ def _actor_loop(
         # the parent CLI rejects --midgame-ratio with --actor-pool)
         # from the pass-through setup options.
         mix = {k: scenario_opts.get(f"{k}_ratio", 0.0)
-               for k in ("midgame", "mini", "drill", "fogless")}
+               for k in ("midgame", "mini", "fogless")}
         # Absent ladder_ratio -> the complement (the old flat 1.0
         # default summed to 2 with any explicit other ratio and blew
         # the sum-to-1 guard in every actor, 2026-07-22 smoke).

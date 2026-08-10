@@ -3,7 +3,7 @@
 
 User spec: pick EVERY 100th game (deterministic, not random 1%),
 counted SEPARATELY per category -- "mini", "ladder",
-"ladder_fogless", "midgame" (plus "drill" if that pool is ever
+"ladder_fogless", "midgame" (plus any category that is ever
 mixed in) -- and export each pick as a Wesnoth-loadable .bz2
 replay while training runs. The box's HF uploader ships the
 exports; `tools/run_validation_batch.py` plays each back in real
