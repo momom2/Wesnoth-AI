@@ -607,12 +607,21 @@ nohup bash -c "
     rc=\$?
     echo \"[onstart] training exited rc=\$rc at \$(date -u +%FT%TZ)\" >> '$WORKDIR/train.log'
     if [ \$rc -eq 0 ]; then break; fi
-    # rc >= 128 = killed by signal (operator pkill, preemption
-    # shutdown): stop quietly WITHOUT an ABORTED marker -- the next
-    # onstart (or the operator) decides what runs next.
+    # rc >= 128 = killed by signal. If the STALL WATCHDOG did it
+    # (marker present), treat as a crash: consume the marker and
+    # relaunch -- a hung leg loses minutes, not days (BACKLOG item 1;
+    # the 2026-08-08 imitation hang billed ~2 idle days). Otherwise
+    # it was an operator pkill / preemption shutdown: stand down
+    # quietly WITHOUT an ABORTED marker.
     if [ \$rc -ge 128 ]; then
-      echo \"[onstart] signal exit; supervisor stands down\" >> '$WORKDIR/train.log'
-      break
+      if [ -f '$WORKDIR/WATCHDOG_STALL' ]; then
+        cat '$WORKDIR/WATCHDOG_STALL' >> '$WORKDIR/train.log'
+        rm -f '$WORKDIR/WATCHDOG_STALL'
+        echo \"[onstart] watchdog kill; relaunching\" >> '$WORKDIR/train.log'
+      else
+        echo \"[onstart] signal exit; supervisor stands down\" >> '$WORKDIR/train.log'
+        break
+      fi
     fi
     # Tripwire aborts (3=reserved, 4=all-draws, 5=holdout stall,
     # 6=systemic index-basis mismatch between workers and learner)
@@ -626,3 +635,16 @@ nohup bash -c "
   done
 " >/dev/null 2>&1 &
 echo "[onstart] training launched, supervised (tail -f $WORKDIR/train.log)"
+
+# ---- Stall watchdog (BACKLOG item 1, 2026-08-10) --------------------
+# Kills the training process when its CPU burn flatlines (the silent-
+# hang symptom the tripwires and the relaunch loop both miss); the
+# supervisor above sees the WATCHDOG_STALL marker and relaunches.
+# Disable with -e STALL_WINDOW=0.
+pkill -f 'stall_watchdo[g].py' 2>/dev/null || true
+rm -f "$WORKDIR/WATCHDOG_STALL"
+if [ "${STALL_WINDOW:-1800}" != "0" ]; then
+    WORKDIR="$WORKDIR" nohup "$PY" scripts/stall_watchdog.py \
+        >> "$WORKDIR/watchdog.log" 2>&1 &
+    echo "[onstart] stall watchdog ON (see watchdog.log)"
+fi

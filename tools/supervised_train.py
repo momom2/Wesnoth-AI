@@ -254,6 +254,10 @@ class _ParallelStream:
         self._files = list(files)
         self._workers_n = workers
         self._closed = False
+        # Worker-message wait bound (s): how long a get() may block
+        # before checking for dead workers. Overridable for tests.
+        self._get_timeout = float(
+            os.environ.get("WAI_STREAM_GET_TIMEOUT", "60"))
 
         # `spawn` works on both Linux and Windows. `fork` would be
         # slightly faster on Linux (cow-shared dicts) but inherits
@@ -321,10 +325,34 @@ class _ParallelStream:
 
         # 3. Otherwise pull the next message from workers.
         while True:
-            if self._workers_alive == 0:
+            if self._workers_alive <= 0:
                 self.close()
                 raise StopIteration
-            item = self._out_q.get()
+            # BOUNDED get + corpse reconciliation (2026-08-10, BACKLOG
+            # item 1): a worker that dies WITHOUT emitting its
+            # ("worker_exit",) message (OOM-kill, segfault) leaves
+            # _workers_alive overcounted, and a bare blocking get()
+            # then hangs forever once the surviving workers retire --
+            # the silent-stall signature of the 2026-08-08 imitation
+            # run (94% done, no traceback, ~0 CPU). On timeout,
+            # compare actual corpses against counted exits and
+            # reconcile loudly instead of waiting forever.
+            try:
+                item = self._out_q.get(timeout=self._get_timeout)
+            except Exception:                       # queue.Empty
+                n_dead = sum(1 for p in self._procs if not p.is_alive())
+                n_exited = self._workers_n - self._workers_alive
+                if n_dead > n_exited:
+                    missing = n_dead - n_exited
+                    log.error(
+                        f"{missing} encode worker(s) died without a "
+                        f"worker_exit message (OOM-killed?); "
+                        f"reconciling so the stream terminates instead "
+                        f"of hanging. Files those workers held are "
+                        f"LOST from this pass (audible in the "
+                        f"files_seen accounting).")
+                    self._workers_alive -= missing
+                continue
             tag = item[0]
 
             if tag == "file":

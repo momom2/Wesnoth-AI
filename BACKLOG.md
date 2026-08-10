@@ -11,11 +11,18 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
 ## NEXT ACTIONS (2026-08-08 — the short list)
 
 1. **DONE 2026-08-10 (rescued at 94%)**: tier-b imitation checkpoint =
-   HF `imit_tierb_rescued_2368k.pt`, CE 3.102. The run hung silently
-   at 2.368M/2.515M pairs — root-cause the stall (no traceback;
-   suspect ParallelStream worker teardown near file-list end) and add
-   a BOX-SIDE stall watchdog to the launch template (the laptop-side
-   supervisor is what dies overnight).
+   HF `imit_tierb_rescued_2368k.pt`, CE 3.102. **Stall follow-ups
+   CLOSED 2026-08-10:** (a) hang mechanism found — _ParallelStream's
+   bare blocking `out_q.get()` waits forever when a worker dies
+   without its worker_exit message (OOM-kill/segfault); exactly the
+   observed signature (silent, ~0 CPU, near file-list end where
+   workers retire). Hardened: bounded get + corpse reconciliation
+   with a loud error and lost-file accounting; regression tests pin
+   it. Cannot be CONFIRMED as the 2026-08-08 cause (box gone) — it is
+   the only unbounded wait in the path. (b) BOX-SIDE stall watchdog
+   shipped: `scripts/stall_watchdog.py` (per-process CPU flatline →
+   marker + SIGKILL; the onstart supervisor treats a marker-kill as a
+   crash and relaunches). A hung leg now loses ≤~35 min, not days.
 2. **Evaluate it**: holdout curve vs both A/B arms (expect ≤3.107 CE
    with a ~0.95-AUC value head), then the external probes — this is the
    first checkpoint with a plausible claim to move the 0-30 RCA number.
