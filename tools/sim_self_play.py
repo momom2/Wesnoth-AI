@@ -70,8 +70,6 @@ from wesnoth_ai.rewards import (
 )
 from wesnoth_ai.transformer_policy import TransformerPolicy
 from tools.wesnoth_sim import PvPDefaults, WesnothSim
-from tools import openers as openers_mod
-from tools.openers import OpenerPolicy
 
 
 log = logging.getLogger("sim_self_play")
@@ -1803,7 +1801,7 @@ def run_iteration(
                                              hard=True)
             train_stats = policy.train_step()
         train_dt = time.perf_counter() - train_t0
-        # getattr-guarded: non-trainable/stub policies (openers, dummy)
+        # getattr-guarded: non-trainable/stub policies (dummy)
         # may return a minimal stats object without the aux field.
         _aux = getattr(train_stats, "aux_loss", 0.0)
         aux_str = f" aux={_aux:.4f}" if _aux else ""
@@ -2456,22 +2454,21 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--exp-modifier", type=int, default=70,
                     help="PvP defaults: experience required modifier (%%).")
 
-    # Reward + opener customization. Both default to "off" (existing
-    # WeightedReward defaults / no opener) so omitting these flags
-    # reproduces the prior behavior bit-for-bit.
+    # Reward customization. Defaults to "off" (existing WeightedReward
+    # defaults) so omitting the flag reproduces prior behavior.
+    # REINFORCE-mode only: shaping rewards are structurally inert
+    # under --mcts (MCTSPolicy.observe is a no-op), so a non-default
+    # config there is refused at startup (see main).
     ap.add_argument("--reward-config", type=Path, default=None,
                     help="Path to a JSON or YAML reward-shaping config "
                          "(see rewards.load_reward_config). Lets you "
                          "tune weights, add per-unit-type recruit "
                          "bonuses, and define turn-conditional "
                          "bonuses without code edits. Default: use "
-                         "WeightedReward() defaults.")
-    ap.add_argument("--opener-spec", type=str, default=None,
-                    help=f"Name of a registered opener to wrap the "
-                         f"policy with (see tools/openers.py). "
-                         f"Available: {', '.join(openers_mod.available()) or '(none)'}. "
-                         f"Default: no opener; the model controls "
-                         f"every decision from turn 1.")
+                         "WeightedReward() defaults. REINFORCE-mode "
+                         "only; refused under --mcts (shaping is "
+                         "inert there -- the live seams are "
+                         "--draw-tiebreak-cap and the terminal z).")
     ap.add_argument("--torch-threads", type=int, default=None,
                     help="Cap torch's intra-op CPU thread pool "
                          "(torch.set_num_threads). CPU-ONLY tuning: by "
@@ -2939,6 +2936,20 @@ def main(argv: List[str]) -> int:
             and not (1 <= args.max_turns_min <= args.max_turns)):
         ap.error(f"--max-turns-min {args.max_turns_min} outside "
                  f"[1, --max-turns={args.max_turns}]")
+    if args.reward_config is not None and args.mcts:
+        # Shaping rewards are STRUCTURALLY INERT under --mcts:
+        # MCTSPolicy.observe is a no-op, so every weight in the config
+        # would be silently ignored -- the trap that hid the
+        # weight_gold=0 non-fix for weeks (diagnosed 2026-07-31).
+        # Refuse rather than warn: the combination has no valid
+        # meaning, and a missed warning on an unattended box run costs
+        # the whole leg (F5 user ruling 2026-08-10).
+        ap.error(
+            "--reward-config has no effect under --mcts (AlphaZero "
+            "distills the terminal z; MCTSPolicy.observe is a no-op). "
+            "The live shaping seams in MCTS mode are "
+            "--draw-tiebreak-cap / --draw-tiebreak-config and the "
+            "terminal outcome itself. Did you mean --reinforce?")
     if args.game_log_dir is not None and str(args.game_log_dir) in ("", "."):
         args.game_log_dir = None
     if int(getattr(args, "validate_export_every", 0)) > 0:
@@ -3272,9 +3283,7 @@ def main(argv: List[str]) -> int:
             f"playout_cap="
             f"{'on(p=%.2f,fast=%d)' % (mcts_cfg.playout_cap_prob, mcts_cfg.playout_cap_fast_sims or max(1, mcts_cfg.n_simulations // 4)) if mcts_cfg.playout_cap_randomization else 'off'} "
             f"draw_tiebreak_cap="
-            f"{tiebreak.cap if tiebreak else 'off'}. "
-            f"--reward-config is ignored in MCTS mode (AlphaZero "
-            f"distills terminal z, not shaping rewards)."
+            f"{tiebreak.cap if tiebreak else 'off'}."
         )
         replay_cfg = ReplayConfig(
             enabled=args.replay_buffer,
@@ -3327,21 +3336,8 @@ def main(argv: List[str]) -> int:
                 pass  # restored (full -> frozen; partial -> resumes)
             setattr(policy, "_holdout_persist_path", holdout_file)
 
-    # Optional opener wrapper: scripts the first K decisions per
-    # game-side, then delegates to the learned policy. Forwarding to
-    # `policy.observe` / `train_step` / `save_checkpoint` is duck-typed
-    # in OpenerPolicy so the trainer keeps working unchanged.
-    if args.opener_spec:
-        try:
-            opener = openers_mod.get_opener(args.opener_spec)
-        except KeyError as e:
-            log.error(str(e))
-            return 2
-        policy = OpenerPolicy(base=policy, opener=opener)
-        log.info(f"opener: {args.opener_spec!r} "
-                 f"({len(opener.moves)} moves, sides={opener.sides})")
-
     if args.reward_config is not None:
+        # (mcts+reward_config was refused at arg validation.)
         try:
             reward_fn = load_reward_config(args.reward_config)
         except (KeyError, ValueError, ImportError) as e:
@@ -3462,7 +3458,7 @@ def main(argv: List[str]) -> int:
     # Optional multiprocess actor pool (MCTS only). Built here so all
     # scenario/device/pvp settings are resolved; started before the
     # loop and torn down via atexit (daemon actors also die with the
-    # parent). Mutually exclusive with --workers / --opener-spec.
+    # parent). Mutually exclusive with --workers.
     actor_pool = None
     if args.actor_pool > 0:
         if not args.mcts:
@@ -3470,10 +3466,6 @@ def main(argv: List[str]) -> int:
             return 2
         if args.workers > 0:
             log.error("--actor-pool is mutually exclusive with --workers")
-            return 2
-        if args.opener_spec:
-            log.error("--actor-pool does not support --opener-spec "
-                      "(actors do not apply openers)")
             return 2
         import atexit
         from tools.actor_pool import ActorPool
@@ -3510,9 +3502,6 @@ def main(argv: List[str]) -> int:
         if args.actor_pool > 0 or args.workers > 0:
             log.error("--spool-workers is mutually exclusive with "
                       "--actor-pool / --workers")
-            return 2
-        if args.opener_spec:
-            log.error("--spool-workers does not support --opener-spec")
             return 2
         import atexit
         # Workers boot from the checkpoint file: guarantee it exists
@@ -3585,9 +3574,8 @@ def main(argv: List[str]) -> int:
             human_anchor=human_anchor,
         )
         # Persist the holdout probe when it grew (crash-safe partial
-        # saves; no-op once frozen+saved). getattr-guarded: wrapper
-        # policies (OpenerPolicy) and REINFORCE lack the method --
-        # the probe simply isn't persisted there.
+        # saves; no-op once frozen+saved). getattr-guarded: REINFORCE
+        # lacks the method -- the probe simply isn't persisted there.
         getattr(policy, "maybe_persist_holdout", lambda: None)()
         if VALIDATION_EXPORTER is not None:
             _bundle_validation_exports(

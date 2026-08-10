@@ -902,7 +902,7 @@ def test_seed_salt_samples_distinct_recruit_outcomes():
     single-sample behavior chance nodes exist to fix."""
     import random as _random
     from wesnoth_ai.classes import state_key
-    from tools.openers import recruit_type
+    from conftest import recruit_action_for as recruit_type
     from tools.scenario_pool import (
         random_setup, build_scenario_gamestate, load_factions,
     )

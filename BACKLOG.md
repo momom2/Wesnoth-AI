@@ -34,6 +34,24 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
    **TO-ACTIVATE pending threshold discussion (user): A5 abort
    tripwires** — decisive-rate floor + FLOOR-RELATIVE holdout-CE stall;
    discuss thresholds before the paid leg launches.
+   **F-item rulings (user, 2026-08-10):**
+   - F1: policy-head extension of the human anchor — WIRE NOW, but
+     OFF for leg 1 (A1 prior-discount is that leg's ONE protection;
+     this becomes leg 2's arm if A1 fails the CE observable).
+   - F2: no-progress would-fire offline analysis — RUN NOW over
+     available games.jsonl data; enforcement stays a separate
+     decision.
+   - F3: actor pool ACTIVATED for tier-b without a fresh A/B (the
+     200 req/s ceiling is 3-10× the 15M requirement; the "losing
+     design" verdict was tier-a-specific — techniques.md corrected).
+     The handoff leg launches with `--actor-pool N`, not spool.
+   - F4: relevant-set (T2) recovery leg CONFIRMED after the handoff
+     leg (basis change severs checkpoint/buffer continuity).
+   - F5: non-default --reward-config + --mcts now REFUSED at arg
+     validation (shipped, with test).
+   - F6: scripted openers DELETED (tools/openers.py, --opener-spec;
+     unreachable on both production topologies; the config-flip
+     opener goal stays in CLAUDE.md — re-add from git with evidence).
 6. **Self-play handoff design (the next big decision)** — the
    2026-08-10 literature scan (docs/literature_scan_20260810.md,
    grounded in docs/techniques.md) converges on: nothing protects the

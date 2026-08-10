@@ -742,120 +742,6 @@ def test_compute_delta_propagates_game_label():
 
 
 # ---------------------------------------------------------------------
-# OpenerPolicy wrapper
-# ---------------------------------------------------------------------
-
-def test_opener_policy_fires_scripted_moves_then_falls_through():
-    """The opener's two scripted moves fire on calls 1 and 2; call 3
-    delegates to the base policy."""
-    from tools.openers import Opener, OpenerPolicy, end_turn
-
-    class _StubBase:
-        def __init__(self):
-            self.calls = 0
-        def select_action(self, state, *, game_label="default"):
-            self.calls += 1
-            return {"type": "move", "_from_base": True}
-
-    base = _StubBase()
-    opener = Opener(name="t", moves=[end_turn(), end_turn()],
-                    sides=(1, 2))
-    policy = OpenerPolicy(base=base, opener=opener)
-    state = _gs([_u("a", 1, 5, 5)])
-
-    a1 = policy.select_action(state, game_label="g")
-    a2 = policy.select_action(state, game_label="g")
-    a3 = policy.select_action(state, game_label="g")
-    assert a1 == {"type": "end_turn"}
-    assert a2 == {"type": "end_turn"}
-    assert a3.get("_from_base") is True
-    assert base.calls == 1   # only the third call reached base
-
-
-def test_opener_policy_falls_through_when_move_returns_none():
-    """A move returning None doesn't advance the cursor: we delegate
-    to base AND retry the same opener-step on the next decision."""
-    from tools.openers import Opener, OpenerPolicy
-
-    class _StubBase:
-        def __init__(self):
-            self.calls = 0
-        def select_action(self, state, *, game_label="default"):
-            self.calls += 1
-            return {"type": "end_turn", "_from_base": True}
-
-    fired_once = {"flag": False}
-    def conditional_move(state, side):
-        if not fired_once["flag"]:
-            fired_once["flag"] = True
-            return None             # first call: gate fails
-        return {"type": "move", "_from_opener": True}  # second: gate passes
-
-    base = _StubBase()
-    opener = Opener(name="t", moves=[conditional_move], sides=(1,))
-    policy = OpenerPolicy(base=base, opener=opener)
-    state = _gs([_u("a", 1, 5, 5)])
-
-    # First call: opener returns None -> fall through to base.
-    a1 = policy.select_action(state, game_label="g")
-    assert a1.get("_from_base") is True
-    assert base.calls == 1
-    # Second call: opener fires (cursor still at 0).
-    a2 = policy.select_action(state, game_label="g")
-    assert a2.get("_from_opener") is True
-    # Third call: cursor advanced past end -> base.
-    a3 = policy.select_action(state, game_label="g")
-    assert a3.get("_from_base") is True
-
-
-def test_opener_policy_per_side_filtering():
-    """sides=(1,) means side 2 always goes to base."""
-    from tools.openers import Opener, OpenerPolicy, end_turn
-
-    class _StubBase:
-        def select_action(self, state, *, game_label="default"):
-            return {"type": "move", "_from_base": True}
-
-    base = _StubBase()
-    opener = Opener(name="t", moves=[end_turn()], sides=(1,))
-    policy = OpenerPolicy(base=base, opener=opener)
-
-    # Side 1 -> opener fires.
-    s1 = _gs([_u("a", 1, 5, 5)], current_side=1)
-    a1 = policy.select_action(s1, game_label="g")
-    assert a1 == {"type": "end_turn"}
-
-    # Side 2 -> bypassed, base fires.
-    s2 = _gs([_u("a", 2, 5, 5)], current_side=2)
-    a2 = policy.select_action(s2, game_label="g")
-    assert a2.get("_from_base") is True
-
-
-def test_opener_policy_reset_game():
-    """reset_game(label) clears the cursor for that game so the next
-    run starts opener fresh."""
-    from tools.openers import Opener, OpenerPolicy, end_turn
-
-    class _StubBase:
-        def select_action(self, state, *, game_label="default"):
-            return {"type": "move", "_from_base": True}
-
-    base = _StubBase()
-    opener = Opener(name="t", moves=[end_turn()], sides=(1,))
-    policy = OpenerPolicy(base=base, opener=opener)
-    state = _gs([_u("a", 1, 5, 5)])
-
-    # Burn the opener.
-    policy.select_action(state, game_label="g")
-    a2 = policy.select_action(state, game_label="g")
-    assert a2.get("_from_base") is True
-    # Reset and re-fire.
-    policy.reset_game("g")
-    a3 = policy.select_action(state, game_label="g")
-    assert a3 == {"type": "end_turn"}
-
-
-# ---------------------------------------------------------------------
 # Predicate registry + JSON/YAML config loader
 # ---------------------------------------------------------------------
 
@@ -1018,39 +904,6 @@ def test_load_reward_config_round_trip_predicate_fires(tmp_path):
     assert rf(delta) == pytest.approx(0.7)
 
 
-# ---------------------------------------------------------------------
-# Opener registry
-# ---------------------------------------------------------------------
-
-def test_opener_registry_has_builtins():
-    """Verify the built-in openers self-register on import."""
-    from tools import openers as openers_mod
-    names = openers_mod.available()
-    for n in ("just_end_turn", "drake_rush", "knalgan_thunder"):
-        assert n in names, f"missing built-in opener: {n}"
-
-
-def test_opener_registry_get_unknown_raises():
-    from tools import openers as openers_mod
-    with pytest.raises(KeyError, match="Unknown opener"):
-        openers_mod.get_opener("not_real")
-
-
-def test_opener_registry_register_and_get():
-    """User-registered opener resolves through the registry."""
-    from tools import openers as openers_mod
-    from tools.openers import Opener, end_turn
-
-    def factory():
-        return Opener(name="t", moves=[end_turn()], sides=(1,))
-
-    openers_mod.register("__test_opener__", factory)
-    o = openers_mod.get_opener("__test_opener__")
-    assert isinstance(o, Opener)
-    assert o.name == "t"
-    assert o.sides == (1,)
-
-
 def test_combined_kill_plus_village_gain():
     """A move that ends on a village AND somehow killed an enemy
     earlier in the same step (rare but happens via plague/leadership
@@ -1072,3 +925,27 @@ def test_combined_kill_plus_village_gain():
     # both contribute), not the exact arithmetic -- WeightedReward's
     # other terms (min_enemy_distance, etc.) fluctuate.
     assert val > 0.05
+
+
+# ---------------------------------------------------------------------
+# --reward-config x --mcts refusal (F5 ruling, 2026-08-10)
+# ---------------------------------------------------------------------
+
+def test_reward_config_refused_under_mcts(tmp_path, capsys):
+    """Shaping rewards are structurally inert under --mcts
+    (MCTSPolicy.observe is a no-op), so a non-default --reward-config
+    there must be REFUSED at arg validation -- not silently ignored
+    (the trap that hid the weight_gold=0 non-fix) and not merely
+    warned about. --mcts is the default; --reinforce + the same
+    config must still parse past this gate."""
+    from tools.sim_self_play import main as ssp_main
+
+    cfg = tmp_path / "custom_rewards.json"
+    cfg.write_text('{"weight_gold_killed": 0.5}', encoding="utf-8")
+
+    with pytest.raises(SystemExit) as ei:
+        ssp_main(["prog", "--reward-config", str(cfg)])
+    assert ei.value.code == 2
+    err = capsys.readouterr().err
+    assert "no effect under --mcts" in err
+    assert "--reinforce" in err

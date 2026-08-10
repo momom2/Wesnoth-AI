@@ -139,7 +139,7 @@ def test_advancement_pins_choice_in_history_and_export():
     Engineered deterministically: attacker at max_exp - 1 gains
     combat XP (>= opponent level >= 1) from ANY strike exchange,
     kill or not, so the advancement fires regardless of hit rolls."""
-    from tools.openers import recruit_type
+    from conftest import recruit_action_for as recruit_type
     from tools.sim_to_replay import build_save_wml
     from tools.replay_extract import parse_wml
 

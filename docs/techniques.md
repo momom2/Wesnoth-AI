@@ -1352,12 +1352,20 @@ note at the top. It applies to the REINFORCE path only.
 - **Thread workers** **[OFF]** (`--workers 0`). Safe via the policy's
   snapshot+lock design; each worker gets its own RNG seeded from the
   master so games stay deterministic given the seed.
-- **Actor pool (SEED-RL / MonoBeast)** **[OFF]** (`--actor-pool 0`).
+- **Actor pool (SEED-RL / MonoBeast)** **[OFF → tier-b production,
+  user ruling F3 2026-08-10]** (`--actor-pool 0`).
   N weightless actor processes; every leaf forward ships as a
   `RawEncoded` to a central batching server in the main process, so
   there is NO weight sync. `tools/actor_pool.py:1-19`.
-  ⚠ **Measured to be the losing design:** it capped at ~200 req/s
-  with the GPU idle.
+  ⚠ The "measured losing design" verdict (~200 req/s cap, GPU idle)
+  was TIER-A-SPECIFIC: at 5M params the spool workers' CPU forwards
+  were cheap enough to beat the central server. At tier-b (15M) the
+  arithmetic flips — required leaf throughput at 4-7k steps/hr ×
+  ≤32 sims is 20-62 req/s, well under the measured 200 req/s
+  ceiling, while the spool projects to ~2k steps/hr on 15M CPU
+  forwards. Activated for tier-b without a fresh A/B (user accepted
+  the arithmetic). Caveat: cross-actor dynamic batching breaks
+  bit-determinism of training.
 - **Spool workers** **[OFF]** (`--spool-workers 0`) — **the measured
   winner.** N independent processes each play whole games with their
   own in-process GPU forwards and atomically spool one pickle per
