@@ -532,12 +532,16 @@ PYEOF
 )
     ACTOR_POOL="${ACTOR_POOL:-$(( _CORES - 4 ))}"
     [ "$ACTOR_POOL" -lt 8 ] && ACTOR_POOL=8
-    # Server fuse cap: the library default (max(64, 2*n_actors) leaves,
-    # x2 serve threads) OOM'd a 24GB 4090 alongside the trainer's B=64
-    # backward at launch (2026-08-10, first leg boot). 32 keeps the
-    # inference peak bounded; raise only with measured VRAM headroom.
-    TOPO_ARGS="--actor-pool ${ACTOR_POOL} --actor-max-batch ${ACTOR_MAX_BATCH:-32}"
-    TOPO_DESC="actor-pool=${ACTOR_POOL} (quota ${_CORES} cores, fuse<=${ACTOR_MAX_BATCH:-32})"
+    # Server fuse cap: fuse<=32 STILL OOM'd 19 min in (2026-08-10,
+    # attempt 2) -- the collision is a train_step backward overlapping
+    # BOTH serve threads' fused forwards (the MHA python path
+    # materializes S^2 attention per layer). 16 x 2 threads + the
+    # B=32 training chunks fit the 24GB card; raise only with
+    # measured VRAM headroom. TRAIN_BATCH is the chunk size, not the
+    # gradient batch (loss is /N-accumulated) -- memory-neutral to
+    # training dynamics.
+    TOPO_ARGS="--actor-pool ${ACTOR_POOL} --actor-max-batch ${ACTOR_MAX_BATCH:-16}"
+    TOPO_DESC="actor-pool=${ACTOR_POOL} (quota ${_CORES} cores, fuse<=${ACTOR_MAX_BATCH:-16})"
 fi
 GAMES_PER_ITER="${GAMES_PER_ITER:-24}"
 
@@ -564,6 +568,15 @@ echo "[onstart] training mix: midgame=${MIDGAME_RATIO}" \
 # ~10-15 min of 15M CPU forwards + fingerprint overhead (measured
 # 2026-08-10: 2 games x 15 turns took ~30 min on the laptop).
 # Skip: FORK_GUARD_SMOKE=0.
+# Pass-marker keyed on the git rev: the smoke certifies a CODE+seed
+# combination, so a re-run of the same rev (config-tuning reboots)
+# skips the ~12 min. A new commit re-arms it.
+_SMOKE_REV="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
+if [ "${FORK_GUARD_SMOKE:-1}" = "1" ] \
+        && [ -f "$WORKDIR/.fork_guard_passed_$_SMOKE_REV" ]; then
+    echo "[onstart] fork-guard smoke already PASSED for $_SMOKE_REV; skipping"
+    FORK_GUARD_SMOKE=0
+fi
 if [ "${FORK_GUARD_SMOKE:-1}" = "1" ]; then
     echo "[onstart] fork-guard smoke iteration (SIM_FORK_GUARD=1)..."
     if SIM_FORK_GUARD=1 "$PY" tools/sim_self_play.py \
@@ -579,6 +592,7 @@ if [ "${FORK_GUARD_SMOKE:-1}" = "1" ]; then
         --save-every 1000 --log-level WARNING \
         >> "$WORKDIR/onstart.log" 2>&1; then
         echo "[onstart] fork-guard smoke PASSED"
+        touch "$WORKDIR/.fork_guard_passed_$_SMOKE_REV"
         rm -f "$WORKDIR/fork_guard_smoke.pt" \
               "$WORKDIR/fork_guard_smoke.pt.holdout" 2>/dev/null || true
     else
@@ -607,7 +621,7 @@ nohup bash -c "
       --num-heads $NUM_HEADS --d-ff $D_FF \
       --replay-buffer --replay-updates 16 --value-coef 1.0 \
       --replay-minibatch ${REPLAY_MINIBATCH:-128} --replay-capacity 24000 \
-      --train-batch-size ${TRAIN_BATCH:-64} --mcts-batch-size 16 \
+      --train-batch-size ${TRAIN_BATCH:-32} --mcts-batch-size 16 \
       --mini-ratio ${MINI_RATIO} \
       --midgame-ratio ${MIDGAME_RATIO} --fogless-ratio ${FOGLESS_RATIO} \
       --ladder-ratio ${LADDER_RATIO} \
