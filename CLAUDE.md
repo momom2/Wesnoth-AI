@@ -90,18 +90,17 @@ pre-instrumentation code and silently skipped ~21% of files; the
 rerun below is the clean version. `bfa96e7` added per-epoch
 accounting (`files_seen/file_errors/pairs`) so underruns are audible.
 
-**In flight:** the tier-b imitation starting checkpoint (warm
-trunk+policy + fresh value head, full 2.52M pairs) is training on a
-rented 4090 (instance 47310167, ~$0.32/h, ~14h ETA from 2026-08-08
-morning); on completion it self-escrows to HF as
-`tier-b/imitation_ab_20260808/imit_tierb_epoch0.pt` and touches
-`/workspace/RUN_DONE_ESCROWED`. **The box must be stopped manually
-after** (`vastai stop instance 47310167`). Profiling (supervised
-`WESNOTH_PROF=1`, commit `e283abb`): solo-4090 epoch is 76%
-forward/backward — GPU-bound; bigger card, not more cores, is the
-tier-b supervised lever. Old boxes 46182445/46775903/46776363 are
-stopped and slot-blocked (their GPUs re-rented; starts queue
-indefinitely — cancel queued starts or they fire unattended later).
+**Tier-b imitation checkpoint (2026-08-10): rescued at 94%, escrowed.**
+The clean run (warm trunk+policy + `--reinit-value-head`) HUNG
+silently at 2.368M/2.515M pairs (no traceback; suspect: parallel-
+stream worker teardown near end of file list — open BACKLOG item)
+and billed ~2 idle days before discovery (laptop Modern-Standby
+sleep killed the supervising session; see memory
+`session-bound-watchers-die`). Rescued periodic checkpoint = HF
+`tier-b/imitation_ab_20260808/imit_tierb_rescued_2368k.pt`:
+holdout **CE 3.102** (better than the seeded arm's full-epoch
+3.107), actor@1 0.545, value AUC 0.69 still climbing at cut.
+All boxes stopped; credit ~$3.
 
 **Open training-design questions:** winners-only is the default;
 outcome-conditioning rejected for now (architecture identity with

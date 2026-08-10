@@ -10,10 +10,12 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
 
 ## NEXT ACTIONS (2026-08-08 — the short list)
 
-1. **Collect the tier-b imitation checkpoint** — training on rented 4090
-   47310167 (self-escrows to HF `tier-b/imitation_ab_20260808/
-   imit_tierb_epoch0.pt`, touches `/workspace/RUN_DONE_ESCROWED`);
-   **stop the box after** (`vastai stop instance 47310167`).
+1. **DONE 2026-08-10 (rescued at 94%)**: tier-b imitation checkpoint =
+   HF `imit_tierb_rescued_2368k.pt`, CE 3.102. The run hung silently
+   at 2.368M/2.515M pairs — root-cause the stall (no traceback;
+   suspect ParallelStream worker teardown near file-list end) and add
+   a BOX-SIDE stall watchdog to the launch template (the laptop-side
+   supervisor is what dies overnight).
 2. **Evaluate it**: holdout curve vs both A/B arms (expect ≤3.107 CE
    with a ~0.95-AUC value head), then the external probes — this is the
    first checkpoint with a plausible claim to move the 0-30 RCA number.
