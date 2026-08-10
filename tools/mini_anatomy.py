@@ -6,7 +6,7 @@ to the MINI pool (0/17 at decision_step 2.40M -> 5/19 at 2.51M,
 p=0.031). Plays N mini-pool games with a checkpoint under the
 PRODUCTION search configuration (the box's launch flags, cycle 41
 verified: sims=32, gumbel m=16, fpu 0.25, draw-tiebreak cap 0.3,
-aux-score head, advice ON, turn cap jittered uniform [60, 100]) and
+aux-score head, turn cap jittered uniform [60, 100]) and
 records per-turn per-SIDE trajectories, so drawn and decisive games
 can be compared mechanically and stall symmetry measured:
 
@@ -155,7 +155,7 @@ def main(argv: List[str]) -> int:
         device = (torch.device("cuda") if torch.cuda.is_available()
                   else torch.device("cpu"))
     # Head/graft flags come from the CHECKPOINT (matching
-    # sim_self_play's resume logic: aux/advice heads must exist at
+    # sim_self_play's resume logic: optional heads must exist at
     # construction or their weights are dropped on load).
     base = TransformerPolicy(
         device=device, d_model=a["d_model"],
@@ -163,19 +163,17 @@ def main(argv: List[str]) -> int:
         d_ff=a["d_ff"],
         aux_score=bool(raw.get("aux_score")),
         moves_left=bool(raw.get("moves_left")),
-        advice=bool(raw.get("advice")),
         relevant_set_hexes=bool(raw.get("relevant_set_hexes")))
     base.load_checkpoint(args.checkpoint)
     step = raw.get("decision_step")
     # Production MCTS config = the box launch line's explicit flags
-    # (--mcts-sims 32, --mcts-aux-score, --mcts-advice) + sim_self_play
+    # (--mcts-sims 32, --mcts-aux-score) + sim_self_play
     # argparse defaults for everything else (verified 2026-07-30:
     # argparse defaults == MCTSConfig dataclass defaults except
     # n_simulations). draw_tiebreak cap 0.3 is the argparse default
     # (search-only; training labels stay honest).
     cfg = MCTSConfig(
         n_simulations=args.sims,
-        advice=bool(raw.get("advice")),
         draw_tiebreak=DrawTiebreakConfig(cap=0.3),
     )
     policy = MCTSPolicy(base, cfg)

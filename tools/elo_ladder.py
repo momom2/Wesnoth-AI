@@ -80,7 +80,7 @@ from tools.device_select import select_inference_device, describe_device
 from tools.scenario_pool import build_scenario_gamestate, random_setup
 from tools.sim_self_play import _recruit_cost_lookup
 from tools.eval_sim import (_PolicyPair, _load_policy,
-                            _play_one_eval_game, peek_checkpoint_arch)
+                            _play_one_eval_game)
 from tools.wesnoth_sim import WesnothSim
 
 
@@ -277,16 +277,9 @@ class Player:
             # Eval contract: MCTSConfig defaults keep the training
             # crutches OFF (aux_value_bonus=0.0, draw_tiebreak=None)
             # -- pure search over the checkpoint's own heads.
-            # Root advice is NOT a crutch: it is learned model
-            # conditioning (a gated module in the checkpoint), so an
-            # advice-trained checkpoint plays as trained -- advice ON
-            # at the root exactly when the checkpoint carries the
-            # path. For others the flag is inert either way.
-            advice = bool(peek_checkpoint_arch(
-                ckpt, self.label).get("advice", False))
             self.policy = MCTSPolicy(
                 base, mcts_config=MCTSConfig(
-                    n_simulations=int(sims_s), advice=advice))
+                    n_simulations=int(sims_s)))
         else:
             self.policy = _load_policy(Path(self.spec), device,
                                        label=self.label)

@@ -37,7 +37,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from tools.draw_tiebreak import DrawTiebreakConfig, material_margin
 from tools.elo_ladder import _ScriptedAdapter
 from tools.eval_sim import (_PolicyPair, _load_policy,
-                            _play_one_eval_game, peek_checkpoint_arch)
+                            _play_one_eval_game)
 from tools.scenario_pool import build_scenario_gamestate, random_setup
 from tools.wesnoth_sim import WesnothSim
 
@@ -61,14 +61,8 @@ def _build_player(spec: str, label: str, sims: int, device):
         # game: win +1, loss -1, draw 0. moves_left_utility (time
         # preference among equal outcomes, no material content) stays
         # env-configurable.
-        # Root advice is NOT a crutch: it is learned model conditioning
-        # carried by the checkpoint, so an advice-trained checkpoint
-        # plays as trained (mirrors tools/elo_ladder.py Player.build).
-        advice = bool(peek_checkpoint_arch(
-            Path(spec), label).get("advice", False))
         return MCTSPolicy(policy, MCTSConfig(
             n_simulations=sims,
-            advice=advice,
             moves_left_utility=float(
                 os.environ.get("ELO_MOVES_LEFT_UTILITY", "0") or 0)))
     return policy

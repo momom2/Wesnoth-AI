@@ -286,14 +286,6 @@ class EncodedState:
     # at -- i.e. a silently shrunken action space.
     hex_subset: bool = False
 
-    # Detector advice tokens (docs/detector_training_signal.md): one token
-    # per prospective setup opportunity among the available actions, already
-    # projected to d_model. `None`/empty => no advice this decision (the
-    # common case). The model's advice cross-attention (built only when
-    # `advice=True`) reads these; every existing caller leaves it None, so
-    # behaviour is unchanged.
-    advice_tokens: Optional[torch.Tensor] = None    # [1, A_adv, d_model]
-
 
 # ---------------------------------------------------------------------
 # Two-phase encoding split

@@ -179,7 +179,7 @@ def _class_of(action: dict) -> str:
 
 def prior_aggregate(policy, gs) -> Dict[str, float]:
     """Per-class RAW prior mass for one state, via the production
-    action-sampler path (no advice, no search)."""
+    action-sampler path (no search)."""
     import torch
     from wesnoth_ai.action_sampler import (
         enumerate_legal_actions_with_priors)

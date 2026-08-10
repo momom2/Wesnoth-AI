@@ -1034,8 +1034,7 @@ class SpoolWorkers:
         ] + (["--max-turns-min", str(args.max_turns_min)]
              if getattr(args, "max_turns_min", None) else []) + [
             "--draw-tiebreak-cap", str(max(0.0, args.draw_tiebreak_cap)),
-        ] + (["--mcts-advice"] if getattr(args, "mcts_advice", False)
-             else []) + (["--relevant-set-hexes"] if getattr(
+        ] + (["--relevant-set-hexes"] if getattr(
                  args, "relevant_set_hexes", False) else []) + [
             "--moves-left-utility", str(args.mcts_moves_left_utility),
             "--aux-value-bonus", str(getattr(
@@ -1207,8 +1206,9 @@ class SpoolWorkers:
                 # no error, just wrong gradients. Refuse it loudly instead:
                 # a stale worker after a flag change is the realistic cause,
                 # and dropping its games costs one iteration while accepting
-                # them costs the run. (Same seam that hid the dead advice
-                # wiring; see docs/autonomous_run.md cycle 20.)
+                # them costs the run. (Same seam that hid the dead
+                # detector-advice wiring, deleted 2026-08-10; see
+                # docs/autonomous_run.md cycle 20.)
                 _want_rs = bool(getattr(
                     getattr(base, "_encoder", None), "relevant_set_hexes",
                     False))
@@ -1841,21 +1841,6 @@ def run_iteration(
                 aux_str += f" fresh_pred_entropy={_fent:.4f}"
             if _ffloor == _ffloor:
                 aux_str += f" fresh_ce_floor={_ffloor:.4f}"
-        # Detector-advice telemetry (docs/detector_training_signal.md): the
-        # success metric for the advice SIGNAL is the gradient it delivers,
-        # so surface fire rate / grad share / the bootstrap tracker on the
-        # train_step line. Absent (nan) unless --mcts-advice is on.
-        _afr = getattr(train_stats, "advice_fire_rate", float("nan"))
-        if _afr == _afr:
-            _aom = getattr(train_stats, "advice_opps_mean", float("nan"))
-            _ags = getattr(train_stats, "advice_grad_share", float("nan"))
-            _aon = getattr(train_stats, "advice_out_norm", float("nan"))
-            aux_str += (f" advice_fire={_afr:.3f}"
-                        + (f" advice_opps={_aom:.2f}" if _aom == _aom else "")
-                        + (f" advice_grad_share={_ags:.4f}"
-                           if _ags == _ags else "")
-                        + (f" advice_out_norm={_aon:.4f}"
-                           if _aon == _aon else ""))
         # Boundary-consistency telemetry (T1-F, 2026-07-29): mean
         # V(pre)+V(post) at sampled side switches. ~0 = calibrated;
         # +0.4..+0.6 = the fogged-play WYSIATI bias (both sides read
@@ -2800,16 +2785,6 @@ def main(argv: List[str]) -> int:
                          "ACTION SPACE's index basis, so a checkpoint or "
                          "replay buffer built one way is meaningless the "
                          "other; learner and workers MUST agree.")
-    ap.add_argument("--mcts-advice", action="store_true",
-                    help="Detector training signal (docs/"
-                         "detector_training_signal.md): add the model's "
-                         "advice cross-attention (learnable gate) and, in "
-                         "MCTS mode, attach prospective detector advice "
-                         "tokens at the ROOT so priors + the visit-count "
-                         "target are advice-conditioned. Zero-init graft: "
-                         "warm-starts an advice-free checkpoint cleanly. "
-                         "Root-only; acting-side for now (trainer reforward "
-                         "advice = the gate-learning follow-up).")
     ap.add_argument("--mcts-moves-left", action="store_true",
                     help="Add the Lc0-style moves-left head: the model "
                          "predicts the fraction of the turn budget "
@@ -3057,7 +3032,6 @@ def main(argv: List[str]) -> int:
     arch_kwargs: Dict[str, int] = {}
     ckpt_aux_score = False
     ckpt_moves_left = False
-    ckpt_advice = False
     if args.checkpoint_in and args.checkpoint_in.exists():
         # Resolve to a LOADABLE checkpoint: prefer the primary, but if it's
         # unreadable (truncated by a kill mid-write on a preemptible node),
@@ -3091,7 +3065,6 @@ def main(argv: List[str]) -> int:
                     arch_kwargs[k] = int(saved_arch[k])
             ckpt_aux_score = bool(raw.get("aux_score", False))
             ckpt_moves_left = bool(raw.get("moves_left", False))
-            ckpt_advice = bool(raw.get("advice", False))
             if arch_kwargs:
                 log.info(f"warm-start arch from checkpoint: {arch_kwargs}"
                          f"{' +aux_score' if ckpt_aux_score else ''}"
@@ -3135,11 +3108,9 @@ def main(argv: List[str]) -> int:
     # construction.
     aux_score_flag = bool(args.mcts_aux_score) or ckpt_aux_score
     moves_left_flag = bool(args.mcts_moves_left) or ckpt_moves_left
-    advice_flag = bool(args.mcts_advice) or ckpt_advice
     relevant_set_flag = bool(getattr(args, "relevant_set_hexes", False))
     policy = TransformerPolicy(device=device, aux_score=aux_score_flag,
                                moves_left=moves_left_flag,
-                               advice=advice_flag,
                                relevant_set_hexes=relevant_set_flag,
                                infer_bf16=getattr(args, "infer_bf16",
                                                   False),
@@ -3149,9 +3120,6 @@ def main(argv: List[str]) -> int:
     if relevant_set_flag:
         log.info("relevant-hex encoding ON (action-space index basis "
                  "differs from full-board runs; see docs/autonomous_run.md)")
-    if advice_flag:
-        log.info("detector advice path ON (root-conditioned priors; "
-                 "zero-init graft; docs/detector_training_signal.md)")
     if aux_score_flag:
         policy._trainer.config.aux_coef = float(args.mcts_aux_coef)
         log.info(f"auxiliary margin head ON (aux_coef="
@@ -3273,7 +3241,6 @@ def main(argv: List[str]) -> int:
             n_simulations=args.mcts_sims,
             moves_left_utility=args.mcts_moves_left_utility,
             aux_value_bonus=args.mcts_aux_value_bonus,
-            advice=advice_flag,
             c_puct=args.mcts_c_puct,
             batch_size=_mbs,
             fpu_reduction=(None if args.mcts_fpu_reduction < 0

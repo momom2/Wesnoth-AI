@@ -1074,24 +1074,6 @@ class MCTSPolicy:
             n_trajectories=buffer_size,
             aux_loss=sum(s.aux_loss for s in stats) / k,
             moves_left_loss=sum(s.moves_left_loss for s in stats) / k,
-            # Telemetry set INSIDE step_mcts must be carried
-            # explicitly: this constructor silently dropped the
-            # advice_* fields, so under --replay-buffer the advice
-            # telemetry was NaN in production while the in-process
-            # legacy path showed it fine (found live 2026-07-29).
-            # Means are NaN-aware (an all-NaN column stays NaN);
-            # advice_out_norm takes the LAST value (post-update
-            # magnitude, mirroring grad_norm's semantics).
-            advice_fire_rate=_nanmean(
-                [s.advice_fire_rate for s in stats]),
-            advice_opps_mean=_nanmean(
-                [s.advice_opps_mean for s in stats]),
-            advice_grad_share=_nanmean(
-                [s.advice_grad_share for s in stats]),
-            advice_out_norm=next(
-                (s.advice_out_norm for s in reversed(stats)
-                 if s.advice_out_norm == s.advice_out_norm),
-                float("nan")),
         )
 
     # ------------------------------------------------------------------

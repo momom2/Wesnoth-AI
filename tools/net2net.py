@@ -111,7 +111,7 @@ def transfer_state_dict(
     # TRAINED WEIGHTS WITH NOWHERE TO GO. The loop above iterates over the
     # DESTINATION's params, so a source tensor whose module doesn't exist
     # on the destination is silently discarded. That is how an optional
-    # head (advice cross-attention, moves_left) disappears when the
+    # head (e.g. moves_left) disappears when the
     # destination policy was built without its flag -- the grow "succeeds"
     # and the head is simply gone. Surfaced so a caller can refuse.
     report["dropped"] = [k for k in src_sd if k not in new_sd]
@@ -128,7 +128,7 @@ def grow_checkpoint(
     d_model: Optional[int] = None, num_layers: Optional[int] = None,
     num_heads: Optional[int] = None, d_ff: Optional[int] = None,
     aux_score: Optional[bool] = None, device=None,
-    moves_left: Optional[bool] = None, advice: Optional[bool] = None,
+    moves_left: Optional[bool] = None,
     relevant_set_hexes: Optional[bool] = None,
 ) -> Dict:
     """Load a checkpoint, build a TransformerPolicy at the (possibly
@@ -137,7 +137,7 @@ def grow_checkpoint(
     `--checkpoint-in`. Unspecified arch dims default to the source's.
 
     OPTIONAL-HEAD FLAGS ARE CARRIED FROM THE SOURCE, not defaulted off.
-    `TransformerPolicy.__init__` defaults `moves_left`/`advice`/
+    `TransformerPolicy.__init__` defaults `moves_left`/
     `relevant_set_hexes` to False, so building the destination from
     `arch` alone silently drops those heads' trained weights (the
     transfer walks the DESTINATION's params — a source tensor with no
@@ -167,7 +167,6 @@ def grow_checkpoint(
 
     flags = {
         "moves_left":         _keep(moves_left, "moves_left"),
-        "advice":             _keep(advice, "advice"),
         "relevant_set_hexes": _keep(relevant_set_hexes, "relevant_set_hexes"),
     }
 
@@ -231,7 +230,6 @@ def main(argv: List[str]) -> int:
     # Optional heads default to the SOURCE's setting (None); these only
     # exist to deliberately add or drop a head during a grow.
     for _f, _h in (("moves-left", "moves-left head"),
-                   ("advice", "advice cross-attention"),
                    ("relevant-set-hexes", "relevant-set hex encoding")):
         _g = ap.add_mutually_exclusive_group()
         _d = _f.replace("-", "_")
@@ -253,7 +251,7 @@ def main(argv: List[str]) -> int:
         args.src, args.out, d_model=args.d_model,
         num_layers=args.num_layers, num_heads=args.num_heads,
         d_ff=args.d_ff, aux_score=args.aux_score,
-        moves_left=args.moves_left, advice=args.advice,
+        moves_left=args.moves_left,
         relevant_set_hexes=args.relevant_set_hexes)
     return 0
 

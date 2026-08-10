@@ -237,7 +237,7 @@ def _play_one_eval_game(
 # that owns weights, so a policy built without it silently drops
 # those tensors on load (they arrive as "unexpected keys") and then
 # evaluates a different model than the one that trained.
-CHECKPOINT_STRUCT_FLAGS = ("aux_score", "moves_left", "advice",
+CHECKPOINT_STRUCT_FLAGS = ("aux_score", "moves_left",
                            "relevant_set_hexes")
 
 
@@ -283,15 +283,12 @@ def _load_policy(
     a lowest-bar reference. Mirrors the arch-peek pattern in
     sim_self_play.main.
 
-    Structural flags (aux_score / moves_left / advice /
-    relevant_set_hexes) are peeked from the checkpoint too, so the
-    policy is BUILT with the paths the checkpoint carries and every
-    weight loads. Without this, an advice-trained checkpoint loaded
-    with its advice tensors silently DROPPED as unexpected keys --
-    inert for raw-policy eval (advice only attaches at an MCTS root),
-    but an eval through `mcts:` would then measure a different model
-    than the one that trained (the probe-bug class from the 2026-07-29
-    hoarding probe, found again here by reading the load warnings)."""
+    Structural flags (aux_score / moves_left / relevant_set_hexes)
+    are peeked from the checkpoint too, so the policy is BUILT with
+    the paths the checkpoint carries and every weight loads --
+    without this, an eval would silently measure a structurally
+    different model than the one that trained (the probe-bug class
+    from the 2026-07-29 hoarding probe)."""
     arch_kwargs = peek_checkpoint_arch(ckpt_path, label)
     policy = TransformerPolicy(device=device, **arch_kwargs)
     if ckpt_path and ckpt_path.exists():

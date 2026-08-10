@@ -139,16 +139,16 @@ def test_grow_checkpoint_roundtrip(tmp_path):
 def test_grow_carries_optional_head_flags(tmp_path):
     """A grow must NOT silently drop optional heads.
 
-    `TransformerPolicy.__init__` defaults moves_left/advice to False, so
-    a grow that builds the destination from `arch` alone produces a net
-    with no advice cross-attention and no moves-left head -- and the
-    transfer walks the DESTINATION's params, so those trained tensors
-    vanish without appearing in any report bucket. Before the fix this
-    grow succeeded and returned a mutilated checkpoint.
+    `TransformerPolicy.__init__` defaults moves_left to False, so a
+    grow that builds the destination from `arch` alone produces a net
+    with no moves-left head -- and the transfer walks the
+    DESTINATION's params, so those trained tensors vanish without
+    appearing in any report bucket. Before the fix this grow
+    succeeded and returned a mutilated checkpoint.
     """
     src_pol = TransformerPolicy(device=torch.device("cpu"), d_model=48,
                                 num_layers=2, num_heads=4, d_ff=96,
-                                aux_score=True, moves_left=True, advice=True)
+                                aux_score=True, moves_left=True)
     sim = fresh_scenario_sim(seed=21, max_turns=12, mini=True)
     src_pol._encoder.encode(sim.gs)
     src_p = tmp_path / "narrow.pt"
@@ -159,10 +159,8 @@ def test_grow_carries_optional_head_flags(tmp_path):
 
     # The flags rode along, so the heads still exist in the grown net.
     assert rep["flags"]["moves_left"] is True
-    assert rep["flags"]["advice"] is True
     raw = torch.load(out_p, map_location="cpu", weights_only=False)
-    assert raw["moves_left"] is True and raw["advice"] is True
-    assert any("advice" in k for k in raw["model_state"])
+    assert raw["moves_left"] is True
     assert any("moves_left" in k for k in raw["model_state"])
 
 
@@ -171,7 +169,7 @@ def test_grow_refuses_to_discard_trained_weights(tmp_path):
     quietly write a smaller checkpoint."""
     src_pol = TransformerPolicy(device=torch.device("cpu"), d_model=48,
                                 num_layers=2, num_heads=4, d_ff=96,
-                                advice=True)
+                                moves_left=True)
     sim = fresh_scenario_sim(seed=21, max_turns=12, mini=True)
     src_pol._encoder.encode(sim.gs)
     src_p = tmp_path / "narrow.pt"
@@ -179,17 +177,18 @@ def test_grow_refuses_to_discard_trained_weights(tmp_path):
 
     with pytest.raises(SystemExit, match="DISCARD"):
         grow_checkpoint(src_p, tmp_path / "wide.pt", d_model=96,
-                        num_heads=4, advice=False)
+                        num_heads=4, moves_left=False)
 
 
 def test_transfer_reports_dropped_source_params():
     """`dropped` names source tensors with no destination slot."""
     src = TransformerPolicy(device=torch.device("cpu"), d_model=48,
-                            num_layers=2, num_heads=4, d_ff=96, advice=True)
-    dst = _pol()                       # built WITHOUT advice
+                            num_layers=2, num_heads=4, d_ff=96,
+                            moves_left=True)
+    dst = _pol()                       # built WITHOUT the moves-left head
     rep = transfer_state_dict(src._inference_model.state_dict(),
                               dst._inference_model)
-    assert any("advice" in n for n in rep["dropped"])
+    assert any("moves_left" in n for n in rep["dropped"])
 
 
 def test_copy_leading_block_handles_shrink_and_grow():

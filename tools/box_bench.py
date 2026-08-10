@@ -90,7 +90,6 @@ def main(argv):
         a = raw["arch"]
         kw = dict(aux_score=bool(raw.get("aux_score")),
                   moves_left=bool(raw.get("moves_left")),
-                  advice=bool(raw.get("advice")),
                   relevant_set_hexes=bool(raw.get("relevant_set_hexes")))
     else:
         a = dict(d_model=384, num_layers=8, num_heads=12, d_ff=1536)

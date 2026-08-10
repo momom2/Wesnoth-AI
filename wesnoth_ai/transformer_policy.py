@@ -85,7 +85,6 @@ class TransformerPolicy:
         trainer_config: Optional[TrainerConfig] = None,
         aux_score: bool = False,
         moves_left: bool = False,
-        advice: bool = False,
         relevant_set_hexes: bool = False,
         infer_bf16: bool = False,
         infer_compile: bool = False,
@@ -122,7 +121,6 @@ class TransformerPolicy:
 
         self._aux_score = bool(aux_score)
         self._moves_left = bool(moves_left)
-        self._advice = bool(advice)
         # Relevant-hex stream (docs/autonomous_run.md cycles 16-19). Changes
         # the ACTION SPACE's index basis, so BOTH encoders must agree -- a
         # split would make replayed target_idx meaningless.
@@ -137,7 +135,6 @@ class TransformerPolicy:
             d_ff=d_ff,
             aux_score=self._aux_score,
             moves_left=self._moves_left,
-            advice=self._advice,
         ).to(self._device)
         self._trainer = Trainer(
             self._model,
@@ -176,7 +173,6 @@ class TransformerPolicy:
             d_ff=d_ff,
             aux_score=self._aux_score,
             moves_left=self._moves_left,
-            advice=self._advice,
         ).to(self._device)
         self._inference_encoder.load_state_dict(self._encoder.state_dict())
         self._inference_model.load_state_dict(self._model.state_dict())
@@ -629,7 +625,6 @@ class TransformerPolicy:
                 # partial-loads via the EXPECTED_MISSING whitelist.
                 "aux_score":       self._aux_score,
                 "moves_left":      self._moves_left,
-                "advice":          self._advice,
                 "relevant_set_hexes": self._relevant_set_hexes,
                 "model_state":     self._model.state_dict(),
                 "encoder_state":   self._encoder.state_dict(),
@@ -794,12 +789,8 @@ class TransformerPolicy:
                 miss = list(getattr(res, "missing_keys", []) or [])
                 extra = list(getattr(res, "unexpected_keys", []) or [])
                 expected = EXPECTED_MISSING_KEYS_BY_LABEL.get(label, set())
-                # Any advice_* key missing is expected: an advice=True model
-                # grafting an advice-free checkpoint (zero-init advice path,
-                # see docs/detector_training_signal.md).
                 unexpected_missing = [
-                    k for k in miss
-                    if k not in expected and not k.startswith("advice_")]
+                    k for k in miss if k not in expected]
                 if miss or extra:
                     self._logger.warning(
                         f"partial {label} load: {len(miss)} missing key(s), "

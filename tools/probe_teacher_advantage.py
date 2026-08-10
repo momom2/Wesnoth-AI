@@ -8,8 +8,8 @@ paired rows let the analyzer compare AUCs: if search adds <= +0.02
 AUC over the raw head, there is nothing worth distilling into the
 value head at the campaign's search budget (kill the value channel).
 
-Search runs under the CAMPAIGN config (32 sims, tiebreak cap 0.3,
-advice per checkpoint) because the question is what the TRAINING
+Search runs under the CAMPAIGN config (32 sims, tiebreak cap 0.3)
+because the question is what the TRAINING
 teacher would provide -- not the eval contract's pure-strength view.
 
 Chunk-friendly: --skip-games/--games partition the corpus index and
@@ -68,14 +68,12 @@ def main(argv):
         d_ff=a["d_ff"],
         aux_score=bool(raw.get("aux_score")),
         moves_left=bool(raw.get("moves_left")),
-        advice=bool(raw.get("advice")),
         relevant_set_hexes=bool(raw.get("relevant_set_hexes")))
     pol.load_checkpoint(args.checkpoint)
     model, enc = pol._inference_model, pol._inference_encoder
     model.eval()
     atoms = pol._model._value_atoms
     cfg = MCTSConfig(n_simulations=args.sims,
-                     advice=bool(raw.get("advice")),
                      draw_tiebreak=DrawTiebreakConfig(cap=0.3))
 
     index = load_index(args.dataset_dir)

@@ -141,15 +141,6 @@ echo "[onstart] arch d_model=$D_MODEL layers=$NUM_LAYERS heads=$NUM_HEADS" \
 
 CAMPAIGN="training/checkpoints/$CAMPAIGN_FILE"
 
-# Detector advice signal ON by default (2026-07-28). Env vars are baked at
-# instance-CREATE time, so a plain restart of an existing box cannot add
-# `-e MCTS_ADVICE=1`; defaulting here means the flag ships via `git pull`.
-# Disable with `-e MCTS_ADVICE=` (empty) at create time.
-# Zero-init graft => an advice-free checkpoint warm-starts unchanged and the
-# gate learns up from zero; the train_step line reports advice_fire /
-# advice_grad_share / advice_out_norm. See docs/detector_training_signal.md.
-MCTS_ADVICE="${MCTS_ADVICE-1}"
-
 # Seed the campaign from HF Hub on a FRESH instance so a brand-new
 # node RESUMES the campaign instead of silently starting over
 # (2026-07-05 incident: token scp'd after onstart had already begun a
@@ -473,7 +464,6 @@ nohup bash -c "
       --max-turns-min ${MAX_TURNS_MIN:-60} \
       ${RELEVANT_SET_HEXES:+--relevant-set-hexes} \
       --mcts-aux-score \
-      ${MCTS_ADVICE:+--mcts-advice} \
       ${AUX_VALUE_BONUS:+--mcts-aux-value-bonus $AUX_VALUE_BONUS} \
       --validate-export-every ${VALIDATE_EXPORT_EVERY:-1} \
       --value-label-smoothing 0.02 \

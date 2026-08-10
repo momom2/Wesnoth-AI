@@ -99,28 +99,6 @@ def test_spool_harvest_single_side_and_short_games():
     assert _harvest([]) == []
 
 
-def test_combine_stats_carries_advice_fields():
-    """REGRESSION: _combine_stats built a fresh TrainStats naming only 11
-    fields, so every advice_* stat set inside step_mcts reverted to its NaN
-    default under --replay-buffer -- telemetry that looked fine on the
-    in-process path was dead in production. This test pins the chokepoint
-    so the NEXT stat added in step_mcts cannot die silently."""
-    from tools.mcts_policy import MCTSPolicy
-    from wesnoth_ai.trainer import TrainStats
-    a = TrainStats(advice_fire_rate=0.10, advice_opps_mean=1.5,
-                   advice_grad_share=0.04, advice_out_norm=0.0)
-    b = TrainStats(advice_fire_rate=0.20, advice_opps_mean=2.5,
-                   advice_grad_share=0.06, advice_out_norm=7.5)
-    out = MCTSPolicy._combine_stats([a, b], 2)
-    assert abs(out.advice_fire_rate - 0.15) < 1e-9
-    assert abs(out.advice_opps_mean - 2.0) < 1e-9
-    assert abs(out.advice_grad_share - 0.05) < 1e-9
-    assert out.advice_out_norm == 7.5          # LAST non-NaN, like grad_norm
-    # all-NaN must stay NaN so the log guard still suppresses the fields
-    n = MCTSPolicy._combine_stats([TrainStats(), TrainStats()], 2)
-    assert n.advice_fire_rate != n.advice_fire_rate
-
-
 # --------------------------------------------------------------------
 # Sampling contract (2026-07-29). The reading is a MEAN over sampled
 # pairs, so its sampling SE scales 1/sqrt(k) -- and it is watched

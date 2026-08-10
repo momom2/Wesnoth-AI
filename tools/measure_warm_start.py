@@ -266,7 +266,7 @@ def main(argv: List[str]) -> int:
     # Optional heads must be reproduced or the "source" being measured is
     # a stripped model -- load_checkpoint only WARNS about unexpected keys.
     flags = {k: bool(raw.get(k, False))
-             for k in ("moves_left", "advice", "relevant_set_hexes")}
+             for k in ("moves_left", "relevant_set_hexes")}
     log.info("source %s: arch=%s aux_score=%s %s decision_step=%s",
              args.source.name, src_arch, aux, flags, raw.get("decision_step"))
 
@@ -289,8 +289,7 @@ def main(argv: List[str]) -> int:
                           weights_only=False)
         darch = draw.get("arch", {}) or {}
         dflags = {k: bool(draw.get(k, False))
-                  for k in ("moves_left", "advice",
-                            "relevant_set_hexes")}
+                  for k in ("moves_left", "relevant_set_hexes")}
         dst_pol = TransformerPolicy(
             device=torch.device("cpu"),
             aux_score=bool(draw.get("aux_score", False)),

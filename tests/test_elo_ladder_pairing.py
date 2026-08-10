@@ -139,24 +139,24 @@ def test_two_player_ci_closed_form_cycle26():
 
 
 def test_load_policy_builds_checkpoint_structural_flags(tmp_path):
-    """An advice/aux-trained checkpoint must be loaded by eval into a
-    policy BUILT with those paths, so no weight is silently dropped as
-    an unexpected key. Found live (2026-07-29): the campaign checkpoint
-    loaded into the ladder with its advice tensors dropped -- inert for
-    raw-policy eval, but an `mcts:` eval would have measured a
-    different model than the one that trained. Full state_dict
-    equality is the assert: if anything was dropped, some key differs."""
+    """A checkpoint trained with optional heads must be loaded by eval
+    into a policy BUILT with those paths, so no weight is silently
+    dropped as an unexpected key. Found live (2026-07-29): the campaign
+    checkpoint loaded into the ladder with optional-head tensors
+    dropped -- an `mcts:` eval would have measured a different model
+    than the one that trained. Full state_dict equality is the assert:
+    if anything was dropped, some key differs."""
     import torch
     from wesnoth_ai.transformer_policy import TransformerPolicy
     from tools.eval_sim import _load_policy
 
     src = TransformerPolicy(d_model=32, num_layers=1, num_heads=2,
-                            d_ff=32, aux_score=True, advice=True)
-    ckpt = tmp_path / "advice_ckpt.pt"
+                            d_ff=32, aux_score=True, moves_left=True)
+    ckpt = tmp_path / "heads_ckpt.pt"
     src.save_checkpoint(ckpt)
 
     loaded = _load_policy(ckpt, None, label="test")
-    assert loaded._advice is True
+    assert loaded._moves_left is True
     assert loaded._aux_score is True
     src_sd = src._model.state_dict()
     got_sd = loaded._model.state_dict()
@@ -165,40 +165,28 @@ def test_load_policy_builds_checkpoint_structural_flags(tmp_path):
         assert torch.equal(src_sd[k], got_sd[k]), f"weight differs: {k}"
 
 
-def test_mcts_spec_honors_checkpoint_advice_and_contract(tmp_path):
-    """An `mcts:` player built from an advice-trained checkpoint must
-    search with root advice ON (the checkpoint's learned conditioning
-    -- how it plays in production), while the eval-contract crutches
-    (aux_value_bonus, draw_tiebreak) stay OFF regardless. Covers both
-    builders: elo_ladder.Player.build and elo_eval_game._build_player."""
+def test_mcts_spec_honors_eval_contract(tmp_path):
+    """An `mcts:` player's search must keep the eval-contract crutches
+    (aux_value_bonus, draw_tiebreak) OFF regardless of how the
+    checkpoint trained. Covers both builders: elo_ladder.Player.build
+    and elo_eval_game._build_player."""
     from wesnoth_ai.transformer_policy import TransformerPolicy
     src = TransformerPolicy(d_model=32, num_layers=1, num_heads=2,
-                            d_ff=32, advice=True)
-    ckpt = tmp_path / "advice_ckpt.pt"
+                            d_ff=32)
+    ckpt = tmp_path / "plain_ckpt.pt"
     src.save_checkpoint(ckpt)
 
     p = Player(label="m", spec=f"mcts:1:{ckpt}")
     p.build(None)
     cfg = p.policy._mcts_config
-    assert cfg.advice is True
     assert cfg.aux_value_bonus == 0.0
     assert cfg.draw_tiebreak is None
 
     from tools.elo_eval_game import _build_player
     mp = _build_player(str(ckpt), "m2", sims=1, device=None)
     cfg2 = mp._mcts_config
-    assert cfg2.advice is True
     assert cfg2.aux_value_bonus == 0.0
     assert cfg2.draw_tiebreak is None
-
-    # A checkpoint WITHOUT the advice path stays advice-OFF.
-    src2 = TransformerPolicy(d_model=32, num_layers=1, num_heads=2,
-                             d_ff=32)
-    ckpt2 = tmp_path / "plain_ckpt.pt"
-    src2.save_checkpoint(ckpt2)
-    p2 = Player(label="n", spec=f"mcts:1:{ckpt2}")
-    p2.build(None)
-    assert p2.policy._mcts_config.advice is False
 
 
 @pytest.mark.slow

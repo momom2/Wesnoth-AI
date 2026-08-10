@@ -58,11 +58,6 @@ VALUE_N_ATOMS = 51
 VALUE_V_MIN   = -1.0
 VALUE_V_MAX   = +1.0
 
-# Detector-advice token builder dims (docs/detector_training_signal.md).
-N_ADVICE_MOTIFS = 4        # backstab_setup, leadership_setup, + headroom
-ADVICE_FEAT_DIM = 4        # per-opportunity: [tier, gain, delta_v, has_delta_v]
-
-
 # Token-kind tags added to every stream so the transformer can tell
 # "this is a hex" from "this is a recruit" during self-attention.
 class TokenKind:
@@ -226,14 +221,12 @@ class WesnothModel(nn.Module):
         max_attacks: int = MAX_ATTACKS,
         aux_score:   bool = False,
         moves_left:  bool = False,
-        advice:      bool = False,
     ):
         super().__init__()
         self.d_model     = d_model
         self.max_attacks = max_attacks
         self.has_aux_score = bool(aux_score)
         self.has_moves_left = bool(moves_left)
-        self.has_advice = bool(advice)
 
         # Distinguish streams at attention time.
         self.token_kind_embed = nn.Embedding(TokenKind.COUNT, d_model)
@@ -308,54 +301,6 @@ class WesnothModel(nn.Module):
         # the default arch (and existing checkpoints) are unchanged.
         self.moves_left_head = (
             nn.Linear(d_model, 1) if self.has_moves_left else None)
-        # Optional detector-advice path (docs/detector_training_signal.md).
-        # A SEPARATE cross-attention block, NOT part of the main transformer
-        # (which never sees advice tokens), so an existing checkpoint's main
-        # weights load byte-identically. Actor tokens (queries) attend to the
-        # advice tokens (keys/values); a per-actor GATE emits the LEARNABLE
-        # SCALE (softplus), and the gated result refines the actor tokens
-        # before the policy heads -- so the value net's ΔV magnitude and the
-        # detector's gain are scaled by a factor the policy learns from the
-        # TRUE reward (not the imitation loss -> non-circular). ZERO-INIT
-        # graft: `advice_out` starts at 0, so the advice contributes nothing
-        # at load and the model learns the scale up from zero.
-        if self.has_advice:
-            # Token builder (grounds each opportunity on its mover/dest
-            # tokens). NOT zero-init -- the graft's zero is on advice_out.
-            self.advice_motif_embed = nn.Embedding(N_ADVICE_MOTIFS, d_model)
-            self.advice_feat_proj = nn.Linear(ADVICE_FEAT_DIM, d_model)
-            # Cross-attention refinement (zero-init output => graft-safe).
-            self.advice_kind = nn.Parameter(torch.zeros(d_model))
-            self.advice_attn = nn.MultiheadAttention(
-                d_model, num_heads, dropout=dropout, batch_first=True)
-            self.advice_gate = nn.Linear(d_model, 1)
-            self.advice_out = nn.Linear(d_model, d_model)
-            nn.init.zeros_(self.advice_out.weight)
-            nn.init.zeros_(self.advice_out.bias)
-        else:
-            self.advice_motif_embed = None
-            self.advice_feat_proj = None
-            self.advice_kind = None
-            self.advice_attn = None
-            self.advice_gate = None
-            self.advice_out = None
-
-    def build_advice_tokens(self, encoded, motif_ids, feats,
-                            mover_uidx, dest_hidx):
-        """Build advice tokens `[1, A_adv, d]` from per-opportunity features,
-        grounded on the mover's unit token + the destination hex token so
-        the advice lives in the same space as the board. Called BEFORE
-        `forward` -- by self-play AND the trainer's reforward -- to populate
-        `encoded.advice_tokens`. Builder params are free to be random-init;
-        the zero-init graft lives on the cross-attn output (`advice_out`)."""
-        dev = encoded.unit_tokens.device
-        if not self.has_advice or motif_ids.numel() == 0:
-            return torch.zeros(1, 0, self.d_model, device=dev)
-        m = self.advice_motif_embed(motif_ids)                    # [A, d]
-        f = self.advice_feat_proj(feats)                          # [A, d]
-        u = encoded.unit_tokens[0].index_select(0, mover_uidx)    # [A, d]
-        h = encoded.hex_tokens[0].index_select(0, dest_hidx)      # [A, d]
-        return (m + f + u + h).unsqueeze(0)                       # [1, A, d]
 
     def forward(self, encoded: "EncodedState") -> ModelOutput:
         # Opt-in bf16 inference autocast (2026-08-05 throughput
@@ -414,19 +359,6 @@ class WesnothModel(nn.Module):
         # Actor-slot tokens, same order used by actor_kind.
         actor_ctx = torch.cat([unit_ctx, recruit_ctx, end_turn_ctx], dim=1)
         # Shape: [1, A, d] where A = U + R + 1.
-
-        # Detector-advice refinement (zero at init via advice_out=0). Actor
-        # tokens attend to the advice tokens; a per-actor softplus GATE is the
-        # learnable scale; the gated result refines actor_ctx before every
-        # policy head. Value head (global_ctx) is untouched -- advice steers
-        # ACTION choice, not the value estimate.
-        if (self.has_advice and encoded.advice_tokens is not None
-                and encoded.advice_tokens.size(1) > 0):
-            adv = encoded.advice_tokens + self.advice_kind      # [1, A_adv, d]
-            attn_out, _ = self.advice_attn(
-                actor_ctx, adv, adv, need_weights=False)        # [1, A, d]
-            gate = F.softplus(self.advice_gate(actor_ctx))      # [1, A, 1]
-            actor_ctx = actor_ctx + gate * self.advice_out(attn_out)
 
         actor_kind = torch.tensor(
             [ActorKind.UNIT] * U
@@ -616,45 +548,6 @@ class WesnothModel(nn.Module):
         if self.moves_left_head is not None:
             moves_left_b = torch.sigmoid(
                 self.moves_left_head(global_ctx_b.squeeze(1)))        # [B, 1]
-
-        # Detector-advice refinement, batched. Mirror the single-sample
-        # path (advice refines the actor tokens before the heads), but over
-        # the padded batch: concat the three actor blocks, cross-attend to
-        # each sample's advice tokens (padded to A_max with a key mask), gate
-        # (the learnable scale), and add the zero-init `advice_out` output
-        # scaled by a per-sample has-advice flag (so no-advice rows -- and
-        # their all-masked keys -- contribute nothing and can't NaN). Split
-        # back. Equivalent to per-sample forward (test_advice_head).
-        if self.has_advice and any(
-                getattr(e, "advice_tokens", None) is not None
-                and e.advice_tokens.size(1) > 0 for e in encoded_list):
-            A_list = [(e.advice_tokens.size(1)
-                       if getattr(e, "advice_tokens", None) is not None else 0)
-                      for e in encoded_list]
-            A_max = max(max(A_list), 1)
-            adv_pad = torch.zeros(B, A_max, d, device=device, dtype=dtype)
-            adv_mask = torch.ones(B, A_max, dtype=torch.bool, device=device)
-            for b in range(B):
-                ab = A_list[b]
-                if ab > 0:
-                    adv_pad[b, :ab] = (encoded_list[b].advice_tokens[0]
-                                       + self.advice_kind)
-                    adv_mask[b, :ab] = False
-                else:
-                    adv_mask[b, 0] = False   # keep 1 unmasked -> no NaN softmax
-            has_adv = torch.tensor(
-                [1.0 if A_list[b] > 0 else 0.0 for b in range(B)],
-                device=device, dtype=dtype).view(B, 1, 1)
-            actor_ctx_b = torch.cat(
-                [unit_ctx_b, recruit_ctx_b, end_turn_ctx_b], dim=1)
-            attn_out, _ = self.advice_attn(
-                actor_ctx_b, adv_pad, adv_pad,
-                key_padding_mask=adv_mask, need_weights=False)
-            gate = F.softplus(self.advice_gate(actor_ctx_b))
-            actor_ctx_b = actor_ctx_b + has_adv * gate * self.advice_out(attn_out)
-            unit_ctx_b     = actor_ctx_b[:, :U_max]
-            recruit_ctx_b  = actor_ctx_b[:, U_max:U_max + R_max]
-            end_turn_ctx_b = actor_ctx_b[:, U_max + R_max:U_max + R_max + 1]
 
         # Heads applied to the padded streams once each — replaces the
         # old per-sample loop that called actor_head / target_q_proj /
