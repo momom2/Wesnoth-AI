@@ -297,6 +297,23 @@ def test_deep_fingerprint_covers_surfaces_state_key_misses():
         h.modifiers.add(TerrainModifiers.ILLUMINATED)
     assert deep_state_fingerprint(sim.gs) == fp0
 
+    # (d) Per-unit `_defense_table` stash (coverage gap closed
+    # 2026-08-10, user order): shallow unit copies SHARE the dict, so
+    # a fork-side write is exactly the aliasing class the guard
+    # exists for. Invisible to state_key by design.
+    u2 = min(sim.gs.map.units, key=lambda x: x.id)
+    had_tbl = hasattr(u2, "_defense_table")
+    orig_tbl = getattr(u2, "_defense_table", None)
+    setattr(u2, "_defense_table",
+            {**(orig_tbl or {}), "village": 1})
+    assert state_key(sim.gs) == sk0          # invisible to state_key
+    assert deep_state_fingerprint(sim.gs) != fp0
+    if had_tbl:
+        setattr(u2, "_defense_table", orig_tbl)
+    else:
+        delattr(u2, "_defense_table")
+    assert deep_state_fingerprint(sim.gs) == fp0
+
 
 def test_fork_guard_no_false_positive_on_real_search(monkeypatch):
     """SIM_FORK_GUARD e2e: a real (tiny-model, few-sims) search with

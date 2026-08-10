@@ -24,7 +24,17 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
    a periodic `--imitation-config --eval-only` probe to campaign legs).
 4. Multi-epoch question: one epoch left CE still falling slowly — a
    second epoch is ~$4.50/14h; measure marginal gain before habit.
-5. **Self-play handoff design (the next big decision)** — the
+5. **Handoff-leg launch config — DECIDED 2026-08-10 (technique review
+   A-items, user rulings):** ACTIVATED: `--distill-prior-discount 0.9`
+   (A1), `--human-anchor-file` value rehearsal (A2, cache build
+   pending), turn-cap jitter `--max-turns-min 60 --max-turns 100` (A3),
+   `--replay-buffer` now DEFAULT ON at the training CLI (A4, shipped),
+   one `SIM_FORK_GUARD=1` smoke iteration at campaign start (A6;
+   `_defense_table` fingerprint gap CLOSED per user order).
+   **TO-ACTIVATE pending threshold discussion (user): A5 abort
+   tripwires** — decisive-rate floor + FLOOR-RELATIVE holdout-CE stall;
+   discuss thresholds before the paid leg launches.
+6. **Self-play handoff design (the next big decision)** — the
    2026-08-10 literature scan (docs/literature_scan_20260810.md,
    grounded in docs/techniques.md) converges on: nothing protects the
    imitation prior once self-play starts (self-referential Gumbel
@@ -42,7 +52,7 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
      non-adaptive sims per halving phase) + Go-Exploit archive starts;
    - cheap corpus wins to consider: opponent-reply auxiliary head,
      HL-Gauss value targets.
-6. Corpus follow-ups (cheap, parked): extractor gap for menu-picks
+7. Corpus follow-ups (cheap, parked): extractor gap for menu-picks
    armed by MOVES (Necromancer-pick shape, zero measured corpus impact);
    `setaside_pickadvance_force` support if force-choice games ever
    matter; eras beyond default/dunefolk-clean re-ruling.

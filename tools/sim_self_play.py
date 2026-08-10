@@ -2992,17 +2992,22 @@ def main(argv: List[str]) -> int:
                     default=Path("training/spool"),
                     help="Directory for spooled game files "
                          "(--spool-workers).")
-    ap.add_argument("--replay-buffer", action="store_true",
-                    help="Enable AlphaZero-style experience replay + "
-                         "multi-epoch training (MCTS mode). Default OFF "
-                         "= legacy one-gradient-step-per-fresh-batch-"
-                         "then-discard. Diagnosis 2026-06-15: one-pass "
-                         "is severely sample-inefficient -- the value "
-                         "head needs ~80-100 steps to converge but got "
-                         "1 per shifting batch, so it stalled at the "
-                         "~uniform floor and the policy plateaued. "
-                         "Replay retains recent experiences and takes "
-                         "several minibatch steps per iter.")
+    ap.add_argument("--replay-buffer", action=argparse.BooleanOptionalAction,
+                    default=True,
+                    help="AlphaZero-style experience replay + multi-"
+                         "epoch training (MCTS mode). DEFAULT ON at "
+                         "this CLI since 2026-08-10 (user decision, "
+                         "technique review A4): every campaign passed "
+                         "it manually, and fresh_value_ce -- the "
+                         "success metric -- is only computed on the "
+                         "replay path, so a forgotten flag silently "
+                         "lost the metric. --no-replay-buffer restores "
+                         "the legacy one-pass-then-discard flow "
+                         "(debugging fallback; diagnosis 2026-06-15: "
+                         "one-pass is severely sample-inefficient, the "
+                         "value head stalled at the ~uniform floor). "
+                         "Library ReplayConfig default stays False for "
+                         "byte-stable tests/eval.")
     ap.add_argument("--replay-updates", type=int, default=8,
                     help="Gradient steps per iteration when "
                          "--replay-buffer is on (default 8).")

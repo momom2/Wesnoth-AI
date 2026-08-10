@@ -505,6 +505,14 @@ def deep_state_fingerprint(gs: "GameState") -> int:
             tuple(u.movement_costs),
             tuple(sorted(str(a) for a in u.abilities)),
             tuple(sorted(str(t) for t in u.traits)),
+            # Per-unit `_defense_table` stash (trait-modified terrain
+            # defenses, e.g. feral village=50): shallow unit copies
+            # SHARE the dict, so a fork-side mutation is exactly the
+            # aliasing class this fingerprint exists to catch. Was the
+            # guard's one documented coverage gap (closed 2026-08-10,
+            # user order).
+            tuple(sorted(
+                (getattr(u, "_defense_table", None) or {}).items())),
         )
         for u in gs.map.units
     ))
