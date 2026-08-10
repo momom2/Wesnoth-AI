@@ -98,8 +98,12 @@ and billed ~2 idle days before discovery (laptop Modern-Standby
 sleep killed the supervising session; see memory
 `session-bound-watchers-die`). Rescued periodic checkpoint = HF
 `tier-b/imitation_ab_20260808/imit_tierb_rescued_2368k.pt`:
-holdout **CE 3.102** (better than the seeded arm's full-epoch
-3.107), actor@1 0.545, value AUC 0.69 still climbing at cut.
+holdout **CE 3.102 — statistically indistinguishable from the
+seeded arm's 3.107** (23/39 matched evals ahead, mean −0.002 vs
+~0.04 adjacent-eval jitter; the supported claim is EQUALITY: the
+fresh value head cost the policy nothing). actor@1 0.545, value
+AUC 0.69 still climbing at cut. Curves:
+`training/metrics/imitation_15m/imitation_curves.html`.
 All boxes stopped; credit ~$3.
 
 **Open training-design questions:** winners-only is the default;
