@@ -95,7 +95,7 @@ def test_spool_workers_plumb_device_to_worker_argv(tmp_path,
     ckpt = tmp_path / "ckpt.pt"
     ckpt.write_bytes(b"x")
     args = SimpleNamespace(
-        mcts_sims=2, mini_ratio=0.0, drill_ratio=0.0, max_turns=10,
+        mcts_sims=2, mini_ratio=0.0, max_turns=10,
         draw_tiebreak_cap=0.3, mcts_moves_left_utility=0.0,
         mcts_aux_value_bonus=0.0, fogless_ratio=0.0,
         midgame_ratio=0.0, ladder_ratio=1.0,
@@ -153,7 +153,7 @@ def _make_spool(tmp_path, monkeypatch, n=4, device="auto",
     ckpt = tmp_path / "ckpt.pt"
     ckpt.write_bytes(b"x")
     args = SimpleNamespace(
-        mcts_sims=2, mini_ratio=0.0, drill_ratio=0.0, max_turns=10,
+        mcts_sims=2, mini_ratio=0.0, max_turns=10,
         draw_tiebreak_cap=0.3, mcts_moves_left_utility=0.0,
         mcts_aux_value_bonus=0.0, fogless_ratio=0.0,
         midgame_ratio=0.0, ladder_ratio=1.0,

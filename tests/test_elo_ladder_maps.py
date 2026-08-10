@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Elo-ladder evaluation must sample LADDER maps only.
 
-Mini-map / drill games have different dynamics (engagement by turn
+Mini-map games have different dynamics (engagement by turn
 3-5, tiny economies) — mixing them into strength evaluation would
 pollute the Elo-vs-compute measurement (user requirement, 2026-07-03).
 `random_setup`'s defaults already exclude them; this test pins those
@@ -39,7 +39,7 @@ def test_default_random_setup_is_ladder_only():
         setup = random_setup(rng, forced_faction=None)
         assert setup.scenario_id in LADDER_SCENARIO_IDS, (
             f"non-ladder scenario {setup.scenario_id!r} sampled by the "
-            f"default (evaluation) path -- mini/drill maps must never "
+            f"default (evaluation) path -- mini maps must never "
             f"reach the Elo ladder")
         seen.add(setup.scenario_id)
     # Sanity: the sampler actually spreads over the pool (not one map).

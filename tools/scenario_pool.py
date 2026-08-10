@@ -124,32 +124,6 @@ MINI_MAP_SCENARIO_IDS: List[str] = [
 ]
 
 
-# Capability drills: hand-authored [multiplayer] scenarios under
-# add-ons/wesnoth_ai/scenarios/drills/ (project add-on, junctioned
-# into userdata so the real game loads them too). Each isolates one
-# tactical skill on a purpose-built micro map:
-#
-#   drill_duel          9x7   fixed 3v3 combined arms, gold=0 (no
-#                             recruiting) -- focus fire, ToD timing,
-#                             terrain defense
-#   drill_village_rush  11x8  8 villages, 40 gold, no placed units
-#                             -- expansion order + income arithmetic;
-#                             turn-cap endings feed the draw
-#                             tiebreaker (village/gold differentials)
-#   drill_chokepoint    13x7  one-hex mountain pass, fixed dwarf
-#                             trios, gold=0 -- funnel fighting, ZoC
-#
-# Fixed armies are [unit] blocks under [side] 1/2 with
-# random_traits=no (the sim models placed units trait-less; Wesnoth
-# playback must match). Mix into training via --drill-ratio
-# (sim_self_play.py).
-DRILL_SCENARIO_IDS: List[str] = [
-    "drill_duel",
-    "drill_village_rush",
-    "drill_chokepoint",
-]
-
-
 # ---------------------------------------------------------------------
 # Default era factions
 # ---------------------------------------------------------------------
@@ -321,7 +295,7 @@ class ScenarioSetup:
     # `fogless_ratio` fraction of LADDER-pool games; applied by
     # `build_scenario_gamestate` as `global_info._fog = False`.
     fogless: bool = False
-    # Pool category ("ladder"/"fogless"/"mini"/"drill"); stashed on
+    # Pool category ("ladder"/"fogless"/"mini"); stashed on
     # `global_info._scenario_category` so category-scoped prior
     # biases (action_sampler.prior_bias_end_turn) can detect it from
     # the state alone -- trainer re-forwards included.
@@ -362,17 +336,14 @@ FORCED_FACTION: Optional[str] = "Knalgan Alliance"
 
 def classify_scenario(scenario_id: str) -> str:
     """Map-class of a scenario id: "ladder" (the 21-map competitive
-    pool), "drill" (our capability drills), "mini" (anything else we
-    set up — the Mini Maps engagement curriculum), "" for an unknown/
-    empty id. Exists to SPLIT outcome statistics per class: the
+    pool), "mini" (anything else we set up — the Mini Maps engagement
+    curriculum), "" for an unknown/empty id. Exists to SPLIT outcome statistics per class: the
     aggregate decisive rate over a mixed curriculum proved misleading
     (2026-07-03: ~50% aggregate while ladder maps were 0/8 decisive)."""
     if not scenario_id:
         return ""
     if scenario_id in LADDER_SCENARIO_IDS:
         return "ladder"
-    if scenario_id.startswith("drill_"):
-        return "drill"
     return "mini"
 
 
@@ -382,16 +353,19 @@ def classify_scenario(scenario_id: str) -> str:
 # multiplication. "midgame" is rolled here but sampled by the caller
 # (it needs the human value corpus, not a scenario pool);
 # "fogless" is a LADDER-pool game with fog off.
-MIX_CATEGORIES = ("midgame", "mini", "drill", "fogless", "ladder")
+MIX_CATEGORIES = ("midgame", "mini", "fogless", "ladder")
 
 
 def validate_mix(*, midgame: float = 0.0, mini: float = 0.0,
-                 drill: float = 0.0, fogless: float = 0.0,
+                 fogless: float = 0.0,
                  ladder: float = 1.0) -> None:
-    """Raise ValueError unless every ratio is in [0, 1] and the five
+    """Raise ValueError unless every ratio is in [0, 1] and the four
     sum to 1 (the user must account for the full distribution
-    explicitly -- no silent remainders)."""
-    vals = {"midgame": midgame, "mini": mini, "drill": drill,
+    explicitly -- no silent remainders). The sum check stays even as
+    categories come and go: it is what turned a silent mis-mix into a
+    loud failure (2026-08-04 drill-era incident; user ruling
+    2026-08-10 keeps it)."""
+    vals = {"midgame": midgame, "mini": mini,
             "fogless": fogless, "ladder": ladder}
     for name, v in vals.items():
         if not (0.0 <= v <= 1.0):
@@ -405,16 +379,16 @@ def validate_mix(*, midgame: float = 0.0, mini: float = 0.0,
 
 
 def roll_mix(rng: random.Random, *, midgame: float = 0.0,
-             mini: float = 0.0, drill: float = 0.0,
+             mini: float = 0.0,
              fogless: float = 0.0, ladder: float = 1.0) -> str:
     """One categorical roll over MIX_CATEGORIES with absolute
     weights. Validates the mix on every call (cheap; one call per
     game)."""
-    validate_mix(midgame=midgame, mini=mini, drill=drill,
+    validate_mix(midgame=midgame, mini=mini,
                  fogless=fogless, ladder=ladder)
     r = rng.random()
     for name, w in (("midgame", midgame), ("mini", mini),
-                    ("drill", drill), ("fogless", fogless)):
+                    ("fogless", fogless)):
         if r < w:
             return name
         r -= w
@@ -443,8 +417,8 @@ def random_setup(
     Legacy "100% mini" toggle; overrides `category`.
 
     `category`: which pool THIS game comes from -- "ladder" (fogged
-    21-map pool), "fogless" (ladder pool, fog of war off), "mini"
-    (MINI_MAP_SCENARIO_IDS), or "drill" (DRILL_SCENARIO_IDS).
+    21-map pool), "fogless" (ladder pool, fog of war off), or "mini"
+    (MINI_MAP_SCENARIO_IDS).
     Mixing is the CALLER's job: roll once per game with `roll_mix`
     (absolute proportions summing to 1) and pass the result here.
     "midgame" is not accepted -- midgame starts are sampled from
@@ -463,14 +437,13 @@ def random_setup(
         category = "mini"
     pools = {"ladder": LADDER_SCENARIO_IDS,
              "fogless": LADDER_SCENARIO_IDS,
-             "mini": MINI_MAP_SCENARIO_IDS,
-             "drill": DRILL_SCENARIO_IDS}
+             "mini": MINI_MAP_SCENARIO_IDS}
     if category not in pools:
         raise ValueError(f"unknown scenario category {category!r} "
                          f"(expected one of {sorted(pools)})")
     scenario_id = rng.choice(pools[category])
-    # Only ladder-pool games play fogless (mini/drill scenarios are
-    # engagement drills where fog barely matters and the pools
+    # Only ladder-pool games play fogless (mini scenarios are the
+    # engagement curriculum where fog barely matters and the pools
     # should stay comparable across runs).
     fogless = (category == "fogless")
 
@@ -640,7 +613,7 @@ def build_scenario_gamestate(
         # `~add-ons/` resolves to <userdata>/data/add-ons/ on a real
         # Wesnoth install. Vendored add-ons live under
         # wesnoth_src/data/add-ons/; OUR OWN add-on (the capability
-        # drills) lives at the project root's add-ons/ (junctioned
+        # scenarios) lives at the project root's add-ons/ (junctioned
         # into userdata), so try both roots.
         import re as _re
         m = _re.match(r"\s*\{\s*~?([^}]+?)\s*\}\s*", map_data_attr)
@@ -762,7 +735,7 @@ def build_scenario_gamestate(
     # Pre-placed units defined directly in the scenario .cfg's
     # [side] blocks -- two distinct users:
     #
-    # (a) PLAYER sides 1/2: the capability drills' fixed armies
+    # (a) PLAYER sides 1/2: scenarios with fixed pre-placed armies
     #     (see DRILL_SCENARIO_IDS). Ordinary controllable units.
     #
     # (b) Neutral / scenery sides >= 3. The mainline 2p maps that use this:
@@ -788,8 +761,8 @@ def build_scenario_gamestate(
     # `gs.map.units` to list them and the legality mask to see the
     # hexes as occupied.
     # Pre-placed PLAYER units (sides 1/2) come first: the capability
-    # drills field fixed armies as [unit] blocks under [side]. They
-    # are ordinary controllable units (trait-less -- the drill cfgs
+    # Some scenarios field fixed armies as [unit] blocks under [side]. They
+    # are ordinary controllable units (trait-less -- such cfgs
     # carry random_traits=no so Wesnoth playback instantiates them
     # trait-less too, matching this model).
     next_uid = 1000   # leave room above the leader uids; placed

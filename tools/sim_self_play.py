@@ -138,7 +138,7 @@ class GameOutcome:
     # trainer log read ~50% decisive while ladder maps were 0/8
     # decisive — every kill came from the mini half, amplified by the
     # pool deadline abandoning slow ladder draws). "ladder" | "mini" |
-    # "drill" | "" (unknown / legacy producer).
+    # "" (unknown / legacy producer).
     map_class: str = ""
     # Accepted actions per SIDE-TURN (one side's decision sequence
     # within one turn), pooled across the game. MCTS depth
@@ -724,8 +724,8 @@ def _play_one_game_safe(
     # starting_gold is NOT mapped (bugfix 2026-07-21): passing the
     # PvP default overrode every scenario's own [side] gold= --
     # minis designed for 50g trained on 100, Arcanclave's 175 got
-    # cut, drills designed around gold=0 fixed armies silently
-    # gained recruiting. Scenario settings are ground truth (user
+    # cut (and the since-deleted gold=0 drills silently gained
+    # recruiting). Scenario settings are ground truth (user
     # ruling); None = scenario value, 100 fallback for the many
     # maps that specify none. The eval path (elo_ladder) was
     # already scenario-first -- this also closes a train/eval gap.
@@ -769,7 +769,6 @@ def _worker_loop(
     forced_faction=...,
     mini_maps=False,
     mini_ratio: float = 0.0,
-    drill_ratio: float = 0.0,
     fogless_ratio: float = 0.0,
     midgame_ratio: float = 0.0,
     ladder_ratio: float = 1.0,
@@ -791,7 +790,7 @@ def _worker_loop(
             g_idx = shared["next_game"]
             shared["next_game"] += 1
         cat = roll_mix(worker_rng, midgame=midgame_ratio,
-                       mini=mini_ratio, drill=drill_ratio,
+                       mini=mini_ratio,
                        fogless=fogless_ratio, ladder=ladder_ratio)
         setup = None
         if cat == "midgame":
@@ -1029,7 +1028,6 @@ class SpoolWorkers:
             "--spool-dir", str(spool_dir),
             "--mcts-sims", str(args.mcts_sims),
             "--mini-ratio", str(args.mini_ratio),
-            "--drill-ratio", str(args.drill_ratio),
             "--max-turns", str(args.max_turns),
             "--no-progress-turns", str(getattr(
                 args, "no_progress_turns", 0)),
@@ -1321,7 +1319,6 @@ def run_iteration(
     forced_faction: Optional[str] = ...,
     mini_maps:     bool = False,
     mini_ratio:    float = 0.0,
-    drill_ratio:   float = 0.0,
     fogless_ratio: float = 0.0,
     midgame_ratio: float = 0.0,
     ladder_ratio:  float = 1.0,
@@ -1400,7 +1397,7 @@ def run_iteration(
         from tools.scenario_pool import random_setup, roll_mix
         for g_idx in range(games_per_iter):
             cat = roll_mix(rng, midgame=midgame_ratio,
-                           mini=mini_ratio, drill=drill_ratio,
+                           mini=mini_ratio,
                            fogless=fogless_ratio, ladder=ladder_ratio)
             setup = None
             if cat == "midgame":
@@ -1452,7 +1449,6 @@ def run_iteration(
                     forced_faction=forced_faction,
                     mini_maps=mini_maps,
                     mini_ratio=mini_ratio,
-                    drill_ratio=drill_ratio,
                     fogless_ratio=fogless_ratio,
                     midgame_ratio=midgame_ratio,
                     ladder_ratio=ladder_ratio,
@@ -1583,7 +1579,7 @@ def run_iteration(
         log.info(
             f"iter {iter_idx}: decisive split -- ladder "
             f"{ladder_dec}/{ladder_n} (s1 {ladder_s1}, s2 {ladder_s2}), "
-            f"mini/drill {other_dec}/{other_n} "
+            f"mini {other_dec}/{other_n} "
             f"(s1 {other_s1}, s2 {other_s2}), midgame "
             f"{sum(1 for o in _mg_log if o.winner != 0)}/{len(_mg_log)}")
     # Per-game JSONL (2026-07-12 user spec): one directory PER
@@ -2591,7 +2587,7 @@ def main(argv: List[str]) -> int:
                          "scenario_pool.MINI_MAP_SCENARIO_IDS.")
     # Training-mix ratios (2026-07-20 redesign): each is an ABSOLUTE
     # fraction of ALL games -- one categorical roll per game, no
-    # cascading remainders. The five ratios (mini, drill, midgame,
+    # cascading remainders. The four ratios (mini, midgame,
     # fogless, ladder) must sum to exactly 1 or startup errors.
     ap.add_argument("--mini-ratio", type=float, default=0.0,
                     help="Absolute fraction of all games sampled from "
@@ -2599,11 +2595,6 @@ def main(argv: List[str]) -> int:
                          "signal). Ignored when --mini-maps is set "
                          "(already 100%% mini). All five *-ratio "
                          "flags must sum to 1.")
-    ap.add_argument("--drill-ratio", type=float, default=0.0,
-                    help="Absolute fraction of all games sampled from "
-                         "the capability-drill pool (drill_duel / "
-                         "drill_village_rush / drill_chokepoint -- "
-                         "see scenario_pool.DRILL_SCENARIO_IDS).")
     ap.add_argument("--midgame-ratio", type=float, default=0.0,
                     help="Absolute fraction of all games starting "
                          "from a human-corpus MID-GAME position "
@@ -2643,7 +2634,7 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--fogless-ratio", type=float, default=0.0,
                     help="Absolute fraction of all games played on "
                          "the ladder pool with fog of war OFF "
-                         "(mini/drill games always keep fog). "
+                         "(mini games always keep fog). "
                          "Full-information games give the value head "
                          "mutually-visible armies -- an engagement-"
                          "learning aid.")
@@ -2983,7 +2974,7 @@ def main(argv: List[str]) -> int:
     from tools.scenario_pool import validate_mix
     try:
         validate_mix(midgame=args.midgame_ratio, mini=args.mini_ratio,
-                     drill=args.drill_ratio, fogless=args.fogless_ratio,
+                     fogless=args.fogless_ratio,
                      ladder=args.ladder_ratio)
     except ValueError as e:
         ap.error(str(e))
@@ -3558,7 +3549,6 @@ def main(argv: List[str]) -> int:
             forced_faction=forced_faction_arg,
             mini_maps=args.mini_maps,
             mini_ratio=float(args.mini_ratio),
-            drill_ratio=float(args.drill_ratio),
             fogless_ratio=float(args.fogless_ratio),
             ladder_ratio=float(args.ladder_ratio),
             # Actors splice midgame starts exactly like spool workers
@@ -3650,7 +3640,6 @@ def main(argv: List[str]) -> int:
             forced_faction=forced_faction_arg,
             mini_maps=args.mini_maps,
             mini_ratio=float(args.mini_ratio),
-            drill_ratio=float(args.drill_ratio),
             fogless_ratio=float(args.fogless_ratio),
             midgame_ratio=float(args.midgame_ratio),
             ladder_ratio=float(args.ladder_ratio),

@@ -244,7 +244,7 @@ def test_outcome_carries_map_class():
 
     assert classify_scenario("multiplayer_Den_of_Onis") == "ladder"
     assert classify_scenario("multiplayer_elensefar_courtyard") == "ladder"
-    assert classify_scenario("drill_duel") == "drill"
+    assert classify_scenario("drill_duel") == "mini"  # drills deleted; unknown ids class as mini
     assert classify_scenario("2p_mini_edited") == "mini"
     assert classify_scenario("") == ""
 

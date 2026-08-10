@@ -41,9 +41,9 @@ def test_default_is_fogged():
         assert not random_setup(rng).fogless
 
 
-def test_mini_and_drill_games_always_keep_fog():
+def test_mini_games_always_keep_fog():
     rng = random.Random(7)
-    for cat in ("mini", "drill"):
+    for cat in ("mini",):
         for _ in range(10):
             setup = random_setup(rng, category=cat)
             assert not setup.fogless, \
@@ -55,10 +55,9 @@ def test_roll_mix_respects_absolute_proportions():
     counts = {}
     n = 4000
     for _ in range(n):
-        c = roll_mix(rng, midgame=0.2, mini=0.2, drill=0.0,
+        c = roll_mix(rng, midgame=0.2, mini=0.2,
                      fogless=0.2, ladder=0.4)
         counts[c] = counts.get(c, 0) + 1
-    assert counts.get("drill", 0) == 0
     # 4000 rolls: each category lands well within +-0.05.
     for cat, expect in (("midgame", 0.2), ("mini", 0.2),
                         ("fogless", 0.2), ("ladder", 0.4)):
@@ -68,13 +67,13 @@ def test_roll_mix_respects_absolute_proportions():
 
 def test_mix_guard_rejects_bad_sums():
     with pytest.raises(ValueError):
-        validate_mix(midgame=0.2, mini=0.2, drill=0.0,
+        validate_mix(midgame=0.2, mini=0.2,
                      fogless=0.2, ladder=0.5)   # sums to 1.1
     with pytest.raises(ValueError):
         validate_mix(midgame=0.2, ladder=0.4)   # sums to 0.6
     with pytest.raises(ValueError):
         validate_mix(midgame=-0.1, ladder=1.1)  # out of range
-    validate_mix(midgame=0.2, mini=0.2, drill=0.0,
+    validate_mix(midgame=0.2, mini=0.2,
                  fogless=0.2, ladder=0.4)       # exact -> OK
 
 
@@ -172,7 +171,7 @@ def test_side_income_offset_does_not_leak_across_sides():
 def test_training_path_does_not_override_scenario_gold():
     """_play_one_game_safe passed PvPDefaults.starting_gold=100 over
     every scenario's own gold until 2026-07-21 (minis designed for
-    ~50g trained on 100; drills designed for gold=0 gained
+    ~50g trained on 100; (the since-deleted gold=0 drills gained
     recruiting). The mapping must stay None."""
     import inspect
     from tools import sim_self_play

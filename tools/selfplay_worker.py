@@ -133,7 +133,6 @@ def main(argv) -> int:
     # Mix ratios: ABSOLUTE fractions of all games; the five must sum
     # to 1 (roll_mix validates). The parent passes all of them.
     ap.add_argument("--mini-ratio", type=float, default=0.0)
-    ap.add_argument("--drill-ratio", type=float, default=0.0)
     ap.add_argument("--max-turns", type=int, default=200)
     ap.add_argument("--draw-tiebreak-cap", type=float, default=0.3)
     ap.add_argument("--relevant-set-hexes", action="store_true",
@@ -289,7 +288,7 @@ def main(argv) -> int:
         midgame_cut = None
         mt = _roll_max_turns(rng, args.max_turns, args.max_turns_min)
         cat = roll_mix(rng, midgame=args.midgame_ratio,
-                       mini=args.mini_ratio, drill=args.drill_ratio,
+                       mini=args.mini_ratio,
                        fogless=args.fogless_ratio,
                        ladder=args.ladder_ratio)
         if cat == "midgame":

@@ -405,7 +405,7 @@ echo "[onstart] fd limit: $(ulimit -n)"
 # future run's distribution auditable from the escrowed log alone).
 # The five scenario-mix ratios MUST sum to 1 or sim_self_play exits rc=2.
 # They used to be five independent env vars whose DEFAULTS happened to sum
-# to 1, so changing any single one (e.g. DRILL_RATIO=0 after the drills were
+# to 1, so changing any single one (historically: zeroing one ratio after its pool was
 # retired) silently produced 0.95 and an unbootable box -- the supervisor
 # then relaunched into the same error 20 times. Derive LADDER as the
 # remainder so any single-ratio change is valid by construction; an
@@ -413,13 +413,12 @@ echo "[onstart] fd limit: $(ulimit -n)"
 # here rather than 20 relaunches deep.
 MIDGAME_RATIO="${MIDGAME_RATIO:-0.2}"
 MINI_RATIO="${MINI_RATIO:-0.2}"
-DRILL_RATIO="${DRILL_RATIO:-0.0}"
 FOGLESS_RATIO="${FOGLESS_RATIO:-0.2}"
 if [ -z "${LADDER_RATIO:-}" ]; then
-    LADDER_RATIO=$("$PY" -c "r = round(1.0 - ($MIDGAME_RATIO + $MINI_RATIO + $DRILL_RATIO + $FOGLESS_RATIO), 6); print(r if r >= 0 else 'NEGATIVE')")
+    LADDER_RATIO=$("$PY" -c "r = round(1.0 - ($MIDGAME_RATIO + $MINI_RATIO + $FOGLESS_RATIO), 6); print(r if r >= 0 else 'NEGATIVE')")
     if [ "$LADDER_RATIO" = "NEGATIVE" ] || [ -z "$LADDER_RATIO" ]; then
         echo "[onstart] FATAL: mix ratios over-subscribe 1.0 (midgame=$MIDGAME_RATIO"\
-             "mini=$MINI_RATIO drill=$DRILL_RATIO fogless=$FOGLESS_RATIO)"
+             "mini=$MINI_RATIO fogless=$FOGLESS_RATIO)"
         exit 1
     fi
 fi
@@ -467,7 +466,7 @@ nohup bash -c "
       --replay-buffer --replay-updates 16 --value-coef 1.0 \
       --replay-minibatch ${REPLAY_MINIBATCH:-128} --replay-capacity 24000 \
       --train-batch-size ${TRAIN_BATCH:-64} --mcts-batch-size 16 \
-      --mini-ratio ${MINI_RATIO} --drill-ratio ${DRILL_RATIO} \
+      --mini-ratio ${MINI_RATIO} \
       --midgame-ratio ${MIDGAME_RATIO} --fogless-ratio ${FOGLESS_RATIO} \
       --ladder-ratio ${LADDER_RATIO} \
       ${MAX_TURNS:+--max-turns $MAX_TURNS} \
