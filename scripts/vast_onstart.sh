@@ -334,6 +334,27 @@ else
     echo "[onstart] HF uploader off (no HF_TOKEN / $WORKDIR/.hf_token)"
 fi
 
+# ---- Periodic human-holdout CE probe (handoff observable) -----------
+# THE pre-registered A1/F1 observable (2026-08-10): the imitation
+# prior's human-play CE (t0 = 3.102) must stay flat through
+# self-play. CPU-only subprocess (keeps the GPU for the learner);
+# writes training/logs/holdout_probe.csv, which hf_upload_loop
+# escrows. Needs replays_dataset_imitation/ staged on the box;
+# skipped (with a loud line) when absent. Disable with PROBE_EVERY=0.
+pkill -f 'holdout_probe_loo[p].py' 2>/dev/null || true
+if [ "${PROBE_EVERY:-3600}" != "0" ]; then
+    if [ -f "replays_dataset_imitation/manifest.jsonl" ]; then
+        CAMPAIGN_FILE="$CAMPAIGN_FILE" \
+            nohup "$PY" scripts/holdout_probe_loop.py \
+            >> "$WORKDIR/holdout_probe.log" 2>&1 &
+        echo "[onstart] holdout probe ON (see holdout_probe.log)"
+    else
+        echo "[onstart] holdout probe OFF: no replays_dataset_imitation/"
+        echo "[onstart]   (stage the imitation dataset to arm the"
+        echo "[onstart]   handoff observable -- BACKLOG item 3)"
+    fi
+fi
+
 # ---- SL_MODE: supervised behavior-cloning pass ----------------------
 # SL_MODE=1 runs tools/supervised_train.py on the staged human corpus
 # INSTEAD of self-play (user directive 2026-07-16: SL pass resumed

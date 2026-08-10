@@ -980,6 +980,7 @@ def train(
                                      # (0 = only at epoch ends)
     eval_pairs: int = 1200,          # held-out pairs per eval
     eval_only: bool = False,         # evaluate --resume ckpt and exit
+    eval_json: Optional[Path] = None,  # eval-only: also dump stats JSON
     reinit_value_head: bool = False,
         # drop value_head.* from the --resume state (and skip the
         # optimizer-state restore): warm trunk+policy, fresh value.
@@ -1332,8 +1333,14 @@ def train(
             return
         stats = _evaluate(model, encoder, holdout_files, device,
                           eval_pairs=eval_pairs,
-                          type_loss_weights=type_loss_weights)
+                          type_loss_weights=type_loss_weights,
+                          winner_map=winner_map)
+        stats["decision_step"] = carry.get("decision_step")
         log.info(f"EVAL-ONLY {stats}")
+        if eval_json is not None:
+            import json as _json
+            Path(eval_json).write_text(_json.dumps(stats),
+                                       encoding="utf-8")
         return
 
     # Pre-seed the encoder vocab from observed names BEFORE workers
@@ -1884,6 +1891,10 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--eval-only", action="store_true",
                     help="Evaluate the --resume checkpoint on the "
                          "holdout split and exit (baseline mode).")
+    ap.add_argument("--eval-json", type=Path, default=None,
+                    help="With --eval-only: also write the stats dict "
+                         "as JSON here (machine-readable; the "
+                         "campaign holdout-probe loop parses it).")
     ap.add_argument("--reinit-value-head", action="store_true",
                     help="Drop value_head.* from the --resume state "
                          "and skip optimizer-state restore: warm "
@@ -1937,6 +1948,7 @@ def main(argv: List[str]) -> int:
         eval_every=args.eval_every,
         eval_pairs=args.eval_pairs,
         eval_only=args.eval_only,
+        eval_json=args.eval_json,
         reinit_value_head=args.reinit_value_head,
         imitation_config=args.imitation_config,
         type_loss_weights=type_loss_weights,

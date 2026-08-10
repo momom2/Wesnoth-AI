@@ -19,9 +19,13 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
 2. **Evaluate it**: holdout curve vs both A/B arms (expect ≤3.107 CE
    with a ~0.95-AUC value head), then the external probes — this is the
    first checkpoint with a plausible claim to move the 0-30 RCA number.
-3. **Decide the imitation → self-play handoff** (BACKLOG item: does
-   self-play from the imitation checkpoint keep its human-play CE? add
-   a periodic `--imitation-config --eval-only` probe to campaign legs).
+3. **Decide the imitation → self-play handoff** — the periodic
+   human-holdout CE probe is WIRED (2026-08-10):
+   `scripts/holdout_probe_loop.py` (launched by vast_onstart, CPU
+   subprocess, hourly, 1200 pairs, arch-peeked; CSV escrowed by
+   hf_upload_loop as `holdout_probe.csv`). Needs
+   `replays_dataset_imitation/` staged on the box or it announces
+   itself OFF. t0 reference: CE 3.102.
 4. Multi-epoch question: one epoch left CE still falling slowly — a
    second epoch is ~$4.50/14h; measure marginal gain before habit.
 5. **Handoff-leg launch config — DECIDED 2026-08-10 (technique review

@@ -54,6 +54,10 @@ FILES = [
     # 2026-07-19 nearly stranded it on an unreachable disk).
     (f"training/checkpoints/{CAMPAIGN_FILE}.holdout",
      f"{CAMPAIGN_FILE}.holdout"),
+    # Human-holdout CE probe curve (scripts/holdout_probe_loop.py) --
+    # the handoff observable; losing it to an outbid would blind the
+    # A1/F1 verdict.
+    ("training/logs/holdout_probe.csv", "holdout_probe.csv"),
 ]
 # HF_EXTRA_FILES="src:dst,src:dst" adds run-specific artifacts (e.g.
 # the supervised pass: supervised.pt + its eval curve, 2026-07-16).
