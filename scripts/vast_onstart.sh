@@ -371,6 +371,27 @@ EOF
     fi
 fi
 
+# POLICY-head anchor cache (F1; leg-2 arm). Built on box from the
+# staged imitation dataset when HUMAN_ANCHOR_POLICY_FILE is set and
+# the cache is absent. Activation is a USER decision (one prior
+# protection per leg): pass -e HUMAN_ANCHOR_POLICY_FILE=... only for
+# the leg that runs this arm.
+if [ -n "${HUMAN_ANCHOR_POLICY_FILE:-}" ] \
+        && [ ! -f "$HUMAN_ANCHOR_POLICY_FILE" ]; then
+    if [ -f replays_dataset_imitation/manifest.jsonl ]; then
+        echo "[onstart] building policy anchor -> $HUMAN_ANCHOR_POLICY_FILE"
+        "$PY" tools/policy_anchor.py \
+            --out "$HUMAN_ANCHOR_POLICY_FILE" \
+            --games "${POLICY_ANCHOR_GAMES:-500}" \
+            >> "$WORKDIR/onstart.log" 2>&1 \
+            || echo "[onstart] WARN: policy anchor build failed"
+    fi
+    if [ ! -f "$HUMAN_ANCHOR_POLICY_FILE" ]; then
+        echo "[onstart] WARN: no policy-anchor cache; policy rehearsal OFF"
+        unset HUMAN_ANCHOR_POLICY_FILE
+    fi
+fi
+
 # ---- Periodic checkpoint export (Hugging Face Hub) ------------------
 # Opt-in: put a fine-grained write token (scoped to ONE model repo) in
 # $WORKDIR/.hf_token, or set HF_TOKEN in the template env. Uploads the
@@ -636,6 +657,9 @@ nohup bash -c "
       ${HUMAN_ANCHOR_FILE:+--human-anchor-file $HUMAN_ANCHOR_FILE} \
       ${HUMAN_ANCHOR_UPDATES:+--human-anchor-updates $HUMAN_ANCHOR_UPDATES} \
       ${HUMAN_ANCHOR_BATCH:+--human-anchor-batch $HUMAN_ANCHOR_BATCH} \
+      ${HUMAN_ANCHOR_POLICY_FILE:+--human-anchor-policy-file $HUMAN_ANCHOR_POLICY_FILE} \
+      ${HUMAN_ANCHOR_POLICY_UPDATES:+--human-anchor-policy-updates $HUMAN_ANCHOR_POLICY_UPDATES} \
+      ${HUMAN_ANCHOR_POLICY_BATCH:+--human-anchor-policy-batch $HUMAN_ANCHOR_POLICY_BATCH} \
       ${DRAW_VALUE_WEIGHT:+--draw-value-weight $DRAW_VALUE_WEIGHT} \
       --abort-decisive-rate ${ABORT_DECISIVE_RATE:-0.35} \
       --abort-window ${ABORT_WINDOW:-20} \
