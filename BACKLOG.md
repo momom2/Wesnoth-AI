@@ -24,7 +24,25 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
    a periodic `--imitation-config --eval-only` probe to campaign legs).
 4. Multi-epoch question: one epoch left CE still falling slowly — a
    second epoch is ~$4.50/14h; measure marginal gain before habit.
-5. Corpus follow-ups (cheap, parked): extractor gap for menu-picks
+5. **Self-play handoff design (the next big decision)** — the
+   2026-08-10 literature scan (docs/literature_scan_20260810.md,
+   grounded in docs/techniques.md) converges on: nothing protects the
+   imitation prior once self-play starts (self-referential Gumbel
+   target + strictly current-vs-current play). Candidate package for
+   the first tier-b self-play campaign, each config-gated and
+   pre-registering an EXTERNAL observable (RCA probe / human-holdout
+   CE), per the standing +133-moved-nothing caveat:
+   - piKL-style CE anchor to the frozen BC policy (trainer-side,
+     cheapest; lambda sweep pre-registered);
+   - frozen BC checkpoint as permanent league opponent (PFSP-lite;
+     elo_ladder already dispatches two policies per side);
+   - extend --human-anchor-file rehearsal to the POLICY heads
+     (currently value-only);
+   - search-side cheap pair: mctx-compatible cut-arm debias (reserve
+     non-adaptive sims per halving phase) + Go-Exploit archive starts;
+   - cheap corpus wins to consider: opponent-reply auxiliary head,
+     HL-Gauss value targets.
+6. Corpus follow-ups (cheap, parked): extractor gap for menu-picks
    armed by MOVES (Necromancer-pick shape, zero measured corpus impact);
    `setaside_pickadvance_force` support if force-choice games ever
    matter; eras beyond default/dunefolk-clean re-ruling.
