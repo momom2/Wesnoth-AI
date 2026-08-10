@@ -532,8 +532,12 @@ PYEOF
 )
     ACTOR_POOL="${ACTOR_POOL:-$(( _CORES - 4 ))}"
     [ "$ACTOR_POOL" -lt 8 ] && ACTOR_POOL=8
-    TOPO_ARGS="--actor-pool ${ACTOR_POOL}${ACTOR_MAX_BATCH:+ --actor-max-batch $ACTOR_MAX_BATCH}"
-    TOPO_DESC="actor-pool=${ACTOR_POOL} (quota ${_CORES} cores)"
+    # Server fuse cap: the library default (max(64, 2*n_actors) leaves,
+    # x2 serve threads) OOM'd a 24GB 4090 alongside the trainer's B=64
+    # backward at launch (2026-08-10, first leg boot). 32 keeps the
+    # inference peak bounded; raise only with measured VRAM headroom.
+    TOPO_ARGS="--actor-pool ${ACTOR_POOL} --actor-max-batch ${ACTOR_MAX_BATCH:-32}"
+    TOPO_DESC="actor-pool=${ACTOR_POOL} (quota ${_CORES} cores, fuse<=${ACTOR_MAX_BATCH:-32})"
 fi
 GAMES_PER_ITER="${GAMES_PER_ITER:-24}"
 
