@@ -56,6 +56,33 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
    armed by MOVES (Necromancer-pick shape, zero measured corpus impact);
    `setaside_pickadvance_force` support if force-choice games ever
    matter; eras beyond default/dunefolk-clean re-ruling.
+8. **Deleted-technique design notes (2026-08-10 review, user rulings
+   X2/X5)** — preserved so a future revival doesn't re-derive them:
+   - *Tier-2 adaptive outcome bucketing* (X5, deleted at
+     `tools/outcome_buckets.py` + the mcts.py integration; recover via
+     `git log -S outcome_buckets`). Design worth keeping: event
+     hard-split on the discrete part of OutcomeKey (dead/slow/poison
+     flags — legality-invariant, so a bucket's shared edges stay
+     valid); ground-stats aggregation per MEMBER so a split is a warm,
+     unbiased re-grouping; split trigger = visit-weighted-median
+     bisection on an HP axis when the two halves' mean values differ
+     by > z_sig standard errors (no hand-tuned threshold). Lit: PARSS
+     (Hostetler et al.) for coarse→fine split-in-half convergence;
+     OGA-UCT (Anand et al.) for ground-stat aggregation + the
+     value-heterogeneity significance trigger. Deleted because it was
+     serial-path-only (conflicts with leaf batching, the actual GPU
+     win) and never measured.
+   - *Cliffness consumers* (X2, deleted: `cliffness_bootstrap_alpha`
+     Bayesian backup shrinkage + `adaptive_sim_budget`; recover via
+     `git log -S cliffness_bootstrap_alpha`). `output.cliffness`
+     (= std of the C51 distribution) and the root-cliffness debug
+     log STAY. Future-improvement marker (user order): cliffness is
+     the network's own per-state uncertainty estimate — a natural
+     input for epistemic-uncertainty work (exploration bonuses,
+     targeted search budget, OOD detection) once there's an
+     experiment that measures it; the deleted Bayesian-shrinkage
+     derivation (uniform prior on [-1,1], var 1/3, scale =
+     σ²p/(σ²p+α·cliff²)) is in docs/design_constants.md.
 
 Context for all of it: **CLAUDE.md §Current status (2026-08-08)** —
 corpus certified 100% (24,796), imitation pool 19,367 games / 2.57M

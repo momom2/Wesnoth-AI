@@ -2719,8 +2719,7 @@ def main(argv: List[str]) -> int:
                          "B (8-32). Applies to BOTH the default Gumbel root "
                          "(each sequential-halving phase evaluates its leaves "
                          "through one forward_batch with virtual loss) and "
-                         "the classic root. Falls back to serial when "
-                         "--mcts-outcome-buckets is on. Composes with "
+                         "the classic root. Composes with "
                          "--workers (cross-game batching).")
     ap.add_argument("--mcts-fpu-reduction", type=float, default=0.25,
                     help="First-play urgency: unvisited edges score "
@@ -2760,23 +2759,6 @@ def main(argv: List[str]) -> int:
                          "successor state exactly matches the "
                          "searched child, so combat RNG divergence "
                          "auto-rebuilds).")
-    ap.add_argument("--mcts-outcome-buckets", action="store_true",
-                    help="Enable Tier-2 adaptive outcome bucketing at "
-                         "chance nodes (Gumbel/serial path only): "
-                         "same-event-class combat outcomes share one "
-                         "network forward (copy-at-expansion), then "
-                         "split adaptively when within-bucket value "
-                         "heterogeneity becomes significant (PARSS "
-                         "backbone + OGA significance trigger). Default "
-                         "OFF; complements root batching by cutting "
-                         "redundant per-outcome forwards.")
-    ap.add_argument("--mcts-bucket-v-min", type=int, default=16,
-                    help="Min bucket visits before a split is "
-                         "considered (--mcts-outcome-buckets).")
-    ap.add_argument("--mcts-bucket-z-sig", type=float, default=2.0,
-                    help="Significance threshold (in SEs of the half-"
-                         "mean difference) for splitting a bucket "
-                         "(--mcts-outcome-buckets).")
     ap.add_argument("--mcts-playout-cap",
                     action=argparse.BooleanOptionalAction, default=True,
                     help="Playout-cap randomization (KataGo): only a "
@@ -3272,18 +3254,15 @@ def main(argv: List[str]) -> int:
         # The per-leaf model forward is the dominant cost of an --mcts run;
         # leaving B=1 on CUDA issues one un-batched forward per simulation
         # and starves the GPU. Auto-bump to 16 on CUDA when the flag is
-        # unset; an explicit --mcts-batch-size always wins. Gated off when
-        # --mcts-outcome-buckets is on (the batched path falls back to
-        # serial there anyway; see MCTSConfig / mcts._run_sim_batch).
+        # unset; an explicit --mcts-batch-size always wins.
         if args.mcts_batch_size is not None:
             _mbs = max(1, int(args.mcts_batch_size))
-        elif ((device is not None) and str(device).startswith("cuda")
-              and not args.mcts_outcome_buckets):
+        elif (device is not None) and str(device).startswith("cuda"):
             _mbs = 16
         else:
             _mbs = 1
         if ((device is not None) and str(device).startswith("cuda")
-                and _mbs == 1 and not args.mcts_outcome_buckets):
+                and _mbs == 1):
             log.warning(
                 "MCTS leaf batching is B=1 on CUDA: each simulation runs an "
                 "un-batched leaf forward, which starves the GPU. Set "
@@ -3306,9 +3285,6 @@ def main(argv: List[str]) -> int:
             gumbel_root=not args.mcts_classic_root,
             gumbel_m=args.mcts_gumbel_m,
             exact_outcome_enumeration=not args.mcts_no_exact_outcomes,
-            outcome_buckets=args.mcts_outcome_buckets,
-            bucket_v_min=args.mcts_bucket_v_min,
-            bucket_z_sig=args.mcts_bucket_z_sig,
             playout_cap_randomization=args.mcts_playout_cap,
             playout_cap_prob=args.mcts_playout_cap_prob,
             playout_cap_fast_sims=args.mcts_playout_cap_fast_sims,
@@ -3317,15 +3293,6 @@ def main(argv: List[str]) -> int:
             gumbel_hierarchical=getattr(
                 args, "mcts_hierarchical_gumbel", False),
         )
-        if mcts_cfg.outcome_buckets and not mcts_cfg.gumbel_root:
-            # Bucketing rides the serial _run_one_sim path the Gumbel
-            # root uses; the classic batched loop leaves it off (v1).
-            # Don't let the flag silently no-op.
-            log.warning(
-                "--mcts-outcome-buckets has no effect with "
-                "--mcts-classic-root (bucketing is implemented only on "
-                "the Gumbel/serial path in v1); disabling it.")
-            mcts_cfg.outcome_buckets = False
         root_desc = (f"gumbel(m={mcts_cfg.gumbel_m})"
                      if mcts_cfg.gumbel_root else
                      f"classic(tau={mcts_cfg.temperature}"
@@ -3335,8 +3302,6 @@ def main(argv: List[str]) -> int:
             f"c_puct={mcts_cfg.c_puct} batch_size={mcts_cfg.batch_size} "
             f"fpu={mcts_cfg.fpu_reduction} root={root_desc} "
             f"tree_reuse={mcts_cfg.tree_reuse} "
-            f"outcome_buckets="
-            f"{'on(v_min=%d,z=%.1f)' % (mcts_cfg.bucket_v_min, mcts_cfg.bucket_z_sig) if mcts_cfg.outcome_buckets else 'off'} "
             f"playout_cap="
             f"{'on(p=%.2f,fast=%d)' % (mcts_cfg.playout_cap_prob, mcts_cfg.playout_cap_fast_sims or max(1, mcts_cfg.n_simulations // 4)) if mcts_cfg.playout_cap_randomization else 'off'} "
             f"draw_tiebreak_cap="
