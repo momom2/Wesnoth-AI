@@ -63,7 +63,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from wesnoth_ai.classes import GameState, Position, TerrainModifiers, Unit
+from wesnoth_ai.classes import GameState, TerrainModifiers, Unit
 from wesnoth_ai.combat_oracle import expected_attack_net_damage
 from wesnoth_ai.encoder import EncodedState
 from wesnoth_ai.model import ActorKind, ModelOutput
