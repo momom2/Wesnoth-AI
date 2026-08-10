@@ -472,8 +472,9 @@ nohup bash -c "
       ${HUMAN_ANCHOR_UPDATES:+--human-anchor-updates $HUMAN_ANCHOR_UPDATES} \
       ${HUMAN_ANCHOR_BATCH:+--human-anchor-batch $HUMAN_ANCHOR_BATCH} \
       ${DRAW_VALUE_WEIGHT:+--draw-value-weight $DRAW_VALUE_WEIGHT} \
-      --abort-decisive-rate 0.05 --abort-window 40 \
-      --abort-holdout-stall 150 \
+      --abort-decisive-rate ${ABORT_DECISIVE_RATE:-0.35} \
+      --abort-window ${ABORT_WINDOW:-20} \
+      --abort-holdout-stall ${ABORT_HOLDOUT_STALL:-60} \
       --spool-workers ${SPOOL_WORKERS} --games-per-iter ${GAMES_PER_ITER} \
       --spool-worker-device ${SPOOL_WORKER_DEVICE:-auto} \
       ${SPOOL_CUDA_WORKERS:+--spool-cuda-workers $SPOOL_CUDA_WORKERS} \

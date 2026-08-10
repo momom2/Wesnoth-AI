@@ -1907,6 +1907,18 @@ def run_iteration(
     _peak_mb = _gpu_mem_peak_mb(reset=True)
     if spool is not None:
         spool.maybe_demote_for_headroom(_peak_mb)
+    # Floor-relative fresh holdout CE (fresh_value_ce - fresh_ce_floor):
+    # the A5 stall-tripwire metric (raw CE moves with the outcome-label
+    # mix; the raw version mis-fired twice in the 72h run). Stashed on
+    # the policy for the main loop's tripwire, INDEPENDENT of
+    # snapshot_sink; None when either side is missing/NaN (replay
+    # buffer off, iter-0-after-restart).
+    _fv = (getattr(train_stats, "fresh_value_ce", float("nan"))
+           if train_stats else float("nan"))
+    _fl = (getattr(train_stats, "fresh_ce_floor", float("nan"))
+           if train_stats else float("nan"))
+    _fresh_rel_ce = (_fv - _fl) if (_fv == _fv and _fl == _fl) else None
+    policy.last_fresh_rel_ce = _fresh_rel_ce
     if snapshot_sink is not None:
         # Econ aggregates across all games this iter.
         mean_end_gold_s1 = (
@@ -2037,6 +2049,7 @@ def run_iteration(
                                       None) if train_stats else None),
             "human_anchor_loss": human_anchor_loss,
             "human_anchor_policy_ce": human_anchor_policy_ce,
+            "fresh_rel_ce": _fresh_rel_ce,
             "value_signal_states": (getattr(train_stats,
                                             "value_signal_states", None)
                                     if train_stats else None),
@@ -2137,6 +2150,7 @@ class _TrainerHistoryCSV:
         # + prediction entropy (overconfidence curve) + the state-
         # blind marginal floor (outcome-mix predictability cap).
         "fresh_value_ce", "fresh_ce_std", "fresh_pred_entropy",
+        "fresh_rel_ce",
         "fresh_ce_floor",
         # Per-map-class decisive split (2026-07-03; aggregate decisive
         # over a mixed curriculum is misleading) + per-class SIDE
@@ -2434,18 +2448,22 @@ def main(argv: List[str]) -> int:
                          "iterations have completed, so it doubles "
                          "as the burn-in period.")
     ap.add_argument("--abort-holdout-stall", type=int, default=None,
-                    help="Memorization tripwire (needs --holdout-size): "
-                         "stop if the held-out value CE has not made a "
-                         "new best (by --abort-holdout-min-delta) for "
-                         "this many consecutive iterations. Saves a "
-                         "final checkpoint and exits with code 5. The "
+                    help="Memorization tripwire (needs --replay-buffer "
+                         "fresh-CE telemetry): stop if the FLOOR-"
+                         "RELATIVE fresh holdout CE (fresh_value_ce - "
+                         "fresh_ce_floor) has not made a new best (by "
+                         "--abort-holdout-min-delta) for this many "
+                         "consecutive iterations. Saves a final "
+                         "checkpoint and exits with code 5. The "
                          "2026-07-02 Kaggle data motivates it: train "
                          "value loss fell 3.8->1.15 while holdout CE "
                          "sat flat at ~3.1 -- pure buffer memorization. "
-                         "Pick a GENEROUS window (hours of compute): "
-                         "the frozen holdout goes stale as the policy "
-                         "improves, so short windows false-trip on "
-                         "long runs.")
+                         "FLOOR-RELATIVE because raw CE moves with the "
+                         "outcome-label mix (the raw-CE version "
+                         "mis-fired twice in the 72h run; A5 spec, "
+                         "user ruling 2026-08-10). Pick a GENEROUS "
+                         "window: short windows false-trip on long "
+                         "runs.")
     ap.add_argument("--abort-holdout-min-delta", type=float,
                     default=0.01,
                     help="Improvement below this doesn't count as a "
@@ -3595,17 +3613,17 @@ def main(argv: List[str]) -> int:
     # best holdout CE; an iteration only resets the stall counter when
     # it beats the best by at least min_delta.
     holdout_stall_limit = args.abort_holdout_stall
-    if holdout_stall_limit is not None and args.holdout_size <= 0:
-        log.warning("--abort-holdout-stall needs --holdout-size; "
-                    "tripwire inactive.")
+    if holdout_stall_limit is not None and not args.replay_buffer:
+        log.warning("--abort-holdout-stall needs --replay-buffer "
+                    "(fresh-CE telemetry); tripwire inactive.")
         holdout_stall_limit = None
     holdout_best: Optional[float] = None
     holdout_stall = 0
     if holdout_stall_limit is not None:
         log.info(
-            f"holdout-stall tripwire ON: stop if holdout value CE "
-            f"makes no new best (min delta "
-            f"{args.abort_holdout_min_delta}) for "
+            f"holdout-stall tripwire ON: stop if FLOOR-RELATIVE fresh "
+            f"holdout CE (fresh_value_ce - fresh_ce_floor) makes no "
+            f"new best (min delta {args.abort_holdout_min_delta}) for "
             f"{holdout_stall_limit} consecutive iters.")
 
     DEAD_ITER_LIMIT = 5
@@ -3690,15 +3708,20 @@ def main(argv: List[str]) -> int:
                     if history_csv is not None:
                         history_csv.close()
                     return 4
-        # Holdout-stall (memorization) tripwire: the holdout CE is the
-        # only metric that distinguishes value learning from replay-
-        # buffer fitting (measured 2026-07-02: train value loss fell
-        # 3.8->1.15 while holdout CE sat flat at ~3.1). If it makes no
-        # new best for the configured stretch, training is either
-        # memorizing or stalled -- either way, on paid compute, stop
-        # and diagnose. State is saved (checkpoint + flushed CSV).
+        # Holdout-stall (memorization) tripwire: the fresh holdout CE
+        # is the only metric that distinguishes value learning from
+        # replay-buffer fitting (measured 2026-07-02: train value loss
+        # fell 3.8->1.15 while holdout CE sat flat at ~3.1). Tracked
+        # FLOOR-RELATIVE (fresh_value_ce - fresh_ce_floor) because raw
+        # CE moves with the outcome-label mix -- the raw version
+        # mis-fired twice in the 72h run (A5 spec, user ruling
+        # 2026-08-10). If it makes no new best for the configured
+        # stretch, training is either memorizing or stalled -- either
+        # way, on paid compute, stop and diagnose. State is saved
+        # (checkpoint + flushed CSV). Iterations with no reading
+        # (iter-0-after-restart, replay-off) skip the counter.
         if holdout_stall_limit is not None:
-            hl = getattr(policy, "last_holdout_loss", None)
+            hl = getattr(policy, "last_fresh_rel_ce", None)
             if hl is not None:
                 if (holdout_best is None
                         or hl < holdout_best - args.abort_holdout_min_delta):
@@ -3709,9 +3732,9 @@ def main(argv: List[str]) -> int:
                     if holdout_stall >= holdout_stall_limit:
                         policy.save_checkpoint(args.checkpoint_out)
                         log.error(
-                            f"ABORT TRIPWIRE (holdout stall): holdout "
-                            f"value CE has not beaten its best "
-                            f"({holdout_best:.4f}) by "
+                            f"ABORT TRIPWIRE (holdout stall): floor-"
+                            f"relative fresh holdout CE has not beaten "
+                            f"its best ({holdout_best:.4f}) by "
                             f"{args.abort_holdout_min_delta} for "
                             f"{holdout_stall} consecutive iters "
                             f"(latest {hl:.4f}) after iter {it + 1}, "
@@ -3720,9 +3743,9 @@ def main(argv: List[str]) -> int:
                             f"checkpoint saved to "
                             f"{args.checkpoint_out}; CSV flushed. "
                             f"Compare train_value_loss vs "
-                            f"holdout_value_loss columns before "
-                            f"re-launching (capacity? signal? stale "
-                            f"holdout on a long run?). Exit code 5."
+                            f"fresh_value_ce/fresh_ce_floor columns "
+                            f"before re-launching (capacity? signal? "
+                            f"label-mix shift?). Exit code 5."
                         )
                         if history_csv is not None:
                             history_csv.close()

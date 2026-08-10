@@ -31,9 +31,13 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
    `--replay-buffer` now DEFAULT ON at the training CLI (A4, shipped),
    one `SIM_FORK_GUARD=1` smoke iteration at campaign start (A6;
    `_defense_table` fingerprint gap CLOSED per user order).
-   **TO-ACTIVATE pending threshold discussion (user): A5 abort
-   tripwires** — decisive-rate floor + FLOOR-RELATIVE holdout-CE stall;
-   discuss thresholds before the paid leg launches.
+   **A5 abort tripwires — THRESHOLDS DECIDED 2026-08-10 (user):**
+   decisive-rate floor 0.35 over a 20-iter window; holdout stall on
+   the FLOOR-RELATIVE fresh CE (fresh_value_ce − fresh_ce_floor,
+   min-delta 0.01) with a 60-iter window. Stall metric repointed in
+   code (the raw-CE version mis-fired twice in the 72h run);
+   vast_onstart defaults updated, env-overridable
+   (ABORT_DECISIVE_RATE / ABORT_WINDOW / ABORT_HOLDOUT_STALL).
    **F-item rulings (user, 2026-08-10):**
    - F1: policy-head extension of the human anchor — WIRE NOW, but
      OFF for leg 1 (A1 prior-discount is that leg's ONE protection;
