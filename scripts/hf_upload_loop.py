@@ -91,6 +91,7 @@ def main() -> int:
     print(f"hf_upload_loop: uploading to {repo} every "
           f"{UPLOAD_EVERY}s", flush=True)
     last_sig = None
+    last_games_sig = None
     uploaded_validation: set = set()
     while True:
         try:
@@ -141,6 +142,33 @@ def main() -> int:
                     uploaded_validation.add(rel)
                     print(f"hf_upload_loop: validation export "
                           f"uploaded: {rel}", flush=True)
+            # Per-game logs (games.jsonl trees): escrow as ONE rolling
+            # tarball. Added 2026-08-10 (F2): the 2026-07-28..31 leg's
+            # noprogress would-fire stats were collected but never left
+            # the box, so the analysis had no data. Signature over
+            # (count, total size) so the tar is rebuilt only when new
+            # games landed.
+            gdir = Path(os.environ.get("GAME_LOG_DIR",
+                                       "training/logs/games"))
+            if gdir.is_dir():
+                gfiles = sorted(gdir.rglob("games.jsonl"))
+                gsig = (len(gfiles),
+                        sum(os.path.getsize(f) for f in gfiles))
+                if gfiles and gsig != last_games_sig:
+                    import tarfile
+                    tar_path = gdir.parent / "games_log.tar.gz"
+                    with tarfile.open(tar_path, "w:gz") as tf:
+                        for f in gfiles:
+                            tf.add(str(f),
+                                   arcname=f.relative_to(gdir).as_posix())
+                    api.upload_file(
+                        path_or_fileobj=str(tar_path),
+                        path_in_repo=HF_PREFIX + "games_log.tar.gz",
+                        repo_id=repo, repo_type="model")
+                    last_games_sig = gsig
+                    print(f"hf_upload_loop: games_log.tar.gz uploaded "
+                          f"({gsig[0]} files, {gsig[1]} bytes)",
+                          flush=True)
         except Exception as e:                      # noqa: BLE001
             # Transient network/Hub errors must not kill the loop --
             # the next cycle retries.
