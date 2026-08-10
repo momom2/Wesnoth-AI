@@ -270,7 +270,7 @@ def main(argv) -> int:
     # TransformerPolicy. `load_checkpoint` refuses to load across
     # mismatched d_model / num_layers / num_heads / d_ff so we
     # construct the right shape up front rather than catch a
-    # mid-load exception. Same pattern as tools/collect_cliffness.py.
+    # mid-load exception.
     import torch as _torch
     from tools.device_select import select_inference_device, describe_device
     _device = select_inference_device(args.device)

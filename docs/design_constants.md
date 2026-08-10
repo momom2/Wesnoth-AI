@@ -40,11 +40,16 @@ defended by experiment, the experiment goes in BACKLOG.md.
 
 ## Value head / cliffness
 
-### `cliffness_max = 0.577` (≈ 1/√3)
+### `cliffness_max = 0.577` (≈ 1/√3) — HISTORICAL since 2026-08-10
 
-**Defined:** `tools/mcts.py` (`MCTSConfig.cliffness_max`), also
-referenced indirectly via `_BOOTSTRAP_PRIOR_VAR = 1/3` (the same
-quantity squared).
+**Status:** the two in-search consumers (`cliffness_bootstrap_alpha`
+Bayesian backup shrinkage and `adaptive_sim_budget`, with
+`cliffness_max` as its normalizer and `_BOOTSTRAP_PRIOR_VAR = 1/3`)
+were DELETED 2026-08-10 (technique review, user ruling X2 — both
+uncalibrated and never measured; `git log -S cliffness_bootstrap_alpha`
+recovers the code). `output.cliffness` itself and the root-cliffness
+debug log remain. The derivations below are preserved for any future
+epistemic-uncertainty revival (BACKLOG item 8).
 
 **Derivation:** `cliffness = std(Z(s))` is the standard deviation
 of the network's predicted categorical value distribution over
@@ -69,18 +74,16 @@ the network outputting uniform-over-atoms logits, which is the
 max-entropy state of a freshly-initialized C51 head. Cliffness
 above 0.577 means the network's distribution is BIMODAL or
 otherwise more spread than uniform — possible in principle but
-unusual to see during training. We use 0.577 as the normalizer
-for the adaptive sim budget (cliffness/cliffness_max in [0, 1])
-and as the "fully uncertain" reference point for the Bayesian
-bootstrap shrinkage (where cliffness² ≈ 1/3 = prior variance
-gives 50/50 blend with the prior).
+unusual to see during training. The deleted consumers used 0.577
+as the normalizer for the adaptive sim budget
+(cliffness/cliffness_max in [0, 1]) and 1/3 as the prior variance
+in the Bayesian bootstrap shrinkage
+(`scale = σ²_prior / (σ²_prior + α·cliffness²)`, uniform prior on
+[-1, +1] matching a fresh C51 head's max-entropy output; at
+cliffness² ≈ 1/3 that gives a 50/50 blend with the prior).
 
 **Cross-references:**
 
-- `tools/mcts.py` `MCTSConfig.cliffness_max`: comment cites
-  this doc for the full derivation.
-- `tools/mcts.py` `_BOOTSTRAP_PRIOR_VAR = 1/3`: same quantity
-  squared; the variance of the uniform prior on [-1, +1].
 - `model.py` `VALUE_V_MIN, VALUE_V_MAX, VALUE_N_ATOMS`: define
   the support that 1/√3 is computed against. If the support
   changes, this number changes (proportional to support range).

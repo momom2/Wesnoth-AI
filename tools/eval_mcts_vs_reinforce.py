@@ -84,8 +84,7 @@ def _wilson(wins: int, n: int, z: float = 1.96) -> tuple:
 
 def _load_policy(checkpoint: Path) -> TransformerPolicy:
     """Load a TransformerPolicy at the checkpoint's saved arch.
-    Handles the pre-C51 -> C51 transition the same way
-    `tools/collect_cliffness.py` does (partial load, value_head
+    Handles the pre-C51 -> C51 transition via partial load (value_head
     reset to random C51 init if checkpoint is pre-C51)."""
     raw = torch.load(checkpoint, map_location="cpu", weights_only=False)
     saved_arch = raw.get("arch", {})

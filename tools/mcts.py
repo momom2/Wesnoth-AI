@@ -27,17 +27,6 @@ Design choices:
     keep state_keys unique; the win comes mostly from intra-turn
     move-reordering convergence.
 
-  - **Cliffness-scaled bootstrap weighting** (opt-in). On backup,
-    scale a non-terminal leaf's `v` by
-    `1 - cliffness_bootstrap_alpha * cliffness/cliffness_max` so
-    high-cliffness leaves contribute less to ancestor Q-values.
-    Terminal leaves are unaffected (their value is exact).
-
-  - **Cliffness-driven adaptive sim budget** (opt-in). After root
-    expansion, scale total sims between `n_simulations_min` and
-    `n_simulations_max` based on root cliffness. Spend more
-    compute when the network is uncertain about the position.
-
   - **Sign convention**: the model's value head is "from
     current_side's perspective". Each leaf's value is the leaf's
     own-side estimate; on backup we flip the sign whenever the
@@ -428,48 +417,6 @@ class MCTSConfig:
     # reach the same end-of-turn state). Default ON; toggle off to
     # benchmark the win or to debug a suspect tree.
     use_transposition_table: bool = True
-
-    # ----- Cliffness consumers (all default off; enable per-search) -----
-    #
-    # Cliffness = std(Z(s)), the spread of the categorical value
-    # distribution the network predicts. A low value means the
-    # network is committing to a definite outcome at this state;
-    # high means it admits the value is uncertain. We expose two
-    # knobs that let a search take that signal into account:
-    #
-    # 1. BOOTSTRAP WEIGHTING: on backup, shrink a non-terminal
-    #    leaf's v contribution toward 0 by treating it as a noisy
-    #    estimate with variance = cliffness². The Bayesian-optimal
-    #    blend toward the prior (uniform on [-1, +1], variance
-    #    1/3) is
-    #        scale = sigma_prior_sq / (sigma_prior_sq + cliffness²)
-    #    Terminal leaves bypass this -- their value is exact.
-    #    `cliffness_bootstrap_alpha` is a multiplier on the
-    #    cliffness² term; alpha=1.0 is the Bayes-optimal default,
-    #    alpha=0 disables shrinkage entirely.
-    #
-    # 2. ADAPTIVE SIM BUDGET: after root expansion, override
-    #    `n_simulations` to interpolate between
-    #    `n_simulations_min` and `n_simulations_max` based on
-    #    root cliffness. Spend more sims at uncertain positions.
-    #    Default OFF: the linear-interp shape is uncalibrated --
-    #    we want to log root cliffness on real positions before
-    #    picking a schedule.
-    #
-    # `cliffness_max` is the normalizer for the adaptive budget.
-    # See the constant definition near `_value_atoms` in model.py
-    # (and BACKLOG.md "Cliffness magic number 0.577") for the
-    # full derivation; in short: 1/sqrt(3) is the std of the
-    # continuous uniform on [-1, +1], and the discrete uniform
-    # on K=51 atoms matches it to 3 decimal places. Above that
-    # the network is saying "any outcome possible".
-    cliffness_bootstrap_alpha:     float = 0.0
-
-    adaptive_sim_budget:           bool  = False
-    n_simulations_min:             int   = 100
-    n_simulations_max:             int   = 400
-
-    cliffness_max:                 float = 0.577
 
     # ----- Playout-cap randomization (KataGo, Wu 2019) ----------------
     # Decouple the moves that ADVANCE a self-play game (cheap) from the
@@ -1022,68 +969,17 @@ def _select_one(
     return node, path
 
 
-# Variance of the prior distribution over outcomes, used as
-# σ²_prior in the Bayesian-precision bootstrap shrinkage. We
-# treat the prior over v as uniform on [V_MIN, V_MAX] = [-1, +1],
-# whose variance is (V_MAX - V_MIN)² / 12 = 4/12 = 1/3.
-# Choice of "uniform" prior matches what a freshly-initialized
-# C51 head would output (uniform logits → uniform softmax →
-# uniform distribution over atoms): the value-head's max-entropy
-# state is the natural "I know nothing" prior.
-_BOOTSTRAP_PRIOR_VAR = 1.0 / 3.0
-
-
 def _backup(
     path:                List[Tuple[MCTSNode, MCTSEdge]],
     v:                   float,
     leaf_side:           int,
     virtual_loss:        float,
-    leaf_cliffness:      float = 0.0,
-    bootstrap_alpha:     float = 0.0,
-    leaf_is_terminal:    bool  = False,
     leaf_moves_left:     Optional[float] = None,
 ) -> None:
     """Walk the path in reverse, undoing virtual loss and adding the
     real visit. `v` is from `leaf_side`'s perspective; flip per edge
-    when the parent's side differs.
-
-    If `bootstrap_alpha > 0` AND the leaf is non-terminal, treat
-    `v` as a noisy estimate of the true value with variance
-    `bootstrap_alpha * cliffness²` (cliffness IS the std of the
-    network's predicted value distribution, so cliffness² is its
-    variance — the network is already telling us its own
-    uncertainty). The Bayesian-optimal blend toward the prior
-    (uniform on [-1, +1], variance 1/3) is
-
-        scale = sigma_prior² / (sigma_prior² + alpha * cliffness²)
-
-    At cliffness=0 the scale is 1 (full trust); at cliffness=∞
-    the scale is 0 (full shrink to prior). At alpha=1 this is the
-    Bayes-optimal posterior mean under the variance assumption;
-    alpha lets the caller dial overall aggressiveness.
-
-    Linear-schedule alternative (which is what we shipped first
-    before reasoning through the Bayesian form): scale linearly
-    from 1 at cliffness=0 to 0 at cliffness=cliffness_max. Strictly
-    more aggressive than Bayesian at every cliffness > 0 and not
-    grounded in any specific assumption about value noise; the
-    Bayesian form has zero free hyperparameters once you accept
-    the prior. See BACKLOG.md for the comparison table.
-
-    Terminal leaves bypass shrinkage: their value is the true
-    game outcome, not a network estimate, and cliffness is
-    meaningless there.
-
-    Visit counts (`edge.n_visits`, `parent._total_visits`) always
-    increment by 1 regardless of cliffness — visits are about
-    PUCT exploration credit, which is independent of how much we
-    trust the value backed up. Only `w_value` is scaled."""
-    if bootstrap_alpha > 0 and not leaf_is_terminal:
-        var_v = bootstrap_alpha * (leaf_cliffness ** 2)
-        scale = _BOOTSTRAP_PRIOR_VAR / (_BOOTSTRAP_PRIOR_VAR + var_v)
-        v_eff = v * scale
-    else:
-        v_eff = v
+    when the parent's side differs."""
+    v_eff = v
     for i in range(len(path) - 1, -1, -1):
         parent, edge = path[i]
         if virtual_loss > 0:
@@ -1101,26 +997,6 @@ def _backup(
         # carry M (consumed sibling-relative by _puct_select).
         if leaf_moves_left is not None:
             edge.m_sum += leaf_moves_left
-
-
-def _adaptive_n_sims(config: MCTSConfig, root_cliffness: float) -> int:
-    """How many simulations the search should run given the root
-    state's cliffness. When `config.adaptive_sim_budget` is False,
-    this is just `config.n_simulations` (the caller's request).
-    Otherwise it's a linear interpolation from
-    `n_simulations_min` (cliffness=0) to `n_simulations_max`
-    (cliffness >= `cliffness_max`).
-
-    Pulled out as a helper so it can be unit-tested without a
-    full search; called once per `mcts_search` invocation."""
-    if not config.adaptive_sim_budget:
-        return config.n_simulations
-    norm = min(1.0, max(0.0,
-                        root_cliffness / max(1e-6, config.cliffness_max)))
-    return int(round(
-        config.n_simulations_min
-        + norm * (config.n_simulations_max - config.n_simulations_min)
-    ))
 
 
 def _leaf_to_cpu(encoded, output):
@@ -1227,20 +1103,15 @@ def _run_one_sim(
     )
     if leaf.is_terminal:
         v = _terminal_value(leaf.sim, leaf.side, config.draw_tiebreak)
-        _backup(path, v, leaf.side, 0.0, leaf_is_terminal=True,
-                leaf_moves_left=0.0)
+        _backup(path, v, leaf.side, 0.0, leaf_moves_left=0.0)
         return
     if leaf.expanded:
         # Depth-cap break (see _MAX_SELECT_DEPTH) returned an already-
         # expanded interior node. Re-running _populate_leaf would
         # REPLACE leaf.edges and discard its accumulated stats, so
         # back up its stored value estimate instead.
-        _backup(
-            path, leaf.value, leaf.side, 0.0,
-            leaf_cliffness=leaf.cliffness,
-            bootstrap_alpha=config.cliffness_bootstrap_alpha,
-            leaf_moves_left=leaf.moves_left,
-        )
+        _backup(path, leaf.value, leaf.side, 0.0,
+                leaf_moves_left=leaf.moves_left)
         return
     with torch.no_grad():
         encoded = encoder.encode(leaf.sim.gs)
@@ -1250,9 +1121,6 @@ def _run_one_sim(
                        decision_step=decision_step)
     _backup(
         path, v, leaf.side, 0.0,
-        leaf_cliffness=leaf.cliffness,
-        bootstrap_alpha=config.cliffness_bootstrap_alpha,
-        leaf_is_terminal=leaf.is_terminal,
         leaf_moves_left=(0.0 if leaf.is_terminal else leaf.moves_left),
     )
 
@@ -1304,17 +1172,13 @@ def _run_sim_batch(
         )
         if leaf.is_terminal:
             v = _terminal_value(leaf.sim, leaf.side, config.draw_tiebreak)
-            _backup(path, v, leaf.side, v_loss,
-                    leaf_cliffness=0.0, bootstrap_alpha=0.0,
-                    leaf_is_terminal=True, leaf_moves_left=0.0)
+            _backup(path, v, leaf.side, v_loss, leaf_moves_left=0.0)
             completed += 1
         elif leaf.expanded:
             # Depth-cap break: already-expanded interior node. Back up
             # its stored value rather than re-populating (which would
             # wipe its edge stats).
             _backup(path, leaf.value, leaf.side, v_loss,
-                    leaf_cliffness=leaf.cliffness,
-                    bootstrap_alpha=config.cliffness_bootstrap_alpha,
                     leaf_moves_left=leaf.moves_left)
             completed += 1
         else:
@@ -1354,9 +1218,6 @@ def _run_sim_batch(
                 cliffness=None if cliffs is None else cliffs[i])
         for leaf, path in pending:
             _backup(path, leaf_values[id(leaf)], leaf.side, v_loss,
-                    leaf_cliffness=leaf.cliffness,
-                    bootstrap_alpha=config.cliffness_bootstrap_alpha,
-                    leaf_is_terminal=leaf.is_terminal,
                     leaf_moves_left=(0.0 if leaf.is_terminal
                                      else leaf.moves_left))
             completed += 1
@@ -1669,29 +1530,19 @@ def mcts_search(
         _add_dirichlet_noise(root, config.dirichlet_alpha,
                              config.dirichlet_eps, rng)
 
-    # ----- Adaptive sim budget ---------------------------------------
-    # Override n_simulations based on root cliffness. Linear
-    # interpolation from n_min (cliffness=0, network confident) to
-    # n_max (cliffness >= cliffness_max, network maxed-out
-    # uncertain). Default OFF -- when off, n_simulations stays
-    # whatever the caller asked for.
     if n_sims_override is not None:
-        # Playout-cap "fast" move: a fixed cheap budget, no adaptive
-        # scaling (the move won't be recorded as a training target, so
-        # its search just needs to pick a reasonable action).
+        # Playout-cap "fast" move: a fixed cheap budget (the move
+        # won't be recorded as a training target, so its search just
+        # needs to pick a reasonable action).
         n_sims = max(1, int(n_sims_override))
     else:
-        n_sims = _adaptive_n_sims(config, root.cliffness)
-    # Always log root cliffness (cheap; callers want this even
-    # when adaptive_sim_budget is off, so they can decide what
-    # an empirically reasonable budget schedule would look like
-    # before flipping the switch). Surfaces on the returned
-    # root via `root.cliffness` for programmatic consumers.
+        n_sims = config.n_simulations
+    # Always log root cliffness (cheap; the network's own per-state
+    # uncertainty estimate — kept for future epistemic-uncertainty
+    # work, see BACKLOG item 8). Surfaces on the returned root via
+    # `root.cliffness` for programmatic consumers.
     log.debug(
-        f"mcts: root cliffness={root.cliffness:.3f} "
-        f"(adaptive={'on' if config.adaptive_sim_budget else 'off'}, "
-        f"n_sims={n_sims})"
-    )
+        f"mcts: root cliffness={root.cliffness:.3f} (n_sims={n_sims})")
 
     deadline = (_time.perf_counter() + config.time_budget
                 if config.time_budget is not None else None)
