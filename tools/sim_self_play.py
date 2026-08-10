@@ -1328,6 +1328,7 @@ def run_iteration(
     actor_pool=None,
     spool=None,
     human_anchor=None,   # (pool, updates_per_iter, batch, rng) or None
+    human_anchor_policy=None,  # (pairs, updates_per_iter, batch, rng) or None
 ) -> List[GameOutcome]:
     """Roll out `games_per_iter` games and call `train_step` once at
     the end. Returns the per-game outcomes for logging.
@@ -1778,6 +1779,31 @@ def run_iteration(
         log.info(f"iter {iter_idx}: human anchor -- {a_updates} "
                  f"updates x {a_batch}, value_loss="
                  f"{human_anchor_loss:.4f}")
+    human_anchor_policy_ce = None
+    if train_at_end and human_anchor_policy is not None:
+        # Policy-head rehearsal (F1, 2026-08-10): the imitation
+        # objective (four-head CE on winner-side human pairs) mixed
+        # into every iteration -- the RLPD-shaped prior protection.
+        # Default OFF; one protection per leg (vs A1 / piKL) for
+        # attribution.
+        from tools.policy_anchor import anchor_policy_step
+        p_pairs, p_updates, p_batch, p_rng = human_anchor_policy
+        trainer = getattr(policy, "_base", policy)._trainer
+        ces = []
+        for _ in range(p_updates):
+            sample = p_rng.sample(p_pairs, min(p_batch, len(p_pairs)))
+            st = anchor_policy_step(trainer, sample)
+            ces.append(st["policy_ce"])
+        human_anchor_policy_ce = sum(ces) / max(1, len(ces))
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:                       # noqa: BLE001
+            pass
+        log.info(f"iter {iter_idx}: policy anchor -- {p_updates} "
+                 f"updates x {p_batch}, policy_ce="
+                 f"{human_anchor_policy_ce:.4f}")
     if train_at_end:
         # One gradient step over all queued trajectories.
         train_t0 = time.perf_counter()
@@ -2010,6 +2036,7 @@ def run_iteration(
             "z_draw_frac_w": (getattr(train_stats, "z_draw_frac_w",
                                       None) if train_stats else None),
             "human_anchor_loss": human_anchor_loss,
+            "human_anchor_policy_ce": human_anchor_policy_ce,
             "value_signal_states": (getattr(train_stats,
                                             "value_signal_states", None)
                                     if train_stats else None),
@@ -2134,7 +2161,8 @@ class _TrainerHistoryCSV:
         "z_win_frac", "z_loss_frac", "z_draw_frac",
         # game_weight-normalized composition (gradient share).
         "z_win_frac_w", "z_loss_frac_w", "z_draw_frac_w",
-        "human_anchor_loss", "value_signal_states",
+        "human_anchor_loss", "human_anchor_policy_ce",
+        "value_signal_states",
         "fresh_decisive_ce",
         # Ladder fog/fogless condition split (2026-07-11): is the
         # fogless mix doing work? villages_per_turn = time-averaged
@@ -2891,6 +2919,20 @@ def main(argv: List[str]) -> int:
                          "(default 4; vs --replay-updates self-play "
                          "steps).")
     ap.add_argument("--human-anchor-batch", type=int, default=128)
+    ap.add_argument("--human-anchor-policy-file", type=Path, default=None,
+                    help="Pre-encoded winner-side human pair cache "
+                         "(tools/policy_anchor.py). Enables POLICY-"
+                         "head rehearsal (the imitation four-head CE) "
+                         "each iteration -- the RLPD-shaped prior "
+                         "protection. Default OFF; run ONE prior "
+                         "protection per leg (this vs "
+                         "--distill-prior-discount vs piKL) so the "
+                         "human-holdout CE observable stays "
+                         "attributable (F1 ruling 2026-08-10).")
+    ap.add_argument("--human-anchor-policy-updates", type=int, default=4,
+                    help="Policy-rehearsal gradient steps per "
+                         "iteration (--human-anchor-policy-file).")
+    ap.add_argument("--human-anchor-policy-batch", type=int, default=128)
     ap.add_argument("--draw-value-weight", type=float, default=1.0,
                     help="Weight of drawn games' states in the MCTS "
                          "value loss (aux/moves-left heads always get "
@@ -3410,6 +3452,25 @@ def main(argv: List[str]) -> int:
                 f"{args.human_anchor_batch} per iteration")
         else:
             log.warning("human anchor file empty; rehearsal OFF")
+    human_anchor_policy = None
+    if getattr(args, "human_anchor_policy_file", None):
+        from tools.policy_anchor import load_policy_anchor
+        _ppairs = load_policy_anchor(args.human_anchor_policy_file)
+        if _ppairs:
+            human_anchor_policy = (
+                _ppairs, max(0, args.human_anchor_policy_updates),
+                max(1, args.human_anchor_policy_batch),
+                random.Random(20260810))
+            log.info(
+                f"POLICY-head human anchor ON: {len(_ppairs)} pairs "
+                f"from {args.human_anchor_policy_file.name}; "
+                f"{args.human_anchor_policy_updates} imitation-CE "
+                f"updates x {args.human_anchor_policy_batch} per "
+                f"iteration. Reminder: ONE prior protection per leg "
+                f"(F1 ruling) -- don't combine with "
+                f"--distill-prior-discount < 1 in the same leg.")
+        else:
+            log.warning("policy anchor file empty; rehearsal OFF")
 
     history_csv: Optional[_TrainerHistoryCSV] = None
     csv_arg = args.trainer_history_csv
@@ -3572,6 +3633,7 @@ def main(argv: List[str]) -> int:
             actor_pool=actor_pool,
             spool=spool,
             human_anchor=human_anchor,
+            human_anchor_policy=human_anchor_policy,
         )
         # Persist the holdout probe when it grew (crash-safe partial
         # saves; no-op once frozen+saved). getattr-guarded: REINFORCE
