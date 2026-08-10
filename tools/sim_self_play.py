@@ -2422,9 +2422,6 @@ def _parse_time_budget(spec: Optional[str]) -> Optional[int]:
 def main(argv: List[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--replay-pool", type=Path,
-                    default=Path("replays_dataset"),
-                    help="Directory of .json.gz replays to sample initial states from.")
     ap.add_argument("--checkpoint-in", type=Path, default=None,
                     help="Optional starting checkpoint. Default: random init.")
     ap.add_argument("--checkpoint-out", type=Path,
@@ -2495,9 +2492,10 @@ def main(argv: List[str]) -> int:
                          "then log the net's value CE on it each iter "
                          "(generalization probe -- the train value "
                          "loss is measured on replay samples the net "
-                         "already fit). 0 = off. Not persisted across "
-                         "resumes: a resumed run re-collects, "
-                         "restarting the curve's baseline.")
+                         "already fit). 0 = off. PERSISTED across resumes "
+                         "via the <checkpoint>.holdout sidecar "
+                         "(crash-safe partial saves), so the curve's "
+                         "baseline survives restarts.")
     ap.add_argument("--holdout-per-game-cap", type=int, default=64,
                     help="Max states RANDOMLY SAMPLED into the holdout "
                          "from each diverted game (default 64), so a "
@@ -3155,10 +3153,11 @@ def main(argv: List[str]) -> int:
                  f"(CPU-only tuning; device={device})")
 
     rng = random.Random(args.seed)
-    # Self-play seeds are now scenarios + random factions/leaders
-    # (tools.scenario_pool), not replay starting states. The
-    # `--replay-pool` flag is retained for legacy callers but
-    # ignored. pool_files=None makes that explicit downstream.
+    # Self-play seeds are scenarios + random factions/leaders
+    # (tools.scenario_pool), not replay starting states. pool_files
+    # stays as an explicit None for the legacy plumbing downstream
+    # (the --replay-pool flag was removed 2026-08-10, X6: it was
+    # parsed and then ignored).
     pool_files = None
     cost_lookup = _recruit_cost_lookup()
     # Eagerly load factions to surface any setup issue NOW rather

@@ -168,9 +168,10 @@ NUM_HEX_MODIFIERS = 3
 # move_row so the policy literally can't re-pick them; the
 # observation-level signal (a token bit) would only duplicate
 # information the mask already encodes. Keeping
-# NUM_HEX_DYNAMIC_FLAGS=1 preserves checkpoint compatibility for
-# the dynamic_flag_proj weight (avoids a backward-incompat shape
-# change in load_checkpoint).
+# (Historical: the flag count was held at 1 for a while for
+# checkpoint compatibility of dynamic_flag_proj; it has been 3
+# since the fog/ZoC flags landed -- pad_legacy_encoder_state
+# handles old checkpoints.)
 NUM_HEX_DYNAMIC_FLAGS = 3
 
 # Per-unit numerical features. Order MATTERS — changing it requires

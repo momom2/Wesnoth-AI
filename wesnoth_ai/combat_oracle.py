@@ -19,8 +19,11 @@ Extensions we deliberately punted:
   - Chain-kill implications (e.g., kill one, next turn take their hex).
 
 Calibration expectation: scores range roughly −40 (bad attack, we die)
-to +40 (good attack, they die). Sampler scales by `alpha` (default
-0.1) to bring into logit-scale.
+to +40 (good attack, they die). Sampler scales by `alpha` to bring
+into logit-scale; alpha comes from the annealed schedule over
+`COMBAT_TARGET_ALPHA` / `COMBAT_TYPE_ALPHA` in constants.py
+(prior-bias instances, currently 0.0 = oracle bias OFF pending
+explicit activation).
 """
 
 from __future__ import annotations

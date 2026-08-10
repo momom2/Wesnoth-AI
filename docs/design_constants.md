@@ -104,8 +104,10 @@ overridable in one place.
 
 ## Material-margin village normalization (2026-07-12)
 
-`DrawTiebreakConfig.weight_village = 10.0`, applied as
-`10 * (Δvillages / MAP_TOTAL_VILLAGES)` inside the shared material
+`DrawTiebreakConfig.weight_village = 2.0` (recalibrated 2026-07-21;
+the original derivation below used 10.0 — configs/draw_tiebreak.json
+is authoritative), applied as
+`w * (Δvillages / MAP_TOTAL_VILLAGES)` inside the shared material
 score (`tools/draw_tiebreak.py`), with `score_scale = 5.0` unchanged.
 
 Derivation: village counts vary ~10-30 per ladder map, so the old

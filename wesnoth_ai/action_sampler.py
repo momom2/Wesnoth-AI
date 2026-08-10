@@ -960,15 +960,6 @@ def predict_priors(
     )
 
 
-def _enemy_unit_at(gs: GameState, pos: Position) -> Optional[Unit]:
-    current_side = gs.global_info.current_side
-    for u in gs.map.units:
-        if (u.position.x == pos.x and u.position.y == pos.y
-                and u.side != current_side):
-            return u
-    return None
-
-
 def _unit_by_id(gs: GameState, unit_id: str) -> Optional[Unit]:
     for u in gs.map.units:
         if u.id == unit_id:
