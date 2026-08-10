@@ -505,10 +505,35 @@ if [ "${SPOOL_WORKERS:-0}" -gt 0 ]; then
     TOPO_ARGS="--spool-workers ${SPOOL_WORKERS} --spool-worker-device ${SPOOL_WORKER_DEVICE:-auto}${SPOOL_CUDA_WORKERS:+ --spool-cuda-workers $SPOOL_CUDA_WORKERS}"
     TOPO_DESC="spool=${SPOOL_WORKERS}"
 else
-    ACTOR_POOL="${ACTOR_POOL:-$(( $(nproc) - 4 ))}"
+    # Size from the CGROUP CPU QUOTA, not nproc: inside a Vast
+    # container nproc reports the HOST's cores (measured 2026-08-10:
+    # nproc=120 on a 38.4-core slice; /proc/loadavg is host-wide for
+    # the same reason). cgroup v2 cpu.max = "quota period"; v1 =
+    # cfs_quota_us/cfs_period_us; "max"/absent = uncapped -> nproc.
+    _CORES=$("$PY" - <<'PYEOF'
+import os
+def cores():
+    try:
+        q, p = open("/sys/fs/cgroup/cpu.max").read().split()
+        if q != "max":
+            return max(1, int(int(q) / int(p)))
+    except OSError:
+        pass
+    try:
+        q = int(open("/sys/fs/cgroup/cpu/cpu.cfs_quota_us").read())
+        p = int(open("/sys/fs/cgroup/cpu/cpu.cfs_period_us").read())
+        if q > 0:
+            return max(1, q // p)
+    except OSError:
+        pass
+    return os.cpu_count() or 8
+print(cores())
+PYEOF
+)
+    ACTOR_POOL="${ACTOR_POOL:-$(( _CORES - 4 ))}"
     [ "$ACTOR_POOL" -lt 8 ] && ACTOR_POOL=8
     TOPO_ARGS="--actor-pool ${ACTOR_POOL}${ACTOR_MAX_BATCH:+ --actor-max-batch $ACTOR_MAX_BATCH}"
-    TOPO_DESC="actor-pool=${ACTOR_POOL}"
+    TOPO_DESC="actor-pool=${ACTOR_POOL} (quota ${_CORES} cores)"
 fi
 GAMES_PER_ITER="${GAMES_PER_ITER:-24}"
 
