@@ -25,6 +25,17 @@ echo "==== onstart $(date -u +%FT%TZ) ===="
 
 cd "$WORKDIR"
 
+# Box-local env overrides (2026-08-11): create-time env is baked and
+# unchangeable, so mid-leg config changes (arm switches, knob tweaks)
+# go in $WORKDIR/.leg_env -- sourced here and echoed for the audit
+# trail. NO SECRETS in this file (it is logged verbatim); the token
+# stays in .hf_token.
+if [ -f "$WORKDIR/.leg_env" ]; then
+    echo "[onstart] sourcing .leg_env:"
+    sed 's/^/[onstart]   /' "$WORKDIR/.leg_env"
+    . "$WORKDIR/.leg_env"
+fi
+
 # Post-create env overrides: container env is frozen at instance
 # creation, so knob changes on a LIVE instance go into
 # $WORKDIR/env.sh (plain `export VAR=...` lines). Persisted on the
