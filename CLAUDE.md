@@ -54,7 +54,47 @@ Most replays in `replays_raw/` are from 1.18.x clients; pin
 accordingly. If a replay's `[scenario] version=` says something
 other than 1.18.x, scrape from that version's tag instead.
 
-## Current status (2026-08-08)
+## Current status (2026-08-11)
+
+**The tier-b self-play handoff leg is RUNNING (Vast on-demand 4090,
+instance 47452778, ~$0.37/h) from `imit_tierb_start.pt` (the rescued
+imitation checkpoint, aux heads + flags stripped, step 2,809,659
+carried).** Launch config = the executed 2026-08-10 technique review
+(all A/D/F/X rulings shipped; `docs/technique_review_20260810.md`):
+A1 `--distill-prior-discount 0.9`, A2 value anchor, A3 turn-cap
+jitter 60-100, A5 tripwires (decisive 0.35/20, FLOOR-RELATIVE stall
+60), A6 fork-guard smoke gate, F3 actor-pool topology (sized from
+cgroup quota — nproc is HOST-wide on Vast), mini-ratio 0. Everything
+identity-critical escrows to HF every 30 min (checkpoint+sidecar,
+telemetry, hourly human-holdout probe CSV, games log); a fresh box
+reseeds itself from escrow unattended (proven 3x, incl. one
+cross-machine migration).
+
+**First measured results (protocol-matched hourly probe,
+`scripts/holdout_probe_loop.py`, t0 = CE 3.207 / value-AUC 0.627 on
+the imitation manifest holdout):**
+- **A1 verdict: PLATEAU, not washout** — CE 3.648 (+26k steps) →
+  3.782 (+58k) → 3.713 (+85k). The handoff costs ~+0.5 nats of
+  human-play CE, then stabilizes; the pre-registered "flat" bar
+  failed but the washout the literature scan feared does not occur.
+  Leg-2 comparison arm (F1 policy-head anchor,
+  `tools/policy_anchor.py`) is wired, default OFF.
+- **Value head healthy**: AUC dipped to 0.417 in the handoff shock,
+  recovered to 0.76-0.79 (> t0) under the A2 anchor.
+- **Self-play is hyper-decisive**: 23-24/24 decisive per iteration
+  (leader kills ~turn 15), ~8.5k decision-steps/hour. The F2
+  would-fire analysis over the first 112 games: ZERO stalemate-rule
+  fires at any K — the no-progress rule is priced irrelevant for
+  this regime.
+- Launch-day ops lessons are encoded: actor-pool smoke test (slow
+  tier), OOM fixes (train chunk 32, pool fuse 16), stall watchdog +
+  supervisor marker protocol, holdout-sidecar carry.
+
+Next: let the leg run (~24-48h), then leg-end evals (Elo vs the
+imitation seed; RCA probe on a cheap CPU box) and the multi-epoch /
+leg-2 decisions. BACKLOG NEXT ACTIONS is current.
+
+## Current status (2026-08-08, superseded — kept for provenance)
 
 **The human-replay corpus is CERTIFIED 100% bit-exact (24,796/24,796)
 and the imitation-learning phase is running.** The 2026-08-06..07
