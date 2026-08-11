@@ -198,6 +198,19 @@ dst = pathlib.Path(os.environ.get(
 dst.parent.mkdir(parents=True, exist_ok=True)
 shutil.copy2(p, dst)
 print(f"[onstart] seed file: {fname}")
+# Also carry the frozen-holdout probe sidecar (escrowed alongside the
+# checkpoint). Without it a fresh box RESAMPLES the probe and the
+# holdout-CE curve loses cross-box comparability (2026-07-18 concern;
+# observed live 2026-08-11 on the on-demand migration). Best-effort:
+# a missing sidecar just means the probe resamples, as before.
+try:
+    hp = hf_hub_download("momom2/wesnoth-model-checkpoints",
+                         fname + ".holdout", token=tok)
+    shutil.copy2(hp, str(dst) + ".holdout")
+    print("[onstart] holdout sidecar carried from escrow")
+except Exception as e:                                  # noqa: BLE001
+    print(f"[onstart] no holdout sidecar on HF ({e.__class__.__name__}); "
+          f"probe will resample")
 EOF
     fi
 fi
