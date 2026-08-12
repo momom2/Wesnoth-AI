@@ -460,6 +460,8 @@ class MCTSPolicy:
                     for k in ("tgt_entropy", "prior_entropy",
                               "sharpen_top"):
                         a[k] = a.get(k, 0.0) + ds[k]
+                    a["kl_prior"] = (a.get("kl_prior", 0.0)
+                                     + ds.get("kl_prior", 0.0))
                     a["top80"] = a.get("top80", 0) + (
                         1 if ds["prior_top"] > 0.8 else 0)
                     if "et_prior" in ds:
@@ -663,6 +665,7 @@ class MCTSPolicy:
             "distill_tgt_entropy":   acc["tgt_entropy"] / n,
             "distill_prior_entropy": acc["prior_entropy"] / n,
             "distill_sharpen_top":   acc["sharpen_top"] / n,
+            "distill_kl_prior":      acc.get("kl_prior", 0.0) / n,
             "distill_prior_top80":   acc.get("top80", 0) / n,
             "distill_et_prior":  (acc["et_prior"] / et_n) if et_n
                                  else None,

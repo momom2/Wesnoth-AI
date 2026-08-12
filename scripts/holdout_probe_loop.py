@@ -48,6 +48,20 @@ PROBE_DEVICE = os.environ.get("PROBE_DEVICE", "cpu")
 OUT_CSV = Path(os.environ.get(
     "PROBE_CSV", "training/logs/holdout_probe.csv"))
 
+# Abort tripwire (2026-08-12 diagnosis, finding F4): the human-holdout
+# CE is the only observable that showed the leg regressing, and it was
+# wired to nothing -- the leg ran for days getting worse with every
+# guard green. When PROBE_T0 is set and PROBE_ABORT_N consecutive
+# probes read CE > PROBE_T0 + PROBE_ABORT_DELTA, this loop writes
+# $WORKDIR/ABORTED_probe (evidence) and SIGKILLs the training
+# processes; the onstart supervisor treats a signal exit without a
+# watchdog marker as an operator stop and stands down. Off unless
+# PROBE_T0 is set (the baseline is leg-specific: measure the seed
+# checkpoint under this probe's own protocol first).
+PROBE_T0 = os.environ.get("PROBE_T0")
+PROBE_ABORT_DELTA = float(os.environ.get("PROBE_ABORT_DELTA", "0.5"))
+PROBE_ABORT_N = int(os.environ.get("PROBE_ABORT_N", "3"))
+
 _COLS = ["timestamp", "decision_step", "ce", "actor_top1", "type_top1",
          "target_top1", "weapon_top1", "value_auc", "n", "n_value",
          "probe_seconds"]
@@ -123,10 +137,48 @@ def probe_once(ckpt: Path, step: int, arch: dict) -> bool:
     return True
 
 
+def _abort_check() -> None:
+    """Kill training when the last PROBE_ABORT_N probe CEs all exceed
+    PROBE_T0 + PROBE_ABORT_DELTA. No-op unless PROBE_T0 is set."""
+    if PROBE_T0 is None or not OUT_CSV.exists():
+        return
+    import csv as _csv
+    import signal
+    rows = list(_csv.DictReader(OUT_CSV.open(encoding="utf-8")))
+    if len(rows) < PROBE_ABORT_N:
+        return
+    bar = float(PROBE_T0) + PROBE_ABORT_DELTA
+    tail = rows[-PROBE_ABORT_N:]
+    if not all(float(r["ce"]) > bar for r in tail):
+        return
+    workdir = Path(os.environ.get("WORKDIR", "/workspace"))
+    marker = workdir / "ABORTED_probe"
+    marker.write_text(
+        f"{time.strftime('%FT%TZ', time.gmtime())} human-holdout CE > "
+        f"{bar:.3f} (t0 {PROBE_T0} + {PROBE_ABORT_DELTA}) on "
+        f"{PROBE_ABORT_N} consecutive probes: "
+        f"{[round(float(r['ce']), 4) for r in tail]} at steps "
+        f"{[r['decision_step'] for r in tail]}\n", encoding="utf-8")
+    print(f"probe: ABORT TRIPWIRE -- {marker.read_text().strip()}",
+          flush=True)
+    for pd in Path("/proc").iterdir():
+        if not pd.name.isdigit():
+            continue
+        try:
+            if b"tools/sim_self_play.py" in (pd / "cmdline").read_bytes() \
+                    and (pd / "comm").read_text().strip() == "python":
+                os.kill(int(pd.name), signal.SIGKILL)
+        except OSError:
+            continue
+
+
 def main() -> int:
     ckpt = _campaign_ckpt()
     print(f"holdout_probe_loop: watching {ckpt}, every {PROBE_EVERY}s, "
-          f"{PROBE_PAIRS} pairs on {PROBE_DEVICE}", flush=True)
+          f"{PROBE_PAIRS} pairs on {PROBE_DEVICE}"
+          + (f"; abort at t0+{PROBE_ABORT_DELTA} x{PROBE_ABORT_N} "
+             f"(t0={PROBE_T0})" if PROBE_T0 else "; abort OFF (no "
+             "PROBE_T0)"), flush=True)
     last_step = None
     while True:
         try:
@@ -135,6 +187,7 @@ def main() -> int:
                 if peek is not None and peek[0] != last_step:
                     if probe_once(ckpt, *peek):
                         last_step = peek[0]
+                        _abort_check()
         except Exception as e:                      # noqa: BLE001
             print(f"probe: cycle failed: {e!r}", flush=True)
         time.sleep(PROBE_EVERY)

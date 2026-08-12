@@ -104,7 +104,23 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
    armed by MOVES (Necromancer-pick shape, zero measured corpus impact);
    `setaside_pickadvance_force` support if force-choice games ever
    matter; eras beyond default/dunefolk-clean re-ruling.
-8. **Deleted-technique design notes (2026-08-10 review, user rulings
+8. **2026-08-12 diagnosis ("the self-play loop is distilling its own
+   noise" — user's read-only investigation artifact) — fixes shipped
+   same day:** F1 root cause = the Gumbel sigma's min-max rescale
+   amplified value noise into a fixed ~5-logit target perturbation
+   (rescale floor raised 1e-8 → 0.04 = one C51 atom, CLI +
+   worker-forwarded, `distill_kl_prior` instrument added); F4 blind
+   spots = distill telemetry now ships from actor-pool actors, and
+   the human-holdout probe ABORTS training at t0+0.5 ×3 consecutive
+   probes (PROBE_T0). STILL OPEN from the diagnosis: F2 gate (no
+   self-play spend unless frozen-holdout value loss falls over 20
+   iters and human AUC ≥ 0.75 — a launch-discipline rule, not code);
+   F5 index-basis divergence root cause (guarded, un-diagnosed); F6
+   side-2 win bias (57% of 1,255 decisive games, ~5σ — audit on a
+   side-swapped subset); F3 replay-ratio 0.21 + RawEncoded/mask
+   caching (deferred BY DESIGN until the target is trustworthy —
+   fixing it first would fit the noise faster).
+9. **Deleted-technique design notes (2026-08-10 review, user rulings
    X2/X5)** — preserved so a future revival doesn't re-derive them:
    - *Tier-2 adaptive outcome bucketing* (X5, deleted at
      `tools/outcome_buckets.py` + the mcts.py integration; recover via

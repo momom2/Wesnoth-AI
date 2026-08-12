@@ -1045,6 +1045,8 @@ class SpoolWorkers:
                 args, "distill_prior_discount", 1.0)),
             "--distill-target-temp", str(getattr(
                 args, "distill_target_temp", 1.0)),
+            "--gumbel-rescale-floor", str(getattr(
+                args, "mcts_gumbel_rescale_floor", 0.04)),
             # Playout-cap trio: same worker-side-targets argument as
             # the distill knobs above.
             "--playout-cap-prob", str(
@@ -1962,6 +1964,14 @@ def run_iteration(
         # None-safe for the REINFORCE / actor-pool paths.
         distill = (getattr(policy, "drain_distill_stats", None)
                    and policy.drain_distill_stats()) or {}
+        # Under the actor pool the LEARNER's policy never searches, so
+        # its drain is empty -- the telemetry rode only the in-process
+        # path and an entire leg ran with every distill_* column dark
+        # (2026-08-12 diagnosis, finding F4). The pool now aggregates
+        # its actors' drains per iteration.
+        if not distill and actor_pool is not None:
+            distill = getattr(actor_pool, "last_distill_stats",
+                              None) or {}
         if distill:
             _et_p, _et_t = (distill.get("distill_et_prior"),
                             distill.get("distill_et_target"))
@@ -2225,6 +2235,12 @@ class _TrainerHistoryCSV:
         "distill_tgt_entropy", "distill_prior_entropy",
         "distill_sharpen_top", "distill_prior_top80",
         "distill_et_prior", "distill_et_target",
+        # KL(target||prior) per decision (2026-08-12 diagnosis
+        # instrument): the size of the perturbation the search injects
+        # into the policy target. Near-constant = distilling noise;
+        # should drop toward 0 on low-spread roots under the one-atom
+        # rescale floor.
+        "distill_kl_prior",
     ]
 
     def __init__(self, path: Path):
@@ -2775,6 +2791,17 @@ def main(argv: List[str]) -> int:
                     help="Gumbel root: number of candidate actions "
                          "sampled without replacement for "
                          "sequential halving.")
+    ap.add_argument("--mcts-gumbel-rescale-floor", type=float,
+                    default=0.04,
+                    help="Min completed-Q spread the sigma rescale "
+                         "divides by. Spreads below it scale the "
+                         "target perturbation down proportionally "
+                         "(fade to prior on no-signal roots). Default "
+                         "0.04 = one C51 atom, the value head's own "
+                         "resolution; the legacy 1e-8 amplified value "
+                         "noise into a fixed ~5-logit target "
+                         "perturbation on every low-signal decision "
+                         "(2026-08-12 diagnosis).")
     ap.add_argument("--mcts-no-exact-outcomes", action="store_true",
                     help="Disable exact combat-outcome enumeration "
                          "at chance nodes (tools/combat_outcomes "
@@ -3322,6 +3349,7 @@ def main(argv: List[str]) -> int:
             tree_reuse=not args.mcts_no_tree_reuse,
             gumbel_root=not args.mcts_classic_root,
             gumbel_m=args.mcts_gumbel_m,
+            gumbel_rescale_floor=args.mcts_gumbel_rescale_floor,
             exact_outcome_enumeration=not args.mcts_no_exact_outcomes,
             playout_cap_randomization=args.mcts_playout_cap,
             playout_cap_prob=args.mcts_playout_cap_prob,

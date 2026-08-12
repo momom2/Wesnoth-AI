@@ -1203,19 +1203,21 @@ def test_prior_bias_end_turn_mini_scoped(monkeypatch):
 
 
 def test_rescale_floor_caps_rank_noise_amplification():
-    """gumbel_rescale_floor (BACKLOG 3c lever): with the legacy 1e-8
-    floor, a sub-resolution Q spread (~1e-3) is stretched to the full
-    [0,1] sigma range; with floor 0.01 the same spread contributes at
-    most spread/floor of the range. Default stays legacy."""
+    """gumbel_rescale_floor: with the legacy 1e-8 floor, a
+    sub-resolution Q spread (~1e-3) is stretched to the full [0,1]
+    sigma range; with a real floor the same spread contributes at most
+    spread/floor of the range. The default was RAISED to 0.04 (one C51
+    atom) on 2026-08-12 -- the "self-play distills its own noise"
+    diagnosis promoted the parked BACKLOG-3c lever to the fix."""
     import numpy as np
     from tools.mcts import _rescale_q, MCTSConfig
 
     qs = np.array([0.500, 0.5002, 0.501])   # spread 1e-3: rank noise
-    legacy = _rescale_q(qs)
+    legacy = _rescale_q(qs, spread_floor=1e-8)
     assert abs(legacy.max() - 1.0) < 1e-9   # stretched to full range
     floored = _rescale_q(qs, spread_floor=0.01)
     assert floored.max() <= 0.11            # capped at spread/floor
-    assert MCTSConfig().gumbel_rescale_floor == 1e-8
+    assert MCTSConfig().gumbel_rescale_floor == 0.04
 
 
 def test_mini_random_tod_env_lever(monkeypatch):
@@ -1378,3 +1380,42 @@ def test_prof_hooks_arm_measure_report(tmp_path):
         encoding="utf-8")
     assert 'os.environ.get("WESNOTH_PROF") == "1"' in wsrc
     assert 'hb["prof"] = prof.snapshot()' in wsrc
+
+
+def test_gumbel_rescale_floor_fades_noise_targets_to_prior():
+    """2026-08-12 diagnosis (root cause F1): with the legacy 1e-8
+    floor, a root whose completed-Q spread is BELOW the value head's
+    resolution still received the full (c_visit+max_N)*c_scale sigma
+    gain -- value noise amplified into a near-step policy target,
+    independent of signal. The floor (default 0.04 = one C51 atom)
+    must scale the injected perturbation down proportionally instead."""
+    import numpy as np
+    from tools.mcts import _rescale_q, _gumbel_sigma, MCTSConfig
+
+    rng = np.random.default_rng(0)
+    noise_q = 0.001 * rng.standard_normal(16)      # sub-resolution spread
+
+    # Legacy floor: full [0,1] range regardless of the tiny spread.
+    legacy = _rescale_q(noise_q, spread_floor=1e-8)
+    assert legacy.max() - legacy.min() == pytest.approx(1.0)
+
+    # One-atom floor: range shrinks by spread/floor.
+    floored = _rescale_q(noise_q, spread_floor=0.04)
+    span = noise_q.max() - noise_q.min()
+    assert floored.max() - floored.min() == pytest.approx(span / 0.04)
+
+    # End to end through sigma at the production gain: the injected
+    # logit span on a noise root must drop by >5x vs legacy.
+    cfg_new = MCTSConfig()                          # default floor 0.04
+    cfg_old = MCTSConfig(gumbel_rescale_floor=1e-8)
+    s_new = _gumbel_sigma(noise_q, max_visits=2.0, config=cfg_new)
+    s_old = _gumbel_sigma(noise_q, max_visits=2.0, config=cfg_old)
+    span_new = s_new.max() - s_new.min()
+    span_old = s_old.max() - s_old.min()
+    assert span_old == pytest.approx(5.2)           # (50+2)*0.1
+    assert span_new < span_old / 5
+
+    # A REAL signal (spread >> floor) is untouched: identical target.
+    signal_q = np.linspace(-0.5, 0.5, 16)
+    assert np.allclose(_rescale_q(signal_q, 1e-8),
+                       _rescale_q(signal_q, 0.04))

@@ -256,7 +256,20 @@ def _actor_loop(
             local_decisions = (int(getattr(base, "_decision_step",
                                            decision_step0))
                                - int(decision_step0))
-            result_q.put((_R_DONE, actor_id, local_decisions))
+            # Distillation-target telemetry rode ONLY the in-process
+            # path until 2026-08-12 -- the F3-ruling pool launch ran
+            # an entire leg with every distill_* column empty (the
+            # blind spot called out by the same-day diagnosis). Ship
+            # the actor's drained per-decision means with its done
+            # report; the manager averages across actors.
+            dstats = None
+            drain = getattr(policy, "drain_distill_stats", None)
+            if drain is not None:
+                try:
+                    dstats = drain()
+                except Exception:                   # noqa: BLE001
+                    dstats = None
+            result_q.put((_R_DONE, actor_id, (local_decisions, dstats)))
 
 
 # =====================================================================
@@ -389,6 +402,7 @@ class ActorPool:
 
         outcomes: List = []
         experiences: List = []
+        distill_dicts: List[Dict] = []      # per-actor drained means
         outstanding = set(range(self._n))   # actors not yet _R_DONE
         total_decisions = 0                 # summed across actors this iter
         t_start = time.monotonic()
@@ -430,7 +444,13 @@ class ActorPool:
                     experiences.extend(payload)
             elif kind == _R_DONE:
                 outstanding.discard(aid)
-                total_decisions += int(payload or 0)
+                if isinstance(payload, tuple):
+                    n_dec, dstats = payload
+                else:               # legacy shape (plain int)
+                    n_dec, dstats = payload, None
+                total_decisions += int(n_dec or 0)
+                if dstats:
+                    distill_dicts.append(dstats)
             elif kind == _R_ERROR:
                 log.error(f"actor {aid} error:\n{payload}")
             if not outstanding:
@@ -464,6 +484,19 @@ class ActorPool:
         # iteration (sum across actors), so the combat-oracle bias keeps
         # annealing across the campaign instead of freezing at ds0.
         self._advance_decision_step(total_decisions)
+        # Mean of per-actor means (actors carry ~equal decision counts
+        # under the even split); None-valued et_* fields are skipped.
+        # Consumed by sim_self_play's iteration telemetry in place of
+        # the learner-side drain (which never searches under the pool).
+        self.last_distill_stats = None
+        if distill_dicts:
+            keys = set().union(*(d.keys() for d in distill_dicts))
+            out = {}
+            for k in keys:
+                vals = [d[k] for d in distill_dicts
+                        if d.get(k) is not None]
+                out[k] = (sum(vals) / len(vals)) if vals else None
+            self.last_distill_stats = out
         agg = {k: sum(s[k] for s in serve_stats)
                for k in ("wait", "infer", "wire", "put",
                          "leaves", "batches")} if serve_stats else {}

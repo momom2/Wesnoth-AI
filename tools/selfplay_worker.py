@@ -87,6 +87,8 @@ def _build_policy(ckpt: Path, device, args):
         distill_prior_discount=getattr(
             args, "distill_prior_discount", 1.0),
         distill_target_temp=getattr(args, "distill_target_temp", 1.0),
+        gumbel_rescale_floor=getattr(
+            args, "gumbel_rescale_floor", 0.04),
         playout_cap_randomization=(
             getattr(args, "playout_cap_prob", -1.0) >= 0.0),
         playout_cap_prob=max(0.0, getattr(
@@ -139,6 +141,7 @@ def main(argv) -> int:
                          " training labels (see sim_self_play).")
     ap.add_argument("--moves-left-utility", type=float, default=0.0)
     ap.add_argument("--distill-prior-discount", type=float, default=1.0)
+    ap.add_argument("--gumbel-rescale-floor", type=float, default=0.04)
     ap.add_argument("--distill-target-temp", type=float, default=1.0)
     # Playout-cap: prob < 0 = OFF (the learner encodes the on/off
     # bit in the sign so one flag carries both).

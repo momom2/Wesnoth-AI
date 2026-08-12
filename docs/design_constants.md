@@ -38,6 +38,37 @@ defended by experiment, the experiment goes in BACKLOG.md.
 
 ---
 
+## Gumbel target
+
+### `gumbel_rescale_floor = 0.04` (one C51 atom)
+
+**Defined:** `tools/mcts.py` (`MCTSConfig.gumbel_rescale_floor`),
+CLI `--mcts-gumbel-rescale-floor`, worker `--gumbel-rescale-floor`.
+
+**Derivation:** the C51 value head quantizes [-1, +1] into 51 atoms,
+so its resolution is `2 / (51 - 1) = 0.04` — one atom. A root whose
+completed-Q spread is below one atom is indistinguishable from value
+noise. The sigma rescale divides the Q vector by
+`max(spread, floor)`, so with the floor at one atom, sub-resolution
+spreads scale the injected target perturbation down proportionally
+(smooth fade to the prior), while any spread ≥ one atom is passed
+through unchanged.
+
+**Why it exists (2026-08-12 diagnosis, "the self-play loop is
+distilling its own noise"):** the legacy floor of `1e-8` made the
+min-max rescale fully scale-invariant, so a pure-noise root received
+the same `(c_visit + max_N) · c_scale ≈ 5.2`-logit target
+perturbation as a decisive one — measured KL(target‖prior)
+independent of value-noise level. Iterated, that is a sharpening
+random walk on the policy; it also explains the measured
+raise-`--mcts-sims`-doesn't-help result (more sims raise the sigma
+gain, not the signal). Regression tests:
+`test_gumbel_rescale_floor_fades_noise_targets_to_prior`,
+`test_rescale_floor_caps_rank_noise_amplification`. Live instrument:
+the `distill_kl_prior` telemetry column.
+
+---
+
 ## Value head / cliffness
 
 ### `cliffness_max = 0.577` (≈ 1/√3) — HISTORICAL since 2026-08-10

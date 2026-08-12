@@ -443,7 +443,15 @@ fi
 pkill -f 'holdout_probe_loo[p].py' 2>/dev/null || true
 if [ "${PROBE_EVERY:-3600}" != "0" ]; then
     if [ -f "replays_dataset_imitation/manifest.jsonl" ]; then
+        # PROBE_T0: the seed checkpoint's CE under this probe's exact
+        # protocol -- 3.207 for the imit_tierb_start lineage (measured
+        # 2026-08-10, 1200 pairs). With it set, the probe ABORTS
+        # training after PROBE_ABORT_N consecutive reads above
+        # t0+PROBE_ABORT_DELTA (default 0.5 x3) -- the guard the
+        # 2026-08-12 diagnosis found missing. Override or empty it
+        # (-e PROBE_T0=) for a different lineage.
         CAMPAIGN_FILE="$CAMPAIGN_FILE" \
+        PROBE_T0="${PROBE_T0-3.207}" \
             nohup "$PY" scripts/holdout_probe_loop.py \
             >> "$WORKDIR/holdout_probe.log" 2>&1 &
         echo "[onstart] holdout probe ON (see holdout_probe.log)"

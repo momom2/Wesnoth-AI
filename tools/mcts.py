@@ -341,9 +341,19 @@ class MCTSConfig:
     distill_prior_discount: float = 1.0
     distill_target_temp:    float = 1.0
     # Min spread for the sigma rescale denominator (see _rescale_q).
+    # DEFAULT RAISED 1e-8 -> 0.04 (2026-08-12, "self-play distills its
+    # own noise" diagnosis + user order): 0.04 is ONE C51 atom -- the
+    # value head's own resolution (docs/design_constants.md "Gumbel
+    # rescale floor"). A root whose completed-Q spread is below one
+    # atom is indistinguishable from value noise, and the legacy
+    # floor amplified exactly that noise into the full ~5-logit sigma
+    # gain on every low-signal decision (KL(target||prior) measured
+    # INDEPENDENT of value noise level). With the floor at 0.04 the
+    # sigma span fades proportionally as spread drops below it --
+    # a smooth fallback to the prior on no-signal roots.
     # Legacy 1e-8; candidate repair value 0.01 (pre-register the A/B
     # before flipping -- BACKLOG 3c).
-    gumbel_rescale_floor:   float = 1e-8
+    gumbel_rescale_floor:   float = 0.04
     # Two-level Gumbel root candidate selection (see
     # _gumbel_root_search): actors compete with their full prior
     # mass instead of per-edge slivers. Default OFF; pre-registered
@@ -1226,12 +1236,12 @@ def _rescale_q(qs: np.ndarray,
     hi = float(np.max(qs))
     # `spread_floor` (MCTSConfig.gumbel_rescale_floor): with the
     # legacy 1e-8, a Q spread below the value head's own resolution
-    # (~1e-3 -- measured at 7.8% of side-2 late mini decisions,
-    # passivity workflow C4) still receives the FULL 7-8-logit sigma
-    # gain: pure rank noise amplified into a near-step target. A
-    # floor ~0.01 caps that amplification (spread 1e-3 -> sigma
-    # spread ~0.8 logits instead of ~8). Default stays legacy until
-    # the pre-registered A/B (BACKLOG 3c) reads out.
+    # still received the FULL sigma gain -- pure rank noise amplified
+    # into a near-step target, with KL(target||prior) INDEPENDENT of
+    # the noise level (2026-08-12 diagnosis; the mechanism behind
+    # "raising --mcts-sims doesn't help"). Default is now 0.04 = one
+    # C51 atom: spreads below it scale the sigma span down
+    # proportionally, fading the target back to the prior.
     return (qs - lo) / max(hi - lo, spread_floor)
 
 
@@ -1678,6 +1688,14 @@ def extract_gumbel_policy_target(
                                  * np.log(prior_p + 1e-12)).sum()),
         "sharpen_top":   float(p[top] - prior_p[top]),
         "prior_top":     float(prior_p[top]),
+        # KL(target || prior): the size of the perturbation the
+        # search injects into the policy target this decision. The
+        # 2026-08-12 diagnosis instrument -- under the legacy rescale
+        # floor this was ~constant regardless of whether the root had
+        # signal; with the floor at one atom it should drop toward 0
+        # on low-spread roots.
+        "kl_prior":      float((p * (np.log(p + 1e-12)
+                                     - np.log(prior_p + 1e-12))).sum()),
     }
     for k, e in enumerate(edges):
         if isinstance(e.action, dict) and \
