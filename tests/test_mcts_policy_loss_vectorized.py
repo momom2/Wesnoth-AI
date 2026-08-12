@@ -103,3 +103,28 @@ def test_both_modes_run_and_are_differentiable():
     assert tv > 0
     assert loss == loss  # not NaN
     assert any(v.abs().sum().item() > 0 for v in g.values())
+
+
+def test_out_of_range_stored_indices_skip_loudly_not_crash(caplog):
+    """Stored-index bounds guard (2026-08-12): a visit-count tuple
+    whose index exceeds the re-encoded basis must be SKIPPED with a
+    log.error, not fed to index_select (on CUDA that is a device-side
+    assert that kills the process with an async, misattributed
+    traceback -- observed once on the F1 handoff leg, iter 34)."""
+    import logging
+    enc, mdl, gs, vc = _build_case()
+
+    # Corrupt one tuple of each kind well past any plausible basis.
+    bad = [
+        (10_000, None, None, 3, None),           # actor oob
+        (vc[0][0], 10_000, None, 3, vc[0][4]),   # target oob
+    ]
+    with caplog.at_level(logging.ERROR, logger="trainer"):
+        for vectorized in (False, True):
+            loss, total_v, _ = _mcts_factored_policy_loss(
+                enc.encode(gs), mdl(enc.encode(gs)), gs, vc + bad,
+                vectorized=vectorized)
+            assert torch.isfinite(loss).all()
+            loss.backward()
+    assert any("index out of range" in r.message for r in caplog.records), \
+        "guard must log the divergence, not swallow it"

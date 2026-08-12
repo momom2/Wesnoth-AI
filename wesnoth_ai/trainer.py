@@ -48,6 +48,18 @@ from wesnoth_ai.classes import GameState
 from wesnoth_ai.device import dml_sync
 from wesnoth_ai.encoder import encode_raw
 
+import logging
+
+log = logging.getLogger("trainer")
+
+# Count of visit-count index terms skipped by the stored-index bounds
+# guard in _mcts_factored_policy_loss (see its _oob helper). Module-
+# level so the log throttle survives across steps; a nonzero value on
+# a leg means the search-time and train-time index bases diverged
+# somewhere and the leg needs a root-cause before its gradients are
+# trusted.
+_OOB_INDEX_EVENTS = 0
+
 
 @dataclass
 class Transition:
@@ -700,6 +712,32 @@ def _mcts_factored_policy_loss(
 
     masks = _build_legality_masks(encoded, game_state,
                                   decision_step=decision_step)
+
+    # Stored-index bounds guard (2026-08-12). A visit-count tuple's
+    # indices were resolved against the SEARCH-time encoding; the loss
+    # re-encodes and re-masks, and a divergence puts an out-of-range
+    # index into a CUDA index_select/gather -- a device-side assert
+    # that kills the whole process with an ASYNC, misattributed
+    # traceback (observed once on the F1 leg, iter 34: Indexing.cu
+    # `srcIndex < srcSelectDimSize`). The weapon term always had this
+    # guard ("stale visit-count slot"); actor/type/target now get the
+    # same treatment, LOUDLY: skip the term and log enough context to
+    # root-cause the divergence instead of dying on it.
+    def _oob(kind: str, idx: int, size: int, actor_idx: int) -> bool:
+        if 0 <= idx < size:
+            return False
+        global _OOB_INDEX_EVENTS
+        _OOB_INDEX_EVENTS += 1
+        if _OOB_INDEX_EVENTS <= 10 or _OOB_INDEX_EVENTS % 200 == 0:
+            log.error(
+                f"visit-count {kind} index out of range: idx={idx} "
+                f"size={size} actor_idx={actor_idx} "
+                f"num_units={output.num_units} "
+                f"decision_step={decision_step} "
+                f"(occurrence #{_OOB_INDEX_EVENTS}; term skipped -- "
+                f"search-time vs train-time index basis diverged; "
+                f"root-cause before trusting this leg)")
+        return True
     # Prior-bias symmetry: the trainer re-forward must apply the
     # SAME end_turn bias the rollout applied, or the CE would fight
     # a target the live priors never produced.
@@ -741,6 +779,8 @@ def _mcts_factored_policy_loss(
             actor_idx, target_idx, weapon_idx, count, type_idx = _unpack(tup)
             if count <= 0:
                 continue
+            if _oob("actor", actor_idx, actor_logp.size(0), actor_idx):
+                continue
             actor_term = count * actor_logp[actor_idx]
             nll = nll - actor_term
             actor_nlp_t = actor_nlp_t - actor_term.detach()
@@ -759,7 +799,8 @@ def _mcts_factored_policy_loss(
                     else:
                         tylp = F.log_softmax(tyl, dim=-1)
                         type_logp_cache[actor_idx] = tylp
-                if tylp is not None:
+                if tylp is not None and not _oob(
+                        "type", type_idx, tylp.size(0), actor_idx):
                     nll = nll - count * tylp[type_idx]
 
             if target_idx is not None:
@@ -795,6 +836,8 @@ def _mcts_factored_policy_loss(
                         tlp = F.log_softmax(tl, dim=-1) if tl.numel() else None
                         target_union_logp_cache[actor_idx] = tlp
                 if tlp is None:
+                    continue
+                if _oob("target", target_idx, tlp.size(0), actor_idx):
                     continue
                 nll = nll - count * tlp[target_idx]
 
@@ -838,6 +881,8 @@ def _mcts_factored_policy_loss(
             actor_idx, target_idx, weapon_idx, count, type_idx = _unpack(tup)
             if count <= 0:
                 continue
+            if _oob("actor", actor_idx, actor_logp.size(0), actor_idx):
+                continue
             a_idx.append(actor_idx)
             a_cnt.append(count)
 
@@ -854,7 +899,8 @@ def _mcts_factored_policy_loss(
                     else:
                         tylp = F.log_softmax(tyl, dim=-1)
                         type_logp_cache[actor_idx] = tylp
-                if tylp is not None:
+                if tylp is not None and not _oob(
+                        "type", type_idx, tylp.size(0), actor_idx):
                     tb = type_b.setdefault(actor_idx, ([], []))
                     tb[0].append(type_idx)
                     tb[1].append(count)
@@ -891,6 +937,8 @@ def _mcts_factored_policy_loss(
                         tlp = F.log_softmax(tl, dim=-1) if tl.numel() else None
                         target_union_logp_cache[actor_idx] = tlp
                 if tlp is None:
+                    continue
+                if _oob("target", target_idx, tlp.size(0), actor_idx):
                     continue
                 eb = tgt_b.setdefault((kind, actor_idx), [tlp, [], []])
                 eb[1].append(target_idx)
