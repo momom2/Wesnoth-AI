@@ -54,7 +54,29 @@ Most replays in `replays_raw/` are from 1.18.x clients; pin
 accordingly. If a replay's `[scenario] version=` says something
 other than 1.18.x, scrape from that version's tag instead.
 
-## Current status (2026-08-11)
+## Current status (2026-08-14)
+
+**Turn-Commitment Search (TCS) is the production data generator,
+DEFAULT ON.** The 2026-08-11..12 handoff legs (A1 prior-discount,
+F1 policy-anchor arms) were stopped and discarded by user ruling
+after the human-holdout probe showed erosion and evals showed no
+external movement; the project pivoted to novel-algorithm research
+(three Opus-workflow tracks). Outcome: **TCS integrated**
+(`docs/tcs_spec.md` — plan complete side-turns by counterfactual
+coordinate refinement, graded at turn boundaries; validated by a
+300-state probe: revalidated accept 0.64, median accepted Δ ≈ 2 C51
+atoms, placebo-separated; `tools/turn_search.py` +
+`tools/turn_policy.py::TurnCommitPolicy`, trainer untouched,
+`--no-turn-search` opt-out), **GBC approved and queued**
+(`docs/gbc_spec.md`, rung 0 next), **ITS parked**
+(`docs/planning_abstractions_litreview_20260812.md`). Probe
+side-finding that re-motivates TCS: the imitation seed plays
+K≈12 actions/turn on ladder while the self-play-trained F1 policy
+plays K median 2–4.5 — turn truncation was ACQUIRED during
+self-play. No compute running; BACKLOG item 0 has the launch
+checklist for the first TCS leg.
+
+## Current status (2026-08-11, superseded — kept for provenance)
 
 **The tier-b self-play handoff leg is RUNNING (Vast on-demand 4090,
 instance 47452778, ~$0.37/h) from `imit_tierb_start.pt` (the rescued

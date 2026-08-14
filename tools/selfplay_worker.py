@@ -63,6 +63,9 @@ def _build_policy(ckpt: Path, device, args):
     from tools.draw_tiebreak import DrawTiebreakConfig
     from tools.mcts import MCTSConfig
     from tools.mcts_policy import MCTSPolicy
+    from tools.turn_search import (
+        config_from_args as turn_config_from_args,
+    )
     from wesnoth_ai.transformer_policy import TransformerPolicy
 
     raw = torch.load(ckpt, map_location="cpu", weights_only=False)
@@ -100,6 +103,14 @@ def _build_policy(ckpt: Path, device, args):
         gumbel_hierarchical=getattr(
             args, "hierarchical_gumbel", False),
     )
+    turn_cfg = turn_config_from_args(args)
+    if turn_cfg is not None:
+        from tools.turn_policy import TurnCommitPolicy
+        return TurnCommitPolicy(
+            base, cfg,
+            train_draw_tiebreak=getattr(args, "train_draw_tiebreak",
+                                        False),
+            turn_config=turn_cfg), base
     return MCTSPolicy(
         base, cfg,
         train_draw_tiebreak=getattr(args, "train_draw_tiebreak",
@@ -180,6 +191,22 @@ def main(argv) -> int:
                          "keeps the legacy cuda-if-available behavior "
                          "with the init-time OOM fallback to cpu.")
     ap.add_argument("--log-level", default="WARNING")
+    # TCS knobs (2026-08-14): mirror sim_self_play's --turn-* surface
+    # exactly (worker-side-targets symmetry contract; the learner
+    # forwards these in SpoolWorkers._cmd_tail).
+    ap.add_argument("--turn-search",
+                    action=argparse.BooleanOptionalAction,
+                    default=True)
+    ap.add_argument("--turn-alt", type=int, default=4)
+    ap.add_argument("--turn-rounds", type=int, default=3)
+    ap.add_argument("--turn-fast-rounds", type=int, default=1)
+    ap.add_argument("--turn-reval-salts", type=int, default=3)
+    ap.add_argument("--turn-min-delta", type=float, default=0.01)
+    ap.add_argument("--turn-full-prob", type=float, default=0.25)
+    ap.add_argument("--turn-reply", choices=("none", "reval", "all"),
+                    default="none")
+    ap.add_argument("--turn-reply-max-actions", type=int, default=4)
+    ap.add_argument("--turn-max-spine", type=int, default=40)
     args = ap.parse_args(argv[1:])
     if int(args.validate_export_every) > 0:
         import tools.sim_self_play as _ssp

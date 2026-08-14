@@ -140,6 +140,7 @@ def _actor_loop(
     mcts_cfg, scenario_opts: Dict, max_turns: int,
     max_turns_min,
     pvp_kwargs: Optional[Dict], log_level: int, torch_threads: int,
+    turn_cfg=None,
 ) -> None:
     """Persistent actor process body. Builds a seam-backed MCTSPolicy
     once, then loops on the control queue: PLAY -> roll `n_games` and
@@ -194,7 +195,12 @@ def _actor_loop(
                                _inference_encoder=renc,
                                _lock=threading.Lock(),
                                _decision_step=int(decision_step0))
-        policy = MCTSPolicy(base, mcts_cfg)
+        if turn_cfg is not None:
+            from tools.turn_policy import TurnCommitPolicy
+            policy = TurnCommitPolicy(base, mcts_cfg,
+                                      turn_config=turn_cfg)
+        else:
+            policy = MCTSPolicy(base, mcts_cfg)
         rng = random.Random(base_seed)
         # Split the mix ratios (absolute, sum to 1; no midgame --
         # the parent CLI rejects --midgame-ratio with --actor-pool)
@@ -283,6 +289,7 @@ class ActorPool:
 
     def __init__(
         self, policy, n_actors: int, mcts_cfg, *,
+        turn_cfg=None,
         scenario_opts: Optional[Dict] = None, max_turns: int = 60,
         max_turns_min: Optional[int] = None,
         pvp_defaults=None, device: Optional[torch.device] = None,
@@ -297,6 +304,10 @@ class ActorPool:
         self._policy = policy
         self._n = n_actors
         self._mcts_cfg = mcts_cfg
+        # TCS (2026-08-14): when set, actors build TurnCommitPolicy
+        # instead of MCTSPolicy -- the third generation path of the
+        # worker-side-targets symmetry contract.
+        self._turn_cfg = turn_cfg
         self._scenario_opts = scenario_opts or {}
         self._max_turns = max_turns
         self._max_turns_min = max_turns_min
@@ -349,7 +360,7 @@ class ActorPool:
                       self._scenario_opts, self._max_turns,
                       self._max_turns_min,
                       self._pvp_kwargs, self._log_level,
-                      self._actor_threads),
+                      self._actor_threads, self._turn_cfg),
                 daemon=True, name=f"actor-{aid}")
             p.start()
             self._procs.append(p)

@@ -1072,7 +1072,27 @@ class SpoolWorkers:
                 Path("training/validate_exports"))),
             "--log-level", log_level,
         ] + (["--train-draw-tiebreak"] if getattr(
-            args, "train_draw_tiebreak", False) else [])
+            args, "train_draw_tiebreak", False) else []) + [
+            # TCS knobs (2026-08-14): the WORKERS build the training
+            # targets -- same symmetry contract as the distill knobs.
+            "--turn-search" if getattr(args, "turn_search", False)
+            else "--no-turn-search",
+            "--turn-alt", str(getattr(args, "turn_alt", 4)),
+            "--turn-rounds", str(getattr(args, "turn_rounds", 3)),
+            "--turn-fast-rounds", str(getattr(
+                args, "turn_fast_rounds", 1)),
+            "--turn-reval-salts", str(getattr(
+                args, "turn_reval_salts", 3)),
+            "--turn-min-delta", str(getattr(
+                args, "turn_min_delta", 0.01)),
+            "--turn-full-prob", str(getattr(
+                args, "turn_full_prob", 0.25)),
+            "--turn-reply", str(getattr(args, "turn_reply", "none")),
+            "--turn-reply-max-actions", str(getattr(
+                args, "turn_reply_max_actions", 4)),
+            "--turn-max-spine", str(getattr(
+                args, "turn_max_spine", 40)),
+        ]
         self._seed0 = args.seed * 1_000_003 + 7
         self._subprocess = subprocess
         self._procs: List = [None] * n
@@ -2705,6 +2725,41 @@ def main(argv: List[str]) -> int:
                     help="Alias for --no-mcts: legacy REINFORCE "
                          "training (raw policy sampling, shaping "
                          "rewards live).")
+    ap.add_argument("--turn-search", action=argparse.BooleanOptionalAction,
+                    default=True,
+                    help="Turn-Commitment Search (docs/tcs_spec.md): "
+                         "plan complete side-turns by counterfactual "
+                         "coordinate refinement graded at turn "
+                         "boundaries, instead of a per-micro-action "
+                         "Gumbel root search. DEFAULT ON (user ruling "
+                         "2026-08-14, after the rung-1 probe: "
+                         "revalidated accept 0.64, median accepted "
+                         "delta ~2 C51 atoms, placebo-separated). "
+                         "Rides --mcts mode (targets, trainer, buffer "
+                         "unchanged); --no-turn-search restores the "
+                         "per-decision Gumbel MCTS generator.")
+    ap.add_argument("--turn-alt", type=int, default=4,
+                    help="TCS alternatives per coordinate per round.")
+    ap.add_argument("--turn-rounds", type=int, default=3,
+                    help="TCS hill-climb rounds on full turns.")
+    ap.add_argument("--turn-fast-rounds", type=int, default=1,
+                    help="TCS rounds on cheap (no-target) turns -- "
+                         "the playout-cap analog's fast tier.")
+    ap.add_argument("--turn-reval-salts", type=int, default=3,
+                    help="Fresh salts in TCS acceptance stage 2.")
+    ap.add_argument("--turn-min-delta", type=float, default=0.01,
+                    help="TCS accept floor (float-jitter guard).")
+    ap.add_argument("--turn-full-prob", type=float, default=0.25,
+                    help="Fraction of TURNS planned at full budget "
+                         "with targets recorded (playout-cap analog).")
+    ap.add_argument("--turn-reply", choices=("none", "reval", "all"),
+                    default="none",
+                    help="Opponent-reply arm at the boundary. OFF by "
+                         "default (unmeasured; the next "
+                         "single-variable A/B -- see tcs_spec.md).")
+    ap.add_argument("--turn-reply-max-actions", type=int, default=4)
+    ap.add_argument("--turn-max-spine", type=int, default=40,
+                    help="Hard cap on TCS spine length.")
     ap.add_argument("--mcts-sims", type=int, default=50,
                     help="Number of MCTS simulations per move "
                          "(--mcts only). 50 is a reasonable "
@@ -3309,6 +3364,9 @@ def main(argv: List[str]) -> int:
         from tools.draw_tiebreak import DrawTiebreakConfig
         from tools.mcts import MCTSConfig
         from tools.mcts_policy import MCTSPolicy, ReplayConfig
+        from tools.turn_search import (
+            config_from_args as turn_config_from_args,
+        )
         if args.draw_tiebreak_config is not None:
             tiebreak = DrawTiebreakConfig.from_json(
                 args.draw_tiebreak_config)
@@ -3394,10 +3452,28 @@ def main(argv: List[str]) -> int:
                 "--mcts-aux-value-bonus is set but the model has NO "
                 "aux head (--mcts-aux-score): the bonus is a silent "
                 "no-op (reviewer finding m3, 2026-07-11).")
-        policy = MCTSPolicy(policy, mcts_cfg, replay_config=replay_cfg,
-                            holdout_size=args.holdout_size,
-                            holdout_per_game_cap=args.holdout_per_game_cap,
-                            train_draw_tiebreak=args.train_draw_tiebreak)
+        turn_cfg = turn_config_from_args(args)
+        if turn_cfg is not None:
+            from tools.turn_policy import TurnCommitPolicy
+            policy = TurnCommitPolicy(
+                policy, mcts_cfg, replay_config=replay_cfg,
+                holdout_size=args.holdout_size,
+                holdout_per_game_cap=args.holdout_per_game_cap,
+                train_draw_tiebreak=args.train_draw_tiebreak,
+                turn_config=turn_cfg)
+            log.info(
+                f"TURN-COMMITMENT SEARCH on (docs/tcs_spec.md): "
+                f"alt={turn_cfg.n_alt} rounds={turn_cfg.rounds}/"
+                f"{turn_cfg.fast_rounds} reval={turn_cfg.reval_salts} "
+                f"full_prob={turn_cfg.turn_full_prob} "
+                f"reply={turn_cfg.reply}; --no-turn-search restores "
+                f"per-decision Gumbel MCTS")
+        else:
+            policy = MCTSPolicy(
+                policy, mcts_cfg, replay_config=replay_cfg,
+                holdout_size=args.holdout_size,
+                holdout_per_game_cap=args.holdout_per_game_cap,
+                train_draw_tiebreak=args.train_draw_tiebreak)
         if args.train_draw_tiebreak:
             log.info("LEGACY draw labels: training z = material "
                      "tiebreak on draws")
@@ -3589,6 +3665,7 @@ def main(argv: List[str]) -> int:
         )
         actor_pool = ActorPool(
             policy, args.actor_pool, mcts_cfg,
+            turn_cfg=turn_config_from_args(args),
             scenario_opts=scenario_opts, max_turns=args.max_turns,
             max_turns_min=args.max_turns_min,
             pvp_defaults=pvp_defaults, device=device,

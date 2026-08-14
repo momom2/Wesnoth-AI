@@ -8,7 +8,33 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
 
 ---
 
-## NEXT ACTIONS (2026-08-08 — the short list)
+## NEXT ACTIONS (2026-08-13 — the short list)
+
+0. **TCS is INTEGRATED, DEFAULT ON (user ruling 2026-08-14).** The
+   rung-0/1 probe ran on a rented CPU box (300 ladder states, both
+   the imitation seed and the F1-arm final, ~$0.4): revalidated
+   accept 0.640/0.460, median accepted Δ ~2 C51 atoms,
+   placebo-separated 5:1, ρ(Δ,survival)≈0. KL gate failed as
+   pre-registered; user ruled PROCEED (gate = magnitude proxy,
+   disputed). **Rung-0 headline: the imitation seed plays K≈12
+   (end_turn ~8%) on ladder; the F1 self-play policy plays K median
+   2–4.5 — turn truncation was ACQUIRED by self-play, not cured.**
+   Shipped: `tools/turn_search.py` (core, shared with the probe),
+   `tools/turn_policy.py::TurnCommitPolicy` (subclasses MCTSPolicy;
+   trainer untouched), wired default-on through all three
+   generation paths (`--no-turn-search` opt-out), 14 new tests +
+   full-suite green + 1-iter production smoke. Deviations recorded
+   in `docs/tcs_spec.md` §Integration: no boundary value-only
+   experiences (redundant both-sides); reply arm implemented but
+   default OFF (next single-variable A/B); CRN keying deferred.
+   NEXT: (a) first TCS training leg needs the standing launch
+   template updated (vast_onstart passes no --turn-* flags = gets
+   defaults; verify smoke gate covers TCS); (b) probe-abort + F2
+   value-head-health gates apply unchanged; (c) queued research:
+   GBC rung 0 (`docs/gbc_spec.md`), ITS parked
+   (`docs/planning_abstractions_litreview_20260812.md`).
+
+--- (below: the 2026-08-08 list, kept for provenance) ---
 
 1. **DONE 2026-08-10 (rescued at 94%)**: tier-b imitation checkpoint =
    HF `imit_tierb_rescued_2368k.pt`, CE 3.102. **Stall follow-ups
