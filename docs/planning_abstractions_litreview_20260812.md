@@ -161,6 +161,40 @@ coupling (opponent responds to the local plan) have no end-to-end
 guarantee anywhere in the literature. Staleness tolerance (DIALS
 NeurIPS 2022 Thm 1) and menu-robustness are mitigations, not proofs.
 
+**PARKED (user ruling 2026-08-13).** The Bet-3 research (ITS —
+Influence-gated Turn-Segment search; workflow `wf_884c8c53-16d`
+results #1/#3/#5) matured this thread and both reviews returned
+FITS-only-after-amputation; the user parked the whole track. What
+the research established, preserved for the record:
+- **Hard closure is REFUTED for this meta** — the pre-registered
+  AAMAS closure gate measured ~0 (from turn 6, all units form one
+  contested component). Honest failed-gate report by the
+  researcher.
+- **Soft decomposition is real**: sparse cuts keep ~81% of
+  coupling mass inside a balanced bipartition mid-game; boundary
+  influence is mediated by 2-4 named enemy units; cuts are stable
+  0.82 vs 0.62 chance across turns (human corpus, god-view reach —
+  upper bounds).
+- **Isolation is a certified quantity, not an assumption**: a
+  CE-trained boundary/influence predictor's held-out CE bounds the
+  planning value loss (Congeduti law) — the good-regulator answer.
+- **Why parked**: per-part targets do NOT compose under the full-
+  actor CE denominator (interior targets would gradient-teach "the
+  other half's units are not candidates" — a play prior baked into
+  weights); the plan abstraction is unsound under chance_nodes
+  (TCS's terminate-at-chance handles what ITS's plan search
+  didn't); parallel splice can produce illegal boards; and the
+  usable regime (human t13-20 midgame) barely overlaps the
+  hyper-decisive self-play distribution.
+- **Worth reviving independently, when needed**: (a) the influence
+  head standalone (detached, config-gated; its ν "unseen-enemy
+  influx" output targets the measured fogged boundary_sum optimism
+  +0.4..+0.65); (b) crop-and-splice as a falsification instrument
+  (abstraction error measured in game outcomes; needs a
+  leader-termination suppress mode in the sim, Principle-4
+  territory); (c) the free R1 observability probe (fog-honest cut
+  quality on self-play states).
+
 ---
 
 ## Synthesis: how they compose, and the order
@@ -172,3 +206,35 @@ generator needs); region search is *where* deep tactics get computed
 affordably. All three gates run on already-logged data at ~zero
 cost. Sequencing decision 2026-08-12: run the gates first, build at
 most one winner.
+
+**2026-08-13 update: Bets 1 and 2 matured into approved specs —
+`docs/tcs_spec.md` (turn-commitment search, supersedes the Bet-1
+OptionZero framing) and `docs/gbc_spec.md` (goal-basis completion,
+the Bet-2 head with its consumption path). Those specs are
+authoritative; this file remains the literature anchor.**
+
+## TCS amendments from the 2026-08-13 design discussion (user-ruled)
+
+Refinements to the TCS (turn-commitment search) proposal settled in
+conversation; these supersede the corresponding parts of the full
+report (workflow wf_884c8c53 journal, TCS research + review):
+
+1. **Acceptance is over MATERIALIZED turns** (grade-what-you-commit):
+   the hill climb's new incumbent is the literal command sequence
+   that executed — dropped/bounced commands included — never "the
+   edit + the original suffix". This makes the estimator unbiased by
+   construction and turns mismatched completions into legitimate
+   discoveries rather than confounds.
+2. **The survival filter and the repair-on-bounce amendment are
+   DEAD.** No behavioral gate may consult suffix survival. Survival
+   stays only as a logged error-bar covariate (low-survival variants
+   share fewer CRN-paired fights with the incumbent, so their delta
+   is noisier; the accept threshold may widen, never redirect).
+3. **The reply arm is the sole anti-value-exploitation guard.** If
+   the search drifts passive under a sound estimator, that is either
+   truth or a value-head defect to be fixed at the value head
+   (boundary-state value targets, reply horizon) — never with an
+   action-side observable. No aggression priors, ever.
+4. CRN keying must be plan-invariant identity (turn, side,
+   attacker_id, defender_id, attack_index), NOT stream position —
+   the user independently re-derived the stream-position defect.
