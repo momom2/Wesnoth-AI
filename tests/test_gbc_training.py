@@ -67,12 +67,23 @@ def test_labels_for_game_states_synthetic_kill():
 
 
 @pytest.mark.slow
-def test_full_game_trains_with_gbc_loss():
+@pytest.mark.parametrize("batch_size", [1, 4])
+def test_full_game_trains_with_gbc_loss(batch_size):
     """End to end through the production pipeline: TCS plays a mini
     game with gbc labeling on, finalize attaches labels, train_step
-    reports a positive gbc_loss and MOVES the gbc head params."""
+    reports a positive gbc_loss and MOVES the gbc head params.
+
+    Parametrized over trainer batch size because the two sizes take
+    DIFFERENT forward paths (single vs forward_batch) -- the 2026-08-15
+    leg-2 incident: the batched path's missing ctx tap made GBC a
+    silent no-op on CUDA while every CPU smoke passed at B=1."""
+    from wesnoth_ai.trainer import TrainerConfig
     sim = fresh_scenario_sim(seed=5, max_turns=4, mini=True)
-    base = _tiny_policy(gbc=True)
+    torch.manual_seed(0)
+    base = TransformerPolicy(
+        device=torch.device("cpu"), d_model=32, num_layers=1,
+        num_heads=4, d_ff=64, gbc=True,
+        trainer_config=TrainerConfig(train_batch_size=batch_size))
     policy = TurnCommitPolicy(
         base, MCTSConfig(), gbc_labels=True,
         turn_config=TurnSearchConfig(n_alt=2, rounds=1, fast_rounds=0,

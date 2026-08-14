@@ -52,6 +52,10 @@ import logging
 
 log = logging.getLogger("trainer")
 
+# Once-per-process tripwire for a GBC step that computes no loss
+# despite labeled experiences (see step_mcts's gbc block).
+_GBC_SILENT_WARNED = False
+
 # Count of visit-count index terms skipped by the stored-index bounds
 # guard in _mcts_factored_policy_loss (see its _oob helper). Module-
 # level so the log throttle survives across steps; a nonzero value on
@@ -1242,6 +1246,18 @@ def _trainer_step_mcts(
             gbc_loss = sum(gl * w for gl, w in chunk_gbc) / total_gw
             chunk_loss = chunk_loss + self.config.gbc_coef * gbc_loss
             sum_gbc_loss += float(gbc_loss.item())
+        elif gbc_on:
+            # Labels are present in the batch but NOTHING computed a
+            # loss -- the 2026-08-15 failure shape (ctx tap absent on
+            # one forward path made GBC a silent no-op for hours).
+            # Loud once per process; silence is the enemy here.
+            global _GBC_SILENT_WARNED
+            if not _GBC_SILENT_WARNED:
+                _GBC_SILENT_WARNED = True
+                log.warning(
+                    "gbc_on but no GBC loss computed for this chunk "
+                    "(ctx tap None? entities unresolvable?) -- the "
+                    "aux signal is NOT training; investigate")
 
         chunk_loss.backward()
 

@@ -671,5 +671,17 @@ class WesnothModel(nn.Module):
                 num_recruits=R_b,
                 aux_score=aux_sample,
                 moves_left=ml_sample,
+                # GBC tap on the BATCHED path too (2026-08-15 fix:
+                # the trainer forwards chunks through here whenever
+                # train_batch_size > 1, so leaving these None made
+                # the GBC loss a silent no-op on CUDA legs -- the
+                # exact two-forward-paths pitfall the design review
+                # flagged). Per-sample slices strip the padding.
+                unit_ctx=(unit_ctx_b[b:b+1, :U_b]
+                          if self.has_gbc else None),
+                hex_ctx=(hex_ctx_b[b:b+1, :Hs[b]]
+                         if self.has_gbc else None),
+                global_ctx=(global_ctx_b[b:b+1]
+                            if self.has_gbc else None),
             ))
         return outputs
