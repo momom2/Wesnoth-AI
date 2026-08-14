@@ -151,6 +151,12 @@ class MCTSExperience:
     # agree. Default 0 = full-strength oracle (also the legacy-pickle
     # fallback, matching the pre-anneal behavior of old serialized data).
     decision_step: int = 0
+    # GBC event-supervision labels (2026-08-14, docs/gbc_spec.md):
+    # fog-censored hindsight rows ("u", id, pred, y1, y2) / ("v", x,
+    # y, pred, y1, y2) built in finalize_game. None on legacy pickles
+    # and when labeling is off; the loss skips absent labels per
+    # experience, so mixed buffers train unchanged.
+    gbc_labels: Optional[List] = None
 
 
 @dataclass
@@ -167,6 +173,12 @@ class TrainerConfig:
     # regularizes the shared trunk without overwhelming the policy/value
     # objectives. See draw_tiebreak.material_margin.
     aux_coef:             float = 0.15
+    # GBC event-supervision coefficient (2026-08-14): BCE of the
+    # dies/flips achievement heads vs hindsight labels — the dense
+    # value-adjacent signal (KataGo-ownership pattern; approved as
+    # the value-head repair after gbc_spec.md 0d). Applies when the
+    # model has gbc heads AND experiences carry labels; 0 = off.
+    gbc_coef:             float = 0.1
     # Moves-left loss weight (Lc0-style). Effective only when the
     # model has the head (`moves_left=True`) AND experiences carry
     # `moves_left_target`s. Small: it is a trunk regularizer / future
@@ -249,6 +261,7 @@ class TrainStats:
     n_transitions:  int   = 0
     n_trajectories: int   = 0
     aux_loss:       float = 0.0   # auxiliary margin loss (KataGo §3.5); 0 when off
+    gbc_loss:       float = 0.0   # GBC event-supervision BCE; 0 when off
     moves_left_loss: float = 0.0  # Lc0-style moves-left MSE; 0 when off
     # Boundary-consistency telemetry (T1-F, 2026-07-29): mean of
     # V(s_pre)+V(s_post) over sampled side-switch pairs of recorded
@@ -1074,12 +1087,22 @@ def _trainer_step_mcts(
         if ml_on else None
     )
 
+    # GBC event supervision (2026-08-14, docs/gbc_spec.md): per-
+    # experience gate (labels may be absent on legacy/mixed data —
+    # unlike aux, absence skips the EXPERIENCE, not the whole term).
+    gbc_on = (
+        self.config.gbc_coef > 0
+        and getattr(self.model, "has_gbc", False)
+        and any(getattr(e, "gbc_labels", None) for e in experiences)
+    )
+
     self.optimizer.zero_grad()
 
     sum_policy_loss = 0.0
     sum_value_loss  = 0.0
     sum_aux_loss    = 0.0
     sum_ml_loss     = 0.0
+    sum_gbc_loss    = 0.0
     sum_total_visits = 0.0
     # Full-batch value-weight normalizer + "how many states actually
     # feed the value head" (dashboard starvation watch).
@@ -1132,7 +1155,9 @@ def _trainer_step_mcts(
         chunk_value_logits: List[torch.Tensor] = []
         chunk_aux: List[torch.Tensor] = []
         chunk_ml: List[torch.Tensor] = []
-        for e, encoded, output in zip(chunk, encoded_chunk, outputs):
+        chunk_gbc: List[Tuple[torch.Tensor, torch.Tensor]] = []
+        for ei, (e, encoded, output) in enumerate(
+                zip(chunk, encoded_chunk, outputs)):
             policy_loss, total_v, mean_actor_nlp = (
                 _mcts_factored_policy_loss(
                     encoded, output, e.game_state, e.visit_counts,
@@ -1147,6 +1172,14 @@ def _trainer_step_mcts(
                 chunk_aux.append(output.aux_score.squeeze())
             if ml_on:
                 chunk_ml.append(output.moves_left.squeeze())
+            if gbc_on:
+                rows = getattr(e, "gbc_labels", None)
+                if rows:
+                    from wesnoth_ai.gbc import gbc_loss_for_output
+                    gl = gbc_loss_for_output(
+                        self.model, encoded, output, rows)
+                    if gl is not None:
+                        chunk_gbc.append((gl, gws[start + ei]))
             sum_total_visits += total_v
             sum_actor_nlp_weighted += mean_actor_nlp * total_v
 
@@ -1201,6 +1234,14 @@ def _trainer_step_mcts(
                        * gw_chunk).sum() / total_gw
             chunk_loss = chunk_loss + self.config.moves_left_coef * ml_loss
             sum_ml_loss += float(ml_loss.item())
+        # GBC event-supervision loss (2026-08-14, docs/gbc_spec.md):
+        # per-experience BCE of the dies/flips heads vs hindsight
+        # labels, weighted by game_weight and normalized by total_gw
+        # like every other term.
+        if gbc_on and chunk_gbc:
+            gbc_loss = sum(gl * w for gl, w in chunk_gbc) / total_gw
+            chunk_loss = chunk_loss + self.config.gbc_coef * gbc_loss
+            sum_gbc_loss += float(gbc_loss.item())
 
         chunk_loss.backward()
 
@@ -1235,6 +1276,7 @@ def _trainer_step_mcts(
             + self.config.value_coef * sum_value_loss
             + self.config.aux_coef   * sum_aux_loss
             + self.config.moves_left_coef * sum_ml_loss
+            + self.config.gbc_coef   * sum_gbc_loss
         ),
         grad_norm      = float(grad_norm) if isinstance(grad_norm, float)
                          else float(grad_norm.item()),
@@ -1242,6 +1284,7 @@ def _trainer_step_mcts(
         n_transitions  = int(N),
         n_trajectories = int(N),  # one experience = one root state
         aux_loss       = float(sum_aux_loss),
+        gbc_loss       = float(sum_gbc_loss),
         moves_left_loss = float(sum_ml_loss),
         value_signal_states = n_value_signal,
     )

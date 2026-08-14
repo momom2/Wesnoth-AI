@@ -67,14 +67,21 @@ coordinate refinement, graded at turn boundaries; validated by a
 300-state probe: revalidated accept 0.64, median accepted Δ ≈ 2 C51
 atoms, placebo-separated; `tools/turn_search.py` +
 `tools/turn_policy.py::TurnCommitPolicy`, trainer untouched,
-`--no-turn-search` opt-out), **GBC approved and queued**
-(`docs/gbc_spec.md`, rung 0 next), **ITS parked**
+`--no-turn-search` opt-out), **GBC integrated as the
+event-supervision auxiliary, DEFAULT ON** (`wesnoth_ai/gbc.py` +
+`docs/gbc_spec.md`: after the 0d attribution test showed events
+predict outcomes at AUC 0.79 while the value head's turn-scale
+movement is noise at 0.53, GBC's role became value-head repair —
+fog-censored dies/flips labels attached in finalize_game, BCE
+through the trainer at `--gbc-coef 0.1`), **ITS parked**
 (`docs/planning_abstractions_litreview_20260812.md`). Probe
 side-finding that re-motivates TCS: the imitation seed plays
 K≈12 actions/turn on ladder while the self-play-trained F1 policy
 plays K median 2–4.5 — turn truncation was ACQUIRED during
-self-play. No compute running; BACKLOG item 0 has the launch
-checklist for the first TCS leg.
+self-play. TCS leg 1 (tier_b_tcs) ran 7 iterations and was killed
+by the pre-registered probe-abort tripwire (monotone human-CE
+erosion; turn structure and value learning were healthy) — leg 2
+adds the F1 policy anchor; config in BACKLOG item 0.
 
 ## Current status (2026-08-11, superseded — kept for provenance)
 

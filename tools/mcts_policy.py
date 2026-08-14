@@ -122,7 +122,14 @@ class MCTSPolicy:
                  replay_config: Optional[ReplayConfig] = None,
                  holdout_size: int = 0,
                  holdout_per_game_cap: int = 64,
-                 train_draw_tiebreak: bool = False):
+                 train_draw_tiebreak: bool = False,
+                 gbc_labels: bool = False):
+        # GBC event-supervision labels (2026-08-14, docs/gbc_spec.md):
+        # when on, finalize_game attaches fog-censored hindsight
+        # event labels to every experience (pure state diffs -- no
+        # model involvement, so actor-pool/spool policies build them
+        # too and the labels ride the existing pickle payloads).
+        self._gbc_labels_on = bool(gbc_labels)
         self._base = base
         self._mcts_config = mcts_config or MCTSConfig()
         self._replay_config = replay_config or ReplayConfig()
@@ -605,6 +612,23 @@ class MCTSPolicy:
                 game_weight=1.0 / (2.0 * max(side_floor,
                                              n_by_side[s.side])),
             ))
+        # GBC labels (docs/gbc_spec.md): hindsight event rows per
+        # stored state, fog-censored for each state's side-to-move.
+        # Attached BEFORE holdout diversion so held-out games carry
+        # them too (harmless there; value-CE eval ignores them).
+        if self._gbc_labels_on and exps:
+            from wesnoth_ai.gbc import labels_for_game_states
+            try:
+                rows = labels_for_game_states(
+                    [s.gs for s in states], [s.side for s in states],
+                    final_gs=aux_gs)
+                for exp, r in zip(exps, rows):
+                    exp.gbc_labels = r
+            except Exception as e:  # noqa: BLE001 -- labels are an
+                # auxiliary signal; a labeling bug must not kill the
+                # game seal. Loud, so it can't silently zero the loss.
+                log.error(f"gbc labeling failed for {game_label!r}: "
+                          f"{e!r} -- game trains without gbc labels")
         # Holdout diversion: while the probe set is below target, the
         # WHOLE game goes there instead of training (states within one
         # game are correlated; splitting a game between train and

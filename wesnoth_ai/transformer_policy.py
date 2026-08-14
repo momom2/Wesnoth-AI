@@ -85,6 +85,7 @@ class TransformerPolicy:
         trainer_config: Optional[TrainerConfig] = None,
         aux_score: bool = False,
         moves_left: bool = False,
+        gbc: bool = False,
         relevant_set_hexes: bool = False,
         infer_bf16: bool = False,
         infer_compile: bool = False,
@@ -121,6 +122,7 @@ class TransformerPolicy:
 
         self._aux_score = bool(aux_score)
         self._moves_left = bool(moves_left)
+        self._gbc = bool(gbc)
         # Relevant-hex stream (docs/autonomous_run.md cycles 16-19). Changes
         # the ACTION SPACE's index basis, so BOTH encoders must agree -- a
         # split would make replayed target_idx meaningless.
@@ -135,6 +137,7 @@ class TransformerPolicy:
             d_ff=d_ff,
             aux_score=self._aux_score,
             moves_left=self._moves_left,
+            gbc=self._gbc,
         ).to(self._device)
         self._trainer = Trainer(
             self._model,
@@ -173,6 +176,12 @@ class TransformerPolicy:
             d_ff=d_ff,
             aux_score=self._aux_score,
             moves_left=self._moves_left,
+            # The inference copy carries the gbc heads too: the
+            # snapshot swap is a strict load_state_dict, so the two
+            # models must have identical key sets. (has_gbc also
+            # populates the ctx tap on this copy's forwards -- three
+            # tensor references, no extra compute.)
+            gbc=self._gbc,
         ).to(self._device)
         self._inference_encoder.load_state_dict(self._encoder.state_dict())
         self._inference_model.load_state_dict(self._model.state_dict())
@@ -625,6 +634,7 @@ class TransformerPolicy:
                 # partial-loads via the EXPECTED_MISSING whitelist.
                 "aux_score":       self._aux_score,
                 "moves_left":      self._moves_left,
+                "gbc":             self._gbc,
                 "relevant_set_hexes": self._relevant_set_hexes,
                 "model_state":     self._model.state_dict(),
                 "encoder_state":   self._encoder.state_dict(),
@@ -778,6 +788,14 @@ class TransformerPolicy:
                     # Moves-left head (Lc0-style, 2026-07-04); same
                     # partial-load story as the aux head.
                     "moves_left_head.weight", "moves_left_head.bias",
+                    # GBC event heads (2026-08-14, docs/gbc_spec.md);
+                    # same partial-load story: a gbc-on model resumed
+                    # from a pre-gbc checkpoint grafts fresh heads.
+                    "gbc_heads.pred_embed.weight",
+                    "gbc_heads.head_a.0.weight",
+                    "gbc_heads.head_a.0.bias",
+                    "gbc_heads.head_a.2.weight",
+                    "gbc_heads.head_a.2.bias",
                 },
                 "encoder": {
                     # Dynamic hex flags (recruit_rejected etc.)

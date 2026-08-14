@@ -27,11 +27,23 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
    in `docs/tcs_spec.md` §Integration: no boundary value-only
    experiences (redundant both-sides); reply arm implemented but
    default OFF (next single-variable A/B); CRN keying deferred.
-   NEXT: (a) first TCS training leg needs the standing launch
-   template updated (vast_onstart passes no --turn-* flags = gets
-   defaults; verify smoke gate covers TCS); (b) probe-abort + F2
-   value-head-health gates apply unchanged; (c) queued research:
-   GBC rung 0 (`docs/gbc_spec.md`), ITS parked
+   LEG 1 (tier_b_tcs, 2026-08-14, ~$2): ran 7 iters on a 4090;
+   turn structure held at K 14-17 and floor-relative fresh CE hit
+   −0.43, but the human-holdout probe eroded MONOTONE (3.207 →
+   3.717 → 3.785 → 3.874) and the pre-registered abort tripwire
+   killed it at 3 consecutive points over t0+0.5. Verdict: TCS
+   fixes turn structure but does not hold the human prior without
+   a policy anchor. GBC pivoted the same day (0d attribution test:
+   events predict outcomes AUC 0.79, the value head's turn
+   movement is noise AUC 0.53 — user's miscalibration hypothesis
+   confirmed) and is now INTEGRATED as the event-supervision
+   auxiliary, default ON (`wesnoth_ai/gbc.py`, docs/gbc_spec.md).
+   LEG 2 config (TCS + GBC + F1 policy anchor):
+   CAMPAIGN_FILE=tier_b_tcs2.pt, HF_SEED_FILE=tier-b/
+   imit_tierb_start.pt, HUMAN_ANCHOR_POLICY_FILE=training/
+   checkpoints/policy_anchor.npz (the measured erosion antidote:
+   the F1 arm held ≤+0.27 for 356k steps), probe abort at
+   t0=3.207+0.5 unchanged. ITS parked
    (`docs/planning_abstractions_litreview_20260812.md`).
 
 --- (below: the 2026-08-08 list, kept for provenance) ---

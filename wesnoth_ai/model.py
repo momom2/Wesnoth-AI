@@ -176,6 +176,16 @@ class ModelOutput:
     # model was built without the head (default).
     moves_left:    Optional[torch.Tensor] = None  # [1, 1] or None
 
+    # GBC event-supervision tap (2026-08-14, docs/gbc_spec.md):
+    # contextualized token slices, populated ONLY when the model was
+    # built with `gbc=True` and only on the single-state forward
+    # path (the trainer's loss path). References to tensors already
+    # computed in the forward -- zero extra compute; None by default
+    # so eval/search paths pay nothing.
+    unit_ctx:      Optional[torch.Tensor] = None  # [1, U, d] or None
+    hex_ctx:       Optional[torch.Tensor] = None  # [1, H, d] or None
+    global_ctx:    Optional[torch.Tensor] = None  # [1, 1, d] or None
+
     # Diagnostic: marginal-over-actors probability of each action
     # type. Layout [1, T+2]:
     #   0: ATTACK   (sum_unit_actors P(unit) * P(attack | unit))
@@ -221,12 +231,23 @@ class WesnothModel(nn.Module):
         max_attacks: int = MAX_ATTACKS,
         aux_score:   bool = False,
         moves_left:  bool = False,
+        gbc:         bool = False,
     ):
         super().__init__()
         self.d_model     = d_model
         self.max_attacks = max_attacks
         self.has_aux_score = bool(aux_score)
         self.has_moves_left = bool(moves_left)
+        self.has_gbc = bool(gbc)
+        # GBC event-prediction heads (docs/gbc_spec.md, value-head
+        # repair role): built only when `gbc=True`, so the default
+        # model is byte-identical. Params ride model.parameters()
+        # (optimizer) and state_dict (checkpoint) automatically.
+        if self.has_gbc:
+            from wesnoth_ai.gbc import GBCHeads
+            self.gbc_heads = GBCHeads(d_model)
+        else:
+            self.gbc_heads = None
 
         # Distinguish streams at attention time.
         self.token_kind_embed = nn.Embedding(TokenKind.COUNT, d_model)
@@ -428,6 +449,11 @@ class WesnothModel(nn.Module):
             num_recruits=R,
             aux_score=aux_score,
             moves_left=moves_left,
+            # GBC tap: references only, populated only when the gbc
+            # heads exist (trainer loss path; eval models stay None).
+            unit_ctx=unit_ctx if self.has_gbc else None,
+            hex_ctx=hex_ctx if self.has_gbc else None,
+            global_ctx=global_ctx if self.has_gbc else None,
         )
 
     # ------------------------------------------------------------------

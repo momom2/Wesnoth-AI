@@ -1092,6 +1092,9 @@ class SpoolWorkers:
                 args, "turn_reply_max_actions", 4)),
             "--turn-max-spine", str(getattr(
                 args, "turn_max_spine", 40)),
+            # GBC labels are built worker-side (finalize_game) and
+            # ride the experience pickles -- same symmetry contract.
+            "--gbc" if getattr(args, "gbc", False) else "--no-gbc",
         ]
         self._seed0 = args.seed * 1_000_003 + 7
         self._subprocess = subprocess
@@ -1855,6 +1858,8 @@ def run_iteration(
         aux_str = f" aux={_aux:.4f}" if _aux else ""
         _ml = getattr(train_stats, "moves_left_loss", 0.0)
         aux_str += f" moves_left={_ml:.4f}" if _ml else ""
+        _gbc = getattr(train_stats, "gbc_loss", 0.0)
+        aux_str += f" gbc={_gbc:.4f}" if _gbc else ""
         _zw = getattr(train_stats, "z_win_frac", float("nan"))
         if _zw == _zw:
             aux_str += (f" z_comp={_zw:.2f}/"
@@ -2760,6 +2765,23 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--turn-reply-max-actions", type=int, default=4)
     ap.add_argument("--turn-max-spine", type=int, default=40,
                     help="Hard cap on TCS spine length.")
+    ap.add_argument("--gbc", action=argparse.BooleanOptionalAction,
+                    default=True,
+                    help="GBC event supervision (docs/gbc_spec.md): "
+                         "small heads predict fog-censored dies/flips "
+                         "within k turns from hindsight labels; their "
+                         "BCE gradient repairs the trunk's value-"
+                         "relevant features (approved as the value-"
+                         "head repair after the 0d attribution test: "
+                         "events predict outcomes at AUC 0.79 while "
+                         "the head's turn movement is noise). DEFAULT "
+                         "ON (user ruling 2026-08-14). Adds heads to "
+                         "the model (checkpoint-sticky, aux "
+                         "precedent) + a label pass per finalized "
+                         "game.")
+    ap.add_argument("--gbc-coef", type=float, default=0.1,
+                    help="Weight of the GBC event-supervision BCE in "
+                         "the training loss.")
     ap.add_argument("--mcts-sims", type=int, default=50,
                     help="Number of MCTS simulations per move "
                          "(--mcts only). 50 is a reasonable "
@@ -3185,6 +3207,7 @@ def main(argv: List[str]) -> int:
     arch_kwargs: Dict[str, int] = {}
     ckpt_aux_score = False
     ckpt_moves_left = False
+    ckpt_gbc = False
     if args.checkpoint_in and args.checkpoint_in.exists():
         # Resolve to a LOADABLE checkpoint: prefer the primary, but if it's
         # unreadable (truncated by a kill mid-write on a preemptible node),
@@ -3218,6 +3241,7 @@ def main(argv: List[str]) -> int:
                     arch_kwargs[k] = int(saved_arch[k])
             ckpt_aux_score = bool(raw.get("aux_score", False))
             ckpt_moves_left = bool(raw.get("moves_left", False))
+            ckpt_gbc = bool(raw.get("gbc", False))
             if arch_kwargs:
                 log.info(f"warm-start arch from checkpoint: {arch_kwargs}"
                          f"{' +aux_score' if ckpt_aux_score else ''}"
@@ -3261,9 +3285,13 @@ def main(argv: List[str]) -> int:
     # construction.
     aux_score_flag = bool(args.mcts_aux_score) or ckpt_aux_score
     moves_left_flag = bool(args.mcts_moves_left) or ckpt_moves_left
+    # GBC heads: same peek-and-OR as aux (a gbc-on checkpoint keeps
+    # its trained heads on resume even under --no-gbc).
+    gbc_flag = bool(getattr(args, "gbc", False)) or ckpt_gbc
     relevant_set_flag = bool(getattr(args, "relevant_set_hexes", False))
     policy = TransformerPolicy(device=device, aux_score=aux_score_flag,
                                moves_left=moves_left_flag,
+                               gbc=gbc_flag,
                                relevant_set_hexes=relevant_set_flag,
                                infer_bf16=getattr(args, "infer_bf16",
                                                   False),
@@ -3305,6 +3333,15 @@ def main(argv: List[str]) -> int:
         # (the value head is the diagnosed bottleneck).
         policy._trainer.config.value_coef = float(args.value_coef)
         log.info(f"value_coef override -> {args.value_coef}")
+    # GBC loss weight: follows the value_coef override pattern. Zeroed
+    # when the model has no gbc heads so a stray coef can't no-op
+    # silently (the gate also checks has_gbc; this keeps logs honest).
+    policy._trainer.config.gbc_coef = (
+        float(args.gbc_coef) if gbc_flag else 0.0)
+    if gbc_flag:
+        log.info(f"GBC event supervision ON (gbc_coef="
+                 f"{args.gbc_coef}; heads checkpoint-sticky; labels "
+                 f"attached in finalize_game)")
     if args.value_label_smoothing:
         policy._trainer.config.value_label_smoothing = float(
             args.value_label_smoothing)
@@ -3460,6 +3497,7 @@ def main(argv: List[str]) -> int:
                 holdout_size=args.holdout_size,
                 holdout_per_game_cap=args.holdout_per_game_cap,
                 train_draw_tiebreak=args.train_draw_tiebreak,
+                gbc_labels=gbc_flag,
                 turn_config=turn_cfg)
             log.info(
                 f"TURN-COMMITMENT SEARCH on (docs/tcs_spec.md): "
@@ -3473,7 +3511,8 @@ def main(argv: List[str]) -> int:
                 policy, mcts_cfg, replay_config=replay_cfg,
                 holdout_size=args.holdout_size,
                 holdout_per_game_cap=args.holdout_per_game_cap,
-                train_draw_tiebreak=args.train_draw_tiebreak)
+                train_draw_tiebreak=args.train_draw_tiebreak,
+                gbc_labels=gbc_flag)
         if args.train_draw_tiebreak:
             log.info("LEGACY draw labels: training z = material "
                      "tiebreak on draws")
@@ -3666,6 +3705,7 @@ def main(argv: List[str]) -> int:
         actor_pool = ActorPool(
             policy, args.actor_pool, mcts_cfg,
             turn_cfg=turn_config_from_args(args),
+            gbc_labels=bool(getattr(args, "gbc", False)),
             scenario_opts=scenario_opts, max_turns=args.max_turns,
             max_turns_min=args.max_turns_min,
             pvp_defaults=pvp_defaults, device=device,

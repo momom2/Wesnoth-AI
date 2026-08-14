@@ -1,8 +1,81 @@
 # GBC — Goal-Basis Completion (reachability head): approved spec (2026-08-13)
 
-**Status: concept APPROVED by user 2026-08-13. Authorization scope:
-rung 0 only (offline measurements, laptop, no model code).** Each
-later rung re-proposes on its predecessor's numbers.
+**Status: INTEGRATED AS EVENT-SUPERVISION AUXILIARY, DEFAULT ON
+(user ruling 2026-08-14, following the 0d attribution test).** The
+production role is value-head repair: `wesnoth_ai/gbc.py` heads on
+the shared trunk predict fog-censored dies/flips within k∈{1,2}
+game turns; hindsight labels attach in `finalize_game` (all three
+generation paths — pure state diffs, no model involvement,
+labels ride the experience pickles); the BCE term
+(`--gbc-coef 0.1`) trains through `_trainer_step_mcts` gated like
+the aux head; heads are checkpoint-sticky (peek-and-OR, graft-on-
+resume via the partial-load whitelist). `--no-gbc` opts out.
+The w/completion play integration remains dead pending a repaired
+value head (see 0b/0d below). Rung-0 record:
+
+- **0a (label yield, 500 games, 199k anchor-goals, 0 scan errors):
+  PASS for {dies, flips}** — dies 5.9/13.3/19.7% at k=1/2/3;
+  flips 10.8–21.8% (visible stratum). **`levels` PRUNED** (0.5–1.9%,
+  under the 5% bar at every k).
+- **0b (decomposition R², 120 games, 3,010 turn transitions,
+  held-out by game): R² = 0.112 with count features, 0.117 with the
+  spec-basis extension (unit-cost-weighted deaths + leader flags,
+  the tractable form of predicate × unit-type). Both below the 0.15
+  kill line** (the report expected 0.35–0.6). Fitted signs are
+  sensible (dies_own_cost −0.108, dies_enemy_cost +0.088,
+  flips_lost −0.053) but turn-scale ΔV is NOT approximately linear
+  in observed event indicators. **Per the pre-registered rule: the
+  w grounding and both completion seams (GA into `_completed_q` /
+  FPU) are DEAD.** Substrate caveat as registered: human games
+  (the report's own 0b spec); the verdict stands.
+- **0c (premise test, 50 states): the value-side premise HOLDS** —
+  median per-action Var_a[ΔV]^½ = 0.079 vs the value head's own
+  distribution spread (cliffness) 0.94: micro-action differentials
+  sit far below the head's resolution, as the design assumed. The
+  exact-kill-differential arm returned 0.0 — a SAMPLING artifact
+  (random-depth raw-policy states are mostly pre-contact, no attack
+  actions); a contact-conditioned resample would be needed to read
+  it, and 0b's kill makes that moot. Recorded, not acted on.
+- Implemented + tested regardless of the kill (label machinery is
+  substrate for what survives): `tools/gbc_labels.py` (fog-censored
+  confirmed achievement, A1 observer rule, id-keyed, seq-ordered
+  windows; unit test with a synthetic fogged kill),
+  `tools/gbc_rung0.py` (0b/0c), `tools/gbc_heads.py` (head A on a
+  frozen-trunk tap — zero model.py changes — plus AUC/ECE helpers),
+  tests green.
+
+**0d — Gate-2 attribution test (user challenge 2026-08-14: "I defy
+the data — the value head is miscalibrated"): the USER'S HYPOTHESIS
+IS CONFIRMED.** On 694 held-out rows (same 120 games, outcomes from
+the certified ledger): cumulative observed events predict the true
+game outcome at **AUC 0.794** (a single turn-window's events alone:
+0.669) — events carry outcome signal, decisively refuting the
+"events under-determine value" reading of 0b. The value head's
+event-orthogonal turn-scale movement — the 88% of ΔV the event
+model couldn't explain — predicts the outcome at **AUC 0.527 ≈
+chance: it is NOISE, not positional insight.** (The head's absolute
+level scores 0.796 — it works as a slow integrator of accumulated
+material history; its per-turn movement is noise-dominated.)
+**Reinterpretation of 0b: the R² kill was INSTRUMENT-LIMITED — ΔV
+from a noise-dominated head cannot certify any grounding, sound or
+not. The w-grounding verdict should be re-measured against a
+repaired value head before being treated as final.** GBC's role
+pivots accordingly (user ruling): dense event supervision as the
+REPAIR for the value head (auxiliary loss; the head A machinery
+below is exactly the needed apparatus), alongside completing the
+seed's cut-short human-corpus value training (the 2026-07-09
+precedent: late-game AUC 0.50→0.89).
+
+**What survives 0b, awaiting user ruling on scope:** heads A/B as
+(a) a trunk-shaping auxiliary loss (the passive channel — never
+depended on w), (b) readability/diagnostics (masked-ΔC
+propose-and-verify threat attribution), (c) unweighted
+budget-allocation signals. What is dead: any consumption that
+converts event probabilities into VALUE via a learned or fitted
+grounding — 0b says that grounding cannot be certified.
+
+Authorization history: concept approved 2026-08-13, rung 0 only;
+rung-0 measurements above ran 2026-08-14 on the laptop, $0.
 
 Provenance: Opus-workflow research report + two adversarial reviews
 (session 8b044cb2, workflow `wf_884c8c53-16d`, journal results #0,

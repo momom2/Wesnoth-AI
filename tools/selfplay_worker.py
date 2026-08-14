@@ -78,6 +78,7 @@ def _build_policy(ckpt: Path, device, args):
         device=device,
         aux_score=bool(raw.get("aux_score", False)),
         moves_left=bool(raw.get("moves_left", False)),
+        gbc=bool(raw.get("gbc", False)),
         relevant_set_hexes=bool(getattr(args, "relevant_set_hexes", False)),
         infer_compile=bool(getattr(args, "infer_compile", False)),
     )
@@ -104,17 +105,20 @@ def _build_policy(ckpt: Path, device, args):
             args, "hierarchical_gumbel", False),
     )
     turn_cfg = turn_config_from_args(args)
+    gbc_labels = bool(getattr(args, "gbc", False))
     if turn_cfg is not None:
         from tools.turn_policy import TurnCommitPolicy
         return TurnCommitPolicy(
             base, cfg,
             train_draw_tiebreak=getattr(args, "train_draw_tiebreak",
                                         False),
+            gbc_labels=gbc_labels,
             turn_config=turn_cfg), base
     return MCTSPolicy(
         base, cfg,
         train_draw_tiebreak=getattr(args, "train_draw_tiebreak",
-                                    False)), base
+                                    False),
+        gbc_labels=gbc_labels), base
 
 
 def _ctl_wants_exit(ctl_path: Path, current_device: str) -> bool:
@@ -207,6 +211,8 @@ def main(argv) -> int:
                     default="none")
     ap.add_argument("--turn-reply-max-actions", type=int, default=4)
     ap.add_argument("--turn-max-spine", type=int, default=40)
+    ap.add_argument("--gbc", action=argparse.BooleanOptionalAction,
+                    default=True)
     args = ap.parse_args(argv[1:])
     if int(args.validate_export_every) > 0:
         import tools.sim_self_play as _ssp
