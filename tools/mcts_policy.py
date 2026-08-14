@@ -1100,6 +1100,8 @@ class MCTSPolicy:
             n_transitions=sum(s.n_transitions for s in stats),
             n_trajectories=buffer_size,
             aux_loss=sum(s.aux_loss for s in stats) / k,
+            gbc_loss=sum(getattr(s, "gbc_loss", 0.0)
+                         for s in stats) / k,
             moves_left_loss=sum(s.moves_left_loss for s in stats) / k,
         )
 
