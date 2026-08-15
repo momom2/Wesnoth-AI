@@ -204,28 +204,29 @@ def main(argv) -> int:
         # No source bz2 needed -- export_replay_from_scratch composes
         # the save WML from templates + the .cfg + .map.
         from tools.scenario_pool import (
-            random_setup, build_scenario_gamestate, ScenarioSetup,
-            load_factions, LADDER_SCENARIO_IDS,
+            random_setup, build_scenario_gamestate, LADDER_SCENARIO_IDS,
         )
         if args.scenario:
             if args.scenario not in LADDER_SCENARIO_IDS:
                 log.warning(
                     f"--scenario {args.scenario!r} not in "
                     f"LADDER_SCENARIO_IDS; proceeding anyway")
-            # Build a ScenarioSetup with random factions on that map.
-            factions = load_factions()
-            fnames = list(factions.keys())
-            f1 = rng.choice(fnames)
-            f2 = rng.choice(fnames)
+            # Sample factions/leaders through the PRODUCTION sampler
+            # (which applies the FORCED_FACTION rule -- every
+            # self-play game has a Knalgan side by default), then
+            # override only the map. Hand-rolling the faction draw
+            # here used to sample both sides uniformly, producing
+            # replays OFF the training distribution (a Loy-vs-Loy
+            # mirror that training can never generate; caught by the
+            # user 2026-08-15).
+            import dataclasses
             from tools.scenario_pool import sample_tod_start
-            setup = ScenarioSetup(
+            setup = random_setup(
+                rng, category="fogless" if args.fogless else "ladder")
+            setup = dataclasses.replace(
+                setup,
                 scenario_id=args.scenario,
-                faction1=f1,
-                leader1=rng.choice(factions[f1].random_leader_pool),
-                faction2=f2,
-                leader2=rng.choice(factions[f2].random_leader_pool),
                 tod_start=sample_tod_start(args.scenario, rng),
-                fogless=args.fogless,
             )
         else:
             setup = random_setup(
