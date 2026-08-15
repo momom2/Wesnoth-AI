@@ -400,6 +400,19 @@ fi
 # the cache is absent. Activation is a USER decision (one prior
 # protection per leg): pass -e HUMAN_ANCHOR_POLICY_FILE=... only for
 # the leg that runs this arm.
+# Version-validate an EXISTING cache first (2026-08-16: cache v2
+# changed the format to per-game grouping; a stale v1 file would
+# crash training at startup and burn the supervisor's retry budget).
+# Invalid/old caches are deleted so the build block below remakes
+# them at the current version.
+if [ -n "${HUMAN_ANCHOR_POLICY_FILE:-}" ] \
+        && [ -f "$HUMAN_ANCHOR_POLICY_FILE" ]; then
+    if ! "$PY" -c "from tools.policy_anchor import load_policy_anchor
+load_policy_anchor('$HUMAN_ANCHOR_POLICY_FILE')" 2>/dev/null; then
+        echo "[onstart] policy-anchor cache stale/invalid; rebuilding"
+        rm -f "$HUMAN_ANCHOR_POLICY_FILE"
+    fi
+fi
 if [ -n "${HUMAN_ANCHOR_POLICY_FILE:-}" ] \
         && [ ! -f "$HUMAN_ANCHOR_POLICY_FILE" ]; then
     if [ -f replays_dataset_imitation/manifest.jsonl ]; then

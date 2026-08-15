@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from sim_test_helpers import fresh_scenario_sim  # noqa: E402
 from tools.policy_anchor import (  # noqa: E402
     CACHE_VERSION, anchor_policy_step, load_policy_anchor,
+    sample_pairs_game_normalized,
 )
 from tools.replay_dataset import ActionIndices  # noqa: E402
 from wesnoth_ai.encoder import encode_raw  # noqa: E402
@@ -74,5 +75,43 @@ def test_load_policy_anchor_roundtrip(tmp_path):
     p = tmp_path / "policy_anchor.pkl"
     with p.open("wb") as f:
         pickle.dump({"version": CACHE_VERSION, "meta": {},
+                     "games": [[("r", "ai")], [("r2", "ai2")]]}, f)
+    assert load_policy_anchor(p) == [[("r", "ai")], [("r2", "ai2")]]
+
+
+def test_load_policy_anchor_rejects_v1_flat_cache(tmp_path):
+    """A pre-2026-08-16 (pair-uniform) cache must fail loudly with
+    the rebuild command, never silently rehearse under the wrong
+    normalization."""
+    p = tmp_path / "old.pkl"
+    with p.open("wb") as f:
+        pickle.dump({"version": 1, "meta": {},
                      "pairs": [("r", "ai")]}, f)
-    assert load_policy_anchor(p) == [("r", "ai")]
+    with pytest.raises(ValueError, match="Rebuild"):
+        load_policy_anchor(p)
+
+
+def test_game_normalized_draw_weights_games_equally():
+    """The v2 property itself: a 300-pair game and a 3-pair game must
+    be REPRESENTED equally in the draw, i.e. per-game inclusion is
+    uniform, not proportional to length."""
+    import random
+    big = [("big", i) for i in range(300)]
+    small = [("small", i) for i in range(3)]
+    rng = random.Random(7)
+    # k == n_games: exactly one pair from EACH game, every time.
+    for _ in range(50):
+        picks = sample_pairs_game_normalized([big, small], 2, rng)
+        assert {p[0] for p in picks} == {"big", "small"}
+    # k=1 over many draws: each game chosen ~half the time.
+    counts = {"big": 0, "small": 0}
+    for _ in range(800):
+        counts[sample_pairs_game_normalized([big, small], 1, rng)
+               [0][0]] += 1
+    assert 300 < counts["small"] < 500, counts
+    # k > n_games cycles: 5 picks over 2 games -> both represented.
+    picks = sample_pairs_game_normalized([big, small], 5, rng)
+    assert len(picks) == 5
+    assert {p[0] for p in picks} == {"big", "small"}
+    # Empty pool degrades to empty, never raises.
+    assert sample_pairs_game_normalized([], 4, rng) == []

@@ -43,7 +43,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 log = logging.getLogger("policy_anchor")
 
-CACHE_VERSION = 1
+# v2 (2026-08-16, user ruling): the cache stores pairs GROUPED PER
+# GAME and the per-iteration draw samples game-first, so every game
+# contributes equal rehearsal weight regardless of length. v1 was
+# uniform over pairs -- a 300-decision game outweighed a 20-decision
+# one ~15x, inconsistent with the trainer's per-game normalization
+# principle. NOTE: the F1 arm and leg 2 were measured under v1
+# (pair-uniform); this is a recorded config delta for leg 3+, not a
+# retroactive correction of those measurements.
+CACHE_VERSION = 2
 
 
 # ---------------------------------------------------------------------
@@ -99,16 +107,35 @@ def anchor_policy_step(trainer, pairs: List) -> Dict[str, float]:
             "grad_norm": grad_norm}
 
 
-def load_policy_anchor(path: Path) -> List:
-    """Load and validate a policy-anchor cache; returns the pair list."""
+def load_policy_anchor(path: Path) -> List[List]:
+    """Load and validate a policy-anchor cache; returns the per-game
+    pair lists (v2). A v1 (flat-pair) or foreign pickle fails loudly
+    with the rebuild command -- silently rehearsing under the wrong
+    normalization is exactly what v2 exists to prevent."""
     with Path(path).open("rb") as f:
         blob = pickle.load(f)
     if not isinstance(blob, dict) or blob.get("version") != CACHE_VERSION:
         raise ValueError(
-            f"{path}: not a policy-anchor cache (want version "
-            f"{CACHE_VERSION}, got "
-            f"{blob.get('version') if isinstance(blob, dict) else type(blob)})")
-    return blob["pairs"]
+            f"{path}: not a v{CACHE_VERSION} policy-anchor cache (got "
+            f"{blob.get('version') if isinstance(blob, dict) else type(blob)}"
+            f"). Rebuild: python tools/policy_anchor.py --out {path}")
+    return blob["games"]
+
+
+def sample_pairs_game_normalized(games: List[List], k: int,
+                                 rng: random.Random) -> List:
+    """Draw k pairs with EQUAL PER-GAME weight: choose k games
+    (without replacement while possible, cycling otherwise), then one
+    uniform pair from each. This is the v2 rehearsal draw -- with the
+    old flat `rng.sample(pairs, k)`, a game's gradient share was
+    proportional to its length."""
+    if not games:
+        return []
+    picks = []
+    while len(picks) < k:
+        take = min(k - len(picks), len(games))
+        picks.extend(rng.sample(games, take))
+    return [g[rng.randrange(len(g))] for g in picks]
 
 
 # ---------------------------------------------------------------------
@@ -133,12 +160,14 @@ def build_cache(dataset_dir: Path, out: Path, *, games: int,
     log.info(f"sampling {len(pool)} games (holdout excluded) "
              f"stride={stride}")
 
-    pairs = []
+    games_pairs: List[List] = []
+    n_pairs = 0
     for i, r in enumerate(pool):
         gz = dataset_dir / r["file"]
         winner = int(r["winner_side"])
         offset = rng.randrange(stride) if stride > 1 else 0
         k = 0
+        game: List = []
         try:
             for state, ai in iter_replay_pairs(gz):
                 if state.global_info.current_side != winner:
@@ -148,21 +177,28 @@ def build_cache(dataset_dir: Path, out: Path, *, games: int,
                     continue
                 raw = encode_raw(state, type_to_id=type_to_id,
                                  faction_to_id=faction_to_id)
-                pairs.append((raw, ai))
+                game.append((raw, ai))
         except Exception as e:                      # noqa: BLE001
             log.warning(f"skip {gz.name}: {e!r}")
+        if game:
+            games_pairs.append(game)
+            n_pairs += len(game)
         if (i + 1) % 50 == 0:
-            log.info(f"  {i + 1}/{len(pool)} games, {len(pairs)} pairs")
+            log.info(f"  {i + 1}/{len(pool)} games, {n_pairs} pairs")
 
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("wb") as f:
         pickle.dump({"version": CACHE_VERSION,
-                     "meta": {"games": len(pool), "stride": stride,
+                     "meta": {"games": len(games_pairs),
+                              "stride": stride,
                               "seed": seed, "winners_only": True,
-                              "holdout_excluded": True},
-                     "pairs": pairs}, f, protocol=pickle.HIGHEST_PROTOCOL)
-    log.info(f"wrote {len(pairs)} pairs -> {out}")
-    return len(pairs)
+                              "holdout_excluded": True,
+                              "per_game_normalized": True},
+                     "games": games_pairs},
+                    f, protocol=pickle.HIGHEST_PROTOCOL)
+    log.info(f"wrote {n_pairs} pairs across {len(games_pairs)} games "
+             f"-> {out}")
+    return n_pairs
 
 
 def main(argv: List[str]) -> int:

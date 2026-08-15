@@ -38,6 +38,14 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
    movement is noise AUC 0.53 — user's miscalibration hypothesis
    confirmed) and is now INTEGRATED as the event-supervision
    auxiliary, default ON (`wesnoth_ai/gbc.py`, docs/gbc_spec.md).
+   LEG 3 CONFIG DELTA (recorded 2026-08-16, user-ruled): the policy
+   anchor's rehearsal draw is now GAME-NORMALIZED (cache v2: pairs
+   grouped per game; draw = game-first, one pair each) — v1 was
+   uniform over pairs, weighting a game by its length (~15x spread),
+   inconsistent with the trainer's per-game principle. The F1 arm
+   and leg 2 were MEASURED under v1; leg 3's anchor behavior differs
+   by exactly this delta. Stale v1 caches are auto-rebuilt by
+   onstart's new validation block.
    LEG 2 config (TCS + GBC + F1 policy anchor):
    CAMPAIGN_FILE=tier_b_tcs2.pt, HF_SEED_FILE=tier-b/
    imit_tierb_start.pt, HUMAN_ANCHOR_POLICY_FILE=training/

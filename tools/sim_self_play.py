@@ -1811,12 +1811,18 @@ def run_iteration(
         # into every iteration -- the RLPD-shaped prior protection.
         # Default OFF; one protection per leg (vs A1 / piKL) for
         # attribution.
-        from tools.policy_anchor import anchor_policy_step
-        p_pairs, p_updates, p_batch, p_rng = human_anchor_policy
+        from tools.policy_anchor import (
+            anchor_policy_step, sample_pairs_game_normalized,
+        )
+        p_games, p_updates, p_batch, p_rng = human_anchor_policy
         trainer = getattr(policy, "_base", policy)._trainer
         ces = []
         for _ in range(p_updates):
-            sample = p_rng.sample(p_pairs, min(p_batch, len(p_pairs)))
+            # v2 draw (2026-08-16): game-first, one pair per chosen
+            # game -- equal per-game rehearsal weight, matching the
+            # trainer's own per-game normalization principle.
+            sample = sample_pairs_game_normalized(p_games, p_batch,
+                                                  p_rng)
             st = anchor_policy_step(trainer, sample)
             ces.append(st["policy_ce"])
         human_anchor_policy_ce = sum(ces) / max(1, len(ces))
@@ -3616,15 +3622,17 @@ def main(argv: List[str]) -> int:
     human_anchor_policy = None
     if getattr(args, "human_anchor_policy_file", None):
         from tools.policy_anchor import load_policy_anchor
-        _ppairs = load_policy_anchor(args.human_anchor_policy_file)
-        if _ppairs:
+        _pgames = load_policy_anchor(args.human_anchor_policy_file)
+        if _pgames:
+            _npairs = sum(len(g) for g in _pgames)
             human_anchor_policy = (
-                _ppairs, max(0, args.human_anchor_policy_updates),
+                _pgames, max(0, args.human_anchor_policy_updates),
                 max(1, args.human_anchor_policy_batch),
                 random.Random(20260810))
             log.info(
-                f"POLICY-head human anchor ON: {len(_ppairs)} pairs "
-                f"from {args.human_anchor_policy_file.name}; "
+                f"POLICY-head human anchor ON: {_npairs} pairs across "
+                f"{len(_pgames)} games (game-normalized draw, cache "
+                f"v2) from {args.human_anchor_policy_file.name}; "
                 f"{args.human_anchor_policy_updates} imitation-CE "
                 f"updates x {args.human_anchor_policy_batch} per "
                 f"iteration. Reminder: ONE prior protection per leg "
