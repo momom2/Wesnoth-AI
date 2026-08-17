@@ -268,3 +268,41 @@ in review of 4fecbca; guarded by
 alone, at the new `c_scale=0.1`, is a THIRD regime (soft but unrescaled).
 To A/B against the pre-2026-07-28 setting you must set BOTH
 `gumbel_rescale_q=False` AND `gumbel_c_scale=1.0`.
+
+## TCS linear-link advantage gain: `target_beta = 5.0` (2026-08-17)
+
+`tools/turn_search.py::tcs_target_distribution(link="linear")` builds
+the TCS distill target as
+`prior^lam * max(0, 1 + beta*(q - LOO_mean))`, where `LOO_mean` is
+the mean boundary value of the OTHER evaluated actions at the same
+coordinate. The link is linear in q by USER RULING (2026-08-17):
+"random draw among the evaluated actions should not push their
+probability up" — under an uninformative value head, evaluation
+EXPOSURE must carry no expected mass gain, which the exp/sigma link
+violates through Jensen's inequality (the leg-3 `end_turn` exposure
+ratchet: +0.068 expected target mass per coordinate for an
+always-evaluated action under pure noise vs +0.002 for an
+equal-prior decoy; see docs/leg3_passivity_rootcause_20260817.md R2
+and tests/test_turn_target_link.py's decoy invariant).
+
+**Why beta = 5.** The natural unit for value differences is the C51
+atom, width `2/(51-1) = 0.04` (docs/design_constants.md, C51
+section). Anchors:
+
+- The rung-1 probe's **median accepted improvement was 0.070 ≈ 2
+  atoms** (docs/tcs_spec.md validation). At beta=5 a 2-atom
+  advantage earns a multiplicative factor 1 + 5*0.08 = **1.4** —
+  a firm but not saturating push, comparable in spirit to the
+  Gumbel path's post-fix "soft improvement, not argmax" regime.
+- The zero-clip lands at advantage `-1/beta = -0.2` = **5 atoms
+  below the evaluated peers' mean**: an action has to be
+  decisively outclassed before its target mass zeroes. Clip
+  frequency is telemetered (`link_clip_frac` rides the distill
+  stats); a high clip rate in production means beta is too hot.
+- Sensitivity is linear (it is the point of the link): halving
+  beta halves every push. No cliff, no saturation, so the knob is
+  safe to tune from telemetry.
+
+`beta` scales down with `distill_target_temp` (temperature applies
+to the advantage, not as an exponent, to preserve the linearity
+that makes the link exposure-invariant).

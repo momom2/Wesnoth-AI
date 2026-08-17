@@ -105,11 +105,15 @@ def load_policy(ckpt: Path, device: str = "cpu") -> TransformerPolicy:
 def tcs_target_kl(priors: np.ndarray, values: np.ndarray,
                   evaluated: np.ndarray, v_root: float,
                   max_visits: float, lam: float,
-                  config: MCTSConfig) -> float:
+                  config: MCTSConfig, link: str = "exp") -> float:
     """KL(pi_TCS || prior) for one coordinate (the shared transform
-    lives in `tcs_target_distribution`)."""
+    lives in `tcs_target_distribution`). Defaults to link="exp":
+    this instrument's 2026-08-14 rung-1 baselines were measured
+    under the exp transform and must stay comparable; pass
+    link="linear" to measure the production leg-4 target."""
     tgt = tcs_target_distribution(priors, values, evaluated, v_root,
-                                  max_visits, config, lam=lam)
+                                  max_visits, config, lam=lam,
+                                  link=link)
     p = np.maximum(np.asarray(priors, dtype=np.float64), 1e-12)
     p = p / p.sum()
     return float((tgt * (np.log(tgt + 1e-12) - np.log(p))).sum())

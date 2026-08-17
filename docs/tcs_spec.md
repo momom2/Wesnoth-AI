@@ -376,3 +376,33 @@ Evaluation horizon 2 full turns ≈ 16 plies vs measured 1–3.
 Variants are batch-parallel across cores and batchable through
 `forward_batch` — fits the measured CPU-bound box shape (4090 at
 2–6% util).
+
+## Addendum (2026-08-17): target link function — exposure invariance
+
+**User ruling:** "random draw among the evaluated actions should not
+push their probability up." The distill-target transform must be
+EXPOSURE-INVARIANT: under an uninformative value head, E[target] =
+prior for every action regardless of how often it is evaluated. The
+sigma/exp transform violates this (convexity converts symmetric
+grader error into expected mass gain proportional to evaluation
+frequency — the leg-3 R2 `end_turn` ratchet), so `TurnSearchConfig`
+gained `target_link` (`--turn-target-link`):
+
+- `linear` (**DEFAULT**, leg-4 ruling): `prior^lam * max(0, 1 +
+  beta*(q − LOO mean of the other evaluated q))`. Unbiased to first
+  order under symmetric grader error (renormalization residual is
+  second-order and non-positive for evaluated actions); beta = 5.0
+  derived in docs/design_constants.md; `link_clip_frac` telemetry
+  rides the distill stats.
+- `exp`: the previous behavior, byte-shared with the Gumbel-MCTS
+  sigma transform (pinned by
+  tests/test_turn_target_link.py::test_exp_path_is_byte_identical...).
+  Mirror descent concentrates faster under a KNOWN-GOOD grader;
+  re-enable only with measured value-head trust (the A1 gate).
+
+Consequence for §3's force-inclusion debate: with the linear link,
+`end_turn` force-inclusion **stays ON** — representability is kept
+and the exposure lottery is dead by construction, resolving the
+"unsure" ruling on A5(ii) (2026-08-17). The rung-1 probe instrument
+(`tcs_target_kl`) pins `link="exp"` so its 2026-08-14 baselines stay
+comparable; pass `link="linear"` to measure the production target.

@@ -73,6 +73,29 @@ class TurnSearchConfig:
     project:             str = "none"   # none | reval | all
     project_halfturns:   int = 1        # depth past our boundary
     project_max_actions: int = 40       # per-half-turn action cap
+    # Target link function (user ruling 2026-08-17): "random draw
+    # among the evaluated actions should not push their probability
+    # up" -- evaluation EXPOSURE must carry no expected mass gain
+    # under an uninformative grader.
+    #   linear -- target = prior^lam * max(0, 1 + beta*(q - LOO
+    #            mean of the other evaluated q)); linear in q, so
+    #            symmetric judge error cancels to first order and
+    #            E[target] ~ prior regardless of how often an action
+    #            is evaluated. DEFAULT (leg-4 ruling: the grader is
+    #            fresh/unproven; noise-robustness beats the exp
+    #            link's concentration).
+    #   exp    -- the AlphaZero/Gumbel mirror-descent tilt (sigma
+    #            transform shared byte-for-byte with the MCTS path).
+    #            Concentrates faster under a KNOWN-GOOD grader, but
+    #            convex in q: under noise, evaluated actions gain
+    #            expected mass in proportion to evaluation frequency
+    #            (the leg-3 R2 end_turn exposure ratchet).
+    target_link:         str = "linear"  # linear | exp
+    target_beta:         float = 5.0     # linear-link advantage gain
+    #   beta=5: an action 5 C51 atoms (0.20) below its evaluated
+    #   peers' mean clips to zero mass; 2 atoms (0.08, the probe's
+    #   median accepted delta) above gains +40% before renorm.
+    #   Derivation in docs/design_constants.md.
 
 
 def config_from_args(args) -> Optional["TurnSearchConfig"]:
@@ -107,6 +130,8 @@ def config_from_args(args) -> Optional["TurnSearchConfig"]:
         project=project,
         project_halfturns=halfturns,
         project_max_actions=max_actions,
+        target_link=str(getattr(args, "turn_target_link", "linear")),
+        target_beta=float(getattr(args, "turn_target_beta", 5.0)),
     )
 
 
@@ -377,62 +402,116 @@ def tcs_target_distribution(
     priors: np.ndarray, values: np.ndarray, evaluated: np.ndarray,
     v_root: float, max_visits: float, mcts_config: MCTSConfig,
     lam: Optional[float] = None, temp: Optional[float] = None,
+    link: str = "linear", beta: float = 5.0,
+    stats_out: Optional[Dict] = None,
 ) -> np.ndarray:
-    """The TCS target distribution over one coordinate's legal list,
-    built with the EXISTING transform: completed-Q per `_completed_q`
-    semantics (evaluated actions keep their paired boundary value;
-    unevaluated fall back to v_mix with one visit per evaluated
-    action), sigma via `_gumbel_sigma` verbatim (incl. the 0.04
-    rescale floor), lambda/temperature damping from MCTSConfig --
-    so search and TCS targets provably share one transform."""
+    """The TCS target distribution over one coordinate's legal list.
+
+    link="exp": the EXISTING transform, byte-shared with the Gumbel
+    search path: completed-Q per `_completed_q` semantics (evaluated
+    actions keep their paired boundary value; unevaluated fall back
+    to v_mix with one visit per evaluated action), sigma via
+    `_gumbel_sigma` verbatim (incl. the 0.04 rescale floor),
+    lambda/temperature damping from MCTSConfig. Mirror descent:
+    concentrates fastest, but convex in q -- evaluation exposure
+    gains expected mass under a noisy grader (the leg-3 ratchet).
+
+    link="linear" (default; user ruling 2026-08-17): exposure-
+    invariant target. Evaluated actions get a multiplicative factor
+    linear in their advantage over the LEAVE-ONE-OUT mean of the
+    other evaluated actions; unevaluated actions keep factor 1.
+    Linear in q, so symmetric grader error cancels to first order
+    and E[target] ~ prior for every action REGARDLESS of evaluation
+    frequency (residual: renormalization is second-order and biases
+    evaluated actions slightly DOWN, never up -- pinned by
+    test_turn_target_link's decoy invariant). Temperature scales
+    beta down; lam still discounts the prior. `stats_out` (if
+    given) receives link telemetry: clip_frac = fraction of
+    evaluated actions whose factor clipped at zero."""
     p = np.maximum(np.asarray(priors, dtype=np.float64), 1e-12)
     p = p / p.sum()
     ev = np.asarray(evaluated, dtype=bool)
     q = np.asarray(values, dtype=np.float64)
     n_ev = float(ev.sum())
-    if n_ev > 0:
-        pv = p[ev]
-        weighted = float((pv * q[ev]).sum() / pv.sum())
-        v_mix = (v_root + n_ev * weighted) / (1.0 + n_ev)
-    else:
-        v_mix = v_root
-    completed = np.where(ev, q, v_mix)
     if lam is None:
         lam = float(getattr(mcts_config, "distill_prior_discount", 1.0))
     if temp is None:
         temp = float(getattr(mcts_config, "distill_target_temp", 1.0))
-    t = lam * np.log(p) + _gumbel_sigma(completed, max_visits,
-                                        mcts_config)
-    if temp != 1.0:
-        t = t / max(temp, 1e-6)
-    t -= t.max()
-    tgt = np.exp(t)
-    tgt /= tgt.sum()
-    return tgt
+
+    if link == "exp":
+        if n_ev > 0:
+            pv = p[ev]
+            weighted = float((pv * q[ev]).sum() / pv.sum())
+            v_mix = (v_root + n_ev * weighted) / (1.0 + n_ev)
+        else:
+            v_mix = v_root
+        completed = np.where(ev, q, v_mix)
+        t = lam * np.log(p) + _gumbel_sigma(completed, max_visits,
+                                            mcts_config)
+        if temp != 1.0:
+            t = t / max(temp, 1e-6)
+        t -= t.max()
+        tgt = np.exp(t)
+        tgt /= tgt.sum()
+        return tgt
+
+    if link != "linear":
+        raise ValueError(f"unknown target link {link!r} "
+                         f"(expected 'linear' or 'exp')")
+    base = p ** lam
+    base /= base.sum()
+    factor = np.ones(len(p))
+    idxs = np.flatnonzero(ev)
+    clipped = 0
+    if len(idxs) >= 2:
+        # A single evaluation carries no comparative information
+        # (LOO mean undefined) -> factor stays 1, target = prior.
+        b = beta / max(temp, 1e-6)
+        qs = q[idxs]
+        s = float(qs.sum())
+        for k, i in enumerate(idxs):
+            loo = (s - qs[k]) / (len(idxs) - 1)
+            f = 1.0 + b * (float(qs[k]) - loo)
+            if f <= 0.0:
+                f = 0.0
+                clipped += 1
+            factor[i] = f
+    if stats_out is not None:
+        stats_out["link_clip_frac"] = (clipped / len(idxs)
+                                       if len(idxs) else 0.0)
+    tgt = base * factor
+    total = tgt.sum()
+    if total <= 0.0:                # all evaluated AND all clipped
+        return p.copy()
+    return tgt / total
 
 
 def build_coordinate_target(
     legal: List[LegalActionPrior], values: np.ndarray,
     evaluated: np.ndarray, v_root: float, max_visits: float,
     mcts_config: MCTSConfig,
+    link: str = "linear", beta: float = 5.0,
 ) -> Tuple[List[Tuple], Dict[str, float]]:
     """One coordinate's policy target in the trainer's 5-tuple schema
     plus the distill-telemetry stats `extract_gumbel_policy_target`
     emits (kl_prior, sharpen_top, ...)."""
     priors = np.array([a.prior for a in legal], dtype=np.float64)
+    stats: Dict[str, float] = {}
     tgt = tcs_target_distribution(priors, values, evaluated, v_root,
-                                  max_visits, mcts_config)
+                                  max_visits, mcts_config,
+                                  link=link, beta=beta,
+                                  stats_out=stats)
     p = np.maximum(priors, 1e-12)
     p = p / p.sum()
     top = int(p.argmax())
-    stats = {
+    stats.update({
         "tgt_entropy": float(-(tgt * np.log(tgt + 1e-12)).sum()),
         "prior_entropy": float(-(p * np.log(p + 1e-12)).sum()),
         "sharpen_top": float(tgt[top] - p[top]),
         "prior_top": float(p[top]),
         "kl_prior": float((tgt * (np.log(tgt + 1e-12)
                                   - np.log(p))).sum()),
-    }
+    })
     for i, a in enumerate(legal):
         if a.action.get("type") == "end_turn":
             stats["et_prior"] = float(p[i])
@@ -631,7 +710,8 @@ def plan_turn(policy, sim, side: int, decision_step: int,
             evaluated[alt_i] = True
         tuples, stats = build_coordinate_target(
             st.legal, values, evaluated, st.pre_value,
-            float(evaluated.sum()), mcts_config)
+            float(evaluated.sum()), mcts_config,
+            link=cfg.target_link, beta=cfg.target_beta)
         plan.targets.append(tuples)
         plan.stats.append(stats)
     plan.projections = n_proj

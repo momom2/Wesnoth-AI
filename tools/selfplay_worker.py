@@ -212,6 +212,9 @@ def main(argv) -> int:
     ap.add_argument("--turn-project-halfturns", type=int, default=1)
     ap.add_argument("--turn-project-max-actions", type=int,
                     default=40)
+    ap.add_argument("--turn-target-link", choices=("linear", "exp"),
+                    default="linear")
+    ap.add_argument("--turn-target-beta", type=float, default=5.0)
     ap.add_argument("--turn-reply", choices=("none", "reval", "all"),
                     default="none")   # DEPRECATED alias, see turn_search
     ap.add_argument("--turn-reply-max-actions", type=int, default=4)

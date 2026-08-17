@@ -1093,6 +1093,10 @@ class SpoolWorkers:
                 args, "turn_project_halfturns", 1)),
             "--turn-project-max-actions", str(getattr(
                 args, "turn_project_max_actions", 40)),
+            "--turn-target-link", str(getattr(
+                args, "turn_target_link", "linear")),
+            "--turn-target-beta", str(getattr(
+                args, "turn_target_beta", 5.0)),
             "--turn-reply", str(getattr(args, "turn_reply", "none")),
             "--turn-reply-max-actions", str(getattr(
                 args, "turn_reply_max_actions", 4)),
@@ -2797,6 +2801,25 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--turn-project-max-actions", type=int, default=40,
                     help="Per projected half-turn action cap "
                          "(end_turn forced at the cap).")
+    ap.add_argument("--turn-target-link", choices=("linear", "exp"),
+                    default="linear",
+                    help="TCS distill-target link function (user "
+                         "ruling 2026-08-17: evaluation exposure "
+                         "must not buy probability under an "
+                         "uninformative grader). 'linear' (DEFAULT): "
+                         "prior^lam * max(0, 1 + beta*(q - LOO mean "
+                         "of the other evaluated q)) -- exposure-"
+                         "invariant, noise-robust. 'exp': the "
+                         "AlphaZero sigma tilt shared with the MCTS "
+                         "path -- concentrates faster but pays the "
+                         "evaluated-actions convexity bonus under a "
+                         "noisy value head (the leg-3 end_turn "
+                         "ratchet).")
+    ap.add_argument("--turn-target-beta", type=float, default=5.0,
+                    help="Linear-link advantage gain (see "
+                         "docs/design_constants.md: 5 C51 atoms "
+                         "below the evaluated peers' mean clips to "
+                         "zero mass).")
     ap.add_argument("--turn-reply", choices=("none", "reval", "all"),
                     default="none",
                     help="DEPRECATED alias: depth-1 projection with "
@@ -3546,7 +3569,9 @@ def main(argv: List[str]) -> int:
                 f"full_prob={turn_cfg.turn_full_prob} "
                 f"project={turn_cfg.project}"
                 f":{turn_cfg.project_halfturns}"
-                f"x{turn_cfg.project_max_actions}; "
+                f"x{turn_cfg.project_max_actions} "
+                f"link={turn_cfg.target_link}"
+                f"(beta={turn_cfg.target_beta}); "
                 f"--no-turn-search restores per-decision Gumbel MCTS")
         else:
             policy = MCTSPolicy(
