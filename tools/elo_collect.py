@@ -1,15 +1,19 @@
 """Fit Elo from a directory of elo_eval_game.py result files, under
-TWO draw conventions from the same games:
+TWO conventions from the same games:
 
-  PURE (primary): draws are draws, weight 0.5 for each side. This is
-    THE metric: the contract on policy performance is the game's own
-    win/draw/loss, and material advantage must not factor into
-    evaluation (user decision 2026-07-11, reversing the 2026-07-04
-    material-primary lock -- material valuation is a training crutch,
-    not part of what performance means).
-  MATERIAL-SIGN (diagnostic only): a drawn/timed-out game whose final
+  PURE (primary): only decisive games carry rating information.
+    Material advantage must not factor into evaluation (user decision
+    2026-07-11, reversing the 2026-07-04 material-primary lock), and
+    -- user revision 2026-08-17 -- **a capped game is NOT a draw**:
+    there are no draws in real Wesnoth, so a game that hit the turn
+    cap (or any other non-decisive stop) is a TRUNCATED OBSERVATION,
+    recorded as an absence ("no result") and EXCLUDED from the fit.
+    The confidence interval widens accordingly; if a fixed CI is
+    required, run_elo_batch schedules replacement games (bounded by
+    its --max-extra-games guard).
+  MATERIAL-SIGN (diagnostic only): a no-result game whose final
     material margin from A exceeds +/-EPS counts as a win for the
-    side ahead. More separating while ladder games are draw-heavy,
+    side ahead. More separating while ladder games are cap-heavy,
     useful for watching progress -- but never the headline number.
 
 Usage:
@@ -44,25 +48,31 @@ def load_games(games_dir: Path) -> List[dict]:
 def build_pairs(
     games: List[dict], eps: float,
 ) -> Tuple[List[str], Dict[Tuple[int, int], PairRecord],
-           Dict[Tuple[int, int], PairRecord]]:
+           Dict[Tuple[int, int], PairRecord],
+           Dict[Tuple[int, int], int]]:
     labels = sorted({g["label_a"] for g in games}
                     | {g["label_b"] for g in games})
     idx = {lab: i for i, lab in enumerate(labels)}
     pure: Dict[Tuple[int, int], PairRecord] = {}
     mat:  Dict[Tuple[int, int], PairRecord] = {}
+    nores: Dict[Tuple[int, int], int] = {}
     for g in games:
         a, b = idx[g["label_a"]], idx[g["label_b"]]
         i, j = min(a, b), max(a, b)
         a_is_i = (a == i)
         for d in (pure, mat):
             d.setdefault((i, j), PairRecord())
+        nores.setdefault((i, j), 0)
         out = g["outcome_a"]
         if out == "win":
             win_i = a_is_i
         elif out == "loss":
             win_i = not a_is_i
-        else:                                   # draw / timeout
-            pure[(i, j)].draws += 1
+        else:
+            # NO RESULT (user ruling 2026-08-17): a capped/stalled
+            # game is a truncated observation, not a draw. It is
+            # excluded from the PURE fit and recorded as an absence.
+            nores[(i, j)] += 1
             m = float(g.get("margin_a", 0.0))
             if abs(m) <= eps:
                 mat[(i, j)].draws += 1
@@ -79,17 +89,20 @@ def build_pairs(
                 d[(i, j)].wins_i += 1
             else:
                 d[(i, j)].wins_j += 1
-    return labels, pure, mat
+    return labels, pure, mat, nores
 
 
-def _print_table(title: str, labels, elo, se, pairs) -> None:
+def _print_table(title: str, labels, elo, se, pairs,
+                 nores=None) -> None:
     print(f"\n=== {title} ===")
     order = sorted(range(len(labels)), key=lambda k: -elo[k])
     for k in order:
         print(f"  {labels[k]:<10} {elo[k]:>8.1f} ± {se[k]:.0f}")
     for (i, j), rec in sorted(pairs.items()):
+        nr = (nores or {}).get((i, j), 0)
+        tail = f" + {nr} no-result (excluded)" if nr else ""
         print(f"    {labels[i]} vs {labels[j]}: "
-              f"{rec.wins_i}-{rec.draws}-{rec.wins_j} (W-D-L)")
+              f"{rec.wins_i}-{rec.draws}-{rec.wins_j} (W-D-L){tail}")
 
 
 def main(argv) -> int:
@@ -118,19 +131,22 @@ def main(argv) -> int:
     if not games:
         print("no game files found")
         return 2
-    labels, pure, mat = build_pairs(games, args.eps)
+    labels, pure, mat, nores = build_pairs(games, args.eps)
     anchor_idx = (labels.index(args.anchor)
                   if args.anchor in labels else 0)
     n = len(labels)
+    n_nores = sum(nores.values())
     results = {}
-    for title, pairs in (("PURE (draws=0.5, primary)", pure),
-                         ("MATERIAL-SIGN (diagnostic)", mat)):
+    for title, pairs, nr in (
+            ("PURE (decisive only, primary)", pure, nores),
+            ("MATERIAL-SIGN (diagnostic)", mat, None)):
         elo, se = fit_elo(n, pairs, anchor_idx, anchor_elo=0.0,
                           prior_games=1.0, draw_weight=0.5)
-        _print_table(title, labels, elo, se, pairs)
+        _print_table(title, labels, elo, se, pairs, nores=nr)
         results[title] = {lab: {"elo": float(e), "se": float(s)}
                           for lab, e, s in zip(labels, elo, se)}
-    print(f"\ngames: {len(games)} | anchor: {labels[anchor_idx]} = 0")
+    print(f"\ngames: {len(games)} ({n_nores} no-result, excluded from "
+          f"PURE) | anchor: {labels[anchor_idx]} = 0")
     # Auto-update the committed Elo catalog (user directive
     # 2026-08-17): every collected games dir records its PURE
     # per-pair W-D-L as an edge (idempotent by dir name) and the

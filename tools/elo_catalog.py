@@ -4,9 +4,12 @@ One committed JSON (`training/metrics/elo_catalog.json`) holds every
 pairwise Elo measurement this project has made, and derives each
 checkpoint's rating by a single global fit over ALL recorded edges,
 with one fixed reference at Elo 0. Ground truth is the per-pair
-W-D-L records (PURE convention: draws are draws); ratings are always
-recomputed from them, so a new checkpoint chains onto the scale the
-moment it shares a match with any rated one.
+W-D-L records (PURE convention: decisive games only -- user ruling
+2026-08-17: a capped game is NOT a draw, it is a truncated
+observation recorded on the edge as `no_result` and ignored by the
+fit); ratings are always recomputed from them, so a new checkpoint
+chains onto the scale the moment it shares a match with any rated
+one.
 
 AUTO-UPDATE: `tools/elo_collect.py` calls `update_from_games()` after
 every fit (opt out with --no-catalog), keyed by the games-dir name --
@@ -65,14 +68,18 @@ def save_catalog(cat: Dict, path: Path = CATALOG_PATH) -> None:
 def record_edge(cat: Dict, source_key: str, label_a: str,
                 label_b: str, wins_a: int, draws: int, wins_b: int,
                 protocol: Optional[Dict] = None,
-                date: Optional[str] = None) -> None:
+                date: Optional[str] = None,
+                no_result: int = 0) -> None:
     """Upsert one measured edge. `source_key` (games dir / session
     id) is the idempotency key: re-recording the same source
-    replaces, never double-counts."""
+    replaces, never double-counts. `no_result` records ABSENCES
+    (capped/stalled games -- user ruling 2026-08-17: not draws, zero
+    rating information; kept for provenance, ignored by refit)."""
     cat["edges"][source_key] = {
         "label_a": label_a, "label_b": label_b,
         "wins_a": int(wins_a), "draws": int(draws),
         "wins_b": int(wins_b),
+        "no_result": int(no_result),
         "protocol": protocol or {},
         "date": date or time.strftime("%F"),
     }
@@ -142,24 +149,29 @@ def update_from_games(games_dir: Path, games: List[dict],
     renames run-local labels to canonical catalog labels (e.g.
     rated_anchor -> new_2p52M) so edges chain to existing nodes."""
     label_map = label_map or {}
+    # Tally = [wins_a, genuine_draws, wins_b, no_result]. Under the
+    # 2026-08-17 ruling every non-decisive outcome is a no-result
+    # absence (there are no draws in real Wesnoth); the draws slot
+    # stays for legacy edges and a hypothetical future genuine-draw
+    # outcome, and is always 0 from this path.
     tallies: Dict[Tuple[str, str], List[int]] = {}
     for g in games:
         a = label_map.get(g["label_a"], g["label_a"])
         b = label_map.get(g["label_b"], g["label_b"])
         key = (a, b) if a <= b else (b, a)
-        t = tallies.setdefault(key, [0, 0, 0])
+        t = tallies.setdefault(key, [0, 0, 0, 0])
         out = g["outcome_a"]
         if out == "win":
             t[0 if a <= b else 2] += 1
         elif out == "loss":
             t[2 if a <= b else 0] += 1
         else:
-            t[1] += 1
+            t[3] += 1
     cat = load_catalog(path)
-    for (a, b), (wa, d, wb) in sorted(tallies.items()):
+    for (a, b), (wa, d, wb, nr) in sorted(tallies.items()):
         source_key = f"{Path(games_dir).name}:{a}~{b}"
         record_edge(cat, source_key, a, b, wa, d, wb,
-                    protocol=protocol)
+                    protocol=protocol, no_result=nr)
     refit(cat)
     save_catalog(cat, path)
     log.info(f"elo catalog updated ({len(tallies)} edge(s) from "
@@ -180,9 +192,11 @@ def render(cat: Dict) -> str:
             f"± {m.get('se', float('nan')):>5.1f}  "
             f"({m.get('n_games', 0)} games, step {step}){anch}")
     for k, e in sorted(cat["edges"].items()):
+        nr = e.get("no_result", 0)
+        tail = f" +{nr}nr" if nr else ""
         lines.append(f"    edge {k}: {e['label_a']} "
                      f"{e['wins_a']}-{e['draws']}-{e['wins_b']} "
-                     f"{e['label_b']} ({e['date']})")
+                     f"{e['label_b']}{tail} ({e['date']})")
     return "\n".join(lines)
 
 

@@ -14,9 +14,11 @@ LADDER-ONLY default `random_setup` (pinned by test_elo_ladder_maps).
 
 The result file records BOTH the outcome and the final material
 margin from A's perspective, so the collector can fit Elo under the
-PURE (primary -- draws are draws; material advantage is a training
-crutch and does not factor into evaluation, user 2026-07-11) and
-material-sign (diagnostic) draw conventions from one set of games.
+PURE (primary -- decisive games only; a capped game is a no-result
+absence, not a draw, user 2026-08-17; material advantage is a
+training crutch and does not factor into evaluation, user
+2026-07-11) and material-sign (diagnostic) conventions from one set
+of games.
 Eval search likewise runs WITHOUT the material shapers
 (draw_tiebreak, aux_value_bonus) regardless of training config.
 """

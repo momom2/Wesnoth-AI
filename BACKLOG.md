@@ -93,6 +93,17 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
    (training/checkpoints/tier_b_tcs2_leg3_end.pt) for M1; all
    boxes STOPPED.**
 
+1. 🟡 **Revisit the no-progress stalemate rule** (user ruling
+   2026-08-17: unsatisfied with the current detection criteria;
+   default-off stands). Current rule (tools/wesnoth_sim.py:783-821):
+   progress = unit-count change OR net-HP decrease OR village flip,
+   counted per full quiet turn. Known blind spots to address in the
+   redesign discussion: healing doesn't refresh progress (intended),
+   but maneuvering/fortress sieges with sporadic 1-HP chip damage
+   reset the clock arbitrarily; no notion of *reversible* progress
+   (village trading back and forth counts as progress forever).
+   Revisit alongside the leg-4 draw-label work (ended_by demix).
+
 --- (below: the 2026-08-08 list, kept for provenance) ---
 
 1. **DONE 2026-08-10 (rescued at 94%)**: tier-b imitation checkpoint =
