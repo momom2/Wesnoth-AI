@@ -4,10 +4,10 @@
    "anchored": true,
    "arch": "5M",
    "decision_step": 2515896,
-   "elo": 136.9,
+   "elo": 139.8,
    "file": "campaign_live_20260730.pt",
    "lineage": "tier-a",
-   "n_games": 200,
+   "n_games": 218,
    "se": 29.1
   },
   "old_2p40M": {
@@ -29,6 +29,16 @@
    "lineage": "tier-a",
    "n_games": 240,
    "se": 0.0
+  },
+  "tcs3": {
+   "anchored": true,
+   "arch": "15M",
+   "decision_step": 3367830,
+   "elo": -321.5,
+   "file": "eval_tcs2_3367830.pt",
+   "lineage": "tier-b",
+   "n_games": 18,
+   "se": 149.7
   }
  },
  "edges": {
@@ -83,9 +93,20 @@
    },
    "wins_a": 20,
    "wins_b": 20
+  },
+  "tcs3_vs_rated:new_2p52M~tcs3": {
+   "date": "2026-08-17",
+   "draws": 0,
+   "label_a": "new_2p52M",
+   "label_b": "tcs3",
+   "protocol": {
+    "note": "mcts:32; INTERRUPTED at 18/40 played; 9 games wall-clock-censored at 120min (long/draw-bound games dropped, so draws underrepresented; tcs3 = mid-collapse leg-3 ckpt)"
+   },
+   "wins_a": 18,
+   "wins_b": 0
   }
  },
- "last_refit": "2026-08-17T07:37:46Z",
+ "last_refit": "2026-08-17T13:22:34Z",
  "reference": {
   "elo": 0.0,
   "label": "ref_2p29M"

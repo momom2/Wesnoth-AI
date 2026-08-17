@@ -68,8 +68,30 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
    (user directive, default OFF): `--turn-project reval|all` +
    `--turn-project-halfturns H` grades candidates H closed-loop
    half-turns past the boundary (linear cost; tcs_spec.md §3
-   addendum). Leg-4 candidate config: restart from a pre-slide
-   escrow snapshot (iters ≤6) with `--turn-project reval`.**
+   addendum).**
+   **ROOT-CAUSE REPORT (2026-08-17, 17-agent Opus workflow):
+   `docs/leg3_passivity_rootcause_20260817.md` — READ IT before any
+   leg-4 design. Headlines: the collapse is turn truncation (moves
+   per turn), NOT aggression aversion (attacks/game flat, contact
+   1.0 every iter); K = 1/p(end_turn) exactly (corr 0.988, the
+   hill-climb was NOT truncating — gate-confined fixes incl.
+   projection@reval cannot restore K); seed = a draw flood at iters
+   7-8 (won fights stopped converting inside the cap) BEFORE K
+   moved; value head was a below-chance turn-ranker (AUC mean
+   0.434) from leg entry, unread; the end_turn force-inclusion
+   target defect is real but sign-conditional and reversed in the
+   late phase (amplifier at most). 8 mechanisms refuted incl.
+   anchor-v2 and fog stories. NO leg-2 telemetry survives (the
+   assumed baseline was May REINFORCE data). Next: the M0-M6
+   measurement ladder in the report (M1 frozen-state p_et probe
+   first — weights vs state drift), NOT a training leg.
+   ELO (2026-08-17, interrupted 18/40 by user, 9 games
+   wall-clock-censored): tcs3 (mid-collapse 3.37M ckpt) lost
+   0-0-18 to new_2p52M -> catalog -321.5 +- 149.7, ~460 Elo below
+   the July tier-a anchor; coheres with RCA 0/28. Leg-3 end
+   checkpoint pulled local
+   (training/checkpoints/tier_b_tcs2_leg3_end.pt) for M1; all
+   boxes STOPPED.**
 
 --- (below: the 2026-08-08 list, kept for provenance) ---
 
