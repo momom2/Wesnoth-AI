@@ -1,0 +1,94 @@
+{
+ "checkpoints": {
+  "new_2p52M": {
+   "anchored": true,
+   "arch": "5M",
+   "decision_step": 2515896,
+   "elo": 136.9,
+   "file": "campaign_live_20260730.pt",
+   "lineage": "tier-a",
+   "n_games": 200,
+   "se": 29.1
+  },
+  "old_2p40M": {
+   "anchored": true,
+   "arch": "5M",
+   "decision_step": 2403615,
+   "elo": 30.0,
+   "file": "campaign_live_20260729.pt",
+   "lineage": "tier-a",
+   "n_games": 240,
+   "se": 25.6
+  },
+  "ref_2p29M": {
+   "anchored": true,
+   "arch": "5M",
+   "decision_step": 2290529,
+   "elo": 0.0,
+   "file": "seed_20260718.pt",
+   "lineage": "tier-a",
+   "n_games": 240,
+   "se": 0.0
+  }
+ },
+ "edges": {
+  "elo_q_transform_20260729:ref~old": {
+   "date": "2026-07-29",
+   "draws": 0,
+   "label_a": "ref_2p29M",
+   "label_b": "old_2p40M",
+   "protocol": {
+    "convention": "PURE",
+    "mcts_sims": 32,
+    "note": "2026-07 tier-a chain (preregistered triangle + reused edges; see POOLED_TRIANGLE.json)"
+   },
+   "wins_a": 45,
+   "wins_b": 55
+  },
+  "elo_regress_20260730:old~new": {
+   "date": "2026-07-30",
+   "draws": 0,
+   "label_a": "old_2p40M",
+   "label_b": "new_2p52M",
+   "protocol": {
+    "convention": "PURE",
+    "mcts_sims": 32,
+    "note": "2026-07 tier-a chain (preregistered triangle + reused edges; see POOLED_TRIANGLE.json)"
+   },
+   "wins_a": 36,
+   "wins_b": 64
+  },
+  "elo_triangle_20260730:ref~new": {
+   "date": "2026-07-30",
+   "draws": 0,
+   "label_a": "ref_2p29M",
+   "label_b": "new_2p52M",
+   "protocol": {
+    "convention": "PURE",
+    "mcts_sims": 32,
+    "note": "2026-07 tier-a chain (preregistered triangle + reused edges; see POOLED_TRIANGLE.json)"
+   },
+   "wins_a": 30,
+   "wins_b": 70
+  },
+  "elo_triangle_20260730:ref~old": {
+   "date": "2026-07-30",
+   "draws": 0,
+   "label_a": "ref_2p29M",
+   "label_b": "old_2p40M",
+   "protocol": {
+    "convention": "PURE",
+    "mcts_sims": 32,
+    "note": "2026-07 tier-a chain (preregistered triangle + reused edges; see POOLED_TRIANGLE.json)"
+   },
+   "wins_a": 20,
+   "wins_b": 20
+  }
+ },
+ "last_refit": "2026-08-17T07:37:46Z",
+ "reference": {
+  "elo": 0.0,
+  "label": "ref_2p29M"
+ },
+ "version": 1
+}

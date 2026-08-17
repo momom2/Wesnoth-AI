@@ -100,6 +100,18 @@ def main(argv) -> int:
                     help="material dead zone: |margin| <= eps stays "
                          "a draw under the MATERIAL convention.")
     ap.add_argument("--save-json", type=Path, default=None)
+    ap.add_argument("--no-catalog", action="store_true",
+                    help="Skip the automatic elo-catalog update "
+                         "(tools/elo_catalog.py; on by default per "
+                         "user directive 2026-08-17).")
+    ap.add_argument("--catalog-protocol", default=None,
+                    help="Optional protocol note recorded on the "
+                         "catalog edge, e.g. 'mcts:32'.")
+    ap.add_argument("--catalog-alias", action="append", default=[],
+                    metavar="RUN_LABEL=CATALOG_LABEL",
+                    help="Rename a run-local label to its canonical "
+                         "catalog label so the edge chains to an "
+                         "existing rated node. Repeatable.")
     args = ap.parse_args(argv[1:])
 
     games = load_games(args.games_dir)
@@ -119,6 +131,25 @@ def main(argv) -> int:
         results[title] = {lab: {"elo": float(e), "se": float(s)}
                           for lab, e, s in zip(labels, elo, se)}
     print(f"\ngames: {len(games)} | anchor: {labels[anchor_idx]} = 0")
+    # Auto-update the committed Elo catalog (user directive
+    # 2026-08-17): every collected games dir records its PURE
+    # per-pair W-D-L as an edge (idempotent by dir name) and the
+    # global ratings refit. See tools/elo_catalog.py.
+    if not args.no_catalog:
+        try:
+            from tools.elo_catalog import update_from_games
+            proto = ({"note": args.catalog_protocol}
+                     if args.catalog_protocol else None)
+            lmap = dict(p.split("=", 1) for p in args.catalog_alias
+                        if "=" in p)
+            update_from_games(args.games_dir, games, protocol=proto,
+                              label_map=lmap)
+            print("elo catalog updated (see tools/elo_catalog.py "
+                  "show); use --no-catalog to skip")
+        except Exception as e:                      # noqa: BLE001
+            print(f"WARNING: elo catalog update failed: {e!r} -- "
+                  f"the fit above is unaffected; update manually "
+                  f"via tools/elo_catalog.py")
     if args.save_json:
         args.save_json.write_text(
             json.dumps({"n_games": len(games), "tables": results},
