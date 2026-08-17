@@ -47,6 +47,35 @@ itself" reading and restoring the design's original motivation.
   measure-before-deciding. It is the next single-variable A/B, and
   §5.3's "sole guard" ruling makes it the first knob to flip if the
   leg drifts passive under healthy tripwires.
+
+  **2026-08-17 addendum — multi-turn projection** (user directive
+  "implement multi-turn planning, default off"; leg-3 postmortem).
+  The reply arm is generalized to `--turn-project` in
+  `tools/turn_search.py::project_value`: candidate turns are graded
+  by the value **H half-turns past our boundary**
+  (`--turn-project-halfturns`, default 1), each half-turn played
+  closed-loop by the same policy — a single line, no branching, so
+  cost is LINEAR in depth, not exponential. Per half-turn the mover
+  plays ≤ `--turn-project-max-actions` (default 40) then `end_turn`
+  is forced, keeping half-turns well-defined (deviation from the
+  old reply arm, which evaluated mid-opponent-turn at its 4-action
+  cap). Placement keeps the reply vocabulary: `reval` grades only
+  the stage-2 acceptance pairings (guard placement: the climb
+  proposes by the cheap boundary objective, the gate re-grades with
+  projection — tempo-blind wins like premature `end_turn` die at
+  the gate); `all` additionally drives stage-1 selection and the
+  distill targets (the training signal itself learns the projected
+  ordering). The stage-2 deterministic-pair shortcut is disabled
+  whenever projection is on (projection rollouts sample the policy,
+  so grades never replicate; and under `reval` the gate MUST
+  re-grade). `--turn-reply X` remains as a deprecated alias for
+  `--turn-project X` at depth 1 with the old action cap.
+  **DEFAULT OFF** — unmeasured; motivated by the leg-3 turn-length
+  collapse (K median 12→2 over ~12 iterations with draws rising to
+  0.75: boundary-only grading let the search exploit the value
+  head's tempo blindness through the force-included `end_turn`
+  alternative). Telemetry: `TurnPlan.projections` →
+  `tcs_projections` in `drain_tcs_stats`.
 - CRN identity keying (gate 0e) remains DEFERRED — the probe found
   revalidated improvements without it; it is a variance upgrade,
   not a correctness fix, and touches the bit-exact sim.

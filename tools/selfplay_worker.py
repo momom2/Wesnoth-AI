@@ -207,8 +207,13 @@ def main(argv) -> int:
     ap.add_argument("--turn-reval-salts", type=int, default=3)
     ap.add_argument("--turn-min-delta", type=float, default=0.01)
     ap.add_argument("--turn-full-prob", type=float, default=0.25)
+    ap.add_argument("--turn-project",
+                    choices=("none", "reval", "all"), default="none")
+    ap.add_argument("--turn-project-halfturns", type=int, default=1)
+    ap.add_argument("--turn-project-max-actions", type=int,
+                    default=40)
     ap.add_argument("--turn-reply", choices=("none", "reval", "all"),
-                    default="none")
+                    default="none")   # DEPRECATED alias, see turn_search
     ap.add_argument("--turn-reply-max-actions", type=int, default=4)
     ap.add_argument("--turn-max-spine", type=int, default=40)
     ap.add_argument("--gbc", action=argparse.BooleanOptionalAction,

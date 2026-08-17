@@ -54,12 +54,25 @@ class TurnSearchConfig:
     min_delta:      float = 0.01  # accept floor (float-jitter guard)
     max_spine:      int = 40     # hard cap on spine length
     turn_full_prob: float = 0.25  # playout-cap analog, per TURN
-    # Opponent-reply arm at the boundary (docs/tcs_spec.md par.3).
-    # DEFAULT OFF: the rung-1 probe validated boundary-only
-    # evaluation; the reply arm is the next single-variable A/B.
-    # (Deviation from the spec's default-ON, recorded there.)
-    reply:            str = "none"   # none | reval | all
-    reply_max_actions: int = 4
+    # Multi-turn projection at the boundary (docs/tcs_spec.md par.3;
+    # user directive 2026-08-17, generalizing the opponent-reply arm).
+    # Candidate turns are graded by the value `project_halfturns`
+    # half-turns PAST our boundary, each half-turn played closed-loop
+    # by the same policy -- one line, no branching, so cost is LINEAR
+    # in depth. This is the guard against value-head tempo blindness
+    # (the leg-3 turn-collapse mechanism): passing early stops looking
+    # free once the evaluated state shows the opponent's free reply.
+    # Placement:
+    #   none  -- grade at our own boundary (status quo). DEFAULT OFF.
+    #   reval -- projection gates stage-2 acceptance only: the climb
+    #            proposes by the cheap boundary objective, the gate
+    #            re-grades both sides of the pairing with projection.
+    #   all   -- projection also drives stage-1 selection and the
+    #            distill targets (the search and the training signal
+    #            both optimize the projected objective; costlier).
+    project:             str = "none"   # none | reval | all
+    project_halfturns:   int = 1        # depth past our boundary
+    project_max_actions: int = 40       # per-half-turn action cap
 
 
 def config_from_args(args) -> Optional["TurnSearchConfig"]:
@@ -69,6 +82,20 @@ def config_from_args(args) -> Optional["TurnSearchConfig"]:
     turn search is off."""
     if not getattr(args, "turn_search", False):
         return None
+    project = str(getattr(args, "turn_project", "none"))
+    halfturns = int(getattr(args, "turn_project_halfturns", 1))
+    max_actions = int(getattr(args, "turn_project_max_actions", 40))
+    # Legacy alias: --turn-reply was the depth-1 special case of
+    # projection (the 2026-08-14 opponent-reply arm). Map it when the
+    # new flag doesn't override.
+    legacy_reply = str(getattr(args, "turn_reply", "none"))
+    if project == "none" and legacy_reply != "none":
+        project = legacy_reply
+        halfturns = 1
+        max_actions = int(getattr(args, "turn_reply_max_actions", 4))
+        log.warning("--turn-reply is deprecated; using projection "
+                    f"project={project} halfturns=1 "
+                    f"max_actions={max_actions} (--turn-project)")
     return TurnSearchConfig(
         n_alt=int(getattr(args, "turn_alt", 4)),
         rounds=int(getattr(args, "turn_rounds", 3)),
@@ -77,9 +104,9 @@ def config_from_args(args) -> Optional["TurnSearchConfig"]:
         min_delta=float(getattr(args, "turn_min_delta", 0.01)),
         max_spine=int(getattr(args, "turn_max_spine", 40)),
         turn_full_prob=float(getattr(args, "turn_full_prob", 0.25)),
-        reply=str(getattr(args, "turn_reply", "none")),
-        reply_max_actions=int(getattr(args, "turn_reply_max_actions",
-                                      4)),
+        project=project,
+        project_halfturns=halfturns,
+        project_max_actions=max_actions,
     )
 
 
@@ -116,28 +143,44 @@ def boundary_value(policy, sim, side: int, decision_step: int) -> float:
     return _value_for(output, sim.gs, side)
 
 
-def reply_boundary_value(policy, sim, side: int, decision_step: int,
-                         max_actions: int,
-                         rng: np.random.Generator) -> float:
-    """Boundary value AFTER one capped closed-loop opponent reply --
-    the anti-value-exploitation guard (sole guard per user ruling
-    2026-08-13). The opponent plays <=max_actions with the same
-    policy, then we evaluate at the second boundary."""
-    if sim.done:
-        return _terminal_value(sim, side, tiebreak=None)
+def project_value(policy, sim, side: int, decision_step: int,
+                  half_turns: int, max_actions: int,
+                  rng: np.random.Generator) -> float:
+    """Boundary value after `half_turns` closed-loop half-turns past
+    `sim`'s state, from `side`'s perspective -- the multi-turn
+    projection (anti-value-exploitation guard; sole guard per user
+    ruling 2026-08-13, generalized to depth H 2026-08-17).
+
+    Each half-turn: the side to move plays <=max_actions with the
+    same policy (sampled from the enumerated priors, no branching);
+    if the cap cuts the turn short, end_turn is forced so half-turns
+    stay well-defined and the walk advances. A terminal state grades
+    exactly (eval contract: no material tiebreak). Never mutates
+    `sim`; all play happens on a fork."""
+    if half_turns <= 0 or sim.done:
+        return boundary_value(policy, sim, side, decision_step)
     r = sim.fork()
-    opp = r.gs.global_info.current_side
-    k = 0
-    while (not r.done and r.gs.global_info.current_side == opp
-           and k < max_actions):
-        _, output, legal = forward_state(policy, r.gs, decision_step)
-        if not legal:
+    for _ in range(half_turns):
+        if r.done:
             break
-        try:
-            r.step(legal[_sample_prior_idx(legal, rng)].action)
-        except Exception:  # noqa: BLE001
-            break
-        k += 1
+        mover = r.gs.global_info.current_side
+        k = 0
+        while (not r.done and r.gs.global_info.current_side == mover
+               and k < max_actions):
+            _, output, legal = forward_state(policy, r.gs,
+                                             decision_step)
+            if not legal:
+                break
+            try:
+                r.step(legal[_sample_prior_idx(legal, rng)].action)
+            except Exception:  # noqa: BLE001 -- search must not die
+                break
+            k += 1
+        if not r.done and r.gs.global_info.current_side == mover:
+            try:
+                r.step({"type": "end_turn"})
+            except Exception:  # noqa: BLE001
+                break
     return boundary_value(policy, r, side, decision_step)
 
 
@@ -236,7 +279,7 @@ class Materialized:
     stochastic: bool           # any synced-RNG request consumed
     invalid:    bool           # a step RAISED (not a clean bounce)
     vis_ids:    frozenset      # visible enemy unit ids at boundary
-    boundary_sim: object = None  # the boundary fork (for reply arm)
+    boundary_sim: object = None  # the boundary fork (for projection)
 
     @property
     def survival(self) -> float:
@@ -426,6 +469,7 @@ class TurnPlan:
     stats:         List[Optional[Dict]] = field(default_factory=list)
     cursor:        int = 0
     accepts:       int = 0
+    projections:   int = 0                 # project_value calls made
 
     @property
     def exhausted(self) -> bool:
@@ -457,15 +501,30 @@ def plan_turn(policy, sim, side: int, decision_step: int,
     commands = [s.action for s in steps]
     n_rounds = cfg.rounds if full else cfg.fast_rounds
     accepts = 0
+    # Projection placement (docs/tcs_spec.md par.3): `use_proj` grades
+    # stage-2 pairings H half-turns out; `proj_all` extends that to
+    # stage-1 selection and the distill targets.
+    use_proj = (cfg.project in ("reval", "all")
+                and cfg.project_halfturns > 0)
+    proj_all = use_proj and cfg.project == "all"
+    n_proj = 0
+
+    def _projected(m: Materialized) -> float:
+        nonlocal n_proj
+        n_proj += 1
+        return project_value(policy, m.boundary_sim, side,
+                             decision_step, cfg.project_halfturns,
+                             cfg.project_max_actions, rng)
 
     for rnd in range(n_rounds):
         salt = f"{salt_ns}:r{rnd}"
         inc = materialize(policy, sim, side, commands, salt,
-                          decision_step)
+                          decision_step, keep_boundary_sim=proj_all)
         if inc.invalid:
             log.warning("plan_turn: incumbent materialization invalid")
             break
-        cands: List[Tuple[int, int, Materialized]] = []
+        inc_val = _projected(inc) if proj_all else inc.value
+        cands: List[Tuple[int, int, Materialized, float]] = []
         for j, st in enumerate(steps):
             priors = np.array([a.prior for a in st.legal])
             et_idx = next((i for i, a in enumerate(st.legal)
@@ -476,42 +535,42 @@ def plan_turn(policy, sim, side: int, decision_step: int,
                              + [st.legal[alt_i].action]
                              + commands[j + 1:])
                 m = materialize(policy, sim, side, cand_cmds, salt,
-                                decision_step)
+                                decision_step,
+                                keep_boundary_sim=proj_all)
                 if m.invalid or math.isnan(m.value):
                     continue
-                cands.append((j, alt_i, m))
+                cands.append((j, alt_i, m,
+                              _projected(m) if proj_all else m.value))
         if not cands:
             break
-        deltas = np.array([m.value - inc.value for _, _, m in cands])
+        deltas = np.array([v - inc_val for _, _, _, v in cands])
         best = int(np.argmax(deltas))
-        j, alt_i, best_m = cands[best]
+        j, alt_i, best_m, _ = cands[best]
         best_cmds = (commands[:j] + [steps[j].legal[alt_i].action]
                      + commands[j + 1:])
         # Stage 2: paired re-evaluation at fresh salts. Deterministic
-        # pairs replicate exactly; skip the redundant forwards.
-        if not best_m.stochastic and not inc.stochastic:
+        # pairs replicate exactly; skip the redundant forwards -- but
+        # only when projection is off: projection rollouts sample the
+        # policy through `rng`, so their grades never replicate, and
+        # under "reval" placement the gate MUST re-grade with
+        # projection (stage 1 graded blind).
+        if (not use_proj and not best_m.stochastic
+                and not inc.stochastic):
             reval = np.array([float(deltas[best])])
         else:
             reval_l = []
             for v in range(cfg.reval_salts):
                 s2 = f"{salt}:v{v}"
-                use_reply = cfg.reply in ("reval", "all")
                 inc2 = materialize(policy, sim, side, commands, s2,
                                    decision_step,
-                                   keep_boundary_sim=use_reply)
+                                   keep_boundary_sim=use_proj)
                 var2 = materialize(policy, sim, side, best_cmds, s2,
                                    decision_step,
-                                   keep_boundary_sim=use_reply)
+                                   keep_boundary_sim=use_proj)
                 if inc2.invalid or var2.invalid:
                     continue
-                if use_reply:
-                    vi = reply_boundary_value(
-                        policy, inc2.boundary_sim, side, decision_step,
-                        cfg.reply_max_actions, rng)
-                    vv = reply_boundary_value(
-                        policy, var2.boundary_sim, side, decision_step,
-                        cfg.reply_max_actions, rng)
-                    reval_l.append(vv - vi)
+                if use_proj:
+                    reval_l.append(_projected(var2) - _projected(inc2))
                 else:
                     reval_l.append(var2.value - inc2.value)
             reval = (np.array(reval_l) if reval_l
@@ -536,7 +595,16 @@ def plan_turn(policy, sim, side: int, decision_step: int,
     plan.accepts = accepts
     kl_salt = f"{salt_ns}:t"
     inc = materialize(policy, sim, side, commands, kl_salt,
-                      decision_step) if full else None
+                      decision_step,
+                      keep_boundary_sim=proj_all) if full else None
+    # Under "all" placement the distill targets rank actions by the
+    # PROJECTED objective -- the training signal itself learns the
+    # tempo-aware ordering. (v_root stays the blind pre-state value:
+    # it only sets the unevaluated-mass fallback.)
+    inc_target_val = (_projected(inc)
+                      if (proj_all and inc is not None
+                          and not inc.invalid)
+                      else (inc.value if inc is not None else 0.0))
     for j, st in enumerate(steps):
         plan.commands.append(st.action)
         plan.pre_keys.append(state_key(st.pre_fork.gs))
@@ -549,21 +617,22 @@ def plan_turn(policy, sim, side: int, decision_step: int,
                        if a.action.get("type") == "end_turn"), None)
         values = np.zeros(len(st.legal))
         evaluated = np.zeros(len(st.legal), dtype=bool)
-        values[st.action_idx] = inc.value
+        values[st.action_idx] = inc_target_val
         evaluated[st.action_idx] = True
         for alt_i in gumbel_top_k_alternatives(
                 priors, st.action_idx, et_idx, cfg.n_alt, rng):
             cand = (commands[:j] + [st.legal[alt_i].action]
                     + commands[j + 1:])
             m = materialize(policy, sim, side, cand, kl_salt,
-                            decision_step)
+                            decision_step, keep_boundary_sim=proj_all)
             if m.invalid or math.isnan(m.value):
                 continue
-            values[alt_i] = m.value
+            values[alt_i] = _projected(m) if proj_all else m.value
             evaluated[alt_i] = True
         tuples, stats = build_coordinate_target(
             st.legal, values, evaluated, st.pre_value,
             float(evaluated.sum()), mcts_config)
         plan.targets.append(tuples)
         plan.stats.append(stats)
+    plan.projections = n_proj
     return plan

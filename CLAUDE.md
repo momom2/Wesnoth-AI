@@ -81,7 +81,19 @@ plays K median 2–4.5 — turn truncation was ACQUIRED during
 self-play. TCS leg 1 (tier_b_tcs) ran 7 iterations and was killed
 by the pre-registered probe-abort tripwire (monotone human-CE
 erosion; turn structure and value learning were healthy) — leg 2
-adds the F1 policy anchor; config in BACKLOG item 0.
+adds the F1 policy anchor; config in BACKLOG item 0. Leg 3
+(2026-08-16..17) was PAUSED after turn length collapsed back to K
+median 2 with draws at 0.68–0.75 while the CE probe held (the
+probe is blind to search-driven passivity): boundary-only grading
+let the climb exploit the value head's tempo blindness through the
+force-included end_turn alternative. Counter shipped 2026-08-17:
+**multi-turn projection** (`--turn-project reval|all` +
+`--turn-project-halfturns`, DEFAULT OFF; generalizes the reply
+arm; tcs_spec.md §3 addendum) grades candidate turns H closed-loop
+half-turns past the boundary at linear cost, and TCS planning
+telemetry now rides the distill drain (it was dark on every path
+during the collapse). Leg-4 candidate: pre-slide escrow restart +
+`--turn-project reval`; details in BACKLOG item 0.
 
 ## Current status (2026-08-11, superseded — kept for provenance)
 

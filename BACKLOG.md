@@ -53,6 +53,23 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
    the F1 arm held ≤+0.27 for 356k steps), probe abort at
    t0=3.207+0.5 unchanged. ITS parked
    (`docs/planning_abstractions_litreview_20260812.md`).
+   **LEG 3 PAUSED 2026-08-17 (turn-length collapse).** K
+   (actions/side-turn) slid mean 12.2→3.6 / median 10→2 over iters
+   7→19 while draws rose 0.00–0.10 → 0.68–0.75; the human-CE probe
+   held 3.46–3.52 throughout (the anchor holds the PRIOR while
+   search-driven behavior degrades — the probe is structurally
+   blind to this). Predates the co-located Elo match (not
+   contention). Mechanism hypothesis: boundary-only grading +
+   force-included end_turn alternative + tempo-blind value head =
+   the value-exploitation channel the reply arm was designed to
+   guard (it was default OFF). Unconfirmed directly — TCS accept
+   stats are NOT aggregated from actor-pool workers (telemetry gap,
+   fix before leg 4). **Multi-turn projection shipped 2026-08-17
+   (user directive, default OFF): `--turn-project reval|all` +
+   `--turn-project-halfturns H` grades candidates H closed-loop
+   half-turns past the boundary (linear cost; tcs_spec.md §3
+   addendum). Leg-4 candidate config: restart from a pre-slide
+   escrow snapshot (iters ≤6) with `--turn-project reval`.**
 
 --- (below: the 2026-08-08 list, kept for provenance) ---
 

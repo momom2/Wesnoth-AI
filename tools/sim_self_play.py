@@ -1087,6 +1087,12 @@ class SpoolWorkers:
                 args, "turn_min_delta", 0.01)),
             "--turn-full-prob", str(getattr(
                 args, "turn_full_prob", 0.25)),
+            "--turn-project", str(getattr(args, "turn_project",
+                                          "none")),
+            "--turn-project-halfturns", str(getattr(
+                args, "turn_project_halfturns", 1)),
+            "--turn-project-max-actions", str(getattr(
+                args, "turn_project_max_actions", 40)),
             "--turn-reply", str(getattr(args, "turn_reply", "none")),
             "--turn-reply-max-actions", str(getattr(
                 args, "turn_reply_max_actions", 4)),
@@ -2003,7 +2009,7 @@ def run_iteration(
         if not distill and actor_pool is not None:
             distill = getattr(actor_pool, "last_distill_stats",
                               None) or {}
-        if distill:
+        if distill and "distill_sharpen_top" in distill:
             _et_p, _et_t = (distill.get("distill_et_prior"),
                             distill.get("distill_et_target"))
             _et_str = (f"et prior {_et_p:.3f} -> target {_et_t:.3f}; "
@@ -2018,6 +2024,17 @@ def run_iteration(
                 f"{_et_str}"
                 f"H(target) {distill['distill_tgt_entropy']:.3f} vs "
                 f"H(prior) {distill['distill_prior_entropy']:.3f}")
+        # TCS planning telemetry (2026-08-17: rode NO path during the
+        # leg-3 collapse -- accept-rate drift was unobservable).
+        if distill and distill.get("tcs_plans"):
+            _proj = distill.get("tcs_projections_per_plan", 0.0) or 0.0
+            log.info(
+                f"iter {iter_idx}: tcs -- plans/actor "
+                f"{distill['tcs_plans']:.0f}, accepts/plan "
+                f"{distill.get('tcs_accepts_per_plan', 0.0):.2f}, "
+                f"replans/plan "
+                f"{distill.get('tcs_replans_per_plan', 0.0):.2f}, "
+                f"projections/plan {_proj:.1f}")
         snapshot_sink({
             **distill,
             "iter":                iter_idx,
@@ -2763,11 +2780,28 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--turn-full-prob", type=float, default=0.25,
                     help="Fraction of TURNS planned at full budget "
                          "with targets recorded (playout-cap analog).")
+    ap.add_argument("--turn-project", choices=("none", "reval", "all"),
+                    default="none",
+                    help="Multi-turn projection (tcs_spec.md par.3, "
+                         "2026-08-17): grade candidate turns by the "
+                         "value --turn-project-halfturns half-turns "
+                         "past our boundary, each played closed-loop "
+                         "by the same policy (linear cost, no "
+                         "branching) -- the guard against value-head "
+                         "tempo blindness. 'reval' gates stage-2 "
+                         "acceptance only; 'all' also drives stage-1 "
+                         "selection and the distill targets. OFF by "
+                         "default.")
+    ap.add_argument("--turn-project-halfturns", type=int, default=1,
+                    help="Projection depth in half-turns.")
+    ap.add_argument("--turn-project-max-actions", type=int, default=40,
+                    help="Per projected half-turn action cap "
+                         "(end_turn forced at the cap).")
     ap.add_argument("--turn-reply", choices=("none", "reval", "all"),
                     default="none",
-                    help="Opponent-reply arm at the boundary. OFF by "
-                         "default (unmeasured; the next "
-                         "single-variable A/B -- see tcs_spec.md).")
+                    help="DEPRECATED alias: depth-1 projection with "
+                         "--turn-reply-max-actions as the cap. Use "
+                         "--turn-project.")
     ap.add_argument("--turn-reply-max-actions", type=int, default=4)
     ap.add_argument("--turn-max-spine", type=int, default=40,
                     help="Hard cap on TCS spine length.")
@@ -3510,8 +3544,10 @@ def main(argv: List[str]) -> int:
                 f"alt={turn_cfg.n_alt} rounds={turn_cfg.rounds}/"
                 f"{turn_cfg.fast_rounds} reval={turn_cfg.reval_salts} "
                 f"full_prob={turn_cfg.turn_full_prob} "
-                f"reply={turn_cfg.reply}; --no-turn-search restores "
-                f"per-decision Gumbel MCTS")
+                f"project={turn_cfg.project}"
+                f":{turn_cfg.project_halfturns}"
+                f"x{turn_cfg.project_max_actions}; "
+                f"--no-turn-search restores per-decision Gumbel MCTS")
         else:
             policy = MCTSPolicy(
                 policy, mcts_cfg, replay_config=replay_cfg,

@@ -64,6 +64,7 @@ class TurnCommitPolicy(MCTSPolicy):
         self._tcs_plans = 0
         self._tcs_replans = 0
         self._tcs_accepts = 0
+        self._tcs_projections = 0
 
     # -- decision procedure -------------------------------------------
 
@@ -118,6 +119,7 @@ class TurnCommitPolicy(MCTSPolicy):
                              incumbent=warm)
             self._tcs_plans += 1
             self._tcs_accepts += plan.accepts
+            self._tcs_projections += plan.projections
 
         cmd = plan.commands[plan.cursor]
         target = plan.targets[plan.cursor]
@@ -175,6 +177,26 @@ class TurnCommitPolicy(MCTSPolicy):
 
     # -- telemetry ----------------------------------------------------
 
+    def drain_distill_stats(self) -> Optional[Dict[str, float]]:
+        """Merge the TCS planning counters into the distill drain so
+        they ride the EXISTING telemetry transport (actor drain ->
+        pool mean-of-actor-means -> learner log + snapshot_sink CSV).
+        Leg 3 ran with `drain_tcs_stats` defined but never called on
+        any path -- the 2026-08-17 collapse postmortem's telemetry
+        gap. Rates (per-plan) are shipped because the pool AVERAGES
+        across actors; `tcs_plans` is therefore per-actor under the
+        pool and absolute in-process."""
+        out = super().drain_distill_stats() or {}
+        tcs = self.drain_tcs_stats()
+        if tcs["tcs_plans"]:
+            plans = tcs["tcs_plans"]
+            out["tcs_plans"] = float(plans)
+            out["tcs_replans_per_plan"] = tcs["tcs_replans"] / plans
+            out["tcs_accepts_per_plan"] = tcs["tcs_accepts_per_plan"]
+            out["tcs_projections_per_plan"] = (
+                tcs["tcs_projections"] / plans)
+        return out or None
+
     def drain_tcs_stats(self) -> Dict[str, float]:
         """Planning-pass counters since the last drain."""
         out = {"tcs_plans": self._tcs_plans,
@@ -182,6 +204,8 @@ class TurnCommitPolicy(MCTSPolicy):
                "tcs_accepts": self._tcs_accepts,
                "tcs_accepts_per_plan": (
                    self._tcs_accepts / self._tcs_plans
-                   if self._tcs_plans else 0.0)}
+                   if self._tcs_plans else 0.0),
+               "tcs_projections": self._tcs_projections}
         self._tcs_plans = self._tcs_replans = self._tcs_accepts = 0
+        self._tcs_projections = 0
         return out

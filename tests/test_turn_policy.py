@@ -196,12 +196,36 @@ def test_config_from_args_roundtrip():
     args = SimpleNamespace(turn_search=True, turn_alt=7, turn_rounds=2,
                            turn_fast_rounds=0, turn_reval_salts=5,
                            turn_min_delta=0.02, turn_max_spine=9,
-                           turn_full_prob=0.5, turn_reply="reval",
-                           turn_reply_max_actions=3)
+                           turn_full_prob=0.5, turn_project="reval",
+                           turn_project_halfturns=2,
+                           turn_project_max_actions=12)
     cfg = config_from_args(args)
     assert (cfg.n_alt, cfg.rounds, cfg.fast_rounds) == (7, 2, 0)
     assert (cfg.reval_salts, cfg.min_delta) == (5, 0.02)
     assert (cfg.max_spine, cfg.turn_full_prob) == (9, 0.5)
-    assert (cfg.reply, cfg.reply_max_actions) == ("reval", 3)
+    assert (cfg.project, cfg.project_halfturns,
+            cfg.project_max_actions) == ("reval", 2, 12)
     assert config_from_args(
         SimpleNamespace(turn_search=False)) is None
+
+
+def test_config_legacy_reply_alias_maps_to_projection():
+    """--turn-reply (2026-08-14 arm) is the depth-1 special case of
+    projection; the alias must map, and an explicit --turn-project
+    must win over it."""
+    from types import SimpleNamespace
+    from tools.turn_search import config_from_args
+    cfg = config_from_args(SimpleNamespace(
+        turn_search=True, turn_reply="reval",
+        turn_reply_max_actions=3))
+    assert (cfg.project, cfg.project_halfturns,
+            cfg.project_max_actions) == ("reval", 1, 3)
+    cfg2 = config_from_args(SimpleNamespace(
+        turn_search=True, turn_project="all",
+        turn_project_halfturns=2, turn_reply="reval",
+        turn_reply_max_actions=3))
+    assert (cfg2.project, cfg2.project_halfturns,
+            cfg2.project_max_actions) == ("all", 2, 40)
+    # Default: projection OFF (user directive 2026-08-17).
+    cfg3 = config_from_args(SimpleNamespace(turn_search=True))
+    assert cfg3.project == "none"
