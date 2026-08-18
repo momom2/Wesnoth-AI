@@ -611,6 +611,10 @@ class MCTSPolicy:
                 decision_step=s.decision_step,
                 game_weight=1.0 / (2.0 * max(side_floor,
                                              n_by_side[s.side])),
+                # Truncation ruling (user, 2026-08-17): a winnerless
+                # game is censored, not drawn -- its states carry no
+                # value label (policy targets keep full weight).
+                value_weight=(0.0 if winner == 0 else 1.0),
             ))
         # GBC labels (docs/gbc_spec.md): hindsight event rows per
         # stored state, fog-censored for each state's side-to-move.

@@ -141,6 +141,14 @@ class MCTSExperience:
     # tempo signal the sparse z cannot provide. None when the game's
     # end turn was unknown (legacy pickles) -- the loss then skips.
     moves_left_target: Optional[float] = None
+    # VALUE-loss weight for this state (truncation ruling 2026-08-17:
+    # "there are no draws in real Wesnoth"). finalize_game seals a
+    # winnerless game's states with 0.0 -- they train the policy at
+    # full weight but are CENSORED observations for the value head
+    # (the z=0 flood that poisoned leg 3's grader). Legacy pickles
+    # default to 1.0. Distinct from game_weight (which normalizes
+    # per-game influence on EVERY loss term).
+    value_weight: float = 1.0
     # Per-game normalization weight (2026-07-12): 1/n_recorded_states
     # of the source game, so every GAME contributes equally to the
     # gradient regardless of length (a 190-turn ladder draw no longer
@@ -1059,6 +1067,15 @@ def _trainer_step_mcts(
         [float(getattr(e, "game_weight", 1.0)) for e in experiences],
         device=dev, dtype=torch.float32)
     total_gw = max(float(gws.sum().item()), 1e-9)
+    # Per-experience VALUE weight (truncation ruling 2026-08-17:
+    # "there are no draws in real Wesnoth" -- a capped/stalled game
+    # is a censored observation; finalize_game seals its states with
+    # value_weight 0 so they feed the policy loss at full weight but
+    # the value head not at all). Multiplies into BOTH value-side
+    # weight builds below; legacy pickles default to 1.0.
+    vws = torch.tensor(
+        [float(getattr(e, "value_weight", 1.0)) for e in experiences],
+        device=dev, dtype=torch.float32)
 
     # Auxiliary margin target (KataGo §3.5). Active only when the model
     # has the aux head, the weight is positive, AND every experience
@@ -1112,7 +1129,8 @@ def _trainer_step_mcts(
     # feed the value head" (dashboard starvation watch).
     _w_full = torch.where(
         zs.abs() >= 0.999, torch.ones_like(zs),
-        torch.full_like(zs, self.config.draw_value_weight)) * gws
+        torch.full_like(zs, self.config.draw_value_weight)) \
+        * gws * vws
     total_value_w = float(_w_full.sum().item())
     n_value_signal = int((_w_full > 0).sum().item())
     sum_actor_nlp_weighted = 0.0  # for "entropy"-style logging
@@ -1207,7 +1225,7 @@ def _trainer_step_mcts(
                           torch.ones_like(z_t),
                           torch.full_like(
                               z_t, self.config.draw_value_weight)) \
-            * gw_chunk
+            * gw_chunk * vws[start:start + L]
         value_loss = _categorical_value_loss(
             vl_t, z_t, atoms,
             label_smoothing=self.config.value_label_smoothing,
