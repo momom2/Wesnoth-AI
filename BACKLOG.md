@@ -93,7 +93,20 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
    (training/checkpoints/tier_b_tcs2_leg3_end.pt) for M1; all
    boxes STOPPED.**
 
-1. 🟡 **Revisit the no-progress stalemate rule** (user ruling
+1. 🟡 **Revisit the luck compensator** (user directive 2026-08-17).
+   The Q3 probe retired the luck LEDGER as a value-label variance
+   tool (rho^2 0.03/0.05, docs/credit_assignment_design_20260817.md
+   "Q3 ANSWERED") — but the user wants an in-depth discussion of
+   luck compensation as its own topic later, noting the Wesnoth
+   player community's long experience complaining about luck (their
+   accumulated intuitions are a real input: which fights feel
+   luck-decided, ladder norms around RNG variance, etc.). Scope for
+   that discussion: compensation in TRAINING targets vs in SEARCH
+   grading vs as a PLAYER-facing/eval concept are different things;
+   the probe instrument (tools/luck_probe.py) measures any of them
+   for free, incl. on self-play games. Not blocking leg 4.
+
+2. 🟡 **Revisit the no-progress stalemate rule** (user ruling
    2026-08-17: unsatisfied with the current detection criteria;
    default-off stands). Current rule (tools/wesnoth_sim.py:783-821):
    progress = unit-count change OR net-HP decrease OR village flip,

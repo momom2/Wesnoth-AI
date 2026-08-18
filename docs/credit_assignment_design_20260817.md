@@ -187,3 +187,13 @@ design cost if a future policy's fighting style differs). Side
 finding: side 1 won 293/500 = 0.586 -- a first-move/map advantage
 to remember when reading self-play win splits. Per-game data:
 training/metrics/luck_probe.csv.
+
+## Q5, Q6 CLOSED AS MOOT (user ruling 2026-08-17)
+
+The truncation ruling (capped games are no-result: value weight 0,
+excluded from eval fits) killed the entire pay-the-ahead-side
+family (adjudication, continuation labels, soft outcomes) that Q5
+gated, and superseded the draw-weight sign measurement Q6 fed.
+Neither measurement gates anything anymore. Q5's instrument
+(mid-game margin distribution on stored games) stays trivially
+buildable if the family ever revives.
