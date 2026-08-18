@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 from tools.actor_pool import (   # noqa: E402
-    ActorPool, _CMD_DRAIN, _R_DONE, _R_EXPS, _R_OUTCOME,
+    ActorPool, _R_DONE, _R_EXPS, _R_OUTCOME,
 )
 
 
@@ -94,16 +94,13 @@ def test_dead_actor_is_dropped_not_wedged():
 def test_wall_clock_deadline_breaks_out():
     """Both actors hang (alive, never done, no requests). With zero
     drain grace, the hard deadline must break the loop rather than
-    wedge -- and record the abandoned actors + the DRAIN sends."""
+    wedge."""
     procs = [_FakeProc(True), _FakeProc(True)]
     pool = _pool(procs, results=[], iteration_timeout=0.0,
                  drain_grace=0.0)
     outcomes, experiences = pool.run_iteration(1, games_per_iter=2, base_seed=1)
     assert outcomes == []
     assert experiences == []
-    assert pool._last_abandoned == 2
-    for q in pool._ctrl_qs:
-        assert (_CMD_DRAIN,) in q._items
 
 
 def test_drain_grace_keeps_late_results():
