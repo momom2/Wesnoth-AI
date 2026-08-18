@@ -8,6 +8,47 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
 
 ---
 
+## LEG-4 LAUNCH CONFIG (consolidated rulings, 2026-08-17 — read
+## BEFORE writing any launch env; every item is a USER RULING or a
+## shipped default, and the leg-3 cap accident was precisely a
+## ruling that lived only in a launch env)
+
+- **Value head restarts**; grader chosen by the A4 bake-off between
+  the A3 seed on the current trunk and the seed on the imitation
+  trunk (matrix running). If Q1 says trunk-limited → RESTART the
+  leg from the imitation checkpoint (nothing in legs 1-3's weights
+  earned keeping: erosion, collapse, 0-18). NO fallback graders
+  (GBC-as-grader, frozen judge, dedicated net, hand-built features
+  ALL REFUSED — "the only real solution is to fix the value head").
+- **learned-or-exact principle** (standing): every training-loop
+  quantity is exact (sim/DP) or learned; nothing hand-designed, no
+  hand-tuned values. Kills heuristic playouts + feature graders.
+- **Launch gate**: `holdout_probe_loop.py --qualify CKPT` must PASS
+  (value_auc ≥ 0.60) or the leg does not launch. Drift tripwire
+  default-armed (AUC floor 0.52 ×3).
+- **TCS on, linear target link** (default; exp needs measured
+  trust), **force-inclusion ON** (safe under linear),
+  **projection OFF** (Q7 offline sign test under the seeded head
+  gates any future use; approved).
+- **Winnerless games value-censored** (value_weight 0, shipped) +
+  ended_by demix telemetry; caps are NO-RESULT in eval too
+  (replacement + guard shipped).
+- **Turn cap jittered 60-100 as CODE DEFAULT** (shipped; do NOT
+  override in the env). Pool drain-not-abandon default 1800s grace.
+  Batched TCS boundary evals (shipped).
+- **GBC aux ON** (event supervision, coef 0.1) — as auxiliary ONLY.
+- **Anchors**: policy anchor v2 game-normalized; value anchor
+  updates now redundant with the A3 seed? — decide at launch with
+  the A4 numbers (do not run A2 value anchor AND wonder why the
+  seeded head drifts; one owner for value training).
+- **DEAD, do not relitigate**: luck ledger (Q3, rho^2 0.03/0.05),
+  CRN keying (Q8, median 0 shared events), Q5/Q6 (moot), β head,
+  --turn-project all placement, min_delta 0 arm, hindsight-credit
+  mechanism (parked as measurement idea only).
+- Pending pilots gated on the seeded head: Q7 (projection sign +
+  noise gates), Q9 (forward cost + batching benchmark), M1/M2 (in
+  A3/A4's fold as specced).
+
 ## NEXT ACTIONS (2026-08-13 — the short list)
 
 0. **TCS is INTEGRATED, DEFAULT ON (user ruling 2026-08-14).** The
