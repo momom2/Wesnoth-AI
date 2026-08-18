@@ -50,6 +50,24 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--batch", type=int, default=256)
     ap.add_argument("--lr", type=float, default=5e-5)
     ap.add_argument("--value-label-smoothing", type=float, default=0.02)
+    ap.add_argument("--max-states-per-game", type=int, default=8,
+                    help="Cap on training states drawn per game "
+                         "(AFTER stride thinning; random subsample). "
+                         "AlphaGo hygiene (A3, 2026-08-17): all of a "
+                         "game's states share ONE outcome bit, so "
+                         "the head's effective sample size is games, "
+                         "not states -- many states per game just "
+                         "replays the same bit. 0 = uncapped "
+                         "(legacy).")
+    ap.add_argument("--linear-probe", action="store_true",
+                    help="Q1 diagnostic arm: replace the value head "
+                         "with a single fresh Linear(d_model -> "
+                         "atoms), freeze everything else, train, "
+                         "report -- do NOT save a checkpoint. Read "
+                         "against the full-head arm: linear ~ full "
+                         "=> the trunk's features are the cap on "
+                         "value discrimination, and head work can't "
+                         "fix it.")
     ap.add_argument("--freeze-trunk", action="store_true",
                     help="Train ONLY the value/moves-left heads (trunk "
                          "+ policy heads untouched; safest for resuming "
@@ -87,6 +105,17 @@ def main(argv: List[str]) -> int:
     # inert. Keep value at full weight.
     trainer.config.value_coef = 1.0
 
+    if args.linear_probe:
+        # Q1 arm: a fresh single-linear head on frozen features.
+        import torch.nn as nn
+        from wesnoth_ai.model import VALUE_N_ATOMS
+        d = a["d_model"]
+        torch.manual_seed(args.seed)
+        policy._model.value_head = nn.Sequential(
+            nn.Linear(d, VALUE_N_ATOMS))
+        args.freeze_trunk = True
+        log.info(f"LINEAR-PROBE arm: value_head := Linear({d} -> "
+                 f"{VALUE_N_ATOMS}); checkpoint saving disabled")
     if args.freeze_trunk:
         n_frozen = 0
         for name, p in policy._model.named_parameters():
@@ -101,7 +130,23 @@ def main(argv: List[str]) -> int:
             lr=args.lr, weight_decay=trainer.config.weight_decay)
         log.info(f"trunk frozen ({n_frozen} tensors); value/ml heads "
                  f"only")
+        # Freeze-integrity receipt (A3 acceptance: trunk param hashes
+        # bit-identical; with the policy head frozen, frozen-state
+        # p(end_turn) trivially cannot move). Verified at exit.
+        def _frozen_sig():
+            import hashlib
+            h = hashlib.sha256()
+            for name, p in sorted(
+                    policy._model.named_parameters()):
+                if not p.requires_grad:
+                    h.update(p.detach().cpu().numpy().tobytes())
+            return h.hexdigest()
+        frozen_sig0 = _frozen_sig()
     else:
+        frozen_sig0 = None
+
+        def _frozen_sig():
+            return None
         for g in trainer.optimizer.param_groups:
             g["lr"] = args.lr
 
@@ -117,9 +162,13 @@ def main(argv: List[str]) -> int:
     log.info(f"{len(train_rows)} train games, {len(holdout_rows)} "
              f"held-out games")
 
-    def load_exps(row, stride):
-        return game_experiences(args.dataset_dir / row["file"],
+    def load_exps(row, stride, cap=None):
+        exps = game_experiences(args.dataset_dir / row["file"],
                                 row["winner"], stride=stride, rng=rng)
+        cap = args.max_states_per_game if cap is None else cap
+        if cap and len(exps) > cap:
+            exps = rng.sample(exps, cap)
+        return exps
 
     # Fixed held-out probe (sampled once). Probe stride is high so
     # the probe spans MANY games at few states each.
@@ -134,10 +183,15 @@ def main(argv: List[str]) -> int:
     probe = probe[:args.probe_states]
     m0 = trainer.eval_value_metrics(probe)
     log.info(f"BEFORE: holdout ce={m0['ce']:.4f} "
+             f"value_auc={m0.get('value_auc', float('nan')):.4f} "
              f"pred_entropy={m0['pred_entropy']:.4f} "
              f"floor={m0['marginal_ce_floor']:.4f} (n={len(probe)})")
 
+    # A3 (2026-08-17): outcome AUC is the acceptance-gate metric
+    # (level discrimination -- what the launch gate reads); best
+    # checkpoint is selected on it, CE logged alongside.
     best_ce = m0["ce"]
+    best_auc = m0.get("value_auc", float("nan"))
     for epoch in range(args.epochs):
         rng.shuffle(train_rows)
         t0 = time.time()
@@ -165,17 +219,37 @@ def main(argv: List[str]) -> int:
             stats = trainer.step_mcts(batch)
             n_pairs += len(batch)
         m = trainer.eval_value_metrics(probe)
+        auc = m.get("value_auc", float("nan"))
         log.info(f"epoch {epoch}: {n_pairs} pairs in "
                  f"{time.time() - t0:.0f}s | holdout ce={m['ce']:.4f} "
+                 f"value_auc={auc:.4f} "
                  f"pred_entropy={m['pred_entropy']:.4f} "
                  f"(floor {m['marginal_ce_floor']:.4f})")
-        if m["ce"] < best_ce:
-            best_ce = m["ce"]
-            policy.save_checkpoint(args.checkpoint_out)
-            log.info(f"  new best -> saved {args.checkpoint_out}")
-    log.info(f"done. best holdout ce={best_ce:.4f} "
-             f"(started {m0['ce']:.4f}, floor "
-             f"~{m0['marginal_ce_floor']:.2f})")
+        best_ce = min(best_ce, m["ce"])
+        import math as _math
+        if not _math.isnan(auc) and (
+                _math.isnan(best_auc) or auc > best_auc):
+            best_auc = auc
+            if not args.linear_probe:
+                policy.save_checkpoint(args.checkpoint_out)
+                log.info(f"  new best AUC -> saved "
+                         f"{args.checkpoint_out}")
+    if frozen_sig0 is not None:
+        sig1 = _frozen_sig()
+        if sig1 != frozen_sig0:
+            log.error("FREEZE VIOLATION: frozen parameters changed "
+                      "during training -- the saved head is NOT a "
+                      "pure head fit. Do not use this checkpoint.")
+            return 1
+        log.info("freeze integrity verified: frozen params "
+                 "bit-identical")
+    log.info(f"done. best holdout value_auc={best_auc:.4f} "
+             f"ce={best_ce:.4f} (started auc="
+             f"{m0.get('value_auc', float('nan')):.4f} "
+             f"ce={m0['ce']:.4f}, floor "
+             f"~{m0['marginal_ce_floor']:.2f})"
+             + ("  [linear-probe arm: nothing saved]"
+                if args.linear_probe else ""))
     return 0
 
 

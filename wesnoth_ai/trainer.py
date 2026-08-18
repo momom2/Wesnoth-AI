@@ -1466,7 +1466,8 @@ def _trainer_eval_value_metrics(
     nan = float("nan")
     if not experiences:
         return {"ce": nan, "ce_std": nan, "pred_entropy": nan,
-                "marginal_ce_floor": nan}
+                "marginal_ce_floor": nan, "value_auc": nan,
+                "n_decisive": 0}
     dev = self.device or next(self.model.parameters()).device
     N = len(experiences)
     B = max(1, self.config.train_batch_size)
@@ -1495,6 +1496,7 @@ def _trainer_eval_value_metrics(
     # the std says whether an iteration-to-iteration move is signal
     # or probe noise (~256-state sample).
     ce_states: List[torch.Tensor] = []
+    ev_states: List[torch.Tensor] = []
     with torch.no_grad():
         for start in range(0, N, B):
             chunk = experiences[start:start + B]
@@ -1520,6 +1522,7 @@ def _trainer_eval_value_metrics(
             ce_states.append(
                 -(_project_returns_to_atoms(z_t, atoms) * logp)
                 .sum(dim=-1))
+            ev_states.append((logp.exp() * atoms).sum(dim=-1))
         marginal = _project_returns_to_atoms(zs, atoms).mean(dim=0)
         floor = float(
             -(marginal * marginal.clamp_min(1e-9).log()).sum().item())
@@ -1530,9 +1533,25 @@ def _trainer_eval_value_metrics(
         var_w = float(((ce_all - mean_w).pow(2) * gws_e).sum().item()) \
             / total_gw_e
         ce_std = var_w ** 0.5
+        # Outcome AUC on decisive states (A1/A3 gate metric,
+        # 2026-08-17): P(E[V] of a random win-state > E[V] of a
+        # random loss-state), ties at 0.5 -- the level-discrimination
+        # statistic the launch gate and the value-seed acceptance
+        # test read. NaN when either class is absent.
+        ev_all = torch.cat(ev_states)
+        pos = ev_all[zs > 0]
+        neg = ev_all[zs < 0]
+        if len(pos) and len(neg):
+            gt = (pos.unsqueeze(1) > neg.unsqueeze(0)).float().sum()
+            eq = (pos.unsqueeze(1) == neg.unsqueeze(0)).float().sum()
+            auc = float((gt + 0.5 * eq).item()) / (len(pos) * len(neg))
+        else:
+            auc = nan
     return {"ce": total, "ce_std": ce_std,
             "pred_entropy": entropy_sum / N,
-            "marginal_ce_floor": floor}
+            "marginal_ce_floor": floor,
+            "value_auc": auc,
+            "n_decisive": int((zs != 0).sum().item())}
 
 
 def _trainer_eval_value_loss(
