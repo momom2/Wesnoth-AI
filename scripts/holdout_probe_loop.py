@@ -62,6 +62,22 @@ PROBE_T0 = os.environ.get("PROBE_T0")
 PROBE_ABORT_DELTA = float(os.environ.get("PROBE_ABORT_DELTA", "0.5"))
 PROBE_ABORT_N = int(os.environ.get("PROBE_ABORT_N", "3"))
 
+# Value-accuracy alarm (A1, credit-assignment review 2026-08-17).
+# Leg 3's value_auc sat BELOW CHANCE from entry (0.309 at step
+# 3,111,037, mean 0.434) in a column this loop was already writing,
+# and nothing looked. Two instruments, per the review:
+#   * drift tripwire (here): PROBE_ABORT_N consecutive probes with
+#     value_auc below PROBE_AUC_FLOOR abort the leg, same marker/
+#     kill protocol as the CE tripwire. ON BY DEFAULT (floor 0.52 =
+#     chance + margin: catches a broken head, tolerates a mediocre
+#     one) -- load-bearing defaults live in code, not launch envs.
+#   * entry-qualification gate (--qualify CKPT): one probe of a
+#     named checkpoint, exit 0 iff value_auc >= QUALIFY_AUC_MIN
+#     (default 0.60); the launch script gates on the exit code, so
+#     a leg can never again start with an unproven judge.
+PROBE_AUC_FLOOR = float(os.environ.get("PROBE_AUC_FLOOR", "0.52"))
+QUALIFY_AUC_MIN = float(os.environ.get("QUALIFY_AUC_MIN", "0.60"))
+
 _COLS = ["timestamp", "decision_step", "ce", "actor_top1", "type_top1",
          "target_top1", "weapon_top1", "value_auc", "n", "n_value",
          "probe_seconds"]
@@ -137,27 +153,62 @@ def probe_once(ckpt: Path, step: int, arch: dict) -> bool:
     return True
 
 
+def _ce_tail_trips(rows, t0, delta, n) -> bool:
+    """CE tripwire predicate: last n probes ALL above t0 + delta."""
+    if t0 is None or len(rows) < n:
+        return False
+    bar = float(t0) + delta
+    return all(float(r["ce"]) > bar for r in rows[-n:])
+
+
+def _auc_tail_trips(rows, floor, n) -> bool:
+    """Value-accuracy tripwire predicate: last n probes ALL have a
+    readable value_auc below `floor`. Rows without a value_auc
+    (empty cell: no value-labeled pairs that probe) don't count as
+    breakage -- they reset nothing but can't trip."""
+    if len(rows) < n:
+        return False
+    for r in rows[-n:]:
+        v = (r.get("value_auc") or "").strip() \
+            if isinstance(r.get("value_auc"), str) else r.get("value_auc")
+        if v in (None, ""):
+            return False
+        if float(v) >= floor:
+            return False
+    return True
+
+
 def _abort_check() -> None:
-    """Kill training when the last PROBE_ABORT_N probe CEs all exceed
-    PROBE_T0 + PROBE_ABORT_DELTA. No-op unless PROBE_T0 is set."""
-    if PROBE_T0 is None or not OUT_CSV.exists():
+    """Kill training when a tripwire fires on the probe tail: CE
+    above PROBE_T0 + PROBE_ABORT_DELTA (needs PROBE_T0), or
+    value_auc below PROBE_AUC_FLOOR (always armed), each over
+    PROBE_ABORT_N consecutive probes."""
+    if not OUT_CSV.exists():
         return
     import csv as _csv
     import signal
     rows = list(_csv.DictReader(OUT_CSV.open(encoding="utf-8")))
-    if len(rows) < PROBE_ABORT_N:
+    ce_trip = _ce_tail_trips(rows, PROBE_T0, PROBE_ABORT_DELTA,
+                             PROBE_ABORT_N)
+    auc_trip = _auc_tail_trips(rows, PROBE_AUC_FLOOR, PROBE_ABORT_N)
+    if not (ce_trip or auc_trip):
         return
-    bar = float(PROBE_T0) + PROBE_ABORT_DELTA
     tail = rows[-PROBE_ABORT_N:]
-    if not all(float(r["ce"]) > bar for r in tail):
-        return
+    if ce_trip:
+        bar = float(PROBE_T0) + PROBE_ABORT_DELTA
+        reason = (f"human-holdout CE > {bar:.3f} (t0 {PROBE_T0} + "
+                  f"{PROBE_ABORT_DELTA}) on {PROBE_ABORT_N} "
+                  f"consecutive probes: "
+                  f"{[round(float(r['ce']), 4) for r in tail]}")
+    else:
+        reason = (f"value_auc < {PROBE_AUC_FLOOR} (near/below chance "
+                  f"-- the leg-3 dark failure) on {PROBE_ABORT_N} "
+                  f"consecutive probes: "
+                  f"{[r.get('value_auc') for r in tail]}")
     workdir = Path(os.environ.get("WORKDIR", "/workspace"))
     marker = workdir / "ABORTED_probe"
     marker.write_text(
-        f"{time.strftime('%FT%TZ', time.gmtime())} human-holdout CE > "
-        f"{bar:.3f} (t0 {PROBE_T0} + {PROBE_ABORT_DELTA}) on "
-        f"{PROBE_ABORT_N} consecutive probes: "
-        f"{[round(float(r['ce']), 4) for r in tail]} at steps "
+        f"{time.strftime('%FT%TZ', time.gmtime())} {reason} at steps "
         f"{[r['decision_step'] for r in tail]}\n", encoding="utf-8")
     print(f"probe: ABORT TRIPWIRE -- {marker.read_text().strip()}",
           flush=True)
@@ -172,13 +223,51 @@ def _abort_check() -> None:
             continue
 
 
+def qualify_verdict(stats: dict, auc_min: float) -> tuple:
+    """(passed, reason) for the entry-qualification gate. A missing
+    value_auc REFUSES (an unmeasured judge is an unproven judge)."""
+    v = stats.get("value_auc")
+    if v in (None, ""):
+        return False, "value_auc missing from probe output"
+    v = float(v)
+    if v < auc_min:
+        return False, f"value_auc {v:.3f} < required {auc_min:.2f}"
+    return True, f"value_auc {v:.3f} >= {auc_min:.2f}"
+
+
+def qualify(ckpt: Path) -> int:
+    """Entry-qualification gate: probe `ckpt` once; exit 0 iff its
+    value_auc clears QUALIFY_AUC_MIN. The launch script gates on
+    this exit code (A1: leg 3 launched with a 0.309-AUC judge and
+    nobody looked). Exit 3 = refused, 2 = probe failed."""
+    peek = _peek(ckpt)
+    if peek is None:
+        print(f"qualify: {ckpt} unreadable", flush=True)
+        return 2
+    step, arch = peek
+    # probe_once appends the row (audit trail) and prints the stats.
+    if not probe_once(ckpt, step, arch):
+        print("qualify: probe run failed", flush=True)
+        return 2
+    import csv as _csv
+    rows = list(_csv.DictReader(OUT_CSV.open(encoding="utf-8")))
+    passed, reason = qualify_verdict(rows[-1], QUALIFY_AUC_MIN)
+    print(f"qualify: {'PASS' if passed else 'REFUSE'} -- {reason} "
+          f"(step {step})", flush=True)
+    return 0 if passed else 3
+
+
 def main() -> int:
+    if len(sys.argv) >= 3 and sys.argv[1] == "--qualify":
+        return qualify(Path(sys.argv[2]))
     ckpt = _campaign_ckpt()
     print(f"holdout_probe_loop: watching {ckpt}, every {PROBE_EVERY}s, "
           f"{PROBE_PAIRS} pairs on {PROBE_DEVICE}"
           + (f"; abort at t0+{PROBE_ABORT_DELTA} x{PROBE_ABORT_N} "
-             f"(t0={PROBE_T0})" if PROBE_T0 else "; abort OFF (no "
-             "PROBE_T0)"), flush=True)
+             f"(t0={PROBE_T0})" if PROBE_T0 else "; CE abort OFF (no "
+             "PROBE_T0)")
+          + f"; value_auc floor {PROBE_AUC_FLOOR} x{PROBE_ABORT_N}",
+          flush=True)
     last_step = None
     while True:
         try:
