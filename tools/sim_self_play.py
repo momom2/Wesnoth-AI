@@ -1029,8 +1029,14 @@ class SpoolWorkers:
             "--max-turns", str(args.max_turns),
             "--no-progress-turns", str(getattr(
                 args, "no_progress_turns", 0)),
-        ] + (["--max-turns-min", str(args.max_turns_min)]
-             if getattr(args, "max_turns_min", None) else []) + [
+            # Always forwarded (2026-08-17): the old truthiness guard
+            # dropped an explicit 0 (fixed cap) AND let a worker
+            # default fill in when the flag was absent -- the exact
+            # half-carried-config failure mode that ran leg 3 at
+            # [60,200] instead of [60,100].
+            "--max-turns-min", str(getattr(args, "max_turns_min", 60)
+                                   or 0),
+        ] + [
             "--draw-tiebreak-cap", str(max(0.0, args.draw_tiebreak_cap)),
         ] + (["--relevant-set-hexes"] if getattr(
                  args, "relevant_set_hexes", False) else []) + [
@@ -1516,9 +1522,28 @@ def run_iteration(
     draws   = sum(1 for o in outcomes if o.winner == 0)
     avg_r1  = (sum(o.side1_reward for o in outcomes) / len(outcomes)) if outcomes else 0.0
     avg_r2  = (sum(o.side2_reward for o in outcomes) / len(outcomes)) if outcomes else 0.0
+    # ended_by demix (user ruling 2026-08-17, A5(iii)/A6 telemetry):
+    # a turn-cap game, a stalemate, and a mutual elimination are
+    # different events and must never share one aggregate number.
+    # `abandoned` counts actors whose in-flight games the pool's hard
+    # deadline discarded (0 when the drain grace was enough).
+    ended: Dict[str, int] = {}
+    for o in outcomes:
+        ended[o.ended_by] = ended.get(o.ended_by, 0) + 1
+    ended_leader = ended.pop("leader_killed", 0)
+    ended_cap = ended.pop("max_turns", 0)
+    ended_actions = ended.pop("max_actions", 0)
+    ended_noprog = ended.pop("no_progress", 0)
+    ended_other = sum(ended.values())
+    abandoned = int(getattr(actor_pool, "_last_abandoned", 0) or 0) \
+        if actor_pool is not None else 0
     log.info(
         f"iter {iter_idx}: outcomes s1_wins={s1_wins} s2_wins={s2_wins} "
-        f"draws/timeouts={draws}; mean_reward s1={avg_r1:+.3f} s2={avg_r2:+.3f}"
+        f"draws/timeouts={draws}; ended_by[leader={ended_leader} "
+        f"cap={ended_cap} actions={ended_actions} "
+        f"noprog={ended_noprog} other={ended_other}] "
+        f"abandoned_actors={abandoned}; "
+        f"mean_reward s1={avg_r1:+.3f} s2={avg_r2:+.3f}"
     )
 
     # Behavioral diagnostics: action histogram + mean turns/game +
@@ -2049,6 +2074,13 @@ def run_iteration(
             "s1_wins":             s1_wins,
             "s2_wins":             s2_wins,
             "draws":               draws,
+            # ended_by demix + discard telemetry (2026-08-17 rulings)
+            "ended_leader":        ended_leader,
+            "ended_max_turns":     ended_cap,
+            "ended_max_actions":   ended_actions,
+            "ended_no_progress":   ended_noprog,
+            "ended_other":         ended_other,
+            "abandoned_actors":    abandoned,
             "action_recruit_pct":  action_pcts["recruit"],
             "action_move_pct":     action_pcts["move"],
             "action_attack_pct":   action_pcts["attack"],
@@ -2293,6 +2325,15 @@ class _TrainerHistoryCSV:
         # should drop toward 0 on low-spread roots under the one-atom
         # rescale floor.
         "distill_kl_prior",
+        # ended_by demix + pool-discard telemetry (2026-08-17 user
+        # rulings A5(iii)/A6): a cap game, a stalemate, and a mutual
+        # elimination are different events; abandoned_actors counts
+        # in-flight games the pool's HARD deadline discarded after
+        # the drain grace (0 = drain sufficed).
+        "ended_leader", "ended_max_turns", "ended_max_actions",
+        "ended_no_progress", "ended_other", "abandoned_actors",
+        # TCS linear-link clip telemetry (2026-08-17).
+        "link_clip_frac",
     ]
 
     def __init__(self, path: Path):
@@ -2450,11 +2491,19 @@ def main(argv: List[str]) -> int:
                          "out or the operator kills the process.")
     ap.add_argument("--games-per-iter", type=int, default=4,
                     help="Self-play games rolled out per train_step.")
-    ap.add_argument("--max-turns", type=int, default=200,
-                    help="Per-game turn cap. Default 200 -- effectively "
-                         "no limit for normal PvP (most games end in "
-                         "20-40 turns by leader-kill). The sim's "
-                         "max_actions_per_side is the real safety net.")
+    ap.add_argument("--max-turns", type=int, default=100,
+                    help="Per-game turn cap (upper end of the jitter "
+                         "range, see --max-turns-min). DEFAULT 100 "
+                         "with min 60 = the A3 jittered 60-100 cap "
+                         "as CODE DEFAULT (user ruling 2026-08-17: "
+                         "the 60-100 jitter is standing training "
+                         "behavior; leg 3 accidentally ran [60,200] "
+                         "because the launch env carried the min "
+                         "flag but not this one -- values this "
+                         "load-bearing don't live in launch flags). "
+                         "Capped games carry zero value weight, so "
+                         "turns past ~100 are pure planning-compute "
+                         "waste.")
     ap.add_argument("--no-progress-turns", type=int, default=0,
                     help="Stalemate rule (chess 50-move analog, "
                          "2026-07-21): end a game as a draw after N "
@@ -2463,14 +2512,15 @@ def main(argv: List[str]) -> int:
                          "village-ownership change). 0 = rule off; "
                          "the tracker still logs would-fire stats "
                          "per game (games.jsonl 'noprogress').")
-    ap.add_argument("--max-turns-min", type=int, default=None,
+    ap.add_argument("--max-turns-min", type=int, default=60,
                     help="Per-game turn-cap jitter: each training "
                          "game's cap is drawn uniformly from "
                          "[this, --max-turns] (anti-horizon-gaming, "
                          "2026-07-20: a FIXED cap taught banking "
-                         "until a known last turn). Default None = "
-                         "fixed cap. Training only; eval/demo caps "
-                         "stay fixed.")
+                         "until a known last turn). DEFAULT 60 "
+                         "(user ruling 2026-08-17, standing 60-100 "
+                         "jitter). Pass 0 for a fixed cap. Training "
+                         "only; eval/demo caps stay fixed.")
     ap.add_argument("--save-every", type=int, default=10,
                     help="Save checkpoint every N iterations.")
     ap.add_argument("--holdout-size", type=int, default=0,
@@ -2801,6 +2851,15 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--turn-project-max-actions", type=int, default=40,
                     help="Per projected half-turn action cap "
                          "(end_turn forced at the cap).")
+    ap.add_argument("--pool-drain-grace", type=float, default=1800.0,
+                    help="Actor-pool drain window (s): at the "
+                         "iteration deadline actors FINISH their "
+                         "current game (drain) instead of having it "
+                         "discarded; this grace bounds the overrun "
+                         "before the hard abandon backstop (user "
+                         "ruling 2026-08-17; leg 3 discarded 30-60% "
+                         "of some iterations' games at the old "
+                         "single hard deadline).")
     ap.add_argument("--turn-target-link", choices=("linear", "exp"),
                     default="linear",
                     help="TCS distill-target link function (user "
@@ -3159,10 +3218,18 @@ def main(argv: List[str]) -> int:
                      ladder=args.ladder_ratio)
     except ValueError as e:
         ap.error(str(e))
-    if (args.max_turns_min is not None
-            and not (1 <= args.max_turns_min <= args.max_turns)):
-        ap.error(f"--max-turns-min {args.max_turns_min} outside "
-                 f"[1, --max-turns={args.max_turns}]")
+    # Jitter floor sanity. 0/None = fixed cap (explicit opt-out).
+    # A floor ABOVE the cap clamps to a fixed cap with a warning
+    # rather than erroring: the floor now has a nonzero DEFAULT (60,
+    # user ruling 2026-08-17), so a small --max-turns (smokes, minis)
+    # must not require also remembering to lower the floor --
+    # _roll_max_turns already treats min >= max as fixed-cap.
+    if args.max_turns_min and args.max_turns_min > args.max_turns:
+        log.warning(f"--max-turns-min {args.max_turns_min} > "
+                    f"--max-turns {args.max_turns}; jitter disabled "
+                    f"(fixed cap {args.max_turns}).")
+    if args.max_turns_min is not None and args.max_turns_min < 0:
+        ap.error(f"--max-turns-min {args.max_turns_min} negative")
     if args.reward_config is not None and args.mcts:
         # Shaping rewards are STRUCTURALLY INERT under --mcts:
         # MCTSPolicy.observe is a no-op, so every weight in the config
@@ -3779,6 +3846,8 @@ def main(argv: List[str]) -> int:
             max_turns_min=args.max_turns_min,
             pvp_defaults=pvp_defaults, device=device,
             max_batch=(args.actor_max_batch or None),
+            drain_grace=float(getattr(args, "pool_drain_grace",
+                                      1800.0)),
             log_level=logging.getLogger().level)
         actor_pool.start()
         atexit.register(actor_pool.shutdown)

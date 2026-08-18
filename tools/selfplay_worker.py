@@ -145,7 +145,13 @@ def main(argv) -> int:
     # Mix ratios: ABSOLUTE fractions of all games; the five must sum
     # to 1 (roll_mix validates). The parent passes all of them.
     ap.add_argument("--mini-ratio", type=float, default=0.0)
-    ap.add_argument("--max-turns", type=int, default=200)
+    # 100/60 = the standing jittered training cap (user ruling
+    # 2026-08-17) as CODE DEFAULT, mirroring sim_self_play -- the
+    # parent always forwards both flags, so these defaults only
+    # matter for a bare worker launch, and they must not silently
+    # widen the cap if a flag goes missing (the leg-3 [60,200]
+    # accident).
+    ap.add_argument("--max-turns", type=int, default=100)
     ap.add_argument("--draw-tiebreak-cap", type=float, default=0.3)
     ap.add_argument("--relevant-set-hexes", action="store_true",
                     help="Must mirror the learner: the hex stream defines "
@@ -173,9 +179,10 @@ def main(argv) -> int:
     ap.add_argument("--midgame-ratio", type=float, default=0.0)
     ap.add_argument("--ladder-ratio", type=float, default=1.0)
     ap.add_argument("--no-progress-turns", type=int, default=0)
-    ap.add_argument("--max-turns-min", type=int, default=None,
+    ap.add_argument("--max-turns-min", type=int, default=60,
                     help="Per-game turn-cap jitter floor (see "
-                         "sim_self_play --max-turns-min).")
+                         "sim_self_play --max-turns-min; 0 = fixed "
+                         "cap).")
     ap.add_argument("--midgame-dataset", type=Path,
                     default=Path("replays_dataset"))
     ap.add_argument("--validate-export-every", type=int, default=100)

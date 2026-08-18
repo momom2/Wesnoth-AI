@@ -229,3 +229,32 @@ def test_config_legacy_reply_alias_maps_to_projection():
     # Default: projection OFF (user directive 2026-08-17).
     cfg3 = config_from_args(SimpleNamespace(turn_search=True))
     assert cfg3.project == "none"
+
+
+def test_batch_boundary_values_matches_serial():
+    """The A6 batching change: `batch_boundary_values` must produce
+    values IDENTICAL to per-sim `boundary_value` calls -- terminal
+    boundaries included -- and free each boundary fork after use."""
+    import math
+
+    from tools.turn_search import (
+        batch_boundary_values, boundary_value, materialize,
+    )
+    policy = _policy(_cfg())
+    sim = fresh_scenario_sim()
+    base = policy._base
+    side = sim.gs.global_info.current_side
+    # Three variants of the side's opening turn, materialized without
+    # values (skip_value), boundary sims kept.
+    mats = [
+        materialize(base, sim, side, [], f"s{i}", 0, skip_value=True)
+        for i in range(3)
+    ]
+    assert all(math.isnan(m.value) for m in mats)
+    # Serial reference values BEFORE the batch consumes the forks.
+    ref = [boundary_value(base, m.boundary_sim, side, 0)
+           for m in mats]
+    batch_boundary_values(base, mats, side, 0)
+    for m, r in zip(mats, ref):
+        assert m.value == pytest.approx(r, abs=1e-6)
+        assert m.boundary_sim is None

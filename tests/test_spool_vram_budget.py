@@ -252,17 +252,27 @@ def test_worker_ctl_exit_protocol(tmp_path):
 def test_max_turns_jitter_bounds_and_passthrough(tmp_path,
                                                  monkeypatch):
     """_roll_max_turns stays in [min, max] (anti-horizon-gaming,
-    2026-07-20) and the spool parent forwards --max-turns-min."""
+    2026-07-20), 0/None disables, and the spool parent ALWAYS
+    forwards --max-turns-min with an explicit value (2026-08-17: the
+    old conditional forwarding dropped one flag of the pair and ran
+    leg 3 at [60,200] -- the half-carried-config failure). No
+    default VALUES pinned here (user ruling 2026-08-17): only the
+    forwarding invariant and the roll behavior."""
     import random
     from tools.sim_self_play import _roll_max_turns
     rng = random.Random(7)
     draws = {_roll_max_turns(rng, 100, 60) for _ in range(300)}
     assert min(draws) >= 60 and max(draws) <= 100
     assert len(draws) > 20                    # actually jitters
-    assert _roll_max_turns(rng, 100, None) == 100     # off by default
+    assert _roll_max_turns(rng, 100, None) == 100     # None disables
+    assert _roll_max_turns(rng, 100, 0) == 100        # 0 disables
     assert _roll_max_turns(rng, 100, 100) == 100      # degenerate
+    assert _roll_max_turns(rng, 8, 60) == 8   # floor>cap -> fixed cap
     sw, spawned, _ = _make_spool(tmp_path, monkeypatch)
-    assert "--max-turns-min" not in spawned[0].argv   # unset -> absent
+    argv = spawned[0].argv
+    assert "--max-turns-min" in argv          # ALWAYS forwarded
+    val = argv[argv.index("--max-turns-min") + 1]
+    int(val)                                  # explicit numeric value
 
 
 def test_replay_bundling_tars_and_clears_loose_files(tmp_path,

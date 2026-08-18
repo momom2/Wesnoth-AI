@@ -141,6 +141,10 @@ class TurnCommitPolicy(MCTSPolicy):
                         a[k] = a.get(k, 0.0) + stats[k]
                     a["kl_prior"] = (a.get("kl_prior", 0.0)
                                      + stats.get("kl_prior", 0.0))
+                    if "link_clip_frac" in stats:
+                        a["link_n"] = a.get("link_n", 0) + 1
+                        a["link_clip"] = (a.get("link_clip", 0.0)
+                                          + stats["link_clip_frac"])
                     a["top80"] = a.get("top80", 0) + (
                         1 if stats["prior_top"] > 0.8 else 0)
                     if "et_prior" in stats:

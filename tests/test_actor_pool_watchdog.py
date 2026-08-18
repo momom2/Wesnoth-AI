@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 from tools.actor_pool import (   # noqa: E402
-    ActorPool, _R_DONE, _R_EXPS, _R_OUTCOME,
+    ActorPool, _CMD_DRAIN, _R_DONE, _R_EXPS, _R_OUTCOME,
 )
 
 
@@ -52,13 +52,15 @@ class _FakeProc:
         return self._alive
 
 
-def _pool(procs, results, *, iteration_timeout=1800.0, liveness_interval=0.0):
+def _pool(procs, results, *, iteration_timeout=1800.0,
+          drain_grace=1800.0, liveness_interval=0.0):
     pool = ActorPool.__new__(ActorPool)
     pool._n = len(procs)
     pool._started = True
     pool._policy = SimpleNamespace(_inference_encoder=SimpleNamespace(
         unit_type_to_id={}, faction_to_id={}))
     pool._iteration_timeout = iteration_timeout
+    pool._drain_grace = drain_grace
     pool._liveness_interval = liveness_interval
     pool._max_batch = 8
     pool._serve_timeout = 0.0
@@ -90,13 +92,36 @@ def test_dead_actor_is_dropped_not_wedged():
 
 
 def test_wall_clock_deadline_breaks_out():
-    """Both actors hang (alive, never done, no requests). The wall-clock
-    deadline must break the loop rather than wedge."""
+    """Both actors hang (alive, never done, no requests). With zero
+    drain grace, the hard deadline must break the loop rather than
+    wedge -- and record the abandoned actors + the DRAIN sends."""
     procs = [_FakeProc(True), _FakeProc(True)]
-    pool = _pool(procs, results=[], iteration_timeout=0.0)
+    pool = _pool(procs, results=[], iteration_timeout=0.0,
+                 drain_grace=0.0)
     outcomes, experiences = pool.run_iteration(1, games_per_iter=2, base_seed=1)
     assert outcomes == []
     assert experiences == []
+    assert pool._last_abandoned == 2
+    for q in pool._ctrl_qs:
+        assert (_CMD_DRAIN,) in q._items
+
+
+def test_drain_grace_keeps_late_results():
+    """Soft deadline fires immediately, but the actors' results are
+    already queued -- the drain-grace window must collect them and
+    finish cleanly with nothing abandoned (the leg-3 waste mode was
+    discarding exactly these nearly-done games)."""
+    procs = [_FakeProc(True), _FakeProc(True)]
+    results = [
+        (_R_OUTCOME, 0, "g0"), (_R_DONE, 0, None),
+        (_R_OUTCOME, 1, "g1"), (_R_EXPS, 1, ["e1"]), (_R_DONE, 1, None),
+    ]
+    pool = _pool(procs, results, iteration_timeout=0.0,
+                 drain_grace=3600.0)
+    outcomes, experiences = pool.run_iteration(3, games_per_iter=2, base_seed=1)
+    assert sorted(outcomes) == ["g0", "g1"]
+    assert experiences == ["e1"]
+    assert pool._last_abandoned == 0
 
 
 def test_all_actors_done_normal_path():

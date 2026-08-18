@@ -168,6 +168,45 @@ def boundary_value(policy, sim, side: int, decision_step: int) -> float:
     return _value_for(output, sim.gs, side)
 
 
+# One inference request per chunk; matches the pool server's
+# max_batch=16 convention (tools/actor_pool.py) so a single actor's
+# candidate batch cannot monopolize a serve cycle.
+BOUNDARY_BATCH_CHUNK = 16
+
+
+def batch_boundary_values(policy, mats: List["Materialized"],
+                          side: int, decision_step: int,
+                          chunk: int = BOUNDARY_BATCH_CHUNK) -> None:
+    """Fill `m.value` IN PLACE for skip_value materializations, in
+    batched forwards. Terminal boundaries use the exact outcome
+    (`_terminal_value`, no forward -- same contract as
+    `boundary_value`); invalid entries are left NaN. Frees each
+    entry's `boundary_sim` afterwards so candidate forks don't
+    accumulate (up to K*n_alt live forks otherwise). Per-value
+    results are identical to per-sim `boundary_value` calls -- the
+    batched forward path is pinned per-sample-equal by the model
+    tests; only the transport is batched."""
+    live: List["Materialized"] = []
+    for m in mats:
+        if m.invalid or m.boundary_sim is None:
+            continue
+        if m.boundary_sim.done:
+            m.value = _terminal_value(m.boundary_sim, side,
+                                      tiebreak=None)
+            m.boundary_sim = None
+        else:
+            live.append(m)
+    for lo in range(0, len(live), max(1, chunk)):
+        part = live[lo:lo + max(1, chunk)]
+        with torch.no_grad():
+            encs = [policy._inference_encoder.encode(m.boundary_sim.gs)
+                    for m in part]
+            outs = policy._inference_model.forward_batch(encs)
+        for m, out in zip(part, outs):
+            m.value = _value_for(out, m.boundary_sim.gs, side)
+            m.boundary_sim = None
+
+
 def project_value(policy, sim, side: int, decision_step: int,
                   half_turns: int, max_actions: int,
                   rng: np.random.Generator) -> float:
@@ -313,13 +352,23 @@ class Materialized:
 
 def materialize(policy, start, side: int, commands: List[Dict],
                 salt: str, decision_step: int,
-                keep_boundary_sim: bool = False) -> Materialized:
+                keep_boundary_sim: bool = False,
+                skip_value: bool = False) -> Materialized:
     """Replay `commands` from a fork of `start` under `salt`; evaluate
     at the boundary. Clean bounces (`last_step_rejected`) are skipped
     and the replay continues; a raised exception marks the variant
     invalid (excluded from selection). `end_turn` is appended when the
     list doesn't end the turn on its own, so the result is always a
-    complete turn."""
+    complete turn.
+
+    `skip_value=True` skips the boundary forward and keeps the
+    boundary sim instead (value stays NaN): the caller either grades
+    by projection rollout, or evaluates MANY candidates in one
+    `batch_boundary_values` call -- the pool's inference server is
+    the serial bottleneck (~54 fwd/s, leg-3 A6 postmortem), so 48
+    one-at-a-time boundary forwards per turn plan was the single
+    largest avoidable latency in the pipeline. NOTE: with skip_value
+    the invalid check is `m.invalid` (value is NaN either way)."""
     sim = start.fork()
     sim._seed_salt = salt
     rng0 = sim._rng_requests
@@ -350,8 +399,10 @@ def materialize(policy, start, side: int, commands: List[Dict],
             executed.append({"type": "end_turn"})
         except Exception:  # noqa: BLE001
             invalid = True
-    value = float("nan") if invalid else boundary_value(
+    value = float("nan") if (invalid or skip_value) else boundary_value(
         policy, sim, side, decision_step)
+    if skip_value and not invalid:
+        keep_boundary_sim = True
     vis = frozenset(
         u.id for u in units_visible_to(sim.gs, side) if u.side != side
     ) if not invalid else frozenset()
@@ -597,13 +648,21 @@ def plan_turn(policy, sim, side: int, decision_step: int,
 
     for rnd in range(n_rounds):
         salt = f"{salt_ns}:r{rnd}"
+        # Sim work first (skip_value), boundary forwards BATCHED
+        # after -- the pool's inference server is the serial
+        # bottleneck (A6 postmortem: ~54 fwd/s shared by ~24 games),
+        # so one batched request per round replaces up to
+        # 1 + K*n_alt one-at-a-time round-trips. Values are
+        # identical; only the transport changes. Under project="all"
+        # grades come from rollouts and no boundary forward is
+        # issued at all (the review's redundant-forward patch).
         inc = materialize(policy, sim, side, commands, salt,
-                          decision_step, keep_boundary_sim=proj_all)
+                          decision_step, keep_boundary_sim=proj_all,
+                          skip_value=True)
         if inc.invalid:
             log.warning("plan_turn: incumbent materialization invalid")
             break
-        inc_val = _projected(inc) if proj_all else inc.value
-        cands: List[Tuple[int, int, Materialized, float]] = []
+        raw: List[Tuple[int, int, Materialized]] = []
         for j, st in enumerate(steps):
             priors = np.array([a.prior for a in st.legal])
             et_idx = next((i for i, a in enumerate(st.legal)
@@ -615,11 +674,20 @@ def plan_turn(policy, sim, side: int, decision_step: int,
                              + commands[j + 1:])
                 m = materialize(policy, sim, side, cand_cmds, salt,
                                 decision_step,
-                                keep_boundary_sim=proj_all)
-                if m.invalid or math.isnan(m.value):
+                                keep_boundary_sim=proj_all,
+                                skip_value=True)
+                if m.invalid:
                     continue
-                cands.append((j, alt_i, m,
-                              _projected(m) if proj_all else m.value))
+                raw.append((j, alt_i, m))
+        if proj_all:
+            inc_val = _projected(inc)
+            cands = [(j, a, m, _projected(m)) for j, a, m in raw]
+        else:
+            batch_boundary_values(policy, [inc] + [m for _, _, m in raw],
+                                  side, decision_step)
+            inc_val = inc.value
+            cands = [(j, a, m, m.value) for j, a, m in raw
+                     if not math.isnan(m.value)]
         if not cands:
             break
         deltas = np.array([v - inc_val for _, _, _, v in cands])
@@ -637,21 +705,32 @@ def plan_turn(policy, sim, side: int, decision_step: int,
                 and not inc.stochastic):
             reval = np.array([float(deltas[best])])
         else:
-            reval_l = []
+            pairs = []
             for v in range(cfg.reval_salts):
                 s2 = f"{salt}:v{v}"
                 inc2 = materialize(policy, sim, side, commands, s2,
                                    decision_step,
-                                   keep_boundary_sim=use_proj)
+                                   keep_boundary_sim=use_proj,
+                                   skip_value=True)
                 var2 = materialize(policy, sim, side, best_cmds, s2,
                                    decision_step,
-                                   keep_boundary_sim=use_proj)
+                                   keep_boundary_sim=use_proj,
+                                   skip_value=True)
                 if inc2.invalid or var2.invalid:
                     continue
-                if use_proj:
+                pairs.append((inc2, var2))
+            reval_l = []
+            if use_proj:
+                for inc2, var2 in pairs:
                     reval_l.append(_projected(var2) - _projected(inc2))
-                else:
-                    reval_l.append(var2.value - inc2.value)
+            elif pairs:
+                flat = [m for pr in pairs for m in pr]
+                batch_boundary_values(policy, flat, side,
+                                      decision_step)
+                reval_l = [var2.value - inc2.value
+                           for inc2, var2 in pairs
+                           if not (math.isnan(inc2.value)
+                                   or math.isnan(var2.value))]
             reval = (np.array(reval_l) if reval_l
                      else np.array([float("-inf")]))
         accept, _, _ = two_stage_accept(reval, cfg.min_delta)
@@ -674,16 +753,45 @@ def plan_turn(policy, sim, side: int, decision_step: int,
     plan.accepts = accepts
     kl_salt = f"{salt_ns}:t"
     inc = materialize(policy, sim, side, commands, kl_salt,
-                      decision_step,
-                      keep_boundary_sim=proj_all) if full else None
+                      decision_step, keep_boundary_sim=proj_all,
+                      skip_value=True) if full else None
+    # Materialize every coordinate's alternatives first (sim work),
+    # then grade ALL boundaries in one batched pass -- this is the
+    # "48 serial forwards per turn plan" hot spot the A6 postmortem
+    # flagged. NOTE the gumbel draws happen in coordinate order
+    # before any evaluation, so the rng stream is identical to the
+    # old interleaved loop.
+    per_coord: List[List[Tuple[int, Materialized]]] = []
+    if full and inc is not None and not inc.invalid:
+        for j, st in enumerate(steps):
+            priors = np.array([a.prior for a in st.legal])
+            et_idx = next((i for i, a in enumerate(st.legal)
+                           if a.action.get("type") == "end_turn"),
+                          None)
+            coord: List[Tuple[int, Materialized]] = []
+            for alt_i in gumbel_top_k_alternatives(
+                    priors, st.action_idx, et_idx, cfg.n_alt, rng):
+                cand = (commands[:j] + [st.legal[alt_i].action]
+                        + commands[j + 1:])
+                m = materialize(policy, sim, side, cand, kl_salt,
+                                decision_step,
+                                keep_boundary_sim=proj_all,
+                                skip_value=True)
+                if not m.invalid:
+                    coord.append((alt_i, m))
+            per_coord.append(coord)
+        if not proj_all:
+            batch_boundary_values(
+                policy, [inc] + [m for c in per_coord
+                                 for _, m in c],
+                side, decision_step)
     # Under "all" placement the distill targets rank actions by the
     # PROJECTED objective -- the training signal itself learns the
     # tempo-aware ordering. (v_root stays the blind pre-state value:
     # it only sets the unevaluated-mass fallback.)
-    inc_target_val = (_projected(inc)
-                      if (proj_all and inc is not None
-                          and not inc.invalid)
-                      else (inc.value if inc is not None else 0.0))
+    inc_target_val = 0.0
+    if inc is not None and not inc.invalid:
+        inc_target_val = _projected(inc) if proj_all else inc.value
     for j, st in enumerate(steps):
         plan.commands.append(st.action)
         plan.pre_keys.append(state_key(st.pre_fork.gs))
@@ -691,22 +799,15 @@ def plan_turn(policy, sim, side: int, decision_step: int,
             plan.targets.append(None)
             plan.stats.append(None)
             continue
-        priors = np.array([a.prior for a in st.legal])
-        et_idx = next((i for i, a in enumerate(st.legal)
-                       if a.action.get("type") == "end_turn"), None)
         values = np.zeros(len(st.legal))
         evaluated = np.zeros(len(st.legal), dtype=bool)
         values[st.action_idx] = inc_target_val
         evaluated[st.action_idx] = True
-        for alt_i in gumbel_top_k_alternatives(
-                priors, st.action_idx, et_idx, cfg.n_alt, rng):
-            cand = (commands[:j] + [st.legal[alt_i].action]
-                    + commands[j + 1:])
-            m = materialize(policy, sim, side, cand, kl_salt,
-                            decision_step, keep_boundary_sim=proj_all)
-            if m.invalid or math.isnan(m.value):
+        for alt_i, m in per_coord[j]:
+            v = _projected(m) if proj_all else m.value
+            if math.isnan(v):
                 continue
-            values[alt_i] = _projected(m) if proj_all else m.value
+            values[alt_i] = v
             evaluated[alt_i] = True
         tuples, stats = build_coordinate_target(
             st.legal, values, evaluated, st.pre_value,

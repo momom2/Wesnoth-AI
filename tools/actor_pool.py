@@ -62,6 +62,7 @@ log = logging.getLogger("actor_pool")
 # Control-queue commands (main -> actor).
 _CMD_PLAY = "play"        # (iter_idx, n_games, base_seed, t2i, f2i, decision_step)
 _CMD_STOP = "stop"
+_CMD_DRAIN = "drain"      # finish the current game, take no new ones
 
 # Result-queue message kinds (actor -> main).
 _R_OUTCOME = "outcome"    # a GameOutcome
@@ -176,6 +177,11 @@ def _actor_loop(
 
     while True:
         cmd = ctrl_q.get()
+        # A stale DRAIN can sit in the queue when the actor finished
+        # its quota before the manager's soft deadline fired: skip it
+        # (it referred to the PREVIOUS iteration).
+        while cmd[0] == _CMD_DRAIN:
+            cmd = ctrl_q.get()
         if cmd[0] == _CMD_STOP:
             return
         _, iter_idx, n_games, base_seed, t2i, f2i, decision_step0 = cmd
@@ -220,6 +226,26 @@ def _actor_loop(
                       and k != "midgame_dataset"}
         try:
             for g in range(n_games):
+                # Drain contract (user ruling 2026-08-17, A6): when
+                # the manager's soft deadline fires it sends DRAIN --
+                # finish the game in progress, start no new one. The
+                # check sits BETWEEN games so a completed game is
+                # never thrown away (the leg-3 waste mode).
+                drained = False
+                try:
+                    while True:
+                        nxt = ctrl_q.get_nowait()
+                        if nxt[0] == _CMD_DRAIN:
+                            drained = True
+                        elif nxt[0] == _CMD_STOP:
+                            return
+                        # PLAY cannot arrive mid-iteration (the
+                        # manager is synchronous); anything else is
+                        # dropped with the drain.
+                except _queue.Empty:
+                    pass
+                if drained:
+                    break
                 from tools.sim_self_play import _roll_max_turns
                 mt = _roll_max_turns(rng, max_turns, max_turns_min)
                 cat = roll_mix(rng, **mix)
@@ -298,6 +324,7 @@ class ActorPool:
         max_batch: Optional[int] = None, serve_timeout: float = 0.005,
         log_level: int = logging.WARNING, actor_torch_threads: int = 1,
         iteration_timeout: Optional[float] = 3600.0,
+        drain_grace: float = 1800.0,
         liveness_interval: float = 2.0,
         serve_threads: int = 2,
     ):
@@ -337,6 +364,13 @@ class ActorPool:
         # is_alive() scan that detects an actor that died without
         # reporting done.
         self._iteration_timeout = iteration_timeout
+        # Drain-not-abandon (user ruling 2026-08-17, A6 postmortem):
+        # at `iteration_timeout` the manager sends DRAIN (finish the
+        # current game, take no new ones) instead of discarding
+        # in-flight work; `drain_grace` seconds later the old
+        # abandon path is the hard backstop. Leg 3 threw away 30-60%
+        # of some iterations' games at the old single hard deadline.
+        self._drain_grace = float(drain_grace)
         self._liveness_interval = liveness_interval
         # Serving threads (2026-07-22): >1 overlaps one thread's
         # wire/put with another's encode+forward. The default 1800s
@@ -424,6 +458,8 @@ class ActorPool:
         total_decisions = 0                 # summed across actors this iter
         t_start = time.monotonic()
         last_liveness = t_start
+        drained = False                     # soft deadline fired?
+        self._last_abandoned = 0            # discard telemetry (A6)
 
         # Serving runs in dedicated threads (2026-07-22: the single-
         # threaded serve loop capped the box at ~243 leaves/s with the
@@ -473,14 +509,32 @@ class ActorPool:
             if not outstanding:
                 break
             now = time.monotonic()
-            if (self._iteration_timeout is not None
+            if (self._iteration_timeout is not None and not drained
                     and now - t_start > self._iteration_timeout):
+                # Soft deadline: drain, don't abandon. Completed
+                # games keep streaming in during the grace window.
+                drained = True
+                for aid in sorted(outstanding):
+                    self._ctrl_qs[aid].put((_CMD_DRAIN,))
+                log.warning(
+                    f"iter {iter_idx}: soft deadline "
+                    f"({self._iteration_timeout:.0f}s) reached; "
+                    f"DRAIN sent to actors {sorted(outstanding)} "
+                    f"(finish current game, no new ones; hard "
+                    f"backstop in {self._drain_grace:.0f}s). "
+                    f"{len(outcomes)} games in so far.")
+            if (self._iteration_timeout is not None and drained
+                    and now - t_start > (self._iteration_timeout
+                                         + self._drain_grace)):
+                self._last_abandoned = len(outstanding)
                 log.error(
-                    f"iter {iter_idx}: wall-clock deadline "
-                    f"({self._iteration_timeout:.0f}s) exceeded with "
-                    f"actors {sorted(outstanding)} still outstanding; "
-                    f"abandoning the iteration with partial results "
-                    f"({len(outcomes)} games, {len(experiences)} exps).")
+                    f"iter {iter_idx}: hard deadline "
+                    f"({self._iteration_timeout:.0f}s + "
+                    f"{self._drain_grace:.0f}s drain grace) exceeded "
+                    f"with actors {sorted(outstanding)} still "
+                    f"outstanding; abandoning their in-flight games "
+                    f"({len(outcomes)} games, {len(experiences)} "
+                    f"exps kept).")
                 break
             if now - last_liveness > self._liveness_interval:
                 last_liveness = now

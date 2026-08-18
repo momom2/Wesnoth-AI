@@ -695,6 +695,12 @@ class MCTSPolicy:
                                  else None,
             "distill_et_target": (acc["et_target"] / et_n) if et_n
                                  else None,
+            # TCS linear-link zero-clip rate (2026-08-17): fraction
+            # of evaluated actions whose advantage factor clipped at
+            # 0. High = --turn-target-beta too hot. None on the
+            # Gumbel path / exp link (no accumulator entries).
+            "link_clip_frac": (acc["link_clip"] / acc["link_n"])
+                              if acc.get("link_n") else None,
         }
 
     def drop_last_pending(self, game_label: str) -> bool:
