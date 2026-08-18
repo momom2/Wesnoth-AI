@@ -26,6 +26,9 @@ training/profiles/
 # Per-net-size metric archives: CSVs untracked (user order 2026-08-06),
 # README tracked so the convention survives.
 training/metrics/*.csv
+# Exception: committed measurement records (small, evidential --
+# probe verdicts cite them; the elo catalog precedent).
+!training/metrics/luck_probe.csv
 training/replays/
 training/spool/
 

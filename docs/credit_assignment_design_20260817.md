@@ -169,3 +169,21 @@ The credit-assignment plan and the collapse forensics **share their instruments*
 - **Whether the leg-3 turn cap was actually jittered 60–100** is not confirmed from the captured log (`--max-turns` defaults to 200, `--max-turns-min` to None), and `mean_turns` reached 102.4 at iter 19. If the cap was unjittered, the "unobservable latent variable" framing weakens considerably and the Pardo case-2 reading changes. Confirm before quoting it.
 - **The claim that TCS never grades against an unsalted rollout** (which the luck ledger's unbiasedness silently depends on) held under inspection — every accept/reject is made on salted materializations (`turn_search.py:520-521`, `:551-578`) — but it is undocumented. If the ledger ships, write it into `docs/tcs_spec.md` as an invariant.
 - **Stage (b) removes label poison; it does not fix non-conversion.** R4's seed — material advantage that cannot be converted inside the cap — is untouched by everything in stage (b). The postmortem's M6.1 conversion probe remains the highest-information experiment in the project and this plan only re-orders it behind the grader repair, it does not replace it.
+---
+
+## Q3 ANSWERED (2026-08-17, tools/luck_probe.py, 500 human games)
+
+**The luck ledger is DEAD by the pre-registered rule.** OOS rho^2:
+L_hp 0.0305, L_cost 0.0499 -- both under the 0.05 kill bar (L_cost
+exactly at the boundary; neither near the 0.15 ship bar). Max
+achievable label-variance reduction 5.6%: not worth the C51-support
+surgery. Luck is real (+0.24 in-sample correlation, ~5 sigma at
+n=500) and small: human ladder games are ~95% decided by
+non-dice factors. Caveats recorded: DP bail rate 16.9%
+(advancement-possible fights -- important fights, so total luck is
+somewhat underestimated; doubling it still fails the ship bar), and
+this is the human regime (re-runnable on self-play games at zero
+design cost if a future policy's fighting style differs). Side
+finding: side 1 won 293/500 = 0.586 -- a first-move/map advantage
+to remember when reading self-play win splits. Per-game data:
+training/metrics/luck_probe.csv.
