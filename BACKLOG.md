@@ -106,7 +106,21 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
    the probe instrument (tools/luck_probe.py) measures any of them
    for free, incl. on self-play games. Not blocking leg 4.
 
-2. 🟡 **Revisit the no-progress stalemate rule** (user ruling
+2. 🟡 **Hindsight credit assignment — idea parked, mechanism
+   rejected** (user ruling 2026-08-17). The specific Q11 proposal
+   (P(a|s,outcome)/pi log-ratio as an additive target term, HCA
+   recast) is NOT approved: correlation-not-causation unbaselined,
+   likely reduces to a scalar end_turn knob (hand-tuned = refused
+   under learned-or-exact), and its logit-space integration surface
+   predates the linear target link. But the user finds MEASURING
+   credit via hindsight interesting in itself — revisit as a
+   measurement/diagnostic direction (e.g., what do outcome-
+   conditioned action statistics reveal about where credit is
+   misallocated?) after the leg-4 value-head repair. Literature
+   anchors: HCA (Harutyunyan 2019), CCA (Mesnard 2021);
+   docs/credit_assignment_design_20260817.md Q11.
+
+3. 🟡 **Revisit the no-progress stalemate rule** (user ruling
    2026-08-17: unsatisfied with the current detection criteria;
    default-off stands). Current rule (tools/wesnoth_sim.py:783-821):
    progress = unit-count change OR net-HP decrease OR village flip,
