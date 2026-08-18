@@ -38,6 +38,27 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 log = logging.getLogger("value_pretrain")
 
 
+def _load_worker(task):
+    """Pool worker: reconstruct one game -> capped experience list.
+    Top-level (spawn-picklable); each call seeds its own rng from the
+    task so results are order-independent under imap_unordered.
+    Loading REPLAYS the whole game (~4 s single-threaded), which
+    made one epoch over 16,824 games an 18-hour wall -- the 48-core
+    box was idle while one process replayed games (2026-08-17)."""
+    dataset_dir, fname, winner, stride, cap, seed = task
+    import random as _random
+    from tools.value_corpus import game_experiences
+    rng = _random.Random(seed)
+    try:
+        exps = game_experiences(Path(dataset_dir) / fname, winner,
+                                stride=stride, rng=rng)
+    except Exception:                                   # noqa: BLE001
+        return []
+    if cap and len(exps) > cap:
+        exps = rng.sample(exps, cap)
+    return exps
+
+
 def main(argv: List[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--dataset-dir", type=Path,
@@ -50,6 +71,10 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--batch", type=int, default=256)
     ap.add_argument("--lr", type=float, default=5e-5)
     ap.add_argument("--value-label-smoothing", type=float, default=0.02)
+    ap.add_argument("--loader-jobs", type=int, default=8,
+                    help="Parallel game-reconstruction workers "
+                         "(loading replays whole games; 1 job = "
+                         "~18 h/epoch over the full corpus).")
     ap.add_argument("--max-states-per-game", type=int, default=8,
                     help="Cap on training states drawn per game "
                          "(AFTER stride thinning; random subsample). "
@@ -170,16 +195,31 @@ def main(argv: List[str]) -> int:
             exps = rng.sample(exps, cap)
         return exps
 
-    # Fixed held-out probe (sampled once). Probe stride is high so
-    # the probe spans MANY games at few states each.
+    def iter_exps_parallel(rows, stride, epoch):
+        """Yield per-game experience lists from a worker pool (order-
+        free). Per-(epoch, game) seeds keep subsampling deterministic
+        for a given --seed regardless of arrival order."""
+        tasks = [(str(args.dataset_dir), r["file"], r["winner"],
+                  stride, args.max_states_per_game,
+                  args.seed * 1_000_003 + epoch * 131 + i)
+                 for i, r in enumerate(rows)]
+        if args.loader_jobs <= 1:
+            for t in tasks:
+                yield _load_worker(t)
+            return
+        import multiprocessing as mp
+        with mp.get_context("spawn").Pool(args.loader_jobs) as pool:
+            yield from pool.imap_unordered(_load_worker, tasks,
+                                           chunksize=8)
+
+    # Fixed held-out probe (sampled once, parallel-loaded). Probe
+    # stride is high so the probe spans MANY games at few states.
     probe = []
-    for row in holdout_rows:
+    for exps in iter_exps_parallel(holdout_rows, max(args.stride, 16),
+                                   epoch=-1):
+        probe.extend(exps)
         if len(probe) >= args.probe_states:
             break
-        try:
-            probe.extend(load_exps(row, max(args.stride, 16)))
-        except Exception as e:                  # noqa: BLE001
-            log.debug(f"holdout skip {row['file']}: {e}")
     probe = probe[:args.probe_states]
     m0 = trainer.eval_value_metrics(probe)
     log.info(f"BEFORE: holdout ce={m0['ce']:.4f} "
@@ -198,12 +238,9 @@ def main(argv: List[str]) -> int:
         n_pairs = n_batches = 0
         batch: List = []
         vloss_sum = vloss_n = 0.0
-        for row in train_rows:
-            try:
-                batch.extend(load_exps(row, args.stride))
-            except Exception as e:              # noqa: BLE001
-                log.debug(f"skip {row['file']}: {e}")
-                continue
+        for exps in iter_exps_parallel(train_rows, args.stride,
+                                       epoch=epoch):
+            batch.extend(exps)
             while len(batch) >= args.batch:
                 chunk, batch = batch[:args.batch], batch[args.batch:]
                 stats = trainer.step_mcts(chunk)
