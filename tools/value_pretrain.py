@@ -71,6 +71,13 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--batch", type=int, default=256)
     ap.add_argument("--lr", type=float, default=5e-5)
     ap.add_argument("--value-label-smoothing", type=float, default=0.02)
+    ap.add_argument("--device", default="auto",
+                    choices=("auto", "cpu", "cuda"),
+                    help="'auto' = cuda when available. "
+                         "TransformerPolicy defaults to CPU, so the "
+                         "2026-08-17 box run trained the head on CPU "
+                         "with the 4090 idle (probe pass alone: 69 "
+                         "min on cpu vs ~2 on cuda).")
     ap.add_argument("--loader-jobs", type=int, default=8,
                     help="Parallel game-reconstruction workers "
                          "(loading replays whole games; 1 job = "
@@ -118,7 +125,17 @@ def main(argv: List[str]) -> int:
     raw = torch.load(args.checkpoint_in, map_location="cpu",
                      weights_only=False)
     a = raw["arch"]
+    if args.device == "cpu":
+        dev = None
+    elif args.device == "cuda":
+        if not torch.cuda.is_available():
+            raise SystemExit("--device cuda requested but unavailable")
+        dev = torch.device("cuda")
+    else:
+        dev = (torch.device("cuda") if torch.cuda.is_available()
+               else None)
     policy = TransformerPolicy(
+        device=dev,
         d_model=a["d_model"], num_layers=a["num_layers"],
         num_heads=a["num_heads"], d_ff=a["d_ff"],
         aux_score=bool(raw.get("aux_score")),
