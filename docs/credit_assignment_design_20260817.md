@@ -197,3 +197,17 @@ gated, and superseded the draw-weight sign measurement Q6 fed.
 Neither measurement gates anything anymore. Q5's instrument
 (mid-game margin distribution on stored games) stays trivially
 buildable if the family ever revives.
+
+## Q8 ANSWERED (2026-08-17, tools/crn_kill_probe.py): CRN family DEAD
+
+76 incumbent-vs-single-edit pairs from human midgame positions,
+instrumented at the sim's single RNG-allocation point
+(WesnothSim._next_seed): median downstream RNG events per incumbent
+turn = 0 (mean 0.55); matched downstream fight identities median 0
+under BOTH the strict key (ids+hexes+weapon) and the loose key (ids
+only); only 28% of pairs share even one. A turn edit changes which
+fights happen -- event-keyed seeds would have nothing to reuse.
+Pre-registered rule (median strict >= 1 keeps it alive): DEAD.
+Caveat: measured under the collapsed short-turn leg-3-end
+checkpoint; re-runnable in one command under a healthy policy, but
+the margin (0 vs the >= 1 bar) survives any plausible regime shift.
