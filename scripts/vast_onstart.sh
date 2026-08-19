@@ -59,7 +59,19 @@ if [ -f "$WORKDIR/env.sh" ]; then
     echo "[onstart] sourced $WORKDIR/env.sh overrides"
 fi
 
-# Required-decisions preflight (2026-08-19). Some variables have NO
+# Config mode (redesign 2026-08-19): $WORKDIR/leg.json present =
+# typed-config mode -- schema-validated by tools/leg_config.py
+# (requiredness structural, unknown keys fatal), daemons managed by
+# scripts/leg_daemons.py (own process groups, idempotent ensure,
+# structured status). Absent = legacy env-var mode, byte-identical
+# to before, kept only for boxes mid-leg at rollout.
+CONFIG_MODE=legacy
+[ -f "$WORKDIR/leg.json" ] && CONFIG_MODE=file
+echo "[onstart] config mode: $CONFIG_MODE"
+
+# Required-decisions preflight (2026-08-19, LEGACY MODE ONLY -- in
+# file mode the schema enforces requiredness structurally, which
+# supersedes this hand-maintained list). Some variables have NO
 # default BY DESIGN (arm selection is a per-leg user decision) --
 # which made them silently omittable: the leg-4 launch shipped
 # without its policy anchor because the env simply didn't mention
@@ -67,7 +79,8 @@ fi
 # value, or explicitly declined with the literal string "none".
 # An UNSET required variable refuses the launch loudly (the same
 # trick that retired the half-carried cap-config class).
-for _req in HUMAN_ANCHOR_POLICY_FILE PROBE_T0; do
+[ "$CONFIG_MODE" = file ] && _REQ_LIST="" || _REQ_LIST="HUMAN_ANCHOR_POLICY_FILE PROBE_T0"
+for _req in $_REQ_LIST; do
     if [ -z "${!_req+x}" ]; then
         echo "[onstart] REFUSING LAUNCH: required decision $_req is"
         echo "[onstart]   UNSET. Set it in $WORKDIR/.leg_env -- to a"
@@ -150,6 +163,20 @@ cd Wesnoth-AI
 # locally-dirtied tree (shouldn't happen; checkpoints write to an
 # untracked path) fails loudly instead of merging silently.
 git pull --ff-only || echo "[onstart] WARN: git pull failed; running existing checkout"
+
+# Typed-config load (file mode; AFTER the pull so validation runs
+# against current code): validate refuses the launch on ANY schema
+# problem (all problems listed at once); export maps the declared
+# decisions onto the same env vars the rest of this script consumes,
+# so downstream flow is identical in both modes.
+if [ "$CONFIG_MODE" = file ]; then
+    if ! "$PY" tools/leg_config.py validate "$WORKDIR/leg.json"; then
+        echo "[onstart] REFUSING LAUNCH: leg.json invalid (above)"
+        exit 1
+    fi
+    eval "$("$PY" tools/leg_config.py export "$WORKDIR/leg.json")"
+    echo "[onstart] leg.json applied"
+fi
 
 # A tripwire abort (exit 4 = all-draws, 5 = holdout stall) needs a
 # human decision -- do NOT auto-relaunch over it.
@@ -470,12 +497,18 @@ fi
 # campaign checkpoint + CSV immediately and every 30 min -- a stopped
 # instance's disk is unreachable (learned 2026-07-03), so anything not
 # pushed off the node is hostage to the next outbid.
-pkill -f 'hf_upload_loo[p].py' 2>/dev/null || true
+[ "$CONFIG_MODE" = legacy ] && pkill -f 'hf_upload_loo[p].py' 2>/dev/null || true
 if [ -n "${HF_TOKEN:-}" ] || [ -f "$WORKDIR/.hf_token" ]; then
     "$PY" -m pip install --quiet huggingface_hub || true
-    WORKDIR="$WORKDIR" CAMPAIGN_FILE="$CAMPAIGN_FILE" \
-        nohup "$PY" scripts/hf_upload_loop.py \
-        >> "$WORKDIR/hf_upload.log" 2>&1 &
+    export CAMPAIGN_FILE
+    if [ "$CONFIG_MODE" = file ]; then
+        "$PY" scripts/leg_daemons.py ensure uploader -- \
+            "$PY" scripts/hf_upload_loop.py
+    else
+        WORKDIR="$WORKDIR" CAMPAIGN_FILE="$CAMPAIGN_FILE" \
+            nohup "$PY" scripts/hf_upload_loop.py \
+            >> "$WORKDIR/hf_upload.log" 2>&1 &
+    fi
     echo "[onstart] HF checkpoint uploader ON (see hf_upload.log)"
 else
     echo "[onstart] HF uploader off (no HF_TOKEN / $WORKDIR/.hf_token)"
@@ -488,7 +521,7 @@ fi
 # writes training/logs/holdout_probe.csv, which hf_upload_loop
 # escrows. Needs replays_dataset_imitation/ staged on the box;
 # skipped (with a loud line) when absent. Disable with PROBE_EVERY=0.
-pkill -f 'holdout_probe_loo[p].py' 2>/dev/null || true
+[ "$CONFIG_MODE" = legacy ] && pkill -f 'holdout_probe_loo[p].py' 2>/dev/null || true
 if [ "${PROBE_EVERY:-3600}" != "0" ]; then
     if [ -f "replays_dataset_imitation/manifest.jsonl" ]; then
         # PROBE_T0: the seed checkpoint's CE under this probe's exact
@@ -498,10 +531,16 @@ if [ "${PROBE_EVERY:-3600}" != "0" ]; then
         # t0+PROBE_ABORT_DELTA (default 0.5 x3) -- the guard the
         # 2026-08-12 diagnosis found missing. Override or empty it
         # (-e PROBE_T0=) for a different lineage.
-        CAMPAIGN_FILE="$CAMPAIGN_FILE" \
-        PROBE_T0="${PROBE_T0-3.207}" \
-            nohup "$PY" scripts/holdout_probe_loop.py \
-            >> "$WORKDIR/holdout_probe.log" 2>&1 &
+        if [ "$CONFIG_MODE" = file ]; then
+            export CAMPAIGN_FILE PROBE_T0
+            "$PY" scripts/leg_daemons.py ensure probe -- \
+                "$PY" scripts/holdout_probe_loop.py
+        else
+            CAMPAIGN_FILE="$CAMPAIGN_FILE" \
+            PROBE_T0="${PROBE_T0-3.207}" \
+                nohup "$PY" scripts/holdout_probe_loop.py \
+                >> "$WORKDIR/holdout_probe.log" 2>&1 &
+        fi
         echo "[onstart] holdout probe ON (see holdout_probe.log)"
     else
         echo "[onstart] holdout probe OFF: no replays_dataset_imitation/"
@@ -711,7 +750,7 @@ fi
 # (rc >= 3) still stop everything and leave an ABORTED_* marker.
 # After the first save, $RESET is dropped automatically: the
 # campaign file exists, so a relaunch resumes it.
-nohup bash -c "
+_TRAIN_BODY="
   RESET='$RESET'
   tries=0
   while [ \$tries -lt 20 ]; do
@@ -780,7 +819,12 @@ nohup bash -c "
     echo \"[onstart] relaunch \$tries/20 in 60s\" >> '$WORKDIR/train.log'
     sleep 60
   done
-" >/dev/null 2>&1 &
+"
+if [ "$CONFIG_MODE" = file ]; then
+    "$PY" scripts/leg_daemons.py ensure trainer -- bash -c "$_TRAIN_BODY"
+else
+    nohup bash -c "$_TRAIN_BODY" >/dev/null 2>&1 &
+fi
 echo "[onstart] training launched, supervised (tail -f $WORKDIR/train.log)"
 
 # ---- Stall watchdog (BACKLOG item 1, 2026-08-10) --------------------
@@ -788,10 +832,15 @@ echo "[onstart] training launched, supervised (tail -f $WORKDIR/train.log)"
 # hang symptom the tripwires and the relaunch loop both miss); the
 # supervisor above sees the WATCHDOG_STALL marker and relaunches.
 # Disable with -e STALL_WINDOW=0.
-pkill -f 'stall_watchdo[g].py' 2>/dev/null || true
+[ "$CONFIG_MODE" = legacy ] && pkill -f 'stall_watchdo[g].py' 2>/dev/null || true
 rm -f "$WORKDIR/WATCHDOG_STALL"
 if [ "${STALL_WINDOW:-1800}" != "0" ]; then
-    WORKDIR="$WORKDIR" nohup "$PY" scripts/stall_watchdog.py \
-        >> "$WORKDIR/watchdog.log" 2>&1 &
+    if [ "$CONFIG_MODE" = file ]; then
+        "$PY" scripts/leg_daemons.py ensure watchdog -- \
+            "$PY" scripts/stall_watchdog.py
+    else
+        WORKDIR="$WORKDIR" nohup "$PY" scripts/stall_watchdog.py \
+            >> "$WORKDIR/watchdog.log" 2>&1 &
+    fi
     echo "[onstart] stall watchdog ON (see watchdog.log)"
 fi

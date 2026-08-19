@@ -1,0 +1,6 @@
+{
+  "campaign_file": "tier_b_l4.pt",
+  "seed_hf_file": "tier-b/a3/seed_imit_tierb_start.pt",
+  "probe_t0": "3.2070",
+  "policy_anchor": "replays_dataset_imitation/policy_anchor.npz"
+}
