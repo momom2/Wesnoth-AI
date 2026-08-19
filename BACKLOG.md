@@ -134,6 +134,21 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
    (training/checkpoints/tier_b_tcs2_leg3_end.pt) for M1; all
    boxes STOPPED.**
 
+1. 🟡 **Launch-system redesign — architectural, not guarded**
+   (user ruling 2026-08-19: no incident-specific guards; fix at the
+   root so the error class is unrepresentable). Replace the
+   env-string launch surface + hand-maintained preflight with: ONE
+   typed leg-config file (schema-validated; requiredness structural
+   -- parser fails on missing decisions; supersedes the preflight
+   list which has its own silent-omission mode one level up);
+   launcher as an idempotent RECONCILER (N invocations converge to
+   declared state; retires flock + pkill-before-spawn); process-
+   group ownership for teardown (retires pkill bracket-pattern
+   folklore); structured status file written by daemons (retires
+   log-grep watchdogs/monitors). The flock + preflight shipped
+   2026-08-19 are explicit STOPGAPS pending this. Also fold in:
+   baked project image evaluation (PTX JIT + 10GB cold pulls).
+
 1. 🟡 **Revisit the luck compensator** (user directive 2026-08-17).
    The Q3 probe retired the luck LEDGER as a value-label variance
    tool (rho^2 0.03/0.05, docs/credit_assignment_design_20260817.md
