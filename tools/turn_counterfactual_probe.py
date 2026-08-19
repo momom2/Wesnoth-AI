@@ -84,7 +84,11 @@ class ProbeConfig:
     mcts_cfg: MCTSConfig = field(default_factory=MCTSConfig)
 
 
-def load_policy(ckpt: Path, device: str = "cpu") -> TransformerPolicy:
+def load_policy(ckpt: Path, device: str = "auto") -> TransformerPolicy:
+    if device == "auto":
+        # 2026-08-17: the A4 bake-off ran a full judge on CPU because
+        # the launch omitted --device -- 26 ms forwards vs 3 ms.
+        device = "cuda" if torch.cuda.is_available() else "cpu"
     raw = torch.load(ckpt, map_location="cpu", weights_only=False)
     arch = raw.get("arch", {})
     policy = TransformerPolicy(
@@ -514,7 +518,8 @@ def main(argv) -> int:
                     choices=["all", "first", "none"])
     ap.add_argument("--baseline-sims", type=int, default=32)
     ap.add_argument("--no-placebo", action="store_true")
-    ap.add_argument("--device", default="cpu")
+    ap.add_argument("--device", default="auto",
+                    choices=("auto", "cpu", "cuda"))
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", type=Path,
                     default=Path("training/logs/tcs_probe/probe.jsonl"))
