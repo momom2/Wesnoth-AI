@@ -211,3 +211,32 @@ Pre-registered rule (median strict >= 1 keeps it alive): DEAD.
 Caveat: measured under the collapsed short-turn leg-3-end
 checkpoint; re-runnable in one command under a healthy policy, but
 the margin (0 vs the >= 1 bar) survives any plausible regime shift.
+
+## A3/A4 ANSWERED (2026-08-19): the leg-4 judge exists, and the
+## imitation trunk wins everything
+
+A3 (frozen-trunk seeds, 16,824 games, cached features): holdout
+outcome-AUC seeded-imit 0.824 / seeded-tcs2 0.798; linear probe
+within 0.007/0.025 of the full head on both trunks => Q1: THE TRUNK
+IS THE CAP. Both clear the 0.60 launch gate and the 0.68 plateau.
+
+A4 (counterfactual probe, 200 states + 200 placebo per judge, GPU):
+  judge                 accept  placebo  separation  medDelta  K_gen
+  seeded imitation      0.620   0.090      6.9:1      0.079    12.6
+  seeded leg-3 trunk    0.810   0.240      3.4:1      0.074     9.5
+  unseeded leg-3 (base) 0.730   0.230      3.2:1      0.093     9.7
+The A4 gate (separation widens vs the rung-1 baseline 4.9:1) PASSES
+for the seeded-imitation judge and fails for both leg-3-trunk
+judges -- their high raw accept rides a 2.6x higher noise
+(placebo) acceptance. rho(delta,survival) ~ 0 everywhere. KL gate
+False for the imit judge (same disputed magnitude proxy as rung-1;
+precedent: not blocking). Caveat: each judge probes states its own
+policy generates (K 12.6 vs 9.5 regimes), so cross-judge rows carry
+a state-distribution confound; the within-judge real-vs-placebo
+separation is the clean per-judge statistic, and it is not close.
+
+RECOMMENDATION (decision = user's): restart leg 4 from the
+imitation checkpoint with the A3-seeded head
+(tier-b/a3/seed_imit_tierb_start.pt, escrowed). Every instrument
+agrees: AUC, noise rejection, counterfactual separation, generation
+turn structure, Elo history, trunk-feature parity.
