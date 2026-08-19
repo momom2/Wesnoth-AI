@@ -23,6 +23,19 @@ mkdir -p "$WORKDIR"
 exec >> "$WORKDIR/onstart.log" 2>&1
 echo "==== onstart $(date -u +%FT%TZ) ===="
 
+# Single-instance lock (2026-08-19): two overlapping onstart
+# invocations pkill each other's children mid-smoke and can leave
+# spurious ABORTED_* markers (observed at the leg-4 launch: a
+# zero-byte ABORTED_fork_guard from launch collision cost an hour
+# of clean-room re-verification). Concurrent invocations now exit
+# instead of interleaving. Lock releases when this shell exits;
+# the daemons it spawns hold their own copies of fd 9 closed.
+exec 9>"$WORKDIR/.onstart.lock"
+if ! flock -n 9; then
+    echo "[onstart] another onstart invocation holds the lock; exiting"
+    exit 0
+fi
+
 cd "$WORKDIR"
 
 # Box-local env overrides (2026-08-11): create-time env is baked and
@@ -45,6 +58,28 @@ if [ -f "$WORKDIR/env.sh" ]; then
     . "$WORKDIR/env.sh"
     echo "[onstart] sourced $WORKDIR/env.sh overrides"
 fi
+
+# Required-decisions preflight (2026-08-19). Some variables have NO
+# default BY DESIGN (arm selection is a per-leg user decision) --
+# which made them silently omittable: the leg-4 launch shipped
+# without its policy anchor because the env simply didn't mention
+# it. Deliberate no-defaults must be DECLARED: either set to a
+# value, or explicitly declined with the literal string "none".
+# An UNSET required variable refuses the launch loudly (the same
+# trick that retired the half-carried cap-config class).
+for _req in HUMAN_ANCHOR_POLICY_FILE PROBE_T0; do
+    if [ -z "${!_req+x}" ]; then
+        echo "[onstart] REFUSING LAUNCH: required decision $_req is"
+        echo "[onstart]   UNSET. Set it in $WORKDIR/.leg_env -- to a"
+        echo "[onstart]   value, or to the literal 'none' to decline"
+        echo "[onstart]   the arm deliberately."
+        exit 1
+    fi
+    if [ "${!_req}" = "none" ]; then
+        printf -v "$_req" '%s' ""
+        echo "[onstart] $_req: explicitly declined"
+    fi
+done
 
 # Resolve python: prefer the image's venv, then conda, then PATH.
 if [ -x /venv/main/bin/python ]; then
@@ -655,7 +690,7 @@ if [ "${FORK_GUARD_SMOKE:-1}" = "1" ]; then
         --game-log-dir "" --validate-export-every 0 \
         --checkpoint-in "$CKPT_IN" \
         --checkpoint-out "$WORKDIR/fork_guard_smoke.pt" \
-        --save-every 1000 --log-level WARNING \
+        --save-every 1000 --log-level INFO \
         >> "$WORKDIR/onstart.log" 2>&1; then
         echo "[onstart] fork-guard smoke PASSED"
         touch "$WORKDIR/.fork_guard_passed_$_SMOKE_REV"

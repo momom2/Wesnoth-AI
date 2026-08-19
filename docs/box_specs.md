@@ -80,3 +80,30 @@ and how to refresh each input — it is a worksheet, not a policy.
   against the escrow and destroy rather than accumulate.
 - Host reliability varies wildly; `vast-box-ops-traps` memories
   catalog the create/relaunch failure modes.
+
+## Amendments (2026-08-19, leg-4 launch lessons)
+
+- **Offers list HOST cores, not your slice.** The leg-4 rental
+  advertised 192 cores; the cgroup quota delivered 23 (pool sized
+  itself to 19 actors). Filter/inspect `cpu_cores_effective` in
+  offer queries, never `cpu_cores`, and treat the actor-pool's own
+  startup line ("quota N cores") as the ground truth.
+- **Per-core speed does not transfer between boxes.** Two estimates
+  in one evening were wrong by 3-4x from quoting another box's
+  measurements (image pull, fork-guard smoke: ~40 min on slow
+  EPYC cores vs ~10 expected). The worksheet's numbers are
+  per-box-class; re-measure or say "unknown on this box".
+- **Fork-guard smoke duration**: budget 10-45 min depending on
+  core speed (deep fingerprints x CPU forwards x one game, no
+  parallelism). It logs at INFO now; silence no longer means
+  anything.
+- **vastai/pytorch:cuda-13.0.3-auto lacks sm_89 binaries** (RTX
+  4090 runs via PTX JIT: slow first kernels). Cold pull ~10 GB,
+  10-30 min on a slow link and silent during extraction. Worth
+  evaluating a baked project image (backlogged).
+- **Never hand-assemble bring-up.** Token file + bootstrap script +
+  launcher IS the path; every manual-ssh deviation this launch
+  (dataset extract, anchor env, double invocation) recreated a
+  solved problem. The launcher now enforces a single-instance lock
+  and a required-decisions preflight (unset no-default vars refuse
+  the launch; decline explicitly with "none").
