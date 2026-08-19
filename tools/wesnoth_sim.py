@@ -1387,16 +1387,25 @@ class WesnothSim:
             reach = unit_reach(mover, self.gs, ctx)
             tpos = (target.x, target.y)
             if tpos not in reach.landable:
-                # The mask uses the same planner on the same
-                # observable state, so this means mask and sim
-                # disagree -- a contract bug, not a policy mistake.
-                # Loud (WARNING, not debug) + re-decide instead of
-                # burning the turn.
-                log.warning(
+                # On a LIVE sim this would mean mask and sim disagree
+                # -- a contract bug, loud WARNING (fuzz-verified
+                # 2026-08-17: 0 live rejections in 11,294 random
+                # mask-driven steps, tools/mask_sim_fuzz.py). On a
+                # SALTED SEARCH FORK it is EXPECTED chance-node
+                # divergence: the traversal resampled upstream combat
+                # under a fresh salt, so a stored tree action can be
+                # illegal on this fork (mcts.py parks it as a noop
+                # outcome). The A4 probe logged 1,121 of these at
+                # WARNING and read as a livelock -- fork context is
+                # DEBUG.
+                (log.debug if self._seed_salt else log.warning)(
                     f"sim: move target {tpos} not landable for "
                     f"{mover.id}@{(start.x, start.y)} "
-                    f"(mp={mover.current_moves}); mask/sim "
-                    f"reachability disagreement -- re-deciding")
+                    f"(mp={mover.current_moves}); "
+                    + ("search-fork chance divergence"
+                       if self._seed_salt else
+                       "mask/sim reachability disagreement")
+                    + " -- re-deciding")
                 return ["__reject_action__"], None
             path = route_to(reach, tpos)
             cmd_move = ["move",
@@ -1494,7 +1503,7 @@ class WesnothSim:
                 return None, None
             _on_keep, _network = leader_castle_network(self.gs, _leader)
             if not _on_keep or (target.x, target.y) not in _network:
-                log.warning(
+                (log.debug if self._seed_salt else log.warning)(
                     f"sim: recruit {unit_type!r} on "
                     f"({target.x},{target.y}) rejected: "
                     f"{'leader off keep' if not _on_keep else 'hex outside leader castle network'}"
@@ -1507,7 +1516,7 @@ class WesnothSim:
             if 0 <= side_idx < len(self.gs.sides):
                 _rlist = self.gs.sides[side_idx].recruits or ()
                 if _rlist and unit_type not in _rlist:
-                    log.warning(
+                    (log.debug if self._seed_salt else log.warning)(
                         f"sim: recruit {unit_type!r} not on side "
                         f"{self.current_side}'s recruit list -- "
                         f"re-deciding")
