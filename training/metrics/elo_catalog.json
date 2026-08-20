@@ -30,41 +30,41 @@
    "anchored": true,
    "arch": "5M",
    "decision_step": 2515896,
-   "elo": 141.2,
+   "elo": 140.4,
    "file": "campaign_live_20260730.pt",
    "lineage": "tier-a",
-   "n_games": 243,
+   "n_games": 272,
    "se": 29.0
   },
   "2516k-b-294k-l4-0k": {
    "anchored": true,
    "arch": "15M",
    "decision_step": 2809659,
-   "elo": 137.1,
+   "elo": 210.9,
    "file": "tier-b/a3/seed_imit_tierb_start.pt",
    "lineage": "tier-b",
-   "n_games": 19,
-   "se": 144.1
+   "n_games": 48,
+   "se": 66.5
   },
   "2516k-b-294k-l4-495k": {
    "anchored": true,
    "arch": "15M",
    "decision_step": 3304339,
-   "elo": -333.5,
+   "elo": -308.8,
    "file": "tier-b/pins/2516k-b-294k-l4-495k.pt",
    "lineage": "tier-b",
    "n_games": 44,
-   "se": 115.5
+   "se": 104.5
   },
   "2516k-b-294k-tcs2-558k": {
    "anchored": true,
    "arch": "15M",
    "decision_step": 3367830,
-   "elo": -281.2,
+   "elo": -276.4,
    "file": "eval_tcs2_3367830.pt",
    "lineage": "tier-b",
    "n_games": 18,
-   "se": 126.8
+   "se": 125.6
   }
  },
  "edges": {
@@ -120,6 +120,18 @@
    "wins_a": 20,
    "wins_b": 20
   },
+  "l4_0k_vs_2516k_20260820:2516k~2516k-b-294k-l4-0k": {
+   "date": "2026-08-20",
+   "draws": 0,
+   "label_a": "2516k",
+   "label_b": "2516k-b-294k-l4-0k",
+   "no_result": 0,
+   "protocol": {
+    "note": "mcts_sims=32,convention=PURE,note=29/40 completed; 11 slots timed out at 60min (competitive 15M-vs-5M games run long)"
+   },
+   "wins_a": 11,
+   "wins_b": 18
+  },
   "l4_495k_vs_2516k_20260820:2516k~2516k-b-294k-l4-495k": {
    "date": "2026-08-20",
    "draws": 0,
@@ -156,7 +168,7 @@
    "wins_b": 0
   }
  },
- "last_refit": "2026-08-20T17:36:18Z",
+ "last_refit": "2026-08-20T21:53:30Z",
  "reference": {
   "elo": 0.0,
   "label": "2291k"
