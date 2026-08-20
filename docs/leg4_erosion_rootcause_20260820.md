@@ -186,3 +186,38 @@ Neither survivor explains this. R1 is monotone by construction. R2 is stationary
 **Runner-up, same region of the record:** the leg absorbed ~43% of the taught entropy change but only ~3.2% of the taught end_turn change — a **13× inconsistency** in how much of the *same* target, taught through the *same* CE, reached the weights. (`distill_et_target < distill_et_prior` at 26/26 iterations, yet realized `et_prior` is flat 0.0746 → 0.0678.) The best code-supported repair is that the F1 anchor's hard-label BC steps pin the end_turn actor slot — ~8% of human actions, one slot — while barely constraining a ~200-way move-target distribution. That would make K's greenness an artifact of the **anchor**, not of the search, and it is untested. E1 measures it directly.
 
 **Honest framing for the log:** we have established a **force** and its **direction** with high confidence, and its **config-drift provenance** with certainty. We have not established its **effect size on the weights**, because not one measurement in this leg was taken on a fixed state set. Every number in the dossier is either a mean over the run's own drifting self-play states or an unmasked BC statistic on human states. E1 costs nothing and closes that hole.
+
+---
+
+## E1 RESULT (2026-08-20, run same day — tools/policy_shape_probe.py)
+
+1,200 identical frozen human-holdout states, paired design, real
+enumeration path (`training/metrics/policy_shape_20260820.json`):
+
+| metric | seed | pin (495k) | R1 prediction | verdict |
+|---|---|---|---|---|
+| H (nats) | 2.924 | 3.949 | pin above seed | **+1.03 nats on frozen states** |
+| H / log(n_legal) | 0.528 | 0.706 | >= 0.95 | direction yes, magnitude partial |
+| top80 share | 0.138 | 0.040 | pin << seed | **3.5x collapse** |
+| top-1 mass | 0.349 | 0.232 | — | down |
+| attack mass (legal share 0.033) | 0.267 | 0.187 | toward legal comp. | down 30%, still 5.7x over legal |
+| recruit mass (legal share 0.081) | 0.083 | 0.163 | toward legal comp. | **ANOMALY: moved AWAY from uniform, 2x legal** |
+| rho(actor mass, mobility) | 0.353 | 0.417 | rises sharply | rises moderately |
+| p(end_turn) | 0.070 | 0.074 | ~= seed (anchor-pinned) | flat, as predicted |
+
+**Verdict: the state-drift confound is DEAD — the flattening lives in
+the weights.** On identical states the pin is +1.03 nats more
+entropic with confident decisions down 3.5x. R1's direction is
+confirmed on every axis except one; the magnitude is partial
+(H_norm 0.71, not ~1.0), consistent with the synthesis's "force
+established, effect size not," and with the pin coming from the
+partially-recovered tail regime.
+
+**Open anomaly:** recruit mass DOUBLED (0.083 -> 0.163, 2x its legal
+share) — pure flattening cannot do that; something in the leg
+actively taught recruit preference. Unexplained; note the telemetry
+showed recruits/game *falling* (7.6 -> 2.1) in self-play — mass up
+on frozen states, realized recruits down in vivo.
+
+(Also corrects a workflow assumption: mean n_legal on human-holdout
+states is ~386, not ~200.)
