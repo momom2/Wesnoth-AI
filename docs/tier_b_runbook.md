@@ -257,10 +257,9 @@ workers fold per-component seconds into their heartbeats at measured
 identity = a DISTINCT rolling name (`t2b_campaign.pt`) + HF escrow
 under that name only, never the Tier-a rolling name — escrow env
 since the 2026-08-06 repo rename: `HF_REPO=momom2/wesnoth-model-`
-`checkpoints HF_PREFIX=tier-b/ CAMPAIGN_FILE=t2b_campaign.pt`. Iteration budget: at the leg's measured
-~15-20 min/iteration (~5.5k decisions/iter), a 450k-step detectable
-increment costs ~80-100 box-hours (~$16-20 on the incumbent) — set
-campaign length in iterations from that, not wall-clock.
+`checkpoints HF_PREFIX=tier-b/ CAMPAIGN_FILE=t2b_campaign.pt`. Iteration budget: set campaign
+length in iterations (~5.5k decisions/iter at the leg's measured
+~15-20 min/iteration), not wall-clock.
 
 ## 5. What to measure, and when to stop
 
@@ -283,12 +282,11 @@ RCA anchor (RAW policy)**. They are different objects.
    +133 in-lineage moved it **not at all**. Treat any movement as a
    result requiring confirmation, not as vindication.
 
-**Cost reality, so the stopping rule has teeth.** Detectable step gaps
-on this lineage are 450k–1M decision-steps. The 5M net ran
+**Cost reality, so the stopping rule has teeth.** The 5M net ran
 4,000–7,000 steps/hour; a 15.55M net's forward pass costs ~2.6x more,
-though a higher-core host partly offsets it. Expect **hundreds of
-box-hours per measurable increment** and decide in advance how many
-increments you are buying.
+though a higher-core host partly offsets it. Decide in advance how
+many box-hours you are buying, and size the eval (games played, not
+steps elapsed) to the effect you need to detect.
 
 ## 6. Hazards specific to this tier
 

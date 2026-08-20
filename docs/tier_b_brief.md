@@ -66,9 +66,8 @@ re-litigation of that decision.
 
 ## Cost frame (from the runbook and measured throughput)
 
-Tier-a throughput was ~4,000-7,000 decision-steps/hour with detectable
-step gaps of 450k-1M ⇒ ~100-200 box-hours per measurable increment;
-Tier-b's ~1.9x forward cost stretches that further. The campaign box
+Tier-a throughput was ~4,000-7,000 decision-steps/hour; Tier-b's
+~1.9x forward cost stretches that further. The campaign box
 should not start until the three pending inputs above are read.
 
 ## Recommendation (filled 2026-08-04, all three inputs measured)

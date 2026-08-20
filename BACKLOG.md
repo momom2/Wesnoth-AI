@@ -373,10 +373,9 @@ winner pairs, A/B verdict (warm policy + fresh value head,
 
 ## The decision to make before spending again
 
-The lineage improves at ~4,000-7,000 decision-steps/hour, and the step
-gaps that have ever been *detectable* on it are 450k-1M — i.e. **100-200
-box-hours per measurable increment**, and no evidence yet that this closes
-an external gap. Choose deliberately between:
+The lineage improves at ~4,000-7,000 decision-steps/hour, and there is
+no evidence yet that more steps close an external gap. Choose
+deliberately between:
 
 - **(a) more compute on the current signal** — expensive, unproven;
 - **(b) a cheaper/faster net so the same money buys more steps** — this is
