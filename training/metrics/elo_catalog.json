@@ -30,21 +30,31 @@
    "anchored": true,
    "arch": "5M",
    "decision_step": 2515896,
-   "elo": 139.8,
+   "elo": 142.5,
    "file": "campaign_live_20260730.pt",
    "lineage": "tier-a",
-   "n_games": 218,
+   "n_games": 243,
    "se": 29.1
+  },
+  "2516k-b-294k-l4-495k": {
+   "anchored": true,
+   "arch": "15M",
+   "decision_step": 3304339,
+   "elo": -277.0,
+   "file": "tier-b/pins/2516k-b-294k-l4-495k.pt",
+   "lineage": "tier-b",
+   "n_games": 25,
+   "se": 114.4
   },
   "2516k-b-294k-tcs2-558k": {
    "anchored": true,
    "arch": "15M",
    "decision_step": 3367830,
-   "elo": -321.5,
+   "elo": -312.9,
    "file": "eval_tcs2_3367830.pt",
    "lineage": "tier-b",
    "n_games": 18,
-   "se": 149.7
+   "se": 137.6
   }
  },
  "edges": {
@@ -100,6 +110,18 @@
    "wins_a": 20,
    "wins_b": 20
   },
+  "l4_495k_vs_2516k_20260820:2516k~2516k-b-294k-l4-495k": {
+   "date": "2026-08-20",
+   "draws": 0,
+   "label_a": "2516k",
+   "label_b": "2516k-b-294k-l4-495k",
+   "no_result": 0,
+   "protocol": {
+    "note": "mcts_sims=32,convention=PURE,note=interrupted at 25/40 by user ruling (result decisive)"
+   },
+   "wins_a": 24,
+   "wins_b": 1
+  },
   "tcs3_vs_rated:new_2p52M~tcs3": {
    "date": "2026-08-17",
    "draws": 0,
@@ -112,7 +134,7 @@
    "wins_b": 0
   }
  },
- "last_refit": "2026-08-17T13:22:34Z",
+ "last_refit": "2026-08-20T13:28:23Z",
  "reference": {
   "elo": 0.0,
   "label": "2291k"
