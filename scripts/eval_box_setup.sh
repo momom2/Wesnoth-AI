@@ -13,6 +13,10 @@
 # Ends with a one-game CPU smoke (mcts:8, 10 turns) that must
 # produce a game record -- silence is never success.
 set -euo pipefail
+# vast pytorch images put torch in /venv/main; ssh sessions don't
+# always inherit the profile activation.
+[ -x /venv/main/bin/python ] && export PATH=/venv/main/bin:$PATH
+mkdir -p /workspace
 cd /workspace
 
 if [ ! -d Wesnoth-AI ]; then
