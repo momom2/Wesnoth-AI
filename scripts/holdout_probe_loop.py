@@ -78,9 +78,9 @@ PROBE_ABORT_N = int(os.environ.get("PROBE_ABORT_N", "3"))
 PROBE_AUC_FLOOR = float(os.environ.get("PROBE_AUC_FLOOR", "0.52"))
 QUALIFY_AUC_MIN = float(os.environ.get("QUALIFY_AUC_MIN", "0.60"))
 
-_COLS = ["timestamp", "decision_step", "ce", "actor_top1", "type_top1",
-         "target_top1", "weapon_top1", "value_auc", "n", "n_value",
-         "probe_seconds"]
+_COLS = ["timestamp", "decision_step", "ce", "ce_se", "actor_top1",
+         "type_top1", "target_top1", "weapon_top1", "value_auc",
+         "value_auc_se", "n", "n_value", "probe_seconds"]
 
 
 def _campaign_ckpt() -> Path:
@@ -147,8 +147,14 @@ def probe_once(ckpt: Path, step: int, arch: dict) -> bool:
            "decision_step": step,
            "probe_seconds": round(time.time() - t0, 1), **stats}
     _append(row)
-    print(f"probe: step={step} ce={stats.get('ce'):.4f} "
-          f"value_auc={stats.get('value_auc')} "
+    def _pm(v, se, fmt=".4f"):
+        if v is None:
+            return "n/a"
+        s = f"{v:{fmt}}"
+        return s + (f"±{se:{fmt}}" if se is not None else "")
+    print(f"probe: step={step} "
+          f"ce={_pm(stats.get('ce'), stats.get('ce_se'))} "
+          f"value_auc={_pm(stats.get('value_auc'), stats.get('value_auc_se'), '.3f')} "
           f"({row['probe_seconds']}s)", flush=True)
     return True
 

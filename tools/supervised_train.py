@@ -880,6 +880,7 @@ def _evaluate(
     hits = {"actor": 0, "type": 0, "target": 0, "weapon": 0}
     fired = {"actor": 0, "type": 0, "target": 0, "weapon": 0}
     ce_sum, n = 0.0, 0
+    ces: List[float] = []         # per-pair CE, for the SE
     ev_win, ev_loss = [], []      # E[V] samples for value AUC
     with torch.no_grad():
         for item in _pair_stream_serial(sorted(holdout_files)):
@@ -903,6 +904,7 @@ def _evaluate(
                 output, ai, device,
                 type_loss_weights=type_loss_weights)
             ce_sum += float(parts.total.item())
+            ces.append(float(parts.total.item()))
             A = output.actor_logits.size(1)
             if ai.actor_idx < A:
                 fired["actor"] += 1
@@ -924,6 +926,14 @@ def _evaluate(
         model.train()
         encoder.train()
     out = {"n": n, "ce": (ce_sum / n) if n else float("nan")}
+    # Standard error of the mean CE (user ruling 2026-08-20: values
+    # don't mean anything without a CI).
+    if n >= 2:
+        mean = ce_sum / n
+        var = sum((c - mean) ** 2 for c in ces) / (n - 1)
+        out["ce_se"] = (var / n) ** 0.5
+    else:
+        out["ce_se"] = None
     for k in hits:
         out[f"{k}_top1"] = (hits[k] / fired[k]) if fired[k] else None
     # Value discrimination: P(E[V]_winner-to-move > E[V]_loser-to-
@@ -933,11 +943,20 @@ def _evaluate(
     if ev_win and ev_loss:
         wins = sum(1 for a in ev_win for b in ev_loss if a > b)
         ties = sum(1 for a in ev_win for b in ev_loss if a == b)
-        out["value_auc"] = (wins + 0.5 * ties) / (
-            len(ev_win) * len(ev_loss))
-        out["n_value"] = len(ev_win) + len(ev_loss)
+        n1, n2 = len(ev_win), len(ev_loss)
+        auc = (wins + 0.5 * ties) / (n1 * n2)
+        out["value_auc"] = auc
+        out["n_value"] = n1 + n2
+        # Hanley-McNeil (1982) SE for the AUC of two independent
+        # samples -- the standard closed form.
+        q1 = auc / (2 - auc)
+        q2 = 2 * auc * auc / (1 + auc)
+        var = (auc * (1 - auc) + (n1 - 1) * (q1 - auc * auc)
+               + (n2 - 1) * (q2 - auc * auc)) / (n1 * n2)
+        out["value_auc_se"] = max(var, 0.0) ** 0.5
     else:
         out["value_auc"] = None
+        out["value_auc_se"] = None
         out["n_value"] = 0
     return out
 
