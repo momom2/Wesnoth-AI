@@ -18,14 +18,20 @@ double-counting. The catalog updates wherever elo_collect runs; the
 committed copy in this repo is canonical, so box-side game dirs
 should be pulled and collected here (the existing workflow).
 
-Reference: ref_2p29M (seed_20260718.pt, decision_step 2,290,529) = 0
+Reference: 2291k, formerly ref_2p29M (seed_20260718.pt,
+decision_step 2,290,529) = 0
 -- the anchor of the 2026-07-30 preregistered triangle, from which
 all current ratings chain.
+
+Labels follow docs/checkpoint_naming.md (lineage-path names, e.g.
+`2516k-b-294k-l4-430k`). `rename` migrates a label and records an
+alias so old names in game dirs and docs still resolve.
 
 CLI:
     python tools/elo_catalog.py show
     python tools/elo_catalog.py seed-july   (one-time bootstrap)
     python tools/elo_catalog.py add-meta LABEL key=value ...
+    python tools/elo_catalog.py rename OLD NEW
 """
 from __future__ import annotations
 
@@ -44,7 +50,7 @@ log = logging.getLogger("elo_catalog")
 
 CATALOG_PATH = Path("training/metrics/elo_catalog.json")
 CATALOG_VERSION = 1
-REFERENCE_LABEL = "ref_2p29M"
+REFERENCE_LABEL = "2291k"  # docs/checkpoint_naming.md; ex ref_2p29M
 
 
 def load_catalog(path: Path = CATALOG_PATH) -> Dict:
@@ -56,7 +62,40 @@ def load_catalog(path: Path = CATALOG_PATH) -> Dict:
         return cat
     return {"version": CATALOG_VERSION,
             "reference": {"label": REFERENCE_LABEL, "elo": 0.0},
-            "checkpoints": {}, "edges": {}}
+            "checkpoints": {}, "edges": {}, "aliases": {}}
+
+
+def resolve_label(cat: Dict, label: str) -> str:
+    """Follow the alias chain (old name -> current name)."""
+    aliases = cat.get("aliases", {})
+    seen = set()
+    while label in aliases and label not in seen:
+        seen.add(label)
+        label = aliases[label]
+    return label
+
+
+def rename_label(cat: Dict, old: str, new: str) -> None:
+    """Rename a checkpoint label everywhere (checkpoints, edges,
+    reference) and record `aliases[old] = new`. Existing aliases
+    pointing at `old` are re-pointed at `new` (chain compression),
+    so every historical name stays one hop from current."""
+    if old not in cat["checkpoints"]:
+        raise KeyError(f"unknown label {old!r}")
+    if new in cat["checkpoints"]:
+        raise ValueError(f"label {new!r} already exists")
+    cat["checkpoints"][new] = cat["checkpoints"].pop(old)
+    for e in cat["edges"].values():
+        for k in ("label_a", "label_b"):
+            if e[k] == old:
+                e[k] = new
+    if cat["reference"]["label"] == old:
+        cat["reference"]["label"] = new
+    aliases = cat.setdefault("aliases", {})
+    for k, v in aliases.items():
+        if v == old:
+            aliases[k] = new
+    aliases[old] = new
 
 
 def save_catalog(cat: Dict, path: Path = CATALOG_PATH) -> None:
@@ -74,7 +113,11 @@ def record_edge(cat: Dict, source_key: str, label_a: str,
     id) is the idempotency key: re-recording the same source
     replaces, never double-counts. `no_result` records ABSENCES
     (capped/stalled games -- user ruling 2026-08-17: not draws, zero
-    rating information; kept for provenance, ignored by refit)."""
+    rating information; kept for provenance, ignored by refit).
+    Labels are alias-resolved so edges recorded under a renamed
+    checkpoint's old name chain onto its current node."""
+    label_a = resolve_label(cat, label_a)
+    label_b = resolve_label(cat, label_b)
     cat["edges"][source_key] = {
         "label_a": label_a, "label_b": label_b,
         "wins_a": int(wins_a), "draws": int(draws),
@@ -238,7 +281,7 @@ def seed_july(path: Path = CATALOG_PATH) -> None:
 def main(argv) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("cmd", choices=("show", "seed-july", "add-meta",
-                                    "refit"))
+                                    "refit", "rename"))
     ap.add_argument("label", nargs="?")
     ap.add_argument("kv", nargs="*")
     ap.add_argument("--catalog", type=Path, default=CATALOG_PATH)
@@ -253,6 +296,14 @@ def main(argv) -> int:
         return 0
     if args.cmd == "refit":
         refit(cat)
+        save_catalog(cat, args.catalog)
+        print(render(cat))
+        return 0
+    if args.cmd == "rename":
+        if not args.label or len(args.kv) != 1:
+            print("usage: elo_catalog.py rename OLD NEW")
+            return 2
+        rename_label(cat, args.label, args.kv[0])
         save_catalog(cat, args.catalog)
         print(render(cat))
         return 0

@@ -1,26 +1,12 @@
 {
+ "aliases": {
+  "new_2p52M": "2516k",
+  "old_2p40M": "2404k",
+  "ref_2p29M": "2291k",
+  "tcs3": "2516k-b-294k-tcs2-558k"
+ },
  "checkpoints": {
-  "new_2p52M": {
-   "anchored": true,
-   "arch": "5M",
-   "decision_step": 2515896,
-   "elo": 139.8,
-   "file": "campaign_live_20260730.pt",
-   "lineage": "tier-a",
-   "n_games": 218,
-   "se": 29.1
-  },
-  "old_2p40M": {
-   "anchored": true,
-   "arch": "5M",
-   "decision_step": 2403615,
-   "elo": 30.0,
-   "file": "campaign_live_20260729.pt",
-   "lineage": "tier-a",
-   "n_games": 240,
-   "se": 25.6
-  },
-  "ref_2p29M": {
+  "2291k": {
    "anchored": true,
    "arch": "5M",
    "decision_step": 2290529,
@@ -30,7 +16,27 @@
    "n_games": 240,
    "se": 0.0
   },
-  "tcs3": {
+  "2404k": {
+   "anchored": true,
+   "arch": "5M",
+   "decision_step": 2403615,
+   "elo": 30.0,
+   "file": "campaign_live_20260729.pt",
+   "lineage": "tier-a",
+   "n_games": 240,
+   "se": 25.6
+  },
+  "2516k": {
+   "anchored": true,
+   "arch": "5M",
+   "decision_step": 2515896,
+   "elo": 139.8,
+   "file": "campaign_live_20260730.pt",
+   "lineage": "tier-a",
+   "n_games": 218,
+   "se": 29.1
+  },
+  "2516k-b-294k-tcs2-558k": {
    "anchored": true,
    "arch": "15M",
    "decision_step": 3367830,
@@ -45,8 +51,8 @@
   "elo_q_transform_20260729:ref~old": {
    "date": "2026-07-29",
    "draws": 0,
-   "label_a": "ref_2p29M",
-   "label_b": "old_2p40M",
+   "label_a": "2291k",
+   "label_b": "2404k",
    "protocol": {
     "convention": "PURE",
     "mcts_sims": 32,
@@ -58,8 +64,8 @@
   "elo_regress_20260730:old~new": {
    "date": "2026-07-30",
    "draws": 0,
-   "label_a": "old_2p40M",
-   "label_b": "new_2p52M",
+   "label_a": "2404k",
+   "label_b": "2516k",
    "protocol": {
     "convention": "PURE",
     "mcts_sims": 32,
@@ -71,8 +77,8 @@
   "elo_triangle_20260730:ref~new": {
    "date": "2026-07-30",
    "draws": 0,
-   "label_a": "ref_2p29M",
-   "label_b": "new_2p52M",
+   "label_a": "2291k",
+   "label_b": "2516k",
    "protocol": {
     "convention": "PURE",
     "mcts_sims": 32,
@@ -84,8 +90,8 @@
   "elo_triangle_20260730:ref~old": {
    "date": "2026-07-30",
    "draws": 0,
-   "label_a": "ref_2p29M",
-   "label_b": "old_2p40M",
+   "label_a": "2291k",
+   "label_b": "2404k",
    "protocol": {
     "convention": "PURE",
     "mcts_sims": 32,
@@ -97,8 +103,8 @@
   "tcs3_vs_rated:new_2p52M~tcs3": {
    "date": "2026-08-17",
    "draws": 0,
-   "label_a": "new_2p52M",
-   "label_b": "tcs3",
+   "label_a": "2516k",
+   "label_b": "2516k-b-294k-tcs2-558k",
    "protocol": {
     "note": "mcts:32; INTERRUPTED at 18/40 played; 9 games wall-clock-censored at 120min (long/draw-bound games dropped, so draws underrepresented; tcs3 = mid-collapse leg-3 ckpt)"
    },
@@ -109,7 +115,7 @@
  "last_refit": "2026-08-17T13:22:34Z",
  "reference": {
   "elo": 0.0,
-  "label": "ref_2p29M"
+  "label": "2291k"
  },
  "version": 1
 }

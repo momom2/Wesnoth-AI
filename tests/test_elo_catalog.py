@@ -74,3 +74,26 @@ def test_update_from_games_hook(tmp_path):
     cat = load_catalog(p)
     assert len(cat["edges"]) == 1
     assert cat["checkpoints"]["new"]["n_games"] == 36
+
+
+def test_rename_migrates_edges_and_aliases_resolve(tmp_path):
+    """docs/checkpoint_naming.md migration path: rename moves the
+    node and rewrites edges; an edge later recorded under the OLD
+    label (e.g. a stale box-side games dir) chains onto the renamed
+    node instead of creating a phantom sibling."""
+    from tools.elo_catalog import rename_label, resolve_label
+    p = _fresh(tmp_path)
+    cat = load_catalog(p)
+    cat["reference"] = {"label": "ref", "elo": 0.0}
+    record_edge(cat, "s1", "A", "ref", 70, 0, 30)
+    rename_label(cat, "A", "2516k")
+    assert "A" not in cat["checkpoints"]
+    assert cat["edges"]["s1"]["label_a"] == "2516k"
+    # Stale-label edge resolves through the alias.
+    record_edge(cat, "s2", "A", "ref", 60, 0, 40)
+    assert cat["edges"]["s2"]["label_a"] == "2516k"
+    refit(cat)
+    assert cat["checkpoints"]["2516k"]["n_games"] == 200
+    # Chained rename compresses: oldest alias points at the head.
+    rename_label(cat, "2516k", "2810k")
+    assert resolve_label(cat, "A") == "2810k"
