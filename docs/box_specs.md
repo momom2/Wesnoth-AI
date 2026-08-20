@@ -60,8 +60,13 @@ and how to refresh each input — it is a worksheet, not a policy.
 - **No GPU**. Derivation: eval games are CPU-bound (one process
   per game, ~2 threads each at mcts:32; measured 186% CPU per
   game process).
-- **vCPU**: ~2 × concurrent games + 2. **RAM**: ~2 GB per
-  concurrent game (measured ~1 GB RSS per game process + torch).
+- **vCPU**: ~2 × concurrent games + 2. **RAM**: scales with the
+  MODEL PAIR, not just the game count: ~2 GB per concurrent game
+  for a 15M-vs-5M pairing, but 14 jobs of 15M-vs-15M page-thrashed
+  a 30 GB box (2026-08-20: eight 40-min timeouts, then the
+  min-free guard refused the next chunk at 1.8 GB/job). Budget
+  ~2 GB per 15M model loaded per job + a few GB headroom, and let
+  `run_elo_batch`'s memory guard set the ceiling on --jobs.
 - Typical shape: 32-64 vCPU EPYC, $0.10-0.20/h. A GPU box that is
   already up and idle beats renting this (the tcs3 match ran
   CPU-mode on the leg box).
