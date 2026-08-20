@@ -221,3 +221,32 @@ on frozen states, realized recruits down in vivo.
 
 (Also corrects a workflow assumption: mean n_legal on human-holdout
 states is ~386, not ~200.)
+
+## E3 RESULT (2026-08-20 late, search-off arm)
+
+Pin vs seed at mcts_sims=0 (raw policy, 20 games, no timeouts):
+**0-20.** At sims=32 it was 0-19. Both arms saturated at total
+loss, so E3's designed contrast (search helps a flat prior vs
+search amplifies a bad ranker) does not resolve — exactly the
+saturation caveat pre-registered in §3. What it DOES establish:
+**the damage lives in the policy weights themselves** — the raw
+policy with no value head in the loop loses every game to the raw
+seed. Whether the value head ALSO degraded remains open (E2b).
+NOT collected into the Elo catalog (different protocol: sims 0).
+Games: training/logs/eval_games/E3_l4_495k_vs_0k_sims0/.
+
+## Final Elo board (2026-08-20, catalog refit 21:53Z)
+
+    2516k-b-294k-l4-0k (seed)  +211 +- 67   (48 games)  <- NEW #1
+    2516k (old 5M champion)    +140 +- 29   (272)
+    2404k                       +30 +- 26   (240)
+    2291k (ref)                   0         (240)
+    2516k-b-294k-tcs2-558k     -276 +- 126  (18)
+    2516k-b-294k-l4-495k       -309 +- 105  (44)
+
+The imitation line was NEVER behind: the seed entered self-play
+~70 Elo ABOVE the strongest tier-a checkpoint. Leg 4 burned ~520
+Elo of real strength from the best checkpoint the project has ever
+had. Both prior "the 15M line is weak" readings (tcs2-558k, l4-495k
+vs 2516k) were measurements of post-erosion checkpoints, not of the
+line.
