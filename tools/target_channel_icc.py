@@ -184,19 +184,28 @@ def main(argv) -> int:
                                 rng, sid)
                             if v is None:
                                 continue
-                            a = advantages(v)
-                            msb, msw, n, k = icc_components(a)
-                            icc = ((msb - msw)
-                                   / (msb + (k - 1) * msw)
-                                   if (msb + (k - 1) * msw) > 0
-                                   else 0.0)
-                            ssb_pool += msb * (n - 1)
-                            dfb_pool += (n - 1)
-                            ssw_pool += msw * n * (k - 1)
-                            dfw_pool += n * (k - 1)
+                            # --salts 1 = blindness-only mode: blind
+                            # is a within-salt property (production
+                            # grades at ONE salt), so k=1 suffices
+                            # for it; ICC needs k>=2.
+                            if args.salts >= 2:
+                                a = advantages(v)
+                                msb, msw, n, k = icc_components(a)
+                                icc = ((msb - msw)
+                                       / (msb + (k - 1) * msw)
+                                       if (msb + (k - 1) * msw) > 0
+                                       else 0.0)
+                                ssb_pool += msb * (n - 1)
+                                dfb_pool += (n - 1)
+                                ssw_pool += msw * n * (k - 1)
+                                dfw_pool += n * (k - 1)
+                            else:
+                                icc = None
+                                msb = float(np.var(v[:, 0], ddof=1))
+                                msw = 0.0
                             per_coord.append({
                                 "state": sid, "coord": j,
-                                "n_cand": n, "icc": icc,
+                                "n_cand": v.shape[0], "icc": icc,
                                 "between_sd": math.sqrt(max(msb, 0)),
                                 "within_sd": math.sqrt(max(msw, 0)),
                                 # Structural fog blindness (2026-08-21
@@ -222,7 +231,8 @@ def main(argv) -> int:
             sim.step(action)
         policy.drop_pending(label)
 
-    iccs = np.array([c["icc"] for c in per_coord])
+    iccs = np.array([c["icc"] for c in per_coord
+                     if c["icc"] is not None])
     msb_p = ssb_pool / dfb_pool if dfb_pool else float("nan")
     msw_p = ssw_pool / dfw_pool if dfw_pool else float("nan")
     k = args.salts
@@ -231,7 +241,8 @@ def main(argv) -> int:
                   else float("nan"))
     blind = [c for c in per_coord if c["blind"]]
     sighted = [c for c in per_coord if not c["blind"]]
-    s_iccs = np.array([c["icc"] for c in sighted])
+    s_iccs = np.array([c["icc"] for c in sighted
+                       if c["icc"] is not None])
     report = {
         "checkpoint": str(args.checkpoint),
         "judge_checkpoint": (str(args.judge_checkpoint)

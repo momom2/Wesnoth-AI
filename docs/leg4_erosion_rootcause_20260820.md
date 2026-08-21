@@ -250,3 +250,54 @@ Elo of real strength from the best checkpoint the project has ever
 had. Both prior "the 15M line is weak" readings (tcs2-558k, l4-495k
 vs 2516k) were measurements of post-erosion checkpoints, not of the
 line.
+
+---
+
+## E2 COMPLETE + one-step link analysis (2026-08-21): case closed
+
+E2 arms (tools/target_channel_icc.py, per-coordinate JSONs in
+training/metrics/e2_*.json, CIs Wilson/bootstrap):
+
+| arm | blind frac | sighted ICC median |
+|---|---|---|
+| seed plays, seed judges (344 coords) | 7.8% [5.4, 11.2] | 0.958 [0.935, 0.973] |
+| seed plays, PIN judges (349) | 8.0% [5.6, 11.4] | 0.995 [0.988, 0.999] |
+| PIN plays, PIN judges (111, 1-salt blind-only) | **0.0% [0, 3.3]** | n/a |
+
+ALL THREE arms of grader-null are refuted: the target channel is not
+salt-noisy, the leg-4 head still ranks candidates (shallower spread
+0.23 -> 0.15 but highly repeatable), and blindness is NOT elevated on
+the pin's own passive games. (Turn-1 blindness is map-draw dependent:
+40% on the seed arm's draws, 0/12 on the pin arm's.)
+
+**The remaining mechanism is purely arithmetic, and it matches
+measurement.** One-step entropy change of the SHIPPED
+`tcs_target_distribution` (linear link, beta=5, 5 evaluated of n
+legal, advantage spread set to the MEASURED 0.15-0.23):
+
+  - lam=0.9: net-flattening in EVERY regime tested (+0.12..+0.31
+    nats/step; top-action mass change -0.02..-0.07) -- an informative
+    grader does not change the sign, because the lam-decay acts on
+    all n legal actions while the boost touches <=5.
+  - At n=386, H~4 (leg-4's regime): computed sharpen_top = -0.033.
+    Leg 4's MEASURED in-vivo distill_sharpen_top at iteration 0:
+    -0.032.
+  - lam=1.0: neutral-to-sharpening in every row. Leg 3 ran lam=1.0
+    and did not flatten (actor@1 flat) -- consistent.
+
+The 17-agent workflow's "informative grader -> concentration"
+simulation answered the fixed point of ITERATING the operator on one
+state; training applies it ONCE per state, and the per-step sign is
+what the weights integrate. The tail reversal (entropy 5.15 -> 4.83
+over the last 5 iterations) is the signature of approaching the
+decay-vs-boost equilibrium, not a mystery.
+
+**FINAL VERDICT: leg 4 was killed by `--distill-prior-discount 0.9`
+alone -- config drift (the launcher's unconditional emit, violating
+the F1 one-protection rule) interacting with the linear link's
+local boost structure.** The fog-blind boundary frame is a real,
+now-fixed instrument flaw (and the correct estimand), but it was
+NOT the driver. Leg-5 spec: lam=1.0 (remove the unconditional emit;
+leg config must assert it), keep the linear link, boundary_frame=
+mover after a fresh accept-gate baseline, plus the five
+instrumentation fixes from par.3.
