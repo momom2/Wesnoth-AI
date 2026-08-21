@@ -57,3 +57,20 @@ def test_qualify_refuses_unmeasured_and_below_bar():
     assert not bad and "0.309" in why
     miss, why = qualify_verdict({"value_auc": ""}, 0.60)
     assert not miss and "missing" in why
+
+
+def test_k_median_of_matches_csv_statistic():
+    """--abort-k-median consumes k_median_of; it must equal the
+    actions_per_turn_median CSV statistic (pooled side-turn action
+    counts, lower median) and return None with no data -- the
+    tripwire must not fire on an empty iteration."""
+    from types import SimpleNamespace
+    from tools.sim_self_play import k_median_of
+
+    games = [SimpleNamespace(turn_action_counts=[12, 2, 15]),
+             SimpleNamespace(turn_action_counts=[3, 14]),
+             SimpleNamespace(turn_action_counts=None)]
+    assert k_median_of(games) == 12       # sorted [2,3,12,14,15]
+    assert k_median_of([]) is None
+    assert k_median_of(
+        [SimpleNamespace(turn_action_counts=[])]) is None

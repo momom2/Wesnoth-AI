@@ -1344,6 +1344,15 @@ def _gpu_mem_peak_mb(reset: bool = False):
     return peak
 
 
+def k_median_of(outcomes) -> Optional[float]:
+    """Median actions-per-side-turn pooled over an iteration's games
+    (the actions_per_turn_median CSV statistic; consumed by the
+    --abort-k-median K-collapse tripwire)."""
+    pooled = sorted(c for o in outcomes
+                    for c in (o.turn_action_counts or []))
+    return pooled[len(pooled) // 2] if pooled else None
+
+
 def run_iteration(
     policy:        TransformerPolicy,
     pool_files:    Optional[List[Path]],   # legacy; ignored post-pivot
@@ -1802,6 +1811,8 @@ def run_iteration(
     # ≈ how much of one turn plan the search can look ahead).
     pooled_apt = sorted(
         c for o in outcomes for c in (o.turn_action_counts or []))
+    # (k_median_of below recomputes the same statistic for the
+    # K-collapse tripwire in the main loop.)
     apt_mean = (sum(pooled_apt) / len(pooled_apt)) if pooled_apt else None
     apt_median = pooled_apt[len(pooled_apt) // 2] if pooled_apt else None
     if pooled_apt:
@@ -2551,6 +2562,14 @@ def main(argv: List[str]) -> int:
                          "targets (2026-07-07 diagnosis: Z entropy "
                          "1.86->1.13 in 46 iters while holdout CE "
                          "diverged). Try 0.02. 0 = off (default).")
+    ap.add_argument("--abort-k-median", type=float, default=None,
+                    help="K-collapse tripwire (user 2026-08-21): abort "
+                         "(exit 7) when the iteration's median "
+                         "actions-per-side-turn is below this for 3 "
+                         "consecutive iterations. Leg 3 collapsed to "
+                         "K~2 with every other guard green. DEFAULT "
+                         "OFF by user ruling -- pass explicitly (e.g. "
+                         "10) on future training legs.")
     ap.add_argument("--abort-decisive-rate", type=float, default=None,
                     help="Abort tripwire: once the trailing "
                          "--abort-window iterations are full, stop if "
@@ -2859,7 +2878,7 @@ def main(argv: List[str]) -> int:
                          "current game (drain) instead of having it "
                          "discarded; this grace bounds the overrun "
                          "before the hard abandon backstop (user "
-                         "ruling 2026-08-17; leg 3 discarded 30-60% "
+                         "ruling 2026-08-17; leg 3 discarded 30-60%% "
                          "of some iterations' games at the old "
                          "single hard deadline).")
     ap.add_argument("--turn-boundary-frame",
@@ -3892,6 +3911,12 @@ def main(argv: List[str]) -> int:
                  f"processes -> {args.spool_dir} (in-process GPU "
                  f"forwards; no inference server)")
 
+    # K-collapse tripwire state (--abort-k-median).
+    k_low_streak = 0
+    if args.abort_k_median is not None:
+        log.info(f"K-collapse tripwire ON: stop if median actions/"
+                 f"side-turn < {args.abort_k_median} for 3 "
+                 f"consecutive iterations.")
     # Decisive-rate abort tripwire state (--abort-decisive-rate).
     # Trailing window of (decisive_games, total_games) per iteration;
     # armed once the window is full (= burn-in of --abort-window iters).
@@ -4005,6 +4030,30 @@ def main(argv: List[str]) -> int:
                     if history_csv is not None:
                         history_csv.close()
                     return 4
+        # K-collapse tripwire: leg 3's turn-length collapse (K median
+        # 14 -> 2) ran for days with every other guard green -- the
+        # search-driven passivity failure shape is invisible to the
+        # decisive-rate, CE, and AUC tripwires by construction.
+        if args.abort_k_median is not None and outcomes:
+            k_med = k_median_of(outcomes)
+            if k_med is not None and k_med < args.abort_k_median:
+                k_low_streak += 1
+            else:
+                k_low_streak = 0
+            if k_low_streak >= 3:
+                policy.save_checkpoint(args.checkpoint_out)
+                log.error(
+                    f"ABORT TRIPWIRE: median actions/side-turn "
+                    f"{k_med} < --abort-k-median "
+                    f"{args.abort_k_median} for 3 consecutive "
+                    f"iterations (iter {it + 1}). Turn-length "
+                    f"collapse = the leg-3 passivity shape. Final "
+                    f"checkpoint saved to {args.checkpoint_out}. "
+                    f"Exit code 7."
+                )
+                if history_csv is not None:
+                    history_csv.close()
+                return 7
         # Holdout-stall (memorization) tripwire: the fresh holdout CE
         # is the only metric that distinguishes value learning from
         # replay-buffer fitting (measured 2026-07-02: train value loss

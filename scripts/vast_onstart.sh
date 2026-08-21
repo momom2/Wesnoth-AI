@@ -783,7 +783,7 @@ _TRAIN_BODY="
       --abort-decisive-rate ${ABORT_DECISIVE_RATE:-0.35} \
       --abort-window ${ABORT_WINDOW:-20} \
       --abort-holdout-stall ${ABORT_HOLDOUT_STALL:-60} \
-      --distill-prior-discount ${DISTILL_PRIOR_DISCOUNT:-0.9} \
+      ${DISTILL_PRIOR_DISCOUNT:+--distill-prior-discount $DISTILL_PRIOR_DISCOUNT} \
       ${TOPO_ARGS} --games-per-iter ${GAMES_PER_ITER} \
       \$RESET \
       --checkpoint-in  \$([ -f '$CAMPAIGN' ] && echo '$CAMPAIGN' || echo '$CKPT_IN') \
