@@ -301,3 +301,26 @@ NOT the driver. Leg-5 spec: lam=1.0 (remove the unconditional emit;
 leg config must assert it), keep the linear link, boundary_frame=
 mover after a fresh accept-gate baseline, plus the five
 instrumentation fixes from par.3.
+
+## Q7 RESULT (2026-08-21, projection sign test; 204 ladder states,
+## seed policy+judge, 12-shard box run; data
+## training/logs/q7_projection_sign/)
+
+delta = V(boundary) - V(after 1 closed-loop enemy half-turn), per
+candidate turn {pass, half, full}, paired per state:
+
+  mover frame (the leg-5 estimand):
+    pass +0.134, half +0.035, full -0.013
+    SIGNATURE pass-full: +0.147 +- 0.021, t=7.1  => the mover-frame
+    boundary OVERRATES passing by ~3.7 C51 atoms. The head does not
+    price tempo; projection at the accept gate (2x game-gen cost)
+    has a measured justification under mover-frame grading.
+  opponent frame (leg-4 production estimand):
+    SIGNATURE pass-full: -0.106 +- 0.023, t=-4.6 => the fog-blind
+    frame UNDERRATED passing on these (seed-policy, contact-rich)
+    states -- a different bias, not absence of bias.
+
+Leg-5 consequence: mover frame fixes fog blindness but introduces a
+measured pro-passing bias at the boundary; pair it with EITHER
+projection reval (pays 2x) or the K-tripwire alone (free, reactive).
+Decision deferred to the leg-5 config review.
