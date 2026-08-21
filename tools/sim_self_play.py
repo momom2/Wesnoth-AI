@@ -1103,6 +1103,8 @@ class SpoolWorkers:
                 args, "turn_target_link", "linear")),
             "--turn-target-beta", str(getattr(
                 args, "turn_target_beta", 5.0)),
+            "--turn-boundary-frame", str(getattr(
+                args, "turn_boundary_frame", "opponent")),
             "--turn-reply", str(getattr(args, "turn_reply", "none")),
             "--turn-reply-max-actions", str(getattr(
                 args, "turn_reply_max_actions", 4)),
@@ -2860,6 +2862,18 @@ def main(argv: List[str]) -> int:
                          "ruling 2026-08-17; leg 3 discarded 30-60% "
                          "of some iterations' games at the old "
                          "single hard deadline).")
+    ap.add_argument("--turn-boundary-frame",
+                    choices=("opponent", "mover"), default="opponent",
+                    help="TCS boundary evaluation frame (2026-08-21 "
+                         "fog finding): 'opponent' (status quo) "
+                         "grades the post-end_turn state through the "
+                         "OPPONENT's fogged view -- structurally "
+                         "blind to whatever the opponent cannot see "
+                         "of the mover's turn. 'mover' grades the "
+                         "PRE-end_turn state from the mover's own "
+                         "information set. Default stays 'opponent' "
+                         "until the probes re-baseline; leg-5 config "
+                         "must assert this explicitly.")
     ap.add_argument("--turn-target-link", choices=("linear", "exp"),
                     default="linear",
                     help="TCS distill-target link function (user "

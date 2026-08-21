@@ -258,3 +258,35 @@ def test_batch_boundary_values_matches_serial():
     for m, r in zip(mats, ref):
         assert m.value == pytest.approx(r, abs=1e-6)
         assert m.boundary_sim is None
+
+
+def test_boundary_frame_mover_keeps_pre_flip_state():
+    """2026-08-21 fog fix: the encoder is acting-side-framed, so the
+    post-end_turn boundary is the OPPONENT's fogged view -- blind to
+    the mover's turn wherever the opponent lacks vision. With
+    mover_frame the kept boundary sim must be the PRE-flip state
+    (mover still acting); without it, the post-flip state; and a
+    caller-kept sim (projection) stays post-flip regardless, since
+    projection must roll the opponent's reply."""
+    from tools.turn_search import materialize
+
+    policy = _policy(_cfg())
+    base = policy._base
+    sim = fresh_scenario_sim()
+    side = sim.gs.global_info.current_side
+
+    m_opp = materialize(base, sim, side, [], "fr0", 0, skip_value=True)
+    assert m_opp.boundary_sim.gs.global_info.current_side != side
+    assert m_opp.executed and m_opp.executed[-1]["type"] == "end_turn"
+
+    m_mov = materialize(base, sim, side, [], "fr0", 0, skip_value=True,
+                        mover_frame=True)
+    assert not m_mov.boundary_sim.done
+    assert m_mov.boundary_sim.gs.global_info.current_side == side
+    # The turn itself still completes (divergence bookkeeping sees
+    # the same executed command list either way).
+    assert m_mov.executed == m_opp.executed
+
+    m_proj = materialize(base, sim, side, [], "fr0", 0,
+                         keep_boundary_sim=True, mover_frame=True)
+    assert m_proj.boundary_sim.gs.global_info.current_side != side

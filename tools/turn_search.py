@@ -96,6 +96,21 @@ class TurnSearchConfig:
     #   peers' mean clips to zero mass; 2 atoms (0.08, the probe's
     #   median accepted delta) above gains +40% before renorm.
     #   Derivation in docs/design_constants.md.
+    # Boundary evaluation frame (2026-08-21 fog finding, leg-4
+    # postmortem): the post-end_turn boundary state's acting side is
+    # the OPPONENT, and the encoder is acting-side-framed -- so the
+    # grader saw only the opponent's fogged view of the mover's
+    # turn. On no-contact fogged turns EVERY candidate graded
+    # bit-identically (measured: 4 different candidate turns, one
+    # value to 16 digits; fogless control spread 0.24-0.63).
+    #   opponent -- post-flip state, sign-flipped (status quo;
+    #               assumes fog symmetry that does not exist).
+    #   mover    -- the PRE-end_turn state, mover still acting: the
+    #               mover's own information set. Terminal flips
+    #               still grade by exact outcome.
+    # Default stays "opponent" until the A/B probes re-baseline;
+    # leg-5 config must assert this explicitly.
+    boundary_frame:      str = "opponent"  # opponent | mover
 
 
 def config_from_args(args) -> Optional["TurnSearchConfig"]:
@@ -132,6 +147,8 @@ def config_from_args(args) -> Optional["TurnSearchConfig"]:
         project_max_actions=max_actions,
         target_link=str(getattr(args, "turn_target_link", "linear")),
         target_beta=float(getattr(args, "turn_target_beta", 5.0)),
+        boundary_frame=str(getattr(args, "turn_boundary_frame",
+                                   "opponent")),
     )
 
 
@@ -353,7 +370,8 @@ class Materialized:
 def materialize(policy, start, side: int, commands: List[Dict],
                 salt: str, decision_step: int,
                 keep_boundary_sim: bool = False,
-                skip_value: bool = False) -> Materialized:
+                skip_value: bool = False,
+                mover_frame: bool = False) -> Materialized:
     """Replay `commands` from a fork of `start` under `salt`; evaluate
     at the boundary. Clean bounces (`last_step_rejected`) are skipped
     and the replay continues; a raised exception marks the variant
@@ -368,13 +386,26 @@ def materialize(policy, start, side: int, commands: List[Dict],
     the serial bottleneck (~54 fwd/s, leg-3 A6 postmortem), so 48
     one-at-a-time boundary forwards per turn plan was the single
     largest avoidable latency in the pipeline. NOTE: with skip_value
-    the invalid check is `m.invalid` (value is NaN either way)."""
+    the invalid check is `m.invalid` (value is NaN either way).
+
+    `mover_frame=True` (TurnSearchConfig.boundary_frame="mover")
+    evaluates the PRE-end_turn state -- the mover still acting --
+    instead of the post-flip state. The encoder is acting-side-
+    framed, so the post-flip boundary is the OPPONENT'S fogged view
+    and is structurally blind to whatever the opponent cannot see
+    of the mover's turn (2026-08-21 leg-4 postmortem finding).
+    Terminal flips still grade by exact outcome. When the CALLER
+    keeps the boundary sim (projection), the post-flip sim is kept
+    regardless -- projection's deep boundaries are not yet
+    frame-fixed."""
+    explicit_keep = keep_boundary_sim
     sim = start.fork()
     sim._seed_salt = salt
     rng0 = sim._rng_requests
     executed: List[Dict] = []
     attempted = accepted = 0
     invalid = False
+    pre_flip = None
     cmds = list(commands)
     if not any(c.get("type") == "end_turn" for c in cmds):
         cmds.append({"type": "end_turn"})
@@ -382,6 +413,11 @@ def materialize(policy, start, side: int, commands: List[Dict],
         if sim.done or sim.gs.global_info.current_side != side:
             break
         attempted += 1
+        if (mover_frame and not explicit_keep
+                and cmd.get("type") == "end_turn"):
+            pre_flip = sim.fork()   # re-fork on every attempt: a
+            #                         bounced end_turn leaves a stale
+            #                         snapshot otherwise
         try:
             sim.step(cmd)
         except Exception as e:  # noqa: BLE001
@@ -394,13 +430,22 @@ def materialize(policy, start, side: int, commands: List[Dict],
         executed.append(cmd)
     if (not sim.done and not invalid
             and sim.gs.global_info.current_side == side):
+        if mover_frame and not explicit_keep:
+            pre_flip = sim.fork()
         try:
             sim.step({"type": "end_turn"})
             executed.append({"type": "end_turn"})
         except Exception:  # noqa: BLE001
             invalid = True
+    # Terminal flips (sim.done) keep the post-flip sim so the exact
+    # outcome grades the boundary; only live boundaries switch to
+    # the mover's pre-flip information set.
+    eval_sim = sim
+    if (mover_frame and not explicit_keep and not invalid
+            and not sim.done and pre_flip is not None):
+        eval_sim = pre_flip
     value = float("nan") if (invalid or skip_value) else boundary_value(
-        policy, sim, side, decision_step)
+        policy, eval_sim, side, decision_step)
     if skip_value and not invalid:
         keep_boundary_sim = True
     vis = frozenset(
@@ -411,7 +456,8 @@ def materialize(policy, start, side: int, commands: List[Dict],
         value=value, done=sim.done,
         stochastic=(sim._rng_requests > rng0), invalid=invalid,
         vis_ids=vis,
-        boundary_sim=sim if keep_boundary_sim else None)
+        boundary_sim=(sim if explicit_keep else eval_sim)
+        if keep_boundary_sim else None)
 
 
 # ---------------------------------------------------------------------
@@ -638,6 +684,7 @@ def plan_turn(policy, sim, side: int, decision_step: int,
                 and cfg.project_halfturns > 0)
     proj_all = use_proj and cfg.project == "all"
     n_proj = 0
+    mf = cfg.boundary_frame == "mover"
 
     def _projected(m: Materialized) -> float:
         nonlocal n_proj
@@ -658,7 +705,7 @@ def plan_turn(policy, sim, side: int, decision_step: int,
         # issued at all (the review's redundant-forward patch).
         inc = materialize(policy, sim, side, commands, salt,
                           decision_step, keep_boundary_sim=proj_all,
-                          skip_value=True)
+                          skip_value=True, mover_frame=mf)
         if inc.invalid:
             log.warning("plan_turn: incumbent materialization invalid")
             break
@@ -675,7 +722,7 @@ def plan_turn(policy, sim, side: int, decision_step: int,
                 m = materialize(policy, sim, side, cand_cmds, salt,
                                 decision_step,
                                 keep_boundary_sim=proj_all,
-                                skip_value=True)
+                                skip_value=True, mover_frame=mf)
                 if m.invalid:
                     continue
                 raw.append((j, alt_i, m))
@@ -711,11 +758,11 @@ def plan_turn(policy, sim, side: int, decision_step: int,
                 inc2 = materialize(policy, sim, side, commands, s2,
                                    decision_step,
                                    keep_boundary_sim=use_proj,
-                                   skip_value=True)
+                                   skip_value=True, mover_frame=mf)
                 var2 = materialize(policy, sim, side, best_cmds, s2,
                                    decision_step,
                                    keep_boundary_sim=use_proj,
-                                   skip_value=True)
+                                   skip_value=True, mover_frame=mf)
                 if inc2.invalid or var2.invalid:
                     continue
                 pairs.append((inc2, var2))
@@ -754,7 +801,7 @@ def plan_turn(policy, sim, side: int, decision_step: int,
     kl_salt = f"{salt_ns}:t"
     inc = materialize(policy, sim, side, commands, kl_salt,
                       decision_step, keep_boundary_sim=proj_all,
-                      skip_value=True) if full else None
+                      skip_value=True, mover_frame=mf) if full else None
     # Materialize every coordinate's alternatives first (sim work),
     # then grade ALL boundaries in one batched pass -- this is the
     # "48 serial forwards per turn plan" hot spot the A6 postmortem
@@ -776,7 +823,7 @@ def plan_turn(policy, sim, side: int, decision_step: int,
                 m = materialize(policy, sim, side, cand, kl_salt,
                                 decision_step,
                                 keep_boundary_sim=proj_all,
-                                skip_value=True)
+                                skip_value=True, mover_frame=mf)
                 if not m.invalid:
                     coord.append((alt_i, m))
             per_coord.append(coord)
