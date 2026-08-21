@@ -1,0 +1,3464 @@
+{
+ "checkpoint": "training\\checkpoints\\seed_imit_tierb_start.pt",
+ "category": "ladder",
+ "states": 60,
+ "coords": 344,
+ "salts": 4,
+ "n_alt": 4,
+ "blind_frac": 0.07848837209302326,
+ "sighted_icc_median": 0.957665312635635,
+ "sighted_icc_mean": 0.8467665162070958,
+ "sighted_within_sd_median": 0.02074405894736002,
+ "sighted_between_sd_median": 0.22905030205290525,
+ "icc_pooled": 0.9144691598423417,
+ "icc_median": 0.9393111633625794,
+ "icc_mean": 0.7803051908071201,
+ "icc_frac_below_0p15": 0.11918604651162791,
+ "icc_frac_above_0p40": 0.8575581395348837,
+ "within_sd_median": 0.017279261456163052,
+ "between_sd_median": 0.20186681917407992,
+ "c51_atom_width": 0.04,
+ "wall_seconds": 9221.1,
+ "per_coord": [
+  {
+   "state": "g0t2s1",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.23146394813658602,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 2
+  },
+  {
+   "state": "g0t2s1",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.21521618586587293,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 2
+  },
+  {
+   "state": "g0t2s1",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.1785543214414367,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 2
+  },
+  {
+   "state": "g0t2s1",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.0,
+   "between_sd": 0.0,
+   "within_sd": 0.0,
+   "blind": true,
+   "turn": 2
+  },
+  {
+   "state": "g0t2s1",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.0,
+   "between_sd": 0.0,
+   "within_sd": 0.0,
+   "blind": true,
+   "turn": 2
+  },
+  {
+   "state": "g0t2s1",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.0,
+   "between_sd": 0.0,
+   "within_sd": 0.0,
+   "blind": true,
+   "turn": 2
+  },
+  {
+   "state": "g0t4s2",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.04207864966556322,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 4
+  },
+  {
+   "state": "g0t4s2",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.05513748503051649,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 4
+  },
+  {
+   "state": "g0t4s2",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.05513748503051649,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 4
+  },
+  {
+   "state": "g0t4s2",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.0,
+   "between_sd": 0.0,
+   "within_sd": 0.0,
+   "blind": true,
+   "turn": 4
+  },
+  {
+   "state": "g0t4s2",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.0,
+   "between_sd": 0.0,
+   "within_sd": 0.0,
+   "blind": true,
+   "turn": 4
+  },
+  {
+   "state": "g0t4s2",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.0,
+   "between_sd": 0.0,
+   "within_sd": 0.0,
+   "blind": true,
+   "turn": 4
+  },
+  {
+   "state": "g0t6s2",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.08991394949562424,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 6
+  },
+  {
+   "state": "g0t6s2",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.8911510636135933,
+   "between_sd": 0.23345827830000576,
+   "within_sd": 0.04018686409105984,
+   "blind": false,
+   "turn": 6
+  },
+  {
+   "state": "g0t8s2",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.982026570585236,
+   "between_sd": 0.7087444100272222,
+   "within_sd": 0.04783240249274566,
+   "blind": false,
+   "turn": 8
+  },
+  {
+   "state": "g0t8s2",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.9569365531009252,
+   "between_sd": 0.6311546254776106,
+   "within_sd": 0.06657163995443541,
+   "blind": false,
+   "turn": 8
+  },
+  {
+   "state": "g0t8s2",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.9847820993368375,
+   "between_sd": 0.8868659574104748,
+   "within_sd": 0.05501713961926989,
+   "blind": false,
+   "turn": 8
+  },
+  {
+   "state": "g0t8s2",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.9883106724743149,
+   "between_sd": 0.7583360753660984,
+   "within_sd": 0.04117547402991656,
+   "blind": false,
+   "turn": 8
+  },
+  {
+   "state": "g0t8s2",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.9915972251601352,
+   "between_sd": 0.7050877026383147,
+   "within_sd": 0.03241882855192322,
+   "blind": false,
+   "turn": 8
+  },
+  {
+   "state": "g0t8s2",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.9893245307027986,
+   "between_sd": 0.6191050723743943,
+   "within_sd": 0.03211245166499689,
+   "blind": false,
+   "turn": 8
+  },
+  {
+   "state": "g0t10s2",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.9626800146442805,
+   "between_sd": 0.6192068764701979,
+   "within_sd": 0.06066541018565375,
+   "blind": false,
+   "turn": 10
+  },
+  {
+   "state": "g0t10s2",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.9240425374646292,
+   "between_sd": 0.7233887664258645,
+   "within_sd": 0.10265114453288866,
+   "blind": false,
+   "turn": 10
+  },
+  {
+   "state": "g0t10s2",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.9154648021523694,
+   "between_sd": 0.6617669906810133,
+   "within_sd": 0.09940703927865052,
+   "blind": false,
+   "turn": 10
+  },
+  {
+   "state": "g0t10s2",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.8349614038134322,
+   "between_sd": 0.6905539076586169,
+   "within_sd": 0.1498488830353049,
+   "blind": false,
+   "turn": 10
+  },
+  {
+   "state": "g0t10s2",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.920190261816543,
+   "between_sd": 0.4720807202436153,
+   "within_sd": 0.06877289768759214,
+   "blind": false,
+   "turn": 10
+  },
+  {
+   "state": "g0t10s2",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.8809630374768894,
+   "between_sd": 0.47753436032148044,
+   "within_sd": 0.08632221356007137,
+   "blind": false,
+   "turn": 10
+  },
+  {
+   "state": "g0t11s1",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.9723313661487321,
+   "between_sd": 0.9496292155326571,
+   "within_sd": 0.07981260148154541,
+   "blind": false,
+   "turn": 11
+  },
+  {
+   "state": "g0t11s1",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.9813363213099496,
+   "between_sd": 0.9263808366005977,
+   "within_sd": 0.06372637875250291,
+   "blind": false,
+   "turn": 11
+  },
+  {
+   "state": "g0t11s1",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.9285770763423917,
+   "between_sd": 0.7685667597758208,
+   "within_sd": 0.10556635356036352,
+   "blind": false,
+   "turn": 11
+  },
+  {
+   "state": "g0t11s1",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.9406428176126418,
+   "between_sd": 0.5671555776445933,
+   "within_sd": 0.07068016745695958,
+   "blind": false,
+   "turn": 11
+  },
+  {
+   "state": "g0t11s1",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.8383218159796556,
+   "between_sd": 0.43339453427161767,
+   "within_sd": 0.09294983240850994,
+   "blind": false,
+   "turn": 11
+  },
+  {
+   "state": "g0t11s1",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.9207253472654604,
+   "between_sd": 0.4181367380452665,
+   "within_sd": 0.06069682084026952,
+   "blind": false,
+   "turn": 11
+  },
+  {
+   "state": "g0t11s2",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.06581417916232522,
+   "between_sd": 0.11562075999744549,
+   "within_sd": 0.10212336451827482,
+   "blind": false,
+   "turn": 11
+  },
+  {
+   "state": "g0t11s2",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": -0.15744640636312227,
+   "between_sd": 0.07254671997126433,
+   "within_sd": 0.10744614025547969,
+   "blind": false,
+   "turn": 11
+  },
+  {
+   "state": "g0t11s2",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.3610473974950195,
+   "between_sd": 0.15433507375714342,
+   "within_sd": 0.08547507644218048,
+   "blind": false,
+   "turn": 11
+  },
+  {
+   "state": "g0t11s2",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": -0.0996239884598303,
+   "between_sd": 0.07589886383460674,
+   "within_sd": 0.09505144229345437,
+   "blind": false,
+   "turn": 11
+  },
+  {
+   "state": "g0t11s2",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.2677452725885084,
+   "between_sd": 0.14024782040896525,
+   "within_sd": 0.08937189159978232,
+   "blind": false,
+   "turn": 11
+  },
+  {
+   "state": "g0t11s2",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.48575791145832153,
+   "between_sd": 0.11013183142490494,
+   "within_sd": 0.050381361719119534,
+   "blind": false,
+   "turn": 11
+  },
+  {
+   "state": "g0t14s1",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.4431193696792553,
+   "between_sd": 0.06248900713570376,
+   "within_sd": 0.030553892768134038,
+   "blind": false,
+   "turn": 14
+  },
+  {
+   "state": "g1t4s1",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.29428850702935777,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 4
+  },
+  {
+   "state": "g1t4s1",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.1710335508031038,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 4
+  },
+  {
+   "state": "g1t4s1",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.123682459394452,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 4
+  },
+  {
+   "state": "g1t4s1",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.04124407300096352,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 4
+  },
+  {
+   "state": "g1t4s1",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.0,
+   "between_sd": 0.0,
+   "within_sd": 0.0,
+   "blind": true,
+   "turn": 4
+  },
+  {
+   "state": "g1t4s1",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.0,
+   "between_sd": 0.0,
+   "within_sd": 0.0,
+   "blind": true,
+   "turn": 4
+  },
+  {
+   "state": "g1t6s2",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.9922578175581716,
+   "between_sd": 0.2841634933542807,
+   "within_sd": 0.012538181669808844,
+   "blind": false,
+   "turn": 6
+  },
+  {
+   "state": "g1t6s2",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.9922578175581716,
+   "between_sd": 0.23201852074824883,
+   "within_sd": 0.010237382464449607,
+   "blind": false,
+   "turn": 6
+  },
+  {
+   "state": "g1t6s2",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.9937385416353801,
+   "between_sd": 0.258142213702888,
+   "within_sd": 0.010237382464449607,
+   "blind": false,
+   "turn": 6
+  },
+  {
+   "state": "g1t6s2",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.9927105892991495,
+   "between_sd": 0.23915656154349663,
+   "within_sd": 0.010237382464449607,
+   "blind": false,
+   "turn": 6
+  },
+  {
+   "state": "g1t6s2",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.993716691790777,
+   "between_sd": 0.31560556409840584,
+   "within_sd": 0.012538181669808844,
+   "blind": false,
+   "turn": 6
+  },
+  {
+   "state": "g1t6s2",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.9938417343301108,
+   "between_sd": 0.25938843878133233,
+   "within_sd": 0.010201289933519903,
+   "blind": false,
+   "turn": 6
+  },
+  {
+   "state": "g1t8s1",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.9751689103505088,
+   "between_sd": 0.45314414915165824,
+   "within_sd": 0.03604013446476948,
+   "blind": false,
+   "turn": 8
+  },
+  {
+   "state": "g1t8s1",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.9726537135805426,
+   "between_sd": 0.37966910146184646,
+   "within_sd": 0.031719356746587685,
+   "blind": false,
+   "turn": 8
+  },
+  {
+   "state": "g1t8s1",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.9525108902106424,
+   "between_sd": 0.338453354725374,
+   "within_sd": 0.03755268816976043,
+   "blind": false,
+   "turn": 8
+  },
+  {
+   "state": "g1t8s1",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.8546596556681487,
+   "between_sd": 0.2693099114138129,
+   "within_sd": 0.05438484101057808,
+   "blind": false,
+   "turn": 8
+  },
+  {
+   "state": "g1t8s1",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.8537001532612607,
+   "between_sd": 0.2998845245279869,
+   "within_sd": 0.06078324440454729,
+   "blind": false,
+   "turn": 8
+  },
+  {
+   "state": "g1t8s1",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.7674025422143914,
+   "between_sd": 0.27066857636846,
+   "within_sd": 0.07183533683581986,
+   "blind": false,
+   "turn": 8
+  },
+  {
+   "state": "g1t12s1",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.9954016906554204,
+   "between_sd": 0.668130060118885,
+   "within_sd": 0.02269239242110202,
+   "blind": false,
+   "turn": 12
+  },
+  {
+   "state": "g1t12s1",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.9921188465773954,
+   "between_sd": 0.4664330723932822,
+   "within_sd": 0.02076546057909665,
+   "blind": false,
+   "turn": 12
+  },
+  {
+   "state": "g1t12s1",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.8967012296482018,
+   "between_sd": 0.48127620704457774,
+   "within_sd": 0.08052350732053805,
+   "blind": false,
+   "turn": 12
+  },
+  {
+   "state": "g1t12s1",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.9819644307695683,
+   "between_sd": 0.5442802540874316,
+   "within_sd": 0.036797205442927104,
+   "blind": false,
+   "turn": 12
+  },
+  {
+   "state": "g1t12s1",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.9621680971684797,
+   "between_sd": 0.5522439103368474,
+   "within_sd": 0.0544854387600027,
+   "blind": false,
+   "turn": 12
+  },
+  {
+   "state": "g1t12s1",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.9467035096182882,
+   "between_sd": 0.46859684520145517,
+   "within_sd": 0.05520479528148958,
+   "blind": false,
+   "turn": 12
+  },
+  {
+   "state": "g1t12s2",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.8074257674339491,
+   "between_sd": 0.22262586875110518,
+   "within_sd": 0.052810115420877976,
+   "blind": false,
+   "turn": 12
+  },
+  {
+   "state": "g1t12s2",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.8830881360112861,
+   "between_sd": 0.17518082683520947,
+   "within_sd": 0.03135546159220779,
+   "blind": false,
+   "turn": 12
+  },
+  {
+   "state": "g1t12s2",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.9190762810420932,
+   "between_sd": 0.2053936206091805,
+   "within_sd": 0.03014331717565496,
+   "blind": false,
+   "turn": 12
+  },
+  {
+   "state": "g1t12s2",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.9912864915314522,
+   "between_sd": 0.15020932168217446,
+   "within_sd": 0.007033753772181222,
+   "blind": false,
+   "turn": 12
+  },
+  {
+   "state": "g1t12s2",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.9928841357897953,
+   "between_sd": 0.18561078960484173,
+   "within_sd": 0.007849627441953628,
+   "blind": false,
+   "turn": 12
+  },
+  {
+   "state": "g1t12s2",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.9764368133818693,
+   "between_sd": 0.11976905051508034,
+   "within_sd": 0.009274776372528337,
+   "blind": false,
+   "turn": 12
+  },
+  {
+   "state": "g1t14s2",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.7480867569182018,
+   "between_sd": 0.14102327856044294,
+   "within_sd": 0.039296915452344434,
+   "blind": false,
+   "turn": 14
+  },
+  {
+   "state": "g1t14s2",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.9347382834945865,
+   "between_sd": 0.17775040779933887,
+   "within_sd": 0.023281305710088015,
+   "blind": false,
+   "turn": 14
+  },
+  {
+   "state": "g1t14s2",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.9259200388200638,
+   "between_sd": 0.12967587888239065,
+   "within_sd": 0.01815901906279671,
+   "blind": false,
+   "turn": 14
+  },
+  {
+   "state": "g1t14s2",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.9524862417882619,
+   "between_sd": 0.17047982851714152,
+   "within_sd": 0.01892047554023173,
+   "blind": false,
+   "turn": 14
+  },
+  {
+   "state": "g1t14s2",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.8858877781080096,
+   "between_sd": 0.20341219930933435,
+   "within_sd": 0.03592867587351744,
+   "blind": false,
+   "turn": 14
+  },
+  {
+   "state": "g1t14s2",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.9747876681753648,
+   "between_sd": 0.16184553072377805,
+   "within_sd": 0.012972468709149943,
+   "blind": false,
+   "turn": 14
+  },
+  {
+   "state": "g1t16s1",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.7472367243278394,
+   "between_sd": 0.05900406911019097,
+   "within_sd": 0.01647600285513952,
+   "blind": false,
+   "turn": 16
+  },
+  {
+   "state": "g1t16s1",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.8106312133404057,
+   "between_sd": 0.08091632969385913,
+   "within_sd": 0.019007432793520025,
+   "blind": false,
+   "turn": 16
+  },
+  {
+   "state": "g1t16s1",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.2717372816981231,
+   "between_sd": 0.026577021583390117,
+   "within_sd": 0.016833975454099946,
+   "blind": false,
+   "turn": 16
+  },
+  {
+   "state": "g1t16s1",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.5551195314881294,
+   "between_sd": 0.039819312112316804,
+   "within_sd": 0.016268128700344674,
+   "blind": false,
+   "turn": 16
+  },
+  {
+   "state": "g1t16s1",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.7096882475445477,
+   "between_sd": 0.0475725560828183,
+   "within_sd": 0.014490438263426008,
+   "blind": false,
+   "turn": 16
+  },
+  {
+   "state": "g1t16s1",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.38192205472151414,
+   "between_sd": 0.04022473009355888,
+   "within_sd": 0.02158855457302183,
+   "blind": false,
+   "turn": 16
+  },
+  {
+   "state": "g1t18s1",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.5817801719122843,
+   "between_sd": 0.1255919565814978,
+   "within_sd": 0.049019178210047684,
+   "blind": false,
+   "turn": 18
+  },
+  {
+   "state": "g1t18s1",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.9141867179997906,
+   "between_sd": 0.6763276976298179,
+   "within_sd": 0.10241180835192819,
+   "blind": false,
+   "turn": 18
+  },
+  {
+   "state": "g1t18s1",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.7543903719667723,
+   "between_sd": 0.5120833481193124,
+   "within_sd": 0.14048935652498368,
+   "blind": false,
+   "turn": 18
+  },
+  {
+   "state": "g1t18s1",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.44913928982075224,
+   "between_sd": 0.26422732105732716,
+   "within_sd": 0.12799806882639428,
+   "blind": false,
+   "turn": 18
+  },
+  {
+   "state": "g1t18s1",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.05882352941176479,
+   "between_sd": 0.12633063090379698,
+   "within_sd": 0.11299355133653027,
+   "blind": false,
+   "turn": 18
+  },
+  {
+   "state": "g1t18s1",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.05882352941176481,
+   "between_sd": 0.07860422898016745,
+   "within_sd": 0.07030575972744535,
+   "blind": false,
+   "turn": 18
+  },
+  {
+   "state": "g1t19s2",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.8763050471615546,
+   "between_sd": 0.3744785766559491,
+   "within_sd": 0.0691376415611967,
+   "blind": false,
+   "turn": 19
+  },
+  {
+   "state": "g1t19s2",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.8559200130136781,
+   "between_sd": 0.369043604994593,
+   "within_sd": 0.07416204483354935,
+   "blind": false,
+   "turn": 19
+  },
+  {
+   "state": "g1t19s2",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.9269692358129832,
+   "between_sd": 0.487542847342813,
+   "within_sd": 0.06775910699675408,
+   "blind": false,
+   "turn": 19
+  },
+  {
+   "state": "g1t19s2",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.894882242006065,
+   "between_sd": 0.5127328906439974,
+   "within_sd": 0.08660267253960244,
+   "blind": false,
+   "turn": 19
+  },
+  {
+   "state": "g1t19s2",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.957665312635635,
+   "between_sd": 0.6463482847644451,
+   "within_sd": 0.06757580973072876,
+   "blind": false,
+   "turn": 19
+  },
+  {
+   "state": "g1t19s2",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.8997987702308404,
+   "between_sd": 0.4073969824331316,
+   "within_sd": 0.06704847496403428,
+   "blind": false,
+   "turn": 19
+  },
+  {
+   "state": "g1t20s1",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.9820437002379502,
+   "between_sd": 0.7894106831518521,
+   "within_sd": 0.05325074254748183,
+   "blind": false,
+   "turn": 20
+  },
+  {
+   "state": "g1t20s1",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.910957344275117,
+   "between_sd": 0.6524173945205689,
+   "within_sd": 0.10076345093306299,
+   "blind": false,
+   "turn": 20
+  },
+  {
+   "state": "g1t20s1",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.8431833720971946,
+   "between_sd": 0.6312599072056543,
+   "within_sd": 0.1330591013868809,
+   "blind": false,
+   "turn": 20
+  },
+  {
+   "state": "g1t20s1",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.9059668678033089,
+   "between_sd": 0.7939592365902561,
+   "within_sd": 0.12626697300663248,
+   "blind": false,
+   "turn": 20
+  },
+  {
+   "state": "g1t20s1",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.9909929860001483,
+   "between_sd": 0.7630911192628822,
+   "within_sd": 0.03633362133957246,
+   "blind": false,
+   "turn": 20
+  },
+  {
+   "state": "g1t20s1",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.896603679970684,
+   "between_sd": 0.5945264040816004,
+   "within_sd": 0.09952257983681749,
+   "blind": false,
+   "turn": 20
+  },
+  {
+   "state": "g1t21s1",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.9301158029840164,
+   "between_sd": 0.23873812842660755,
+   "within_sd": 0.03241692123802545,
+   "blind": false,
+   "turn": 21
+  },
+  {
+   "state": "g1t21s1",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.939561575896187,
+   "between_sd": 0.27287551748463856,
+   "within_sd": 0.03432924373177847,
+   "blind": false,
+   "turn": 21
+  },
+  {
+   "state": "g1t21s1",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.9296375194033117,
+   "between_sd": 0.23779200773572734,
+   "within_sd": 0.03240488864577133,
+   "blind": false,
+   "turn": 21
+  },
+  {
+   "state": "g1t21s1",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.8866202972024902,
+   "between_sd": 0.1836833240819872,
+   "within_sd": 0.03232995484171891,
+   "blind": false,
+   "turn": 21
+  },
+  {
+   "state": "g1t21s1",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": -0.003412862807556194,
+   "between_sd": 0.04610944744623042,
+   "within_sd": 0.04642634463984048,
+   "blind": false,
+   "turn": 21
+  },
+  {
+   "state": "g1t21s1",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.9811804450528085,
+   "between_sd": 0.032135156460770635,
+   "within_sd": 0.0022199433629236293,
+   "blind": false,
+   "turn": 21
+  },
+  {
+   "state": "g1t22s2",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.8019185834995124,
+   "between_sd": 0.08008802811059455,
+   "within_sd": 0.019314466560889348,
+   "blind": false,
+   "turn": 22
+  },
+  {
+   "state": "g1t22s2",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.058823529411764705,
+   "between_sd": 0.004879104845721619,
+   "within_sd": 0.004364004041752866,
+   "blind": false,
+   "turn": 22
+  },
+  {
+   "state": "g1t22s2",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.058823529411764705,
+   "between_sd": 0.002676352439168974,
+   "within_sd": 0.0023938023942916787,
+   "blind": false,
+   "turn": 22
+  },
+  {
+   "state": "g1t22s2",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.058823529411764705,
+   "between_sd": 0.003224698676319818,
+   "within_sd": 0.0028842581788818818,
+   "blind": false,
+   "turn": 22
+  },
+  {
+   "state": "g1t22s2",
+   "coord": 4,
+   "n_cand": 4,
+   "icc": 0.07692307692307691,
+   "between_sd": 0.001116521465276848,
+   "within_sd": 0.0009669359528003753,
+   "blind": false,
+   "turn": 22
+  },
+  {
+   "state": "g2t1s1",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.0,
+   "between_sd": 0.0,
+   "within_sd": 0.0,
+   "blind": true,
+   "turn": 1
+  },
+  {
+   "state": "g2t1s1",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.0,
+   "between_sd": 0.0,
+   "within_sd": 0.0,
+   "blind": true,
+   "turn": 1
+  },
+  {
+   "state": "g2t1s1",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.0,
+   "between_sd": 0.0,
+   "within_sd": 0.0,
+   "blind": true,
+   "turn": 1
+  },
+  {
+   "state": "g2t1s1",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.16328991357524275,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 1
+  },
+  {
+   "state": "g2t1s1",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.0,
+   "between_sd": 0.0,
+   "within_sd": 0.0,
+   "blind": true,
+   "turn": 1
+  },
+  {
+   "state": "g2t1s1",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.0,
+   "between_sd": 0.0,
+   "within_sd": 0.0,
+   "blind": true,
+   "turn": 1
+  },
+  {
+   "state": "g2t3s2",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.050170034531346976,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 3
+  },
+  {
+   "state": "g2t3s2",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.37352968363436456,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 3
+  },
+  {
+   "state": "g2t3s2",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.04835367773528481,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 3
+  },
+  {
+   "state": "g2t3s2",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.04835367773528481,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 3
+  },
+  {
+   "state": "g2t3s2",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.10621623138093003,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 3
+  },
+  {
+   "state": "g2t3s2",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.12247328628833955,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 3
+  },
+  {
+   "state": "g2t5s2",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.9817168248412866,
+   "between_sd": 0.42401235744156,
+   "within_sd": 0.02886506485209288,
+   "blind": false,
+   "turn": 5
+  },
+  {
+   "state": "g2t5s2",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.9845793346222802,
+   "between_sd": 0.46219466111377955,
+   "within_sd": 0.02886506485209288,
+   "blind": false,
+   "turn": 5
+  },
+  {
+   "state": "g2t5s2",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.9712571896923473,
+   "between_sd": 0.43174088048457504,
+   "within_sd": 0.03699900545112531,
+   "blind": false,
+   "turn": 5
+  },
+  {
+   "state": "g2t5s2",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.759502010455021,
+   "between_sd": 0.27895802488839355,
+   "within_sd": 0.075553848515567,
+   "blind": false,
+   "turn": 5
+  },
+  {
+   "state": "g2t5s2",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.9704229051959448,
+   "between_sd": 0.4401807736707526,
+   "within_sd": 0.03827806706109264,
+   "blind": false,
+   "turn": 5
+  },
+  {
+   "state": "g2t5s2",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.9789852879092771,
+   "between_sd": 0.4054535842667573,
+   "within_sd": 0.029622560365701912,
+   "blind": false,
+   "turn": 5
+  },
+  {
+   "state": "g2t7s2",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.5319553210543383,
+   "between_sd": 0.032822595581985116,
+   "within_sd": 0.01393719722604036,
+   "blind": false,
+   "turn": 7
+  },
+  {
+   "state": "g2t7s2",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.55124024314964,
+   "between_sd": 0.09774046615825241,
+   "within_sd": 0.04019330785865848,
+   "blind": false,
+   "turn": 7
+  },
+  {
+   "state": "g2t7s2",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.45455287891449236,
+   "between_sd": 0.02437376969782639,
+   "within_sd": 0.011708645376021643,
+   "blind": false,
+   "turn": 7
+  },
+  {
+   "state": "g2t7s2",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.6645078538651039,
+   "between_sd": 0.05134907598023014,
+   "within_sd": 0.01719026103213939,
+   "blind": false,
+   "turn": 7
+  },
+  {
+   "state": "g2t7s2",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.9286812447354909,
+   "between_sd": 0.11487167163316207,
+   "within_sd": 0.01576601753467431,
+   "blind": false,
+   "turn": 7
+  },
+  {
+   "state": "g2t7s2",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.5952472205903286,
+   "between_sd": 0.025607106877182553,
+   "within_sd": 0.009760791014704073,
+   "blind": false,
+   "turn": 7
+  },
+  {
+   "state": "g2t8s1",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.9840663333636201,
+   "between_sd": 0.2894084001645515,
+   "within_sd": 0.018375941255640866,
+   "blind": false,
+   "turn": 8
+  },
+  {
+   "state": "g2t8s1",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.976362501302777,
+   "between_sd": 0.3504859585100705,
+   "within_sd": 0.0271847618032314,
+   "blind": false,
+   "turn": 8
+  },
+  {
+   "state": "g2t8s1",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.9498729993459099,
+   "between_sd": 0.26137186929447964,
+   "within_sd": 0.029825369250954883,
+   "blind": false,
+   "turn": 8
+  },
+  {
+   "state": "g2t8s1",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.9301627442896975,
+   "between_sd": 0.2207093646076323,
+   "within_sd": 0.029958272494706194,
+   "blind": false,
+   "turn": 8
+  },
+  {
+   "state": "g2t8s1",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.9402982020296625,
+   "between_sd": 0.23313233562907143,
+   "within_sd": 0.029141619991913587,
+   "blind": false,
+   "turn": 8
+  },
+  {
+   "state": "g2t8s1",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.9807325850991432,
+   "between_sd": 0.25495011008825347,
+   "within_sd": 0.017823694324324076,
+   "blind": false,
+   "turn": 8
+  },
+  {
+   "state": "g2t8s2",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.8599142962134543,
+   "between_sd": 0.03194934948886613,
+   "within_sd": 0.006320231858372354,
+   "blind": false,
+   "turn": 8
+  },
+  {
+   "state": "g2t8s2",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.8245614660538076,
+   "between_sd": 0.04435058048777058,
+   "within_sd": 0.009967049709155174,
+   "blind": false,
+   "turn": 8
+  },
+  {
+   "state": "g2t8s2",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.9350152165279452,
+   "between_sd": 0.05571050309614284,
+   "within_sd": 0.007280529782659699,
+   "blind": false,
+   "turn": 8
+  },
+  {
+   "state": "g2t8s2",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.9756288304513379,
+   "between_sd": 0.02658144279182591,
+   "within_sd": 0.002094076588682437,
+   "blind": false,
+   "turn": 8
+  },
+  {
+   "state": "g2t8s2",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.0,
+   "between_sd": 0.0,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 8
+  },
+  {
+   "state": "g3t5s1",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.15730351982486848,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 5
+  },
+  {
+   "state": "g3t5s1",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.1010875728235232,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 5
+  },
+  {
+   "state": "g3t5s1",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.20453281927976621,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 5
+  },
+  {
+   "state": "g3t5s1",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.18036049330144316,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 5
+  },
+  {
+   "state": "g3t5s1",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.2537857454006049,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 5
+  },
+  {
+   "state": "g3t5s1",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.0,
+   "between_sd": 0.0,
+   "within_sd": 0.0,
+   "blind": true,
+   "turn": 5
+  },
+  {
+   "state": "g3t7s1",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.5976279306471612,
+   "between_sd": 0.44035376162434137,
+   "within_sd": 0.16714338411959462,
+   "blind": false,
+   "turn": 7
+  },
+  {
+   "state": "g3t7s1",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.5879176196971484,
+   "between_sd": 0.4423341232803975,
+   "within_sd": 0.17080196551181867,
+   "blind": false,
+   "turn": 7
+  },
+  {
+   "state": "g3t7s1",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.5956272686290216,
+   "between_sd": 0.36611336143828555,
+   "within_sd": 0.13945922085613532,
+   "blind": false,
+   "turn": 7
+  },
+  {
+   "state": "g3t7s1",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.5634177669486911,
+   "between_sd": 0.41664651879848225,
+   "within_sd": 0.16784337355203985,
+   "blind": false,
+   "turn": 7
+  },
+  {
+   "state": "g3t7s1",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.5143698345968826,
+   "between_sd": 0.3214900602564176,
+   "within_sd": 0.14048755278592925,
+   "blind": false,
+   "turn": 7
+  },
+  {
+   "state": "g3t7s1",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.6712237020656278,
+   "between_sd": 0.4158899014073325,
+   "within_sd": 0.13736645744115303,
+   "blind": false,
+   "turn": 7
+  },
+  {
+   "state": "g3t10s1",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.9941762751058076,
+   "between_sd": 0.5987231959361826,
+   "within_sd": 0.022895337283286774,
+   "blind": false,
+   "turn": 10
+  },
+  {
+   "state": "g3t10s1",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.9542943555376648,
+   "between_sd": 1.1997449031070557,
+   "within_sd": 0.13050226554632177,
+   "blind": false,
+   "turn": 10
+  },
+  {
+   "state": "g3t10s1",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.9888595615835647,
+   "between_sd": 0.3232544508018344,
+   "within_sd": 0.01713119337974269,
+   "blind": false,
+   "turn": 10
+  },
+  {
+   "state": "g3t10s1",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.9926327258075982,
+   "between_sd": 0.3278202033678563,
+   "within_sd": 0.014107897674013752,
+   "blind": false,
+   "turn": 10
+  },
+  {
+   "state": "g3t10s1",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.9916771002702062,
+   "between_sd": 0.3083154201587503,
+   "within_sd": 0.014107897674013752,
+   "blind": false,
+   "turn": 10
+  },
+  {
+   "state": "g3t10s1",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.9964576485632033,
+   "between_sd": 0.25710452781012627,
+   "within_sd": 0.007661313404836321,
+   "blind": false,
+   "turn": 10
+  },
+  {
+   "state": "g3t12s2",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.9729532730412289,
+   "between_sd": 0.19605584472840365,
+   "within_sd": 0.016287607227884714,
+   "blind": false,
+   "turn": 12
+  },
+  {
+   "state": "g3t12s2",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.7734730719723516,
+   "between_sd": 0.10066012767964301,
+   "within_sd": 0.026291837257544866,
+   "blind": false,
+   "turn": 12
+  },
+  {
+   "state": "g3t12s2",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.7909686164849459,
+   "between_sd": 0.07913836006068965,
+   "within_sd": 0.01970110948962839,
+   "blind": false,
+   "turn": 12
+  },
+  {
+   "state": "g3t12s2",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.961165387512314,
+   "between_sd": 0.1608550094592884,
+   "within_sd": 0.01608542863908311,
+   "blind": false,
+   "turn": 12
+  },
+  {
+   "state": "g3t12s2",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.8988071151708097,
+   "between_sd": 0.09807838819299787,
+   "within_sd": 0.016227722551636684,
+   "blind": false,
+   "turn": 12
+  },
+  {
+   "state": "g3t12s2",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.8014860395417861,
+   "between_sd": 0.0667037262822076,
+   "within_sd": 0.01610725835388915,
+   "blind": false,
+   "turn": 12
+  },
+  {
+   "state": "g4t2s1",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.10814777633427085,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 2
+  },
+  {
+   "state": "g4t5s2",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.8602372878805977,
+   "between_sd": 0.5864448315004761,
+   "within_sd": 0.11586123015535607,
+   "blind": false,
+   "turn": 5
+  },
+  {
+   "state": "g4t5s2",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.8732108276721277,
+   "between_sd": 0.42330141912504315,
+   "within_sd": 0.0792243289642401,
+   "blind": false,
+   "turn": 5
+  },
+  {
+   "state": "g4t5s2",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.7020705288108765,
+   "between_sd": 0.2638477093200859,
+   "within_sd": 0.08171363743173936,
+   "blind": false,
+   "turn": 5
+  },
+  {
+   "state": "g4t5s2",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.9259242748998572,
+   "between_sd": 0.434376515256498,
+   "within_sd": 0.06082559605739682,
+   "blind": false,
+   "turn": 5
+  },
+  {
+   "state": "g4t5s2",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.9742803175782397,
+   "between_sd": 0.3153432426113863,
+   "within_sd": 0.025533831005907674,
+   "blind": false,
+   "turn": 5
+  },
+  {
+   "state": "g4t5s2",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.9644763408002403,
+   "between_sd": 0.20292237868489826,
+   "within_sd": 0.019383074324987228,
+   "blind": false,
+   "turn": 5
+  },
+  {
+   "state": "g4t9s1",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.5500023206043807,
+   "between_sd": 0.06821490715371145,
+   "within_sd": 0.028110004944562464,
+   "blind": false,
+   "turn": 9
+  },
+  {
+   "state": "g4t9s1",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.5181140644348947,
+   "between_sd": 0.06092110717289872,
+   "within_sd": 0.02646064184417014,
+   "blind": false,
+   "turn": 9
+  },
+  {
+   "state": "g4t9s1",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.7672233289739331,
+   "between_sd": 0.055883088445938534,
+   "within_sd": 0.01483827089293814,
+   "blind": false,
+   "turn": 9
+  },
+  {
+   "state": "g4t9s1",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.8225851357163863,
+   "between_sd": 0.05243203350822148,
+   "within_sd": 0.01185952990285467,
+   "blind": false,
+   "turn": 9
+  },
+  {
+   "state": "g4t9s1",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.8638864081233905,
+   "between_sd": 0.03630372941066218,
+   "within_sd": 0.007067314640618864,
+   "blind": false,
+   "turn": 9
+  },
+  {
+   "state": "g4t9s1",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.8392887213350915,
+   "between_sd": 0.030027269884905387,
+   "within_sd": 0.006417994923402806,
+   "blind": false,
+   "turn": 9
+  },
+  {
+   "state": "g4t14s1",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.9509820740595771,
+   "between_sd": 0.03771203326486908,
+   "within_sd": 0.004253642046432105,
+   "blind": false,
+   "turn": 14
+  },
+  {
+   "state": "g4t14s1",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.9219822552726509,
+   "between_sd": 0.03958163068118913,
+   "within_sd": 0.005697092749568742,
+   "blind": false,
+   "turn": 14
+  },
+  {
+   "state": "g4t14s1",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.8772550084939758,
+   "between_sd": 0.030793779948621047,
+   "within_sd": 0.005661167712628867,
+   "blind": false,
+   "turn": 14
+  },
+  {
+   "state": "g4t14s1",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.9628315000387604,
+   "between_sd": 0.028918674581716333,
+   "within_sd": 0.0028273212469145763,
+   "blind": false,
+   "turn": 14
+  },
+  {
+   "state": "g4t14s1",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.8542281785346032,
+   "between_sd": 0.009692137030559047,
+   "within_sd": 0.0019605036338222227,
+   "blind": false,
+   "turn": 14
+  },
+  {
+   "state": "g4t14s1",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.8969398514478365,
+   "between_sd": 0.014359836702750269,
+   "within_sd": 0.0023995702939268865,
+   "blind": false,
+   "turn": 14
+  },
+  {
+   "state": "g4t16s2",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.0,
+   "between_sd": 0.0,
+   "within_sd": 0.0,
+   "blind": true,
+   "turn": 16
+  },
+  {
+   "state": "g4t16s2",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.0,
+   "between_sd": 0.0,
+   "within_sd": 0.0,
+   "blind": true,
+   "turn": 16
+  },
+  {
+   "state": "g4t16s2",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.0,
+   "between_sd": 0.0,
+   "within_sd": 0.0,
+   "blind": true,
+   "turn": 16
+  },
+  {
+   "state": "g4t16s2",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.0,
+   "between_sd": 0.0,
+   "within_sd": 0.0,
+   "blind": true,
+   "turn": 16
+  },
+  {
+   "state": "g4t16s2",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.0,
+   "between_sd": 0.0,
+   "within_sd": 0.0,
+   "blind": true,
+   "turn": 16
+  },
+  {
+   "state": "g4t16s2",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.0,
+   "between_sd": 0.0,
+   "within_sd": 0.0,
+   "blind": true,
+   "turn": 16
+  },
+  {
+   "state": "g4t19s1",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.04210793710772993,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 19
+  },
+  {
+   "state": "g4t19s1",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.03715197916979128,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 19
+  },
+  {
+   "state": "g4t19s1",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.017369328755065055,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 19
+  },
+  {
+   "state": "g4t19s1",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.012636332735606378,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 19
+  },
+  {
+   "state": "g4t19s1",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.0070969032756531955,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 19
+  },
+  {
+   "state": "g4t19s1",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.011531945003187282,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 19
+  },
+  {
+   "state": "g4t20s2",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.9997688448752715,
+   "between_sd": 0.4905569201688626,
+   "within_sd": 0.003729484644122826,
+   "blind": false,
+   "turn": 20
+  },
+  {
+   "state": "g4t20s2",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.9995778749658926,
+   "between_sd": 0.4875379914900155,
+   "within_sd": 0.0050091931830684895,
+   "blind": false,
+   "turn": 20
+  },
+  {
+   "state": "g4t20s2",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.9996335775247085,
+   "between_sd": 0.38960819476369,
+   "within_sd": 0.003729484644122826,
+   "blind": false,
+   "turn": 20
+  },
+  {
+   "state": "g4t20s2",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.9995241285976185,
+   "between_sd": 0.3418664649918685,
+   "within_sd": 0.003729484644122826,
+   "blind": false,
+   "turn": 20
+  },
+  {
+   "state": "g4t20s2",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.9996424985901812,
+   "between_sd": 0.394440689178381,
+   "within_sd": 0.003729484644122826,
+   "blind": false,
+   "turn": 20
+  },
+  {
+   "state": "g4t20s2",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.9995663692855765,
+   "between_sd": 0.35813615625824924,
+   "within_sd": 0.003729484644122826,
+   "blind": false,
+   "turn": 20
+  },
+  {
+   "state": "g4t23s2",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.9979600431938721,
+   "between_sd": 0.2504066080518754,
+   "within_sd": 0.005659248420457614,
+   "blind": false,
+   "turn": 23
+  },
+  {
+   "state": "g4t23s2",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.9920988107665448,
+   "between_sd": 0.3215760466745621,
+   "within_sd": 0.014334763980065566,
+   "blind": false,
+   "turn": 23
+  },
+  {
+   "state": "g4t23s2",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.9946536966011469,
+   "between_sd": 0.38657706393838853,
+   "within_sd": 0.014161372275282497,
+   "blind": false,
+   "turn": 23
+  },
+  {
+   "state": "g4t23s2",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.9991441971476775,
+   "between_sd": 0.32931055110359697,
+   "within_sd": 0.004818389857991374,
+   "blind": false,
+   "turn": 23
+  },
+  {
+   "state": "g4t23s2",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.9998632908369418,
+   "between_sd": 0.34262442902883244,
+   "within_sd": 0.0020031312537803817,
+   "blind": false,
+   "turn": 23
+  },
+  {
+   "state": "g4t23s2",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.9998988735203762,
+   "between_sd": 0.24458657536383913,
+   "within_sd": 0.0012298482717623097,
+   "blind": false,
+   "turn": 23
+  },
+  {
+   "state": "g4t27s1",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.80088966958608,
+   "between_sd": 0.24137401696923744,
+   "within_sd": 0.05838853272690877,
+   "blind": false,
+   "turn": 27
+  },
+  {
+   "state": "g4t27s1",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.8359775485891833,
+   "between_sd": 0.25032467083350446,
+   "within_sd": 0.05412895962675759,
+   "blind": false,
+   "turn": 27
+  },
+  {
+   "state": "g4t27s1",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.5185266830064722,
+   "between_sd": 0.18468318951546644,
+   "within_sd": 0.08016203499384934,
+   "blind": false,
+   "turn": 27
+  },
+  {
+   "state": "g4t27s1",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.7817117697223569,
+   "between_sd": 0.19241839458875487,
+   "within_sd": 0.04915355145931244,
+   "blind": false,
+   "turn": 27
+  },
+  {
+   "state": "g4t27s1",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.8966663528487862,
+   "between_sd": 0.07459272794441403,
+   "within_sd": 0.012482576647222658,
+   "blind": false,
+   "turn": 27
+  },
+  {
+   "state": "g4t27s1",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.8950845819058788,
+   "between_sd": 0.1604941269125872,
+   "within_sd": 0.02707977828424295,
+   "blind": false,
+   "turn": 27
+  },
+  {
+   "state": "g4t28s2",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.8795260850922294,
+   "between_sd": 0.5155604600425651,
+   "within_sd": 0.09381240166103684,
+   "blind": false,
+   "turn": 28
+  },
+  {
+   "state": "g4t28s2",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.7570100462023944,
+   "between_sd": 0.32476947015143726,
+   "within_sd": 0.08851708085357864,
+   "blind": false,
+   "turn": 28
+  },
+  {
+   "state": "g4t28s2",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.852894713669595,
+   "between_sd": 0.2620701602730122,
+   "within_sd": 0.05328279433497489,
+   "blind": false,
+   "turn": 28
+  },
+  {
+   "state": "g4t28s2",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.43315924376671566,
+   "between_sd": 0.21702828480710598,
+   "within_sd": 0.10775371904917852,
+   "blind": false,
+   "turn": 28
+  },
+  {
+   "state": "g4t28s2",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.49253479983565096,
+   "between_sd": 0.3026422785296567,
+   "within_sd": 0.13696725404467633,
+   "blind": false,
+   "turn": 28
+  },
+  {
+   "state": "g4t28s2",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.6300250374610158,
+   "between_sd": 0.2624645373828791,
+   "within_sd": 0.09390792292777284,
+   "blind": false,
+   "turn": 28
+  },
+  {
+   "state": "g5t7s1",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.9604665102985136,
+   "between_sd": 0.6850945835438379,
+   "within_sd": 0.06914152201717577,
+   "blind": false,
+   "turn": 7
+  },
+  {
+   "state": "g5t7s1",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.8844196201143725,
+   "between_sd": 0.42915484250463803,
+   "within_sd": 0.07633361902260359,
+   "blind": false,
+   "turn": 7
+  },
+  {
+   "state": "g5t7s1",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.8949590537146792,
+   "between_sd": 0.5623815758690737,
+   "within_sd": 0.09495085717740676,
+   "blind": false,
+   "turn": 7
+  },
+  {
+   "state": "g5t7s1",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.7840952413797897,
+   "between_sd": 0.33809267827719447,
+   "within_sd": 0.08580179217671238,
+   "blind": false,
+   "turn": 7
+  },
+  {
+   "state": "g5t7s1",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.8723767172500316,
+   "between_sd": 0.39796286731772684,
+   "within_sd": 0.074752451363281,
+   "blind": false,
+   "turn": 7
+  },
+  {
+   "state": "g5t7s1",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.7924184868059625,
+   "between_sd": 0.41028272106472696,
+   "within_sd": 0.10171748361481982,
+   "blind": false,
+   "turn": 7
+  },
+  {
+   "state": "g5t9s2",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.9932672431533943,
+   "between_sd": 0.7158634913103211,
+   "within_sd": 0.029443942509165842,
+   "blind": false,
+   "turn": 9
+  },
+  {
+   "state": "g5t9s2",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.9700711373838463,
+   "between_sd": 0.7024682813837931,
+   "within_sd": 0.061457033764205055,
+   "blind": false,
+   "turn": 9
+  },
+  {
+   "state": "g5t9s2",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.9915098751881204,
+   "between_sd": 0.6189221757151891,
+   "within_sd": 0.028605544027057492,
+   "blind": false,
+   "turn": 9
+  },
+  {
+   "state": "g5t9s2",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.9843315582329727,
+   "between_sd": 0.5859492705548741,
+   "within_sd": 0.03689009785389186,
+   "blind": false,
+   "turn": 9
+  },
+  {
+   "state": "g5t9s2",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.9875432689206151,
+   "between_sd": 0.4243084490771832,
+   "within_sd": 0.02378986476202928,
+   "blind": false,
+   "turn": 9
+  },
+  {
+   "state": "g5t9s2",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.957711384594946,
+   "between_sd": 0.5657527857407185,
+   "within_sd": 0.05911628906606642,
+   "blind": false,
+   "turn": 9
+  },
+  {
+   "state": "g5t10s1",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.9309258212879448,
+   "between_sd": 0.4700330405848712,
+   "within_sd": 0.06343187827247558,
+   "blind": false,
+   "turn": 10
+  },
+  {
+   "state": "g5t10s1",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.9264222545765628,
+   "between_sd": 0.4548228172823069,
+   "within_sd": 0.06346170090552201,
+   "blind": false,
+   "turn": 10
+  },
+  {
+   "state": "g5t10s1",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.9432978045255088,
+   "between_sd": 0.44140393498464814,
+   "within_sd": 0.05370847164286902,
+   "blind": false,
+   "turn": 10
+  },
+  {
+   "state": "g5t10s1",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.930167199696046,
+   "between_sd": 0.38641577845079167,
+   "within_sd": 0.05244888237444935,
+   "blind": false,
+   "turn": 10
+  },
+  {
+   "state": "g5t10s1",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.9140164357623529,
+   "between_sd": 0.4468808759239026,
+   "within_sd": 0.06773992923854374,
+   "blind": false,
+   "turn": 10
+  },
+  {
+   "state": "g5t10s1",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.9785088897633504,
+   "between_sd": 0.40531889451581393,
+   "within_sd": 0.029951932305558066,
+   "blind": false,
+   "turn": 10
+  },
+  {
+   "state": "g5t11s1",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.5651689780371097,
+   "between_sd": 0.04098986732914867,
+   "within_sd": 0.016463286881469027,
+   "blind": false,
+   "turn": 11
+  },
+  {
+   "state": "g5t11s1",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.1532094190032208,
+   "between_sd": 0.047663621764354624,
+   "within_sd": 0.03630395311772437,
+   "blind": false,
+   "turn": 11
+  },
+  {
+   "state": "g5t11s1",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.5790013282534364,
+   "between_sd": 0.05289213404533716,
+   "within_sd": 0.02074405894736002,
+   "blind": false,
+   "turn": 11
+  },
+  {
+   "state": "g5t11s1",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.4710281434426489,
+   "between_sd": 0.0456054614595837,
+   "within_sd": 0.021352408965539003,
+   "blind": false,
+   "turn": 11
+  },
+  {
+   "state": "g5t11s1",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.7373671727993858,
+   "between_sd": 0.13534476727085026,
+   "within_sd": 0.038700924766818384,
+   "blind": false,
+   "turn": 11
+  },
+  {
+   "state": "g5t11s1",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.4453974236081182,
+   "between_sd": 0.05562827420694813,
+   "within_sd": 0.027103928110167614,
+   "blind": false,
+   "turn": 11
+  },
+  {
+   "state": "g6t1s1",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.0,
+   "between_sd": 0.0,
+   "within_sd": 0.0,
+   "blind": true,
+   "turn": 1
+  },
+  {
+   "state": "g6t1s1",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.0,
+   "between_sd": 0.0,
+   "within_sd": 0.0,
+   "blind": true,
+   "turn": 1
+  },
+  {
+   "state": "g6t1s1",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.0,
+   "between_sd": 0.0,
+   "within_sd": 0.0,
+   "blind": true,
+   "turn": 1
+  },
+  {
+   "state": "g6t1s1",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.0,
+   "between_sd": 0.0,
+   "within_sd": 0.0,
+   "blind": true,
+   "turn": 1
+  },
+  {
+   "state": "g6t1s1",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.1642947020571186,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 1
+  },
+  {
+   "state": "g6t1s1",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.0,
+   "between_sd": 0.0,
+   "within_sd": 0.0,
+   "blind": true,
+   "turn": 1
+  },
+  {
+   "state": "g6t1s2",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.9999278539298155,
+   "between_sd": 0.6329034533300683,
+   "within_sd": 0.0026879770705183848,
+   "blind": false,
+   "turn": 1
+  },
+  {
+   "state": "g6t1s2",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.9998169154835321,
+   "between_sd": 0.5900252185551543,
+   "within_sd": 0.003992052156384591,
+   "blind": false,
+   "turn": 1
+  },
+  {
+   "state": "g6t1s2",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.9998936276889847,
+   "between_sd": 0.4493435764631277,
+   "within_sd": 0.00231728880691634,
+   "blind": false,
+   "turn": 1
+  },
+  {
+   "state": "g6t1s2",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.9999809578440362,
+   "between_sd": 0.3453207190319344,
+   "within_sd": 0.0007534488963421865,
+   "blind": false,
+   "turn": 1
+  },
+  {
+   "state": "g6t1s2",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.9999812936731822,
+   "between_sd": 0.27802484856840964,
+   "within_sd": 0.0006012442313618589,
+   "blind": false,
+   "turn": 1
+  },
+  {
+   "state": "g6t1s2",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.999650147389573,
+   "between_sd": 0.10584158765827428,
+   "within_sd": 0.000989978799240918,
+   "blind": false,
+   "turn": 1
+  },
+  {
+   "state": "g6t3s2",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.001608023652347026,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 3
+  },
+  {
+   "state": "g6t3s2",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.001608023652347026,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 3
+  },
+  {
+   "state": "g6t3s2",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.017009501527436403,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 3
+  },
+  {
+   "state": "g6t3s2",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.0019694187212883916,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 3
+  },
+  {
+   "state": "g6t3s2",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.06874346667447247,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 3
+  },
+  {
+   "state": "g6t3s2",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.03207872722600462,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 3
+  },
+  {
+   "state": "g6t7s2",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.9628866646713904,
+   "between_sd": 0.1325209182678319,
+   "within_sd": 0.01294641258427523,
+   "blind": false,
+   "turn": 7
+  },
+  {
+   "state": "g6t7s2",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.9950279034885262,
+   "between_sd": 0.1183151782881935,
+   "within_sd": 0.004179184198438693,
+   "blind": false,
+   "turn": 7
+  },
+  {
+   "state": "g6t7s2",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.9918702637938442,
+   "between_sd": 0.06603765511243864,
+   "within_sd": 0.0029862622226565876,
+   "blind": false,
+   "turn": 7
+  },
+  {
+   "state": "g6t7s2",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.6099751295744429,
+   "between_sd": 0.13780425707838048,
+   "within_sd": 0.051158911087573984,
+   "blind": false,
+   "turn": 7
+  },
+  {
+   "state": "g6t7s2",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.9077758637384388,
+   "between_sd": 0.04165243670643651,
+   "within_sd": 0.0065553681547748845,
+   "blind": false,
+   "turn": 7
+  },
+  {
+   "state": "g6t7s2",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.9818218545939206,
+   "between_sd": 0.11426748234806537,
+   "within_sd": 0.007756187809284891,
+   "blind": false,
+   "turn": 7
+  },
+  {
+   "state": "g6t8s2",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.6808863956628779,
+   "between_sd": 0.22905030205290525,
+   "within_sd": 0.0741782996362434,
+   "blind": false,
+   "turn": 8
+  },
+  {
+   "state": "g6t8s2",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": -0.30078166391477545,
+   "between_sd": 0.01644514204582069,
+   "within_sd": 0.06001952744345665,
+   "blind": false,
+   "turn": 8
+  },
+  {
+   "state": "g6t8s2",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.38906621588212575,
+   "between_sd": 0.13835836676920904,
+   "within_sd": 0.07346037436645374,
+   "blind": false,
+   "turn": 8
+  },
+  {
+   "state": "g6t8s2",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": -0.04978804217620588,
+   "between_sd": 0.0552207304128557,
+   "within_sd": 0.06134527399583466,
+   "blind": false,
+   "turn": 8
+  },
+  {
+   "state": "g6t8s2",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.36477841645520914,
+   "between_sd": 0.11763702991045416,
+   "within_sd": 0.06478635894146786,
+   "blind": false,
+   "turn": 8
+  },
+  {
+   "state": "g6t8s2",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": -0.01827338248248161,
+   "between_sd": 0.06278138945041732,
+   "within_sd": 0.06516372331941701,
+   "blind": false,
+   "turn": 8
+  },
+  {
+   "state": "g6t9s2",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.8887627517436415,
+   "between_sd": 0.21460239211843768,
+   "within_sd": 0.037380609062525355,
+   "blind": false,
+   "turn": 9
+  },
+  {
+   "state": "g6t9s2",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.8145577740858752,
+   "between_sd": 0.15448809602411695,
+   "within_sd": 0.035849934249854276,
+   "blind": false,
+   "turn": 9
+  },
+  {
+   "state": "g6t9s2",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.2655326169234793,
+   "between_sd": 0.058666173187125525,
+   "within_sd": 0.03751013084354186,
+   "blind": false,
+   "turn": 9
+  },
+  {
+   "state": "g6t9s2",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.8401395766623605,
+   "between_sd": 0.20039080881585658,
+   "within_sd": 0.042702285128922705,
+   "blind": false,
+   "turn": 9
+  },
+  {
+   "state": "g6t9s2",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.8471673291659854,
+   "between_sd": 0.15507437837765622,
+   "within_sd": 0.032214723295393,
+   "blind": false,
+   "turn": 9
+  },
+  {
+   "state": "g6t9s2",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.5414132259019131,
+   "between_sd": 0.07840154598838317,
+   "within_sd": 0.03277431627631836,
+   "blind": false,
+   "turn": 9
+  },
+  {
+   "state": "g6t11s1",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.9945878842641419,
+   "between_sd": 0.48000072034288715,
+   "within_sd": 0.01769206980830744,
+   "blind": false,
+   "turn": 11
+  },
+  {
+   "state": "g6t11s1",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.9931438891074748,
+   "between_sd": 0.4414948234800229,
+   "within_sd": 0.018325422941035712,
+   "blind": false,
+   "turn": 11
+  },
+  {
+   "state": "g6t11s1",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.9950765907699101,
+   "between_sd": 0.43883857127512116,
+   "within_sd": 0.015424499370892275,
+   "blind": false,
+   "turn": 11
+  },
+  {
+   "state": "g6t11s1",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.9954146262129642,
+   "between_sd": 0.20345887520674139,
+   "within_sd": 0.0069005241246307926,
+   "blind": false,
+   "turn": 11
+  },
+  {
+   "state": "g6t11s1",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.9998673689105199,
+   "between_sd": 0.20186681917407992,
+   "within_sd": 0.0011624632022307776,
+   "blind": false,
+   "turn": 11
+  },
+  {
+   "state": "g6t11s1",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.9998673689105199,
+   "between_sd": 0.20186681917407992,
+   "within_sd": 0.0011624632022307776,
+   "blind": false,
+   "turn": 11
+  },
+  {
+   "state": "g6t11s2",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.9681331241271268,
+   "between_sd": 0.6823959107756263,
+   "within_sd": 0.06164942678493916,
+   "blind": false,
+   "turn": 11
+  },
+  {
+   "state": "g6t11s2",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.9658846406439469,
+   "between_sd": 0.6589549203718789,
+   "within_sd": 0.06164942678493916,
+   "blind": false,
+   "turn": 11
+  },
+  {
+   "state": "g6t11s2",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.9642487305094516,
+   "between_sd": 0.6432967439942429,
+   "within_sd": 0.06164942678493916,
+   "blind": false,
+   "turn": 11
+  },
+  {
+   "state": "g6t11s2",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.9571410522244342,
+   "between_sd": 0.7052431381067137,
+   "within_sd": 0.07420348452014228,
+   "blind": false,
+   "turn": 11
+  },
+  {
+   "state": "g6t11s2",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.9378004114049402,
+   "between_sd": 0.6183392327412488,
+   "within_sd": 0.07897039447561154,
+   "blind": false,
+   "turn": 11
+  },
+  {
+   "state": "g6t11s2",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.935626414345374,
+   "between_sd": 0.7625482462547996,
+   "within_sd": 0.09916002470800822,
+   "blind": false,
+   "turn": 11
+  },
+  {
+   "state": "g6t13s1",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.11279936819980813,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 13
+  },
+  {
+   "state": "g6t13s1",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.1263063902006299,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 13
+  },
+  {
+   "state": "g6t13s1",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.21279981165272602,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 13
+  },
+  {
+   "state": "g6t13s1",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.12470063087874482,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 13
+  },
+  {
+   "state": "g6t13s1",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.06884625721989379,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 13
+  },
+  {
+   "state": "g6t13s1",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.19049088099161993,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 13
+  },
+  {
+   "state": "g6t14s1",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.9974711754630166,
+   "between_sd": 0.16566284413114532,
+   "within_sd": 0.004169334144696424,
+   "blind": false,
+   "turn": 14
+  },
+  {
+   "state": "g6t14s1",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.3277748907380734,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 14
+  },
+  {
+   "state": "g6t14s1",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.1061692177465684,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 14
+  },
+  {
+   "state": "g6t14s1",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.22435652608140705,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 14
+  },
+  {
+   "state": "g6t14s1",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.061173253064474416,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 14
+  },
+  {
+   "state": "g6t14s1",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.16907221484505144,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 14
+  },
+  {
+   "state": "g6t16s2",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.9755888075814618,
+   "between_sd": 0.1797169990538338,
+   "within_sd": 0.014169878313804642,
+   "blind": false,
+   "turn": 16
+  },
+  {
+   "state": "g6t16s2",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.8328138752989644,
+   "between_sd": 0.07698658960850112,
+   "within_sd": 0.01682975838602867,
+   "blind": false,
+   "turn": 16
+  },
+  {
+   "state": "g6t16s2",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.9819983485773905,
+   "between_sd": 0.2784074295617632,
+   "within_sd": 0.018804367353794513,
+   "blind": false,
+   "turn": 16
+  },
+  {
+   "state": "g6t16s2",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.9392473956713636,
+   "between_sd": 0.10111814134233252,
+   "within_sd": 0.012755815519633519,
+   "blind": false,
+   "turn": 16
+  },
+  {
+   "state": "g6t16s2",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.9585707441791723,
+   "between_sd": 0.10269213616241717,
+   "within_sd": 0.010617322086346852,
+   "blind": false,
+   "turn": 16
+  },
+  {
+   "state": "g6t16s2",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.8207428930675587,
+   "between_sd": 0.06498092434465934,
+   "within_sd": 0.01478584678354472,
+   "blind": false,
+   "turn": 16
+  },
+  {
+   "state": "g6t17s2",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.9699737645261739,
+   "between_sd": 0.5886817303406086,
+   "within_sd": 0.05158779831003073,
+   "blind": false,
+   "turn": 17
+  },
+  {
+   "state": "g6t17s2",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.998035173929026,
+   "between_sd": 0.6730102577650083,
+   "within_sd": 0.01492704948051667,
+   "blind": false,
+   "turn": 17
+  },
+  {
+   "state": "g6t17s2",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.975023698894494,
+   "between_sd": 0.6435308754378362,
+   "within_sd": 0.051334541243286735,
+   "blind": false,
+   "turn": 17
+  },
+  {
+   "state": "g6t17s2",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.9971529861787641,
+   "between_sd": 0.6503204410946447,
+   "within_sd": 0.017368261880186715,
+   "blind": false,
+   "turn": 17
+  },
+  {
+   "state": "g6t17s2",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.9832172083289471,
+   "between_sd": 0.702075307351392,
+   "within_sd": 0.04576530964899124,
+   "blind": false,
+   "turn": 17
+  },
+  {
+   "state": "g6t17s2",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.9393749310537951,
+   "between_sd": 0.4665807591852192,
+   "within_sd": 0.05879330695737328,
+   "blind": false,
+   "turn": 17
+  },
+  {
+   "state": "g6t18s2",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.6239294494373293,
+   "between_sd": 0.7065863487608699,
+   "within_sd": 0.255695856842567,
+   "blind": false,
+   "turn": 18
+  },
+  {
+   "state": "g6t18s2",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.7780767326784074,
+   "between_sd": 0.6337506943002205,
+   "within_sd": 0.16350162627067866,
+   "blind": false,
+   "turn": 18
+  },
+  {
+   "state": "g6t18s2",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.7815691880333573,
+   "between_sd": 0.6625106854241251,
+   "within_sd": 0.16930538090190594,
+   "blind": false,
+   "turn": 18
+  },
+  {
+   "state": "g6t18s2",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.8427763681474902,
+   "between_sd": 0.6745351206288548,
+   "within_sd": 0.14238981812962734,
+   "blind": false,
+   "turn": 18
+  },
+  {
+   "state": "g6t18s2",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.7980579526481892,
+   "between_sd": 0.630353794988335,
+   "within_sd": 0.15375551674198107,
+   "blind": false,
+   "turn": 18
+  },
+  {
+   "state": "g6t18s2",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.6980748221333724,
+   "between_sd": 0.5407565001713912,
+   "within_sd": 0.16891783484321854,
+   "blind": false,
+   "turn": 18
+  },
+  {
+   "state": "g6t20s2",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.9986305903833282,
+   "between_sd": 0.7044404901069384,
+   "within_sd": 0.013040797129930363,
+   "blind": false,
+   "turn": 20
+  },
+  {
+   "state": "g6t20s2",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.9971409990225402,
+   "between_sd": 0.5972477363946321,
+   "within_sd": 0.01598445328508574,
+   "blind": false,
+   "turn": 20
+  },
+  {
+   "state": "g6t20s2",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 0.9979460120678546,
+   "between_sd": 0.857645288923695,
+   "within_sd": 0.019449633666193965,
+   "blind": false,
+   "turn": 20
+  },
+  {
+   "state": "g6t20s2",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 0.9989986231151967,
+   "between_sd": 0.793216265157923,
+   "within_sd": 0.012555197313662073,
+   "blind": false,
+   "turn": 20
+  },
+  {
+   "state": "g6t20s2",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 0.9959295826076108,
+   "between_sd": 0.7074120342673538,
+   "within_sd": 0.02260090576430087,
+   "blind": false,
+   "turn": 20
+  },
+  {
+   "state": "g6t20s2",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 0.994502842243791,
+   "between_sd": 0.4183789235635736,
+   "within_sd": 0.015541968444663759,
+   "blind": false,
+   "turn": 20
+  },
+  {
+   "state": "g7t1s1",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 0.0,
+   "between_sd": 0.0,
+   "within_sd": 0.0,
+   "blind": true,
+   "turn": 1
+  },
+  {
+   "state": "g7t1s1",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 0.0,
+   "between_sd": 0.0,
+   "within_sd": 0.0,
+   "blind": true,
+   "turn": 1
+  },
+  {
+   "state": "g7t1s1",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.1814171489062691,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 1
+  },
+  {
+   "state": "g7t1s1",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.18141714890626912,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 1
+  },
+  {
+   "state": "g7t1s1",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.1814171489062691,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 1
+  },
+  {
+   "state": "g7t1s1",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.1814171489062691,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 1
+  },
+  {
+   "state": "g7t1s2",
+   "coord": 0,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.1475005010328057,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 1
+  },
+  {
+   "state": "g7t1s2",
+   "coord": 1,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.1475005010328057,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 1
+  },
+  {
+   "state": "g7t1s2",
+   "coord": 2,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.1475005010328057,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 1
+  },
+  {
+   "state": "g7t1s2",
+   "coord": 3,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.1475005010328057,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 1
+  },
+  {
+   "state": "g7t1s2",
+   "coord": 4,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.1475005010328057,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 1
+  },
+  {
+   "state": "g7t1s2",
+   "coord": 5,
+   "n_cand": 5,
+   "icc": 1.0,
+   "between_sd": 0.1475005010328057,
+   "within_sd": 0.0,
+   "blind": false,
+   "turn": 1
+  }
+ ]
+}
