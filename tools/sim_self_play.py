@@ -2347,6 +2347,18 @@ class _TrainerHistoryCSV:
         "ended_no_progress", "ended_other", "abandoned_actors",
         # TCS linear-link clip telemetry (2026-08-17).
         "link_clip_frac",
+        # TCS planning + gate-effectiveness telemetry (2026-08-21:
+        # these rode the drain all of leg 4 but were never in this
+        # list -- INFO-log only). blind_coord_frac is the in-vivo
+        # fog-blindness gauge (E2 baseline ~8% opponent-frame);
+        # gate_flip/delta measure what the gate's re-grade changes
+        # (the Q7 quantity when projection reval is on);
+        # gate_shorten_per_plan is the passivity direction of
+        # accepted swaps. gbc/aux: auxiliary losses, same gap.
+        "tcs_plans", "tcs_accepts_per_plan", "tcs_replans_per_plan",
+        "tcs_projections_per_plan", "tcs_blind_coord_frac",
+        "tcs_gate_flip_frac", "tcs_gate_delta_reval",
+        "tcs_gate_shorten_per_plan", "gbc_loss", "aux_loss",
     ]
 
     def __init__(self, path: Path):
@@ -2395,6 +2407,10 @@ class _TrainerHistoryCSV:
             row["train_entropy"]        = ts.entropy
             row["train_mean_return"]    = ts.mean_return
             row["train_grad_norm"]      = ts.grad_norm
+            # Auxiliary-objective losses: computed all of leg 4,
+            # written nowhere (workflow finding 2026-08-20).
+            row["gbc_loss"] = getattr(ts, "gbc_loss", None)
+            row["aux_loss"] = getattr(ts, "aux_loss", None)
         # Per-component reward sums (from WeightedReward._component_acc).
         acc = snapshot.get("reward_components") or {}
         for k in self._REWARD_COMPONENT_KEYS:

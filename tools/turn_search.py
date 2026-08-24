@@ -609,6 +609,14 @@ def build_coordinate_target(
         "kl_prior": float((tgt * (np.log(tgt + 1e-12)
                                   - np.log(p))).sum()),
     })
+    # Fog-frame instrumentation (2026-08-21): a coordinate is BLIND
+    # when every evaluated candidate graded identically -- the
+    # grader contributed zero information and the target degenerates
+    # to prior^lam. In-vivo counterpart of the E2 blind fraction.
+    if int(evaluated.sum()) >= 2:
+        ev_vals = values[evaluated]
+        stats["blind_coord"] = (1.0 if float(np.ptp(ev_vals)) < 1e-9
+                                else 0.0)
     for i, a in enumerate(legal):
         if a.action.get("type") == "end_turn":
             stats["et_prior"] = float(p[i])
@@ -646,6 +654,14 @@ class TurnPlan:
     cursor:        int = 0
     accepts:       int = 0
     projections:   int = 0                 # project_value calls made
+    # Gate-effectiveness telemetry (2026-08-21 user directive:
+    # instrument frame/projection effectiveness). Only pairings that
+    # were INDEPENDENTLY re-graded count (the deterministic
+    # replicate-skip carries no new information).
+    gate_n:        int = 0                 # re-graded pairings
+    gate_flips:    int = 0                 # reval sign != stage-1 sign
+    gate_delta_sum: float = 0.0            # sum(stage1 delta - reval mean)
+    gate_shortens: int = 0                 # accepts that SHORTENED the turn
 
     @property
     def exhausted(self) -> bool:
@@ -748,10 +764,12 @@ def plan_turn(policy, sim, side: int, decision_step: int,
         # policy through `rng`, so their grades never replicate, and
         # under "reval" placement the gate MUST re-grade with
         # projection (stage 1 graded blind).
+        regraded = False
         if (not use_proj and not best_m.stochastic
                 and not inc.stochastic):
             reval = np.array([float(deltas[best])])
         else:
+            regraded = True
             pairs = []
             for v in range(cfg.reval_salts):
                 s2 = f"{salt}:v{v}"
@@ -780,10 +798,21 @@ def plan_turn(policy, sim, side: int, decision_step: int,
                                    or math.isnan(var2.value))]
             reval = (np.array(reval_l) if reval_l
                      else np.array([float("-inf")]))
-        accept, _, _ = two_stage_accept(reval, cfg.min_delta)
+        accept, _dbar, _ = two_stage_accept(reval, cfg.min_delta)
+        if regraded and math.isfinite(_dbar):
+            # Stage-1 verdict vs the gate's independent re-grade:
+            # under projection reval this is exactly the boundary-vs-
+            # projected disagreement (the Q7 quantity, in vivo); with
+            # projection off it is the salt-reval shift.
+            plan.gate_n += 1
+            plan.gate_delta_sum += float(deltas[best]) - float(_dbar)
+            if (float(deltas[best]) > 0.0) != (float(_dbar) > 0.0):
+                plan.gate_flips += 1
         if not accept:
             break
         accepts += 1
+        if len(best_m.executed) < len(inc.executed):
+            plan.gate_shortens += 1
         # Grade-what-you-commit: the new incumbent is the MATERIALIZED
         # winner (commands that landed at the selection salt).
         commands = list(best_m.executed)

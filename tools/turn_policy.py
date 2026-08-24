@@ -65,6 +65,10 @@ class TurnCommitPolicy(MCTSPolicy):
         self._tcs_replans = 0
         self._tcs_accepts = 0
         self._tcs_projections = 0
+        self._tcs_gate_n = 0
+        self._tcs_gate_flips = 0
+        self._tcs_gate_delta = 0.0
+        self._tcs_gate_shortens = 0
 
     # -- decision procedure -------------------------------------------
 
@@ -120,6 +124,10 @@ class TurnCommitPolicy(MCTSPolicy):
             self._tcs_plans += 1
             self._tcs_accepts += plan.accepts
             self._tcs_projections += plan.projections
+            self._tcs_gate_n += plan.gate_n
+            self._tcs_gate_flips += plan.gate_flips
+            self._tcs_gate_delta += plan.gate_delta_sum
+            self._tcs_gate_shortens += plan.gate_shortens
 
         cmd = plan.commands[plan.cursor]
         target = plan.targets[plan.cursor]
@@ -145,6 +153,10 @@ class TurnCommitPolicy(MCTSPolicy):
                         a["link_n"] = a.get("link_n", 0) + 1
                         a["link_clip"] = (a.get("link_clip", 0.0)
                                           + stats["link_clip_frac"])
+                    if "blind_coord" in stats:
+                        a["blind_n"] = a.get("blind_n", 0) + 1
+                        a["blind"] = (a.get("blind", 0.0)
+                                      + stats["blind_coord"])
                     a["top80"] = a.get("top80", 0) + (
                         1 if stats["prior_top"] > 0.8 else 0)
                     if "et_prior" in stats:
@@ -199,6 +211,18 @@ class TurnCommitPolicy(MCTSPolicy):
             out["tcs_accepts_per_plan"] = tcs["tcs_accepts_per_plan"]
             out["tcs_projections_per_plan"] = (
                 tcs["tcs_projections"] / plans)
+            # Gate effectiveness (2026-08-21): flip rate + mean
+            # stage1-vs-regrade shift (= boundary-vs-projected
+            # disagreement when projection reval is on -- the Q7
+            # quantity in vivo), and the share of accepts that
+            # SHORTEN turns (passivity direction).
+            gn = tcs["tcs_gate_n"]
+            out["tcs_gate_flip_frac"] = (
+                tcs["tcs_gate_flips"] / gn if gn else None)
+            out["tcs_gate_delta_reval"] = (
+                tcs["tcs_gate_delta"] / gn if gn else None)
+            out["tcs_gate_shorten_per_plan"] = (
+                tcs["tcs_gate_shortens"] / plans)
         return out or None
 
     def drain_tcs_stats(self) -> Dict[str, float]:
@@ -209,7 +233,14 @@ class TurnCommitPolicy(MCTSPolicy):
                "tcs_accepts_per_plan": (
                    self._tcs_accepts / self._tcs_plans
                    if self._tcs_plans else 0.0),
-               "tcs_projections": self._tcs_projections}
+               "tcs_projections": self._tcs_projections,
+               "tcs_gate_n": self._tcs_gate_n,
+               "tcs_gate_flips": self._tcs_gate_flips,
+               "tcs_gate_delta": self._tcs_gate_delta,
+               "tcs_gate_shortens": self._tcs_gate_shortens}
         self._tcs_plans = self._tcs_replans = self._tcs_accepts = 0
         self._tcs_projections = 0
+        self._tcs_gate_n = self._tcs_gate_flips = 0
+        self._tcs_gate_delta = 0.0
+        self._tcs_gate_shortens = 0
         return out

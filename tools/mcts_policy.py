@@ -705,6 +705,13 @@ class MCTSPolicy:
             # Gumbel path / exp link (no accumulator entries).
             "link_clip_frac": (acc["link_clip"] / acc["link_n"])
                               if acc.get("link_n") else None,
+            # In-vivo blind-coordinate fraction (2026-08-21 fog-frame
+            # instrumentation): share of TCS target coordinates whose
+            # evaluated candidates all graded identically. The E2
+            # offline baselines: ~8% opponent-frame on seed play,
+            # expected ~0 under mover frame.
+            "tcs_blind_coord_frac": (acc["blind"] / acc["blind_n"])
+                                    if acc.get("blind_n") else None,
         }
 
     def drop_last_pending(self, game_label: str) -> bool:

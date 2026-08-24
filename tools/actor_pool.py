@@ -494,6 +494,15 @@ class ActorPool:
                 offer = getattr(self._policy, "offer_holdout_game",
                                 None)
                 if offer is None or not offer(payload):
+                    # Boundary-pair harvest (T1-F): this drain never
+                    # called it, so boundary telemetry read n=0
+                    # through the ENTIRE leg-4 campaign (workflow
+                    # finding 2026-08-20). Valid here because each
+                    # _R_EXPS payload is one game in recorded order.
+                    _hv = getattr(self._policy,
+                                  "harvest_boundary_pairs", None)
+                    if _hv is not None:
+                        _hv(payload)
                     experiences.extend(payload)
             elif kind == _R_DONE:
                 outstanding.discard(aid)

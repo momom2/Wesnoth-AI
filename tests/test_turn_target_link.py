@@ -150,3 +150,33 @@ def test_config_default_is_linear():
     cfg = TurnSearchConfig()
     assert cfg.target_link == "linear"
     assert cfg.target_beta == 5.0
+
+
+def test_blind_coord_stat_flags_identical_grades():
+    """In-vivo fog-blindness gauge (2026-08-21): blind_coord=1 when
+    every evaluated candidate graded identically (grader contributed
+    zero information), 0 when grades differ, absent when <2 evaluated
+    (no comparison exists)."""
+    import numpy as np
+    from tools.mcts import MCTSConfig
+    from tools.turn_search import build_coordinate_target
+    from wesnoth_ai.action_sampler import LegalActionPrior
+
+    legal = [LegalActionPrior(action={"type": "move", "i": i},
+                              prior=0.25, actor_idx=i, target_idx=0,
+                              weapon_idx=None) for i in range(4)]
+    cfg = MCTSConfig()
+    ev = np.array([True, True, True, False])
+
+    _, s_blind = build_coordinate_target(
+        legal, np.array([0.2, 0.2, 0.2, 0.0]), ev, 0.0, 3.0, cfg)
+    assert s_blind["blind_coord"] == 1.0
+
+    _, s_sighted = build_coordinate_target(
+        legal, np.array([0.2, 0.5, 0.1, 0.0]), ev, 0.0, 3.0, cfg)
+    assert s_sighted["blind_coord"] == 0.0
+
+    one = np.array([True, False, False, False])
+    _, s_one = build_coordinate_target(
+        legal, np.array([0.2, 0.0, 0.0, 0.0]), one, 0.0, 1.0, cfg)
+    assert "blind_coord" not in s_one
