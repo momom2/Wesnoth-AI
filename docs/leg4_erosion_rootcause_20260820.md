@@ -324,3 +324,36 @@ Leg-5 consequence: mover frame fixes fog blindness but introduces a
 measured pro-passing bias at the boundary; pair it with EITHER
 projection reval (pays 2x) or the K-tripwire alone (free, reactive).
 Decision deferred to the leg-5 config review.
+
+## OFFLINE EFFECTIVENESS RESULTS (2026-08-21 evening; box run,
+## collates in training/logs/effectiveness_20260821/)
+
+Bake-off (gate real-vs-placebo, seed judge, ~115 real states/arm):
+
+  arm                    reval accept  placebo  separation  naive->reval
+  opponent frame            0.669       0.178     3.8:1      0.84->0.67
+  mover frame               0.897       0.241     3.7:1      0.94->0.90
+  mover + gate projection   0.167       0.167     1.0:1      0.93->0.17
+
+Q7 depth-2 (n=203; replicates the first run: mover pass-bias
++0.116 +- 0.024, t=4.9):
+  residual pass-bias OF depth-1 projection vs depth-2 reference:
+  +0.034 +- 0.030, t=1.1 -- NOT significant.
+
+VERDICTS:
+- MOVER FRAME: adopted for leg 5. Finds far more genuine
+  improvements (0.90 vs 0.67 revalidated) with stage-1 verdicts
+  that survive revalidation (gap 0.04 vs 0.17); separation ratio
+  unchanged. (Placebo-rate rise is partly expected under a sighted
+  grader: a random swap is more often a visible real improvement.)
+- GATE PROJECTION: REJECTED as implemented -- pre-registered STOP
+  (placebo == real accept, separation 1.0:1). One sampled enemy
+  rollout per re-grade side is noise that swamps the 2-sigma gate:
+  82% of stage-1 proposals rejected, survivors indistinguishable
+  from placebo. The MECHANISM is validated (depth-1 projection
+  removes the +3.7-atom pass bias, residual t=1.1); the
+  implementation needs variance reduction (k averaged rollouts ~=
+  k x the projection cost) before it is worth its price. Parked.
+- Leg-5 passivity defense: mover frame + --abort-k-median 10 +
+  tcs_gate_shorten_per_plan / tcs_blind_coord_frac telemetry, with
+  the pass bias as a known watched quantity.

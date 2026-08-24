@@ -1,0 +1,20 @@
+states: real=120 placebo=120
+accept_rate (revalidated): 0.183   naive: 0.933   placebo: 0.158
+median accepted delta: 0.1746  (n=25)
+KL per coordinate: own median=0.2959  matched median=0.5144  gumbel baseline median=nan (n=0)
+rho(delta, survival) pooled: 0.055  (n_variants=6356)
+fog split: mean delta vis-changed=-0.0891 (n=2020)  unchanged=-0.0362 (n=4336)
+rung0[0]: K_mean=11.012658227848101 K_median=10.0 end_turn_share=0.08850574712643679
+rung0[1]: K_mean=13.063829787234043 K_median=13.5 end_turn_share=0.0749185667752443
+rung0[2]: K_mean=15.84375 K_median=15.0 end_turn_share=0.0621301775147929
+rung0[3]: K_mean=11.765625 K_median=11.5 end_turn_share=0.08366533864541832
+rung0[4]: K_mean=11.439024390243903 K_median=11.0 end_turn_share=0.08528784648187633
+rung0[5]: K_mean=11.160493827160494 K_median=12.0 end_turn_share=0.08738938053097345
+rung0[6]: K_mean=13.505747126436782 K_median=12.0 end_turn_share=0.07234042553191489
+rung0[7]: K_mean=13.526315789473685 K_median=13.0 end_turn_share=0.07198443579766536
+rung0[8]: K_mean=10.86046511627907 K_median=10.0 end_turn_share=0.08993576017130621
+rung0[9]: K_mean=14.659574468085106 K_median=15.0 end_turn_share=0.06676342525399129
+--- pre-registered gates (docs/tcs_spec.md par.8) ---
+PROCEED needs: accept>=0.50 [False], median delta>=0.05 [True], KL(matched)>=baseline [False], placebo < half real [False]
+STOP signal: noise-climbing (placebo >= half real)
+STOP signal: naive accepts >= 2x revalidated

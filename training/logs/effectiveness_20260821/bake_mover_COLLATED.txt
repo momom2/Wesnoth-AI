@@ -1,0 +1,18 @@
+states: real=120 placebo=120
+accept_rate (revalidated): 0.900   naive: 0.942   placebo: 0.242
+median accepted delta: 0.0904  (n=229)
+KL per coordinate: own median=0.2416  matched median=0.3757  gumbel baseline median=nan (n=0)
+rho(delta, survival) pooled: -0.012  (n_variants=11928)
+fog split: mean delta vis-changed=-0.1226 (n=3783)  unchanged=-0.0584 (n=8145)
+rung0[0]: K_mean=13.11111111111111 K_median=12.0 end_turn_share=0.07344632768361582
+rung0[1]: K_mean=12.539325842696629 K_median=13.0 end_turn_share=0.07795698924731183
+rung0[2]: K_mean=16.569620253164558 K_median=17.0 end_turn_share=0.058823529411764705
+rung0[3]: K_mean=11.75609756097561 K_median=13.0 end_turn_share=0.08298755186721991
+rung0[4]: K_mean=10.246753246753247 K_median=11.0 end_turn_share=0.09505703422053231
+rung0[5]: K_mean=10.307692307692308 K_median=10.0 end_turn_share=0.09328358208955224
+rung0[6]: K_mean=13.064102564102564 K_median=11.5 end_turn_share=0.0745829244357213
+rung0[7]: K_mean=12.842105263157896 K_median=11.5 end_turn_share=0.07581967213114754
+rung0[8]: K_mean=13.27659574468085 K_median=13.0 end_turn_share=0.07371794871794872
+rung0[9]: K_mean=13.51388888888889 K_median=14.0 end_turn_share=0.07297019527235354
+--- pre-registered gates (docs/tcs_spec.md par.8) ---
+PROCEED needs: accept>=0.50 [True], median delta>=0.05 [True], KL(matched)>=baseline [False], placebo < half real [True]
