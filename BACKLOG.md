@@ -36,6 +36,9 @@ requiredness is structural; extra_env carries the flag rulings):
   (expect ~0), tcs_gate_shorten_per_plan, distill_prior_entropy
   TREND (the leg-4 disease channel), boundary_pairs_n (> 0 at
   last).
+- LAUNCHER GAP found at launch: the qualify gate is NOT wired into
+  vast_onstart.sh (run by hand for legs 4 and 5; leg-5 PASS 0.700).
+  Wire it before leg 6.
 
 ## LEG-4 LAUNCH CONFIG (consolidated rulings, 2026-08-17 — read
 ## BEFORE writing any launch env; every item is a USER RULING or a
