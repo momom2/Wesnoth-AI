@@ -54,8 +54,9 @@ from tools.mcts import (  # noqa: E402
     MCTSConfig, extract_gumbel_policy_target, mcts_search,
 )
 from tools.turn_search import (  # noqa: E402
-    Materialized, gumbel_top_k_alternatives, materialize, record_spine,
-    tcs_target_distribution, two_stage_accept,
+    Materialized, gumbel_top_k_alternatives, materialize,
+    project_value, record_spine, tcs_target_distribution,
+    two_stage_accept,
 )
 from tools.wesnoth_sim import WesnothSim  # noqa: E402
 
@@ -81,6 +82,13 @@ class ProbeConfig:
     baseline:         str = "all"  # all | first | none
     baseline_sims:    int = 32
     placebo:          bool = True  # run the placebo arm per state
+    # 2026-08-21 effectiveness arms: boundary evaluation frame
+    # (opponent = leg-4 estimand, mover = leg-5) and projection at
+    # the stage-2 gate (reval placement).
+    boundary_frame:   str = "opponent"   # opponent | mover
+    project_reval:    bool = False
+    project_halfturns: int = 1
+    project_max_actions: int = 40
     mcts_cfg: MCTSConfig = field(default_factory=MCTSConfig)
 
 
@@ -158,6 +166,7 @@ def probe_state(policy: TransformerPolicy, sim0: WesnothSim, side: int,
     With `placebo=True`, the variant->value assignment is shuffled
     before the argmax each round (revalidation uses real values)."""
     ds = policy._decision_step
+    mf = cfg.boundary_frame == "mover"
     spine, _ = record_spine(policy, sim0, side, ds, rng,
                             max_spine=cfg.max_spine)
     if not spine:
@@ -170,7 +179,8 @@ def probe_state(policy: TransformerPolicy, sim0: WesnothSim, side: int,
 
     for rnd in range(cfg.rounds):
         salt = f"probe:{state_id}:r{rnd}"
-        inc = materialize(policy, sim0, side, incumbent, salt, ds)
+        inc = materialize(policy, sim0, side, incumbent, salt, ds,
+                          mover_frame=mf)
         if inc.invalid:
             log.warning(f"{state_id}: incumbent materialization invalid")
             break
@@ -184,7 +194,8 @@ def probe_state(policy: TransformerPolicy, sim0: WesnothSim, side: int,
                 cand_cmds = (incumbent[:j]
                              + [st.legal[alt_i].action]
                              + incumbent[j + 1:])
-                m = materialize(policy, sim0, side, cand_cmds, salt, ds)
+                m = materialize(policy, sim0, side, cand_cmds, salt, ds,
+                                mover_frame=mf)
                 if m.invalid or math.isnan(m.value):
                     continue
                 cands.append((j, alt_i, m))
@@ -204,8 +215,11 @@ def probe_state(policy: TransformerPolicy, sim0: WesnothSim, side: int,
         naive_accept = float(sel[best]) > cfg.min_delta
 
         # Stage 2: paired re-evaluation at fresh salts. Deterministic
-        # pairs replicate exactly; skip the redundant forwards.
-        if not best_m.stochastic and not inc.stochastic:
+        # pairs replicate exactly; skip the redundant forwards --
+        # except under projection reval, whose rollouts sample the
+        # policy through rng and never replicate.
+        if (not cfg.project_reval and not best_m.stochastic
+                and not inc.stochastic):
             reval = np.array([naive_delta])
         else:
             best_cmds = (incumbent[:j]
@@ -214,11 +228,25 @@ def probe_state(policy: TransformerPolicy, sim0: WesnothSim, side: int,
             reval_l = []
             for v in range(cfg.reval_salts):
                 s2 = f"{salt}:v{v}"
-                inc2 = materialize(policy, sim0, side, incumbent, s2, ds)
-                var2 = materialize(policy, sim0, side, best_cmds, s2, ds)
+                inc2 = materialize(policy, sim0, side, incumbent, s2,
+                                   ds, mover_frame=mf,
+                                   keep_boundary_sim=cfg.project_reval)
+                var2 = materialize(policy, sim0, side, best_cmds, s2,
+                                   ds, mover_frame=mf,
+                                   keep_boundary_sim=cfg.project_reval)
                 if inc2.invalid or var2.invalid:
                     continue
-                reval_l.append(var2.value - inc2.value)
+                if cfg.project_reval:
+                    reval_l.append(
+                        project_value(policy, var2.boundary_sim, side,
+                                      ds, cfg.project_halfturns,
+                                      cfg.project_max_actions, rng)
+                        - project_value(policy, inc2.boundary_sim,
+                                        side, ds,
+                                        cfg.project_halfturns,
+                                        cfg.project_max_actions, rng))
+                else:
+                    reval_l.append(var2.value - inc2.value)
             reval = np.array(reval_l) if reval_l else np.array(
                 [float("-inf")])
         accept, dbar, thr = two_stage_accept(reval, cfg.min_delta)
@@ -248,7 +276,8 @@ def probe_state(policy: TransformerPolicy, sim0: WesnothSim, side: int,
     kl_own: List[float] = []
     kl_matched: List[float] = []
     salt = f"probe:{state_id}:kl"
-    inc = materialize(policy, sim0, side, incumbent, salt, ds)
+    inc = materialize(policy, sim0, side, incumbent, salt, ds,
+                      mover_frame=mf)
     if not inc.invalid:
         for j, st in enumerate(steps):
             priors = np.array([a.prior for a in st.legal])
@@ -263,7 +292,8 @@ def probe_state(policy: TransformerPolicy, sim0: WesnothSim, side: int,
             for alt_i in picks:
                 cand = (incumbent[:j] + [st.legal[alt_i].action]
                         + incumbent[j + 1:])
-                m = materialize(policy, sim0, side, cand, salt, ds)
+                m = materialize(policy, sim0, side, cand, salt, ds,
+                                mover_frame=mf)
                 if m.invalid or math.isnan(m.value):
                     continue
                 values[alt_i] = m.value
@@ -321,6 +351,9 @@ def run_probe(args) -> int:
         reval_salts=args.reval_salts, min_delta=args.min_delta,
         baseline=args.baseline, baseline_sims=args.baseline_sims,
         placebo=not args.no_placebo,
+        boundary_frame=args.boundary_frame,
+        project_reval=args.project_reval,
+        project_halfturns=args.project_halfturns,
     )
     rng_py = random.Random(args.seed)
     rng = np.random.default_rng(args.seed)
@@ -518,6 +551,12 @@ def main(argv) -> int:
                     choices=["all", "first", "none"])
     ap.add_argument("--baseline-sims", type=int, default=32)
     ap.add_argument("--no-placebo", action="store_true")
+    ap.add_argument("--boundary-frame", default="opponent",
+                    choices=("opponent", "mover"))
+    ap.add_argument("--project-reval", action="store_true",
+                    help="Stage-2 gate re-grades with project_value "
+                         "(reval placement).")
+    ap.add_argument("--project-halfturns", type=int, default=1)
     ap.add_argument("--device", default="auto",
                     choices=("auto", "cpu", "cuda"))
     ap.add_argument("--seed", type=int, default=0)

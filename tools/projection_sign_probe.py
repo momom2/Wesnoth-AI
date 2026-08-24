@@ -79,13 +79,21 @@ def probe_state(policy, sim0, side, ds, rng, sid, halfturns,
         vb_mov = boundary_value(policy, m2.boundary_sim, side, ds)
         v_p = project_value(policy, m.boundary_sim, side, ds,
                             halfturns, max_actions, rng)
-        if any(math.isnan(v) for v in (vb_opp, vb_mov, v_p)):
+        # Depth-2 reference (2026-08-21): the residual bias OF the
+        # depth-1 projection itself -- "projection grades itself"
+        # would trivially read zero, so its adequacy is judged
+        # against one half-turn deeper.
+        v_p2 = project_value(policy, m.boundary_sim, side, ds,
+                             halfturns + 1, max_actions, rng)
+        if any(math.isnan(v) for v in (vb_opp, vb_mov, v_p, v_p2)):
             return None
         rec[f"vb_opp_{name}"] = vb_opp
         rec[f"vb_mover_{name}"] = vb_mov
         rec[f"vp_{name}"] = v_p
+        rec[f"vp2_{name}"] = v_p2
         rec[f"delta_opp_{name}"] = vb_opp - v_p
         rec[f"delta_mover_{name}"] = vb_mov - v_p
+        rec[f"delta_proj1_{name}"] = v_p - v_p2
     return rec
 
 
@@ -100,7 +108,10 @@ def collate(patterns):
     if n < 3:
         print(f"only {n} rows; nothing to collate")
         return 1
-    for frame in ("opp", "mover"):
+    frames = ["opp", "mover"]
+    if any("delta_proj1_pass" in r for r in rows):
+        frames.append("proj1")   # depth-1 projection vs depth-2 ref
+    for frame in frames:
         print(f"--- frame: {frame}")
         for name in ("pass", "half", "full"):
             d = np.array([r[f"delta_{frame}_{name}"] for r in rows])
