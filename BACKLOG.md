@@ -8,6 +8,35 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
 
 ---
 
+## LEG-5 LAUNCH CONFIG (2026-08-21, user: "proceed! Let leg-5 train
+## tonight with the mover frame grading and the various fixes (no
+## projection)")
+
+Config file: **configs/leg_l5.json** (file-mode launch — schema
+requiredness is structural; extra_env carries the flag rulings):
+- campaign tier_b_l5.pt, seed tier-b/a3/seed_imit_tierb_start.pt
+  (restart from the Elo +211 seed; legs 1-4 weights all abandoned)
+- PROBE_T0 3.2070; policy anchor v2 (sole prior protection — the
+  F1 one-protection rule; lambda GONE: launcher emit env-gated,
+  code default 1.0, the leg-4 killer)
+- TURN_BOUNDARY_FRAME=mover (bake-off: accept 0.90 vs 0.67, robust
+  verdicts; E2: blind 8%->0) — NEW estimand, fresh gate baseline
+  measured 2026-08-21
+- ABORT_K_MEDIAN=10 (K-collapse tripwire, exit 7)
+- projection OFF (bake-off STOP: separation 1.0:1 as implemented;
+  mechanism validated, parked pending variance reduction)
+- everything else = code defaults per the leg-4 ruling set below
+  (caps 60-100 jitter, GBC 0.1, value censoring, linear link b=5,
+  tripwires CE/AUC/decisive/stall armed)
+- scenario mix stays 60/20/20 (unchanged from legs 2-4; change one
+  variable class per leg)
+- **Pre-registered external gate: 40-game Elo vs the seed at
+  ~100k steps (~12h). Leg must hold >= even with its own start or
+  it stops there.** New telemetry to watch: tcs_blind_coord_frac
+  (expect ~0), tcs_gate_shorten_per_plan, distill_prior_entropy
+  TREND (the leg-4 disease channel), boundary_pairs_n (> 0 at
+  last).
+
 ## LEG-4 LAUNCH CONFIG (consolidated rulings, 2026-08-17 — read
 ## BEFORE writing any launch env; every item is a USER RULING or a
 ## shipped default, and the leg-3 cap accident was precisely a

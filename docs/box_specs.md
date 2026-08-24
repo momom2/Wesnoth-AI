@@ -40,6 +40,19 @@ and how to refresh each input — it is a worksheet, not a policy.
 ## batching change is benchmarked; re-run Q9 first)
 
 ### Training leg / measurement session box
+
+**Training-per-dollar derivation (2026-08-21, leg-5 rental).** The
+pipeline is CPU-bound: leg 4 delivered ~8.5k decision-steps/hour
+from 19 actors on 23 effective cores at $0.303/h => ~28k steps/$.
+Steps/hour scales ~linearly with actor count (cores-2) until the
+inference server saturates (batched boundary evals lifted that
+ceiling; not yet re-measured). So rank 4090 offers by
+cpu_cores_effective / dph_total, THEN sanity-check per-core class
+(EPYC/Ryzen server cores ~ leg-4 baseline; old Xeon E5-v4 cores
+measured ~2x slower on this workload -- discount their core count
+accordingly). GPU tier stays 24 GB-class: the learner's 12.6 GB
+backward peak rules out 12 GB cards, and a faster GPU than 4090
+buys nothing while the CPUs are the bottleneck.
 - **GPU**: 24 GB class (RTX 4090). Derivation: 12.6 GB trainer
   backward peak + 15 GB reserve ruling + inference server; 12 GB
   cards fit inference-only work but not the learner.

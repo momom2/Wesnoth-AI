@@ -783,6 +783,8 @@ _TRAIN_BODY="
       --abort-decisive-rate ${ABORT_DECISIVE_RATE:-0.35} \
       --abort-window ${ABORT_WINDOW:-20} \
       --abort-holdout-stall ${ABORT_HOLDOUT_STALL:-60} \
+      ${ABORT_K_MEDIAN:+--abort-k-median $ABORT_K_MEDIAN} \
+      ${TURN_BOUNDARY_FRAME:+--turn-boundary-frame $TURN_BOUNDARY_FRAME} \
       ${DISTILL_PRIOR_DISCOUNT:+--distill-prior-discount $DISTILL_PRIOR_DISCOUNT} \
       ${TOPO_ARGS} --games-per-iter ${GAMES_PER_ITER} \
       \$RESET \
