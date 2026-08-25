@@ -404,6 +404,45 @@ else
     fi
 fi
 
+# ---- Entry-qualification gate (A1 ruling 2026-08-17) ----------------
+# The value head is TCS's judge: the checkpoint training starts from
+# must prove it (value_auc >= QUALIFY_AUC_MIN on the held-out human
+# games) or the leg does not launch. Ran BY HAND for legs 4 and 5;
+# wired 2026-08-25. Gates once per leg entry: the pass marker (keyed
+# by campaign identity) skips re-gating on mid-leg reboots -- the
+# in-flight checks belong to the redraw tripwire, not this gate.
+# QUALIFY_GATE=0 skips (loudly). Exit 3 = measured refusal (needs a
+# human decision -> ABORTED_ marker, same protocol as the tripwires);
+# exit 2 = probe could not run (retryable on restart, no marker).
+QUALIFY_MARKER="$WORKDIR/.qualified_${CAMPAIGN_FILE}"
+if [ "${QUALIFY_GATE:-1}" = "0" ]; then
+    echo "[onstart] QUALIFY GATE SKIPPED (QUALIFY_GATE=0)"
+elif [ -f "$QUALIFY_MARKER" ]; then
+    echo "[onstart] qualify gate: already passed ($(cat "$QUALIFY_MARKER"))"
+else
+    echo "[onstart] qualify gate: probing $CKPT_IN ..."
+    "$PY" scripts/holdout_probe_loop.py --qualify "$CKPT_IN"
+    _QRC=$?
+    if [ "$_QRC" = "0" ]; then
+        echo "PASS $(date -u +%FT%TZ) ckpt=$CKPT_IN" > "$QUALIFY_MARKER"
+        echo "[onstart] qualify gate: PASS"
+    elif [ "$_QRC" = "3" ]; then
+        echo "qualify gate refused $CKPT_IN $(date -u +%FT%TZ)" \
+            > "$WORKDIR/ABORTED_qualify"
+        echo "[onstart] REFUSING LAUNCH: qualify gate REFUSED $CKPT_IN"
+        echo "[onstart] (value_auc below QUALIFY_AUC_MIN; see"
+        echo "[onstart] training/logs/holdout_probe.csv last row)."
+        echo "[onstart] Human decision needed: delete ABORTED_qualify"
+        echo "[onstart] to retry, or QUALIFY_GATE=0 to override."
+        exit 0
+    else
+        echo "[onstart] REFUSING LAUNCH: qualify probe could not run" \
+             "(rc=$_QRC; dataset staged? ckpt readable?). Retryable:" \
+             "fix the cause and restart the instance."
+        exit 1
+    fi
+fi
+
 # ---- Human-anchor rehearsal cache -----------------------------------
 # HUMAN_ANCHOR_FILE points at a pre-encoded (RawEncoded, z, ml)
 # pickle. It is deliberately NOT escrowed: the cache is invalid

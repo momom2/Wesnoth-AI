@@ -14,9 +14,11 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
 NEXT ACTIONS, in order:
 1. (USER gate) Resume leg 5: fresh box with **vms_enabled=false**
    (VM hosts refuse ssh keys; cost 4 rentals), leg.json already
-   points at the escrowed 2,931,890 checkpoint. Run the qualify
-   gate BY HAND (launcher still lacks it). Audit the train banner:
-   mover frame + abort-k-median 10 + NO distill-prior-discount.
+   points at the escrowed 2,931,890 checkpoint. The qualify gate
+   now runs IN the launcher (wired 2026-08-25) on the checkpoint
+   training starts from; a refusal writes ABORTED_qualify. Audit
+   the train banner: mover frame + abort-k-median 10 + NO
+   distill-prior-discount.
 2. Train to ~250k+ steps past the seed (2,809,659), i.e. step
    ~3.06M+; pin; **40-game Elo vs the seed = THE verdict** (user:
    strength is the only objective). Improved -> continue; not ->
@@ -26,7 +28,10 @@ NEXT ACTIONS, in order:
    A2-rehearsal / lam flips the trunk rotation) and the X5
    config-first counter (unit-count as a second aux target) are
    pre-registered in docs/leg5_value_inversion_20260825.md.
-4. Wire the qualify gate into vast_onstart.sh before leg 6.
+4. DONE 2026-08-25: qualify gate wired into vast_onstart.sh
+   (once per leg entry, marker-keyed by campaign identity; exit 3
+   refusal -> ABORTED_qualify, exit 2 probe-failure retryable;
+   QUALIFY_GATE=0 overrides). Pinned by test_probe_tripwires.
 5. Backlog standing: RCA round with the seed (laptop; never run),
    luck-compensator discussion, hindsight-credit measurement,
    launch-system full adoption (leg.json asserts ALL rulings),

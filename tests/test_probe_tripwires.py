@@ -44,6 +44,22 @@ def test_qualify_refuses_unmeasured_and_below_bar():
     assert not miss and "missing" in why
 
 
+def test_qualify_gate_wired_into_launcher():
+    """The entry gate ran BY HAND for legs 4 and 5 (BACKLOG gap).
+    Pin the wiring: onstart must invoke --qualify on the checkpoint
+    training starts from, treat a measured refusal as an ABORTED_
+    marker (human decision, no silent relaunch), and keep probe
+    failure (rc 2) distinct from refusal (rc 3) -- only the latter
+    blocks restarts."""
+    onstart = (Path(__file__).parent.parent
+               / "scripts/vast_onstart.sh").read_text(encoding="utf-8")
+    assert '--qualify "$CKPT_IN"' in onstart
+    assert "ABORTED_qualify" in onstart
+    # marker keyed by campaign identity, so a re-gated box on a new
+    # leg cannot inherit the previous leg's pass
+    assert '.qualified_${CAMPAIGN_FILE}' in onstart
+
+
 def test_k_median_of_matches_csv_statistic():
     """--abort-k-median consumes k_median_of; it must equal the
     actions_per_turn_median CSV statistic (pooled side-turn action
