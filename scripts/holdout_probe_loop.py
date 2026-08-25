@@ -44,22 +44,24 @@ sys.path.insert(0, str(REPO))
 
 PROBE_EVERY = int(os.environ.get("PROBE_EVERY", "3600"))
 PROBE_PAIRS = int(os.environ.get("PROBE_PAIRS", "1200"))
+# Stratified probe (2026-08-25 instrument repair): the pooled
+# first-N-pairs stream ran ~3 games deep (60% of AUC comparisons
+# inside ONE game; Hanley-McNeil CI invalid). Cap pairs per game so
+# PROBE_PAIRS spans ~PROBE_PAIRS/cap games; statistics become
+# per-game with between-game SE. Load-bearing default lives here in
+# code. NOTE: changing the sampling changes the CE/AUC BASELINE --
+# PROBE_T0 and floors must be re-derived under this instrument
+# (leg-5 resume did; see docs/leg5_value_inversion_20260825.md).
+PROBE_PAIRS_PER_GAME = int(os.environ.get("PROBE_PAIRS_PER_GAME", "8"))
 PROBE_DEVICE = os.environ.get("PROBE_DEVICE", "cpu")
 OUT_CSV = Path(os.environ.get(
     "PROBE_CSV", "training/logs/holdout_probe.csv"))
 
-# Abort tripwire (2026-08-12 diagnosis, finding F4): the human-holdout
-# CE is the only observable that showed the leg regressing, and it was
-# wired to nothing -- the leg ran for days getting worse with every
-# guard green. When PROBE_T0 is set and PROBE_ABORT_N consecutive
-# probes read CE > PROBE_T0 + PROBE_ABORT_DELTA, this loop writes
-# $WORKDIR/ABORTED_probe (evidence) and SIGKILLs the training
-# processes; the onstart supervisor treats a signal exit without a
-# watchdog marker as an operator stop and stands down. Off unless
-# PROBE_T0 is set (the baseline is leg-specific: measure the seed
-# checkpoint under this probe's own protocol first).
+# CE ABORT REMOVED (user ruling 2026-08-25): "learning to play
+# better does not necessarily mean learning how humans play." The
+# human-play CE stays in the CSV as telemetry; it no longer kills
+# training. PROBE_T0 is kept only as a logged reference level.
 PROBE_T0 = os.environ.get("PROBE_T0")
-PROBE_ABORT_DELTA = float(os.environ.get("PROBE_ABORT_DELTA", "0.5"))
 PROBE_ABORT_N = int(os.environ.get("PROBE_ABORT_N", "3"))
 
 # Value-accuracy alarm (A1, credit-assignment review 2026-08-17).
@@ -80,7 +82,8 @@ QUALIFY_AUC_MIN = float(os.environ.get("QUALIFY_AUC_MIN", "0.60"))
 
 _COLS = ["timestamp", "decision_step", "ce", "ce_se", "actor_top1",
          "type_top1", "target_top1", "weapon_top1", "value_auc",
-         "value_auc_se", "n", "n_value", "probe_seconds"]
+         "value_auc_se", "n", "n_value", "n_auc_games",
+         "n_ce_games", "probe_seconds"]
 
 
 def _campaign_ckpt() -> Path:
@@ -129,6 +132,7 @@ def probe_once(ckpt: Path, step: int, arch: dict) -> bool:
                "--imitation-config", "configs/imitation.json",
                "--eval-only", "--eval-json", str(out_json),
                "--eval-pairs", str(PROBE_PAIRS),
+               "--eval-pairs-per-game", str(PROBE_PAIRS_PER_GAME),
                "--device", PROBE_DEVICE]
         for k, flag in (("d_model", "--d-model"),
                         ("num_layers", "--num-layers"),
@@ -159,14 +163,6 @@ def probe_once(ckpt: Path, step: int, arch: dict) -> bool:
     return True
 
 
-def _ce_tail_trips(rows, t0, delta, n) -> bool:
-    """CE tripwire predicate: last n probes ALL above t0 + delta."""
-    if t0 is None or len(rows) < n:
-        return False
-    bar = float(t0) + delta
-    return all(float(r["ce"]) > bar for r in rows[-n:])
-
-
 def _auc_tail_trips(rows, floor, n) -> bool:
     """Value-accuracy tripwire predicate: last n probes ALL have a
     readable value_auc below `floor`. Rows without a value_auc
@@ -185,32 +181,24 @@ def _auc_tail_trips(rows, floor, n) -> bool:
 
 
 def _abort_check() -> None:
-    """Kill training when a tripwire fires on the probe tail: CE
-    above PROBE_T0 + PROBE_ABORT_DELTA (needs PROBE_T0), or
-    value_auc below PROBE_AUC_FLOOR (always armed), each over
-    PROBE_ABORT_N consecutive probes."""
+    """Kill training when the value tripwire fires on the probe
+    tail: value_auc below PROBE_AUC_FLOOR over PROBE_ABORT_N
+    consecutive probes. (The CE abort was REMOVED by user ruling
+    2026-08-25: playing better does not necessarily mean playing
+    like humans -- human-similarity is telemetry, not a
+    kill-switch.)"""
     if not OUT_CSV.exists():
         return
     import csv as _csv
     import signal
     rows = list(_csv.DictReader(OUT_CSV.open(encoding="utf-8")))
-    ce_trip = _ce_tail_trips(rows, PROBE_T0, PROBE_ABORT_DELTA,
-                             PROBE_ABORT_N)
-    auc_trip = _auc_tail_trips(rows, PROBE_AUC_FLOOR, PROBE_ABORT_N)
-    if not (ce_trip or auc_trip):
+    if not _auc_tail_trips(rows, PROBE_AUC_FLOOR, PROBE_ABORT_N):
         return
     tail = rows[-PROBE_ABORT_N:]
-    if ce_trip:
-        bar = float(PROBE_T0) + PROBE_ABORT_DELTA
-        reason = (f"human-holdout CE > {bar:.3f} (t0 {PROBE_T0} + "
-                  f"{PROBE_ABORT_DELTA}) on {PROBE_ABORT_N} "
-                  f"consecutive probes: "
-                  f"{[round(float(r['ce']), 4) for r in tail]}")
-    else:
-        reason = (f"value_auc < {PROBE_AUC_FLOOR} (near/below chance "
-                  f"-- the leg-3 dark failure) on {PROBE_ABORT_N} "
-                  f"consecutive probes: "
-                  f"{[r.get('value_auc') for r in tail]}")
+    reason = (f"value_auc < {PROBE_AUC_FLOOR} (near/below chance "
+              f"-- the leg-3 dark failure) on {PROBE_ABORT_N} "
+              f"consecutive probes: "
+              f"{[r.get('value_auc') for r in tail]}")
     workdir = Path(os.environ.get("WORKDIR", "/workspace"))
     marker = workdir / "ABORTED_probe"
     marker.write_text(
@@ -268,10 +256,8 @@ def main() -> int:
         return qualify(Path(sys.argv[2]))
     ckpt = _campaign_ckpt()
     print(f"holdout_probe_loop: watching {ckpt}, every {PROBE_EVERY}s, "
-          f"{PROBE_PAIRS} pairs on {PROBE_DEVICE}"
-          + (f"; abort at t0+{PROBE_ABORT_DELTA} x{PROBE_ABORT_N} "
-             f"(t0={PROBE_T0})" if PROBE_T0 else "; CE abort OFF (no "
-             "PROBE_T0)")
+          f"{PROBE_PAIRS} pairs (cap {PROBE_PAIRS_PER_GAME}/game) on "
+          f"{PROBE_DEVICE}; CE = telemetry only (t0 ref {PROBE_T0})"
           + f"; value_auc floor {PROBE_AUC_FLOOR} x{PROBE_ABORT_N}",
           flush=True)
     last_step = None

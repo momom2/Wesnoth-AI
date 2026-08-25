@@ -866,6 +866,7 @@ def _flush_batch(
 def _evaluate(
     model, encoder, holdout_files, device, *,
     eval_pairs: int = 1200,
+    eval_pairs_per_game: int = 0,
     type_loss_weights: Optional[Dict[str, float]] = None,
     winner_map: Optional[Dict[str, int]] = None,
 ) -> Dict[str, float]:
@@ -882,8 +883,17 @@ def _evaluate(
     ce_sum, n = 0.0, 0
     ces: List[float] = []         # per-pair CE, for the SE
     ev_win, ev_loss = [], []      # E[V] samples for value AUC
+    # Stratified mode (2026-08-25 instrument repair): cap pairs per
+    # game so eval_pairs spans MANY games instead of running ~3
+    # games deep (the leg-5 probe's 1,200 "pairs" were 60% one
+    # game's internal comparisons and its Hanley-McNeil CI assumed
+    # they were independent). Per-game statistics + between-game SE
+    # replace the pooled AUC when the cap is on.
+    per_game: Dict[str, Dict[str, list]] = {}
     with torch.no_grad():
-        for item in _pair_stream_serial(sorted(holdout_files)):
+        for item in _pair_stream_serial(
+                sorted(holdout_files),
+                max_pairs_per_replay=eval_pairs_per_game):
             if item[0] != "pair":
                 continue
             _, state, ai, _name = item
@@ -900,11 +910,19 @@ def _evaluate(
                 mover = state.global_info.current_side
                 (ev_win if winner_map[_name] == mover
                  else ev_loss).append(ev)
+                g = per_game.setdefault(_name, {"w": [], "l": [],
+                                                "ce": []})
+                (g["w"] if winner_map[_name] == mover
+                 else g["l"]).append(ev)
             parts = _loss_parts_for_output(
                 output, ai, device,
                 type_loss_weights=type_loss_weights)
             ce_sum += float(parts.total.item())
             ces.append(float(parts.total.item()))
+            if eval_pairs_per_game:
+                per_game.setdefault(_name, {"w": [], "l": [],
+                                            "ce": []})["ce"].append(
+                    float(parts.total.item()))
             A = output.actor_logits.size(1)
             if ai.actor_idx < A:
                 fired["actor"] += 1
@@ -940,15 +958,47 @@ def _evaluate(
     # move) over holdout states -- the same AUC probe_value_head
     # reports, cheap enough to ride every eval so trunk-drift damage
     # (epoch-0 lesson: late AUC 0.79 -> 0.63) shows up in the CURVE.
-    if ev_win and ev_loss:
-        wins = sum(1 for a in ev_win for b in ev_loss if a > b)
-        ties = sum(1 for a in ev_win for b in ev_loss if a == b)
+    def _auc(w, ls):
+        wins = sum(1 for a in w for b in ls if a > b)
+        ties = sum(1 for a in w for b in ls if a == b)
+        return (wins + 0.5 * ties) / (len(w) * len(ls))
+
+    if eval_pairs_per_game:
+        # Stratified statistics (2026-08-25): per-game AUC, mean
+        # across games, BETWEEN-GAME SE. Only games containing both
+        # winner-mover and loser-mover states contribute an AUC.
+        # The Hanley-McNeil form is invalid here: comparisons within
+        # a game are heavily dependent (the leg-5 lesson).
+        g_aucs = [_auc(g["w"], g["l"]) for g in per_game.values()
+                  if g["w"] and g["l"]]
+        k = len(g_aucs)
+        out["n_auc_games"] = k
+        out["n_value"] = len(ev_win) + len(ev_loss)
+        if k >= 2:
+            m = sum(g_aucs) / k
+            var = sum((a - m) ** 2 for a in g_aucs) / (k - 1)
+            out["value_auc"] = m
+            out["value_auc_se"] = (var / k) ** 0.5
+        else:
+            out["value_auc"] = g_aucs[0] if g_aucs else None
+            out["value_auc_se"] = None
+        # CE keeps its definition (mean over pairs) but its SE
+        # becomes between-game too.
+        g_ces = [sum(g["ce"]) / len(g["ce"])
+                 for g in per_game.values() if g["ce"]]
+        if len(g_ces) >= 2:
+            mc = sum(g_ces) / len(g_ces)
+            vc = sum((c - mc) ** 2 for c in g_ces) / (len(g_ces) - 1)
+            out["ce_se"] = (vc / len(g_ces)) ** 0.5
+        out["n_ce_games"] = len(g_ces)
+    elif ev_win and ev_loss:
         n1, n2 = len(ev_win), len(ev_loss)
-        auc = (wins + 0.5 * ties) / (n1 * n2)
+        auc = _auc(ev_win, ev_loss)
         out["value_auc"] = auc
         out["n_value"] = n1 + n2
-        # Hanley-McNeil (1982) SE for the AUC of two independent
-        # samples -- the standard closed form.
+        # Hanley-McNeil (1982) SE -- only meaningful when the pooled
+        # samples are independent (NOT the case under file-sequential
+        # uncapped streaming; kept for the legacy path only).
         q1 = auc / (2 - auc)
         q2 = 2 * auc * auc / (1 + auc)
         var = (auc * (1 - auc) + (n1 - 1) * (q1 - auc * auc)
@@ -1026,6 +1076,7 @@ def train(
     eval_every: int = 50_000,        # pairs between held-out evals
                                      # (0 = only at epoch ends)
     eval_pairs: int = 1200,          # held-out pairs per eval
+    eval_pairs_per_game: int = 0,    # stratified probe cap (0=legacy)
     eval_only: bool = False,         # evaluate --resume ckpt and exit
     eval_json: Optional[Path] = None,  # eval-only: also dump stats JSON
     reinit_value_head: bool = False,
@@ -1380,6 +1431,7 @@ def train(
             return
         stats = _evaluate(model, encoder, holdout_files, device,
                           eval_pairs=eval_pairs,
+                          eval_pairs_per_game=eval_pairs_per_game,
                           type_loss_weights=type_loss_weights,
                           winner_map=winner_map)
         stats["decision_step"] = carry.get("decision_step")
@@ -1935,6 +1987,12 @@ def main(argv: List[str]) -> int:
                     help="Pairs between held-out evals (0 = epoch "
                          "ends only).")
     ap.add_argument("--eval-pairs", type=int, default=1200)
+    ap.add_argument("--eval-pairs-per-game", type=int, default=0,
+                    help="Stratified probe (2026-08-25 instrument "
+                         "repair): cap pairs per holdout game so "
+                         "--eval-pairs spans many games; per-game "
+                         "AUC/CE with BETWEEN-game SE. 0 = legacy "
+                         "pooled behavior.")
     ap.add_argument("--eval-only", action="store_true",
                     help="Evaluate the --resume checkpoint on the "
                          "holdout split and exit (baseline mode).")
@@ -1994,6 +2052,7 @@ def main(argv: List[str]) -> int:
         value_states_per_game=args.value_states_per_game,
         eval_every=args.eval_every,
         eval_pairs=args.eval_pairs,
+        eval_pairs_per_game=args.eval_pairs_per_game,
         eval_only=args.eval_only,
         eval_json=args.eval_json,
         reinit_value_head=args.reinit_value_head,

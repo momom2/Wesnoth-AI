@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from scripts.holdout_probe_loop import (  # noqa: E402
-    _auc_tail_trips, _ce_tail_trips, qualify_verdict,
+    _auc_tail_trips, qualify_verdict,
 )
 
 
@@ -42,12 +42,6 @@ def test_auc_tripwire_missing_values_cannot_trip():
     assert not _auc_tail_trips(_rows("0.30", "", "0.31"),
                                floor=0.52, n=3)
 
-
-def test_ce_tripwire_unchanged_semantics():
-    rows = [{"ce": "3.9"}, {"ce": "3.8"}, {"ce": "3.75"}]
-    assert _ce_tail_trips(rows, t0="3.2", delta=0.5, n=3)
-    assert not _ce_tail_trips(rows, t0=None, delta=0.5, n=3)
-    assert not _ce_tail_trips(rows[:2], t0="3.2", delta=0.5, n=3)
 
 
 def test_qualify_refuses_unmeasured_and_below_bar():
