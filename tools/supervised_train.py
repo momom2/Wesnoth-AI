@@ -25,6 +25,7 @@ per replay × ~10 replays/sec encoding-only → ~20K pairs/sec, so a
 from __future__ import annotations
 
 import argparse
+import copy
 import gc
 import gzip
 import json
@@ -195,16 +196,45 @@ def _pair_stream_serial(
     files: List[Path],
     *,
     max_pairs_per_replay: int = 0,
+    sample_seed: Optional[int] = None,
 ):
-    """Single-process pair stream — reads + encodes inline."""
+    """Single-process pair stream — reads + encodes inline.
+
+    With `sample_seed` set (and a per-replay cap), each file
+    contributes a seeded RANDOM sample of its pairs (reservoir)
+    instead of its first N — the probe's independent-redraw
+    mechanism (user ruling 2026-08-25: a low reading is retried
+    with different RNG before it may abort anything)."""
+    rng = random.Random(sample_seed) if sample_seed is not None else None
     for gz in files:
         n = 0
         try:
-            for state, ai in iter_replay_pairs(gz):
-                if max_pairs_per_replay and n >= max_pairs_per_replay:
-                    break
-                n += 1
-                yield ("pair", state, ai, gz.name)
+            if rng is not None and max_pairs_per_replay:
+                # iter_replay_pairs yields ONE GameState object,
+                # mutated in place as the replay advances -- buffered
+                # entries MUST be deepcopied or the whole reservoir
+                # collapses onto the final state (caught 2026-08-25:
+                # every sampled game read as one-sided, n_auc_games
+                # 0/150).
+                buf: List[Tuple] = []
+                seen = 0
+                for state, ai in iter_replay_pairs(gz):
+                    seen += 1
+                    if len(buf) < max_pairs_per_replay:
+                        buf.append((copy.deepcopy(state), ai))
+                    else:
+                        j = rng.randrange(seen)
+                        if j < max_pairs_per_replay:
+                            buf[j] = (copy.deepcopy(state), ai)
+                for state, ai in buf:
+                    n += 1
+                    yield ("pair", state, ai, gz.name)
+            else:
+                for state, ai in iter_replay_pairs(gz):
+                    if max_pairs_per_replay and n >= max_pairs_per_replay:
+                        break
+                    n += 1
+                    yield ("pair", state, ai, gz.name)
             yield ("file_done", gz.name, n)
         except Exception as e:
             yield ("file_error", gz.name, repr(e))
@@ -867,6 +897,7 @@ def _evaluate(
     model, encoder, holdout_files, device, *,
     eval_pairs: int = 1200,
     eval_pairs_per_game: int = 0,
+    eval_sample_seed: Optional[int] = None,
     type_loss_weights: Optional[Dict[str, float]] = None,
     winner_map: Optional[Dict[str, int]] = None,
 ) -> Dict[str, float]:
@@ -893,7 +924,8 @@ def _evaluate(
     with torch.no_grad():
         for item in _pair_stream_serial(
                 sorted(holdout_files),
-                max_pairs_per_replay=eval_pairs_per_game):
+                max_pairs_per_replay=eval_pairs_per_game,
+                sample_seed=eval_sample_seed):
             if item[0] != "pair":
                 continue
             _, state, ai, _name = item
@@ -1077,6 +1109,7 @@ def train(
                                      # (0 = only at epoch ends)
     eval_pairs: int = 1200,          # held-out pairs per eval
     eval_pairs_per_game: int = 0,    # stratified probe cap (0=legacy)
+    eval_sample_seed: Optional[int] = None,  # seeded random redraw
     eval_only: bool = False,         # evaluate --resume ckpt and exit
     eval_json: Optional[Path] = None,  # eval-only: also dump stats JSON
     reinit_value_head: bool = False,
@@ -1432,6 +1465,7 @@ def train(
         stats = _evaluate(model, encoder, holdout_files, device,
                           eval_pairs=eval_pairs,
                           eval_pairs_per_game=eval_pairs_per_game,
+                          eval_sample_seed=eval_sample_seed,
                           type_loss_weights=type_loss_weights,
                           winner_map=winner_map)
         stats["decision_step"] = carry.get("decision_step")
@@ -1987,6 +2021,9 @@ def main(argv: List[str]) -> int:
                     help="Pairs between held-out evals (0 = epoch "
                          "ends only).")
     ap.add_argument("--eval-pairs", type=int, default=1200)
+    ap.add_argument("--eval-sample-seed", type=int, default=None,
+                    help="Seeded RANDOM per-game pair sample instead "
+                         "of first-N (independent probe redraws).")
     ap.add_argument("--eval-pairs-per-game", type=int, default=0,
                     help="Stratified probe (2026-08-25 instrument "
                          "repair): cap pairs per holdout game so "
@@ -2053,6 +2090,7 @@ def main(argv: List[str]) -> int:
         eval_every=args.eval_every,
         eval_pairs=args.eval_pairs,
         eval_pairs_per_game=args.eval_pairs_per_game,
+        eval_sample_seed=args.eval_sample_seed,
         eval_only=args.eval_only,
         eval_json=args.eval_json,
         reinit_value_head=args.reinit_value_head,

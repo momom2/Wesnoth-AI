@@ -1,7 +1,7 @@
 {
  "campaign_file": "tier_b_l5.pt",
- "seed_hf_file": "tier-b/a3/seed_imit_tierb_start.pt",
- "probe_t0": "3.2070",
+ "seed_hf_file": "tier-b/tier_b_l5.pt",
+ "probe_t0": "2.9009",
  "policy_anchor": "replays_dataset_imitation/policy_anchor.npz",
  "extra_env": {
   "TURN_BOUNDARY_FRAME": "mover",

@@ -65,19 +65,16 @@ PROBE_T0 = os.environ.get("PROBE_T0")
 PROBE_ABORT_N = int(os.environ.get("PROBE_ABORT_N", "3"))
 
 # Value-accuracy alarm (A1, credit-assignment review 2026-08-17).
-# Leg 3's value_auc sat BELOW CHANCE from entry (0.309 at step
-# 3,111,037, mean 0.434) in a column this loop was already writing,
-# and nothing looked. Two instruments, per the review:
-#   * drift tripwire (here): PROBE_ABORT_N consecutive probes with
-#     value_auc below PROBE_AUC_FLOOR abort the leg, same marker/
-#     kill protocol as the CE tripwire. ON BY DEFAULT (floor 0.52 =
-#     chance + margin: catches a broken head, tolerates a mediocre
-#     one) -- load-bearing defaults live in code, not launch envs.
-#   * entry-qualification gate (--qualify CKPT): one probe of a
-#     named checkpoint, exit 0 iff value_auc >= QUALIFY_AUC_MIN
-#     (default 0.60); the launch script gates on the exit code, so
-#     a leg can never again start with an unproven judge.
-PROBE_AUC_FLOOR = float(os.environ.get("PROBE_AUC_FLOOR", "0.52"))
+# Value tripwire (user ruling 2026-08-25, replacing the
+# consecutive-hourly-probes design): each probe reads the model's
+# winner-recognition over ~150 held-out human games (stratified,
+# between-game SE). If a reading is below PROBE_AUC_FLOOR (0.60),
+# the probe IMMEDIATELY redraws with different sampling RNG, up to
+# PROBE_ABORT_N (3) total independent draws; only if ALL are below
+# the floor does it abort training (marker + SIGKILL). The
+# entry-qualification gate (--qualify CKPT) is unchanged: one
+# probe, exit 0 iff value_auc >= QUALIFY_AUC_MIN.
+PROBE_AUC_FLOOR = float(os.environ.get("PROBE_AUC_FLOOR", "0.60"))
 QUALIFY_AUC_MIN = float(os.environ.get("QUALIFY_AUC_MIN", "0.60"))
 
 _COLS = ["timestamp", "decision_step", "ce", "ce_se", "actor_top1",
@@ -115,8 +112,12 @@ def _append(row: dict) -> None:
         w.writerow(row)
 
 
-def probe_once(ckpt: Path, step: int, arch: dict) -> bool:
-    """Snapshot + eval-only subprocess + CSV append. True on success."""
+def probe_once(ckpt: Path, step: int, arch: dict,
+               sample_seed: int = None):
+    """Snapshot + eval-only subprocess + CSV append. Returns the
+    stats dict on success, None on failure. `sample_seed` selects
+    WHICH pairs each holdout game contributes (the independent-
+    redraw mechanism)."""
     dataset = os.environ.get("IMITATION_DATASET")
     if not dataset:
         cfg = json.loads(Path("configs/imitation.json")
@@ -134,6 +135,8 @@ def probe_once(ckpt: Path, step: int, arch: dict) -> bool:
                "--eval-pairs", str(PROBE_PAIRS),
                "--eval-pairs-per-game", str(PROBE_PAIRS_PER_GAME),
                "--device", PROBE_DEVICE]
+        if sample_seed is not None:
+            cmd += ["--eval-sample-seed", str(sample_seed)]
         for k, flag in (("d_model", "--d-model"),
                         ("num_layers", "--num-layers"),
                         ("num_heads", "--num-heads"),
@@ -145,7 +148,7 @@ def probe_once(ckpt: Path, step: int, arch: dict) -> bool:
         if r.returncode != 0 or not out_json.exists():
             print(f"probe: eval failed rc={r.returncode}; stderr tail: "
                   f"{r.stderr[-500:]}", flush=True)
-            return False
+            return None
         stats = json.loads(out_json.read_text(encoding="utf-8"))
     row = {"timestamp": time.strftime("%FT%TZ", time.gmtime()),
            "decision_step": step,
@@ -159,51 +162,56 @@ def probe_once(ckpt: Path, step: int, arch: dict) -> bool:
     print(f"probe: step={step} "
           f"ce={_pm(stats.get('ce'), stats.get('ce_se'))} "
           f"value_auc={_pm(stats.get('value_auc'), stats.get('value_auc_se'), '.3f')} "
-          f"({row['probe_seconds']}s)", flush=True)
-    return True
+          f"seed={sample_seed} ({row['probe_seconds']}s)", flush=True)
+    return stats
 
 
-def _auc_tail_trips(rows, floor, n) -> bool:
-    """Value-accuracy tripwire predicate: last n probes ALL have a
-    readable value_auc below `floor`. Rows without a value_auc
-    (empty cell: no value-labeled pairs that probe) don't count as
-    breakage -- they reset nothing but can't trip."""
-    if len(rows) < n:
+def redraw_verdict(readings, floor, n) -> bool:
+    """Abort predicate (user ruling 2026-08-25): True iff ALL n
+    INDEPENDENT redraws read a value_auc below `floor`. A missing
+    reading (probe failure / no value pairs) can never abort."""
+    if len(readings) < n:
         return False
-    for r in rows[-n:]:
-        v = (r.get("value_auc") or "").strip() \
-            if isinstance(r.get("value_auc"), str) else r.get("value_auc")
-        if v in (None, ""):
-            return False
-        if float(v) >= floor:
-            return False
-    return True
+    clean = [r for r in readings if r is not None]
+    return len(clean) >= n and all(r < floor for r in clean[:n])
 
 
-def _abort_check() -> None:
-    """Kill training when the value tripwire fires on the probe
-    tail: value_auc below PROBE_AUC_FLOOR over PROBE_ABORT_N
-    consecutive probes. (The CE abort was REMOVED by user ruling
-    2026-08-25: playing better does not necessarily mean playing
-    like humans -- human-similarity is telemetry, not a
-    kill-switch.)"""
-    if not OUT_CSV.exists():
-        return
-    import csv as _csv
+def _value_check(ckpt: Path, step: int, arch: dict,
+                 first: dict) -> None:
+    """The value tripwire (user ruling 2026-08-25): if this probe's
+    value_auc reads below PROBE_AUC_FLOOR, immediately REDRAW the
+    sample with different RNG, up to PROBE_ABORT_N total
+    independent draws; abort training only if every draw is below
+    the floor. (The CE abort was REMOVED the same day: playing
+    better does not necessarily mean playing like humans --
+    human-similarity is telemetry, not a kill-switch.)"""
     import signal
-    rows = list(_csv.DictReader(OUT_CSV.open(encoding="utf-8")))
-    if not _auc_tail_trips(rows, PROBE_AUC_FLOOR, PROBE_ABORT_N):
+
+    def _auc(stats):
+        v = stats.get("value_auc") if stats else None
+        return float(v) if v not in (None, "") else None
+
+    readings = [_auc(first)]
+    if readings[0] is None or readings[0] >= PROBE_AUC_FLOOR:
         return
-    tail = rows[-PROBE_ABORT_N:]
-    reason = (f"value_auc < {PROBE_AUC_FLOOR} (near/below chance "
-              f"-- the leg-3 dark failure) on {PROBE_ABORT_N} "
-              f"consecutive probes: "
-              f"{[r.get('value_auc') for r in tail]}")
+    for k in range(1, PROBE_ABORT_N):
+        print(f"probe: value_auc {readings[-1]:.3f} < "
+              f"{PROBE_AUC_FLOOR} -- independent redraw "
+              f"{k}/{PROBE_ABORT_N - 1}", flush=True)
+        stats = probe_once(ckpt, step, arch, sample_seed=step + k)
+        readings.append(_auc(stats))
+        if readings[-1] is not None and readings[-1] >= PROBE_AUC_FLOOR:
+            return
+    if not redraw_verdict(readings, PROBE_AUC_FLOOR, PROBE_ABORT_N):
+        return
+    reason = (f"value_auc < {PROBE_AUC_FLOOR} on {PROBE_ABORT_N} "
+              f"INDEPENDENT sample redraws: "
+              f"{[round(r, 4) for r in readings]}")
     workdir = Path(os.environ.get("WORKDIR", "/workspace"))
     marker = workdir / "ABORTED_probe"
     marker.write_text(
-        f"{time.strftime('%FT%TZ', time.gmtime())} {reason} at steps "
-        f"{[r['decision_step'] for r in tail]}\n", encoding="utf-8")
+        f"{time.strftime('%FT%TZ', time.gmtime())} {reason} at step "
+        f"{step}\n", encoding="utf-8")
     print(f"probe: ABORT TRIPWIRE -- {marker.read_text().strip()}",
           flush=True)
     for pd in Path("/proc").iterdir():
@@ -240,7 +248,9 @@ def qualify(ckpt: Path) -> int:
         return 2
     step, arch = peek
     # probe_once appends the row (audit trail) and prints the stats.
-    if not probe_once(ckpt, step, arch):
+    # Same seeded-random sampling as the hourly tripwire, so the
+    # gate and the tripwire read the same instrument.
+    if not probe_once(ckpt, step, arch, sample_seed=step):
         print("qualify: probe run failed", flush=True)
         return 2
     import csv as _csv
@@ -266,9 +276,11 @@ def main() -> int:
             if ckpt.exists():
                 peek = _peek(ckpt)
                 if peek is not None and peek[0] != last_step:
-                    if probe_once(ckpt, *peek):
+                    stats = probe_once(ckpt, *peek,
+                                       sample_seed=peek[0])
+                    if stats is not None:
                         last_step = peek[0]
-                        _abort_check()
+                        _value_check(ckpt, *peek, first=stats)
         except Exception as e:                      # noqa: BLE001
             print(f"probe: cycle failed: {e!r}", flush=True)
         time.sleep(PROBE_EVERY)
