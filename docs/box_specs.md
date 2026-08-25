@@ -89,6 +89,12 @@ buys nothing while the CPUs are the bottleneck.
 
 ## Operational facts (learned, box-management)
 
+- **Always filter offers with `vms_enabled=false`** (2026-08-24/25:
+  four consecutive VM-class hosts booted "running" but never
+  delivered the ssh key — vast-cli issue #336, broken
+  authorized_keys modes on KVM instances). A box that refuses the
+  key after boot is destroyed and relocated, never debugged.
+
 - **A stopped Vast instance is STORAGE, not reserved capacity**:
   its GPU can be rented from under it and stay occupied
   indefinitely (box 47853206, 2026-08-17). Never plan around

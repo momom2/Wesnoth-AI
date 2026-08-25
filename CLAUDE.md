@@ -54,7 +54,76 @@ Most replays in `replays_raw/` are from 1.18.x clients; pin
 accordingly. If a replay's `[scenario] version=` says something
 other than 1.18.x, scrape from that version's tag instead.
 
-## Current status (2026-08-14)
+## Current status (2026-08-25)
+
+**TRAINING IS DOWN by explicit user order (2026-08-25); do NOT
+resume without their go.** The user intends to oversee the resume
+directly. Objective restated by the user in plain terms: **"my
+objective is to make the policy play better. Nothing else
+matters."** Strength is measured by GAMES (Elo matches), never by
+proxies; internal metrics are crash barriers, not verdicts.
+
+**Elo board (catalog `tools/elo_catalog.py show`; lineage-path
+naming per docs/checkpoint_naming.md, aliases preserved):** the
+**imitation seed `2516k-b-294k-l4-0k` is the strongest checkpoint
+ever measured: +211 ± 67**, ABOVE the old 5M champion `2516k`
+(+140 ± 29). Legs 3 and 4 each destroyed ~500 Elo from it (leg-4
+pin `2516k-b-294k-l4-495k`: −309 ± 105; 0-19 vs its own seed, 0-20
+at sims 0).
+
+**Leg-4 postmortem (docs/leg4_erosion_rootcause_20260820.md — the
+full arc: workflow synthesis + E1/E2/E3/Q7 + final board):**
+killer = `--distill-prior-discount 0.9` alone: under the linear
+link the lam-decay flattens ALL ~386 legal actions while the boost
+touches <=5, so it is net-flattening PER STEP regardless of grader
+quality (computed sharpen_top −0.033 vs measured −0.032). The A1
+ruling that justified 0.9 was measured under the EXP link and never
+re-derived. Launcher no longer emits it (env-gated; code default
+1.0). Grader exonerated on every axis (ICC 0.96-0.995, blind 8%->0
+on own games). Fog-frame flaw real but not the killer:
+`--turn-boundary-frame mover` shipped (bake-off: accept 0.90 vs
+0.67, robust verdicts; ADOPTED for leg 5+). Gate projection
+REJECTED as implemented (separation 1.0:1; mechanism validated —
+depth-1 removes the measured +3.7-atom pass bias — parked pending
+variance reduction).
+
+**Leg 5 (tier_b_l5, from the seed, lam=1.0 + mover frame +
+K-tripwire + policy anchor):** ran 8 iterations / 122,231 steps
+(checkpoint 2,931,890 ESCROWED at tier-b/tier_b_l5.pt) with the
+healthiest policy-side telemetry ever (CE flat, attack% rising, K
+12, 24/24 decisive, blind_coord 2.3%, boundary_pairs live) — then
+the value tripwire killed it. Diagnosis
+(docs/leg5_value_inversion_20260825.md, workflow RAN the decisive
+experiments): the value head's below-chance reading on human games
+is a TRUNK proxy rotation onto raw unit count (head grafts move
+<0.01; trunk swaps move everything; count anti-predicts human
+winners while material predicts 0.89 — in self-play both
+coincide, so the direction is unidentified and lands coin-flip:
+leg 4 rotated the GOOD way, 0.912). AND the probe instrument was
+unsound: 1,200 pairs = ~3 games, invalid CI. Whether the rotation
+transient matters for STRENGTH is unmeasured — the leg was killed
+before the pre-registered 100k-step Elo-vs-seed gate.
+
+**Instrument + tripwire state (user rulings 2026-08-25, all
+shipped):** probe stratified (8 pairs/game seeded-random across
+~150 games, per-game stats, BETWEEN-game SE; seeded baseline ~0.85
+± 0.03, opening-only sampling reads lower); CE abort REMOVED
+("learning to play better does not necessarily mean learning how
+humans play" — CE is telemetry only); value tripwire = user's
+design: reading < 0.60 -> up to 3 INDEPENDENT sample redraws,
+abort only if all fail; K-collapse tripwire `--abort-k-median 10`
+(pass explicitly); decisive-rate, CPU watchdog, holdout-stall
+unchanged. No automatic money cap exists.
+
+**The agreed resume plan (awaiting user):** fresh non-VM box
+(vms_enabled=false — VM-class hosts refuse ssh keys, 4 rentals
+lost to it), resume from escrow via configs/leg_l5.json (already
+points at the rolling file), train to ~250k+ steps, then a
+40-game Elo match vs the seed is THE verdict: improved -> continue;
+else stop. Launcher gap: the qualify gate is still run BY HAND
+(BACKLOG). Boxes 48108334/48607224 exist stopped (storage only).
+
+## Current status (2026-08-14, superseded — kept for provenance)
 
 **Turn-Commitment Search (TCS) is the production data generator,
 DEFAULT ON.** The 2026-08-11..12 handoff legs (A1 prior-discount,

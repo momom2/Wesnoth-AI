@@ -8,6 +8,30 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
 
 ---
 
+## STATE 2026-08-25: TRAINING DOWN BY USER ORDER — resume only on
+## their explicit go (they will oversee directly)
+
+NEXT ACTIONS, in order:
+1. (USER gate) Resume leg 5: fresh box with **vms_enabled=false**
+   (VM hosts refuse ssh keys; cost 4 rentals), leg.json already
+   points at the escrowed 2,931,890 checkpoint. Run the qualify
+   gate BY HAND (launcher still lacks it). Audit the train banner:
+   mover frame + abort-k-median 10 + NO distill-prior-discount.
+2. Train to ~250k+ steps past the seed (2,809,659), i.e. step
+   ~3.06M+; pin; **40-game Elo vs the seed = THE verdict** (user:
+   strength is the only objective). Improved -> continue; not ->
+   stop and rethink. Do NOT interrupt on proxy metrics; tripwires
+   are money-guards only.
+3. If the value-rotation recurs and matters: X4 (~$3, which of
+   A2-rehearsal / lam flips the trunk rotation) and the X5
+   config-first counter (unit-count as a second aux target) are
+   pre-registered in docs/leg5_value_inversion_20260825.md.
+4. Wire the qualify gate into vast_onstart.sh before leg 6.
+5. Backlog standing: RCA round with the seed (laptop; never run),
+   luck-compensator discussion, hindsight-credit measurement,
+   launch-system full adoption (leg.json asserts ALL rulings),
+   baked project image.
+
 ## LEG-5 LAUNCH CONFIG (2026-08-21, user: "proceed! Let leg-5 train
 ## tonight with the mover frame grading and the various fixes (no
 ## projection)")
