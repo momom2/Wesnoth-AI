@@ -46,14 +46,26 @@ from tools.wesnoth_sim import WesnothSim
 log = logging.getLogger("elo_eval_game")
 
 
-def _build_player(spec: str, label: str, sims: int, device):
+def _search_policy_cls(turn_search: bool):
+    """Deployment sampling matches the training default (user ruling
+    2026-08-26): TCS is the production data generator, so eval plays
+    through TurnCommitPolicy unless --no-turn-search opts out --
+    the measured object is the object training optimizes."""
+    if turn_search:
+        from tools.turn_policy import TurnCommitPolicy
+        return TurnCommitPolicy
+    from tools.mcts_policy import MCTSPolicy
+    return MCTSPolicy
+
+
+def _build_player(spec: str, label: str, sims: int, device,
+                  turn_search: bool = True):
     if spec == "dummy":
         from wesnoth_ai.dummy_policy import DummyPolicy
         return _ScriptedAdapter(DummyPolicy())
     policy = _load_policy(Path(spec), device, label=label)
     if sims > 0:
         from tools.mcts import MCTSConfig
-        from tools.mcts_policy import MCTSPolicy
         import os
         # EVALUATION CONTRACT (user, 2026-07-11): valuing material
         # advantage is a TRAINING crutch, not part of what policy
@@ -63,7 +75,7 @@ def _build_player(spec: str, label: str, sims: int, device):
         # game: win +1, loss -1, draw 0. moves_left_utility (time
         # preference among equal outcomes, no material content) stays
         # env-configurable.
-        return MCTSPolicy(policy, MCTSConfig(
+        return _search_policy_cls(turn_search)(policy, MCTSConfig(
             n_simulations=sims,
             moves_left_utility=float(
                 os.environ.get("ELO_MOVES_LEFT_UTILITY", "0") or 0)))
@@ -88,6 +100,12 @@ def main(argv) -> int:
                          "box means N CUDA contexts (~300-600 MB each) and "
                          "VRAM runs out long before the cores are busy. "
                          "Eval is CPU-bound anyway.")
+    ap.add_argument("--no-turn-search", action="store_true",
+                    help="Play through per-decision Gumbel MCTS instead "
+                         "of TCS. Default is TCS -- deployment sampling "
+                         "matches the training default (user ruling "
+                         "2026-08-26). Pre-2026-08-26 catalog numbers "
+                         "were measured with this flag's behavior.")
     ap.add_argument("--log-level", default="WARNING")
     args = ap.parse_args(argv[1:])
     logging.basicConfig(level=getattr(logging, args.log_level))
@@ -114,8 +132,10 @@ def main(argv) -> int:
         print(f"exists, skipping: {out_path.name}")
         return 0
 
-    pa = _build_player(args.spec_a, args.label_a, args.mcts_sims, device)
-    pb = _build_player(args.spec_b, args.label_b, args.mcts_sims, device)
+    pa = _build_player(args.spec_a, args.label_a, args.mcts_sims, device,
+                       turn_search=not args.no_turn_search)
+    pb = _build_player(args.spec_b, args.label_b, args.mcts_sims, device,
+                       turn_search=not args.no_turn_search)
 
     rng = random.Random(args.seed)
     setup = random_setup(rng)

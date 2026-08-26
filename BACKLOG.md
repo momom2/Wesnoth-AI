@@ -8,8 +8,29 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
 
 ---
 
-## STATE 2026-08-25: TRAINING DOWN BY USER ORDER — resume only on
-## their explicit go (they will oversee directly)
+## RULINGS 2026-08-26 (user, post-verdict): (1) eval/deployment
+## plays the SAME sampling as training — elo_eval_game defaults to
+## TCS now (--no-turn-search = old catalog protocol; pre-2026-08-26
+## catalog numbers are the OLD estimand, do not mix); (2) anchors
+## DEFAULT OFF (trainer CLI already None; launcher no longer
+## auto-builds the value anchor). Rationale: anchors are symptom
+## control and provably don't guard where erosion lives; the
+## MCTS-32 verdict measured a different object than training
+## optimizes. First test: pin-vs-seed 40 games under TCS.
+
+## STATE 2026-08-26: LEG 5 VERDICT-STOPPED — the 3.06M pin lost
+## 9-0-31 to its own seed (seed +208 ± 64, 40 games, catalog
+## protocol). docs/leg5_resume_verdict_20260826.md has the record.
+## Key finding: ALL proxies healthy (value_auc 0.68-0.73, CE below
+## baseline, 24/24 decisive, K tripwire silent) while ~200 Elo
+## eroded — the erosion channel is invisible to current telemetry,
+## and it is NOT the leg-3 (K collapse) or leg-5-abort (value
+## rotation) mode. X4/X5 do not obviously apply. Next: rethink with
+## the user. All boxes stopped; pin escrowed
+## (tier-b/tier_b_l5_pin3060972.pt).
+
+## STATE 2026-08-25 (superseded): TRAINING DOWN BY USER ORDER —
+## resumed 2026-08-25 late evening on their go, ran to verdict above
 
 NEXT ACTIONS, in order:
 1. (USER gate) Resume leg 5: fresh box with **vms_enabled=false**

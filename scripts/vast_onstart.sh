@@ -450,10 +450,13 @@ fi
 # dynamic flags and side codes), so a fresh node REBUILDS it from
 # the escrowed value corpus (value_corpus.tar.gz: index + games at
 # tar root -> extracted into replays_dataset/). ~few minutes.
-# DEFAULT ON since 2026-08-10 (A2 ruling: value rehearsal protects
-# the fresh value head, AUC 0.951, from the documented self-play
-# erosion 0.88->0.60). Disable with -e HUMAN_ANCHOR_FILE= (empty).
-HUMAN_ANCHOR_FILE="${HUMAN_ANCHOR_FILE-replays_dataset/human_anchor.pkl}"
+# DEFAULT OFF (user ruling 2026-08-26: anchors default off -- the
+# leg-5 verdict showed the anchor holds the human manifold perfectly
+# while strength erodes elsewhere; anchors are symptom control, not
+# part of the default loop). Enable explicitly with
+# -e HUMAN_ANCHOR_FILE=replays_dataset/human_anchor.pkl (or via
+# leg.json extra_env); the build block below then runs as before.
+HUMAN_ANCHOR_FILE="${HUMAN_ANCHOR_FILE-}"
 if [ -n "${HUMAN_ANCHOR_FILE:-}" ] && [ ! -f "$HUMAN_ANCHOR_FILE" ]; then
     if [ -n "${HF_TOKEN:-}" ] || [ -f "$WORKDIR/.hf_token" ]; then
         "$PY" -m pip install --quiet huggingface_hub || true

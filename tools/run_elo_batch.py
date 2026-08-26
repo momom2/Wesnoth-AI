@@ -180,6 +180,11 @@ def main(argv: List[str]) -> int:
                          "could not). Size to CORES, not to GPUs; every job "
                          "needs its own memory headroom, so the free-RAM "
                          "floor is multiplied by --jobs.")
+    ap.add_argument("--no-turn-search", action="store_true",
+                    help="Per-decision Gumbel MCTS instead of TCS (the "
+                         "pre-2026-08-26 catalog protocol). Default is "
+                         "TCS: deployment sampling matches the training "
+                         "default (user ruling 2026-08-26).")
     ap.add_argument("--per-game-timeout-min", type=float, default=20.0,
                     help="Kill a single game that overruns; its slot is "
                          "skipped and the run continues.")
@@ -214,6 +219,8 @@ def main(argv: List[str]) -> int:
                "--mcts-sims", str(args.mcts_sims),
                "--max-turns", str(args.max_turns),
                "--device", args.device]
+        if args.no_turn_search:
+            cmd.append("--no-turn-search")
         return (subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
                                  stderr=subprocess.PIPE, text=True),
                 time.perf_counter(), slot)

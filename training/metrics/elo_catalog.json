@@ -20,7 +20,7 @@
    "anchored": true,
    "arch": "5M",
    "decision_step": 2403615,
-   "elo": 29.9,
+   "elo": 29.7,
    "file": "campaign_live_20260729.pt",
    "lineage": "tier-a",
    "n_games": 240,
@@ -30,41 +30,53 @@
    "anchored": true,
    "arch": "5M",
    "decision_step": 2515896,
-   "elo": 140.4,
+   "elo": 140.6,
    "file": "campaign_live_20260730.pt",
    "lineage": "tier-a",
    "n_games": 272,
-   "se": 29.0
+   "se": 28.8
   },
   "2516k-b-294k-l4-0k": {
    "anchored": true,
    "arch": "15M",
    "decision_step": 2809659,
-   "elo": 210.9,
+   "elo": 204.4,
    "file": "tier-b/a3/seed_imit_tierb_start.pt",
    "lineage": "tier-b",
    "n_games": 48,
-   "se": 66.5
+   "se": 64.7
   },
   "2516k-b-294k-l4-495k": {
    "anchored": true,
    "arch": "15M",
    "decision_step": 3304339,
-   "elo": -308.8,
+   "elo": -276.2,
    "file": "tier-b/pins/2516k-b-294k-l4-495k.pt",
    "lineage": "tier-b",
    "n_games": 44,
-   "se": 104.5
+   "se": 94.0
   },
   "2516k-b-294k-tcs2-558k": {
    "anchored": true,
    "arch": "15M",
    "decision_step": 3367830,
-   "elo": -276.4,
+   "elo": -232.1,
    "file": "eval_tcs2_3367830.pt",
    "lineage": "tier-b",
    "n_games": 18,
-   "se": 125.6
+   "se": 109.0
+  },
+  "l5_pin3060972": {
+   "anchored": false,
+   "elo": -115.2,
+   "n_games": 40,
+   "se": 122.5
+  },
+  "seed": {
+   "anchored": false,
+   "elo": 77.7,
+   "n_games": 40,
+   "se": 122.1
   }
  },
  "edges": {
@@ -156,6 +168,16 @@
    "wins_a": 19,
    "wins_b": 0
   },
+  "l5_pin_vs_seed:l5_pin3060972~seed": {
+   "date": "2026-08-26",
+   "draws": 0,
+   "label_a": "l5_pin3060972",
+   "label_b": "seed",
+   "no_result": 0,
+   "protocol": {},
+   "wins_a": 9,
+   "wins_b": 31
+  },
   "tcs3_vs_rated:new_2p52M~tcs3": {
    "date": "2026-08-17",
    "draws": 0,
@@ -168,7 +190,7 @@
    "wins_b": 0
   }
  },
- "last_refit": "2026-08-20T21:53:30Z",
+ "last_refit": "2026-08-26T02:46:27Z",
  "reference": {
   "elo": 0.0,
   "label": "2291k"
