@@ -31,6 +31,11 @@ def test_eval_default_matches_training_sampling():
 def test_batch_runner_forwards_turn_search_optout():
     src = (REPO / "tools/run_elo_batch.py").read_text(encoding="utf-8")
     assert "--no-turn-search" in src
+    # Per-checkpoint deployment (user follow-up 2026-08-26): a mixed
+    # match gives each side the sampling it was trained for.
+    assert "--no-turn-search-a" in src and "--no-turn-search-b" in src
+    game = (REPO / "tools/elo_eval_game.py").read_text(encoding="utf-8")
+    assert "no_turn_search_a" in game and "no_turn_search_b" in game
 
 
 def test_trainer_anchor_defaults_are_off():

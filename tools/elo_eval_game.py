@@ -101,11 +101,20 @@ def main(argv) -> int:
                          "VRAM runs out long before the cores are busy. "
                          "Eval is CPU-bound anyway.")
     ap.add_argument("--no-turn-search", action="store_true",
-                    help="Play through per-decision Gumbel MCTS instead "
-                         "of TCS. Default is TCS -- deployment sampling "
-                         "matches the training default (user ruling "
-                         "2026-08-26). Pre-2026-08-26 catalog numbers "
-                         "were measured with this flag's behavior.")
+                    help="BOTH players use per-decision Gumbel MCTS "
+                         "instead of TCS. Default is TCS -- deployment "
+                         "sampling matches the training default (user "
+                         "ruling 2026-08-26). Pre-2026-08-26 catalog "
+                         "numbers were measured with this flag's "
+                         "behavior.")
+    ap.add_argument("--no-turn-search-a", action="store_true",
+                    help="Player A only plays MCTS (per-checkpoint "
+                         "deployment: each side plays the sampling it "
+                         "was trained for -- e.g. an imitation seed is "
+                         "an MCTS-native checkpoint).")
+    ap.add_argument("--no-turn-search-b", action="store_true",
+                    help="Player B only plays MCTS (see "
+                         "--no-turn-search-a).")
     ap.add_argument("--log-level", default="WARNING")
     args = ap.parse_args(argv[1:])
     logging.basicConfig(level=getattr(logging, args.log_level))
@@ -132,10 +141,12 @@ def main(argv) -> int:
         print(f"exists, skipping: {out_path.name}")
         return 0
 
-    pa = _build_player(args.spec_a, args.label_a, args.mcts_sims, device,
-                       turn_search=not args.no_turn_search)
-    pb = _build_player(args.spec_b, args.label_b, args.mcts_sims, device,
-                       turn_search=not args.no_turn_search)
+    pa = _build_player(
+        args.spec_a, args.label_a, args.mcts_sims, device,
+        turn_search=not (args.no_turn_search or args.no_turn_search_a))
+    pb = _build_player(
+        args.spec_b, args.label_b, args.mcts_sims, device,
+        turn_search=not (args.no_turn_search or args.no_turn_search_b))
 
     rng = random.Random(args.seed)
     setup = random_setup(rng)

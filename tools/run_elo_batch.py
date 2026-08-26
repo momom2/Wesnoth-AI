@@ -181,10 +181,16 @@ def main(argv: List[str]) -> int:
                          "needs its own memory headroom, so the free-RAM "
                          "floor is multiplied by --jobs.")
     ap.add_argument("--no-turn-search", action="store_true",
-                    help="Per-decision Gumbel MCTS instead of TCS (the "
-                         "pre-2026-08-26 catalog protocol). Default is "
-                         "TCS: deployment sampling matches the training "
-                         "default (user ruling 2026-08-26).")
+                    help="BOTH players: per-decision Gumbel MCTS instead "
+                         "of TCS (the pre-2026-08-26 catalog protocol). "
+                         "Default is TCS: deployment sampling matches "
+                         "the training default (user ruling 2026-08-26).")
+    ap.add_argument("--no-turn-search-a", action="store_true",
+                    help="Player A only plays MCTS (per-checkpoint "
+                         "deployment; e.g. an imitation seed is "
+                         "MCTS-native).")
+    ap.add_argument("--no-turn-search-b", action="store_true",
+                    help="Player B only plays MCTS.")
     ap.add_argument("--per-game-timeout-min", type=float, default=20.0,
                     help="Kill a single game that overruns; its slot is "
                          "skipped and the run continues.")
@@ -221,6 +227,10 @@ def main(argv: List[str]) -> int:
                "--device", args.device]
         if args.no_turn_search:
             cmd.append("--no-turn-search")
+        if args.no_turn_search_a:
+            cmd.append("--no-turn-search-a")
+        if args.no_turn_search_b:
+            cmd.append("--no-turn-search-b")
         return (subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
                                  stderr=subprocess.PIPE, text=True),
                 time.perf_counter(), slot)
