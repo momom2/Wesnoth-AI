@@ -62,15 +62,33 @@ weights couldn't explain.
 
 (relative L2 per component; nothing exceeds 1.2%)
 
+## Result 3: GBC exonerated (arm G)
+
+Arm G (TCS teacher, --no-gbc, otherwise identical) oscillates the
+same: -201, -85, -263 at ~26k/57k/85k steps. The drift needs no
+GBC gradient; the common denominator across all three arms is the
+core self-play value training itself (unprotected C51 head on
+terminal outcomes; policy head anchored, value behavior not).
+
+Corrections from redraws: arm M's lone positive point (+52)
+re-measured 10-14 (~-60) under fresh seeds — noise on a
+seed-level checkpoint, not a real gain. Arm T's -478 re-measured
+3-21 (~-340) — real. Final arm T curve (24-game probes, ~27k-step
+spacing): -28, -137, -61, -478, -104, -255, -201, -104, -382.
+
 ## Open
 
-- Arm G (TCS teacher, --no-gbc) running: does removing the GBC
-  gradient calm the value drift? (Caveat: G tests gbc-vs-none,
-  not fixed-vs-broken labels — a broken-label arm would be needed
-  to fully explain history.)
 - Whether arm T's oscillation and leg-5's smooth -200 are the
   same channel at different sampling density: plausible, not
   proven.
+- Fixed-vs-broken GBC labels never isolated (moot for the drift
+  after arm G, still open for historical attribution).
+- The healthy/collapsed study pair is escrowed:
+  tier-b/teacher_arms_20260829/armT_pin_{2891504,2922263}.pt
+  (+ local copies in training/checkpoints/). These two, 30k steps
+  and <=1.2% weight change apart, bracket a ~660-Elo swing in the
+  value of search — the natural test articles for any
+  imagined-state value telemetry.
 
 ## Implications (for the next design round, user rulings pending)
 
