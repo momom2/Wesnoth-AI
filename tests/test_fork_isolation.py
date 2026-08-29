@@ -340,3 +340,20 @@ def test_fork_guard_no_false_positive_on_real_search(monkeypatch):
     )
     assert root is not None
     assert deep_state_fingerprint(sim.gs) == fp0
+
+
+def test_fork_guard_violation_is_not_swallowable():
+    """Round-34 C2: every game loop wraps games in `except
+    Exception` and continues -- a guard trip must NOT be an
+    Exception, or the launch smoke exits 0 on a real violation."""
+    from tools.mcts import ForkGuardViolation
+    assert issubclass(ForkGuardViolation, BaseException)
+    assert not issubclass(ForkGuardViolation, Exception)
+
+
+def test_actor_fatal_error_is_not_swallowable():
+    """Round-35 C0: the pool's fatal channel must not be catchable
+    by log-and-continue handlers either."""
+    from tools.actor_pool import ActorFatalError
+    assert issubclass(ActorFatalError, BaseException)
+    assert not issubclass(ActorFatalError, Exception)

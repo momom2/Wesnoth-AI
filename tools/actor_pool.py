@@ -69,6 +69,15 @@ _R_OUTCOME = "outcome"    # a GameOutcome
 _R_EXPS    = "experiences"  # List[MCTSExperience]
 _R_DONE    = "iter_done"   # actor finished its quota this iteration
 _R_ERROR   = "error"       # traceback string (non-fatal; logged)
+_R_FATAL   = "fatal"       # non-swallowable death (fork guard, ...)
+
+
+class ActorFatalError(BaseException):
+    """An actor died on a non-swallowable error (round-35 C0: the
+    actor's `finally` reported a clean _R_DONE even when a
+    ForkGuardViolation escaped, so the pool topology exited 0 on a
+    real fork violation). BaseException for the round-34 reason:
+    no log-and-continue handler may eat it."""
 
 
 # =====================================================================
@@ -141,7 +150,8 @@ def _actor_loop(
     mcts_cfg, scenario_opts: Dict, max_turns: int,
     max_turns_min,
     pvp_kwargs: Optional[Dict], log_level: int, torch_threads: int,
-    turn_cfg=None, gbc_labels: bool = False,
+    turn_cfg=None, gbc_labels: bool = False, pt_cfg=None,
+    train_kwargs: dict = None,
 ) -> None:
     """Persistent actor process body. Builds a seam-backed MCTSPolicy
     once, then loops on the control queue: PLAY -> roll `n_games` and
@@ -184,10 +194,18 @@ def _actor_loop(
             cmd = ctrl_q.get()
         if cmd[0] == _CMD_STOP:
             return
-        _, iter_idx, n_games, base_seed, t2i, f2i, decision_step0 = cmd
+        (_, iter_idx, n_games, base_seed, t2i, f2i,
+         decision_step0) = cmd[:7]
+        # The learner's action-space basis rides the PLAY command
+        # (project round-2 C3: a hardcoded False here put pool
+        # actors on the full-board basis whenever the learner
+        # inherited --relevant-set-hexes -- with no tripwire).
+        # Legacy 7-tuple PLAY (an old manager) = full-board.
+        _rset = bool(cmd[7]) if len(cmd) > 7 else False
         # Rebuild the encoder each iteration with the freshly-snapshotted
         # vocab so actor indices line up with the server's encoder.
-        renc = RemoteEncoder(t2i, f2i, device=cpu)
+        renc = RemoteEncoder(t2i, f2i, device=cpu,
+                             relevant_set=_rset)
         # MCTSPolicy.select_action reads `_base._lock` / `_base._decision_step`
         # (the combat-oracle anneal, added 2026-06-29). The in-process base is
         # a TransformerPolicy that supplies both; the actor's lightweight base
@@ -201,14 +219,27 @@ def _actor_loop(
                                _inference_encoder=renc,
                                _lock=threading.Lock(),
                                _decision_step=int(decision_step0))
-        if turn_cfg is not None:
+        # Training-label kwargs (draw_value_weight,
+        # train_draw_tiebreak) seal ACTOR-side in finalize_game, so
+        # they must ride into the actor's policy (project round-2
+        # C1: the pool dropped both, silently nullifying the knobs
+        # on the production topology).
+        _tk = dict(train_kwargs or {})
+        if pt_cfg is not None:
+            from tools.plan_tournament import PlanTournamentPolicy
+            policy = PlanTournamentPolicy(base, mcts_cfg,
+                                          gbc_labels=gbc_labels,
+                                          tournament_config=pt_cfg,
+                                          **_tk)
+        elif turn_cfg is not None:
             from tools.turn_policy import TurnCommitPolicy
             policy = TurnCommitPolicy(base, mcts_cfg,
                                       gbc_labels=gbc_labels,
-                                      turn_config=turn_cfg)
+                                      turn_config=turn_cfg,
+                                      **_tk)
         else:
             policy = MCTSPolicy(base, mcts_cfg,
-                                gbc_labels=gbc_labels)
+                                gbc_labels=gbc_labels, **_tk)
         rng = random.Random(base_seed)
         # Split the mix ratios (absolute, sum to 1; no midgame --
         # the parent CLI rejects --midgame-ratio with --actor-pool)
@@ -283,6 +314,15 @@ def _actor_loop(
         except Exception:
             result_q.put((_R_ERROR, actor_id, traceback.format_exc()))
         finally:
+            import sys as _sys
+            _exc = _sys.exc_info()[1]
+            # An in-flight exception here escaped the `except
+            # Exception` above, i.e. a BaseException-class death
+            # (fork guard, SystemExit): the done report below must
+            # NOT fire, or the parent counts this actor as cleanly
+            # finished (round-35 C0).
+            _is_fatal = (_exc is not None
+                         and not isinstance(_exc, Exception))
             # Report how many decisions this actor made this iteration
             # (base._decision_step advanced past decision_step0), so the
             # main process can advance the global anneal counter by the
@@ -303,7 +343,12 @@ def _actor_loop(
                     dstats = drain()
                 except Exception:                   # noqa: BLE001
                     dstats = None
-            result_q.put((_R_DONE, actor_id, (local_decisions, dstats)))
+            if _is_fatal:
+                result_q.put((_R_FATAL, actor_id,
+                              traceback.format_exc()))
+            else:
+                result_q.put((_R_DONE, actor_id,
+                              (local_decisions, dstats)))
 
 
 # =====================================================================
@@ -317,7 +362,8 @@ class ActorPool:
 
     def __init__(
         self, policy, n_actors: int, mcts_cfg, *,
-        turn_cfg=None, gbc_labels: bool = False,
+        turn_cfg=None, pt_cfg=None, gbc_labels: bool = False,
+        train_kwargs: dict = None,
         scenario_opts: Optional[Dict] = None, max_turns: int = 60,
         max_turns_min: Optional[int] = None,
         pvp_defaults=None, device: Optional[torch.device] = None,
@@ -337,9 +383,11 @@ class ActorPool:
         # instead of MCTSPolicy -- the third generation path of the
         # worker-side-targets symmetry contract.
         self._turn_cfg = turn_cfg
+        self._pt_cfg = pt_cfg
         # GBC labels (2026-08-14): actors attach hindsight event
         # labels in finalize_game; same symmetry contract.
         self._gbc_labels = bool(gbc_labels)
+        self._train_kwargs = dict(train_kwargs or {})
         self._scenario_opts = scenario_opts or {}
         self._max_turns = max_turns
         self._max_turns_min = max_turns_min
@@ -400,7 +448,8 @@ class ActorPool:
                       self._max_turns_min,
                       self._pvp_kwargs, self._log_level,
                       self._actor_threads, self._turn_cfg,
-                      self._gbc_labels),
+                      self._gbc_labels, self._pt_cfg,
+                      self._train_kwargs),
                 daemon=True, name=f"actor-{aid}")
             p.start()
             self._procs.append(p)
@@ -446,10 +495,14 @@ class ActorPool:
             per[i] += 1
         t2i, f2i = self._vocab_snapshot()
         ds0 = self._global_decision_step()
+        _rset = bool(getattr(
+            getattr(self._anneal_base(), "_inference_encoder", None),
+            "relevant_set_hexes", False))
         for aid in range(self._n):
             self._ctrl_qs[aid].put(
                 (_CMD_PLAY, iter_idx, per[aid],
-                 base_seed + aid * 1_000_003, t2i, f2i, ds0))
+                 base_seed + aid * 1_000_003, t2i, f2i, ds0,
+                 _rset))
 
         outcomes: List = []
         experiences: List = []
@@ -515,6 +568,15 @@ class ActorPool:
                     distill_dicts.append(dstats)
             elif kind == _R_ERROR:
                 log.error(f"actor {aid} error:\n{payload}")
+            elif kind == _R_FATAL:
+                stop_ev.set()
+                for th in servers:
+                    th.join(timeout=10.0)
+                # The traceback carries the SIM_FORK_GUARD text the
+                # launcher greps; propagate, never log-and-drop.
+                raise ActorFatalError(
+                    f"actor {aid} died on a non-swallowable error "
+                    f"(round-35 C0):\n{payload}")
             if not outstanding:
                 break
             now = time.monotonic()
@@ -550,6 +612,23 @@ class ActorPool:
                 dead = {aid for aid in outstanding
                         if not self._procs[aid].is_alive()}
                 if dead:
+                    _codes = {aid: self._procs[aid].exitcode
+                              for aid in sorted(dead)}
+                    if any(c not in (0, None)
+                           for c in _codes.values()):
+                        # Killed before its `finally` ran (segfault,
+                        # OOM-kill, guard trip mid-teardown): a
+                        # silent drop hid the death from the run's
+                        # exit code (round-35 C0). Loud abort; the
+                        # supervisor restarts with backoff.
+                        stop_ev.set()
+                        for th in servers:
+                            th.join(timeout=10.0)
+                        raise ActorFatalError(
+                            f"iter {iter_idx}: actor(s) died "
+                            f"without reporting done, exitcodes "
+                            f"{_codes} -- aborting the iteration "
+                            f"instead of silently degrading.")
                     for aid in sorted(dead):
                         log.error(
                             f"iter {iter_idx}: actor {aid} died without "

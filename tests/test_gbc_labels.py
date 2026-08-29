@@ -112,3 +112,87 @@ def test_scan_real_replay_yields_anchors_and_events():
     for e in scan.events:
         assert e.observed_by <= {1, 2}
         assert e.predicate in ("dies", "flips", "levels")
+
+
+def test_stream_labels_catch_fast_turn_events():
+    """Project round-2 C4/C6: an event inside a TCS fast turn (no
+    recorded state, but observed by the game loop) must land at its
+    TRUE turn with fog read at action resolution -- the recorded-
+    only diff stamped it with the next recorded state's turn,
+    pushing it outside its label windows."""
+    import copy
+    import dataclasses
+    from wesnoth_ai.gbc import (PRED_IDX, labels_for_game_states,
+                                observe_state)
+
+    from wesnoth_ai.gbc import diff_events_obs
+
+    sim = fresh_scenario_sim(seed=0, max_turns=9, mini=False)
+    gs = sim.gs
+    leader2 = next(u for u in gs.map.units if u.side == 2)
+    victim = dataclasses.replace(leader2, id="gbc_stream_victim",
+                                 is_leader=False)
+    gs.map.units.add(victim)
+
+    # Incremental trace, exactly as note_observation builds it.
+    events, anchor, prev, n = [], {}, None, 0
+
+    def _note(state):
+        nonlocal prev, n
+        o = observe_state(state)
+        anchor[id(state)] = n
+        if prev is not None:
+            events.extend(diff_events_obs(n, prev, o))
+        prev = o
+        n += 1
+
+    anchor1 = copy.deepcopy(gs)              # recorded, turn 1
+    _note(anchor1)
+    gs.global_info.turn_number = 2           # fast turn: observed,
+    _note(gs)                                # never recorded
+    gs.map.units.discard(victim)             # ...and the death
+    post = copy.deepcopy(gs)
+    _note(post)
+    gs.global_info.turn_number = 5
+    anchor2 = copy.deepcopy(gs)              # recorded, turn 5
+    _note(anchor2)
+
+    rows = labels_for_game_states([anchor1, anchor2], [2, 2],
+                                  trace=(events, anchor))
+    key = ("u", "gbc_stream_victim", PRED_IDX["dies"])
+    r1 = {r[:3]: r[3:] for r in (rows[0] or [])}
+    assert key in r1, sorted(r1)
+    assert any(r1[key]), \
+        "turn-2 fast-turn death invisible from the turn-1 anchor"
+    # From the turn-5 anchor the death is in the PAST: no label.
+    r2 = {r[:3]: r[3:] for r in (rows[1] or [])}
+    assert key not in r2 or not any(r2[key])
+
+
+def test_fogless_game_observes_everything():
+    """Project round-4: the --fogless-ratio slice must label with
+    WHOLE-BOARD observability -- the sight-disc union censored
+    labels by a fog the game does not have."""
+    from wesnoth_ai.gbc import _observable_hexes
+    sim = fresh_scenario_sim(seed=0, max_turns=6, mini=False)
+    gs = sim.gs
+    setattr(gs.global_info, "_fog", False)
+    all_hexes = {(h.position.x, h.position.y) for h in gs.map.hexes}
+    assert _observable_hexes(gs, 1) == all_hexes
+    assert _observable_hexes(gs, 2) == all_hexes
+    setattr(gs.global_info, "_fog", True)
+    assert _observable_hexes(gs, 1) < all_hexes
+
+
+def test_owner_always_observes_own_unit_death():
+    """Round-4 adjacent: the owner's roster shrinks even when the
+    death hex is fogged from EVERYONE (a lone unit deep in enemy
+    territory takes its own disc with it)."""
+    from wesnoth_ai.gbc import diff_events_obs
+    prev = (1, {"v1": (2, "Spearman", (5, 5), 14, False)}, {},
+            frozenset(), frozenset())
+    cur = (2, {}, {}, frozenset(), frozenset())
+    evs = diff_events_obs(1, prev, cur)
+    assert len(evs) == 1 and evs[0].predicate == "dies"
+    assert 2 in evs[0].observed_by
+    assert 1 not in evs[0].observed_by

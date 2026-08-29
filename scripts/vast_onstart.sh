@@ -29,7 +29,10 @@ echo "==== onstart $(date -u +%FT%TZ) ===="
 # zero-byte ABORTED_fork_guard from launch collision cost an hour
 # of clean-room re-verification). Concurrent invocations now exit
 # instead of interleaving. Lock releases when this shell exits;
-# the daemons it spawns hold their own copies of fd 9 closed.
+# every backgrounded daemon closes its inherited fd 9 (9>&- on
+# the spawn line -- round-37 C2: an inherited copy held the
+# flock for the daemon's whole life, so every later onstart
+# exited at the lock and no restart could ever run).
 exec 9>"$WORKDIR/.onstart.lock"
 if ! flock -n 9; then
     echo "[onstart] another onstart invocation holds the lock; exiting"
@@ -544,14 +547,19 @@ if [ -n "${HF_TOKEN:-}" ] || [ -f "$WORKDIR/.hf_token" ]; then
     "$PY" -m pip install --quiet huggingface_hub || true
     export CAMPAIGN_FILE
     if [ "$CONFIG_MODE" = file ]; then
-        "$PY" scripts/leg_daemons.py ensure uploader -- \
-            "$PY" scripts/hf_upload_loop.py
+        if "$PY" scripts/leg_daemons.py ensure uploader -- \
+                "$PY" scripts/hf_upload_loop.py; then
+            echo "[onstart] HF checkpoint uploader ON (see hf_upload.log)"
+        else
+            echo "[onstart] WARNING: uploader ensure REFUSED -- NOTHING"
+            echo "[onstart] IS ESCROWING (round-38 C1; see advisory above)"
+        fi
     else
         WORKDIR="$WORKDIR" CAMPAIGN_FILE="$CAMPAIGN_FILE" \
             nohup "$PY" scripts/hf_upload_loop.py \
-            >> "$WORKDIR/hf_upload.log" 2>&1 &
+            >> "$WORKDIR/hf_upload.log" 2>&1 9>&- &
+        echo "[onstart] HF checkpoint uploader ON (see hf_upload.log)"
     fi
-    echo "[onstart] HF checkpoint uploader ON (see hf_upload.log)"
 else
     echo "[onstart] HF uploader off (no HF_TOKEN / $WORKDIR/.hf_token)"
 fi
@@ -575,15 +583,20 @@ if [ "${PROBE_EVERY:-3600}" != "0" ]; then
         # (-e PROBE_T0=) for a different lineage.
         if [ "$CONFIG_MODE" = file ]; then
             export CAMPAIGN_FILE PROBE_T0
-            "$PY" scripts/leg_daemons.py ensure probe -- \
-                "$PY" scripts/holdout_probe_loop.py
+            if "$PY" scripts/leg_daemons.py ensure probe -- \
+                    "$PY" scripts/holdout_probe_loop.py; then
+                echo "[onstart] holdout probe ON (see holdout_probe.log)"
+            else
+                echo "[onstart] WARNING: probe ensure REFUSED -- probe"
+                echo "[onstart] NOT running (round-38 C1; see above)"
+            fi
         else
             CAMPAIGN_FILE="$CAMPAIGN_FILE" \
             PROBE_T0="${PROBE_T0-3.207}" \
                 nohup "$PY" scripts/holdout_probe_loop.py \
-                >> "$WORKDIR/holdout_probe.log" 2>&1 &
+                >> "$WORKDIR/holdout_probe.log" 2>&1 9>&- &
+            echo "[onstart] holdout probe ON (see holdout_probe.log)"
         fi
-        echo "[onstart] holdout probe ON (see holdout_probe.log)"
     else
         echo "[onstart] holdout probe OFF: no replays_dataset_imitation/"
         echo "[onstart]   (stage the imitation dataset to arm the"
@@ -617,7 +630,7 @@ if [ "${SL_MODE:-0}" = "1" ]; then
     pkill -f 'supervised_trai[n].py' 2>/dev/null || true
     sleep 2
     echo "[onstart] SL_MODE: behavior cloning, resume from $SL_RESUME"
-    nohup "$PY" tools/supervised_train.py replays_dataset         --checkpoint "$SL_OUT"         --resume "$SL_RESUME"         --epochs "${SL_EPOCHS:-8}"         --bs "${SL_BS:-64}"         --lr "${SL_LR:-1e-4}"         --device cuda         --workers "${SL_WORKERS:-24}"         --d-model $D_MODEL --num-layers $NUM_LAYERS --num-heads $NUM_HEADS --d-ff $D_FF         --holdout-games "${SL_HOLDOUT:-300}"         --value-loss-weight "${SL_VALUE_WEIGHT:-1.0}"         --value-states-per-game "${SL_VALUE_SPG:-16}"         --eval-every "${SL_EVAL_EVERY:-50000}"         --eval-pairs "${SL_EVAL_PAIRS:-1200}"         >> "$WORKDIR/train.log" 2>&1 &
+    nohup "$PY" tools/supervised_train.py replays_dataset         --checkpoint "$SL_OUT"         --resume "$SL_RESUME"         --epochs "${SL_EPOCHS:-8}"         --bs "${SL_BS:-64}"         --lr "${SL_LR:-1e-4}"         --device cuda         --workers "${SL_WORKERS:-24}"         --d-model $D_MODEL --num-layers $NUM_LAYERS --num-heads $NUM_HEADS --d-ff $D_FF         --holdout-games "${SL_HOLDOUT:-300}"         --value-loss-weight "${SL_VALUE_WEIGHT:-1.0}"         --value-states-per-game "${SL_VALUE_SPG:-16}"         --eval-every "${SL_EVAL_EVERY:-50000}"         --eval-pairs "${SL_EVAL_PAIRS:-1200}"         >> "$WORKDIR/train.log" 2>&1 9>&- &
     echo "[onstart] SL training launched (tail -f $WORKDIR/train.log)"
     exit 0
 fi
@@ -739,6 +752,26 @@ echo "[onstart] training mix: midgame=${MIDGAME_RATIO}" \
 # moves_left loss column keeps logging (0) so the CSV schema and
 # log format stay stable. Checkpoint head weights load as
 # tolerated unexpected keys.
+# Plan-tournament gate (review C17: ${VAR:+} truthiness turned
+# PLAN_TOURNAMENT=0 ON and made PT_* without the gate a silent
+# no-op). Explicit 1 = on; anything else = off, loudly.
+PT_FLAG=""
+case "$(printf %s "${PLAN_TOURNAMENT:-}" | tr 'A-Z' 'a-z')" in
+    1|true|on|yes) PT_FLAG="--plan-tournament"
+        echo "[onstart] PLAN TOURNAMENT ON (PT_* knobs:" \
+             "challengers=${PT_CHALLENGERS:-default}" \
+             "depths=${PT_DEPTHS:-default}" \
+             "cert=${PT_CERT_DEPTH:-default}x${PT_CERT_REDRAWS:-default}" \
+             "budget=${PT_BUDGET_FORWARDS:-default})" ;;
+    "") : ;;
+    *) echo "[onstart] PLAN_TOURNAMENT='${PLAN_TOURNAMENT}' is not" \
+            "'1' -- plan tournament OFF" ;;
+esac
+if [ -z "$PT_FLAG" ] && [ -n "${PT_CHALLENGERS:-}${PT_DEPTHS:-}${PT_REDRAWS:-}${PT_CERT_DEPTH:-}${PT_CERT_REDRAWS:-}${PT_BUDGET_FORWARDS:-}${PT_MARGIN_BAND:-}${PT_BETA_MAX:-}${PT_MARGIN_REF:-}" ]; then
+    echo "[onstart] WARN: PT_* knobs set but PLAN_TOURNAMENT!=1;" \
+         "they are inert without the gate"
+fi
+
 # ---- SIM_FORK_GUARD smoke iteration (A6 ruling 2026-08-10) ----------
 # One cheap in-process iteration with the deep-state fingerprint guard
 # armed: the handoff is a new weight/config combination, and the guard
@@ -753,7 +786,10 @@ echo "[onstart] training mix: midgame=${MIDGAME_RATIO}" \
 # Pass-marker keyed on the git rev: the smoke certifies a CODE+seed
 # combination, so a re-run of the same rev (config-tuning reboots)
 # skips the ~12 min. A new commit re-arms it.
-_SMOKE_REV="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
+# Includes the turn-search frame (round-32 C4): the marker must
+# not certify a different decision procedure than the leg runs.
+_SMOKE_CFG="$(printf %s "$PT_FLAG:${PT_CHALLENGERS:-}:${PT_DEPTHS:-}:${PT_REDRAWS:-}:${PT_CERT_DEPTH:-}:${PT_CERT_REDRAWS:-}:${PT_BUDGET_FORWARDS:-}:${PT_MARGIN_BAND:-}:${PT_BETA_MAX:-}:${PT_MARGIN_REF:-}:${TURN_BOUNDARY_FRAME:-}" | sha256sum | cut -c1-8)"
+_SMOKE_REV="$(git rev-parse HEAD 2>/dev/null || echo unknown)-$_SMOKE_CFG"
 if [ "${FORK_GUARD_SMOKE:-1}" = "1" ] \
         && [ -f "$WORKDIR/.fork_guard_passed_$_SMOKE_REV" ]; then
     echo "[onstart] fork-guard smoke already PASSED for $_SMOKE_REV; skipping"
@@ -761,7 +797,11 @@ if [ "${FORK_GUARD_SMOKE:-1}" = "1" ] \
 fi
 if [ "${FORK_GUARD_SMOKE:-1}" = "1" ]; then
     echo "[onstart] fork-guard smoke iteration (SIM_FORK_GUARD=1)..."
-    if SIM_FORK_GUARD=1 "$PY" tools/sim_self_play.py \
+    # Marker so a guard trip in THIS run's log tail is
+    # distinguishable from an earlier boot's (round-31 C4).
+    echo "[onstart] --- smoke attempt $(date -u +%FT%TZ) ---" \
+        >> "$WORKDIR/onstart.log"
+    SIM_FORK_GUARD=1 "$PY" tools/sim_self_play.py \
         --mcts --mcts-sims 8 --device cpu \
         --d-model $D_MODEL --num-layers $NUM_LAYERS \
         --num-heads $NUM_HEADS --d-ff $D_FF \
@@ -769,18 +809,45 @@ if [ "${FORK_GUARD_SMOKE:-1}" = "1" ]; then
         --ladder-ratio 1.0 --midgame-ratio 0 --mini-ratio 0 \
         --fogless-ratio 0 \
         --game-log-dir "" --validate-export-every 0 \
+        $PT_FLAG \
+        ${PT_CHALLENGERS:+--pt-challengers $PT_CHALLENGERS} \
+        ${PT_DEPTHS:+--pt-depths $PT_DEPTHS} \
+        ${PT_CERT_DEPTH:+--pt-cert-depth $PT_CERT_DEPTH} \
+        ${PT_CERT_REDRAWS:+--pt-cert-redraws $PT_CERT_REDRAWS} \
+        ${PT_BUDGET_FORWARDS:+--pt-budget-forwards $PT_BUDGET_FORWARDS} \
+        ${PT_REDRAWS:+--pt-redraws $PT_REDRAWS} \
+        ${PT_MARGIN_BAND:+--pt-margin-band $PT_MARGIN_BAND} \
+        ${PT_BETA_MAX:+--pt-beta-max $PT_BETA_MAX} \
+        ${PT_MARGIN_REF:+--pt-margin-ref $PT_MARGIN_REF} \
+        ${TURN_BOUNDARY_FRAME:+--turn-boundary-frame $TURN_BOUNDARY_FRAME} \
         --checkpoint-in "$CKPT_IN" \
         --checkpoint-out "$WORKDIR/fork_guard_smoke.pt" \
         --save-every 1000 --log-level INFO \
-        >> "$WORKDIR/onstart.log" 2>&1; then
+        >> "$WORKDIR/onstart.log" 2>&1
+    _smoke_rc=$?
+    if [ "$_smoke_rc" -eq 0 ]; then
         echo "[onstart] fork-guard smoke PASSED"
         touch "$WORKDIR/.fork_guard_passed_$_SMOKE_REV"
         rm -f "$WORKDIR/fork_guard_smoke.pt" \
               "$WORKDIR/fork_guard_smoke.pt.holdout" 2>/dev/null || true
-    else
+    elif awk '/--- smoke attempt/{buf=""} {buf=buf $0 ORS} \
+              END{printf "%s", buf}' "$WORKDIR/onstart.log" \
+            | grep -q 'SIM_FORK_GUARD'; then
         echo "[onstart] FATAL: fork-guard smoke FAILED -- a search fork"
         echo "[onstart] mutated real game state (see onstart.log)."
         touch "$WORKDIR/ABORTED_fork_guard"
+        exit 1
+    else
+        # A nonzero exit WITHOUT a guard trip is a plain launch
+        # failure (bad PT_* value, OOM, missing checkpoint) --
+        # calling it a fork violation buried the real error and
+        # blocked every restart behind the wrong marker (round-31
+        # C4).
+        echo "[onstart] FATAL: smoke did not run to completion"
+        echo "[onstart] (rc=$_smoke_rc, no fork-guard trip in the log) --"
+        echo "[onstart] likely a bad flag/env value or OOM. Fix the"
+        echo "[onstart] config, delete the marker, restart."
+        touch "$WORKDIR/ABORTED_smoke_rc$_smoke_rc"
         exit 1
     fi
 fi
@@ -827,6 +894,16 @@ _TRAIN_BODY="
       --abort-holdout-stall ${ABORT_HOLDOUT_STALL:-60} \
       ${ABORT_K_MEDIAN:+--abort-k-median $ABORT_K_MEDIAN} \
       ${TURN_BOUNDARY_FRAME:+--turn-boundary-frame $TURN_BOUNDARY_FRAME} \
+      $PT_FLAG \
+      ${PT_CHALLENGERS:+--pt-challengers $PT_CHALLENGERS} \
+      ${PT_DEPTHS:+--pt-depths $PT_DEPTHS} \
+      ${PT_REDRAWS:+--pt-redraws $PT_REDRAWS} \
+      ${PT_CERT_DEPTH:+--pt-cert-depth $PT_CERT_DEPTH} \
+      ${PT_CERT_REDRAWS:+--pt-cert-redraws $PT_CERT_REDRAWS} \
+      ${PT_BUDGET_FORWARDS:+--pt-budget-forwards $PT_BUDGET_FORWARDS} \
+      ${PT_MARGIN_BAND:+--pt-margin-band $PT_MARGIN_BAND} \
+      ${PT_BETA_MAX:+--pt-beta-max $PT_BETA_MAX} \
+      ${PT_MARGIN_REF:+--pt-margin-ref $PT_MARGIN_REF} \
       ${DISTILL_PRIOR_DISCOUNT:+--distill-prior-discount $DISTILL_PRIOR_DISCOUNT} \
       ${TOPO_ARGS} --games-per-iter ${GAMES_PER_ITER} \
       \$RESET \
@@ -865,11 +942,25 @@ _TRAIN_BODY="
   done
 "
 if [ "$CONFIG_MODE" = file ]; then
-    "$PY" scripts/leg_daemons.py ensure trainer -- bash -c "$_TRAIN_BODY"
+    if ! "$PY" scripts/leg_daemons.py ensure trainer -- \
+            bash -c "$_TRAIN_BODY"; then
+        # ensure returns 1 on the orphan refusal (round-37 C1) --
+        # a live orphaned trainer group holds the campaign files.
+        # Logging "launched" anyway left a paid box with NO
+        # supervisor and rc 0 (round-38 C1). Marker-gate restarts
+        # until the operator reaps the group (command printed
+        # above) and deletes the marker.
+        echo "[onstart] FATAL: trainer ensure REFUSED (see the"
+        echo "[onstart] orphan advisory above). Reap the orphan"
+        echo "[onstart] group, delete the marker, restart."
+        touch "$WORKDIR/ABORTED_ensure_trainer"
+        exit 1
+    fi
+    echo "[onstart] training launched, supervised (tail -f $WORKDIR/train.log)"
 else
-    nohup bash -c "$_TRAIN_BODY" >/dev/null 2>&1 &
+    nohup bash -c "$_TRAIN_BODY" >/dev/null 2>&1 9>&- &
+    echo "[onstart] training launched, supervised (tail -f $WORKDIR/train.log)"
 fi
-echo "[onstart] training launched, supervised (tail -f $WORKDIR/train.log)"
 
 # ---- Stall watchdog (BACKLOG item 1, 2026-08-10) --------------------
 # Kills the training process when its CPU burn flatlines (the silent-
@@ -880,11 +971,16 @@ echo "[onstart] training launched, supervised (tail -f $WORKDIR/train.log)"
 rm -f "$WORKDIR/WATCHDOG_STALL"
 if [ "${STALL_WINDOW:-1800}" != "0" ]; then
     if [ "$CONFIG_MODE" = file ]; then
-        "$PY" scripts/leg_daemons.py ensure watchdog -- \
-            "$PY" scripts/stall_watchdog.py
+        if "$PY" scripts/leg_daemons.py ensure watchdog -- \
+                "$PY" scripts/stall_watchdog.py; then
+            echo "[onstart] stall watchdog ON (see watchdog.log)"
+        else
+            echo "[onstart] WARNING: watchdog ensure REFUSED -- NOT"
+            echo "[onstart] running (round-38 C1; see above)"
+        fi
     else
         WORKDIR="$WORKDIR" nohup "$PY" scripts/stall_watchdog.py \
-            >> "$WORKDIR/watchdog.log" 2>&1 &
+            >> "$WORKDIR/watchdog.log" 2>&1 9>&- &
+        echo "[onstart] stall watchdog ON (see watchdog.log)"
     fi
-    echo "[onstart] stall watchdog ON (see watchdog.log)"
 fi

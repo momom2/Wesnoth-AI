@@ -195,8 +195,11 @@ def _value_check(ckpt: Path, step: int, arch: dict,
     if readings[0] is None or readings[0] >= PROBE_AUC_FLOOR:
         return
     for k in range(1, PROBE_ABORT_N):
-        print(f"probe: value_auc {readings[-1]:.3f} < "
-              f"{PROBE_AUC_FLOOR} -- independent redraw "
+        _prev = readings[-1]
+        _why = (f"value_auc {_prev:.3f} < {PROBE_AUC_FLOOR}"
+                if _prev is not None
+                else "previous draw produced no reading")
+        print(f"probe: {_why} -- independent redraw "
               f"{k}/{PROBE_ABORT_N - 1}", flush=True)
         stats = probe_once(ckpt, step, arch, sample_seed=step + k)
         readings.append(_auc(stats))

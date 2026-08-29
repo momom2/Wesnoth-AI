@@ -149,6 +149,15 @@ class MCTSExperience:
     # default to 1.0. Distinct from game_weight (which normalizes
     # per-game influence on EVERY loss term).
     value_weight: float = 1.0
+    # POLICY-loss magnitude for this state (2026-08-26). Multiplies
+    # the state's policy CE AFTER visit normalization and is NOT
+    # renormalized away: a state at 0.5 trains the policy at exactly
+    # half strength. This is the one sound channel for magnitude-
+    # scaled targets (conservative-mixture / margin-scaled steps) --
+    # scaling the visit COUNTS instead silently cancels, because
+    # _mcts_factored_policy_loss divides by total visits (counts are
+    # a distribution, not a magnitude). Legacy pickles default 1.0.
+    policy_weight: float = 1.0
     # Per-game normalization weight (2026-07-12): 1/n_recorded_states
     # of the source game, so every GAME contributes equally to the
     # gradient regardless of length (a 190-turn ladder draw no longer
@@ -210,7 +219,10 @@ class TrainerConfig:
     # honest z=0 labels their gradient mass erodes win/loss
     # discrimination -- human-corpus late AUC 0.88 -> 0.64 in 51
     # iters WITH a 512-state/iter rehearsal anchor).
-    draw_value_weight: float = 1.0
+    # Winnerless-state value weight, applied ONCE in finalize_game
+    # (project round-1 C3). Default 0.0 = the 2026-08-17 truncation
+    # ruling: censored games carry no value label.
+    draw_value_weight: float = 0.0
     # Lowered from 0.01 after the first 22 train_steps held entropy
     # ~8.3 (near max). The bonus was dominating the tiny shaping
     # gradients and preventing the policy from ever committing to an
@@ -1076,6 +1088,13 @@ def _trainer_step_mcts(
     vws = torch.tensor(
         [float(getattr(e, "value_weight", 1.0)) for e in experiences],
         device=dev, dtype=torch.float32)
+    # Per-experience POLICY magnitude (see MCTSExperience.policy_weight):
+    # multiplies the normalized per-state policy CE; deliberately not
+    # in the denominator, so fractional weights shrink the update
+    # instead of renormalizing back to full strength.
+    pws = torch.tensor(
+        [float(getattr(e, "policy_weight", 1.0)) for e in experiences],
+        device=dev, dtype=torch.float32)
 
     # Auxiliary margin target (KataGo §3.5). Active only when the model
     # has the aux head, the weight is positive, AND every experience
@@ -1127,10 +1146,11 @@ def _trainer_step_mcts(
     sum_total_visits = 0.0
     # Full-batch value-weight normalizer + "how many states actually
     # feed the value head" (dashboard starvation watch).
-    _w_full = torch.where(
-        zs.abs() >= 0.999, torch.ones_like(zs),
-        torch.full_like(zs, self.config.draw_value_weight)) \
-        * gws * vws
+    # vws already carries the winnerless weight -- finalize_game is
+    # the ONE authority (project round-1 C3: this second gate
+    # multiplied it by draw_value_weight AGAIN, so the knob and the
+    # tiebreak z were both nullified whenever finalize sealed 0).
+    _w_full = gws * vws
     total_value_w = float(_w_full.sum().item())
     n_value_signal = int((_w_full > 0).sum().item())
     sum_actor_nlp_weighted = 0.0  # for "entropy"-style logging
@@ -1207,7 +1227,7 @@ def _trainer_step_mcts(
 
         gw_chunk = gws[start:start + L]
         policy_loss_t = (torch.stack(chunk_policy_losses)
-                         * gw_chunk).sum() / total_gw
+                         * gw_chunk * pws[start:start + L]).sum() / total_gw
         val_t = torch.stack(chunk_values)
         vl_t  = torch.stack(chunk_value_logits)
         z_t   = zs[start:start + L]
@@ -1221,11 +1241,7 @@ def _trainer_step_mcts(
         # share; an all-draw batch at weight 0 contributes no value
         # gradient at all.
         atoms = self.model._value_atoms
-        w_t = torch.where(z_t.abs() >= 0.999,
-                          torch.ones_like(z_t),
-                          torch.full_like(
-                              z_t, self.config.draw_value_weight)) \
-            * gw_chunk * vws[start:start + L]
+        w_t = gw_chunk * vws[start:start + L]
         value_loss = _categorical_value_loss(
             vl_t, z_t, atoms,
             label_smoothing=self.config.value_label_smoothing,
@@ -1383,7 +1399,9 @@ def _trainer_step_value_from_raw(
             ml_total += float(ml_loss.item())
         loss.backward()
     grad_norm = float(torch.nn.utils.clip_grad_norm_(
-        self.model.parameters(), self.config.grad_clip))
+        list(self.model.parameters())
+        + list(self.encoder.parameters()),
+        self.config.grad_clip))
     self.optimizer.step()
     return {"value_loss": v_total, "moves_left_loss": ml_total,
             "grad_norm": grad_norm}

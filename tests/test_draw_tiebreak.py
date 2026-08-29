@@ -255,12 +255,17 @@ def test_draw_value_weight_zero_removes_draw_gradient():
 
     net = TransformerPolicy(device=torch.device("cpu"), d_model=32,
                             num_layers=1, num_heads=4, d_ff=64)
-    net._trainer.config.draw_value_weight = 0.0
     net._trainer.config.train_batch_size = 4
 
+    # Since project round-1 C3 the winnerless weight is sealed ONCE
+    # on the experience by finalize_game (the trainer's former
+    # second gate multiplied the knob in twice, nullifying it); the
+    # trainer's contract is to HONOR the sealed value_weight.
     def exp(z):
         return MCTSExperience(game_state=_real_gs(),
-                              visit_counts=[], z=z)
+                              visit_counts=[], z=z,
+                              value_weight=(0.0 if z == 0.0
+                                            else 1.0))
 
     dec = [exp(+1.0), exp(-1.0)]
     mixed = dec + [exp(0.0), exp(0.0)]

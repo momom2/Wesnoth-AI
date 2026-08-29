@@ -136,6 +136,35 @@ def _hex_distance(ax: int, ay: int, bx: int, by: int) -> int:
     return max(hd, abs(ay - by) + hd // 2 + vpenalty)
 
 
+# Per-map-constant coordinate arrays, keyed by the hex container's
+# IDENTITY: Map.__deepcopy__ aliases `hexes` across forks, so every
+# fork of one game hits the same entry (project round-1 C1: the
+# rebuild cost 97 us of visible_hexes_for's 256 us on a 902-hex
+# state, under every sim move command, encode, and mask
+# enumeration). The entry stores the container itself, which both
+# pins the id against recycling and makes the identity check exact.
+# Geometry is static per map (terrain events mutate hex properties,
+# never the container), and iteration order is stable per container.
+_GEOM_CACHE: dict = {}
+
+
+def _geometry_arrays(hexes):
+    ent = _GEOM_CACHE.get(id(hexes))
+    if ent is not None and ent[0] is hexes:
+        return ent[1]
+    hex_coords = [(h.position.x, h.position.y) for h in hexes]
+    hxs = np.fromiter((c[0] for c in hex_coords), dtype=np.int64,
+                      count=len(hex_coords))
+    hys = np.fromiter((c[1] for c in hex_coords), dtype=np.int64,
+                      count=len(hex_coords))
+    hx_even = (hxs & 1) == 0
+    if len(_GEOM_CACHE) > 16:
+        _GEOM_CACHE.clear()
+    _GEOM_CACHE[id(hexes)] = (hexes,
+                              (hex_coords, hxs, hys, hx_even))
+    return hex_coords, hxs, hys, hx_even
+
+
 def visible_hexes_for(state: GameState,
                       side: int) -> Set[Tuple[int, int]]:
     """Set of (x, y) hex coordinates `side` can see in `state`.
@@ -166,12 +195,7 @@ def visible_hexes_for(state: GameState,
     # `_hex_distance` (odd-q offset; verified against it in
     # test_visibility); coords are emitted as python ints so set
     # membership matches the scalar path exactly.
-    hex_coords = [(h.position.x, h.position.y) for h in state.map.hexes]
-    hxs = np.fromiter((c[0] for c in hex_coords), dtype=np.int64,
-                      count=len(hex_coords))
-    hys = np.fromiter((c[1] for c in hex_coords), dtype=np.int64,
-                      count=len(hex_coords))
-    hx_even = (hxs & 1) == 0
+    hex_coords, hxs, hys, hx_even = _geometry_arrays(state.map.hexes)
     for u in our:
         r = sight_radius_for(u)
         ux, uy = u.position.x, u.position.y
@@ -185,8 +209,11 @@ def visible_hexes_for(state: GameState,
         else:
             vpen = hx_even & (hys <= uy)
         dist = np.maximum(hd, np.abs(uy - hys) + (hd >> 1) + vpen)
-        for i in np.nonzero(dist <= r)[0]:
-            visible.add(hex_coords[i])
+        # .tolist() converts the index array to Python ints in one
+        # C pass; iterating numpy scalars and indexing per element
+        # was 21% slower on the same inputs (project round-2 C13).
+        visible.update(map(hex_coords.__getitem__,
+                           np.nonzero(dist <= r)[0].tolist()))
     return visible
 
 

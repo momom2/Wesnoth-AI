@@ -388,11 +388,22 @@ class StateConverter:
         # currently owned villages. Used to decide whether each cached
         # hex gets a VILLAGE modifier this frame.
         owned_set = set()
-        for key in villages_owned_raw.keys():
+        # Owner sides survive too (project round-1 C9: dropping them
+        # left hex_dynamic_flags 1/2 identically zero at LIVE eval
+        # while every training encode set them -- own and enemy
+        # villages were indistinguishable). Same 0-indexed
+        # convention the sim uses (scenario_pool._village_owner).
+        village_owner = {}
+        for key, _owner_raw in villages_owned_raw.items():
             try:
                 sx, sy = key.split(',')
-                owned_set.add((int(sx), int(sy)))
-            except (ValueError, KeyError):
+                wx, wy = int(sx), int(sy)
+            except (ValueError, KeyError, AttributeError):
+                continue
+            owned_set.add((wx, wy))
+            try:
+                village_owner[(wx - 1, wy - 1)] = int(_owner_raw)
+            except (TypeError, ValueError):
                 continue
 
         hexes = set(
@@ -430,6 +441,19 @@ class StateConverter:
             village_upkeep=current_side_data.get('village_support', 1),
             base_income=current_side_data.get('base_income', 0)
         )
+        if village_owner:
+            # The encoder's ownership flags read this map (project
+            # round-1 C9). The Lua payload is fogged to the acting
+            # side since round-2 C0, so no god-view enters here.
+            setattr(global_info, "_village_owner", village_owner)
+        # The engine's ACTUAL fog state (project round-3 C0: the
+        # encoder's fog-on default self-blinded our side on fogless
+        # eval scenarios -- units and villages the engine handed
+        # over were erased while the RCA opponent saw everything).
+        # Default True so an old add-on build keeps the previous
+        # conservative behavior.
+        setattr(global_info, "_fog",
+                bool(map_data.get('fog_enabled', True)))
 
         # Convert side info
         sides = []

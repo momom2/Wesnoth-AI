@@ -172,7 +172,14 @@ def grow_checkpoint(
 
     pol = TransformerPolicy(device=dev, aux_score=aux, **flags, **arch)
     model_rep = transfer_state_dict(raw["model_state"], pol._model)
-    enc_rep = transfer_state_dict(raw["encoder_state"], pol._encoder)
+    from wesnoth_ai.encoder import pad_legacy_encoder_state
+    # Legacy shim BEFORE transfer (project round-1 C14): a
+    # pre-2026-07-11 checkpoint otherwise leaves the new
+    # village-ownership/neutral-side slots at RANDOM init instead
+    # of the shim's zeros.
+    enc_rep = transfer_state_dict(
+        pad_legacy_encoder_state(raw["encoder_state"], pol._encoder),
+        pol._encoder)
     dropped = model_rep["dropped"] + enc_rep["dropped"]
     if dropped:
         raise SystemExit(

@@ -80,7 +80,12 @@ def _build_policy(ckpt: Path, device, args):
         moves_left=bool(raw.get("moves_left", False)),
         gbc=bool(raw.get("gbc", False)),
         relevant_set_hexes=bool(getattr(args, "relevant_set_hexes", False)),
-        infer_compile=bool(getattr(args, "infer_compile", False)),
+        # Training default OFF (2026-08-29: in-process compile
+        # deadlocked the spool e2e on cuda; eval keeps the cuda-auto
+        # default). Explicit flags from the learner still win.
+        infer_bf16=bool(getattr(args, "infer_bf16", None) or False),
+        infer_compile=bool(getattr(args, "infer_compile", None)
+                           or False),
     )
     base.load_checkpoint(ckpt)
     cfg = MCTSConfig(
@@ -104,19 +109,37 @@ def _build_policy(ckpt: Path, device, args):
         gumbel_hierarchical=getattr(
             args, "hierarchical_gumbel", False),
     )
-    turn_cfg = turn_config_from_args(args)
+    from tools.plan_tournament import (
+        config_from_args as pt_config_from_args,
+    )
+    pt_cfg = pt_config_from_args(args)
+    turn_cfg = None if pt_cfg is not None else turn_config_from_args(args)
     gbc_labels = bool(getattr(args, "gbc", False))
+    if pt_cfg is not None:
+        from tools.plan_tournament import PlanTournamentPolicy
+        return PlanTournamentPolicy(
+            base, cfg,
+            draw_value_weight=float(getattr(
+                args, "draw_value_weight", 0.0)),
+            train_draw_tiebreak=getattr(args, "train_draw_tiebreak",
+                                        False),
+            gbc_labels=gbc_labels,
+            tournament_config=pt_cfg), base
     if turn_cfg is not None:
         from tools.turn_policy import TurnCommitPolicy
         return TurnCommitPolicy(
             base, cfg,
+            draw_value_weight=float(getattr(
+                args, "draw_value_weight", 0.0)),
             train_draw_tiebreak=getattr(args, "train_draw_tiebreak",
                                         False),
             gbc_labels=gbc_labels,
             turn_config=turn_cfg), base
     return MCTSPolicy(
         base, cfg,
-        train_draw_tiebreak=getattr(args, "train_draw_tiebreak",
+        draw_value_weight=float(getattr(
+                args, "draw_value_weight", 0.0)),
+            train_draw_tiebreak=getattr(args, "train_draw_tiebreak",
                                     False),
         gbc_labels=gbc_labels), base
 
@@ -157,6 +180,7 @@ def main(argv) -> int:
                     help="Must mirror the learner: the hex stream defines "
                          "the action space's index basis, so a mismatch "
                          "makes every replayed target_idx meaningless.")
+    ap.add_argument("--draw-value-weight", type=float, default=0.0)
     ap.add_argument("--train-draw-tiebreak", action="store_true",
                     help="LEGACY: material-tiebreak z on drawn games'"
                          " training labels (see sim_self_play).")
@@ -168,7 +192,18 @@ def main(argv) -> int:
     # bit in the sign so one flag carries both).
     ap.add_argument("--playout-cap-prob", type=float, default=-1.0)
     ap.add_argument("--playout-cap-fast-sims", type=int, default=0)
-    ap.add_argument("--infer-compile", action="store_true")
+    ap.add_argument("--infer-compile",
+                    action=argparse.BooleanOptionalAction,
+                    default=None,
+                    help="Training default OFF (2026-08-29: "
+                         "in-process compile deadlocked the spool "
+                         "e2e on cuda). The learner forwards only "
+                         "EXPLICIT choices.")
+    ap.add_argument("--infer-bf16",
+                    action=argparse.BooleanOptionalAction,
+                    default=None,
+                    help="Training default OFF (see "
+                         "--infer-compile).")
     ap.add_argument("--hierarchical-gumbel", action="store_true")
     ap.add_argument("--mcts-batch-size", type=int, default=-1,
                     help="-1 = keep the worker default (1; CPU "
@@ -228,6 +263,20 @@ def main(argv) -> int:
                     default="none")   # DEPRECATED alias, see turn_search
     ap.add_argument("--turn-reply-max-actions", type=int, default=4)
     ap.add_argument("--turn-max-spine", type=int, default=40)
+    # Plan tournament (proposition 1, 2026-08-26) -- same symmetry
+    # contract as the TCS knobs: workers build the targets.
+    ap.add_argument("--plan-tournament",
+                    action=argparse.BooleanOptionalAction,
+                    default=False)
+    ap.add_argument("--pt-challengers", type=int, default=6)
+    ap.add_argument("--pt-depths", type=str, default="1,3")
+    ap.add_argument("--pt-cert-depth", type=int, default=3)
+    ap.add_argument("--pt-cert-redraws", type=int, default=3)
+    ap.add_argument("--pt-redraws", type=int, default=1)
+    ap.add_argument("--pt-budget-forwards", type=int, default=900)
+    ap.add_argument("--pt-margin-band", type=float, default=0.08)
+    ap.add_argument("--pt-beta-max", type=float, default=0.25)
+    ap.add_argument("--pt-margin-ref", type=float, default=0.32)
     ap.add_argument("--gbc", action=argparse.BooleanOptionalAction,
                     default=True)
     args = ap.parse_args(argv[1:])

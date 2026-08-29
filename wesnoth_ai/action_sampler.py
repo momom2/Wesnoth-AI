@@ -1159,7 +1159,7 @@ def _build_legality_masks(
     from wesnoth_ai.visibility import is_scenery_unit as _is_scenery
     reach_ctx = ReachContext(
         side=current_side,
-        playable=frozenset(pos_to_hex.keys()),
+
     )
     for _pos, _uu in unit_at.items():
         reach_ctx.occupied_visible.add(_pos)

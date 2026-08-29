@@ -51,25 +51,33 @@ def test_catalog_edge_records_absences_and_fit_ignores_them(tmp_path):
     assert cat["checkpoints"]["new"]["elo"] > cat["checkpoints"]["old"]["elo"]
 
 
-def _write(outdir, i, outcome, seed_base=10_000, a="A", b="B"):
-    side, seed = slot_for(i, seed_base)
+def _write(outdir, i, outcome, seed_base=10_000, a="A", b="B", gen=0):
+    from tools.run_elo_batch import replacement_slot_for
+    side, seed = replacement_slot_for(i, seed_base, gen)
     path = outdir / result_name(a, b, side, seed)
     path.write_text(json.dumps({"outcome_a": outcome}), encoding="utf-8")
     return path
 
 
 def test_scan_slots_schedules_replacements_up_to_guard(tmp_path):
-    # 6 base slots: 2 decisive, 3 no-result, 1 unplayed.
+    # 6 base slots: 2 decisive, 3 no-result, 1 unplayed. Round-30
+    # C5: a replacement is the capped slot's next same-side
+    # GENERATION, not an appended index.
+    from tools.run_elo_batch import replacement_slot_for
     for i, oc in enumerate(["win", "draw", "loss", "draw", "draw"]):
         _write(tmp_path, i, oc)
     n_res, n_nr, pending, extra = scan_slots(
         tmp_path, "A", "B", games=6, seed_base=10_000, max_extra=2)
     assert (n_res, n_nr) == (2, 3)
     assert extra == 2                      # guard binds below demand (3)
-    # Pending = base slot 5 + replacement slots 6 and 7, in order.
-    assert [s[0] for s in pending] == [5, 6, 7]
-    # Replacement slots use the same deterministic derivation.
-    assert pending[1][1:3] == slot_for(6, 10_000)
+    # Pending = unplayed base slot 5 (classification pass), then
+    # gen-1 replacements of capped slots 1 and 3 granted by the
+    # budget pass (slot 4's would exceed the guard).
+    assert [(s[0], s[4]) for s in pending] == [(5, 0), (1, 1), (3, 1)]
+    # Same deterministic derivation, same SIDE as the slot replaced
+    # (pending[1] is slot 1's gen-1 replacement).
+    assert pending[1][1:3] == replacement_slot_for(1, 10_000, 1)
+    assert pending[1][1] == slot_for(1, 10_000)[0]
 
 
 def test_scan_slots_replacement_chain_is_bounded_and_resumable(tmp_path):
@@ -79,12 +87,14 @@ def test_scan_slots_replacement_chain_is_bounded_and_resumable(tmp_path):
     n_res, n_nr, pending, extra = scan_slots(
         tmp_path, "A", "B", games=4, seed_base=10_000, max_extra=3)
     assert (n_res, n_nr, extra) == (0, 4, 3)
-    assert [s[0] for s in pending] == [4, 5, 6]
+    assert [(s[0], s[4]) for s in pending] == [(0, 1), (1, 1), (2, 1)]
     # A replacement that ALSO caps consumes the guard without growing
-    # the slot list past it: play slots 4 and 5 as caps, re-scan.
-    _write(tmp_path, 4, "draw")
-    _write(tmp_path, 5, "draw")
+    # the chain past it: play two gen-1 replacements as caps, re-scan.
+    _write(tmp_path, 0, "draw", gen=1)
+    _write(tmp_path, 1, "draw", gen=1)
     n_res, n_nr, pending, extra = scan_slots(
         tmp_path, "A", "B", games=4, seed_base=10_000, max_extra=3)
     assert (n_res, n_nr, extra) == (0, 6, 3)
-    assert [s[0] for s in pending] == [6]  # bounded: no slot 7+ ever
+    # Guard spent chain-first: slot 0's gen-2 replacement is the
+    # only pending slot (slots 1-3 stop at the exhausted guard).
+    assert [(s[0], s[4]) for s in pending] == [(0, 2)]

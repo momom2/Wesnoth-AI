@@ -106,39 +106,88 @@ def village_fingerprint(gs) -> Dict:
     return dict(vo)
 
 
-def diff_events(seq: int, prev_u: Dict, prev_v: Dict,
-                gs) -> List[Event]:
-    """Events realized between two observed states, observability
-    read from the later state (the moment after it happened)."""
-    from wesnoth_ai.visibility import visible_hexes_for
+def village_hexes(gs) -> List[Tuple[int, int]]:
+    """Every village hex by TERRAIN truth (project round-2 C5: a
+    roster built from `_village_owner` -- villages already captured
+    -- carried no label row for never-captured villages, so every
+    FIRST capture was unlabelable)."""
+    from wesnoth_ai.classes import Terrain
+    return [(h.position.x, h.position.y) for h in gs.map.hexes
+            if Terrain.VILLAGE in h.terrain_types]
 
-    cur_u = unit_fingerprint(gs)
-    cur_v = village_fingerprint(gs)
+
+def _observable_hexes(gs, side):
+    """Hexes `side` observes: the WHOLE BOARD when the game runs
+    fogless (project round-4: visible_hexes_for is a pure sight-
+    disc union with no _fog branch -- unlike units_visible_to and
+    the encoder's gates -- so the --fogless-ratio slice trained the
+    event head against labels censored by a disc the game does not
+    have; docs/gbc_spec.md defines the label as what the observer
+    SEES)."""
+    from wesnoth_ai.visibility import visible_hexes_for
+    if not getattr(gs.global_info, "_fog", True):
+        return {(h.position.x, h.position.y) for h in gs.map.hexes}
+    return visible_hexes_for(gs, side)
+
+
+def observe_state(gs) -> Tuple:
+    """Fingerprint bundle of one observed state, cheap enough to
+    take at EVERY decision (project round-2 C4/C6: diffing only the
+    RECORDED states put every fast-turn event at the wrong turn --
+    outside its label window -- and censored deaths at the victim's
+    stale previous-state hex). (turn, unit_fp, village_fp, vis1,
+    vis2)."""
+    return (int(gs.global_info.turn_number),
+            unit_fingerprint(gs), village_fingerprint(gs),
+            frozenset(_observable_hexes(gs, 1)),
+            frozenset(_observable_hexes(gs, 2)))
+
+
+def diff_events_obs(seq: int, prev: Tuple, cur: Tuple) -> List[Event]:
+    """Events realized between two OBSERVATIONS (observe_state
+    bundles), observability read from the later one."""
+    _turn, cur_u, cur_v, vis1, vis2 = cur
+    prev_u, prev_v = prev[1], prev[2]
     out: List[Event] = []
-    vis: Dict[int, FrozenSet] = {}
 
     def observed(hex_) -> FrozenSet[int]:
-        for s in (1, 2):
-            if s not in vis:
-                vis[s] = frozenset(visible_hexes_for(gs, s))
-        return frozenset(s for s in (1, 2) if hex_ in vis[s])
+        return frozenset(
+            s for s, v in ((1, vis1), (2, vis2)) if hex_ in v)
 
-    turn = int(gs.global_info.turn_number)
     for uid, (side, name, pos, cost, is_leader) in prev_u.items():
-        cur = cur_u.get(uid)
-        if cur is None:
-            out.append(Event(seq, turn, "dies", ("u", uid), side, pos,
-                             observed(pos), cost=cost,
+        cur_e = cur_u.get(uid)
+        if cur_e is None:
+            # The OWNER always observes its own unit's death -- the
+            # roster/sidebar shrinks even when the hex is fogged
+            # (round-4 adjacent finding: a lone unit dying deep in
+            # enemy territory took its own sight disc with it and
+            # its side labeled 0 for its own loss).
+            out.append(Event(seq, _turn, "dies", ("u", uid), side,
+                             pos, observed(pos) | {side}, cost=cost,
                              is_leader=is_leader))
-        elif cur[1] != name:
-            out.append(Event(seq, turn, "levels", ("u", uid), cur[0],
-                             cur[2], observed(cur[2]), cost=cur[3]))
+        elif cur_e[1] != name:
+            # Same roster rule: a side always sees its own unit
+            # level.
+            out.append(Event(seq, _turn, "levels", ("u", uid),
+                             cur_e[0], cur_e[2],
+                             observed(cur_e[2]) | {cur_e[0]},
+                             cost=cur_e[3]))
     for pos, owner in cur_v.items():
         if prev_v.get(pos, 0) != owner:
-            out.append(Event(seq, turn, "flips", ("v",) + tuple(pos),
+            out.append(Event(seq, _turn, "flips", ("v",) + tuple(pos),
                              int(owner), tuple(pos), observed(pos),
                              prev_side=int(prev_v.get(pos, 0))))
     return out
+
+
+def diff_events(seq: int, prev_u: Dict, prev_v: Dict,
+                gs) -> List[Event]:
+    """Legacy shape over the obs core (the offline scanner's entry
+    point): events between two observed states, observability read
+    from the later state."""
+    return diff_events_obs(
+        seq, (0, prev_u, prev_v, frozenset(), frozenset()),
+        observe_state(gs))
 
 
 # ---------------------------------------------------------------------
@@ -148,6 +197,7 @@ def diff_events(seq: int, prev_u: Dict, prev_v: Dict,
 def labels_for_game_states(
     states: Sequence, sides: Sequence[int],
     final_gs=None,
+    trace: Optional[Tuple] = None,
 ) -> List[Optional[List[LabelRow]]]:
     """Per stored decision state: the GBC label rows for its
     side-to-move (amendment A1: the observer IS the mover).
@@ -166,21 +216,31 @@ def labels_for_game_states(
     are ~10-40 entities).
     """
     from wesnoth_ai.visibility import (
-        units_visible_to, visible_hexes_for,
+        units_visible_to,
     )
 
-    seq_states = list(states) + ([final_gs] if final_gs is not None
-                                 else [])
-    if not seq_states:
+    if not states and final_gs is None:
         return []
-    # Pass 1: the event stream.
-    events: List[Event] = []
-    prev_u = unit_fingerprint(seq_states[0])
-    prev_v = village_fingerprint(seq_states[0])
-    for i, gs in enumerate(seq_states[1:], start=1):
-        events.extend(diff_events(i, prev_u, prev_v, gs))
-        prev_u = unit_fingerprint(gs)
-        prev_v = village_fingerprint(gs)
+    # Pass 1: the event stream. `trace` = (events, anchor_map) from
+    # MCTSPolicy.note_observation's incremental per-decision diff,
+    # so events land at action resolution with their true turn
+    # stamp and fog view (project round-2 C4/C6: under TCS only
+    # turn_full_prob of side-turns record states, so the recorded-
+    # only diff stamped fast-turn events with the NEXT recorded
+    # state's turn -- outside their label windows -- and censored
+    # deaths at stale hexes). trace=None keeps the legacy
+    # recorded-states diff (the offline scanner's convention).
+    if trace is None:
+        seq_states = list(states) + ([final_gs]
+                                     if final_gs is not None else [])
+        obs_seq = [observe_state(gs) for gs in seq_states]
+        anchor_idx = {id(gs): i for i, gs in enumerate(seq_states)}
+        events: List[Event] = []
+        for i in range(1, len(obs_seq)):
+            events.extend(diff_events_obs(i, obs_seq[i - 1],
+                                          obs_seq[i]))
+    else:
+        events, anchor_idx = trace
     by_key = defaultdict(list)
     for e in events:
         by_key[(e.predicate, e.key)].append(e)
@@ -188,16 +248,22 @@ def labels_for_game_states(
     # Pass 2: per-state label rows.
     out: List[Optional[List[LabelRow]]] = []
     kmax = max(GBC_HORIZONS)
-    for i, (gs, side) in enumerate(zip(states, sides)):
+    for gs, side in zip(states, sides):
         turn = int(gs.global_info.turn_number)
         rows: List[LabelRow] = []
+        # A recorded state absent from the stream (should not
+        # happen; defensive) gets no labels rather than wrong ones.
+        _ai = anchor_idx.get(id(gs))
+        if _ai is None:
+            out.append(None)
+            continue
 
-        def _ys(pred: str, key: Tuple) -> Tuple[int, ...]:
+        def _ys(pred: str, key: Tuple, _ai=_ai) -> Tuple[int, ...]:
             evs = by_key[(pred, key)]
             ys = []
             for k in GBC_HORIZONS:
                 ys.append(int(any(
-                    e.seq > i and turn <= e.turn <= turn + k - 1
+                    e.seq > _ai and turn <= e.turn <= turn + k - 1
                     and side in e.observed_by
                     for e in evs)))
             return tuple(ys)
@@ -205,8 +271,8 @@ def labels_for_game_states(
         for u in units_visible_to(gs, side):
             rows.append(("u", u.id, PRED_IDX["dies"])
                         + _ys("dies", ("u", u.id)))
-        vis_hex = frozenset(visible_hexes_for(gs, side))
-        for pos in village_fingerprint(gs):
+        vis_hex = frozenset(_observable_hexes(gs, side))
+        for pos in village_hexes(gs):
             if tuple(pos) in vis_hex:
                 key = ("v",) + tuple(pos)
                 rows.append(("v", pos[0], pos[1], PRED_IDX["flips"])

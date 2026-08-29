@@ -140,6 +140,7 @@ _SIDE_TEMPLATE = """\
         gold=100
         village_gold=2
         income=0
+        fog=yes
 {ai_include}
     [/side]
 """

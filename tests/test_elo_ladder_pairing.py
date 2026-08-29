@@ -183,7 +183,7 @@ def test_mcts_spec_honors_eval_contract(tmp_path):
     assert cfg.draw_tiebreak is None
 
     from tools.elo_eval_game import _build_player
-    mp = _build_player(str(ckpt), "m2", sims=1, device=None)
+    mp, _cnt = _build_player(str(ckpt), "m2", sims=1, device=None)
     cfg2 = mp._mcts_config
     assert cfg2.aux_value_bonus == 0.0
     assert cfg2.draw_tiebreak is None

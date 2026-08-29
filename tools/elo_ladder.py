@@ -111,7 +111,7 @@ class PairRecord:
 
 def _win_and_game_matrices(
     n: int, pairs: Dict[Tuple[int, int], PairRecord], prior_games: float,
-    draw_weight: float = 0.0,
+    draw_weight: float = 0.0, prior_scope: str = "all",
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Build the regularized win-mass vector W (length n) and games
     matrix N (n x n, symmetric, zero diagonal) the MM fit consumes.
@@ -124,18 +124,35 @@ def _win_and_game_matrices(
     wrongly pull drawn opponents toward equal. 0.5 = textbook half-win
     for games with legitimate draws.
 
-    The prior adds `prior_games` ghost games to EVERY unordered pair,
-    split 50/50, i.e. a uniform shrink toward 50% with strength
-    `prior_games`."""
+    prior_scope="all" adds `prior_games` ghost games to EVERY
+    unordered pair (right for run_ladder's dense round-robin, where
+    every pair plays); prior_scope="played" adds them only to pairs
+    with a recorded edge (round-26 C3: on the catalog's SPARSE
+    graph the all-pairs fan-out gave each node (n-1)*prior_games of
+    ghost mass, so merely ADDING unrelated checkpoints moved every
+    rating -- shutout nodes by tens of Elo). Either way the prior
+    keeps every played node's MLE finite."""
     W = np.zeros(n, dtype=float)
     N = np.zeros((n, n), dtype=float)
     for (i, j), rec in pairs.items():
+        assert i != j, ("self-pair in Elo fit -- zero-diagonal "
+                        "invariant (round-21 C0: a self-edge "
+                        "silently NaN'd the whole board)")
         eff = rec.wins_i + rec.wins_j + 2.0 * draw_weight * rec.draws
         N[i, j] += eff
         N[j, i] += eff
         W[i] += rec.wins_i + draw_weight * rec.draws
         W[j] += rec.wins_j + draw_weight * rec.draws
-    if prior_games > 0:
+        if prior_games > 0 and prior_scope == "played" and eff > 0:
+            # A pair KEY with zero decisive mass (fully-censored
+            # match) carries zero information: ghost games on it
+            # minted a rating equal to the opponent's (round-27
+            # C3).
+            N[i, j] += prior_games
+            N[j, i] += prior_games
+            W[i] += 0.5 * prior_games
+            W[j] += 0.5 * prior_games
+    if prior_games > 0 and prior_scope == "all":
         for i, j in combinations(range(n), 2):
             N[i, j] += prior_games
             N[j, i] += prior_games
@@ -214,13 +231,14 @@ def elo_standard_errors(
 def fit_elo(
     n: int, pairs: Dict[Tuple[int, int], PairRecord],
     anchor_idx: int, anchor_elo: float = 0.0, prior_games: float = 1.0,
-    draw_weight: float = 0.0,
+    draw_weight: float = 0.0, prior_scope: str = "all",
 ) -> Tuple[np.ndarray, np.ndarray]:
     """End-to-end: aggregate -> MM fit -> Elo (recentered to anchor)
     + SEs. Returns (elo[n], se[n]). `draw_weight` (default 0.0) drops
     draws -- a Wesnoth draw is a timeout, not equality evidence (see
     _win_and_game_matrices)."""
-    W, N = _win_and_game_matrices(n, pairs, prior_games, draw_weight)
+    W, N = _win_and_game_matrices(n, pairs, prior_games, draw_weight,
+                                  prior_scope=prior_scope)
     gamma = fit_bradley_terry(W, N)
     elo = _ELO_PER_LN * np.log(gamma)
     elo += anchor_elo - elo[anchor_idx]
@@ -305,9 +323,23 @@ def _parse_players(args) -> List[Player]:
         _add(label.strip(), spec.strip())
 
     for pat in (args.checkpoints or []):
-        for p in sorted(Path().glob(pat)) or [Path(pat)]:
-            if p.exists():
-                _add(p.stem, str(p))
+        # glob.glob handles absolute patterns (Path().glob raises
+        # NotImplementedError on them, project round-2 C10); an
+        # entry that resolves to NOTHING is a hard error -- a
+        # silently dropped checkpoint yielded a complete-looking
+        # board missing the player the run was about (C8).
+        import glob as _globlib
+        matched = [Path(s) for s in sorted(_globlib.glob(pat))
+                   if Path(s).exists()]
+        if not matched:
+            if Path(pat).exists():
+                matched = [Path(pat)]
+            else:
+                raise SystemExit(
+                    f"--checkpoints {pat!r} matched no existing "
+                    f"file")
+        for p in matched:
+            _add(p.stem, str(p))
     if args.include_random and "random" not in seen:
         _add("random", "random")
     if args.include_dummy and "dummy" not in seen:

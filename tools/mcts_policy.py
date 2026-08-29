@@ -65,6 +65,18 @@ MOVES_LEFT_NORM_TURNS = 200.0
 MIDGAME_GW_FLOOR = 8
 
 
+def side_weight_divisor(n_side_states: int, midgame: bool) -> int:
+    """The per-side game_weight divisor base: game_weight =
+    1/(2*side_weight_divisor(n, midgame)). ONE definition shared
+    with PlanTournamentPolicy's certified-mass renormalization
+    (round-27 C4: duplicating the floor arithmetic let the renorm
+    assume 1/(2n) while finalize applied the midgame floor,
+    shrinking certified mass to 25-75%% of the pre-registered
+    beta/2 on short human-continuation stubs)."""
+    floor = MIDGAME_GW_FLOOR if midgame else 1
+    return max(max(1, floor // 2), n_side_states)
+
+
 @dataclass
 class ReplayConfig:
     """Experience-replay + multi-epoch training for the MCTS path.
@@ -106,6 +118,10 @@ class _PendingMCTSState:
     visit_counts:  List[Tuple]
     side:          int
     decision_step: int = 0
+    # Policy-loss magnitude carried to MCTSExperience.policy_weight
+    # (plan-tournament certify-or-abstain: beta on certified turns,
+    # 0.0 on abstained value-only records; 1.0 = legacy full weight).
+    policy_weight: float = 1.0
 
 
 class MCTSPolicy:
@@ -123,13 +139,19 @@ class MCTSPolicy:
                  holdout_size: int = 0,
                  holdout_per_game_cap: int = 64,
                  train_draw_tiebreak: bool = False,
-                 gbc_labels: bool = False):
+                 gbc_labels: bool = False,
+                 draw_value_weight: float = 0.0):
         # GBC event-supervision labels (2026-08-14, docs/gbc_spec.md):
         # when on, finalize_game attaches fog-censored hindsight
         # event labels to every experience (pure state diffs -- no
         # model involvement, so actor-pool/spool policies build them
         # too and the labels ride the existing pickle payloads).
         self._gbc_labels_on = bool(gbc_labels)
+        # Per-game observation stream for GBC labeling (project
+        # round-2 C4/C6): the game loop notes EVERY decision's
+        # pre-state, so events land at action resolution even on
+        # TCS fast turns that record no training state.
+        self._gbc_obs: Dict[str, dict] = {}
         self._base = base
         self._mcts_config = mcts_config or MCTSConfig()
         self._replay_config = replay_config or ReplayConfig()
@@ -143,6 +165,14 @@ class MCTSPolicy:
         # (human-corpus late-game AUC 0.88 -> 0.60 in ~80 iters;
         # r_material/r_outcome rose 1.28 -> 2.18).
         self._train_draw_tiebreak = bool(train_draw_tiebreak)
+        # Winnerless-state value weight, sealed HERE (single
+        # authority, project round-1 C3) -- an explicit field
+        # because finalize_game runs ACTOR-side on both production
+        # topologies, where no trainer config exists to read
+        # (project round-2 C1: the _base._trainer lookup silently
+        # sealed 0.0 in every pool actor and spool worker while the
+        # launcher logged the knob as in effect).
+        self._draw_value_weight = float(draw_value_weight)
         # Optional diagnostic hook: called with the search ROOT after
         # every mcts_search (see tools/ladder_anatomy.py -- root
         # child-Q spread is the value signal PUCT actually compares).
@@ -523,6 +553,12 @@ class MCTSPolicy:
         with self._lock:
             states = self._pending.pop(game_label, [])
             self._reuse.pop(game_label, None)
+            # Unconditional release (project round-3 C2: popping
+            # only inside the labeling branch leaked the trace for
+            # games sealing with zero recorded states, and a reused
+            # game_label would then inherit a stale trace).
+            _gbc_rec = self._gbc_obs.pop(game_label, None)
+            self._last_recorded.pop(game_label, None)
         tiebreak = self._mcts_config.draw_tiebreak
         if winner == 0 and tiebreak is not None and final_gs is None \
                 and states:
@@ -571,8 +607,6 @@ class MCTSPolicy:
         # halves per side (8-per-game -> 4-per-side), preserving
         # its "a 1-3 state human-credited stub can't own a
         # minibatch" purpose at the same effective scale.
-        floor = MIDGAME_GW_FLOOR if midgame else 1
-        side_floor = max(1, floor // 2)
         n_by_side: Dict[int, int] = {}
         for s in states:
             n_by_side[s.side] = n_by_side.get(s.side, 0) + 1
@@ -609,12 +643,20 @@ class MCTSPolicy:
                 aux_target=aux,
                 moves_left_target=ml,
                 decision_step=s.decision_step,
-                game_weight=1.0 / (2.0 * max(side_floor,
-                                             n_by_side[s.side])),
+                game_weight=1.0 / (2.0 * side_weight_divisor(
+                    n_by_side[s.side], midgame)),
                 # Truncation ruling (user, 2026-08-17): a winnerless
-                # game is censored, not drawn -- its states carry no
-                # value label (policy targets keep full weight).
-                value_weight=(0.0 if winner == 0 else 1.0),
+                # game is censored, not drawn -- by default its
+                # states carry no value label (policy targets keep
+                # full weight). --draw-value-weight raises it; this
+                # is the ONE authority (project round-1 C3: the
+                # trainer's second gate multiplied the tiebreak z
+                # and draw_value_weight by this 0.0, silently
+                # nullifying both knobs while the launcher logged
+                # them as in effect).
+                value_weight=(self._draw_value_weight
+                              if winner == 0 else 1.0),
+                policy_weight=float(getattr(s, "policy_weight", 1.0)),
             ))
         # GBC labels (docs/gbc_spec.md): hindsight event rows per
         # stored state, fog-censored for each state's side-to-move.
@@ -623,9 +665,24 @@ class MCTSPolicy:
         if self._gbc_labels_on and exps:
             from wesnoth_ai.gbc import labels_for_game_states
             try:
+                _trace = None
+                if _gbc_rec is not None and _gbc_rec.get("broken"):
+                    _gbc_rec = None
+                if _gbc_rec is not None:
+                    from wesnoth_ai.gbc import (diff_events_obs,
+                                                observe_state)
+                    if (aux_gs is not None
+                            and _gbc_rec["prev"] is not None):
+                        # The final state's events (the winning
+                        # kill, the last capture) close the trace.
+                        _gbc_rec["events"].extend(diff_events_obs(
+                            _gbc_rec["n"], _gbc_rec["prev"],
+                            observe_state(aux_gs)))
+                    _trace = (_gbc_rec["events"],
+                              _gbc_rec["anchor"])
                 rows = labels_for_game_states(
                     [s.gs for s in states], [s.side for s in states],
-                    final_gs=aux_gs)
+                    final_gs=aux_gs, trace=_trace)
                 for exp, r in zip(exps, rows):
                     exp.gbc_labels = r
             except Exception as e:  # noqa: BLE001 -- labels are an
@@ -654,6 +711,38 @@ class MCTSPolicy:
                 f"{len(states)} MCTSExperiences"
             )
 
+    def note_observation(self, game_label: str, gs) -> None:
+        """Fold one decision's pre-state observation into the
+        per-game GBC event trace (called by the game loop for EVERY
+        decision -- project round-2 C4/C6: TCS fast turns record no
+        training state, so the recorded-only diff mis-stamped their
+        events). Diffing HERE keeps retention O(events), not
+        O(decisions x vision-disc) (project round-3 C3). Anchor ids
+        are safe: a recorded state is pinned by _pending until
+        finalize, so no later object can recycle its address and
+        overwrite its anchor entry. No-op when GBC labels are off;
+        never kills the game on a labeling error."""
+        if not self._gbc_labels_on:
+            return
+        from wesnoth_ai.gbc import diff_events_obs, observe_state
+        try:
+            rec = self._gbc_obs.setdefault(
+                game_label,
+                {"prev": None, "events": [], "anchor": {}, "n": 0})
+            if rec.get("broken"):
+                return
+            obs = observe_state(gs)
+            rec["anchor"][id(gs)] = rec["n"]
+            if rec["prev"] is not None:
+                rec["events"].extend(
+                    diff_events_obs(rec["n"], rec["prev"], obs))
+            rec["prev"] = obs
+            rec["n"] += 1
+        except Exception as e:  # noqa: BLE001
+            log.error(f"gbc observation failed for {game_label!r}: "
+                      f"{e!r} -- trace dropped for this game")
+            self._gbc_obs[game_label] = {"broken": True}
+
     def drop_pending(self, game_label: str) -> None:
         """Match TransformerPolicy's drop_pending API for error
         recovery: the rollout loop calls it when a game errors mid-
@@ -662,6 +751,7 @@ class MCTSPolicy:
             self._pending.pop(game_label, None)
             self._reuse.pop(game_label, None)
             self._last_recorded.pop(game_label, None)
+            self._gbc_obs.pop(game_label, None)
 
     def drain_distill_stats(self) -> Optional[Dict[str, float]]:
         """Per-iteration means of the distillation-target telemetry

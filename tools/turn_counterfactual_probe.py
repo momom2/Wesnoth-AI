@@ -180,7 +180,7 @@ def probe_state(policy: TransformerPolicy, sim0: WesnothSim, side: int,
     for rnd in range(cfg.rounds):
         salt = f"probe:{state_id}:r{rnd}"
         inc = materialize(policy, sim0, side, incumbent, salt, ds,
-                          mover_frame=mf)
+                          mover_frame=mf, want_vis=True)
         if inc.invalid:
             log.warning(f"{state_id}: incumbent materialization invalid")
             break
@@ -195,7 +195,7 @@ def probe_state(policy: TransformerPolicy, sim0: WesnothSim, side: int,
                              + [st.legal[alt_i].action]
                              + incumbent[j + 1:])
                 m = materialize(policy, sim0, side, cand_cmds, salt, ds,
-                                mover_frame=mf)
+                                mover_frame=mf, want_vis=True)
                 if m.invalid or math.isnan(m.value):
                     continue
                 cands.append((j, alt_i, m))
@@ -230,10 +230,10 @@ def probe_state(policy: TransformerPolicy, sim0: WesnothSim, side: int,
                 s2 = f"{salt}:v{v}"
                 inc2 = materialize(policy, sim0, side, incumbent, s2,
                                    ds, mover_frame=mf,
-                                   keep_boundary_sim=cfg.project_reval)
+                                   keep_boundary_sim=cfg.project_reval, want_vis=True)
                 var2 = materialize(policy, sim0, side, best_cmds, s2,
                                    ds, mover_frame=mf,
-                                   keep_boundary_sim=cfg.project_reval)
+                                   keep_boundary_sim=cfg.project_reval, want_vis=True)
                 if inc2.invalid or var2.invalid:
                     continue
                 if cfg.project_reval:
@@ -277,7 +277,7 @@ def probe_state(policy: TransformerPolicy, sim0: WesnothSim, side: int,
     kl_matched: List[float] = []
     salt = f"probe:{state_id}:kl"
     inc = materialize(policy, sim0, side, incumbent, salt, ds,
-                      mover_frame=mf)
+                      mover_frame=mf, want_vis=True)
     if not inc.invalid:
         for j, st in enumerate(steps):
             priors = np.array([a.prior for a in st.legal])
@@ -293,7 +293,7 @@ def probe_state(policy: TransformerPolicy, sim0: WesnothSim, side: int,
                 cand = (incumbent[:j] + [st.legal[alt_i].action]
                         + incumbent[j + 1:])
                 m = materialize(policy, sim0, side, cand, salt, ds,
-                                mover_frame=mf)
+                                mover_frame=mf, want_vis=True)
                 if m.invalid or math.isnan(m.value):
                     continue
                 values[alt_i] = m.value

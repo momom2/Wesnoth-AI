@@ -241,16 +241,23 @@ class RemoteEncoder:
     def __init__(
         self, type_to_id: Dict[str, int], faction_to_id: Dict[str, int],
         *, device: Optional[torch.device] = None,
+        relevant_set: bool = False,
     ):
         self._type_to_id = type_to_id
         self._faction_to_id = faction_to_id
         self._device = device or torch.device("cpu")
+        # Action-space basis (project round-2 C3: hardcoded False
+        # made pool actors encode full-board while an inherited
+        # --relevant-set-hexes put the learner on the relevant-set
+        # basis -- with no tripwire on this path).
+        self._relevant_set = bool(relevant_set)
 
     def encode(self, game_state: GameState) -> EncodedState:
         raw = encode_raw(
             game_state,
             type_to_id=self._type_to_id,
             faction_to_id=self._faction_to_id,
+            relevant_set=self._relevant_set,
         )
         enc = build_light_encoded(raw, self._device)
         # Stash the wire payload for RemoteModel; EncodedState is a

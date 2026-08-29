@@ -39,78 +39,18 @@ from wesnoth_ai.action_sampler import (
 from wesnoth_ai.classes import state_key
 from wesnoth_ai.visibility import units_visible_to
 from tools.mcts import MCTSConfig, _gumbel_sigma, _terminal_value
+from tools.turn_search_config import (  # noqa: F401
+    TS_KNOB_KEYS, TurnSearchConfig, turn_knobs_dict,
+)
 
 log = logging.getLogger("turn_search")
 
 
-@dataclass
-class TurnSearchConfig:
-    """TCS knobs (sigma/damping constants come from MCTSConfig so the
-    target transform stays byte-shared with the Gumbel path)."""
-    n_alt:          int = 4      # alternatives per coordinate/round
-    rounds:         int = 3      # hill-climb rounds on full turns
-    fast_rounds:    int = 1      # rounds on cheap (no-target) turns
-    reval_salts:    int = 3      # fresh salts in acceptance stage 2
-    min_delta:      float = 0.01  # accept floor (float-jitter guard)
-    max_spine:      int = 40     # hard cap on spine length
-    turn_full_prob: float = 0.25  # playout-cap analog, per TURN
-    # Multi-turn projection at the boundary (docs/tcs_spec.md par.3;
-    # user directive 2026-08-17, generalizing the opponent-reply arm).
-    # Candidate turns are graded by the value `project_halfturns`
-    # half-turns PAST our boundary, each half-turn played closed-loop
-    # by the same policy -- one line, no branching, so cost is LINEAR
-    # in depth. This is the guard against value-head tempo blindness
-    # (the leg-3 turn-collapse mechanism): passing early stops looking
-    # free once the evaluated state shows the opponent's free reply.
-    # Placement:
-    #   none  -- grade at our own boundary (status quo). DEFAULT OFF.
-    #   reval -- projection gates stage-2 acceptance only: the climb
-    #            proposes by the cheap boundary objective, the gate
-    #            re-grades both sides of the pairing with projection.
-    #   all   -- projection also drives stage-1 selection and the
-    #            distill targets (the search and the training signal
-    #            both optimize the projected objective; costlier).
-    project:             str = "none"   # none | reval | all
-    project_halfturns:   int = 1        # depth past our boundary
-    project_max_actions: int = 40       # per-half-turn action cap
-    # Target link function (user ruling 2026-08-17): "random draw
-    # among the evaluated actions should not push their probability
-    # up" -- evaluation EXPOSURE must carry no expected mass gain
-    # under an uninformative grader.
-    #   linear -- target = prior^lam * max(0, 1 + beta*(q - LOO
-    #            mean of the other evaluated q)); linear in q, so
-    #            symmetric judge error cancels to first order and
-    #            E[target] ~ prior regardless of how often an action
-    #            is evaluated. DEFAULT (leg-4 ruling: the grader is
-    #            fresh/unproven; noise-robustness beats the exp
-    #            link's concentration).
-    #   exp    -- the AlphaZero/Gumbel mirror-descent tilt (sigma
-    #            transform shared byte-for-byte with the MCTS path).
-    #            Concentrates faster under a KNOWN-GOOD grader, but
-    #            convex in q: under noise, evaluated actions gain
-    #            expected mass in proportion to evaluation frequency
-    #            (the leg-3 R2 end_turn exposure ratchet).
-    target_link:         str = "linear"  # linear | exp
-    target_beta:         float = 5.0     # linear-link advantage gain
-    #   beta=5: an action 5 C51 atoms (0.20) below its evaluated
-    #   peers' mean clips to zero mass; 2 atoms (0.08, the probe's
-    #   median accepted delta) above gains +40% before renorm.
-    #   Derivation in docs/design_constants.md.
-    # Boundary evaluation frame (2026-08-21 fog finding, leg-4
-    # postmortem): the post-end_turn boundary state's acting side is
-    # the OPPONENT, and the encoder is acting-side-framed -- so the
-    # grader saw only the opponent's fogged view of the mover's
-    # turn. On no-contact fogged turns EVERY candidate graded
-    # bit-identically (measured: 4 different candidate turns, one
-    # value to 16 digits; fogless control spread 0.24-0.63).
-    #   opponent -- post-flip state, sign-flipped (status quo;
-    #               assumes fog symmetry that does not exist).
-    #   mover    -- the PRE-end_turn state, mover still acting: the
-    #               mover's own information set. Terminal flips
-    #               still grade by exact outcome.
-    # Default stays "opponent" until the A/B probes re-baseline;
-    # leg-5 config must assert this explicitly.
-    boundary_frame:      str = "opponent"  # opponent | mover
+# TurnSearchConfig lives in tools/turn_search_config
+# (torch-free, round-37 C3); re-exported here so
+# search-side imports are unchanged.
+
+
 
 
 def config_from_args(args) -> Optional["TurnSearchConfig"]:
@@ -359,7 +299,8 @@ class Materialized:
     done:       bool           # game ended during the turn
     stochastic: bool           # any synced-RNG request consumed
     invalid:    bool           # a step RAISED (not a clean bounce)
-    vis_ids:    frozenset      # visible enemy unit ids at boundary
+    vis_ids:    frozenset = frozenset()  # probe-only covariate;
+    #                            filled iff materialize(want_vis=True)
     boundary_sim: object = None  # the boundary fork (for projection)
 
     @property
@@ -371,7 +312,10 @@ def materialize(policy, start, side: int, commands: List[Dict],
                 salt: str, decision_step: int,
                 keep_boundary_sim: bool = False,
                 skip_value: bool = False,
-                mover_frame: bool = False) -> Materialized:
+                mover_frame: bool = False,
+                want_vis: bool = False,
+                snapshots: Optional[List] = None,
+                resume: Optional[Tuple] = None) -> Materialized:
     """Replay `commands` from a fork of `start` under `salt`; evaluate
     at the boundary. Clean bounces (`last_step_rejected`) are skipped
     and the replay continues; a raised exception marks the variant
@@ -397,27 +341,57 @@ def materialize(policy, start, side: int, commands: List[Dict],
     Terminal flips still grade by exact outcome. When the CALLER
     keeps the boundary sim (projection), the post-flip sim is kept
     regardless -- projection's deep boundaries are not yet
-    frame-fixed."""
+    frame-fixed.
+
+    `want_vis=True` fills `vis_ids` (an offline-probe covariate; no
+    production path reads it -- project round-1 C11 measured its
+    units_visible_to as pure overhead on every plan).
+
+    `snapshots`/`resume` (project round-1 C10): pass a list as
+    `snapshots` to collect per-index prefix forks; pass one such
+    entry as `resume` to replay only from that index. BIT-IDENTITY:
+    the fork carries _seed_salt and _rng_requests, and plan_turn's
+    candidates share the incumbent's salt within a round, so a
+    resumed replay consumes exactly the dice a fresh full replay
+    would -- valid ONLY for candidates whose prefix and salt match
+    the snapshotting run."""
     explicit_keep = keep_boundary_sim
-    sim = start.fork()
-    sim._seed_salt = salt
-    rng0 = sim._rng_requests
-    executed: List[Dict] = []
-    attempted = accepted = 0
-    invalid = False
-    pre_flip = None
     cmds = list(commands)
     if not any(c.get("type") == "end_turn" for c in cmds):
         cmds.append({"type": "end_turn"})
-    for cmd in cmds:
+    if resume is None:
+        sim = start.fork()
+        sim._seed_salt = salt
+        rng0 = sim._rng_requests
+        executed: List[Dict] = []
+        attempted = accepted = 0
+        start_idx = 0
+    else:
+        _snap_sim, start_idx, _exec0, attempted, accepted, rng0 = resume
+        sim = _snap_sim.fork()      # snapshot reusable across candidates
+        executed = list(_exec0)
+    invalid = False
+    pre_flip = None
+    for _ci in range(start_idx, len(cmds)):
+        cmd = cmds[_ci]
         if sim.done or sim.gs.global_info.current_side != side:
             break
+        snap = None
+        if snapshots is not None or (mover_frame and not explicit_keep):
+            # ONE fork serves both consumers: the mover-frame
+            # pre-flip snapshot -- taken before EVERY step, because
+            # the sim force-ends the turn on any stale command
+            # (move from a hex the unit never reached, stale
+            # attack), not just on typed end_turns; snapshotting
+            # only those silently graded force-ended candidates in
+            # the OPPONENT frame while their peers graded in the
+            # mover frame (project round-1 C0/C6) -- and the
+            # prefix-resume seam (C10).
+            snap = sim.fork()
+            if snapshots is not None:
+                snapshots.append((snap, _ci, list(executed),
+                                  attempted, accepted, rng0))
         attempted += 1
-        if (mover_frame and not explicit_keep
-                and cmd.get("type") == "end_turn"):
-            pre_flip = sim.fork()   # re-fork on every attempt: a
-            #                         bounced end_turn leaves a stale
-            #                         snapshot otherwise
         try:
             sim.step(cmd)
         except Exception as e:  # noqa: BLE001
@@ -428,6 +402,12 @@ def materialize(policy, start, side: int, commands: List[Dict],
             continue
         accepted += 1
         executed.append(cmd)
+        if (mover_frame and not explicit_keep
+                and (sim.done
+                     or sim.gs.global_info.current_side != side)):
+            # THIS step ended the turn (typed or sim-forced): the
+            # pre-step fork is the mover's information set.
+            pre_flip = snap
     if (not sim.done and not invalid
             and sim.gs.global_info.current_side == side):
         if mover_frame and not explicit_keep:
@@ -450,7 +430,7 @@ def materialize(policy, start, side: int, commands: List[Dict],
         keep_boundary_sim = True
     vis = frozenset(
         u.id for u in units_visible_to(sim.gs, side) if u.side != side
-    ) if not invalid else frozenset()
+    ) if (want_vis and not invalid) else frozenset()
     return Materialized(
         executed=executed, attempted=attempted, accepted=accepted,
         value=value, done=sim.done,
@@ -573,6 +553,20 @@ def tcs_target_distribution(
                 f = 0.0
                 clipped += 1
             factor[i] = f
+    if len(idxs) >= 2:
+        # Mass-preserving renormalization over the EVALUATED block
+        # (project round-1 C7): unclipped, the LOO advantages sum
+        # to zero so the block's expected mass equals its prior^lam
+        # mass; the one-sided zero clip broke that, letting a
+        # purely uninformative grader GROW the evaluated block at
+        # the unevaluated actions' expense -- the exact exposure
+        # ratchet the linear link was chosen to prevent. Pinning
+        # the block total exactly removes the clip surplus and the
+        # Jensen residual while preserving within-block ordering.
+        ev_base = float(base[idxs].sum())
+        ev_after = float((base[idxs] * factor[idxs]).sum())
+        if ev_after > 0.0:
+            factor[idxs] *= ev_base / ev_after
     if stats_out is not None:
         stats_out["link_clip_frac"] = (clipped / len(idxs)
                                        if len(idxs) else 0.0)
@@ -719,12 +713,19 @@ def plan_turn(policy, sim, side: int, decision_step: int,
         # identical; only the transport changes. Under project="all"
         # grades come from rollouts and no boundary forward is
         # issued at all (the review's redundant-forward patch).
+        _snaps: List[Tuple] = []
         inc = materialize(policy, sim, side, commands, salt,
                           decision_step, keep_boundary_sim=proj_all,
-                          skip_value=True, mover_frame=mf)
+                          skip_value=True, mover_frame=mf,
+                          snapshots=_snaps)
         if inc.invalid:
             log.warning("plan_turn: incumbent materialization invalid")
             break
+        # Prefix-resume seam (project round-1 C10): candidate j
+        # shares the incumbent's prefix commands[:j] AND its salt,
+        # so its replay can start from the incumbent's pre-j fork
+        # bit-identically, halving the sweep's sim steps.
+        _snap_at = {s[1]: s for s in _snaps}
         raw: List[Tuple[int, int, Materialized]] = []
         for j, st in enumerate(steps):
             priors = np.array([a.prior for a in st.legal])
@@ -738,7 +739,8 @@ def plan_turn(policy, sim, side: int, decision_step: int,
                 m = materialize(policy, sim, side, cand_cmds, salt,
                                 decision_step,
                                 keep_boundary_sim=proj_all,
-                                skip_value=True, mover_frame=mf)
+                                skip_value=True, mover_frame=mf,
+                                resume=_snap_at.get(j))
                 if m.invalid:
                     continue
                 raw.append((j, alt_i, m))
@@ -828,9 +830,15 @@ def plan_turn(policy, sim, side: int, decision_step: int,
     # per-coordinate targets from a final evaluation pass.
     plan.accepts = accepts
     kl_salt = f"{salt_ns}:t"
+    _snaps2: list = []
     inc = materialize(policy, sim, side, commands, kl_salt,
                       decision_step, keep_boundary_sim=proj_all,
-                      skip_value=True, mover_frame=mf) if full else None
+                      skip_value=True, mover_frame=mf,
+                      snapshots=_snaps2) if full else None
+    # Prefix-resume seam, same precondition as the round loop
+    # (project round-2 C11): every candidate shares commands[:j]
+    # AND kl_salt with the incumbent above.
+    _snap_at2 = {s2[1]: s2 for s2 in _snaps2}
     # Materialize every coordinate's alternatives first (sim work),
     # then grade ALL boundaries in one batched pass -- this is the
     # "48 serial forwards per turn plan" hot spot the A6 postmortem
@@ -852,7 +860,8 @@ def plan_turn(policy, sim, side: int, decision_step: int,
                 m = materialize(policy, sim, side, cand, kl_salt,
                                 decision_step,
                                 keep_boundary_sim=proj_all,
-                                skip_value=True, mover_frame=mf)
+                                skip_value=True, mover_frame=mf,
+                                resume=_snap_at2.get(j))
                 if not m.invalid:
                     coord.append((alt_i, m))
             per_coord.append(coord)

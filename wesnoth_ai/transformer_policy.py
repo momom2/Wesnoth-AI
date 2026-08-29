@@ -203,15 +203,46 @@ class TransformerPolicy:
         self._infer_bf16 = bool(infer_bf16)
         if self._infer_bf16:
             self._inference_model.infer_autocast_bf16 = True
+            # Always announced: precision is part of what any
+            # downstream measurement measured (user ruling
+            # 2026-08-28: compile+bf16 default, logged when used).
+            self._logger.info("inference bf16 autocast ON")
+        self._infer_compiled = False
         if infer_compile:
             try:
+                import os as _os
+                import shutil as _shutil
+                from pathlib import Path as _Path
+                # torch.compile failures are LAZY: the wrap below
+                # succeeds even where inductor cannot build, and the
+                # error then fires at the FIRST FORWARD -- observed
+                # 2026-08-29 killing a spool worker (gcc-less
+                # container) whose death hung the learner on a pipe.
+                # So (a) require a C compiler UP FRONT, loudly; (b)
+                # tell dynamo to fall back to eager on any residual
+                # compile error instead of raising mid-game.
+                if not any(_shutil.which(c)
+                           for c in ("gcc", "cc", "clang", "cl")):
+                    raise RuntimeError(
+                        "no C compiler on PATH (inductor needs one; "
+                        "apt-get install gcc g++)")
+                from torch import _dynamo as _td
+                _td.config.suppress_errors = True
+                # Persistent kernel cache: compiling costs ~10-14s
+                # per shape bucket PER PROCESS (bench_infer
+                # 2026-08-28); a shared on-disk cache lets later
+                # processes (each eval game is one) reuse kernels.
+                _os.environ.setdefault(
+                    "TORCHINDUCTOR_CACHE_DIR",
+                    str(_Path.home() / ".cache" / "wai_inductor"))
                 self._inference_model = torch.compile(
                     self._inference_model, mode="reduce-overhead")
+                self._infer_compiled = True
                 self._logger.info("inference model torch.compile'd "
                                   "(reduce-overhead)")
             except Exception as e:                       # noqa: BLE001
                 self._logger.warning(
-                    f"--infer-compile unavailable: {e}")
+                    f"--infer-compile unavailable, staying eager: {e}")
 
         import threading
         # Unified policy lock. Protects ALL shared mutable state:

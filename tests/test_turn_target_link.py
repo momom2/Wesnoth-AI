@@ -180,3 +180,26 @@ def test_blind_coord_stat_flags_identical_grades():
     _, s_one = build_coordinate_target(
         legal, np.array([0.2, 0.0, 0.0, 0.0]), one, 0.0, 1.0, cfg)
     assert "blind_coord" not in s_one
+
+
+def test_linear_clip_preserves_evaluated_block_mass():
+    """Project round-1 C7: the one-sided zero clip let a noisy
+    grader GROW the evaluated block at the unevaluated actions'
+    expense (the exposure ratchet the linear link exists to kill).
+    The block's target mass must equal its prior^lam mass exactly,
+    clip or no clip."""
+    rng = np.random.default_rng(11)
+    p = _priors()
+    lam = 1.0
+    for trial in range(50):
+        evaluated = np.zeros(N_ACT, dtype=bool)
+        evaluated[rng.choice(N_ACT, size=5, replace=False)] = True
+        q = np.where(evaluated, rng.normal(0.0, 0.5, N_ACT), 0.0)
+        tgt = tcs_target_distribution(
+            p, q, evaluated, v_root=0.0,
+            max_visits=float(evaluated.sum()),
+            mcts_config=MCTSConfig(), link="linear", beta=5.0)
+        base = p ** lam
+        base /= base.sum()
+        assert abs(tgt[evaluated].sum() - base[evaluated].sum()) \
+            < 1e-9, trial

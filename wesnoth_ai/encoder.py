@@ -86,17 +86,18 @@ def pad_legacy_encoder_state(encoder_state: dict, encoder) -> dict:
     out = dict(encoder_state)
     dfw = out.get("dynamic_flag_proj.weight")
     cur = encoder.dynamic_flag_proj.weight
-    if (dfw is not None and dfw.shape != cur.shape
-            and dfw.shape[0] == cur.shape[0]
-            and dfw.shape[1] < cur.shape[1]):
-        pad = torch.zeros(cur.shape[0], cur.shape[1] - dfw.shape[1],
+    if (dfw is not None and dfw.shape[1] < cur.shape[1]):
+        # Pad with the SOURCE's width on the non-growing axis
+        # (project round-2 C2: requiring shape[0] equality made the
+        # shim inert exactly when d_model grows -- net2net's primary
+        # case -- leaving the new observation slots at random init;
+        # transfer_state_dict handles the d_model axis afterwards).
+        pad = torch.zeros(dfw.shape[0], cur.shape[1] - dfw.shape[1],
                           dtype=dfw.dtype)
         out["dynamic_flag_proj.weight"] = torch.cat([dfw, pad], dim=1)
     sew = out.get("side_embed.weight")
     cur_se = encoder.side_embed.weight
-    if (sew is not None and sew.shape != cur_se.shape
-            and sew.shape[1] == cur_se.shape[1]
-            and sew.shape[0] < cur_se.shape[0]):
+    if (sew is not None and sew.shape[0] < cur_se.shape[0]):
         pad = torch.zeros(cur_se.shape[0] - sew.shape[0],
                           sew.shape[1], dtype=sew.dtype)
         out["side_embed.weight"] = torch.cat([sew, pad], dim=0)
@@ -1106,7 +1107,28 @@ def encode_raw(
             # The modifier is still honored for the live-Wesnoth
             # converter path and hand-built states.
             _owned_village = mod_village in mods or key in village_owner_map
-            if _owned_village:
+            # Fog gate on the STATIC owned bit too (project round-1
+            # C8: ungated, the triple (mod0=1, dyn1=0, dyn2=0) was
+            # an unambiguous god-view fingerprint of "enemy owns a
+            # village you cannot see" -- exactly the class the
+            # observable-state contract forbids). Own villages and
+            # visible hexes encode as before; an enemy capture
+            # OUTSIDE vision now encodes like a neutral village,
+            # which is all the mover could know.
+            _owner0 = village_owner_map.get(key, 0)
+            # ONE gate for both lineages (project round-2 C0: the
+            # mod_village short-circuit assumed the live payload
+            # was pre-fogged; state_collector.lua collected owners
+            # UNFOGGED, so the live path kept the god-view triple
+            # the gate exists to remove -- and ran off the training
+            # input distribution). The live path populates
+            # _village_owner since round-1 C9, so the same test
+            # serves it.
+            _owner_visible = (
+                _owner0 == current_side
+                or not fog_on
+                or (p.x, p.y) in _vision_disc())
+            if _owned_village and _owner_visible:
                 hex_modifier_flags_np[i, 0] = 1.0
             if mod_keep    in mods:
                 hex_modifier_flags_np[i, 1] = 1.0

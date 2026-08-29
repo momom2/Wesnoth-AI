@@ -111,6 +111,45 @@ log = logging.getLogger("mcts")
 # and repro hunts, not a production default.
 _FORK_GUARD = os.environ.get("SIM_FORK_GUARD", "") not in ("", "0")
 
+
+class ForkGuardViolation(BaseException):
+    """A search fork mutated the caller's live game state. Derives
+    from BaseException ON PURPOSE (round-34 C2): every game loop
+    wraps games in `except Exception` and logs-and-continues, which
+    swallowed the guard's AssertionError -- the launch smoke exited
+    0 on a REAL violation and certified the leg. A tripwire that
+    can be caught by routine crash handling is not a tripwire."""
+
+
+class fork_guard:
+    """SIM_FORK_GUARD wrapper for one whole select_action call
+    (round-32 C4: the in-mcts_search guard covers only the raw-MCTS
+    path -- TCS and plan-tournament fully OVERRIDE select_action,
+    so the launch smoke certified procedures the guard never ran
+    on). Used by the game loops (sim_self_play.play_one_game,
+    eval_sim) so every decision procedure is covered uniformly.
+    Free when the env flag is off."""
+
+    def __init__(self, sim):
+        self._sim = sim if _FORK_GUARD else None
+        self._fp = None
+
+    def __enter__(self):
+        if self._sim is not None:
+            self._fp = deep_state_fingerprint(self._sim.gs)
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if self._sim is not None and exc_type is None:
+            after = deep_state_fingerprint(self._sim.gs)
+            if after != self._fp:
+                raise ForkGuardViolation(
+                    "SIM_FORK_GUARD: select_action mutated the "
+                    "REAL game state (a search fork aliased live "
+                    "objects). Diff deep_state_fingerprint "
+                    "components to locate the leak.")
+        return False
+
 # Action types whose sim.step consumes synced RNG (combat damage
 # rolls; recruit trait rolls). Chance-node sampling re-forks and
 # re-steps these on EVERY traversal; everything else is
@@ -1586,7 +1625,7 @@ def mcts_search(
             f"hit_rate={tt_stats['hits'] / max(1, tt_stats['hits'] + tt_stats['misses']):.1%}"
         )
     if _guard_fp is not None and deep_state_fingerprint(sim.gs) != _guard_fp:
-        raise AssertionError(
+        raise ForkGuardViolation(
             "SIM_FORK_GUARD: the caller's live state changed during "
             "mcts_search. A search fork mutated a structure the "
             "fast-path deepcopy shares across forks (Map.__deepcopy__ /"

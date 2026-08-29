@@ -236,8 +236,16 @@ function state_collector.collect_game_state(side_number, game_id, include_map)
                 end
                 local owner = wesnoth.map.get_owner({ x, y })
                 if owner and owner ~= 0 then
-                    villages_owned[tostring(x) .. "," .. tostring(y)] = owner
+                    -- villages_count stays UNFOGGED (it feeds the
+                    -- sidebar-visible per-side village count), but
+                    -- ownership itself is fogged like the units
+                    -- loop below (project round-2 C0: an unfogged
+                    -- owner map leaked god-view ownership into the
+                    -- encoder the moment a fogged scenario runs).
                     villages_count[owner] = (villages_count[owner] or 0) + 1
+                    if not wesnoth.sides.is_fogged(side_number, x, y) then
+                        villages_owned[tostring(x) .. "," .. tostring(y)] = owner
+                    end
                 end
             end
         end
@@ -282,6 +290,11 @@ function state_collector.collect_game_state(side_number, game_id, include_map)
             hexes = hexes,             -- nil on delta frames
             units = units,
             fog = fog,
+            -- Whether fog is ENABLED for the acting side (project
+            -- round-3 C0: without it the encoder assumed fog-on and
+            -- self-blinded on fogless eval scenarios while the RCA
+            -- opponent saw everything).
+            fog_enabled = wesnoth.sides[side_number].fog,
             mask = mask,               -- nil on delta frames
             villages_owned = villages_owned,
         },

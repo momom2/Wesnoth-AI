@@ -123,6 +123,10 @@ class _PolicyPair:
     def drop_pending(self, game_label: str) -> None:
         self.policy.drop_pending(game_label)
 
+    def drop_last_pending(self, game_label: str) -> bool:
+        drop = getattr(self.policy, "drop_last_pending", None)
+        return bool(callable(drop) and drop(game_label))
+
 
 # ---------------------------------------------------------------------
 # Two-policy rollout
@@ -167,7 +171,9 @@ def _play_one_eval_game(
         # docstring in sim_self_play.py for why this deepcopy is
         # load-bearing).
         pre_state = copy.deepcopy(sim.gs)
-        action = actor.select_action(pre_state, game_label, sim)
+        from tools.mcts import fork_guard
+        with fork_guard(sim):
+            action = actor.select_action(pre_state, game_label, sim)
 
         # Recruit-bounce retry (god-view occupied hex). Same pattern
         # as play_one_game in sim_self_play.py.
@@ -178,6 +184,13 @@ def _play_one_eval_game(
             rejected.add((tgt.x, tgt.y))
             setattr(sim.gs.global_info,
                     "_recruit_rejected_hexes", rejected)
+            # Discard the bounced decision AND any cached plan
+            # (round-24 C6: without this, a search policy that
+            # serves from a cached plan -- PlanTournamentPolicy,
+            # TurnCommitPolicy -- kept serving the SAME plan and
+            # silently forfeited the recruit; play_one_game in
+            # sim_self_play.py has always done this).
+            actor.drop_last_pending(game_label)
             pre_state = copy.deepcopy(sim.gs)
             action = actor.select_action(pre_state, game_label, sim)
 
@@ -277,6 +290,7 @@ def peek_checkpoint_arch(
 
 def _load_policy(
     ckpt_path: Optional[Path], device, label: str,
+    infer_bf16: bool = False, infer_compile: bool = False,
 ) -> TransformerPolicy:
     """Build a TransformerPolicy at the checkpoint's saved arch and
     load weights. `ckpt_path=None` means "random init" -- useful as
@@ -290,7 +304,9 @@ def _load_policy(
     different model than the one that trained (the probe-bug class
     from the 2026-07-29 hoarding probe)."""
     arch_kwargs = peek_checkpoint_arch(ckpt_path, label)
-    policy = TransformerPolicy(device=device, **arch_kwargs)
+    policy = TransformerPolicy(device=device, infer_bf16=infer_bf16,
+                               infer_compile=infer_compile,
+                               **arch_kwargs)
     if ckpt_path and ckpt_path.exists():
         try:
             policy.load_checkpoint(ckpt_path)

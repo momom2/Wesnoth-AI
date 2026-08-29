@@ -78,7 +78,9 @@ class ReachContext:
     forbidden).
     """
     side: int
-    playable: frozenset
+    # Unread since project round-2 C12; default keeps old callers
+    # (tests, mask_sim_fuzz) constructing without it.
+    playable: frozenset = frozenset()
     # Hexes holding a VISIBLE unit (any side, incl. own): cannot LAND.
     occupied_visible: Set[Coord] = field(default_factory=set)
     # Hexes holding a visible ENEMY of `side`: cannot ENTER.
@@ -96,14 +98,15 @@ class ReachContext:
         from tools.replay_dataset import _stats_for
         from wesnoth_ai.visibility import units_visible_to, is_scenery_unit
 
-        playable = frozenset(
-            (h.position.x, h.position.y) for h in gs.map.hexes)
+        # `playable` is read nowhere (project round-2 C12: its
+        # per-call rebuild was pure overhead under every move
+        # command); the field keeps a default for ctor compat.
         if god_view:
             units = list(gs.map.units)
         else:
             units = units_visible_to(gs, side)
 
-        ctx = cls(side=side, playable=playable)
+        ctx = cls(side=side)
         for u in units:
             if exclude_unit is not None and u.id == exclude_unit.id:
                 continue

@@ -348,7 +348,11 @@ def main(argv) -> int:
     # logs/. shutil.copy2 preserves mtime so Wesnoth's "most
     # recent" sort orders correctly. Failure is non-fatal -- the
     # logs/ copy is still there.
-    saves_dir = args.saves_dir if str(args.saves_dir) else None
+    # Path("") stringifies to "." (truthy), so test the RAW string
+    # (project round-2 C9: the documented "" escape copied into the
+    # cwd instead of skipping).
+    saves_dir = (Path(args.saves_dir)
+                 if str(args.saves_dir) not in ("", ".") else None)
     if saves_dir is not None:
         try:
             saves_dir.mkdir(parents=True, exist_ok=True)

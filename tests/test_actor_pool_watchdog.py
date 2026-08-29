@@ -73,10 +73,14 @@ def _pool(procs, results, *, iteration_timeout=1800.0,
     return pool
 
 
-def test_dead_actor_is_dropped_not_wedged():
-    """Actor 1 crashes (is_alive False) and never reports done. The
-    loop must drop it and return actor 0's partial results instead of
-    spinning forever."""
+def test_dead_actor_with_nonzero_exit_aborts_loudly():
+    """Round-35 C0 reversal of the old drop-and-continue: an actor
+    killed before its `finally` ran (segfault, OOM-kill, guard trip)
+    must ABORT the iteration -- the silent drop hid real deaths
+    from the run's exit code. The loop still must not wedge: the
+    abort is how it terminates."""
+    import pytest
+    from tools.actor_pool import ActorFatalError
     procs = [_FakeProc(True, name="actor-0"),
              _FakeProc(False, exitcode=-9, name="actor-1")]
     results = [
@@ -84,6 +88,22 @@ def test_dead_actor_is_dropped_not_wedged():
         (_R_EXPS, 0, ["e0"]),
         (_R_DONE, 0, None),
         # actor 1 sends nothing -- it "crashed"
+    ]
+    pool = _pool(procs, results)
+    with pytest.raises(ActorFatalError):
+        pool.run_iteration(0, games_per_iter=2, base_seed=1)
+
+
+def test_dead_actor_with_clean_exit_is_dropped():
+    """A dead actor whose exitcode is 0 (finished, done message
+    lost) keeps the old resilience: dropped, partial results
+    returned."""
+    procs = [_FakeProc(True, name="actor-0"),
+             _FakeProc(False, exitcode=0, name="actor-1")]
+    results = [
+        (_R_OUTCOME, 0, "game0"),
+        (_R_EXPS, 0, ["e0"]),
+        (_R_DONE, 0, None),
     ]
     pool = _pool(procs, results)
     outcomes, experiences = pool.run_iteration(0, games_per_iter=2, base_seed=1)

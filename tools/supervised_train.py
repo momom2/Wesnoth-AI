@@ -921,9 +921,18 @@ def _evaluate(
     # they were independent). Per-game statistics + between-game SE
     # replace the pooled AUC when the cap is on.
     per_game: Dict[str, Dict[str, list]] = {}
+    _order = sorted(holdout_files)
+    if eval_sample_seed is not None and eval_pairs_per_game:
+        # The tripwire's "independent redraws" must redraw the GAME
+        # sample, not only the within-game pair reservoir (project
+        # round-1 C12: a fixed sorted order always fed the same 150
+        # date-oldest games, so all three redraws sampled one fixed,
+        # biased set). Separate RNG stream from the reservoir's.
+        import random as _random
+        _random.Random(eval_sample_seed ^ 0x5EED).shuffle(_order)
     with torch.no_grad():
         for item in _pair_stream_serial(
-                sorted(holdout_files),
+                _order,
                 max_pairs_per_replay=eval_pairs_per_game,
                 sample_seed=eval_sample_seed):
             if item[0] != "pair":
@@ -1508,11 +1517,15 @@ def train(
     running_loss_target = deque(maxlen=200)
     running_loss_weapon = deque(maxlen=200)
     running_loss_value  = deque(maxlen=200)
-    # running_count is THIS RUN's pair count (drives max_pairs cap and
-    # rate). cumulative_pairs adds the resumed-from total for the
-    # progress-display + checkpoint save.
-    running_count = 0
-    last_eval_pairs = 0
+    # running_count is the CHAIN-cumulative pair count (seeded from
+    # the checkpoint's supervised_pairs, so the recorded total keeps
+    # accumulating across links -- project round-1 C16: seeding 0
+    # reset it every resume while the comment claimed otherwise).
+    # max_pairs is compared against THIS-RUN pairs via
+    # run_start_count.
+    running_count = resumed_pairs
+    run_start_count = resumed_pairs
+    last_eval_pairs = resumed_pairs
     global_step = resumed_step
     t_start = time.time()
     stop = False
@@ -1847,6 +1860,8 @@ def train(
                         stats = _evaluate(
                             model, encoder, holdout_files, device,
                             eval_pairs=eval_pairs,
+                            eval_pairs_per_game=eval_pairs_per_game,
+                            eval_sample_seed=eval_sample_seed,
                             type_loss_weights=type_loss_weights,
                             winner_map=winner_map)
                         _log_eval(stats, epoch, global_step,
@@ -1858,7 +1873,9 @@ def train(
                                 **{k: round(v, 2) for k, v in
                                    prof_acc.items()},
                             }), encoding="utf-8")
-                    if max_pairs and running_count >= max_pairs:
+                    if (max_pairs
+                            and running_count - run_start_count
+                            >= max_pairs):
                         log.info(f"Reached max_pairs={max_pairs}; stopping.")
                         stop = True
                         break
@@ -1910,8 +1927,15 @@ def train(
         # `epoch + 1` is the count of fully-completed epochs after
         # this save (the loop just finished epoch `epoch`). Resume
         # will read this back as `resumed_epoch` and start the next
-        # link at `range(resumed_epoch, epochs)`.
-        completed = epoch + 1
+        # link at `range(resumed_epoch, epochs)`. A max_pairs cut
+        # mid-epoch did NOT complete it (project round-1 C15:
+        # recording epoch+1 made the resume skip the rest of the
+        # corpus).
+        completed = epoch if stop else epoch + 1
+        if stop:
+            log.info(f"max_pairs cut mid-epoch {epoch}; checkpoint "
+                     f"records epoch={completed} (NOT completed; "
+                     f"resume redoes it)")
         _save_checkpoint(checkpoint_out, model, encoder, opt,
                          global_step, running_count, epoch=completed,
                          arch=arch_record, carry=carry)
@@ -1926,10 +1950,14 @@ def train(
         # error count or far fewer pairs than the corpus holds is a
         # broken run, not a fast one (2026-08-08 random-arm underrun).
         log.info(f"  epoch accounting: files_seen={files_seen} "
-                 f"file_errors={file_errors} pairs={running_count}")
+                 f"file_errors={file_errors} "
+                 f"pairs={running_count - run_start_count} "
+                 f"(chain total {running_count})")
         if holdout_files:
             stats = _evaluate(model, encoder, holdout_files, device,
                               eval_pairs=eval_pairs,
+                              eval_pairs_per_game=eval_pairs_per_game,
+                              eval_sample_seed=eval_sample_seed,
                               type_loss_weights=type_loss_weights,
                               winner_map=winner_map)
             _log_eval(stats, epoch, global_step, running_count,

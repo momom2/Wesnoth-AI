@@ -41,11 +41,17 @@ STATUS = WORKDIR / "leg_status.json"
 # Pure decision logic (unit-tested; no syscalls)
 # ---------------------------------------------------------------------
 
-def decide_ensure(entry: Optional[Dict], alive: bool) -> str:
-    """-> 'keep' | 'spawn'. `alive` is the liveness of entry's pid
-    as established by the caller; a missing/dead entry spawns."""
+def decide_ensure(entry: Optional[Dict], alive: bool,
+                  orphans: bool = False) -> str:
+    """-> 'keep' | 'spawn' | 'orphan'. `alive` is the identity-
+    verified liveness of entry's pid; `orphans` = the leader is
+    dead but same-namespace group members survive (round-37 C1:
+    spawning a SECOND trainer over a live orphaned sim would
+    interleave two runs' weights into one rolling checkpoint)."""
     if entry and alive:
         return "keep"
+    if entry and orphans:
+        return "orphan"
     return "spawn"
 
 
@@ -62,12 +68,106 @@ def merge_status(status: Dict, name: str, rec: Optional[Dict]) -> Dict:
 # POSIX shell
 # ---------------------------------------------------------------------
 
+def _ns_identity():
+    """(pid-namespace inode, pid 1 starttime) -- the identity of
+    THIS container's pid space; None off-Linux. boot_id was the
+    wrong key (round-36 C0: Docker does not namespace the host's
+    boot id, so a Vast stop/start -- fresh pid namespace, pids
+    from 1 -- looked 'same boot' while every recorded number was
+    recycled)."""
+    try:
+        ns = os.stat("/proc/self/ns/pid").st_ino
+        with open("/proc/1/stat", "rb") as f:
+            st = f.read().decode("ascii", "replace")
+        p1 = int(st.rsplit(")", 1)[1].split()[19])
+        return ns, p1
+    except (OSError, IndexError, ValueError):
+        return None
+
+
+def _group_members(pgid: int):
+    """Live pids whose process group is `pgid` (Linux /proc scan;
+    [] off-Linux or on error)."""
+    out = []
+    try:
+        for d in os.listdir("/proc"):
+            if not d.isdigit():
+                continue
+            try:
+                with open(f"/proc/{d}/stat", "rb") as f:
+                    st = f.read().decode("ascii", "replace")
+                if int(st.rsplit(")", 1)[1].split()[2]) == pgid:
+                    out.append(int(d))
+            except (OSError, IndexError, ValueError):
+                continue
+    except OSError:
+        pass
+    return out
+
+
 def _pid_alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
         return True
     except (ProcessLookupError, PermissionError):
         return False
+
+
+def _proc_identity(pid: int):
+    """(starttime_ticks, argv0) of a live pid, or None. starttime is
+    /proc/<pid>/stat field 22 (ticks since host boot) -- the same
+    parse shape stall_watchdog uses; together with argv0 it makes a
+    recorded pid distinguishable from an UNRELATED process that
+    reused the number after an instance restart (round-33 C2:
+    leg_status.json persists on /workspace across stop/restart, so
+    a bare kill(pid, 0) could 'keep' a stranger and never respawn
+    the daemon -- or later kill that stranger's process group)."""
+    try:
+        with open(f"/proc/{pid}/stat", "rb") as f:
+            stat = f.read().decode("ascii", "replace")
+        # comm can contain spaces/parens: split after the LAST ')'.
+        tail = stat.rsplit(")", 1)[1].split()
+        starttime = int(tail[19])
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            argv0 = f.read().split(b"\0", 1)[0].decode(
+                "utf-8", "replace")
+        return starttime, argv0
+    except (OSError, IndexError, ValueError):
+        return None
+
+
+def _cmdline_matches(pid: int, cmd) -> bool:
+    """Exact argv match of a live pid against a recorded cmd list;
+    False on any error/off-Linux."""
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            parts = f.read().split(b"\0")
+        if parts and parts[-1] == b"":
+            parts = parts[:-1]
+        return [p.decode("utf-8", "replace")
+                for p in parts] == list(cmd or [])
+    except OSError:
+        return False
+
+
+def _entry_alive(entry) -> bool:
+    """Liveness = pid exists AND its identity matches the record.
+    A record without identity fields (the committed pre-round-33
+    shape) is accepted ONLY on an exact argv match -- the True
+    fallback bypassed every identity guard for exactly the records
+    that predate them, killpg'ing recycled numbers and refusing to
+    respawn dead daemons (round-37 C0)."""
+    if not entry:
+        return False
+    pid = int(entry["pid"])
+    if not _pid_alive(pid):
+        return False
+    if "starttime" not in entry:
+        return _cmdline_matches(pid, entry.get("cmd"))
+    ident = _proc_identity(pid)
+    return (ident is not None
+            and ident[0] == entry["starttime"]
+            and ident[1] == entry.get("argv0"))
 
 
 def _load_locked(f):
@@ -96,8 +196,38 @@ def _with_status(mutate):
 def ensure(name: str, cmd: List[str]) -> int:
     def mutate(status):
         entry = status.get(name)
-        alive = bool(entry) and _pid_alive(int(entry["pid"]))
-        if decide_ensure(entry, alive) == "keep":
+        alive = _entry_alive(entry)
+        _orph = []
+        if (entry and not alive
+                and not _pid_alive(int(entry["pid"]))):
+            _ns0 = _ns_identity()
+            if (_ns0 is not None
+                    and entry.get("ns_id") == _ns0[0]
+                    and entry.get("pid1_start") == _ns0[1]):
+                _orph = _group_members(int(entry["pgid"]))
+        _decision = decide_ensure(entry, alive,
+                                  orphans=bool(_orph))
+        if _decision == "orphan":
+            print(f"{name}: NOT spawned -- leader {entry['pid']} "
+                  f"is dead but pids {_orph} still run in pgid "
+                  f"{entry['pgid']} (round-37 C1: a second "
+                  f"{name} would fight the orphan over the same "
+                  f"files). Verify with `ps -o pid,pgid,cmd` and "
+                  f"reap with `kill -- -{entry['pgid']}`, then "
+                  f"re-run ensure.")
+            return status, 1
+        if _decision == "keep":
+            if "starttime" not in entry:
+                # One-boot migration: stamp identity onto a
+                # verified legacy record (round-37 C0).
+                _id2 = _proc_identity(int(entry["pid"]))
+                if _id2 is not None:
+                    entry = dict(entry)
+                    entry["starttime"], entry["argv0"] = _id2
+                    _ns2 = _ns_identity()
+                    if _ns2 is not None:
+                        entry["ns_id"], entry["pid1_start"] = _ns2
+                    status = merge_status(status, name, entry)
             print(f"{name}: already running (pid {entry['pid']})")
             return status, 0
         log = open(WORKDIR / f"{name}.log", "ab")
@@ -108,6 +238,12 @@ def ensure(name: str, cmd: List[str]) -> int:
         rec = {"pid": proc.pid, "pgid": os.getpgid(proc.pid),
                "cmd": cmd,
                "started": time.strftime("%FT%TZ", time.gmtime())}
+        ident = _proc_identity(proc.pid)
+        if ident is not None:
+            rec["starttime"], rec["argv0"] = ident
+        _ns = _ns_identity()
+        if _ns is not None:
+            rec["ns_id"], rec["pid1_start"] = _ns
         print(f"{name}: spawned pid {proc.pid} pgid {rec['pgid']}")
         return merge_status(status, name, rec), 0
     return _with_status(mutate)
@@ -132,22 +268,58 @@ def _kill_group(pgid: int) -> None:
 def stop(names: Optional[List[str]] = None) -> int:
     def mutate(status):
         targets = names if names else list(status)
+        rc = 0
         for n in targets:
             e = status.get(n)
-            if e:
+            if e and _entry_alive(e):
                 _kill_group(int(e["pgid"]))
                 print(f"{n}: stopped (pgid {e['pgid']})")
                 status = merge_status(status, n, None)
+            elif e:
+                # NEVER killpg on an inferred number: the round-35
+                # auto-reap fired on recycled pids/pgids in two ways
+                # (round-36 C0: container restarts keep the HOST
+                # boot id while the pid namespace resets; round-36
+                # C1: an alive-but-different pid PROVES recycling,
+                # and the stranger may be a group leader). Signals
+                # go only to identity-VERIFIED records (the branch
+                # above); here we detect the one genuine orphan
+                # case and tell the operator instead of guessing.
+                _ns = _ns_identity()
+                _same_ns = (_ns is not None
+                            and e.get("ns_id") == _ns[0]
+                            and e.get("pid1_start") == _ns[1])
+                _members = ([] if not _same_ns
+                            else _group_members(int(e["pgid"])))
+                if _members and not _pid_alive(int(e["pid"])):
+                    print(f"{n}: leader {e['pid']} is dead but "
+                          f"pids {_members} still run in pgid "
+                          f"{e['pgid']} (same pid namespace). "
+                          f"NOT killed automatically -- verify "
+                          f"with `ps -o pid,pgid,cmd` and reap "
+                          f"with `kill -- -{e['pgid']}` if they "
+                          f"are the orphaned daemon.")
+                    # The record SURVIVES (round-38 C0: dropping
+                    # it disarmed ensure()'s orphan gate, so the
+                    # very next ensure spawned a second daemon
+                    # over the live orphan). The stale path below
+                    # drops it once the group is actually empty.
+                    rc = 1
+                else:
+                    print(f"{n}: stale record dropped (pid "
+                          f"{e['pid']} is dead or a different "
+                          f"process); nothing killed")
+                    status = merge_status(status, n, None)
             else:
                 print(f"{n}: not recorded")
-        return status, 0
+        return status, rc
     return _with_status(mutate)
 
 
 def show() -> int:
     def mutate(status):
         for n, e in sorted(status.items()):
-            alive = _pid_alive(int(e["pid"]))
+            alive = _entry_alive(e)
             print(f"{n:<12} pid={e['pid']:<8} pgid={e['pgid']:<8} "
                   f"{'ALIVE' if alive else 'DEAD'}  since {e['started']}")
         if not status:

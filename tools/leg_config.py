@@ -23,6 +23,7 @@ CLI:
 from __future__ import annotations
 
 import json
+import re
 import sys
 from dataclasses import MISSING, dataclass, fields
 from pathlib import Path
@@ -86,6 +87,17 @@ def load(path: Path) -> LegConfig:
             or not all(isinstance(k, str) and isinstance(v, str)
                        for k, v in ee.items())):
         problems.append("extra_env must be a {str: str} object")
+    elif ee:
+        _bad = sorted(k for k in ee
+                      if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*",
+                                          str(k)))
+        if _bad:
+            problems.append(
+                f"extra_env keys must be shell identifiers "
+                f"(A-Za-z0-9_, not starting with a digit; no "
+                f"dashes): {_bad} -- a non-identifier key would "
+                f"pass validation and then be silently dropped by "
+                f"the launcher's eval (project round-2 C7)")
     if problems:
         raise ValueError("leg config INVALID:\n  - "
                          + "\n  - ".join(problems))
@@ -106,6 +118,9 @@ def export_lines(cfg: LegConfig) -> list:
         v = "" if v == "none" else v
         out.append(f"export {env_name}={_sq(v)}")
     for k, v in (cfg.extra_env or {}).items():
+        # Defense in depth: no caller may emit a non-identifier
+        # export line (validate refuses these upstream).
+        assert re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", str(k)), k
         out.append(f"export {k}={_sq(v)}  # extra_env override")
     return out
 

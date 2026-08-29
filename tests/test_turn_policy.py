@@ -290,3 +290,83 @@ def test_boundary_frame_mover_keeps_pre_flip_state():
     m_proj = materialize(base, sim, side, [], "fr0", 0,
                          keep_boundary_sim=True, mover_frame=True)
     assert m_proj.boundary_sim.gs.global_info.current_side != side
+
+
+def _first_move_cmds(sim):
+    """(move a->d, move a->b) for some unit with 2+ reachable hexes:
+    the second command's start hex is STALE after the first."""
+    from tools.pathfind_sim import ReachContext, unit_reach
+    from wesnoth_ai.classes import Position
+    gs = sim.gs
+    side = gs.global_info.current_side
+    ctx = ReachContext.for_side(gs, side)
+    for u in gs.map.units:
+        if u.side != side or u.current_moves <= 0:
+            continue
+        ur = unit_reach(u, gs, ctx)
+        _ux, _uy = u.position.x, u.position.y
+        reach = sorted(c for c in ur.landable
+                       if c != (_ux, _uy))[:2]
+        if len(reach) >= 2:
+            a = Position(_ux, _uy)
+            return ([{"type": "move", "start_hex": a,
+                      "target_hex": Position(*reach[0])},
+                     {"type": "move", "start_hex": a,
+                      "target_hex": Position(*reach[1])}])
+    return None
+
+
+def test_mover_frame_survives_sim_forced_end_turn():
+    """Project round-1 C0/C6: a command the sim force-converts to
+    end_turn (stale start hex) must still grade in the MOVER frame
+    -- snapshotting only typed end_turns silently graded such
+    candidates from the opponent's fogged view while their peers
+    graded from the mover's."""
+    from tools.turn_search import materialize
+    sim = fresh_scenario_sim()
+    side = sim.gs.global_info.current_side
+    cmds = _first_move_cmds(sim)
+    if cmds is None:
+        import pytest
+        pytest.skip("no unit with two reachable hexes at start")
+    m = materialize(None, sim, side, cmds, "t:mf", 0,
+                    skip_value=True, mover_frame=True)
+    assert not m.invalid
+    assert m.boundary_sim is not None
+    assert m.boundary_sim.gs.global_info.current_side == side, \
+        "sim-forced end_turn graded in the opponent frame"
+
+
+def test_prefix_resume_is_bit_identical():
+    """Project round-1 C10: a candidate materialized from a prefix
+    snapshot must be indistinguishable from a fresh full replay --
+    same executed list, same dice consumption, same boundary
+    state."""
+    from tools.turn_search import materialize
+    from wesnoth_ai.classes import state_key
+    sim = fresh_scenario_sim()
+    side = sim.gs.global_info.current_side
+    cmds = _first_move_cmds(sim)
+    if cmds is None:
+        import pytest
+        pytest.skip("no unit with two reachable hexes at start")
+    # Incumbent: first move then end_turn; snapshots collected.
+    inc_cmds = [cmds[0]]
+    snaps = []
+    materialize(None, sim, side, inc_cmds, "t:seam", 0,
+                skip_value=True, snapshots=snaps)
+    snap_at = {s[1]: s for s in snaps}
+    assert 0 in snap_at
+    # Candidate shares prefix commands[:0] (empty) -- use index 0 to
+    # exercise the seam end to end on the full list.
+    cand = [cmds[1], cmds[0]]
+    fresh = materialize(None, sim, side, cand, "t:seam", 0,
+                        skip_value=True)
+    via = materialize(None, sim, side, cand, "t:seam", 0,
+                      skip_value=True, resume=snap_at[0])
+    assert via.executed == fresh.executed
+    assert via.accepted == fresh.accepted
+    assert via.attempted == fresh.attempted
+    assert via.stochastic == fresh.stochastic
+    assert state_key(via.boundary_sim.gs) == \
+        state_key(fresh.boundary_sim.gs)

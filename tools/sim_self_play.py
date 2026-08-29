@@ -355,8 +355,24 @@ def play_one_game(
         #   2) compute_delta needs (pre, post) to diff. sim.step
         #      replaces sim.gs.map.units / sides / global_info, so a
         #      saved reference IS pre; the live sim.gs IS post.
-        pre_state = copy.deepcopy(sim.gs)
-        action = policy.select_action(pre_state, game_label=game_label, sim=sim)
+        from tools.mcts import fork_guard
+        _note = getattr(policy, "note_observation", None)
+
+        def _decide():
+            # ONE path for every decision, initial or bounce retry
+            # (project round-3 C1: the retry skipped the GBC
+            # observation note, so its recorded state had no stream
+            # anchor and lost its labels). The observation is a
+            # no-op unless gbc labels are on; a duplicate
+            # observation diffs to zero events.
+            pre = copy.deepcopy(sim.gs)
+            if _note is not None:
+                _note(game_label, pre)
+            with fork_guard(sim):
+                return pre, policy.select_action(
+                    pre, game_label=game_label, sim=sim)
+
+        pre_state, action = _decide()
 
         # Recruit-rejection retry loop. Per the legality-mask
         # contract (CLAUDE.md): a recruit attempt on a hex that the
@@ -397,8 +413,7 @@ def play_one_game(
             drop = getattr(policy, "drop_last_pending", None)
             if not (callable(drop) and drop(game_label)):
                 policy.observe(game_label, acting_side, 0.0, done=False)
-            pre_state = copy.deepcopy(sim.gs)
-            action = policy.select_action(pre_state, game_label=game_label, sim=sim)
+            pre_state, action = _decide()
 
         # Moves onto fog-hidden enemy hexes are NOT pre-bounced here
         # anymore (2026-07-17): the sim resolves them Wesnoth-
@@ -1021,6 +1036,7 @@ class SpoolWorkers:
                      f"(VRAM budget; see --spool-worker-device)")
         elif n_cuda == 0:
             log.info("spool devices: all cpu")
+        from tools.plan_tournament import TournamentConfig as _PTC
         self._cmd_tail = [
             "--checkpoint", str(checkpoint),
             "--spool-dir", str(spool_dir),
@@ -1064,8 +1080,15 @@ class SpoolWorkers:
                 args, "mcts_batch_size", None) or -1),
         ] + (["--hierarchical-gumbel"] if getattr(
             args, "mcts_hierarchical_gumbel", False) else []) + [
-        ] + (["--infer-compile"] if getattr(
-            args, "infer_compile", False) else []) + [
+            # Workers resolve AUTO against their OWN device, so only
+            # EXPLICIT precision/compile choices are forwarded.
+        ] + ([] if getattr(args, "_infer_compile_explicit", None) is None
+             else (["--infer-compile"]
+                   if args._infer_compile_explicit
+                   else ["--no-infer-compile"])) + [
+        ] + ([] if getattr(args, "_infer_bf16_explicit", None) is None
+             else (["--infer-bf16"] if args._infer_bf16_explicit
+                   else ["--no-infer-bf16"])) + [
             "--fogless-ratio", str(getattr(args, "fogless_ratio", 0.0)),
             "--midgame-ratio", str(getattr(args, "midgame_ratio", 0.0)),
             "--ladder-ratio", str(getattr(args, "ladder_ratio", 1.0)),
@@ -1079,8 +1102,37 @@ class SpoolWorkers:
             "--log-level", log_level,
         ] + (["--train-draw-tiebreak"] if getattr(
             args, "train_draw_tiebreak", False) else []) + [
+            # Winnerless value weight seals WORKER-side (single
+            # authority, project round-2 C1) -- must ride the cmd.
+            "--draw-value-weight", str(getattr(
+                args, "draw_value_weight", 0.0)),
             # TCS knobs (2026-08-14): the WORKERS build the training
             # targets -- same symmetry contract as the distill knobs.
+            "--plan-tournament" if getattr(args, "plan_tournament",
+                                           False)
+            else "--no-plan-tournament",
+            # Fallbacks derive from TournamentConfig so a drifted
+            # duplicate literal cannot reintroduce the even-depth
+            # frame bug (review C14).
+            "--pt-challengers", str(getattr(
+                args, "pt_challengers", _PTC().n_challengers)),
+            "--pt-depths", str(getattr(
+                args, "pt_depths",
+                ",".join(str(d) for d in _PTC().depths))),
+            "--pt-redraws", str(getattr(
+                args, "pt_redraws", _PTC().redraws)),
+            "--pt-cert-depth", str(getattr(
+                args, "pt_cert_depth", _PTC().cert_depth)),
+            "--pt-cert-redraws", str(getattr(
+                args, "pt_cert_redraws", _PTC().cert_redraws)),
+            "--pt-budget-forwards", str(getattr(
+                args, "pt_budget_forwards", _PTC().budget_forwards)),
+            "--pt-margin-band", str(getattr(
+                args, "pt_margin_band", _PTC().margin_band)),
+            "--pt-beta-max", str(getattr(
+                args, "pt_beta_max", _PTC().beta_max)),
+            "--pt-margin-ref", str(getattr(
+                args, "pt_margin_ref", _PTC().margin_ref)),
             "--turn-search" if getattr(args, "turn_search", False)
             else "--no-turn-search",
             "--turn-alt", str(getattr(args, "turn_alt", 4)),
@@ -2359,6 +2411,23 @@ class _TrainerHistoryCSV:
         "tcs_projections_per_plan", "tcs_blind_coord_frac",
         "tcs_gate_flip_frac", "tcs_gate_delta_reval",
         "tcs_gate_shorten_per_plan", "gbc_loss", "aux_loss",
+        # Plan-tournament telemetry (proposition 1, 2026-08-26). The
+        # beta columns calibrate the starvation tripwire before it
+        # is armed (user ruling: log first, arm after).
+        "pt_tournaments", "pt_arm_prefix_frac",
+        "pt_cert_rate", "pt_cert_attempt_rate",
+        "pt_cert_replicates_mean", "pt_cert_starved_rate",
+        "pt_renorm_factor_mean",
+        "pt_beta_mean", "pt_beta_p50", "pt_beta_p90",
+        "pt_cert_margin_mean", "pt_margin_mean",
+        "pt_abstain_events_per_turn", "pt_forwards_per_turn",
+        "pt_challengers_per_tournament", "pt_replans_per_turn",
+        "pt_grades_per_tournament", "pt_half_est",
+        "pt_cert_rate_f0", "pt_cert_rate_f1", "pt_cert_rate_f2p",
+        "pt_cert_attempt_frac_f0", "pt_cert_attempt_frac_f1",
+        "pt_cert_attempt_frac_f2p",
+        "pt_cert_len_delta_mean", "pt_cert_shorten_rate",
+        "pt_half_cap_hit_rate",
     ]
 
     def __init__(self, path: Path):
@@ -2844,6 +2913,38 @@ def main(argv: List[str]) -> int:
                     help="Alias for --no-mcts: legacy REINFORCE "
                          "training (raw policy sampling, shaping "
                          "rewards live).")
+    ap.add_argument("--plan-tournament",
+                    action=argparse.BooleanOptionalAction, default=False,
+                    help="Incumbent-anchored turn-plan tournament with "
+                         "certify-or-abstain distillation (proposition "
+                         "1, user-approved 2026-08-26; "
+                         "tools/plan_tournament.py). The policy's own "
+                         "sampled turn plays unless a challenger "
+                         "certifies an improvement under paired "
+                         "projection grading; certified turns distill "
+                         "at policy_weight=beta, abstained turns are "
+                         "value-only. Takes precedence over "
+                         "--turn-search.")
+    ap.add_argument("--pt-challengers", type=int, default=6)
+    ap.add_argument("--pt-depths", type=str, default="1,3",
+                    help="Comma-separated SELECTION depths (odd "
+                         "half-turns; even/zero rejected -- "
+                         "own-frame invariant).")
+    ap.add_argument("--pt-redraws", type=int, default=1)
+    ap.add_argument("--pt-cert-depth", type=int, default=3,
+                    help="Fixed certification depth (odd half-turns).")
+    ap.add_argument("--pt-cert-redraws", type=int, default=3,
+                    help="Independent certification pairs (n-aware "
+                         "accept_rule; clamped to the _T_CRIT "
+                         "table range).")
+    ap.add_argument("--pt-budget-forwards", type=int, default=900,
+                    help="Hard per-side-turn forward cap; exhaustion "
+                         "abstains (fixed-budget rule 2026-08-26).")
+    ap.add_argument("--pt-margin-band", type=float, default=0.08,
+                    help="Certification band (pre-registered v1: 2 "
+                         "C51 atoms; branch audit will replace).")
+    ap.add_argument("--pt-beta-max", type=float, default=0.25)
+    ap.add_argument("--pt-margin-ref", type=float, default=0.32)
     ap.add_argument("--turn-search", action=argparse.BooleanOptionalAction,
                     default=True,
                     help="Turn-Commitment Search (docs/tcs_spec.md): "
@@ -2984,16 +3085,22 @@ def main(argv: List[str]) -> int:
                          "fixed-ToD mini templates (the 3 passivity-"
                          "asymmetry maps). De-confound lever, BACKLOG "
                          "3c; env-inherited by spool workers.")
-    ap.add_argument("--infer-bf16", action="store_true",
-                    help="bf16 autocast for INFERENCE forwards on "
-                         "CUDA (trainer stays fp32; outputs cast "
-                         "back to fp32). Throughput program "
-                         "2026-08-05; A/B before defaulting.")
-    ap.add_argument("--infer-compile", action="store_true",
+    ap.add_argument("--infer-bf16", action=argparse.BooleanOptionalAction,
+                    default=None,
+                    help="bf16 autocast for INFERENCE forwards "
+                         "(trainer stays fp32; outputs cast back to "
+                         "fp32). Training default OFF (2026-08-29: "
+                         "unvalidated on the pool path; eval keeps "
+                         "the 2026-08-28 cuda-auto compile+bf16 "
+                         "default).")
+    ap.add_argument("--infer-compile", action=argparse.BooleanOptionalAction,
+                    default=None,
                     help="torch.compile the inference model "
-                         "(reduce-overhead). Opt-in; no-ops with a "
-                         "warning where inductor is unavailable "
-                         "(e.g. Windows).")
+                         "(reduce-overhead). Training default OFF "
+                         "(2026-08-29: an in-process compile "
+                         "deadlocked the spool e2e on cuda; flip "
+                         "after a pool-path validation smoke). "
+                         "Kernel cache via TORCHINDUCTOR_CACHE_DIR.")
     ap.add_argument("--distill-target-temp", type=float, default=1.0,
                     help="Temperature dividing the Gumbel "
                          "distillation-target logits (--mcts only; "
@@ -3094,7 +3201,9 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--mcts-aux-coef", type=float, default=0.15,
                     help="Weight of the auxiliary margin MSE loss "
                          "(--mcts-aux-score). KataGo uses ~0.15.")
-    ap.add_argument("--relevant-set-hexes", action="store_true",
+    ap.add_argument("--relevant-set-hexes",
+                    action=argparse.BooleanOptionalAction,
+                    default=None,
                     help="Encode only the RELEVANT hexes (unit reach + "
                          "villages + castles + visible units) instead of the "
                          "whole board. Measured: mean 0.30 of the board, "
@@ -3226,7 +3335,7 @@ def main(argv: List[str]) -> int:
                     help="Policy-rehearsal gradient steps per "
                          "iteration (--human-anchor-policy-file).")
     ap.add_argument("--human-anchor-policy-batch", type=int, default=128)
-    ap.add_argument("--draw-value-weight", type=float, default=1.0,
+    ap.add_argument("--draw-value-weight", type=float, default=0.0,
                     help="Weight of drawn games' states in the MCTS "
                          "value loss (aux/moves-left heads always get "
                          "them). 0 = decisive-only value learning "
@@ -3387,10 +3496,17 @@ def main(argv: List[str]) -> int:
     ckpt_aux_score = False
     ckpt_moves_left = False
     ckpt_gbc = False
-    if args.checkpoint_in and args.checkpoint_in.exists():
+    ckpt_relevant_set = None
+    if args.checkpoint_in and (
+            args.checkpoint_in.exists()
+            or args.checkpoint_in.with_suffix(
+                args.checkpoint_in.suffix + ".bak").exists()):
         # Resolve to a LOADABLE checkpoint: prefer the primary, but if it's
-        # unreadable (truncated by a kill mid-write on a preemptible node),
-        # fall back to the rolling `.bak` that save_checkpoint keeps. Doing
+        # unreadable (truncated by a kill mid-write on a preemptible node)
+        # or ABSENT (a kill inside save_checkpoint's rename window leaves
+        # only the .bak -- project round-1 C5: the old primary-exists gate
+        # made that window a random-init restart), fall back to the rolling
+        # `.bak` that save_checkpoint keeps. Doing
         # this here — before load_checkpoint below — means both the arch
         # peek and the weight load use the same good file, so a spot
         # preemption costs at most the last save interval, not the whole run.
@@ -3421,6 +3537,7 @@ def main(argv: List[str]) -> int:
             ckpt_aux_score = bool(raw.get("aux_score", False))
             ckpt_moves_left = bool(raw.get("moves_left", False))
             ckpt_gbc = bool(raw.get("gbc", False))
+            ckpt_relevant_set = raw.get("relevant_set_hexes", None)
             if arch_kwargs:
                 log.info(f"warm-start arch from checkpoint: {arch_kwargs}"
                          f"{' +aux_score' if ckpt_aux_score else ''}"
@@ -3467,15 +3584,68 @@ def main(argv: List[str]) -> int:
     # GBC heads: same peek-and-OR as aux (a gbc-on checkpoint keeps
     # its trained heads on resume even under --no-gbc).
     gbc_flag = bool(getattr(args, "gbc", False)) or ckpt_gbc
-    relevant_set_flag = bool(getattr(args, "relevant_set_hexes", False))
+    # Write the RESOLVED flag back (project round-5: the spool cmd
+    # builder and the ActorPool call read args, so without this a
+    # --no-gbc resume of a gbc checkpoint built+logged the heads ON
+    # learner-side while every producer attached gbc_labels=None --
+    # zero GBC gradient for the leg on both production topologies).
+    args.gbc = gbc_flag
+    # Basis resolution (project round-1 C2: the ONLY structural
+    # flag not peeked from the checkpoint -- a resume that omitted
+    # the flag silently rebased the action space while every weight
+    # loaded cleanly). CLI None = inherit; an explicit CLI value
+    # that CONTRADICTS the checkpoint halts, since flipping the
+    # basis mid-lineage is a deliberate act.
+    _cli_rsh = getattr(args, "relevant_set_hexes", None)
+    if _cli_rsh is None:
+        relevant_set_flag = bool(ckpt_relevant_set)
+        if ckpt_relevant_set is not None:
+            log.info(f"--relevant-set-hexes inherited from "
+                     f"checkpoint: {relevant_set_flag}")
+    else:
+        relevant_set_flag = bool(_cli_rsh)
+        if (ckpt_relevant_set is not None
+                and bool(ckpt_relevant_set) != relevant_set_flag):
+            raise SystemExit(
+                f"--relevant-set-hexes={relevant_set_flag} "
+                f"contradicts the checkpoint "
+                f"({bool(ckpt_relevant_set)}): flipping the action-"
+                f"space basis mid-lineage rebases every policy "
+                f"target. Pass the matching value, or omit the "
+                f"flag to inherit.")
+    # Write the RESOLVED basis back so every later consumer (the
+    # worker spool cmd builder, telemetry) sees one truth -- the
+    # spool's index-basis tripwire otherwise halts on a learner/
+    # worker disagreement the inheritance itself created.
+    args.relevant_set_hexes = relevant_set_flag
+    # Inference precision/compile resolution (user ruling
+    # 2026-08-28: compile+bf16 default on CUDA; measured 2.0x
+    # together, ~1x each alone). Keep the EXPLICIT values aside
+    # first: spool workers resolve AUTO against their own device,
+    # so only explicit overrides are forwarded to them.
+    args._infer_bf16_explicit = args.infer_bf16
+    args._infer_compile_explicit = args.infer_compile
+    # TRAINING default: OFF (2026-08-29). The 2026-08-28 compile+
+    # bf16 ruling stands for EVAL (bench-validated, match-proven);
+    # on the TRAINING path an in-process compile deadlocked on a
+    # CUDA box (spool e2e hang, 33 min at 3% CPU -- suspected
+    # cudagraph capture under the learner's threads), and the
+    # teacher arms must not carry an unvalidated numerics change.
+    # Flip AFTER a dedicated pool-path validation smoke (BACKLOG).
+    if args.infer_bf16 is None:
+        args.infer_bf16 = False
+    if args.infer_compile is None:
+        args.infer_compile = False
+    log.info(f"inference config: bf16={args.infer_bf16} "
+             f"compile={args.infer_compile} "
+             f"(training default OFF pending pool-path validation; "
+             f"eval keeps the 2026-08-28 cuda-auto default)")
     policy = TransformerPolicy(device=device, aux_score=aux_score_flag,
                                moves_left=moves_left_flag,
                                gbc=gbc_flag,
                                relevant_set_hexes=relevant_set_flag,
-                               infer_bf16=getattr(args, "infer_bf16",
-                                                  False),
-                               infer_compile=getattr(
-                                   args, "infer_compile", False),
+                               infer_bf16=args.infer_bf16,
+                               infer_compile=args.infer_compile,
                                **arch_kwargs)
     if relevant_set_flag:
         log.info("relevant-hex encoding ON (action-space index basis "
@@ -3526,11 +3696,12 @@ def main(argv: List[str]) -> int:
             args.value_label_smoothing)
         log.info(f"value label smoothing -> "
                  f"{args.value_label_smoothing} (train loss only)")
-    if args.draw_value_weight != 1.0:
-        policy._trainer.config.draw_value_weight = float(
-            args.draw_value_weight)
+    policy._trainer.config.draw_value_weight = float(
+        args.draw_value_weight)
+    if args.draw_value_weight != 0.0:
         log.info(f"draw value weight -> {args.draw_value_weight} "
-                 f"(draws feed aux/moves-left only at 0)")
+                 f"(winnerless states now FEED the value head at "
+                 f"this weight; 0 = the truncation-ruling default)")
     if args.checkpoint_in and args.checkpoint_in.exists():
         log.info(f"loading checkpoint {args.checkpoint_in}")
         try:
@@ -3668,14 +3839,56 @@ def main(argv: List[str]) -> int:
                 "--mcts-aux-value-bonus is set but the model has NO "
                 "aux head (--mcts-aux-score): the bonus is a silent "
                 "no-op (reviewer finding m3, 2026-07-11).")
+        from tools.plan_tournament import (
+            config_from_args as pt_config_from_args,
+        )
+        pt_cfg = pt_config_from_args(args)
         turn_cfg = turn_config_from_args(args)
-        if turn_cfg is not None:
+        if pt_cfg is not None:
+            from tools.plan_tournament import PlanTournamentPolicy
+            policy = PlanTournamentPolicy(
+                policy, mcts_cfg, replay_config=replay_cfg,
+                holdout_size=args.holdout_size,
+                holdout_per_game_cap=args.holdout_per_game_cap,
+                train_draw_tiebreak=args.train_draw_tiebreak,
+                draw_value_weight=args.draw_value_weight,
+                gbc_labels=gbc_flag,
+                tournament_config=pt_cfg)
+            from tools.plan_tournament import launch_echo_schedule
+            _n12, _d12, _dem12, _ph12 = launch_echo_schedule(pt_cfg)
+            log.info(
+                f"PLAN TOURNAMENT on (proposition 1, 2026-08-26): "
+                f"challengers={pt_cfg.n_challengers} "
+                f"depths={pt_cfg.depths} redraws={pt_cfg.redraws} "
+                f"cert={pt_cfg.cert_depth}x{pt_cfg.cert_redraws} "
+                f"budget={pt_cfg.budget_forwards}fwd "
+                f"band={pt_cfg.margin_band} "
+                f"beta_max={pt_cfg.beta_max}; certify-or-abstain, "
+                f"beta tripwire DISARMED (calibration iteration); "
+                f"at K=12 cold-start (per_half={_ph12}) the budget "
+                f"funds challengers={_n12} depths={_d12} "
+                f"(demand {_dem12}; schedule auto-sizes per turn)")
+            if _n12 == 0:
+                log.error(
+                    "PLAN TOURNAMENT: the budget cannot fund even "
+                    "the floor schedule at K=12 -- every mid-length "
+                    "side-turn will abstain. Raise "
+                    "--pt-budget-forwards.")
+            if int(getattr(args, "spool_workers", 0)) > 0:
+                log.warning(
+                    "plan-tournament pt_* telemetry is NOT "
+                    "aggregated from spool workers (no drain "
+                    "channel on that path); the CSV columns will "
+                    "be empty. Use --actor-pool or in-process for "
+                    "calibrated beta logging.")
+        elif turn_cfg is not None:
             from tools.turn_policy import TurnCommitPolicy
             policy = TurnCommitPolicy(
                 policy, mcts_cfg, replay_config=replay_cfg,
                 holdout_size=args.holdout_size,
                 holdout_per_game_cap=args.holdout_per_game_cap,
                 train_draw_tiebreak=args.train_draw_tiebreak,
+                draw_value_weight=args.draw_value_weight,
                 gbc_labels=gbc_flag,
                 turn_config=turn_cfg)
             log.info(
@@ -3695,6 +3908,7 @@ def main(argv: List[str]) -> int:
                 holdout_size=args.holdout_size,
                 holdout_per_game_cap=args.holdout_per_game_cap,
                 train_draw_tiebreak=args.train_draw_tiebreak,
+                draw_value_weight=args.draw_value_weight,
                 gbc_labels=gbc_flag)
         if args.train_draw_tiebreak:
             log.info("LEGACY draw labels: training z = material "
@@ -3887,10 +4101,20 @@ def main(argv: List[str]) -> int:
             midgame_ratio=float(args.midgame_ratio),
             midgame_dataset=args.midgame_dataset,
         )
+        from tools.plan_tournament import (
+            config_from_args as _pt_config_from_args,
+        )
         actor_pool = ActorPool(
             policy, args.actor_pool, mcts_cfg,
-            turn_cfg=turn_config_from_args(args),
-            gbc_labels=bool(getattr(args, "gbc", False)),
+            turn_cfg=(None if _pt_config_from_args(args) is not None
+                      else turn_config_from_args(args)),
+            pt_cfg=_pt_config_from_args(args),
+            gbc_labels=gbc_flag,
+            train_kwargs={
+                "draw_value_weight": float(args.draw_value_weight),
+                "train_draw_tiebreak": bool(
+                    args.train_draw_tiebreak),
+            },
             scenario_opts=scenario_opts, max_turns=args.max_turns,
             max_turns_min=args.max_turns_min,
             pvp_defaults=pvp_defaults, device=device,
