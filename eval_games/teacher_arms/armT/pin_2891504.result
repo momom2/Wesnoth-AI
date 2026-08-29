@@ -1,0 +1,12 @@
+
+=== PURE (decisive only, primary) ===
+  seed           61.0 ± 74
+  pin_2891504      0.0 ± 0
+    pin_2891504 vs seed: 9-0-13 (W-D-L)
+
+=== MATERIAL-SIGN (diagnostic) ===
+  seed           61.0 ± 74
+  pin_2891504      0.0 ± 0
+    pin_2891504 vs seed: 9-0-13 (W-D-L)
+
+games: 22 (0 no-result, excluded from PURE) | anchor: pin_2891504 = 0 | procedure: mcts:32/mcts:32

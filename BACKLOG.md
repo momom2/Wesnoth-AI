@@ -206,6 +206,23 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
 ## 40-game seed verdict — tests the population/cycling hypothesis
 ## for the all-proxies-healthy erosion.
 
+## FINDINGS 2026-08-29 (teacher arms; docs/teacher_arms_findings_
+## 20260829.md is the full record): (1) plain-MCTS teaching
+## K-COLLAPSES from a healthy seed in 10 iterations (teacher-
+## intrinsic; end_turn mass inflates through distillation; TCS
+## exonerated as the collapse's cause). (2) THE INVISIBLE EROSION
+## CHANNEL IS IDENTIFIED: off-distribution VALUE drift on
+## imagined (search-visited) states — pin raw==seed raw (12-12)
+## while pin+search loses to seed RAW 3-21; search flips from
+## +321 (seed) to ~-340 (pin) between checkpoints differing <=1.2%
+## per component. Invisible by construction: all value telemetry
+## measures real-game states. Arm T oscillates -28..-478..-104
+## with green internals. Next-design implications in the findings
+## doc (imagined-state value tripwire; value grounding via salted
+## rollouts from leaf states; cliffness-aware search trust).
+## Arm G (TCS, --no-gbc) left running to test the GBC gradient's
+## role in the drift.
+
 NEXT ACTIONS, in order:
 1. (USER gate) Resume leg 5: fresh box with **vms_enabled=false**
    (VM hosts refuse ssh keys; cost 4 rentals), leg.json already
