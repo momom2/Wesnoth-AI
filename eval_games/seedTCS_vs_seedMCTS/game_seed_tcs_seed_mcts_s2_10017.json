@@ -1,0 +1,1 @@
+{"label_a": "seed_tcs", "label_b": "seed_mcts", "side_a": 2, "seed": 10017, "scenario_id": "multiplayer_Tombs_of_Kesorak", "outcome_a": "loss", "margin_a": -0.7013809390703276, "turns": 15, "ended_by": "leader_killed", "secs": 322.0}

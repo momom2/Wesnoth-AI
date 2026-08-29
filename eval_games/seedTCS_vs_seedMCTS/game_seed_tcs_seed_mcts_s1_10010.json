@@ -1,0 +1,1 @@
+{"label_a": "seed_tcs", "label_b": "seed_mcts", "side_a": 1, "seed": 10010, "scenario_id": "multiplayer_The_Walls_of_Pyrennis", "outcome_a": "loss", "margin_a": -0.31895350086541757, "turns": 8, "ended_by": "leader_killed", "secs": 111.3}

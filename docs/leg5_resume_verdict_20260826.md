@@ -1,8 +1,43 @@
 # Leg-5 resume verdict (2026-08-26, overnight autonomous run)
 
-**The leg FAILS the pre-registered Elo gate: the 3.06M pin lost
-9-0-31 to its own seed (seed +208 ± 64, catalog protocol, 40/40
-decisive). Training stopped, box stopped.**
+**ADDENDUM 2 (same day; supersedes addendum 1, whose "protocol
+artifact" reading was wrong).** The full 2x2 sampling matrix, all
+40-game matches, sims 32, same seed schedule, 0 no-results:
+
+    pin+MCTS vs seed+MCTS :  9-0-31   seed +208 ± 64
+    pin+TCS  vs seed+TCS  : 22-0-18   pin  +34  ± 55
+    pin+TCS  vs seed+MCTS :  6-0-34   seed +290 ± 74
+    seed+TCS vs seed+MCTS :  9-0-31   MCTS +208 ± 64
+
+Reading: **TCS at play time costs ~200 Elo on the SAME weights**
+(row 4 — the seed against itself). Every pin/TCS combination
+clusters ~200-290 below seed+MCTS; pin+MCTS lands exactly at
+seed+TCS's level. Coherent story: training distilled the policy
+toward TCS-refined play — its literal objective — and TCS-refined
+play is ~200 Elo weaker than the same prior played through
+MCTS-32. The target was worse than the prior at the MACRO level;
+the teacher (TCS as a play procedure) is the suspect, ahead of the
+Gumbel micro-tax. Addendum 1's 22-0-18 was the pin beating a
+TCS-crippled seed.
+
+Caveat: not compute-matched — TCS as configured spends ~3x fewer
+forwards per side-turn than MCTS-32 (~113 vs ~384 at K~12; games
+2-4 min vs 5-8). The deployment verdict at configured settings
+stands; an equal-compute TCS arm is unmeasured. Note TCS was
+validated by a per-decision micro-probe (accept 0.64, Δ~2 atoms,
+placebo-separated) but never match-validated as a play procedure
+until today.
+
+Game files: eval_games/{l5_pin_vs_seed,l5_pin_vs_seed_tcs,
+pinTCS_vs_seedMCTS,seedTCS_vs_seedMCTS}. All fits --no-catalog
+except row 1 (the catalog protocol).
+
+The original MCTS-32 verdict:
+
+**The leg FAILS the pre-registered Elo gate under the OLD (raw
+MCTS-32) protocol: the 3.06M pin lost 9-0-31 to its own seed
+(seed +208 ± 64, catalog protocol, 40/40 decisive). Training
+stopped, box stopped.**
 
 ## Run record
 

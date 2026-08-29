@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Leg 4 — success metrics</title>
+<style>
+:root { color-scheme: light dark; }
+body { margin:0; font-family: system-ui,-apple-system,"Segoe UI",sans-serif; }
+.viz-root { color-scheme: light;
+ --surface-1:#fcfcfb; --surface-2:#f3f2ef; --text-primary:#0b0b0b;
+ --text-secondary:#52514e; --text-muted:#8b8a85; --grid:#e4e3df;
+ --ref:#8b8a85; --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
+ --bad:#c0392b;
+ background:var(--surface-1); color:var(--text-primary);
+ max-width:980px; margin:0 auto; padding:24px 20px 48px; }
+@media (prefers-color-scheme: dark) {
+ :root:where(:not([data-theme="light"])) .viz-root { color-scheme:dark;
+  --surface-1:#1a1a19; --surface-2:#242423; --text-primary:#fff;
+  --text-secondary:#c3c2b7; --text-muted:#8b8a85; --grid:#33332f;
+  --ref:#8b8a85; --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
+  --bad:#e06050; } }
+:root[data-theme="dark"] .viz-root { color-scheme:dark;
+ --surface-1:#1a1a19; --surface-2:#242423; --text-primary:#fff;
+ --text-secondary:#c3c2b7; --text-muted:#8b8a85; --grid:#33332f;
+ --ref:#8b8a85; --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
+ --bad:#e06050; }
+h1 { font-size:20px; margin:0 0 4px; }
+.sub { color:var(--text-secondary); font-size:13px; margin-bottom:14px; }
+h2 { font-size:14.5px; margin:22px 0 2px; }
+.cap { color:var(--text-secondary); font-size:12.5px; margin:0 0 6px; }
+svg { display:block; width:100%; height:auto; }
+svg text { font-family:inherit; }
+.axis { font-size:11px; fill:var(--text-muted); }
+.refl { font-size:10.5px; fill:var(--text-secondary); }
+.legend { display:flex; gap:16px; font-size:12px;
+  color:var(--text-secondary); margin:2px 0; flex-wrap:wrap; }
+.legend i { width:18px; border-top:2.5px solid currentColor;
+  display:inline-block; margin-right:5px; }
+.grid2 { display:grid; grid-template-columns:1fr 1fr; gap:22px; }
+@media (max-width:720px){ .grid2 { grid-template-columns:1fr; } }
+#tip { position:fixed; pointer-events:none; background:var(--surface-2);
+ color:var(--text-primary); border:1px solid var(--grid);
+ border-radius:6px; padding:5px 9px; font-size:12px; display:none;
+ z-index:9; }
+</style></head><body>
+<div class="viz-root">
+<h1>Leg 4 — success metrics</h1>
+<div class="sub">tier_b_l4 from the seeded imitation checkpoint · launched 2026-08-19 16:30 UTC · regenerate: tools/metrics_viz.py</div>
+<div id="panels"></div>
+</div>
+<div id="tip"></div>
+<script>
+const DATA = {"panels": [{"title": "Turn structure (actions/side-turn)", "caption": "The metric leg 3 died of. Band = pre-registered [8, 20].", "refs": [], "band": [8, 20], "wide": true, "series": [{"label": "leg4", "points": [[0.0, 9.9375], [0.0, 11.6875], [0.0, 12.761860465116278], [1.0, 12.871713985278655], [2.0, 14.488255033557047], [3.0, 14.34194214876033], [4.0, 14.0549662487946], [5.0, 15.02070207020702], [6.0, 16.57867132867133], [7.0, 13.268710550045085], [8.0, 13.557868442964196], [9.0, 14.430929626411816], [10.0, 14.634424980959635], [11.0, 14.88989898989899], [12.0, 15.639583333333333], [13.0, 14.949466192170819], [14.0, 14.152766308835673], [15.0, 18.092105263157894], [16.0, 14.321154979375368], [17.0, 15.975042541123086], [18.0, 15.05980271270037], [19.0, 17.1176844783715], [20.0, 14.483552631578947]]}]}, {"title": "Human-CE probe (prior retention)", "caption": "Rising = drifting from human play.", "refs": [{"v": 3.207, "label": "t0 3.207"}, {"v": 3.707, "label": "tripwire", "bad": true}], "band": null, "wide": false, "series": [{"label": "leg4", "points": [[2809659.0, 3.207042689472437], [2809659.0, 3.2070431017875674], [2835619.0, 3.3244495559235414], [2866772.0, 3.3536822180449963], [2898035.0, 3.4066851547608774], [2931716.0, 3.414890338256955], [2964609.0, 3.4654171322037777], [2998565.0, 3.497288389727473], [3042090.0, 3.5933347248037655], [3086729.0, 3.600099738587936], [3139196.0, 3.6969182589898506], [3190532.0, 3.6399749057988324]]}]}, {"title": "Judge quality (probe AUC)", "caption": "Noisy by protocol; tripwire = 3 consecutive below floor.", "refs": [{"v": 0.6, "label": "gate 0.60"}, {"v": 0.52, "label": "floor 0.52", "bad": true}], "band": null, "wide": false, "series": [{"label": "leg4", "points": [[2809659.0, 0.7003136600060926], [2809659.0, 0.7003136600060926], [2835619.0, 0.4635483070257585], [2866772.0, 0.9082572689014002], [2898035.0, 0.9179942683711116], [2931716.0, 0.7234206993038553], [2964609.0, 0.5462422854306055], [2998565.0, 0.40859151989710146], [3042090.0, 0.5082787060960612], [3086729.0, 0.7766469971003374], [3139196.0, 0.6397197368866424], [3190532.0, 0.7949673364849771]]}]}, {"title": "Fresh value CE, floor-relative", "caption": "Default success metric: negative beats the state-blind floor on unseen games.", "refs": [{"v": 0.0, "label": "floor"}], "band": null, "wide": false, "series": [{"label": "leg4", "points": [[0.0, 21.79025997340582], [0.0, 19.32208215301216], [0.0, -0.13042519055580737], [1.0, -0.033828713894418216], [2.0, 0.18906264944354478], [3.0, 0.10189453153174433], [4.0, -0.18088820137479922], [5.0, -0.2145861063614556], [6.0, -0.0904743572191885], [7.0, -0.10966645214771764], [8.0, -0.10516985531874401], [9.0, -0.16238013450824462], [10.0, -0.058055734586276886], [11.0, -0.1687830863854335], [12.0, 0.16712480199463964], [13.0, -0.25574854440960365], [14.0, -0.1278924614931013], [15.0, 0.33735937923720516], [16.0, -0.11019325532386348], [17.0, -0.16468496371541452], [18.0, 0.6237365208862142], [19.0, 0.15895936195756244], [20.0, -0.02145922886352558]]}]}, {"title": "Winnerless (cap) games per iteration", "caption": "Value-censored; measures behavior, not label poison.", "refs": [], "band": null, "wide": false, "series": [{"label": "leg4", "points": [[0.0, 1.0], [0.0, 1.0], [0.0, 0.0], [1.0, 0.0], [2.0, 0.0], [3.0, 0.0], [4.0, 0.0], [5.0, 0.0], [6.0, 0.0], [7.0, 0.0], [8.0, 0.0], [9.0, 0.0], [10.0, 0.0], [11.0, 0.0], [12.0, 0.0], [13.0, 0.0], [14.0, 0.0], [15.0, 1.0], [16.0, 1.0], [17.0, 1.0], [18.0, 3.0], [19.0, 2.0], [20.0, 1.0]]}]}, {"title": "Train value loss", "caption": "", "refs": [], "band": null, "wide": false, "series": [{"label": "leg4", "points": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.7601696634665132], [1.0, 0.5932288984768093], [2.0, 0.5738705457188189], [3.0, 0.6006807270459831], [4.0, 0.499601935967803], [5.0, 0.4451555800624192], [6.0, 0.4485594881698489], [7.0, 0.4430669844150543], [8.0, 0.40219928859733045], [9.0, 0.39965618355199695], [10.0, 0.4272472884040326], [11.0, 0.4334959152620286], [12.0, 0.46568330051377416], [13.0, 0.3963170968927443], [14.0, 0.41532514803111553], [15.0, 0.47460560663603246], [16.0, 0.3813590887002647], [17.0, 0.3925940946210176], [18.0, 0.4408024603035301], [19.0, 0.45354141271673143], [20.0, 0.5084272541571409]]}]}, {"title": "Draw share of value gradient (weighted)", "caption": "Leg 3's poison channel; censoring keeps it ~0.", "refs": [{"v": 0.5, "label": "leg-3 territory", "bad": true}], "band": null, "wide": false, "series": [{"label": "leg4", "points": [[0.0, 1.0], [0.0, 1.0], [0.0, -1.3100631690576847e-14], [1.0, 4.884981308350689e-14], [2.0, -6.794564910705958e-14], [3.0, -2.353672812205332e-14], [4.0, -1.4432899320127035e-14], [5.0, -2.4202861936828413e-14], [6.0, 0.04545454545460437], [7.0, -5.551115123125783e-15], [8.0, 1.532107773982716e-14], [9.0, -8.43769498715119e-15], [10.0, -1.9539925233402755e-14], [11.0, -1.1546319456101628e-14], [12.0, 3.086420008457935e-14], [13.0, 5.440092820663267e-15], [14.0, 3.441691376337985e-14], [15.0, 0.08333333333333792], [16.0, 0.04166666666669194], [17.0, 0.04255319148942238], [18.0, 0.12499999999996236], [19.0, 0.08333333333330728], [20.0, 0.045454545454503226]]}]}, {"title": "Decisive-by-leader-kill share", "caption": "", "refs": [{"v": 0.35, "label": "abort floor", "bad": true}], "band": null, "wide": false, "series": [{"label": "leg4", "points": [[0.0, 0.0], [0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [2.0, 1.0], [3.0, 1.0], [4.0, 1.0], [5.0, 1.0], [6.0, 0.9565217391304348], [7.0, 1.0], [8.0, 1.0], [9.0, 1.0], [10.0, 1.0], [11.0, 1.0], [12.0, 1.0], [13.0, 1.0], [14.0, 1.0], [15.0, 0.9166666666666666], [16.0, 0.9583333333333334], [17.0, 0.9583333333333334], [18.0, 0.875], [19.0, 0.9166666666666666], [20.0, 0.9545454545454546]]}]}]};
+const css = n => getComputedStyle(document.querySelector('.viz-root'))
+  .getPropertyValue(n).trim();
+const COLS = ['--s1','--s2','--s3','--s4'];
+function sv(t,a,p){const e=document.createElementNS(
+ 'http://www.w3.org/2000/svg',t);
+ for(const k in a)e.setAttribute(k,a[k]);if(p)p.appendChild(e);return e;}
+function nice(lo,hi){const pad=(hi-lo)*0.08||1;return [lo-pad,hi+pad];}
+const allPts=[];
+DATA.panels.forEach((p,pi)=>{
+ if(!p.series.length) return;
+ const root=document.getElementById('panels');
+ const h2=document.createElement('h2');h2.textContent=p.title;
+ root.appendChild(h2);
+ if(p.caption){const c=document.createElement('p');c.className='cap';
+  c.textContent=p.caption;root.appendChild(c);}
+ if(p.series.length>1){const lg=document.createElement('div');
+  lg.className='legend';
+  p.series.forEach((s,si)=>{const sp=document.createElement('span');
+   sp.style.color=css(COLS[si%COLS.length]);
+   sp.innerHTML='<i></i>'+s.label;lg.appendChild(sp);});
+  root.appendChild(lg);}
+ const W=p.wide?900:560,H=p.wide?300:250,L=52,R=90,T=12,B=30;
+ const svg=sv('svg',{viewBox:`0 0 ${W} ${H}`,role:'img',
+   'aria-label':p.title});
+ root.appendChild(svg);
+ let xs=[],ys=[];
+ p.series.forEach(s=>s.points.forEach(([x,y])=>{xs.push(x);ys.push(y);}));
+ (p.refs||[]).forEach(r=>ys.push(r.v));
+ if(p.band){ys.push(p.band[0]);ys.push(p.band[1]);}
+ const [ylo,yhi]=nice(Math.min(...ys),Math.max(...ys));
+ const [xlo,xhi]=[Math.min(...xs),Math.max(...xs)];
+ const x=v=>L+(v-xlo)*(W-L-R)/((xhi-xlo)||1);
+ const y=v=>T+(yhi-v)*(H-T-B)/((yhi-ylo)||1);
+ if(p.band) sv('rect',{x:L,y:y(p.band[1]),width:W-L-R,
+   height:y(p.band[0])-y(p.band[1]),fill:css('--grid'),opacity:0.4},svg);
+ const nt=5;
+ for(let i=0;i<=nt;i++){const g=ylo+(yhi-ylo)*i/nt;
+  sv('line',{x1:L,x2:W-R,y1:y(g),y2:y(g),stroke:css('--grid'),
+   'stroke-width':1},svg);
+  const t=sv('text',{x:L-7,y:y(g)+4,'text-anchor':'end','class':'axis'},svg);
+  t.textContent=Math.abs(g)<10?g.toFixed(2):Math.round(g);}
+ [xlo,(xlo+xhi)/2,xhi].forEach(g=>{const t=sv('text',{x:x(g),y:H-B+16,
+  'text-anchor':'middle','class':'axis'},svg);
+  t.textContent=g>1e5?(g/1e6).toFixed(2)+'M':Math.round(g);});
+ (p.refs||[]).forEach(r=>{const col=r.bad?css('--bad'):css('--ref');
+  sv('line',{x1:L,x2:W-R,y1:y(r.v),y2:y(r.v),stroke:col,
+   'stroke-width':1.5,'stroke-dasharray':'3 4'},svg);
+  const t=sv('text',{x:W-R+4,y:y(r.v)+4,'class':'refl',fill:col},svg);
+  t.textContent=r.label;});
+ p.series.forEach((s,si)=>{const col=css(COLS[si%COLS.length]);
+  const d=s.points.map((pt,i)=>(i?'L':'M')+x(pt[0]).toFixed(1)+' '
+   +y(pt[1]).toFixed(1)).join(' ');
+  const at={d,fill:'none',stroke:col,'stroke-width':2.5,
+   'stroke-linecap':'round'};
+  if(si>0)at['stroke-dasharray']='6 5';
+  sv('path',at,svg);
+  s.points.forEach(pt=>{
+   sv('circle',{cx:x(pt[0]),cy:y(pt[1]),r:2.6,fill:col,
+    stroke:css('--surface-1'),'stroke-width':1.6},svg);
+   allPts.push({X:x(pt[0]),Y:y(pt[1]),svg,label:s.label,
+    x:pt[0],y:pt[1],title:p.title});});
+  const last=s.points[s.points.length-1];
+  const t=sv('text',{x:W-R+4,y:y(last[1])+4+si*13,'class':'refl',
+   fill:col,'font-weight':600},svg);
+  t.textContent=(Math.abs(last[1])<10?last[1].toFixed(2)
+   :Math.round(last[1]));});
+ const tip=document.getElementById('tip');
+ svg.addEventListener('mousemove',ev=>{
+  const r=svg.getBoundingClientRect();
+  const mx=(ev.clientX-r.left)*W/r.width,my=(ev.clientY-r.top)*H/r.height;
+  let best=null,bd=700;
+  allPts.forEach(q=>{if(q.svg!==svg)return;
+   const d=(q.X-mx)**2+(q.Y-my)**2;if(d<bd){bd=d;best=q;}});
+  if(best){tip.style.display='block';
+   tip.style.left=(ev.clientX+14)+'px';tip.style.top=(ev.clientY-10)+'px';
+   tip.textContent=`${best.label} @ ${best.x}: ${best.y.toFixed(4)}`;}
+  else tip.style.display='none';});
+ svg.addEventListener('mouseleave',()=>{tip.style.display='none';});
+});
+</script></body></html>

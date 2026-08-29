@@ -1,5 +1,6 @@
 {
  "aliases": {
+  "l5_pin3060972": "2516k-b-294k-l5-251k",
   "new_2p52M": "2516k",
   "old_2p40M": "2404k",
   "ref_2p29M": "2291k",
@@ -20,63 +21,60 @@
    "anchored": true,
    "arch": "5M",
    "decision_step": 2403615,
-   "elo": 29.7,
+   "elo": 30.0,
    "file": "campaign_live_20260729.pt",
    "lineage": "tier-a",
    "n_games": 240,
-   "se": 25.5
+   "se": 25.6
   },
   "2516k": {
    "anchored": true,
    "arch": "5M",
    "decision_step": 2515896,
-   "elo": 140.6,
+   "elo": 136.9,
    "file": "campaign_live_20260730.pt",
    "lineage": "tier-a",
    "n_games": 272,
-   "se": 28.8
+   "se": 29.1
   },
   "2516k-b-294k-l4-0k": {
    "anchored": true,
    "arch": "15M",
    "decision_step": 2809659,
-   "elo": 204.4,
+   "elo": 223.1,
    "file": "tier-b/a3/seed_imit_tierb_start.pt",
    "lineage": "tier-b",
-   "n_games": 48,
-   "se": 64.7
+   "n_games": 88,
+   "se": 69.9
   },
   "2516k-b-294k-l4-495k": {
    "anchored": true,
    "arch": "15M",
    "decision_step": 3304339,
-   "elo": -276.2,
+   "elo": -367.3,
    "file": "tier-b/pins/2516k-b-294k-l4-495k.pt",
    "lineage": "tier-b",
    "n_games": 44,
-   "se": 94.0
+   "se": 130.7
+  },
+  "2516k-b-294k-l5-251k": {
+   "anchored": true,
+   "decision_step": 3060972,
+   "elo": 14.9,
+   "file": "tier-b/tier_b_l5_pin3060972.pt",
+   "n_games": 40,
+   "note": "leg-5 resume pin (verdict 9-0-31 vs its seed under mcts:32; +34 vs seed under retired TCS eval)",
+   "se": 95.0
   },
   "2516k-b-294k-tcs2-558k": {
    "anchored": true,
    "arch": "15M",
    "decision_step": 3367830,
-   "elo": -232.1,
+   "elo": -490.4,
    "file": "eval_tcs2_3367830.pt",
    "lineage": "tier-b",
    "n_games": 18,
-   "se": 109.0
-  },
-  "l5_pin3060972": {
-   "anchored": false,
-   "elo": -115.2,
-   "n_games": 40,
-   "se": 122.5
-  },
-  "seed": {
-   "anchored": false,
-   "elo": 77.7,
-   "n_games": 40,
-   "se": 122.1
+   "se": 250.7
   }
  },
  "edges": {
@@ -88,7 +86,8 @@
    "protocol": {
     "convention": "PURE",
     "mcts_sims": 32,
-    "note": "2026-07 tier-a chain (preregistered triangle + reused edges; see POOLED_TRIANGLE.json)"
+    "note": "2026-07 tier-a chain (preregistered triangle + reused edges; see POOLED_TRIANGLE.json)",
+    "procedure": "mcts:32"
    },
    "wins_a": 45,
    "wins_b": 55
@@ -101,7 +100,8 @@
    "protocol": {
     "convention": "PURE",
     "mcts_sims": 32,
-    "note": "2026-07 tier-a chain (preregistered triangle + reused edges; see POOLED_TRIANGLE.json)"
+    "note": "2026-07 tier-a chain (preregistered triangle + reused edges; see POOLED_TRIANGLE.json)",
+    "procedure": "mcts:32"
    },
    "wins_a": 36,
    "wins_b": 64
@@ -114,7 +114,8 @@
    "protocol": {
     "convention": "PURE",
     "mcts_sims": 32,
-    "note": "2026-07 tier-a chain (preregistered triangle + reused edges; see POOLED_TRIANGLE.json)"
+    "note": "2026-07 tier-a chain (preregistered triangle + reused edges; see POOLED_TRIANGLE.json)",
+    "procedure": "mcts:32"
    },
    "wins_a": 30,
    "wins_b": 70
@@ -127,7 +128,8 @@
    "protocol": {
     "convention": "PURE",
     "mcts_sims": 32,
-    "note": "2026-07 tier-a chain (preregistered triangle + reused edges; see POOLED_TRIANGLE.json)"
+    "note": "2026-07 tier-a chain (preregistered triangle + reused edges; see POOLED_TRIANGLE.json)",
+    "procedure": "mcts:32"
    },
    "wins_a": 20,
    "wins_b": 20
@@ -139,7 +141,8 @@
    "label_b": "2516k-b-294k-l4-0k",
    "no_result": 0,
    "protocol": {
-    "note": "mcts_sims=32,convention=PURE,note=29/40 completed; 11 slots timed out at 60min (competitive 15M-vs-5M games run long)"
+    "note": "mcts_sims=32,convention=PURE,note=29/40 completed; 11 slots timed out at 60min (competitive 15M-vs-5M games run long)",
+    "procedure": "mcts:32"
    },
    "wins_a": 11,
    "wins_b": 18
@@ -151,7 +154,8 @@
    "label_b": "2516k-b-294k-l4-495k",
    "no_result": 0,
    "protocol": {
-    "note": "mcts_sims=32,convention=PURE,note=interrupted at 25/40 by user ruling (result decisive)"
+    "note": "mcts_sims=32,convention=PURE,note=interrupted at 25/40 by user ruling (result decisive)",
+    "procedure": "mcts:32"
    },
    "wins_a": 24,
    "wins_b": 1
@@ -163,20 +167,27 @@
    "label_b": "2516k-b-294k-l4-495k",
    "no_result": 0,
    "protocol": {
-    "note": "mcts_sims=32,convention=PURE,note=19/40 completed; 21 slots timed out at 40min (15M-vs-15M CPU games run long)"
+    "note": "mcts_sims=32,convention=PURE,note=19/40 completed; 21 slots timed out at 40min (15M-vs-15M CPU games run long)",
+    "procedure": "mcts:32"
    },
    "wins_a": 19,
    "wins_b": 0
   },
-  "l5_pin_vs_seed:l5_pin3060972~seed": {
+  "l5_pin_vs_seed:2516k-b-294k-l4-0k~2516k-b-294k-l5-251k": {
    "date": "2026-08-26",
    "draws": 0,
-   "label_a": "l5_pin3060972",
-   "label_b": "seed",
+   "label_a": "2516k-b-294k-l4-0k",
+   "label_b": "2516k-b-294k-l5-251k",
+   "label_map": {
+    "l5_pin3060972": "2516k-b-294k-l5-251k",
+    "seed": "2516k-b-294k-l4-0k"
+   },
    "no_result": 0,
-   "protocol": {},
-   "wins_a": 9,
-   "wins_b": 31
+   "protocol": {
+    "procedure": "mcts:32"
+   },
+   "wins_a": 31,
+   "wins_b": 9
   },
   "tcs3_vs_rated:new_2p52M~tcs3": {
    "date": "2026-08-17",
@@ -184,13 +195,14 @@
    "label_a": "2516k",
    "label_b": "2516k-b-294k-tcs2-558k",
    "protocol": {
-    "note": "mcts:32; INTERRUPTED at 18/40 played; 9 games wall-clock-censored at 120min (long/draw-bound games dropped, so draws underrepresented; tcs3 = mid-collapse leg-3 ckpt)"
+    "note": "mcts:32; INTERRUPTED at 18/40 played; 9 games wall-clock-censored at 120min (long/draw-bound games dropped, so draws underrepresented; tcs3 = mid-collapse leg-3 ckpt)",
+    "procedure": "mcts:32"
    },
    "wins_a": 18,
    "wins_b": 0
   }
  },
- "last_refit": "2026-08-26T02:46:27Z",
+ "last_refit": "2026-08-27T03:49:47Z",
  "reference": {
   "elo": 0.0,
   "label": "2291k"

@@ -1,0 +1,1 @@
+{"label_a": "seed_tcs", "label_b": "seed_mcts", "side_a": 1, "seed": 10002, "scenario_id": "multiplayer_Sablestone_Delta", "outcome_a": "loss", "margin_a": -0.33341867257529656, "turns": 7, "ended_by": "leader_killed", "secs": 78.8}

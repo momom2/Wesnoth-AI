@@ -1,0 +1,77 @@
+<title>Imitation curves: three arms</title>
+<style>
+:root { --surf:#ffffff; --ink:#1a1a1a; --ink2:#666; --grid:#e8e8e8; }
+@media (prefers-color-scheme: dark) { :root { --surf:#1e1e1e; --ink:#e8e8e8; --ink2:#9a9a9a; --grid:#333; } }
+:root[data-theme="dark"] { --surf:#1e1e1e; --ink:#e8e8e8; --ink2:#9a9a9a; --grid:#333; }
+:root[data-theme="light"] { --surf:#ffffff; --ink:#1a1a1a; --ink2:#666; --grid:#e8e8e8; }
+body { background:var(--surf); color:var(--ink); font:14px system-ui; max-width:1200px; margin:1.5em auto; padding:0 1em; }
+.t { font:600 13px system-ui; fill:var(--ink); } .ax { font:11px system-ui; fill:var(--ink2); }
+.dl { font:600 12px system-ui; } .g { stroke:var(--grid); stroke-width:1; }
+.wrap { display:flex; flex-wrap:wrap; gap:1.5em; }
+.leg { display:flex; gap:1.5em; margin:0.6em 0 1em; font-size:13px; flex-wrap:wrap; }
+.leg span::before { content:""; display:inline-block; width:14px; height:3px; margin-right:6px; vertical-align:middle; border-radius:2px; }
+.leg .s::before { background:#2a78d6; } .leg .r::before { background:#eb6834; } .leg .t3::before { background:#1baf7a; }
+</style>
+<h2 style="font-size:1.15em">Imitation curves — three arms, 15M net (evals every 50k pairs, n=1200 fixed holdout)</h2>
+<div class="leg"><span class="s">seeded (A/B, warm value head)</span><span class="r">random init</span><span class="t3">tier-b (warm + fresh value head)</span></div>
+<div class="wrap">
+<svg viewBox="0 0 560 330" width="560" role="img" aria-label="CE curves"><text x="52" y="18" class="t">Holdout policy CE (lower = closer to human play)</text>
+<line x1="52" x2="546" y1="280.0" y2="280.0" class="g"/>
+<text x="46" y="283.5" class="ax" text-anchor="end">3.00</text>
+<line x1="52" x2="546" y1="230.0" y2="230.0" class="g"/>
+<text x="46" y="233.5" class="ax" text-anchor="end">4.00</text>
+<line x1="52" x2="546" y1="180.0" y2="180.0" class="g"/>
+<text x="46" y="183.5" class="ax" text-anchor="end">5.00</text>
+<line x1="52" x2="546" y1="130.0" y2="130.0" class="g"/>
+<text x="46" y="133.5" class="ax" text-anchor="end">6.00</text>
+<line x1="52" x2="546" y1="80.0" y2="80.0" class="g"/>
+<text x="46" y="83.5" class="ax" text-anchor="end">7.00</text>
+<line x1="52" x2="546" y1="30.0" y2="30.0" class="g"/>
+<text x="46" y="33.5" class="ax" text-anchor="end">8.00</text>
+<text x="147.0" y="314" class="ax" text-anchor="middle">0.5M</text>
+<text x="242.0" y="314" class="ax" text-anchor="middle">1.0M</text>
+<text x="337.0" y="314" class="ax" text-anchor="middle">1.5M</text>
+<text x="432.0" y="314" class="ax" text-anchor="middle">2.0M</text>
+<text x="527.0" y="314" class="ax" text-anchor="middle">2.5M</text>
+<text x="299.0" y="328" class="ax" text-anchor="middle">training pairs</text>
+<path d="M61.5,47.4 L71.0,101.5 L80.5,132.7 L90.0,157.5 L99.5,176.2 L109.1,193.6 L118.6,211.9 L128.1,216.0 L137.6,213.6 L147.1,227.3 L156.6,226.8 L166.1,229.5 L175.6,231.5 L185.1,238.9 L194.6,239.7 L204.1,239.3 L213.7,237.5 L223.2,241.0 L232.7,236.8 L242.2,244.8 L251.7,245.2 L261.2,246.4 L270.7,245.1 L280.2,248.2 L289.7,247.7 L299.2,250.5 L308.7,246.7 L318.3,246.9 L327.8,249.9 L337.3,249.6 L346.8,250.2 L356.3,248.7 L365.8,251.0 L375.3,253.1 L384.8,250.8 L394.3,252.4 L403.8,253.4 L413.3,253.7 L422.9,248.5 L432.4,256.3 L441.9,256.5 L451.4,254.0 L460.9,255.5 L470.4,257.0 L479.9,252.1 L489.4,259.0 L498.9,252.9 L508.4,251.2 L517.9,254.3 L527.5,258.9 L529.9,257.5" fill="none" stroke="#eb6834" stroke-width="2"/>
+<circle cx="529.9" cy="257.5" r="4" fill="#eb6834" stroke="var(--surf)" stroke-width="2"/>
+<text x="521.9" y="249.5" class="dl" fill="#eb6834" text-anchor="end">3.45</text>
+<path d="M61.5,256.9 L71.0,261.9 L80.5,268.2 L90.0,267.7 L99.5,266.1 L109.1,267.7 L118.6,264.5 L128.1,270.8 L137.6,266.7 L147.1,268.5 L156.6,270.8 L166.1,272.3 L175.6,273.3 L185.1,269.6 L194.6,271.0 L204.1,266.0 L213.7,272.1 L223.2,272.0 L232.7,268.1 L242.2,273.5 L251.7,271.0 L261.2,274.4 L270.7,272.1 L280.2,271.8 L289.7,271.0 L299.2,269.3 L308.7,272.6 L318.3,270.6 L327.8,272.5 L337.3,273.3 L346.8,273.4 L356.3,272.9 L365.8,275.0 L375.3,270.9 L384.8,274.6 L394.3,273.2 L403.8,274.5 L413.3,272.7 L422.9,272.7 L429.7,274.6" fill="none" stroke="#2a78d6" stroke-width="2"/>
+<circle cx="429.7" cy="274.6" r="4" fill="#2a78d6" stroke="var(--surf)" stroke-width="2"/>
+<text x="421.7" y="266.6" class="dl" fill="#2a78d6" text-anchor="end">3.11</text>
+<path d="M61.5,255.6 L71.0,261.8 L80.5,266.5 L90.0,269.0 L99.5,268.0 L109.1,268.8 L118.6,263.9 L128.1,272.8 L137.6,267.0 L147.1,269.3 L156.6,269.1 L166.1,270.3 L175.6,269.5 L185.1,272.0 L194.6,272.5 L204.1,267.2 L213.7,272.6 L223.2,272.3 L232.7,269.1 L242.2,271.0 L251.7,273.8 L261.2,271.6 L270.7,271.8 L280.2,275.0 L289.7,271.2 L299.2,271.9 L308.7,274.2 L318.3,275.8 L327.8,271.1 L337.3,273.0 L346.8,271.1 L356.3,270.3 L365.8,268.1 L375.3,271.1 L384.8,275.0 L394.3,275.6 L403.8,273.2 L413.3,273.5 L422.9,274.3 L432.4,271.1 L441.9,275.0 L451.4,276.6 L460.9,274.3 L470.4,272.5 L479.9,271.3 L489.4,273.3 L498.9,274.9" fill="none" stroke="#1baf7a" stroke-width="2"/>
+<circle cx="498.9" cy="274.9" r="4" fill="#1baf7a" stroke="var(--surf)" stroke-width="2"/>
+<text x="490.9" y="290.9" class="dl" fill="#1baf7a" text-anchor="end">3.10</text></svg>
+<svg viewBox="0 0 560 330" width="560" role="img" aria-label="AUC curves"><text x="52" y="18" class="t">Holdout value AUC (winner-state discrimination)</text>
+<line x1="52" x2="546" y1="290.0" y2="290.0" class="g"/>
+<text x="46" y="293.5" class="ax" text-anchor="end">0.20</text>
+<line x1="52" x2="546" y1="225.0" y2="225.0" class="g"/>
+<text x="46" y="228.5" class="ax" text-anchor="end">0.40</text>
+<line x1="52" x2="546" y1="160.0" y2="160.0" class="g"/>
+<text x="46" y="163.5" class="ax" text-anchor="end">0.60</text>
+<line x1="52" x2="546" y1="95.0" y2="95.0" class="g"/>
+<text x="46" y="98.5" class="ax" text-anchor="end">0.80</text>
+<line x1="52" x2="546" y1="30.0" y2="30.0" class="g"/>
+<text x="46" y="33.5" class="ax" text-anchor="end">1.00</text>
+<text x="147.0" y="314" class="ax" text-anchor="middle">0.5M</text>
+<text x="242.0" y="314" class="ax" text-anchor="middle">1.0M</text>
+<text x="337.0" y="314" class="ax" text-anchor="middle">1.5M</text>
+<text x="432.0" y="314" class="ax" text-anchor="middle">2.0M</text>
+<text x="527.0" y="314" class="ax" text-anchor="middle">2.5M</text>
+<text x="299.0" y="328" class="ax" text-anchor="middle">training pairs</text>
+<path d="M61.5,278.9 L71.0,238.8 L80.5,262.1 L90.0,282.6 L99.5,97.6 L109.1,287.2 L118.6,273.4 L128.1,187.8 L137.6,135.8 L147.1,136.7 L156.6,232.5 L166.1,100.1 L175.6,217.3 L185.1,177.7 L194.6,218.8 L204.1,197.3 L213.7,111.6 L223.2,166.6 L232.7,183.9 L242.2,197.3 L251.7,242.3 L261.2,237.2 L270.7,121.0 L280.2,173.0 L289.7,176.7 L299.2,208.9 L308.7,158.2 L318.3,244.7 L327.8,195.5 L337.3,85.9 L346.8,181.3 L356.3,204.2 L365.8,84.1 L375.3,162.9 L384.8,114.4 L394.3,130.5 L403.8,78.9 L413.3,206.4 L422.9,240.4 L432.4,227.5 L441.9,114.0 L451.4,198.2 L460.9,72.5 L470.4,157.0 L479.9,135.1 L489.4,72.0 L498.9,176.0 L508.4,84.6 L517.9,67.1 L527.5,64.4 L529.9,46.0" fill="none" stroke="#eb6834" stroke-width="2"/>
+<circle cx="529.9" cy="46.0" r="4" fill="#eb6834" stroke="var(--surf)" stroke-width="2"/>
+<text x="521.9" y="38.0" class="dl" fill="#eb6834" text-anchor="end">0.95</text>
+<path d="M61.5,126.1 L71.0,140.6 L80.5,40.1 L90.0,166.6 L99.5,148.1 L109.1,65.1 L118.6,42.4 L128.1,113.5 L137.6,111.5 L147.1,120.9 L156.6,97.9 L166.1,58.3 L175.6,36.8 L185.1,123.4 L194.6,121.7 L204.1,181.6 L213.7,112.0 L223.2,83.0 L232.7,100.3 L242.2,172.2 L251.7,185.1 L261.2,176.6 L270.7,78.7 L280.2,162.5 L289.7,172.4 L299.2,152.0 L308.7,76.0 L318.3,100.8 L327.8,56.9 L337.3,128.5 L346.8,119.1 L356.3,155.3 L365.8,148.7 L375.3,60.6 L384.8,106.3 L394.3,134.1 L403.8,159.3 L413.3,126.1 L422.9,148.6 L429.7,180.1" fill="none" stroke="#2a78d6" stroke-width="2"/>
+<circle cx="429.7" cy="180.1" r="4" fill="#2a78d6" stroke="var(--surf)" stroke-width="2"/>
+<text x="421.7" y="196.1" class="dl" fill="#2a78d6" text-anchor="end">0.54</text>
+<path d="M61.5,216.9 L71.0,123.8 L80.5,104.0 L90.0,179.0 L99.5,70.7 L109.1,214.9 L118.6,215.3 L128.1,118.7 L137.6,105.3 L147.1,101.8 L156.6,68.6 L166.1,155.4 L175.6,48.9 L185.1,185.3 L194.6,112.6 L204.1,106.9 L213.7,110.4 L223.2,125.7 L232.7,49.8 L242.2,139.9 L251.7,64.8 L261.2,155.7 L270.7,54.8 L280.2,166.1 L289.7,134.8 L299.2,96.5 L308.7,71.9 L318.3,111.6 L327.8,139.7 L337.3,41.1 L346.8,53.2 L356.3,178.8 L365.8,106.2 L375.3,183.4 L384.8,167.2 L394.3,70.9 L403.8,102.2 L413.3,102.0 L422.9,75.0 L432.4,75.2 L441.9,121.7 L451.4,105.7 L460.9,100.1 L470.4,134.9 L479.9,160.9 L489.4,135.7 L498.9,130.1" fill="none" stroke="#1baf7a" stroke-width="2"/>
+<circle cx="498.9" cy="130.1" r="4" fill="#1baf7a" stroke="var(--surf)" stroke-width="2"/>
+<text x="490.9" y="122.1" class="dl" fill="#1baf7a" text-anchor="end">0.69</text></svg>
+</div>
+<p style="color:var(--ink2); max-width:62em"><b>Significance read:</b> adjacent-eval jitter (empirical noise at fixed quality)
+is ~0.04 nats median per arm. <b>tierb vs seeded: NOT significant</b> — ahead at 23/39 matched points, mean −0.002; the curves are
+one curve. The supported claim is <i>equality</i>: re-initializing the value head cost the policy nothing, while its value AUC
+(right) tracks the fresh-head trajectory instead of the warm head's oscillation (cut at 94% mid-climb, 0.69).
+<b>Warm vs random: significant at every point</b> — minimum gap +0.356 nats, ~9× jitter.</p>

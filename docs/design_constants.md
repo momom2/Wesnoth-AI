@@ -306,3 +306,36 @@ section). Anchors:
 `beta` scales down with `distill_target_temp` (temperature applies
 to the advantage, not as an exponent, to preserve the linearity
 that makes the link exposure-invariant).
+
+## CERT_RESERVE_PAD = 2.0 (tools/plan_tournament.py)
+
+Safety factor on the plan-tournament certification reserve's
+half-turn cost estimate. The reserve guards the invariant "an
+optimistic cost estimate shrinks selection, never certification"
+(review round 6). 2.0 is PICKED, not derived: no half-turn length
+distribution has been measured yet (review round 8, C4) -- the
+telemetry columns pt_half_est and pt_cert_starved_rate from the
+step-1 match are the measurement that will replace it. Scope
+(round-21 C3): the pad only discounts while PAD x est <
+project_max_actions, i.e. est < 10 at the defaults -- at the
+documented operating point (est ~12-17) the reserve sits at the
+hard bound and the pad is inert, so its calibration loop applies
+to the short-half-turn regime only. Priced at the hard bound
+(project_max_actions) instead, the reserve over-charged ~250
+forwards and pushed fundable long side-turns into value-only
+abstention (review round 7, C0).
+
+## _T_CRIT = {2: 3.37, 3: 2.0, 4: 1.72, 5: 1.61} (tools/plan_tournament.py)
+
+n-aware critical factors for certification acceptance
+(mean > crit * sd / sqrt(n)). The legacy rule (factor 2 at n=3,
+from turn_search.two_stage_accept) has band-free false-accept rate
+P(t_2 > 2) = 0.0918; these are the t_{n-1} quantiles at 1 - 0.0918,
+holding that alpha for every replicate count a mid-stage budget
+death can leave (n=2 under the raw factor-2 rule inflates alpha to
+0.148 -- review round 8, C0, verified by simulation). n=2:
+tan(pi*(0.5-0.0918)) = 3.37; n=4/5 from the t-quantile tables.
+Coverage rule (round-9): config_from_args clamps cert_redraws to
+the tabled range, so every reachable replicate count has an
+alpha-holding factor; extend the table before raising the knob
+ceiling.

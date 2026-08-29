@@ -1,0 +1,1 @@
+{"label_a": "seed-mcts32", "label_b": "seed-raw", "pt_config": null, "turn_config": null, "procedure_a": "mcts:32", "procedure_b": "raw", "max_turns": 200, "side_a": 2, "seed": 10013, "scenario_id": "multiplayer_Ruphus_Isle", "outcome_a": "win", "margin_a": 0.7925854510108783, "turns": 11, "forwards_a": 4085, "forwards_b": 68, "ended_by": "leader_killed", "secs": 2285.0}

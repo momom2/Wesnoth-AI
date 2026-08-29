@@ -1,0 +1,1 @@
+{"label_a": "seed-mcts32", "label_b": "seed-raw", "pt_config": null, "turn_config": null, "procedure_a": "mcts:32", "procedure_b": "raw", "max_turns": 200, "side_a": 1, "seed": 10020, "scenario_id": "multiplayer_Clearing_Gushes", "outcome_a": "win", "margin_a": 0.3569077959787356, "turns": 11, "forwards_a": 4593, "forwards_b": 139, "ended_by": "leader_killed", "secs": 2564.6}

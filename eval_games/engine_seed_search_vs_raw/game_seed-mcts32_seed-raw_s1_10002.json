@@ -1,0 +1,1 @@
+{"label_a": "seed-mcts32", "label_b": "seed-raw", "pt_config": null, "turn_config": null, "procedure_a": "mcts:32", "procedure_b": "raw", "max_turns": 200, "side_a": 1, "seed": 10002, "scenario_id": "multiplayer_Sablestone_Delta", "outcome_a": "win", "margin_a": 0.578050640134524, "turns": 10, "forwards_a": 4272, "forwards_b": 89, "ended_by": "leader_killed", "secs": 1541.3}

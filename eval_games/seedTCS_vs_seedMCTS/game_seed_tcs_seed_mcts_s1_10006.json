@@ -1,0 +1,1 @@
+{"label_a": "seed_tcs", "label_b": "seed_mcts", "side_a": 1, "seed": 10006, "scenario_id": "multiplayer_Hamlets", "outcome_a": "loss", "margin_a": -0.526123840976259, "turns": 15, "ended_by": "leader_killed", "secs": 196.3}

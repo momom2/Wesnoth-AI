@@ -1,0 +1,1 @@
+{"label_a": "seed_tcs", "label_b": "seed_mcts", "side_a": 1, "seed": 10000, "scenario_id": "multiplayer_thousand_stings_garrison", "outcome_a": "loss", "margin_a": -0.6951166058516689, "turns": 16, "ended_by": "leader_killed", "secs": 390.6}

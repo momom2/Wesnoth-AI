@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A3 Value-Seed Matrix</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .viz-root {
+    color-scheme: light;
+    --surface-1: #fcfcfb; --surface-2: #f3f2ef;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #8b8a85;
+    --grid: #e4e3df; --ref: #8b8a85;
+    --imit: #2a78d6; --tcs2: #eb6834;
+    --bad: #c0392b; --seq: #2a78d6;
+    background: var(--surface-1); color: var(--text-primary);
+    max-width: 980px; margin: 0 auto; padding: 24px 20px 48px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --surface-1: #1a1a19; --surface-2: #242423;
+      --text-primary: #ffffff; --text-secondary: #c3c2b7; --text-muted: #8b8a85;
+      --grid: #33332f; --ref: #8b8a85;
+      --imit: #3987e5; --tcs2: #d95926;
+      --bad: #e06050; --seq: #3987e5;
+    }
+  }
+  :root[data-theme="dark"] .viz-root {
+    color-scheme: dark;
+    --surface-1: #1a1a19; --surface-2: #242423;
+    --text-primary: #ffffff; --text-secondary: #c3c2b7; --text-muted: #8b8a85;
+    --grid: #33332f; --ref: #8b8a85;
+    --imit: #3987e5; --tcs2: #d95926;
+    --bad: #e06050; --seq: #3987e5;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--text-secondary); font-size: 13px; margin-bottom: 20px; }
+  h2 { font-size: 15px; margin: 28px 0 2px; }
+  .cap { color: var(--text-secondary); font-size: 12.5px; margin: 0 0 10px; }
+  .tiles { display: flex; gap: 12px; flex-wrap: wrap; margin: 18px 0 6px; }
+  .tile { background: var(--surface-2); border-radius: 10px; padding: 12px 16px; flex: 1 1 180px; min-width: 170px; }
+  .tile .v { font-size: 26px; font-weight: 650; }
+  .tile .l { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+  svg { display: block; width: 100%; height: auto; }
+  svg text { font-family: inherit; }
+  .axis { font-size: 11px; fill: var(--text-muted); }
+  .dl { font-size: 11.5px; font-weight: 600; fill: var(--text-primary); }
+  .refl { font-size: 10.5px; fill: var(--text-secondary); }
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--text-secondary); margin: 4px 0 2px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 18px; height: 0; border-top-width: 2.5px; border-top-color: currentColor; display: inline-block; }
+  .solid { border-top-style: solid; } .dash { border-top-style: dashed; }
+  .c-imit { color: var(--imit); } .c-tcs2 { color: var(--tcs2); }
+  #tip { position: fixed; pointer-events: none; background: var(--surface-2);
+         color: var(--text-primary); border: 1px solid var(--grid); border-radius: 6px;
+         padding: 5px 9px; font-size: 12px; display: none; z-index: 9; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+  details { margin-top: 24px; font-size: 13px; }
+  table { border-collapse: collapse; margin-top: 8px; font-size: 12.5px; }
+  td, th { padding: 4px 12px; border-bottom: 1px solid var(--grid); text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  @media (max-width: 720px) { .grid2 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="viz-root">
+  <h1>A3 value-seed matrix — the leg-4 judge</h1>
+  <div class="sub">Frozen-trunk value-head fits on 16,824 human games (134k cached states) · holdout = 2,048 states from 300 held-out games · 2026-08-17, leg-2 box</div>
+
+  <div class="tiles">
+    <div class="tile"><div class="v">0.824</div><div class="l">best judge AUC — imitation trunk, full head (gate: ≥0.60)</div></div>
+    <div class="tile"><div class="v">Δ 0.007</div><div class="l">linear probe vs full head (imitation) — the trunk is the cap</div></div>
+    <div class="tile"><div class="v">+0.026</div><div class="l">imitation trunk over leg-3 trunk, consistent across both arms</div></div>
+    <div class="tile"><div class="v">0.434</div><div class="l">what leg 3 actually played with — below chance</div></div>
+  </div>
+
+  <h2>Holdout outcome-AUC per training epoch</h2>
+  <p class="cap">Solid = full MLP head · dashed = fresh linear probe. Point 0 is the untouched head (BEFORE). References: chance 0.50, launch gate 0.60, historical frozen-trunk plateau 0.68, leg-3 in-vivo mean 0.434.</p>
+  <div class="legend">
+    <span class="c-imit"><i class="sw solid"></i>imitation trunk · full</span>
+    <span class="c-imit"><i class="sw dash"></i>imitation · linear</span>
+    <span class="c-tcs2"><i class="sw solid"></i>leg-3 trunk · full</span>
+    <span class="c-tcs2"><i class="sw dash"></i>leg-3 · linear</span>
+  </div>
+  <svg id="curves" viewBox="0 0 900 360" role="img" aria-label="AUC per epoch for four arms"></svg>
+
+  <div class="grid2">
+    <div>
+      <h2>The judge leg 3 ran with</h2>
+      <p class="cap">Hourly human-holdout probe during leg 3 — 9 of 10 readings below chance, unread at the time. The new gate refuses this launch.</p>
+      <svg id="leg3" viewBox="0 0 440 240" role="img" aria-label="Leg-3 in-vivo value AUC series"></svg>
+    </div>
+    <div>
+      <h2>Q9 profiling (this box, uncontended)</h2>
+      <p class="cap">48 boundary evaluations, serial vs batched — the A6 batching change measured. Bars labeled directly; one hue (magnitude).</p>
+      <svg id="bench" viewBox="0 0 440 240" role="img" aria-label="Serial vs batched boundary evaluation timings"></svg>
+    </div>
+  </div>
+
+  <h2>A4 bake-off — judge 1, PARTIAL (41/200 states, GPU run in flight)</h2>
+  <p class="cap">Counterfactual probe under the seeded imitation head: fraction of states where the hill-climb finds a revalidated improvement, real vs placebo (shuffled values). References: the 2026-08-14 rung-1 baselines under the pre-collapse imitation head. Separation is the estimand TCS consumes.</p>
+  <div class="grid2">
+    <svg id="a4acc" viewBox="0 0 440 200" role="img" aria-label="Accept rates real vs placebo"></svg>
+    <svg id="a4del" viewBox="0 0 440 200" role="img" aria-label="Accepted delta distribution"></svg>
+  </div>
+
+  <details>
+    <summary>Data table</summary>
+    <table>
+      <tr><th>Arm</th><th>AUC before</th><th>AUC best</th><th>CE after</th></tr>
+      <tr><td>imitation · full head</td><td>0.806</td><td>0.824</td><td>0.506</td></tr>
+      <tr><td>imitation · linear probe</td><td>0.665</td><td>0.817</td><td>0.518</td></tr>
+      <tr><td>leg-3 end · full head</td><td>0.747</td><td>0.798</td><td>0.532</td></tr>
+      <tr><td>leg-3 end · linear probe</td><td>0.564</td><td>0.773</td><td>0.561</td></tr>
+    </table>
+    <table>
+      <tr><th>Q9 bench</th><th>CPU</th><th>GPU</th></tr>
+      <tr><td>forward, batch 1 (ms/state)</td><td>26.1</td><td>3.1</td></tr>
+      <tr><td>48 boundary evals, serial (s)</td><td>13.60</td><td>0.51</td></tr>
+      <tr><td>48 boundary evals, batched (s)</td><td>9.90</td><td>0.19</td></tr>
+    </table>
+  </details>
+</div>
+<div id="tip"></div>
+<script>
+const css = n => getComputedStyle(document.querySelector('.viz-root')).getPropertyValue(n).trim();
+const SERIES = [
+  {k:'imit_full',  name:'imitation · full',  colvar:'--imit', dash:null,
+   y:[0.8063,0.8193,0.8218,0.8222,0.8230,0.8236,0.8232,0.8237,0.8237]},
+  {k:'imit_lin',   name:'imitation · linear', colvar:'--imit', dash:'6 5',
+   y:[0.6648,0.7848,0.8027,0.8086,0.8121,0.8144,0.8156,0.8167,0.8173]},
+  {k:'tcs2_full',  name:'leg-3 · full',       colvar:'--tcs2', dash:null,
+   y:[0.7468,0.7693,0.7770,0.7832,0.7881,0.7920,0.7945,0.7967,0.7984]},
+  {k:'tcs2_lin',   name:'leg-3 · linear',     colvar:'--tcs2', dash:'6 5',
+   y:[0.5641,0.7332,0.7554,0.7609,0.7643,0.7670,0.7692,0.7713,0.7732]},
+];
+const REFS = [
+  {v:0.50, label:'chance 0.50'},
+  {v:0.60, label:'launch gate 0.60'},
+  {v:0.68, label:'plateau 0.68'},
+];
+function sv(tag, attrs, parent) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const a in attrs) el.setAttribute(a, attrs[a]);
+  if (parent) parent.appendChild(el);
+  return el;
+}
+(function curves() {
+  const svg = document.getElementById('curves');
+  const W=900, H=360, L=52, R=110, T=16, B=34;
+  const x = i => L + i*(W-L-R)/8;
+  const ylo=0.40, yhi=0.86;
+  const y = v => T + (yhi-v)*(H-T-B)/(yhi-ylo);
+  for (let g=0.45; g<=0.85+1e-9; g+=0.05) {
+    sv('line', {x1:L, x2:W-R, y1:y(g), y2:y(g), stroke:css('--grid'), 'stroke-width':1}, svg);
+    const t = sv('text', {x:L-8, y:y(g)+4, 'text-anchor':'end', class:'axis'}, svg);
+    t.textContent = g.toFixed(2);
+  }
+  REFS.forEach(r => {
+    sv('line', {x1:L, x2:W-R, y1:y(r.v), y2:y(r.v), stroke:css('--ref'),
+                'stroke-width':1.5, 'stroke-dasharray':'3 4'}, svg);
+    const t = sv('text', {x:W-R+6, y:y(r.v)+4, class:'refl'}, svg);
+    t.textContent = r.label;
+  });
+  sv('line', {x1:L, x2:W-R, y1:y(0.434), y2:y(0.434), stroke:css('--bad'),
+              'stroke-width':1.5, 'stroke-dasharray':'3 4'}, svg);
+  const bl = sv('text', {x:W-R+6, y:y(0.434)+4, class:'refl', fill:css('--bad')}, svg);
+  bl.textContent = 'leg-3 mean 0.434';
+  for (let i=0; i<9; i++) {
+    const t = sv('text', {x:x(i), y:H-B+18, 'text-anchor':'middle', class:'axis'}, svg);
+    t.textContent = i===0 ? 'before' : 'e'+(i-1);
+  }
+  const pts = [];
+  SERIES.forEach(s => {
+    const col = css(s.colvar);
+    const d = s.y.map((v,i)=>(i?'L':'M')+x(i).toFixed(1)+' '+y(v).toFixed(1)).join(' ');
+    const attrs = {d, fill:'none', stroke:col, 'stroke-width':2.5, 'stroke-linecap':'round'};
+    if (s.dash) attrs['stroke-dasharray'] = s.dash;
+    sv('path', attrs, svg);
+    s.y.forEach((v,i)=>{
+      sv('circle', {cx:x(i), cy:y(v), r:3, fill:col, stroke:css('--surface-1'), 'stroke-width':2}, svg);
+      pts.push({X:x(i), Y:y(v), s:s.name, i, v});
+    });
+    const last = s.y[s.y.length-1];
+    const t = sv('text', {x:W-R+6, y:y(last)+(s.k==='imit_lin'?12:s.k==='imit_full'?-4:4), class:'dl', fill:col}, svg);
+    t.textContent = last.toFixed(3);
+  });
+  const tip = document.getElementById('tip');
+  svg.addEventListener('mousemove', ev => {
+    const r = svg.getBoundingClientRect();
+    const mx = (ev.clientX-r.left)*W/r.width, my = (ev.clientY-r.top)*H/r.height;
+    let best=null, bd=1e9;
+    pts.forEach(p=>{const d=(p.X-mx)**2+(p.Y-my)**2; if(d<bd){bd=d;best=p;}});
+    if (best && bd < 900) {
+      tip.style.display='block';
+      tip.style.left=(ev.clientX+14)+'px'; tip.style.top=(ev.clientY-10)+'px';
+      tip.textContent = `${best.s} — ${best.i===0?'before':'epoch '+(best.i-1)}: AUC ${best.v.toFixed(4)}`;
+    } else tip.style.display='none';
+  });
+  svg.addEventListener('mouseleave', ()=>{ tip.style.display='none'; });
+})();
+(function leg3() {
+  const svg = document.getElementById('leg3');
+  const data = [0.309,0.401,0.364,0.450,0.456,0.655,0.484,0.461,0.386,0.371];
+  const W=440,H=240,L=44,R=14,T=12,B=30;
+  const x=i=>L+i*(W-L-R)/9, ylo=0.28, yhi=0.72;
+  const y=v=>T+(yhi-v)*(H-T-B)/(yhi-ylo);
+  [0.3,0.4,0.5,0.6,0.7].forEach(g=>{
+    sv('line',{x1:L,x2:W-R,y1:y(g),y2:y(g),stroke:css('--grid'),'stroke-width':1},svg);
+    const t=sv('text',{x:L-6,y:y(g)+4,'text-anchor':'end',class:'axis'},svg); t.textContent=g.toFixed(1);
+  });
+  sv('line',{x1:L,x2:W-R,y1:y(0.5),y2:y(0.5),stroke:css('--ref'),'stroke-width':1.5,'stroke-dasharray':'3 4'},svg);
+  const cl=sv('text',{x:W-R-4,y:y(0.5)-5,'text-anchor':'end',class:'refl'},svg); cl.textContent='chance';
+  sv('line',{x1:L,x2:W-R,y1:y(0.6),y2:y(0.6),stroke:css('--ref'),'stroke-width':1.5,'stroke-dasharray':'3 4'},svg);
+  const gl=sv('text',{x:W-R-4,y:y(0.6)-5,'text-anchor':'end',class:'refl'},svg); gl.textContent='gate';
+  const col=css('--bad');
+  const d=data.map((v,i)=>(i?'L':'M')+x(i).toFixed(1)+' '+y(v).toFixed(1)).join(' ');
+  sv('path',{d,fill:'none',stroke:col,'stroke-width':2.5,'stroke-linecap':'round'},svg);
+  data.forEach((v,i)=>{
+    const c=sv('circle',{cx:x(i),cy:y(v),r:3.5,fill:col,stroke:css('--surface-1'),'stroke-width':2},svg);
+    const ti=sv('title',{},c); ti.textContent=`probe ${i+1}: AUC ${v.toFixed(3)}`;
+  });
+  const t=sv('text',{x:(L+W-R)/2,y:H-6,'text-anchor':'middle',class:'axis'},svg);
+  t.textContent='hourly probes over the leg (time →)';
+})();
+(function a4partial() {
+  // Judge 1 partial (41 states), 2026-08-19 pull.
+  const acc = document.getElementById('a4acc');
+  const rows = [
+    {name:'real (seeded head)',      v:23/41, col:css('--imit'), ref:false},
+    {name:'placebo (seeded head)',   v:3/41,  col:css('--imit'), ref:false},
+    {name:'real — rung-1 baseline',  v:0.640, col:css('--ref'),  ref:true},
+    {name:'placebo — rung-1',        v:0.130, col:css('--ref'),  ref:true},
+  ];
+  const W=440,H=200,L=150,R=56,T=14,B=24, bw=24, gap=14;
+  const x=v=>L+v*(W-L-R);
+  rows.forEach((r,i)=>{
+    const Y=T+i*(bw+gap);
+    sv('rect',{x:L,y:Y,width:Math.max(2,x(r.v)-L),height:bw,rx:4,
+               fill:r.col, opacity:r.ref?0.45:1},acc);
+    const n=sv('text',{x:L-8,y:Y+bw/2+4,'text-anchor':'end',class:'axis'},acc);
+    n.textContent=r.name;
+    const vt=sv('text',{x:x(r.v)+6,y:Y+bw/2+4,class:'dl'},acc);
+    vt.textContent=(100*r.v).toFixed(0)+'%';
+  });
+  const t=sv('text',{x:(L+W-R)/2,y:H-4,'text-anchor':'middle',class:'axis'},acc);
+  t.textContent='states with a revalidated accepted improvement';
+
+  const del = document.getElementById('a4del');
+  // Accepted reval_mean deltas (real arm, n=47) from the partial pull.
+  const deltas=[0.0644]; // median marker; strip drawn from summary stats
+  const W2=440,H2=200,L2=44,R2=14,T2=14,B2=28;
+  const xmax=0.30;
+  const x2=v=>L2+v*(W2-L2-R2)/xmax;
+  [0.0,0.1,0.2,0.3].forEach(g=>{
+    sv('line',{x1:x2(g),x2:x2(g),y1:T2,y2:H2-B2,stroke:css('--grid'),'stroke-width':1},del);
+    const tt=sv('text',{x:x2(g),y:H2-B2+14,'text-anchor':'middle',class:'axis'},del);
+    tt.textContent=g.toFixed(1);
+  });
+  sv('line',{x1:x2(0.01),x2:x2(0.01),y1:T2,y2:H2-B2,stroke:css('--ref'),'stroke-width':1.5,'stroke-dasharray':'3 4'},del);
+  const fl=sv('text',{x:x2(0.01)+4,y:T2+12,class:'refl'},del); fl.textContent='min_delta 0.01';
+  sv('line',{x1:x2(0.04),x2:x2(0.04),y1:T2,y2:H2-B2,stroke:css('--ref'),'stroke-width':1.5,'stroke-dasharray':'3 4'},del);
+  const at=sv('text',{x:x2(0.04)+4,y:T2+26,class:'refl'},del); at.textContent='1 C51 atom 0.04';
+  // median marker for accepted deltas
+  sv('line',{x1:x2(0.0644),x2:x2(0.0644),y1:T2+20,y2:H2-B2-20,stroke:css('--imit'),'stroke-width':3},del);
+  const md=sv('text',{x:x2(0.0644)+6,y:(T2+H2-B2)/2+4,class:'dl',fill:css('--imit')},del);
+  md.textContent='median accepted Δ 0.064 (n=47)';
+  const t2=sv('text',{x:(L2+W2-R2)/2,y:H2-4,'text-anchor':'middle',class:'axis'},del);
+  t2.textContent='accepted improvement size (value units)';
+})();
+(function bench() {
+  const svg = document.getElementById('bench');
+  const rows = [
+    {name:'CPU serial',  v:13.60},
+    {name:'CPU batched', v:9.90},
+    {name:'GPU serial',  v:0.51},
+    {name:'GPU batched', v:0.19},
+  ];
+  const W=440,H=240,L=104,R=64,T=16,B=26;
+  const bw=28, gap=18;
+  const xmax=14;
+  const x=v=>L+v*(W-L-R)/xmax;
+  rows.forEach((r,i)=>{
+    const Y=T+i*(bw+gap);
+    sv('rect',{x:L,y:Y,width:Math.max(2,x(r.v)-L),height:bw,rx:4,fill:css('--seq'),
+               opacity: i<2 ? 0.55 : 1},svg);
+    const n=sv('text',{x:L-8,y:Y+bw/2+4,'text-anchor':'end',class:'axis'},svg);
+    n.textContent=r.name;
+    const vt=sv('text',{x:x(r.v)+6,y:Y+bw/2+4,class:'dl'},svg);
+    vt.textContent=r.v.toFixed(2)+' s';
+    const tt=sv('title',{},svg.lastChild);
+  });
+  const t=sv('text',{x:(L+W-R)/2,y:H-4,'text-anchor':'middle',class:'axis'},svg);
+  t.textContent='48 boundary evaluations (seconds, lower is better)';
+})();
+</script>
+</body>
+</html>

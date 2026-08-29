@@ -1,0 +1,1 @@
+{"label_a": "seed-mcts32", "label_b": "seed-raw", "procedure_a": "mcts:32", "procedure_b": "raw", "max_turns": 200, "pt_config": null, "turn_config": null, "side_a": 2, "seed": 10001, "outcome_a": "timeout_kill", "margin_a": null, "timeout_min": 45.0}

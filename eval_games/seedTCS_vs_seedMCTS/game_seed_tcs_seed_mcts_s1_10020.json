@@ -1,0 +1,1 @@
+{"label_a": "seed_tcs", "label_b": "seed_mcts", "side_a": 1, "seed": 10020, "scenario_id": "multiplayer_Clearing_Gushes", "outcome_a": "loss", "margin_a": -0.6410829691534246, "turns": 21, "ended_by": "leader_killed", "secs": 377.7}

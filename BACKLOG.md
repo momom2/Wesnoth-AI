@@ -18,6 +18,125 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
 ## MCTS-32 verdict measured a different object than training
 ## optimizes. First test: pin-vs-seed 40 games under TCS.
 
+## MEASURED 2026-08-28 (box 49019890, E5-2696v3 host, ~$0.25 total,
+## destroyed): two findings that reorder the redesign program.
+## (1) THE IMPROVEMENT ENGINE EXISTS: seed+MCTS-32 vs seed raw
+## policy (same weights, per-side sims via new --mcts-sims-a/-b
+## flags): 9-0-1, seed+search +321 ± 153 (PURE fit, 10 overlong
+## games = absences; eval_games/engine_seed_search_vs_raw;
+## early-stopped from 40 by user order once one-sided). Search
+## improves on the raw policy by a wide margin at the training
+## budget, so self-play CAN gain; erosion is training failing to
+## keep what search finds (consistent with the teacher-swap-first
+## ladder in docs/redesign_1000x_20260828.md).
+## (2) EVAL GAMES ON CPU ARE ~86-90% NEURAL-NET FORWARDS, NOT SIM
+## (cProfile on the box, sims-32 game 2070s: attention 881s +
+## linear 845s + activations ~150s; ALL Python game logic — encoder
+## ~42s, action enum ~36s, pathfind ~11s — under 10%; raw-raw game
+## same split at 86%). Leaf evals run at batch 1 on CPU. Same game
+## on the box's 3060: ~19s/turn vs ~200s/turn CPU = 10x; ~420MB
+## VRAM per game process, 6 concurrent used 2.5/12GB. => EVAL
+## PROTOCOL: on a GPU box run --device cuda with jobs sized to
+## cores (VRAM fits ~20 games); the "--device cpu for parallel
+## eval" doctrine predates this measurement. Shipped same day:
+## --mcts-batch-size on elo_eval_game/run_elo_batch (default 1 =
+## canonical; result files record mcts_batch, mixing refused; the
+## GPU 10x was measured at B=1, so B=16 on cuda should stack more
+## per the mcts.py header -- measure on the next match). CPU
+## batching stays 1: measured NET SLOWDOWN 2026-04 (mcts.py:59).
+## bf16/compile MEASURED (2026-08-28, tools/bench_infer.py, RTX
+## 3060, 150 real-shape states from 5 dummy games, 9 distinct
+## shapes; log in session scratch): median ms/forward -- eager
+## fp32 9.9 | eager bf16 8.6 (1.15x) | compile fp32 8.9 (~1x) |
+## compile+bf16 5.0 (2.0x) | compile+bf16+padded 4.9 (recompile
+## stalls 6->2; padding otherwise not worth its mask work).
+## Neither alone pays; TOGETHER 2x. Compile cost ~10-14s per new
+## shape bucket PER PROCESS -- roughly breaks even within one
+## sims-32 game, so adoption wants TORCHINDUCTOR_CACHE_DIR on a
+## persistent path so later game processes reuse compiled kernels.
+## RULING (user, 2026-08-28): compile+bf16 IS the default, eval
+## AND training. AMENDED IN EXECUTION 2026-08-29: the TRAINING-path
+## default is rolled back to OFF -- an in-process torch.compile
+## deadlocked the spool e2e on a cuda box (33 min at 3% CPU;
+## suspected cudagraph capture under learner threads), and the
+## teacher arms must not carry unvalidated numerics. Eval keeps
+## the cuda-auto default (bench-validated + match-proven). TODO to
+## honor the ruling fully: a dedicated pool-path compile+bf16
+## validation smoke on a GPU box, then flip the training default.
+## ALSO found by the same slow-tier gate (2026-08-29):
+## wesnoth_src/data/core/macros/ was NOT git-tracked, so every
+## bare-clone training box ran scenario events with core macros
+## silently unexpanded -- Hornshark bowmen lost firststrike,
+## event-placed units lost TRAIT_* (incl. QUICK: MP changes). Box
+## sim != laptop-certified sim on affected scenarios, for every
+## leg since the subset was tracked (2026-07-02). Macros dir now
+## tracked (413K, 31 files); goes in the degradation ledger. Implementation: three-state flags everywhere
+## (--infer-bf16/--infer-compile, default AUTO = ON iff cuda;
+## explicit ON with a cpu device refused on eval -- it would
+## silently no-op and mislabel). Effective values recorded in
+## every result file + mixing refused; result files also carry
+## fwd_secs_a/b (wall time inside the model, per side) so
+## ms/forward stays reviewable per game forever. Training: same
+## defaults in sim_self_play (banner-logged; spool workers
+## auto-resolve on their OWN device, learner forwards only
+## explicit overrides); throughput review via decision-steps/hour
+## in trainer history as always. TORCHINDUCTOR_CACHE_DIR
+## defaults to ~/.cache/wai_inductor (set in transformer_policy)
+## so game processes share compiled kernels. NOTE for the next
+## leg: first CUDA leg with these defaults changes generation
+## numerics slightly -- one more reason E2 (control leg) precedes
+## attribution claims.
+## Also shipped: --jobs now AUTO-SIZES per box (user ask
+## 2026-08-28) via torch-free tools/host_resources.py -- min over
+## cgroup CPU quota, cgroup-aware RAM headroom (--per-job-mb 2000
+## assumed, per-game peak_rss logged to tighten it), and free VRAM
+## (--per-job-vram-mb 600) on non-cpu devices; the runtime free-RAM
+## guard now reads min(host, OUR cgroup headroom) -- the old psutil
+## reading was host-wide and could never fire on shared Vast hosts.
+## Rust/compiled sim
+## rewrite would NOT speed eval (<1.15x); whether it helps
+## TRAINING-box generation (forwards on the 4090, Python on cores)
+## needs a training-box profile before any port decision.
+## Ops: offer 47491626 listed 3.8GHz but is a 2014 Xeon at ~2.3GHz
+## under 55% host load — filter offers by CPU MODEL, not GHz.
+
+## STATE 2026-08-27: BOTH ADVERSARIAL REVIEW LOOPS CLOSED GREEN
+## (user-capped; final rounds returned zero findings). 39 rounds on
+## the plan-tournament/eval/catalog/ops stack + 6 project-wide
+## rounds; ~270 confirmed defects fixed, each with a regression
+## test; fast tier 690 -> 776 passing; ALL UNCOMMITTED. Before any
+## commit: full slow tier (`pytest -m ""`) on a machine with RAM
+## headroom (the step-1 eval box is the natural moment).
+## Load-bearing outcomes a next session must know:
+## - COMMITTED BOARD RE-GAUGED (played-pair prior): seed
+##   2516k-b-294k-l4-0k +206 -> +223±70; l5 pin -10.7 -> +15±95;
+##   l4-495k -367; tcs2-558k -490 (shutout nodes now sit on their
+##   data). File already updated in the working tree.
+## - STEP-1 VERDICT COMMAND must carry
+##   `--ts-args "--turn-boundary-frame mover"` (TCS knobs are part
+##   of the estimand now; dataclass-default evals played the
+##   opponent frame).
+## - QUALIFICATION: the 2x2 matrix's pin+TCS arms played the
+##   OPPONENT frame (pin trained mover). Seed-side conclusion
+##   (TCS-as-procedure costs ~200 Elo on the seed) stands; pin+TCS
+##   numbers may understate the pin.
+## - QUALIFICATION: every RCA eval ran with OUR side self-blinded
+##   (fog-on encoder over fogless engine) while RCA saw all — the
+##   founding 0-0-30 has an unknown-size handicap baked in. Fixed
+##   (fog flag plumbed, eval scenarios now fog=yes); re-measure on
+##   a box if the number matters again.
+## - GBC labels were structurally degraded under TCS all along
+##   (wrong turn stamps, stale death hexes, no first-capture rows,
+##   fogless censoring); now event-traced per decision. The aux
+##   head's past contribution should be assumed ~noise.
+## - plan_tournament: certified turn mass = beta/2 exactly (incl.
+##   midgame floor); reserve/selection priced+capped consistently;
+##   EMA censoring-aware (pt_half_cap_hit_rate column watches it).
+## - Launcher/daemons: fork guard now covers TCS/PT and is
+##   BaseException (unswallowable, pool-fatal channel); fd-9 lock
+##   closed in daemons; ensure/stop are identity-verified, never
+##   kill on inference.
+
 ## STATE 2026-08-26: LEG 5 VERDICT-STOPPED — the 3.06M pin lost
 ## 9-0-31 to its own seed (seed +208 ± 64, 40 games, catalog
 ## protocol). docs/leg5_resume_verdict_20260826.md has the record.
@@ -31,6 +150,61 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
 
 ## STATE 2026-08-25 (superseded): TRAINING DOWN BY USER ORDER —
 ## resumed 2026-08-25 late evening on their go, ran to verdict above
+
+## DIRECTION 2026-08-27 (user): the training itself needs a
+## SAMPLE-EFFICIENCY REDESIGN (~1000x effective speedup; AlphaZero
+## had ~44M games, we get thousands, and the budget cannot scale).
+## Reward sparsity is the named enemy: 1 terminal bit per game vs
+## thousands of self-supervised target bits. Candidate levers
+## (unranked, to be designed properly): reanalyze-style target
+## regeneration on stored games (MuZero Reanalyze; our sim is a
+## PERFECT model so no model error), dense ground-truth value
+## targets from events/material trajectories (GVF/UNREAL-style;
+## GBC's events already predict outcomes at AUC 0.79), continual
+## human-corpus co-training every leg (AlphaStar's human-KL lesson;
+## distinct from the REJECTED self-anchors), short-episode
+## skirmish/subgame curriculum with EXACT material-delta outcomes
+## (mini maps + midgame machinery exist). All four to be DESIGNED
+## by a Fable-5 brainstorm workflow after usage reset — not taken
+## from the single-pass sketch.
+## SKIRMISH CURRICULUM pre-design (2026-08-27 discussion; prior
+## Claude-handcrafted drills failed — procedural only, per user):
+## candidate generation sources, roughly ranked: (1) FIGHT WINDOWS
+## harvested from real games (human corpus + self-play): state K
+## turns before a resolved engagement as episode start, exact
+## material-delta terminal, human continuation as baseline — zero
+## authoring, natural difficulty spectrum, distribution-matched;
+## (2) PUZZLE MINING a la Lichess: positions where deep search
+## beats the raw policy by a large value delta are instructive BY
+## CONSTRUCTION and auto-calibrated (they exist because the policy
+## fails them); (3) parameterized random: terrain windows cropped
+## from the 21 ladder maps (not synthetic), cost-budgeted unit
+## sets from real faction lists, contact-range placement, ToD
+## phase sampled, sim-validated; (4) curriculum = SELECTION not
+## design: PLR-style prioritized replay of high-learning-potential
+## episodes / success-rate targeting (~50-70%), so difficulty is
+## measured, never authored. ADJUDICATION (corrected 2026-08-27,
+## user): counterfactual dice replays of recorded ACTION SEQUENCES
+## are incoherent — actions condition on realized RNG (same fact
+## that killed the Q8 CRN idea: dice streams decohere). Redraws are
+## valid only CLOSED-LOOP: salted re-rollouts by a generating
+## policy from the window START state (= MC estimate of V^pi with
+## a perfect model). Self-play windows: full adjudication. Human
+## windows: the recorded continuation is ONE uncontrolled sample,
+## never replayable; value-mine only where OUR policy converts the
+## position across salts, and where our policy fails but the human
+## converted, route to the supervised-label mine instead (human
+## move as label, deep search as co-signer — accepted by user).
+## Puzzle Tactics add-on = HELD-OUT eval
+## benchmark for tactic competence, never training data. Plugs
+## into the existing mix-ratio machinery (midgame/mini/fogless
+## pattern); stationary-combat neutral_ai is a legitimate tier-0
+## skirmish defender even though unusable for full games.
+## Secondary, cheaper
+## experiment (approved to note): one leg with OPPONENT SAMPLING
+## over {seed + past pins} instead of mirror self-play, same
+## 40-game seed verdict — tests the population/cycling hypothesis
+## for the all-proxies-healthy erosion.
 
 NEXT ACTIONS, in order:
 1. (USER gate) Resume leg 5: fresh box with **vms_enabled=false**

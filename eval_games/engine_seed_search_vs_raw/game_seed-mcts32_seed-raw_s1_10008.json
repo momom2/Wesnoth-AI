@@ -1,0 +1,1 @@
+{"label_a": "seed-mcts32", "label_b": "seed-raw", "pt_config": null, "turn_config": null, "procedure_a": "mcts:32", "procedure_b": "raw", "max_turns": 200, "side_a": 1, "seed": 10008, "scenario_id": "multiplayer_Den_of_Onis", "outcome_a": "win", "margin_a": 0.6962641301201712, "turns": 11, "forwards_a": 5073, "forwards_b": 83, "ended_by": "leader_killed", "secs": 2370.0}

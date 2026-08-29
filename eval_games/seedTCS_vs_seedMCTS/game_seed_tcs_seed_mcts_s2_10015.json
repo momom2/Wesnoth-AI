@@ -1,0 +1,1 @@
+{"label_a": "seed_tcs", "label_b": "seed_mcts", "side_a": 2, "seed": 10015, "scenario_id": "multiplayer_Den_of_Onis", "outcome_a": "loss", "margin_a": -0.2759894969262168, "turns": 8, "ended_by": "leader_killed", "secs": 105.6}

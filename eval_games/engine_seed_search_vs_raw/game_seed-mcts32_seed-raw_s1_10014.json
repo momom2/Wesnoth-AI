@@ -1,0 +1,1 @@
+{"label_a": "seed-mcts32", "label_b": "seed-raw", "pt_config": null, "turn_config": null, "procedure_a": "mcts:32", "procedure_b": "raw", "max_turns": 200, "side_a": 1, "seed": 10014, "scenario_id": "multiplayer_Silverhead_Crossing", "outcome_a": "win", "margin_a": 0.24492242245942072, "turns": 7, "forwards_a": 3120, "forwards_b": 62, "ended_by": "leader_killed", "secs": 1911.7}
