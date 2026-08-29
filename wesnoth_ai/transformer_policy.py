@@ -185,6 +185,13 @@ class TransformerPolicy:
         ).to(self._device)
         self._inference_encoder.load_state_dict(self._encoder.state_dict())
         self._inference_model.load_state_dict(self._model.state_dict())
+        # The UNCOMPILED inference module. torch.compile's wrapper
+        # rejects plain-keyed state dicts on load_state_dict (torch
+        # 2.5.1: OptimizedModule expects _orig_mod.-prefixed keys --
+        # crashed load_checkpoint on every compiled box, 2026-08-29),
+        # so weight snapshots always load into THIS handle; the
+        # compiled wrapper shares its parameters and sees the update.
+        self._inference_base = self._inference_model
         # Share the vocab dicts (by reference). New types added by
         # either side appear in both.
         self._inference_encoder.unit_type_to_id = self._encoder.unit_type_to_id
@@ -435,9 +442,14 @@ class TransformerPolicy:
         consistent post-step view.
         """
         with self._lock:
-            self._inference_model.load_state_dict(self._model.state_dict())
+            # Load into the UNCOMPILED base module (see ctor note:
+            # the compiled wrapper rejects plain keys but shares
+            # parameters with the base, so it sees the update).
+            base = getattr(self, "_inference_base",
+                           self._inference_model)
+            base.load_state_dict(self._model.state_dict())
             self._inference_encoder.load_state_dict(self._encoder.state_dict())
-            self._inference_model.eval()
+            base.eval()
             self._inference_encoder.eval()
 
     def watch_vocab_growth(self) -> None:
