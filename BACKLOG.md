@@ -69,8 +69,19 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
 ## silently unexpanded -- Hornshark bowmen lost firststrike,
 ## event-placed units lost TRAIT_* (incl. QUICK: MP changes). Box
 ## sim != laptop-certified sim on affected scenarios, for every
-## leg since the subset was tracked (2026-07-02). Macros dir now
-## tracked (413K, 31 files); goes in the degradation ledger. Implementation: three-state flags everywhere
+## leg since the subset was tracked (2026-07-02). CORRECTION
+## 2026-08-30: the 2026-08-29 "now tracked" claim was FALSE -- the
+## gitignore whitelisted only schedules.cfg, and `git add <dir>` of
+## all-ignored contents silently adds nothing (the commit message
+## asserted without verifying). Caught by the box corpus sweep: 250
+## of 19.4k imitation games diverged on a bare tree under BOTH
+## python and rust paths, all 12 sampled reproduce clean on the
+## laptop; an open()-audit pinned 30 untracked-but-consulted macro
+## files. Actually tracked (verified via git ls-files: 31 files)
+## and gitignore fixed 2026-08-30. Teacher arms T/M/G were
+## unaffected (macros side-loaded); arm V's first ~2 iterations ran
+## without them -- trainer restarted on the fixed tree, noted in
+## its log. Goes in the degradation ledger. Implementation: three-state flags everywhere
 ## (--infer-bf16/--infer-compile, default AUTO = ON iff cuda;
 ## explicit ON with a cpu device refused on eval -- it would
 ## silently no-op and mislabel). Effective values recorded in

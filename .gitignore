@@ -86,8 +86,12 @@ wesnoth_src/data/*
 !wesnoth_src/data/core/
 wesnoth_src/data/core/*
 !wesnoth_src/data/core/macros/
-wesnoth_src/data/core/macros/*
-!wesnoth_src/data/core/macros/schedules.cfg
+# Whole macros dir tracked (2026-08-30): the schedules-only
+# whitelist left every other core macro unexpanded on bare-clone
+# boxes (traits/weapon-specials lost on event-placed units; 250 of
+# 19.4k corpus games diverged box-vs-laptop). NOTE the git trap
+# that hid this for a day: `git add <dir>` of all-ignored contents
+# silently adds NOTHING -- always verify with `git ls-files`.
 !wesnoth_src/data/multiplayer/
 wesnoth_src/data/multiplayer/*
 !wesnoth_src/data/multiplayer/factions/
