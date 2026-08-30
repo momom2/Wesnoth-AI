@@ -1048,7 +1048,27 @@ class MCTSPolicy:
                 relevant_set=bool(getattr(enc, "relevant_set_hexes",
                                           False))))
             zs.append(float(e.z))
-        stats = self._base._trainer.step_value_from_raw(raws, zs)
+        # VALUE HEAD ONLY (2026-08-31: arm V K-collapsed in 4
+        # iterations -- the full-unfreeze step_value_from_raw sent an
+        # unopposed value gradient through the shared trunk once per
+        # iteration and the policy's turn behavior slid out from
+        # under it, with distill targets healthy throughout. The
+        # memory's job is de-noising the OUTCOME FIT; the head is
+        # where that fit lives. Freezing the rest also skips the
+        # trunk backward -- the step gets cheaper.)
+        model = self._base._model
+        enc_mod = self._base._encoder
+        frozen = [p for p in list(model.parameters())
+                  + list(enc_mod.parameters()) if p.requires_grad]
+        for p in frozen:
+            p.requires_grad_(False)
+        try:
+            for p in model.value_head.parameters():
+                p.requires_grad_(True)
+            stats = self._base._trainer.step_value_from_raw(raws, zs)
+        finally:
+            for p in frozen:
+                p.requires_grad_(True)
         self._sync_inference_weights()
         stats["memory_games"] = len(games)
         stats["memory_states"] = sum(len(s) for s in games)

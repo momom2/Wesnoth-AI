@@ -60,22 +60,38 @@ def test_censored_and_legacy_states_never_enter():
 
 
 def test_value_memory_step_trains_value_head_only():
+    """2026-08-31 hardening (arm V K-collapse): the memory step
+    must touch NOTHING but the value head -- an unopposed value
+    gradient through the shared trunk collapsed the policy's turn
+    behavior in 4 iterations while distill targets stayed healthy."""
     pol = _policy()
     gs = fresh_scenario_sim().gs
     pol._value_memory_ingest(_exps("g1", 4, gs, z=1.0))
     pol._value_memory_ingest(_exps("g2", 4, gs, z=-1.0))
     net = pol._base
     v_before = net._model.value_head[0].weight.detach().clone()
-    p_before = net._model.actor_head.weight.detach().clone()
+    others_before = {
+        n: p.detach().clone() for n, p in net._model.named_parameters()
+        if not n.startswith("value_head")}
+    enc_before = {n: p.detach().clone()
+                  for n, p in net._encoder.named_parameters()}
     stats = pol.value_memory_step(batch_size=8)
     assert stats["memory_games"] == 2
     assert stats["value_loss"] > 0.0
     assert not torch.equal(
         net._model.value_head[0].weight.detach(), v_before), \
         "value head must receive gradient"
-    assert torch.equal(
-        net._model.actor_head.weight.detach(), p_before), \
-        "policy head must NOT receive gradient from the value step"
+    for n, before in others_before.items():
+        assert torch.equal(
+            dict(net._model.named_parameters())[n].detach(), before), \
+            f"non-value-head param {n} moved in the memory step"
+    for n, before in enc_before.items():
+        assert torch.equal(
+            dict(net._encoder.named_parameters())[n].detach(), before), \
+            f"encoder param {n} moved in the memory step"
+    # And every parameter is trainable again afterwards.
+    assert all(p.requires_grad for p in net._model.parameters())
+    assert all(p.requires_grad for p in net._encoder.parameters())
 
 
 def test_off_by_default_is_inert():
