@@ -60,6 +60,17 @@ style per phase:
    states stay on Python (fixed overhead). Env-gated opt-in until
    box setups build the wheel (cargo+maturin in setup scripts).
 
+**Box + corpus certification (2026-08-30, user order):** wheel
+builds on Linux (rustup minimal + maturin, ~2 min in box setup);
+certification suites green on the box; and the FULL imitation
+training corpus reconstructs 17,124/17,124 clean under
+WESNOTH_RUST=1 (30-way sharded diff_replay, ~80s wall). A control
+shard proved python/rust byte-identical on the same files. The
+sweep's first run also caught the untracked-macros regression (see
+BACKLOG 2026-08-30 correction) — the divergences it showed were
+environmental, identical under both paths, and vanished once the
+macros actually shipped. Records: eval_games/rust_corpus_cert/.
+
 2b. **Raw encoding** (encoder.encode_raw, the loops): GameState ->
    RawEncoded arrays. Certify: byte-identical arrays.
 3. **Combat + sim step** (wesnoth_sim combat resolution, healing,
