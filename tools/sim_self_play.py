@@ -1957,6 +1957,22 @@ def run_iteration(
                 spool.demote_one_cuda_worker("train_step OOM",
                                              hard=True)
             train_stats = policy.train_step()
+        # Value-memory step (user ruling 2026-08-30): one value-only
+        # gradient step per iteration over game-uniform samples from
+        # the wide outcome reservoir. Logged every iteration so the
+        # decision stays reviewable (memory_games = the independent-
+        # outcome sample the value head actually saw).
+        if getattr(policy, "_value_memory_games", 0) > 0:
+            _vm_step = getattr(policy, "value_memory_step", None)
+            if _vm_step is not None:
+                _vm = _vm_step()
+                if _vm:
+                    log.info(
+                        f"iter {iter_idx}: value_memory step -- "
+                        f"games={_vm.get('memory_games')} "
+                        f"states={_vm.get('memory_states')} "
+                        f"value_loss={_vm.get('value_loss', 0):.4f} "
+                        f"grad_norm={_vm.get('grad_norm', 0):.3f}")
         train_dt = time.perf_counter() - train_t0
         # getattr-guarded: non-trainable/stub policies (dummy)
         # may return a minimal stats object without the aux field.
@@ -3342,6 +3358,27 @@ def main(argv: List[str]) -> int:
                          "(2026-07-10: the 71%%-draw gradient mass "
                          "flattened the value head even with honest "
                          "z=0 labels and a rehearsal anchor).")
+    ap.add_argument("--value-memory-iters", type=int, default=0,
+                    help="VALUE-head outcome memory span, in "
+                         "iterations of games (user ruling "
+                         "2026-08-30: the arm-T oscillation was "
+                         "diagnosed as value-fit noise from ~35 "
+                         "independent game outcomes per update, "
+                         "amplified by search's max-operator; the "
+                         "weight-averaging test confirmed the "
+                         "catastrophic component is noise). Each "
+                         "iteration adds one value-only gradient "
+                         "step over states sampled game-uniformly "
+                         "from the last N iterations' outcomes. "
+                         "0 = off (unchanged behavior).")
+    ap.add_argument("--value-memory-batch", type=int, default=256,
+                    help="States per value-memory gradient step.")
+    ap.add_argument("--value-memory-states-per-game", type=int,
+                    default=32,
+                    help="Reservoir cap per game (stride-thinned): "
+                         "outcome INDEPENDENCE scales with games, "
+                         "not transitions, so a long game must not "
+                         "dominate its slot.")
     ap.add_argument("--draw-tiebreak-cap", type=float, default=0.3,
                     help="MCTS draws score by material differential "
                          "(villages + gold + unit value) in "
@@ -3852,6 +3889,11 @@ def main(argv: List[str]) -> int:
                 holdout_per_game_cap=args.holdout_per_game_cap,
                 train_draw_tiebreak=args.train_draw_tiebreak,
                 draw_value_weight=args.draw_value_weight,
+                value_memory_games=(args.value_memory_iters
+                                    * args.games_per_iter),
+                value_memory_states_per_game=(
+                    args.value_memory_states_per_game),
+                value_memory_batch=args.value_memory_batch,
                 gbc_labels=gbc_flag,
                 tournament_config=pt_cfg)
             from tools.plan_tournament import launch_echo_schedule
@@ -3889,6 +3931,11 @@ def main(argv: List[str]) -> int:
                 holdout_per_game_cap=args.holdout_per_game_cap,
                 train_draw_tiebreak=args.train_draw_tiebreak,
                 draw_value_weight=args.draw_value_weight,
+                value_memory_games=(args.value_memory_iters
+                                    * args.games_per_iter),
+                value_memory_states_per_game=(
+                    args.value_memory_states_per_game),
+                value_memory_batch=args.value_memory_batch,
                 gbc_labels=gbc_flag,
                 turn_config=turn_cfg)
             log.info(
@@ -3909,6 +3956,11 @@ def main(argv: List[str]) -> int:
                 holdout_per_game_cap=args.holdout_per_game_cap,
                 train_draw_tiebreak=args.train_draw_tiebreak,
                 draw_value_weight=args.draw_value_weight,
+                value_memory_games=(args.value_memory_iters
+                                    * args.games_per_iter),
+                value_memory_states_per_game=(
+                    args.value_memory_states_per_game),
+                value_memory_batch=args.value_memory_batch,
                 gbc_labels=gbc_flag)
         if args.train_draw_tiebreak:
             log.info("LEGACY draw labels: training z = material "

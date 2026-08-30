@@ -178,6 +178,11 @@ class MCTSExperience:
     # and when labeling is off; the loss skips absent labels per
     # experience, so mixed buffers train unchanged.
     gbc_labels: Optional[List] = None
+    # Source game identity (2026-08-30, value-memory ruling): lets
+    # the learner-side per-GAME outcome reservoir cap states per
+    # game and count independent outcomes. "" on legacy pickles --
+    # such experiences simply never enter the reservoir.
+    game_id: str = ""
 
 
 @dataclass

@@ -140,7 +140,10 @@ class MCTSPolicy:
                  holdout_per_game_cap: int = 64,
                  train_draw_tiebreak: bool = False,
                  gbc_labels: bool = False,
-                 draw_value_weight: float = 0.0):
+                 draw_value_weight: float = 0.0,
+                 value_memory_games: int = 0,
+                 value_memory_states_per_game: int = 32,
+                 value_memory_batch: int = 256):
         # GBC event-supervision labels (2026-08-14, docs/gbc_spec.md):
         # when on, finalize_game attaches fog-censored hindsight
         # event labels to every experience (pure state diffs -- no
@@ -173,6 +176,21 @@ class MCTSPolicy:
         # sealed 0.0 in every pool actor and spool worker while the
         # launcher logged the knob as in effect).
         self._draw_value_weight = float(draw_value_weight)
+        # Value memory (user ruling 2026-08-30): the value head's
+        # noise scales with INDEPENDENT GAME OUTCOMES per fit, not
+        # transitions (the arm-T oscillation diagnosis: ~35 games
+        # per fit -> search-amplified value noise; weight-averaging
+        # test confirmed the catastrophic component cancels). A
+        # per-game reservoir of experience REFERENCES spanning many
+        # iterations widens the outcome sample at zero generation
+        # cost; value_memory_step() takes one value-only gradient
+        # step per iteration from it via step_value_from_raw.
+        # 0 games = OFF (no behavior change).
+        self._value_memory_games = int(value_memory_games)
+        self._value_memory_cap = int(value_memory_states_per_game)
+        self._value_memory_batch = int(value_memory_batch)
+        from collections import OrderedDict
+        self._value_memory: "OrderedDict[str, list]" = OrderedDict()
         # Optional diagnostic hook: called with the search ROOT after
         # every mcts_search (see tools/ladder_anatomy.py -- root
         # child-Q spread is the value signal PUCT actually compares).
@@ -657,6 +675,7 @@ class MCTSPolicy:
                 value_weight=(self._draw_value_weight
                               if winner == 0 else 1.0),
                 policy_weight=float(getattr(s, "policy_weight", 1.0)),
+                game_id=str(game_label),
             ))
         # GBC labels (docs/gbc_spec.md): hindsight event rows per
         # stored state, fog-censored for each state's side-to-move.
@@ -978,10 +997,68 @@ class MCTSPolicy:
         self.last_holdout_loss = loss
         return (loss, len(probe))
 
+    def _value_memory_ingest(self, batch) -> None:
+        """Fold fresh experiences into the per-game outcome
+        reservoir. Runs at the queue drain -- the one point every
+        topology's experiences pass through learner-side. Censored
+        states (value_weight 0) carry no outcome bit and are
+        skipped; per-game states are capped by stride-thinning so
+        a long game cannot dominate its slot."""
+        if self._value_memory_games <= 0:
+            return
+        for e in batch:
+            gid = getattr(e, "game_id", "")
+            if not gid or getattr(e, "value_weight", 1.0) <= 0.0:
+                continue
+            slot = self._value_memory.get(gid)
+            if slot is None:
+                while len(self._value_memory) >= self._value_memory_games:
+                    self._value_memory.popitem(last=False)
+                slot = self._value_memory[gid] = []
+            slot.append(e)
+        for gid, slot in self._value_memory.items():
+            if len(slot) > self._value_memory_cap:
+                stride = len(slot) / float(self._value_memory_cap)
+                self._value_memory[gid] = [
+                    slot[int(i * stride)]
+                    for i in range(self._value_memory_cap)]
+
+    def value_memory_step(self, batch_size: Optional[int] = None) -> Dict:
+        """One value-only gradient step over states sampled from
+        the wide outcome reservoir (games sampled uniformly, then
+        one state each, repeating until batch_size). Encodes the
+        sampled states on the fly (RawEncoded, CPU) and reuses the
+        human-value-anchor train path -- no new trainer code."""
+        games = list(self._value_memory.values())
+        if not games:
+            return {}
+        if batch_size is None:
+            batch_size = self._value_memory_batch
+        from wesnoth_ai.encoder import encode_raw
+        enc = self._base._encoder
+        rng = self._replay_rng
+        raws, zs = [], []
+        while len(raws) < batch_size:
+            slot = rng.choice(games)
+            e = rng.choice(slot)
+            raws.append(encode_raw(
+                e.game_state,
+                type_to_id=enc.unit_type_to_id,
+                faction_to_id=enc.faction_to_id,
+                relevant_set=bool(getattr(enc, "relevant_set_hexes",
+                                          False))))
+            zs.append(float(e.z))
+        stats = self._base._trainer.step_value_from_raw(raws, zs)
+        self._sync_inference_weights()
+        stats["memory_games"] = len(games)
+        stats["memory_states"] = sum(len(s) for s in games)
+        return stats
+
     def train_step(self) -> TrainStats:
         with self._lock:
             batch = self._queue
             self._queue = []
+        self._value_memory_ingest(batch)
         rc = self._replay_config
         if not rc.enabled:
             # Legacy: one gradient step over this iteration's fresh
