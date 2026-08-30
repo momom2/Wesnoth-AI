@@ -50,7 +50,17 @@ style per phase:
    amortizes over ~N units and the dict rebuild disappears into
    the mask builder. Default stays OFF until that call exists;
    the certified kernel is its verified core.
-2. **Raw encoding** (encoder.encode_raw, the loops): GameState ->
+2a. **State-level enumeration** — DONE 2026-08-30 (the corrected
+   phase-1 boundary): enumerate_moves computes every unit's
+   move/attack row in one call. Certified by full mask-tensor
+   differential (test_rust_enumerate.py, with an engagement
+   counter so a gated run can't certify vacuously) + the mask/sim
+   contract slice under WESNOTH_RUST=1 (60 tests). Measured:
+   midgame mask build 3.28ms -> 0.73ms (4.5x); <2-eligible-unit
+   states stay on Python (fixed overhead). Env-gated opt-in until
+   box setups build the wheel (cargo+maturin in setup scripts).
+
+2b. **Raw encoding** (encoder.encode_raw, the loops): GameState ->
    RawEncoded arrays. Certify: byte-identical arrays.
 3. **Combat + sim step** (wesnoth_sim combat resolution, healing,
    advancement, events glue): the [mp_checkup]-oracle-certified
