@@ -55,6 +55,26 @@ from typing import Dict, List, Optional, Set, Tuple
 
 log = logging.getLogger("pathfind_sim")
 
+# Rust hot-path kernel (docs/rust_port_plan.md phase 1). Opt-in via
+# WESNOTH_RUST=1 until the differential certification is standing
+# (tests/test_rust_reach.py); the Python loop below remains the
+# permanent diff oracle either way. Import failure = Python path,
+# loudly once.
+import os as _os
+_RUST = None
+if _os.environ.get("WESNOTH_RUST", "0") == "1":
+    try:
+        import wesnoth_core as _RUST
+    except ImportError as _e:  # noqa: F841
+        log.warning("WESNOTH_RUST=1 but wesnoth_core is not "
+                    "importable (build it: maturin develop --release "
+                    "in rust/wesnoth_core); using the Python path")
+
+# id(nbrs-list) -> (source ref, numpy bundles) for the Rust call.
+# The source ref pins the id; bounded by the same drop-all backstop
+# as the terrain caches.
+_RUST_ARRAYS_CACHE: Dict = {}
+
 # Movement cost >= this is Wesnoth's UNREACHABLE sentinel
 # (movetype.hpp: UNREACHABLE = 99).
 UNREACHABLE = 99
@@ -360,6 +380,32 @@ def unit_reach(unit, gs, ctx: ReachContext,
         if i is not None:
             ally[i] = 1
 
+    if _RUST is not None:
+        import numpy as _np
+        bundle = _RUST_ARRAYS_CACHE.get(id(nbrs))
+        if bundle is None or bundle[0] is not nbrs:
+            flat = _np.fromiter(
+                (n for row in nbrs for n in row), dtype=_np.int64,
+                count=H * 6)
+            bundle = (nbrs,
+                      flat,
+                      _np.asarray(mcost, dtype=_np.int64),
+                      _np.asarray(dsub, dtype=_np.int64))
+            if len(_RUST_ARRAYS_CACHE) > 512:
+                _RUST_ARRAYS_CACHE.clear()
+            _RUST_ARRAYS_CACHE[id(nbrs)] = bundle
+        mp_a, cost_a, prev_a = _RUST.unit_reach_arrays(
+            bundle[1], bundle[2], bundle[3],
+            _np.frombuffer(bytes(zoc), dtype=_np.uint8),
+            _np.frombuffer(bytes(enemy), dtype=_np.uint8),
+            _np.frombuffer(bytes(ally), dtype=_np.uint8),
+            s_idx, int(budget), bool(skirmisher))
+        mp_l = mp_a.tolist()
+        cost_l = cost_a.tolist()
+        prev_l = prev_a.tolist()
+        return _reach_from_arrays(start, positions, mp_l, cost_l,
+                                  prev_l, ctx)
+
     INF = float("inf")
     mp_l = [-1] * H
     cost_l = [INF] * H
@@ -400,13 +446,22 @@ def unit_reach(unit, gs, ctx: ReachContext,
                 seq += 1
                 heappush(heap, (ncost, seq, ni))
 
+    return _reach_from_arrays(start, positions, mp_l, cost_l, prev_l,
+                              ctx)
+
+
+def _reach_from_arrays(start, positions, mp_l, cost_l, prev_l,
+                       ctx) -> UnitReach:
+    """Index arrays -> UnitReach (shared by the Python and Rust
+    paths, so both produce identical objects from identical
+    arrays)."""
     mp: Dict[Coord, int] = {}
     cost: Dict[Coord, float] = {}
     prev: Dict[Coord, Coord] = {}
-    for i in range(H):
-        if mp_l[i] >= 0:
+    for i, m in enumerate(mp_l):
+        if m >= 0:
             p = positions[i]
-            mp[p] = mp_l[i]
+            mp[p] = m
             cost[p] = cost_l[i]
             if prev_l[i] >= 0:
                 prev[p] = positions[prev_l[i]]

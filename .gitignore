@@ -137,3 +137,4 @@ training/validate_exports/
 # Supervised-run eval log (regenerable telemetry, not a checkpoint).
 training/checkpoints/supervised_5m_eval.jsonl
 replays_dataset_imitation/
+rust/wesnoth_core/target/
