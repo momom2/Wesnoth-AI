@@ -1017,6 +1017,192 @@ class LegalityMasks:
                                 # COMBAT_TARGET_ALPHA at compute time.
 
 
+def _oracle_attack_bias(i, attack_row, u, unit_at, hex_xs, hex_ys,
+                        target_alpha, type_alpha, attack_bias_np,
+                        type_bias_np) -> None:
+    """Combat-oracle priors for one actor's valid attack targets
+    (shared by the Python and Rust enumeration paths): per-target
+    expected net damage into attack_bias_np, max positive score into
+    type_bias_np[ATTACK]."""
+    from wesnoth_ai.model import UnitActionType
+    best_score = float("-inf")
+    for j in np.where(attack_row)[0]:
+        ex, ey = int(hex_xs[j]), int(hex_ys[j])
+        enemy_u = unit_at.get((ex, ey))
+        if enemy_u is None:
+            continue
+        try:
+            net = expected_attack_net_damage(u, enemy_u)
+        except (AttributeError, IndexError, TypeError, ValueError) as exc:
+            # Narrow to plausible bug shapes: malformed Unit (missing
+            # attacks/resistances/current_hp), bad weapon_index, or
+            # non-numeric stat. Anything else (KeyboardInterrupt,
+            # MemoryError) propagates so we don't mask a real failure
+            # as zero attack bias. Warn-once per pair.
+            if not _ORACLE_WARN_SEEN.get((u.name, enemy_u.name)):
+                _ORACLE_WARN_SEEN[(u.name, enemy_u.name)] = True
+                log.warning(
+                    "expected_attack_net_damage(%s vs %s) raised %s: %s; "
+                    "falling back to 0.0 attack bias for this pair",
+                    u.name, enemy_u.name, type(exc).__name__, exc,
+                )
+            net = 0.0
+        attack_bias_np[i, j] = target_alpha * net
+        if net > best_score:
+            best_score = net
+    # Only positive scores motivate the "attack" nudge (one-sided).
+    if best_score > 0.0 and best_score != float("-inf"):
+        type_bias_np[i, UnitActionType.ATTACK] = type_alpha * best_score
+
+
+# numpy bundles for the Rust batch enumeration, keyed by id() of the
+# cached per-type terrain lists (pinned via the stored source ref so
+# ids can't be recycled). Same drop-all backstop as the terrain
+# caches they mirror.
+_RUST_TYPE_CACHE: Dict = {}
+
+
+def _rust_enumerate_rows(encoded, game_state, current_side, U, H,
+                         pos_to_hex, hex_xs, hex_ys, enemy_mask,
+                         reach_ctx, unit_id_to_obj):
+    """One Rust call for every unit's move/attack row (docs/
+    rust_port_plan.md phase 2 — the state-granularity boundary the
+    phase-1 marshaling measurement demanded). Returns (move_rows,
+    attack_rows) as bool [U, H] arrays, or None when the fast path
+    doesn't apply (no wheel, relevant-set stream — its debug
+    invariant lives on the Python path — or no acting units)."""
+    from tools import pathfind_sim as _pf
+    if _pf._RUST is None or getattr(encoded, "hex_subset", False):
+        return None
+    eligible = []      # (slot, unit)
+    for i in range(U):
+        u = unit_id_to_obj.get(encoded.unit_ids[i])
+        if (u is None or u.side != current_side
+                or "petrified" in (u.statuses or set())):
+            continue
+        if not (u.current_moves > 0 or not u.has_attacked):
+            continue
+        eligible.append((i, u))
+    if len(eligible) < 2:
+        # Fixed wrapper overhead (~0.4ms: flag arrays + call) beats
+        # the Python path only when it amortizes over units
+        # (measured 2026-08-30: 1-unit fresh state 0.47ms python vs
+        # 0.85ms rust; 3-unit midgame 3.28ms vs 0.73ms).
+        return None
+
+    type_key_to_row: Dict[int, int] = {}
+    type_bundles = []  # (mcost_np, dsub_np)
+    unit_rows = []     # per eligible unit: type row
+    base = None        # (pos_to_idx, positions, nbrs_flat_np)
+    for _, u in eligible:
+        arrs = _pf._terrain_arrays_for(u, game_state)
+        pos_to_idx, positions, nbrs, mcost, dsub = arrs
+        if base is None:
+            bundle = _RUST_TYPE_CACHE.get(id(nbrs))
+            if bundle is None or bundle[0] is not nbrs:
+                flat = np.fromiter(
+                    (n for row in nbrs for n in row),
+                    dtype=np.int64, count=len(positions) * 6)
+                bundle = (nbrs, flat)
+                if len(_RUST_TYPE_CACHE) > 1024:
+                    _RUST_TYPE_CACHE.clear()
+                _RUST_TYPE_CACHE[id(nbrs)] = bundle
+            base = (pos_to_idx, positions, bundle[1])
+        row = type_key_to_row.get(id(mcost))
+        if row is None:
+            tb = _RUST_TYPE_CACHE.get(id(mcost))
+            if tb is None or tb[0] is not mcost:
+                tb = (mcost,
+                      np.asarray(mcost, dtype=np.int64),
+                      np.asarray(dsub, dtype=np.int64))
+                if len(_RUST_TYPE_CACHE) > 1024:
+                    _RUST_TYPE_CACHE.clear()
+                _RUST_TYPE_CACHE[id(mcost)] = tb
+            row = len(type_bundles)
+            type_bundles.append((tb[1], tb[2]))
+            type_key_to_row[id(mcost)] = row
+        unit_rows.append(row)
+
+    pos_to_idx, positions, nbrs_flat = base
+    Hm = len(positions)
+    # tok_of_hex is a pure function of (map ordering, token
+    # ordering); both are stable for one EncodedState — cache on it
+    # (mask builds repeat per encoded state in reforward paths).
+    tok_of_hex = getattr(encoded, "_rust_tok_of_hex", None)
+    if tok_of_hex is None or tok_of_hex.shape[0] != Hm:
+        tok_of_hex = np.full(Hm, -1, dtype=np.int64)
+        for pos, j in pos_to_hex.items():
+            mi = pos_to_idx.get(pos)
+            if mi is not None:
+                tok_of_hex[mi] = j
+        try:
+            encoded._rust_tok_of_hex = tok_of_hex
+        except Exception:  # noqa: BLE001 -- frozen dataclass: skip
+            pass
+
+    def _flags(coords) -> np.ndarray:
+        a = np.zeros(Hm, dtype=np.uint8)
+        for p in coords:
+            mi = pos_to_idx.get(p)
+            if mi is not None:
+                a[mi] = 1
+        return a
+
+    zoc_a = _flags(reach_ctx.zoc_hexes)
+    enemy_a = _flags(reach_ctx.enemy_hexes)
+    ally_a = _flags(reach_ctx.ally_hexes)
+    occ_a = _flags(reach_ctx.occupied_visible)
+    rej_a = _flags(getattr(game_state.global_info,
+                           "_move_rejected_hexes", None) or set())
+
+    unit_hexidx = np.full(U, -1, dtype=np.int64)
+    unit_type = np.zeros(U, dtype=np.int64)
+    unit_budget = np.zeros(U, dtype=np.int64)
+    unit_skirm = np.zeros(U, dtype=np.uint8)
+    unit_can_move = np.zeros(U, dtype=np.uint8)
+    unit_can_attack = np.zeros(U, dtype=np.uint8)
+    for (i, u), trow in zip(eligible, unit_rows):
+        mi = pos_to_idx.get((u.position.x, u.position.y))
+        if mi is None:
+            return None      # unit off the terrain map: bail to Python
+        unit_hexidx[i] = mi
+        unit_type[i] = trow
+        unit_budget[i] = int(u.current_moves)
+        unit_skirm[i] = 1 if "skirmisher" in (u.abilities or set()) else 0
+        unit_can_move[i] = 1 if u.current_moves > 0 else 0
+        unit_can_attack[i] = 0 if u.has_attacked else 1
+
+    enemy_hexids = []
+    for j in np.where(enemy_mask)[0]:
+        mi = pos_to_idx.get((int(hex_xs[j]), int(hex_ys[j])))
+        if mi is not None:
+            enemy_hexids.append(mi)
+    enemy_hexids = np.asarray(enemy_hexids, dtype=np.int64)
+
+    # The concatenated per-type stacks are stable for a given army
+    # composition on a given map — cache by the id-tuple of the
+    # source lists (pinned via type_bundles' array refs inside).
+    _stack_key = ("stack",) + tuple(type_key_to_row)
+    _stacked = _RUST_TYPE_CACHE.get(_stack_key)
+    if _stacked is None:
+        tm = np.concatenate([b[0] for b in type_bundles]) \
+            if type_bundles else np.zeros(0, dtype=np.int64)
+        td = np.concatenate([b[1] for b in type_bundles]) \
+            if type_bundles else np.zeros(0, dtype=np.int64)
+        if len(_RUST_TYPE_CACHE) > 1024:
+            _RUST_TYPE_CACHE.clear()
+        _RUST_TYPE_CACHE[_stack_key] = _stacked = (
+            tuple(type_bundles), tm, td)
+    tm, td = _stacked[1], _stacked[2]
+    mv, at = _pf._RUST.enumerate_moves(
+        nbrs_flat, tok_of_hex, tm, td,
+        unit_hexidx, unit_type, unit_budget, unit_skirm,
+        unit_can_move, unit_can_attack,
+        zoc_a, enemy_a, ally_a, occ_a, rej_a, enemy_hexids, H)
+    return (mv.reshape(U, H).astype(bool),
+            at.reshape(U, H).astype(bool))
+
+
 def _build_legality_masks(
     encoded: EncodedState, game_state: GameState,
     *, decision_step: int = 0,
@@ -1177,6 +1363,12 @@ def _build_legality_masks(
             continue
         reach_ctx.zoc_hexes.update(_hex_neighbors(_pos[0], _pos[1]))
 
+    # Rust batch enumeration (phase 2): all units' move/attack rows
+    # in one call; None = Python path (no wheel / relevant-set).
+    _rust_rows = _rust_enumerate_rows(
+        encoded, game_state, current_side, U, H, pos_to_hex,
+        hex_xs, hex_ys, enemy_mask, reach_ctx, unit_id_to_obj)
+
     # ----- Unit actors (slots 0..U-1) -----
     for i in range(U):
         uid = encoded.unit_ids[i]
@@ -1190,6 +1382,19 @@ def _build_legality_masks(
             continue
         ux, uy = u.position.x, u.position.y
 
+        if _rust_rows is not None:
+            # Batch-enumerated rows (identical semantics; certified
+            # by tests/test_rust_enumerate.py differential runs).
+            move_row = _rust_rows[0][i]
+            attack_row = _rust_rows[1][i]
+            if can_attack and attack_row.any():
+                _oracle_attack_bias(
+                    i, attack_row, u, unit_at, hex_xs, hex_ys,
+                    target_alpha, type_alpha, attack_bias_np,
+                    type_bias_np)
+            _finish = True
+        else:
+            _finish = False
         # TRUE single-turn reachability via the shared Wesnoth-
         # default planner (tools/pathfind_sim), replacing the old
         # crow-flies `dist <= moves` approximation -- which offered
@@ -1197,15 +1402,17 @@ def _build_legality_masks(
         # unit could never reach, and whose failed orders used to
         # burn the whole turn. `landable` = hexes this unit can END
         # a move order on given the acting side's observable state.
-        reach = unit_reach(u, game_state, reach_ctx)
+        reach = None if _finish else unit_reach(u, game_state,
+                                                reach_ctx)
 
         # Type-conditional target masks. UNIT actors split their
         # legal targets across ATTACK (enemies with a reachable
         # adjacent landing hex, or already adjacent) and MOVE
         # (landable hexes).
-        move_row   = np.zeros(H, dtype=bool)
-        attack_row = np.zeros(H, dtype=bool)
-        if can_move:
+        if not _finish:
+            move_row   = np.zeros(H, dtype=bool)
+            attack_row = np.zeros(H, dtype=bool)
+        if not _finish and can_move:
             for _lpos in reach.landable:
                 _j = pos_to_hex.get(_lpos)
                 # Under the RELEVANT-SUBSET hex stream a miss is a hard
@@ -1237,7 +1444,7 @@ def _build_legality_masks(
                         zip(hex_xs, hex_ys)):
                     if (int(hx), int(hy)) in move_rej_hexes:
                         move_row[hex_idx] = False
-        if can_attack:
+        if not _finish and can_attack:
             # An enemy is attackable iff the unit is ALREADY adjacent
             # or can LAND on a hex adjacent to it this turn (the
             # move-to-attack normalization in WesnothSim.step then
@@ -1252,51 +1459,11 @@ def _build_legality_masks(
                     if _n in _attack_positions:
                         attack_row[_j] = True
                         break
-            # Combat-oracle priors: for each valid attack target, score
-            # the expected net damage using the unit's best weapon.
-            #   - Per-target bias: feed scaled net into attack_bias_np
-            #     so the target softmax leans toward favorable trades.
-            #   - Per-actor type bias: aggregate (max over targets)
-            #     the same scores into type_bias_np[ATTACK] so the
-            #     type softmax leans toward "attack at all" when at
-            #     least one favorable trade exists.
             if attack_row.any():
-                best_score = float("-inf")
-                for j in np.where(attack_row)[0]:
-                    ex, ey = int(hex_xs[j]), int(hex_ys[j])
-                    enemy_u = unit_at.get((ex, ey))
-                    if enemy_u is None:
-                        continue
-                    try:
-                        net = expected_attack_net_damage(u, enemy_u)
-                    except (AttributeError, IndexError, TypeError, ValueError) as exc:
-                        # Narrow to plausible bug shapes: malformed Unit
-                        # (missing attacks/resistances/current_hp), bad
-                        # weapon_index, or non-numeric stat. Anything else
-                        # (KeyboardInterrupt, MemoryError) propagates so
-                        # we don't mask a real failure as zero attack bias.
-                        # Warn-once per (attacker_type, defender_type)
-                        # so a real bug is loud, not silent.
-                        if not _ORACLE_WARN_SEEN.get((u.name, enemy_u.name)):
-                            _ORACLE_WARN_SEEN[(u.name, enemy_u.name)] = True
-                            log.warning(
-                                "expected_attack_net_damage(%s vs %s) raised %s: %s; "
-                                "falling back to 0.0 attack bias for this pair",
-                                u.name, enemy_u.name, type(exc).__name__, exc,
-                            )
-                        net = 0.0
-                    attack_bias_np[i, j] = target_alpha * net
-                    if net > best_score:
-                        best_score = net
-                # Type bias: only positive scores motivate the "attack"
-                # nudge. A reachable enemy with NEGATIVE expected
-                # net damage shouldn't bias the policy toward
-                # attacking; pinning to max(0, best) keeps the bias
-                # one-sided.
-                if best_score > 0.0 and best_score != float("-inf"):
-                    type_bias_np[i, UnitActionType.ATTACK] = (
-                        type_alpha * best_score
-                    )
+                _oracle_attack_bias(
+                    i, attack_row, u, unit_at, hex_xs, hex_ys,
+                    target_alpha, type_alpha, attack_bias_np,
+                    type_bias_np)
 
         # Per-type legality + union into legacy target_valid_np.
         if attack_row.any():
