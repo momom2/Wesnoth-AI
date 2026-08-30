@@ -76,6 +76,31 @@ seed-level checkpoint, not a real gain. Arm T's -478 re-measured
 3-21 (~-340) — real. Final arm T curve (24-game probes, ~27k-step
 spacing): -28, -137, -61, -478, -104, -255, -201, -104, -382.
 
+## Addendum (2026-08-30..31): the value-memory arms — the fix
+## collapsed the policy, twice, and localized the disease further
+
+Arm V (arm T's recipe + --value-memory-iters 20, one extra value
+gradient step per iteration over a widening per-game outcome
+reservoir): K-COLLAPSED at iteration ~5 (median 9 actions/turn),
+distill targets healthy throughout (et mass flat 0.03-0.06 — NOT
+the arm-M ratchet). First patch (freeze everything but the value
+head in the memory step, verified parameter-exact): arm V2
+K-collapsed FASTER, iteration ~3. Quick entropy check does NOT
+support value saturation (fresh_pred_entropy rose 0.38->0.44).
+Probe points before death: V1 +56 then -182; V2 none completed.
+
+What this pins down: ONE extra value-HEAD-ONLY fit per iteration
+is sufficient to collapse TCS's turn length within ~3 iterations,
+with target telemetry blind to it — the strongest causal handle
+yet on the search-consumes-value channel. What it leaves open: the
+mechanism (saturation disconfirmed at first look; candidates: the
+head's fit drifting off the distribution search co-adapted to;
+TCS's accept-threshold interacting with a faster-moving head).
+Two consecutive failed patches -> step-back rule; HOLDING for user
+review (2026-08-31). Artifacts: armV1/armV2 finals escrowed at
+tier-b/teacher_arms_20260829/, probes/logs under
+eval_games/teacher_arms/armV/.
+
 ## Open
 
 - Whether arm T's oscillation and leg-5's smooth -200 are the
