@@ -43,8 +43,8 @@ def target_amplitude(policy, batch: List) -> Dict:
                 decision_step=int(getattr(e, "decision_step", 0)))
         prior = {}
         for la in legal:
-            key = (la.actor_index, la.target_index, la.weapon_index,
-                   getattr(la, "type_index", None))
+            key = (la.actor_idx, la.target_idx, la.weapon_idx,
+                   getattr(la, "type_idx", None))
             prior[key] = float(la.prior)
         z = sum(prior.values()) or 1e-12
         prior = {k: v / z for k, v in prior.items()}
