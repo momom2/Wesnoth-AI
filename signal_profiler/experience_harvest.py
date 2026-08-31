@@ -66,6 +66,13 @@ def make_policy(checkpoint: Path, device, *, turn_search: bool = True,
     from tools.turn_policy import TurnCommitPolicy
     from tools.turn_search_config import TurnSearchConfig
 
+    # _load_policy silently random-inits on a missing path (that is
+    # a feature for eval baselines, a disaster for profiling: round 3
+    # measured three random nets this way). Profiling a checkpoint
+    # that is not there is always an error.
+    if not Path(checkpoint).exists():
+        raise FileNotFoundError(f"checkpoint not found: {checkpoint}")
+
     def factory():
         base = _load_policy(checkpoint, device, label="profile")
         mc = MCTSConfig(n_simulations=32)

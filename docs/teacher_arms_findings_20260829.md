@@ -153,4 +153,27 @@ production); (c) separately-clipped gradients cannot be compared
 against a clipped sum -- the "96% unaccounted" paradox was clip
 artifact. v1.2 profiles unclipped with a built-in linearity
 self-check and target-amplitude (KL/TV of targets vs prior).
-Round 3 running.
+
+Round 3 (v1.2): SEED rows are the keepers — linearity residual
+0.000 (the instrument is exact unclipped), and the headline stands
+quantified: the value gradient is 12x the policy gradient in norm
+(3.07 vs 0.25) and owns 99.6% of the applied update's direction;
+distill targets are homeopathic (KL median 0.014 vs the prior).
+With target-link amplitude, this is the measured "why a +320
+teacher signal does not transfer": weak targets x ~0% update share.
+
+Round 3 arm rows INVALIDATED — and rounds 1-2 arm rows with them:
+the armV3 checkpoints were never staged on the profiler box, and
+_load_policy silently random-inits on a missing path, so every arm
+profile in rounds 1-3 measured a fresh random network (the logs
+say "no checkpoint -> random init" seven times per run). This
+retroactively explains the round-3 anomalies attributed to the V3
+checkpoints: the "140% linearity residual", the "policy norm
+growth across the cliff arc", and the zero-GBC-gradient mystery
+(a random-init build has no gbc heads because peeking a missing
+file returns the base arch) were all properties of random nets.
+Guard shipped: signal_profiler.make_policy now raises
+FileNotFoundError on a missing checkpoint. Invalid JSONs moved to
+eval_games/signal_profiles/invalid_random_init/. Round 4 = the
+first real arm profiles (same v1.2 protocol, staging verified by
+arch peek: gbc+aux True on all three).
