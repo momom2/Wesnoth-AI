@@ -134,3 +134,23 @@ eval_games/teacher_arms/armV/.
 4. The E-ladder's teacher question is ANSWERED for MCTS (K-collapse)
    and reframed for TCS: the teacher procedure was never the root
    cause; the value function's off-distribution behavior is.
+
+## Signal-profiling rounds 1-2 (2026-08-31, gradient-amplitude tree)
+
+Round 1 (v1, post-clip): on the SEED, the applied update is ~99.7%
+value gradient; policy distill projects +0.017 -- with the
+target-link amplitude finding, the quantified "why +320 does not
+transfer": weak targets x ~2% gradient share.
+
+Round 2 (v1.1, pairwise cosines): FALSIFIED the antiparallel
+policy/value hypothesis (cos ~ 0 everywhere) and exposed three
+instrument defects, each now fixed in v1.2: (a)
+peek_checkpoint_arch dropped gbc heads from every gbc-trained
+checkpoint ("5 unexpected keys" in every arm eval since
+2026-08-14 -- also an EVAL bug, fixed at the source); (b) the
+v1.1 coefficient overrides were no-op/wrong (defaults already
+production); (c) separately-clipped gradients cannot be compared
+against a clipped sum -- the "96% unaccounted" paradox was clip
+artifact. v1.2 profiles unclipped with a built-in linearity
+self-check and target-amplitude (KL/TV of targets vs prior).
+Round 3 running.
