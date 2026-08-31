@@ -60,6 +60,7 @@ def make_policy(checkpoint: Path, device, *, turn_search: bool = True,
     gate projection + head-only value memory. Returns a zero-arg
     factory (fresh policy per call — gradient_tree needs isolation
     across term variants)."""
+    from tools.draw_tiebreak import DrawTiebreakConfig
     from tools.eval_sim import _load_policy
     from tools.mcts import MCTSConfig
     from tools.mcts_policy import MCTSPolicy, ReplayConfig
@@ -75,7 +76,12 @@ def make_policy(checkpoint: Path, device, *, turn_search: bool = True,
 
     def factory():
         base = _load_policy(checkpoint, device, label="profile")
-        mc = MCTSConfig(n_simulations=32)
+        # draw_tiebreak mirrors the production launcher default
+        # (--draw-tiebreak-cap 0.3); without it finalize_game never
+        # attaches aux_target and the aux branch of the tree reads
+        # zero (rounds 1-4 ran without it: aux unprofiled there).
+        mc = MCTSConfig(n_simulations=32,
+                        draw_tiebreak=DrawTiebreakConfig(cap=0.3))
         kw = dict(
             replay_config=ReplayConfig(enabled=False),
             gbc_labels=True,
