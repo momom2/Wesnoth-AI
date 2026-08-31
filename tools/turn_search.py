@@ -662,6 +662,14 @@ class TurnPlan:
         return self.cursor >= len(self.commands)
 
 
+# Offline accept/reject stream tracing (2026-08-31 collapse probe:
+# one value-head fit per iteration collapses committed turn length
+# within ~3 iterations -- this hook exposes WHERE in the climb the
+# actions go). None = zero overhead; the probe sets a callable that
+# receives small dicts. Never set on production paths.
+TRACE = None
+
+
 def plan_turn(policy, sim, side: int, decision_step: int,
               cfg: TurnSearchConfig, mcts_config: MCTSConfig,
               rng: np.random.Generator, salt_ns: str,
@@ -687,6 +695,9 @@ def plan_turn(policy, sim, side: int, decision_step: int,
     commands = [s.action for s in steps]
     n_rounds = cfg.rounds if full else cfg.fast_rounds
     accepts = 0
+    if TRACE:
+        TRACE({"ev": "spine", "n": len(commands),
+               "turn": plan.turn_no, "side": side})
     # Projection placement (docs/tcs_spec.md par.3): `use_proj` grades
     # stage-2 pairings H half-turns out; `proj_all` extends that to
     # stage-1 selection and the distill targets.
@@ -801,6 +812,18 @@ def plan_turn(policy, sim, side: int, decision_step: int,
             reval = (np.array(reval_l) if reval_l
                      else np.array([float("-inf")]))
         accept, _dbar, _ = two_stage_accept(reval, cfg.min_delta)
+        if TRACE:
+            _alt_act = steps[j].legal[alt_i].action
+            TRACE({"ev": "gate", "rnd": rnd,
+                   "inc_len": len(inc.executed),
+                   "inc_val": float(inc_val),
+                   "n_cands": len(cands),
+                   "best_delta": float(deltas[best]),
+                   "best_alt_type": _alt_act.get("type"),
+                   "best_len": len(best_m.executed),
+                   "reval_mean": float(_dbar),
+                   "reval_n": int(len(reval)),
+                   "accept": bool(accept)})
         if regraded and math.isfinite(_dbar):
             # Stage-1 verdict vs the gate's independent re-grade:
             # under projection reval this is exactly the boundary-vs-
@@ -829,6 +852,9 @@ def plan_turn(policy, sim, side: int, decision_step: int,
     # pre-state keys (divergence detection), and -- on full turns --
     # per-coordinate targets from a final evaluation pass.
     plan.accepts = accepts
+    if TRACE:
+        TRACE({"ev": "final", "committed": len(commands),
+               "accepts": accepts, "shortens": plan.gate_shortens})
     kl_salt = f"{salt_ns}:t"
     _snaps2: list = []
     inc = materialize(policy, sim, side, commands, kl_salt,
