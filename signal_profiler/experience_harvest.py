@@ -74,6 +74,11 @@ def make_policy(checkpoint: Path, device, *, turn_search: bool = True,
             gbc_labels=True,
             value_memory_games=value_memory_iters * games_per_iter,
         )
+        # Production loss coefficients (v1.1: the v1 profile ran
+        # gbc/aux at their trainer defaults of 0, silently omitting
+        # terms the arms trained with).
+        base._trainer.config.gbc_coef = 0.1
+        base._trainer.config.aux_coef = 0.05
         if turn_search:
             cfg = TurnSearchConfig(boundary_frame="mover",
                                    project="reval",

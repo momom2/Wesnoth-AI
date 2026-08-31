@@ -206,6 +206,23 @@ def build_tree(policy_factory, batch: List,
                     / ((gnorm or 1e-12) * (tnorm or 1e-12))),
             }
         tree["terms"][term] = node
+        node["_flat"] = flat            # dropped before return
+    # Pairwise term-vs-term cosines (v1.1): the direct measurement
+    # of gradient opposition -- the v1 run could only INFER
+    # antiparallel policy/value gradients from every term's ~0
+    # projection on the total.
+    tree["pairwise_cos"] = {}
+    term_names = list(tree["terms"])
+    for i, a in enumerate(term_names):
+        fa = tree["terms"][a]["_flat"]
+        na = float(fa.norm().item()) or 1e-12
+        for b in term_names[i + 1:]:
+            fb = tree["terms"][b]["_flat"]
+            nb = float(fb.norm().item()) or 1e-12
+            tree["pairwise_cos"][f"{a}|{b}"] = float(
+                (fa @ fb).item() / (na * nb))
+    for t in term_names:
+        del tree["terms"][t]["_flat"]
     tree["groups"] = {
         g: {"total_norm": float(_flat(total, keys).norm().item())}
         for g, keys in sorted(group_names.items())}
