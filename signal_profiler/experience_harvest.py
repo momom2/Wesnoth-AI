@@ -74,11 +74,15 @@ def make_policy(checkpoint: Path, device, *, turn_search: bool = True,
             gbc_labels=True,
             value_memory_games=value_memory_iters * games_per_iter,
         )
-        # Production loss coefficients (v1.1: the v1 profile ran
-        # gbc/aux at their trainer defaults of 0, silently omitting
-        # terms the arms trained with).
-        base._trainer.config.gbc_coef = 0.1
-        base._trainer.config.aux_coef = 0.05
+        # v1.2: the trainer defaults ARE the production
+        # coefficients (gbc 0.1, aux 0.15 -- the v1.1 overrides
+        # were setting one to its default and the other WRONG);
+        # the real zero-gbc cause was peek_checkpoint_arch dropping
+        # the gbc heads, fixed in eval_sim. Profiling runs
+        # UNCLIPPED: separately-clipped vectors cannot be compared
+        # against a clipped sum (the v1.1 96%-unaccounted paradox),
+        # and build_tree's linearity self-check needs raw sums.
+        base._trainer.config.grad_clip = 1e9
         if turn_search:
             cfg = TurnSearchConfig(boundary_frame="mover",
                                    project="reval",

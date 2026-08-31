@@ -211,6 +211,19 @@ def build_tree(policy_factory, batch: List,
     # of gradient opposition -- the v1 run could only INFER
     # antiparallel policy/value gradients from every term's ~0
     # projection on the total.
+    # Linearity self-check (v1.2): backward is linear on a fixed
+    # batch, so with clipping disabled the isolated step_mcts terms
+    # must SUM to the total; the residual fraction measures any
+    # normalization coupling the surgery introduces (value_memory
+    # excluded -- it is a separate step, not part of step_mcts).
+    _sum = None
+    for t in TERM_SURGERY:
+        f = tree["terms"][t]["_flat"]
+        _sum = f.clone() if _sum is None else _sum + f
+    _tot = tree["terms"]["total"]["_flat"]
+    tree["linearity_residual_frac"] = float(
+        (_tot - _sum).norm().item()
+        / (float(_tot.norm().item()) or 1e-12))
     tree["pairwise_cos"] = {}
     term_names = list(tree["terms"])
     for i, a in enumerate(term_names):

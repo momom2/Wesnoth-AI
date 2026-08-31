@@ -53,8 +53,17 @@ def main(argv) -> int:
     if not batch:
         print("no experiences harvested; nothing to profile")
         return 1
+    n_gbc = sum(1 for e in batch if getattr(e, "gbc_labels", None))
+    n_aux = sum(1 for e in batch
+                if getattr(e, "aux_target", None) is not None)
+    print(f"label coverage: gbc={n_gbc}/{len(batch)} "
+          f"aux={n_aux}/{len(batch)}")
 
     tree = build_tree(factory, batch)
+    print(f"linearity residual: "
+          f"{tree.get('linearity_residual_frac', float('nan')):.4f} "
+          f"(should be ~0 unclipped; larger = normalization "
+          f"coupling)")
     tree["outcomes"] = [
         {"winner": getattr(o, "winner", None),
          "turns": getattr(o, "turns", None)} for o in outcomes]

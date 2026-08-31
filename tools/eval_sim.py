@@ -251,7 +251,7 @@ def _play_one_eval_game(
 # those tensors on load (they arrive as "unexpected keys") and then
 # evaluates a different model than the one that trained.
 CHECKPOINT_STRUCT_FLAGS = ("aux_score", "moves_left",
-                           "relevant_set_hexes")
+                           "relevant_set_hexes", "gbc")
 
 
 def peek_checkpoint_arch(
