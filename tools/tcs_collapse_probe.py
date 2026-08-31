@@ -86,6 +86,11 @@ def main(argv) -> int:
     ap.add_argument("--seed", type=int, default=4242)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--device", default="cuda")
+    ap.add_argument("--frame", default="mover",
+                    choices=("mover", "opponent", "mover_mp0"))
+    ap.add_argument("--project", default="none",
+                    choices=("none", "reval", "all"))
+    ap.add_argument("--halfturns", type=int, default=1)
     ap.add_argument("--log-level", default="INFO")
     args = ap.parse_args(argv[1:])
     logging.basicConfig(level=getattr(logging, args.log_level))
@@ -104,12 +109,22 @@ def main(argv) -> int:
     states = harvest(args.n_states, args.seed)
     log.info("harvested %d states", len(states))
 
-    cfg = TurnSearchConfig(boundary_frame="mover")
+    cfg = TurnSearchConfig(boundary_frame=args.frame,
+                           project=args.project,
+                           project_halfturns=args.halfturns)
     mc = MCTSConfig(n_simulations=32)
     results = {}
     for spec in args.ckpt:
         label, path = spec.split("=", 1)
         policy = _load_policy(Path(path), device, label=label)
+        # Plan at the checkpoint's OWN training-progress counter:
+        # combat_alphas_at(decision_step) anneals the combat-oracle
+        # bias, and probing at ds=0 (full oracle) graded a different
+        # search than the one that collapsed (first run 2026-08-31:
+        # rankings INVERTED vs in-vivo -- the oracle term is
+        # load-bearing for turn length).
+        ds = int(getattr(policy, "_decision_step", 0) or 0)
+        log.info("%s: planning at decision_step=%d", label, ds)
         events = []
         ts.TRACE = events.append
         try:
@@ -120,7 +135,7 @@ def main(argv) -> int:
                 rng = np.random.default_rng(1000 + k)
                 events.append({"ev": "state", "k": k})
                 try:
-                    ts.plan_turn(policy, sim, side, 0, cfg, mc, rng,
+                    ts.plan_turn(policy, sim, side, ds, cfg, mc, rng,
                                  salt_ns=f"probe{k}", full=True)
                 except Exception as e:  # noqa: BLE001
                     events.append({"ev": "error", "k": k,

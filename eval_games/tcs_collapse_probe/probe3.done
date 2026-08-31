@@ -1,0 +1,12 @@
+PROBE3-DONE
+/workspace/probe3_armV1.out:=== armV1 ===
+/workspace/probe3_armV1.out-states 40  spine_len mean 5.1 med 5
+/workspace/probe3_armV1.out-committed len mean 5.2 med 5  accepts/plan 0.05
+/workspace/probe3_armV1.out-gates 42  accept_rate 0.05  end_turn-accepts 0  shortening-accepts 0
+/workspace/probe3_armV1.out-inc_val mean 0.645  best_delta med 0.0000  reval_mean med 0.0000
+--
+/workspace/probe3_seed.out:=== seed ===
+/workspace/probe3_seed.out-states 40  spine_len mean 5.1 med 4
+/workspace/probe3_seed.out-committed len mean 5.2 med 4  accepts/plan 0.20
+/workspace/probe3_seed.out-gates 46  accept_rate 0.17  end_turn-accepts 0  shortening-accepts 0
+/workspace/probe3_seed.out-inc_val mean 0.121  best_delta med 0.0000  reval_mean med 0.0000

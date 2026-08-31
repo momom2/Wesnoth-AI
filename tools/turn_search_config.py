@@ -79,7 +79,18 @@ class TurnSearchConfig:
     #               still grade by exact outcome.
     # Default stays "opponent" until the A/B probes re-baseline;
     # leg-5 config must assert this explicitly.
-    boundary_frame:      str = "opponent"  # opponent | mover
+    #   mover_mp0 -- mover frame with the boundary NEUTRALIZED
+    #               (2026-08-31 collapse-probe finding): the pre-flip
+    #               state shows each candidate's UNSPENT MP /
+    #               un-acted units, so truncated plans parade latent
+    #               "potential" and end_turn alternatives won 30-50%
+    #               of accepted gates (the K-collapse door; under
+    #               the opponent frame the same heads accepted 0).
+    #               mp0 zeroes the mover's current_moves and sets
+    #               has_attacked at the boundary encode -- the turn
+    #               is over, spent or not -- so plans compare on
+    #               POSITION.
+    boundary_frame:      str = "opponent"  # opponent | mover | mover_mp0
 
 
 TS_KNOB_KEYS = ("n_alt", "rounds", "fast_rounds", "reval_salts",
@@ -103,7 +114,7 @@ def turn_knobs_dict(cfg: "TurnSearchConfig") -> dict:
 TS_CHOICES = {
     "--turn-project": ("none", "reval", "all"),
     "--turn-target-link": ("linear", "exp"),
-    "--turn-boundary-frame": ("opponent", "mover"),
+    "--turn-boundary-frame": ("opponent", "mover", "mover_mp0"),
 }
 
 # --turn-* eval flag -> TurnSearchConfig field (+ cast; the batch

@@ -1,0 +1,18 @@
+PROBE4-DONE
+=== armV1 ===
+states 40  spine_len mean 5.1 med 5
+committed len mean 2.5 med 1  accepts/plan 0.75
+gates 40  accept_rate 0.75  end_turn-accepts 20  shortening-accepts 29
+inc_val mean -0.625  best_delta med 0.1734  reval_mean med 0.1458
+--
+=== armV2 ===
+states 40  spine_len mean 5.1 med 5
+committed len mean 2.9 med 1  accepts/plan 0.62
+gates 40  accept_rate 0.62  end_turn-accepts 7  shortening-accepts 24
+inc_val mean -0.526  best_delta med 0.0410  reval_mean med 0.0345
+--
+=== seed ===
+states 40  spine_len mean 5.1 med 4
+committed len mean 3.2 med 1  accepts/plan 0.57
+gates 40  accept_rate 0.57  end_turn-accepts 7  shortening-accepts 22
+inc_val mean 0.202  best_delta med 0.0452  reval_mean med 0.0332

@@ -313,6 +313,7 @@ def materialize(policy, start, side: int, commands: List[Dict],
                 keep_boundary_sim: bool = False,
                 skip_value: bool = False,
                 mover_frame: bool = False,
+                mover_mp0: bool = False,
                 want_vis: bool = False,
                 snapshots: Optional[List] = None,
                 resume: Optional[Tuple] = None) -> Materialized:
@@ -424,6 +425,20 @@ def materialize(policy, start, side: int, commands: List[Dict],
     if (mover_frame and not explicit_keep and not invalid
             and not sim.done and pre_flip is not None):
         eval_sim = pre_flip
+        if mover_mp0:
+            # Neutralized mover boundary (2026-08-31 collapse-probe
+            # finding): the raw pre-flip state shows each
+            # candidate's UNSPENT MP / un-acted units, so truncated
+            # plans grade as latent "potential" and end_turn
+            # alternatives win the climb (the K-collapse door).
+            # Canonicalize to "the turn is over, spent or not" --
+            # plans then compare on POSITION. Fork first: pre_flip
+            # may be a snapshot shared with the resume seam.
+            eval_sim = pre_flip.fork()
+            for _u in eval_sim.gs.map.units:
+                if _u.side == side:
+                    _u.current_moves = 0
+                    _u.has_attacked = True
     value = float("nan") if (invalid or skip_value) else boundary_value(
         policy, eval_sim, side, decision_step)
     if skip_value and not invalid:
@@ -705,7 +720,8 @@ def plan_turn(policy, sim, side: int, decision_step: int,
                 and cfg.project_halfturns > 0)
     proj_all = use_proj and cfg.project == "all"
     n_proj = 0
-    mf = cfg.boundary_frame == "mover"
+    mf = cfg.boundary_frame in ("mover", "mover_mp0")
+    mp0 = cfg.boundary_frame == "mover_mp0"
 
     def _projected(m: Materialized) -> float:
         nonlocal n_proj
@@ -727,7 +743,7 @@ def plan_turn(policy, sim, side: int, decision_step: int,
         _snaps: List[Tuple] = []
         inc = materialize(policy, sim, side, commands, salt,
                           decision_step, keep_boundary_sim=proj_all,
-                          skip_value=True, mover_frame=mf,
+                          skip_value=True, mover_frame=mf, mover_mp0=mp0,
                           snapshots=_snaps)
         if inc.invalid:
             log.warning("plan_turn: incumbent materialization invalid")
@@ -750,7 +766,7 @@ def plan_turn(policy, sim, side: int, decision_step: int,
                 m = materialize(policy, sim, side, cand_cmds, salt,
                                 decision_step,
                                 keep_boundary_sim=proj_all,
-                                skip_value=True, mover_frame=mf,
+                                skip_value=True, mover_frame=mf, mover_mp0=mp0,
                                 resume=_snap_at.get(j))
                 if m.invalid:
                     continue
@@ -789,11 +805,11 @@ def plan_turn(policy, sim, side: int, decision_step: int,
                 inc2 = materialize(policy, sim, side, commands, s2,
                                    decision_step,
                                    keep_boundary_sim=use_proj,
-                                   skip_value=True, mover_frame=mf)
+                                   skip_value=True, mover_frame=mf, mover_mp0=mp0)
                 var2 = materialize(policy, sim, side, best_cmds, s2,
                                    decision_step,
                                    keep_boundary_sim=use_proj,
-                                   skip_value=True, mover_frame=mf)
+                                   skip_value=True, mover_frame=mf, mover_mp0=mp0)
                 if inc2.invalid or var2.invalid:
                     continue
                 pairs.append((inc2, var2))
@@ -859,7 +875,7 @@ def plan_turn(policy, sim, side: int, decision_step: int,
     _snaps2: list = []
     inc = materialize(policy, sim, side, commands, kl_salt,
                       decision_step, keep_boundary_sim=proj_all,
-                      skip_value=True, mover_frame=mf,
+                      skip_value=True, mover_frame=mf, mover_mp0=mp0,
                       snapshots=_snaps2) if full else None
     # Prefix-resume seam, same precondition as the round loop
     # (project round-2 C11): every candidate shares commands[:j]
@@ -886,7 +902,7 @@ def plan_turn(policy, sim, side: int, decision_step: int,
                 m = materialize(policy, sim, side, cand, kl_salt,
                                 decision_step,
                                 keep_boundary_sim=proj_all,
-                                skip_value=True, mover_frame=mf,
+                                skip_value=True, mover_frame=mf, mover_mp0=mp0,
                                 resume=_snap_at2.get(j))
                 if not m.invalid:
                     coord.append((alt_i, m))

@@ -1,0 +1,24 @@
+PROBE2-DONE
+/workspace/probe2_armT_pin2922.out:=== armT_pin2922 ===
+/workspace/probe2_armT_pin2922.out-states 40  spine_len mean 5.2 med 5
+/workspace/probe2_armT_pin2922.out-committed len mean 4.9 med 5  accepts/plan 1.70
+/workspace/probe2_armT_pin2922.out-gates 99  accept_rate 0.69  end_turn-accepts 4  shortening-accepts 18
+/workspace/probe2_armT_pin2922.out-inc_val mean -0.390  best_delta med 0.0401  reval_mean med 0.0413
+--
+/workspace/probe2_armV1.out:=== armV1 ===
+/workspace/probe2_armV1.out-states 40  spine_len mean 5.1 med 5
+/workspace/probe2_armV1.out-committed len mean 3.1 med 3  accepts/plan 1.88
+/workspace/probe2_armV1.out-gates 100  accept_rate 0.75  end_turn-accepts 33  shortening-accepts 52
+/workspace/probe2_armV1.out-inc_val mean -0.456  best_delta med 0.1354  reval_mean med 0.1365
+--
+/workspace/probe2_armV2.out:=== armV2 ===
+/workspace/probe2_armV2.out-states 40  spine_len mean 5.1 med 5
+/workspace/probe2_armV2.out-committed len mean 5.6 med 5  accepts/plan 1.68
+/workspace/probe2_armV2.out-gates 96  accept_rate 0.70  end_turn-accepts 1  shortening-accepts 8
+/workspace/probe2_armV2.out-inc_val mean -0.574  best_delta med 0.0314  reval_mean med 0.0313
+--
+/workspace/probe2_seed.out:=== seed ===
+/workspace/probe2_seed.out-states 40  spine_len mean 5.1 med 4
+/workspace/probe2_seed.out-committed len mean 3.0 med 1  accepts/plan 1.48
+/workspace/probe2_seed.out-gates 93  accept_rate 0.63  end_turn-accepts 30  shortening-accepts 33
+/workspace/probe2_seed.out-inc_val mean 0.267  best_delta med 0.0396  reval_mean med 0.0400
