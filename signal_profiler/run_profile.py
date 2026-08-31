@@ -59,7 +59,14 @@ def main(argv) -> int:
     print(f"label coverage: gbc={n_gbc}/{len(batch)} "
           f"aux={n_aux}/{len(batch)}")
 
+    ta_policy = factory()
+    from signal_profiler.target_amplitude import target_amplitude
+    tree_targets = target_amplitude(ta_policy, batch)
+    del ta_policy
+    print(f"target amplitude: {tree_targets}")
+
     tree = build_tree(factory, batch)
+    tree["target_amplitude"] = tree_targets
     print(f"linearity residual: "
           f"{tree.get('linearity_residual_frac', float('nan')):.4f} "
           f"(should be ~0 unclipped; larger = normalization "
