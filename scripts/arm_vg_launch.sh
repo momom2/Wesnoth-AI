@@ -109,12 +109,13 @@ except Exception:
         '"$PY"' tools/run_elo_batch.py \
             --label-a "pin_$step" --spec-a "$pin" \
             --label-b seed --spec-b '"$SEED_CKPT"' \
-            --games 24 --mcts-sims 32 --device cuda \
+            --games 24 --mcts-sims 32 --no-turn-search \
+            --device cuda \
             --outdir /workspace/probes/pin_$step \
-            --time-budget-min 90 --min-free-mb 500 \
+            --time-budget-min 120 --min-free-mb 500 \
             >> /workspace/probes/probe.log 2>&1
         '"$PY"' tools/elo_collect.py /workspace/probes/pin_$step \
-            >> /workspace/pins.log 2>&1 || true
+            --no-catalog >> /workspace/pins.log 2>&1 || true
     fi
 done' > "$WORKDIR/pinloop.log" 2>&1 < /dev/null &
 
