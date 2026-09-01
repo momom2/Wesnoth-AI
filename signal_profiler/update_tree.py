@@ -106,7 +106,8 @@ def _dv_stats(pre: List[float], post: List[float]) -> Dict:
 
 def build_update_tree(policy_factory, batch: List,
                       consult_states: List, real_states: List,
-                      include_value_memory: bool = True) -> Dict:
+                      include_value_memory: bool = True,
+                      surgeries=None) -> Dict:
     """Per-term applied-update decomposition + value movement on
     the probe sets. Fresh policy per variant (Adam moments reload
     with the checkpoint, so every variant steps from the identical
@@ -121,8 +122,9 @@ def build_update_tree(policy_factory, batch: List,
     has_opt_state = len(_base(ref)._trainer.optimizer.state) > 0
     del ref
 
+    surgeries = surgeries or TERM_SURGERY
     variants = [("total_momentum", None), ("total", None)] + [
-        (t, s) for t, s in TERM_SURGERY.items()]
+        (t, s) for t, s in surgeries.items()]
     deltas: Dict[str, Dict] = {}
     dv: Dict[str, Dict] = {}
     for name, surgery in variants + (

@@ -74,8 +74,43 @@ TERM_SURGERY: Dict[str, Dict] = {
 }
 
 
-def _surgered(batch: List, kwargs: Dict) -> List:
-    return [dataclasses.replace(e, **kwargs) for e in batch]
+def _is_ground(e) -> bool:
+    from tools.value_grounding import is_grounding_experience
+    return is_grounding_experience(e)
+
+
+def _kill_value_where(pred):
+    """Per-experience surgery: zero value_weight where pred(e)."""
+    def fn(e):
+        kw = {**_KILL_POLICY, **_KILL_AUX, **_KILL_ML, **_KILL_GBC}
+        if pred(e):
+            kw = {**kw, **_KILL_VALUE}
+        return kw
+    return fn
+
+
+# Arm-VG variant (v2.1): value_inbatch split by label PROVENANCE.
+# The three sub-terms partition value_inbatch exactly (game states /
+# rollout-grounded / consistency-labeled), so the linearity check
+# still closes when they replace it.
+TERM_SURGERY_VG: Dict[str, object] = {
+    "policy_distill": TERM_SURGERY["policy_distill"],
+    "value_game": _kill_value_where(_is_ground),
+    "value_ground": _kill_value_where(
+        lambda e: not (_is_ground(e) and e.value_weight >= 0.9)),
+    "value_consist": _kill_value_where(
+        lambda e: not (_is_ground(e) and e.value_weight < 0.9)),
+    "gbc": TERM_SURGERY["gbc"],
+    "aux_margin": TERM_SURGERY["aux_margin"],
+}
+
+
+def _surgered(batch: List, surgery) -> List:
+    """Surgery is either a uniform kwargs dict or a per-experience
+    callable e -> kwargs (the VG provenance splits)."""
+    if callable(surgery):
+        return [dataclasses.replace(e, **surgery(e)) for e in batch]
+    return [dataclasses.replace(e, **surgery) for e in batch]
 
 
 def _named_grads(policy) -> Dict[str, "object"]:
@@ -135,14 +170,17 @@ def _norm(t) -> float:
 
 
 def build_tree(policy_factory, batch: List,
-               include_value_memory: bool = True) -> Dict:
+               include_value_memory: bool = True,
+               surgeries: Optional[Dict] = None) -> Dict:
     """The deliverable. `policy_factory()` returns a FRESH policy
     (same checkpoint) per variant so no state leaks across terms.
-    Sequential to bound memory."""
+    Sequential to bound memory. `surgeries` defaults to
+    TERM_SURGERY; pass TERM_SURGERY_VG for the provenance split."""
     import torch
 
+    surgeries = surgeries or TERM_SURGERY
     variants = [("total", None)] + [
-        (t, s) for t, s in TERM_SURGERY.items()]
+        (t, s) for t, s in surgeries.items()]
     grads: Dict[str, Dict] = {}
     for name, surgery in variants:
         pol = policy_factory()
@@ -217,7 +255,7 @@ def build_tree(policy_factory, batch: List,
     # normalization coupling the surgery introduces (value_memory
     # excluded -- it is a separate step, not part of step_mcts).
     _sum = None
-    for t in TERM_SURGERY:
+    for t in surgeries:
         f = tree["terms"][t]["_flat"]
         _sum = f.clone() if _sum is None else _sum + f
     _tot = tree["terms"]["total"]["_flat"]

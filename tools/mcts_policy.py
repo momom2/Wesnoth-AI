@@ -1125,6 +1125,12 @@ class MCTSPolicy:
             fresh["decisive_ce"] = (_eval(dec)["ce"] if len(dec) >= 16
                                     else float("nan"))
 
+        # Signal telemetry (2026-09-01 user ruling: always on): value
+        # readings on this iteration's consulted states BEFORE the
+        # updates, so dv_consult measures what the applied step moved.
+        from tools.signal_telemetry import consult_values
+        _sig_pre = consult_values(self._base, batch)
+
         # Add the fresh experiences to the bounded buffer, then take
         # several minibatch gradient steps sampled from it. This gives
         # the value head the many steps it needs to converge (see
@@ -1140,6 +1146,7 @@ class MCTSPolicy:
             self._attach_fresh_metrics(result, fresh)
             self._attach_z_composition(result, batch)
             self._attach_boundary_sum(result)
+            self._attach_signal_telemetry(result, batch, _sig_pre)
             return result
 
         pool = list(self._replay)
@@ -1154,7 +1161,18 @@ class MCTSPolicy:
         self._attach_fresh_metrics(combined, fresh)
         self._attach_z_composition(combined, batch)
         self._attach_boundary_sum(combined)
+        self._attach_signal_telemetry(combined, batch, _sig_pre)
         return combined
+
+    def _attach_signal_telemetry(self, stats: TrainStats, batch,
+                                 sig_pre) -> None:
+        from tools.signal_telemetry import dv_stats, signal_grad_norms
+        norms = signal_grad_norms(self._base._trainer, batch,
+                                  self._replay_rng)
+        for k, v in norms.items():
+            setattr(stats, k, v)
+        for k, v in dv_stats(sig_pre, self._base).items():
+            setattr(stats, k, v)
 
     @staticmethod
     def _attach_fresh_metrics(stats: TrainStats, fresh: Dict) -> None:

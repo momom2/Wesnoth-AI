@@ -2145,6 +2145,12 @@ def run_iteration(
                 f"replans/plan "
                 f"{distill.get('tcs_replans_per_plan', 0.0):.2f}, "
                 f"projections/plan {_proj:.1f}")
+        _sig = {k: (getattr(train_stats, k, None)
+                    if train_stats else None)
+                for k in ("sig_policy_norm", "sig_value_game_norm",
+                          "sig_value_ground_norm",
+                          "sig_value_consist_norm",
+                          "sig_dv_consult_mean", "sig_dv_consult_n")}
         _fbd = (getattr(train_stats, "fresh_by_decade", None)
                 if train_stats else None) or {}
         _fresh_decades = {
@@ -2155,6 +2161,7 @@ def run_iteration(
         snapshot_sink({
             **distill,
             **_fresh_decades,
+            **_sig,
             "iter":                iter_idx,
             "n_games":             len(outcomes),
             "rollout_seconds":     rollout_dt,
@@ -2458,6 +2465,13 @@ class _TrainerHistoryCSV:
         "ground_games", "ground_captures", "ground_rollouts",
         "ground_censored", "ground_win", "ground_loss", "ground_draw",
         "consist_n", "consist_abs_mean",
+        # In-training signal telemetry (2026-09-01): per-source
+        # gradient norms + per-step value movement on consulted
+        # states (the erosion gauge, ~0.08 = search's 2-atom
+        # decision threshold).
+        "sig_policy_norm", "sig_value_game_norm",
+        "sig_value_ground_norm", "sig_value_consist_norm",
+        "sig_dv_consult_mean", "sig_dv_consult_n",
         # Per-turn-decade fresh-probe decomposition (user ruling
         # 2026-09-01): fresh CE / state-blind floor / outcome AUC /
         # n per game-turn decade; the pooled fresh_value_ce column

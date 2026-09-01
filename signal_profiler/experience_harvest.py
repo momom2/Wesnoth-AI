@@ -55,7 +55,8 @@ def harvest_experiences(policy, n_games: int, seed: int,
 
 def make_policy(checkpoint: Path, device, *, turn_search: bool = True,
                 value_memory_iters: int = 20,
-                games_per_iter: int = 24):
+                games_per_iter: int = 24,
+                grounding: bool = False):
     """Arm-V3-config policy factory ingredients: TCS + mover frame +
     gate projection + head-only value memory. Returns a zero-arg
     factory (fresh policy per call — gradient_tree needs isolation
@@ -100,7 +101,12 @@ def make_policy(checkpoint: Path, device, *, turn_search: bool = True,
             cfg = TurnSearchConfig(boundary_frame="mover",
                                    project="reval",
                                    project_halfturns=1)
-            return TurnCommitPolicy(base, mc, turn_config=cfg, **kw)
+            gcfg = None
+            if grounding:
+                from tools.value_grounding import GroundingConfig
+                gcfg = GroundingConfig(enabled=True)
+            return TurnCommitPolicy(base, mc, turn_config=cfg,
+                                    grounding_config=gcfg, **kw)
         return MCTSPolicy(base, mc, **kw)
 
     return factory

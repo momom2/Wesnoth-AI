@@ -337,6 +337,17 @@ class TrainStats:
     # sit BELOW this; a high floor means the games' outcomes are
     # inherently mixed and caps what any head can achieve.
     fresh_ce_floor: float = float("nan")
+    # In-training signal telemetry (2026-09-01 ruling: always on):
+    # per-source gradient norms on a 128-state subsample (unclipped,
+    # optimizer stubbed) + mean |dv| the applied update caused on
+    # this iteration's search-consulted states. The trend view of
+    # signal_profiler's offline gradient tree.
+    sig_policy_norm: float = float("nan")
+    sig_value_game_norm: float = float("nan")
+    sig_value_ground_norm: float = float("nan")
+    sig_value_consist_norm: float = float("nan")
+    sig_dv_consult_mean: float = float("nan")
+    sig_dv_consult_n: float = 0.0
     # Per-turn-decade fresh-probe decomposition (2026-09-01):
     # {"d1_10": {"ce","floor","auc","n"}, ..., "d61p": ...}. The
     # pooled fresh_value_ce above stays the usual read; these

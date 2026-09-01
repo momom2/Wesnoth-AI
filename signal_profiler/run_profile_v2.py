@@ -46,6 +46,11 @@ def main(argv) -> int:
     ap.add_argument("--real-probe", type=int, default=200)
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--vg", action="store_true",
+                    help="Arm-VG provenance split: value term "
+                         "decomposed into game/ground/consist "
+                         "sub-terms (requires a grounding-enabled "
+                         "harvest to be meaningful).")
     ap.add_argument("--log-level", default="INFO")
     args = ap.parse_args(argv[1:])
     logging.basicConfig(level=getattr(logging, args.log_level))
@@ -55,7 +60,12 @@ def main(argv) -> int:
               if args.device == "cuda" and torch.cuda.is_available()
               else None)
 
-    factory = make_policy(args.checkpoint, device)
+    factory = make_policy(args.checkpoint, device,
+                          grounding=args.vg)
+    surgeries = None
+    if args.vg:
+        from signal_profiler.gradient_tree import TERM_SURGERY_VG
+        surgeries = TERM_SURGERY_VG
     gen_policy = factory()
     with capture_consultations(cap=args.consult_cap,
                                seed=args.seed) as res:
@@ -83,7 +93,7 @@ def main(argv) -> int:
     del ta_policy
     print(f"target amplitude: {targets}")
 
-    tree = build_tree(factory, batch)
+    tree = build_tree(factory, batch, surgeries=surgeries)
     tree["target_amplitude"] = targets
     print(f"linearity residual: "
           f"{tree.get('linearity_residual_frac', float('nan')):.4f}")
@@ -92,7 +102,8 @@ def main(argv) -> int:
     print(f"value splits: {tree['value_grad_splits']}")
 
     tree["update_tree"] = build_update_tree(
-        factory, batch, consult_states, real_states)
+        factory, batch, consult_states, real_states,
+        surgeries=surgeries)
     tree["outcomes"] = [
         {"winner": getattr(o, "winner", None),
          "turns": getattr(o, "turns", None)} for o in outcomes]
