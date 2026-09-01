@@ -42,6 +42,13 @@ def _git_show(relpath: str) -> str:
 
 def test_kesorak_time_areas_parse_from_tracked_files_only(tmp_path,
                                                           monkeypatch):
+    # The assertion is about the DEV repo's git index; a tarball
+    # deployment (git-archive box trees) has no .git and cannot
+    # regress it — skip there instead of failing the box gauntlet.
+    probe = subprocess.run(["git", "rev-parse", "--git-dir"],
+                           cwd=REPO, capture_output=True, text=True)
+    if probe.returncode != 0:
+        pytest.skip("not a git checkout (tarball deployment)")
     # Materialize ONLY the committed files into a scratch tree.
     for rel in _TRACKED_NEEDED:
         dst = tmp_path / rel
