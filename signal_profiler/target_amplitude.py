@@ -28,6 +28,12 @@ def target_amplitude(policy, batch: List) -> Dict:
 
     base = policy._base if hasattr(policy, "_base") else policy
     kls, shifts, touched = [], [], []
+    # Per-action-category signed mass movement (v2): where do the
+    # targets push mass, relative to the prior? sum(t - p) per
+    # category, averaged over experiences. Positive = the teacher
+    # feeds that category mass; end_turn is the K-collapse channel.
+    cat_delta_sums: Dict[str, float] = {}
+    cat_n = 0
     skipped = 0
     for e in batch:
         vcs = e.visit_counts or []
@@ -42,10 +48,12 @@ def target_amplitude(policy, batch: List) -> Dict:
                 enc, out, e.game_state,
                 decision_step=int(getattr(e, "decision_step", 0)))
         prior = {}
+        cat_of = {}
         for la in legal:
             key = (la.actor_idx, la.target_idx, la.weapon_idx,
                    getattr(la, "type_idx", None))
             prior[key] = float(la.prior)
+            cat_of[key] = la.action.get("type", "?")
         z = sum(prior.values()) or 1e-12
         prior = {k: v / z for k, v in prior.items()}
         kl = 0.0
@@ -65,6 +73,13 @@ def target_amplitude(policy, batch: List) -> Dict:
         if not ok:
             skipped += 1
             continue
+        t_of = {(v[0], v[1], v[2], v[4] if len(v) > 4 else None):
+                float(v[3]) / total for v in vcs}
+        for key, p in prior.items():
+            c = cat_of[key]
+            cat_delta_sums[c] = (cat_delta_sums.get(c, 0.0)
+                                 + t_of.get(key, 0.0) - p)
+        cat_n += 1
         # Mass the target moved off actions it does NOT list.
         listed_prior = sum(
             prior.get((v[0], v[1], v[2],
@@ -84,4 +99,7 @@ def target_amplitude(policy, batch: List) -> Dict:
         "kl_p90": kls[int(0.9 * len(kls))],
         "tv_mean": sum(shifts) / len(shifts),
         "touched_mean": sum(touched) / len(touched),
+        "category_mass_delta_mean": {
+            c: s / cat_n for c, s in sorted(cat_delta_sums.items())
+        } if cat_n else {},
     }
