@@ -41,6 +41,8 @@ from __future__ import annotations
 import logging
 from typing import Dict, Optional
 
+import numpy as np
+
 from wesnoth_ai.classes import GameState, state_key
 from tools.mcts import MCTSConfig
 from tools.mcts_policy import MCTSPolicy, _PendingMCTSState
@@ -54,11 +56,20 @@ class TurnCommitPolicy(MCTSPolicy):
 
     def __init__(self, base, mcts_config: Optional[MCTSConfig] = None,
                  *args, turn_config: Optional[TurnSearchConfig] = None,
+                 grounding_config=None,
                  **kwargs):
         super().__init__(base, mcts_config, *args, **kwargs)
         self._turn_cfg = turn_config or TurnSearchConfig()
         self._plans: Dict[str, TurnPlan] = {}
         self._plan_seq = 0
+        # Value grounding on consulted states (tools/value_grounding):
+        # per-game capture of stage-2 projection pairs, labeled at
+        # finalize_game (worker-side under the pool).
+        from tools.value_grounding import GroundingConfig
+        self._ground_cfg = grounding_config or GroundingConfig()
+        self._ground_pending: Dict[str, list] = {}
+        self._ground_rng = np.random.default_rng(0xC0FFEE)
+        self._ground_stats: Dict[str, float] = {}
         # Telemetry: planning passes / warm re-plans / accepted
         # improvements, drained alongside the distill stats.
         self._tcs_plans = 0
@@ -117,10 +128,14 @@ class TurnCommitPolicy(MCTSPolicy):
             with self._lock:
                 self._plan_seq += 1
                 salt_ns = f"tcs:{game_label}:{self._plan_seq}"
+            cap_cb = None
+            if self._ground_cfg.enabled:
+                cap_cb = self._make_ground_capture(game_label, side,
+                                                   ds_call)
             plan = plan_turn(self._base, sim, side, ds_call,
                              self._turn_cfg, self._mcts_config,
                              self._rng, salt_ns, full,
-                             incumbent=warm)
+                             incumbent=warm, capture=cap_cb)
             self._tcs_plans += 1
             self._tcs_accepts += plan.accepts
             self._tcs_projections += plan.projections
@@ -184,12 +199,57 @@ class TurnCommitPolicy(MCTSPolicy):
         with self._lock:
             self._plans.pop(game_label, None)
 
+    def _make_ground_capture(self, game_label: str, side: int,
+                             decision_step: int):
+        """Reservoir-free capped sampler: each stage-2 projected
+        boundary sim is captured with capture_prob until the
+        per-game cap (consist cap, the larger of the two budgets)."""
+        from tools.value_grounding import GroundCapture
+        cap = max(self._ground_cfg.max_consist_per_game,
+                  self._ground_cfg.max_rollout_per_game)
+
+        def _cb(boundary_sim, projected: float) -> None:
+            if boundary_sim is None or boundary_sim.done:
+                return
+            with self._lock:
+                lst = self._ground_pending.setdefault(game_label, [])
+                if len(lst) >= cap:
+                    return
+            if self._ground_rng.random() >= self._ground_cfg.capture_prob:
+                return
+            with self._lock:
+                lst.append(GroundCapture(
+                    sim=boundary_sim, side=side,
+                    decision_step=decision_step,
+                    projected=float(projected)))
+        return _cb
+
     def finalize_game(self, game_label: str, winner: int,
                       final_gs=None, midgame: bool = False) -> None:
         with self._lock:
             self._plans.pop(game_label, None)
+            caps = self._ground_pending.pop(game_label, None)
         super().finalize_game(game_label, winner, final_gs=final_gs,
                               midgame=midgame)
+        if caps and self._ground_cfg.enabled:
+            from tools.value_grounding import build_grounding_experiences
+            try:
+                exps, gstats = build_grounding_experiences(
+                    self._base, caps, self._ground_cfg,
+                    self._ground_rng)
+            except Exception as e:  # noqa: BLE001 -- grounding is an
+                # auxiliary signal; a labeling bug must not kill the
+                # game seal. Loud, so it can't silently zero out.
+                log.error(f"value grounding failed for "
+                          f"{game_label!r}: {e!r}")
+                return
+            with self._lock:
+                self._queue.extend(exps)
+                for k, v in gstats.items():
+                    self._ground_stats[k] = (
+                        self._ground_stats.get(k, 0.0) + v)
+                self._ground_stats["ground_games"] = (
+                    self._ground_stats.get("ground_games", 0.0) + 1.0)
 
     # -- telemetry ----------------------------------------------------
 
@@ -223,6 +283,20 @@ class TurnCommitPolicy(MCTSPolicy):
                 tcs["tcs_gate_delta"] / gn if gn else None)
             out["tcs_gate_shorten_per_plan"] = (
                 tcs["tcs_gate_shortens"] / plans)
+        # Value-grounding telemetry (arm VG): totals since last drain
+        # (per-actor under the pool, same convention as tcs_plans);
+        # consist_abs_mean is a mean of per-game means.
+        with self._lock:
+            g = dict(self._ground_stats)
+            self._ground_stats.clear()
+        if g.get("ground_games"):
+            games = g["ground_games"]
+            for k in ("ground_captures", "ground_rollouts",
+                      "ground_censored", "ground_win", "ground_loss",
+                      "ground_draw", "consist_n", "ground_games"):
+                out[k] = float(g.get(k, 0.0))
+            out["consist_abs_mean"] = (
+                g.get("consist_abs_mean", 0.0) / games)
         return out or None
 
     def drain_tcs_stats(self) -> Dict[str, float]:

@@ -689,13 +689,17 @@ def plan_turn(policy, sim, side: int, decision_step: int,
               cfg: TurnSearchConfig, mcts_config: MCTSConfig,
               rng: np.random.Generator, salt_ns: str,
               full: bool, incumbent: Optional[List[Dict]] = None,
+              capture=None,
               ) -> TurnPlan:
     """Spine -> hill-climb rounds (two-stage acceptance, materialized
     -turn semantics) -> per-coordinate targets (full turns only).
     Never mutates `sim`; all work on forks. `salt_ns` namespaces the
     search salts (never applied to a live sim). `incumbent` warm-
     starts the climb (execution-time re-plan after a realized
-    stochastic outcome diverged)."""
+    stochastic outcome diverged). `capture(boundary_sim, projected)`,
+    when given, is offered each stage-2 projection pair's boundary
+    sim + its depth-H value (value-grounding capture; the sims are
+    not used again after the gate, so the callback may keep them)."""
     steps, _ = record_spine(policy, sim, side, decision_step, rng,
                             max_spine=cfg.max_spine, actions=incumbent)
     plan = TurnPlan(side=side, decision_step=decision_step,
@@ -816,7 +820,12 @@ def plan_turn(policy, sim, side: int, decision_step: int,
             reval_l = []
             if use_proj:
                 for inc2, var2 in pairs:
-                    reval_l.append(_projected(var2) - _projected(inc2))
+                    pv_i = _projected(inc2)
+                    pv_v = _projected(var2)
+                    if capture is not None:
+                        capture(inc2.boundary_sim, pv_i)
+                        capture(var2.boundary_sim, pv_v)
+                    reval_l.append(pv_v - pv_i)
             elif pairs:
                 flat = [m for pr in pairs for m in pr]
                 batch_boundary_values(policy, flat, side,

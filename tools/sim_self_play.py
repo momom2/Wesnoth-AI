@@ -2452,6 +2452,12 @@ class _TrainerHistoryCSV:
         "pt_cert_attempt_frac_f2p",
         "pt_cert_len_delta_mean", "pt_cert_shorten_rate",
         "pt_half_cap_hit_rate",
+        # Value-grounding telemetry (arm VG, 2026-09-01): captures /
+        # rollout labels / outcome mix / consistency labels per
+        # drain (per-actor means under the pool).
+        "ground_games", "ground_captures", "ground_rollouts",
+        "ground_censored", "ground_win", "ground_loss", "ground_draw",
+        "consist_n", "consist_abs_mean",
         # Per-turn-decade fresh-probe decomposition (user ruling
         # 2026-09-01): fresh CE / state-blind floor / outcome AUC /
         # n per game-turn decade; the pooled fresh_value_ce column
@@ -3373,6 +3379,30 @@ def main(argv: List[str]) -> int:
                          "(2026-07-10: the 71%%-draw gradient mass "
                          "flattened the value head even with honest "
                          "z=0 labels and a rehearsal anchor).")
+    ap.add_argument("--value-ground", action="store_true",
+                    help="Value grounding on search-consulted states "
+                         "(arm VG, 2026-09-01; tools/value_grounding). "
+                         "Captures stage-2 projection boundary states "
+                         "during TCS planning and trains the value "
+                         "head on them two ways: raw-policy rollout "
+                         "outcomes (full weight) and the search's own "
+                         "projected values (down-weighted). Requires "
+                         "TCS with --turn-project reval|all.")
+    ap.add_argument("--value-ground-capture-prob", type=float,
+                    default=0.10,
+                    help="Per projected stage-2 evaluation, capture "
+                         "probability.")
+    ap.add_argument("--value-ground-rollouts", type=int, default=4,
+                    help="Rollout-labeled states per game (each costs "
+                         "one raw-policy playout at finalize).")
+    ap.add_argument("--value-ground-consist", type=int, default=8,
+                    help="Consistency-labeled states per game (free).")
+    ap.add_argument("--value-ground-weight", type=float, default=1.0,
+                    help="value_weight of rollout-labeled states.")
+    ap.add_argument("--value-consist-weight", type=float, default=0.25,
+                    help="value_weight of projected-label states "
+                         "(self-referential; keep low — leg-3 ratchet "
+                         "guard).")
     ap.add_argument("--value-memory-iters", type=int, default=0,
                     help="VALUE-head outcome memory span, in "
                          "iterations of games (user ruling "
@@ -3896,6 +3926,18 @@ def main(argv: List[str]) -> int:
         )
         pt_cfg = pt_config_from_args(args)
         turn_cfg = turn_config_from_args(args)
+        from tools.value_grounding import (
+            config_from_args as ground_config_from_args,
+        )
+        ground_cfg = ground_config_from_args(args, turn_cfg)
+        if ground_cfg is not None:
+            log.info(
+                f"VALUE GROUNDING on: capture_prob="
+                f"{ground_cfg.capture_prob} rollouts/game="
+                f"{ground_cfg.max_rollout_per_game} consist/game="
+                f"{ground_cfg.max_consist_per_game} weights="
+                f"{ground_cfg.ground_value_weight}/"
+                f"{ground_cfg.consist_value_weight}")
         if pt_cfg is not None:
             from tools.plan_tournament import PlanTournamentPolicy
             policy = PlanTournamentPolicy(
@@ -3952,7 +3994,8 @@ def main(argv: List[str]) -> int:
                     args.value_memory_states_per_game),
                 value_memory_batch=args.value_memory_batch,
                 gbc_labels=gbc_flag,
-                turn_config=turn_cfg)
+                turn_config=turn_cfg,
+                grounding_config=ground_cfg)
             log.info(
                 f"TURN-COMMITMENT SEARCH on (docs/tcs_spec.md): "
                 f"alt={turn_cfg.n_alt} rounds={turn_cfg.rounds}/"
@@ -4171,10 +4214,15 @@ def main(argv: List[str]) -> int:
         from tools.plan_tournament import (
             config_from_args as _pt_config_from_args,
         )
+        from tools.value_grounding import (
+            config_from_args as _ground_config_from_args,
+        )
+        _pool_turn_cfg = (None if _pt_config_from_args(args) is not None
+                          else turn_config_from_args(args))
         actor_pool = ActorPool(
             policy, args.actor_pool, mcts_cfg,
-            turn_cfg=(None if _pt_config_from_args(args) is not None
-                      else turn_config_from_args(args)),
+            turn_cfg=_pool_turn_cfg,
+            ground_cfg=_ground_config_from_args(args, _pool_turn_cfg),
             pt_cfg=_pt_config_from_args(args),
             gbc_labels=gbc_flag,
             train_kwargs={

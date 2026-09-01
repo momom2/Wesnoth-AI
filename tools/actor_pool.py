@@ -151,7 +151,7 @@ def _actor_loop(
     max_turns_min,
     pvp_kwargs: Optional[Dict], log_level: int, torch_threads: int,
     turn_cfg=None, gbc_labels: bool = False, pt_cfg=None,
-    train_kwargs: dict = None,
+    train_kwargs: dict = None, ground_cfg=None,
 ) -> None:
     """Persistent actor process body. Builds a seam-backed MCTSPolicy
     once, then loops on the control queue: PLAY -> roll `n_games` and
@@ -236,6 +236,7 @@ def _actor_loop(
             policy = TurnCommitPolicy(base, mcts_cfg,
                                       gbc_labels=gbc_labels,
                                       turn_config=turn_cfg,
+                                      grounding_config=ground_cfg,
                                       **_tk)
         else:
             policy = MCTSPolicy(base, mcts_cfg,
@@ -363,7 +364,7 @@ class ActorPool:
     def __init__(
         self, policy, n_actors: int, mcts_cfg, *,
         turn_cfg=None, pt_cfg=None, gbc_labels: bool = False,
-        train_kwargs: dict = None,
+        train_kwargs: dict = None, ground_cfg=None,
         scenario_opts: Optional[Dict] = None, max_turns: int = 60,
         max_turns_min: Optional[int] = None,
         pvp_defaults=None, device: Optional[torch.device] = None,
@@ -383,6 +384,7 @@ class ActorPool:
         # instead of MCTSPolicy -- the third generation path of the
         # worker-side-targets symmetry contract.
         self._turn_cfg = turn_cfg
+        self._ground_cfg = ground_cfg
         self._pt_cfg = pt_cfg
         # GBC labels (2026-08-14): actors attach hindsight event
         # labels in finalize_game; same symmetry contract.
@@ -449,7 +451,7 @@ class ActorPool:
                       self._pvp_kwargs, self._log_level,
                       self._actor_threads, self._turn_cfg,
                       self._gbc_labels, self._pt_cfg,
-                      self._train_kwargs),
+                      self._train_kwargs, self._ground_cfg),
                 daemon=True, name=f"actor-{aid}")
             p.start()
             self._procs.append(p)
