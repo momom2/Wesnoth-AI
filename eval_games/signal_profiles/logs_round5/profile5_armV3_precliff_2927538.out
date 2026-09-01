@@ -1,0 +1,187 @@
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/armV3_precliff_2927538.pt (decision_step=2927538)
+INFO:eval_sim:[profile] loaded armV3_precliff_2927538.pt
+INFO:replay_dataset:Loaded 356 unit types from unit_stats.json
+WARNING:wesnoth_sim:sim: attack 9,18->7,19 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 9,18->7,19 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 9,18->7,19 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 9,18->7,19 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+INFO:signal_profiler:game 1/8 done: winner=1 turns=8
+WARNING:wesnoth_sim:sim: attack 22,15->21,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+INFO:signal_profiler:game 2/8 done: winner=1 turns=22
+WARNING:wesnoth_sim:sim: attack 4,8->4,10 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 8,12->6,9 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 14,3->12,5 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 5,9->3,9 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 5,9->3,9 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 5,9->3,9 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 5,9->3,9 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 5,9->3,9 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 5,9->3,9 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+INFO:signal_profiler:game 3/8 done: winner=2 turns=34
+WARNING:wesnoth_sim:sim: attack 32,23->33,19 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 32,23->33,19 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 32,23->33,19 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 32,23->33,19 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 24,16->25,13 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 24,16->25,13 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 24,16->25,13 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 24,16->25,13 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 24,16->25,13 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 24,16->25,13 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 24,16->25,13 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 24,16->25,13 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 24,16->25,13 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 24,16->25,13 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 24,16->25,13 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 24,16->25,13 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 24,16->25,13 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 24,16->25,13 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 24,16->25,13 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 25,16->22,17 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 22,15->21,13 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 11,23->13,23 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+INFO:signal_profiler:game 4/8 done: winner=2 turns=29
+INFO:signal_profiler:game 5/8 done: winner=1 turns=14
+WARNING:wesnoth_sim:sim: attack 25,17->21,18 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+INFO:signal_profiler:game 6/8 done: winner=1 turns=13
+WARNING:wesnoth_sim:sim: attack 10,12->12,13 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 24,16->25,18 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+INFO:signal_profiler:game 7/8 done: winner=1 turns=31
+WARNING:wesnoth_sim:sim: attack 17,5->18,3 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 17,5->18,3 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 19,18->26,15 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 19,18->26,15 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 10,7->13,3 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 21,19->25,15 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 29,19->28,18 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 29,19->28,18 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+INFO:signal_profiler:game 8/8 done: winner=2 turns=25
+INFO:signal_profiler:harvested 1051 experiences from 8 games
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/armV3_precliff_2927538.pt (decision_step=2927538)
+INFO:eval_sim:[profile] loaded armV3_precliff_2927538.pt
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/armV3_precliff_2927538.pt (decision_step=2927538)
+INFO:eval_sim:[profile] loaded armV3_precliff_2927538.pt
+INFO:signal_profiler:term total           captured 132 grad tensors
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/armV3_precliff_2927538.pt (decision_step=2927538)
+INFO:eval_sim:[profile] loaded armV3_precliff_2927538.pt
+INFO:signal_profiler:term policy_distill  captured 125 grad tensors
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/armV3_precliff_2927538.pt (decision_step=2927538)
+INFO:eval_sim:[profile] loaded armV3_precliff_2927538.pt
+INFO:signal_profiler:term value_inbatch   captured 125 grad tensors
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/armV3_precliff_2927538.pt (decision_step=2927538)
+INFO:eval_sim:[profile] loaded armV3_precliff_2927538.pt
+INFO:signal_profiler:term gbc             captured 130 grad tensors
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/armV3_precliff_2927538.pt (decision_step=2927538)
+INFO:eval_sim:[profile] loaded armV3_precliff_2927538.pt
+INFO:signal_profiler:term aux_margin      captured 127 grad tensors
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/armV3_precliff_2927538.pt (decision_step=2927538)
+INFO:eval_sim:[profile] loaded armV3_precliff_2927538.pt
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/armV3_precliff_2927538.pt (decision_step=2927538)
+INFO:eval_sim:[profile] loaded armV3_precliff_2927538.pt
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/armV3_precliff_2927538.pt (decision_step=2927538)
+INFO:eval_sim:[profile] loaded armV3_precliff_2927538.pt
+INFO:signal_profiler:value split winner_states  n=590 done
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/armV3_precliff_2927538.pt (decision_step=2927538)
+INFO:eval_sim:[profile] loaded armV3_precliff_2927538.pt
+INFO:signal_profiler:value split loser_states   n=461 done
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/armV3_precliff_2927538.pt (decision_step=2927538)
+INFO:eval_sim:[profile] loaded armV3_precliff_2927538.pt
+INFO:signal_profiler:value split turns_early    n=357 done
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/armV3_precliff_2927538.pt (decision_step=2927538)
+INFO:eval_sim:[profile] loaded armV3_precliff_2927538.pt
+INFO:signal_profiler:value split turns_mid      n=351 done
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/armV3_precliff_2927538.pt (decision_step=2927538)
+INFO:eval_sim:[profile] loaded armV3_precliff_2927538.pt
+INFO:signal_profiler:value split turns_late     n=343 done
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/armV3_precliff_2927538.pt (decision_step=2927538)
+INFO:eval_sim:[profile] loaded armV3_precliff_2927538.pt
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/armV3_precliff_2927538.pt (decision_step=2927538)
+INFO:eval_sim:[profile] loaded armV3_precliff_2927538.pt
+INFO:signal_profiler:update term total_momentum  done
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/armV3_precliff_2927538.pt (decision_step=2927538)
+INFO:eval_sim:[profile] loaded armV3_precliff_2927538.pt
+INFO:signal_profiler:update term total           done
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/armV3_precliff_2927538.pt (decision_step=2927538)
+INFO:eval_sim:[profile] loaded armV3_precliff_2927538.pt
+INFO:signal_profiler:update term policy_distill  done
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/armV3_precliff_2927538.pt (decision_step=2927538)
+INFO:eval_sim:[profile] loaded armV3_precliff_2927538.pt
+INFO:signal_profiler:update term value_inbatch   done
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/armV3_precliff_2927538.pt (decision_step=2927538)
+INFO:eval_sim:[profile] loaded armV3_precliff_2927538.pt
+INFO:signal_profiler:update term gbc             done
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/armV3_precliff_2927538.pt (decision_step=2927538)
+INFO:eval_sim:[profile] loaded armV3_precliff_2927538.pt
+INFO:signal_profiler:update term aux_margin      done
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/armV3_precliff_2927538.pt (decision_step=2927538)
+INFO:eval_sim:[profile] loaded armV3_precliff_2927538.pt
+INFO:signal_profiler:update term value_memory    done
+label coverage: gbc=1051/1051 aux=1051/1051
+consult states captured: 400 (of 22128 seen); real probe: 200
+target amplitude: {'n': 1051, 'skipped': 0, 'kl_mean': 0.044940888735670696, 'kl_median': 0.0024106080984732854, 'kl_p90': 0.08271366584689747, 'tv_mean': 0.03472896243824588, 'touched_mean': 408.9153187440533, 'category_mass_delta_mean': {'attack': -0.005327033566956592, 'end_turn': 0.0048599899890306416, 'move': 0.0016246922128245382, 'recruit': -0.0011576486348985806}}
+linearity residual: 0.0000
+value splits: {'full_norm': 3.8598434925079346, 'turn_terciles': [9, 18], 'subsets': {'winner_states': {'n': 590, 'norm': 10.857848167419434, 'cos_full': 0.9527807849770571}, 'loser_states': {'n': 461, 'norm': 4.247270107269287, 'cos_full': -0.6149621904565448}, 'turns_early': {'n': 357, 'norm': 5.307595252990723, 'cos_full': 0.9566237656119381}, 'turns_mid': {'n': 351, 'norm': 4.6472625732421875, 'cos_full': 0.7986827311034316}, 'turns_late': {'n': 343, 'norm': 1.9714336395263672, 'cos_full': 0.5540346965141213}}, 'cos_winner_states|loser_states': -0.8289586729124018, 'cos_turns_early|turns_late': 0.3677510759528438}
+TOTAL gradient  norm=4.031  (1051 experiences)
+  [trunk      ] 3.843
+  [value_head ] 0.9881
+  [aux_ml     ] 0.664
+  [encoder    ] 0.2342
+  [actor_head ] 0.1241
+  [target_proj] 0.02845
+  [gbc_heads  ] 0.01922
+  [weapon_head] 0.004892
+  [type_head  ] 0.002832
+├─ value_inbatch   norm=3.86  cos_total=+0.982  proj_frac=+0.938
+│    trunk       norm=3.724 (0.97 of group total, cos +1.00)
+│    value_head  norm=0.9881 (1.00 of group total, cos +1.00)
+│    encoder     norm=0.2328 (0.99 of group total, cos +0.99)
+├─ value_memory    norm=1.016  cos_total=+0.243  proj_frac=+0.061
+│    value_head  norm=1.016 (1.03 of group total, cos +0.99)
+├─ aux_margin      norm=0.74  cos_total=+0.309  proj_frac=+0.057
+│    aux_ml      norm=0.664 (1.00 of group total, cos +1.00)
+│    trunk       norm=0.3281 (0.09 of group total, cos +0.38)
+│    encoder     norm=0.007725 (0.03 of group total, cos +0.61)
+├─ policy_distill  norm=0.3323  cos_total=+0.060  proj_frac=+0.005
+│    trunk       norm=0.3061 (0.08 of group total, cos +0.06)
+│    actor_head  norm=0.1241 (1.00 of group total, cos +1.00)
+│    target_proj norm=0.02845 (1.00 of group total, cos +1.00)
+│    encoder     norm=0.02325 (0.10 of group total, cos -0.10)
+│    weapon_head norm=0.004892 (1.00 of group total, cos +1.00)
+│    type_head   norm=0.002832 (1.00 of group total, cos +1.00)
+├─ gbc             norm=0.02363  cos_total=+0.058  proj_frac=+0.000
+│    gbc_heads   norm=0.01922 (1.00 of group total, cos +1.00)
+│    trunk       norm=0.01373 (0.00 of group total, cos +0.10)
+│    encoder     norm=0.0007506 (0.00 of group total, cos +0.37)
+
+UPDATE tree (post-Adam, clip 1.0; opt_state=True):
+  total_momentum  |du|=0.0733 proj=+0.995 dv_consult=0.06786 dv_real=0.08302
+  total           |du|=0.0292 proj=+1.000 dv_consult=0.06162 dv_real=0.07469
+  policy_distill  |du|=0.0219 proj=+0.165 dv_consult=0.00056 dv_real=0.00061
+  value_inbatch   |du|=0.0286 proj=+0.929 dv_consult=0.06258 dv_real=0.07594
+  gbc             |du|=0.0129 proj=+0.051 dv_consult=0.00007 dv_real=0.00008
+  aux_margin      |du|=0.0180 proj=+0.124 dv_consult=0.00673 dv_real=0.00787
+  value_memory    |du|=0.0102 proj=+0.031 dv_consult=0.00470 dv_real=0.00501
+
+wrote /workspace/profile5_armV3_precliff_2927538.json

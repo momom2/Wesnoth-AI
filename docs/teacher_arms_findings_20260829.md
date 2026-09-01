@@ -218,3 +218,68 @@ Verified findings:
    where the value head is wrong, not in how hard it trains).
 6. aux_margin unprofiled in rounds 1-4 (harvest lacked
    draw_tiebreak; fixed for v1.3+).
+
+## Round 5 (2026-09-01, v2): update space, consultation movement,
+## provenance — the transfer failure fully quantified
+
+Protocol: 8 games/checkpoint on a 5.9GHz box, aux targets now
+attaching (v1.3), 400 search-consulted boundary states captured
+per checkpoint (reservoir over ~22-24k consultations), 200
+real-state controls. Update tree = one production step per
+isolated term, real Adam (checkpoint second moments, exp_avg
+zeroed — loaded momentum otherwise dominates any single step and
+erases attribution; a total_momentum variant keeps it for scale),
+production clip 1.0. Caveat: the seed's optimizer_state key is
+EMPTY (stripped at handoff), so seed update rows are fresh-Adam;
+arm rows are true production moments.
+
+1. THE EROSION CHANNEL, MEASURED DIRECTLY: the isolated value
+   step moves value predictions on IMAGINED (search-consulted)
+   states as much as on real ones — dv_consult/dv_real 0.91-0.98
+   on all three arms (~0.062-0.072 vs ~0.063-0.079 per step, in
+   [-1,1] units). Nothing in the loss anchors the states search
+   reads; they move in lockstep with the trained states.
+2. SCALE: one production step's value movement on consulted
+   states is ~0.06-0.08 ~= 3-4 C51 atoms — LARGER than TCS's
+   median accepted delta (~2 atoms). A single training step
+   re-scrambles value differences of the size search uses to pick
+   plans; over an iteration the search's ranking substrate is
+   fully churned. This is the mechanism behind "search flips from
+   +321 to -340 while raw policy stays put", now in units.
+3. ADAM REBALANCES MAGNITUDE, NOT DIRECTION: post-Adam the policy
+   step's weight movement is ~40-65% of the value step's (|du|
+   0.012-0.022 vs 0.029-0.034; gradient space said 8%), so the
+   policy channel is not starved of step SIZE — it is starved of
+   target CONTENT (KL median 0.0024-0.0044 across the arc).
+4. TARGETS PUSH TOWARD PASSIVITY: per-category mass, the
+   accepted-plan targets consistently REMOVE mass from attacks
+   (-0.003..-0.006) and ADD mass to end_turn, growing across the
+   arc (seed +0.0018 -> precliff +0.0049 -> cliff +0.0077). The
+   homeopathic policy signal that does exist points in the
+   K-collapse direction even under mover frame + projection.
+5. THE VALUE GRADIENT IS A CANCELLATION RESIDUAL:
+   cos(winner-state grad, loser-state grad) = -0.83..-0.95 — the
+   two label groups push the trunk in nearly opposite directions,
+   and the net value gradient is their small difference. Which
+   side dominates FLIPS along the arc (seed/early: loser-side,
+   cos_full +0.99/+0.88; precliff/cliff: winner-side, +0.95/+0.87)
+   — a fragile direction, consistent with leg-5's coin-flip trunk
+   rotation and arm T's oscillation. (This REFUTES the round-4
+   guess that winners and losers would push the same proxy
+   direction.)
+6. GBC: gradient-inert in update space too (|du| ~0.01, dv
+   ~0.0001). Aux (first measurement): norm 0.32-0.74, ~4-6%
+   projection, modest dv — a real trunk regularizer, not a
+   dominant channel; NOTE the user intends aux as telemetry-only,
+   but as shipped it trains the trunk at coef 0.15 (trainer.py
+   ~1268) — pending ruling.
+
+Synthesis: search training fails because (a) each value step
+churns the imagined-state valuations search depends on by more
+than search's own discrimination threshold, while (b) the policy
+channel — adequately sized after Adam — carries near-empty targets
+whose systematic component points at passivity. The fix space this
+measures out: anchor/ground value on consulted states (reanalyze-
+style targets exactly where the head is read), and strengthen the
+target link (beta) — matching arm-W's W2 and sharpening W1 into
+"control value movement per step", not merely "shrink value_coef".
