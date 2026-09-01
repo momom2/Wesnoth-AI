@@ -1292,11 +1292,15 @@ def _trainer_step_mcts(
             gbc_loss = sum(gl * w for gl, w in chunk_gbc) / total_gw
             chunk_loss = chunk_loss + self.config.gbc_coef * gbc_loss
             sum_gbc_loss += float(gbc_loss.item())
-        elif gbc_on:
-            # Labels are present in the batch but NOTHING computed a
+        elif gbc_on and any(getattr(e, "gbc_labels", None)
+                            for e in chunk):
+            # THIS CHUNK's labels are present but nothing computed a
             # loss -- the 2026-08-15 failure shape (ctx tap absent on
             # one forward path made GBC a silent no-op for hours).
             # Loud once per process; silence is the enemy here.
+            # Chunks with NO labels at all are expected under value
+            # grounding (label-free value-only experiences) and stay
+            # quiet.
             global _GBC_SILENT_WARNED
             if not _GBC_SILENT_WARNED:
                 _GBC_SILENT_WARNED = True
