@@ -1,0 +1,173 @@
+#!/bin/bash
+# Arm VG launch (2026-09-01): value grounding on consulted states.
+# Recipe = arm T (TCS teacher, mover frame, project reval, policy
+# anchor, K-tripwire) MINUS value-memory PLUS --value-ground, on the
+# code with the aux/moves-left detach and per-decade telemetry.
+# Hand-driven like the teacher arms; run on the box from
+# /workspace/wai after setup (see docs/arm_vg_leg_20260901.md).
+#
+# Stages: full test suite -> anchor build -> fork-guard smoke ->
+# supervised training loop + pin/probe/escrow/watchdog daemons.
+set -u
+cd /workspace/wai
+PY=python
+WORKDIR=/workspace
+CAMPAIGN=training/checkpoints/tier_b_vg.pt
+SEED_CKPT=training/checkpoints/seed_imit_tierb_start.pt
+export PYTORCH_ALLOC_CONF=expandable_segments:True
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+ulimit -n 65536 2>/dev/null || true
+
+stage="${1:-all}"
+
+if [ "$stage" = "tests" ] || [ "$stage" = "all" ]; then
+    echo "[armVG] FULL test suite (slow tier included)..."
+    "$PY" -m pytest -m "" -q > "$WORKDIR/pytest_full.log" 2>&1
+    rc=$?
+    tail -3 "$WORKDIR/pytest_full.log"
+    if [ $rc -ne 0 ]; then
+        echo "[armVG] FATAL: test suite failed (rc=$rc)"
+        touch "$WORKDIR/ABORTED_tests"
+        exit 1
+    fi
+fi
+
+if [ "$stage" = "anchor" ] || [ "$stage" = "all" ]; then
+    if [ ! -f replays_dataset_imitation/policy_anchor.npz ]; then
+        echo "[armVG] building policy anchor (500 games)..."
+        "$PY" tools/policy_anchor.py \
+            --dataset-dir replays_dataset_imitation \
+            --out replays_dataset_imitation/policy_anchor.npz \
+            --games 500 --seed 20260901 --log-level INFO \
+            > "$WORKDIR/anchor_build.log" 2>&1 || {
+            echo "[armVG] FATAL: anchor build failed"; exit 1; }
+    fi
+fi
+
+if [ "$stage" = "smoke" ] || [ "$stage" = "all" ]; then
+    echo "[armVG] fork-guard smoke (guards armed, VG path on)..."
+    SIM_FORK_GUARD=1 "$PY" tools/sim_self_play.py \
+        --mcts --mcts-sims 8 --device cpu \
+        --d-model 384 --num-layers 8 --num-heads 12 --d-ff 1536 \
+        --iterations 1 --games-per-iter 1 --max-turns 8 \
+        --ladder-ratio 1.0 --midgame-ratio 0 --mini-ratio 0 \
+        --fogless-ratio 0 \
+        --game-log-dir "" --validate-export-every 0 \
+        --turn-boundary-frame mover --turn-project reval \
+        --value-ground \
+        --checkpoint-in "$SEED_CKPT" \
+        --checkpoint-out "$WORKDIR/fork_guard_smoke.pt" \
+        --save-every 1000 --log-level INFO \
+        > "$WORKDIR/smoke.log" 2>&1
+    rc=$?
+    if [ $rc -ne 0 ]; then
+        echo "[armVG] FATAL: smoke rc=$rc (see smoke.log)"
+        touch "$WORKDIR/ABORTED_smoke"
+        exit 1
+    fi
+    rm -f "$WORKDIR"/fork_guard_smoke.pt*
+    echo "[armVG] smoke PASSED"
+fi
+
+case "$stage" in
+    tests|anchor|smoke) exit 0 ;;
+esac
+
+echo "[armVG] launching daemons + training..."
+mkdir -p "$WORKDIR/pins" "$WORKDIR/probes"
+
+# Escrow: rolling checkpoint + CSV every 30 min.
+CAMPAIGN_FILE=tier_b_vg.pt HF_PREFIX="tier-b/arm_vg_20260901/" \
+    WORKDIR="$WORKDIR" setsid nohup "$PY" scripts/hf_upload_loop.py \
+    > "$WORKDIR/upload.log" 2>&1 < /dev/null &
+
+# Stall watchdog.
+WORKDIR="$WORKDIR" setsid nohup "$PY" scripts/stall_watchdog.py \
+    > "$WORKDIR/watchdog.log" 2>&1 < /dev/null &
+
+# Pin + probe loop: snapshot the rolling file on decision_step
+# advance; 24-game probe vs the seed, both sides MCTS-32 raw frame
+# (--no-turn-search is implied by run_elo_batch's game runner).
+setsid nohup bash -c '
+cd /workspace/wai
+last=0
+while true; do
+    sleep 600
+    [ -f '"$CAMPAIGN"' ] || continue
+    step=$('"$PY"' -c "
+import torch
+try:
+    print(int(torch.load(\"'"$CAMPAIGN"'\", map_location=\"cpu\",
+                          weights_only=False).get(\"decision_step\", 0)))
+except Exception:
+    print(0)")
+    if [ "$step" -gt 0 ] && [ $((step - last)) -ge 27000 ]; then
+        last=$step
+        pin=/workspace/pins/pin_$step.pt
+        cp '"$CAMPAIGN"' "$pin"
+        echo "$(date -u +%FT%TZ) pin $step" >> /workspace/pins.log
+        '"$PY"' tools/run_elo_batch.py \
+            --label-a "pin_$step" --spec-a "$pin" \
+            --label-b seed --spec-b '"$SEED_CKPT"' \
+            --games 24 --mcts-sims 32 --device cuda \
+            --outdir /workspace/probes/pin_$step \
+            --time-budget-min 90 --min-free-mb 500 \
+            >> /workspace/probes/probe.log 2>&1
+        '"$PY"' tools/elo_collect.py /workspace/probes/pin_$step \
+            >> /workspace/pins.log 2>&1 || true
+    fi
+done' > "$WORKDIR/pinloop.log" 2>&1 < /dev/null &
+
+# Training, supervised (10 tries).
+tries=0
+while [ $tries -lt 10 ]; do
+    CKPT_IN=$([ -f "$CAMPAIGN" ] && echo "$CAMPAIGN" || echo "$SEED_CKPT")
+    "$PY" tools/sim_self_play.py --device cuda \
+        --mcts --mcts-sims 32 \
+        --d-model 384 --num-layers 8 --num-heads 12 --d-ff 1536 \
+        --replay-buffer --replay-updates 16 --value-coef 1.0 \
+        --replay-minibatch 128 --replay-capacity 24000 \
+        --train-batch-size 32 --mcts-batch-size 16 \
+        --mini-ratio 0 --midgame-ratio 0.2 --fogless-ratio 0.2 \
+        --ladder-ratio 0.6 \
+        --max-turns-min 60 \
+        --mcts-aux-score \
+        --validate-export-every 1 \
+        --value-label-smoothing 0.02 \
+        --holdout-size 512 --holdout-per-game-cap 64 \
+        --human-anchor-policy-file \
+            replays_dataset_imitation/policy_anchor.npz \
+        --abort-decisive-rate 0.35 --abort-window 20 \
+        --abort-holdout-stall 60 \
+        --abort-k-median 10 \
+        --turn-boundary-frame mover \
+        --turn-project reval \
+        --value-ground \
+        --actor-pool 26 --actor-max-batch 16 \
+        --games-per-iter 24 \
+        --checkpoint-in "$CKPT_IN" \
+        --checkpoint-out "$CAMPAIGN" \
+        --iterations 100000 --save-every 2 --log-level INFO \
+        >> "$WORKDIR/train.log" 2>&1
+    rc=$?
+    echo "[armVG] training exited rc=$rc at $(date -u +%FT%TZ)" \
+        >> "$WORKDIR/train.log"
+    [ $rc -eq 0 ] && break
+    if [ $rc -ge 128 ]; then
+        if [ -f "$WORKDIR/WATCHDOG_STALL" ]; then
+            rm -f "$WORKDIR/WATCHDOG_STALL"
+            echo "[armVG] watchdog kill; relaunching" \
+                >> "$WORKDIR/train.log"
+        else
+            echo "[armVG] signal exit; standing down" \
+                >> "$WORKDIR/train.log"
+            break
+        fi
+    fi
+    if [ $rc -ge 3 ] && [ $rc -le 9 ]; then
+        touch "$WORKDIR/ABORTED_$rc"
+        break
+    fi
+    tries=$((tries + 1))
+    sleep 60
+done
