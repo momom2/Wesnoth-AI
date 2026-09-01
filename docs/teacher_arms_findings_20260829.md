@@ -283,3 +283,39 @@ measures out: anchor/ground value on consulted states (reanalyze-
 style targets exactly where the head is read), and strengthen the
 target link (beta) — matching arm-W's W2 and sharpening W1 into
 "control value movement per step", not merely "shrink value_coef".
+
+## Round 6 (2026-09-01): aleatoric-label probe — near-random-head
+## refuted; the value loss spends its mass fighting opening noise
+
+User challenge: winner/loser gradient anti-parallelism "should
+only happen with an almost random value head". Discriminating
+test: per-turn-decade outcome AUC + winner/loser value-gradient
+cosine, seed + cliff, 8 games each.
+
+    seed:  AUC 0.40 (t1-10) -> 0.80 (t11-20) -> 0.96 (t21-30)
+    cliff: AUC 0.77        -> 0.78          -> 1.00 (CE 0.11 vs
+           floor 0.69; t31-40 AUC 1.00, CE 0.02)
+    cos(win,lose): seed -0.91/-0.90/-0.84; cliff -0.73/-0.79/-0.48
+    gradient mass: turns 1-20 carry 3-7x the late-game mass
+           (seed d1_10: |g_lose| 12.4 vs |g_win| 4.8)
+
+Verdict: NOT a random head — endgame discrimination is perfect and
+the cancellation fades exactly where labels become informative.
+The +-1 outcome labels on undecided early positions are
+substantially aleatoric, and that is where the value gradient's
+bulk sits: the loss spends most of its budget on label noise while
+the informative endgame (already solved) contributes almost none.
+Two sharpenings: (a) the SEED is actively miscalibrated on
+openings (AUC 0.40 BELOW chance, CE above the state-blind floor)
+and self-play training fixed it (0.40 -> 0.77) — early decades
+contain real signal plus noise, arguing for TD/bootstrapped early
+targets or phase-weighted value loss over simply zeroing them;
+(b) which class's noise-mass dominates (seed: loser 12.4/4.8;
+cliff: winner 7.6/4.9) is what the net trunk direction inherits —
+the round-5 arc flip, explained.
+
+Shipped alongside: aux + moves-left heads DETACHED (user ruling:
+telemetry-only; validated — the aux term's gradient is now 100%
+in its own head, zero trunk), and the per-decade fresh-probe
+telemetry (fresh_{ce,floor,auc,n}_{d1_10..d61p} CSV columns) so
+this structure is live in every future leg.
