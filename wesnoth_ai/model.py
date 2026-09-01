@@ -424,14 +424,21 @@ class WesnothModel(nn.Module):
                  - value.pow(2)).clamp_min(0)
         cliffness = var_v.sqrt()                                  # [B, 1]
 
+        # Aux + moves-left heads read a DETACHED global token (user
+        # ruling 2026-09-01: telemetry-only — the heads train, the
+        # trunk receives no gradient from them). Before the detach
+        # the aux MSE contributed ~5-6% of the total update
+        # direction through the trunk (signal-profiler round 5).
         aux_score = None
         if self.aux_score_head is not None:
             aux_score = torch.tanh(
-                self.aux_score_head(global_ctx.squeeze(1)))       # [B, 1]
+                self.aux_score_head(
+                    global_ctx.squeeze(1).detach()))              # [B, 1]
         moves_left = None
         if self.moves_left_head is not None:
             moves_left = torch.sigmoid(
-                self.moves_left_head(global_ctx.squeeze(1)))      # [B, 1]
+                self.moves_left_head(
+                    global_ctx.squeeze(1).detach()))              # [B, 1]
 
         # marginal_type_logits is now a lazy property on ModelOutput
         # (optimization #2) -- not computed here; the sole reader is a

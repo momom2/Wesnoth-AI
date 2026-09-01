@@ -1155,6 +1155,7 @@ class MCTSPolicy:
         stats.fresh_pred_entropy = fresh["pred_entropy"]
         stats.fresh_ce_floor = fresh["marginal_ce_floor"]
         stats.fresh_decisive_ce = fresh.get("decisive_ce", float("nan"))
+        stats.fresh_by_decade = fresh.get("by_decade") or None
 
     @staticmethod
     def _attach_z_composition(stats: TrainStats, batch) -> None:

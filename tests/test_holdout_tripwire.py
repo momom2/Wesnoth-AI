@@ -358,3 +358,32 @@ def test_holdout_stall_tripwire_exits_5(tmp_path):
     ])
     assert rc == 5, f"expected holdout-stall exit code 5, got {rc}"
     assert ckpt.exists(), "tripwire must save a final checkpoint"
+
+
+def test_eval_value_metrics_by_decade_partitions_and_averages():
+    """Per-decade rows must partition the batch by turn decade, and
+    their n-weighted CE must reproduce the pooled CE (equal game
+    weights). Decade floors reflect each decade's own z-mix."""
+    from wesnoth_ai.trainer import MCTSExperience
+    policy = TransformerPolicy()
+
+    def _exp(turn, z):
+        gs = _gs()
+        gs.global_info.turn_number = turn
+        return MCTSExperience(game_state=gs, visit_counts=[], z=z)
+
+    batch = ([_exp(5, 1.0) for _ in range(3)]
+             + [_exp(5, -1.0) for _ in range(3)]
+             + [_exp(15, 1.0) for _ in range(4)]
+             + [_exp(65, -1.0) for _ in range(2)])
+    m = policy._trainer.eval_value_metrics(batch)
+    bd = m["by_decade"]
+    assert set(bd) == {"d1_10", "d11_20", "d61p"}
+    assert bd["d1_10"]["n"] == 6
+    assert bd["d11_20"]["n"] == 4
+    assert bd["d61p"]["n"] == 2
+    weighted = sum(v["ce"] * v["n"] for v in bd.values()) / len(batch)
+    assert math.isclose(weighted, m["ce"], rel_tol=1e-5)
+    # 50/50 decade -> ~ln2 floor; single-outcome decades -> ~0.
+    assert abs(bd["d1_10"]["floor"] - math.log(2)) < 0.05
+    assert bd["d11_20"]["floor"] < 0.05

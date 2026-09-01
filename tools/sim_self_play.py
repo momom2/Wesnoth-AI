@@ -2145,8 +2145,16 @@ def run_iteration(
                 f"replans/plan "
                 f"{distill.get('tcs_replans_per_plan', 0.0):.2f}, "
                 f"projections/plan {_proj:.1f}")
+        _fbd = (getattr(train_stats, "fresh_by_decade", None)
+                if train_stats else None) or {}
+        _fresh_decades = {
+            f"fresh_{m}_{d}": (_fbd.get(d) or {}).get(m)
+            for d in ("d1_10", "d11_20", "d21_30", "d31_40",
+                      "d41_50", "d51_60", "d61p")
+            for m in ("ce", "floor", "auc", "n")}
         snapshot_sink({
             **distill,
+            **_fresh_decades,
             "iter":                iter_idx,
             "n_games":             len(outcomes),
             "rollout_seconds":     rollout_dt,
@@ -2444,7 +2452,14 @@ class _TrainerHistoryCSV:
         "pt_cert_attempt_frac_f2p",
         "pt_cert_len_delta_mean", "pt_cert_shorten_rate",
         "pt_half_cap_hit_rate",
-    ]
+        # Per-turn-decade fresh-probe decomposition (user ruling
+        # 2026-09-01): fresh CE / state-blind floor / outcome AUC /
+        # n per game-turn decade; the pooled fresh_value_ce column
+        # stays the usual read. d61p pools turns 61+.
+    ] + [f"fresh_{m}_{d}"
+         for d in ("d1_10", "d11_20", "d21_30", "d31_40",
+                   "d41_50", "d51_60", "d61p")
+         for m in ("ce", "floor", "auc", "n")]
 
     def __init__(self, path: Path):
         self.path = path

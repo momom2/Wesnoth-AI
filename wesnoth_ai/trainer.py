@@ -337,6 +337,13 @@ class TrainStats:
     # sit BELOW this; a high floor means the games' outcomes are
     # inherently mixed and caps what any head can achieve.
     fresh_ce_floor: float = float("nan")
+    # Per-turn-decade fresh-probe decomposition (2026-09-01):
+    # {"d1_10": {"ce","floor","auc","n"}, ..., "d61p": ...}. The
+    # pooled fresh_value_ce above stays the usual read; these
+    # columns separate phases whose +-1 labels carry very
+    # different information (early-game outcomes are largely
+    # aleatoric). None when the probe didn't run.
+    fresh_by_decade: Optional[Dict] = None
 
 
 class Trainer:
@@ -1508,7 +1515,7 @@ def _trainer_eval_value_metrics(
     if not experiences:
         return {"ce": nan, "ce_std": nan, "pred_entropy": nan,
                 "marginal_ce_floor": nan, "value_auc": nan,
-                "n_decisive": 0}
+                "n_decisive": 0, "by_decade": {}}
     dev = self.device or next(self.model.parameters()).device
     N = len(experiences)
     B = max(1, self.config.train_batch_size)
@@ -1568,6 +1575,47 @@ def _trainer_eval_value_metrics(
         floor = float(
             -(marginal * marginal.clamp_min(1e-9).log()).sum().item())
         ce_all = torch.cat(ce_states)
+        # Per-turn-decade decomposition (user ruling 2026-09-01):
+        # the pooled CE mixes phases whose labels have very
+        # different information content (early-game +-1 outcomes
+        # are substantially aleatoric). Per decade: weighted CE,
+        # the decade's own state-blind floor, outcome AUC, and n.
+        by_decade: Dict[str, Dict] = {}
+        turn_nos = torch.tensor(
+            [int(e.game_state.global_info.turn_number)
+             for e in experiences])
+        dec_idx = ((turn_nos - 1) // 10).clamp(0, 6)
+        ce_cpu = ce_all.cpu()
+        ev_cpu = torch.cat(ev_states).cpu()
+        zs_cpu = zs.cpu()
+        gw_cpu = gws_e.cpu()
+        atoms_cpu = atoms.cpu()
+        for d in range(7):
+            m = dec_idx == d
+            nd = int(m.sum().item())
+            if nd == 0:
+                continue
+            key = f"d{d * 10 + 1}_{d * 10 + 10}" if d < 6 else "d61p"
+            gw_d = gw_cpu[m]
+            tot_d = max(float(gw_d.sum().item()), 1e-9)
+            ce_d = float((ce_cpu[m] * gw_d).sum().item()) / tot_d
+            marg_d = _project_returns_to_atoms(
+                zs_cpu[m], atoms_cpu).mean(dim=0)
+            floor_d = float(
+                -(marg_d * marg_d.clamp_min(1e-9).log()).sum().item())
+            pos_d = ev_cpu[m & (zs_cpu > 0)]
+            neg_d = ev_cpu[m & (zs_cpu < 0)]
+            if len(pos_d) and len(neg_d):
+                gt_d = (pos_d.unsqueeze(1)
+                        > neg_d.unsqueeze(0)).float().sum()
+                eq_d = (pos_d.unsqueeze(1)
+                        == neg_d.unsqueeze(0)).float().sum()
+                auc_d = float((gt_d + 0.5 * eq_d).item()) \
+                    / (len(pos_d) * len(neg_d))
+            else:
+                auc_d = nan
+            by_decade[key] = {"ce": ce_d, "floor": floor_d,
+                              "auc": auc_d, "n": nd}
         # gw-weighted spread around the gw-weighted mean (matches
         # how "ce" itself is normalized).
         mean_w = float((ce_all * gws_e).sum().item()) / total_gw_e
@@ -1592,7 +1640,8 @@ def _trainer_eval_value_metrics(
             "pred_entropy": entropy_sum / N,
             "marginal_ce_floor": floor,
             "value_auc": auc,
-            "n_decisive": int((zs != 0).sum().item())}
+            "n_decisive": int((zs != 0).sum().item()),
+            "by_decade": by_decade}
 
 
 def _trainer_eval_value_loss(
