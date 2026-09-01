@@ -177,3 +177,43 @@ FileNotFoundError on a missing checkpoint. Invalid JSONs moved to
 eval_games/signal_profiles/invalid_random_init/. Round 4 = the
 first real arm profiles (same v1.2 protocol, staging verified by
 arch peek: gbc+aux True on all three).
+
+## Round 4 (2026-09-01): the real arm profiles
+
+8 games / ~900 experiences per checkpoint, seed 31337, load lines
+verified, linearity residual 0.0000 on all runs (the round-3
+"140% residual" was the random-net artifact; no repeatability
+check needed). Table = gradient norm / signed share of the
+applied update's direction (proj_frac):
+
+                     seed      early     precliff  cliff
+    total            3.07      2.99      2.84      2.18
+    value_inbatch    3.07 .996 2.96 .989 2.83 .992 2.17 .991
+    policy_distill   0.25 .004 0.24 .009 0.29 .008 0.19 .009
+    gbc              --        0.03 .002 0.02 .000 0.02 .000
+    value_memory     0.37 .035 1.17 .138 0.76 .080 0.56 .079
+
+Verified findings:
+
+1. VALUE DOMINANCE IS STRUCTURAL, NOT TRANSIENT: value_inbatch
+   owns ~99% of the update direction at EVERY point in the arc
+   (seed included). The policy-side signal is ~1% of the update.
+2. TARGETS ARE HOMEOPATHIC EVERYWHERE: KL(target||prior) median
+   0.0025-0.0062, TV ~0.03-0.045 over ~350 legal actions -- the
+   teacher's accepted plans barely perturb the prior. Combined
+   with (1): the measured reason a +320-Elo teacher signal does
+   not transfer -- near-zero-amplitude targets carried by a ~1%
+   gradient share.
+3. GBC is gradient-inert (norm ~1% of value's) -- consistent with
+   arm G's behavioral exoneration.
+4. value_memory is the largest non-inbatch term and 2-3x bigger
+   on the arm checkpoints than the seed -- the V3 memory step was
+   a real second value channel on top of an already value-
+   dominated update.
+5. No gradient-amplitude signature of the cliff: the cliff
+   checkpoint's gradients are modestly SMALLER overall. The
+   -676 collapse is not visible in update magnitudes -- coherent
+   with the off-distribution-value mechanism (the damage lives in
+   where the value head is wrong, not in how hard it trains).
+6. aux_margin unprofiled in rounds 1-4 (harvest lacked
+   draw_tiebreak; fixed for v1.3+).
