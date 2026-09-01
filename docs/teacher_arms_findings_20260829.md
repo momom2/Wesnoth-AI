@@ -199,8 +199,9 @@ Verified findings:
    owns ~99% of the update direction at EVERY point in the arc
    (seed included). The policy-side signal is ~1% of the update.
 2. TARGETS ARE HOMEOPATHIC EVERYWHERE: KL(target||prior) median
-   0.0025-0.0062, TV ~0.03-0.045 over ~350 legal actions -- the
-   teacher's accepted plans barely perturb the prior. Combined
+   0.0018 (seed, rerun) / 0.0025-0.0062 (arms), TV ~0.03-0.045
+   over ~350 legal actions -- the teacher's accepted plans barely
+   perturb the prior. Combined
    with (1): the measured reason a +320-Elo teacher signal does
    not transfer -- near-zero-amplitude targets carried by a ~1%
    gradient share.

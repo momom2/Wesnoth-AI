@@ -1,0 +1,160 @@
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/armV3_early_2832821.pt (decision_step=2832821)
+INFO:eval_sim:[profile] loaded armV3_early_2832821.pt
+INFO:replay_dataset:Loaded 356 unit types from unit_stats.json
+WARNING:wesnoth_sim:sim: attack 17,3->12,5 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 17,8->21,7 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 17,8->21,7 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 17,8->21,7 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 17,8->21,7 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+INFO:signal_profiler:game 1/8 done: winner=2 turns=17
+WARNING:wesnoth_sim:sim: attack 17,27->18,24 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 19,15->16,19 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 19,15->16,19 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 19,15->16,19 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 19,15->16,19 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 19,15->16,19 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 19,15->16,19 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 19,15->16,19 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 19,15->16,19 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 22,23->15,22 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 22,23->15,22 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+INFO:signal_profiler:game 2/8 done: winner=2 turns=28
+WARNING:wesnoth_sim:sim: attack 16,13->14,13 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 16,13->14,13 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 16,13->14,13 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 16,13->14,13 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 11,14->14,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 11,14->14,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 11,14->14,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 11,14->14,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 11,14->14,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 11,14->14,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 11,14->14,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 11,14->14,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 11,14->14,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 11,14->14,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 11,14->14,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 18,12->13,13 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 17,12->13,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 14,13->16,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 14,13->17,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 14,13->17,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 14,13->17,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 14,13->17,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 14,13->17,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 14,13->17,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 14,13->17,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 14,13->17,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 14,13->17,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 14,13->17,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 14,13->17,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+INFO:signal_profiler:game 3/8 done: winner=1 turns=28
+WARNING:wesnoth_sim:sim: attack 18,17->16,16 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 18,17->16,16 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 18,17->16,16 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 16,21->14,21 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 16,21->14,21 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+INFO:signal_profiler:game 4/8 done: winner=1 turns=27
+WARNING:wesnoth_sim:sim: attack 17,12->15,11 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+INFO:signal_profiler:game 5/8 done: winner=1 turns=20
+INFO:signal_profiler:game 6/8 done: winner=1 turns=14
+WARNING:wesnoth_sim:sim: attack 24,7->19,9 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 24,7->19,9 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 9,8->11,8 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 7,9->11,7 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 7,9->11,7 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 7,9->11,7 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 7,9->11,7 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 7,9->11,7 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 7,9->11,7 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 7,9->11,7 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 7,9->11,7 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 7,9->11,7 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 7,9->11,7 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 7,9->11,7 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 7,9->11,7 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 7,9->11,7 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 7,9->11,7 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 7,9->11,7 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 7,9->11,7 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 7,9->11,7 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 7,9->11,7 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 7,9->11,7 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 7,9->11,7 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 7,9->11,7 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 7,9->11,7 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 9,9->10,8 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 9,9->10,8 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 7,9->11,7 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 7,9->11,7 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 10,7->12,4 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 12,8->13,4 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 10,8->12,4 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+INFO:signal_profiler:game 7/8 done: winner=1 turns=21
+WARNING:wesnoth_sim:sim: attack 37,7->35,7 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 38,11->36,9 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 38,11->36,9 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 32,10->37,9 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 32,10->37,9 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 32,10->37,9 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+INFO:signal_profiler:game 8/8 done: winner=1 turns=30
+INFO:signal_profiler:harvested 872 experiences from 8 games
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/armV3_early_2832821.pt (decision_step=2832821)
+INFO:eval_sim:[profile] loaded armV3_early_2832821.pt
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/armV3_early_2832821.pt (decision_step=2832821)
+INFO:eval_sim:[profile] loaded armV3_early_2832821.pt
+INFO:signal_profiler:term total           captured 130 grad tensors
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/armV3_early_2832821.pt (decision_step=2832821)
+INFO:eval_sim:[profile] loaded armV3_early_2832821.pt
+INFO:signal_profiler:term policy_distill  captured 125 grad tensors
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/armV3_early_2832821.pt (decision_step=2832821)
+INFO:eval_sim:[profile] loaded armV3_early_2832821.pt
+INFO:signal_profiler:term value_inbatch   captured 125 grad tensors
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/armV3_early_2832821.pt (decision_step=2832821)
+INFO:eval_sim:[profile] loaded armV3_early_2832821.pt
+INFO:signal_profiler:term gbc             captured 130 grad tensors
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/armV3_early_2832821.pt (decision_step=2832821)
+INFO:eval_sim:[profile] loaded armV3_early_2832821.pt
+INFO:signal_profiler:term aux_margin      captured 125 grad tensors
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/armV3_early_2832821.pt (decision_step=2832821)
+INFO:eval_sim:[profile] loaded armV3_early_2832821.pt
+label coverage: gbc=872/872 aux=0/872
+target amplitude: {'n': 872, 'skipped': 0, 'kl_mean': 0.029791013487461666, 'kl_median': 0.002542827490966019, 'kl_p90': 0.0682152311162914, 'tv_mean': 0.030440665453574517, 'touched_mean': 424.1330275229358}
+linearity residual: 0.0000 (should be ~0 unclipped; larger = normalization coupling)
+TOTAL gradient  norm=2.986  (872 experiences)
+  [trunk      ] 2.786
+  [value_head ] 1.061
+  [encoder    ] 0.1469
+  [actor_head ] 0.07244
+  [gbc_heads  ] 0.03168
+  [target_proj] 0.02526
+  [type_head  ] 0.01353
+  [weapon_head] 0.001915
+├─ value_inbatch   norm=2.963  cos_total=+0.998  proj_frac=+0.989
+│    trunk       norm=2.762 (0.99 of group total, cos +1.00)
+│    value_head  norm=1.061 (1.00 of group total, cos +1.00)
+│    encoder     norm=0.148 (1.01 of group total, cos +0.99)
+├─ value_memory    norm=1.172  cos_total=+0.351  proj_frac=+0.138
+│    value_head  norm=1.172 (1.10 of group total, cos +0.99)
+├─ policy_distill  norm=0.2352  cos_total=+0.112  proj_frac=+0.009
+│    trunk       norm=0.2211 (0.08 of group total, cos +0.12)
+│    actor_head  norm=0.07244 (1.00 of group total, cos +1.00)
+│    target_proj norm=0.02526 (1.00 of group total, cos +1.00)
+│    encoder     norm=0.02009 (0.14 of group total, cos +0.01)
+│    type_head   norm=0.01353 (1.00 of group total, cos +1.00)
+│    weapon_head norm=0.001915 (1.00 of group total, cos +1.00)
+├─ gbc             norm=0.03421  cos_total=+0.193  proj_frac=+0.002
+│    gbc_heads   norm=0.03168 (1.00 of group total, cos +1.00)
+│    trunk       norm=0.0129 (0.00 of group total, cos +0.52)
+│    encoder     norm=0.0004901 (0.00 of group total, cos +0.43)
+├─ aux_margin      norm=0  cos_total=+0.000  proj_frac=+0.000
+
+wrote /workspace/profile4_armV3_early_2832821.json

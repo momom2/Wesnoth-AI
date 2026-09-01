@@ -1,0 +1,94 @@
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/seed_imit_tierb_start.pt (decision_step=2809659)
+INFO:eval_sim:[profile] loaded seed_imit_tierb_start.pt
+INFO:replay_dataset:Loaded 356 unit types from unit_stats.json
+WARNING:wesnoth_sim:sim: attack 17,13->15,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 17,13->15,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 10,12->12,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 13,14->15,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 18,19->20,19 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 19,17->19,19 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+INFO:signal_profiler:game 1/8 done: winner=1 turns=21
+WARNING:wesnoth_sim:sim: attack 20,22->16,23 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 20,22->16,23 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 20,22->16,23 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 20,22->16,23 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+INFO:signal_profiler:game 2/8 done: winner=2 turns=20
+WARNING:wesnoth_sim:sim: attack 18,11->20,11 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 18,11->20,11 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 21,10->21,7 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 23,10->19,10 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+INFO:signal_profiler:game 3/8 done: winner=2 turns=18
+INFO:signal_profiler:game 4/8 done: winner=2 turns=10
+WARNING:wesnoth_sim:sim: attack 11,12->13,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 11,12->13,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 11,12->13,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 11,12->13,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 11,12->13,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 10,14->12,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 16,12->10,15 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 8,14->9,15 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+INFO:signal_profiler:game 5/8 done: winner=2 turns=25
+INFO:signal_profiler:game 6/8 done: winner=2 turns=12
+WARNING:wesnoth_sim:sim: attack 28,13->28,16 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 28,13->28,16 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 13,11->11,7 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 29,15->27,15 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+INFO:signal_profiler:game 7/8 done: winner=2 turns=22
+WARNING:wesnoth_sim:sim: attack 17,7->15,7 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+INFO:signal_profiler:game 8/8 done: winner=2 turns=12
+INFO:signal_profiler:harvested 710 experiences from 8 games
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/seed_imit_tierb_start.pt (decision_step=2809659)
+INFO:eval_sim:[profile] loaded seed_imit_tierb_start.pt
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/seed_imit_tierb_start.pt (decision_step=2809659)
+INFO:eval_sim:[profile] loaded seed_imit_tierb_start.pt
+INFO:signal_profiler:term total           captured 125 grad tensors
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/seed_imit_tierb_start.pt (decision_step=2809659)
+INFO:eval_sim:[profile] loaded seed_imit_tierb_start.pt
+INFO:signal_profiler:term policy_distill  captured 125 grad tensors
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/seed_imit_tierb_start.pt (decision_step=2809659)
+INFO:eval_sim:[profile] loaded seed_imit_tierb_start.pt
+INFO:signal_profiler:term value_inbatch   captured 125 grad tensors
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/seed_imit_tierb_start.pt (decision_step=2809659)
+INFO:eval_sim:[profile] loaded seed_imit_tierb_start.pt
+INFO:signal_profiler:term gbc             captured 125 grad tensors
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/seed_imit_tierb_start.pt (decision_step=2809659)
+INFO:eval_sim:[profile] loaded seed_imit_tierb_start.pt
+INFO:signal_profiler:term aux_margin      captured 125 grad tensors
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/seed_imit_tierb_start.pt (decision_step=2809659)
+INFO:eval_sim:[profile] loaded seed_imit_tierb_start.pt
+label coverage: gbc=710/710 aux=0/710
+target amplitude: {'n': 710, 'skipped': 0, 'kl_mean': 0.0600987210472764, 'kl_median': 0.0017536219274139776, 'kl_p90': 0.05158588916976205, 'tv_mean': 0.03330941702620268, 'touched_mean': 424.2338028169014}
+linearity residual: 0.0000 (should be ~0 unclipped; larger = normalization coupling)
+TOTAL gradient  norm=2.625  (710 experiences)
+  [trunk      ] 2.49
+  [value_head ] 0.8215
+  [encoder    ] 0.1084
+  [actor_head ] 0.03697
+  [type_head  ] 0.02488
+  [target_proj] 0.01184
+  [weapon_head] 0.0029
+├─ value_inbatch   norm=2.63  cos_total=+1.000  proj_frac=+1.000
+│    trunk       norm=2.496 (1.00 of group total, cos +1.00)
+│    value_head  norm=0.8215 (1.00 of group total, cos +1.00)
+│    encoder     norm=0.1094 (1.01 of group total, cos +1.00)
+├─ value_memory    norm=0.3145  cos_total=+0.296  proj_frac=+0.035
+│    value_head  norm=0.3145 (0.38 of group total, cos +0.95)
+├─ policy_distill  norm=0.1483  cos_total=-0.003  proj_frac=-0.000
+│    trunk       norm=0.1405 (0.06 of group total, cos -0.01)
+│    actor_head  norm=0.03697 (1.00 of group total, cos +1.00)
+│    type_head   norm=0.02488 (1.00 of group total, cos +1.00)
+│    target_proj norm=0.01184 (1.00 of group total, cos +1.00)
+│    encoder     norm=0.01077 (0.10 of group total, cos -0.04)
+│    weapon_head norm=0.0029 (1.00 of group total, cos +1.00)
+├─ gbc             norm=0  cos_total=+0.000  proj_frac=+0.000
+├─ aux_margin      norm=0  cos_total=+0.000  proj_frac=+0.000
+
+wrote /workspace/profile4_seed_imit_tierb_start.json
