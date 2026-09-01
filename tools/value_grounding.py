@@ -52,6 +52,15 @@ class GroundingConfig:
     consist_value_weight: float = 0.25
 
 
+def is_grounding_experience(e) -> bool:
+    """Grounding/consistency experiences are the only ones with no
+    policy target at all: empty visit_counts AND policy_weight 0.
+    Used to keep them OUT of the fresh probe and z-composition
+    telemetry — fresh_value_ce must stay comparable across legs."""
+    return (not getattr(e, "visit_counts", None)
+            and float(getattr(e, "policy_weight", 1.0)) == 0.0)
+
+
 def config_from_args(args, turn_cfg) -> Optional[GroundingConfig]:
     """CLI -> config; None when --value-ground is off. Raises on an
     unusable combination (grounding captures ride the stage-2

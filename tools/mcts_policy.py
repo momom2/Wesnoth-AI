@@ -1105,8 +1105,16 @@ class MCTSPolicy:
         # skip the probe rather than break training.
         _eval = getattr(self._base._trainer, "eval_value_metrics", None)
         if batch and _eval is not None:
-            probe = (batch if len(batch) <= 256
-                     else self._replay_rng.sample(batch, 256))
+            # Value-grounding experiences carry off-frame /
+            # continuous labels by design; sampling them here made
+            # fresh_value_ce read 13+ vs the historical ~0.5 on the
+            # SAME seed (arm VG iter 0). The probe measures the
+            # head on GAME states only, comparable across legs.
+            from tools.value_grounding import is_grounding_experience
+            game_batch = [e for e in batch
+                          if not is_grounding_experience(e)]
+            probe = (game_batch if len(game_batch) <= 256
+                     else self._replay_rng.sample(game_batch, 256))
             fresh = _eval(probe)
             # Decisive-only variant: with draw_value_weight=0 the head
             # is deliberately not trained to predict z=0 states, so
@@ -1171,7 +1179,13 @@ class MCTSPolicy:
           produces. THIS is the column to read for 'what is the
           value head training on' (2026-07-22: the unweighted
           census at 0.19 draws was misread as 20% of the gradient
-          when the weighted share was ~5%)."""
+          when the weighted share was ~5%).
+
+        Grounding experiences are excluded: their z values are
+        rollout/projected labels, not game outcomes, and would skew
+        the composition columns against every historical leg."""
+        from tools.value_grounding import is_grounding_experience
+        batch = [e for e in batch if not is_grounding_experience(e)]
         n = len(batch)
         if not n:
             return
