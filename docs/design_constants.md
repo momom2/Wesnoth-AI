@@ -269,6 +269,27 @@ alone, at the new `c_scale=0.1`, is a THIRD regime (soft but unrescaled).
 To A/B against the pre-2026-07-28 setting you must set BOTH
 `gumbel_rescale_q=False` AND `gumbel_c_scale=1.0`.
 
+## Value trust region: `trust_delta = 0.08` (2 C51 atoms) (2026-09-02)
+
+Defined: `TrainerConfig.trust_delta` (wesnoth_ai/trainer.py);
+consumed by MCTSPolicy's dual ascent on `trust_lambda`.
+
+The trust region bounds how far one iteration's updates may move
+the value head's mean prediction on search-consulted states. Its
+radius is the search's own DECISION RESOLUTION: TCS accepts a
+candidate turn when the re-graded value difference clears
+`min_delta` and two-stage acceptance, and the probe-measured
+median accepted delta is ~2 C51 atoms (docs/tcs_spec.md, the
+300-state probe; atom spacing 2/50 = 0.04 -> 0.08). Moving the
+consulted valuations by MORE than that per step re-scrambles the
+comparisons the search just made (signal-profiler round 5:
+3-4 atoms/step at seed; arm VG: up to 8, then K-collapse). Larger
+delta = search's substrate can be rewritten between iterations;
+smaller = the head can barely learn on consulted states at all.
+The multiplier lambda is NOT a constant: dual ascent doubles it
+when measured dv_consult exceeds 1.5 delta and halves it below
+delta/1.5 (PPO adaptive-KL schedule).
+
 ## TCS linear-link advantage gain: `target_beta = 5.0` (2026-08-17)
 
 `tools/turn_search.py::tcs_target_distribution(link="linear")` builds

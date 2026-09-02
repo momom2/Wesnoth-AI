@@ -54,15 +54,22 @@ def _surgeries():
             return kw
         return fn
 
+    def kind(e):
+        k = getattr(e, "label_kind", None)
+        if k is not None:
+            return k
+        if not ig(e):
+            return "game"
+        return "roll" if e.value_weight >= 0.9 else "consist"
+
     return {
         "sig_policy_norm": lambda e: {
             "value_weight": 0.0, "aux_target": None,
             "moves_left_target": None, "gbc_labels": None},
-        "sig_value_game_norm": value_where(lambda e: not ig(e)),
-        "sig_value_ground_norm": value_where(
-            lambda e: ig(e) and e.value_weight >= 0.9),
+        "sig_value_game_norm": value_where(lambda e: kind(e) == "game"),
+        "sig_value_ground_norm": value_where(lambda e: kind(e) == "roll"),
         "sig_value_consist_norm": value_where(
-            lambda e: ig(e) and 0.0 < e.value_weight < 0.9),
+            lambda e: kind(e) == "consist"),
     }
 
 

@@ -93,13 +93,21 @@ def _kill_value_where(pred):
 # The three sub-terms partition value_inbatch exactly (game states /
 # rollout-grounded / consistency-labeled), so the linearity check
 # still closes when they replace it.
+def _kind(e) -> str:
+    k = getattr(e, "label_kind", None)
+    if k is not None:
+        return k
+    if not _is_ground(e):
+        return "game"
+    return "roll" if e.value_weight >= 0.9 else "consist"
+
+
 TERM_SURGERY_VG: Dict[str, object] = {
     "policy_distill": TERM_SURGERY["policy_distill"],
-    "value_game": _kill_value_where(_is_ground),
-    "value_ground": _kill_value_where(
-        lambda e: not (_is_ground(e) and e.value_weight >= 0.9)),
+    "value_game": _kill_value_where(lambda e: _kind(e) != "game"),
+    "value_ground": _kill_value_where(lambda e: _kind(e) != "roll"),
     "value_consist": _kill_value_where(
-        lambda e: not (_is_ground(e) and e.value_weight < 0.9)),
+        lambda e: _kind(e) != "consist"),
     "gbc": TERM_SURGERY["gbc"],
     "aux_margin": TERM_SURGERY["aux_margin"],
 }

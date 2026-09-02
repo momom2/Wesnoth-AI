@@ -183,6 +183,22 @@ class MCTSExperience:
     # game and count independent outcomes. "" on legacy pickles --
     # such experiences simply never enter the reservoir.
     game_id: str = ""
+    # Label provenance (arm VG2, 2026-09-02): "game" = terminal
+    # outcome of the recorded game; "roll" = raw-policy rollout
+    # outcome from a search-consulted state (categorical, like
+    # "game"); "consist" = the search's depth-H estimate of a
+    # consulted state -- a SCALAR bootstrap, trained with the
+    # bias-corrected Gaussian term, never the categorical loss.
+    label_kind: str = "game"
+    # For "consist" states that ALSO received a rollout label: that
+    # outcome. Paired data -> the learner estimates the bootstrap's
+    # bias and residual variance every iteration (no tuned weights).
+    z_pair: Optional[float] = None
+    # Trust region (arm VG2): the head's mean prediction on this
+    # consulted state under the weights at the START of the
+    # iteration; the proximal term bounds movement away from it.
+    # None = state not in the trust region.
+    v_anchor: Optional[float] = None
 
 
 @dataclass
@@ -234,6 +250,22 @@ class TrainerConfig:
     # action. Still nonzero so exploration isn't killed entirely.
     entropy_coef:         float = 0.001
     grad_clip:            float = 1.0
+    # Arm VG2 (2026-09-02, "every parameter becomes a measurement"):
+    # the consistency (bootstrap) term is the Gaussian NLL of the
+    # head's MEAN prediction against the bias-corrected search
+    # estimate, (v - (z - bias))^2 / (2 sigma2). Both statistics are
+    # ESTIMATED by MCTSPolicy from paired (search, rollout) labels
+    # each iteration and written here before step_mcts; the defaults
+    # only apply before the first estimate exists (sigma2=1 -> the
+    # term starts at unit-Gaussian strength, bias 0).
+    consist_bias:         float = 0.0
+    consist_sigma2:       float = 1.0
+    # Trust-region multiplier on consulted states: lambda * (v -
+    # v_anchor)^2. Driven by dual ascent on the live dv_consult
+    # against trust_delta (docs/design_constants.md: search's
+    # decision resolution, 2 C51 atoms = 0.08). 0 = off.
+    trust_lambda:         float = 0.0
+    trust_delta:          float = 0.08
     # Optimization #5 (2026-06-14): vectorize the MCTS factored
     # policy-loss accumulation -- group the per-(actor/type/target/
     # weapon) NLL terms per cached log-prob vector and reduce with one
@@ -348,6 +380,15 @@ class TrainStats:
     sig_value_consist_norm: float = float("nan")
     sig_dv_consult_mean: float = float("nan")
     sig_dv_consult_n: float = 0.0
+    # Arm VG2 principled-mixture telemetry: the paired-label
+    # estimates the learner used this iteration, the two new loss
+    # terms, and the trust-region multiplier after dual ascent.
+    consist_loss:      float = 0.0
+    trust_loss:        float = 0.0
+    consist_bias_hat:  float = float("nan")
+    consist_sigma2_hat: float = float("nan")
+    consist_pair_n:    float = 0.0
+    trust_lambda:      float = float("nan")
     # Per-turn-decade fresh-probe decomposition (2026-09-01):
     # {"d1_10": {"ce","floor","auc","n"}, ..., "d61p": ...}. The
     # pooled fresh_value_ce above stays the usual read; these
@@ -1111,6 +1152,22 @@ def _trainer_step_mcts(
     vws = torch.tensor(
         [float(getattr(e, "value_weight", 1.0)) for e in experiences],
         device=dev, dtype=torch.float32)
+    # Arm VG2 label provenance: "consist" states are scalar
+    # bootstraps -- they leave the categorical loss entirely and
+    # train through the Gaussian term below; states with a
+    # v_anchor enter the trust region.
+    consist_mask = torch.tensor(
+        [getattr(e, "label_kind", "game") == "consist"
+         for e in experiences], device=dev)
+    vws = torch.where(consist_mask, torch.zeros_like(vws), vws)
+    anchor_vals = [getattr(e, "v_anchor", None) for e in experiences]
+    anchor_mask = torch.tensor([a is not None for a in anchor_vals],
+                               device=dev)
+    anchor_t = torch.tensor([0.0 if a is None else float(a)
+                             for a in anchor_vals],
+                            device=dev, dtype=torch.float32)
+    n_anchor = max(int(anchor_mask.sum().item()), 1)
+    n_consist = max(int(consist_mask.sum().item()), 1)
     # Per-experience POLICY magnitude (see MCTSExperience.policy_weight):
     # multiplies the normalized per-state policy CE; deliberately not
     # in the denominator, so fractional weights shrink the update
@@ -1166,6 +1223,8 @@ def _trainer_step_mcts(
     sum_aux_loss    = 0.0
     sum_ml_loss     = 0.0
     sum_gbc_loss    = 0.0
+    sum_consist_loss = 0.0
+    sum_trust_loss  = 0.0
     sum_total_visits = 0.0
     # Full-batch value-weight normalizer + "how many states actually
     # feed the value head" (dashboard starvation watch).
@@ -1274,6 +1333,32 @@ def _trainer_step_mcts(
             policy_loss_t
             + self.config.value_coef * value_loss
         )
+        # Arm VG2 consistency term: Gaussian NLL of the head's MEAN
+        # prediction against the bias-corrected search estimate,
+        # (v - (z - b))^2 / (2 sigma2), b and sigma2 ESTIMATED from
+        # paired labels by the policy each iteration. Gradient is
+        # linear in the gap (no categorical blow-up), and the
+        # term's strength IS the measured precision -- no weight.
+        # Game-weight normalized like every other term.
+        cm = consist_mask[start:start + L]
+        if bool(cm.any()):
+            tgt = z_t - float(self.config.consist_bias)
+            sq = (val_t - tgt).pow(2) * gw_chunk * cm.float()
+            consist_loss = sq.sum() / (
+                2.0 * max(float(self.config.consist_sigma2), 1e-4)
+                * n_consist)
+            chunk_loss = chunk_loss + consist_loss
+            sum_consist_loss += float(consist_loss.item())
+        # Trust region on consulted states: lambda * (v - v_anchor)^2,
+        # lambda driven by dual ascent on the live dv_consult against
+        # trust_delta (docs/design_constants.md).
+        am = anchor_mask[start:start + L]
+        if self.config.trust_lambda > 0 and bool(am.any()):
+            tr = ((val_t - anchor_t[start:start + L]).pow(2)
+                  * am.float()).sum() / n_anchor
+            trust_loss = self.config.trust_lambda * tr
+            chunk_loss = chunk_loss + trust_loss
+            sum_trust_loss += float(trust_loss.item())
         # Auxiliary margin loss (KataGo §3.5): MSE of the predicted vs
         # final material margin, summed over the chunk and normalized by
         # N (matching the value-loss normalization), weighted by
@@ -1361,6 +1446,8 @@ def _trainer_step_mcts(
         n_transitions  = int(N),
         n_trajectories = int(N),  # one experience = one root state
         aux_loss       = float(sum_aux_loss),
+        consist_loss   = float(sum_consist_loss),
+        trust_loss     = float(sum_trust_loss),
         gbc_loss       = float(sum_gbc_loss),
         moves_left_loss = float(sum_ml_loss),
         value_signal_states = n_value_signal,

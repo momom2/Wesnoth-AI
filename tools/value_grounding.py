@@ -53,10 +53,13 @@ class GroundingConfig:
 
 
 def is_grounding_experience(e) -> bool:
-    """Grounding/consistency experiences are the only ones with no
-    policy target at all: empty visit_counts AND policy_weight 0.
-    Used to keep them OUT of the fresh probe and z-composition
-    telemetry — fresh_value_ce must stay comparable across legs."""
+    """Grounding/consistency experiences carry a non-"game"
+    label_kind (legacy fallback: no policy target at all). Used to
+    keep them OUT of the fresh probe and z-composition telemetry —
+    fresh_value_ce must stay comparable across legs."""
+    kind = getattr(e, "label_kind", None)
+    if kind is not None:
+        return kind != "game"
     return (not getattr(e, "visit_counts", None)
             and float(getattr(e, "policy_weight", 1.0)) == 0.0)
 
@@ -153,19 +156,11 @@ def build_grounding_experiences(
     consist = order[:cfg.max_consist_per_game]
     roll = order[:cfg.max_rollout_per_game]
 
-    for i in consist:
-        c = captures[i]
-        z = float(np.clip(_z_stm(c, c.projected), -1.0, 1.0))
-        exps.append(MCTSExperience(
-            game_state=c.sim.gs, visit_counts=[], z=z,
-            decision_step=c.decision_step,
-            value_weight=cfg.consist_value_weight,
-            policy_weight=0.0))
-        stats["consist_n"] += 1
-        stats["consist_abs_mean"] += abs(z)
-    if stats["consist_n"]:
-        stats["consist_abs_mean"] /= stats["consist_n"]
-
+    # Rollouts first: the rollout subset is a PREFIX of the consist
+    # subset, so every rolled state's consistency experience can
+    # carry the rollout outcome as z_pair (the paired data the
+    # learner's bias/variance estimates are built from).
+    roll_z: Dict[int, float] = {}
     for i in roll:
         c = captures[i]
         outs = []
@@ -191,10 +186,25 @@ def build_grounding_experiences(
             stats["ground_loss"] += 1
         else:
             stats["ground_draw"] += 1
+        z_roll = _z_stm(c, mean_o)
+        roll_z[i] = z_roll
         exps.append(MCTSExperience(
-            game_state=c.sim.gs, visit_counts=[],
-            z=_z_stm(c, mean_o),
+            game_state=c.sim.gs, visit_counts=[], z=z_roll,
             decision_step=c.decision_step,
             value_weight=cfg.ground_value_weight,
-            policy_weight=0.0))
+            policy_weight=0.0, label_kind="roll"))
+
+    for i in consist:
+        c = captures[i]
+        z = float(np.clip(_z_stm(c, c.projected), -1.0, 1.0))
+        exps.append(MCTSExperience(
+            game_state=c.sim.gs, visit_counts=[], z=z,
+            decision_step=c.decision_step,
+            value_weight=cfg.consist_value_weight,
+            policy_weight=0.0, label_kind="consist",
+            z_pair=roll_z.get(i)))
+        stats["consist_n"] += 1
+        stats["consist_abs_mean"] += abs(z)
+    if stats["consist_n"]:
+        stats["consist_abs_mean"] /= stats["consist_n"]
     return exps, stats

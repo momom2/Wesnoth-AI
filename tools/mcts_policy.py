@@ -1130,6 +1130,12 @@ class MCTSPolicy:
         # updates, so dv_consult measures what the applied step moved.
         from tools.signal_telemetry import consult_values
         _sig_pre = consult_values(self._base, batch)
+        # Arm VG2 principled mixture: (a) estimate the search
+        # estimate's bias/residual variance from this iteration's
+        # paired labels (EMA across iterations), hand them to the
+        # trainer; (b) anchor every consulted state at its pre-update
+        # prediction for the trust region; (c) hand over lambda.
+        self._vg2_prepare(batch, _sig_pre)
 
         # Add the fresh experiences to the bounded buffer, then take
         # several minibatch gradient steps sampled from it. This gives
@@ -1171,8 +1177,72 @@ class MCTSPolicy:
                                   self._replay_rng)
         for k, v in norms.items():
             setattr(stats, k, v)
-        for k, v in dv_stats(sig_pre, self._base).items():
+        dv = dv_stats(sig_pre, self._base)
+        for k, v in dv.items():
             setattr(stats, k, v)
+        self._vg2_finish(stats, dv.get("sig_dv_consult_mean"))
+
+    # -- arm VG2: principled label mixture + trust region ------------
+
+    # EMA memory for the paired-label estimates (n-weighted so a
+    # thin iteration cannot swing them); lambda's dual-ascent state.
+    _VG2_EMA = 0.8
+    _TRUST_LAMBDA_MIN = 1e-3
+    _TRUST_LAMBDA_MAX = 1e3
+
+    def _vg2_prepare(self, batch, sig_pre) -> None:
+        cfg = self._base._trainer.config
+        pairs = [(e.z, e.z_pair) for e in batch
+                 if getattr(e, "label_kind", "game") == "consist"
+                 and getattr(e, "z_pair", None) is not None]
+        n = len(pairs)
+        self._vg2_pair_n = float(n)
+        if n >= 4:
+            import statistics as st
+            diffs = [zs - zr for zs, zr in pairs]
+            bias = st.fmean(diffs)
+            # Residual variance of the bootstrap = spread of
+            # (search - rollout) minus the rollout's own outcome
+            # noise 1 - V^2, V proxied by the bias-corrected search
+            # estimate (the trainer's own target).
+            var_diff = st.pvariance(diffs) if n > 1 else 0.0
+            roll_noise = st.fmean(
+                max(0.0, 1.0 - (zs - bias) ** 2) for zs, _ in pairs)
+            sigma2 = max(var_diff - roll_noise, 1e-3)
+            a = self._VG2_EMA if hasattr(self, "_consist_bias") else 0.0
+            self._consist_bias = a * getattr(self, "_consist_bias", 0.0) \
+                + (1 - a) * bias
+            self._consist_sigma2 = a * getattr(self, "_consist_sigma2",
+                                               1.0) + (1 - a) * sigma2
+        cfg.consist_bias = float(getattr(self, "_consist_bias", 0.0))
+        cfg.consist_sigma2 = float(getattr(self, "_consist_sigma2", 1.0))
+        # Trust-region anchors: pre-update predictions on the
+        # consulted states (sig_pre holds them in batch order).
+        if sig_pre:
+            states, vals = sig_pre
+            by_id = {id(s): v for s, v in zip(states, vals)}
+            for e in batch:
+                v = by_id.get(id(e.game_state))
+                if v is not None:
+                    e.v_anchor = float(v)
+        cfg.trust_lambda = float(getattr(self, "_trust_lambda", 1.0))
+
+    def _vg2_finish(self, stats: TrainStats, dv_mean) -> None:
+        cfg = self._base._trainer.config
+        lam = float(getattr(self, "_trust_lambda", 1.0))
+        if dv_mean is not None and dv_mean == dv_mean:
+            # PPO adaptive-KL schedule on the measured movement.
+            if dv_mean > 1.5 * cfg.trust_delta:
+                lam *= 2.0
+            elif dv_mean < cfg.trust_delta / 1.5:
+                lam /= 2.0
+            lam = min(max(lam, self._TRUST_LAMBDA_MIN),
+                      self._TRUST_LAMBDA_MAX)
+        self._trust_lambda = lam
+        stats.trust_lambda = lam
+        stats.consist_bias_hat = cfg.consist_bias
+        stats.consist_sigma2_hat = cfg.consist_sigma2
+        stats.consist_pair_n = float(getattr(self, "_vg2_pair_n", 0.0))
 
     @staticmethod
     def _attach_fresh_metrics(stats: TrainStats, fresh: Dict) -> None:

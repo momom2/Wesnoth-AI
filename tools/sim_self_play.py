@@ -2150,7 +2150,10 @@ def run_iteration(
                 for k in ("sig_policy_norm", "sig_value_game_norm",
                           "sig_value_ground_norm",
                           "sig_value_consist_norm",
-                          "sig_dv_consult_mean", "sig_dv_consult_n")}
+                          "sig_dv_consult_mean", "sig_dv_consult_n",
+                          "consist_bias_hat", "consist_sigma2_hat",
+                          "consist_pair_n", "consist_loss",
+                          "trust_loss", "trust_lambda")}
         _fbd = (getattr(train_stats, "fresh_by_decade", None)
                 if train_stats else None) or {}
         _fresh_decades = {
@@ -2472,6 +2475,11 @@ class _TrainerHistoryCSV:
         "sig_policy_norm", "sig_value_game_norm",
         "sig_value_ground_norm", "sig_value_consist_norm",
         "sig_dv_consult_mean", "sig_dv_consult_n",
+        # Arm VG2 principled mixture: estimated bootstrap bias /
+        # residual variance, paired-label count, the two new loss
+        # terms, and the trust-region multiplier after dual ascent.
+        "consist_bias_hat", "consist_sigma2_hat", "consist_pair_n",
+        "consist_loss", "trust_loss", "trust_lambda",
         # Per-turn-decade fresh-probe decomposition (user ruling
         # 2026-09-01): fresh CE / state-blind floor / outcome AUC /
         # n per game-turn decade; the pooled fresh_value_ce column
