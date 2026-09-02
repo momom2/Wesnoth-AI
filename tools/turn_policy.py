@@ -74,7 +74,8 @@ class TurnCommitPolicy(MCTSPolicy):
         # that the grounding fingerprint is known (VG3 launch bug:
         # applied only in load_checkpoint, which the launcher never
         # calls on the wrapper -> lambda0 silently unused).
-        self.apply_training_meta(getattr(base, "last_loaded_meta", {}))
+        from tools.mcts_policy import loaded_training_meta
+        self.apply_training_meta(loaded_training_meta(base))
         # Telemetry: planning passes / warm re-plans / accepted
         # improvements, drained alongside the distill stats.
         self._tcs_plans = 0

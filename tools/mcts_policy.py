@@ -124,6 +124,18 @@ class _PendingMCTSState:
     policy_weight: float = 1.0
 
 
+def loaded_training_meta(base) -> Dict:
+    """Continuation metadata stashed by TransformerPolicy.load_
+    checkpoint -- LEARNER side only. Actor-pool workers wrap a
+    weightless seam proxy whose attribute lookups recurse (VG3
+    launch: every worker died in TurnCommitPolicy.__init__); they
+    never train, so they get nothing to apply."""
+    from wesnoth_ai.transformer_policy import TransformerPolicy
+    if not isinstance(base, TransformerPolicy):
+        return {}
+    return dict(getattr(base, "last_loaded_meta", {}) or {})
+
+
 class MCTSPolicy:
     """Wraps a `TransformerPolicy` to do MCTS+distillation."""
 
@@ -179,7 +191,7 @@ class MCTSPolicy:
         # stash must be applied here (subclasses that add to the
         # recipe fingerprint apply it at the end of their own init).
         if type(self) is MCTSPolicy:
-            self.apply_training_meta(getattr(base, "last_loaded_meta", {}))
+            self.apply_training_meta(loaded_training_meta(base))
         # Winnerless-state value weight, sealed HERE (single
         # authority, project round-1 C3) -- an explicit field
         # because finalize_game runs ACTOR-side on both production
