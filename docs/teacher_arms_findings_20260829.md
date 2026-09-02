@@ -319,3 +319,55 @@ telemetry-only; validated — the aux term's gradient is now 100%
 in its own head, zero trunk), and the per-decade fresh-probe
 telemetry (fresh_{ce,floor,auc,n}_{d1_10..d61p} CSV columns) so
 this structure is live in every future leg.
+
+## Arm VG (2026-09-01..02): value grounding — K-collapse in 4
+## iterations, mechanism captured live by the new signal telemetry
+
+User order: implement (2) rollout grounding + (3) consistency
+targets, launch, measure. Leg: docs/arm_vg_leg_20260901.md; killed
+by the K-median tripwire at iter 4 (median 8 < 10 x3) — the FOURTH
+arm and THIRD distinct value-channel design to collapse turn
+length within ~3-5 iterations (V1 memory ~5, V2 frozen-trunk ~3,
+VG ~4). Probe at ~59k steps: 6-0-18 vs seed (~-190), mid-collapse.
+
+The always-on signal telemetry (sig_* columns, shipped this leg)
+recorded the mechanism as it happened — per-source gradient norms
+and per-step value movement on consulted states:
+
+    it K_med dv_consult policy game_val ground consist  atk%
+     0  10     0.170     0.12    3.8     24.6    36.5   21.4
+     1   9     0.066     0.11    6.4     17.7    41.7   21.2
+     2   4     0.030     0.12    6.5      0.0    25.2   14.0
+     3   8     0.149     0.07    4.8     13.9    32.8   21.3
+
+1. THE CONSISTENCY TERM DOMINATED EVERYTHING: norms 25-42 vs the
+   entire game-outcome value signal at 3.8-6.5 and policy at 0.1.
+   The 0.25 value_weight guard was ineffective because LOSS WEIGHT
+   does not bound GRADIENT MAGNITUDE: the labels are the head's
+   own boundary optimism mirrored (-0.4 vs +0.4, the WYSIATI
+   bias), and C51 CE gradients explode when a confident head is
+   pushed toward a strongly disagreeing label. The rollout (truth)
+   term was similarly inflated (14-25) by the same effect.
+2. THE CURE AMPLIFIED THE DISEASE: dv_consult ran 0.03-0.17 per
+   step — up to 8 atoms, vs the round-5 baseline 0.06-0.08 and
+   the ~0.08 search decision threshold. Training the head on
+   boundary states rewrote the accept gate's substrate within 2
+   iterations; end_turn candidates started winning gates
+   (attack% 21->14, K 10->4) — the leg-3 passivity shape.
+3. fresh_value_ce on GAME states degraded 1.0 -> 1.7 alongside:
+   the boundary-state gradients dragged the whole head off its
+   own distribution.
+
+Lesson (sharpens the value-channel law): TCS turn length is
+exquisitely sensitive to value movement on boundary-adjacent
+states, and ANY added value channel whose per-state gradients are
+unbounded relative to the game signal collapses it in a handful
+of iterations. What needed bounding was per-state gradient
+amplitude, not loss weight — e.g. clipped/Huber consistency on
+E[V] instead of full C51 CE, anchor-style small-step targets, or
+per-term gradient normalization (GradNorm-shape). (2)-only at
+bounded amplitude + the (1) anchor remains untested.
+
+Cost: ~$5 (incl. ~8h idle after the 22:17 tripwire — no auto-
+teardown by design). Artifacts: eval_games/arm_vg/, escrow
+tier-b/arm_vg_20260901/ (final checkpoint, CSV, probes).
