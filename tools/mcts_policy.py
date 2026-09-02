@@ -1269,11 +1269,18 @@ class MCTSPolicy:
             return
         lam = float(getattr(self, "_trust_lambda", 1.0))
         if dv_mean is not None and dv_mean == dv_mean:
-            # PPO adaptive-KL schedule on the measured movement.
-            if dv_mean > 1.5 * cfg.trust_delta:
-                lam *= 2.0
-            elif dv_mean < cfg.trust_delta / 1.5:
-                lam /= 2.0
+            # Proportional multiplicative dual ascent: lambda scales
+            # by the violation ratio dv/delta (unit gain, the natural
+            # Lagrangian step), so a 5x overshoot is answered in one
+            # iteration rather than in log2(5) iterations of x2
+            # doubling (VG2 iter 0: dv 0.38 vs delta 0.08 with the
+            # x2 schedule -- too slow against a ~4-iteration collapse
+            # horizon). The per-iteration factor is bounded to
+            # [1/2, 4] for controller stability against a noisy dv
+            # reading (a step bound on the multiplier, not a bias on
+            # any label).
+            ratio = dv_mean / max(cfg.trust_delta, 1e-6)
+            lam *= min(max(ratio, 0.5), 4.0)
             lam = min(max(lam, self._TRUST_LAMBDA_MIN),
                       self._TRUST_LAMBDA_MAX)
         self._trust_lambda = lam

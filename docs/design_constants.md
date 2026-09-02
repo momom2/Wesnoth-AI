@@ -286,9 +286,13 @@ comparisons the search just made (signal-profiler round 5:
 3-4 atoms/step at seed; arm VG: up to 8, then K-collapse). Larger
 delta = search's substrate can be rewritten between iterations;
 smaller = the head can barely learn on consulted states at all.
-The multiplier lambda is NOT a constant: dual ascent doubles it
-when measured dv_consult exceeds 1.5 delta and halves it below
-delta/1.5 (PPO adaptive-KL schedule).
+The multiplier lambda is NOT a constant: proportional
+multiplicative dual ascent, lambda <- lambda * (dv_consult /
+delta), per-iteration factor bounded to [1/2, 4] for controller
+stability. (The initial PPO-style x2/÷2 schedule was replaced
+2026-09-02 after VG2 iteration 0 read dv 0.38 = 4.7 delta: a
+doubling schedule needs ~3 iterations to answer that, against a
+measured ~4-iteration collapse horizon.)
 
 ## TCS linear-link advantage gain: `target_beta = 5.0` (2026-08-17)
 

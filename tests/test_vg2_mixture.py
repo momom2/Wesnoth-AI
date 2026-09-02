@@ -82,11 +82,13 @@ def test_trust_region_zero_at_anchor_and_lambda_dual_ascent():
     mp = MCTSPolicy(policy, MCTSConfig(n_simulations=1))
     mp._trust_lambda = 1.0
     st = TrainStats()
-    mp._vg2_finish(st, dv_mean=0.5)          # >> delta -> doubles
-    assert mp._trust_lambda == 2.0
-    mp._vg2_finish(st, dv_mean=0.01)         # << delta -> halves
-    assert mp._trust_lambda == 1.0
-    assert st.trust_lambda == 1.0
+    mp._vg2_finish(st, dv_mean=0.16)         # 2x delta -> x2
+    assert abs(mp._trust_lambda - 2.0) < 1e-9
+    mp._vg2_finish(st, dv_mean=0.8)          # 10x delta -> capped x4
+    assert abs(mp._trust_lambda - 8.0) < 1e-9
+    mp._vg2_finish(st, dv_mean=0.01)         # 1/8 delta -> floored /2
+    assert abs(mp._trust_lambda - 4.0) < 1e-9
+    assert st.trust_lambda == mp._trust_lambda
 
 
 def test_paired_estimates_reach_trainer_config():
