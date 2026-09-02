@@ -1224,6 +1224,10 @@ class MCTSPolicy:
         pairs = [(e.z, e.z_pair) for e in batch
                  if getattr(e, "label_kind", "game") == "consist"
                  and getattr(e, "z_pair", None) is not None]
+        pair_vars = [e.z_pair_var for e in batch
+                     if getattr(e, "label_kind", "game") == "consist"
+                     and getattr(e, "z_pair", None) is not None
+                     and getattr(e, "z_pair_var", None) is not None]
         n = len(pairs)
         self._vg2_pair_n = float(n)
         self._vg2_residuals = {}
@@ -1236,8 +1240,15 @@ class MCTSPolicy:
             # noise 1 - V^2, V proxied by the bias-corrected search
             # estimate (the trainer's own target).
             var_diff = st.pvariance(diffs) if n > 1 else 0.0
-            roll_noise = st.fmean(
-                max(0.0, 1.0 - (zs - bias) ** 2) for zs, _ in pairs)
+            # Rollout-label noise: MEASURED from repeated playouts
+            # when every pair carries z_pair_var (2 rollouts/state,
+            # 2026-09-03); the 1 - V^2 proxy only as the legacy
+            # fallback (it overshot in VG3 and floored sigma2).
+            if len(pair_vars) == n:
+                roll_noise = st.fmean(pair_vars)
+            else:
+                roll_noise = st.fmean(
+                    max(0.0, 1.0 - (zs - bias) ** 2) for zs, _ in pairs)
             # sigma2 is a small difference of two ~1 quantities; its
             # point estimate's standard error, var_diff*sqrt(2/(n-1)),
             # is LARGER than the estimate itself at n~100 (VG3: the

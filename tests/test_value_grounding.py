@@ -58,6 +58,12 @@ def test_grounding_experiences_weights_perspective_and_budgets():
     assert ground[0].z == -1.0
     assert all(abs(e.z + 0.5) < 1e-9 for e in consist)
     assert stats["ground_win"] == 1 and stats["ground_censored"] == 0
+    # Two identical rollouts (deterministic stub) -> the paired
+    # consist state carries z_pair with measured variance 0.
+    paired = [e for e in consist if e.z_pair is not None]
+    assert len(paired) == 1 and paired[0].z_pair == -1.0
+    assert paired[0].z_pair_var == 0.0
+    assert stats["ground_rollouts"] == 2
 
 
 def test_grounding_censored_rollout_produces_no_experience():
@@ -88,4 +94,4 @@ def test_grounding_censored_rollout_produces_no_experience():
     finally:
         vg.rollout_outcome = orig
     assert exps == []
-    assert stats["ground_censored"] == 1
+    assert stats["ground_censored"] == 2      # both rollouts censored

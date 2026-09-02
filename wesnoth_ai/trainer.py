@@ -194,6 +194,11 @@ class MCTSExperience:
     # outcome. Paired data -> the learner estimates the bootstrap's
     # bias and residual variance every iteration (no tuned weights).
     z_pair: Optional[float] = None
+    # Variance of z_pair as the mean of k rollouts (sample variance
+    # / k), MEASURED from repeated playouts; None with one rollout.
+    # Lets the learner subtract the rollout label's noise from the
+    # search-vs-rollout spread without the 1 - V^2 proxy.
+    z_pair_var: Optional[float] = None
     # Trust region (arm VG2): the head's mean prediction on this
     # consulted state under the weights at the START of the
     # iteration; the proximal term bounds movement away from it.

@@ -44,7 +44,13 @@ class GroundingConfig:
     max_rollout_per_game: int = 4
     rollout_max_halfturns: int = 120
     rollout_max_actions: int = 30
-    rollouts_per_state: int = 1
+    # 2 rollouts per grounded state (2026-09-03): the pair's spread
+    # MEASURES the rollout label's noise per state, replacing the
+    # 1 - V^2 proxy whose misspecification drove the consistency
+    # precision to the floor in arm VG3 (var(search-roll) fell below
+    # the proxy; sigma2 clamped at 1e-3). Cost: one extra playout
+    # on ~4 states per game.
+    rollouts_per_state: int = 2
     # Consistency label = the gate's own stage-2 grade of the
     # captured pre-flip state: end the turn, project H half-turns
     # (mirrors TurnSearchConfig.project_halfturns / max_actions).
@@ -216,7 +222,12 @@ def build_grounding_experiences(
         else:
             stats["ground_draw"] += 1
         z_roll = _z_stm(c, mean_o)
-        roll_z[i] = z_roll
+        # Variance of the MEAN of the k outcomes (sample variance /
+        # k); None with a single rollout (the learner then falls
+        # back to the 1 - V^2 proxy).
+        k = len(outs)
+        var_mean = (float(np.var(outs, ddof=1)) / k) if k > 1 else None
+        roll_z[i] = (z_roll, var_mean)
         exps.append(MCTSExperience(
             game_state=c.sim.gs, visit_counts=[], z=z_roll,
             decision_step=c.decision_step,
@@ -233,12 +244,14 @@ def build_grounding_experiences(
                 log.warning(f"grounding projection failed: {e!r}")
                 continue
         z = float(np.clip(_z_stm(c, c.projected), -1.0, 1.0))
+        pair = roll_z.get(i)
         exps.append(MCTSExperience(
             game_state=c.sim.gs, visit_counts=[], z=z,
             decision_step=c.decision_step,
             value_weight=cfg.consist_value_weight,
             policy_weight=0.0, label_kind="consist",
-            z_pair=roll_z.get(i)))
+            z_pair=(pair[0] if pair else None),
+            z_pair_var=(pair[1] if pair else None)))
         stats["consist_n"] += 1
         stats["consist_abs_mean"] += abs(z)
     if stats["consist_n"]:
