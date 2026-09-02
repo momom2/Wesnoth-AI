@@ -33,7 +33,8 @@ def main(argv) -> int:
            "short  et_tgt frCE   floor  auc21  W  L  D  atk%  et%")
     print(hdr)
     for r in rows:
-        print(f"{_f(r,'decision_step',9)} {_f(r,'actions_per_turn_median',3)} "
+        step = str(int(float(r.get("decision_step") or 0))).ljust(9)
+        print(f"{step} {_f(r,'actions_per_turn_median',3)} "
               f"{_f(r,'sig_dv_consult_mean')} {_f(r,'trust_lambda')} "
               f"{_f(r,'consist_head_minus_truth',7)} {_f(r,'consist_bias_hat')} "
               f"{_f(r,'consist_sigma2_hat')} {_f(r,'tcs_accepts_per_plan')} "
