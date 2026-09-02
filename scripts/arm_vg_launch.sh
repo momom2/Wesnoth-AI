@@ -123,6 +123,7 @@ if [ "$stage" = "smoke" ] || [ "$stage" = "all" ]; then
         --ladder-ratio 1.0 --midgame-ratio 0 --mini-ratio 0 \
         --fogless-ratio 0 \
         --game-log-dir "" --validate-export-every 0 \
+        --trainer-history-csv "$WORKDIR/smoke_history.csv" \
         --turn-boundary-frame mover --turn-project reval \
         --value-ground \
         --checkpoint-in "$SEED_CKPT" \
@@ -146,6 +147,14 @@ esac
 
 echo "[armVG] launching daemons + training..."
 mkdir -p "$WORKDIR/pins" "$WORKDIR/probes" "$WORKDIR/profiles"
+# The leg's CSV must start clean: the slow-tier e2e tests and any
+# earlier smoke write 1-game rows into the same repo path
+# (2026-09-02: three such rows masqueraded as "iteration 0").
+_CSV=training/logs/trainer_history_local.csv
+if [ -s "$_CSV" ] && [ ! -f "$CAMPAIGN" ]; then
+    mv "$_CSV" "training/logs/trainer_history_pre_leg_$(date -u +%H%M%S).csv"
+    echo "[armVG] rotated pre-leg CSV rows aside"
+fi
 
 # Escrow: rolling checkpoint + CSV every 30 min; probes/profiles/
 # logs on a second loop.

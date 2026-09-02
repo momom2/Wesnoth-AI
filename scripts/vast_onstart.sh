@@ -838,6 +838,7 @@ if [ "${FORK_GUARD_SMOKE:-1}" = "1" ]; then
         --ladder-ratio 1.0 --midgame-ratio 0 --mini-ratio 0 \
         --fogless-ratio 0 \
         --game-log-dir "" --validate-export-every 0 \
+        --trainer-history-csv "$WORKDIR/smoke_history.csv" \
         $PT_FLAG \
         ${PT_CHALLENGERS:+--pt-challengers $PT_CHALLENGERS} \
         ${PT_DEPTHS:+--pt-depths $PT_DEPTHS} \
