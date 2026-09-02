@@ -325,6 +325,13 @@ tightens toward the point estimate. A calibrated seed written
 before this change (seed_imit_tierb_start_vg3cal.pt) carries the
 POINT sigma2 and must be recalibrated before use.
 
+The rollout-noise term itself is MEASURED since 2026-09-03: two
+playouts per grounded state (GroundingConfig.rollouts_per_state =
+2) give the variance of the paired label directly (z_pair_var =
+sample variance / k); the 1 - V^2 proxy, which overshot in VG3
+(the observed pair spread 0.90 fell below the proxy's 0.95 and
+floored sigma2), remains only as the single-rollout fallback.
+
 ## TCS linear-link advantage gain: `target_beta = 5.0` (2026-08-17)
 
 `tools/turn_search.py::tcs_target_distribution(link="linear")` builds
