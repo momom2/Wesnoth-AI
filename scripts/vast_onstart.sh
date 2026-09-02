@@ -859,6 +859,11 @@ fi
 # (rc >= 3) still stop everything and leave an ABORTED_* marker.
 # After the first save, $RESET is dropped automatically: the
 # campaign file exists, so a relaunch resumes it.
+# Terminal-failure handler (user ruling 2026-09-02): after a
+# tripwire abort or relaunch-cap exhaustion, escrow a final sweep
+# and STOP the instance (GPU billing off, disk kept). Disable with
+# -e STOP_ON_ABORT=0. Needs $WORKDIR/.vast_api_key + .instance_id.
+_STOP_CMD="[ '${STOP_ON_ABORT:-1}' = 1 ] && WORKDIR='$WORKDIR' REPO_ROOT='$PWD' CAMPAIGN_FILE='$CAMPAIGN_FILE' HF_PREFIX='${HF_PREFIX:-tier-b/}' '$PY' scripts/box_stop_on_abort.py >> '$WORKDIR/train.log' 2>&1"
 _TRAIN_BODY="
   RESET='$RESET'
   tries=0
@@ -934,12 +939,18 @@ _TRAIN_BODY="
     # 6=systemic index-basis mismatch between workers and learner)
     # need a human: marker blocks auto-relaunch until removed.
     if [ \$rc -ge 3 ] && [ \$rc -le 9 ]; then
-      touch '$WORKDIR/ABORTED_'\$rc; break
+      touch '$WORKDIR/ABORTED_'\$rc
+      $_STOP_CMD
+      break
     fi
     tries=\$((tries + 1))
     echo \"[onstart] relaunch \$tries/20 in 60s\" >> '$WORKDIR/train.log'
     sleep 60
   done
+  if [ \$tries -ge 20 ]; then
+    touch '$WORKDIR/ABORTED_relaunch_cap'
+    $_STOP_CMD
+  fi
 "
 if [ "$CONFIG_MODE" = file ]; then
     if ! "$PY" scripts/leg_daemons.py ensure trainer -- \

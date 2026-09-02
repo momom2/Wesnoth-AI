@@ -18,6 +18,16 @@ export PYTORCH_ALLOC_CONF=expandable_segments:True
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 ulimit -n 65536 2>/dev/null || true
 
+# Terminal-failure handler (user ruling 2026-09-02): final escrow,
+# then STOP the box so a tripwire saves credit as well as the model.
+# Needs $WORKDIR/.vast_api_key + .instance_id (written at provision).
+fatal_stop() {
+    echo "[armVG] terminal failure ($1) -- escrow + stop box"
+    WORKDIR="$WORKDIR" REPO_ROOT=/workspace/wai \
+        CAMPAIGN_FILE=tier_b_vg.pt HF_PREFIX="tier-b/arm_vg_20260901/" \
+        "$PY" scripts/box_stop_on_abort.py >> "$WORKDIR/train.log" 2>&1
+}
+
 stage="${1:-all}"
 
 if [ "$stage" = "tests" ] || [ "$stage" = "all" ]; then
@@ -28,6 +38,7 @@ if [ "$stage" = "tests" ] || [ "$stage" = "all" ]; then
     if [ $rc -ne 0 ]; then
         echo "[armVG] FATAL: test suite failed (rc=$rc)"
         touch "$WORKDIR/ABORTED_tests"
+        fatal_stop tests
         exit 1
     fi
 fi
@@ -40,7 +51,8 @@ if [ "$stage" = "anchor" ] || [ "$stage" = "all" ]; then
             --out replays_dataset_imitation/policy_anchor.npz \
             --games 500 --seed 20260901 --log-level INFO \
             > "$WORKDIR/anchor_build.log" 2>&1 || {
-            echo "[armVG] FATAL: anchor build failed"; exit 1; }
+            echo "[armVG] FATAL: anchor build failed"
+            touch "$WORKDIR/ABORTED_anchor"; fatal_stop anchor; exit 1; }
     fi
 fi
 
@@ -63,6 +75,7 @@ if [ "$stage" = "smoke" ] || [ "$stage" = "all" ]; then
     if [ $rc -ne 0 ]; then
         echo "[armVG] FATAL: smoke rc=$rc (see smoke.log)"
         touch "$WORKDIR/ABORTED_smoke"
+        fatal_stop smoke
         exit 1
     fi
     rm -f "$WORKDIR"/fork_guard_smoke.pt*
@@ -167,8 +180,13 @@ while [ $tries -lt 10 ]; do
     fi
     if [ $rc -ge 3 ] && [ $rc -le 9 ]; then
         touch "$WORKDIR/ABORTED_$rc"
+        fatal_stop "tripwire rc=$rc"
         break
     fi
     tries=$((tries + 1))
     sleep 60
 done
+if [ $tries -ge 10 ]; then
+    touch "$WORKDIR/ABORTED_relaunch_cap"
+    fatal_stop "relaunch cap"
+fi
