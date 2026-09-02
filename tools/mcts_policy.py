@@ -1191,7 +1191,11 @@ class MCTSPolicy:
     _TRUST_LAMBDA_MAX = 1e3
 
     def _vg2_prepare(self, batch, sig_pre) -> None:
-        cfg = self._base._trainer.config
+        # getattr-guarded like the fresh probe: trainer test stubs
+        # (and custom trainers) without a config skip VG2 entirely.
+        cfg = getattr(self._base._trainer, "config", None)
+        if cfg is None:
+            return
         pairs = [(e.z, e.z_pair) for e in batch
                  if getattr(e, "label_kind", "game") == "consist"
                  and getattr(e, "z_pair", None) is not None]
@@ -1228,7 +1232,9 @@ class MCTSPolicy:
         cfg.trust_lambda = float(getattr(self, "_trust_lambda", 1.0))
 
     def _vg2_finish(self, stats: TrainStats, dv_mean) -> None:
-        cfg = self._base._trainer.config
+        cfg = getattr(self._base._trainer, "config", None)
+        if cfg is None:
+            return
         lam = float(getattr(self, "_trust_lambda", 1.0))
         if dv_mean is not None and dv_mean == dv_mean:
             # PPO adaptive-KL schedule on the measured movement.
