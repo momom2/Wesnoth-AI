@@ -657,7 +657,13 @@ class TransformerPolicy:
     # Checkpoints
     # ------------------------------------------------------------------
 
-    def save_checkpoint(self, path: Path) -> None:
+    def save_checkpoint(self, path: Path, extra_meta=None) -> None:
+        """`extra_meta` (dict) is stored under "training_meta": the
+        continuation state that is not weights or optimizer moments
+        -- e.g. the value trust-region controller's lambda and the
+        paired-label estimates (user ruling 2026-09-02: every
+        checkpoint carries what a resumed/forked arm needs to start
+        where this one's training was, not at a guess)."""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         # Atomic write: save to a temp file, keep one rolling backup of the
@@ -685,6 +691,7 @@ class TransformerPolicy:
                 "faction_to_id":   dict(self._encoder.faction_to_id),
                 "optimizer_state": self._trainer.optimizer.state_dict(),
                 "decision_step":   self._decision_step,
+                "training_meta":   dict(extra_meta or {}),
             },
             tmp,
         )
@@ -734,6 +741,9 @@ class TransformerPolicy:
         # a torch-directml crash. Re-evaluate when torch-directml
         # ships a fix.
         ckpt = torch.load(path, map_location="cpu", weights_only=False)
+        # Continuation metadata (see save_checkpoint): stashed for
+        # the policy layer, which decides whether it applies.
+        self.last_loaded_meta = dict(ckpt.get("training_meta") or {})
         saved_arch = ckpt.get("arch", {})
         for k, v in self._arch.items():
             if saved_arch.get(k) != v:

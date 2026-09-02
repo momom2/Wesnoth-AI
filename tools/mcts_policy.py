@@ -1284,6 +1284,9 @@ class MCTSPolicy:
             lam = min(max(lam, self._TRUST_LAMBDA_MIN),
                       self._TRUST_LAMBDA_MAX)
         self._trust_lambda = lam
+        if dv_mean is not None and dv_mean == dv_mean:
+            hist = getattr(self, "_dv_history", [])
+            self._dv_history = (hist + [float(dv_mean)])[-8:]
         stats.trust_lambda = lam
         stats.consist_bias_hat = cfg.consist_bias
         stats.consist_sigma2_hat = cfg.consist_sigma2
@@ -1470,8 +1473,60 @@ class MCTSPolicy:
     # Checkpoint forwarding
     # ------------------------------------------------------------------
 
+    # Continuation metadata (user ruling 2026-09-02): the VG2
+    # controller state rides every checkpoint and is restored on
+    # load when it was produced under the same trust_delta and
+    # grounding config -- otherwise it is REFUSED loudly, never
+    # applied silently to a different recipe.
+    VG2_META_SCHEMA = 1
+
+    def _grounding_fingerprint(self) -> Dict:
+        return {}      # TurnCommitPolicy adds its grounding config
+
+    def training_meta(self) -> Dict:
+        cfg = getattr(self._base._trainer, "config", None)
+        if cfg is None:
+            return {}
+        return {"vg2": {
+            "schema": self.VG2_META_SCHEMA,
+            "trust_lambda": float(getattr(self, "_trust_lambda", 1.0)),
+            "trust_delta": float(cfg.trust_delta),
+            "consist_bias": float(getattr(self, "_consist_bias", 0.0)),
+            "consist_sigma2": float(getattr(self, "_consist_sigma2", 1.0)),
+            "dv_history": list(getattr(self, "_dv_history", [])),
+            "grounding": self._grounding_fingerprint(),
+        }}
+
+    def apply_training_meta(self, meta: Dict) -> bool:
+        """Restore controller state from a checkpoint's metadata.
+        Returns True when applied; False (with a WARNING) when the
+        recipe does not match or nothing is present."""
+        vg2 = (meta or {}).get("vg2")
+        cfg = getattr(self._base._trainer, "config", None)
+        if not vg2 or cfg is None:
+            return False
+        mine = self._grounding_fingerprint()
+        if (abs(float(vg2.get("trust_delta", cfg.trust_delta))
+                - cfg.trust_delta) > 1e-9
+                or (vg2.get("grounding") or {}) != mine):
+            log.warning("checkpoint training_meta present but its "
+                        "recipe differs (delta/grounding); NOT applied")
+            return False
+        self._trust_lambda = float(vg2["trust_lambda"])
+        self._consist_bias = float(vg2["consist_bias"])
+        self._consist_sigma2 = float(vg2["consist_sigma2"])
+        self._dv_history = list(vg2.get("dv_history", []))
+        cfg.consist_bias = self._consist_bias
+        cfg.consist_sigma2 = self._consist_sigma2
+        cfg.trust_lambda = self._trust_lambda
+        log.info(f"training_meta applied: lambda={self._trust_lambda:.3f} "
+                 f"bias={self._consist_bias:+.3f} "
+                 f"sigma2={self._consist_sigma2:.3f}")
+        return True
+
     def save_checkpoint(self, path) -> None:
-        return self._base.save_checkpoint(path)
+        return self._base.save_checkpoint(path, extra_meta=self.training_meta())
 
     def load_checkpoint(self, path, *, strict: bool = False) -> None:
-        return self._base.load_checkpoint(path, strict=strict)
+        self._base.load_checkpoint(path, strict=strict)
+        self.apply_training_meta(getattr(self._base, "last_loaded_meta", {}))

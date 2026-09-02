@@ -289,7 +289,17 @@ smaller = the head can barely learn on consulted states at all.
 The multiplier lambda is NOT a constant: proportional
 multiplicative dual ascent, lambda <- lambda * (dv_consult /
 delta), per-iteration factor bounded to [1/2, 4] for controller
-stability. (The initial PPO-style x2/÷2 schedule was replaced
+stability. Its INITIAL value is measured, not guessed (VG2
+postmortem: iteration 0 at lambda=1 was unprotected and the
+collapse horizon is one iteration): the calibration harvest runs
+one production iteration at lambda=1 on a scratch copy and sets
+lambda0 = p90(dv)/delta -- the upper spread of the measured
+movement (a risk posture: too much lambda costs a couple of slow
+iterations, too little costs the leg), relaxed by the controller's
+own halving as iterations confirm dv < delta. lambda0 rides the
+calibrated checkpoint's training_meta with the recipe fingerprint
+(frame, projection depth, rollouts per label) and is refused on
+mismatch. (The initial PPO-style x2/÷2 schedule was replaced
 2026-09-02 after VG2 iteration 0 read dv 0.38 = 4.7 delta: a
 doubling schedule needs ~3 iterations to answer that, against a
 measured ~4-iteration collapse horizon.)

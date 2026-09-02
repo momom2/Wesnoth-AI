@@ -208,7 +208,9 @@ class TurnCommitPolicy(MCTSPolicy):
         cap = max(self._ground_cfg.max_consist_per_game,
                   self._ground_cfg.max_rollout_per_game)
 
-        def _cb(boundary_sim, projected: float) -> None:
+        def _cb(boundary_sim) -> None:
+            # Stage-1 mover-frame pre-flip state (the gate's own
+            # input). Labels are derived at finalize_game.
             if boundary_sim is None or boundary_sim.done:
                 return
             with self._lock:
@@ -220,9 +222,19 @@ class TurnCommitPolicy(MCTSPolicy):
             with self._lock:
                 lst.append(GroundCapture(
                     sim=boundary_sim, side=side,
-                    decision_step=decision_step,
-                    projected=float(projected)))
+                    decision_step=decision_step))
         return _cb
+
+    def _grounding_fingerprint(self) -> Dict:
+        # What changes the LABELS' meaning (frame, projection depth,
+        # rollouts per label) -- not sampling volume (capture_prob,
+        # per-game caps): a calibration harvest captures densely on
+        # purpose and must still hand its metadata to the leg.
+        g = self._ground_cfg
+        return {"frame": "mover_preflip",
+                "rollouts_per_state": int(g.rollouts_per_state),
+                "project_halfturns": int(g.project_halfturns),
+                "project_max_actions": int(g.project_max_actions)}
 
     def finalize_game(self, game_label: str, winner: int,
                       final_gs=None, midgame: bool = False) -> None:

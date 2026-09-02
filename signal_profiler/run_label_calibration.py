@@ -43,6 +43,12 @@ def main(argv) -> int:
     ap.add_argument("--max-turns", type=int, default=60)
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--calibrated-checkpoint", type=Path, default=None,
+                    help="Write a copy of --checkpoint carrying "
+                         "training_meta (lambda0 from the measured "
+                         "movement's upper spread, b/sigma2 from the "
+                         "paired labels) -- the prior every arm "
+                         "starting from this checkpoint loads.")
     ap.add_argument("--log-level", default="INFO")
     args = ap.parse_args(argv[1:])
     logging.basicConfig(level=getattr(logging, args.log_level))
@@ -114,6 +120,53 @@ def main(argv) -> int:
                       "turns": getattr(o, "turns", None)}
                      for o in outcomes],
     }
+    # --- lambda0: the controller's own step, applied OFFLINE -------
+    # One production iteration (the real replay-update loop) at
+    # lambda=1 on a scratch copy, movement measured on the captured
+    # consulted states; lambda0 = p90(dv)/delta -- the upper spread,
+    # a risk posture (too much lambda = slower learning for a couple
+    # of iterations; too little = collapse), then relaxed by the
+    # live controller as iterations confirm dv < delta.
+    from tools.signal_telemetry import consult_values
+    scratch = factory()
+    sb = scratch._base
+    sb._trainer.config.grad_clip = 1.0          # production, not profiler
+    pre = consult_values(sb, batch, cap=10_000)
+    scratch._vg2_prepare(batch, pre)            # anchors + b/sigma2
+    sb._trainer.config.trust_lambda = 1.0
+    with scratch._lock:
+        scratch._queue = list(batch)
+    scratch.train_step()
+    states, v0 = pre
+    with torch.no_grad():
+        v1 = [float(sb._model(sb._encoder.encode(s)).value.squeeze().item())
+              for s in states]
+    dvs = sorted(abs(a - b) for a, b in zip(v0, v1))
+    delta = float(sb._trainer.config.trust_delta)
+    dv_mean = st.fmean(dvs)
+    dv_p90 = q(dvs, 0.9)
+    lambda0 = dv_p90 / delta
+    result.update({
+        "trust_delta": delta, "dv_mean_at_lambda1": dv_mean,
+        "dv_p90_at_lambda1": dv_p90, "lambda0": lambda0,
+        "policy_bias_hat": float(sb._trainer.config.consist_bias),
+        "policy_sigma2_hat": float(sb._trainer.config.consist_sigma2),
+        "n_consult": len(states),
+    })
+    print(f"lambda0: dv at lambda=1 mean {dv_mean:.4f} p90 {dv_p90:.4f} "
+          f"on {len(states)} consulted states; delta {delta} -> "
+          f"lambda0 = {lambda0:.2f}")
+    if args.calibrated_checkpoint is not None:
+        fresh = factory()                       # untouched seed weights
+        fresh._trust_lambda = lambda0
+        fresh._consist_bias = float(sb._trainer.config.consist_bias)
+        fresh._consist_sigma2 = float(sb._trainer.config.consist_sigma2)
+        fresh._dv_history = [dv_mean]
+        fresh._base._trainer.config.grad_clip = 1.0
+        fresh.save_checkpoint(args.calibrated_checkpoint)
+        print(f"wrote calibrated checkpoint {args.calibrated_checkpoint} "
+              f"with training_meta {fresh.training_meta()['vg2']}")
+
     args.out.write_text(json.dumps(result), encoding="utf-8")
     print(f"bias_hat={bias:+.3f}  var(search-roll)={var_diff:.3f}  "
           f"rollout noise={roll_noise:.3f}  sigma2_hat={sigma2:.3f}")

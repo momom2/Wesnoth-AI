@@ -696,10 +696,14 @@ def plan_turn(policy, sim, side: int, decision_step: int,
     Never mutates `sim`; all work on forks. `salt_ns` namespaces the
     search salts (never applied to a live sim). `incumbent` warm-
     starts the climb (execution-time re-plan after a realized
-    stochastic outcome diverged). `capture(boundary_sim, projected)`,
-    when given, is offered each stage-2 projection pair's boundary
-    sim + its depth-H value (value-grounding capture; the sims are
-    not used again after the gate, so the callback may keep them)."""
+    stochastic outcome diverged). `capture(boundary_sim)`, when
+    given, is offered every STAGE-1 candidate's evaluation sim right
+    before the batched grading -- the mover-frame pre-flip state the
+    gate actually compares (arm VG2 postmortem: grounding on the
+    post-flip projection pairs trained one flip away from where the
+    search reads; the head moved 0.71 there vs 0.31 where anchored).
+    Under project="all" stage 1 grades by rollout instead and
+    nothing is offered."""
     steps, _ = record_spine(policy, sim, side, decision_step, rng,
                             max_spine=cfg.max_spine, actions=incumbent)
     plan = TurnPlan(side=side, decision_step=decision_step,
@@ -779,6 +783,10 @@ def plan_turn(policy, sim, side: int, decision_step: int,
             inc_val = _projected(inc)
             cands = [(j, a, m, _projected(m)) for j, a, m in raw]
         else:
+            if capture is not None:
+                for m in [inc] + [m for _, _, m in raw]:
+                    if m.boundary_sim is not None:
+                        capture(m.boundary_sim)
             batch_boundary_values(policy, [inc] + [m for _, _, m in raw],
                                   side, decision_step)
             inc_val = inc.value
@@ -820,12 +828,7 @@ def plan_turn(policy, sim, side: int, decision_step: int,
             reval_l = []
             if use_proj:
                 for inc2, var2 in pairs:
-                    pv_i = _projected(inc2)
-                    pv_v = _projected(var2)
-                    if capture is not None:
-                        capture(inc2.boundary_sim, pv_i)
-                        capture(var2.boundary_sim, pv_v)
-                    reval_l.append(pv_v - pv_i)
+                    reval_l.append(_projected(var2) - _projected(inc2))
             elif pairs:
                 flat = [m for pr in pairs for m in pr]
                 batch_boundary_values(policy, flat, side,

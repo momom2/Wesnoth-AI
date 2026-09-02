@@ -45,6 +45,11 @@ class GroundingConfig:
     rollout_max_halfturns: int = 120
     rollout_max_actions: int = 30
     rollouts_per_state: int = 1
+    # Consistency label = the gate's own stage-2 grade of the
+    # captured pre-flip state: end the turn, project H half-turns
+    # (mirrors TurnSearchConfig.project_halfturns / max_actions).
+    project_halfturns: int = 1
+    project_max_actions: int = 40
     # value_weight of the produced experiences. Rollout labels are
     # honest outcomes -> full weight; projected labels are
     # self-referential -> down-weighted (leg-3 ratchet guard).
@@ -80,26 +85,50 @@ def config_from_args(args, turn_cfg) -> Optional[GroundingConfig]:
         max_consist_per_game=args.value_ground_consist,
         max_rollout_per_game=args.value_ground_rollouts,
         ground_value_weight=args.value_ground_weight,
-        consist_value_weight=args.value_consist_weight)
+        consist_value_weight=args.value_consist_weight,
+        project_halfturns=int(turn_cfg.project_halfturns),
+        project_max_actions=int(turn_cfg.project_max_actions))
 
 
 @dataclass
 class GroundCapture:
-    sim: object            # post-boundary WesnothSim (referenced, not forked)
+    sim: object            # stage-1 pre-flip WesnothSim (mover frame; referenced)
     side: int              # the planning side (values are side-persp)
     decision_step: int
-    projected: float       # depth-H projected value, side perspective
+    projected: Optional[float] = None   # filled at finalize (depth-H grade)
+
+
+def _handed_over(sim, side: int):
+    """Fork and hand the turn over if `side` is still to move (the
+    captured state is the mover's pre-flip boundary; every label is
+    'end the turn here, then ...')."""
+    r = sim.fork()
+    if not r.done and r.gs.global_info.current_side == side:
+        r.step({"type": "end_turn"})
+    return r
+
+
+def projected_value(policy, sim, side: int, decision_step: int,
+                    cfg: GroundingConfig,
+                    rng: np.random.Generator) -> float:
+    """The gate's stage-2 grade of the captured state: hand over,
+    then the production depth-H projection, side perspective."""
+    from tools.turn_search import project_value
+    r = _handed_over(sim, side)
+    return project_value(policy, r, side, decision_step,
+                         cfg.project_halfturns, cfg.project_max_actions,
+                         rng)
 
 
 def rollout_outcome(policy, sim, side: int, decision_step: int,
                     cfg: GroundingConfig,
                     rng: np.random.Generator) -> Optional[float]:
-    """Terminal outcome from `side`'s perspective after closed-loop
-    raw-policy play from `sim` (forked). None when the cap cut the
-    game (censored, per the 2026-08-17 truncation ruling — a capped
-    rollout is not a draw)."""
+    """Terminal outcome from `side`'s perspective: hand the turn
+    over, then closed-loop raw-policy play (forked). None when the
+    cap cut the game (censored, per the 2026-08-17 truncation ruling
+    — a capped rollout is not a draw)."""
     from tools.turn_search import _sample_prior_idx, forward_state
-    r = sim.fork()
+    r = _handed_over(sim, side)
     for _ in range(cfg.rollout_max_halfturns):
         if r.done:
             break
@@ -196,6 +225,13 @@ def build_grounding_experiences(
 
     for i in consist:
         c = captures[i]
+        if c.projected is None:
+            try:
+                c.projected = projected_value(policy, c.sim, c.side,
+                                              c.decision_step, cfg, rng)
+            except Exception as e:  # noqa: BLE001 -- skip the label
+                log.warning(f"grounding projection failed: {e!r}")
+                continue
         z = float(np.clip(_z_stm(c, c.projected), -1.0, 1.0))
         exps.append(MCTSExperience(
             game_state=c.sim.gs, visit_counts=[], z=z,
