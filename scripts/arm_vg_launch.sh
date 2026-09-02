@@ -12,7 +12,12 @@ set -u
 cd /workspace/wai
 PY=python
 WORKDIR=/workspace
-CAMPAIGN=training/checkpoints/tier_b_vg.pt
+# ARM_TAG names the campaign file and the HF escrow folder
+# (vg = 2026-09-01 arm, vg2 = principled-mixture arm, ...).
+ARM_TAG="${ARM_TAG:-vg}"
+CAMPAIGN_FILE="tier_b_${ARM_TAG}.pt"
+CAMPAIGN="training/checkpoints/${CAMPAIGN_FILE}"
+HF_PREFIX="${HF_PREFIX:-tier-b/arm_${ARM_TAG}_$(date -u +%Y%m%d)/}"
 SEED_CKPT=training/checkpoints/seed_imit_tierb_start.pt
 export PYTORCH_ALLOC_CONF=expandable_segments:True
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
@@ -24,7 +29,7 @@ ulimit -n 65536 2>/dev/null || true
 fatal_stop() {
     echo "[armVG] terminal failure ($1) -- escrow + stop box"
     WORKDIR="$WORKDIR" REPO_ROOT=/workspace/wai \
-        CAMPAIGN_FILE=tier_b_vg.pt HF_PREFIX="tier-b/arm_vg_20260901/" \
+        CAMPAIGN_FILE="$CAMPAIGN_FILE" HF_PREFIX="$HF_PREFIX" \
         "$PY" scripts/box_stop_on_abort.py >> "$WORKDIR/train.log" 2>&1
 }
 
@@ -90,7 +95,7 @@ echo "[armVG] launching daemons + training..."
 mkdir -p "$WORKDIR/pins" "$WORKDIR/probes"
 
 # Escrow: rolling checkpoint + CSV every 30 min.
-CAMPAIGN_FILE=tier_b_vg.pt HF_PREFIX="tier-b/arm_vg_20260901/" \
+CAMPAIGN_FILE="$CAMPAIGN_FILE" HF_PREFIX="$HF_PREFIX" \
     WORKDIR="$WORKDIR" setsid nohup "$PY" scripts/hf_upload_loop.py \
     > "$WORKDIR/upload.log" 2>&1 < /dev/null &
 
