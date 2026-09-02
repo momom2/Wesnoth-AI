@@ -2155,6 +2155,7 @@ def run_iteration(
                           "consist_pair_n", "consist_loss",
                           "trust_loss", "trust_lambda",
                           "consist_var_diff", "consist_roll_noise",
+                          "consist_sigma2_point", "consist_sigma2_se",
                           "consist_head_minus_truth",
                           "consist_label_minus_truth")}
         _fbd = (getattr(train_stats, "fresh_by_decade", None)
@@ -2484,6 +2485,7 @@ class _TrainerHistoryCSV:
         "consist_bias_hat", "consist_sigma2_hat", "consist_pair_n",
         "consist_loss", "trust_loss", "trust_lambda",
         "consist_var_diff", "consist_roll_noise",
+        "consist_sigma2_point", "consist_sigma2_se",
         "consist_head_minus_truth", "consist_label_minus_truth",
         # Per-turn-decade fresh-probe decomposition (user ruling
         # 2026-09-01): fresh CE / state-blind floor / outcome AUC /

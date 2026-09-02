@@ -129,6 +129,9 @@ def test_paired_estimates_reach_trainer_config():
     assert abs(r["consist_head_minus_truth"] - 0.7) < 1e-6
     assert abs(r["consist_label_minus_truth"]) < 1e-6
     assert all(e.v_anchor == e.z_pair + 0.7 for e in batch)
+    # The precision used is bounded by what the pairs support: the
+    # applied sigma2 sits ABOVE the point estimate by 1.28 SE.
+    assert cfg.consist_sigma2 >= r["consist_sigma2_point"] + 1.2 * r["consist_sigma2_se"]
 
 
 def test_combine_stats_carries_vg2_terms():

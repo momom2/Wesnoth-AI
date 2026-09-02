@@ -1238,7 +1238,17 @@ class MCTSPolicy:
             var_diff = st.pvariance(diffs) if n > 1 else 0.0
             roll_noise = st.fmean(
                 max(0.0, 1.0 - (zs - bias) ** 2) for zs, _ in pairs)
-            sigma2 = max(var_diff - roll_noise, 1e-3)
+            # sigma2 is a small difference of two ~1 quantities; its
+            # point estimate's standard error, var_diff*sqrt(2/(n-1)),
+            # is LARGER than the estimate itself at n~100 (VG3: the
+            # point estimate drifted to 0.07, precision ~7/state, and
+            # the consistency term took 99% of the update -- self-
+            # distillation). The precision the term is allowed is
+            # the upper bound of a one-sided 90% confidence interval
+            # (z=1.28): what the pairs can actually support.
+            se = var_diff * (2.0 / max(n - 1, 1)) ** 0.5
+            sigma2_point = max(var_diff - roll_noise, 1e-3)
+            sigma2 = sigma2_point + 1.28 * se
             a = self._VG2_EMA if hasattr(self, "_consist_bias") else 0.0
             self._consist_bias = a * getattr(self, "_consist_bias", 0.0) \
                 + (1 - a) * bias
@@ -1255,6 +1265,8 @@ class MCTSPolicy:
             self._vg2_residuals = {
                 "consist_var_diff": var_diff,
                 "consist_roll_noise": roll_noise,
+                "consist_sigma2_point": sigma2_point,
+                "consist_sigma2_se": se,
                 "consist_label_minus_truth": st.fmean(
                     (zs - self._consist_bias) - zr for zs, zr in pairs),
             }

@@ -394,6 +394,8 @@ class TrainStats:
     # error vs rollout truth, the corrected label's residual.
     consist_var_diff:  float = float("nan")
     consist_roll_noise: float = float("nan")
+    consist_sigma2_point: float = float("nan")
+    consist_sigma2_se: float = float("nan")
     consist_head_minus_truth: float = float("nan")
     consist_label_minus_truth: float = float("nan")
     # Per-turn-decade fresh-probe decomposition (2026-09-01):
