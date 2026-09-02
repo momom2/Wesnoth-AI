@@ -71,7 +71,12 @@ def final_escrow(dry_run: bool) -> None:
     tar_path = WORKDIR / "abort_escrow.tar.gz"
     with tarfile.open(tar_path, "w:gz") as t:
         for name in ("pins.log", "probes", "profiles", "train.log",
-                     "onstart.log", "upload.log", "watchdog.log"):
+                     "onstart.log", "upload.log", "watchdog.log",
+                     # gauntlet logs: a tests/smoke/rust failure must
+                     # be diagnosable from the escrow alone (VG3:
+                     # ABORTED_tests with no pytest log = box restart)
+                     "pytest_full.log", "smoke.log", "rust_build.log",
+                     "armVG_driver.log", "anchor_build.log"):
             p = WORKDIR / name
             if p.exists():
                 t.add(p, arcname=name)

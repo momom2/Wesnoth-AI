@@ -1520,8 +1520,14 @@ class MCTSPolicy:
         Returns True when applied; False (with a WARNING) when the
         recipe does not match or nothing is present."""
         vg2 = (meta or {}).get("vg2")
-        cfg = getattr(self._base._trainer, "config", None)
-        if not vg2 or cfg is None:
+        if not vg2:
+            return False          # nothing to apply: touch NOTHING
+        # (actor-pool workers wrap a seam proxy whose attribute
+        # lookups recurse -- reaching for the trainer with empty
+        # metadata was the VG3 actor-pool e2e failure).
+        cfg = getattr(getattr(self._base, "_trainer", None),
+                      "config", None)
+        if cfg is None:
             return False
         mine = self._grounding_fingerprint()
         if (abs(float(vg2.get("trust_delta", cfg.trust_delta))
