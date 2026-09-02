@@ -70,6 +70,11 @@ class TurnCommitPolicy(MCTSPolicy):
         self._ground_pending: Dict[str, list] = {}
         self._ground_rng = np.random.default_rng(0xC0FFEE)
         self._ground_stats: Dict[str, float] = {}
+        # Apply the loaded checkpoint's continuation metadata now
+        # that the grounding fingerprint is known (VG3 launch bug:
+        # applied only in load_checkpoint, which the launcher never
+        # calls on the wrapper -> lambda0 silently unused).
+        self.apply_training_meta(getattr(base, "last_loaded_meta", {}))
         # Telemetry: planning passes / warm re-plans / accepted
         # improvements, drained alongside the distill stats.
         self._tcs_plans = 0

@@ -44,6 +44,31 @@ def test_training_meta_round_trip_and_recipe_gate(tmp_path):
     assert other._base._trainer.config.consist_bias == 0.0
 
 
+def test_meta_applies_when_wrapper_is_built_after_base_load(tmp_path):
+    """The launcher loads the checkpoint into the BASE policy and
+    wraps it afterwards; the wrapper must pick the stash up."""
+    from tools.turn_policy import TurnCommitPolicy
+    from tools.turn_search_config import TurnSearchConfig
+    from tools.value_grounding import GroundingConfig
+    src = TurnCommitPolicy(TransformerPolicy(), MCTSConfig(n_simulations=1),
+                           turn_config=TurnSearchConfig(),
+                           grounding_config=GroundingConfig(enabled=True))
+    src._trust_lambda = 12.1
+    src._consist_bias = 0.149
+    src._consist_sigma2 = 0.052
+    ck = tmp_path / "cal.pt"
+    src.save_checkpoint(ck)
+
+    base = TransformerPolicy()
+    base.load_checkpoint(ck)                     # launcher order
+    wrapped = TurnCommitPolicy(base, MCTSConfig(n_simulations=1),
+                               turn_config=TurnSearchConfig(),
+                               grounding_config=GroundingConfig(enabled=True))
+    assert wrapped._trust_lambda == 12.1
+    assert base._trainer.config.trust_lambda == 12.1
+    assert abs(base._trainer.config.consist_bias - 0.149) < 1e-9
+
+
 def test_preflip_labels_hand_the_turn_over_first():
     from tools.value_grounding import GroundingConfig, rollout_outcome
 

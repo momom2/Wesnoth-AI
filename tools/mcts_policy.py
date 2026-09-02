@@ -174,6 +174,12 @@ class MCTSPolicy:
         # accumulates silently (user ruling 2026-09-02). dv_consult
         # is NOT gated -- the VG2 trust region's controller needs it.
         self._signal_telemetry = bool(signal_telemetry)
+        # Continuation metadata: the launcher loads the checkpoint
+        # into the BASE policy before this wrapper exists, so the
+        # stash must be applied here (subclasses that add to the
+        # recipe fingerprint apply it at the end of their own init).
+        if type(self) is MCTSPolicy:
+            self.apply_training_meta(getattr(base, "last_loaded_meta", {}))
         # Winnerless-state value weight, sealed HERE (single
         # authority, project round-1 C3) -- an explicit field
         # because finalize_game runs ACTOR-side on both production
