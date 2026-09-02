@@ -3406,6 +3406,14 @@ def main(argv: List[str]) -> int:
                          "(2026-07-10: the 71%%-draw gradient mass "
                          "flattened the value head even with honest "
                          "z=0 labels and a rehearsal anchor).")
+    ap.add_argument("--signal-telemetry", action="store_true",
+                    help="Per-source gradient-norm telemetry every "
+                         "iteration (sig_*_norm columns; 4 extra "
+                         "backward passes on a 128-state subsample, "
+                         "~3-5%%). OFF by default (user ruling "
+                         "2026-09-02) so it never runs unnoticed. "
+                         "dv_consult logs regardless (the VG2 trust "
+                         "region needs it).")
     ap.add_argument("--value-ground", action="store_true",
                     help="Value grounding on search-consulted states "
                          "(arm VG, 2026-09-01; tools/value_grounding). "
@@ -4022,7 +4030,8 @@ def main(argv: List[str]) -> int:
                 value_memory_batch=args.value_memory_batch,
                 gbc_labels=gbc_flag,
                 turn_config=turn_cfg,
-                grounding_config=ground_cfg)
+                grounding_config=ground_cfg,
+                signal_telemetry=args.signal_telemetry)
             log.info(
                 f"TURN-COMMITMENT SEARCH on (docs/tcs_spec.md): "
                 f"alt={turn_cfg.n_alt} rounds={turn_cfg.rounds}/"
@@ -4046,7 +4055,8 @@ def main(argv: List[str]) -> int:
                 value_memory_states_per_game=(
                     args.value_memory_states_per_game),
                 value_memory_batch=args.value_memory_batch,
-                gbc_labels=gbc_flag)
+                gbc_labels=gbc_flag,
+                signal_telemetry=args.signal_telemetry)
         if args.train_draw_tiebreak:
             log.info("LEGACY draw labels: training z = material "
                      "tiebreak on draws")

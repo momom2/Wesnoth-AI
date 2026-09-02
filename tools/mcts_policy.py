@@ -139,6 +139,7 @@ class MCTSPolicy:
                  holdout_size: int = 0,
                  holdout_per_game_cap: int = 64,
                  train_draw_tiebreak: bool = False,
+                 signal_telemetry: bool = False,
                  gbc_labels: bool = False,
                  draw_value_weight: float = 0.0,
                  value_memory_games: int = 0,
@@ -168,6 +169,11 @@ class MCTSPolicy:
         # (human-corpus late-game AUC 0.88 -> 0.60 in ~80 iters;
         # r_material/r_outcome rose 1.28 -> 2.18).
         self._train_draw_tiebreak = bool(train_draw_tiebreak)
+        # Per-source gradient-norm telemetry (4 extra backward passes
+        # per iteration, ~3-5%): OFF by default so it never
+        # accumulates silently (user ruling 2026-09-02). dv_consult
+        # is NOT gated -- the VG2 trust region's controller needs it.
+        self._signal_telemetry = bool(signal_telemetry)
         # Winnerless-state value weight, sealed HERE (single
         # authority, project round-1 C3) -- an explicit field
         # because finalize_game runs ACTOR-side on both production
@@ -1173,10 +1179,11 @@ class MCTSPolicy:
     def _attach_signal_telemetry(self, stats: TrainStats, batch,
                                  sig_pre) -> None:
         from tools.signal_telemetry import dv_stats, signal_grad_norms
-        norms = signal_grad_norms(self._base._trainer, batch,
-                                  self._replay_rng)
-        for k, v in norms.items():
-            setattr(stats, k, v)
+        if getattr(self, "_signal_telemetry", False):
+            norms = signal_grad_norms(self._base._trainer, batch,
+                                      self._replay_rng)
+            for k, v in norms.items():
+                setattr(stats, k, v)
         dv = dv_stats(sig_pre, self._base)
         for k, v in dv.items():
             setattr(stats, k, v)

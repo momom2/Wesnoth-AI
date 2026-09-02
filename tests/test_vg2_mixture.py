@@ -110,3 +110,22 @@ def test_paired_estimates_reach_trainer_config():
     assert abs(r["consist_head_minus_truth"] - 0.7) < 1e-6
     assert abs(r["consist_label_minus_truth"]) < 1e-6
     assert all(e.v_anchor == e.z_pair + 0.7 for e in batch)
+
+
+def test_signal_telemetry_norms_are_opt_in_but_dv_always_logs():
+    from tools.mcts import MCTSConfig
+    from tools.mcts_policy import MCTSPolicy
+    from wesnoth_ai.trainer import TrainStats
+    policy = TransformerPolicy()
+    batch = [_consist(0.2, z_pair=0.1) for _ in range(4)]
+    sig_pre = [[e.game_state for e in batch], [0.5] * 4]
+    off = MCTSPolicy(policy, MCTSConfig(n_simulations=1))
+    st_off = TrainStats()
+    off._attach_signal_telemetry(st_off, batch, sig_pre)
+    assert st_off.sig_policy_norm != st_off.sig_policy_norm  # nan
+    assert st_off.sig_dv_consult_n == 4                      # logged
+    on = MCTSPolicy(policy, MCTSConfig(n_simulations=1),
+                    signal_telemetry=True)
+    st_on = TrainStats()
+    on._attach_signal_telemetry(st_on, batch, sig_pre)
+    assert st_on.sig_policy_norm == st_on.sig_policy_norm    # number

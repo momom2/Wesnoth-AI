@@ -37,6 +37,14 @@ PYEOF
 ACTOR_POOL="${ACTOR_POOL:-$(( _CORES - 4 ))}"
 [ "$ACTOR_POOL" -lt 8 ] && ACTOR_POOL=8
 echo "[armVG] actor pool: $ACTOR_POOL (quota $_CORES cores)"
+# Signal profiling is OPT-IN (user ruling 2026-09-02): the per-
+# iteration gradient-norm telemetry (SIGNAL_TELEMETRY=1) and the
+# per-pin deep profile (PROFILE_PINS=1) both default OFF so they
+# never accumulate overhead unnoticed in a future run.
+SIG_FLAG=""
+[ "${SIGNAL_TELEMETRY:-0}" = 1 ] && SIG_FLAG="--signal-telemetry"
+PROFILE_PINS="${PROFILE_PINS:-0}"
+echo "[armVG] signal telemetry: ${SIGNAL_TELEMETRY:-0}; per-pin profile: $PROFILE_PINS"
 export PYTORCH_ALLOC_CONF=expandable_segments:True
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 ulimit -n 65536 2>/dev/null || true
@@ -160,6 +168,8 @@ except Exception:
         # checking the mixture parameters): provenance-split
         # gradient tree + post-Adam update tree + held-out
         # consultation probe, 4 games (~20 min alongside training).
+        # OPT-IN via PROFILE_PINS=1.
+        [ "'"$PROFILE_PINS"'" = 1 ] && \
         '"$PY"' signal_profiler/run_profile_v2.py --vg \
             --checkpoint "$pin" --games '"${PROFILE_GAMES:-4}"' \
             --consult-cap 200 --seed 31337 --device cuda \
@@ -203,6 +213,7 @@ while [ $tries -lt 10 ]; do
         --turn-boundary-frame mover \
         --turn-project reval \
         --value-ground \
+        $SIG_FLAG \
         --actor-pool "$ACTOR_POOL" --actor-max-batch 16 \
         --games-per-iter 24 \
         --checkpoint-in "$CKPT_IN" \
