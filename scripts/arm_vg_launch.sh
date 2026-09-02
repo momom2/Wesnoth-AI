@@ -254,7 +254,7 @@ while [ $tries -lt 10 ]; do
         --games-per-iter 24 \
         --checkpoint-in "$CKPT_IN" \
         --checkpoint-out "$CAMPAIGN" \
-        --iterations 100000 --save-every 2 --log-level INFO \
+        --iterations 100000 --save-every 1 --log-level INFO \
         >> "$WORKDIR/train.log" 2>&1
     rc=$?
     echo "[armVG] training exited rc=$rc at $(date -u +%FT%TZ)" \
