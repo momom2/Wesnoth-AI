@@ -18,7 +18,11 @@ ARM_TAG="${ARM_TAG:-vg}"
 CAMPAIGN_FILE="tier_b_${ARM_TAG}.pt"
 CAMPAIGN="training/checkpoints/${CAMPAIGN_FILE}"
 HF_PREFIX="${HF_PREFIX:-tier-b/arm_${ARM_TAG}_$(date -u +%Y%m%d)/}"
-SEED_CKPT=training/checkpoints/seed_imit_tierb_start.pt
+# SEED_CKPT: the leg's starting checkpoint (VG3+: the CALIBRATED
+# seed copy carrying training_meta). PROBE_REF: the strength
+# reference for pin probes (weights identical either way).
+SEED_CKPT="${SEED_CKPT:-training/checkpoints/seed_imit_tierb_start.pt}"
+PROBE_REF="${PROBE_REF:-training/checkpoints/seed_imit_tierb_start.pt}"
 # Actor pool sized from the cgroup CPU quota (nproc is HOST-wide on
 # Vast; same derivation as vast_onstart.sh): quota - 4, min 8.
 _CORES=$("$PY" - <<'PYEOF'
@@ -192,7 +196,7 @@ except Exception:
         echo "$(date -u +%FT%TZ) pin $step" >> /workspace/pins.log
         '"$PY"' tools/run_elo_batch.py \
             --label-a "pin_$step" --spec-a "$pin" \
-            --label-b seed --spec-b '"$SEED_CKPT"' \
+            --label-b seed --spec-b '"$PROBE_REF"' \
             --games 24 --mcts-sims 32 --no-turn-search \
             --device cuda \
             --outdir /workspace/probes/pin_$step \
