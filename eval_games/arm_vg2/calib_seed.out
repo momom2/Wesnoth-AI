@@ -1,0 +1,82 @@
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/seed_imit_tierb_start.pt (decision_step=2809659)
+INFO:eval_sim:[profile] loaded seed_imit_tierb_start.pt
+INFO:replay_dataset:Loaded 356 unit types from unit_stats.json
+INFO:signal_profiler:game 1/12 done: winner=1 turns=16
+WARNING:wesnoth_sim:sim: attack 24,13->25,11 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 24,13->25,11 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 24,13->25,11 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 24,13->25,11 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 24,13->25,11 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 24,13->25,11 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 26,11->23,10 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 21,9->22,13 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 21,9->22,13 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 21,9->22,13 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 21,9->22,13 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 23,11->21,11 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 23,11->21,11 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 24,12->21,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 24,12->21,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 20,10->23,10 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 20,10->23,10 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 20,10->23,10 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 20,10->23,10 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 20,10->23,10 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 20,10->23,10 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+INFO:signal_profiler:game 2/12 done: winner=1 turns=25
+WARNING:wesnoth_sim:sim: attack 9,9->11,9 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 9,9->11,9 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+INFO:signal_profiler:game 3/12 done: winner=2 turns=17
+WARNING:wesnoth_sim:sim: attack 17,17->13,19 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+INFO:signal_profiler:game 4/12 done: winner=1 turns=12
+WARNING:wesnoth_sim:sim: attack 9,12->10,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 16,14->10,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 16,14->10,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 16,14->10,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 16,14->10,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+INFO:signal_profiler:game 5/12 done: winner=1 turns=16
+INFO:signal_profiler:game 6/12 done: winner=2 turns=18
+WARNING:wesnoth_sim:sim: attack 12,11->13,13 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 12,11->13,13 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 12,11->13,13 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 21,10->25,8 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 21,10->25,8 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 15,15->16,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 15,15->16,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 14,17->10,16 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 12,15->16,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 12,15->16,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+INFO:signal_profiler:game 7/12 done: winner=1 turns=31
+INFO:signal_profiler:game 8/12 done: winner=2 turns=16
+INFO:signal_profiler:game 9/12 done: winner=2 turns=13
+WARNING:wesnoth_sim:sim: attack 23,25->21,26 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 23,27->22,25 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 23,27->22,25 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+INFO:signal_profiler:game 10/12 done: winner=2 turns=17
+WARNING:wesnoth_sim:sim: attack 6,18->5,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 6,18->5,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 6,18->5,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 6,18->5,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 6,18->5,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 6,18->5,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 6,18->5,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 6,18->5,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 6,18->5,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 6,18->5,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+INFO:signal_profiler:game 11/12 done: winner=2 turns=15
+WARNING:wesnoth_sim:sim: attack 11,20->3,20 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 11,20->3,20 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 10,16->11,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 12,16->9,16 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 12,16->9,16 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 10,16->11,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 10,16->11,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 10,16->11,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+INFO:signal_profiler:game 12/12 done: winner=1 turns=30
+INFO:signal_profiler:harvested 1601 experiences from 12 games
+experiences=1601 consist=192 paired=96 rollouts=96
+bias_hat=-0.321  var(search-roll)=1.050  rollout noise=0.950  sigma2_hat=0.100
+gap search-vs-head: raw mean -0.743 (|.| 0.751); bias-corrected |.| 0.455
+Gaussian per-state grad scale: mean 4.54 p90 8.65  (categorical was ~14 on confident misses)
+wrote /workspace/calib_seed.json

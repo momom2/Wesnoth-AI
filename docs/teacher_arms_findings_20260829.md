@@ -360,13 +360,25 @@ and per-step value movement on consulted states:
 
 Lesson (sharpens the value-channel law): TCS turn length is
 exquisitely sensitive to value movement on boundary-adjacent
-states, and ANY added value channel whose per-state gradients are
-unbounded relative to the game signal collapses it in a handful
-of iterations. What needed bounding was per-state gradient
-amplitude, not loss weight — e.g. clipped/Huber consistency on
-E[V] instead of full C51 CE, anchor-style small-step targets, or
-per-term gradient normalization (GradNorm-shape). (2)-only at
-bounded amplitude + the (1) anchor remains untested.
+states, and ANY added value channel whose gradient is large
+relative to the game signal collapses it in a handful of
+iterations.
+
+CORRECTION (2026-09-02, from the VG2 calibration harvest): the
+"categorical CE explodes on confident misses" explanation of the
+25-42 norms was wrong in mechanism -- CE's gradient w.r.t. the
+logits is bounded (p - onehot) regardless of confidence; the LOSS
+value explodes, the gradient does not. The real mechanism is
+COHERENCE: every consistency label said the same thing ("you are
+~0.3-0.4 too optimistic here"), so 192 per-state gradients added
+up ALIGNED, while the ~1850 game-state gradients largely cancel
+(round 6: winner/loser anti-parallel, cos -0.9) and leave a small
+residual. Aligned systematic push vs cancelling noise -- a 280x
+per-state ratio in the sum. Bias correction removes exactly the
+coherent component; the trust region bounds whatever coherent
+correction remains to <= 2 atoms per iteration. That is the VG2
+design (docs/arm_vg2_leg_20260902.md), with b and sigma2 measured
+(-0.321, 0.100 on the seed) rather than chosen.
 
 Cost: ~$5 (incl. ~8h idle after the 22:17 tripwire — no auto-
 teardown by design). Artifacts: eval_games/arm_vg/, escrow
