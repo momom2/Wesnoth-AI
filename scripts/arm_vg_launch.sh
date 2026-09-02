@@ -92,12 +92,16 @@ case "$stage" in
 esac
 
 echo "[armVG] launching daemons + training..."
-mkdir -p "$WORKDIR/pins" "$WORKDIR/probes"
+mkdir -p "$WORKDIR/pins" "$WORKDIR/probes" "$WORKDIR/profiles"
 
-# Escrow: rolling checkpoint + CSV every 30 min.
+# Escrow: rolling checkpoint + CSV every 30 min; probes/profiles/
+# logs on a second loop.
 CAMPAIGN_FILE="$CAMPAIGN_FILE" HF_PREFIX="$HF_PREFIX" \
     WORKDIR="$WORKDIR" setsid nohup "$PY" scripts/hf_upload_loop.py \
     > "$WORKDIR/upload.log" 2>&1 < /dev/null &
+HF_PREFIX="$HF_PREFIX" WORKDIR="$WORKDIR" \
+    setsid nohup "$PY" scripts/probe_escrow_loop.py \
+    > "$WORKDIR/probe_escrow.log" 2>&1 < /dev/null &
 
 # Stall watchdog.
 WORKDIR="$WORKDIR" setsid nohup "$PY" scripts/stall_watchdog.py \
@@ -134,6 +138,25 @@ except Exception:
             >> /workspace/probes/probe.log 2>&1
         '"$PY"' tools/elo_collect.py /workspace/probes/pin_$step \
             --no-catalog >> /workspace/pins.log 2>&1 || true
+        # Deep signal profile per pin (user ruling 2026-09-02: keep
+        # checking the mixture parameters): provenance-split
+        # gradient tree + post-Adam update tree + held-out
+        # consultation probe, 4 games (~20 min alongside training).
+        '"$PY"' signal_profiler/run_profile_v2.py --vg \
+            --checkpoint "$pin" --games '"${PROFILE_GAMES:-4}"' \
+            --consult-cap 200 --seed 31337 --device cuda \
+            --out /workspace/profiles/pin_$step.json \
+            > /workspace/profiles/pin_$step.out 2>&1 || true
+        '"$PY"' - "$step" <<PYEOF >> /workspace/pins.log 2>&1 || true
+import json, sys
+d = json.load(open(f"/workspace/profiles/pin_{sys.argv[1]}.json"))
+t = d["terms"]; u = d["update_tree"]["terms"]
+row = " ".join(f"{k}={t[k]['norm']:.2f}/{t[k]['proj_frac']:+.2f}"
+               for k in ("value_game", "value_ground", "value_consist",
+                         "policy_distill") if k in t)
+dv = u["value_consist"]["value_movement"]["consult"].get("mean_abs", float("nan")) if "value_consist" in u else float("nan")
+print(f"  profile pin_{sys.argv[1]}: {row} | consist step dv_consult={dv:.4f} linres={d['linearity_residual_frac']:.3f}")
+PYEOF
     fi
 done' > "$WORKDIR/pinloop.log" 2>&1 < /dev/null &
 

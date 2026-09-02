@@ -70,8 +70,8 @@ def final_escrow(dry_run: bool) -> None:
     ]
     tar_path = WORKDIR / "abort_escrow.tar.gz"
     with tarfile.open(tar_path, "w:gz") as t:
-        for name in ("pins.log", "probes", "train.log", "onstart.log",
-                     "upload.log", "watchdog.log"):
+        for name in ("pins.log", "probes", "profiles", "train.log",
+                     "onstart.log", "upload.log", "watchdog.log"):
             p = WORKDIR / name
             if p.exists():
                 t.add(p, arcname=name)

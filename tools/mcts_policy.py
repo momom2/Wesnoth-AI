@@ -1201,6 +1201,7 @@ class MCTSPolicy:
                  and getattr(e, "z_pair", None) is not None]
         n = len(pairs)
         self._vg2_pair_n = float(n)
+        self._vg2_residuals = {}
         if n >= 4:
             import statistics as st
             diffs = [zs - zr for zs, zr in pairs]
@@ -1218,6 +1219,30 @@ class MCTSPolicy:
                 + (1 - a) * bias
             self._consist_sigma2 = a * getattr(self, "_consist_sigma2",
                                                1.0) + (1 - a) * sigma2
+            # Correctness monitors (user ruling 2026-09-02: keep
+            # checking the parameters ARE right, every iteration):
+            # the two components behind sigma2 (its estimate is a
+            # small difference of large numbers), the head's own
+            # error vs rollout truth on the paired states (the +0.42
+            # optimism the leg is meant to remove), and the EMA'd
+            # bias-corrected label's residual vs truth (~0 iff the
+            # bias estimate tracks).
+            self._vg2_residuals = {
+                "consist_var_diff": var_diff,
+                "consist_roll_noise": roll_noise,
+                "consist_label_minus_truth": st.fmean(
+                    (zs - self._consist_bias) - zr for zs, zr in pairs),
+            }
+            if sig_pre:
+                p_states, p_vals = sig_pre
+                pred = {id(s): v for s, v in zip(p_states, p_vals)}
+                hv = [(pred[id(e.game_state)], e.z_pair) for e in batch
+                      if getattr(e, "label_kind", "game") == "consist"
+                      and getattr(e, "z_pair", None) is not None
+                      and id(e.game_state) in pred]
+                if hv:
+                    self._vg2_residuals["consist_head_minus_truth"] = \
+                        st.fmean(p - zr for p, zr in hv)
         cfg.consist_bias = float(getattr(self, "_consist_bias", 0.0))
         cfg.consist_sigma2 = float(getattr(self, "_consist_sigma2", 1.0))
         # Trust-region anchors: pre-update predictions on the
@@ -1249,6 +1274,8 @@ class MCTSPolicy:
         stats.consist_bias_hat = cfg.consist_bias
         stats.consist_sigma2_hat = cfg.consist_sigma2
         stats.consist_pair_n = float(getattr(self, "_vg2_pair_n", 0.0))
+        for k, v in getattr(self, "_vg2_residuals", {}).items():
+            setattr(stats, k, float(v))
 
     @staticmethod
     def _attach_fresh_metrics(stats: TrainStats, fresh: Dict) -> None:

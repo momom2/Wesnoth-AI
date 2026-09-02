@@ -97,8 +97,16 @@ def test_paired_estimates_reach_trainer_config():
     # Search estimate systematically +0.4 above the rollout truth.
     batch = [_consist(0.4 + 0.05 * (i % 3), z_pair=0.05 * (i % 3))
              for i in range(8)]
-    mp._vg2_prepare(batch, None)
+    # Pre-update predictions on those states: head sits 0.7 above
+    # the rollout truth -> the head_minus_truth monitor reads +0.7.
+    sig_pre = [[e.game_state for e in batch],
+               [e.z_pair + 0.7 for e in batch]]
+    mp._vg2_prepare(batch, sig_pre)
     cfg = policy._trainer.config
     assert abs(cfg.consist_bias - 0.4) < 1e-6
     assert cfg.consist_sigma2 > 0
     assert mp._vg2_pair_n == 8
+    r = mp._vg2_residuals
+    assert abs(r["consist_head_minus_truth"] - 0.7) < 1e-6
+    assert abs(r["consist_label_minus_truth"]) < 1e-6
+    assert all(e.v_anchor == e.z_pair + 0.7 for e in batch)

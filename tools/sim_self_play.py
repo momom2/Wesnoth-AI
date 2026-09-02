@@ -2153,7 +2153,10 @@ def run_iteration(
                           "sig_dv_consult_mean", "sig_dv_consult_n",
                           "consist_bias_hat", "consist_sigma2_hat",
                           "consist_pair_n", "consist_loss",
-                          "trust_loss", "trust_lambda")}
+                          "trust_loss", "trust_lambda",
+                          "consist_var_diff", "consist_roll_noise",
+                          "consist_head_minus_truth",
+                          "consist_label_minus_truth")}
         _fbd = (getattr(train_stats, "fresh_by_decade", None)
                 if train_stats else None) or {}
         _fresh_decades = {
@@ -2480,6 +2483,8 @@ class _TrainerHistoryCSV:
         # terms, and the trust-region multiplier after dual ascent.
         "consist_bias_hat", "consist_sigma2_hat", "consist_pair_n",
         "consist_loss", "trust_loss", "trust_lambda",
+        "consist_var_diff", "consist_roll_noise",
+        "consist_head_minus_truth", "consist_label_minus_truth",
         # Per-turn-decade fresh-probe decomposition (user ruling
         # 2026-09-01): fresh CE / state-blind floor / outcome AUC /
         # n per game-turn decade; the pooled fresh_value_ce column

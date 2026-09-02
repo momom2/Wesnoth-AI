@@ -389,6 +389,13 @@ class TrainStats:
     consist_sigma2_hat: float = float("nan")
     consist_pair_n:    float = 0.0
     trust_lambda:      float = float("nan")
+    # Parameter-correctness monitors (every iteration, from the
+    # same paired states): sigma2's two components, the head's
+    # error vs rollout truth, the corrected label's residual.
+    consist_var_diff:  float = float("nan")
+    consist_roll_noise: float = float("nan")
+    consist_head_minus_truth: float = float("nan")
+    consist_label_minus_truth: float = float("nan")
     # Per-turn-decade fresh-probe decomposition (2026-09-01):
     # {"d1_10": {"ce","floor","auc","n"}, ..., "d61p": ...}. The
     # pooled fresh_value_ce above stays the usual read; these
