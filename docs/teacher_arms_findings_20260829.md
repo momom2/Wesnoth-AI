@@ -364,6 +364,38 @@ states, and ANY added value channel whose gradient is large
 relative to the game signal collapses it in a handful of
 iterations.
 
+## Arm VG2 (2026-09-02): principled mixture + trust region --
+## K-collapse in ONE iteration; the trust region anchored the
+## wrong frame
+
+Design: docs/arm_vg2_leg_20260902.md (Gaussian consistency term
+with b, sigma2 estimated from paired labels; trust region with
+dual-ascent lambda vs the 2-atom resolution). Result: iteration 0
+trained at lambda=1 (no reading yet), consulted-state movement
+0.31, head optimism +0.28 overshot to -0.23; iteration 1 played
+K median 1 (gate shorten-accepts 0.10 -> 0.58/plan). The
+consistency term was tame (norm 3-19 vs VG's 25-42): the Gaussian
+form worked. The pusher was the rollout-truth term (16-33),
+coherent by nature.
+
+Probe (seed vs iter-1, 80 states): the MOVER-FRAME valuation of
+the incumbent turn swung +0.37 -> -0.35 (0.71), more than twice
+the 0.31 measured on the trained/anchored states -- because the
+grounding captures were the stage-2 projection pairs (post-flip,
+opponent to move) while stage 1 grades the pre-flip mover-frame
+state. Candidate contrast fell 3x (best_delta 0.086 -> 0.026),
+projection re-grades turned positive, end_turn accepts 3x. The
+value change generalized ACROSS THE FLIP with amplification: the
+leg's own instance of the erosion channel it was built to fix --
+training one frame away from where the search reads.
+
+Two fixes follow directly: ground/anchor/measure on the states
+the gate reads (mover-frame pre-flip boundaries; the round-5
+consult hook), and warm-start lambda from the calibration
+harvest's predicted movement (first-iteration protection; the
+collapse horizon is one iteration). Fourth collapse in the series;
+each one localized the mechanism further.
+
 CORRECTION (2026-09-02, from the VG2 calibration harvest): the
 "categorical CE explodes on confident misses" explanation of the
 25-42 norms was wrong in mechanism -- CE's gradient w.r.t. the

@@ -1,0 +1,827 @@
+INFO:replay_dataset:Loaded 356 unit types from unit_stats.json
+WARNING:wesnoth_sim:sim: move target (3, 4) not landable for u1@(3, 5) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 4) not landable for u1@(3, 5) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 4) not landable for u1@(3, 5) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 4) not landable for u1@(3, 5) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 4) not landable for u1@(3, 5) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 4) not landable for u1@(3, 5) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 4) not landable for u1@(3, 5) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 4) not landable for u1@(3, 5) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=3, y=5), 'target_hex': Position(x=3, y=4)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (3, 3) not landable for u1@(3, 4) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 3) not landable for u1@(3, 4) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 3) not landable for u1@(3, 4) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 3) not landable for u1@(3, 4) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 3) not landable for u1@(3, 4) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 3) not landable for u1@(3, 4) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 3) not landable for u1@(3, 4) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 3) not landable for u1@(3, 4) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=3, y=4), 'target_hex': Position(x=3, y=3)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (25, 8) not landable for u1004@(25, 9) (mp=6); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (25, 8) not landable for u1004@(25, 9) (mp=6); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (25, 8) not landable for u1004@(25, 9) (mp=6); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (25, 8) not landable for u1004@(25, 9) (mp=6); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (25, 8) not landable for u1004@(25, 9) (mp=6); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (25, 8) not landable for u1004@(25, 9) (mp=6); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (25, 8) not landable for u1004@(25, 9) (mp=6); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (25, 8) not landable for u1004@(25, 9) (mp=6); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=25, y=9), 'target_hex': Position(x=25, y=8)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=3, y=3), 'target_hex': Position(x=3, y=2)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (25, 8) not landable for u1004@(25, 9) (mp=6); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (25, 8) not landable for u1004@(25, 9) (mp=6); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (25, 8) not landable for u1004@(25, 9) (mp=6); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (25, 8) not landable for u1004@(25, 9) (mp=6); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (25, 8) not landable for u1004@(25, 9) (mp=6); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (25, 8) not landable for u1004@(25, 9) (mp=6); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (25, 8) not landable for u1004@(25, 9) (mp=6); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (25, 8) not landable for u1004@(25, 9) (mp=6); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=25, y=9), 'target_hex': Position(x=25, y=8)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=3, y=3), 'target_hex': Position(x=3, y=2)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1003@(25, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1003@(25, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1003@(25, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1003@(25, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1003@(25, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1003@(25, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1003@(25, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1003@(25, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=25, y=0), 'target_hex': Position(x=26, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=3, y=3), 'target_hex': Position(x=3, y=2)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(27, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(27, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(27, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(27, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(27, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(27, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(27, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(27, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=27, y=0), 'target_hex': Position(x=28, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=3, y=3), 'target_hex': Position(x=3, y=2)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=28, y=1), 'target_hex': Position(x=28, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=3, y=3), 'target_hex': Position(x=3, y=2)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=28, y=1), 'target_hex': Position(x=28, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=3, y=3), 'target_hex': Position(x=3, y=2)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=28, y=1), 'target_hex': Position(x=28, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=3, y=3), 'target_hex': Position(x=3, y=2)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=28, y=1), 'target_hex': Position(x=28, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=3, y=3), 'target_hex': Position(x=3, y=2)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=28, y=1), 'target_hex': Position(x=28, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=3, y=3), 'target_hex': Position(x=3, y=2)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=28, y=1), 'target_hex': Position(x=28, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=3, y=3), 'target_hex': Position(x=3, y=2)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=28, y=1), 'target_hex': Position(x=28, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=3, y=3), 'target_hex': Position(x=3, y=2)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=28, y=1), 'target_hex': Position(x=28, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=3, y=3), 'target_hex': Position(x=3, y=2)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=28, y=1), 'target_hex': Position(x=28, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (3, 2) not landable for u1@(3, 3) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=3, y=3), 'target_hex': Position(x=3, y=2)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (28, 0) not landable for u1003@(28, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=28, y=1), 'target_hex': Position(x=28, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=3); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=3); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=3); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=3); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=3); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=3); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=3); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=3); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=18, y=1), 'target_hex': Position(x=18, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=18, y=1), 'target_hex': Position(x=18, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=18, y=1), 'target_hex': Position(x=18, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=17, y=13), 'target_hex': Position(x=17, y=12)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=18, y=1), 'target_hex': Position(x=18, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (18, 11) not landable for u5@(18, 12) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 11) not landable for u5@(18, 12) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 11) not landable for u5@(18, 12) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 11) not landable for u5@(18, 12) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 11) not landable for u5@(18, 12) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 11) not landable for u5@(18, 12) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 11) not landable for u5@(18, 12) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 11) not landable for u5@(18, 12) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=18, y=12), 'target_hex': Position(x=18, y=11)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=18, y=1), 'target_hex': Position(x=18, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=17, y=13), 'target_hex': Position(x=17, y=12)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=18, y=1), 'target_hex': Position(x=18, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=17, y=13), 'target_hex': Position(x=17, y=12)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=18, y=1), 'target_hex': Position(x=18, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=17, y=13), 'target_hex': Position(x=17, y=12)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=18, y=1), 'target_hex': Position(x=18, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 12) not landable for u6@(17, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=17, y=13), 'target_hex': Position(x=17, y=12)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=18, y=1), 'target_hex': Position(x=18, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=19, y=0), 'target_hex': Position(x=20, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=18, y=1), 'target_hex': Position(x=18, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=19, y=0), 'target_hex': Position(x=20, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=18, y=1), 'target_hex': Position(x=18, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=19, y=0), 'target_hex': Position(x=20, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=18, y=1), 'target_hex': Position(x=18, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=19, y=0), 'target_hex': Position(x=20, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=18, y=1), 'target_hex': Position(x=18, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=19, y=0), 'target_hex': Position(x=20, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=18, y=1), 'target_hex': Position(x=18, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=19, y=0), 'target_hex': Position(x=20, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=18, y=1), 'target_hex': Position(x=18, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=19, y=0), 'target_hex': Position(x=20, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (18, 0) not landable for u1@(18, 1) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=18, y=1), 'target_hex': Position(x=18, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u2@(19, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=19, y=0), 'target_hex': Position(x=20, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (13, 18) not landable for u2@(13, 19) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (13, 18) not landable for u2@(13, 19) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (13, 18) not landable for u2@(13, 19) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (13, 18) not landable for u2@(13, 19) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (13, 18) not landable for u2@(13, 19) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (13, 18) not landable for u2@(13, 19) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (13, 18) not landable for u2@(13, 19) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (13, 18) not landable for u2@(13, 19) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=13, y=19), 'target_hex': Position(x=13, y=18)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (15, 0) not landable for u3@(14, 0) (mp=3); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (15, 0) not landable for u3@(14, 0) (mp=3); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (15, 0) not landable for u3@(14, 0) (mp=3); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (15, 0) not landable for u3@(14, 0) (mp=3); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (15, 0) not landable for u3@(14, 0) (mp=3); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (15, 0) not landable for u3@(14, 0) (mp=3); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (15, 0) not landable for u3@(14, 0) (mp=3); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (15, 0) not landable for u3@(14, 0) (mp=3); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=14, y=0), 'target_hex': Position(x=15, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u1@(19, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u1@(19, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u1@(19, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u1@(19, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u1@(19, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u1@(19, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u1@(19, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (20, 0) not landable for u1@(19, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=19, y=0), 'target_hex': Position(x=20, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (12, 16) not landable for u6@(12, 17) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (12, 16) not landable for u6@(12, 17) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (12, 16) not landable for u6@(12, 17) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (12, 16) not landable for u6@(12, 17) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (12, 16) not landable for u6@(12, 17) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (12, 16) not landable for u6@(12, 17) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (12, 16) not landable for u6@(12, 17) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (12, 16) not landable for u6@(12, 17) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=12, y=17), 'target_hex': Position(x=12, y=16)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (22, 0) not landable for u1@(21, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (22, 0) not landable for u1@(21, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (22, 0) not landable for u1@(21, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (22, 0) not landable for u1@(21, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (22, 0) not landable for u1@(21, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (22, 0) not landable for u1@(21, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (22, 0) not landable for u1@(21, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (22, 0) not landable for u1@(21, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=21, y=0), 'target_hex': Position(x=22, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (14, 12) not landable for u5@(14, 13) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (14, 12) not landable for u5@(14, 13) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (14, 12) not landable for u5@(14, 13) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (14, 12) not landable for u5@(14, 13) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (14, 12) not landable for u5@(14, 13) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (14, 12) not landable for u5@(14, 13) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (14, 12) not landable for u5@(14, 13) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (14, 12) not landable for u5@(14, 13) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=14, y=13), 'target_hex': Position(x=14, y=12)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u1@(23, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u1@(23, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u1@(23, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u1@(23, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u1@(23, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u1@(23, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u1@(23, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u1@(23, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=23, y=0), 'target_hex': Position(x=24, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (14, 12) not landable for u5@(14, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (14, 12) not landable for u5@(14, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (14, 12) not landable for u5@(14, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (14, 12) not landable for u5@(14, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (14, 12) not landable for u5@(14, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (14, 12) not landable for u5@(14, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (14, 12) not landable for u5@(14, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (14, 12) not landable for u5@(14, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=14, y=13), 'target_hex': Position(x=14, y=12)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (25, 0) not landable for u1@(24, 0) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (25, 0) not landable for u1@(24, 0) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (25, 0) not landable for u1@(24, 0) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (25, 0) not landable for u1@(24, 0) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (25, 0) not landable for u1@(24, 0) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (25, 0) not landable for u1@(24, 0) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (25, 0) not landable for u1@(24, 0) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (25, 0) not landable for u1@(24, 0) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=24, y=0), 'target_hex': Position(x=25, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (15, 0) not landable for u2@(14, 1) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (15, 0) not landable for u2@(14, 1) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (15, 0) not landable for u2@(14, 1) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (15, 0) not landable for u2@(14, 1) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (15, 0) not landable for u2@(14, 1) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (15, 0) not landable for u2@(14, 1) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (15, 0) not landable for u2@(14, 1) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (15, 0) not landable for u2@(14, 1) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=14, y=1), 'target_hex': Position(x=15, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=2); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=25, y=0), 'target_hex': Position(x=26, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (17, 0) not landable for u2@(16, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 0) not landable for u2@(16, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 0) not landable for u2@(16, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 0) not landable for u2@(16, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 0) not landable for u2@(16, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 0) not landable for u2@(16, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 0) not landable for u2@(16, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (17, 0) not landable for u2@(16, 0) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=16, y=0), 'target_hex': Position(x=17, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=25, y=0), 'target_hex': Position(x=26, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (14, 12) not landable for u5@(14, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (14, 12) not landable for u5@(14, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (14, 12) not landable for u5@(14, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (14, 12) not landable for u5@(14, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (14, 12) not landable for u5@(14, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (14, 12) not landable for u5@(14, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (14, 12) not landable for u5@(14, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (14, 12) not landable for u5@(14, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=14, y=13), 'target_hex': Position(x=14, y=12)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=25, y=0), 'target_hex': Position(x=26, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (14, 12) not landable for u5@(14, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (14, 12) not landable for u5@(14, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (14, 12) not landable for u5@(14, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (14, 12) not landable for u5@(14, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (14, 12) not landable for u5@(14, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (14, 12) not landable for u5@(14, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (14, 12) not landable for u5@(14, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (14, 12) not landable for u5@(14, 13) (mp=4); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=14, y=13), 'target_hex': Position(x=14, y=12)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=25, y=0), 'target_hex': Position(x=26, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=24, y=1), 'target_hex': Position(x=24, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=25, y=0), 'target_hex': Position(x=26, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=24, y=1), 'target_hex': Position(x=24, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=25, y=0), 'target_hex': Position(x=26, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=24, y=1), 'target_hex': Position(x=24, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=25, y=0), 'target_hex': Position(x=26, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=24, y=1), 'target_hex': Position(x=24, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=25, y=0), 'target_hex': Position(x=26, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=24, y=1), 'target_hex': Position(x=24, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=25, y=0), 'target_hex': Position(x=26, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=24, y=1), 'target_hex': Position(x=24, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (26, 0) not landable for u1@(25, 0) (mp=5); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=25, y=0), 'target_hex': Position(x=26, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: move target (24, 0) not landable for u2@(24, 1) (mp=1); mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: 8 consecutive rejected steps (last: {'type': 'move', 'start_hex': Position(x=24, y=1), 'target_hex': Position(x=24, y=0)}); caller is not re-deciding from the mask -- ending turn to guarantee progress
+INFO:tcs_collapse_probe:harvested 80 states
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from training/checkpoints/seed_imit_tierb_start.pt (decision_step=2809659)
+INFO:eval_sim:[seed] loaded seed_imit_tierb_start.pt
+INFO:tcs_collapse_probe:seed: planning at decision_step=2809659
+WARNING:wesnoth_sim:sim: attack 19,3->19,1 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from /workspace/pins/vg2_iter1_2830204.pt (decision_step=2830204)
+INFO:eval_sim:[vg2i1] loaded vg2_iter1_2830204.pt
+INFO:tcs_collapse_probe:vg2i1: planning at decision_step=2830204
+WARNING:wesnoth_sim:sim: attack 19,2->19,0 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+
+=== seed ===
+states 80  spine_len mean 5.5 med 5
+committed len mean 5.5 med 5  accepts/plan 0.38
+gates 107  accept_rate 0.28  end_turn-accepts 3  shortening-accepts 11
+inc_val mean 0.366  best_delta med 0.0862  reval_mean med 0.0002
+
+=== vg2i1 ===
+states 80  spine_len mean 5.3 med 5
+committed len mean 5.0 med 5  accepts/plan 0.66
+gates 132  accept_rate 0.40  end_turn-accepts 10  shortening-accepts 18
+inc_val mean -0.346  best_delta med 0.0258  reval_mean med 0.0132
+
+wrote /workspace/collapse_probe_vg2.json
