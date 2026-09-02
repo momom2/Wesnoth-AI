@@ -61,6 +61,23 @@ def test_consist_states_skip_categorical_and_gradient_is_linear_in_gap():
     assert 1.6 < n2 / n1 < 2.4, f"gaussian grad not linear: {n2/n1:.2f}"
 
 
+def test_value_weight_zero_switches_off_consist_and_trust_terms():
+    """Term surgery (profiler + in-loop telemetry) zeroes value_weight
+    to isolate the policy gradient; the Gaussian and trust terms
+    must go with it (VG3: sig_policy_norm equalled the consist norm)."""
+    policy = TransformerPolicy()
+    tr = policy._trainer
+    tr.config.trust_lambda = 1.0
+    with torch.no_grad():
+        v0 = float(policy._model(policy._encoder.encode(_gs()))
+                   .value.squeeze().item())
+    exps = [_consist(v0 + 0.5, v_anchor=v0 + 0.5) for _ in range(3)]
+    for e in exps:
+        e.value_weight = 0.0
+    _, st = _grad_norm(policy, exps)
+    assert st.consist_loss == 0.0 and st.trust_loss == 0.0
+
+
 def test_trust_region_zero_at_anchor_and_lambda_dual_ascent():
     policy = TransformerPolicy()
     tr = policy._trainer

@@ -1166,10 +1166,17 @@ def _trainer_step_mcts(
     consist_mask = torch.tensor(
         [getattr(e, "label_kind", "game") == "consist"
          for e in experiences], device=dev)
+    # value_weight is THE per-experience off-switch for every value-
+    # side term (the profiler's and the in-loop telemetry's term
+    # surgery zero it): the Gaussian consistency term and the trust
+    # region honour it too, else a "policy-only" variant silently
+    # carries them (VG3 iteration 0: sig_policy_norm == consist norm).
+    vws_on = vws > 0
+    consist_mask = consist_mask & vws_on
     vws = torch.where(consist_mask, torch.zeros_like(vws), vws)
     anchor_vals = [getattr(e, "v_anchor", None) for e in experiences]
     anchor_mask = torch.tensor([a is not None for a in anchor_vals],
-                               device=dev)
+                               device=dev) & vws_on
     anchor_t = torch.tensor([0.0 if a is None else float(a)
                              for a in anchor_vals],
                             device=dev, dtype=torch.float32)
