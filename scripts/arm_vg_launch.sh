@@ -19,6 +19,24 @@ CAMPAIGN_FILE="tier_b_${ARM_TAG}.pt"
 CAMPAIGN="training/checkpoints/${CAMPAIGN_FILE}"
 HF_PREFIX="${HF_PREFIX:-tier-b/arm_${ARM_TAG}_$(date -u +%Y%m%d)/}"
 SEED_CKPT=training/checkpoints/seed_imit_tierb_start.pt
+# Actor pool sized from the cgroup CPU quota (nproc is HOST-wide on
+# Vast; same derivation as vast_onstart.sh): quota - 4, min 8.
+_CORES=$("$PY" - <<'PYEOF'
+import os
+def cores():
+    try:
+        q, p = open("/sys/fs/cgroup/cpu.max").read().split()
+        if q != "max":
+            return max(1, int(int(q) / int(p)))
+    except OSError:
+        pass
+    return os.cpu_count() or 8
+print(cores())
+PYEOF
+)
+ACTOR_POOL="${ACTOR_POOL:-$(( _CORES - 4 ))}"
+[ "$ACTOR_POOL" -lt 8 ] && ACTOR_POOL=8
+echo "[armVG] actor pool: $ACTOR_POOL (quota $_CORES cores)"
 export PYTORCH_ALLOC_CONF=expandable_segments:True
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 ulimit -n 65536 2>/dev/null || true
@@ -185,7 +203,7 @@ while [ $tries -lt 10 ]; do
         --turn-boundary-frame mover \
         --turn-project reval \
         --value-ground \
-        --actor-pool 26 --actor-max-batch 16 \
+        --actor-pool "$ACTOR_POOL" --actor-max-batch 16 \
         --games-per-iter 24 \
         --checkpoint-in "$CKPT_IN" \
         --checkpoint-out "$CAMPAIGN" \
