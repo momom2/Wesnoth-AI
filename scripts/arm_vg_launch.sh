@@ -80,6 +80,12 @@ if [ "$stage" = "rust" ] || [ "$stage" = "all" ]; then
     # rather than train 4.5x slower on the Python fallback.
     if ! "$PY" -c "import wesnoth_core" 2>/dev/null; then
         echo "[armVG] building wesnoth_core (rustup minimal + maturin)..."
+        # Rust build scripts need a C linker; the pytorch runtime
+        # image ships none (2026-09-02: "linker cc not found").
+        if ! command -v cc >/dev/null 2>&1; then
+            (apt-get update -qq && apt-get install -y -qq gcc) \
+                > "$WORKDIR/apt_gcc.log" 2>&1 || true
+        fi
         if ! command -v cargo >/dev/null 2>&1; then
             curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal \
                 > "$WORKDIR/rustup.log" 2>&1

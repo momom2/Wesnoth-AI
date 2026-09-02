@@ -779,6 +779,12 @@ fi
 if [ "${WESNOTH_RUST_BUILD:-1}" = "1" ] \
         && ! "$PY" -c "import wesnoth_core" 2>/dev/null; then
     echo "[onstart] building wesnoth_core wheel..."
+    # Rust build scripts need a C linker; the pytorch runtime image
+    # ships none ("linker cc not found", 2026-09-02).
+    if ! command -v cc >/dev/null 2>&1; then
+        (apt-get update -qq && apt-get install -y -qq gcc) \
+            >> "$WORKDIR/onstart.log" 2>&1 || true
+    fi
     if ! command -v cargo >/dev/null 2>&1; then
         curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal \
             >> "$WORKDIR/onstart.log" 2>&1
