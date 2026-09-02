@@ -304,6 +304,27 @@ mismatch. (The initial PPO-style x2/÷2 schedule was replaced
 doubling schedule needs ~3 iterations to answer that, against a
 measured ~4-iteration collapse horizon.)
 
+## Consistency-term precision: `sigma2 = point + 1.28 * SE` (2026-09-03)
+
+Defined: MCTSPolicy._vg2_prepare (tools/mcts_policy.py).
+
+The Gaussian consistency term's strength is 1/(2 sigma2), where
+sigma2 = var(search - rollout) - mean(1 - V^2) is the search
+estimate's residual variance after subtracting the rollout's own
+outcome noise. Both quantities are ~0.95; their difference is
+small and its standard error, var * sqrt(2/(n-1)) ~ 0.14 at
+n=96 pairs, EXCEEDS the point estimate (0.05-0.10). Arm VG3
+showed the consequence: the point estimate drifted to 0.067, the
+term's precision hit ~7 per state, and it owned 99% of the update
+direction (self-distillation; pin 6-0-18). The precision the term
+is allowed is therefore the upper bound of a one-sided 90%
+confidence interval on sigma2 (z = 1.28): the strength the pairs
+can support, not the strength a noisy point estimate happens to
+read. It is a confidence bound, not a cap: with more pairs it
+tightens toward the point estimate. A calibrated seed written
+before this change (seed_imit_tierb_start_vg3cal.pt) carries the
+POINT sigma2 and must be recalibrated before use.
+
 ## TCS linear-link advantage gain: `target_beta = 5.0` (2026-08-17)
 
 `tools/turn_search.py::tcs_target_distribution(link="linear")` builds
