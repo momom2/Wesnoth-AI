@@ -1457,6 +1457,13 @@ class MCTSPolicy:
             gbc_loss=sum(getattr(s, "gbc_loss", 0.0)
                          for s in stats) / k,
             moves_left_loss=sum(s.moves_left_loss for s in stats) / k,
+            # Arm VG2 terms (2026-09-02: the leg CSV showed 0.0 for
+            # both while the terms fired in every replay update --
+            # this constructor had no such fields).
+            consist_loss=sum(getattr(s, "consist_loss", 0.0)
+                             for s in stats) / k,
+            trust_loss=sum(getattr(s, "trust_loss", 0.0)
+                           for s in stats) / k,
         )
 
     # ------------------------------------------------------------------

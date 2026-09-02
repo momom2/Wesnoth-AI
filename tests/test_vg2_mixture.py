@@ -114,6 +114,16 @@ def test_paired_estimates_reach_trainer_config():
     assert all(e.v_anchor == e.z_pair + 0.7 for e in batch)
 
 
+def test_combine_stats_carries_vg2_terms():
+    from tools.mcts_policy import MCTSPolicy
+    from wesnoth_ai.trainer import TrainStats
+    steps = [TrainStats(consist_loss=0.2, trust_loss=1.0),
+             TrainStats(consist_loss=0.4, trust_loss=3.0)]
+    c = MCTSPolicy._combine_stats(steps, buffer_size=10)
+    assert abs(c.consist_loss - 0.3) < 1e-9
+    assert abs(c.trust_loss - 2.0) < 1e-9
+
+
 def test_signal_telemetry_norms_are_opt_in_but_dv_always_logs():
     from tools.mcts import MCTSConfig
     from tools.mcts_policy import MCTSPolicy
