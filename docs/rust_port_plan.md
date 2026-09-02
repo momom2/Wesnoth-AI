@@ -57,8 +57,12 @@ style per phase:
    counter so a gated run can't certify vacuously) + the mask/sim
    contract slice under WESNOTH_RUST=1 (60 tests). Measured:
    midgame mask build 3.28ms -> 0.73ms (4.5x); <2-eligible-unit
-   states stay on Python (fixed overhead). Env-gated opt-in until
-   box setups build the wheel (cargo+maturin in setup scripts).
+   states stay on Python (fixed overhead). **DEFAULT ON since
+   2026-09-02** (user ruling: "verified, pure benefit"):
+   pathfind_sim imports the wheel unless WESNOTH_RUST=0 and warns
+   loudly on import failure; sim_self_play banners the live path;
+   arm_vg_launch.sh / vast_onstart.sh build the wheel (rustup
+   minimal + maturin, ~2 min) and abort the launch if it fails.
 
 **Box + corpus certification (2026-08-30, user order):** wheel
 builds on Linux (rustup minimal + maturin, ~2 min in box setup);

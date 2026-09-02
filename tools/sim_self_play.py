@@ -3961,6 +3961,10 @@ def main(argv: List[str]) -> int:
         )
         pt_cfg = pt_config_from_args(args)
         turn_cfg = turn_config_from_args(args)
+        from tools.pathfind_sim import rust_active
+        log.info(f"reach/enumeration kernels: "
+                 f"{'RUST (wesnoth_core)' if rust_active() else 'PYTHON'}"
+                 f" (WESNOTH_RUST={os.environ.get('WESNOTH_RUST', '1')})")
         from tools.value_grounding import (
             config_from_args as ground_config_from_args,
         )

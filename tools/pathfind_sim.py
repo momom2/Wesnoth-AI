@@ -55,20 +55,31 @@ from typing import Dict, List, Optional, Set, Tuple
 
 log = logging.getLogger("pathfind_sim")
 
-# Rust hot-path kernel (docs/rust_port_plan.md phase 1). Opt-in via
-# WESNOTH_RUST=1 until the differential certification is standing
-# (tests/test_rust_reach.py); the Python loop below remains the
-# permanent diff oracle either way. Import failure = Python path,
-# loudly once.
+# Rust hot-path kernels (docs/rust_port_plan.md phases 1 + 2a:
+# reachability Dijkstra and state-level move/attack enumeration).
+# DEFAULT ON since 2026-09-02 (user ruling: certified bit-exact —
+# differential tests + the full 17,124-game corpus reconstruction
+# byte-identical to Python — and 4.5x faster on the midgame mask
+# build; "pure benefit"). WESNOTH_RUST=0 forces the Python path
+# (the permanent diff oracle). Import failure = Python path, with a
+# WARNING so a box that never built the wheel cannot be slow in
+# silence; `rust_active()` lets launchers banner the live path.
 import os as _os
 _RUST = None
-if _os.environ.get("WESNOTH_RUST", "0") == "1":
+if _os.environ.get("WESNOTH_RUST", "1") != "0":
     try:
         import wesnoth_core as _RUST
     except ImportError as _e:  # noqa: F841
-        log.warning("WESNOTH_RUST=1 but wesnoth_core is not "
-                    "importable (build it: maturin develop --release "
-                    "in rust/wesnoth_core); using the Python path")
+        log.warning("wesnoth_core is not importable -- using the "
+                    "PYTHON reach/enumeration path (~4.5x slower "
+                    "mask builds). Build the wheel: pip install "
+                    "rust/wesnoth_core (needs rustup + maturin), or "
+                    "set WESNOTH_RUST=0 to silence this.")
+
+
+def rust_active() -> bool:
+    """True when the certified Rust kernels serve reach/enumeration."""
+    return _RUST is not None
 
 # id(nbrs-list) -> (source ref, numpy bundles) for the Rust call.
 # The source ref pins the id; bounded by the same drop-all backstop

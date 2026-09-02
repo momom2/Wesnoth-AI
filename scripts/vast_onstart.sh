@@ -772,6 +772,29 @@ if [ -z "$PT_FLAG" ] && [ -n "${PT_CHALLENGERS:-}${PT_DEPTHS:-}${PT_REDRAWS:-}${
          "they are inert without the gate"
 fi
 
+# ---- Rust kernels (default path since 2026-09-02) -------------------
+# wesnoth_core (reach + enumeration, certified bit-exact) is the
+# production path; build the wheel here so no leg silently runs the
+# 4.5x-slower Python fallback. Disable with -e WESNOTH_RUST_BUILD=0.
+if [ "${WESNOTH_RUST_BUILD:-1}" = "1" ] \
+        && ! "$PY" -c "import wesnoth_core" 2>/dev/null; then
+    echo "[onstart] building wesnoth_core wheel..."
+    if ! command -v cargo >/dev/null 2>&1; then
+        curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal \
+            >> "$WORKDIR/onstart.log" 2>&1
+    fi
+    export PATH="$HOME/.cargo/bin:$PATH"
+    "$PY" -m pip install -q maturin >> "$WORKDIR/onstart.log" 2>&1
+    "$PY" -m pip install -q rust/wesnoth_core >> "$WORKDIR/onstart.log" 2>&1
+    if "$PY" -c "import wesnoth_core" 2>/dev/null; then
+        echo "[onstart] wesnoth_core built"
+    else
+        echo "[onstart] FATAL: wesnoth_core build failed (onstart.log)"
+        touch "$WORKDIR/ABORTED_rust"
+        exit 1
+    fi
+fi
+
 # ---- SIM_FORK_GUARD smoke iteration (A6 ruling 2026-08-10) ----------
 # One cheap in-process iteration with the deep-state fingerprint guard
 # armed: the handoff is a new weight/config combination, and the guard

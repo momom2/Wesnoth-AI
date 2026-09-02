@@ -74,6 +74,27 @@ if [ "$stage" = "tests" ] || [ "$stage" = "all" ]; then
     fi
 fi
 
+if [ "$stage" = "rust" ] || [ "$stage" = "all" ]; then
+    # Rust reach/enumeration kernels are the DEFAULT path (user
+    # ruling 2026-09-02); a box must build the wheel or fail loudly
+    # rather than train 4.5x slower on the Python fallback.
+    if ! "$PY" -c "import wesnoth_core" 2>/dev/null; then
+        echo "[armVG] building wesnoth_core (rustup minimal + maturin)..."
+        if ! command -v cargo >/dev/null 2>&1; then
+            curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal \
+                > "$WORKDIR/rustup.log" 2>&1
+        fi
+        export PATH="$HOME/.cargo/bin:$PATH"
+        "$PY" -m pip install -q maturin 2>&1 | grep -v WARNING | tail -1
+        "$PY" -m pip install -q rust/wesnoth_core > "$WORKDIR/rust_build.log" 2>&1
+        if ! "$PY" -c "import wesnoth_core" 2>/dev/null; then
+            echo "[armVG] FATAL: wesnoth_core wheel failed (see rust_build.log)"
+            touch "$WORKDIR/ABORTED_rust"; fatal_stop rust; exit 1
+        fi
+    fi
+    echo "[armVG] wesnoth_core: $("$PY" -c "import wesnoth_core, sys; print('ok', getattr(wesnoth_core, '__file__', ''))")"
+fi
+
 if [ "$stage" = "anchor" ] || [ "$stage" = "all" ]; then
     if [ ! -f replays_dataset_imitation/policy_anchor.npz ]; then
         echo "[armVG] building policy anchor (500 games)..."
