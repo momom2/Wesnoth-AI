@@ -46,6 +46,9 @@ def main(argv) -> int:
     ap.add_argument("--real-probe", type=int, default=200)
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--no-turn-search", action="store_true",
+                    help="Harvest with plain MCTS (the minimal loop's "
+                         "generation procedure) instead of TCS.")
     ap.add_argument("--vg", action="store_true",
                     help="Arm-VG provenance split: value term "
                          "decomposed into game/ground/consist "
@@ -61,6 +64,7 @@ def main(argv) -> int:
               else None)
 
     factory = make_policy(args.checkpoint, device,
+                          turn_search=not args.no_turn_search,
                           grounding=args.vg)
     surgeries = None
     if args.vg:

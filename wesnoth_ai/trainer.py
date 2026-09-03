@@ -255,6 +255,14 @@ class TrainerConfig:
     # action. Still nonzero so exploration isn't killed entirely.
     entropy_coef:         float = 0.001
     grad_clip:            float = 1.0
+    # Value loss form (minimal loop, docs/az_minimal_spec.md):
+    # "c51" = categorical CE on the projected result (legacy);
+    # "mse_mean" = squared error between the head's MEAN prediction
+    # and the result. The categorical loss charges a confident head
+    # ~-log(tiny) for a coin-flip label, which is why the value term
+    # owned 99% of every update; squared error charges in proportion
+    # to the miss. The head stays C51 -- only the loss changes.
+    value_loss_form:      str = "c51"
     # Arm VG2 (2026-09-02, "every parameter becomes a measurement"):
     # the consistency (bootstrap) term is the Gaussian NLL of the
     # head's MEAN prediction against the bias-corrected search
@@ -1345,10 +1353,14 @@ def _trainer_step_mcts(
         # gradient at all.
         atoms = self.model._value_atoms
         w_t = gw_chunk * vws[start:start + L]
-        value_loss = _categorical_value_loss(
-            vl_t, z_t, atoms,
-            label_smoothing=self.config.value_label_smoothing,
-            weights=w_t) / max(float(total_value_w), 1e-9)
+        if self.config.value_loss_form == "mse_mean":
+            value_loss = ((val_t - z_t).pow(2) * w_t).sum() \
+                / max(float(total_value_w), 1e-9)
+        else:
+            value_loss = _categorical_value_loss(
+                vl_t, z_t, atoms,
+                label_smoothing=self.config.value_label_smoothing,
+                weights=w_t) / max(float(total_value_w), 1e-9)
 
         chunk_loss = (
             policy_loss_t

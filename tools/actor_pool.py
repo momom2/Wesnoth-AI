@@ -674,6 +674,11 @@ class ActorPool:
         log.info(f"iter {iter_idx}: pool served {served} forwards, "
                  f"{len(outcomes)} games, {len(experiences)} experiences, "
                  f"decision_step {ds0} -> {self._global_decision_step()}")
+        # Time-profiling readbacks (minimal loop, 2026-09-03): the
+        # numbers above were log-only; the loop's CSV wants them.
+        self.last_served_forwards = served
+        self.last_iteration_seconds = elapsed
+        self.last_decisions = self._global_decision_step() - ds0
         return outcomes, experiences
 
     def _serve_worker(self, stop_ev, stats_out: List[Dict]) -> None:
