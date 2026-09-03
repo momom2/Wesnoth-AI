@@ -234,31 +234,34 @@ Wesnoth rules are `docs/wesnoth_rules.md`.
 ## Arm G (TCS, --no-gbc) left running to test the GBC gradient's
 ## role in the drift.
 
-NEXT ACTIONS, in order:
-1. (USER gate) Resume leg 5: fresh box with **vms_enabled=false**
-   (VM hosts refuse ssh keys; cost 4 rentals), leg.json already
-   points at the escrowed 2,931,890 checkpoint. The qualify gate
-   now runs IN the launcher (wired 2026-08-25) on the checkpoint
-   training starts from; a refusal writes ABORTED_qualify. Audit
-   the train banner: mover frame + abort-k-median 10 + NO
-   distill-prior-discount.
-2. Train to ~250k+ steps past the seed (2,809,659), i.e. step
-   ~3.06M+; pin; **40-game Elo vs the seed = THE verdict** (user:
-   strength is the only objective). Improved -> continue; not ->
-   stop and rethink. Do NOT interrupt on proxy metrics; tripwires
-   are money-guards only.
-3. If the value-rotation recurs and matters: X4 (~$3, which of
-   A2-rehearsal / lam flips the trunk rotation) and the X5
-   config-first counter (unit-count as a second aux target) are
-   pre-registered in docs/leg5_value_inversion_20260825.md.
-4. DONE 2026-08-25: qualify gate wired into vast_onstart.sh
-   (once per leg entry, marker-keyed by campaign identity; exit 3
-   refusal -> ABORTED_qualify, exit 2 probe-failure retryable;
-   QUALIFY_GATE=0 overrides). Pinned by test_probe_tripwires.
-5. Backlog standing: RCA round with the seed (laptop; never run),
-   luck-compensator discussion, hindsight-credit measurement,
-   launch-system full adoption (leg.json asserts ALL rulings),
-   baked project image.
+NEXT ACTIONS (2026-09-04, minimal-loop restart; everything older
+in this file describes the quarantined stack):
+1. Read leg az4's pins in `/workspace/az_history.csv` on box
+   49739163 (escrow: HF `tier-b/arm_az4_20260904/`): columns
+   `raw_vs_seed_wdl` and `search_vs_seed_wdl` (40 games each vs
+   the seed) at iterations 10, 20, ... Decision rules from
+   `docs/az_minimal_spec.md`: raw player not worse than the seed
+   and searched player better -> the loop works, continue; raw
+   clearly worse (< 35% of 40) -> the visit targets at 32 sims
+   teach the wrong thing; next lever is sims / target temperature,
+   not the step rule. Record: `docs/az_leg_20260903.md`.
+2. Time stream, open: generation throughput varies 2x between
+   iterations of one process (GPU-bound, padding ratio only 1.06;
+   tokens/leaf and GC time per generation now logged) -- find the
+   driver before buying more compute. One game per actor already
+   cut the cost per game 1.4-2.3x.
+3. Signal stream, open: the value head's level drifts down under
+   momentum after the sign-step episode (harmless to search with
+   centering; watch fresh_value_mean vs fresh_label_mean and the
+   value MSE). Option staged, not deployed: `--step-select best`
+   (exact line search on the held-out games).
+4. Searched pins use the pinned player's own centering
+   (`--value-center-a`); the seed plays uncentered (its +0.44
+   optimism is the crutch that gives it K 10-12 under search).
+5. Flaky slow-tier test of the quarantined loop:
+   `tests/test_holdout_tripwire.py::test_holdout_stall_tripwire_exits_5`
+   (rc 0 instead of 5, nondeterministic). It stopped a box once;
+   fix or move under quarantine.
 
 ## LEG-5 LAUNCH CONFIG (2026-08-21, user: "proceed! Let leg-5 train
 ## tonight with the mover frame grading and the various fixes (no

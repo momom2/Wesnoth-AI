@@ -77,8 +77,27 @@ under search; correcting it (which outcomes do) gives K ~7. Every
 earlier leg from the seed paid the same first step (VG2's
 "unprotected first iteration" is this). Fix in place:
 `tools/step_control.py` backtracking on held-out games; K tripwire
-threshold 3. **Leg az2 is running on Vast box 49739163** (stop-on-
-abort escrow in place); the pins decide.
+threshold 3.
+
+**Legs az2/az3/az4 (2026-09-03..04, box 49739163, one game per
+actor = 19/iteration, ~16 min each):** az2 showed held-out loss
+alone accepts a level swing (+0.48 -> -0.38); az3 added a level cap
+(2 atoms/step) and held K 7-11 for 8 iterations, but the cap
+throttled EVERY step to 1/8-1/16 (the proposal keeps a level
+component from momentum), so the policy heads moved by KL ~1e-4
+per step -- no policy learning possible. **az4 (running)** removes
+the level from search instead: `MCTSConfig.value_center` = the
+head's mean value on the latest held-out states, subtracted from
+every value search reads; cap off; steps accepted at full size
+(per-game held-out delta within 2 SE); the Elo eval applies the
+same center to the pinned player. Pre-registered predictions and
+the record: `docs/az_leg_20260903.md`. Ops: `scripts/az_stop.sh`
+(launcher first, then loop, daemons, orphan sweep);
+`LAUNCH_SKIP_TESTS=1` for resumes (a flaky old-loop test stopped
+the box once). Open: generation throughput varies 2x between
+iterations (GPU-bound; tokens/leaf and GC time now logged); the
+value head's level drifts under momentum (harmless to search with
+centering, watch the MSE).
 
 ## Current status (2026-08-25, superseded — kept for provenance)
 
