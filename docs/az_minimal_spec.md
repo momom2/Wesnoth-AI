@@ -97,7 +97,11 @@ median < 3 for 3 consecutive iterations (the one tripwire kept).
   proportion to the miss.
 - Learning rate: 1e-4 is only the proposal's scale; the applied
   step is set by the held-out backtracking above. Clip 1.0.
-- Budget: 60 iterations (~1,440 games); pins every 10; G = 40.
+- Games per iteration: one per actor (19 on the 24-core box), not
+  24. The pool splits games statically, so 24 games on 19 actors
+  hands five actors a second game and the iteration's second half
+  runs on those five alone (az3 iteration 7: median game done at
+  1472 s, last at 2731 s). Pins every 10 iterations; G = 40.
 - Box: one 4090-class host, ~$0.50/h, ~12-15 h -> ~$7.
 
 ## What would make me wrong

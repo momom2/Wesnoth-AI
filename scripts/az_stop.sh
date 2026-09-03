@@ -6,7 +6,12 @@
 set -u
 WORKDIR="${WORKDIR:-/workspace}"
 
-for p in $(pgrep -f 'scripts/az_launc[h]'); do kill "$p" 2>/dev/null; done
+# Never kill our own shell chain: an ssh one-liner that runs this
+# script and then relaunches carries "scripts/az_launch.sh" in its
+# command line too (2026-09-03: the sweep killed the relaunch).
+for p in $(pgrep -f 'scripts/az_launc[h]'); do
+    [ "$p" = "$$" ] || [ "$p" = "$PPID" ] || kill "$p" 2>/dev/null
+done
 pkill -f 'stall_watchdo[g]' 2>/dev/null
 pkill -f 'tools/az_loo[p]' 2>/dev/null
 for i in $(seq 1 60); do
