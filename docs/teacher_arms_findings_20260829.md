@@ -414,9 +414,11 @@ linres 0.054) read: consistency 98.8% of the update direction,
 game outcomes 2.6%, rollout truth 0.8%, policy 0.0%;
 cos(winner-state grad, loser-state grad) = +0.82 (the value
 gradient no longer depends on the outcome); late-game gradient
-opposing the net (-0.65). Pin 6-0-18 vs seed (~-190). The
-controller saturated (dv 0.23 at lambda 267). Trainer stopped by
-hand at iteration 5.
+opposing the net (-0.65). Pin 6-0-18 vs seed (~-190); second pin
+at 83k: 5-0-19 (~-230), profile consistency 100% / rollout truth
+-0.9% (now pushing against the net) / game 1.2%. The controller
+saturated (dv 0.23 at lambda 267). Trainer stopped by hand at
+iteration 5; box destroyed.
 
 The series now reads: rate control works (VG3), direction is set
 by the labels' precision weighting, and a self-referential label

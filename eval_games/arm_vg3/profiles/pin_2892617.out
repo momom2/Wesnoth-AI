@@ -1,0 +1,230 @@
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from /workspace/pins/pin_2892617.pt (decision_step=2892617)
+INFO:eval_sim:[profile] loaded pin_2892617.pt
+INFO:mcts_policy:training_meta applied: lambda=267.273 bias=+0.124 sigma2=0.056
+INFO:replay_dataset:Loaded 356 unit types from unit_stats.json
+WARNING:wesnoth_sim:sim: attack 17,20->13,16 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 17,20->13,16 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 17,20->13,16 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 17,9->16,17 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 17,9->16,17 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 28,11->26,15 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 25,16->29,15 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 25,16->29,15 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+INFO:signal_profiler:game 1/4 done: winner=1 turns=37
+INFO:signal_profiler:game 2/4 done: winner=2 turns=35
+WARNING:wesnoth_sim:sim: attack 13,13->11,13 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 9,10->10,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 9,10->10,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 9,10->10,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 9,10->10,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 9,10->10,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 9,10->10,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 9,10->10,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 9,10->10,12 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 12,12->10,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 12,12->10,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 12,12->10,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 12,12->10,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 12,12->10,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 9,12->10,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 9,12->10,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 9,12->10,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 9,12->10,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 9,12->10,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 9,12->10,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 8,13->9,14 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 10,11->10,15 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 10,11->10,15 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 10,11->10,15 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 10,11->10,15 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 10,11->10,15 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 8,14->9,15 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 6,15->10,15 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 6,15->10,15 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 6,15->10,15 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 6,15->10,15 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 9,14->6,15 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+INFO:signal_profiler:game 3/4 done: winner=2 turns=49
+WARNING:wesnoth_sim:sim: attack 15,20->15,18 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 15,20->15,18 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 32,24->32,28 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 32,28->32,26 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 32,28->32,26 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+WARNING:wesnoth_sim:sim: attack 34,20->35,21 has no landable attack hex; mask/sim reachability disagreement -- re-deciding
+INFO:signal_profiler:game 4/4 done: winner=2 turns=42
+INFO:signal_profiler:harvested 678 experiences from 4 games
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from /workspace/pins/pin_2892617.pt (decision_step=2892617)
+INFO:eval_sim:[profile] loaded pin_2892617.pt
+INFO:mcts_policy:training_meta applied: lambda=267.273 bias=+0.124 sigma2=0.056
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from /workspace/pins/pin_2892617.pt (decision_step=2892617)
+INFO:eval_sim:[profile] loaded pin_2892617.pt
+INFO:mcts_policy:training_meta applied: lambda=267.273 bias=+0.124 sigma2=0.056
+INFO:signal_profiler:term total           captured 130 grad tensors
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from /workspace/pins/pin_2892617.pt (decision_step=2892617)
+INFO:eval_sim:[profile] loaded pin_2892617.pt
+INFO:mcts_policy:training_meta applied: lambda=267.273 bias=+0.124 sigma2=0.056
+INFO:signal_profiler:term policy_distill  captured 125 grad tensors
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from /workspace/pins/pin_2892617.pt (decision_step=2892617)
+INFO:eval_sim:[profile] loaded pin_2892617.pt
+INFO:mcts_policy:training_meta applied: lambda=267.273 bias=+0.124 sigma2=0.056
+INFO:signal_profiler:term value_game      captured 125 grad tensors
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from /workspace/pins/pin_2892617.pt (decision_step=2892617)
+INFO:eval_sim:[profile] loaded pin_2892617.pt
+INFO:mcts_policy:training_meta applied: lambda=267.273 bias=+0.124 sigma2=0.056
+INFO:signal_profiler:term value_ground    captured 125 grad tensors
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from /workspace/pins/pin_2892617.pt (decision_step=2892617)
+INFO:eval_sim:[profile] loaded pin_2892617.pt
+INFO:mcts_policy:training_meta applied: lambda=267.273 bias=+0.124 sigma2=0.056
+INFO:signal_profiler:term value_consist   captured 125 grad tensors
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from /workspace/pins/pin_2892617.pt (decision_step=2892617)
+INFO:eval_sim:[profile] loaded pin_2892617.pt
+INFO:mcts_policy:training_meta applied: lambda=267.273 bias=+0.124 sigma2=0.056
+INFO:signal_profiler:term gbc             captured 130 grad tensors
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from /workspace/pins/pin_2892617.pt (decision_step=2892617)
+INFO:eval_sim:[profile] loaded pin_2892617.pt
+INFO:mcts_policy:training_meta applied: lambda=267.273 bias=+0.124 sigma2=0.056
+INFO:signal_profiler:term aux_margin      captured 125 grad tensors
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from /workspace/pins/pin_2892617.pt (decision_step=2892617)
+INFO:eval_sim:[profile] loaded pin_2892617.pt
+INFO:mcts_policy:training_meta applied: lambda=267.273 bias=+0.124 sigma2=0.056
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from /workspace/pins/pin_2892617.pt (decision_step=2892617)
+INFO:eval_sim:[profile] loaded pin_2892617.pt
+INFO:mcts_policy:training_meta applied: lambda=267.273 bias=+0.124 sigma2=0.056
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from /workspace/pins/pin_2892617.pt (decision_step=2892617)
+INFO:eval_sim:[profile] loaded pin_2892617.pt
+INFO:mcts_policy:training_meta applied: lambda=267.273 bias=+0.124 sigma2=0.056
+INFO:signal_profiler:value split winner_states  n=383 done
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from /workspace/pins/pin_2892617.pt (decision_step=2892617)
+INFO:eval_sim:[profile] loaded pin_2892617.pt
+INFO:mcts_policy:training_meta applied: lambda=267.273 bias=+0.124 sigma2=0.056
+INFO:signal_profiler:value split loser_states   n=293 done
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from /workspace/pins/pin_2892617.pt (decision_step=2892617)
+INFO:eval_sim:[profile] loaded pin_2892617.pt
+INFO:mcts_policy:training_meta applied: lambda=267.273 bias=+0.124 sigma2=0.056
+INFO:signal_profiler:value split turns_early    n=239 done
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from /workspace/pins/pin_2892617.pt (decision_step=2892617)
+INFO:eval_sim:[profile] loaded pin_2892617.pt
+INFO:mcts_policy:training_meta applied: lambda=267.273 bias=+0.124 sigma2=0.056
+INFO:signal_profiler:value split turns_mid      n=218 done
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from /workspace/pins/pin_2892617.pt (decision_step=2892617)
+INFO:eval_sim:[profile] loaded pin_2892617.pt
+INFO:mcts_policy:training_meta applied: lambda=267.273 bias=+0.124 sigma2=0.056
+INFO:signal_profiler:value split turns_late     n=221 done
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from /workspace/pins/pin_2892617.pt (decision_step=2892617)
+INFO:eval_sim:[profile] loaded pin_2892617.pt
+INFO:mcts_policy:training_meta applied: lambda=267.273 bias=+0.124 sigma2=0.056
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from /workspace/pins/pin_2892617.pt (decision_step=2892617)
+INFO:eval_sim:[profile] loaded pin_2892617.pt
+INFO:mcts_policy:training_meta applied: lambda=267.273 bias=+0.124 sigma2=0.056
+INFO:signal_profiler:update term total_momentum  done
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from /workspace/pins/pin_2892617.pt (decision_step=2892617)
+INFO:eval_sim:[profile] loaded pin_2892617.pt
+INFO:mcts_policy:training_meta applied: lambda=267.273 bias=+0.124 sigma2=0.056
+INFO:signal_profiler:update term total           done
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from /workspace/pins/pin_2892617.pt (decision_step=2892617)
+INFO:eval_sim:[profile] loaded pin_2892617.pt
+INFO:mcts_policy:training_meta applied: lambda=267.273 bias=+0.124 sigma2=0.056
+INFO:signal_profiler:update term policy_distill  done
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from /workspace/pins/pin_2892617.pt (decision_step=2892617)
+INFO:eval_sim:[profile] loaded pin_2892617.pt
+INFO:mcts_policy:training_meta applied: lambda=267.273 bias=+0.124 sigma2=0.056
+INFO:signal_profiler:update term value_game      done
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from /workspace/pins/pin_2892617.pt (decision_step=2892617)
+INFO:eval_sim:[profile] loaded pin_2892617.pt
+INFO:mcts_policy:training_meta applied: lambda=267.273 bias=+0.124 sigma2=0.056
+INFO:signal_profiler:update term value_ground    done
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from /workspace/pins/pin_2892617.pt (decision_step=2892617)
+INFO:eval_sim:[profile] loaded pin_2892617.pt
+INFO:mcts_policy:training_meta applied: lambda=267.273 bias=+0.124 sigma2=0.056
+INFO:signal_profiler:update term value_consist   done
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from /workspace/pins/pin_2892617.pt (decision_step=2892617)
+INFO:eval_sim:[profile] loaded pin_2892617.pt
+INFO:mcts_policy:training_meta applied: lambda=267.273 bias=+0.124 sigma2=0.056
+INFO:signal_profiler:update term gbc             done
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from /workspace/pins/pin_2892617.pt (decision_step=2892617)
+INFO:eval_sim:[profile] loaded pin_2892617.pt
+INFO:mcts_policy:training_meta applied: lambda=267.273 bias=+0.124 sigma2=0.056
+INFO:signal_profiler:update term aux_margin      done
+INFO:transformer_policy:TransformerPolicy device: cuda
+INFO:transformer_policy:Loaded checkpoint from /workspace/pins/pin_2892617.pt (decision_step=2892617)
+INFO:eval_sim:[profile] loaded pin_2892617.pt
+INFO:mcts_policy:training_meta applied: lambda=267.273 bias=+0.124 sigma2=0.056
+INFO:signal_profiler:update term value_memory    done
+label coverage: gbc=630/678 aux=630/678
+consult states captured: 200 (of 13680 seen); real probe: 200
+target amplitude: {'n': 630, 'skipped': 48, 'kl_mean': 0.015311846106798945, 'kl_median': 0.002721824551978488, 'kl_p90': 0.02988951143640522, 'tv_mean': 0.023216068338144828, 'touched_mean': 836.9222222222222, 'category_mass_delta_mean': {'attack': 0.0015756018567432432, 'end_turn': -0.00380156481695891, 'move': 0.0043468317879536795, 'recruit': -0.0021208688277380146}}
+linearity residual: 0.0480
+value splits: {'full_norm': 17.974098205566406, 'turn_terciles': [15, 31], 'subsets': {'winner_states': {'n': 383, 'norm': 13.061729431152344, 'cos_full': 0.8743086035283583}, 'loser_states': {'n': 293, 'norm': 24.271520614624023, 'cos_full': 0.9644359310014524}, 'turns_early': {'n': 239, 'norm': 18.00774574279785, 'cos_full': 0.9999912738276675}, 'turns_mid': {'n': 218, 'norm': 1.0439889430999756, 'cos_full': 0.10673544977964634}, 'turns_late': {'n': 221, 'norm': 1.507988691329956, 'cos_full': -0.42985279014661026}}, 'cos_winner_states|loser_states': 0.7943043328125042, 'cos_turns_early|turns_late': -0.43770227319082383}
+TOTAL gradient  norm=17.97  (678 experiences)
+  [trunk      ] 13.3
+  [value_head ] 12.08
+  [encoder    ] 0.5228
+  [actor_head ] 0.003838
+  [gbc_heads  ] 0.002272
+  [target_proj] 0.000962
+  [weapon_head] 0.0006963
+  [type_head  ] 0.0004749
+├─ value_consist   norm=18.35  cos_total=+0.985  proj_frac=+1.005
+│    trunk       norm=13.63 (1.02 of group total, cos +0.99)
+│    value_head  norm=12.28 (1.02 of group total, cos +0.98)
+│    encoder     norm=0.4845 (0.93 of group total, cos +0.98)
+├─ value_game      norm=0.8913  cos_total=+0.247  proj_frac=+0.012
+│    trunk       norm=0.7652 (0.06 of group total, cos +0.22)
+│    value_head  norm=0.4543 (0.04 of group total, cos +0.31)
+│    encoder     norm=0.05075 (0.10 of group total, cos +0.31)
+├─ value_ground    norm=4.16  cos_total=-0.038  proj_frac=-0.009
+│    value_head  norm=3.276 (0.27 of group total, cos +0.02)
+│    trunk       norm=2.56 (0.19 of group total, cos -0.10)
+│    encoder     norm=0.1143 (0.22 of group total, cos +0.46)
+├─ value_memory    norm=0.4978  cos_total=+0.167  proj_frac=+0.005
+│    value_head  norm=0.4978 (0.04 of group total, cos +0.25)
+├─ policy_distill  norm=0.01437  cos_total=-0.022  proj_frac=-0.000
+│    trunk       norm=0.01375 (0.00 of group total, cos -0.03)
+│    actor_head  norm=0.003838 (1.00 of group total, cos +1.00)
+│    encoder     norm=0.001035 (0.00 of group total, cos +0.38)
+│    target_proj norm=0.000962 (1.00 of group total, cos +1.00)
+│    weapon_head norm=0.0006963 (1.00 of group total, cos +1.00)
+│    type_head   norm=0.0004749 (1.00 of group total, cos +1.00)
+├─ gbc             norm=0.002365  cos_total=-0.007  proj_frac=-0.000
+│    gbc_heads   norm=0.002272 (1.00 of group total, cos +1.00)
+│    trunk       norm=0.0006568 (0.00 of group total, cos -0.03)
+│    encoder     norm=2.147e-05 (0.00 of group total, cos -0.07)
+├─ aux_margin      norm=0  cos_total=+0.000  proj_frac=+0.000
+
+UPDATE tree (post-Adam, clip 1.0; opt_state=True):
+  total_momentum  |du|=0.0710 proj=+1.295 dv_consult=0.06271 dv_real=0.06532
+  total           |du|=0.0206 proj=+1.000 dv_consult=0.02833 dv_real=0.02848
+  policy_distill  |du|=0.0043 proj=+0.005 dv_consult=0.00006 dv_real=0.00007
+  value_game      |du|=0.0434 proj=+0.169 dv_consult=0.01637 dv_real=0.01856
+  value_ground    |du|=0.0252 proj=+0.110 dv_consult=0.00437 dv_real=0.00444
+  value_consist   |du|=0.0200 proj=+0.921 dv_consult=0.02840 dv_real=0.02862
+  gbc             |du|=0.0278 proj=+0.196 dv_consult=0.00000 dv_real=0.00000
+  aux_margin      |du|=0.0000 proj=+0.000 dv_consult=0.00000 dv_real=0.00000
+  value_memory    |du|=0.0050 proj=+0.007 dv_consult=0.00138 dv_real=0.00153
+
+wrote /workspace/profiles/pin_2892617.json

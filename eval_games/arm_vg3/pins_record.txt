@@ -1,0 +1,51 @@
+2026-09-02T19:15:30Z pin 2820738
+
+=== PURE (decisive only, primary) ===
+  pin_2820738      0.0 ± 0
+  seed            0.0 ± 105
+    pin_2820738 vs seed: 5-0-5 (W-D-L)
+
+=== MATERIAL-SIGN (diagnostic) ===
+  pin_2820738      0.0 ± 0
+  seed            0.0 ± 105
+    pin_2820738 vs seed: 5-0-5 (W-D-L)
+
+games: 10 (0 no-result, excluded from PURE) | anchor: pin_2820738 = 0 | procedure: mcts:32/mcts:32
+Traceback (most recent call last):
+  File "<stdin>", line 4, in <module>
+  File "<stdin>", line 4, in <genexpr>
+NameError: name 'norm' is not defined
+2026-09-02T22:02:41Z pin 2862807
+
+=== PURE (decisive only, primary) ===
+  seed          181.7 ± 79
+  pin_2862807      0.0 ± 0
+    pin_2862807 vs seed: 6-0-18 (W-D-L)
+
+=== MATERIAL-SIGN (diagnostic) ===
+  seed          181.7 ± 79
+  pin_2862807      0.0 ± 0
+    pin_2862807 vs seed: 6-0-18 (W-D-L)
+
+games: 24 (0 no-result, excluded from PURE) | anchor: pin_2862807 = 0 | procedure: mcts:32/mcts:32
+Traceback (most recent call last):
+  File "<stdin>", line 4, in <module>
+  File "<stdin>", line 4, in <genexpr>
+NameError: name 'norm' is not defined
+2026-09-02T23:56:20Z pin 2892617
+
+=== PURE (decisive only, primary) ===
+  seed          219.9 ± 84
+  pin_2892617      0.0 ± 0
+    pin_2892617 vs seed: 5-0-19 (W-D-L) + 1 no-result (excluded)
+
+=== MATERIAL-SIGN (diagnostic) ===
+  seed          219.9 ± 84
+  pin_2892617      0.0 ± 0
+    pin_2892617 vs seed: 5-0-19 (W-D-L)
+
+games: 25 (1 no-result, excluded from PURE) | anchor: pin_2892617 = 0 | procedure: mcts:32/mcts:32
+Traceback (most recent call last):
+  File "<stdin>", line 4, in <module>
+  File "<stdin>", line 4, in <genexpr>
+NameError: name 'norm' is not defined
