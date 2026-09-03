@@ -184,7 +184,8 @@ def _clone_weights(base) -> Dict:
 def backtracking_step(base, take_step, train_exps: List, held_exps: List,
                       kl_states: Optional[List] = None, *,
                       shrink: float = 0.5, max_trials: int = 7,
-                      max_level_shift: Optional[float] = None) -> StepResult:
+                      max_level_shift: Optional[float] = None,
+                      select: str = "first") -> StepResult:
     """Apply `take_step()` (the production update on `train_exps`,
     already queued by the caller), then shrink the applied move
     until BOTH hold: the held-out games are not significantly worse
@@ -204,6 +205,12 @@ def backtracking_step(base, take_step, train_exps: List, held_exps: List,
     squared error, so held-out loss accepts it, while search turns
     any mover-frame level error b into a 2b act-vs-end_turn bias
     (step-scale measurement, 2026-09-03).
+
+    `select`: "first" takes the largest passing fraction (Armijo);
+    "best" evaluates every fraction down to shrink**(max_trials-1)
+    and takes the passing one with the lowest held-out loss (an
+    exact line search on the held-out games; costs max_trials
+    evaluations every step).
 
     `take_step` must perform exactly one optimizer update on the
     trainer model and return its stats; the weights it leaves are
@@ -234,6 +241,7 @@ def backtracking_step(base, take_step, train_exps: List, held_exps: List,
 
     alpha, after, trials, shift = 1.0, None, 0, {}
     mean_d = se_d = math.nan
+    best = None   # (held total, alpha, after, shift, mean_d, se_d) under "best"
     for t in range(max_trials):
         alpha = shrink ** t
         trials = t + 1
@@ -247,9 +255,24 @@ def backtracking_step(base, take_step, train_exps: List, held_exps: List,
         after_by_game = held_loss_by_game(base, held_exps)
         after = _pooled(after_by_game, held_exps)
         ok, mean_d, se_d = not_significantly_worse(before_by_game, after_by_game)
-        if ok:
+        if ok and select == "first":
             break
+        if ok and (best is None or after["total"] < best[0]):
+            best = (after["total"], alpha, after, shift, mean_d, se_d)
     else:
+        if best is not None:
+            _, alpha, after, shift, mean_d, se_d = best
+            publish_weights(base, {k: (v + alpha * delta[k] if k in delta else v)
+                                   for k, v in theta0.items()})
+            after = dict(after, delta_mean=mean_d, delta_se=se_d)
+            log.info(f"step alpha={alpha:.4g} (best of {trials}) held-out "
+                     f"{before['total']:.4f} -> {after['total']:.4f} "
+                     f"(per-game delta {mean_d:+.4f} se {se_d:.4f}) | "
+                     f"KL_med {shift.get('kl_median', float('nan')):.4f} "
+                     f"dV {shift.get('dv_mean', float('nan')):+.4f}")
+            return StepResult(alpha=alpha, trials=trials, skipped=False,
+                              held_before=before, held_after=after, shift=shift,
+                              n_train=len(train_exps), n_held=len(held_exps))
         publish_weights(base, theta0)
         shift = policy_shift(base, kl_states, old_priors) if kl_states else {}
         log.warning(f"step skipped: no alpha down to {alpha:.4g} passed "

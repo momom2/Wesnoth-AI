@@ -190,6 +190,13 @@ def main(argv) -> int:
                          "shrunk until it fits. 0.08 = two C51 atoms, "
                          "the trust-region delta of "
                          "docs/design_constants.md. Negative = off.")
+    ap.add_argument("--step-select", choices=("first", "best"), default="first",
+                    help="first = largest fraction passing the held-out "
+                         "test (Armijo); best = the passing fraction with "
+                         "the lowest held-out loss among --step-trials "
+                         "(exact line search on the held-out games).")
+    ap.add_argument("--step-trials", type=int, default=7,
+                    help="Fractions tried: 1, 1/2, ... 1/2^(n-1).")
     ap.add_argument("--value-center", action="store_true",
                     help="Search subtracts the value head's mean on the "
                          "latest batch from every value it reads "
@@ -385,7 +392,9 @@ def main(argv) -> int:
             res = backtracking_step(base, _take_step, train_exps, held_exps,
                                     kl_states,
                                     max_level_shift=(None if args.max_level_shift < 0
-                                                     else args.max_level_shift))
+                                                     else args.max_level_shift),
+                                    max_trials=args.step_trials,
+                                    select=args.step_select)
             stats = captured["stats"]
             row.update(policy_loss=stats.policy_loss,
                        value_loss=stats.value_loss,
