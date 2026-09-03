@@ -396,6 +396,36 @@ harvest's predicted movement (first-iteration protection; the
 collapse horizon is one iteration). Fourth collapse in the series;
 each one localized the mechanism further.
 
+## Arm VG3 (2026-09-02..03): gate-frame grounding + measured
+## trust region -- the churn is held; the mixture self-distills
+
+Design: docs/arm_vg3_leg_20260902.md. What worked: capture/anchor/
+measure on the mover-frame pre-flip states the gate reads, with
+lambda0 = 12.1 measured by an offline production iteration; per-
+iteration movement on those states fell from 0.83 (unregulated) to
+~0.1 (0.035-0.063 held-out), K stayed 12 -> 10 -> 8/9/10 over six
+iterations with no tripwire, and the checkpoint continuation
+metadata restored the controller on a real resume. What failed:
+the consistency (bootstrap) term's precision, 1/(2 sigma2) with
+sigma2 = var(search - rollout) - (1 - V^2), is a small difference
+of two ~0.95 quantities; the proxy overshot, sigma2 hit its floor,
+and the first valid provenance profile (pin 2862807, 53k steps,
+linres 0.054) read: consistency 98.8% of the update direction,
+game outcomes 2.6%, rollout truth 0.8%, policy 0.0%;
+cos(winner-state grad, loser-state grad) = +0.82 (the value
+gradient no longer depends on the outcome); late-game gradient
+opposing the net (-0.65). Pin 6-0-18 vs seed (~-190). The
+controller saturated (dv 0.23 at lambda 267). Trainer stopped by
+hand at iteration 5.
+
+The series now reads: rate control works (VG3), direction is set
+by the labels' precision weighting, and a self-referential label
+whose precision is over-estimated wins the mixture. Fixes
+committed: precision = upper 90% CI on sigma2 (ad5c87f); rollout
+noise measured from 2 playouts/state (9d04c2f). VG4 proposal in
+the leg doc: (a) VG3 + fixes, or (b) rollout truth only, no
+bootstrap -- the never-run variant the profile points at.
+
 CORRECTION (2026-09-02, from the VG2 calibration harvest): the
 "categorical CE explodes on confident misses" explanation of the
 25-42 norms was wrong in mechanism -- CE's gradient w.r.t. the
