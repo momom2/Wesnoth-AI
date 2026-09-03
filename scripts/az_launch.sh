@@ -97,6 +97,7 @@ while [ $tries -lt 10 ]; do
         --actors "$ACTORS" --sims "${SIMS:-32}" --value-coef "${VALUE_COEF:-1.0}" \
         --lr "${LR:-1e-4}" --max-turns "${MAX_TURNS:-60}" \
         --pin-every "${PIN_EVERY:-10}" --probe-games "${PROBE_GAMES:-40}" \
+        --start-iter "${START_ITER:-0}" \
         --device cuda --log-level INFO >> "$WORKDIR/train.log" 2>&1
     rc=$?
     echo "[az] loop exited rc=$rc at $(date -u +%FT%TZ)" >> "$WORKDIR/train.log"

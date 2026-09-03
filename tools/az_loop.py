@@ -59,7 +59,8 @@ COLUMNS = [
     "fresh_ce_d1_10", "fresh_ce_d11_20", "fresh_ce_d21_30",
     # time
     "gen_seconds", "forwards", "decisions", "forwards_per_s",
-    "decisions_per_s", "train_seconds", "telemetry_seconds",
+    "decisions_per_s", "tokens_per_leaf", "pad_ratio",
+    "game_finish_p50", "game_finish_max", "train_seconds", "telemetry_seconds",
     "probe_seconds", "profile_seconds", "iter_seconds",
     # step control (tools/step_control.py)
     "step_alpha", "step_trials", "held_before", "held_after",
@@ -142,6 +143,9 @@ def main(argv) -> int:
     ap.add_argument("--pin-every", type=int, default=10)
     ap.add_argument("--probe-games", type=int, default=40)
     ap.add_argument("--search-probe-every-pins", type=int, default=2)
+    ap.add_argument("--start-iter", type=int, default=0,
+                    help="First iteration index (resume: keeps the pin "
+                         "cadence and CSV numbering of the running leg).")
     ap.add_argument("--abort-k-median", type=float, default=3.0,
                     help="Abort when K median stays below this for 3 "
                          "iterations. 3 = degenerate play (K 1-2, most "
@@ -227,7 +231,7 @@ def main(argv) -> int:
     k_low = 0
     pins_done = 0
     try:
-        for it in range(args.iterations):
+        for it in range(args.start_iter, args.iterations):
             t_it = time.monotonic()
             row: Dict = {"iter": it, "decision_step": base._decision_step}
 
@@ -248,7 +252,11 @@ def main(argv) -> int:
                 n_experiences=len(kept),
                 gen_seconds=getattr(pool, "last_iteration_seconds", None),
                 forwards=getattr(pool, "last_served_forwards", None),
-                decisions=getattr(pool, "last_decisions", None))
+                decisions=getattr(pool, "last_decisions", None),
+                tokens_per_leaf=getattr(pool, "last_tokens_per_leaf", None),
+                pad_ratio=getattr(pool, "last_pad_ratio", None),
+                game_finish_p50=getattr(pool, "last_game_finish_p50", None),
+                game_finish_max=getattr(pool, "last_game_finish_max", None))
             tot_actions = sum(sum(o.action_counts.values()) for o in outcomes) or 1
             for k in ("attack", "end_turn", "move", "recruit"):
                 row[f"action_{k}_pct"] = 100.0 * sum(

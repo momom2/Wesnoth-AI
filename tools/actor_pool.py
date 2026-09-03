@@ -513,6 +513,7 @@ class ActorPool:
         total_decisions = 0                 # summed across actors this iter
         t_start = time.monotonic()
         last_liveness = t_start
+        finish_times: List[float] = []   # per-game wall time since t_start
         drained = False                     # soft deadline fired?
         self._last_abandoned = 0            # discard telemetry (A6)
 
@@ -541,6 +542,7 @@ class ActorPool:
                 kind = None
             if kind == _R_OUTCOME:
                 outcomes.append(payload)
+                finish_times.append(time.monotonic() - t_start)
             elif kind == _R_EXPS:
                 # Each _R_EXPS payload is ONE GAME's experiences
                 # (actors ship per game) -- exactly the granularity
@@ -660,7 +662,7 @@ class ActorPool:
             self.last_distill_stats = out
         agg = {k: sum(s[k] for s in serve_stats)
                for k in ("wait", "infer", "wire", "put",
-                         "leaves", "batches")} if serve_stats else {}
+                         "leaves", "batches", "tokens", "padded")} if serve_stats else {}
         served = int(agg.get("leaves", 0))
         elapsed = max(1e-9, time.monotonic() - t_start)
         if agg.get("batches"):
@@ -679,6 +681,18 @@ class ActorPool:
         self.last_served_forwards = served
         self.last_iteration_seconds = elapsed
         self.last_decisions = self._global_decision_step() - ds0
+        self.last_tokens_per_leaf = (agg["tokens"] / served
+                                     if served and agg.get("tokens") else None)
+        self.last_pad_ratio = (agg["padded"] / agg["tokens"]
+                               if agg.get("tokens") else None)
+        ft = sorted(finish_times)
+        self.last_game_finish_p50 = ft[len(ft) // 2] if ft else None
+        self.last_game_finish_max = ft[-1] if ft else None
+        if ft:
+            log.info(f"iter {iter_idx}: game finish times p50={ft[len(ft) // 2]:.0f}s "
+                     f"p90={ft[int(len(ft) * 0.9)]:.0f}s max={ft[-1]:.0f}s | "
+                     f"tokens/leaf={self.last_tokens_per_leaf or 0:.0f} "
+                     f"pad_ratio={self.last_pad_ratio or 0:.2f}")
         return outcomes, experiences
 
     def _serve_worker(self, stop_ev, stats_out: List[Dict]) -> None:
@@ -688,7 +702,7 @@ class ActorPool:
         to `stats_out` on exit."""
         from tools.inference_seam import output_to_wire
         st = {"wait": 0.0, "infer": 0.0, "wire": 0.0, "put": 0.0,
-              "leaves": 0, "batches": 0}
+              "leaves": 0, "batches": 0, "tokens": 0, "padded": 0}
         while not stop_ev.is_set():
             t0 = time.monotonic()
             batch = []
@@ -723,6 +737,12 @@ class ActorPool:
             st["put"] += t4 - t3
             st["leaves"] += len(flat)
             st["batches"] += 1
+            # Sequence lengths: hex tokens + unit tokens per leaf, and
+            # what the batch actually costs after padding to its
+            # longest leaf (attention is quadratic in that length).
+            lens = [len(r.hex_xs) + len(r.unit_ids) for r in flat]
+            st["tokens"] += sum(lens)
+            st["padded"] += len(lens) * max(lens) if lens else 0
         stats_out.append(st)
 
     def shutdown(self, timeout: float = 15.0) -> None:
