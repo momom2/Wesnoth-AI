@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import gc
 import json
 import logging
 import random
@@ -62,6 +63,7 @@ COLUMNS = [
     "gen_seconds", "forwards", "decisions", "forwards_per_s",
     "decisions_per_s", "tokens_per_leaf", "pad_ratio",
     "game_finish_p50", "game_finish_max", "gpu_reserved_mb", "rss_mb",
+    "gc_seconds", "gc_gen2_seconds", "gc_gen2_count", "live_objects",
     "train_seconds", "telemetry_seconds",
     "probe_seconds", "profile_seconds", "iter_seconds",
     # step control (tools/step_control.py)
@@ -111,6 +113,34 @@ def _migrate_history_columns(csv_path: Path) -> None:
             w.writerow(row)
     log.warning(f"history CSV migrated to {len(COLUMNS)} columns "
                 f"({len(rows)} rows kept, {dropped} dropped; backup {backup.name})")
+
+
+class _GcMeter:
+    """Wall time spent in the cyclic garbage collector, by generation.
+    Every collection stops all threads, including the two that serve
+    the actors' leaves; a large live heap makes gen-2 sweeps long.
+    Generation throughput decayed 2x over a process's life (az3);
+    this says whether GC is the reason."""
+
+    def __init__(self):
+        self.seconds = [0.0, 0.0, 0.0]
+        self.counts = [0, 0, 0]
+        self._t0 = None
+        gc.callbacks.append(self._cb)
+
+    def _cb(self, phase, info):
+        if phase == "start":
+            self._t0 = time.monotonic()
+        elif self._t0 is not None:
+            g = int(info.get("generation", 0))
+            self.seconds[g] += time.monotonic() - self._t0
+            self.counts[g] += 1
+            self._t0 = None
+
+    def take(self):
+        s, c = self.seconds, self.counts
+        self.seconds, self.counts = [0.0, 0.0, 0.0], [0, 0, 0]
+        return sum(s), s[2], c[2]
 
 
 def _rss_mb() -> Optional[float]:
@@ -303,6 +333,7 @@ def main(argv) -> int:
     if new_csv:
         writer.writeheader()
     rng = random.Random(args.rng_seed + int(base._decision_step))
+    gc_meter = _GcMeter()
     k_low = 0
     pins_done = 0
     try:
@@ -335,10 +366,13 @@ def main(argv) -> int:
             # Per-process accumulation watch: generation throughput
             # decayed 2x over iterations 2-5 and a process restart
             # restored it (2026-09-03); these say whether memory grows.
+            gc_total, gc_gen2, gc_n2 = gc_meter.take()
             row.update(
                 gpu_reserved_mb=(torch.cuda.memory_reserved() / 2**20
                                  if device.type == "cuda" else None),
-                rss_mb=_rss_mb())
+                rss_mb=_rss_mb(), gc_seconds=gc_total,
+                gc_gen2_seconds=gc_gen2, gc_gen2_count=gc_n2,
+                live_objects=len(gc.get_objects()))
             tot_actions = sum(sum(o.action_counts.values()) for o in outcomes) or 1
             for k in ("attack", "end_turn", "move", "recruit"):
                 row[f"action_{k}_pct"] = 100.0 * sum(
