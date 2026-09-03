@@ -18,9 +18,19 @@ Repeat:
 3. Take ONE gradient step on all positions from this batch of
    games:
      loss = CE(policy, visit distribution) + c * (V - result)^2
-   Adam, fixed learning rate, gradient-norm clip. No replay
+   Adam proposes the update; the applied update is the largest
+   fraction (1, 1/2, 1/4, ... 1/64) of it that lowers the loss on
+   a fifth of the batch's games held out of the step
+   (`tools/step_control.py`, backtracking line search). If none
+   does, the step is skipped. Gradient-norm clip. No replay
    buffer, no per-game reweighting, no label smoothing, no
    auxiliary heads, no anchors, no memory, no extra channels.
+   Why the line search: with fresh Adam moments the first update
+   is lr * sign(gradient) on EVERY parameter, whatever the gradient
+   size (measured 2026-09-03: 66% of 14.8M weights moved by exactly
+   lr; the policy collapsed to K median 1 after that one step). A
+   step bounded by held-out loss cannot overshoot that way, and it
+   has no rate to pick.
 4. Save the checkpoint. Every M iterations, play the raw network
    (no search) against the raw seed for G games, and the
    network+search against the seed+search for G games.
@@ -69,7 +79,8 @@ median < 10 for 3 consecutive iterations (the one tripwire kept).
   the categorical loss charges a confident head heavily for a
   coin-flip label; squared error on the mean charges it in
   proportion to the miss.
-- Learning rate: 1e-4 (the seed's), clip 1.0.
+- Learning rate: 1e-4 is only the proposal's scale; the applied
+  step is set by the held-out backtracking above. Clip 1.0.
 - Budget: 60 iterations (~1,440 games); pins every 10; G = 40.
 - Box: one 4090-class host, ~$0.50/h, ~12-15 h -> ~$7.
 

@@ -1,0 +1,182 @@
+"""Step-size control for the minimal self-play loop.
+
+The optimizer proposes an update; the applied update is the largest
+fraction alpha in {1, 1/2, 1/4, ...} of that proposal that lowers
+the loss on a held-out fifth of the iteration's games (Armijo
+backtracking with zero sufficient-decrease slope). The rule has no
+learning-rate role: a fresh-moment Adam step (lr * sign(g) on every
+parameter) or any other overshoot is shrunk until the held-out
+games agree it helps. If no fraction helps, the step is skipped
+and the weights restored.
+
+Also reports how far the policy moved: KL(pi_old || pi_new), total
+variation, and end_turn prior mass on real held-out states.
+"""
+from __future__ import annotations
+
+import logging
+import math
+import statistics
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Tuple
+
+log = logging.getLogger("step_control")
+
+
+@dataclass
+class StepResult:
+    alpha: float
+    trials: int
+    skipped: bool
+    held_before: Dict[str, float]
+    held_after: Dict[str, float]
+    shift: Dict[str, float] = field(default_factory=dict)
+    n_train: int = 0
+    n_held: int = 0
+
+
+def split_holdout(exps: List, frac: float, rng) -> Tuple[List, List]:
+    """Hold out a fraction of GAMES (never of positions: positions
+    of one game share its outcome label)."""
+    gids = sorted({getattr(e, "game_id", "") for e in exps})
+    if len(gids) < 2 or frac <= 0:
+        return list(exps), []
+    rng.shuffle(gids)
+    n_held = max(1, int(round(frac * len(gids))))
+    held = set(gids[:n_held])
+    return ([e for e in exps if e.game_id not in held],
+            [e for e in exps if e.game_id in held])
+
+
+class _StubbedOptimizerStep:
+    def __init__(self, trainer):
+        self.trainer = trainer
+
+    def __enter__(self):
+        self.real = self.trainer.optimizer.step
+        self.trainer.optimizer.step = lambda *a, **k: None
+        return self
+
+    def __exit__(self, *exc):
+        self.trainer.optimizer.step = self.real
+
+
+def held_loss(base, exps: List) -> Dict[str, float]:
+    """Policy CE + value loss on `exps` through the production loss
+    path, with the optimizer step stubbed out (weights untouched)."""
+    tr = base._trainer
+    with _StubbedOptimizerStep(tr):
+        st = tr.step_mcts(list(exps))
+    tr.optimizer.zero_grad(set_to_none=True)
+    return {"policy_ce": float(st.policy_loss),
+            "value_loss": float(st.value_loss),
+            "total": float(st.policy_loss) + float(st.value_loss)}
+
+
+def action_priors(base, e) -> Tuple[Dict, Dict]:
+    """Normalized prior over the legal actions of `e`'s state, from
+    the INFERENCE model (the one search consults); plus category."""
+    import torch
+    from wesnoth_ai.action_sampler import enumerate_legal_actions_with_priors
+    with torch.no_grad():
+        enc = base._inference_encoder.encode(e.game_state)
+        out = base._inference_model(enc)
+        legal = enumerate_legal_actions_with_priors(
+            enc, out, e.game_state,
+            decision_step=int(getattr(e, "decision_step", 0)))
+    pri, cat = {}, {}
+    for la in legal:
+        key = (la.actor_idx, la.target_idx, la.weapon_idx,
+               getattr(la, "type_idx", None))
+        pri[key] = float(la.prior)
+        cat[key] = la.action.get("type", "?")
+    z = sum(pri.values()) or 1e-12
+    return {k: v / z for k, v in pri.items()}, cat
+
+
+def policy_shift(base, states: List, old: List[Tuple[Dict, Dict]]) -> Dict[str, float]:
+    """KL(old || new), TV and end_turn prior mass over `states`."""
+    kls, tvs, et = [], [], []
+    for e, (p_old, cat) in zip(states, old):
+        p_new, _ = action_priors(base, e)
+        kl = tv = 0.0
+        for k, po in p_old.items():
+            pn = max(p_new.get(k, 0.0), 1e-12)
+            if po > 0:
+                kl += po * math.log(po / pn)
+            tv += abs(po - pn)
+        kls.append(kl)
+        tvs.append(0.5 * tv)
+        et.append(sum(p for k, p in p_new.items() if cat[k] == "end_turn"))
+    if not kls:
+        return {}
+    return {"kl_mean": statistics.fmean(kls),
+            "kl_median": statistics.median(kls),
+            "tv_mean": statistics.fmean(tvs),
+            "end_turn_prior_mean": statistics.fmean(et), "n": len(kls)}
+
+
+def publish_weights(base, theta: Dict) -> None:
+    """Load `theta` into the trainer model and the inference snapshot
+    (the same two-model contract train_step's publish uses)."""
+    base._model.load_state_dict(theta)
+    with base._lock:
+        inf = getattr(base, "_inference_base", base._inference_model)
+        inf.load_state_dict(base._model.state_dict())
+        inf.eval()
+
+
+def _clone_weights(base) -> Dict:
+    return {k: v.detach().clone() for k, v in base._model.state_dict().items()}
+
+
+def backtracking_step(base, take_step, train_exps: List, held_exps: List,
+                      kl_states: Optional[List] = None, *,
+                      shrink: float = 0.5, max_trials: int = 7) -> StepResult:
+    """Apply `take_step()` (the production update on `train_exps`,
+    already queued by the caller), then shrink the applied move
+    until `held_exps` loss falls below its pre-step value.
+
+    `take_step` must perform exactly one optimizer update on the
+    trainer model and return its stats; the weights it leaves are
+    the full proposal (alpha = 1)."""
+    import torch
+    theta0 = _clone_weights(base)
+    old_priors = ([action_priors(base, e) for e in kl_states]
+                  if kl_states else [])
+    before = held_loss(base, held_exps) if held_exps else {"total": math.inf}
+    take_step()
+    theta1 = _clone_weights(base)
+    delta = {k: theta1[k] - v for k, v in theta0.items()
+             if torch.is_floating_point(v)}
+    if not held_exps:
+        shift = policy_shift(base, kl_states, old_priors) if kl_states else {}
+        return StepResult(alpha=1.0, trials=0, skipped=False,
+                          held_before={}, held_after={}, shift=shift,
+                          n_train=len(train_exps), n_held=0)
+
+    alpha, after, trials = 1.0, None, 0
+    for t in range(max_trials):
+        alpha = shrink ** t
+        trials = t + 1
+        if t > 0:
+            publish_weights(base, {k: (v + alpha * delta[k] if k in delta else v)
+                                   for k, v in theta0.items()})
+        after = held_loss(base, held_exps)
+        if after["total"] < before["total"]:
+            break
+    else:
+        publish_weights(base, theta0)
+        shift = policy_shift(base, kl_states, old_priors) if kl_states else {}
+        log.warning(f"step skipped: no alpha down to {alpha:.4g} lowered "
+                    f"held-out loss ({before['total']:.4f})")
+        return StepResult(alpha=0.0, trials=trials, skipped=True,
+                          held_before=before, held_after=after, shift=shift,
+                          n_train=len(train_exps), n_held=len(held_exps))
+    shift = policy_shift(base, kl_states, old_priors) if kl_states else {}
+    log.info(f"step alpha={alpha:.4g} ({trials} trial(s)) held-out "
+             f"{before['total']:.4f} -> {after['total']:.4f} | "
+             f"KL_med {shift.get('kl_median', float('nan')):.4f}")
+    return StepResult(alpha=alpha, trials=trials, skipped=False,
+                      held_before=before, held_after=after, shift=shift,
+                      n_train=len(train_exps), n_held=len(held_exps))

@@ -60,6 +60,9 @@ COLUMNS = [
     "gen_seconds", "forwards", "decisions", "forwards_per_s",
     "decisions_per_s", "train_seconds", "telemetry_seconds",
     "probe_seconds", "profile_seconds", "iter_seconds",
+    # step control (tools/step_control.py)
+    "step_alpha", "step_trials", "held_before", "held_after",
+    "step_kl_median", "step_kl_mean", "step_tv_mean", "end_turn_prior",
     # pins
     "pin_step", "raw_vs_seed_wdl", "search_vs_seed_wdl",
 ]
@@ -119,6 +122,14 @@ def main(argv) -> int:
     ap.add_argument("--sims", type=int, default=32)
     ap.add_argument("--value-coef", type=float, default=1.0)
     ap.add_argument("--lr", type=float, default=1e-4)
+    ap.add_argument("--holdout-frac", type=float, default=0.2,
+                    help="Fraction of each iteration's GAMES held out "
+                         "of the step; the applied update is shrunk "
+                         "(1, 1/2, 1/4, ...) until their loss falls "
+                         "(tools/step_control.py). 0 = fixed step.")
+    ap.add_argument("--kl-states", type=int, default=100,
+                    help="Held-out states on which the per-step policy "
+                         "movement (KL, TV, end_turn mass) is measured.")
     ap.add_argument("--max-turns", type=int, default=60)
     ap.add_argument("--pin-every", type=int, default=10)
     ap.add_argument("--probe-games", type=int, default=40)
@@ -141,6 +152,7 @@ def main(argv) -> int:
     from tools.sim_self_play import k_median_of
     from tools.wesnoth_sim import PvPDefaults
     from tools.signal_telemetry import signal_grad_norms
+    from tools.step_control import backtracking_step, split_holdout
     from signal_profiler.target_amplitude import target_amplitude
 
     device = (torch.device("cuda")
@@ -250,14 +262,32 @@ def main(argv) -> int:
                                target_tv_mean=ta["tv_mean"],
                                target_end_turn_delta=cats.get("end_turn"),
                                target_attack_delta=cats.get("attack"))
-            # ---- ONE gradient step --------------------------------
+            # ---- ONE gradient step, backtracked on held-out games --
             t_tr = time.monotonic()
-            with policy._lock:
-                policy._queue = list(kept)
-            stats = policy.train_step()
+            train_exps, held_exps = split_holdout(kept, args.holdout_frac, rng)
+            kl_states = (held_exps if len(held_exps) <= args.kl_states
+                         else rng.sample(held_exps, args.kl_states))
+            captured = {}
+
+            def _take_step():
+                with policy._lock:
+                    policy._queue = list(train_exps)
+                captured["stats"] = policy.train_step()
+                return captured["stats"]
+
+            res = backtracking_step(base, _take_step, train_exps, held_exps,
+                                    kl_states)
+            stats = captured["stats"]
             row.update(policy_loss=stats.policy_loss,
                        value_loss=stats.value_loss,
                        grad_norm=stats.grad_norm,
+                       step_alpha=res.alpha, step_trials=res.trials,
+                       held_before=res.held_before.get("total"),
+                       held_after=res.held_after.get("total"),
+                       step_kl_median=res.shift.get("kl_median"),
+                       step_kl_mean=res.shift.get("kl_mean"),
+                       step_tv_mean=res.shift.get("tv_mean"),
+                       end_turn_prior=res.shift.get("end_turn_prior_mean"),
                        train_seconds=time.monotonic() - t_tr)
             # per-source gradient norms (unclipped, optimizer stubbed)
             norms = signal_grad_norms(base._trainer, kept, rng) if kept else {}
