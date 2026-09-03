@@ -66,7 +66,11 @@ not been run.
 - net+search vs seed+search: does the value head help or hurt the
   search? Prediction: does not fall below the seed.
 Kill: raw pin <= seed at the end of the budget, or actions/turn
-median < 10 for 3 consecutive iterations (the one tripwire kept).
+median < 3 for 3 consecutive iterations (the one tripwire kept).
+  Threshold 3, not 10: under plain search, K 5-8 with most games
+  decided is play, not collapse (step-scale measurement
+  2026-09-03, `training/metrics/step_scale_20260903/`); K 1-2 with
+  most games undecided is the degenerate state the tripwire is for.
 
 ## Constants to fix before running (your call on each)
 
