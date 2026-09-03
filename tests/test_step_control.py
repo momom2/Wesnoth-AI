@@ -72,6 +72,22 @@ def test_agreeing_holdout_accepts_full_step():
     assert moved
 
 
+def test_level_cap_shrinks_a_step_that_moves_the_value_level():
+    policy = _policy()
+    train, held = _exps("g_train", +1.0), _exps("g_held", +1.0)
+    step = lambda: policy._trainer.step_mcts(train)  # noqa: E731
+    free = backtracking_step(policy, step, train, held, held,
+                             max_level_shift=None)
+    assert free.alpha == 1.0 and abs(free.shift["dv_mean"]) > 1e-6
+    policy2 = _policy()
+    train2, held2 = _exps("g_train", +1.0), _exps("g_held", +1.0)
+    step2 = lambda: policy2._trainer.step_mcts(train2)  # noqa: E731
+    capped = backtracking_step(policy2, step2, train2, held2, held2,
+                               max_level_shift=1e-7)
+    assert capped.alpha < 1.0 and capped.trials > 1
+    assert capped.skipped or abs(capped.shift["dv_mean"]) <= 1e-7
+
+
 def test_split_holdout_is_by_game():
     exps = _exps("a", 1.0) + _exps("b", 1.0) + _exps("c", 1.0) + _exps("d", 1.0)
     train, held = split_holdout(exps, 0.25, random.Random(0))

@@ -129,6 +129,12 @@ def main(argv) -> int:
                          "of the step; the applied update is shrunk "
                          "(1, 1/2, 1/4, ...) until their loss falls "
                          "(tools/step_control.py). 0 = fixed step.")
+    ap.add_argument("--max-level-shift", type=float, default=0.08,
+                    help="Largest mean value-head shift one step may "
+                         "apply on the held-out states; the step is "
+                         "shrunk until it fits. 0.08 = two C51 atoms, "
+                         "the trust-region delta of "
+                         "docs/design_constants.md. Negative = off.")
     ap.add_argument("--kl-states", type=int, default=100,
                     help="Held-out states on which the per-step policy "
                          "movement (KL, TV, end_turn mass) is measured.")
@@ -294,7 +300,9 @@ def main(argv) -> int:
                 return captured["stats"]
 
             res = backtracking_step(base, _take_step, train_exps, held_exps,
-                                    kl_states)
+                                    kl_states,
+                                    max_level_shift=(None if args.max_level_shift < 0
+                                                     else args.max_level_shift))
             stats = captured["stats"]
             row.update(policy_loss=stats.policy_loss,
                        value_loss=stats.value_loss,

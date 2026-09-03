@@ -142,10 +142,19 @@ def _clone_weights(base) -> Dict:
 
 def backtracking_step(base, take_step, train_exps: List, held_exps: List,
                       kl_states: Optional[List] = None, *,
-                      shrink: float = 0.5, max_trials: int = 7) -> StepResult:
+                      shrink: float = 0.5, max_trials: int = 7,
+                      max_level_shift: Optional[float] = None) -> StepResult:
     """Apply `take_step()` (the production update on `train_exps`,
     already queued by the caller), then shrink the applied move
-    until `held_exps` loss falls below its pre-step value.
+    until BOTH hold: `held_exps` loss falls below its pre-step value,
+    and (when `max_level_shift` is set) the value head's mean shift
+    on `kl_states` stays within it.
+
+    Why the level cap on top of the loss test: a level shift that
+    overshoots the label mean to the other side costs the same
+    squared error, so held-out loss accepts it, while search turns
+    any mover-frame level error b into a 2b act-vs-end_turn bias
+    (step-scale measurement, 2026-09-03).
 
     `take_step` must perform exactly one optimizer update on the
     trainer model and return its stats; the weights it leaves are
@@ -157,6 +166,9 @@ def backtracking_step(base, take_step, train_exps: List, held_exps: List,
     before = held_loss(base, held_exps) if held_exps else {"total": math.inf}
     take_step()
     theta1 = _clone_weights(base)
+    # Publish the full proposal ourselves: the shift is read from the
+    # inference snapshot, and a bare trainer step leaves it stale.
+    publish_weights(base, theta1)
     delta = {k: theta1[k] - v for k, v in theta0.items()
              if torch.is_floating_point(v)}
     if not held_exps:
@@ -165,28 +177,39 @@ def backtracking_step(base, take_step, train_exps: List, held_exps: List,
                           held_before={}, held_after={}, shift=shift,
                           n_train=len(train_exps), n_held=0)
 
-    alpha, after, trials = 1.0, None, 0
+    def _level_ok(shift: Dict) -> bool:
+        if max_level_shift is None or not shift:
+            return True
+        return abs(shift["dv_mean"]) <= max_level_shift
+
+    alpha, after, trials, shift = 1.0, None, 0, {}
     for t in range(max_trials):
         alpha = shrink ** t
         trials = t + 1
         if t > 0:
             publish_weights(base, {k: (v + alpha * delta[k] if k in delta else v)
                                    for k, v in theta0.items()})
+        shift = policy_shift(base, kl_states, old_priors) if kl_states else {}
+        if not _level_ok(shift):
+            after = None
+            continue
         after = held_loss(base, held_exps)
         if after["total"] < before["total"]:
             break
     else:
         publish_weights(base, theta0)
         shift = policy_shift(base, kl_states, old_priors) if kl_states else {}
-        log.warning(f"step skipped: no alpha down to {alpha:.4g} lowered "
-                    f"held-out loss ({before['total']:.4f})")
+        log.warning(f"step skipped: no alpha down to {alpha:.4g} passed "
+                    f"(held-out {before['total']:.4f}, level cap "
+                    f"{max_level_shift})")
         return StepResult(alpha=0.0, trials=trials, skipped=True,
-                          held_before=before, held_after=after, shift=shift,
-                          n_train=len(train_exps), n_held=len(held_exps))
-    shift = policy_shift(base, kl_states, old_priors) if kl_states else {}
+                          held_before=before, held_after=after or {},
+                          shift=shift, n_train=len(train_exps),
+                          n_held=len(held_exps))
     log.info(f"step alpha={alpha:.4g} ({trials} trial(s)) held-out "
              f"{before['total']:.4f} -> {after['total']:.4f} | "
-             f"KL_med {shift.get('kl_median', float('nan')):.4f}")
+             f"KL_med {shift.get('kl_median', float('nan')):.4f} "
+             f"dV {shift.get('dv_mean', float('nan')):+.4f}")
     return StepResult(alpha=alpha, trials=trials, skipped=False,
                       held_before=before, held_after=after, shift=shift,
                       n_train=len(train_exps), n_held=len(held_exps))

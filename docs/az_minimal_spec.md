@@ -22,7 +22,13 @@ Repeat:
    fraction (1, 1/2, 1/4, ... 1/64) of it that lowers the loss on
    a fifth of the batch's games held out of the step
    (`tools/step_control.py`, backtracking line search). If none
-   does, the step is skipped. Gradient-norm clip. No replay
+   does, the step is skipped. The same shrinking also caps the
+   value head's mean shift on those held-out states at two C51
+   atoms (0.08, the trust-region delta of design_constants.md):
+   held-out loss alone accepted a step that swung the level from
+   +0.48 to -0.38 (same squared error on the other side of the
+   label mean), and search turns a mover-frame level error b into
+   a 2b act-vs-end_turn bias. Gradient-norm clip. No replay
    buffer, no per-game reweighting, no label smoothing, no
    auxiliary heads, no anchors, no memory, no extra channels.
    Why the line search: with fresh Adam moments the first update
