@@ -73,6 +73,47 @@ def held_loss(base, exps: List) -> Dict[str, float]:
             "total": float(st.policy_loss) + float(st.value_loss)}
 
 
+def held_loss_by_game(base, exps: List) -> Dict[str, Dict[str, float]]:
+    """`held_loss` per held-out game (paired comparison unit: a
+    game's positions share its outcome label, so games, not
+    positions, are the independent samples)."""
+    by_game: Dict[str, List] = {}
+    for e in exps:
+        by_game.setdefault(getattr(e, "game_id", ""), []).append(e)
+    return {g: held_loss(base, es) for g, es in by_game.items()}
+
+
+def _pooled(per_game: Dict[str, Dict[str, float]], exps: List) -> Dict[str, float]:
+    """Experience-weighted pool of per-game losses (what one
+    `held_loss` over all of them would report)."""
+    n_of = {}
+    for e in exps:
+        g = getattr(e, "game_id", "")
+        n_of[g] = n_of.get(g, 0) + 1
+    tot = sum(n_of.values()) or 1
+    out = {}
+    for k in ("policy_ce", "value_loss", "total"):
+        out[k] = sum(v[k] * n_of[g] for g, v in per_game.items()) / tot
+    return out
+
+
+def not_significantly_worse(before: Dict[str, Dict[str, float]],
+                            after: Dict[str, Dict[str, float]],
+                            z: float = 2.0) -> Tuple[bool, float, float]:
+    """Paired test over held-out games on total loss: accept unless
+    the mean per-game increase exceeds z standard errors. With one
+    game there is no error estimate: require a strict decrease.
+    Returns (ok, mean_delta, se)."""
+    deltas = [after[g]["total"] - before[g]["total"] for g in before if g in after]
+    if not deltas:
+        return False, math.nan, math.nan
+    mean = statistics.fmean(deltas)
+    if len(deltas) < 2:
+        return mean < 0.0, mean, math.nan
+    se = statistics.stdev(deltas) / math.sqrt(len(deltas))
+    return mean <= z * se, mean, se
+
+
 def action_priors(base, e) -> Tuple[Dict, Dict, float]:
     """Normalized prior over the legal actions of `e`'s state and the
     state's value, from the INFERENCE model (the one search
@@ -146,9 +187,17 @@ def backtracking_step(base, take_step, train_exps: List, held_exps: List,
                       max_level_shift: Optional[float] = None) -> StepResult:
     """Apply `take_step()` (the production update on `train_exps`,
     already queued by the caller), then shrink the applied move
-    until BOTH hold: `held_exps` loss falls below its pre-step value,
-    and (when `max_level_shift` is set) the value head's mean shift
-    on `kl_states` stays within it.
+    until BOTH hold: the held-out games are not significantly worse
+    off (paired over games, `not_significantly_worse`), and (when
+    `max_level_shift` is set) the value head's mean shift on
+    `kl_states` stays within it.
+
+    Why "not significantly worse" rather than "lower": the held-out
+    fifth is ~5 games whose labels are one outcome each, so its loss
+    is noisy at the size of a small step's effect; a strict-decrease
+    test skipped every step once the value level had been corrected
+    (leg az3, iteration 6). What the test must still catch is the
+    systematic harm of an overshoot, and that shows on every game.
 
     Why the level cap on top of the loss test: a level shift that
     overshoots the label mean to the other side costs the same
@@ -163,7 +212,8 @@ def backtracking_step(base, take_step, train_exps: List, held_exps: List,
     theta0 = _clone_weights(base)
     old_priors = ([action_priors(base, e) for e in kl_states]
                   if kl_states else [])
-    before = held_loss(base, held_exps) if held_exps else {"total": math.inf}
+    before_by_game = held_loss_by_game(base, held_exps) if held_exps else {}
+    before = _pooled(before_by_game, held_exps) if held_exps else {"total": math.inf}
     take_step()
     theta1 = _clone_weights(base)
     # Publish the full proposal ourselves: the shift is read from the
@@ -183,6 +233,7 @@ def backtracking_step(base, take_step, train_exps: List, held_exps: List,
         return abs(shift["dv_mean"]) <= max_level_shift
 
     alpha, after, trials, shift = 1.0, None, 0, {}
+    mean_d = se_d = math.nan
     for t in range(max_trials):
         alpha = shrink ** t
         trials = t + 1
@@ -193,21 +244,25 @@ def backtracking_step(base, take_step, train_exps: List, held_exps: List,
         if not _level_ok(shift):
             after = None
             continue
-        after = held_loss(base, held_exps)
-        if after["total"] < before["total"]:
+        after_by_game = held_loss_by_game(base, held_exps)
+        after = _pooled(after_by_game, held_exps)
+        ok, mean_d, se_d = not_significantly_worse(before_by_game, after_by_game)
+        if ok:
             break
     else:
         publish_weights(base, theta0)
         shift = policy_shift(base, kl_states, old_priors) if kl_states else {}
         log.warning(f"step skipped: no alpha down to {alpha:.4g} passed "
-                    f"(held-out {before['total']:.4f}, level cap "
-                    f"{max_level_shift})")
+                    f"(held-out {before['total']:.4f}, last delta "
+                    f"{mean_d:+.4f} se {se_d:.4f}, level cap {max_level_shift})")
         return StepResult(alpha=0.0, trials=trials, skipped=True,
                           held_before=before, held_after=after or {},
                           shift=shift, n_train=len(train_exps),
                           n_held=len(held_exps))
+    after = dict(after, delta_mean=mean_d, delta_se=se_d)
     log.info(f"step alpha={alpha:.4g} ({trials} trial(s)) held-out "
-             f"{before['total']:.4f} -> {after['total']:.4f} | "
+             f"{before['total']:.4f} -> {after['total']:.4f} "
+             f"(per-game delta {mean_d:+.4f} se {se_d:.4f}) | "
              f"KL_med {shift.get('kl_median', float('nan')):.4f} "
              f"dV {shift.get('dv_mean', float('nan')):+.4f}")
     return StepResult(alpha=alpha, trials=trials, skipped=False,

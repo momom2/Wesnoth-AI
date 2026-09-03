@@ -88,6 +88,26 @@ def test_level_cap_shrinks_a_step_that_moves_the_value_level():
     assert capped.skipped or abs(capped.shift["dv_mean"]) <= 1e-7
 
 
+def test_not_significantly_worse_is_a_paired_test_over_games():
+    from tools.step_control import not_significantly_worse as nsw
+    b = {g: {"total": 5.0} for g in "abc"}
+    # Mixed: one game worse, two better; mean +0.0 -> accept.
+    a = {"a": {"total": 5.3}, "b": {"total": 4.85}, "c": {"total": 4.85}}
+    ok, mean, se = nsw(b, a)
+    assert ok and abs(mean) < 1e-9
+    # Every game worse by the same amount: se = 0, mean > 0 -> reject.
+    a = {g: {"total": 5.05} for g in "abc"}
+    ok, mean, se = nsw(b, a)
+    assert not ok and mean > 0 and se == 0.0
+    # Slightly worse on average but within 2 se -> accept.
+    a = {"a": {"total": 5.2}, "b": {"total": 5.0}, "c": {"total": 4.9}}
+    ok, mean, se = nsw(b, a)
+    assert ok and mean > 0 and mean <= 2 * se
+    # One game only: strict decrease required.
+    assert nsw({"a": {"total": 5.0}}, {"a": {"total": 4.99}})[0]
+    assert not nsw({"a": {"total": 5.0}}, {"a": {"total": 5.0}})[0]
+
+
 def test_split_holdout_is_by_game():
     exps = _exps("a", 1.0) + _exps("b", 1.0) + _exps("c", 1.0) + _exps("d", 1.0)
     train, held = split_holdout(exps, 0.25, random.Random(0))

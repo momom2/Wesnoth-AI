@@ -35,7 +35,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -60,15 +60,67 @@ COLUMNS = [
     # time
     "gen_seconds", "forwards", "decisions", "forwards_per_s",
     "decisions_per_s", "tokens_per_leaf", "pad_ratio",
-    "game_finish_p50", "game_finish_max", "train_seconds", "telemetry_seconds",
+    "game_finish_p50", "game_finish_max", "gpu_reserved_mb", "rss_mb",
+    "train_seconds", "telemetry_seconds",
     "probe_seconds", "profile_seconds", "iter_seconds",
     # step control (tools/step_control.py)
     "step_alpha", "step_trials", "held_before", "held_after",
+    "held_delta_mean", "held_delta_se",
     "step_kl_median", "step_kl_mean", "step_tv_mean", "end_turn_prior",
     "step_dv_mean", "step_dv_abs_mean",
     # pins
     "pin_step", "raw_vs_seed_wdl", "search_vs_seed_wdl",
 ]
+
+
+def _migrate_history_columns(csv_path: Path) -> None:
+    """Rewrite an existing history CSV whose header differs from
+    COLUMNS (columns were added mid-leg). Rows are mapped by their
+    own width: header-width rows by the old header, COLUMNS-width
+    rows by COLUMNS (rows appended after a column change but before
+    a migration); anything else is dropped with a warning."""
+    if not csv_path.exists():
+        return
+    with open(csv_path, newline="", encoding="utf-8") as f:
+        raw = list(csv.reader(f))
+    if not raw or raw[0] == COLUMNS:
+        return
+    old_header = raw[0]
+    # Columns added since the header was written, in COLUMNS order;
+    # a row of width len(old_header) + k was written by an interim
+    # column list holding the first k of them at their positions.
+    added = [c for c in COLUMNS if c not in old_header]
+    widths = {}
+    for k in range(len(added) + 1):
+        interim = [c for c in COLUMNS if c in old_header or c in added[:k]]
+        widths[len(interim)] = interim
+    rows, dropped = [], 0
+    for r in raw[1:]:
+        cols = widths.get(len(r))
+        if cols is None:
+            dropped += 1
+            continue
+        rows.append(dict(zip(cols, r)))
+    backup = csv_path.with_suffix(f".pre_migration_{int(time.time())}.csv")
+    shutil.copy2(csv_path, backup)
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=COLUMNS, extrasaction="ignore")
+        w.writeheader()
+        for row in rows:
+            w.writerow(row)
+    log.warning(f"history CSV migrated to {len(COLUMNS)} columns "
+                f"({len(rows)} rows kept, {dropped} dropped; backup {backup.name})")
+
+
+def _rss_mb() -> Optional[float]:
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    return float(line.split()[1]) / 1024.0
+    except OSError:
+        return None
+    return None
 
 
 def _wdl(games_dir: Path) -> str:
@@ -222,6 +274,7 @@ def main(argv) -> int:
     workdir = args.workdir
     workdir.mkdir(parents=True, exist_ok=True)
     csv_path = workdir / "az_history.csv"
+    _migrate_history_columns(csv_path)
     new_csv = not csv_path.exists()
     fh = open(csv_path, "a", newline="", encoding="utf-8")
     writer = csv.DictWriter(fh, fieldnames=COLUMNS, extrasaction="ignore")
@@ -257,6 +310,13 @@ def main(argv) -> int:
                 pad_ratio=getattr(pool, "last_pad_ratio", None),
                 game_finish_p50=getattr(pool, "last_game_finish_p50", None),
                 game_finish_max=getattr(pool, "last_game_finish_max", None))
+            # Per-process accumulation watch: generation throughput
+            # decayed 2x over iterations 2-5 and a process restart
+            # restored it (2026-09-03); these say whether memory grows.
+            row.update(
+                gpu_reserved_mb=(torch.cuda.memory_reserved() / 2**20
+                                 if device.type == "cuda" else None),
+                rss_mb=_rss_mb())
             tot_actions = sum(sum(o.action_counts.values()) for o in outcomes) or 1
             for k in ("attack", "end_turn", "move", "recruit"):
                 row[f"action_{k}_pct"] = 100.0 * sum(
@@ -318,6 +378,8 @@ def main(argv) -> int:
                        step_alpha=res.alpha, step_trials=res.trials,
                        held_before=res.held_before.get("total"),
                        held_after=res.held_after.get("total"),
+                       held_delta_mean=res.held_after.get("delta_mean"),
+                       held_delta_se=res.held_after.get("delta_se"),
                        step_kl_median=res.shift.get("kl_median"),
                        step_kl_mean=res.shift.get("kl_mean"),
                        step_tv_mean=res.shift.get("tv_mean"),
