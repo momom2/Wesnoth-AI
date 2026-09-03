@@ -54,7 +54,33 @@ Most replays in `replays_raw/` are from 1.18.x clients; pin
 accordingly. If a replay's `[scenario] version=` says something
 other than 1.18.x, scrape from that version's tag instead.
 
-## Current status (2026-08-25)
+## Current status (2026-09-03)
+
+**Restart from a minimal self-play loop (user decision 2026-09-03).**
+Everything above the loop is quarantined, not deleted:
+`quarantine/INVENTORY.md` lists the 78 mechanisms with evidence
+(none has a measured strength benefit; 27 were never isolated).
+The loop is `tools/az_loop.py` per `docs/az_minimal_spec.md`: plain
+PUCT (32 sims), visit-count targets, result labels, squared-error
+value loss on the C51 mean, one step per iteration, signal and time
+telemetry on, pins vs the seed every 10 iterations. Launcher
+`scripts/az_launch.sh` (tests -> Rust wheel -> smoke -> loop).
+Leg record: `docs/az_leg_20260903.md`.
+
+**First finding (measured, `training/metrics/step_scale_20260903/`):**
+the seed has no Adam moments, so the first update is lr * sign(g)
+on every parameter; it shifts the value level down uniformly through
+the trunk (-0.6), and search converts a mover-frame level error b
+into an act-vs-end_turn preference (2b), so K collapsed to 1 in one
+step. The seed's own +0.2..0.3 optimism is what holds its K 10-12
+under search; correcting it (which outcomes do) gives K ~7. Every
+earlier leg from the seed paid the same first step (VG2's
+"unprotected first iteration" is this). Fix in place:
+`tools/step_control.py` backtracking on held-out games; K tripwire
+threshold 3. **Leg az2 is running on Vast box 49739163** (stop-on-
+abort escrow in place); the pins decide.
+
+## Current status (2026-08-25, superseded — kept for provenance)
 
 **TRAINING IS DOWN by explicit user order (2026-08-25); do NOT
 resume without their go.** The user intends to oversee the resume
