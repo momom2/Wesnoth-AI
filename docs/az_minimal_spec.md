@@ -19,10 +19,16 @@ Repeat:
    games:
      loss = CE(policy, visit distribution) + c * (V - result)^2
    Adam proposes the update; the applied update is the largest
-   fraction (1, 1/2, 1/4, ... 1/64) of it that lowers the loss on
-   a fifth of the batch's games held out of the step
-   (`tools/step_control.py`, backtracking line search). If none
-   does, the step is skipped. The same shrinking also caps the
+   fraction (1, 1/2, 1/4, ... 1/64) of it under which a fifth of
+   the batch's games, held out of the step, are not significantly
+   worse off: the mean per-game change in their loss must not
+   exceed two standard errors over games (`tools/step_control.py`,
+   backtracking line search). If none passes, the step is skipped.
+   Not a strict decrease: five held-out games carry one outcome
+   label each, so their loss is noisy at the size of a small step's
+   effect, and a strict test skipped every step once the value
+   level had been corrected (az3, iteration 6). An overshoot shows
+   as harm on every game and still fails. The same shrinking also caps the
    value head's mean shift on those held-out states at two C51
    atoms (0.08, the trust-region delta of design_constants.md):
    held-out loss alone accepted a step that swung the level from
