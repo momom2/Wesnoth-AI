@@ -72,6 +72,7 @@ if [ "$stage" = "smoke" ] || [ "$stage" = "all" ]; then
         --campaign "$WORKDIR/smoke_az/campaign.pt" \
         --workdir "$WORKDIR/smoke_az" --iterations 1 --games-per-iter 2 \
         --actors 2 --sims 4 --max-turns 8 --pin-every 1000 \
+        ${VALUE_CENTER:+--value-center} \
         --device cpu --log-level INFO > "$WORKDIR/smoke.log" 2>&1
     rc=$?
     if [ $rc -ne 0 ]; then
@@ -100,6 +101,7 @@ while [ $tries -lt 10 ]; do
         --lr "${LR:-1e-4}" --max-turns "${MAX_TURNS:-60}" \
         --pin-every "${PIN_EVERY:-10}" --probe-games "${PROBE_GAMES:-40}" \
         --start-iter "${START_ITER:-0}" \
+        --max-level-shift "${MAX_LEVEL_SHIFT:-0.08}" ${VALUE_CENTER:+--value-center} \
         --device cuda --log-level INFO >> "$WORKDIR/train.log" 2>&1
     rc=$?
     echo "[az] loop exited rc=$rc at $(date -u +%FT%TZ)" >> "$WORKDIR/train.log"

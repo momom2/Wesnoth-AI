@@ -223,6 +223,10 @@ def main(argv: List[str]) -> int:
                          "search-vs-no-search on the SAME weights.")
     ap.add_argument("--mcts-sims-b", type=int, default=None,
                     help="Player B's sims budget (see --mcts-sims-a).")
+    ap.add_argument("--value-center-a", type=float, default=0.0,
+                    help="Search value centering for player A "
+                         "(elo_eval_game --value-center-a).")
+    ap.add_argument("--value-center-b", type=float, default=0.0)
     ap.add_argument("--mcts-batch-size", type=int, default=1,
                     help="Leaf-evaluation batch for search, both "
                          "players. 1 = sequential (canonical, CPU "
@@ -542,6 +546,10 @@ def main(argv: List[str]) -> int:
             cmd += ["--mcts-sims-a", str(args.mcts_sims_a)]
         if args.mcts_sims_b is not None:
             cmd += ["--mcts-sims-b", str(args.mcts_sims_b)]
+        if args.value_center_a:
+            cmd += ["--value-center-a", str(args.value_center_a)]
+        if args.value_center_b:
+            cmd += ["--value-center-b", str(args.value_center_b)]
         if args.mcts_batch_size != 1:
             cmd += ["--mcts-batch-size", str(args.mcts_batch_size)]
         if args.infer_bf16 is not None:

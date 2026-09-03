@@ -132,7 +132,8 @@ def _build_player(spec: str, label: str, sims: int, device,
                   plan_tournament: bool = False, pt_cfg=None,
                   ts_cfg=None, batch_size: int = 1,
                   infer_bf16: bool = False,
-                  infer_compile: bool = False):
+                  infer_compile: bool = False,
+                  value_center: float = 0.0):
     if spec == "random":
         # Deliberate random-init reference (round-24 C8: reaching
         # random init through a nonexistent PATH is how a typo
@@ -163,7 +164,10 @@ def _build_player(spec: str, label: str, sims: int, device,
             n_simulations=sims,
             batch_size=max(1, int(batch_size)),
             moves_left_utility=float(
-                os.environ.get("ELO_MOVES_LEFT_UTILITY", "0") or 0))
+                os.environ.get("ELO_MOVES_LEFT_UTILITY", "0") or 0),
+            # Part of the player, not a material shaper: the level
+            # the checkpoint's loop centered its search on.
+            value_center=float(value_center))
         if plan_tournament:
             return cls(policy, mc, tournament_config=pt_cfg), counter
         if turn_search:
@@ -193,6 +197,10 @@ def main(argv) -> int:
                          "does-search-help-at-all engine test).")
     ap.add_argument("--mcts-sims-b", type=int, default=None,
                     help="Player B's sims budget (see --mcts-sims-a).")
+    ap.add_argument("--value-center-a", type=float, default=0.0,
+                    help="MCTSConfig.value_center for player A (the "
+                         "centering its training loop used; 0 = off).")
+    ap.add_argument("--value-center-b", type=float, default=0.0)
     ap.add_argument("--mcts-batch-size", type=int, default=1,
                     help="Leaf-evaluation batch (virtual-loss batching, "
                          "both players). 1 = sequential, the canonical "
@@ -431,13 +439,13 @@ def main(argv) -> int:
         turn_search=not (args.no_turn_search or args.no_turn_search_a),
         plan_tournament=args.plan_a, pt_cfg=pt_cfg, ts_cfg=ts_cfg,
         batch_size=args.mcts_batch_size, infer_bf16=inf_bf16,
-        infer_compile=inf_compile)
+        infer_compile=inf_compile, value_center=args.value_center_a)
     pb, cnt_b = _build_player(
         args.spec_b, args.label_b, sims_b, device,
         turn_search=not (args.no_turn_search or args.no_turn_search_b),
         plan_tournament=args.plan_b, pt_cfg=pt_cfg, ts_cfg=ts_cfg,
         batch_size=args.mcts_batch_size, infer_bf16=inf_bf16,
-        infer_compile=inf_compile)
+        infer_compile=inf_compile, value_center=args.value_center_b)
 
 
     rng = random.Random(args.seed)

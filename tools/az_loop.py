@@ -31,6 +31,7 @@ import json
 import logging
 import random
 import shutil
+import statistics
 import subprocess
 import sys
 import time
@@ -67,7 +68,7 @@ COLUMNS = [
     "step_alpha", "step_trials", "held_before", "held_after",
     "held_delta_mean", "held_delta_se",
     "step_kl_median", "step_kl_mean", "step_tv_mean", "end_turn_prior",
-    "step_dv_mean", "step_dv_abs_mean",
+    "step_dv_mean", "step_dv_abs_mean", "value_center",
     # pins
     "pin_step", "raw_vs_seed_wdl", "search_vs_seed_wdl",
 ]
@@ -143,10 +144,11 @@ def _wdl(games_dir: Path) -> str:
 
 
 def _probe(pin: Path, seed: Path, outdir: Path, games: int, sims: int,
-           device: str) -> str:
+           device: str, value_center: float = 0.0) -> str:
     cmd = [sys.executable, str(ROOT / "tools" / "run_elo_batch.py"),
            "--label-a", pin.stem, "--spec-a", str(pin),
            "--label-b", "seed", "--spec-b", str(seed),
+           "--value-center-a", str(value_center),
            "--games", str(games), "--mcts-sims", str(sims),
            "--no-turn-search", "--device", device,
            "--outdir", str(outdir), "--time-budget-min", "150",
@@ -188,6 +190,17 @@ def main(argv) -> int:
                          "shrunk until it fits. 0.08 = two C51 atoms, "
                          "the trust-region delta of "
                          "docs/design_constants.md. Negative = off.")
+    ap.add_argument("--value-center", action="store_true",
+                    help="Search subtracts the value head's mean on the "
+                         "latest batch from every value it reads "
+                         "(MCTSConfig.value_center), so the head's level "
+                         "cannot decide act-vs-end_turn. Off = plain.")
+    ap.add_argument("--iteration-timeout", type=float, default=1800.0,
+                    help="Wall-clock seconds after which the pool drains; "
+                         "in-flight games are abandoned 300 s later. One "
+                         "game per actor makes the iteration as long as "
+                         "its slowest game (az3 iteration 8: 45+ min on "
+                         "one game).")
     ap.add_argument("--kl-states", type=int, default=100,
                     help="Held-out states on which the per-step policy "
                          "movement (KL, TV, end_turn mass) is measured.")
@@ -268,7 +281,9 @@ def main(argv) -> int:
                      scenario_opts=scenario_opts, max_turns=args.max_turns,
                      max_turns_min=args.max_turns,
                      pvp_defaults=PvPDefaults(), device=device,
-                     max_batch=16, log_level=logging.WARNING)
+                     max_batch=16, log_level=logging.WARNING,
+                     iteration_timeout=args.iteration_timeout,
+                     drain_grace=300.0)
     pool.start()
 
     workdir = args.workdir
@@ -387,6 +402,14 @@ def main(argv) -> int:
                        step_dv_mean=res.shift.get("dv_mean"),
                        step_dv_abs_mean=res.shift.get("dv_abs_mean"),
                        train_seconds=time.monotonic() - t_tr)
+            # Search value centering for the NEXT iteration: the head's
+            # mean value on this iteration's held-out states under the
+            # weights just published (see MCTSConfig.value_center).
+            if args.value_center and kl_states:
+                center = statistics.fmean(action_priors(base, e)[2]
+                                          for e in kl_states)
+                pool.value_center = center
+                row["value_center"] = center
             # per-source gradient norms (unclipped, optimizer stubbed)
             norms = signal_grad_norms(base._trainer, kept, rng) if kept else {}
             pn = norms.get("sig_policy_norm")
@@ -426,7 +449,8 @@ def main(argv) -> int:
                     row["search_vs_seed_wdl"] = _probe(
                         pin, args.seed_checkpoint,
                         workdir / "probes" / f"search_{step}",
-                        args.probe_games, args.sims, dev_str)
+                        args.probe_games, args.sims, dev_str,
+                        value_center=float(row.get("value_center") or 0.0))
                 row["probe_seconds"] = time.monotonic() - t_pr
                 t_pf = time.monotonic()
                 (workdir / "profiles").mkdir(exist_ok=True)

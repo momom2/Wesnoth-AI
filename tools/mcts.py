@@ -236,6 +236,14 @@ class MCTSConfig:
     # 100-turn games -- nothing in-horizon rewarded expansion.
     # 0.0 = off (legacy).
     aux_value_bonus:  float = 0.0
+    # Subtracted from every network value the search reads (mover
+    # frame). The head's level b enters the act-vs-end_turn choice
+    # as 2b (acting children keep the side, the end_turn child flips
+    # it), and the head is nearly flat within a turn, so the level
+    # decides K. The loop sets this to the head's mean value on the
+    # latest batch's states (docs/az_leg_20260903.md, step-scale
+    # measurement). 0 = off.
+    value_center:     float = 0.0
     # PUCT exploration constant. Higher = more exploration. AlphaZero
     # uses ~1.0; chess-AlphaZero uses ~1.25-2.5. We default 1.5
     # because legal-action counts on a typical Wesnoth state vary
@@ -659,6 +667,7 @@ def _expand(
     *,
     decision_step: int = 0,
     aux_value_bonus: float = 0.0,
+    value_center: float = 0.0,
 ) -> float:
     """Forward the model on `node.sim.gs`, build edges from the
     legal-action priors, return v(s) from node.side's perspective.
@@ -683,7 +692,7 @@ def _expand(
         priors = enumerate_legal_actions_with_priors(
             encoded, output, node.sim.gs, decision_step=decision_step)
         v = _aux_adjusted(float(output.value.squeeze().item()),
-                          output, aux_value_bonus)
+                          output, aux_value_bonus) - value_center
         node.cliffness = float(output.cliffness.squeeze().item())
         if output.moves_left is not None:
             node.moves_left = float(output.moves_left.squeeze().item())
@@ -1072,6 +1081,7 @@ def _populate_leaf(
     value:     Optional[float] = None,
     cliffness: Optional[float] = None,
     aux_value_bonus: float = 0.0,
+    value_center: float = 0.0,
 ) -> float:
     """Build the leaf's edges from the model's enumerated priors and
     return v from leaf.side's perspective. Mirrors the post-forward
@@ -1102,7 +1112,7 @@ def _populate_leaf(
     # paths agree.
     raw_v = (float(output.value.squeeze().item())
              if value is None else float(value))
-    leaf.value = _aux_adjusted(raw_v, output, aux_value_bonus)
+    leaf.value = _aux_adjusted(raw_v, output, aux_value_bonus) - value_center
     return leaf.value
 
 
@@ -1150,6 +1160,7 @@ def _run_one_sim(
         output = model(encoded)
     v = _populate_leaf(leaf, encoded, output,
                        aux_value_bonus=config.aux_value_bonus,
+                       value_center=config.value_center,
                        decision_step=decision_step)
     _backup(
         path, v, leaf.side, 0.0,
@@ -1247,6 +1258,7 @@ def _run_sim_batch(
                 leaf, encoded, output, decision_step=decision_step,
                 value=None if vals is None else vals[i],
                 aux_value_bonus=config.aux_value_bonus,
+                value_center=config.value_center,
                 cliffness=None if cliffs is None else cliffs[i])
         for leaf, path in pending:
             _backup(path, leaf_values[id(leaf)], leaf.side, v_loss,
@@ -1553,6 +1565,7 @@ def mcts_search(
     if not root.expanded:
         _expand(root, model, encoder, tiebreak=config.draw_tiebreak,
                 aux_value_bonus=config.aux_value_bonus,
+                value_center=config.value_center,
                 decision_step=decision_step)
     # Gumbel mode replaces Dirichlet noise at the root: exploration
     # comes from sampling the candidate set without replacement.

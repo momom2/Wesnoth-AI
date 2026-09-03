@@ -45,6 +45,7 @@ so the actor entry + all Process args must be picklable -- they are
 from __future__ import annotations
 
 import logging
+import dataclasses
 import multiprocessing as mp
 import os
 import queue as _queue
@@ -202,6 +203,10 @@ def _actor_loop(
         # inherited --relevant-set-hexes -- with no tripwire).
         # Legacy 7-tuple PLAY (an old manager) = full-board.
         _rset = bool(cmd[7]) if len(cmd) > 7 else False
+        # Search value centering for this iteration (legacy PLAY
+        # tuples without it = 0, i.e. off).
+        _vc = float(cmd[8]) if len(cmd) > 8 else 0.0
+        mcts_cfg = dataclasses.replace(mcts_cfg, value_center=_vc)
         # Rebuild the encoder each iteration with the freshly-snapshotted
         # vocab so actor indices line up with the server's encoder.
         renc = RemoteEncoder(t2i, f2i, device=cpu,
@@ -380,6 +385,9 @@ class ActorPool:
         self._policy = policy
         self._n = n_actors
         self._mcts_cfg = mcts_cfg
+        # Per-iteration search value centering (MCTSConfig.value_center),
+        # set by the learner after each step; rides the PLAY command.
+        self.value_center: float = 0.0
         # TCS (2026-08-14): when set, actors build TurnCommitPolicy
         # instead of MCTSPolicy -- the third generation path of the
         # worker-side-targets symmetry contract.
@@ -504,7 +512,7 @@ class ActorPool:
             self._ctrl_qs[aid].put(
                 (_CMD_PLAY, iter_idx, per[aid],
                  base_seed + aid * 1_000_003, t2i, f2i, ds0,
-                 _rset))
+                 _rset, float(self.value_center)))
 
         outcomes: List = []
         experiences: List = []
