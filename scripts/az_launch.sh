@@ -37,7 +37,9 @@ fatal_stop() {
 
 stage="${1:-all}"
 
-if [ "$stage" = "tests" ] || [ "$stage" = "all" ]; then
+if [ "${LAUNCH_SKIP_TESTS:-0}" = "1" ] && [ "$stage" = "all" ]; then
+    echo "[az] test suite SKIPPED (LAUNCH_SKIP_TESTS=1: resume of an already-tested leg)"
+elif [ "$stage" = "tests" ] || [ "$stage" = "all" ]; then
     echo "[az] FULL test suite..."
     "$PY" -m pytest -m "" -q > "$WORKDIR/pytest_full.log" 2>&1
     rc=$?; tail -1 "$WORKDIR/pytest_full.log"
