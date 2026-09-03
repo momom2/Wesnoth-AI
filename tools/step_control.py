@@ -73,9 +73,10 @@ def held_loss(base, exps: List) -> Dict[str, float]:
             "total": float(st.policy_loss) + float(st.value_loss)}
 
 
-def action_priors(base, e) -> Tuple[Dict, Dict]:
-    """Normalized prior over the legal actions of `e`'s state, from
-    the INFERENCE model (the one search consults); plus category."""
+def action_priors(base, e) -> Tuple[Dict, Dict, float]:
+    """Normalized prior over the legal actions of `e`'s state and the
+    state's value, from the INFERENCE model (the one search
+    consults); plus action category per key."""
     import torch
     from wesnoth_ai.action_sampler import enumerate_legal_actions_with_priors
     with torch.no_grad():
@@ -84,6 +85,7 @@ def action_priors(base, e) -> Tuple[Dict, Dict]:
         legal = enumerate_legal_actions_with_priors(
             enc, out, e.game_state,
             decision_step=int(getattr(e, "decision_step", 0)))
+        value = float(out.value.reshape(-1)[0].item())
     pri, cat = {}, {}
     for la in legal:
         key = (la.actor_idx, la.target_idx, la.weapon_idx,
@@ -91,14 +93,18 @@ def action_priors(base, e) -> Tuple[Dict, Dict]:
         pri[key] = float(la.prior)
         cat[key] = la.action.get("type", "?")
     z = sum(pri.values()) or 1e-12
-    return {k: v / z for k, v in pri.items()}, cat
+    return {k: v / z for k, v in pri.items()}, cat, value
 
 
-def policy_shift(base, states: List, old: List[Tuple[Dict, Dict]]) -> Dict[str, float]:
-    """KL(old || new), TV and end_turn prior mass over `states`."""
-    kls, tvs, et = [], [], []
-    for e, (p_old, cat) in zip(states, old):
-        p_new, _ = action_priors(base, e)
+def policy_shift(base, states: List, old: List[Tuple[Dict, Dict, float]]) -> Dict[str, float]:
+    """How far the network's OUTPUTS moved on `states`: KL(old||new)
+    and TV of the action prior, end_turn prior mass, and the value
+    head's level shift (mean and mean-absolute V_new - V_old). A
+    level shift is what tips search between acting and ending the
+    turn when the head is flat within a turn."""
+    kls, tvs, et, dvs = [], [], [], []
+    for e, (p_old, cat, v_old) in zip(states, old):
+        p_new, _, v_new = action_priors(base, e)
         kl = tv = 0.0
         for k, po in p_old.items():
             pn = max(p_new.get(k, 0.0), 1e-12)
@@ -108,12 +114,16 @@ def policy_shift(base, states: List, old: List[Tuple[Dict, Dict]]) -> Dict[str, 
         kls.append(kl)
         tvs.append(0.5 * tv)
         et.append(sum(p for k, p in p_new.items() if cat[k] == "end_turn"))
+        dvs.append(v_new - v_old)
     if not kls:
         return {}
     return {"kl_mean": statistics.fmean(kls),
             "kl_median": statistics.median(kls),
             "tv_mean": statistics.fmean(tvs),
-            "end_turn_prior_mean": statistics.fmean(et), "n": len(kls)}
+            "end_turn_prior_mean": statistics.fmean(et),
+            "dv_mean": statistics.fmean(dvs),
+            "dv_abs_mean": statistics.fmean(abs(d) for d in dvs),
+            "n": len(kls)}
 
 
 def publish_weights(base, theta: Dict) -> None:

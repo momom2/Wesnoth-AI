@@ -63,6 +63,7 @@ COLUMNS = [
     # step control (tools/step_control.py)
     "step_alpha", "step_trials", "held_before", "held_after",
     "step_kl_median", "step_kl_mean", "step_tv_mean", "end_turn_prior",
+    "step_dv_mean", "step_dv_abs_mean",
     # pins
     "pin_step", "raw_vs_seed_wdl", "search_vs_seed_wdl",
 ]
@@ -288,6 +289,8 @@ def main(argv) -> int:
                        step_kl_mean=res.shift.get("kl_mean"),
                        step_tv_mean=res.shift.get("tv_mean"),
                        end_turn_prior=res.shift.get("end_turn_prior_mean"),
+                       step_dv_mean=res.shift.get("dv_mean"),
+                       step_dv_abs_mean=res.shift.get("dv_abs_mean"),
                        train_seconds=time.monotonic() - t_tr)
             # per-source gradient norms (unclipped, optimizer stubbed)
             norms = signal_grad_norms(base._trainer, kept, rng) if kept else {}

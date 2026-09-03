@@ -61,6 +61,12 @@ def main(argv) -> int:
     ap.add_argument("--holdout-frac", type=float, default=0.2)
     ap.add_argument("--scales", default="1,0.3,0.1,0.03")
     ap.add_argument("--kl-states", type=int, default=200)
+    ap.add_argument("--random-sign-control", action="store_true",
+                    help="Also walk a random-sign vector of the same "
+                         "per-parameter magnitudes as the real step.")
+    ap.add_argument("--head-split", action="store_true",
+                    help="Also walk the step restricted to the value "
+                         "head, and to everything but the value head.")
     ap.add_argument("--actors", type=int, default=8)
     ap.add_argument("--sims", type=int, default=32)
     ap.add_argument("--max-turns", type=int, default=60)
@@ -157,12 +163,34 @@ def main(argv) -> int:
                           "frac_params_moved_by_lr": near / max(tot, 1)}
         log.info(f"step: {report['step']}")
 
+        # Control: the same per-parameter magnitudes with RANDOM signs.
+        # Separates "a weight move this big breaks the policy" from
+        # "a move this big ALONG the gradient's sign breaks it".
+        gen = torch.Generator(device="cpu").manual_seed(args.seed)
+        delta_rand = {k: d.abs() * (torch.randint(0, 2, d.shape, generator=gen)
+                                    .to(d.device, d.dtype) * 2 - 1)
+                      for k, d in delta.items()}
+
+        # Head split: the same step restricted to the value head, and
+        # to everything else. Search consults the value head; the raw
+        # policy is what the policy heads emit.
+        delta_value = {k: d for k, d in delta.items() if "value_head" in k}
+        delta_rest = {k: d for k, d in delta.items() if "value_head" not in k}
+        log.info(f"head split: value_head tensors {len(delta_value)}, "
+                 f"rest {len(delta_rest)}")
+
         # ---- walk the scales ----------------------------------------
-        scales = [0.0] + [float(s) for s in args.scales.split(",") if s]
-        for i, alpha in enumerate(scales):
-            publish_weights(base, {k: (v + alpha * delta[k] if k in delta else v)
+        walk = [("0", 0.0, delta, "step")]
+        walk += [(s, float(s), delta, "step") for s in args.scales.split(",") if s]
+        if args.random_sign_control:
+            walk.append(("rand1", 1.0, delta_rand, "random_sign"))
+        if args.head_split:
+            walk.append(("value_only1", 1.0, delta_value, "value_head_only"))
+            walk.append(("rest_only1", 1.0, delta_rest, "all_but_value_head"))
+        for i, (label, alpha, vec, direction) in enumerate(walk):
+            publish_weights(base, {k: (v + alpha * vec[k] if k in vec else v)
                                    for k, v in theta0.items()})
-            row: Dict = {"alpha": alpha}
+            row: Dict = {"alpha": alpha, "direction": direction}
             row["held_loss"] = held_loss(base, held_exps) if alpha else loss0
             row["shift"] = policy_shift(base, kl_states, old_priors)
             if alpha:
@@ -172,16 +200,16 @@ def main(argv) -> int:
                 row["games"] = dict(game_stats(oc), seconds=time.monotonic() - t1)
             else:
                 row["games"] = report["harvest"]
-            report["scales"][str(alpha)] = row
-            log.info(f"alpha={alpha}: held {row['held_loss']} | shift "
+            report["scales"][label] = row
+            log.info(f"{label}: held {row['held_loss']} | shift "
                      f"{row['shift']} | games {row['games']}")
             args.out.write_text(json.dumps(report, indent=1), encoding="utf-8")
     finally:
         pool.stop()
-    print("\n alpha   held_CE  held_val   KL_med  end_turn_prior   K  decisive  end_turn%  turns")
+    print("\n step    held_CE  held_val   KL_med  end_turn_prior   K  decisive  end_turn%  turns")
     for a, r in report["scales"].items():
         g, s, h = r["games"], r["shift"], r["held_loss"]
-        print(f"{float(a):6.2f}  {h['policy_ce']:8.4f} {h['value_loss']:8.4f} "
+        print(f"{a:>6s}  {h['policy_ce']:8.4f} {h['value_loss']:8.4f} "
               f"{s['kl_median']:8.4f} {s['end_turn_prior_mean']:14.4f} "
               f"{g['k_median']:>4} {g['decisive']:>3}/{g['n_games']:<3} "
               f"{g['end_turn_pct']:8.1f} {g['mean_turns']:6.1f}")
