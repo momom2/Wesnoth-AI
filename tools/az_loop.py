@@ -54,6 +54,7 @@ COLUMNS = [
     "target_kl_median", "target_kl_mean", "target_tv_mean",
     "target_end_turn_delta", "target_attack_delta",
     "fresh_value_ce", "fresh_ce_floor", "fresh_value_auc",
+    "fresh_value_mean", "fresh_label_mean",
     "fresh_auc_d1_10", "fresh_auc_d11_20", "fresh_auc_d21_30",
     "fresh_ce_d1_10", "fresh_ce_d11_20", "fresh_ce_d21_30",
     # time
@@ -135,7 +136,13 @@ def main(argv) -> int:
     ap.add_argument("--pin-every", type=int, default=10)
     ap.add_argument("--probe-games", type=int, default=40)
     ap.add_argument("--search-probe-every-pins", type=int, default=2)
-    ap.add_argument("--abort-k-median", type=float, default=10.0)
+    ap.add_argument("--abort-k-median", type=float, default=3.0,
+                    help="Abort when K median stays below this for 3 "
+                         "iterations. 3 = degenerate play (K 1-2, most "
+                         "games undecided); K 5-8 is NOT collapse under "
+                         "plain search with a level-correct value head "
+                         "(step-scale measurement 2026-09-03: K 7 with "
+                         "6/8 decisive at the value-loss optimum).")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--rng-seed", type=int, default=20260903)
     ap.add_argument("--log-level", default="INFO")
@@ -153,7 +160,9 @@ def main(argv) -> int:
     from tools.sim_self_play import k_median_of
     from tools.wesnoth_sim import PvPDefaults
     from tools.signal_telemetry import signal_grad_norms
-    from tools.step_control import backtracking_step, split_holdout
+    from tools.step_control import (
+        action_priors, backtracking_step, split_holdout,
+    )
     from signal_profiler.target_amplitude import target_amplitude
 
     device = (torch.device("cuda")
@@ -250,6 +259,14 @@ def main(argv) -> int:
                 row.update(fresh_value_ce=fm["ce"],
                            fresh_ce_floor=fm["marginal_ce_floor"],
                            fresh_value_auc=fm["value_auc"])
+                # Value LEVEL in the mover frame: mean prediction vs
+                # mean label. Search's act-vs-end_turn gap moves by
+                # twice the level error (step-scale measurement,
+                # 2026-09-03), so this is the number to watch.
+                lvl = sample[:96]
+                row.update(fresh_value_mean=sum(action_priors(base, e)[2]
+                                                for e in lvl) / len(lvl),
+                           fresh_label_mean=sum(float(e.z) for e in lvl) / len(lvl))
                 for dkey in ("d1_10", "d11_20", "d21_30"):
                     bd = fm.get("by_decade", {}).get(dkey)
                     if bd:

@@ -205,7 +205,7 @@ def main(argv) -> int:
                      f"{row['shift']} | games {row['games']}")
             args.out.write_text(json.dumps(report, indent=1), encoding="utf-8")
     finally:
-        pool.stop()
+        pool.shutdown()
     print("\n step    held_CE  held_val   KL_med  end_turn_prior   K  decisive  end_turn%  turns")
     for a, r in report["scales"].items():
         g, s, h = r["games"], r["shift"], r["held_loss"]

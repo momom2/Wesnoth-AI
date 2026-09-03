@@ -1,0 +1,146 @@
+{
+ "checkpoint": "training/checkpoints/seed_imit_tierb_start.pt",
+ "lr": 0.0001,
+ "sims": 32,
+ "scales": {
+  "0.0": {
+   "alpha": 0.0,
+   "held_loss": {
+    "policy_ce": 4.558968366402951,
+    "value_mse": 0.7731097662982531,
+    "total": 5.332078132701204
+   },
+   "shift": {
+    "kl_mean": 0.0,
+    "kl_median": 0.0,
+    "tv_mean": 0.0,
+    "end_turn_prior_mean": 0.09825844873809912,
+    "n": 200
+   },
+   "games": {
+    "n_games": 24,
+    "decisive": 24,
+    "k_median": 11,
+    "mean_turns": 22.75,
+    "end_turn_pct": 8.417615672533248,
+    "attack_pct": 22.98319662339731,
+    "seconds": 1179.394046456,
+    "n_train": 9126,
+    "n_held": 3431
+   }
+  },
+  "1.0": {
+   "alpha": 1.0,
+   "held_loss": {
+    "policy_ce": 4.50730076043601,
+    "value_mse": 0.8405723187486984,
+    "total": 5.3478730791847084
+   },
+   "shift": {
+    "kl_mean": 0.009015840080871708,
+    "kl_median": 0.007673923577906845,
+    "tv_mean": 0.04696960545272435,
+    "end_turn_prior_mean": 0.09448936649516265,
+    "n": 200
+   },
+   "games": {
+    "n_games": 8,
+    "decisive": 4,
+    "k_median": 1,
+    "mean_turns": 40.375,
+    "end_turn_pct": 25.423045930701047,
+    "attack_pct": 11.44238517324738,
+    "seconds": 251.82209672799218
+   }
+  },
+  "0.3": {
+   "alpha": 0.3,
+   "held_loss": {
+    "policy_ce": 4.541890023660926,
+    "value_mse": 0.6012194883259188,
+    "total": 5.143109511986845
+   },
+   "shift": {
+    "kl_mean": 0.0007944191564445915,
+    "kl_median": 0.0007024200070338325,
+    "tv_mean": 0.013796291328533628,
+    "end_turn_prior_mean": 0.09697988543846117,
+    "n": 200
+   },
+   "games": {
+    "n_games": 8,
+    "decisive": 6,
+    "k_median": 8,
+    "mean_turns": 34.25,
+    "end_turn_pct": 12.370182321717055,
+    "attack_pct": 21.30163858758366,
+    "seconds": 566.7595582710055
+   }
+  },
+  "0.1": {
+   "alpha": 0.1,
+   "held_loss": {
+    "policy_ce": 4.553070110617227,
+    "value_mse": 0.698195074198817,
+    "total": 5.251265184816044
+   },
+   "shift": {
+    "kl_mean": 8.817950326269402e-05,
+    "kl_median": 7.774730896582268e-05,
+    "tv_mean": 0.004583230121274767,
+    "end_turn_prior_mean": 0.09782003127118621,
+    "n": 200
+   },
+   "games": {
+    "n_games": 8,
+    "decisive": 7,
+    "k_median": 11,
+    "mean_turns": 32.375,
+    "end_turn_pct": 7.772979642196175,
+    "attack_pct": 18.78470080197409,
+    "seconds": 1592.548636655003
+   }
+  },
+  "0.03": {
+   "alpha": 0.03,
+   "held_loss": {
+    "policy_ce": 4.5571214789360965,
+    "value_mse": 0.7469768742224403,
+    "total": 5.304098353158537
+   },
+   "shift": {
+    "kl_mean": 7.937085443306114e-06,
+    "kl_median": 6.89363052790826e-06,
+    "tv_mean": 0.0013735206829818243,
+    "end_turn_prior_mean": 0.09812641227842274,
+    "n": 200
+   },
+   "games": {
+    "n_games": 8,
+    "decisive": 7,
+    "k_median": 13,
+    "mean_turns": 27.125,
+    "end_turn_pct": 6.375585435866445,
+    "attack_pct": 18.159842876567456,
+    "seconds": 2275.627977852011
+   }
+  }
+ },
+ "harvest": {
+  "n_games": 24,
+  "decisive": 24,
+  "k_median": 11,
+  "mean_turns": 22.75,
+  "end_turn_pct": 8.417615672533248,
+  "attack_pct": 22.98319662339731,
+  "seconds": 1179.394046456,
+  "n_train": 9126,
+  "n_held": 3431
+ },
+ "step": {
+  "policy_loss": 4.394739343105357,
+  "value_loss": 0.8551408062420682,
+  "grad_norm": 11.793415069580078,
+  "frac_params_moved_by_lr": 0.655375793223842
+ }
+}
