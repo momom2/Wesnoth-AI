@@ -133,7 +133,11 @@ def _build_player(spec: str, label: str, sims: int, device,
                   ts_cfg=None, batch_size: int = 1,
                   infer_bf16: bool = False,
                   infer_compile: bool = False,
-                  value_center: float = 0.0):
+                  value_center: float = 0.0,
+                  raw_temperature=None, raw_seed=None):
+    """`raw_temperature`: sims == 0 only -- the joint-temperature raw
+    player (tools/raw_player.py; 0 = argmax). None = the legacy
+    factored sampler, the pre-2026-09-04 'raw' procedure."""
     if spec == "random":
         # Deliberate random-init reference (round-24 C8: reaching
         # random init through a nonexistent PATH is how a typo
@@ -176,6 +180,10 @@ def _build_player(spec: str, label: str, sims: int, device,
             # defaults to "opponent" while leg 5+ trains "mover").
             return cls(policy, mc, turn_config=ts_cfg), counter
         return cls(policy, mc), counter
+    if raw_temperature is not None:
+        from tools.raw_player import RawPolicyPlayer
+        return RawPolicyPlayer(policy, raw_temperature,
+                               seed=raw_seed), counter
     return policy, counter
 
 
@@ -201,6 +209,16 @@ def main(argv) -> int:
                     help="MCTSConfig.value_center for player A (the "
                          "centering its training loop used; 0 = off).")
     ap.add_argument("--value-center-b", type=float, default=0.0)
+    ap.add_argument("--raw-temperature-a", type=float, default=None,
+                    help="Player A at sims 0 plays the joint-temperature "
+                         "raw player (tools/raw_player.py): 0 = argmax "
+                         "of the policy's joint prior, 1 = the legacy "
+                         "sampler in distribution. Default None = the "
+                         "legacy factored sampler ('raw'). Recorded in "
+                         "the procedure tag ('raw:t0'); estimands never "
+                         "mix within an outdir.")
+    ap.add_argument("--raw-temperature-b", type=float, default=None,
+                    help="Player B (see --raw-temperature-a).")
     ap.add_argument("--mcts-batch-size", type=int, default=1,
                     help="Leaf-evaluation batch (virtual-loss batching, "
                          "both players). 1 = sequential, the canonical "
@@ -305,6 +323,12 @@ def main(argv) -> int:
             "--plan-a/--plan-b require that side's sims > 0 (sims 0 "
             "is the raw-policy player; a silently ignored procedure "
             "flag would mislabel the measured object).")
+    if ((args.raw_temperature_a is not None and sims_a > 0)
+            or (args.raw_temperature_b is not None and sims_b > 0)):
+        raise SystemExit(
+            "--raw-temperature-a/-b apply to the raw player only (that "
+            "side's sims must be 0); a silently ignored temperature "
+            "would mislabel the measured object.")
     for _n, _spec in (("spec_a", args.spec_a),
                       ("spec_b", args.spec_b)):
         if _spec not in ("dummy", "random") \
@@ -364,10 +388,12 @@ def main(argv) -> int:
         if prev is not None:
             want_a = _procedure_of(
                 sims_a, args.plan_a,
-                args.no_turn_search or args.no_turn_search_a)
+                args.no_turn_search or args.no_turn_search_a,
+                args.raw_temperature_a)
             want_b = _procedure_of(
                 sims_b, args.plan_b,
-                args.no_turn_search or args.no_turn_search_b)
+                args.no_turn_search or args.no_turn_search_b,
+                args.raw_temperature_b)
             got_a = prev.get("procedure_a")
             got_b = prev.get("procedure_b")
             got_mt = prev.get("max_turns")
@@ -439,13 +465,17 @@ def main(argv) -> int:
         turn_search=not (args.no_turn_search or args.no_turn_search_a),
         plan_tournament=args.plan_a, pt_cfg=pt_cfg, ts_cfg=ts_cfg,
         batch_size=args.mcts_batch_size, infer_bf16=inf_bf16,
-        infer_compile=inf_compile, value_center=args.value_center_a)
+        infer_compile=inf_compile, value_center=args.value_center_a,
+        raw_temperature=args.raw_temperature_a,
+        raw_seed=2 * args.seed)
     pb, cnt_b = _build_player(
         args.spec_b, args.label_b, sims_b, device,
         turn_search=not (args.no_turn_search or args.no_turn_search_b),
         plan_tournament=args.plan_b, pt_cfg=pt_cfg, ts_cfg=ts_cfg,
         batch_size=args.mcts_batch_size, infer_bf16=inf_bf16,
-        infer_compile=inf_compile, value_center=args.value_center_b)
+        infer_compile=inf_compile, value_center=args.value_center_b,
+        raw_temperature=args.raw_temperature_b,
+        raw_seed=2 * args.seed + 1)
 
 
     rng = random.Random(args.seed)
@@ -485,10 +515,14 @@ def main(argv) -> int:
         # different estimands must never be silently mergeable.
         "procedure_a": _procedure_of(
             sims_a, args.plan_a,
-            args.no_turn_search or args.no_turn_search_a),
+            args.no_turn_search or args.no_turn_search_a,
+            args.raw_temperature_a),
         "procedure_b": _procedure_of(
             sims_b, args.plan_b,
-            args.no_turn_search or args.no_turn_search_b),
+            args.no_turn_search or args.no_turn_search_b,
+            args.raw_temperature_b),
+        "raw_temperature_a": args.raw_temperature_a,
+        "raw_temperature_b": args.raw_temperature_b,
         # The horizon decides decisive-vs-absence, the quantity
         # the PURE fit is built on (round-24 C9).
         "max_turns": args.max_turns,

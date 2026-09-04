@@ -1,0 +1,25 @@
+{
+  "n_games": 40,
+  "tables": {
+    "PURE (decisive only, primary)": {
+      "seed_argmax": {
+        "elo": 0.0,
+        "se": 0.0
+      },
+      "seed_mcts32": {
+        "elo": -123.59957013410263,
+        "se": 57.730191726317756
+      }
+    },
+    "MATERIAL-SIGN (diagnostic)": {
+      "seed_argmax": {
+        "elo": 0.0,
+        "se": 0.0
+      },
+      "seed_mcts32": {
+        "elo": -123.59957013410263,
+        "se": 57.730191726317756
+      }
+    }
+  }
+}

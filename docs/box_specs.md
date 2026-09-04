@@ -131,3 +131,29 @@ buys nothing while the CPUs are the bottleneck.
   solved problem. The launcher now enforces a single-instance lock
   and a required-decisions preflight (unset no-default vars refuse
   the launch; decline explicitly with "none").
+
+## Amendments (2026-09-04, raw-argmax control eval box)
+
+Eval-box derivation for a 15M-vs-15M match, measured on box 49838860
+(RTX 4090, 24 Ryzen 9 7900X3D cores at 23.04-core quota, 30 GB RAM,
+$0.334/h, image `pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime`,
+`--device cuda --jobs 10`, bf16 + compile defaults):
+
+- **Use the GPU box for search matches; the CPU-only shape above is
+  superseded for 15M-vs-15M.** MCTS-32 vs raw: 3.7 ms per forward,
+  453 forwards per searched side-turn, median 146 s per game (max
+  520), 40 games in 14 min. Raw vs raw: median 12 s per game, 40
+  games in 2 min. The leg-5 note's CPU figure for the same pairing
+  was ~3 min per TURN.
+- Whole run (create, image pull, bring-up, both matches, pull, destroy):
+  ~30 min, ~$0.17. Bring-up is `scripts/eval_box_setup.sh`-shaped:
+  tarball of the working tree + `/workspace/.hf_token`, seed from HF,
+  one GPU smoke game through `tools/elo_eval_game.py`.
+- RAM: 10 concurrent 15M-vs-15M games fit in 30 GB with 17 GB free at
+  start; VRAM stayed far below 24 GB.
+- The `pytorch/pytorch:2.5.1-cuda12.4` image also lacks sm_89
+  binaries (arch list ends at sm_86, sm_90); the 4090 ran via PTX JIT
+  at the throughput above, so this is acceptable for evals.
+- Offer selection: `vms_enabled=false`, CPU model EPYC or Ryzen (the
+  cheapest offers that day were Xeon E5-2680 v4 hosts, the 3-4x-slower
+  trap), cores >= 12, RAM >= 30 GB.

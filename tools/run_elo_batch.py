@@ -227,6 +227,12 @@ def main(argv: List[str]) -> int:
                     help="Search value centering for player A "
                          "(elo_eval_game --value-center-a).")
     ap.add_argument("--value-center-b", type=float, default=0.0)
+    ap.add_argument("--raw-temperature-a", type=float, default=None,
+                    help="Player A at sims 0 plays the joint-temperature "
+                         "raw player (elo_eval_game --raw-temperature-a; "
+                         "0 = argmax). Default None = legacy sampler.")
+    ap.add_argument("--raw-temperature-b", type=float, default=None,
+                    help="Player B (see --raw-temperature-a).")
     ap.add_argument("--mcts-batch-size", type=int, default=1,
                     help="Leaf-evaluation batch for search, both "
                          "players. 1 = sequential (canonical, CPU "
@@ -317,6 +323,9 @@ def main(argv: List[str]) -> int:
         ap.error("--plan-a/--plan-b require that side's sims > 0")
     if args.pt_args and not (args.plan_a or args.plan_b):
         ap.error("--pt-args is inert without --plan-a/--plan-b")
+    if ((args.raw_temperature_a is not None and sims_a > 0)
+            or (args.raw_temperature_b is not None and sims_b > 0)):
+        ap.error("--raw-temperature-a/-b apply to a side at sims 0 only")
     if args.device == "cpu" and (args.infer_bf16 or args.infer_compile):
         # Refuse up front: every child would refuse per game.
         ap.error("--infer-bf16/--infer-compile require a cuda device")
@@ -452,9 +461,11 @@ def main(argv: List[str]) -> int:
     # estimand outdir would be silently reused. Refuse here.
     from tools.eval_procedure import procedure_of
     want = (procedure_of(sims_a, args.plan_a,
-                          args.no_turn_search or args.no_turn_search_a),
+                          args.no_turn_search or args.no_turn_search_a,
+                          args.raw_temperature_a),
             procedure_of(sims_b, args.plan_b,
-                          args.no_turn_search or args.no_turn_search_b))
+                          args.no_turn_search or args.no_turn_search_b,
+                          args.raw_temperature_b))
     for f in sorted(args.outdir.glob("game_*.json")):
         try:
             prev = json.loads(f.read_text(encoding="utf-8"))
@@ -550,6 +561,10 @@ def main(argv: List[str]) -> int:
             cmd += ["--value-center-a", str(args.value_center_a)]
         if args.value_center_b:
             cmd += ["--value-center-b", str(args.value_center_b)]
+        if args.raw_temperature_a is not None:
+            cmd += ["--raw-temperature-a", str(args.raw_temperature_a)]
+        if args.raw_temperature_b is not None:
+            cmd += ["--raw-temperature-b", str(args.raw_temperature_b)]
         if args.mcts_batch_size != 1:
             cmd += ["--mcts-batch-size", str(args.mcts_batch_size)]
         if args.infer_bf16 is not None:
