@@ -1,0 +1,309 @@
+prof_gil.txt: 29145 samples
+
+== thread (64348): serve-0: 13284 samples (46%)
+  leaf frames:
+     54.3%  get (multiprocessing/queues.py:122)
+      3.4%  forward (torch/nn/modules/linear.py:125)
+      3.0%  _serve_worker (actor_pool.py:758)
+      3.0%  output_to_wire (inference_seam.py:122)
+      2.5%  _in_projection_packed (torch/nn/functional.py:5501)
+      2.3%  _recv (multiprocessing/connection.py:395)
+      1.3%  _serve_worker (actor_pool.py:745)
+      1.2%  multi_head_attention_forward (torch/nn/functional.py:6278)
+      1.0%  _cat_to_dev (wesnoth_ai/encoder.py:836)
+      1.0%  _unpack_bits (wesnoth_ai/server_priors.py:100)
+      0.9%  _cat_to_dev (wesnoth_ai/encoder.py:837)
+      0.8%  _serve_worker (actor_pool.py:741)
+      0.8%  _infer_with_priors (inference_seam.py:265)
+      0.8%  embedding (torch/nn/functional.py:2551)
+      0.7%  pad_sequence (torch/nn/utils/rnn.py:478)
+      0.7%  _cat_to_dev (wesnoth_ai/encoder.py:832)
+  innermost project frames:
+     73.2%  <no project frame>
+      9.4%  forward_streams (wesnoth_ai/model.py:587)
+      1.0%  _cat_to_dev (wesnoth_ai/encoder.py:836)
+      1.0%  _unpack_bits (wesnoth_ai/server_priors.py:100)
+      0.9%  _cat_to_dev (wesnoth_ai/encoder.py:837)
+      0.8%  _cat_to_dev (wesnoth_ai/encoder.py:832)
+      0.7%  _pad (wesnoth_ai/encoder.py:808)
+      0.6%  dev (wesnoth_ai/server_priors.py:149)
+      0.4%  <listcomp> (wesnoth_ai/server_priors.py:198)
+      0.4%  forward_streams (wesnoth_ai/model.py:557)
+      0.3%  _embed_streams (wesnoth_ai/encoder.py:849)
+      0.3%  _embed_streams (wesnoth_ai/encoder.py:874)
+      0.3%  forward_streams (wesnoth_ai/model.py:583)
+      0.3%  forward_streams (wesnoth_ai/model.py:594)
+      0.3%  _embed_streams (wesnoth_ai/encoder.py:858)
+      0.3%  forward_streams (wesnoth_ai/model.py:600)
+
+== thread (64349): serve-1: 12642 samples (43%)
+  leaf frames:
+     51.2%  get (multiprocessing/queues.py:122)
+      3.3%  _serve_worker (actor_pool.py:758)
+      3.3%  forward (torch/nn/modules/linear.py:125)
+      3.2%  output_to_wire (inference_seam.py:122)
+      2.8%  _in_projection_packed (torch/nn/functional.py:5501)
+      2.6%  _recv (multiprocessing/connection.py:395)
+      1.4%  multi_head_attention_forward (torch/nn/functional.py:6278)
+      1.3%  _unpack_bits (wesnoth_ai/server_priors.py:100)
+      1.2%  _serve_worker (actor_pool.py:745)
+      1.1%  _cat_to_dev (wesnoth_ai/encoder.py:837)
+      1.1%  _cat_to_dev (wesnoth_ai/encoder.py:836)
+      1.0%  _serve_worker (actor_pool.py:741)
+      0.9%  _cat_to_dev (wesnoth_ai/encoder.py:832)
+      0.8%  embedding (torch/nn/functional.py:2551)
+      0.8%  move_model_output (inference_seam.py:71)
+      0.7%  pad_sequence (torch/nn/utils/rnn.py:478)
+  innermost project frames:
+     71.1%  <no project frame>
+      9.9%  forward_streams (wesnoth_ai/model.py:587)
+      1.3%  _unpack_bits (wesnoth_ai/server_priors.py:100)
+      1.2%  _cat_to_dev (wesnoth_ai/encoder.py:837)
+      1.1%  _cat_to_dev (wesnoth_ai/encoder.py:836)
+      0.9%  _cat_to_dev (wesnoth_ai/encoder.py:832)
+      0.8%  _pad (wesnoth_ai/encoder.py:808)
+      0.6%  dev (wesnoth_ai/server_priors.py:149)
+      0.4%  _embed_streams (wesnoth_ai/encoder.py:849)
+      0.4%  <listcomp> (wesnoth_ai/server_priors.py:198)
+      0.4%  forward_streams (wesnoth_ai/model.py:583)
+      0.3%  _embed_streams (wesnoth_ai/encoder.py:874)
+      0.3%  batched_priors (wesnoth_ai/server_priors.py:211)
+      0.3%  batched_priors (wesnoth_ai/server_priors.py:136)
+      0.3%  forward_streams (wesnoth_ai/model.py:557)
+      0.3%  forward_streams (wesnoth_ai/model.py:593)
+
+== thread (64113): MainThread: 612 samples (2%)
+  leaf frames:
+     51.0%  get (multiprocessing/queues.py:122)
+     10.3%  _call_with_frames_removed (<frozen importlib._bootstrap>:241)
+      4.6%  _recv (multiprocessing/connection.py:395)
+      2.8%  main (bench_pool.py:127)
+      2.6%  _recv (multiprocessing/connection.py:402)
+      2.3%  _compile_bytecode (<frozen importlib._bootstrap_external>:729)
+      2.1%  _create_fn (dataclasses.py:433)
+      1.5%  is_available (torch/cuda/__init__.py:129)
+      1.0%  _get_packet (torch/_ops.py:1248)
+      0.8%  __hash__ (wesnoth_ai/classes.py:178)
+      0.7%  _path_stat (<frozen importlib._bootstrap_external>:147)
+      0.7%  update_wrapper (functools.py:50)
+      0.5%  __init__ (multiprocessing/synchronize.py:57)
+      0.3%  _has_script_object_arg (torch/_ops.py:1003)
+      0.3%  impl (torch/library.py:323)
+      0.3%  _path_isfile (<frozen importlib._bootstrap_external>:161)
+  innermost project frames:
+     83.5%  <no project frame>
+      5.6%  __init__ (wesnoth_ai/trainer.py:442)
+      0.8%  __hash__ (wesnoth_ai/classes.py:178)
+      0.3%  load_checkpoint (wesnoth_ai/transformer_policy.py:743)
+      0.2%  __hash__ (wesnoth_ai/classes.py:193)
+      0.2%  __hash__ (wesnoth_ai/classes.py:108)
+      0.2%  __init__ (wesnoth_ai/model.py:273)
+      0.2%  __init__ (wesnoth_ai/transformer_policy.py:141)
+      0.2%  __hash__ (wesnoth_ai/classes.py:177)
+
+== thread (68101): QueueFeederThread: 368 samples (1%)
+  leaf frames:
+     92.1%  dumps (multiprocessing/reduction.py:51)
+      2.4%  __init__ (multiprocessing/reduction.py:41)
+      0.8%  __init__ (multiprocessing/reduction.py:40)
+      0.8%  __init__ (multiprocessing/reduction.py:39)
+      0.8%  _send (multiprocessing/connection.py:384)
+      0.5%  _send_bytes (multiprocessing/connection.py:420)
+      0.3%  dumps (multiprocessing/reduction.py:52)
+      0.3%  _send_bytes (multiprocessing/connection.py:416)
+      0.3%  send_bytes (multiprocessing/connection.py:189)
+      0.3%  _feed (multiprocessing/queues.py:248)
+      0.3%  dumps (multiprocessing/reduction.py:50)
+      0.3%  _feed (multiprocessing/queues.py:228)
+      0.3%  _send (multiprocessing/connection.py:387)
+      0.3%  send_bytes (multiprocessing/connection.py:200)
+      0.3%  _feed (multiprocessing/queues.py:236)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== thread (68102): QueueFeederThread: 299 samples (1%)
+  leaf frames:
+     91.0%  dumps (multiprocessing/reduction.py:51)
+      3.7%  __init__ (multiprocessing/reduction.py:41)
+      1.7%  _send (multiprocessing/connection.py:384)
+      0.7%  _feed (multiprocessing/queues.py:244)
+      0.7%  _send_bytes (multiprocessing/connection.py:420)
+      0.7%  send_bytes (multiprocessing/connection.py:200)
+      0.3%  send_bytes (multiprocessing/connection.py:184)
+      0.3%  dumps (multiprocessing/reduction.py:50)
+      0.3%  _feed (multiprocessing/queues.py:250)
+      0.3%  send_bytes (multiprocessing/connection.py:191)
+      0.3%  __init__ (multiprocessing/reduction.py:39)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== thread (68100): QueueFeederThread: 244 samples (1%)
+  leaf frames:
+     91.8%  dumps (multiprocessing/reduction.py:51)
+      2.9%  __init__ (multiprocessing/reduction.py:41)
+      2.5%  _send (multiprocessing/connection.py:384)
+      1.2%  __init__ (multiprocessing/reduction.py:40)
+      0.4%  send_bytes (multiprocessing/connection.py:200)
+      0.4%  _feed (multiprocessing/queues.py:244)
+      0.4%  _send_bytes (multiprocessing/connection.py:420)
+      0.4%  _send_bytes (multiprocessing/connection.py:416)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== thread (68092): QueueFeederThread: 218 samples (1%)
+  leaf frames:
+     92.7%  dumps (multiprocessing/reduction.py:51)
+      4.6%  _send (multiprocessing/connection.py:384)
+      0.9%  _send_bytes (multiprocessing/connection.py:420)
+      0.9%  __init__ (multiprocessing/reduction.py:41)
+      0.5%  send_bytes (multiprocessing/connection.py:200)
+      0.5%  _send_bytes (multiprocessing/connection.py:416)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== thread (68099): QueueFeederThread: 196 samples (1%)
+  leaf frames:
+     91.8%  dumps (multiprocessing/reduction.py:51)
+      3.1%  _send (multiprocessing/connection.py:384)
+      1.5%  __init__ (multiprocessing/reduction.py:41)
+      1.0%  _feed (multiprocessing/queues.py:244)
+      1.0%  send_bytes (multiprocessing/connection.py:200)
+      1.0%  dumps (multiprocessing/reduction.py:52)
+      0.5%  _send_bytes (multiprocessing/connection.py:427)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== thread (68091): QueueFeederThread: 164 samples (1%)
+  leaf frames:
+     89.6%  dumps (multiprocessing/reduction.py:51)
+      6.7%  _send (multiprocessing/connection.py:384)
+      1.8%  send_bytes (multiprocessing/connection.py:200)
+      0.6%  _send (multiprocessing/resource_tracker.py:192)
+      0.6%  send_bytes (multiprocessing/connection.py:187)
+      0.6%  send_bytes (multiprocessing/connection.py:185)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== thread (68093): QueueFeederThread: 159 samples (1%)
+  leaf frames:
+     91.2%  dumps (multiprocessing/reduction.py:51)
+      3.1%  _send (multiprocessing/connection.py:384)
+      1.3%  _send_bytes (multiprocessing/connection.py:427)
+      1.3%  __init__ (multiprocessing/reduction.py:41)
+      0.6%  __init__ (multiprocessing/reduction.py:40)
+      0.6%  send_bytes (multiprocessing/connection.py:200)
+      0.6%  _send_bytes (multiprocessing/connection.py:420)
+      0.6%  send_bytes (multiprocessing/connection.py:185)
+      0.6%  _feed (multiprocessing/queues.py:250)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== thread (67961): QueueFeederThread: 156 samples (1%)
+  leaf frames:
+     85.3%  dumps (multiprocessing/reduction.py:51)
+     10.9%  _send (multiprocessing/connection.py:384)
+      1.3%  send_bytes (multiprocessing/connection.py:184)
+      1.3%  _send_bytes (multiprocessing/connection.py:420)
+      0.6%  __init__ (multiprocessing/reduction.py:39)
+      0.6%  _send_bytes (multiprocessing/connection.py:427)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== thread (68090): QueueFeederThread: 136 samples (0%)
+  leaf frames:
+     92.6%  dumps (multiprocessing/reduction.py:51)
+      3.7%  _send (multiprocessing/connection.py:384)
+      1.5%  send_bytes (multiprocessing/connection.py:200)
+      0.7%  __init__ (multiprocessing/reduction.py:41)
+      0.7%  _send_bytes (multiprocessing/connection.py:427)
+      0.7%  dumps (multiprocessing/reduction.py:52)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== thread (68097): QueueFeederThread: 133 samples (0%)
+  leaf frames:
+     90.2%  dumps (multiprocessing/reduction.py:51)
+      2.3%  _send (multiprocessing/connection.py:384)
+      1.5%  _send_bytes (multiprocessing/connection.py:420)
+      1.5%  __init__ (multiprocessing/reduction.py:41)
+      1.5%  _feed (multiprocessing/queues.py:250)
+      1.5%  send_bytes (multiprocessing/connection.py:200)
+      0.8%  _feed (multiprocessing/queues.py:244)
+      0.8%  __init__ (multiprocessing/reduction.py:40)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== thread (68094): QueueFeederThread: 131 samples (0%)
+  leaf frames:
+     87.0%  dumps (multiprocessing/reduction.py:51)
+      5.3%  _send (multiprocessing/connection.py:384)
+      4.6%  __init__ (multiprocessing/reduction.py:41)
+      0.8%  _feed (multiprocessing/queues.py:250)
+      0.8%  _send_bytes (multiprocessing/connection.py:427)
+      0.8%  send_bytes (multiprocessing/connection.py:200)
+      0.8%  dumps (multiprocessing/reduction.py:52)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== thread (68095): QueueFeederThread: 121 samples (0%)
+  leaf frames:
+     90.1%  dumps (multiprocessing/reduction.py:51)
+      2.5%  __init__ (multiprocessing/reduction.py:41)
+      1.7%  _send_bytes (multiprocessing/connection.py:420)
+      0.8%  __init__ (multiprocessing/reduction.py:39)
+      0.8%  send_bytes (multiprocessing/connection.py:192)
+      0.8%  send_bytes (multiprocessing/connection.py:200)
+      0.8%  _send (multiprocessing/connection.py:384)
+      0.8%  _send_bytes (multiprocessing/connection.py:427)
+      0.8%  dumps (multiprocessing/reduction.py:52)
+      0.8%  _feed (multiprocessing/queues.py:250)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== thread (67962): QueueFeederThread: 81 samples (0%)
+  leaf frames:
+     84.0%  dumps (multiprocessing/reduction.py:51)
+     12.3%  _send (multiprocessing/connection.py:384)
+      2.5%  __init__ (multiprocessing/reduction.py:41)
+      1.2%  _send_bytes (multiprocessing/connection.py:420)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== thread (68096): QueueFeederThread: 74 samples (0%)
+  leaf frames:
+     86.5%  dumps (multiprocessing/reduction.py:51)
+      2.7%  __init__ (multiprocessing/reduction.py:41)
+      2.7%  _feed (multiprocessing/queues.py:250)
+      2.7%  _send (multiprocessing/connection.py:384)
+      2.7%  send_bytes (multiprocessing/connection.py:186)
+      1.4%  __init__ (multiprocessing/reduction.py:39)
+      1.4%  __init__ (multiprocessing/reduction.py:40)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== thread (68098): QueueFeederThread: 70 samples (0%)
+  leaf frames:
+     90.0%  dumps (multiprocessing/reduction.py:51)
+      4.3%  __init__ (multiprocessing/reduction.py:41)
+      2.9%  _send (multiprocessing/connection.py:384)
+      1.4%  send_bytes (multiprocessing/connection.py:200)
+      1.4%  send_bytes (multiprocessing/connection.py:184)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== thread (68026): QueueFeederThread: 55 samples (0%)
+  leaf frames:
+     89.1%  dumps (multiprocessing/reduction.py:51)
+      5.5%  _send (multiprocessing/connection.py:384)
+      1.8%  __init__ (multiprocessing/reduction.py:41)
+      1.8%  _feed (multiprocessing/queues.py:250)
+      1.8%  send_bytes (multiprocessing/connection.py:200)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== thread (64113): 2 samples (0%)
+  leaf frames:
+     50.0%  EnumType (enum.py:979)
+     50.0%  __set_name__ (enum.py:276)
+  innermost project frames:
+    100.0%  <no project frame>

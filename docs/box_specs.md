@@ -253,6 +253,7 @@ each, max 30 turns, 25-minute cap. Records:
 | on | on | 320 | 16 / 16 | 898 | 64 | 1,088 / 623 |
 | on | on, 64 leaves coalesced per batch (was 16) | 364 | 16 / 16 | 747 | 77 | 1,106 / 335 |
 | on | on, 64 coalesced, 14 actors instead of 19 | 315 | 16 / 16 | 886 | 65 | 1,109 / 599 |
+| on | on (rerun of row 3, same seed, 45 min later) | 279 | 16 / 16 | 1,071 | 54 | 1,081 / 984 |
 
 Tokens per leaf 1,150-1,300, padding ratio 1.11 (1.44 with 64-leaf
 coalescing, which reached 30 leaves per batch on average), K median 10-12,
@@ -266,10 +267,46 @@ The box's cgroup CPU quota is 17.56 cores (`/sys/fs/cgroup/cpu.max`;
 server. Inside the serve threads' inference stage the cost is about
 4 ms per leaf in every row (3.8 at 16 leaves per batch, 4.0 at 30,
 4.0 with 14 actors), against 0.9 ms per leaf for the same path in
-the single-thread seam benchmark on an idle box. Fewer actors
-lowered throughput (the serve threads waited 599 s instead of 335),
-so CPU contention with the actors is not what the server is paying
-for; the cost is per leaf and inside the server's own work.
+the single-thread seam benchmark on an idle box. The rerun of the
+reference row came out 13% lower than its first run (279 against
+320; the host is shared), so the 64-leaf gain and the 14-actor loss
+are inside run-to-run noise; the constant per-leaf cost is not.
+A load snapshot 150 s into the rerun (`pool_on_bf16_rerun_top.txt`):
+the server process at 206% CPU (both serve threads saturated), every
+actor at about 50% (waiting on the server half the time), GPU
+utilization 49%.
+
+py-spy profile of the server process over a whole run (py-spy as
+the parent process; attaching is refused in the container), 100 Hz,
+idle samples included, records in
+`training/metrics/bench_pipeline/server_profile/`. Each serve thread:
+53% of samples waiting on the request queue (`select`, `Queue.get`),
+12% on the first synchronous host-to-device copy inside
+`batched_priors` (which is where the thread waits for the queued
+forward to finish on the GPU), about 10% launching the transformer
+forward, 6% building the padded streams, 4% the rest of the priors
+extraction, 2% wire serialization. The main thread and the 15 queue
+feeder threads are idle.
+
+The same run restricted to GIL-holding samples (`prof_gil`): the GIL
+was held for about a quarter of wall time in total (11% per serve
+thread), so the two threads are not fighting over it. Of a serve
+thread's GIL time, 54% is unpickling the actors' requests inside
+`Queue.get` (about 8 ms per 16-leaf batch: a RawEncoded plus packed
+masks per leaf, pickled as many small numpy objects), 10% the
+forward's kernel launches, 4% the padded encode, 3% wire
+serialization.
+
+Reading: the server is not saturated, it is under-fed. Nineteen
+actors each keep one 16-leaf request in flight and wait on it,
+so both sides idle about half the time and the GPU with them.
+Levers, in order: more requests in flight (more actors on the same
+quota, or two in-flight leaf batches per actor), then the GPU
+efficiency of the forward (compile or CUDA graphs against launch
+gaps, length buckets against padding), then the per-leaf Python on
+the server, starting with the request unpickling (one contiguous
+buffer per request instead of many small arrays). Runs with 28 and
+38 actors are the next measurements.
 
 Reading: the serve threads were inferring for 60-75% of the
 iteration in every row (2 threads sharing one process and one GIL:

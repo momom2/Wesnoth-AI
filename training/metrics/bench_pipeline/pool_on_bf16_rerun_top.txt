@@ -1,0 +1,25 @@
+top - 19:45:33 up 34 days,  8:55,  0 users,  load average: 14.29, 10.19, 9.05
+Tasks:  28 total,   5 running,  23 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  6.6 us,  1.4 sy,  3.3 ni, 88.7 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+MiB Mem : 257754.7 total,  20987.2 free, 135052.9 used, 101714.6 buff/cache
+MiB Swap:   8192.0 total,   8044.9 free,    147.1 used. 119672.5 avail Mem 
+
+    PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+  54759 root      20   0   35.8g   1.3g 361656 S 206.7   0.5   4:31.00 python
+  54969 root      25   5   20.3g 439896 168636 S  53.3   0.2   0:30.07 python
+  54973 root      25   5   20.3g 443356 170616 S  53.3   0.2   0:34.00 python
+  54978 root      25   5   20.3g 443484 169112 S  53.3   0.2   0:33.02 python
+  54975 root      25   5   20.3g 431364 168896 R  46.7   0.2   0:30.57 python
+  54970 root      25   5   20.3g 425196 169000 R  40.0   0.2   0:27.84 python
+  54979 root      25   5   20.3g 438436 170752 R  40.0   0.2   0:32.46 python
+  54982 root      25   5   20.3g 438236 170212 S  40.0   0.2   0:31.92 python
+  54968 root      25   5   20.4g 494224 168864 R  33.3   0.2   0:41.76 python
+  54980 root      25   5   20.3g 431976 169816 S  20.0   0.2   0:28.58 python
+  54972 root      25   5   20.3g 427972 169060 S  13.3   0.2   0:28.06 python
+  54977 root      25   5   20.3g 431660 168964 S  13.3   0.2   0:26.23 python
+  54974 root      25   5   20.3g 421916 168828 S   6.7   0.2   0:26.58 python
+  54976 root      25   5   20.4g 492420 169116 S   6.7   0.2   0:37.92 python
+      1 root      20   0    2892     92      0 S   0.0   0.0   0:00.09 sh
+     51 root      20   0    4364    468    176 S   0.0   0.0   0:00.64 bash
+    581 root      20   0   15436   4564   2944 S   0.0   0.0   0:00.14 sshd
+   1763 root      20   0   11564   5876   3884 S   0.0   0.0   0:01.03 ssh
