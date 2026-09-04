@@ -25,7 +25,7 @@ window. Update it every cycle.
 
 ## Strategic thesis (revise if evidence says otherwise)
 
-Measured on 2026-07-28 (`docs/eval_20260728.md`):
+Measured on 2026-07-28 (`docs/archive/eval_20260728.md`):
 - The campaign lineage **peaked ~2.3-2.75M decision steps and REGRESSED**
   by 3.74M (0-1-3 vs each predecessor).
 - It **loses to the built-in RCA AI**, ~9 decisive games, 0 wins.
@@ -2827,7 +2827,7 @@ variant — but it deserves a second opinion.
 
 **Consequence for T3:** the regressing leg was trained under a broken
 target. Seeding the next campaign from the PEAK (2.75M / 2.30M) with this
-fix landed is now the plan, per `docs/eval_20260728.md` §0.
+fix landed is now the plan, per `docs/archive/eval_20260728.md` §0.
 
 ### Cycle 1 — 2026-07-28 — T2: the scaling constraint is SEQUENCE LENGTH, not parameters
 

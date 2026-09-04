@@ -1420,7 +1420,7 @@ def _build_legality_masks(
                 # destination that has no token to point at, i.e. the action
                 # space silently shrank. Full-board mode legitimately misses
                 # (off-board neighbours), so the check is gated on the
-                # marker. See docs/autonomous_run.md cycles 16-19.
+                # marker. See docs/archive/autonomous_run.md cycles 16-19.
                 assert not (__debug__ and getattr(encoded, "hex_subset", False)
                             and _j is None), (
                     f"relevant-set gap: landable hex {_lpos} is mask-valid "

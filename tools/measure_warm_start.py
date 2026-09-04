@@ -11,9 +11,9 @@ The project has two measured reference points for the headline number
 (value MAE on the ±1 value scale):
 
   0.017  ACCEPTED — the 128->256 width grow that seeded Tier-a
-                    (`docs/superhuman_training_plan.md` §10).
+                    (`docs/archive/superhuman_training_plan.md` §10).
   0.217  REJECTED — the relevant-set encoder switch, T2-C
-                    (`docs/autonomous_run.md` cycle 24). "The weights
+                    (`docs/archive/autonomous_run.md` cycle 24). "The weights
                     load; the FUNCTION does not carry over."
 
 So: <~0.02 is a drop-in warm start, ~0.2 means the grown net needs a

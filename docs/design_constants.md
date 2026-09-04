@@ -279,7 +279,7 @@ the value head's mean prediction on search-consulted states. Its
 radius is the search's own DECISION RESOLUTION: TCS accepts a
 candidate turn when the re-graded value difference clears
 `min_delta` and two-stage acceptance, and the probe-measured
-median accepted delta is ~2 C51 atoms (docs/tcs_spec.md, the
+median accepted delta is ~2 C51 atoms (docs/archive/tcs_spec.md, the
 300-state probe; atom spacing 2/50 = 0.04 -> 0.08). Moving the
 consulted valuations by MORE than that per step re-scrambles the
 comparisons the search just made (signal-profiler round 5:
@@ -345,7 +345,7 @@ EXPOSURE must carry no expected mass gain, which the exp/sigma link
 violates through Jensen's inequality (the leg-3 `end_turn` exposure
 ratchet: +0.068 expected target mass per coordinate for an
 always-evaluated action under pure noise vs +0.002 for an
-equal-prior decoy; see docs/leg3_passivity_rootcause_20260817.md R2
+equal-prior decoy; see docs/archive/leg3_passivity_rootcause_20260817.md R2
 and tests/test_turn_target_link.py's decoy invariant).
 
 **Why beta = 5.** The natural unit for value differences is the C51
@@ -353,7 +353,7 @@ atom, width `2/(51-1) = 0.04` (docs/design_constants.md, C51
 section). Anchors:
 
 - The rung-1 probe's **median accepted improvement was 0.070 ≈ 2
-  atoms** (docs/tcs_spec.md validation). At beta=5 a 2-atom
+  atoms** (docs/archive/tcs_spec.md validation). At beta=5 a 2-atom
   advantage earns a multiplicative factor 1 + 5*0.08 = **1.4** —
   a firm but not saturating push, comparable in spirit to the
   Gumbel path's post-fix "soft improvement, not argmax" regime.

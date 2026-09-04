@@ -413,7 +413,7 @@ unvalidated (that's the GPU smoke's job). The device-aware
 NVIDIA startup credits all need a registered company + website/matching
 domain). Verified mid-2026:
 - **Plan: Kaggle (free) for pipeline test + profiling, then Vast.ai spot
-  4090 (~$30) for the real run.** See `docs/tier_a_runbook.md`.
+  4090 (~$30) for the real run.** See `docs/archive/tier_a_runbook.md`.
 - Kaggle: free T4×2, ~30 GPU-h/week, real background execution, but only
   ~4 vCPU (rollout somewhat starved) and 9–12h sessions → chain via
   checkpoint-resume (atomic + `.bak` now in place). Best FREE fit.

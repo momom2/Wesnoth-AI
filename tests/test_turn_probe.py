@@ -2,7 +2,7 @@
 probe code paths (tools/turn_counterfactual_probe.py) on real sims
 and a real (tiny, random-init) policy -- no mirrored logic.
 
-Covers the contracts docs/tcs_spec.md par.3/par.8 relies on:
+Covers the contracts docs/archive/tcs_spec.md par.3/par.8 relies on:
   * spine recording invariants (forks are pre-action, legal lists
     populated, terminal end_turn semantics);
   * materialization = grade-what-you-commit (identity replay lands

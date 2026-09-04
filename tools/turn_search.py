@@ -1,4 +1,4 @@
-"""Turn-Commitment Search core (TCS, docs/tcs_spec.md).
+"""Turn-Commitment Search core (TCS, docs/archive/tcs_spec.md).
 
 The search object is a complete side-turn (a command sequence ending
 at the turn boundary), refined by counterfactual coordinate
@@ -14,7 +14,7 @@ production `TurnCommitPolicy`) both import from here so measurement
 and production provably cannot diverge -- the same rationale
 `_completed_q`'s docstring gives for sharing search/target code.
 
-Key contracts (user rulings 2026-08-13, docs/tcs_spec.md par.5):
+Key contracts (user rulings 2026-08-13, docs/archive/tcs_spec.md par.5):
   * grade-what-you-commit: acceptance is over MATERIALIZED turns
     (the commands that actually landed, bounces excluded);
   * two-stage acceptance: argmax at the selection salt, then paired
@@ -463,7 +463,7 @@ def gumbel_top_k_alternatives(priors: np.ndarray, exclude_idx: int,
                               end_turn_idx: Optional[int], k: int,
                               rng: np.random.Generator) -> List[int]:
     """Gumbel-top-k over log-priors, excluding the incumbent's choice,
-    force-including end_turn (docs/tcs_spec.md par.3)."""
+    force-including end_turn (docs/archive/tcs_spec.md par.3)."""
     n = len(priors)
     if n <= 1:
         return []
@@ -648,7 +648,7 @@ class TurnPlan:
     select_action call. `pre_keys[i]` is the state_key the live state
     must match before serving command i (mismatch = a realized
     stochastic outcome diverged from the planning branch -> re-plan;
-    this IS the plan-once-replan-at-chance rule, docs/tcs_spec.md
+    this IS the plan-once-replan-at-chance rule, docs/archive/tcs_spec.md
     par.3). `targets[i]` is the coordinate's 5-tuple policy target
     (None on cheap turns). `stats[i]` carries distill telemetry."""
     side:          int
@@ -721,7 +721,7 @@ def plan_turn(policy, sim, side: int, decision_step: int,
     if TRACE:
         TRACE({"ev": "spine", "n": len(commands),
                "turn": plan.turn_no, "side": side})
-    # Projection placement (docs/tcs_spec.md par.3): `use_proj` grades
+    # Projection placement (docs/archive/tcs_spec.md par.3): `use_proj` grades
     # stage-2 pairings H half-turns out; `proj_all` extends that to
     # stage-1 selection and the distill targets.
     use_proj = (cfg.project in ("reval", "all")

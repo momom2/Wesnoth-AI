@@ -1,6 +1,6 @@
 """Swap detector v1 -- distributional pathwise dominance.
 
-See docs/swap_detector_design.md. We compare two ORDERINGS of a
+See docs/archive/swap_detector_design.md. We compare two ORDERINGS of a
 side-turn's actions by their OUTCOME DISTRIBUTIONS (no RNG coupling):
 a reordering is a strict improvement iff, per comparison dimension, its
 distribution stochastically dominates the baseline's (product order =
@@ -676,7 +676,7 @@ def _side_turn_syms(
     existence, health (hp, dead=-1), poisoned, slowed, XP -- good direction
     MIRRORED for enemy units -- pure position (marginal equality), plus own
     gold. The maximal-granularity primitive both the product rollup and the
-    lex views coarsen over (`docs/swap_detector_design.md`)."""
+    lex views coarsen over (`docs/archive/swap_detector_design.md`)."""
     id_side: Dict[object, int] = {}
     for parts in (base_parts, cand_parts):
         for st, _ in parts:

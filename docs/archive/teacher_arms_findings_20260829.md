@@ -1,6 +1,6 @@
 # Teacher arms — findings (2026-08-29, autonomous run)
 
-Design: docs/teacher_arms_20260829.md. Two boxes from the imitation
+Design: docs/archive/teacher_arms_20260829.md. Two boxes from the imitation
 seed (leg-5 config + fixed GBC labels), arm T = TCS teacher,
 arm M = plain Gumbel MCTS-32 teacher. ~40k steps/hour (5.9GHz
 cores). Probes: 24-game pin-vs-seed matches, MCTS-32 frame both
@@ -324,7 +324,7 @@ this structure is live in every future leg.
 ## iterations, mechanism captured live by the new signal telemetry
 
 User order: implement (2) rollout grounding + (3) consistency
-targets, launch, measure. Leg: docs/arm_vg_leg_20260901.md; killed
+targets, launch, measure. Leg: docs/archive/arm_vg_leg_20260901.md; killed
 by the K-median tripwire at iter 4 (median 8 < 10 x3) — the FOURTH
 arm and THIRD distinct value-channel design to collapse turn
 length within ~3-5 iterations (V1 memory ~5, V2 frozen-trunk ~3,
@@ -368,7 +368,7 @@ iterations.
 ## K-collapse in ONE iteration; the trust region anchored the
 ## wrong frame
 
-Design: docs/arm_vg2_leg_20260902.md (Gaussian consistency term
+Design: docs/archive/arm_vg2_leg_20260902.md (Gaussian consistency term
 with b, sigma2 estimated from paired labels; trust region with
 dual-ascent lambda vs the 2-atom resolution). Result: iteration 0
 trained at lambda=1 (no reading yet), consulted-state movement
@@ -399,7 +399,7 @@ each one localized the mechanism further.
 ## Arm VG3 (2026-09-02..03): gate-frame grounding + measured
 ## trust region -- the churn is held; the mixture self-distills
 
-Design: docs/arm_vg3_leg_20260902.md. What worked: capture/anchor/
+Design: docs/archive/arm_vg3_leg_20260902.md. What worked: capture/anchor/
 measure on the mover-frame pre-flip states the gate reads, with
 lambda0 = 12.1 measured by an offline production iteration; per-
 iteration movement on those states fell from 0.83 (unregulated) to
@@ -441,7 +441,7 @@ residual. Aligned systematic push vs cancelling noise -- a 280x
 per-state ratio in the sum. Bias correction removes exactly the
 coherent component; the trust region bounds whatever coherent
 correction remains to <= 2 atoms per iteration. That is the VG2
-design (docs/arm_vg2_leg_20260902.md), with b and sigma2 measured
+design (docs/archive/arm_vg2_leg_20260902.md), with b and sigma2 measured
 (-0.321, 0.100 on the seed) rather than chosen.
 
 Cost: ~$5 (incl. ~8h idle after the 22:17 tripwire — no auto-

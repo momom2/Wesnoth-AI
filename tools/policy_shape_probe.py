@@ -1,5 +1,5 @@
 """E1 frozen-state policy-shape probe (leg-4 root-cause plan,
-docs/leg4_erosion_rootcause_20260820.md §3).
+docs/archive/leg4_erosion_rootcause_20260820.md §3).
 
 Scores N checkpoints on IDENTICAL states -- the measurement leg 4
 never took: every in-leg statistic averaged over the leg's own

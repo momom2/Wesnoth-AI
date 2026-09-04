@@ -233,7 +233,7 @@ class Map:
         GlobalInfo.__deepcopy__) is pinned as an executable spec in
         tests/test_fork_isolation.py::test_fork_alias_contract. If you
         change what's aliased here, update that test and the audit
-        note in docs/autonomous_run.md. `SIM_FORK_GUARD=1` (tools/
+        note in docs/archive/autonomous_run.md. `SIM_FORK_GUARD=1` (tools/
         mcts.py) asserts the contract around every search.
 
         Net: ~10x faster than the default deepcopy for typical

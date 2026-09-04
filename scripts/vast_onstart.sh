@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Vast.ai on-start script for the Tier-a Phase 2 calibration run
-# (docs/tier_a_runbook.md). Do NOT paste THIS file into the template:
+# (docs/archive/tier_a_runbook.md). Do NOT paste THIS file into the template:
 # use scripts/vast_onstart_bootstrap.sh there instead -- it pulls the
 # repo and execs the current copy of this script, so onstart fixes
 # ship with a git push (2026-07-11 lesson: a frozen create-time copy

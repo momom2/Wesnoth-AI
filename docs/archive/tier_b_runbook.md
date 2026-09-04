@@ -4,9 +4,9 @@ Go-forward path for the Tier-b net, decided in this order: **grow →
 recover → campaign → measure.** The middle step is not optional and is
 the thing most likely to be skipped under time pressure.
 
-Companion to `docs/tier_a_runbook.md` (the Tier-a mechanics — bidding,
+Companion to `docs/archive/tier_a_runbook.md` (the Tier-a mechanics — bidding,
 preemption, tripwires, eval protocol — are unchanged and not repeated
-here). Arch evidence: `docs/superhuman_training_plan.md` §11.
+here). Arch evidence: `docs/archive/superhuman_training_plan.md` §11.
 
 ---
 
@@ -263,7 +263,7 @@ length in iterations (~5.5k decisions/iter at the leg's measured
 
 ## 5. What to measure, and when to stop
 
-Measure exactly as Tier-a did (`docs/tier_a_runbook.md` "What to
+Measure exactly as Tier-a did (`docs/archive/tier_a_runbook.md` "What to
 measure"): **ladder maps only** for Elo, holdout CE for value learning,
 throughput on that GPU compared only to other GPU runs.
 

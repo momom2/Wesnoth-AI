@@ -1,6 +1,6 @@
 """E2: is the TCS TARGET channel's advantage signal real or salt noise?
 
-(docs/leg4_erosion_rootcause_20260820.md par.3 E2; user go 2026-08-21.)
+(docs/archive/leg4_erosion_rootcause_20260820.md par.3 E2; user go 2026-08-21.)
 
 The target pass (turn_search.plan_turn final pass) grades each
 alternative with ONE materialization at ONE salt; the linear link

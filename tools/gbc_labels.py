@@ -1,13 +1,13 @@
 """GBC hindsight label machinery + rung-0a yield measurement.
 
-Goal-Basis Completion (docs/gbc_spec.md) trains heads that predict
+Goal-Basis Completion (docs/archive/gbc_spec.md) trains heads that predict
 P(event within k game turns | state). The labels are FREE: a forward
 scan over stored trajectories marks every death / village flip /
 level-up with its turn, position, and per-side observability. This
 module is the single source of those labels (rung 0a's yield stats,
 rung 1's training stream, and the exact-oracle gates all read it).
 
-Contracts (docs/gbc_spec.md par.2, review amendments):
+Contracts (docs/archive/gbc_spec.md par.2, review amendments):
   * Fog-censored CONFIRMED achievement, amendment A1: the observer is
     the SIDE-TO-MOVE at the anchor state, for every goal regardless
     of entity ownership. An event counts for an observer only if the
@@ -224,7 +224,7 @@ def main(argv) -> int:
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(text, encoding="utf-8")
-    # Pre-registered gate (docs/gbc_spec.md par.6 rung 0a): every
+    # Pre-registered gate (docs/archive/gbc_spec.md par.6 rung 0a): every
     # (predicate, k) bucket needs >=5% positives after stratification,
     # else prune the vocabulary.
     weak = [b for b, d in stats["buckets"].items()

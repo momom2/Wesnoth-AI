@@ -172,7 +172,7 @@ class MCTSExperience:
     # agree. Default 0 = full-strength oracle (also the legacy-pickle
     # fallback, matching the pre-anneal behavior of old serialized data).
     decision_step: int = 0
-    # GBC event-supervision labels (2026-08-14, docs/gbc_spec.md):
+    # GBC event-supervision labels (2026-08-14, docs/archive/gbc_spec.md):
     # fog-censored hindsight rows ("u", id, pred, y1, y2) / ("v", x,
     # y, pred, y1, y2) built in finalize_game. None on legacy pickles
     # and when labeling is off; the loss skips absent labels per
@@ -255,7 +255,7 @@ class TrainerConfig:
     # action. Still nonzero so exploration isn't killed entirely.
     entropy_coef:         float = 0.001
     grad_clip:            float = 1.0
-    # Value loss form (minimal loop, docs/az_minimal_spec.md):
+    # Value loss form (minimal loop, docs/archive/az_minimal_spec.md):
     # "c51" = categorical CE on the projected result (legacy);
     # "mse_mean" = squared error between the head's MEAN prediction
     # and the result. The categorical loss charges a confident head
@@ -1236,7 +1236,7 @@ def _trainer_step_mcts(
         if ml_on else None
     )
 
-    # GBC event supervision (2026-08-14, docs/gbc_spec.md): per-
+    # GBC event supervision (2026-08-14, docs/archive/gbc_spec.md): per-
     # experience gate (labels may be absent on legacy/mixed data —
     # unlike aux, absence skips the EXPERIENCE, not the whole term).
     gbc_on = (
@@ -1413,7 +1413,7 @@ def _trainer_step_mcts(
                        * gw_chunk).sum() / total_gw
             chunk_loss = chunk_loss + self.config.moves_left_coef * ml_loss
             sum_ml_loss += float(ml_loss.item())
-        # GBC event-supervision loss (2026-08-14, docs/gbc_spec.md):
+        # GBC event-supervision loss (2026-08-14, docs/archive/gbc_spec.md):
         # per-experience BCE of the dies/flips heads vs hindsight
         # labels, weighted by game_weight and normalized by total_gw
         # like every other term.

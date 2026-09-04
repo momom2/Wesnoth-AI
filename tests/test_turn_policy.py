@@ -1,6 +1,6 @@
 """TurnCommitPolicy integration tests -- production code paths only.
 
-Covers the contracts docs/tcs_spec.md par.3-6 and the 2026-08-14
+Covers the contracts docs/archive/tcs_spec.md par.3-6 and the 2026-08-14
 default-on integration:
   * one plan per side-turn (no per-decision re-planning when the
     trajectory follows the planned branch);
@@ -138,7 +138,7 @@ def test_full_game_trains_through_inherited_pipeline():
     for exp in policy._queue:
         assert exp.visit_counts, \
             "TCS emits only policy-target experiences (no value-only " \
-            "boundary rows -- docs/tcs_spec.md par.4 integration note)"
+            "boundary rows -- docs/archive/tcs_spec.md par.4 integration note)"
         assert exp.z in (-1.0, 0.0, 1.0)
     stats = policy.train_step()
     assert stats is not None

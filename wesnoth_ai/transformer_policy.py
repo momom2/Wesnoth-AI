@@ -123,7 +123,7 @@ class TransformerPolicy:
         self._aux_score = bool(aux_score)
         self._moves_left = bool(moves_left)
         self._gbc = bool(gbc)
-        # Relevant-hex stream (docs/autonomous_run.md cycles 16-19). Changes
+        # Relevant-hex stream (docs/archive/autonomous_run.md cycles 16-19). Changes
         # the ACTION SPACE's index basis, so BOTH encoders must agree -- a
         # split would make replayed target_idx meaningless.
         self._relevant_set_hexes = bool(relevant_set_hexes)
@@ -841,7 +841,7 @@ class TransformerPolicy:
                     # Moves-left head (Lc0-style, 2026-07-04); same
                     # partial-load story as the aux head.
                     "moves_left_head.weight", "moves_left_head.bias",
-                    # GBC event heads (2026-08-14, docs/gbc_spec.md);
+                    # GBC event heads (2026-08-14, docs/archive/gbc_spec.md);
                     # same partial-load story: a gbc-on model resumed
                     # from a pre-gbc checkpoint grafts fresh heads.
                     "gbc_heads.pred_embed.weight",

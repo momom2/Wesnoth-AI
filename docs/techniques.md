@@ -21,7 +21,7 @@ who need to know what is in the box before changing it.
   handle; treat line numbers as a starting offset.
 - Related reading: `docs/design_constants.md` (derivations of the
   numeric constants), `docs/wesnoth_rules.md` (engine-fidelity
-  rules), `docs/autonomous_run.md` (what was measured and what was
+  rules), `docs/archive/autonomous_run.md` (what was measured and what was
   refuted), `BACKLOG.md` (open questions).
 
 **Two framing facts that explain most of the design:**
@@ -745,7 +745,7 @@ Pinned by `tests/test_mcts.py::test_prior_hardcoded_bias_defaults_off`.
   `wesnoth_ai/trainer.py:1202-1219`).
   ⚠ **Empirically refuted, not aspirational:** the channel was
   measured to carry no information against a placebo control
-  (CLAUDE.md §Current status; `docs/autonomous_run.md` Cycle 32,
+  (CLAUDE.md §Current status; `docs/archive/autonomous_run.md` Cycle 32,
   which also retracts `advice_out_norm` as evidence). Kept for
   provenance; do not treat as a working feature.
 

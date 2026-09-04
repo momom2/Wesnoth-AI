@@ -2,7 +2,7 @@
 
 **Status: DRAFT for user review. Every decision below is a proposal, not a ruling. Two items explicitly require a user ruling before implementation (marked ⚖).**
 
-Proposed location: `docs/cgr32_spec.md`. Synthesized 2026-08-26 from three adversarially-reviewed designs; base = CGR-32 (survived review with no fatal flaw), grafts from HAG and TCS-R noted inline and in §10.
+Proposed location: `docs/archive/cgr32_spec.md`. Synthesized 2026-08-26 from three adversarially-reviewed designs; base = CGR-32 (survived review with no fatal flaw), grafts from HAG and TCS-R noted inline and in §10.
 
 ---
 

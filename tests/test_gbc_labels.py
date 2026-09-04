@@ -1,4 +1,4 @@
-"""GBC label machinery tests (docs/gbc_spec.md par.2, amendment A1).
+"""GBC label machinery tests (docs/archive/gbc_spec.md par.2, amendment A1).
 
 Drives the production scanner (tools/gbc_labels.py) on real sim
 states and real replays -- no mirrored logic. The synthetic fogged

@@ -157,7 +157,7 @@ class MCTSPolicy:
                  value_memory_games: int = 0,
                  value_memory_states_per_game: int = 32,
                  value_memory_batch: int = 256):
-        # GBC event-supervision labels (2026-08-14, docs/gbc_spec.md):
+        # GBC event-supervision labels (2026-08-14, docs/archive/gbc_spec.md):
         # when on, finalize_game attaches fog-censored hindsight
         # event labels to every experience (pure state diffs -- no
         # model involvement, so actor-pool/spool policies build them
@@ -701,7 +701,7 @@ class MCTSPolicy:
                 policy_weight=float(getattr(s, "policy_weight", 1.0)),
                 game_id=str(game_label),
             ))
-        # GBC labels (docs/gbc_spec.md): hindsight event rows per
+        # GBC labels (docs/archive/gbc_spec.md): hindsight event rows per
         # stored state, fog-censored for each state's side-to-move.
         # Attached BEFORE holdout diversion so held-out games carry
         # them too (harmless there; value-CE eval ignores them).

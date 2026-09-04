@@ -1,7 +1,7 @@
 # Technique activation/deletion review — 2026-08-10
 
 Opus review over docs/techniques.md, cross-checked against the measured
-record (docs/autonomous_run.md, BACKLOG.md, docs/literature_scan_20260810.md,
+record (docs/archive/autonomous_run.md, BACKLOG.md, docs/archive/literature_scan_20260810.md,
 CLAUDE.md §Current status). Verdicts with observables and an order of
 operations relative to the first tier-b self-play campaign.
 

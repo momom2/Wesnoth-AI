@@ -8,7 +8,7 @@ deleted. Rules:
 - The code stays where it is (moving it would break the tree the
   inventory has to read), preserved at git tag `pre-restart-20260903`.
 - Nothing in this pile is imported by the new minimal loop
-  (docs/az_minimal_spec.md); the new entry point depends only on the
+  (docs/archive/az_minimal_spec.md); the new entry point depends only on the
   simulator, encoder, model, and the core trainer step.
 - INVENTORY.md (written by a subagent, reviewed by the user) lists
   every item with its evidence, so the pile can be sorted:

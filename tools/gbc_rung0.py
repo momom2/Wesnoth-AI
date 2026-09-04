@@ -1,5 +1,5 @@
 """GBC rung-0b/0c: the two measurements that can kill the design
-before any model code is written (docs/gbc_spec.md par.6).
+before any model code is written (docs/archive/gbc_spec.md par.6).
 
 0b -- DECOMPOSITION R^2. Is the turn-scale value differential
 approximately linear in goal-event indicators? Held-out regression

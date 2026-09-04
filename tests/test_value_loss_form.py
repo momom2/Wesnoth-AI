@@ -1,4 +1,4 @@
-"""TrainerConfig.value_loss_form = "mse_mean" (docs/az_minimal_spec.md).
+"""TrainerConfig.value_loss_form = "mse_mean" (docs/archive/az_minimal_spec.md).
 
 The squared-error form must charge in proportion to the miss: zero
 gradient when the head's mean already equals the label, and a

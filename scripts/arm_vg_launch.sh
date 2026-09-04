@@ -4,7 +4,7 @@
 # anchor, K-tripwire) MINUS value-memory PLUS --value-ground, on the
 # code with the aux/moves-left detach and per-decade telemetry.
 # Hand-driven like the teacher arms; run on the box from
-# /workspace/wai after setup (see docs/arm_vg_leg_20260901.md).
+# /workspace/wai after setup (see docs/archive/arm_vg_leg_20260901.md).
 #
 # Stages: full test suite -> anchor build -> fork-guard smoke ->
 # supervised training loop + pin/probe/escrow/watchdog daemons.

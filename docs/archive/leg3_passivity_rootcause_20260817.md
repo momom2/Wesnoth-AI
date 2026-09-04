@@ -69,7 +69,7 @@ Independently reproduced by the adversary with a **decoy control** the finder la
 TCS grades a whole candidate turn with one scalar forward pass (`turn_search.py:135-143`), with `project="none"` all leg (`:73`, launch line `reply=none`). Evidence that this scalar cannot rank turns:
 
 - **`holdout_probe.csv value_auc`: 0.309, 0.401, 0.364, 0.450, 0.456, 0.655, 0.484, 0.461, 0.386, 0.371** — mean **0.434, 9/10 below chance, n_value = 1200 each — from decision_step 3,111,037, i.e. at leg entry.** This series sat unread all leg while every other anchor metric looked healthy.
-- `docs/gbc_spec.md:47-58` (0d attribution, 694 rows): the value head's **turn-scale movement predicts outcome at AUC 0.527 ≈ chance**; only its level scores 0.796. TCS grades exactly the turn-scale delta.
+- `docs/archive/gbc_spec.md:47-58` (0d attribution, 694 rows): the value head's **turn-scale movement predicts outcome at AUC 0.527 ≈ chance**; only its level scores 0.796. TCS grades exactly the turn-scale delta.
 - Frozen 526-state self-play holdout `holdout_value_loss` 0.465 → 1.024 (adversary argues this is recentering onto a genuinely drawish distribution, i.e. calibration not discrimination — direction unresolved, but it does not *help*).
 
 *Symmetry:* one shared head, both sides, all states. Valid and unavoidable.

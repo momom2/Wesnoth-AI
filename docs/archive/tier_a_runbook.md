@@ -5,7 +5,7 @@ Turnkey command sequence for the first rented/free GPU run. Objective is
 (not GPU-starved), fix the D2H stalls that show, and get ONE Elo-vs-compute
 point at the scaled net before committing to a paid Tier-b campaign.
 
-Decisions are locked in `docs/superhuman_training_plan.md` §10. Everything
+Decisions are locked in `docs/archive/superhuman_training_plan.md` §10. Everything
 below was validated end-to-end on the CPU laptop except the CUDA-specific
 throughput (that's what Phase 1 measures).
 

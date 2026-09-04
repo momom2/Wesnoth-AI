@@ -1,5 +1,5 @@
 """MCTSConfig.value_center: search reads the network value minus the
-centering constant (docs/az_leg_20260903.md: a mover-frame level b
+centering constant (docs/archive/az_leg_20260903.md: a mover-frame level b
 enters the act-vs-end_turn choice as 2b, so the head's level decides
 K; centering removes that lever from the level).
 """

@@ -59,7 +59,7 @@ collapse probe (2026-08-31), signal-profiler rounds 1-6
 - Where: `wesnoth_ai/model.py::WesnothModel` (value head, `cliffness = std(Z)`), `wesnoth_ai/trainer.py::_categorical_value_loss`, `_project_returns_to_atoms`.
 - Mechanism: 51-atom categorical value distribution on [-1, 1]; the scalar V is its mean; the value loss is cross-entropy against the projected label.
 - Default: on (no flag; architecture).
-- Evidence: signal-profiler rounds 4-6 (teacher_arms_findings): the value term owns ~99% of the applied update direction at every checkpoint including the seed (norm 3.07 vs policy 0.25); winner/loser gradients anti-parallel (cos -0.83..-0.95) with the bulk on turns 1-20 where labels are aleatoric. `docs/az_minimal_spec.md` claims a scalar squared-error loss would charge a confident head in proportion to the miss; that alternative is now switchable (6.26) and has not been run in this lineage. The tier-a pre-C51 comparison (`docs/mcts_vs_reinforce_eval.md`) was 10/10 draws and uninformative.
+- Evidence: signal-profiler rounds 4-6 (teacher_arms_findings): the value term owns ~99% of the applied update direction at every checkpoint including the seed (norm 3.07 vs policy 0.25); winner/loser gradients anti-parallel (cos -0.83..-0.95) with the bulk on turns 1-20 where labels are aleatoric. `docs/archive/az_minimal_spec.md` claims a scalar squared-error loss would charge a confident head in proportion to the miss; that alternative is now switchable (6.26) and has not been run in this lineage. The tier-a pre-C51 comparison (`docs/archive/mcts_vs_reinforce_eval.md`) was 10/10 draws and uninformative.
 - Category: CORE.
 - Coupling: value-label smoothing, draw tiebreak z, draw_value_weight, every value-side term; `fresh_ce_floor` telemetry assumes the categorical form.
 
@@ -107,15 +107,15 @@ collapse probe (2026-08-31), signal-profiler rounds 1-6
 - Where: `--infer-bf16`, `--infer-compile` (`wesnoth_ai/transformer_policy.py`); eval defaults cuda-auto; `--torch-threads` (CPU-only auto-cap to 4, measured ~1.3-2.3x on CPU).
 - Mechanism: bf16 autocast and `torch.compile` on the inference copy only; intra-op thread cap on CPU devices.
 - Default: OFF for training (2026-08-29: an in-process compile deadlocked the spool e2e); ON for eval on CUDA.
-- Evidence: 3060 bench (BACKLOG 2026-08-28): eager bf16 1.15x, compile 1x, compile+bf16 2.0x; bf16 alone NO-GO on the 3060 at batch 1 (2026-08-05). `docs/teacher_arms_20260829.md` states arms T/M ran "the new compile+bf16 inference default"; BACKLOG states the training default was rolled back to OFF the same day so the arms would not carry it. The two statements disagree; the sim_self_play banner logs the resolved value.
+- Evidence: 3060 bench (BACKLOG 2026-08-28): eager bf16 1.15x, compile 1x, compile+bf16 2.0x; bf16 alone NO-GO on the 3060 at batch 1 (2026-08-05). `docs/archive/teacher_arms_20260829.md` states arms T/M ran "the new compile+bf16 inference default"; BACKLOG states the training default was rolled back to OFF the same day so the arms would not carry it. The two statements disagree; the sim_self_play banner logs the resolved value.
 - Category: CORE (throughput; numerics change flagged as an attribution confound).
-- Coupling: E2 control-leg caveat in `docs/redesign_1000x_20260828.md`.
+- Coupling: E2 control-leg caveat in `docs/archive/redesign_1000x_20260828.md`.
 
 ### 1.9 REINFORCE path with shaping rewards (legacy alternative loop)
 - Where: `--reinforce` / `--no-mcts`; `wesnoth_ai/trainer.py::Trainer.step` (`gamma` 0.99, `entropy_coef` 0.001, `normalize_advantages`); `wesnoth_ai/rewards.py::WeightedReward`, `--reward-config`, `configs/reward_selfplay.json`.
 - Mechanism: policy gradient with a value baseline and entropy bonus on per-step shaped rewards (gold killed, village delta, damage, per-turn penalty, unit-type and turn-conditional bonuses).
 - Default: OFF (production is `--mcts`; `--reward-config` with `--mcts` is refused at startup since F5).
-- Evidence: structurally inert under `--mcts` (`MCTSPolicy.observe` is a no-op, `uses_step_rewards=False`; autonomous_run cycle 29: "a whole prior investigation was aimed at a dead channel" -- the `weight_gold=0` non-fix). The only MCTS-vs-REINFORCE comparison (`docs/mcts_vs_reinforce_eval.md`) predates the C51 head and was 10/10 draws. No REINFORCE-era strength number exists on the current net.
+- Evidence: structurally inert under `--mcts` (`MCTSPolicy.observe` is a no-op, `uses_step_rewards=False`; autonomous_run cycle 29: "a whole prior investigation was aimed at a dead channel" -- the `weight_gold=0` non-fix). The only MCTS-vs-REINFORCE comparison (`docs/archive/mcts_vs_reinforce_eval.md`) predates the C51 head and was 10/10 draws. No REINFORCE-era strength number exists on the current net.
 - Category: CORE (legacy alternative); the shaping terms are TRICK-UNTESTED on the production path.
 - Coupling: only the REINFORCE step consumes it; draw tiebreak (5.9) is the one live shaping seam under MCTS.
 
@@ -215,7 +215,7 @@ collapse probe (2026-08-31), signal-profiler rounds 1-6
 - Where: `_TrainerHistoryCSV` (~140 columns, `--trainer-history-csv`), `--game-log-dir`, `eng_*` columns, `--validate-export-every`/`--validate-export-dir` (`tools/validation_exports.py`), `--prof` (`WESNOTH_PROF=1`, `tools/prof_report.py`), root cliffness log.
 - Mechanism: per-iteration and per-game records; every Nth game exported as a Wesnoth-loadable replay for strict-sync checks; per-component timers.
 - Default: on (exports every 100th game at the CLI, every game on the box).
-- Evidence: the 2026-08-04 export sweep found 538/574 clean with every failure root-caused; six known-bad midgame Aethermaw exports on HF predate the fix. Cliffness calibration (`docs/cliffness_calibration.md`) was only ever run on a pre-C51 checkpoint.
+- Evidence: the 2026-08-04 export sweep found 538/574 clean with every failure root-caused; six known-bad midgame Aethermaw exports on HF predate the fix. Cliffness calibration (`docs/archive/cliffness_calibration.md`) was only ever run on a pre-C51 checkpoint.
 - Category: INSTRUMENT.
 - Coupling: none on training.
 
@@ -251,7 +251,7 @@ collapse probe (2026-08-31), signal-profiler rounds 1-6
 - Where: `--abort-k-median` (exit 7); `k_median_of(outcomes)`.
 - Mechanism: stop when median actions per side-turn is below the bar for 3 consecutive iterations.
 - Default: off at the CLI (explicit-pass ruling); 10 on leg 5 and all arms.
-- Evidence: fired on arm M (iteration 10) and arm VG (iteration 4); leg 3 collapsed to K 2 with every other guard green (motivation); VG3 hovered 8/9/10 without a third strike. The one tripwire `docs/az_minimal_spec.md` keeps.
+- Evidence: fired on arm M (iteration 10) and arm VG (iteration 4); leg 3 collapsed to K 2 with every other guard green (motivation); VG3 hovered 8/9/10 without a third strike. The one tripwire `docs/archive/az_minimal_spec.md` keeps.
 - Category: OPS-SAFETY.
 - Coupling: none.
 
@@ -373,7 +373,7 @@ collapse probe (2026-08-31), signal-profiler rounds 1-6
 - Default: on under `--mcts` without `--turn-search`.
 - Evidence: as teacher: arm M K-collapsed from a healthy seed in 10 iterations with end_turn prior mass inflating through distillation (0.212 -> 0.255), final -263 +- 90 — "teacher-intrinsic to Gumbel-MCTS distillation"; the F1-arm self-play policy played K median 2-4.5 vs the seed's ~12 (turn truncation acquired under this teacher, tcs_spec rung 0); tier-a: +133 in-lineage, 0-0-30 vs RCA; autonomous_run cycle 29: the "tried-and-cut tax" (edges sampled and cut grade below v_mix). As play procedure: +321 on the seed (1.3). Never isolated from replay (16 updates), anchors, GBC, aux, C51 at tier-b.
 - Category: TRICK-REFUTED (as target producer at tier-b; retained as play procedure).
-- Coupling: 5.1, 5.3, 5.4, playout cap (6.7), tree reuse; `docs/az_minimal_spec.md` proposes visit-count targets instead.
+- Coupling: 5.1, 5.3, 5.4, playout cap (6.7), tree reuse; `docs/archive/az_minimal_spec.md` proposes visit-count targets instead.
 
 ### 5.3 Search-budget levers: raising `--mcts-sims`, `gumbel_m` 16 -> 8
 - Where: `--mcts-sims`, `--mcts-gumbel-m`.
@@ -387,7 +387,7 @@ collapse probe (2026-08-31), signal-profiler rounds 1-6
 - Where: `--turn-search` (default True); `tools/turn_policy.py::TurnCommitPolicy`, `tools/turn_search.py::plan_turn` (`record_spine`, `materialize`, `gumbel_top_k_alternatives`, `build_coordinate_target`); knobs `--turn-alt` 4, `--turn-rounds` 3, `--turn-fast-rounds` 1, `--turn-max-spine` 40, `--turn-full-prob` 0.25.
 - Mechanism: sample a whole side-turn from the policy, hill-climb it by single-coordinate substitutions graded by the value head at the turn boundary, execute the committed plan (re-plan on divergence), and distill per-coordinate targets from the evaluated alternatives.
 - Default: ON since 2026-08-14.
-- Evidence: FOR (offline): rung-1 probe accept 0.64, median accepted delta ~2 atoms, placebo-separated 5:1; its KL gate failed as pre-registered (user ruled proceed). AGAINST (games): as a play procedure on identical weights, seed+TCS lost 9-0-31 to seed+MCTS-32 (~-200; not compute-matched, ~113 vs ~384 forwards/side-turn); as a teacher, every TCS leg eroded (TCS leg 1 CE abort; leg 3 K collapse; leg 4 -309; leg 5 -208; arm T mean ~-200 with oscillation) and profiler rounds 4-5 measured its targets at KL 0.002-0.006 from the prior (0.3% away) carrying ~1% of the update, with the systematic component pushing toward passivity (attack -0.003..-0.006, end_turn +0.002..+0.008). The findings doc exonerates the teacher procedure as the erosion ROOT cause ("the value function's off-distribution behavior is"); it never K-collapsed on arm T (K 17-22) where arm M did. `docs/tcs_collapse_mechanism_20260831.md`: boundary-only grading cannot price tempo; the gate accepts end_turn alternatives whenever value deltas dip.
+- Evidence: FOR (offline): rung-1 probe accept 0.64, median accepted delta ~2 atoms, placebo-separated 5:1; its KL gate failed as pre-registered (user ruled proceed). AGAINST (games): as a play procedure on identical weights, seed+TCS lost 9-0-31 to seed+MCTS-32 (~-200; not compute-matched, ~113 vs ~384 forwards/side-turn); as a teacher, every TCS leg eroded (TCS leg 1 CE abort; leg 3 K collapse; leg 4 -309; leg 5 -208; arm T mean ~-200 with oscillation) and profiler rounds 4-5 measured its targets at KL 0.002-0.006 from the prior (0.3% away) carrying ~1% of the update, with the systematic component pushing toward passivity (attack -0.003..-0.006, end_turn +0.002..+0.008). The findings doc exonerates the teacher procedure as the erosion ROOT cause ("the value function's off-distribution behavior is"); it never K-collapsed on arm T (K 17-22) where arm M did. `docs/archive/tcs_collapse_mechanism_20260831.md`: boundary-only grading cannot price tempo; the gate accepts end_turn alternatives whenever value deltas dip.
 - Category: TRICK-REFUTED (as shipped: play-time cost measured, no transfer measured; not shown to be the erosion cause).
 - Coupling: 4.4, 4.5, 5.5, 5.21, 5.22, force-inclusion (6.20), grounding (4.3-4.7), GBC per-decision tracing, TCS telemetry.
 
@@ -495,7 +495,7 @@ collapse probe (2026-08-31), signal-profiler rounds 1-6
 ### 6.4 Classic AlphaZero root (`--mcts-classic-root`, Dirichlet noise, visit temperature)
 - Where: `MCTSConfig.dirichlet_alpha` 0.3, `dirichlet_eps` 0.25, `add_root_noise`, `temperature` 1.0, `temperature_decisions` 30, `root_fpu_reduction` 0; `mcts.sample_action`, `extract_visit_counts`.
 - Mechanism: root noise + visit-count sampling for the first 30 decisions; visit-count targets.
-- Default: off (Gumbel root is default). Evidence: the pre-Gumbel campaigns ran it (2026-05..06) before the C51 head and the imitation seed; no comparison against the Gumbel root on the current net exists. `docs/az_minimal_spec.md` proposes this form. Category: TRICK-UNTESTED (on this lineage). Coupling: 1.3.
+- Default: off (Gumbel root is default). Evidence: the pre-Gumbel campaigns ran it (2026-05..06) before the C51 head and the imitation seed; no comparison against the Gumbel root on the current net exists. `docs/archive/az_minimal_spec.md` proposes this form. Category: TRICK-UNTESTED (on this lineage). Coupling: 1.3.
 
 ### 6.5 First-play urgency (`--mcts-fpu-reduction` 0.25)
 - Where: `MCTSConfig.fpu_reduction`; `_puct_select`.
@@ -505,7 +505,7 @@ collapse probe (2026-08-31), signal-profiler rounds 1-6
 ### 6.6 Subtree reuse across decisions (`--mcts-no-tree-reuse` to disable)
 - Where: `MCTSConfig.tree_reuse`; stash in `MCTSPolicy.select_action`.
 - Mechanism: reuse the played edge's subtree iff the live state key matches the searched child.
-- Default: on. Evidence: `reuse_frac` telemetry only; never isolated. `docs/az_minimal_spec.md` proposes off. Category: TRICK-UNTESTED. Coupling: 1.3, playout cap (n_simulations contract).
+- Default: on. Evidence: `reuse_frac` telemetry only; never isolated. `docs/archive/az_minimal_spec.md` proposes off. Category: TRICK-UNTESTED. Coupling: 1.3, playout cap (n_simulations contract).
 
 ### 6.7 Exact combat-outcome enumeration (`--mcts-no-exact-outcomes` to disable)
 - Where: `MCTSConfig.exact_outcome_enumeration`; `tools/combat_outcomes.py` DP.
@@ -516,7 +516,7 @@ collapse probe (2026-08-31), signal-profiler rounds 1-6
 - Where: `MCTSConfig.playout_cap_*`; `MCTSPolicy.select_action` (`n_sims_override`); TCS analog `--turn-full-prob` 0.25.
 - Mechanism: only a random quarter of decisions (turns under TCS) run the full budget and record a target; the rest run n_sims//4 (1 round under TCS) and record nothing.
 - Default: ON at the training CLI since 2026-08-05 (library off).
-- Evidence: KataGo-cited 3-10x games/GPU-hour; never measured here for throughput or strength. Consequence measured in leg 3: only ~25% of side-turns emit experiences, so distill telemetry is a full-turns-only measurement. Cycle-34 note: a full-move N=128 at matched cost "roughly halves target class bias" — untried. `docs/az_minimal_spec.md` proposes off.
+- Evidence: KataGo-cited 3-10x games/GPU-hour; never measured here for throughput or strength. Consequence measured in leg 3: only ~25% of side-turns emit experiences, so distill telemetry is a full-turns-only measurement. Cycle-34 note: a full-move N=128 at matched cost "roughly halves target class bias" — untried. `docs/archive/az_minimal_spec.md` proposes off.
 - Category: TRICK-UNTESTED. Coupling: 5.2/5.4 (target density), value labels (only recorded states get z).
 
 ### 6.9 Aux-head value bonus in search (`--mcts-aux-value-bonus`) and moves-left utility (`--mcts-moves-left-utility`)
@@ -541,7 +541,7 @@ collapse probe (2026-08-31), signal-profiler rounds 1-6
 - Where: `MCTSPolicy.finalize_game` (`value_weight = draw_value_weight if winner == 0`); `TrainerConfig.draw_value_weight`; every value-side term multiplies `value_weight`.
 - Mechanism: capped/stalled games keep their policy targets but carry no value label.
 - Default: 0 since the 2026-08-17 truncation ruling (was 1.0; 0.25 on the tier-a campaign).
-- Evidence: 2026-07-10 diagnosis (71% draws flattened the head even with honest z=0 and a rehearsal anchor); leg-3 R4: the draw flood at weight 1.0 preceded the K collapse; technique review: "decent case for 0 but never run as an arm". `docs/az_minimal_spec.md` keeps discarding. Never isolated.
+- Evidence: 2026-07-10 diagnosis (71% draws flattened the head even with honest z=0 and a rehearsal anchor); leg-3 R4: the draw flood at weight 1.0 preceded the K collapse; technique review: "decent case for 0 but never run as an arm". `docs/archive/az_minimal_spec.md` keeps discarding. Never isolated.
 - Category: TRICK-UNTESTED. Coupling: 1.5, 2.3, value memory skips censored states.
 
 ### 6.13 Value label smoothing (`--value-label-smoothing` 0.02)
@@ -550,7 +550,7 @@ collapse probe (2026-08-31), signal-profiler rounds 1-6
 - Default: 0 at the CLI; 0.02 on every box leg. Evidence: motivating 2026-07-07 entropy collapse (Z entropy 1.86 -> 1.13 over 46 replay iterations); HL-Gauss named as the shape-correct alternative; never isolated. Category: TRICK-UNTESTED. Coupling: 1.2.
 
 ### 6.14 Value-loss weight override (`--value-coef` 1.0) and arm W
-- Where: `TrainerConfig.value_coef` (0.5); launcher passes 1.0; `docs/arm_w_spec_20260901.md` W1 (0.1) / W2 (beta 15).
+- Where: `TrainerConfig.value_coef` (0.5); launcher passes 1.0; `docs/archive/arm_w_spec_20260901.md` W1 (0.1) / W2 (beta 15).
 - Mechanism: scale of the value term.
 - Default: 0.5 library, 1.0 on every box leg. Evidence: profiler: value owns ~99% of the update direction at coef 1.0 including on the seed; W1/W2 never launched. Category: TRICK-UNTESTED. Coupling: 1.4.
 
@@ -558,13 +558,13 @@ collapse probe (2026-08-31), signal-profiler rounds 1-6
 - Where: `tools/mcts_policy.py::ReplayConfig`, `MCTSPolicy.train_step`.
 - Mechanism: bounded FIFO of experiences; 16 minibatch gradient steps per iteration sampled from it.
 - Default: ON at the CLI since A4 (library off); every tier-b leg used updates 16 / capacity 24000.
-- Evidence: motivating 2026-06-15 diagnosis (one-pass value head stuck at the ~uniform floor, val loss 3.56 vs ln 51 = 3.93; overfit probes needed ~80-100 steps); 2026-07-02 Kaggle memorization (train 3.8 -> 1.15, holdout flat 3.1). `docs/az_minimal_spec.md` claims 16 updates "multiplied every systematic tilt by 16" — a claim, not a measurement. No replay-vs-one-pass strength comparison exists.
+- Evidence: motivating 2026-06-15 diagnosis (one-pass value head stuck at the ~uniform floor, val loss 3.56 vs ln 51 = 3.93; overfit probes needed ~80-100 steps); 2026-07-02 Kaggle memorization (train 3.8 -> 1.15, holdout flat 3.1). `docs/archive/az_minimal_spec.md` claims 16 updates "multiplied every systematic tilt by 16" — a claim, not a measurement. No replay-vs-one-pass strength comparison exists.
 - Category: TRICK-UNTESTED. Coupling: `fresh_value_ce` and the stall tripwire only exist on this path; value memory and the VG estimates run at the drain.
 
 ### 6.16 Per-game / per-side gradient normalization and the midgame weight floor
 - Where: `MCTSExperience.game_weight = 1/(2 x side_weight_divisor(n_side, midgame))`, `MIDGAME_GW_FLOOR` 8; consumed by every term in `_trainer_step_mcts`; `policy_weight` (PT beta).
 - Mechanism: every game contributes equal total weight, split equally between sides; human-continuation stubs floored at 1/8 game.
-- Default: on (no flag). Evidence: motivations (190-turn draw vs 10-turn mini 19:1, 2026-07-12; winner/loser 54/46, 2026-08-05); T1-D gate (cycle 6): the per-(game,side) mechanism could not account for the boundary bias it was proposed to fix. `docs/az_minimal_spec.md` proposes removal. Never isolated. Category: TRICK-UNTESTED. Coupling: 1.4, 2.3.
+- Default: on (no flag). Evidence: motivations (190-turn draw vs 10-turn mini 19:1, 2026-07-12; winner/loser 54/46, 2026-08-05); T1-D gate (cycle 6): the per-(game,side) mechanism could not account for the boundary bias it was proposed to fix. `docs/archive/az_minimal_spec.md` proposes removal. Never isolated. Category: TRICK-UNTESTED. Coupling: 1.4, 2.3.
 
 ### 6.17 Human-corpus value anchor (A2, `--human-anchor-file`)
 - Where: `tools/build_human_anchor.py` cache; `run_iteration` value-only steps (`Trainer.step_value_from_raw`, 4 x 128 per iteration, trunk unfrozen); `tools/value_corpus.py`.

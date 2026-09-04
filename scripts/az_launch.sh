@@ -1,5 +1,5 @@
 #!/bin/bash
-# Minimal self-play loop launch (docs/az_minimal_spec.md), 2026-09-03.
+# Minimal self-play loop launch (docs/archive/az_minimal_spec.md), 2026-09-03.
 # Run ON the box from /workspace/wai after box_provision_arm.sh.
 # Stages: full test suite -> wesnoth_core wheel -> smoke (one tiny
 # iteration through the real loop) -> daemons + supervised loop.

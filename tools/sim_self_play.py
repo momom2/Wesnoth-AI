@@ -1301,7 +1301,7 @@ class SpoolWorkers:
                 # and dropping its games costs one iteration while accepting
                 # them costs the run. (Same seam that hid the dead
                 # detector-advice wiring, deleted 2026-08-10; see
-                # docs/autonomous_run.md cycle 20.)
+                # docs/archive/autonomous_run.md cycle 20.)
                 _want_rs = bool(getattr(
                     getattr(base, "_encoder", None), "relevant_set_hexes",
                     False))
@@ -1355,7 +1355,7 @@ class SpoolWorkers:
                     "spool: SYSTEMIC index-basis mismatch -- workers and "
                     "learner disagree about --relevant-set-hexes. Halting "
                     "rather than training on starved iterations. Fix the "
-                    "flag on both sides (see docs/autonomous_run.md) and "
+                    "flag on both sides (see docs/archive/autonomous_run.md) and "
                     "restart.")
                 raise SystemExit(6)
         else:
@@ -2835,7 +2835,7 @@ def main(argv: List[str]) -> int:
     # (fresh). Provide these to scale the net up for a campaign; the
     # 0.47M weights WON'T load into a wider/deeper net, so passing a
     # size that differs from --checkpoint-in starts FRESH at the
-    # requested size (logged). See docs/superhuman_training_plan.md
+    # requested size (logged). See docs/archive/superhuman_training_plan.md
     # §3.2 for param targets (Tier-a ~3-10M = 384/6/8/1536, etc.).
     ap.add_argument("--d-model", type=int, default=None,
                     help="Transformer width for FRESH init (model "
@@ -3013,7 +3013,7 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--pt-margin-ref", type=float, default=0.32)
     ap.add_argument("--turn-search", action=argparse.BooleanOptionalAction,
                     default=True,
-                    help="Turn-Commitment Search (docs/tcs_spec.md): "
+                    help="Turn-Commitment Search (docs/archive/tcs_spec.md): "
                          "plan complete side-turns by counterfactual "
                          "coordinate refinement graded at turn "
                          "boundaries, instead of a per-micro-action "
@@ -3105,7 +3105,7 @@ def main(argv: List[str]) -> int:
                     help="Hard cap on TCS spine length.")
     ap.add_argument("--gbc", action=argparse.BooleanOptionalAction,
                     default=True,
-                    help="GBC event supervision (docs/gbc_spec.md): "
+                    help="GBC event supervision (docs/archive/gbc_spec.md): "
                          "small heads predict fog-censored dies/flips "
                          "within k turns from hindsight labels; their "
                          "BCE gradient repairs the trunk's value-"
@@ -3768,7 +3768,7 @@ def main(argv: List[str]) -> int:
                                **arch_kwargs)
     if relevant_set_flag:
         log.info("relevant-hex encoding ON (action-space index basis "
-                 "differs from full-board runs; see docs/autonomous_run.md)")
+                 "differs from full-board runs; see docs/archive/autonomous_run.md)")
     if aux_score_flag:
         policy._trainer.config.aux_coef = float(args.mcts_aux_coef)
         log.info(f"auxiliary margin head ON (aux_coef="
@@ -4039,7 +4039,7 @@ def main(argv: List[str]) -> int:
                 grounding_config=ground_cfg,
                 signal_telemetry=args.signal_telemetry)
             log.info(
-                f"TURN-COMMITMENT SEARCH on (docs/tcs_spec.md): "
+                f"TURN-COMMITMENT SEARCH on (docs/archive/tcs_spec.md): "
                 f"alt={turn_cfg.n_alt} rounds={turn_cfg.rounds}/"
                 f"{turn_cfg.fast_rounds} reval={turn_cfg.reval_salts} "
                 f"full_prob={turn_cfg.turn_full_prob} "

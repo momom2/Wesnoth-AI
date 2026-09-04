@@ -208,8 +208,8 @@ cost. Sequencing decision 2026-08-12: run the gates first, build at
 most one winner.
 
 **2026-08-13 update: Bets 1 and 2 matured into approved specs —
-`docs/tcs_spec.md` (turn-commitment search, supersedes the Bet-1
-OptionZero framing) and `docs/gbc_spec.md` (goal-basis completion,
+`docs/archive/tcs_spec.md` (turn-commitment search, supersedes the Bet-1
+OptionZero framing) and `docs/archive/gbc_spec.md` (goal-basis completion,
 the Bet-2 head with its consumption path). Those specs are
 authoritative; this file remains the literature anchor.**
 

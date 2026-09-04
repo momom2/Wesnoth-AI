@@ -1,7 +1,7 @@
 """TCS rung 0-1 probe: turn-commitment counterfactual measurements.
 
 The falsification instrument for Turn-Commitment Search
-(docs/tcs_spec.md par.8). Offline, no training. The search core
+(docs/archive/tcs_spec.md par.8). Offline, no training. The search core
 (spine / materialization / acceptance / target transform) lives in
 `tools/turn_search.py` and is SHARED with the production
 `TurnCommitPolicy` -- this file adds only the measurement harness:
@@ -262,7 +262,7 @@ def probe_state(policy: TransformerPolicy, sim0: WesnothSim, side: int,
         accepted_deltas.append(float(dbar))
         # Grade-what-you-commit: the new incumbent is the MATERIALIZED
         # winner -- the commands that actually landed at the selection
-        # salt, drops excluded (docs/tcs_spec.md par.5.1).
+        # salt, drops excluded (docs/archive/tcs_spec.md par.5.1).
         incumbent = list(best_m.executed)
         steps, _ = record_spine(policy, sim0, side, ds, rng,
                                 max_spine=cfg.max_spine,
@@ -442,7 +442,7 @@ def run_probe(args) -> int:
 
 
 # ---------------------------------------------------------------------
-# Collate: the pre-registered decision rules (docs/tcs_spec.md par.8)
+# Collate: the pre-registered decision rules (docs/archive/tcs_spec.md par.8)
 # ---------------------------------------------------------------------
 
 def collate(paths: List[str]) -> int:
@@ -508,7 +508,7 @@ def collate(paths: List[str]) -> int:
               f"end_turn_share={s['rung0_end_turn_share']}")
 
     # Pre-registered verdict (advisory print; ruling is the user's).
-    print("--- pre-registered gates (docs/tcs_spec.md par.8) ---")
+    print("--- pre-registered gates (docs/archive/tcs_spec.md par.8) ---")
     kl_gate = (bool(kl_m) and bool(base)
                and np.median(kl_m) >= np.median(base))
     print(f"PROCEED needs: accept>=0.50 [{acc_real >= 0.5}], "

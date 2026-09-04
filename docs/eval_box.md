@@ -5,7 +5,7 @@ the laptop.** Operate under this assumption — do not plan, schedule, or
 cost any eval as local work.
 
 This is a *separate, cheap, short-lived* box from the Tier-b campaign
-box (`docs/tier_b_runbook.md` §4b). Different job, different shape,
+box (`docs/archive/tier_b_runbook.md` §4b). Different job, different shape,
 different price. Do not conflate them.
 
 ---
@@ -87,7 +87,7 @@ Notes that decide whether the numbers mean anything:
 
 ## 4. The queue this box exists to run
 
-Ordered by information per unit cost (`docs/autonomous_run.md` phase-2
+Ordered by information per unit cost (`docs/archive/autonomous_run.md` phase-2
 adjudication). **T-A is done**; T-B and T-C are what the box is for.
 
 | | test | what it decides | kill / escalate |

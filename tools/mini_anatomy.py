@@ -1,6 +1,6 @@
 """Mini-map draw anatomy: WHAT does the policy do in mini games?
 
-Investigates the 2026-07-30 mini-draw drift (docs/autonomous_run.md
+Investigates the 2026-07-30 mini-draw drift (docs/archive/autonomous_run.md
 cycles 41-42): a slow, weights-driven rise in turn-cap draws confined
 to the MINI pool (0/17 at decision_step 2.40M -> 5/19 at 2.51M,
 p=0.031). Plays N mini-pool games with a checkpoint under the

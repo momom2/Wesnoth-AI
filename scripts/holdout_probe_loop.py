@@ -51,7 +51,7 @@ PROBE_PAIRS = int(os.environ.get("PROBE_PAIRS", "1200"))
 # per-game with between-game SE. Load-bearing default lives here in
 # code. NOTE: changing the sampling changes the CE/AUC BASELINE --
 # PROBE_T0 and floors must be re-derived under this instrument
-# (leg-5 resume did; see docs/leg5_value_inversion_20260825.md).
+# (leg-5 resume did; see docs/archive/leg5_value_inversion_20260825.md).
 PROBE_PAIRS_PER_GAME = int(os.environ.get("PROBE_PAIRS_PER_GAME", "8"))
 PROBE_DEVICE = os.environ.get("PROBE_DEVICE", "cpu")
 OUT_CSV = Path(os.environ.get(

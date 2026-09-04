@@ -23,7 +23,7 @@ class TurnSearchConfig:
     min_delta:      float = 0.01  # accept floor (float-jitter guard)
     max_spine:      int = 40     # hard cap on spine length
     turn_full_prob: float = 0.25  # playout-cap analog, per TURN
-    # Multi-turn projection at the boundary (docs/tcs_spec.md par.3;
+    # Multi-turn projection at the boundary (docs/archive/tcs_spec.md par.3;
     # user directive 2026-08-17, generalizing the opponent-reply arm).
     # Candidate turns are graded by the value `project_halfturns`
     # half-turns PAST our boundary, each half-turn played closed-loop

@@ -1,7 +1,7 @@
 """GBC — event-prediction auxiliary supervision (value-head repair).
 
 Approved by user 2026-08-14 after the rung-0 attribution test
-(docs/gbc_spec.md 0d): observed events predict game outcomes at AUC
+(docs/archive/gbc_spec.md 0d): observed events predict game outcomes at AUC
 0.79 while the value head's event-orthogonal turn movement is noise
 (AUC 0.53). GBC's production role is therefore DENSE SUPERVISION:
 small heads on the shared trunk predict fog-censored event
@@ -15,7 +15,7 @@ heads (built into WesnothModel behind the `gbc` flag, aux_score
 precedent) and the hindsight label machinery (shared with the
 offline scanner `tools/gbc_labels.py`).
 
-Contracts (docs/gbc_spec.md par.2, review amendment A1):
+Contracts (docs/archive/gbc_spec.md par.2, review amendment A1):
   * fog-censored CONFIRMED achievement: an event labels 1 for an
     observer only if the event hex was visible to that side when it
     happened; the observer is the side-to-move at the anchor state;
@@ -122,7 +122,7 @@ def _observable_hexes(gs, side):
     disc union with no _fog branch -- unlike units_visible_to and
     the encoder's gates -- so the --fogless-ratio slice trained the
     event head against labels censored by a disc the game does not
-    have; docs/gbc_spec.md defines the label as what the observer
+    have; docs/archive/gbc_spec.md defines the label as what the observer
     SEES)."""
     from wesnoth_ai.visibility import visible_hexes_for
     if not getattr(gs.global_info, "_fog", True):

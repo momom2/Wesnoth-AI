@@ -1,8 +1,10 @@
 # Wesnoth AI
 
-A reinforcement-learning AI for *Battle for Wesnoth* 1.18.x, trained by
-self-play and warm-started by behavior cloning of human replays. Two
-goals shape the design:
+A reinforcement-learning AI for *Battle for Wesnoth* 1.18.x, warm-started
+by behavior cloning of human replays, with self-play training being
+rebuilt (status: [CLAUDE.md](CLAUDE.md); plan:
+[docs/plan_20260904.md](docs/plan_20260904.md)). Two goals shape the
+design:
 
 1. **Competitively strong** against human players.
 2. **Readable** — behavioral knobs (rewards, openers, biases) live in
@@ -21,13 +23,16 @@ pip install -r requirements.txt
 pytest                     # fast tier — run after every change
 pytest -m ""               # full suite (~11 min) — before commits/campaigns
 
-# 3. Self-play training in the in-process simulator (no Wesnoth needed).
-python tools/sim_self_play.py `
-    --checkpoint-in  training/checkpoints/supervised_epoch3.pt `
-    --checkpoint-out training/checkpoints/sim_selfplay.pt `
-    --iterations 50 --games-per-iter 8 --max-turns 60 `
-    --reward-config configs/reward_selfplay.json
-#   add --mcts for AlphaZero-style PUCT search instead of REINFORCE: better but much longer.
+# 3. A 40-game match between two checkpoints in the simulator (no Wesnoth
+#    needed; in practice this runs on a rented GPU box, docs/box_specs.md).
+python tools/run_elo_batch.py `
+    --label-a cand --spec-a training/checkpoints/cand.pt `
+    --label-b seed --spec-b training/checkpoints/seed_imit_tierb_start.pt `
+    --outdir eval_games/cand_vs_seed --games 40 --mcts-sims 0 `
+    --raw-temperature-a 0 --raw-temperature-b 0
+python tools/elo_collect.py eval_games/cand_vs_seed --no-catalog
+#   Self-play training (tools/sim_self_play.py, tools/az_loop.py) is being
+#   rebuilt; see docs/plan_20260904.md.
 
 # 4. Watch a trained model play one game (exports a Wesnoth-loadable .bz2).
 python tools/sim_demo_game.py
@@ -92,9 +97,10 @@ add-ons/wesnoth_ai/   Lua side of the eval bridge.
   agreements (the authoritative orientation for contributors).
 - **[docs/wesnoth_rules.md](docs/wesnoth_rules.md)** — catalog of
   Wesnoth-engine rules with verbatim source citations.
-- **[docs/tier_a_runbook.md](docs/tier_a_runbook.md)** — the current
-  go-forward training plan; **[docs/running_on_gpu.md](docs/running_on_gpu.md)**
-  for GPU/cloud launch flags.
+- **[docs/plan_20260904.md](docs/plan_20260904.md)** — the current
+  plan: engineering first, then search over turns;
+  **[docs/box_specs.md](docs/box_specs.md)** for box shapes and
+  measured throughput.
 - **[docs/design_constants.md](docs/design_constants.md)** — where the
   derived magic numbers come from.
 

@@ -1,4 +1,4 @@
-"""GBC heads (docs/gbc_spec.md par.3): the reachability predictor.
+"""GBC heads (docs/archive/gbc_spec.md par.3): the reachability predictor.
 
 Rung-1 architecture decision: the heads are a SEPARATE small module
 reading the FROZEN trunk's contextualized tokens via a forward hook

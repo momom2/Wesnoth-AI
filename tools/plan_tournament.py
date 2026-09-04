@@ -1,5 +1,5 @@
 """Incumbent-anchored turn-plan tournament with certify-or-abstain
-distillation (proposition 1, docs/procedure_propositions_20260826.md,
+distillation (proposition 1, docs/archive/procedure_propositions_20260826.md,
 user-approved 2026-08-26; adversarial review rounds 1-3 same day).
 
 Per side-turn, three stages:

@@ -176,7 +176,7 @@ class ModelOutput:
     # model was built without the head (default).
     moves_left:    Optional[torch.Tensor] = None  # [1, 1] or None
 
-    # GBC event-supervision tap (2026-08-14, docs/gbc_spec.md):
+    # GBC event-supervision tap (2026-08-14, docs/archive/gbc_spec.md):
     # contextualized token slices, populated ONLY when the model was
     # built with `gbc=True` and only on the single-state forward
     # path (the trainer's loss path). References to tensors already
@@ -239,7 +239,7 @@ class WesnothModel(nn.Module):
         self.has_aux_score = bool(aux_score)
         self.has_moves_left = bool(moves_left)
         self.has_gbc = bool(gbc)
-        # GBC event-prediction heads (docs/gbc_spec.md, value-head
+        # GBC event-prediction heads (docs/archive/gbc_spec.md, value-head
         # repair role): built only when `gbc=True`, so the default
         # model is byte-identical. Params ride model.parameters()
         # (optimizer) and state_dict (checkpoint) automatically.

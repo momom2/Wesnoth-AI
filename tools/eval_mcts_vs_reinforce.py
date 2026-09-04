@@ -19,7 +19,7 @@ Usage:
       --checkpoint training/checkpoints/sim_selfplay.pt \\
       --games 40 \\
       --mcts-sims 64 \\
-      --out docs/mcts_vs_reinforce_eval.md
+      --out docs/archive/mcts_vs_reinforce_eval.md
 
 Counts as a calibration result: low simulations + small N produce a
 quick smoke; bump both for a real headline number once a trained
@@ -314,7 +314,7 @@ def main(argv):
                     help="hard cap per game; counts as draw if hit")
     ap.add_argument("--seed", type=int, default=20260511)
     ap.add_argument("--out", type=Path,
-                    default=Path("docs/mcts_vs_reinforce_eval.md"))
+                    default=Path("docs/archive/mcts_vs_reinforce_eval.md"))
     ap.add_argument("--log-level", default="INFO")
     args = ap.parse_args(argv[1:])
 

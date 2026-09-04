@@ -241,7 +241,7 @@ class MCTSConfig:
     # as 2b (acting children keep the side, the end_turn child flips
     # it), and the head is nearly flat within a turn, so the level
     # decides K. The loop sets this to the head's mean value on the
-    # latest batch's states (docs/az_leg_20260903.md, step-scale
+    # latest batch's states (docs/archive/az_leg_20260903.md, step-scale
     # measurement). 0 = off.
     value_center:     float = 0.0
     # PUCT exploration constant. Higher = more exploration. AlphaZero
@@ -365,7 +365,7 @@ class MCTSConfig:
     # can no longer shift the target. Escape hatch for A/B only.
     gumbel_rescale_q: bool = True
     # Distillation-target damping (2026-08-05; the prior-ratchet
-    # repair, see BACKLOG "mini passivity" + docs/tier_b_brief.md).
+    # repair, see BACKLOG "mini passivity" + docs/archive/tier_b_brief.md).
     # The Gumbel target is SELF-REFERENTIAL in the prior:
     # softmax(log(prior) + sigma(q)). Measured on the fixed-ToD mini
     # maps: prior gaps ~3.9 logits vs ~0.5 logits of sigma restoring

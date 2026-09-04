@@ -1,7 +1,7 @@
 # Tier-b pre-spend brief (drafted 2026-08-04, T-B measurement PENDING)
 
 One page consolidating what is measured vs pending before the Tier-b
-campaign box is rented. Operational mechanics: `docs/tier_b_runbook.md`
+campaign box is rented. Operational mechanics: `docs/archive/tier_b_runbook.md`
 (grow → recover → campaign → measure). Decision authority: user
 (2026-08-02, "Tier-b directly"), taken knowing the external signal is
 unproven — this brief is the final pre-spend evidence check, not a

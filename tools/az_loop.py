@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Minimal self-play loop -- docs/az_minimal_spec.md, nothing else.
+"""Minimal self-play loop -- docs/archive/az_minimal_spec.md, nothing else.
 
     play N games with plain MCTS  ->  targets = visit counts,
     value = game result           ->  ONE gradient step  ->  repeat

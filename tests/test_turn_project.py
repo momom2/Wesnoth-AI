@@ -1,4 +1,4 @@
-"""Multi-turn projection tests (TCS, docs/tcs_spec.md par.3;
+"""Multi-turn projection tests (TCS, docs/archive/tcs_spec.md par.3;
 user directive 2026-08-17) -- production code paths only.
 
 Covers:

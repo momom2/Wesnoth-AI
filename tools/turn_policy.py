@@ -10,7 +10,7 @@ harvest, the replay buffer, `train_step`, checkpoint I/O -- is
 INHERITED UNCHANGED, so TCS data trains through the exact same
 pipeline as MCTS data.
 
-Execution semantics (docs/tcs_spec.md par.3, "plan once, re-plan when
+Execution semantics (docs/archive/tcs_spec.md par.3, "plan once, re-plan when
 surprised"):
   * The plan stores each coordinate's expected pre-state key
     (`TurnPlan.pre_keys`). Before serving command i, the LIVE state's

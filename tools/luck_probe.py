@@ -12,7 +12,7 @@ martingale increment sum. Two covariates:
   L_cost -- kill luck weighted by unit gold cost (the material-
             margin analog; blind to non-lethal attrition)
 
-PRE-REGISTERED DECISION RULE (docs/credit_assignment_design_20260817.md
+PRE-REGISTERED DECISION RULE (docs/archive/credit_assignment_design_20260817.md
 Q3; fixed BEFORE first full run):
   - out-of-sample rho^2 < 0.05 on decisive games for BOTH
     covariates  -> luck does not decide these games; the luck-ledger
