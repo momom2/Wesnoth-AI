@@ -129,13 +129,17 @@ class _CountingModel:
 
 # Worker mode (tools/eval_workers.py): loaded policies are kept
 # across games so a worker pays checkpoint load, CUDA init and
-# compile once. Keyed by everything that shapes the loaded object.
+# compile once. Keyed by everything that shapes the loaded object
+# AND by the player label: the two sides of a same-spec match get
+# distinct objects, as they do in one-process mode (a shared object
+# would share the decision counter, the pending queue and the
+# forward-counting proxy -- side A's counter read 0 on 2026-09-04).
 _WORKER_MODE = False
 _POLICY_CACHE: dict = {}
 
 
 def _policy_for(spec, device, label, infer_bf16, infer_compile):
-    key = (spec, str(device), bool(infer_bf16), bool(infer_compile))
+    key = (spec, label, str(device), bool(infer_bf16), bool(infer_compile))
     if _WORKER_MODE and key in _POLICY_CACHE:
         return _POLICY_CACHE[key]
     policy = _load_policy(Path(spec) if spec else None, device,

@@ -238,3 +238,55 @@ Readings:
   eval worker processes (a 35 s raw game carries checkpoint load and
   compile).
 
+## Generation throughput through the actor pool (2026-09-04, box 49868990)
+
+`tools/bench_pool.py`, one iteration as the az legs ran it (plain
+PUCT, 32 evaluations, leaf batch 16, no Gumbel root, no tree reuse),
+16 actors on an 18-core EPYC 7542 box ($0.326/h), one ladder game
+each, max 30 turns, 25-minute cap. Records:
+`training/metrics/bench_pipeline/pool_{off,on,on_bf16}.{json,log}`.
+
+| server priors | bf16 on the server | leaves/s | games done / requested | iteration s | games/h | serve threads: infer / wait s |
+|---|---|---|---|---|---|---|
+| off | off (the az legs' configuration) | 141 | 15 / 16 | 1,620 (cap) | 33 | 2,056 / 1,155 |
+| on | off | 172 | 14 / 16 | 1,620 (cap) | 31 | 2,432 / 741 |
+| on | on | 320 | 16 / 16 | 898 | 64 | 1,088 / 623 |
+
+Tokens per leaf 1,270-1,300, padding ratio 1.11, K median 10-12,
+decisive 11-13 of the finished games. The az legs reported 300-370
+leaves/s on a 24-core Ryzen box with 19 actors; this 18-core EPYC
+box gives 141 in that configuration, so the same-box comparison is
+the one that counts: 2.3x from the two committed changes.
+
+Reading: the serve threads were inferring for 60-75% of the
+iteration in every row (2 threads sharing one process and one GIL:
+encode, forward, priors, wire, all serialized by Python), so the
+server is still the ceiling, not the actors (16 actors at ~5 ms of
+Python per leaf could feed ~3,000 leaves/s). Next levers, in order:
+serve from several processes (or take the per-batch Python off the
+GIL), then compile the padded path, then length-bucketed batches.
+
+## Evaluation throughput: persistent workers (2026-09-04, box 49868990)
+
+`run_elo_batch.py`, seed (raw:t0) against itself, 20 games, 10
+concurrent, max 200 turns, bf16 + compile, on the same box while it
+was otherwise idle. Records:
+`training/metrics/bench_pipeline/eval_workers/` (per-game timings in
+`eval_timing.json`).
+
+| mode | wall s for 20 games | mean game s | forward s per turn | games/h at 10 concurrent |
+|---|---|---|---|---|
+| one process per game | 408 | 171 | 1.86 | 176 |
+| `--persistent-workers` | 97 | 32 | 0.24 | 742 |
+
+The one-process mode pays checkpoint load, CUDA init and the compile
+warmup in every game, and ten processes warming up together contend
+for the CPU; the workers pay it once per process. At $0.33/h an
+800-game gate costs about $0.36 of box time through the workers.
+Three of the 20 games ended differently between the two modes
+(same seeds, argmax players); the check of whether repeated runs in
+one mode agree is recorded in this section's follow-up once
+measured. The first worker build shared one policy object between
+the two sides of a same-spec match (side A's forward counter read
+0); the cache is now per side.
+

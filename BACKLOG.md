@@ -44,12 +44,22 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
    per thread on token-sorted batches with 9-15 KB per leaf on the
    wire (was 60-87 KB). Certified: parity tests through seam and
    wire, pool smoke end to end.
-   - NEXT: flip `server_priors` on in the generation path and measure
-     leaves/s per box through the real pool (az legs: 300-370);
-     torch.compile the padded path; bucket serve batches by length;
-     persistent eval worker processes (`elo_eval_game` pays checkpoint
-     load and compile per game: raw games 35 s of which the game is
-     a fraction).
+   - MEASURED through the real pool (docs/box_specs.md "Generation
+     throughput"): az-leg configuration 141 leaves/s -> priors on 172
+     -> priors + bf16 320 leaves/s, 33 -> 64 games/h, same box. The
+     serve threads share one GIL and were busy 60-75% of the time:
+     the server is still the ceiling.
+   - NEXT: serve from several processes (or move the per-batch Python
+     off the GIL); torch.compile the padded path; length-bucketed
+     batches; then flip `server_priors` and bf16 on by default in the
+     generation path.
+   - Persistent eval workers shipped (`run_elo_batch
+     --persistent-workers`, tools/eval_workers.py): 20 seed-vs-seed
+     games at 10 concurrent in 97 s against 408 s one-process
+     (docs/box_specs.md, evaluation section). An 800-game gate is
+     about 65 minutes of one 4090 box. Open: 3 of 20 argmax games
+     ended differently between the two modes (numeric noise under
+     bf16/compile flips near-ties); run-to-run agreement check pending.
 4. **Defects** (plan 1.6):
    - `tools/az_loop.py` `_probe`: pins at sims 0 must pass
      `--raw-temperature-a 0 --raw-temperature-b 0`; every az pin,

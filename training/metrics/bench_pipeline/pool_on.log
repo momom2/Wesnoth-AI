@@ -1,0 +1,36 @@
+2026-09-04 17:08:51,518 transformer_policy INFO TransformerPolicy device: cuda
+2026-09-04 17:08:52,860 transformer_policy INFO Loaded checkpoint from training/checkpoints/seed.pt (decision_step=2809659)
+2026-09-04 17:08:52,865 eval_sim INFO [pool] loaded seed.pt
+2026-09-04 17:08:52,899 actor_pool INFO actor pool started: 16 actors, max_batch=16
+2026-09-04 17:33:52,939 actor_pool WARNING iter 0: soft deadline (1500s) reached; DRAIN sent to actors [1, 9] (finish current game, no new ones; hard backstop in 120s). 14 games in so far.
+2026-09-04 17:35:53,000 actor_pool ERROR iter 0: hard deadline (1500s + 120s drain grace) exceeded with actors [1, 9] still outstanding; abandoning their in-flight games (14 games, 6802 exps kept).
+2026-09-04 17:35:53,114 actor_pool INFO iter 0: serve stages (2 threads): wait=741.3s infer=2432.3s wire=57.1s put=9.1s leaves/batch=15.9 throughput=172 leaves/s
+2026-09-04 17:35:53,114 actor_pool INFO iter 0: pool served 279191 forwards, 14 games, 6802 experiences, decision_step 2809659 -> 2816461
+2026-09-04 17:35:53,114 actor_pool INFO iter 0: game finish times p50=1018s p90=1180s max=1253s | tokens/leaf=1275 pad_ratio=1.11
+2026-09-04 17:36:08,847 actor_pool WARNING terminating unresponsive actor actor-1
+2026-09-04 17:36:23,864 actor_pool WARNING terminating unresponsive actor actor-9
+{
+ "server_priors": true,
+ "actors": 16,
+ "games_requested": 16,
+ "sims": 32,
+ "leaf_batch": 16,
+ "max_turns": 30,
+ "games_completed": 14,
+ "decisive": 12,
+ "abandoned": 2,
+ "experiences": 6802,
+ "gen_seconds": 1620.2097667222843,
+ "wall_seconds": 1650.9679979123175,
+ "forwards": 279191,
+ "decisions": 6802,
+ "leaves_per_s": 172.31781077632237,
+ "tokens_per_leaf": 1275.4078856410129,
+ "pad_ratio": 1.1060022025295084,
+ "game_finish_p50_s": 1018.0742757450789,
+ "game_finish_max_s": 1252.5831322479062,
+ "mean_turns": 22.214285714285715,
+ "k_median": 10,
+ "games_per_hour": 31.107083190814343,
+ "games_per_dollar": 95.42050058532007
+}

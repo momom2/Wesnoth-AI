@@ -63,3 +63,26 @@ def test_batch_driver_persistent_workers_end_to_end(tmp_path):
     files = sorted(out.glob("game_*.json"))
     assert len(files) == 2
     assert not list(out.glob(".stderr_*"))       # per-game shims never materialize
+
+
+def test_worker_cache_is_per_side():
+    """Same spec on both sides of a match: each side keeps its own
+    policy object (own decision counter, pending queue and forward
+    counter -- a shared object left side A's counter at 0), while a
+    later game with the same label reuses the cached object."""
+    import torch
+    from tools import elo_eval_game as g
+    g._POLICY_CACHE.clear()
+    g._WORKER_MODE = True
+    try:
+        cpu = torch.device("cpu")
+        pa, ca = g._build_player("random", "A", 0, cpu, raw_temperature=0.0, raw_seed=1)
+        pb, cb = g._build_player("random", "B", 0, cpu, raw_temperature=0.0, raw_seed=1)
+        assert pa._base is not pb._base
+        assert ca is not cb and pa._base._inference_model is ca and pb._base._inference_model is cb
+        pa2, ca2 = g._build_player("random", "A", 0, cpu, raw_temperature=0.0, raw_seed=1)
+        assert pa2._base is pa._base and ca2 is not ca            # cached object, fresh counter
+        assert ca2._inner is ca._inner                            # the counter never nests
+    finally:
+        g._WORKER_MODE = False
+        g._POLICY_CACHE.clear()
