@@ -386,3 +386,28 @@ self-play generation that need decisive games should run at 0.5
 until a larger match separates 0 from 0.5; the turn-gap playouts were
 switched to 0.5 before that run (docs/turn_gap_prereg_20260904.md,
 amendment).
+
+## Elo catalog at raw:t0 (2026-09-05, box 49875606)
+
+Four 40-game PURE matches of the seed (`2516k-b-294k-l4-0k`, the
+15M imitation seed) against the checkpoints held locally, both sides
+`raw:t0`, persistent workers, seed base 30000, collected into a
+SEPARATE catalog (`training/metrics/elo_catalog_raw_t0.json`; the
+committed catalog's edges are all `mcts:32` and the two estimands do
+not mix). Records: `training/metrics/elo/raw_t0_20260905/`. Capped
+games are excluded from the fit (PURE convention).
+
+| opponent | seed W-L | capped | seed Elo (edge, +-1 SE) |
+|---|---|---|---|
+| 2291k (5M tier-a seed) | 16-15 | 9 | +9 +- 55 |
+| 2516k (5M campaign end) | 28-6 | 6 | +215 +- 66 |
+| 2516k-b-294k-l4-495k (leg-4 self-play product) | 16-14 | 10 | +17 +- 55 |
+| 2516k-b-294k-tcs2-558k | 26-0 | 14 | +269 +- 72 |
+
+Fit (reference 2291k = 0): seed +11 +- 61, l4-495k -12 +- 88,
+2516k -246 +- 97, tcs2-558k -679 +- 256. Reading: judged at argmax,
+the leg-4 self-play product is equal to its seed (the mcts:32 catalog
+had it at -367), and the 5M 2291k checkpoint is equal to the 15M seed
+(mcts:32: +223 for the seed). Both earlier gaps were properties of
+the search-and-sampling procedure, not of the weights. Each edge is
+40 games; none of these differences is resolved better than +-55.

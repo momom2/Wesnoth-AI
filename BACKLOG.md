@@ -162,9 +162,12 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
   125 turns); `raw:t0.5`: 22-18, no stalls, median 31 turns;
   `raw:t1`: 7-33. Open: an 800-game match 0.5 vs 0 to decide the
   reference's deployment temperature.
-- Re-baseline the Elo catalog (`training/metrics/elo_catalog.json`)
-  on `raw:t0`: four edges against the local checkpoints (2291k,
-  2516k, l4-495k, tcs2-558k) queued on the box 2026-09-05.
+- DONE 2026-09-05: Elo catalog at `raw:t0`, four edges, separate
+  file `training/metrics/elo_catalog_raw_t0.json` (docs/box_specs.md
+  "Elo catalog at raw:t0"). At argmax the leg-4 self-play product
+  equals the seed (+17 +- 55) and the 5M 2291k equals the 15M seed
+  (+9 +- 55); the mcts:32 gaps (-367, +223) were procedure effects.
+  Open: 800-game edges before any of these is quoted as a fact.
 
 ## Ops notes that are still true
 

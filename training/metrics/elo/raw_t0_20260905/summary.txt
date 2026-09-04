@@ -1,0 +1,4 @@
+seed vs 2291k: seed W-D-L-cap 16-0-15-9 of 40  seed score 0.512  elo +9 +- 55  turns p50 29 max 201  wall 225s  proc raw:t0/raw:t0
+seed vs 2516k: seed W-D-L-cap 28-0-6-6 of 40  seed score 0.775  elo +215 +- 66  turns p50 27 max 201  wall 131s  proc raw:t0/raw:t0
+seed vs l4_495k: seed W-D-L-cap 16-0-14-10 of 40  seed score 0.525  elo +17 +- 55  turns p50 44 max 201  wall 174s  proc raw:t0/raw:t0
+seed vs tcs2_558k: seed W-D-L-cap 26-0-0-14 of 40  seed score 0.825  elo +269 +- 72  turns p50 108 max 201  wall 134s  proc raw:t0/raw:t0
