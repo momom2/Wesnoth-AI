@@ -251,12 +251,25 @@ each, max 30 turns, 25-minute cap. Records:
 | off | off (the az legs' configuration) | 141 | 15 / 16 | 1,620 (cap) | 33 | 2,056 / 1,155 |
 | on | off | 172 | 14 / 16 | 1,620 (cap) | 31 | 2,432 / 741 |
 | on | on | 320 | 16 / 16 | 898 | 64 | 1,088 / 623 |
+| on | on, 64 leaves coalesced per batch (was 16) | 364 | 16 / 16 | 747 | 77 | 1,106 / 335 |
+| on | on, 64 coalesced, 14 actors instead of 19 | 315 | 16 / 16 | 886 | 65 | 1,109 / 599 |
 
-Tokens per leaf 1,270-1,300, padding ratio 1.11, K median 10-12,
+Tokens per leaf 1,150-1,300, padding ratio 1.11 (1.44 with 64-leaf
+coalescing, which reached 30 leaves per batch on average), K median 10-12,
 decisive 11-13 of the finished games. The az legs reported 300-370
 leaves/s on a 24-core Ryzen box with 19 actors; this 18-core EPYC
 box gives 141 in that configuration, so the same-box comparison is
 the one that counts: 2.3x from the two committed changes.
+
+The box's cgroup CPU quota is 17.56 cores (`/sys/fs/cgroup/cpu.max`;
+`nproc` reports the 128-thread host), shared by the actors and the
+server. Inside the serve threads' inference stage the cost is about
+4 ms per leaf in every row (3.8 at 16 leaves per batch, 4.0 at 30,
+4.0 with 14 actors), against 0.9 ms per leaf for the same path in
+the single-thread seam benchmark on an idle box. Fewer actors
+lowered throughput (the serve threads waited 599 s instead of 335),
+so CPU contention with the actors is not what the server is paying
+for; the cost is per leaf and inside the server's own work.
 
 Reading: the serve threads were inferring for 60-75% of the
 iteration in every row (2 threads sharing one process and one GIL:
@@ -283,10 +296,12 @@ The one-process mode pays checkpoint load, CUDA init and the compile
 warmup in every game, and ten processes warming up together contend
 for the CPU; the workers pay it once per process. At $0.33/h an
 800-game gate costs about $0.36 of box time through the workers.
-Three of the 20 games ended differently between the two modes
-(same seeds, argmax players); the check of whether repeated runs in
-one mode agree is recorded in this section's follow-up once
-measured. The first worker build shared one policy object between
-the two sides of a same-spec match (side A's forward counter read
-0); the cache is now per side.
+The first worker build shared one policy object between the two
+sides of a same-spec match: side A's forward counter read 0 and 3 of
+the 20 games ended differently from the one-process run. With the
+cache keyed per side, the 6 slots covering those 3 games were
+replayed twice through workers and once one-process: all four runs
+(the original included) agree exactly on turns, outcomes and forward
+counts. The argmax harness is deterministic run to run on this box
+in both modes.
 

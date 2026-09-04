@@ -64,9 +64,10 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
      --persistent-workers`, tools/eval_workers.py): 20 seed-vs-seed
      games at 10 concurrent in 97 s against 408 s one-process
      (docs/box_specs.md, evaluation section). An 800-game gate is
-     about 65 minutes of one 4090 box. Open: 3 of 20 argmax games
-     ended differently between the two modes (numeric noise under
-     bf16/compile flips near-ties); run-to-run agreement check pending.
+     about 65 minutes of one 4090 box. The first build shared one
+     policy object between the two sides (3 of 20 games diverged);
+     fixed, and the replay agrees exactly with the one-process games
+     across repeated runs: the argmax harness is deterministic.
 4. **Defects** (plan 1.6):
    - `tools/az_loop.py` `_probe`: pins at sims 0 must pass
      `--raw-temperature-a 0 --raw-temperature-b 0`; every az pin,
