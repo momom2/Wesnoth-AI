@@ -238,7 +238,7 @@ Readings:
   eval worker processes (a 35 s raw game carries checkpoint load and
   compile).
 
-## Generation throughput through the actor pool (2026-09-04, box 49868990)
+## Generation throughput through the actor pool (2026-09-04, box 49875606)
 
 `tools/bench_pool.py`, one iteration as the az legs ran it (plain
 PUCT, 32 evaluations, leaf batch 16, no Gumbel root, no tree reuse),
@@ -317,7 +317,7 @@ Python per leaf could feed ~3,000 leaves/s). Next levers, in order:
 serve from several processes (or take the per-batch Python off the
 GIL), then compile the padded path, then length-bucketed batches.
 
-## Evaluation throughput: persistent workers (2026-09-04, box 49868990)
+## Evaluation throughput: persistent workers (2026-09-04, box 49875606)
 
 `run_elo_batch.py`, seed (raw:t0) against itself, 20 games, 10
 concurrent, max 200 turns, bf16 + compile, on the same box while it
