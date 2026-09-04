@@ -157,3 +157,47 @@ $0.334/h, image `pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime`,
 - Offer selection: `vms_enabled=false`, CPU model EPYC or Ryzen (the
   cheapest offers that day were Xeon E5-2680 v4 hosts, the 3-4x-slower
   trap), cores >= 12, RAM >= 30 GB.
+
+## Pipeline baseline (2026-09-04, `tools/bench_pipeline.py`, box 49861070)
+
+The number every phase-1 lever is measured against. Box: RTX 4090,
+24 EPYC 7K62 cores (23.04-core quota), 47 GB, $0.309/h, torch
+2.5.1+cu124 (no sm_89 binaries), bf16 + compile, Python enumeration
+path (the Rust wheel was not built on this box). Inputs: the 200
+holdout-ladder positions of `configs/bench_states.json`. Record:
+`training/metrics/bench_pipeline/baseline.{json,md,log}`.
+
+Per-decision Python work, median ms: deepcopy 0.05, fork 0.05,
+encode_raw 1.33, encode_from_raw 1.19, legality masks 2.20 (Python
+path; the Rust path measured 4.5x faster on 2026-08-30), enumerate
+priors 6.90, sim step 0.71, state_key 0.02. Sum 12.4 ms, dominated by
+enumeration and masks. One forward at batch 1: 5.2 ms. A raw decision
+therefore costs about 17.6 ms, 70% of it outside the network.
+
+Forward throughput per process (samples/s): batch 1 gives 190 at
+every size; batch 16 gives 600 at <= 714 tokens, 525 at <= 831, 417 at
+<= 1018, 155 at <= 2200; batch 64 gives no more than batch 16. The
+plateau is CPU-side (padding, per-sample output splitting), not the
+GPU: 600 samples/s of ~35 GFLOP is about 12% of the card's bf16 peak.
+
+End-to-end at `--jobs 10`, one process per game (checkpoint load and
+compile per shape bucket inside the time):
+
+| match | games | s/game median (max) | turns median | forwards per side | games/h | games/$ |
+|---|---|---|---|---|---|---|
+| raw:t0 vs raw:t0 | 20 | 34.6 (75) | 48.5 | 294 / 319 | 704 | 2,108 |
+| mcts:32 vs raw:t0 | 20 | 160 (739) | 19 | 10,658 / 225 | 73 | 218 |
+
+The argmax-vs-argmax games ran 48 turns median (outcomes were not
+recorded in this run; the harness now records them): deterministic
+self-play between identical weights may stall, which every play-out
+cost model depends on. Measure the decisive rate before relying on
+`raw:t0` self-play.
+
+Phase-1 targets from these numbers: enumeration plus masks 9.1 ms to
+under 1 ms (Rust, state-level); encoding 2.5 ms to under 0.3 ms;
+batched forward from 600 to at least 3,000 samples/s (remove the
+CPU-side ceiling: token-bucketed padding, pinned transfers, output
+splitting off the hot path); persistent worker processes so a game
+does not pay checkpoint load and compile.
+

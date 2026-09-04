@@ -1,0 +1,1806 @@
+{
+ "dataset": "replays_dataset_imitation",
+ "seed": 1,
+ "states": [
+  {
+   "file": "2025-12-02_2p__Sablestone_Delta_Turn_9_(20434).json.gz",
+   "scenario_id": "multiplayer_Sablestone_Delta",
+   "cut_turn": 4,
+   "begin_side": 2,
+   "turn_number": 4,
+   "n_units": 11,
+   "n_hexes": 588
+  },
+  {
+   "file": "2024-11-16_2p__Weldyn_Channel_Turn_10_(12387).json.gz",
+   "scenario_id": "multiplayer_Weldyn_Channel",
+   "cut_turn": 8,
+   "begin_side": 2,
+   "turn_number": 8,
+   "n_units": 20,
+   "n_hexes": 638
+  },
+  {
+   "file": "2025-09-25_2p__Caves_of_the_Basilisk_Turn_17_(207993).json.gz",
+   "scenario_id": "multiplayer_Basilisk",
+   "cut_turn": 3,
+   "begin_side": 2,
+   "turn_number": 3,
+   "n_units": 30,
+   "n_hexes": 984
+  },
+  {
+   "file": "2026-01-06_2p__Sablestone_Delta_Turn_11_(50417).json.gz",
+   "scenario_id": "multiplayer_Sablestone_Delta",
+   "cut_turn": 3,
+   "begin_side": 2,
+   "turn_number": 3,
+   "n_units": 13,
+   "n_hexes": 588
+  },
+  {
+   "file": "2026-02-21_2p__Hellhole_Turn_14_(93190).json.gz",
+   "scenario_id": "multiplayer_Hellhole",
+   "cut_turn": 7,
+   "begin_side": 2,
+   "turn_number": 7,
+   "n_units": 21,
+   "n_hexes": 1160
+  },
+  {
+   "file": "2025-05-09_2p__Caves_of_the_Basilisk_Turn_13_(99550).json.gz",
+   "scenario_id": "multiplayer_Basilisk",
+   "cut_turn": 11,
+   "begin_side": 2,
+   "turn_number": 11,
+   "n_units": 40,
+   "n_hexes": 984
+  },
+  {
+   "file": "2025-07-08_2p__Weldyn_Channel_Turn_10_(146219).json.gz",
+   "scenario_id": "multiplayer_Weldyn_Channel",
+   "cut_turn": 9,
+   "begin_side": 2,
+   "turn_number": 9,
+   "n_units": 23,
+   "n_hexes": 638
+  },
+  {
+   "file": "2026-01-04_2p__Sullas_Ruins_Turn_14_(48282).json.gz",
+   "scenario_id": "multiplayer_Sullas_Ruins",
+   "cut_turn": 3,
+   "begin_side": 2,
+   "turn_number": 3,
+   "n_units": 18,
+   "n_hexes": 1050
+  },
+  {
+   "file": "2026-05-11_2p__Hamlets_Turn_11_(4977).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 6,
+   "begin_side": 2,
+   "turn_number": 6,
+   "n_units": 14,
+   "n_hexes": 756
+  },
+  {
+   "file": "2026-01-24_2p__Den_of_Onis_Turn_10_(66163).json.gz",
+   "scenario_id": "multiplayer_Den_of_Onis",
+   "cut_turn": 5,
+   "begin_side": 2,
+   "turn_number": 5,
+   "n_units": 16,
+   "n_hexes": 696
+  },
+  {
+   "file": "2026-01-02_2p__Elensefar_Courtyard_Turn_13_(46139).json.gz",
+   "scenario_id": "multiplayer_elensefar_courtyard",
+   "cut_turn": 11,
+   "begin_side": 2,
+   "turn_number": 11,
+   "n_units": 13,
+   "n_hexes": 936
+  },
+  {
+   "file": "2026-01-07_2p__Sablestone_Delta_Turn_15_(51324).json.gz",
+   "scenario_id": "multiplayer_Sablestone_Delta",
+   "cut_turn": 14,
+   "begin_side": 2,
+   "turn_number": 14,
+   "n_units": 19,
+   "n_hexes": 588
+  },
+  {
+   "file": "2025-12-12_2p__Hamlets_Turn_8_(28649).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 6,
+   "begin_side": 2,
+   "turn_number": 6,
+   "n_units": 34,
+   "n_hexes": 756
+  },
+  {
+   "file": "2025-11-11_2p__Tombs_of_Kesorak_Turn_10_(3064).json.gz",
+   "scenario_id": "multiplayer_Tombs_of_Kesorak",
+   "cut_turn": 9,
+   "begin_side": 2,
+   "turn_number": 9,
+   "n_units": 12,
+   "n_hexes": 851
+  },
+  {
+   "file": "2026-07-24_2p__Hamlets_Turn_16_(50601).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 12,
+   "begin_side": 2,
+   "turn_number": 12,
+   "n_units": 15,
+   "n_hexes": 756
+  },
+  {
+   "file": "2025-10-11_2p__Aethermaw_Turn_10_(219600).json.gz",
+   "scenario_id": "multiplayer_Aethermaw",
+   "cut_turn": 7,
+   "begin_side": 2,
+   "turn_number": 7,
+   "n_units": 15,
+   "n_hexes": 1960
+  },
+  {
+   "file": "2026-06-18_2p__The_Freelands_Turn_20_(25806).json.gz",
+   "scenario_id": "multiplayer_The_Freelands",
+   "cut_turn": 10,
+   "begin_side": 2,
+   "turn_number": 10,
+   "n_units": 21,
+   "n_hexes": 888
+  },
+  {
+   "file": "2026-05-19_2p__Clearing_Gushes_Turn_13_(5427).json.gz",
+   "scenario_id": "multiplayer_Clearing_Gushes",
+   "cut_turn": 4,
+   "begin_side": 2,
+   "turn_number": 4,
+   "n_units": 13,
+   "n_hexes": 837
+  },
+  {
+   "file": "2024-12-30_2p__Caves_of_the_Basilisk_Turn_10_(13480).json.gz",
+   "scenario_id": "multiplayer_Basilisk",
+   "cut_turn": 5,
+   "begin_side": 2,
+   "turn_number": 5,
+   "n_units": 32,
+   "n_hexes": 984
+  },
+  {
+   "file": "2025-01-28_2p__Hellhole_Turn_18_(16492).json.gz",
+   "scenario_id": "multiplayer_Hellhole",
+   "cut_turn": 11,
+   "begin_side": 2,
+   "turn_number": 11,
+   "n_units": 45,
+   "n_hexes": 1160
+  },
+  {
+   "file": "2025-08-15_2p__Elensefar_Courtyard_Turn_14_(175308).json.gz",
+   "scenario_id": "multiplayer_elensefar_courtyard",
+   "cut_turn": 5,
+   "begin_side": 2,
+   "turn_number": 5,
+   "n_units": 22,
+   "n_hexes": 936
+  },
+  {
+   "file": "2024-09-14_2p__Weldyn_Channel_Turn_20_(28365).json.gz",
+   "scenario_id": "multiplayer_Weldyn_Channel",
+   "cut_turn": 9,
+   "begin_side": 2,
+   "turn_number": 9,
+   "n_units": 31,
+   "n_hexes": 638
+  },
+  {
+   "file": "2024-07-02_2p__Fallenstar_Lake_Turn_20_(2745).json.gz",
+   "scenario_id": "multiplayer_Fallenstar_Lake",
+   "cut_turn": 13,
+   "begin_side": 2,
+   "turn_number": 13,
+   "n_units": 30,
+   "n_hexes": 902
+  },
+  {
+   "file": "2026-06-27_2p__Caves_of_the_Basilisk_Turn_21_(32253).json.gz",
+   "scenario_id": "multiplayer_Basilisk",
+   "cut_turn": 4,
+   "begin_side": 2,
+   "turn_number": 4,
+   "n_units": 33,
+   "n_hexes": 984
+  },
+  {
+   "file": "2025-01-20_2p__Fallenstar_Lake_Turn_14_(9096).json.gz",
+   "scenario_id": "multiplayer_Fallenstar_Lake",
+   "cut_turn": 6,
+   "begin_side": 2,
+   "turn_number": 6,
+   "n_units": 17,
+   "n_hexes": 902
+  },
+  {
+   "file": "2025-09-14_2p__Silverhead_Crossing_Turn_9_(200814).json.gz",
+   "scenario_id": "multiplayer_Silverhead_Crossing",
+   "cut_turn": 2,
+   "begin_side": 2,
+   "turn_number": 2,
+   "n_units": 15,
+   "n_hexes": 870
+  },
+  {
+   "file": "2025-06-16_2p__Den_of_Onis_Turn_15_(129710).json.gz",
+   "scenario_id": "multiplayer_Den_of_Onis",
+   "cut_turn": 14,
+   "begin_side": 2,
+   "turn_number": 14,
+   "n_units": 22,
+   "n_hexes": 696
+  },
+  {
+   "file": "2025-05-06_2p__Aethermaw_Turn_16_(97178).json.gz",
+   "scenario_id": "multiplayer_Aethermaw",
+   "cut_turn": 9,
+   "begin_side": 2,
+   "turn_number": 9,
+   "n_units": 16,
+   "n_hexes": 1960
+  },
+  {
+   "file": "2026-07-05_2p__Clearing_Gushes_Turn_15_(37093).json.gz",
+   "scenario_id": "multiplayer_Clearing_Gushes",
+   "cut_turn": 3,
+   "begin_side": 2,
+   "turn_number": 3,
+   "n_units": 13,
+   "n_hexes": 837
+  },
+  {
+   "file": "2025-01-06_2p__Hamlets_Turn_20_(19676).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 12,
+   "begin_side": 2,
+   "turn_number": 12,
+   "n_units": 19,
+   "n_hexes": 756
+  },
+  {
+   "file": "2024-10-30_2p__Weldyn_Channel_Turn_11_(13635).json.gz",
+   "scenario_id": "multiplayer_Weldyn_Channel",
+   "cut_turn": 5,
+   "begin_side": 2,
+   "turn_number": 5,
+   "n_units": 18,
+   "n_hexes": 638
+  },
+  {
+   "file": "2025-10-25_2p__Caves_of_the_Basilisk_Turn_19_(229840).json.gz",
+   "scenario_id": "multiplayer_Basilisk",
+   "cut_turn": 14,
+   "begin_side": 2,
+   "turn_number": 14,
+   "n_units": 42,
+   "n_hexes": 984
+  },
+  {
+   "file": "2026-01-19_2p__Hamlets_Turn_7_(62161).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 4,
+   "begin_side": 2,
+   "turn_number": 4,
+   "n_units": 41,
+   "n_hexes": 756
+  },
+  {
+   "file": "2024-11-23_2p__Weldyn_Channel_Turn_7_(17813).json.gz",
+   "scenario_id": "multiplayer_Weldyn_Channel",
+   "cut_turn": 2,
+   "begin_side": 2,
+   "turn_number": 2,
+   "n_units": 13,
+   "n_hexes": 638
+  },
+  {
+   "file": "2024-07-30_2p__Ruphus_Isle_Turn_10_(20708).json.gz",
+   "scenario_id": "multiplayer_Ruphus_Isle",
+   "cut_turn": 7,
+   "begin_side": 2,
+   "turn_number": 7,
+   "n_units": 25,
+   "n_hexes": 810
+  },
+  {
+   "file": "2025-05-05_2p__Sablestone_Delta_Turn_16_(96726).json.gz",
+   "scenario_id": "multiplayer_Sablestone_Delta",
+   "cut_turn": 4,
+   "begin_side": 2,
+   "turn_number": 4,
+   "n_units": 16,
+   "n_hexes": 588
+  },
+  {
+   "file": "2025-12-13_2p__Weldyn_Channel_Turn_11_(29649).json.gz",
+   "scenario_id": "multiplayer_Weldyn_Channel",
+   "cut_turn": 7,
+   "begin_side": 2,
+   "turn_number": 7,
+   "n_units": 23,
+   "n_hexes": 638
+  },
+  {
+   "file": "2024-06-01_2p__Caves_of_the_Basilisk_Turn_18_(37457).json.gz",
+   "scenario_id": "multiplayer_Basilisk",
+   "cut_turn": 11,
+   "begin_side": 2,
+   "turn_number": 11,
+   "n_units": 43,
+   "n_hexes": 984
+  },
+  {
+   "file": "2025-12-10_2p__Caves_of_the_Basilisk_Turn_38_(26416).json.gz",
+   "scenario_id": "multiplayer_Basilisk",
+   "cut_turn": 17,
+   "begin_side": 2,
+   "turn_number": 17,
+   "n_units": 39,
+   "n_hexes": 984
+  },
+  {
+   "file": "2025-02-10_2p__Hamlets_Turn_17_(28792).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 7,
+   "begin_side": 2,
+   "turn_number": 7,
+   "n_units": 18,
+   "n_hexes": 756
+  },
+  {
+   "file": "2024-04-27_2p__Den_of_Onis_Turn_21_(14448).json.gz",
+   "scenario_id": "multiplayer_Den_of_Onis",
+   "cut_turn": 5,
+   "begin_side": 2,
+   "turn_number": 5,
+   "n_units": 16,
+   "n_hexes": 696
+  },
+  {
+   "file": "2025-12-30_2p__Hamlets_Turn_14_(43938).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 10,
+   "begin_side": 2,
+   "turn_number": 10,
+   "n_units": 23,
+   "n_hexes": 756
+  },
+  {
+   "file": "2024-12-01_2p__The_Freelands_Turn_19_(24404).json.gz",
+   "scenario_id": "multiplayer_The_Freelands",
+   "cut_turn": 4,
+   "begin_side": 2,
+   "turn_number": 4,
+   "n_units": 16,
+   "n_hexes": 888
+  },
+  {
+   "file": "2024-04-15_2p__Weldyn_Channel_Turn_17_(7439).json.gz",
+   "scenario_id": "multiplayer_Weldyn_Channel",
+   "cut_turn": 5,
+   "begin_side": 2,
+   "turn_number": 5,
+   "n_units": 19,
+   "n_hexes": 638
+  },
+  {
+   "file": "2024-04-29_2p__Hamlets_Turn_12_(15888).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 5,
+   "begin_side": 2,
+   "turn_number": 5,
+   "n_units": 17,
+   "n_hexes": 756
+  },
+  {
+   "file": "2024-10-30_2p__Caves_of_the_Basilisk_Turn_16_(13530).json.gz",
+   "scenario_id": "multiplayer_Basilisk",
+   "cut_turn": 2,
+   "begin_side": 2,
+   "turn_number": 2,
+   "n_units": 31,
+   "n_hexes": 984
+  },
+  {
+   "file": "2026-03-20_2p__Hamlets_Turn_25_(6895).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 9,
+   "begin_side": 2,
+   "turn_number": 9,
+   "n_units": 29,
+   "n_hexes": 756
+  },
+  {
+   "file": "2025-08-22_2p__Ruphus_Isle_Turn_11_(180946).json.gz",
+   "scenario_id": "multiplayer_Ruphus_Isle",
+   "cut_turn": 8,
+   "begin_side": 2,
+   "turn_number": 8,
+   "n_units": 21,
+   "n_hexes": 810
+  },
+  {
+   "file": "2025-05-03_2p__Hamlets_Turn_8_(95278).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 2,
+   "begin_side": 2,
+   "turn_number": 2,
+   "n_units": 13,
+   "n_hexes": 756
+  },
+  {
+   "file": "2025-01-29_2p__Den_of_Onis_Turn_14_(17440).json.gz",
+   "scenario_id": "multiplayer_Den_of_Onis",
+   "cut_turn": 6,
+   "begin_side": 2,
+   "turn_number": 6,
+   "n_units": 19,
+   "n_hexes": 696
+  },
+  {
+   "file": "2026-04-04_2p__Sullas_Ruins_Turn_13_(17916).json.gz",
+   "scenario_id": "multiplayer_Sullas_Ruins",
+   "cut_turn": 10,
+   "begin_side": 2,
+   "turn_number": 10,
+   "n_units": 22,
+   "n_hexes": 1050
+  },
+  {
+   "file": "2024-11-19_2p__Hamlets_Turn_13_(14966).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 3,
+   "begin_side": 2,
+   "turn_number": 3,
+   "n_units": 13,
+   "n_hexes": 756
+  },
+  {
+   "file": "2026-06-22_2p__Hamlets_Turn_29_(28666).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 25,
+   "begin_side": 2,
+   "turn_number": 25,
+   "n_units": 22,
+   "n_hexes": 756
+  },
+  {
+   "file": "2025-12-26_2p__Caves_of_the_Basilisk_Turn_19_(40483).json.gz",
+   "scenario_id": "multiplayer_Basilisk",
+   "cut_turn": 4,
+   "begin_side": 2,
+   "turn_number": 4,
+   "n_units": 31,
+   "n_hexes": 984
+  },
+  {
+   "file": "2026-02-14_2p__Hamlets_Turn_21_(86278).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 2,
+   "begin_side": 2,
+   "turn_number": 2,
+   "n_units": 14,
+   "n_hexes": 756
+  },
+  {
+   "file": "2024-07-10_2p__Caves_of_the_Basilisk_Turn_10_(7385).json.gz",
+   "scenario_id": "multiplayer_Basilisk",
+   "cut_turn": 2,
+   "begin_side": 2,
+   "turn_number": 2,
+   "n_units": 31,
+   "n_hexes": 984
+  },
+  {
+   "file": "2025-02-17_2p__Howling_Ghost_Badlands_Turn_13_(34703).json.gz",
+   "scenario_id": "multiplayer_Howling_Ghost_Badlands",
+   "cut_turn": 6,
+   "begin_side": 2,
+   "turn_number": 6,
+   "n_units": 22,
+   "n_hexes": 1188
+  },
+  {
+   "file": "2025-05-29_2p__Weldyn_Channel_Turn_22_(114282).json.gz",
+   "scenario_id": "multiplayer_Weldyn_Channel",
+   "cut_turn": 13,
+   "begin_side": 2,
+   "turn_number": 13,
+   "n_units": 20,
+   "n_hexes": 638
+  },
+  {
+   "file": "2025-01-11_2p__Fallenstar_Lake_Turn_13_(1136).json.gz",
+   "scenario_id": "multiplayer_Fallenstar_Lake",
+   "cut_turn": 9,
+   "begin_side": 2,
+   "turn_number": 9,
+   "n_units": 26,
+   "n_hexes": 902
+  },
+  {
+   "file": "2024-09-19_2p__Hamlets_Turn_10_(31999).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 9,
+   "begin_side": 2,
+   "turn_number": 9,
+   "n_units": 8,
+   "n_hexes": 756
+  },
+  {
+   "file": "2025-11-15_2p__Hamlets_Turn_15_(5471).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 4,
+   "begin_side": 2,
+   "turn_number": 4,
+   "n_units": 37,
+   "n_hexes": 756
+  },
+  {
+   "file": "2025-09-15_2p__Den_of_Onis_Turn_17_(200913).json.gz",
+   "scenario_id": "multiplayer_Den_of_Onis",
+   "cut_turn": 3,
+   "begin_side": 2,
+   "turn_number": 3,
+   "n_units": 12,
+   "n_hexes": 696
+  },
+  {
+   "file": "2025-12-12_2p__Caves_of_the_Basilisk_Turn_12_(28501).json.gz",
+   "scenario_id": "multiplayer_Basilisk",
+   "cut_turn": 10,
+   "begin_side": 2,
+   "turn_number": 10,
+   "n_units": 36,
+   "n_hexes": 984
+  },
+  {
+   "file": "2025-03-16_2p__Hamlets_Turn_14_(56444).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 7,
+   "begin_side": 2,
+   "turn_number": 7,
+   "n_units": 14,
+   "n_hexes": 756
+  },
+  {
+   "file": "2025-07-06_2p__Howling_Ghost_Badlands_Turn_9_(145228).json.gz",
+   "scenario_id": "multiplayer_Howling_Ghost_Badlands",
+   "cut_turn": 2,
+   "begin_side": 2,
+   "turn_number": 2,
+   "n_units": 13,
+   "n_hexes": 1188
+  },
+  {
+   "file": "2024-04-03_2p__Caves_of_the_Basilisk_Turn_24_(3637).json.gz",
+   "scenario_id": "multiplayer_Basilisk",
+   "cut_turn": 18,
+   "begin_side": 2,
+   "turn_number": 18,
+   "n_units": 44,
+   "n_hexes": 984
+  },
+  {
+   "file": "2024-12-17_2p__The_Freelands_Turn_13_(3257).json.gz",
+   "scenario_id": "multiplayer_The_Freelands",
+   "cut_turn": 12,
+   "begin_side": 2,
+   "turn_number": 12,
+   "n_units": 5,
+   "n_hexes": 888
+  },
+  {
+   "file": "2025-03-25_2p__Sablestone_Delta_Turn_19_(64180).json.gz",
+   "scenario_id": "multiplayer_Sablestone_Delta",
+   "cut_turn": 7,
+   "begin_side": 2,
+   "turn_number": 7,
+   "n_units": 16,
+   "n_hexes": 588
+  },
+  {
+   "file": "2025-02-26_2p__Hellhole_Turn_15_(42126).json.gz",
+   "scenario_id": "multiplayer_Hellhole",
+   "cut_turn": 4,
+   "begin_side": 2,
+   "turn_number": 4,
+   "n_units": 13,
+   "n_hexes": 1160
+  },
+  {
+   "file": "2025-10-12_2p__Sablestone_Delta_Turn_11_(220338).json.gz",
+   "scenario_id": "multiplayer_Sablestone_Delta",
+   "cut_turn": 4,
+   "begin_side": 2,
+   "turn_number": 4,
+   "n_units": 15,
+   "n_hexes": 588
+  },
+  {
+   "file": "2025-10-08_2p__Hamlets_Turn_12_(217604).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 4,
+   "begin_side": 2,
+   "turn_number": 4,
+   "n_units": 12,
+   "n_hexes": 756
+  },
+  {
+   "file": "2024-06-03_2p__Caves_of_the_Basilisk_Turn_7_(39125).json.gz",
+   "scenario_id": "multiplayer_Basilisk",
+   "cut_turn": 4,
+   "begin_side": 2,
+   "turn_number": 4,
+   "n_units": 31,
+   "n_hexes": 984
+  },
+  {
+   "file": "2024-12-31_2p__Ruphus_Isle_Turn_22_(14000).json.gz",
+   "scenario_id": "multiplayer_Ruphus_Isle",
+   "cut_turn": 11,
+   "begin_side": 2,
+   "turn_number": 11,
+   "n_units": 18,
+   "n_hexes": 810
+  },
+  {
+   "file": "2025-12-27_2p__Weldyn_Channel_Turn_23_(40663).json.gz",
+   "scenario_id": "multiplayer_Weldyn_Channel",
+   "cut_turn": 5,
+   "begin_side": 2,
+   "turn_number": 5,
+   "n_units": 15,
+   "n_hexes": 638
+  },
+  {
+   "file": "2025-10-11_2p__The_Freelands_Turn_7_(219818).json.gz",
+   "scenario_id": "multiplayer_The_Freelands",
+   "cut_turn": 6,
+   "begin_side": 2,
+   "turn_number": 6,
+   "n_units": 12,
+   "n_hexes": 888
+  },
+  {
+   "file": "2024-12-31_2p__Weldyn_Channel_Turn_16_(13972).json.gz",
+   "scenario_id": "multiplayer_Weldyn_Channel",
+   "cut_turn": 15,
+   "begin_side": 2,
+   "turn_number": 15,
+   "n_units": 19,
+   "n_hexes": 638
+  },
+  {
+   "file": "2025-06-08_2p__Weldyn_Channel_Turn_13_(122744).json.gz",
+   "scenario_id": "multiplayer_Weldyn_Channel",
+   "cut_turn": 11,
+   "begin_side": 2,
+   "turn_number": 11,
+   "n_units": 14,
+   "n_hexes": 638
+  },
+  {
+   "file": "2025-08-29_2p__Weldyn_Channel_Turn_7_(187749).json.gz",
+   "scenario_id": "multiplayer_Weldyn_Channel",
+   "cut_turn": 4,
+   "begin_side": 2,
+   "turn_number": 4,
+   "n_units": 15,
+   "n_hexes": 638
+  },
+  {
+   "file": "2024-06-09_2p__The_Freelands_Turn_10_(43521).json.gz",
+   "scenario_id": "multiplayer_The_Freelands",
+   "cut_turn": 4,
+   "begin_side": 2,
+   "turn_number": 4,
+   "n_units": 16,
+   "n_hexes": 888
+  },
+  {
+   "file": "2024-07-06_2p__Weldyn_Channel_Turn_13_(5298).json.gz",
+   "scenario_id": "multiplayer_Weldyn_Channel",
+   "cut_turn": 5,
+   "begin_side": 2,
+   "turn_number": 5,
+   "n_units": 18,
+   "n_hexes": 638
+  },
+  {
+   "file": "2025-09-02_2p__Caves_of_the_Basilisk_Turn_29_(191145).json.gz",
+   "scenario_id": "multiplayer_Basilisk",
+   "cut_turn": 6,
+   "begin_side": 2,
+   "turn_number": 6,
+   "n_units": 31,
+   "n_hexes": 984
+  },
+  {
+   "file": "2025-06-03_2p__Den_of_Onis_Turn_53_(119071).json.gz",
+   "scenario_id": "multiplayer_Den_of_Onis",
+   "cut_turn": 36,
+   "begin_side": 2,
+   "turn_number": 36,
+   "n_units": 17,
+   "n_hexes": 696
+  },
+  {
+   "file": "2026-01-27_2p__Den_of_Onis_Turn_20_(70248).json.gz",
+   "scenario_id": "multiplayer_Den_of_Onis",
+   "cut_turn": 3,
+   "begin_side": 2,
+   "turn_number": 3,
+   "n_units": 21,
+   "n_hexes": 696
+  },
+  {
+   "file": "2024-08-24_2p__Aethermaw_Turn_16_(11966).json.gz",
+   "scenario_id": "multiplayer_Aethermaw",
+   "cut_turn": 14,
+   "begin_side": 2,
+   "turn_number": 14,
+   "n_units": 14,
+   "n_hexes": 1960
+  },
+  {
+   "file": "2024-10-04_2p__Sullas_Ruins_Turn_14_(43127).json.gz",
+   "scenario_id": "multiplayer_Sullas_Ruins",
+   "cut_turn": 7,
+   "begin_side": 2,
+   "turn_number": 7,
+   "n_units": 27,
+   "n_hexes": 1050
+  },
+  {
+   "file": "2025-04-25_2p__The_Freelands_Turn_17_(88273).json.gz",
+   "scenario_id": "multiplayer_The_Freelands",
+   "cut_turn": 15,
+   "begin_side": 2,
+   "turn_number": 15,
+   "n_units": 23,
+   "n_hexes": 888
+  },
+  {
+   "file": "2025-03-30_2p__Sablestone_Delta_Turn_8_(68687).json.gz",
+   "scenario_id": "multiplayer_Sablestone_Delta",
+   "cut_turn": 6,
+   "begin_side": 2,
+   "turn_number": 6,
+   "n_units": 20,
+   "n_hexes": 588
+  },
+  {
+   "file": "2024-11-27_2p__Sablestone_Delta_Turn_9_(21258).json.gz",
+   "scenario_id": "multiplayer_Sablestone_Delta",
+   "cut_turn": 8,
+   "begin_side": 2,
+   "turn_number": 8,
+   "n_units": 10,
+   "n_hexes": 588
+  },
+  {
+   "file": "2026-02-28_2p__Hamlets_Turn_8_(99643).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 7,
+   "begin_side": 2,
+   "turn_number": 7,
+   "n_units": 19,
+   "n_hexes": 756
+  },
+  {
+   "file": "2024-12-14_2p__Aethermaw_Turn_8_(439).json.gz",
+   "scenario_id": "multiplayer_Aethermaw",
+   "cut_turn": 6,
+   "begin_side": 2,
+   "turn_number": 6,
+   "n_units": 12,
+   "n_hexes": 1960
+  },
+  {
+   "file": "2026-03-22_2p__Hamlets_Turn_22_(9183).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 8,
+   "begin_side": 2,
+   "turn_number": 8,
+   "n_units": 19,
+   "n_hexes": 756
+  },
+  {
+   "file": "2024-04-17_2p__Caves_of_the_Basilisk_Turn_20_(8232).json.gz",
+   "scenario_id": "multiplayer_Basilisk",
+   "cut_turn": 7,
+   "begin_side": 2,
+   "turn_number": 7,
+   "n_units": 35,
+   "n_hexes": 984
+  },
+  {
+   "file": "2025-04-02_2p__Sablestone_Delta_Turn_14_(70876).json.gz",
+   "scenario_id": "multiplayer_Sablestone_Delta",
+   "cut_turn": 6,
+   "begin_side": 2,
+   "turn_number": 6,
+   "n_units": 12,
+   "n_hexes": 588
+  },
+  {
+   "file": "2026-01-01_2p__Den_of_Onis_Turn_22_(44996).json.gz",
+   "scenario_id": "multiplayer_Den_of_Onis",
+   "cut_turn": 15,
+   "begin_side": 2,
+   "turn_number": 15,
+   "n_units": 24,
+   "n_hexes": 696
+  },
+  {
+   "file": "2024-07-06_2p__Ruphus_Isle_Turn_15_(4987).json.gz",
+   "scenario_id": "multiplayer_Ruphus_Isle",
+   "cut_turn": 10,
+   "begin_side": 2,
+   "turn_number": 10,
+   "n_units": 30,
+   "n_hexes": 810
+  },
+  {
+   "file": "2025-05-07_2p__Den_of_Onis_Turn_11_(98052).json.gz",
+   "scenario_id": "multiplayer_Den_of_Onis",
+   "cut_turn": 4,
+   "begin_side": 2,
+   "turn_number": 4,
+   "n_units": 30,
+   "n_hexes": 696
+  },
+  {
+   "file": "2025-01-29_2p__Caves_of_the_Basilisk_Turn_14_(17366).json.gz",
+   "scenario_id": "multiplayer_Basilisk",
+   "cut_turn": 2,
+   "begin_side": 2,
+   "turn_number": 2,
+   "n_units": 28,
+   "n_hexes": 984
+  },
+  {
+   "file": "2025-11-07_2p__The_Walls_of_Pyrennis_Turn_7_(237818).json.gz",
+   "scenario_id": "multiplayer_The_Walls_of_Pyrennis",
+   "cut_turn": 3,
+   "begin_side": 2,
+   "turn_number": 3,
+   "n_units": 12,
+   "n_hexes": 806
+  },
+  {
+   "file": "2025-10-14_2p__Elensefar_Courtyard_Turn_11_(222009).json.gz",
+   "scenario_id": "multiplayer_elensefar_courtyard",
+   "cut_turn": 6,
+   "begin_side": 2,
+   "turn_number": 6,
+   "n_units": 18,
+   "n_hexes": 936
+  },
+  {
+   "file": "2025-03-26_2p__Weldyn_Channel_Turn_12_(65005).json.gz",
+   "scenario_id": "multiplayer_Weldyn_Channel",
+   "cut_turn": 3,
+   "begin_side": 2,
+   "turn_number": 3,
+   "n_units": 15,
+   "n_hexes": 638
+  },
+  {
+   "file": "2025-08-20_2p__Tombs_of_Kesorak_Turn_10_(179635).json.gz",
+   "scenario_id": "multiplayer_Tombs_of_Kesorak",
+   "cut_turn": 9,
+   "begin_side": 2,
+   "turn_number": 9,
+   "n_units": 26,
+   "n_hexes": 851
+  },
+  {
+   "file": "2025-01-23_2p__Hamlets_Turn_10_(11288).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 8,
+   "begin_side": 2,
+   "turn_number": 8,
+   "n_units": 22,
+   "n_hexes": 756
+  },
+  {
+   "file": "2025-05-28_2p__Weldyn_Channel_Turn_15_(113814).json.gz",
+   "scenario_id": "multiplayer_Weldyn_Channel",
+   "cut_turn": 10,
+   "begin_side": 2,
+   "turn_number": 10,
+   "n_units": 26,
+   "n_hexes": 638
+  },
+  {
+   "file": "2025-09-25_2p__Hamlets_Turn_17_(207966).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 6,
+   "begin_side": 2,
+   "turn_number": 6,
+   "n_units": 21,
+   "n_hexes": 756
+  },
+  {
+   "file": "2024-04-12_2p__Caves_of_the_Basilisk_Turn_10_(5178).json.gz",
+   "scenario_id": "multiplayer_Basilisk",
+   "cut_turn": 9,
+   "begin_side": 2,
+   "turn_number": 9,
+   "n_units": 39,
+   "n_hexes": 984
+  },
+  {
+   "file": "2025-10-11_2p__Howling_Ghost_Badlands_Turn_12_(219745).json.gz",
+   "scenario_id": "multiplayer_Howling_Ghost_Badlands",
+   "cut_turn": 10,
+   "begin_side": 2,
+   "turn_number": 10,
+   "n_units": 26,
+   "n_hexes": 1188
+  },
+  {
+   "file": "2024-03-28_2p__Aethermaw_Turn_14_(205).json.gz",
+   "scenario_id": "multiplayer_Aethermaw",
+   "cut_turn": 9,
+   "begin_side": 2,
+   "turn_number": 9,
+   "n_units": 10,
+   "n_hexes": 1960
+  },
+  {
+   "file": "2024-05-19_2p__Howling_Ghost_Badlands_Turn_8_(29318).json.gz",
+   "scenario_id": "multiplayer_Howling_Ghost_Badlands",
+   "cut_turn": 2,
+   "begin_side": 2,
+   "turn_number": 2,
+   "n_units": 13,
+   "n_hexes": 1188
+  },
+  {
+   "file": "2026-07-18_2p__Hellhole_Turn_31_(46007).json.gz",
+   "scenario_id": "multiplayer_Hellhole",
+   "cut_turn": 14,
+   "begin_side": 2,
+   "turn_number": 14,
+   "n_units": 21,
+   "n_hexes": 1160
+  },
+  {
+   "file": "2025-09-14_2p__Weldyn_Channel_Turn_28_(200475).json.gz",
+   "scenario_id": "multiplayer_Weldyn_Channel",
+   "cut_turn": 12,
+   "begin_side": 2,
+   "turn_number": 12,
+   "n_units": 28,
+   "n_hexes": 638
+  },
+  {
+   "file": "2025-12-10_2p__Ruphus_Isle_Turn_19_(26907).json.gz",
+   "scenario_id": "multiplayer_Ruphus_Isle",
+   "cut_turn": 7,
+   "begin_side": 2,
+   "turn_number": 7,
+   "n_units": 17,
+   "n_hexes": 810
+  },
+  {
+   "file": "2026-06-29_2p__Weldyn_Channel_Turn_7_(33392).json.gz",
+   "scenario_id": "multiplayer_Weldyn_Channel",
+   "cut_turn": 4,
+   "begin_side": 2,
+   "turn_number": 4,
+   "n_units": 17,
+   "n_hexes": 638
+  },
+  {
+   "file": "2024-09-18_2p__Den_of_Onis_Turn_8_(31393).json.gz",
+   "scenario_id": "multiplayer_Den_of_Onis",
+   "cut_turn": 5,
+   "begin_side": 2,
+   "turn_number": 5,
+   "n_units": 15,
+   "n_hexes": 696
+  },
+  {
+   "file": "2024-11-28_2p__Weldyn_Channel_Turn_22_(21666).json.gz",
+   "scenario_id": "multiplayer_Weldyn_Channel",
+   "cut_turn": 2,
+   "begin_side": 2,
+   "turn_number": 2,
+   "n_units": 13,
+   "n_hexes": 638
+  },
+  {
+   "file": "2025-05-16_2p__Fallenstar_Lake_Turn_12_(104678).json.gz",
+   "scenario_id": "multiplayer_Fallenstar_Lake",
+   "cut_turn": 8,
+   "begin_side": 2,
+   "turn_number": 8,
+   "n_units": 21,
+   "n_hexes": 902
+  },
+  {
+   "file": "2024-08-31_2p__Sablestone_Delta_Turn_7_(17538).json.gz",
+   "scenario_id": "multiplayer_Sablestone_Delta",
+   "cut_turn": 6,
+   "begin_side": 2,
+   "turn_number": 6,
+   "n_units": 17,
+   "n_hexes": 588
+  },
+  {
+   "file": "2025-09-04_2p__Hamlets_Turn_7_(192247).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 2,
+   "begin_side": 2,
+   "turn_number": 2,
+   "n_units": 11,
+   "n_hexes": 756
+  },
+  {
+   "file": "2026-02-13_2p__Weldyn_Channel_Turn_11_(85693).json.gz",
+   "scenario_id": "multiplayer_Weldyn_Channel",
+   "cut_turn": 2,
+   "begin_side": 2,
+   "turn_number": 2,
+   "n_units": 13,
+   "n_hexes": 638
+  },
+  {
+   "file": "2024-10-28_2p__Caves_of_the_Basilisk_Turn_15_(12208).json.gz",
+   "scenario_id": "multiplayer_Basilisk",
+   "cut_turn": 13,
+   "begin_side": 2,
+   "turn_number": 13,
+   "n_units": 39,
+   "n_hexes": 984
+  },
+  {
+   "file": "2024-05-22_2p__Caves_of_the_Basilisk_Turn_12_(31492).json.gz",
+   "scenario_id": "multiplayer_Basilisk",
+   "cut_turn": 7,
+   "begin_side": 2,
+   "turn_number": 7,
+   "n_units": 32,
+   "n_hexes": 984
+  },
+  {
+   "file": "2024-09-02_2p__The_Freelands_Turn_9_(19163).json.gz",
+   "scenario_id": "multiplayer_The_Freelands",
+   "cut_turn": 6,
+   "begin_side": 2,
+   "turn_number": 6,
+   "n_units": 20,
+   "n_hexes": 888
+  },
+  {
+   "file": "2024-07-20_2p__Ruphus_Isle_Turn_18_(14324).json.gz",
+   "scenario_id": "multiplayer_Ruphus_Isle",
+   "cut_turn": 6,
+   "begin_side": 2,
+   "turn_number": 6,
+   "n_units": 12,
+   "n_hexes": 810
+  },
+  {
+   "file": "2024-07-03_2p__Hamlets_Turn_9_(3144).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 6,
+   "begin_side": 2,
+   "turn_number": 6,
+   "n_units": 19,
+   "n_hexes": 756
+  },
+  {
+   "file": "2026-05-01_2p__Den_of_Onis_Turn_9_(38503).json.gz",
+   "scenario_id": "multiplayer_Den_of_Onis",
+   "cut_turn": 3,
+   "begin_side": 2,
+   "turn_number": 3,
+   "n_units": 14,
+   "n_hexes": 696
+  },
+  {
+   "file": "2024-05-22_2p__Ruphus_Isle_Turn_19_(31177).json.gz",
+   "scenario_id": "multiplayer_Ruphus_Isle",
+   "cut_turn": 6,
+   "begin_side": 2,
+   "turn_number": 6,
+   "n_units": 18,
+   "n_hexes": 810
+  },
+  {
+   "file": "2024-03-29_2p__Caves_of_the_Basilisk_Turn_38_(369).json.gz",
+   "scenario_id": "multiplayer_Basilisk",
+   "cut_turn": 18,
+   "begin_side": 2,
+   "turn_number": 18,
+   "n_units": 38,
+   "n_hexes": 984
+  },
+  {
+   "file": "2026-02-15_2p__Hamlets_Turn_10_(87522).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 6,
+   "begin_side": 2,
+   "turn_number": 6,
+   "n_units": 19,
+   "n_hexes": 756
+  },
+  {
+   "file": "2026-05-01_2p__Clearing_Gushes_Turn_21_(38639).json.gz",
+   "scenario_id": "multiplayer_Clearing_Gushes",
+   "cut_turn": 14,
+   "begin_side": 2,
+   "turn_number": 14,
+   "n_units": 15,
+   "n_hexes": 837
+  },
+  {
+   "file": "2026-06-19_2p__Den_of_Onis_Turn_16_(26205).json.gz",
+   "scenario_id": "multiplayer_Den_of_Onis",
+   "cut_turn": 11,
+   "begin_side": 2,
+   "turn_number": 11,
+   "n_units": 13,
+   "n_hexes": 696
+  },
+  {
+   "file": "2024-04-22_2p__Arcanclave_Citadel_Turn_21_(11045).json.gz",
+   "scenario_id": "multiplayer_Arcanclave_Citadel",
+   "cut_turn": 14,
+   "begin_side": 2,
+   "turn_number": 14,
+   "n_units": 31,
+   "n_hexes": 2162
+  },
+  {
+   "file": "2025-07-22_2p__Weldyn_Channel_Turn_9_(156624).json.gz",
+   "scenario_id": "multiplayer_Weldyn_Channel",
+   "cut_turn": 3,
+   "begin_side": 2,
+   "turn_number": 3,
+   "n_units": 14,
+   "n_hexes": 638
+  },
+  {
+   "file": "2026-06-21_2p__Caves_of_the_Basilisk_Turn_13_(28252).json.gz",
+   "scenario_id": "multiplayer_Basilisk",
+   "cut_turn": 11,
+   "begin_side": 2,
+   "turn_number": 11,
+   "n_units": 33,
+   "n_hexes": 984
+  },
+  {
+   "file": "2026-06-21_2p__Sablestone_Delta_Turn_9_(28518).json.gz",
+   "scenario_id": "multiplayer_Sablestone_Delta",
+   "cut_turn": 2,
+   "begin_side": 2,
+   "turn_number": 2,
+   "n_units": 10,
+   "n_hexes": 588
+  },
+  {
+   "file": "2025-09-13_2p__Caves_of_the_Basilisk_Turn_15_(200071).json.gz",
+   "scenario_id": "multiplayer_Basilisk",
+   "cut_turn": 5,
+   "begin_side": 2,
+   "turn_number": 5,
+   "n_units": 29,
+   "n_hexes": 984
+  },
+  {
+   "file": "2024-07-01_2p__Ruphus_Isle_Turn_7_(2103).json.gz",
+   "scenario_id": "multiplayer_Ruphus_Isle",
+   "cut_turn": 5,
+   "begin_side": 2,
+   "turn_number": 5,
+   "n_units": 18,
+   "n_hexes": 810
+  },
+  {
+   "file": "2024-06-15_2p__The_Freelands_Turn_35_(47536).json.gz",
+   "scenario_id": "multiplayer_The_Freelands",
+   "cut_turn": 2,
+   "begin_side": 2,
+   "turn_number": 2,
+   "n_units": 14,
+   "n_hexes": 888
+  },
+  {
+   "file": "2024-04-24_2p__Sablestone_Delta_Turn_23_(12512).json.gz",
+   "scenario_id": "multiplayer_Sablestone_Delta",
+   "cut_turn": 7,
+   "begin_side": 2,
+   "turn_number": 7,
+   "n_units": 16,
+   "n_hexes": 588
+  },
+  {
+   "file": "2024-07-31_2p__Caves_of_the_Basilisk_Turn_14_(21692).json.gz",
+   "scenario_id": "multiplayer_Basilisk",
+   "cut_turn": 10,
+   "begin_side": 2,
+   "turn_number": 10,
+   "n_units": 42,
+   "n_hexes": 984
+  },
+  {
+   "file": "2024-12-16_2p__Hamlets_Turn_15_(2095).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 7,
+   "begin_side": 2,
+   "turn_number": 7,
+   "n_units": 21,
+   "n_hexes": 756
+  },
+  {
+   "file": "2025-09-11_2p__Howling_Ghost_Badlands_Turn_13_(198390).json.gz",
+   "scenario_id": "multiplayer_Howling_Ghost_Badlands",
+   "cut_turn": 10,
+   "begin_side": 2,
+   "turn_number": 10,
+   "n_units": 20,
+   "n_hexes": 1188
+  },
+  {
+   "file": "2025-11-18_2p__Elensefar_Courtyard_Turn_20_(8033).json.gz",
+   "scenario_id": "multiplayer_elensefar_courtyard",
+   "cut_turn": 16,
+   "begin_side": 2,
+   "turn_number": 16,
+   "n_units": 33,
+   "n_hexes": 936
+  },
+  {
+   "file": "2024-11-11_2p__Caves_of_the_Basilisk_Turn_10_(8622).json.gz",
+   "scenario_id": "multiplayer_Basilisk",
+   "cut_turn": 5,
+   "begin_side": 2,
+   "turn_number": 5,
+   "n_units": 36,
+   "n_hexes": 984
+  },
+  {
+   "file": "2024-06-03_2p__Caves_of_the_Basilisk_Turn_12_(39469).json.gz",
+   "scenario_id": "multiplayer_Basilisk",
+   "cut_turn": 5,
+   "begin_side": 2,
+   "turn_number": 5,
+   "n_units": 37,
+   "n_hexes": 984
+  },
+  {
+   "file": "2024-11-12_2p__Weldyn_Channel_Turn_10_(9160).json.gz",
+   "scenario_id": "multiplayer_Weldyn_Channel",
+   "cut_turn": 7,
+   "begin_side": 2,
+   "turn_number": 7,
+   "n_units": 21,
+   "n_hexes": 638
+  },
+  {
+   "file": "2024-09-07_2p__Hamlets_Turn_19_(22195).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 17,
+   "begin_side": 2,
+   "turn_number": 17,
+   "n_units": 63,
+   "n_hexes": 756
+  },
+  {
+   "file": "2026-04-06_2p__The_Freelands_Turn_10_(19365).json.gz",
+   "scenario_id": "multiplayer_The_Freelands",
+   "cut_turn": 9,
+   "begin_side": 2,
+   "turn_number": 9,
+   "n_units": 13,
+   "n_hexes": 888
+  },
+  {
+   "file": "2025-11-07_2p__Weldyn_Channel_Turn_9_(86).json.gz",
+   "scenario_id": "multiplayer_Weldyn_Channel",
+   "cut_turn": 3,
+   "begin_side": 2,
+   "turn_number": 3,
+   "n_units": 14,
+   "n_hexes": 638
+  },
+  {
+   "file": "2026-02-01_2p__Caves_of_the_Basilisk_Turn_11_(74065).json.gz",
+   "scenario_id": "multiplayer_Basilisk",
+   "cut_turn": 8,
+   "begin_side": 2,
+   "turn_number": 8,
+   "n_units": 34,
+   "n_hexes": 984
+  },
+  {
+   "file": "2026-06-09_2p__Clearing_Gushes_Turn_11_(19414).json.gz",
+   "scenario_id": "multiplayer_Clearing_Gushes",
+   "cut_turn": 7,
+   "begin_side": 2,
+   "turn_number": 7,
+   "n_units": 19,
+   "n_hexes": 837
+  },
+  {
+   "file": "2025-04-24_2p__Ruphus_Isle_Turn_13_(87997).json.gz",
+   "scenario_id": "multiplayer_Ruphus_Isle",
+   "cut_turn": 10,
+   "begin_side": 2,
+   "turn_number": 10,
+   "n_units": 20,
+   "n_hexes": 810
+  },
+  {
+   "file": "2025-10-03_2p__Hamlets_Turn_19_(213703).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 10,
+   "begin_side": 2,
+   "turn_number": 10,
+   "n_units": 16,
+   "n_hexes": 756
+  },
+  {
+   "file": "2026-08-03_2p__Weldyn_Channel_Turn_12_(57338).json.gz",
+   "scenario_id": "multiplayer_Weldyn_Channel",
+   "cut_turn": 5,
+   "begin_side": 2,
+   "turn_number": 5,
+   "n_units": 25,
+   "n_hexes": 638
+  },
+  {
+   "file": "2024-06-02_2p__The_Freelands_Turn_8_(38116).json.gz",
+   "scenario_id": "multiplayer_The_Freelands",
+   "cut_turn": 2,
+   "begin_side": 2,
+   "turn_number": 2,
+   "n_units": 14,
+   "n_hexes": 888
+  },
+  {
+   "file": "2025-08-30_2p__Swamp_of_Dread_Turn_10_(187876).json.gz",
+   "scenario_id": "multiplayer_Swamp_of_Dread",
+   "cut_turn": 3,
+   "begin_side": 2,
+   "turn_number": 3,
+   "n_units": 13,
+   "n_hexes": 744
+  },
+  {
+   "file": "2025-01-08_2p__Caves_of_the_Basilisk_Turn_14_(21988).json.gz",
+   "scenario_id": "multiplayer_Basilisk",
+   "cut_turn": 10,
+   "begin_side": 2,
+   "turn_number": 10,
+   "n_units": 37,
+   "n_hexes": 984
+  },
+  {
+   "file": "2024-03-30_2p__Hamlets_Turn_11_(1202).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 7,
+   "begin_side": 2,
+   "turn_number": 7,
+   "n_units": 15,
+   "n_hexes": 756
+  },
+  {
+   "file": "2026-02-21_2p__Sablestone_Delta_Turn_19_(93358).json.gz",
+   "scenario_id": "multiplayer_Sablestone_Delta",
+   "cut_turn": 7,
+   "begin_side": 2,
+   "turn_number": 7,
+   "n_units": 22,
+   "n_hexes": 588
+  },
+  {
+   "file": "2025-03-16_2p__Hamlets_Turn_11_(56484).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 10,
+   "begin_side": 2,
+   "turn_number": 10,
+   "n_units": 51,
+   "n_hexes": 756
+  },
+  {
+   "file": "2024-04-07_2p__Caves_of_the_Basilisk_Turn_14_(2210).json.gz",
+   "scenario_id": "multiplayer_Basilisk",
+   "cut_turn": 5,
+   "begin_side": 2,
+   "turn_number": 5,
+   "n_units": 35,
+   "n_hexes": 984
+  },
+  {
+   "file": "2025-03-01_2p__Arcanclave_Citadel_Turn_12_(45014).json.gz",
+   "scenario_id": "multiplayer_Arcanclave_Citadel",
+   "cut_turn": 6,
+   "begin_side": 2,
+   "turn_number": 6,
+   "n_units": 11,
+   "n_hexes": 2162
+  },
+  {
+   "file": "2025-02-10_2p__Caves_of_the_Basilisk_Turn_16_(28158).json.gz",
+   "scenario_id": "multiplayer_Basilisk",
+   "cut_turn": 6,
+   "begin_side": 2,
+   "turn_number": 6,
+   "n_units": 33,
+   "n_hexes": 984
+  },
+  {
+   "file": "2025-03-11_2p__Weldyn_Channel_Turn_21_(52901).json.gz",
+   "scenario_id": "multiplayer_Weldyn_Channel",
+   "cut_turn": 11,
+   "begin_side": 2,
+   "turn_number": 11,
+   "n_units": 25,
+   "n_hexes": 638
+  },
+  {
+   "file": "2024-05-09_2p__Ruphus_Isle_Turn_16_(23235).json.gz",
+   "scenario_id": "multiplayer_Ruphus_Isle",
+   "cut_turn": 15,
+   "begin_side": 2,
+   "turn_number": 15,
+   "n_units": 18,
+   "n_hexes": 810
+  },
+  {
+   "file": "2024-09-08_2p__Hamlets_Turn_37_(23214).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 25,
+   "begin_side": 2,
+   "turn_number": 25,
+   "n_units": 18,
+   "n_hexes": 756
+  },
+  {
+   "file": "2026-02-17_2p__The_Freelands_Turn_7_(89382).json.gz",
+   "scenario_id": "multiplayer_The_Freelands",
+   "cut_turn": 3,
+   "begin_side": 2,
+   "turn_number": 3,
+   "n_units": 20,
+   "n_hexes": 888
+  },
+  {
+   "file": "2024-03-30_2p__Sablestone_Delta_Turn_13_(1161).json.gz",
+   "scenario_id": "multiplayer_Sablestone_Delta",
+   "cut_turn": 9,
+   "begin_side": 2,
+   "turn_number": 9,
+   "n_units": 19,
+   "n_hexes": 588
+  },
+  {
+   "file": "2024-10-23_2p__Hamlets_Turn_6_(8423).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 2,
+   "begin_side": 2,
+   "turn_number": 2,
+   "n_units": 13,
+   "n_hexes": 756
+  },
+  {
+   "file": "2026-04-11_2p__Weldyn_Channel_Turn_19_(22705).json.gz",
+   "scenario_id": "multiplayer_Weldyn_Channel",
+   "cut_turn": 5,
+   "begin_side": 2,
+   "turn_number": 5,
+   "n_units": 21,
+   "n_hexes": 638
+  },
+  {
+   "file": "2024-06-16_2p__Ruphus_Isle_Turn_16_(48021).json.gz",
+   "scenario_id": "multiplayer_Ruphus_Isle",
+   "cut_turn": 11,
+   "begin_side": 2,
+   "turn_number": 11,
+   "n_units": 14,
+   "n_hexes": 810
+  },
+  {
+   "file": "2024-10-15_2p__Hamlets_Turn_10_(2544).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 8,
+   "begin_side": 2,
+   "turn_number": 8,
+   "n_units": 17,
+   "n_hexes": 756
+  },
+  {
+   "file": "2024-10-28_2p__Weldyn_Channel_Turn_17_(12562).json.gz",
+   "scenario_id": "multiplayer_Weldyn_Channel",
+   "cut_turn": 4,
+   "begin_side": 2,
+   "turn_number": 4,
+   "n_units": 15,
+   "n_hexes": 638
+  },
+  {
+   "file": "2024-09-07_2p__The_Freelands_Turn_12_(22369).json.gz",
+   "scenario_id": "multiplayer_The_Freelands",
+   "cut_turn": 4,
+   "begin_side": 2,
+   "turn_number": 4,
+   "n_units": 15,
+   "n_hexes": 888
+  },
+  {
+   "file": "2025-08-22_2p__Hamlets_Turn_10_(181210).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 6,
+   "begin_side": 2,
+   "turn_number": 6,
+   "n_units": 10,
+   "n_hexes": 756
+  },
+  {
+   "file": "2025-10-26_2p__Sablestone_Delta_Turn_9_(230410).json.gz",
+   "scenario_id": "multiplayer_Sablestone_Delta",
+   "cut_turn": 5,
+   "begin_side": 2,
+   "turn_number": 5,
+   "n_units": 14,
+   "n_hexes": 588
+  },
+  {
+   "file": "2024-12-28_2p__Den_of_Onis_Turn_12_(11819).json.gz",
+   "scenario_id": "multiplayer_Den_of_Onis",
+   "cut_turn": 5,
+   "begin_side": 2,
+   "turn_number": 5,
+   "n_units": 18,
+   "n_hexes": 696
+  },
+  {
+   "file": "2025-06-07_2p__Den_of_Onis_Turn_15_(121745).json.gz",
+   "scenario_id": "multiplayer_Den_of_Onis",
+   "cut_turn": 11,
+   "begin_side": 2,
+   "turn_number": 11,
+   "n_units": 23,
+   "n_hexes": 696
+  },
+  {
+   "file": "2025-02-23_2p__The_Freelands_Turn_12_(39790).json.gz",
+   "scenario_id": "multiplayer_The_Freelands",
+   "cut_turn": 2,
+   "begin_side": 2,
+   "turn_number": 2,
+   "n_units": 12,
+   "n_hexes": 888
+  },
+  {
+   "file": "2025-11-10_2p__Ruphus_Isle_Turn_17_(2185).json.gz",
+   "scenario_id": "multiplayer_Ruphus_Isle",
+   "cut_turn": 9,
+   "begin_side": 2,
+   "turn_number": 9,
+   "n_units": 15,
+   "n_hexes": 810
+  },
+  {
+   "file": "2025-09-10_2p__Fallenstar_Lake_Turn_11_(197358).json.gz",
+   "scenario_id": "multiplayer_Fallenstar_Lake",
+   "cut_turn": 8,
+   "begin_side": 2,
+   "turn_number": 8,
+   "n_units": 25,
+   "n_hexes": 902
+  },
+  {
+   "file": "2025-01-03_2p__Sablestone_Delta_Turn_13_(16815).json.gz",
+   "scenario_id": "multiplayer_Sablestone_Delta",
+   "cut_turn": 12,
+   "begin_side": 2,
+   "turn_number": 12,
+   "n_units": 17,
+   "n_hexes": 588
+  },
+  {
+   "file": "2025-06-04_2p__Weldyn_Channel_Turn_7_(119483).json.gz",
+   "scenario_id": "multiplayer_Weldyn_Channel",
+   "cut_turn": 4,
+   "begin_side": 2,
+   "turn_number": 4,
+   "n_units": 14,
+   "n_hexes": 638
+  },
+  {
+   "file": "2025-07-09_2p__Fallenstar_Lake_Turn_18_(147252).json.gz",
+   "scenario_id": "multiplayer_Fallenstar_Lake",
+   "cut_turn": 14,
+   "begin_side": 2,
+   "turn_number": 14,
+   "n_units": 28,
+   "n_hexes": 902
+  },
+  {
+   "file": "2025-01-22_2p__Hellhole_Turn_9_(10952).json.gz",
+   "scenario_id": "multiplayer_Hellhole",
+   "cut_turn": 6,
+   "begin_side": 2,
+   "turn_number": 6,
+   "n_units": 19,
+   "n_hexes": 1160
+  },
+  {
+   "file": "2024-09-07_2p__Silverhead_Crossing_Turn_10_(22431).json.gz",
+   "scenario_id": "multiplayer_Silverhead_Crossing",
+   "cut_turn": 4,
+   "begin_side": 2,
+   "turn_number": 4,
+   "n_units": 17,
+   "n_hexes": 870
+  },
+  {
+   "file": "2026-01-22_2p__Ruphus_Isle_Turn_14_(64476).json.gz",
+   "scenario_id": "multiplayer_Ruphus_Isle",
+   "cut_turn": 10,
+   "begin_side": 2,
+   "turn_number": 10,
+   "n_units": 17,
+   "n_hexes": 810
+  },
+  {
+   "file": "2024-12-27_2p__Den_of_Onis_Turn_18_(10915).json.gz",
+   "scenario_id": "multiplayer_Den_of_Onis",
+   "cut_turn": 3,
+   "begin_side": 2,
+   "turn_number": 3,
+   "n_units": 14,
+   "n_hexes": 696
+  },
+  {
+   "file": "2026-01-26_2p__The_Freelands_Turn_8_(69209).json.gz",
+   "scenario_id": "multiplayer_The_Freelands",
+   "cut_turn": 6,
+   "begin_side": 2,
+   "turn_number": 6,
+   "n_units": 20,
+   "n_hexes": 888
+  },
+  {
+   "file": "2025-07-16_2p__Aethermaw_Turn_11_(152133).json.gz",
+   "scenario_id": "multiplayer_Aethermaw",
+   "cut_turn": 3,
+   "begin_side": 2,
+   "turn_number": 3,
+   "n_units": 11,
+   "n_hexes": 1960
+  },
+  {
+   "file": "2025-02-09_2p__Hamlets_Turn_14_(26753).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 6,
+   "begin_side": 2,
+   "turn_number": 6,
+   "n_units": 20,
+   "n_hexes": 756
+  },
+  {
+   "file": "2026-01-29_2p__Caves_of_the_Basilisk_Turn_9_(71777).json.gz",
+   "scenario_id": "multiplayer_Basilisk",
+   "cut_turn": 7,
+   "begin_side": 2,
+   "turn_number": 7,
+   "n_units": 38,
+   "n_hexes": 984
+  },
+  {
+   "file": "2024-07-21_2p__Fallenstar_Lake_Turn_18_(15045).json.gz",
+   "scenario_id": "multiplayer_Fallenstar_Lake",
+   "cut_turn": 5,
+   "begin_side": 2,
+   "turn_number": 5,
+   "n_units": 18,
+   "n_hexes": 902
+  },
+  {
+   "file": "2025-06-28_2p__Aethermaw_Turn_17_(139077).json.gz",
+   "scenario_id": "multiplayer_Aethermaw",
+   "cut_turn": 6,
+   "begin_side": 2,
+   "turn_number": 6,
+   "n_units": 16,
+   "n_hexes": 1960
+  },
+  {
+   "file": "2025-10-02_2p__The_Freelands_Turn_20_(213260).json.gz",
+   "scenario_id": "multiplayer_The_Freelands",
+   "cut_turn": 4,
+   "begin_side": 2,
+   "turn_number": 4,
+   "n_units": 16,
+   "n_hexes": 888
+  },
+  {
+   "file": "2024-11-01_2p__Ruphus_Isle_Turn_32_(1249).json.gz",
+   "scenario_id": "multiplayer_Ruphus_Isle",
+   "cut_turn": 6,
+   "begin_side": 2,
+   "turn_number": 6,
+   "n_units": 18,
+   "n_hexes": 810
+  },
+  {
+   "file": "2024-04-13_2p__Hamlets_Turn_12_(5789).json.gz",
+   "scenario_id": "multiplayer_Hamlets",
+   "cut_turn": 11,
+   "begin_side": 2,
+   "turn_number": 11,
+   "n_units": 14,
+   "n_hexes": 756
+  },
+  {
+   "file": "2025-05-18_2p__Den_of_Onis_Turn_10_(106212).json.gz",
+   "scenario_id": "multiplayer_Den_of_Onis",
+   "cut_turn": 3,
+   "begin_side": 2,
+   "turn_number": 3,
+   "n_units": 19,
+   "n_hexes": 696
+  },
+  {
+   "file": "2026-03-07_2p__Caves_of_the_Basilisk_Turn_11_(105087).json.gz",
+   "scenario_id": "multiplayer_Basilisk",
+   "cut_turn": 9,
+   "begin_side": 2,
+   "turn_number": 9,
+   "n_units": 40,
+   "n_hexes": 984
+  },
+  {
+   "file": "2025-06-10_2p__Weldyn_Channel_Turn_11_(124891).json.gz",
+   "scenario_id": "multiplayer_Weldyn_Channel",
+   "cut_turn": 5,
+   "begin_side": 2,
+   "turn_number": 5,
+   "n_units": 17,
+   "n_hexes": 638
+  },
+  {
+   "file": "2025-01-05_2p__Caves_of_the_Basilisk_Turn_11_(19263).json.gz",
+   "scenario_id": "multiplayer_Basilisk",
+   "cut_turn": 8,
+   "begin_side": 2,
+   "turn_number": 8,
+   "n_units": 51,
+   "n_hexes": 984
+  },
+  {
+   "file": "2025-11-06_2p__Silverhead_Crossing_Turn_19_(237491).json.gz",
+   "scenario_id": "multiplayer_Silverhead_Crossing",
+   "cut_turn": 15,
+   "begin_side": 2,
+   "turn_number": 15,
+   "n_units": 30,
+   "n_hexes": 870
+  }
+ ]
+}

@@ -1,0 +1,189 @@
+{
+ "label": "baseline",
+ "checkpoint": "training/checkpoints/seed.pt",
+ "device": "cuda",
+ "infer_bf16": true,
+ "infer_compile": true,
+ "n_states": 200,
+ "torch": "2.5.1+cu124",
+ "components": {
+  "deepcopy": 0.04619552055373788,
+  "fork": 0.046170433051884174,
+  "encode_raw": 1.334355038125068,
+  "encode_from_raw": 1.1941145057789981,
+  "legality_masks": 2.198792004492134,
+  "enumerate_priors": 6.899137457367033,
+  "sim_step": 0.7071894942782819,
+  "state_key": 0.018799968529492617
+ },
+ "forwards": [
+  {
+   "tokens_max": 714,
+   "tokens_mean": 652,
+   "n_states": 50,
+   "batch": 1,
+   "ms_per_call": 5.271515459753573,
+   "ms_per_sample": 5.271515459753573,
+   "samples_per_s": 189.69877023688875
+  },
+  {
+   "tokens_max": 714,
+   "tokens_mean": 652,
+   "n_states": 50,
+   "batch": 4,
+   "ms_per_call": 7.387512072455138,
+   "ms_per_sample": 1.8468780181137845,
+   "samples_per_s": 541.4542759143885
+  },
+  {
+   "tokens_max": 714,
+   "tokens_mean": 652,
+   "n_states": 50,
+   "batch": 16,
+   "ms_per_call": 26.56618895707652,
+   "ms_per_sample": 1.6603868098172825,
+   "samples_per_s": 602.2692989894597
+  },
+  {
+   "tokens_max": 714,
+   "tokens_mean": 652,
+   "n_states": 50,
+   "batch": 64,
+   "ms_per_call": 107.29464201722294,
+   "ms_per_sample": 1.6764787815191085,
+   "samples_per_s": 596.4883128994151
+  },
+  {
+   "tokens_max": 831,
+   "tokens_mean": 773,
+   "n_states": 50,
+   "batch": 1,
+   "ms_per_call": 5.260910023935139,
+   "ms_per_sample": 5.260910023935139,
+   "samples_per_s": 190.0811828087499
+  },
+  {
+   "tokens_max": 831,
+   "tokens_mean": 773,
+   "n_states": 50,
+   "batch": 4,
+   "ms_per_call": 8.014236984308809,
+   "ms_per_sample": 2.0035592460772023,
+   "samples_per_s": 499.1117691967006
+  },
+  {
+   "tokens_max": 831,
+   "tokens_mean": 773,
+   "n_states": 50,
+   "batch": 16,
+   "ms_per_call": 30.456883483566344,
+   "ms_per_sample": 1.9035552177228965,
+   "samples_per_s": 525.3328039499885
+  },
+  {
+   "tokens_max": 831,
+   "tokens_mean": 773,
+   "n_states": 50,
+   "batch": 64,
+   "ms_per_call": 130.5182144860737,
+   "ms_per_sample": 2.0393471013449016,
+   "samples_per_s": 490.3530151098474
+  },
+  {
+   "tokens_max": 1018,
+   "tokens_mean": 903,
+   "n_states": 50,
+   "batch": 1,
+   "ms_per_call": 5.223184998612851,
+   "ms_per_sample": 5.223184998612851,
+   "samples_per_s": 191.454064955688
+  },
+  {
+   "tokens_max": 1018,
+   "tokens_mean": 903,
+   "n_states": 50,
+   "batch": 4,
+   "ms_per_call": 9.979356022085994,
+   "ms_per_sample": 2.4948390055214986,
+   "samples_per_s": 400.8274673383059
+  },
+  {
+   "tokens_max": 1018,
+   "tokens_mean": 903,
+   "n_states": 50,
+   "batch": 16,
+   "ms_per_call": 38.37016847683117,
+   "ms_per_sample": 2.398135529801948,
+   "samples_per_s": 416.9906110696695
+  },
+  {
+   "tokens_max": 1018,
+   "tokens_mean": 903,
+   "n_states": 50,
+   "batch": 64,
+   "ms_per_call": 163.90988999046385,
+   "ms_per_sample": 2.5610920311009977,
+   "samples_per_s": 390.4584403279355
+  },
+  {
+   "tokens_max": 2200,
+   "tokens_mean": 1245,
+   "n_states": 50,
+   "batch": 1,
+   "ms_per_call": 5.174698948394507,
+   "ms_per_sample": 5.174698948394507,
+   "samples_per_s": 193.2479570256465
+  },
+  {
+   "tokens_max": 2200,
+   "tokens_mean": 1245,
+   "n_states": 50,
+   "batch": 4,
+   "ms_per_call": 25.917623075656593,
+   "ms_per_sample": 6.479405768914148,
+   "samples_per_s": 154.33514054601108
+  },
+  {
+   "tokens_max": 2200,
+   "tokens_mean": 1245,
+   "n_states": 50,
+   "batch": 16,
+   "ms_per_call": 103.49194152513519,
+   "ms_per_sample": 6.468246345320949,
+   "samples_per_s": 154.60140919391355
+  },
+  {
+   "tokens_max": 2200,
+   "tokens_mean": 1245,
+   "n_states": 50,
+   "batch": 64,
+   "ms_per_call": 481.3708070432767,
+   "ms_per_sample": 7.521418860051199,
+   "samples_per_s": 132.9536379513895
+  }
+ ],
+ "games": {
+  "raw_vs_raw": {
+   "games": 20,
+   "wall_s": 102.25854095304385,
+   "secs_per_game_median": 34.599999999999994,
+   "secs_per_game_max": 75.5,
+   "turns_median": 48.5,
+   "forwards_a_mean": 293.9,
+   "forwards_b_mean": 319.45,
+   "games_per_hour": 704.0976658669687,
+   "games_per_dollar": 2108.0768439130798
+  },
+  "mcts32_vs_raw": {
+   "games": 20,
+   "wall_s": 986.6229050960392,
+   "secs_per_game_median": 160.0,
+   "secs_per_game_max": 738.8,
+   "turns_median": 19.0,
+   "forwards_a_mean": 10658.45,
+   "forwards_b_mean": 225.15,
+   "games_per_hour": 72.97620968265623,
+   "games_per_dollar": 218.49164575645577
+  }
+ }
+}

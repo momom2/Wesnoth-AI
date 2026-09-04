@@ -6,14 +6,15 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
 
 ## NEXT ACTIONS (phase 1: engineering, in order)
 
-1. **Benchmark harness** (`tools/bench_pipeline.py`, plan 1.1): a
-   fixed set of 200 mid-game states and 20 game seeds; ms per forward
-   by batch size and token count; leaf evaluations per second under
-   the actor pool; seconds per raw game and per searched game.
-   Record the baseline row in `docs/box_specs.md` before changing
-   anything. Baseline to beat: 3.7 ms per forward single stream,
-   300-370 leaf evaluations per second, 12 s per raw game, 146 s per
-   Gumbel-MCTS-32 game on a 4090 box.
+1. **Benchmark harness** (plan 1.1): DONE 2026-09-04, baseline in
+   `docs/box_specs.md` and `training/metrics/bench_pipeline/`. Per
+   decision: 12.4 ms of Python (enumerate priors 6.9, masks 2.2 on
+   the Python path, encoding 2.5, sim step 0.7) against 5.2 ms per
+   forward; batched forwards plateau at ~600 samples/s per process
+   from batch 16 (CPU-side ceiling). Raw game 35 s, searched game
+   160 s at 10 jobs, one process per game. Open: run it on a second
+   box shape with the Rust wheel built (`scripts/bench_box.sh` now
+   builds it) to pin the reproducibility band.
 2. **Rust simulator core** (plan 1.2; `docs/rust_port_plan.md`
    phases 2b-4): raw encoding, combat and step, Rust-owned GameState
    with a cheap fork. Certification: byte-identical encodings,
@@ -53,17 +54,9 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
 - Re-baseline the Elo catalog (`training/metrics/elo_catalog.json`):
   every edge is `mcts:32`; the board needs `raw:t0` edges.
 - `raw:t0` vs `raw:t0` self-play: decisive rate, turns, decisions per
-  game (never played; needed for every play-out cost model).
-
-## Uncommitted work (2026-09-04)
-
-`tools/raw_player.py`, the `--raw-temperature-a/-b` flags in
-`tools/elo_eval_game.py` / `tools/run_elo_batch.py` /
-`tools/eval_procedure.py`, `tests/test_raw_player.py`,
-`scripts/raw_argmax_control.sh`, `eval_games/raw_argmax_control/`,
-`docs/raw_argmax_control_20260904.md`,
-`docs/selfplay_redesign_20260904.md`, `docs/plan_20260904.md`, the
-`docs/archive/` move, and this file.
+  game. The benchmark's 20 such games ran 48 turns median (outcomes
+  not recorded); deterministic self-play may stall, and every
+  play-out cost model depends on this number.
 
 ## Ops notes that are still true
 
