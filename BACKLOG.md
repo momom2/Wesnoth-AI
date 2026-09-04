@@ -80,6 +80,12 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
      -50% CPU), length-bucketed coalescing (-8-10% at 16, -30% at 64);
      CUDA graphs never unless CPU is the limit again. All of it only
      pays once the server is fed.
+   - SHIPPED 2026-09-05 (GPU design option 3): `batched_priors`
+     stages all masks in one pinned copy, compacts on the device in
+     the reference order, one sync per batch, and the reply carries
+     value/cliffness/aux in the same transfer; serve threads log GPU
+     ms per leaf. Bit-identical priors on harvested leaves; CUDA tests
+     and the pool measurement are queued on the box.
    - THE ACTOR IS THE CEILING: the actor's cycle per 16-leaf request
      is ~0.95 s of which the server's response is ~0.1 s, i.e. ~50 ms
      of actor wall per leaf against ~5 ms of benchmarked components
