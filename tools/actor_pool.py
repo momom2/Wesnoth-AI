@@ -111,7 +111,13 @@ class _IPCInferenceClient:
         from tools.inference_seam import output_from_wire
         rid = self._next_id
         self._next_id += 1
-        self._req.put((self._aid, rid, list(raws)))
+        payload = list(raws)
+        if isinstance(payload[0], tuple):
+            # Priors protocol: one buffer per request instead of ~40
+            # pickled numpy objects per leaf (wesnoth_ai/leaf_wire.py).
+            from wesnoth_ai.leaf_wire import pack_request
+            payload = pack_request(payload)
+        self._req.put((self._aid, rid, payload))
         while True:
             r_rid, wires = self._resp.get()
             if r_rid == rid:
@@ -728,6 +734,7 @@ class ActorPool:
         accumulated locally (no locks on the hot path) and appended
         to `stats_out` on exit."""
         from tools.inference_seam import output_to_wire
+        from wesnoth_ai.leaf_wire import PackedRequest, unpack_request
         st = {"wait": 0.0, "infer": 0.0, "wire": 0.0, "put": 0.0,
               "leaves": 0, "batches": 0, "tokens": 0, "padded": 0}
         while not stop_ev.is_set():
@@ -747,7 +754,12 @@ class ActorPool:
                 batch.append(it)
                 n_leaves += len(it[2])
             t1 = time.monotonic()
-            flat = [r for (_a, _r, raws) in batch for r in raws]
+            flat = []
+            for (_a, _r, raws) in batch:
+                if isinstance(raws, PackedRequest):
+                    flat.extend(unpack_request(raws))
+                else:
+                    flat.extend(raws)
             try:
                 outs = self._server.infer_batch(flat)
                 t2 = time.monotonic()
@@ -779,8 +791,8 @@ class ActorPool:
             # what the batch actually costs after padding to its
             # longest leaf (attention is quadratic in that length).
             # Items are RawEncoded or (RawEncoded, PackedMasks) pairs.
-            lens = [len(r[0].hex_xs) + len(r[0].unit_ids) if isinstance(r, tuple)
-                    else len(r.hex_xs) + len(r.unit_ids) for r in flat]
+            lens = [len(r[0].hex_xs) + len(r[0].unit_xs) if isinstance(r, tuple)
+                    else len(r.hex_xs) + len(r.unit_xs) for r in flat]
             st["tokens"] += sum(lens)
             st["padded"] += len(lens) * max(lens) if lens else 0
         stats_out.append(st)
