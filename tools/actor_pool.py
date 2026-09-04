@@ -703,7 +703,7 @@ class ActorPool:
                 out[k] = (sum(vals) / len(vals)) if vals else None
             self.last_distill_stats = out
         agg = {k: sum(s[k] for s in serve_stats)
-               for k in ("wait", "infer", "wire", "put",
+               for k in ("wait", "infer", "wire", "put", "gpu_ms",
                          "leaves", "batches", "tokens", "padded")} if serve_stats else {}
         served = int(agg.get("leaves", 0))
         elapsed = max(1e-9, time.monotonic() - t_start)
@@ -712,7 +712,8 @@ class ActorPool:
                 f"iter {iter_idx}: serve stages ({self._serve_threads} "
                 f"threads): wait={agg['wait']:.1f}s "
                 f"infer={agg['infer']:.1f}s wire={agg['wire']:.1f}s "
-                f"put={agg['put']:.1f}s leaves/batch="
+                f"put={agg['put']:.1f}s gpu={agg['gpu_ms'] / 1000.0:.1f}s "
+                f"({agg['gpu_ms'] / max(served, 1):.2f} ms/leaf) leaves/batch="
                 f"{agg['leaves'] / agg['batches']:.1f} "
                 f"throughput={served / elapsed:.0f} leaves/s")
         log.info(f"iter {iter_idx}: pool served {served} forwards, "
@@ -744,7 +745,7 @@ class ActorPool:
         to `stats_out` on exit."""
         from tools.inference_seam import output_to_wire
         from wesnoth_ai.leaf_wire import PackedRequest, unpack_request
-        st = {"wait": 0.0, "infer": 0.0, "wire": 0.0, "put": 0.0,
+        st = {"wait": 0.0, "infer": 0.0, "wire": 0.0, "put": 0.0, "gpu_ms": 0.0,
               "leaves": 0, "batches": 0, "tokens": 0, "padded": 0}
         while not stop_ev.is_set():
             t0 = time.monotonic()
@@ -770,7 +771,7 @@ class ActorPool:
                 else:
                     flat.extend(raws)
             try:
-                outs = self._server.infer_batch(flat)
+                outs = self._server.infer_batch(flat, stats=st)
                 t2 = time.monotonic()
                 wires = [output_to_wire(o) for o in outs]
             except Exception:                       # noqa: BLE001

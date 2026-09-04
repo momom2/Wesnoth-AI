@@ -222,10 +222,13 @@ class InferenceServer:
             out = self._model(enc)
         return move_model_output(out, self._out_dev)
 
-    def infer_batch(self, raws) -> List[ModelOutput]:
+    def infer_batch(self, raws, stats: Optional[Dict[str, float]] = None) -> List[ModelOutput]:
         """`raws`: RawEncoded items, or (RawEncoded, PackedMasks) pairs
         for server-side priors (wesnoth_ai/server_priors.py). Mixed
-        lists are refused: one batch, one protocol."""
+        lists are refused: one batch, one protocol. `stats`, when
+        given on a CUDA device, accumulates the priors protocol's
+        device-stream milliseconds (encode, forward, priors) under
+        "gpu_ms"."""
         if not raws:
             return []
         paired = [isinstance(r, tuple) for r in raws]
@@ -233,7 +236,7 @@ class InferenceServer:
             if not all(paired):
                 raise ValueError("infer_batch: mixed raw and (raw, masks) items")
             return self._infer_with_priors([r for r, _ in raws],
-                                           [m for _, m in raws])
+                                           [m for _, m in raws], stats)
         with torch.no_grad():
             encs = self._encoder.encode_from_raw_batch(
                 raws, device=self._device)
@@ -250,13 +253,26 @@ class InferenceServer:
                 return batched_outputs_to_cpu(outs)
         return [move_model_output(o, self._out_dev) for o in outs]
 
-    def _infer_with_priors(self, raws, packs) -> List[ModelOutput]:
+    def _infer_with_priors(self, raws, packs, stats=None) -> List[ModelOutput]:
         """Batched forward + masked softmaxes on the device; replies
         carry the compact legal actions, value and cliffness, with
-        placeholder logits (the actor never reads them)."""
-        from wesnoth_ai.server_priors import batched_priors
+        placeholder logits (the actor never reads them). The head
+        outputs ride back in the priors' one device->host transfer.
+
+        On CUDA with `stats`, a pair of stream events brackets encode
+        + forward + priors: the elapsed milliseconds are the stream's
+        wall time between the two records, i.e. device work plus any
+        gap where the stream waited for the host to launch (and, with
+        several serve threads on one stream, the others' interleaved
+        work)."""
+        from wesnoth_ai.server_priors import start_priors
         model = self._model
         bf16 = self._use_bf16()
+        timing = stats is not None and self._device.type == "cuda"
+        if timing:
+            ev_start = torch.cuda.Event(enable_timing=True)
+            ev_end = torch.cuda.Event(enable_timing=True)
+            ev_start.record()
         with torch.no_grad():
             streams = self._encoder.encode_from_raw_padded(raws, device=self._device)
             if bf16:
@@ -264,13 +280,18 @@ class InferenceServer:
                     padded = model.forward_streams(*streams).float32()
             else:
                 padded = model.forward_streams(*streams)
-            compact = batched_priors(padded, packs)
-            small = {k: getattr(padded, k).cpu() for k in
-                     ("value", "value_logits", "cliffness")}
-            aux = padded.aux_score.cpu() if padded.aux_score is not None else None
-            ml = padded.moves_left.cpu() if padded.moves_left is not None else None
+            names = ["value", "value_logits", "cliffness"]
+            names += [n for n in ("aux_score", "moves_left") if getattr(padded, n) is not None]
+            pending = start_priors(padded, packs, [getattr(padded, n) for n in names])
+            if timing:
+                ev_end.record()
+            compact, host = pending.finish()
+        if timing:
+            stats["gpu_ms"] = stats.get("gpu_ms", 0.0) + ev_start.elapsed_time(ev_end)
+        small = {n: torch.from_numpy(a) for n, a in zip(names, host)}
+        aux = small.get("aux_score")
+        ml = small.get("moves_left")
         outs = []
-        cpu = torch.device("cpu")
         for b, (U, R, H) in enumerate(padded.sizes):
             A = U + R + 1
             outs.append(ModelOutput(
@@ -282,7 +303,7 @@ class InferenceServer:
                 aux_score=aux[b:b + 1] if aux is not None else None,
                 moves_left=ml[b:b + 1] if ml is not None else None,
                 legal_compact=compact[b]))
-        return [move_model_output(o, cpu) for o in outs]
+        return outs
 
 
 # ---------------------------------------------------------------------

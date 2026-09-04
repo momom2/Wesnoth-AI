@@ -12,12 +12,24 @@ that `enumerate_legal_actions_with_priors` produces from the raw
 outputs (same actions, same order, same priors; differential test in
 tests/test_server_priors.py).
 
+Device traffic per batch (docs/gpu_forward_design_20260904.md §6.2):
+every per-batch mask array is written into ONE pinned host buffer and
+copied with one non-blocking transfer; the bit masks are unpacked on
+the device; the legal entries are compacted on the device by a prefix
+sum over a flat layout that IS the reference order, into a buffer
+whose capacity is counted from the packed bits on the host (exact, so
+no readback is needed to size it); the results and the ride-along
+head outputs go back in ONE buffer with one wait at the end. Nothing
+in between synchronizes with the host (no `nonzero`, no boolean-mask
+indexing, no `.item()`), which tests/test_server_priors_cuda.py checks
+under `torch.cuda.set_sync_debug_mode("error")`.
+
 Kinds in the compact arrays: 0 attack, 1 move, 2 recruit, 3 end_turn.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -29,6 +41,12 @@ from wesnoth_ai.action_sampler import (
 from wesnoth_ai.model import MAX_ATTACKS, ActorKind, UnitActionType
 
 KIND_ATTACK, KIND_MOVE, KIND_RECRUIT, KIND_END_TURN = 0, 1, 2, 3
+# Actor-slot kinds in the staging buffer; 0 marks a padded slot.
+_SLOT_UNIT, _SLOT_RECRUIT, _SLOT_END = 1, 2, 3
+_POPCOUNT = np.array([bin(i).count("1") for i in range(256)], dtype=np.int64)
+_NP_DTYPE = {torch.float64: np.float64, torch.float32: np.float32,
+             torch.int64: np.int64, torch.int32: np.int32,
+             torch.int8: np.int8, torch.uint8: np.uint8}
 
 
 @dataclass(slots=True)
@@ -94,132 +112,266 @@ def pack_masks(encoded, game_state, decision_step: int = 0) -> PackedMasks:
         attack_bias=attack_bias.astype(np.float32) if np.any(attack_bias) else None)
 
 
-def _unpack_bits(packed: np.ndarray, H: int) -> np.ndarray:
-    if H == 0:
-        return np.zeros((packed.shape[0], 0), dtype=bool)
-    return np.unpackbits(packed, axis=1, count=H).astype(bool)
+# ---------------------------------------------------------------------
+# One flat buffer each way
+# ---------------------------------------------------------------------
+
+class _Layout:
+    """Byte layout of several typed arrays in one flat uint8 buffer.
+    Fields are placed in decreasing element size, so every offset is
+    a multiple of its field's element size (what `Tensor.view(dtype)`
+    requires) with no padding bytes."""
+    __slots__ = ("fields", "nbytes")
+
+    def __init__(self, fields: Sequence[Tuple[str, torch.dtype, Tuple[int, ...]]]):
+        self.fields: List[Tuple[str, torch.dtype, Tuple[int, ...], int, int]] = []
+        off = 0
+        for name, dt, shape in sorted(fields, key=lambda f: -f[1].itemsize):
+            n = int(np.prod(shape, dtype=np.int64)) * dt.itemsize
+            self.fields.append((name, dt, tuple(shape), off, n))
+            off += n
+        self.nbytes = off
+
+    def torch_views(self, buf: torch.Tensor) -> Dict[str, torch.Tensor]:
+        return {name: buf[off:off + n].view(dt).view(shape)
+                for name, dt, shape, off, n in self.fields}
+
+    def numpy_views(self, buf: np.ndarray) -> Dict[str, np.ndarray]:
+        return {name: buf[off:off + n].view(_NP_DTYPE[dt]).reshape(shape)
+                for name, dt, shape, off, n in self.fields}
+
+
+def _legal_capacity(p: PackedMasks, W: int) -> int:
+    """Upper bound on one leaf's legal entries, from its masks. The
+    device keeps an entry only where every factor's softmax is > 0,
+    and a masked factor is exactly 0, so the bits bound the count;
+    `_build_legality_masks` sets an actor/type bit only when the
+    matching target row is non-empty, so no factor row is all-masked
+    (an all-masked row would softmax to uniform > 0)."""
+    U, R = p.n_units, p.n_recruits
+    act = p.actor_mask != 0
+    tv = p.type_valid != 0
+    atk = _POPCOUNT[p.attack_valid].sum(axis=1)
+    mv = _POPCOUNT[p.move_valid].sum(axis=1)
+    uni = _POPCOUNT[p.union_valid].sum(axis=1)
+    n_att = np.minimum(p.n_attacks.astype(np.int64), W)
+    unit = act[:U]
+    n = int((unit * tv[:U, UnitActionType.ATTACK] * atk[:U] * n_att[:U]).sum())
+    n += int((unit * tv[:U, UnitActionType.MOVE] * mv[:U]).sum())
+    n += int((act[U:U + R] * uni[U:U + R]).sum())
+    n += int(act[U + R])
+    return n
+
+
+def _stage_masks(packs: List[PackedMasks], A_max: int, H_max: int, T: int, W: int,
+                 pin: bool) -> Tuple[_Layout, torch.Tensor, int]:
+    """Host side: every per-batch mask array written into one flat
+    (pinned) host buffer, plus the compaction capacity."""
+    B = len(packs)
+    HB = (H_max + 7) // 8
+    fields = [
+        ("actor_bias", torch.float32, (B, A_max)),
+        ("actor_mask", torch.uint8, (B, A_max)),
+        ("slot_kind", torch.uint8, (B, A_max)),
+        ("n_attacks", torch.int8, (B, A_max)),
+        ("type_valid", torch.uint8, (B, A_max, T)),
+        ("attack_bits", torch.uint8, (B, A_max, HB)),
+        ("move_bits", torch.uint8, (B, A_max, HB)),
+        ("union_bits", torch.uint8, (B, A_max, HB)),
+    ]
+    if any(p.type_bias is not None for p in packs):
+        fields.append(("type_bias", torch.float32, (B, A_max, T)))
+    if any(p.attack_bias is not None for p in packs):
+        fields.append(("attack_bias", torch.float32, (B, A_max, H_max)))
+    layout = _Layout(fields)
+    host = torch.empty(layout.nbytes, dtype=torch.uint8, pin_memory=pin)
+    host.zero_()
+    hv = layout.numpy_views(host.numpy())
+    capacity = 0
+    for b, p in enumerate(packs):
+        U, R, H = p.n_units, p.n_recruits, p.n_hexes
+        A = U + R + 1
+        hb = p.attack_valid.shape[1]
+        hv["actor_mask"][b, :A] = p.actor_mask
+        hv["slot_kind"][b, :U] = _SLOT_UNIT
+        hv["slot_kind"][b, U:U + R] = _SLOT_RECRUIT
+        hv["slot_kind"][b, U + R] = _SLOT_END
+        hv["actor_bias"][b, U + R] = p.end_turn_bias
+        hv["n_attacks"][b, :A] = p.n_attacks
+        hv["type_valid"][b, :A] = p.type_valid
+        hv["attack_bits"][b, :A, :hb] = p.attack_valid
+        hv["move_bits"][b, :A, :hb] = p.move_valid
+        hv["union_bits"][b, :A, :hb] = p.union_valid
+        if p.type_bias is not None:
+            hv["type_bias"][b, :A] = p.type_bias
+        if p.attack_bias is not None:
+            hv["attack_bias"][b, :A, :H] = p.attack_bias
+        capacity += _legal_capacity(p, W)
+    return layout, host, capacity
+
+
+def _as_bytes(t: torch.Tensor) -> torch.Tensor:
+    """Flat uint8 view of a tensor's bytes; a copy when the flattened
+    elements are not unit-stride (torch counts a size-1 dimension as
+    contiguous at any stride, `view(dtype)` needs stride 1)."""
+    x = t.reshape(-1)
+    if x.numel() and x.stride(0) != 1:
+        x = x.clone(memory_format=torch.contiguous_format)
+    return x.view(torch.uint8)
+
+
+def _unpack_bits(packed: torch.Tensor, H: int) -> torch.Tensor:
+    """[..., ceil(H/8)] uint8 in numpy packbits order (first bit in
+    the high position) -> [..., H] bool, on the packed tensor's device."""
+    shifts = 7 - torch.arange(8, dtype=torch.uint8, device=packed.device)
+    bits = (packed.unsqueeze(-1) >> shifts) & 1
+    return bits.reshape(*packed.shape[:-1], -1)[..., :H] != 0
+
+
+@dataclass(slots=True)
+class PendingPriors:
+    """A batch whose device work and device->host copy are queued but
+    not yet waited for; `finish` waits once and unpacks the buffer."""
+    host: torch.Tensor          # uint8, pinned on CUDA
+    layout: _Layout
+    n_samples: int
+    capacity: int
+    n_extras: int
+    device: torch.device
+
+    def finish(self) -> Tuple[List[CompactActions], List[np.ndarray]]:
+        """The compact actions per sample and the ride-along tensors
+        as host arrays (views into the batch's buffer, in order)."""
+        if self.device.type == "cuda":
+            torch.cuda.current_stream(self.device).synchronize()
+        hv = self.layout.numpy_views(self.host.numpy())
+        ends = hv["ends"].astype(np.int64)
+        total = int(ends[-1]) if self.n_samples else 0
+        if total > self.capacity:
+            raise RuntimeError(
+                f"batched_priors: {total} legal entries exceed the mask-derived "
+                f"capacity {self.capacity}; a legality mask admits fewer entries "
+                f"than its factors")
+        compact: List[CompactActions] = []
+        lo = 0
+        for b in range(self.n_samples):
+            hi = int(ends[b])
+            compact.append(CompactActions(
+                actor=hv["actor"][lo:hi], kind=hv["kind"][lo:hi], target=hv["target"][lo:hi],
+                weapon=hv["weapon"][lo:hi], prior=hv["prior"][lo:hi]))
+            lo = hi
+        return compact, [hv[f"extra{i}"] for i in range(self.n_extras)]
+
+
+def start_priors(padded, packs: List[PackedMasks],
+                 extras: Sequence[torch.Tensor] = ()) -> PendingPriors:
+    """Server side, first half: stage the masks (one host->device
+    copy), run the masked softmaxes and the compaction on the device,
+    queue the one device->host copy of the results together with
+    `extras` (device tensors the caller wants back in the same
+    transfer, e.g. the value head). Nothing here waits for the
+    device; `PendingPriors.finish` does, once.
+
+    Priors are float64 products of the float32 factors in the
+    reference's order of multiplication; entries per sample come out
+    in the reference order (actor-major; a unit actor's attacks
+    (hex-major, weapon inner) before its moves; recruit actors;
+    end_turn) because the flat layout the prefix sum runs over is
+    that order. `padded` is a model.PaddedOutput (device tensors)."""
+    B = len(packs)
+    device = padded.actor_logits.device
+    pin = device.type == "cuda"
+    A_max, T = padded.type_logits.shape[1], padded.type_logits.shape[2]
+    H_max, W = padded.target_logits.shape[2], padded.weapon_logits.shape[2]
+    layout, host, capacity = _stage_masks(packs, A_max, H_max, T, W, pin)
+    with torch.no_grad():
+        v = layout.torch_views(host.to(device, non_blocking=True))
+        actor_ok = v["actor_mask"] != 0
+        slot = v["slot_kind"]
+        al = (padded.actor_logits + v["actor_bias"]).masked_fill(~actor_ok, _NEG_INF)
+        p_actor = F.softmax(al, dim=-1)                                       # [B, A]
+        live = actor_ok & (p_actor > 0)
+        tl = padded.type_logits
+        if "type_bias" in v:
+            tl = tl + v["type_bias"]
+        p_type = F.softmax(tl.masked_fill(v["type_valid"] == 0, _NEG_INF), dim=-1)  # [B, A, T]
+        n_att = v["n_attacks"]
+        w_ok = torch.arange(W, device=device).view(1, 1, W) < n_att.unsqueeze(-1)
+        p_wpn = F.softmax(padded.weapon_logits.masked_fill(~w_ok, _NEG_INF), dim=-1)
+        tg = padded.target_logits
+        tga = tg + v["attack_bias"] if "attack_bias" in v else tg
+        p_atk = F.softmax(tga.masked_fill(~_unpack_bits(v["attack_bits"], H_max), _NEG_INF), dim=-1)
+        p_mv = F.softmax(tg.masked_fill(~_unpack_bits(v["move_bits"], H_max), _NEG_INF), dim=-1)
+        p_rec = F.softmax(tg.masked_fill(~_unpack_bits(v["union_bits"], H_max), _NEG_INF), dim=-1)
+        # Legal entries by FACTOR masks (a float32 product may underflow
+        # where the reference's float64 product does not).
+        unit_live = live & (slot == _SLOT_UNIT)
+        atk_ok = unit_live & (p_type[:, :, UnitActionType.ATTACK] > 0) & (n_att > 0)
+        mv_ok = unit_live & (p_type[:, :, UnitActionType.MOVE] > 0)
+        m_att = (atk_ok[:, :, None, None] & (p_atk > 0)[:, :, :, None]
+                 & (p_wpn > 0)[:, :, None, :])                                # [B, A, H, W]
+        m_mv = mv_ok[:, :, None] & (p_mv > 0)
+        m_rec = (live & (slot == _SLOT_RECRUIT))[:, :, None] & (p_rec > 0)
+        m_end = live & (slot == _SLOT_END)
+        # Flat layout per (sample, actor): attacks [H, W], moves [H],
+        # recruits [H], end_turn [1] -- the reference order -- so the
+        # prefix sum ranks the legal entries directly.
+        HW = H_max * W
+        per_slot = HW + 2 * H_max + 1
+        flat = torch.cat([m_att.reshape(B, A_max, HW), m_mv, m_rec, m_end[:, :, None]],
+                         dim=2).reshape(-1)
+        cnt = flat.cumsum(0, dtype=torch.int32)
+        ends = cnt.view(B, A_max * per_slot)[:, -1]                           # [B] inclusive
+        ks = torch.arange(1, capacity + 1, dtype=torch.int32, device=device)
+        # Position of the k-th legal entry; slots past the count land
+        # on the last position, a valid index that `finish` never reads.
+        pos = torch.searchsorted(cnt, ks).clamp_(max=cnt.numel() - 1)
+        ba = pos // per_slot
+        rem = pos - ba * per_slot
+        bb = ba // A_max
+        aa = ba - bb * A_max
+        is_atk = rem < HW
+        is_mv = (rem >= HW) & (rem < HW + H_max)
+        is_rec = (rem >= HW + H_max) & (rem < HW + 2 * H_max)
+        Wd = max(W, 1)
+        kind = torch.where(is_atk, KIND_ATTACK, torch.where(
+            is_mv, KIND_MOVE, torch.where(is_rec, KIND_RECRUIT, KIND_END_TURN)))
+        hh = torch.where(is_atk, rem // Wd, torch.where(
+            is_mv, rem - HW, torch.where(is_rec, rem - HW - H_max, -1)))
+        ww = torch.where(is_atk, rem - (rem // Wd) * Wd, -1)
+        # Factors gathered per entry; a factor that does not apply is
+        # 1.0, so one product expression serves every kind exactly.
+        f_actor = p_actor[bb, aa]
+        tsel = torch.where(is_atk, UnitActionType.ATTACK, UnitActionType.MOVE)
+        f_type = torch.where(is_atk | is_mv, p_type[bb, aa, tsel], 1.0)
+        if H_max:
+            hi = hh.clamp_min(0)
+            f_target = torch.where(is_atk, p_atk[bb, aa, hi], torch.where(
+                is_mv, p_mv[bb, aa, hi], torch.where(is_rec, p_rec[bb, aa, hi], 1.0)))
+        else:
+            f_target = torch.ones_like(f_actor)
+        f_weapon = (torch.where(is_atk, p_wpn[bb, aa, ww.clamp_min(0)], 1.0) if W
+                    else torch.ones_like(f_actor))
+        prior = ((f_actor.double() * f_type.double()) * f_target.double()) * f_weapon.double()
+        outs: Dict[str, torch.Tensor] = {
+            "ends": ends, "actor": aa.to(torch.int32), "kind": kind.to(torch.int8),
+            "target": hh.to(torch.int32), "weapon": ww.to(torch.int8), "prior": prior}
+        for i, t in enumerate(extras):
+            outs[f"extra{i}"] = t
+        out_layout = _Layout([(n, t.dtype, tuple(t.shape)) for n, t in outs.items()])
+        flat_out = torch.cat([_as_bytes(outs[f[0]]) for f in out_layout.fields])
+        host_out = torch.empty(out_layout.nbytes, dtype=torch.uint8, pin_memory=pin)
+        host_out.copy_(flat_out, non_blocking=True)
+    return PendingPriors(host=host_out, layout=out_layout, n_samples=B, capacity=capacity,
+                         n_extras=len(extras), device=device)
 
 
 def batched_priors(padded, packs: List[PackedMasks]) -> List[CompactActions]:
-    """Server side: masked softmaxes of every head for the whole
-    batch on the device; the legal entries are found with `nonzero`
-    on the device and their factors gathered there, so the transfer
-    is a few small arrays per batch instead of the full [B, A, H]
-    tables. Priors are float64 products of the float32 factors, as
-    in the reference; entries are ordered per sample as the reference
-    emits them (actor-major; a unit actor's attacks (hex-major,
-    weapon inner) before its moves; recruit actors; end_turn).
-    `padded` is a model.PaddedOutput (device tensors)."""
-    B = len(packs)
-    device = padded.actor_logits.device
-    A_max = padded.actor_logits.shape[1]
-    H_max = padded.target_logits.shape[2]
-    T = padded.type_logits.shape[2]
-    W = padded.weapon_logits.shape[2]
-    actor_m = np.zeros((B, A_max), dtype=bool)
-    type_m = np.zeros((B, A_max, T), dtype=bool)
-    atk_m = np.zeros((B, A_max, H_max), dtype=bool)
-    mv_m = np.zeros((B, A_max, H_max), dtype=bool)
-    uni_m = np.zeros((B, A_max, H_max), dtype=bool)
-    n_att = np.zeros((B, A_max), dtype=np.int64)
-    n_units = np.zeros(B, dtype=np.int64)
-    n_rec = np.zeros(B, dtype=np.int64)
-    et_bias = np.zeros(B, dtype=np.float32)
-    any_tbias = any(p.type_bias is not None for p in packs)
-    any_abias = any(p.attack_bias is not None for p in packs)
-    t_bias = np.zeros((B, A_max, T), dtype=np.float32) if any_tbias else None
-    a_bias = np.zeros((B, A_max, H_max), dtype=np.float32) if any_abias else None
-    for b, p in enumerate(packs):
-        A, H = p.n_units + p.n_recruits + 1, p.n_hexes
-        actor_m[b, :A] = p.actor_mask != 0
-        type_m[b, :A] = p.type_valid != 0
-        atk_m[b, :A, :H] = _unpack_bits(p.attack_valid, H)
-        mv_m[b, :A, :H] = _unpack_bits(p.move_valid, H)
-        uni_m[b, :A, :H] = _unpack_bits(p.union_valid, H)
-        n_att[b, :A] = p.n_attacks
-        n_units[b] = p.n_units
-        n_rec[b] = p.n_recruits
-        et_bias[b] = p.end_turn_bias
-        if p.type_bias is not None:
-            t_bias[b, :A] = p.type_bias
-        if p.attack_bias is not None:
-            a_bias[b, :A, :H] = p.attack_bias
-
-    def dev(a):
-        return torch.from_numpy(a).to(device)
-
-    with torch.no_grad():
-        n_units_t = dev(n_units)
-        n_rec_t = dev(n_rec)
-        slotA = torch.arange(A_max, device=device).view(1, A_max)
-        is_unit = slotA < n_units_t.view(B, 1)
-        is_rec = (slotA >= n_units_t.view(B, 1)) & (slotA < (n_units_t + n_rec_t).view(B, 1))
-        is_end = slotA == (n_units_t + n_rec_t).view(B, 1)
-        actor_mt = dev(actor_m)
-        al = padded.actor_logits.clone()
-        al[is_end] += dev(et_bias)
-        p_actor = F.softmax(al.masked_fill(~actor_mt, _NEG_INF), dim=-1)      # [B, A]
-        live = actor_mt & (p_actor > 0)
-        tl = padded.type_logits
-        if t_bias is not None:
-            tl = tl + dev(t_bias)
-        p_type = F.softmax(tl.masked_fill(~dev(type_m), _NEG_INF), dim=-1)    # [B, A, T]
-        n_att_t = dev(n_att)
-        w_m = torch.arange(W, device=device).view(1, 1, W) < n_att_t.unsqueeze(-1)
-        p_wpn = F.softmax(padded.weapon_logits.masked_fill(~w_m, _NEG_INF), dim=-1)
-        tg = padded.target_logits
-        tga = tg + dev(a_bias) if a_bias is not None else tg
-        p_atk = F.softmax(tga.masked_fill(~dev(atk_m), _NEG_INF), dim=-1)     # [B, A, H]
-        p_mv = F.softmax(tg.masked_fill(~dev(mv_m), _NEG_INF), dim=-1)
-        p_rec = F.softmax(tg.masked_fill(~dev(uni_m), _NEG_INF), dim=-1)
-        # Legal entries by FACTOR masks (a float32 product may underflow
-        # where the reference's float64 product does not).
-        unit_live = live & is_unit
-        atk_ok = unit_live & (p_type[:, :, UnitActionType.ATTACK] > 0) & (n_att_t > 0)
-        mv_ok = unit_live & (p_type[:, :, UnitActionType.MOVE] > 0)
-        m_att = atk_ok.unsqueeze(-1).unsqueeze(-1) & (p_atk > 0).unsqueeze(-1) & (p_wpn > 0).unsqueeze(2)
-        m_mv = mv_ok.unsqueeze(-1) & (p_mv > 0)
-        m_rec = (live & is_rec).unsqueeze(-1) & (p_rec > 0)
-        m_end = live & is_end
-        ia = torch.nonzero(m_att)          # [Na, 4] (b, a, h, w)
-        im = torch.nonzero(m_mv)           # [Nm, 3] (b, a, h)
-        ir = torch.nonzero(m_rec)          # [Nr, 3]
-        ie = torch.nonzero(m_end)          # [Ne, 2]
-        fa = torch.stack([p_actor[ia[:, 0], ia[:, 1]],
-                          p_type[ia[:, 0], ia[:, 1], UnitActionType.ATTACK],
-                          p_atk[ia[:, 0], ia[:, 1], ia[:, 2]],
-                          p_wpn[ia[:, 0], ia[:, 1], ia[:, 3]]], dim=1) if ia.numel() else torch.zeros(0, 4, device=device)
-        fm = torch.stack([p_actor[im[:, 0], im[:, 1]],
-                          p_type[im[:, 0], im[:, 1], UnitActionType.MOVE],
-                          p_mv[im[:, 0], im[:, 1], im[:, 2]]], dim=1) if im.numel() else torch.zeros(0, 3, device=device)
-        fr = torch.stack([p_actor[ir[:, 0], ir[:, 1]],
-                          p_rec[ir[:, 0], ir[:, 1], ir[:, 2]]], dim=1) if ir.numel() else torch.zeros(0, 2, device=device)
-        fe = p_actor[ie[:, 0], ie[:, 1]] if ie.numel() else torch.zeros(0, device=device)
-        host = [t.cpu().numpy() for t in (ia, im, ir, ie, fa, fm, fr, fe)]
-    ia, im, ir, ie, fa, fm, fr, fe = host
-    fa, fm, fr, fe = (x.astype(np.float64) for x in (fa, fm, fr, fe))
-
-    # One table of (b, a, kind, h, w, prior), sorted per sample in the
-    # reference order.
-    b_all = np.concatenate([ia[:, 0], im[:, 0], ir[:, 0], ie[:, 0]]).astype(np.int64)
-    a_all = np.concatenate([ia[:, 1], im[:, 1], ir[:, 1], ie[:, 1]]).astype(np.int32)
-    k_all = np.concatenate([np.full(len(ia), KIND_ATTACK), np.full(len(im), KIND_MOVE),
-                            np.full(len(ir), KIND_RECRUIT), np.full(len(ie), KIND_END_TURN)]).astype(np.int8)
-    h_all = np.concatenate([ia[:, 2], im[:, 2], ir[:, 2], np.full(len(ie), -1)]).astype(np.int32)
-    w_all = np.concatenate([ia[:, 3], np.full(len(im), -1), np.full(len(ir), -1),
-                            np.full(len(ie), -1)]).astype(np.int8)
-    pr_all = np.concatenate([fa.prod(axis=1), fm.prod(axis=1), fr.prod(axis=1), fe])
-    order = np.lexsort((w_all, h_all, k_all, a_all, b_all))
-    b_all, a_all, k_all, h_all, w_all, pr_all = (x[order] for x in
-                                                 (b_all, a_all, k_all, h_all, w_all, pr_all))
-    bounds = np.searchsorted(b_all, np.arange(B + 1))
-    out: List[CompactActions] = []
-    for b in range(B):
-        lo, hi = bounds[b], bounds[b + 1]
-        out.append(CompactActions(actor=a_all[lo:hi].copy(), kind=k_all[lo:hi].copy(),
-                                  target=h_all[lo:hi].copy(), weapon=w_all[lo:hi].copy(),
-                                  prior=pr_all[lo:hi].copy()))
-    return out
+    """Server side: the compact legal actions of a batch (see
+    `start_priors`), waiting for the device here."""
+    if not packs:
+        return []
+    return start_priors(padded, packs).finish()[0]
 
 
 def unpack_compact(compact: CompactActions, encoded) -> List[LegalActionPrior]:
@@ -255,5 +407,5 @@ def unpack_compact(compact: CompactActions, encoded) -> List[LegalActionPrior]:
     return out
 
 
-__all__ = ["PackedMasks", "CompactActions", "pack_masks", "batched_priors",
-           "unpack_compact", "ActorKind"]
+__all__ = ["PackedMasks", "CompactActions", "PendingPriors", "pack_masks",
+           "start_priors", "batched_priors", "unpack_compact", "ActorKind"]
