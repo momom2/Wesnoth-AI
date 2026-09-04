@@ -127,6 +127,47 @@ class _CountingModel:
         return getattr(self._inner, name)
 
 
+# Worker mode (tools/eval_workers.py): loaded policies are kept
+# across games so a worker pays checkpoint load, CUDA init and
+# compile once. Keyed by everything that shapes the loaded object.
+_WORKER_MODE = False
+_POLICY_CACHE: dict = {}
+
+
+def _policy_for(spec, device, label, infer_bf16, infer_compile):
+    key = (spec, str(device), bool(infer_bf16), bool(infer_compile))
+    if _WORKER_MODE and key in _POLICY_CACHE:
+        return _POLICY_CACHE[key]
+    policy = _load_policy(Path(spec) if spec else None, device,
+                          label=label, infer_bf16=infer_bf16,
+                          infer_compile=infer_compile)
+    if _WORKER_MODE:
+        _POLICY_CACHE[key] = policy
+    return policy
+
+
+def worker_loop() -> int:
+    """`elo_eval_game.py --worker`: one JSON argv list per stdin line,
+    `__DONE__ <rc>` per game on stdout (see tools/eval_workers.py)."""
+    import json as _json
+    import traceback as _tb
+    global _WORKER_MODE
+    _WORKER_MODE = True
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rc = main(_json.loads(line))
+        except SystemExit as e:
+            rc = e.code if isinstance(e.code, int) else 1
+        except Exception:                            # noqa: BLE001
+            _tb.print_exc(file=sys.stderr)
+            rc = 1
+        print(f"__DONE__ {int(rc or 0)}", flush=True)
+    return 0
+
+
 def _build_player(spec: str, label: str, sims: int, device,
                   turn_search: bool = True,
                   plan_tournament: bool = False, pt_cfg=None,
@@ -147,10 +188,11 @@ def _build_player(spec: str, label: str, sims: int, device,
     if spec == "dummy":
         from wesnoth_ai.dummy_policy import DummyPolicy
         return _ScriptedAdapter(DummyPolicy()), None
-    policy = _load_policy(Path(spec) if spec else None, device,
-                          label=label, infer_bf16=infer_bf16,
-                          infer_compile=infer_compile)
-    counter = _CountingModel(policy._inference_model)
+    policy = _policy_for(spec, device, label, infer_bf16, infer_compile)
+    inner = policy._inference_model
+    if isinstance(inner, _CountingModel):      # cached policy: fresh counter
+        inner = inner._inner
+    counter = _CountingModel(inner)
     policy._inference_model = counter
     if sims > 0:
         from tools.mcts import MCTSConfig
@@ -563,4 +605,6 @@ def main(argv) -> int:
 
 
 if __name__ == "__main__":
+    if "--worker" in sys.argv[1:]:
+        sys.exit(worker_loop())
     sys.exit(main(sys.argv))

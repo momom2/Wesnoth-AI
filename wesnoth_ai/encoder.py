@@ -24,6 +24,8 @@ import threading
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
+import weakref
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -1026,10 +1028,16 @@ def encode_raw(
     # it rather than re-sorting), so slot indices stay deterministic --
     # load-bearing, because the trainer replays target_idx against
     # re-encoded states.
-    hexes = (relevant_hexes_in_slot_order(game_state) if relevant_set
-             else hexes_in_slot_order(game_state))   # slot contract
-
-    hex_positions = [h.position for h in hexes]
+    if relevant_set:
+        hexes = relevant_hexes_in_slot_order(game_state)   # slot contract
+        hex_positions = [h.position for h in hexes]
+        static = _build_static_hex_arrays(hexes) if hexes else None
+    else:
+        # Full board: the slot ordering and the static arrays are
+        # cached per hex set (see _static_hex_arrays).
+        static = _static_hex_arrays(game_state)
+        hexes = static.hexes
+        hex_positions = static.positions
     H = len(hex_positions)
 
     # Per-turn rejection set (hexes a previous recruit attempt
@@ -1067,88 +1075,49 @@ def encode_raw(
         hex_modifier_flags_np = np.empty((0, NUM_HEX_MODIFIERS), dtype=np.float32)
         hex_dynamic_flags_np = np.empty((0, NUM_HEX_DYNAMIC_FLAGS), dtype=np.float32)
     else:
-        # Inline the clamp + terrain/modifier extraction in tight loops
-        # to skip per-call Python-frame overhead. _clamp_pos/_first_terrain_id
-        # are still defined as standalone helpers for clarity / unit tests;
-        # we just don't call them per-hex.
+        # Static per-map arrays come from a cache keyed on the hex
+        # set's identity (2026-09-04: the per-hex Python loop was
+        # ~1 ms of the 1.35 ms encode; terrain never changes within
+        # a self-play game -- morph events REPLACE gs.map.hexes, so
+        # the key changes with them). Only the dynamic bits (village
+        # ownership as the mover sees it, recruit rejections) are
+        # computed per encode, over the village hexes alone.
+        hex_xs_np = static.xs
+        hex_ys_np = static.ys
+        hex_terrain_ids_np = static.terrain_ids
+        hex_modifier_flags_np = static.modifier_flags.copy()
+        hex_dynamic_flags_np = np.zeros((H, NUM_HEX_DYNAMIC_FLAGS), dtype=np.float32)
         village_owner_map = (getattr(
             game_state.global_info, "_village_owner", None) or {})
-        hex_xs_np          = np.empty(H, dtype=np.int64)
-        hex_ys_np          = np.empty(H, dtype=np.int64)
-        hex_terrain_ids_np = np.empty(H, dtype=np.int64)
-        hex_modifier_flags_np = np.zeros((H, NUM_HEX_MODIFIERS), dtype=np.float32)
-        hex_dynamic_flags_np = np.zeros((H, NUM_HEX_DYNAMIC_FLAGS), dtype=np.float32)
-        terrain_village = Terrain.VILLAGE
-        terrain_castle  = Terrain.CASTLE
-        terrain_flat_v  = Terrain.FLAT.value
-        mod_village = TerrainModifiers.VILLAGE
-        mod_keep    = TerrainModifiers.KEEP
-        mod_castle  = TerrainModifiers.CASTLE
-        for i, h in enumerate(hexes):
-            p = h.position
-            key = (p.x, p.y)
-            hex_xs_np[i] = 0 if p.x < 0 else (MAP_LIMIT if p.x > MAP_LIMIT else p.x)
-            hex_ys_np[i] = 0 if p.y < 0 else (MAP_LIMIT if p.y > MAP_LIMIT else p.y)
-            tt = h.terrain_types
-            if not tt:
-                hex_terrain_ids_np[i] = terrain_flat_v
-            elif terrain_village in tt:
-                hex_terrain_ids_np[i] = terrain_village.value
-            elif terrain_castle in tt:
-                hex_terrain_ids_np[i] = terrain_castle.value
-            else:
-                hex_terrain_ids_np[i] = next(iter(tt)).value
-            mods = h.modifiers
-            # Owned-village bit. Source of truth is the per-fork
-            # `_village_owner` map (state_key hashes it; forks copy
-            # it); the sim no longer stamps TerrainModifiers.VILLAGE
-            # on capture, because the Hex objects are ALIASED across
-            # MCTS forks and the stamp leaked hypothetical in-search
-            # captures into the real game's encoding (2026-07-29).
-            # The modifier is still honored for the live-Wesnoth
-            # converter path and hand-built states.
-            _owned_village = mod_village in mods or key in village_owner_map
-            # Fog gate on the STATIC owned bit too (project round-1
-            # C8: ungated, the triple (mod0=1, dyn1=0, dyn2=0) was
-            # an unambiguous god-view fingerprint of "enemy owns a
-            # village you cannot see" -- exactly the class the
-            # observable-state contract forbids). Own villages and
-            # visible hexes encode as before; an enemy capture
-            # OUTSIDE vision now encodes like a neutral village,
-            # which is all the mover could know.
+        # Village hexes: the static village bit (modifier) or an owner
+        # entry; the fog gate decides what the mover may see.
+        cand = set(static.village_idx)
+        if village_owner_map:
+            pos_index = static.pos_index
+            for key in village_owner_map:
+                j = pos_index.get(key)
+                if j is not None:
+                    cand.add(j)
+        for i in cand:
+            key = static.keys[i]
             _owner0 = village_owner_map.get(key, 0)
-            # ONE gate for both lineages (project round-2 C0: the
-            # mod_village short-circuit assumed the live payload
-            # was pre-fogged; state_collector.lua collected owners
-            # UNFOGGED, so the live path kept the god-view triple
-            # the gate exists to remove -- and ran off the training
-            # input distribution). The live path populates
-            # _village_owner since round-1 C9, so the same test
-            # serves it.
             _owner_visible = (
                 _owner0 == current_side
                 or not fog_on
-                or (p.x, p.y) in _vision_disc())
-            if _owned_village and _owner_visible:
+                or key in _vision_disc())
+            if _owner_visible:
                 hex_modifier_flags_np[i, 0] = 1.0
-            if mod_keep    in mods:
-                hex_modifier_flags_np[i, 1] = 1.0
-            if mod_castle  in mods:
-                hex_modifier_flags_np[i, 2] = 1.0
-            # Dynamic flag: recruit-rejected this turn.
-            if key in rejected_hexes:
-                hex_dynamic_flags_np[i, 0] = 1.0
-            # Dynamic flags 1-2: village ownership as seen by the
-            # side to move (fog rule documented at
-            # NUM_HEX_DYNAMIC_FLAGS above).
-            if _owned_village:
-                _owner = village_owner_map.get(key, 0)
-                if _owner == current_side:
-                    hex_dynamic_flags_np[i, 1] = 1.0
-                elif _owner not in (0, current_side):
-                    if (not fog_on
-                            or (p.x, p.y) in _vision_disc()):
-                        hex_dynamic_flags_np[i, 2] = 1.0
+            if _owner0 == current_side:
+                hex_dynamic_flags_np[i, 1] = 1.0
+            elif _owner0 not in (0, current_side):
+                if not fog_on or key in _vision_disc():
+                    hex_dynamic_flags_np[i, 2] = 1.0
+        if rejected_hexes:
+            pos_index = static.pos_index
+            for key in rejected_hexes:
+                j = pos_index.get(key)
+                if j is not None:
+                    hex_dynamic_flags_np[j, 0] = 1.0
 
     # ---- units ----
     # Fog-of-war filter: the policy must only see units that the
@@ -1310,6 +1279,90 @@ def encode_raw(
         their_faction_id=their_faction_id,
     )
 
+
+
+# ---------------------------------------------------------------------
+# Static per-map hex arrays (encode_raw fast path)
+# ---------------------------------------------------------------------
+
+@dataclass
+class _StaticHexArrays:
+    xs: np.ndarray
+    ys: np.ndarray
+    terrain_ids: np.ndarray
+    modifier_flags: np.ndarray       # [H, NUM_HEX_MODIFIERS]; column 0 (owned
+                                     # village) is left 0 and set per encode
+    village_idx: List[int]           # hex indices carrying the village terrain
+                                     # or modifier
+    keys: List[Tuple[int, int]]      # (x, y) per hex index
+    pos_index: Dict[Tuple[int, int], int]
+    anchor: "weakref.ref"            # one Hex of the set: identity guard
+    n_hexes: int
+    hexes: List                      # the hexes in slot order
+    positions: List                  # their Position objects
+
+
+_STATIC_HEX_CACHE: Dict[int, _StaticHexArrays] = {}
+
+
+def _build_static_hex_arrays(hexes) -> _StaticHexArrays:
+    MAP_LIMIT = MAX_MAP_SIZE - 1
+    H = len(hexes)
+    xs = np.empty(H, dtype=np.int64)
+    ys = np.empty(H, dtype=np.int64)
+    tids = np.empty(H, dtype=np.int64)
+    mods_np = np.zeros((H, NUM_HEX_MODIFIERS), dtype=np.float32)
+    village_idx: List[int] = []
+    keys: List[Tuple[int, int]] = []
+    terrain_village = Terrain.VILLAGE
+    terrain_castle = Terrain.CASTLE
+    terrain_flat_v = Terrain.FLAT.value
+    for i, h in enumerate(hexes):
+        p = h.position
+        keys.append((p.x, p.y))
+        xs[i] = 0 if p.x < 0 else (MAP_LIMIT if p.x > MAP_LIMIT else p.x)
+        ys[i] = 0 if p.y < 0 else (MAP_LIMIT if p.y > MAP_LIMIT else p.y)
+        tt = h.terrain_types
+        if not tt:
+            tids[i] = terrain_flat_v
+        elif terrain_village in tt:
+            tids[i] = terrain_village.value
+        elif terrain_castle in tt:
+            tids[i] = terrain_castle.value
+        else:
+            tids[i] = next(iter(tt)).value
+        mods = h.modifiers
+        if TerrainModifiers.VILLAGE in mods:
+            village_idx.append(i)
+        if TerrainModifiers.KEEP in mods:
+            mods_np[i, 1] = 1.0
+        if TerrainModifiers.CASTLE in mods:
+            mods_np[i, 2] = 1.0
+    return _StaticHexArrays(
+        xs=xs, ys=ys, terrain_ids=tids, modifier_flags=mods_np,
+        village_idx=village_idx, keys=keys,
+        pos_index={k: i for i, k in enumerate(keys)},
+        anchor=weakref.ref(hexes[0]), n_hexes=H,
+        hexes=list(hexes), positions=[h.position for h in hexes])
+
+
+def _static_hex_arrays(game_state) -> _StaticHexArrays:
+    """Cached slot ordering + static arrays for the full board, keyed
+    on the identity of `game_state.map.hexes` (aliased across forks;
+    replaced, never mutated, by terrain-morph events). The guard (one
+    weakly-referenced Hex still in the set, same size) rules out a
+    recycled id."""
+    hex_set = game_state.map.hexes
+    key = id(hex_set)
+    hit = _STATIC_HEX_CACHE.get(key)
+    if (hit is not None and hit.n_hexes == len(hex_set)
+            and hit.anchor() is not None and hit.anchor() in hex_set):
+        return hit
+    built = _build_static_hex_arrays(hexes_in_slot_order(game_state))
+    if len(_STATIC_HEX_CACHE) >= 64:      # a few maps per process
+        _STATIC_HEX_CACHE.clear()
+    _STATIC_HEX_CACHE[key] = built
+    return built
 
 # ---------------------------------------------------------------------
 # Plain-python helpers (no torch) — keep them out of the module so

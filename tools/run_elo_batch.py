@@ -307,6 +307,13 @@ def main(argv: List[str]) -> int:
                          "match plays the leg's turn-search config "
                          "-- e.g. '--turn-boundary-frame mover' for "
                          "leg 5+ (round-32 C3).")
+    ap.add_argument("--persistent-workers", action="store_true",
+                    help="Play games through --jobs long-lived "
+                         "elo_eval_game --worker processes that keep "
+                         "the loaded policies across games "
+                         "(tools/eval_workers.py) instead of one "
+                         "process per game. Same result files, same "
+                         "timeouts; a timed-out worker is replaced.")
     ap.add_argument("--per-game-timeout-min", type=float, default=20.0,
                     help="Kill a single game that overruns; its slot is "
                          "skipped and the run continues.")
@@ -545,6 +552,15 @@ def main(argv: List[str]) -> int:
              n_results, n_nores, extra, max_extra, len(pending),
              jobs, args.device)
 
+    worker_pool = None
+    if args.persistent_workers:
+        from tools.eval_workers import WorkerPool
+        worker_pool = WorkerPool(
+            [sys.executable, "-u", str(_THIS.parent / "elo_eval_game.py"),
+             "--worker"], jobs, args.outdir)
+        log.info("persistent workers: up to %d elo_eval_game --worker "
+                 "processes, policies cached across games", jobs)
+
     def launch(slot):
         i, side_a, seed, _out, _gen = slot
         cmd = [sys.executable, "-u", str(_THIS.parent / "elo_eval_game.py"),
@@ -602,6 +618,11 @@ def main(argv: List[str]) -> int:
         # timeout -- every game "timed out" while finishing in
         # seconds standalone). Dot-prefixed so the game_*.json
         # globs never see it.
+        if worker_pool is not None:
+            handle, errf = worker_pool.submit(
+                [str(_THIS.parent / "elo_eval_game.py")] + cmd[3:],
+                game_tag=f"{i}_{seed}")
+            return handle, time.perf_counter(), slot, errf
         errf = open(args.outdir / f".stderr_{i}_{seed}.log", "w+b")
         return (subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
                                  stderr=errf),
@@ -786,7 +807,9 @@ def main(argv: List[str]) -> int:
                 _proc.kill()
                 _proc.wait()
                 log.warning("killed in-flight game %d at exit", _i)
-            _close_err(_errf)
+                _close_err(_errf)
+        if worker_pool is not None:
+            worker_pool.shutdown()
     total = len(list(args.outdir.glob("game_*.json")))
     # Report as a fraction, never a percentage or an extrapolation.
     log.info("chunk end: %d/%d RESULTS (%d no-result absences, "
