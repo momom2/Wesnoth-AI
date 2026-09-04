@@ -467,6 +467,15 @@ class ActorPool:
     def start(self) -> None:
         from tools.inference_seam import InferenceServer
         _set_fd_safe_sharing()
+        # Actors are single-threaded CPU workers (torch_threads=1 in
+        # _actor_loop), but torch creates its intra-op pool at import,
+        # before that call, from the HOST's core count: ~100 threads per
+        # actor on a 128-thread Vast host. A 38-actor pool hit the
+        # container's PID limit (pids.max 4352, 2026-09-04): nothing
+        # served, sshd unable to fork. The spawned children inherit
+        # this environment, so cap the pools before torch is imported.
+        for var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
+            os.environ.setdefault(var, "1")
         ctx = mp.get_context("spawn")
         self._req_q = ctx.Queue()
         self._result_q = ctx.Queue()
