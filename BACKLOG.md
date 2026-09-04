@@ -84,8 +84,16 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
      stages all masks in one pinned copy, compacts on the device in
      the reference order, one sync per batch, and the reply carries
      value/cliffness/aux in the same transfer; serve threads log GPU
-     ms per leaf. Bit-identical priors on harvested leaves; CUDA tests
-     and the pool measurement are queued on the box.
+     ms per leaf. Bit-identical priors on harvested leaves; the CUDA
+     tests pass on the box (CPU-vs-CUDA equality, no implicit sync);
+     the pool measurement is queued.
+   - SHIPPED 2026-09-05 (GPU design option 1, behind a switch):
+     `wesnoth_ai/packed_trunk.py`, flash varlen attention on the
+     packed sequence, `WesnothModel.infer_packed_trunk` (default off),
+     `bench_pool --packed-trunk`. CPU tests pass; the CUDA parity,
+     no-sync and timing tests plus a 32-game pool run are queued on
+     the box. Turn on by default only after the parity tolerances and
+     the GPU ms per batch are recorded.
    - CORRECTED 2026-09-05 (whole-pool profile, docs/box_specs.md):
      the actors idle 95% of the time in the reply receive; the serve
      threads are busy ~88% with the GPU wait as the largest item. The
