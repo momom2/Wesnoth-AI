@@ -31,7 +31,23 @@ def parse(path: Path):
         except ValueError:
             continue
         frames = stack.split(";")
-        thread = frames[0]
+        # `--subprocesses` prefixes each stack with one `process <pid>:"<cmd>"`
+        # element per ancestor (parent first); group by the innermost
+        # process and its thread, else by thread alone.
+        # A command line may itself contain ";", so find the thread
+        # element by its shape instead of by position.
+        t_idx = next((i for i, f in enumerate(frames) if f.startswith("thread (")), None)
+        if t_idx is not None and t_idx > 0:
+            procs = [f for f in frames[:t_idx] if f.startswith("process ")]
+            proc = procs[-1] if procs else frames[0]
+            cmd = ";".join(frames[:t_idx])
+            pid = proc.split(":", 1)[0]
+            kind = ("actor" if "spawn_main" in cmd else
+                    "compile-worker" if "compile_worker" in cmd else "server")
+            thread = f"{pid} {kind} | {frames[t_idx]}"
+            frames = frames[t_idx:]
+        else:
+            thread = frames[0]
         total += n
         per_thread[thread] += n
         if len(frames) > 1:

@@ -373,6 +373,35 @@ def _actor_loop(
 # Main-side pool manager
 # =====================================================================
 
+def _merge_timelines(per_thread: List[List[Tuple[float, int]]],
+                     t_start: float) -> List[Tuple[float, int]]:
+    """Total leaves served by time t (seconds since t_start), from the
+    threads' (monotonic time, cumulative leaves) marks."""
+    marks = sorted((t, i, n) for i, tl in enumerate(per_thread) for (t, n) in tl)
+    latest = [0] * len(per_thread)
+    out: List[Tuple[float, int]] = []
+    for t, i, n in marks:
+        latest[i] = n
+        out.append((t - t_start, sum(latest)))
+    return out
+
+
+def _best_window_rate(timeline: List[Tuple[float, int]], window: float) -> Optional[float]:
+    """Highest leaves/s over any span of at least `window` seconds
+    between two marks; None when the timeline is shorter than that."""
+    best = None
+    j = 0
+    for i, (t_i, n_i) in enumerate(timeline):
+        while j < len(timeline) and timeline[j][0] < t_i + window:
+            j += 1
+        if j >= len(timeline):
+            break
+        t_j, n_j = timeline[j]
+        rate = (n_j - n_i) / (t_j - t_i)
+        best = rate if best is None or rate > best else best
+    return best
+
+
 class ActorPool:
     """Owns the actor processes and runs the central inference-serve
     loop during each rollout iteration. The model stays in the main
@@ -707,6 +736,9 @@ class ActorPool:
                          "leaves", "batches", "tokens", "padded")} if serve_stats else {}
         served = int(agg.get("leaves", 0))
         elapsed = max(1e-9, time.monotonic() - t_start)
+        self.last_leaf_timeline = _merge_timelines(
+            [s.get("timeline", []) for s in serve_stats], t_start)
+        self.last_saturated_leaves_per_s = _best_window_rate(self.last_leaf_timeline, 60.0)
         if agg.get("batches"):
             log.info(
                 f"iter {iter_idx}: serve stages ({self._serve_threads} "
@@ -715,6 +747,7 @@ class ActorPool:
                 f"put={agg['put']:.1f}s gpu={agg['gpu_ms'] / 1000.0:.1f}s "
                 f"({agg['gpu_ms'] / max(served, 1):.2f} ms/leaf) leaves/batch="
                 f"{agg['leaves'] / agg['batches']:.1f} "
+                f"saturated={self.last_saturated_leaves_per_s or 0:.0f} leaves/s (best 60 s) "
                 f"throughput={served / elapsed:.0f} leaves/s")
         log.info(f"iter {iter_idx}: pool served {served} forwards, "
                  f"{len(outcomes)} games, {len(experiences)} experiences, "
@@ -738,14 +771,21 @@ class ActorPool:
                      f"pad_ratio={self.last_pad_ratio or 0:.2f}")
         return outcomes, experiences
 
-    def _serve_worker(self, stop_ev, stats_out: List[Dict]) -> None:
+    def _serve_worker(self, stop_ev, stats_out: List[Dict]) -> None:  # noqa: C901
         """One serving thread: get -> coalesce to max_batch leaves ->
         encode+forward -> wire-serialize -> reply. Stage times are
         accumulated locally (no locks on the hot path) and appended
         to `stats_out` on exit."""
         from tools.inference_seam import output_to_wire
         from wesnoth_ai.leaf_wire import PackedRequest, unpack_request
+        # (monotonic time, cumulative leaves) every ~10 s: the iteration
+        # average hides the tail where most actors have finished
+        # (2026-09-05 whole-pool profile: median game finish at 40% of
+        # the wall); run_iteration derives the saturated rate from it.
+        timeline: List[Tuple[float, int]] = []
+        next_mark = time.monotonic()
         st = {"wait": 0.0, "infer": 0.0, "wire": 0.0, "put": 0.0, "gpu_ms": 0.0,
+              "timeline": timeline,
               "leaves": 0, "batches": 0, "tokens": 0, "padded": 0}
         while not stop_ev.is_set():
             t0 = time.monotonic()
@@ -797,6 +837,9 @@ class ActorPool:
             st["put"] += t4 - t3
             st["leaves"] += len(flat)
             st["batches"] += 1
+            if t4 >= next_mark:
+                timeline.append((t4, st["leaves"]))
+                next_mark = t4 + 10.0
             # Sequence lengths: hex tokens + unit tokens per leaf, and
             # what the batch actually costs after padding to its
             # longest leaf (attention is quadratic in that length).

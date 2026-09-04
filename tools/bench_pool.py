@@ -86,6 +86,10 @@ def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
         "gen_seconds": gen, "wall_seconds": wall,
         "forwards": served, "decisions": getattr(pool, "last_decisions", None),
         "leaves_per_s": served / gen if gen else None,
+        # The iteration average includes the tail where most actors
+        # have finished; this is the best 60-s window (the fed rate).
+        "saturated_leaves_per_s": getattr(pool, "last_saturated_leaves_per_s", None),
+        "leaf_timeline": getattr(pool, "last_leaf_timeline", None),
         "tokens_per_leaf": getattr(pool, "last_tokens_per_leaf", None),
         "pad_ratio": getattr(pool, "last_pad_ratio", None),
         "game_finish_p50_s": getattr(pool, "last_game_finish_p50", None),
