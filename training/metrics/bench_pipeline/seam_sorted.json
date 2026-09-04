@@ -1,0 +1,201 @@
+{
+ "label": "seam_sorted",
+ "checkpoint": "training/checkpoints/seed.pt",
+ "device": "cuda",
+ "infer_bf16": true,
+ "infer_compile": true,
+ "n_states": 200,
+ "torch": "2.5.1+cu124",
+ "components": {
+  "deepcopy": 0.04788552178069949,
+  "fork": 0.04798104055225849,
+  "encode_raw": 1.3456240412779152,
+  "encode_from_raw": 1.2083970359526575,
+  "legality_masks": 0.7709629717282951,
+  "enumerate_priors": 2.503221039660275,
+  "sim_step": 0.6425265455618501,
+  "state_key": 0.019185012206435204,
+  "pack_masks": 1.1366865364834666,
+  "unpack_compact": 0.49705500714480877
+ },
+ "forwards": [
+  {
+   "tokens_max": 714,
+   "tokens_mean": 652,
+   "n_states": 50,
+   "batch": 1,
+   "ms_per_call": 5.38632005918771,
+   "ms_per_sample": 5.38632005918771,
+   "samples_per_s": 185.6555104433965
+  },
+  {
+   "tokens_max": 714,
+   "tokens_mean": 652,
+   "n_states": 50,
+   "batch": 4,
+   "ms_per_call": 6.639838509727269,
+   "ms_per_sample": 1.6599596274318174,
+   "samples_per_s": 602.4242900094719
+  },
+  {
+   "tokens_max": 714,
+   "tokens_mean": 652,
+   "n_states": 50,
+   "batch": 16,
+   "ms_per_call": 10.338411550037563,
+   "ms_per_sample": 0.6461507218773477,
+   "samples_per_s": 1547.6265306870926
+  },
+  {
+   "tokens_max": 714,
+   "tokens_mean": 652,
+   "n_states": 50,
+   "batch": 64,
+   "ms_per_call": 37.459249957464635,
+   "ms_per_sample": 0.5853007805853849,
+   "samples_per_s": 1708.5232638846924
+  },
+  {
+   "tokens_max": 831,
+   "tokens_mean": 773,
+   "n_states": 50,
+   "batch": 1,
+   "ms_per_call": 5.373379972297698,
+   "ms_per_sample": 5.373379972297698,
+   "samples_per_s": 186.10260304602883
+  },
+  {
+   "tokens_max": 831,
+   "tokens_mean": 773,
+   "n_states": 50,
+   "batch": 4,
+   "ms_per_call": 6.680003541987389,
+   "ms_per_sample": 1.6700008854968473,
+   "samples_per_s": 598.8020777021844
+  },
+  {
+   "tokens_max": 831,
+   "tokens_mean": 773,
+   "n_states": 50,
+   "batch": 16,
+   "ms_per_call": 11.215060483664274,
+   "ms_per_sample": 0.7009412802290171,
+   "samples_per_s": 1426.6530281584671
+  },
+  {
+   "tokens_max": 831,
+   "tokens_mean": 773,
+   "n_states": 50,
+   "batch": 64,
+   "ms_per_call": 44.302785536274314,
+   "ms_per_sample": 0.6922310240042862,
+   "samples_per_s": 1444.6044244237862
+  },
+  {
+   "tokens_max": 1018,
+   "tokens_mean": 903,
+   "n_states": 50,
+   "batch": 1,
+   "ms_per_call": 5.332789558451623,
+   "ms_per_sample": 5.332789558451623,
+   "samples_per_s": 187.5191190350197
+  },
+  {
+   "tokens_max": 1018,
+   "tokens_mean": 903,
+   "n_states": 50,
+   "batch": 4,
+   "ms_per_call": 6.593552534468472,
+   "ms_per_sample": 1.648388133617118,
+   "samples_per_s": 606.6532387646249
+  },
+  {
+   "tokens_max": 1018,
+   "tokens_mean": 903,
+   "n_states": 50,
+   "batch": 16,
+   "ms_per_call": 13.654895941726863,
+   "ms_per_sample": 0.853430996357929,
+   "samples_per_s": 1171.7408955938602
+  },
+  {
+   "tokens_max": 1018,
+   "tokens_mean": 903,
+   "n_states": 50,
+   "batch": 64,
+   "ms_per_call": 54.00823999661952,
+   "ms_per_sample": 0.84387874994718,
+   "samples_per_s": 1185.0043623714803
+  },
+  {
+   "tokens_max": 2200,
+   "tokens_mean": 1245,
+   "n_states": 50,
+   "batch": 1,
+   "ms_per_call": 5.29553898377344,
+   "ms_per_sample": 5.29553898377344,
+   "samples_per_s": 188.8381906099066
+  },
+  {
+   "tokens_max": 2200,
+   "tokens_mean": 1245,
+   "n_states": 50,
+   "batch": 4,
+   "ms_per_call": 11.56453846488148,
+   "ms_per_sample": 2.89113461622037,
+   "samples_per_s": 345.8849665420689
+  },
+  {
+   "tokens_max": 2200,
+   "tokens_mean": 1245,
+   "n_states": 50,
+   "batch": 16,
+   "ms_per_call": 33.54947501793504,
+   "ms_per_sample": 2.09684218862094,
+   "samples_per_s": 476.9076115631212
+  },
+  {
+   "tokens_max": 2200,
+   "tokens_mean": 1245,
+   "n_states": 50,
+   "batch": 64,
+   "ms_per_call": 139.6021600230597,
+   "ms_per_sample": 2.1812837503603077,
+   "samples_per_s": 458.4456285592457
+  }
+ ],
+ "seam": [
+  {
+   "protocol": "logits",
+   "batch": 16,
+   "ms_per_batch": 16.399803513195366,
+   "tokens_mean": 663,
+   "leaves_per_s": 975.6214449231857,
+   "wire_bytes_per_leaf": 59598
+  },
+  {
+   "protocol": "logits",
+   "batch": 64,
+   "ms_per_batch": 87.3599590267986,
+   "tokens_mean": 827,
+   "leaves_per_s": 732.601076202054,
+   "wire_bytes_per_leaf": 76087
+  },
+  {
+   "protocol": "priors",
+   "batch": 16,
+   "ms_per_batch": 14.809437037911266,
+   "tokens_mean": 663,
+   "leaves_per_s": 1080.3921822984198,
+   "wire_bytes_per_leaf": 8991
+  },
+  {
+   "protocol": "priors",
+   "batch": 64,
+   "ms_per_batch": 66.28650653874502,
+   "tokens_mean": 827,
+   "leaves_per_s": 965.5057015652419,
+   "wire_bytes_per_leaf": 14677
+  }
+ ]
+}

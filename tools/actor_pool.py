@@ -115,6 +115,9 @@ class _IPCInferenceClient:
         while True:
             r_rid, wires = self._resp.get()
             if r_rid == rid:
+                if wires is None:
+                    raise RuntimeError("inference server failed on this batch "
+                                       "(see the server's log)")
                 return [output_from_wire(w) for w in wires]
             # Stale reply from an abandoned request id: drop.
 
@@ -207,10 +210,13 @@ def _actor_loop(
         # tuples without it = 0, i.e. off).
         _vc = float(cmd[8]) if len(cmd) > 8 else 0.0
         mcts_cfg = dataclasses.replace(mcts_cfg, value_center=_vc)
+        # Server-side priors (wesnoth_ai/server_priors.py); legacy PLAY
+        # tuples without the flag = off.
+        _sp = bool(cmd[9]) if len(cmd) > 9 else False
         # Rebuild the encoder each iteration with the freshly-snapshotted
         # vocab so actor indices line up with the server's encoder.
         renc = RemoteEncoder(t2i, f2i, device=cpu,
-                             relevant_set=_rset)
+                             relevant_set=_rset, server_priors=_sp)
         # MCTSPolicy.select_action reads `_base._lock` / `_base._decision_step`
         # (the combat-oracle anneal, added 2026-06-29). The in-process base is
         # a TransformerPolicy that supplies both; the actor's lightweight base
@@ -388,6 +394,10 @@ class ActorPool:
         # Per-iteration search value centering (MCTSConfig.value_center),
         # set by the learner after each step; rides the PLAY command.
         self.value_center: float = 0.0
+        # Server-side priors (plan 1.3): actors ship packed legality
+        # masks, the server returns compact legal actions. Off by
+        # default until the box measurement certifies it.
+        self.server_priors: bool = False
         # TCS (2026-08-14): when set, actors build TurnCommitPolicy
         # instead of MCTSPolicy -- the third generation path of the
         # worker-side-targets symmetry contract.
@@ -512,7 +522,7 @@ class ActorPool:
             self._ctrl_qs[aid].put(
                 (_CMD_PLAY, iter_idx, per[aid],
                  base_seed + aid * 1_000_003, t2i, f2i, ds0,
-                 _rset, float(self.value_center)))
+                 _rset, float(self.value_center), bool(self.server_priors)))
 
         outcomes: List = []
         experiences: List = []
@@ -729,9 +739,20 @@ class ActorPool:
                 n_leaves += len(it[2])
             t1 = time.monotonic()
             flat = [r for (_a, _r, raws) in batch for r in raws]
-            outs = self._server.infer_batch(flat)
-            t2 = time.monotonic()
-            wires = [output_to_wire(o) for o in outs]
+            try:
+                outs = self._server.infer_batch(flat)
+                t2 = time.monotonic()
+                wires = [output_to_wire(o) for o in outs]
+            except Exception:                       # noqa: BLE001
+                # A serve-thread death used to hang every actor
+                # waiting on this batch (2026-09-04: the stats line
+                # below choked on (raw, masks) items). Reply with a
+                # failure marker so the actors raise instead.
+                log.error("inference server failed on a batch of %d leaves:\n%s",
+                          len(flat), traceback.format_exc())
+                for (aid, rid, raws) in batch:
+                    self._resp_qs[aid].put((rid, None))
+                continue
             t3 = time.monotonic()
             i = 0
             for (aid, rid, raws) in batch:
@@ -748,7 +769,9 @@ class ActorPool:
             # Sequence lengths: hex tokens + unit tokens per leaf, and
             # what the batch actually costs after padding to its
             # longest leaf (attention is quadratic in that length).
-            lens = [len(r.hex_xs) + len(r.unit_ids) for r in flat]
+            # Items are RawEncoded or (RawEncoded, PackedMasks) pairs.
+            lens = [len(r[0].hex_xs) + len(r[0].unit_ids) if isinstance(r, tuple)
+                    else len(r.hex_xs) + len(r.unit_ids) for r in flat]
             st["tokens"] += sum(lens)
             st["padded"] += len(lens) * max(lens) if lens else 0
         stats_out.append(st)

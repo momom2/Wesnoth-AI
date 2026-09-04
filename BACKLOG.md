@@ -29,22 +29,27 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
      construction of ~600-700 action objects per state; the
      struct-of-arrays output that removes it belongs to the server
      step below (arrays are what cross processes cheaply).
+   - Measured on the box with the Rust wheel: masks 0.76 ms,
+     enumeration incl. masks 2.53 ms (was 6.90).
    - NEXT: Rust `encode_raw` (rust_port_plan phase 2b, byte-identical
-     arrays), then combat and step (phase 3, full corpus sweep).
-3. **Batched inference server** (plan 1.3). Measured ceiling: ~600
-   samples/s per process from batch 16 regardless of batch 64, i.e.
-   CPU-side. Suspects, in order: `WesnothModel.forward_batch` pads
-   with per-sample Python loops and rebuilds a per-sample ModelOutput
-   (target logits [A, H] sliced per leaf); `output_to_wire` pickles
-   ~120 KB of target logits per leaf through a multiprocessing queue
-   (72 MB/s at 600 leaves/s); the actor then runs the masked softmax
-   itself. Design to measure on a GPU box: actors ship the legality
-   masks (bit-packed, ~5 KB) with the request, the server computes
-   the masked joint priors on the GPU in the same batch, and replies
-   with the compact legal-action arrays (~12 KB) plus value. Target:
-   3,000 leaf evaluations per second per 4090 for the 15M net; bf16
-   and compile validated on the training path (the 2026-08-29
-   deadlock reproduced or cleared).
+     arrays; 1.35 ms per leaf now the largest actor-side item), then
+     combat and step (phase 3, full corpus sweep).
+3. **Batched inference server** (plan 1.3). Measured 2026-09-04
+   (docs/box_specs.md "Phase-1 iterations"): the batched forward ran
+   fp32 eager (only the single-sample path had bf16 and compile);
+   with bf16 it does 1,584 samples/s at batch 16 (was 602). The
+   server-side priors protocol (`wesnoth_ai/server_priors.py`: actors
+   ship packed masks, the server returns compact legal actions,
+   `ActorPool.server_priors`, default off) serves ~1,080 leaves/s
+   per thread on token-sorted batches with 9-15 KB per leaf on the
+   wire (was 60-87 KB). Certified: parity tests through seam and
+   wire, pool smoke end to end.
+   - NEXT: flip `server_priors` on in the generation path and measure
+     leaves/s per box through the real pool (az legs: 300-370);
+     torch.compile the padded path; bucket serve batches by length;
+     persistent eval worker processes (`elo_eval_game` pays checkpoint
+     load and compile per game: raw games 35 s of which the game is
+     a fraction).
 4. **Defects** (plan 1.6):
    - `tools/az_loop.py` `_probe`: pins at sims 0 must pass
      `--raw-temperature-a 0 --raw-temperature-b 0`; every az pin,

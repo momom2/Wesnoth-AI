@@ -121,3 +121,12 @@ def test_summarize_games_counts_outcomes(tmp_path):
     assert s["games"] == 3 and s["outcomes_a"] == {"win": 1, "loss": 1, "timeout": 1}
     assert abs(s["decisive_frac"] - 2 / 3) < 1e-9
     assert s["games_per_hour"] == 180.0 and s["games_per_dollar"] == 360.0
+
+
+def test_seam_costs_report_both_protocols():
+    from tools.bench_pipeline import seam_costs
+    rows = seam_costs(_tiny_policy(), _scenario_states(3), batch_sizes=(2,), calls=2)
+    assert {r["protocol"] for r in rows} == {"logits", "priors"}
+    by = {r["protocol"]: r for r in rows}
+    assert by["priors"]["wire_bytes_per_leaf"] < by["logits"]["wire_bytes_per_leaf"]
+    assert all(r["leaves_per_s"] > 0 for r in rows)

@@ -186,6 +186,12 @@ class ModelOutput:
     unit_ctx:      Optional[torch.Tensor] = None  # [1, U, d] or None
     hex_ctx:       Optional[torch.Tensor] = None  # [1, H, d] or None
     global_ctx:    Optional[torch.Tensor] = None  # [1, 1, d] or None
+    # Server-side priors (wesnoth_ai/server_priors.py): when set, the
+    # legal actions with priors were computed on the inference server
+    # from actor-shipped masks; enumerate_legal_actions_with_priors
+    # unpacks them instead of reading the logits (which the server
+    # then ships as placeholders).
+    legal_compact: Optional[object] = None
 
     # Diagnostic: marginal-over-actors probability of each action
     # type. Layout [1, T+2]:
@@ -493,7 +499,21 @@ class WesnothModel(nn.Module):
         applied once to padded [B, ...] tensors; actor slots are laid
         out per sample in the canonical compact order (units |
         recruits | end_turn) by one gather, so a per-sample output is
-        a view. Launch count is independent of B."""
+        a view. Launch count is independent of B.
+
+        Runs under the same bf16 autocast as `forward` when
+        `infer_autocast_bf16` is set (2026-09-04: the batched path ran
+        fp32 eager, 1.5 ms per 714-token sample on a 4090, flat from
+        batch 4 to 64); outputs are cast back to float32."""
+        device = encoded_list[0].hex_tokens.device
+        if (getattr(self, "infer_autocast_bf16", False) and not self.training
+                and device.type == "cuda"):
+            with torch.autocast("cuda", dtype=torch.bfloat16):
+                out = self._forward_padded_impl(encoded_list)
+            return out.float32()
+        return self._forward_padded_impl(encoded_list)
+
+    def _forward_padded_impl(self, encoded_list) -> "PaddedOutput":
         d = self.d_model
         device = encoded_list[0].hex_tokens.device
         dtype = encoded_list[0].hex_tokens.dtype
@@ -501,24 +521,46 @@ class WesnothModel(nn.Module):
         Us = [e.unit_tokens.size(1) for e in encoded_list]
         Rs = [e.recruit_tokens.size(1) for e in encoded_list]
         Hs = [e.hex_tokens.size(1) for e in encoded_list]
-        U_max, R_max, H_max = max(Us), max(Rs), max(Hs)
-        kk = self.token_kind_embed.weight
 
-        def _padded(tokens, L_max, kind):
+        def _padded(tokens, L_max):
             if L_max == 0:
                 return torch.zeros(B, 0, d, device=device, dtype=dtype)
-            seqs = [t.squeeze(0) for t in tokens]
-            out = torch.nn.utils.rnn.pad_sequence(seqs, batch_first=True)
-            if out.size(1) < L_max:      # cannot happen, kept explicit
-                out = F.pad(out, (0, 0, 0, L_max - out.size(1)))
-            return out + kk[kind]
+            return torch.nn.utils.rnn.pad_sequence([t.squeeze(0) for t in tokens],
+                                                   batch_first=True)
 
-        hex_batch = _padded([e.hex_tokens for e in encoded_list], H_max, TokenKind.HEX)
-        unit_batch = _padded([e.unit_tokens for e in encoded_list], U_max, TokenKind.UNIT)
-        recruit_batch = _padded([e.recruit_tokens for e in encoded_list], R_max,
-                                TokenKind.RECRUIT)
-        global_batch = torch.cat([e.global_token for e in encoded_list], dim=0) + kk[TokenKind.GLOBAL]
-        end_turn_batch = torch.cat([e.end_turn_token for e in encoded_list], dim=0) + kk[TokenKind.END_TURN]
+        return self.forward_streams(
+            _padded([e.hex_tokens for e in encoded_list], max(Hs)),
+            _padded([e.unit_tokens for e in encoded_list], max(Us)),
+            _padded([e.recruit_tokens for e in encoded_list], max(Rs)),
+            torch.cat([e.global_token for e in encoded_list], dim=0),
+            torch.cat([e.end_turn_token for e in encoded_list], dim=0),
+            list(zip(Us, Rs, Hs)))
+
+    def forward_streams(self, hex_batch, unit_batch, recruit_batch, global_batch,
+                        end_turn_batch, sizes) -> "PaddedOutput":
+        """Batched forward over already-padded streams ([B, L_max, d]
+        each, WITHOUT token-kind embeddings) and per-sample sizes
+        (U_b, R_b, H_b). The inference server feeds this straight from
+        encoder.encode_from_raw_padded; forward_padded feeds it from
+        EncodedStates. Same bf16 policy as forward_padded when called
+        through it; callers that come here directly autocast themselves."""
+        d = self.d_model
+        device = hex_batch.device
+        dtype = hex_batch.dtype
+        B = len(sizes)
+        Us = [s[0] for s in sizes]
+        Rs = [s[1] for s in sizes]
+        Hs = [s[2] for s in sizes]
+        U_max, R_max, H_max = hex_batch.size(1) * 0 + unit_batch.size(1), recruit_batch.size(1), hex_batch.size(1)
+        kk = self.token_kind_embed.weight
+        if H_max:
+            hex_batch = hex_batch + kk[TokenKind.HEX]
+        if U_max:
+            unit_batch = unit_batch + kk[TokenKind.UNIT]
+        if R_max:
+            recruit_batch = recruit_batch + kk[TokenKind.RECRUIT]
+        global_batch = global_batch + kk[TokenKind.GLOBAL]
+        end_turn_batch = end_turn_batch + kk[TokenKind.END_TURN]
         x = torch.cat([hex_batch, unit_batch, recruit_batch, global_batch, end_turn_batch], dim=1)
         seq_len = x.size(1)
 
@@ -609,6 +651,15 @@ class PaddedOutput:
         for f in self._TENSOR_FIELDS:
             v = getattr(self, f)
             kw[f] = v.cpu() if v is not None else None
+        return PaddedOutput(**kw)
+
+    def float32(self) -> "PaddedOutput":
+        """Cast bf16 autocast outputs back to float32 (numpy consumers
+        never see bf16, as in `forward`)."""
+        kw = {f: getattr(self, f) for f in ("actor_kind", "sizes")}
+        for f in self._TENSOR_FIELDS:
+            v = getattr(self, f)
+            kw[f] = (v.float() if v is not None and v.dtype == torch.bfloat16 else v)
         return PaddedOutput(**kw)
 
     def sample(self, b: int) -> ModelOutput:

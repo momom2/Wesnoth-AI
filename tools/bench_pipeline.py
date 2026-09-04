@@ -53,7 +53,8 @@ log = logging.getLogger("bench_pipeline")
 DEFAULT_MANIFEST = ROOT / "configs" / "bench_states.json"
 DEFAULT_DATASET = ROOT / "replays_dataset_imitation"
 COMPONENTS = ("deepcopy", "fork", "encode_raw", "encode_from_raw",
-              "legality_masks", "enumerate_priors", "sim_step", "state_key")
+              "legality_masks", "enumerate_priors", "sim_step", "state_key",
+              "pack_masks", "unpack_compact")
 
 
 # ---------------------------------------------------------------------
@@ -226,6 +227,14 @@ def component_costs(states: Sequence[Tuple[object, str]], policy,
         clock("sim_step", _fork_step)
         times["sim_step"][-1] = max(0.0, times["sim_step"][-1] - fork_ms)
         clock("state_key", lambda: state_key(gs))
+        # Server-side priors protocol (wesnoth_ai/server_priors.py):
+        # what the actor pays per leaf to pack masks and to unpack the
+        # compact reply into the action list.
+        from wesnoth_ai.server_priors import batched_priors, pack_masks, unpack_compact
+        pack = clock("pack_masks", lambda: pack_masks(encoded, gs))
+        with torch.no_grad():
+            compact = batched_priors(model.forward_padded([encoded]), [pack])[0]
+        clock("unpack_compact", lambda: unpack_compact(compact, encoded))
     return {k: statistics.median(v) for k, v in times.items() if v}
 
 
@@ -285,6 +294,61 @@ def forward_costs(policy, states: Sequence[Tuple[object, str]],
                 statistics.fmean(n_tokens(e) for e in members)),
                 "n_states": len(members), "batch": B, "ms_per_call": med,
                 "ms_per_sample": med / B, "samples_per_s": 1000.0 * B / med})
+    return rows
+
+
+# ---------------------------------------------------------------------
+# Section D: inference-server throughput per serve thread
+# ---------------------------------------------------------------------
+
+def seam_costs(policy, states: Sequence[Tuple[object, str]],
+               batch_sizes: Sequence[int] = (16, 64), calls: int = 6) -> List[dict]:
+    """What one serve thread achieves per batch through the real seam
+    (tools/inference_seam.InferenceServer.infer_batch + output_to_wire):
+    the legacy protocol (raw in, full logits out) and the server-priors
+    protocol (raw + packed masks in, compact actions out). Reports
+    leaves per second and wire bytes per leaf. Encoding the leaves
+    (actor-side work) is excluded from the timing."""
+    import pickle
+    import torch
+    from tools.inference_seam import InferenceServer, RemoteEncoder, output_to_wire
+    enc = policy._inference_encoder
+    model = policy._inference_model
+    device = next(policy._model.parameters()).device
+    sync = (torch.cuda.synchronize if device.type == "cuda" else (lambda: None))
+    server = InferenceServer(model, enc, device=device)
+    renc = RemoteEncoder(enc.unit_type_to_id, enc.faction_to_id,
+                         relevant_set=bool(getattr(enc, "relevant_set_hexes", False)),
+                         server_priors=True)
+    lights = [renc.encode(gs) for gs, _ in states]
+    # Token-sorted batches: production batches are near-homogeneous
+    # (padding ratio 1.06 measured on the az legs); cycling the 200
+    # states in manifest order pads every batch to the largest map.
+    lights.sort(key=lambda le: len(le._raw.hex_xs) + len(le._raw.unit_ids))
+    rows = []
+    for proto in ("logits", "priors"):
+        items = [(le._raw, le._masks) if proto == "priors" else le._raw for le in lights]
+        for B in batch_sizes:
+            starts = [(c * B) % max(1, len(items) - B + 1) for c in range(calls)]
+            batches = [items[st:st + B] for st in starts]
+            tok = statistics.fmean(
+                len((it[0] if isinstance(it, tuple) else it).hex_xs)
+                + len((it[0] if isinstance(it, tuple) else it).unit_ids) + 2
+                for b in batches for it in b)
+            with torch.no_grad():
+                wires = [output_to_wire(o) for o in server.infer_batch(batches[0])]
+                sync()
+                ts = []
+                for b in batches:
+                    t0 = time.perf_counter()
+                    outs = server.infer_batch(b)
+                    wires = [output_to_wire(o) for o in outs]
+                    sync()
+                    ts.append((time.perf_counter() - t0) * 1000.0)
+            med = statistics.median(ts)
+            rows.append({"protocol": proto, "batch": B, "ms_per_batch": med,
+                         "tokens_mean": round(tok), "leaves_per_s": 1000.0 * B / med,
+                         "wire_bytes_per_leaf": len(pickle.dumps(wires, protocol=4)) // B})
     return rows
 
 
@@ -357,6 +421,13 @@ def markdown_report(result: dict) -> str:
     for r in result.get("forwards", []):
         lines.append(f"| {r['tokens_max']} | {r['batch']} | {r['ms_per_sample']:.2f} "
                      f"| {r['samples_per_s']:.0f} |")
+    if result.get("seam"):
+        lines += ["", "| protocol | batch | tokens (mean) | ms/batch | leaves/s | wire bytes/leaf |",
+                  "|---|---|---|---|---|---|"]
+        for r in result["seam"]:
+            lines.append(f"| {r['protocol']} | {r['batch']} | {r.get('tokens_mean', '-')} | "
+                         f"{r['ms_per_batch']:.1f} | {r['leaves_per_s']:.0f} | "
+                         f"{r['wire_bytes_per_leaf']} |")
     g = result.get("games", {})
     if g:
         lines += ["", "| match | games | s/game (median) | forwards A | games/h | games/$ |",
@@ -435,6 +506,10 @@ def main(argv) -> int:
     result["forwards"] = forward_costs(
         policy, states, batch_sizes=[int(b) for b in args.batch_sizes.split(",")],
         samples_per_config=args.samples_per_config)
+    result["seam"] = seam_costs(
+        policy, states, batch_sizes=[b for b in (16, 64)
+                                     if b in {int(x) for x in args.batch_sizes.split(",")}]
+        or (16,), calls=max(3, args.samples_per_config // 16))
     if args.games > 0:
         result["games"] = end_to_end(args.checkpoint, args.games_outdir, args.games,
                                      args.jobs, args.device, args.dollars_per_hour,

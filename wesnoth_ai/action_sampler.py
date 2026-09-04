@@ -531,6 +531,10 @@ def enumerate_legal_actions_with_priors(
     target hex; end_turn last. Priors are products of the same
     float32 softmax outputs. Caller MUST be in `torch.no_grad()`.
     """
+    compact = getattr(output, "legal_compact", None)
+    if compact is not None:
+        from wesnoth_ai.server_priors import unpack_compact
+        return unpack_compact(compact, encoded)
     if _ENUM_REFERENCE:
         return _enumerate_legal_actions_reference(
             encoded, output, game_state, decision_step=decision_step)

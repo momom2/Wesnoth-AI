@@ -781,6 +781,101 @@ class GameStateEncoder(nn.Module):
             visible_unit_ids=frozenset(raw.unit_ids),  # opt #3
         )
 
+    def encode_from_raw_padded(
+        self,
+        raws: List[RawEncoded],
+        *,
+        device: Optional[torch.device] = None,
+    ):
+        """Server fast path (2026-09-04): the padded token streams the
+        model's `forward_streams` consumes, built straight from the
+        RawEncodeds -- no per-sample EncodedState, no position dicts
+        (the inference server never reads them; they cost ~1 ms per
+        leaf of the serve thread). Returns (hex [B, H_max, d],
+        unit [B, U_max, d], recruit [B, R_max, d], global [B, 1, d],
+        end_turn [B, 1, d], sizes [(U, R, H)])."""
+        if device is None:
+            device = next(self.parameters()).device
+        emb = self._embed_streams(raws, device)
+        d = self.d_model
+        B = len(raws)
+
+        def _pad(cat, lengths):
+            if cat is None:
+                return torch.zeros(B, 0, d, device=device)
+            return torch.nn.utils.rnn.pad_sequence(
+                list(torch.split(cat, lengths)), batch_first=True)
+
+        hex_b = _pad(emb["hex"], emb["Hs"])
+        unit_b = _pad(emb["unit"], emb["Us"])
+        recruit_b = _pad(emb["recruit"], emb["Rs"])
+        global_b = emb["global"].unsqueeze(1)                         # [B, 1, d]
+        end_b = self.end_turn_token.view(1, 1, -1).expand(B, 1, d)
+        sizes = list(zip(emb["Us"], emb["Rs"], emb["Hs"]))
+        return hex_b, unit_b, recruit_b, global_b, end_b, sizes
+
+    def _embed_streams(self, raws: List[RawEncoded], device) -> dict:
+        """The trained embeddings of every stream for a batch, as
+        concatenated [total, d] tensors plus per-sample lengths (None
+        for an all-empty stream). Shared by encode_from_raw_batch and
+        encode_from_raw_padded."""
+        d = self.d_model
+        nb = device.type != "cpu"
+        _pin = device.type == "cuda"   # [gpu-perf B3] see encode_from_raw
+        Hs = [r.hex_xs.shape[0] for r in raws]
+        Us = [r.unit_xs.shape[0] for r in raws]
+        Rs = [r.recruit_type_ids.shape[0] for r in raws]
+
+        def _cat_to_dev(arrays, dtype):
+            cat = np.concatenate(arrays) if arrays else np.zeros(0, dtype=dtype)
+            t = torch.from_numpy(cat)
+            if device.type != "cpu":
+                if _pin:
+                    t = t.pin_memory()
+                t = t.to(device, non_blocking=nb)
+            return t
+
+        out = {"Hs": Hs, "Us": Us, "Rs": Rs, "hex": None, "unit": None,
+               "recruit": None, "unit_is": None, "recruit_is": None}
+        if sum(Hs):
+            hx = _cat_to_dev([r.hex_xs for r in raws], np.int64)
+            hy = _cat_to_dev([r.hex_ys for r in raws], np.int64)
+            ht = _cat_to_dev([r.hex_terrain_ids for r in raws], np.int64)
+            hm = _cat_to_dev([r.hex_modifier_flags for r in raws], np.float32)
+            hd = _cat_to_dev([r.hex_dynamic_flags for r in raws], np.float32)
+            out["hex"] = (self.pos_x_embed(hx) + self.pos_y_embed(hy)
+                          + self.terrain_embed(ht) + self.modifier_proj(hm)
+                          + self.dynamic_flag_proj(hd))
+        if sum(Us):
+            ut = _cat_to_dev([r.unit_type_ids for r in raws], np.int64)
+            us_ids = _cat_to_dev([r.unit_side_ids for r in raws], np.int64)
+            ux = _cat_to_dev([r.unit_xs for r in raws], np.int64)
+            uy = _cat_to_dev([r.unit_ys for r in raws], np.int64)
+            uf = _cat_to_dev([r.unit_feats for r in raws], np.float32)
+            out["unit"] = (self.unit_type_embed(ut) + self.side_embed(us_ids)
+                           + self.pos_x_embed(ux) + self.pos_y_embed(uy)
+                           + self.unit_feat_proj(uf))
+            out["unit_is"] = _cat_to_dev([r.unit_is_ours for r in raws], np.float32)
+        if sum(Rs):
+            rt = _cat_to_dev([r.recruit_type_ids for r in raws], np.int64)
+            rs = _cat_to_dev([r.recruit_side_ids for r in raws], np.int64)
+            rx = _cat_to_dev([r.recruit_xs for r in raws], np.int64)
+            ry = _cat_to_dev([r.recruit_ys for r in raws], np.int64)
+            rf = _cat_to_dev([r.recruit_feats for r in raws], np.float32)
+            out["recruit"] = (self.unit_type_embed(rt) + self.side_embed(rs)
+                              + self.pos_x_embed(rx) + self.pos_y_embed(ry)
+                              + self.unit_feat_proj(rf))
+            out["recruit_is"] = _cat_to_dev([r.recruit_is_ours for r in raws], np.float32)
+        gf = torch.from_numpy(np.stack([r.global_feats for r in raws]))
+        if device.type != "cpu":
+            gf = gf.to(device, non_blocking=nb)
+        our_fids = torch.tensor([r.our_faction_id for r in raws], device=device, dtype=torch.long)
+        them_fids = torch.tensor([r.their_faction_id for r in raws], device=device, dtype=torch.long)
+        out["global"] = (self.global_proj(gf) + self.our_faction_embed(our_fids)
+                         + self.their_faction_embed(them_fids))          # [B, d]
+        del d
+        return out
+
     def encode_from_raw_batch(
         self,
         raws: List[RawEncoded],
@@ -811,120 +906,26 @@ class GameStateEncoder(nn.Module):
         if device is None:
             device = next(self.parameters()).device
         d = self.d_model
-        # Async H2D transfers via non_blocking=True. On DML the queue
-        # can grow unbounded; we used to force this False as a
-        # mitigation but it cost ~2× DML speed. The ablation showed
-        # that the train_step crash was driven mainly by the
-        # B=4 backward path + lack of rollout-to-train_step sync,
-        # not by the async transfers themselves. Keeping nb=True
-        # here; stability comes from `train_batch_size=1` +
-        # `dml_sync` at the start of `trainer.step` (see device.py).
-        nb = device.type != "cpu"
-        _pin = device.type == "cuda"   # [gpu-perf B3] see encode_from_raw
-
-        Hs = [r.hex_xs.shape[0] for r in raws]
-        Us = [r.unit_xs.shape[0] for r in raws]
-        Rs = [r.recruit_type_ids.shape[0] for r in raws]
-        H_total = sum(Hs)
-        U_total = sum(Us)
-        R_total = sum(Rs)
         B = len(raws)
+        emb = self._embed_streams(raws, device)
+        Hs, Us, Rs = emb["Hs"], emb["Us"], emb["Rs"]
 
-        def _cat_to_dev(arrays, dtype):
-            # np.concatenate handles the all-empty case via the
-            # explicit dtype kwarg.
-            cat = np.concatenate(arrays) if arrays else np.zeros(0, dtype=dtype)
-            t = torch.from_numpy(cat)
-            if device.type != "cpu":
-                if _pin:
-                    t = t.pin_memory()
-                t = t.to(device, non_blocking=nb)
-            return t
+        def _per(cat, lengths):
+            if cat is None:
+                return [torch.zeros(1, 0, d, device=device) for _ in raws]
+            return [t.unsqueeze(0) for t in torch.split(cat, lengths)]
 
-        # ---- hex stream ----
-        if H_total == 0:
-            hex_per = [torch.zeros(1, 0, d, device=device) for _ in raws]
-        else:
-            hx = _cat_to_dev([r.hex_xs for r in raws], np.int64)
-            hy = _cat_to_dev([r.hex_ys for r in raws], np.int64)
-            ht = _cat_to_dev([r.hex_terrain_ids for r in raws], np.int64)
-            hm = _cat_to_dev([r.hex_modifier_flags for r in raws],
-                             np.float32)
-            hd = _cat_to_dev([r.hex_dynamic_flags for r in raws],
-                             np.float32)
-            hex_emb = (
-                self.pos_x_embed(hx) + self.pos_y_embed(hy)
-                + self.terrain_embed(ht) + self.modifier_proj(hm)
-                + self.dynamic_flag_proj(hd)
-            )  # [H_total, d]
-            # torch.split with explicit sizes preserves order and
-            # emits a (possibly empty) tensor per requested length.
-            hex_splits = torch.split(hex_emb, Hs)
-            hex_per = [s.unsqueeze(0) for s in hex_splits]
+        def _per_flag(cat, lengths):
+            if cat is None:
+                return [torch.zeros(1, 0, device=device, dtype=torch.float32) for _ in raws]
+            return [t.unsqueeze(0) for t in torch.split(cat, lengths)]
 
-        # ---- unit stream ----
-        if U_total == 0:
-            unit_per      = [torch.zeros(1, 0, d, device=device) for _ in raws]
-            unit_is_per   = [torch.zeros(1, 0, device=device,
-                                         dtype=torch.float32) for _ in raws]
-        else:
-            ut     = _cat_to_dev([r.unit_type_ids for r in raws], np.int64)
-            us_ids = _cat_to_dev([r.unit_side_ids for r in raws], np.int64)
-            ux     = _cat_to_dev([r.unit_xs for r in raws], np.int64)
-            uy     = _cat_to_dev([r.unit_ys for r in raws], np.int64)
-            uf     = _cat_to_dev([r.unit_feats for r in raws], np.float32)
-            unit_emb = (
-                self.unit_type_embed(ut) + self.side_embed(us_ids)
-                + self.pos_x_embed(ux) + self.pos_y_embed(uy)
-                + self.unit_feat_proj(uf)
-            )  # [U_total, d]
-            unit_per = [s.unsqueeze(0) for s in torch.split(unit_emb, Us)]
-            unit_is_cat = _cat_to_dev(
-                [r.unit_is_ours for r in raws], np.float32)
-            unit_is_per = [s.unsqueeze(0)
-                           for s in torch.split(unit_is_cat, Us)]
-
-        # ---- recruit stream ----
-        if R_total == 0:
-            recruit_per    = [torch.zeros(1, 0, d, device=device) for _ in raws]
-            recruit_is_per = [torch.zeros(1, 0, device=device,
-                                          dtype=torch.float32) for _ in raws]
-        else:
-            rt = _cat_to_dev([r.recruit_type_ids for r in raws], np.int64)
-            rs = _cat_to_dev([r.recruit_side_ids for r in raws], np.int64)
-            rx = _cat_to_dev([r.recruit_xs for r in raws], np.int64)
-            ry = _cat_to_dev([r.recruit_ys for r in raws], np.int64)
-            rf = _cat_to_dev([r.recruit_feats for r in raws], np.float32)
-            recruit_emb = (
-                self.unit_type_embed(rt) + self.side_embed(rs)
-                + self.pos_x_embed(rx) + self.pos_y_embed(ry)
-                + self.unit_feat_proj(rf)
-            )  # [R_total, d]
-            recruit_per = [s.unsqueeze(0)
-                           for s in torch.split(recruit_emb, Rs)]
-            recruit_is_cat = _cat_to_dev(
-                [r.recruit_is_ours for r in raws], np.float32)
-            recruit_is_per = [s.unsqueeze(0)
-                              for s in torch.split(recruit_is_cat, Rs)]
-
-        # ---- global ----
-        # Stack per-state 6-elem floats into a [B, GLOBAL_FEAT_DIM]
-        # matrix and run global_proj once. Faction lookup is a
-        # single int64 lookup per side.
-        gf_np = np.stack([r.global_feats for r in raws])  # [B, GLOBAL_FEAT_DIM]
-        gf = torch.from_numpy(gf_np)
-        if device.type != "cpu":
-            gf = gf.to(device, non_blocking=nb)
-        global_proj = self.global_proj(gf)  # [B, d]
-        our_fids  = torch.tensor([r.our_faction_id   for r in raws],
-                                 device=device, dtype=torch.long)
-        them_fids = torch.tensor([r.their_faction_id for r in raws],
-                                 device=device, dtype=torch.long)
-        global_emb = (
-            global_proj
-            + self.our_faction_embed(our_fids)
-            + self.their_faction_embed(them_fids)
-        )  # [B, d]
+        hex_per = _per(emb["hex"], Hs)
+        unit_per = _per(emb["unit"], Us)
+        recruit_per = _per(emb["recruit"], Rs)
+        unit_is_per = _per_flag(emb["unit_is"], Us)
+        recruit_is_per = _per_flag(emb["recruit_is"], Rs)
+        global_emb = emb["global"]
 
         # ---- assemble per-sample EncodedState objects ----
         end_turn_token = self.end_turn_token.view(1, 1, -1)

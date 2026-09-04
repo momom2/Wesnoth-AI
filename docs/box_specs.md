@@ -201,3 +201,40 @@ CPU-side ceiling: token-bucketed padding, pinned transfers, output
 splitting off the hot path); persistent worker processes so a game
 does not pay checkpoint load and compile.
 
+## Phase-1 iterations (2026-09-04, box 49866047, same host family as the baseline)
+
+Same harness, same 200 positions, Rust wheel built (`scripts/bench_box.sh`
+builds it). Records: `training/metrics/bench_pipeline/{fwdbatch_v2,
+fwdbatch_bf16,seam_fast,seam_sorted}.{json,md,log}`. One factor per
+row; each row is measured against the previous one.
+
+| change | component or number | before | after |
+|---|---|---|---|
+| Rust wheel present (the baseline ran the Python fallback) | legality masks, ms | 2.20 | 0.76 |
+| vectorized enumeration (`enumerate_legal_actions_with_priors`) | enumerate priors incl. masks, ms | 6.90 | 2.53 |
+| batched forward with launch count independent of B (`forward_padded`) | forward, samples/s, batch 16, <= 714 tokens | 602 | 679 |
+| bf16 autocast on the batched path (it ran fp32 eager) | same | 679 | 1,584 (1,730 at batch 64; 1,170 at <= 1,018 tokens) |
+| server-side priors protocol, first version | serve thread, leaves/s, batch 16, mixed sizes | 421 (logits protocol) | 320 |
+| server fast path: padded streams straight from RawEncoded, GPU nonzero extraction | same | 320 | 393 |
+| token-sorted batches in the seam benchmark (production pads at ~1.06x; the mixed-size benchmark padded every batch to the largest map) | serve thread, leaves/s, batch 16, ~660 tokens | 352 (logits, mixed) | 1,080 priors / 976 logits |
+| wire bytes per leaf | | 60-87 KB | 9-15 KB |
+
+Actor-side cost of the priors protocol: pack_masks 1.14 ms per leaf
+(the mask build itself is 0.76 of it), unpack_compact 0.49 ms.
+
+Readings:
+- The batched forward's ceiling was precision and eagerness, not
+  launches: the per-sample loop rewrite bought 13%, bf16 bought 2.3x.
+  The single-sample path had bf16 and compile all along; the batched
+  path had neither. Compile on the padded path is untested.
+- A serve thread now runs at ~1,000 leaves/s for typical states, so
+  two threads saturate the GPU's ~1,600/s (batch 16, bf16). Against
+  the az legs' 300-370 leaves/s per box, that is 3-4x, to be confirmed
+  end to end through the actor pool (`ActorPool.server_priors`).
+- The remaining per-leaf costs are actor-side (encode_raw 1.35 ms,
+  masks 0.76, pack 0.38, unpack 0.49, sim step 0.64) and the GPU
+  itself. Next levers: compile the padded path; sort or bucket
+  batches by length in the serve thread; Rust encode_raw; persistent
+  eval worker processes (a 35 s raw game carries checkpoint load and
+  compile).
+

@@ -209,9 +209,18 @@ class InferenceServer:
             out = self._model(enc)
         return move_model_output(out, self._out_dev)
 
-    def infer_batch(self, raws: List[RawEncoded]) -> List[ModelOutput]:
+    def infer_batch(self, raws) -> List[ModelOutput]:
+        """`raws`: RawEncoded items, or (RawEncoded, PackedMasks) pairs
+        for server-side priors (wesnoth_ai/server_priors.py). Mixed
+        lists are refused: one batch, one protocol."""
         if not raws:
             return []
+        paired = [isinstance(r, tuple) for r in raws]
+        if any(paired):
+            if not all(paired):
+                raise ValueError("infer_batch: mixed raw and (raw, masks) items")
+            return self._infer_with_priors([r for r, _ in raws],
+                                           [m for _, m in raws])
         with torch.no_grad():
             encs = self._encoder.encode_from_raw_batch(
                 raws, device=self._device)
@@ -226,6 +235,41 @@ class InferenceServer:
                 # serve ceiling measured on the 4090, 2026-07-22).
                 return batched_outputs_to_cpu(outs)
         return [move_model_output(o, self._out_dev) for o in outs]
+
+    def _infer_with_priors(self, raws, packs) -> List[ModelOutput]:
+        """Batched forward + masked softmaxes on the device; replies
+        carry the compact legal actions, value and cliffness, with
+        placeholder logits (the actor never reads them)."""
+        from wesnoth_ai.server_priors import batched_priors
+        model = self._model
+        bf16 = (getattr(model, "infer_autocast_bf16", False)
+                and self._device.type == "cuda")
+        with torch.no_grad():
+            streams = self._encoder.encode_from_raw_padded(raws, device=self._device)
+            if bf16:
+                with torch.autocast("cuda", dtype=torch.bfloat16):
+                    padded = model.forward_streams(*streams).float32()
+            else:
+                padded = model.forward_streams(*streams)
+            compact = batched_priors(padded, packs)
+            small = {k: getattr(padded, k).cpu() for k in
+                     ("value", "value_logits", "cliffness")}
+            aux = padded.aux_score.cpu() if padded.aux_score is not None else None
+            ml = padded.moves_left.cpu() if padded.moves_left is not None else None
+        outs = []
+        cpu = torch.device("cpu")
+        for b, (U, R, H) in enumerate(padded.sizes):
+            A = U + R + 1
+            outs.append(ModelOutput(
+                actor_logits=torch.zeros(1, A), actor_kind=padded.actor_kind[b:b + 1, :A],
+                type_logits=torch.zeros(1, A, 0), target_logits=torch.zeros(1, A, 0),
+                weapon_logits=torch.zeros(1, A, 0),
+                value=small["value"][b:b + 1], value_logits=small["value_logits"][b:b + 1],
+                cliffness=small["cliffness"][b:b + 1], num_units=U, num_recruits=R,
+                aux_score=aux[b:b + 1] if aux is not None else None,
+                moves_left=ml[b:b + 1] if ml is not None else None,
+                legal_compact=compact[b]))
+        return [move_model_output(o, cpu) for o in outs]
 
 
 # ---------------------------------------------------------------------
@@ -242,10 +286,14 @@ class RemoteEncoder:
         self, type_to_id: Dict[str, int], faction_to_id: Dict[str, int],
         *, device: Optional[torch.device] = None,
         relevant_set: bool = False,
+        server_priors: bool = False,
     ):
         self._type_to_id = type_to_id
         self._faction_to_id = faction_to_id
         self._device = device or torch.device("cpu")
+        # Server-side priors: the actor packs the legality masks at
+        # encode time and RemoteModel ships them with the leaf.
+        self._server_priors = bool(server_priors)
         # Action-space basis (project round-2 C3: hardcoded False
         # made pool actors encode full-board while an inherited
         # --relevant-set-hexes put the learner on the relevant-set
@@ -263,6 +311,9 @@ class RemoteEncoder:
         # Stash the wire payload for RemoteModel; EncodedState is a
         # plain dataclass (no __slots__), so this attribute sticks.
         enc._raw = raw
+        if self._server_priors:
+            from wesnoth_ai.server_priors import pack_masks
+            enc._masks = pack_masks(enc, game_state)
         return enc
 
 
@@ -274,8 +325,16 @@ class RemoteModel:
     def __init__(self, transport: InferenceTransport):
         self._t = transport
 
+    @staticmethod
+    def _payload(encoded: EncodedState):
+        masks = getattr(encoded, "_masks", None)
+        return encoded._raw if masks is None else (encoded._raw, masks)
+
     def __call__(self, encoded: EncodedState) -> ModelOutput:
-        return self._t.infer(encoded._raw)
+        payload = self._payload(encoded)
+        if isinstance(payload, tuple):
+            return self._t.infer_batch([payload])[0]
+        return self._t.infer(payload)
 
     def forward_batch(self, encoded_list: List[EncodedState]) -> List[ModelOutput]:
-        return self._t.infer_batch([e._raw for e in encoded_list])
+        return self._t.infer_batch([self._payload(e) for e in encoded_list])

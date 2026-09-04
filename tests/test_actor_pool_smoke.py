@@ -53,3 +53,31 @@ def test_actor_pool_plays_games_end_to_end():
     assert len(exps) >= 1, "pool shipped no experiences"
     for o in outcomes:
         assert o.turns >= 1
+
+
+@pytest.mark.slow
+def test_actor_pool_server_priors_end_to_end():
+    """Same drive with server-side priors on: actors ship packed masks,
+    the server returns compact legal actions (wesnoth_ai/server_priors)."""
+    from tools.actor_pool import ActorPool
+
+    policy = TransformerPolicy(device=torch.device("cpu"), d_model=32,
+                               num_layers=1, num_heads=2, d_ff=64)
+    cfg = MCTSConfig(n_simulations=2, batch_size=1)
+    pool = ActorPool(
+        policy, 2, cfg,
+        scenario_opts=dict(mini_maps=True, mini_ratio=1.0,
+                           fogless_ratio=0.0, midgame_ratio=0.0,
+                           ladder_ratio=0.0),
+        max_turns=4,
+        iteration_timeout=600.0,
+    )
+    pool.server_priors = True
+    pool.start()
+    try:
+        outcomes, exps = pool.run_iteration(0, 2, base_seed=7)
+    finally:
+        pool.shutdown()
+    assert len(outcomes) >= 1, "pool produced no completed games"
+    assert len(exps) >= 1, "pool shipped no experiences"
+    assert all(e.visit_counts for e in exps)
