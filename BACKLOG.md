@@ -56,10 +56,20 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
      probes keep the model's precision.
    - Coalescing 64 leaves per server batch instead of 16: 364 leaves/s
      against 320 (`pool_mb64`), so per-batch Python is a minor cost.
-   - NEXT: py-spy profile of the server process under load (queued on
-     the box) decides between serving from several processes and
-     trimming the per-batch Python; torch.compile the padded path;
-     length-bucketed batches.
+   - PROFILED (docs/box_specs.md, server profile): the server is
+     under-fed, not saturated. Serve threads wait on the queue 53% of
+     the time, GPU at 49%, actors at ~50% CPU: 19 actors with one
+     16-leaf request in flight each cannot fill the pipeline. The GIL
+     is held ~25% of wall time; half of that was unpickling requests.
+   - SHIPPED: packed requests (`wesnoth_ai/leaf_wire.py`, one buffer
+     per request); server torch threads capped at 4 (358 leaves/s
+     against 279-320 uncapped, edge of the ~13% run-to-run noise).
+   - NEXT: more requests in flight (actor count on the same quota, or
+     two in-flight leaf batches per actor); then GPU efficiency of the
+     forward (compile or CUDA graphs, length buckets); then serving
+     from several processes if the server's per-leaf CPU becomes the
+     ceiling. Measurements of 28/38 actors and of the packed requests
+     were queued on the box at the end of this session.
    - Persistent eval workers shipped (`run_elo_batch
      --persistent-workers`, tools/eval_workers.py): 20 seed-vs-seed
      games at 10 concurrent in 97 s against 408 s one-process

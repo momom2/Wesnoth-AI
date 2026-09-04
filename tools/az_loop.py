@@ -299,6 +299,10 @@ def main(argv) -> int:
     device = (torch.device("cuda")
               if args.device == "cuda" and torch.cuda.is_available()
               else torch.device("cpu"))
+    # Learner + inference server share this process; the actors do the
+    # CPU work. Cap torch's intra-op pool (default: every hardware
+    # thread of the host, far beyond the cgroup quota). See bench_pool.
+    torch.set_num_threads(4)
     dev_str = "cuda" if device.type == "cuda" else "cpu"
     ckpt_in = args.campaign if args.campaign.exists() else args.seed_checkpoint
     base = _load_policy(ckpt_in, device, label="az")

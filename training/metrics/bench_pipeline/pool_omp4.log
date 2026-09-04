@@ -1,0 +1,35 @@
+2026-09-04 20:37:26,611 transformer_policy INFO TransformerPolicy device: cuda
+2026-09-04 20:37:27,664 transformer_policy INFO inference bf16 autocast ON
+2026-09-04 20:37:27,712 transformer_policy INFO Loaded checkpoint from training/checkpoints/seed.pt (decision_step=2809659)
+2026-09-04 20:37:27,717 eval_sim INFO [pool] loaded seed.pt
+2026-09-04 20:37:27,758 actor_pool INFO actor pool started: 19 actors, max_batch=16
+2026-09-04 20:50:38,018 actor_pool INFO iter 0: serve stages (2 threads): wait=521.4s infer=985.3s wire=63.7s put=9.5s leaves/batch=16.1 throughput=358 leaves/s
+2026-09-04 20:50:38,018 actor_pool INFO iter 0: pool served 282929 forwards, 16 games, 8832 experiences, decision_step 2809659 -> 2818491
+2026-09-04 20:50:38,018 actor_pool INFO iter 0: game finish times p50=583s p90=700s max=790s | tokens/leaf=1191 pad_ratio=1.11
+{
+ "server_priors": true,
+ "actors": 19,
+ "games_requested": 16,
+ "infer_bf16": true,
+ "sims": 32,
+ "leaf_batch": 16,
+ "max_turns": 30,
+ "max_batch": 16,
+ "games_completed": 16,
+ "decisive": 13,
+ "abandoned": 0,
+ "experiences": 8832,
+ "gen_seconds": 790.2523594908416,
+ "wall_seconds": 791.6876450572163,
+ "forwards": 282929,
+ "decisions": 8832,
+ "leaves_per_s": 358.02360676568014,
+ "tokens_per_leaf": 1191.165925020058,
+ "pad_ratio": 1.1120342328349022,
+ "game_finish_p50_s": 582.8811691231094,
+ "game_finish_max_s": 789.5645428588614,
+ "mean_turns": 22.1875,
+ "k_median": 12,
+ "games_per_hour": 72.88810885311572,
+ "games_per_dollar": 220.8730571306537
+}

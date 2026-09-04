@@ -254,6 +254,7 @@ each, max 30 turns, 25-minute cap. Records:
 | on | on, 64 leaves coalesced per batch (was 16) | 364 | 16 / 16 | 747 | 77 | 1,106 / 335 |
 | on | on, 64 coalesced, 14 actors instead of 19 | 315 | 16 / 16 | 886 | 65 | 1,109 / 599 |
 | on | on (rerun of row 3, same seed, 45 min later) | 279 | 16 / 16 | 1,071 | 54 | 1,081 / 984 |
+| on | on, server torch threads capped at 4 (default 64) | 358 | 16 / 16 | 790 | 73 | 985 / 521 |
 
 Tokens per leaf 1,150-1,300, padding ratio 1.11 (1.44 with 64-leaf
 coalescing, which reached 30 leaves per batch on average), K median 10-12,

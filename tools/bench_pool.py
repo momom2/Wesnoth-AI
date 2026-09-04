@@ -117,6 +117,11 @@ def main(argv) -> int:
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
     import torch
     from tools.eval_sim import _load_policy
+    # The server process runs two serve threads and a GPU; torch's
+    # default intra-op pool (64 threads on the 128-thread Vast hosts,
+    # against a ~17-core cgroup quota) only burns quota. 2026-09-04:
+    # 358 leaves/s capped against 279-320 uncapped (docs/box_specs.md).
+    torch.set_num_threads(4)
     device = torch.device("cuda") if args.device == "cuda" and torch.cuda.is_available() \
         else torch.device("cpu")
     if (args.infer_bf16 or args.infer_compile) and device.type != "cuda":
