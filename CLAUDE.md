@@ -85,12 +85,22 @@ alone accepts a level swing (+0.48 -> -0.38); az3 added a level cap
 (2 atoms/step) and held K 7-11 for 8 iterations, but the cap
 throttled EVERY step to 1/8-1/16 (the proposal keeps a level
 component from momentum), so the policy heads moved by KL ~1e-4
-per step -- no policy learning possible. **az4 (running)** removes
-the level from search instead: `MCTSConfig.value_center` = the
-head's mean value on the latest held-out states, subtracted from
-every value search reads; cap off; steps accepted at full size
-(per-game held-out delta within 2 SE); the Elo eval applies the
-same center to the pinned player. Pre-registered predictions and
+per step -- no policy learning possible. az4 removed the level from
+search instead (`MCTSConfig.value_center` = the head's mean value,
+subtracted from every value search reads; cap off; full-size steps
+accepted when the held-out games are not significantly worse):
+steps went through but K fell to 4 -- with the level gone, PUCT
+falls back on the priors where end_turn is the single largest
+action, and the visit targets teach more end_turn. **The seed's
++0.44 level was pricing the tempo that end_turn hands over.**
+**az5 (running, from the az3 iteration-7 checkpoint): centering +
+`--tempo-bonus 0.44`** (search sees `V - mean_V + 0.44`;
+design_constants.md): K 11-14, 17-20/19-20 decided, full steps,
+KL ~0.0015/step, held-out loss improving. First pin (40 raw + 40
+searched games vs the seed, `raw_vs_seed_wdl` /
+`search_vs_seed_wdl` in `/workspace/az_history.csv`, escrowed to
+HF `tier-b/arm_az5_20260904/az_history.csv`) lands after
+iteration 10, ~07:00 UTC 2026-09-04. Pre-registered predictions and
 the record: `docs/az_leg_20260903.md`. Ops: `scripts/az_stop.sh`
 (launcher first, then loop, daemons, orphan sweep);
 `LAUNCH_SKIP_TESTS=1` for resumes (a flaky old-loop test stopped
