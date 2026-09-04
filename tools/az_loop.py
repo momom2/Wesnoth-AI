@@ -26,6 +26,7 @@ K median < 10 for 3 consecutive iterations (exit 7 + ABORTED_7).
 from __future__ import annotations
 
 import argparse
+import collections
 import csv
 import gc
 import json
@@ -374,12 +375,20 @@ def main(argv) -> int:
             # decayed 2x over iterations 2-5 and a process restart
             # restored it (2026-09-03); these say whether memory grows.
             gc_total, gc_gen2, gc_n2 = gc_meter.take()
+            live = gc.get_objects()
             row.update(
                 gpu_reserved_mb=(torch.cuda.memory_reserved() / 2**20
                                  if device.type == "cuda" else None),
                 rss_mb=_rss_mb(), gc_seconds=gc_total,
                 gc_gen2_seconds=gc_gen2, gc_gen2_count=gc_n2,
-                live_objects=len(gc.get_objects()))
+                live_objects=len(live))
+            # Who holds the heap: the live heap grew ~0.5M objects and
+            # RSS ~1.7 GB per iteration (az5); the top types name the
+            # retainer.
+            top = collections.Counter(type(o).__name__ for o in live).most_common(8)
+            del live
+            log.info(f"iter {it}: live objects by type: "
+                     + ", ".join(f"{n}={c}" for n, c in top))
             tot_actions = sum(sum(o.action_counts.values()) for o in outcomes) or 1
             for k in ("attack", "end_turn", "move", "recruit"):
                 row[f"action_{k}_pct"] = 100.0 * sum(
