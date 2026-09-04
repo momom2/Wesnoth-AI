@@ -411,3 +411,52 @@ had it at -367), and the 5M 2291k checkpoint is equal to the 15M seed
 (mcts:32: +223 for the seed). Both earlier gaps were properties of
 the search-and-sampling procedure, not of the weights. Each edge is
 40 games; none of these differences is resolved better than +-55.
+
+## Whole-pool profile: actors and server together (2026-09-05, box 49875606)
+
+py-spy as the parent of `bench_pool.py` with `--subprocesses`, 50 Hz,
+idle samples included, 16 actors and 16 games, priors + bf16, packed
+requests, server threads capped at 4 (throughput under sampling 200
+leaves/s). Records: `training/metrics/bench_pipeline/pool_profile/`
+(`prof_pool_all_summary.txt` per process and thread).
+
+- Every actor's main thread: 95% of samples inside the reply receive
+  (`multiprocessing/connection.py:395`); its own work (unpack, tree,
+  masks, encode) is under 3%.
+- Serve threads: waiting on the request queue 11-13%; the first
+  host-to-device copy in `batched_priors` (where the thread waits for
+  the queued forward on the GPU) 35%; padded embed 9%; forward
+  launches ~10%; the rest of the priors extraction ~12%; request
+  unpickling ~6%; wire 1%.
+
+Reading, which corrects the section above: the server is the ceiling
+and the actors' own per-leaf work is small. The earlier "53% waiting"
+was an average over an iteration whose second half ran with most
+actors already finished (median game finish at 40-55% of the wall);
+in the fed phase the serve threads are busy and, inside them, the
+GPU time per batch is the largest item. Consequences: (1) throughput
+must be measured in the saturated window (the pool now logs the best
+60-s rate, `saturated_leaves_per_s` in the bench records); (2) the GPU
+levers of docs/gpu_forward_design_20260904.md apply now, in the
+order given there (staged priors shipped, packed trunk, compiled
+tensor-only forward, length buckets); (3) more serve threads or serve
+processes overlap the serve thread's CPU work with the GPU wait.
+
+## Model cost benchmark rows (2026-09-05, box 49875606)
+
+`tools/bench_model_cost.py` on the 200 bench states, batch 16, bf16,
+`forward_batch` (per-sample padding inside the call; its floor is
+higher than the seam benchmark's `forward_streams` path).
+
+| row | tokens mean | ms per 16-leaf batch | leaves/s | GFLOP per leaf |
+|---|---|---|---|---|
+| full board | 893 | 34.7 | 421 | 35.1 |
+| relevant set | 334 | 26.3 | 610 | 10.8 |
+| hex stream cut to 300 | 327 | 25.9 | 619 | 10.6 |
+| cut to 600 | 626 | 30.7 | 515 | 22.5 |
+| cut to 900 | 813 | 34.4 | 472 | 31.1 |
+
+Only about 9 ms of the 35 scale with the token count on this path;
+the fixed ~26 ms is the per-sample padding and launch work that the
+seam path avoids. The token dependence is what the study needed; the
+absolute floor belongs to the server path's own levers.

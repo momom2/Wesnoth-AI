@@ -1,0 +1,73 @@
+py-spy> Sampling process 50 times a second for 1500 seconds. Press Control-C to exit.
+
+2026-09-04 22:51:45,075 transformer_policy INFO TransformerPolicy device: cuda
+2026-09-04 22:51:46,499 transformer_policy INFO inference bf16 autocast ON
+2026-09-04 22:51:46,649 transformer_policy INFO Loaded checkpoint from training/checkpoints/seed.pt (decision_step=2809659)
+2026-09-04 22:51:46,654 eval_sim INFO [pool] loaded seed.pt
+2026-09-04 22:51:46,771 actor_pool INFO actor pool started: 16 actors, max_batch=16
+py-spy> 1.02s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 1.36s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 1.33s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 1.58s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 1.31s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 1.02s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 1.01s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 1.01s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 1.42s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 1.81s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 2.08s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 1.91s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 1.60s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 1.37s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 1.21s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 1.20s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 1.24s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 1.01s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 1.11s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 1.15s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 1.43s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 1.64s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 1.83s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 1.91s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 2.19s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 2.49s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 1.89s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 1.71s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 1.74s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 1.23s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 1.19s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+2026-09-04 23:14:46,307 actor_pool INFO iter 0: serve stages (2 threads): wait=359.8s infer=2360.0s wire=37.9s put=0.6s leaves/batch=15.6 throughput=200 leaves/s
+2026-09-04 23:14:46,308 actor_pool INFO iter 0: pool served 275620 forwards, 16 games, 8594 experiences, decision_step 2809659 -> 2818253
+2026-09-04 23:14:46,308 actor_pool INFO iter 0: game finish times p50=1059s p90=1230s max=1379s | tokens/leaf=1194 pad_ratio=1.10
+{
+ "truncated": false,
+ "server_priors": true,
+ "actors": 16,
+ "games_requested": 16,
+ "infer_bf16": true,
+ "sims": 32,
+ "leaf_batch": 16,
+ "max_turns": 30,
+ "max_batch": 16,
+ "games_completed": 16,
+ "decisive": 12,
+ "abandoned": 0,
+ "experiences": 8594,
+ "gen_seconds": 1379.525904797949,
+ "wall_seconds": 1380.807743981015,
+ "forwards": 275620,
+ "decisions": 8594,
+ "leaves_per_s": 199.793276111309,
+ "tokens_per_leaf": 1193.5507764313186,
+ "pad_ratio": 1.1016873254846813,
+ "game_finish_p50_s": 1058.603810109198,
+ "game_finish_max_s": 1378.7347076740116,
+ "mean_turns": 23.0,
+ "k_median": 12,
+ "games_per_hour": 41.75347472611349,
+ "games_per_dollar": 126.52568098822269
+}
+
+py-spy> Stopped sampling because process exited
+py-spy> Wrote raw flamegraph data to '/workspace/bench/prof_pool_all.txt'. Samples: 4871740 Errors: 23077
+py-spy> You can use the flamegraph.pl script from https://github.com/brendangregg/flamegraph to generate a SVG

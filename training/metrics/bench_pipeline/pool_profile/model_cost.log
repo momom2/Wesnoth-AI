@@ -1,0 +1,18 @@
+2026-09-04 23:15:06,766 transformer_policy INFO TransformerPolicy device: cuda
+2026-09-04 23:15:08,270 transformer_policy INFO inference bf16 autocast ON
+2026-09-04 23:15:08,421 transformer_policy INFO Loaded checkpoint from training/checkpoints/seed.pt (decision_step=2809659)
+2026-09-04 23:15:08,428 eval_sim INFO [cost] loaded seed.pt
+2026-09-04 23:15:08,437 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-04 23:15:22,561 bench_model_cost INFO loaded 200 states; trunk {'d_model': 384, 'layers': 8, 'd_ff': 1536}
+2026-09-04 23:15:24,776 bench_model_cost INFO full: tokens 893, 34.7 ms/batch, 421 leaves/s
+2026-09-04 23:15:32,513 bench_model_cost INFO relset: tokens 334, 26.3 ms/batch, 610 leaves/s
+2026-09-04 23:15:32,900 bench_model_cost INFO hex300: tokens 327, 25.9 ms/batch, 619 leaves/s
+2026-09-04 23:15:33,371 bench_model_cost INFO hex600: tokens 626, 30.7 ms/batch, 515 leaves/s
+2026-09-04 23:15:33,885 bench_model_cost INFO hex900: tokens 813, 34.4 ms/batch, 472 leaves/s
+| row | hex mean | hex p90 | tokens mean | p50 | p90 | max | pad | ms/batch (median) | leaves/s | GFLOP/leaf | ceiling @165T |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| full | 866 | 1050 | 893 | 832 | 1083 | 2200 | 1.07 | 34.7 | 421 | 35.1 | 4703 |
+| relset | 307 | 444 | 334 | 328 | 473 | 612 | 1.06 | 26.3 | 610 | 10.8 | 15226 |
+| hex300 | 300 | 300 | 327 | 325 | 342 | 361 | 1.00 | 25.9 | 619 | 10.6 | 15611 |
+| hex600 | 599 | 600 | 626 | 624 | 642 | 661 | 1.00 | 30.7 | 515 | 22.5 | 7321 |
+| hex900 | 786 | 900 | 813 | 832 | 941 | 961 | 1.02 | 34.4 | 472 | 31.1 | 5298 |

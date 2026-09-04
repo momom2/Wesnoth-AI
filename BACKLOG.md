@@ -86,16 +86,18 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
      value/cliffness/aux in the same transfer; serve threads log GPU
      ms per leaf. Bit-identical priors on harvested leaves; CUDA tests
      and the pool measurement are queued on the box.
-   - THE ACTOR IS THE CEILING: the actor's cycle per 16-leaf request
-     is ~0.95 s of which the server's response is ~0.1 s, i.e. ~50 ms
-     of actor wall per leaf against ~5 ms of benchmarked components
-     (encode, masks, unpack, fork+step). The search loop itself
-     (selection, expansion into ~350 action objects, backup, GC) is
-     untimed. NEXT: profile one searched game in-process
-     (py-spy as parent of elo_eval_game --mcts-sims 32) and attribute
-     the missing ~45 ms per leaf; then fix the largest item; then more
-     requests in flight (28 actors on the 17.5-core quota; 38 actors
-     killed the box's sshd on 2026-09-04).
+   - CORRECTED 2026-09-05 (whole-pool profile, docs/box_specs.md):
+     the actors idle 95% of the time in the reply receive; the serve
+     threads are busy ~88% with the GPU wait as the largest item. The
+     "under-fed" reading came from iteration averages over a tail
+     where most actors had finished. The server, and inside it the GPU
+     time per batch, is the ceiling; the actors' own work is small.
+     NEXT: measure in the saturated window (pool now logs the best
+     60-s rate); apply the GPU levers in the design's order (staged
+     priors shipped and queued for measurement, then the packed
+     varlen trunk, the compiled tensor-only forward, length buckets);
+     try 3-4 serve threads or serve processes to overlap CPU with the
+     GPU wait. The PID limit (4,352) and thread caps stand.
    - Persistent eval workers shipped (`run_elo_batch
      --persistent-workers`, tools/eval_workers.py): 20 seed-vs-seed
      games at 10 concurrent in 97 s against 408 s one-process
