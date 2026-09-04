@@ -255,6 +255,8 @@ each, max 30 turns, 25-minute cap. Records:
 | on | on, 64 coalesced, 14 actors instead of 19 | 315 | 16 / 16 | 886 | 65 | 1,109 / 599 |
 | on | on (rerun of row 3, same seed, 45 min later) | 279 | 16 / 16 | 1,071 | 54 | 1,081 / 984 |
 | on | on, server torch threads capped at 4 (default 64) | 358 | 16 / 16 | 790 | 73 | 985 / 521 |
+| on | on, 28 actors, 28 games | 329 | 28 / 28 | ~1,560 | 65 | 1,671 / 1,231 |
+| on | on, 38 actors | 0 (pids limit hit, see below) | 0 / 38 | - | - | - |
 
 Tokens per leaf 1,150-1,300, padding ratio 1.11 (1.44 with 64-leaf
 coalescing, which reached 30 leaves per batch on average), K median 10-12,
@@ -308,6 +310,17 @@ gaps, length buckets against padding), then the per-leaf Python on
 the server, starting with the request unpickling (one contiguous
 buffer per request instead of many small arrays). Runs with 28 and
 38 actors are the next measurements.
+
+Result (same day): 28 actors gave 329 leaves/s, no better than 19;
+each actor's cycle per 16-leaf request grew from ~0.95 s to ~1.36 s,
+so the box's CPU quota is spent on the actors' own per-leaf work
+(~25-50 ms of actor wall per leaf against ~5 ms of benchmarked
+components). 38 actors hit the container's PID limit
+(`/sys/fs/cgroup/pids.max` = 4,352 threads; each torch actor process
+carries ~100 threads): the pool served nothing and sshd could not fork
+for 25 minutes. The actor loop, not the server, is the next profile
+(docs/gpu_forward_design_20260904.md section 2 derives the same
+conclusion from the cycle arithmetic).
 
 Reading: the serve threads were inferring for 60-75% of the
 iteration in every row (2 threads sharing one process and one GIL:
