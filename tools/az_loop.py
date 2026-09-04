@@ -72,6 +72,7 @@ COLUMNS = [
     "held_delta_mean", "held_delta_se",
     "step_kl_median", "step_kl_mean", "step_tv_mean", "end_turn_prior",
     "step_dv_mean", "step_dv_abs_mean", "value_center", "value_level",
+    "value_level_ref",
     # pins
     "pin_step", "raw_vs_seed_wdl", "search_vs_seed_wdl",
 ]
@@ -342,6 +343,13 @@ def main(argv) -> int:
         writer.writeheader()
     rng = random.Random(args.rng_seed + int(base._decision_step))
     gc_meter = _GcMeter()
+    # Fixed reference states for the search value center: the level
+    # measured on each iteration's own held-out states moved +-0.3
+    # between batches (state mix), as much as the tempo bonus itself
+    # (az5 iteration 4: K 6 from a stale center). The first held-out
+    # sample of the run is kept and the center is read on it every
+    # iteration, so only weight changes move it.
+    ref_states = None
     k_low = 0
     pins_done = 0
     try:
@@ -465,15 +473,20 @@ def main(argv) -> int:
             # mean value on this iteration's held-out states under the
             # weights just published (see MCTSConfig.value_center).
             if args.value_center and kl_states:
+                if ref_states is None:
+                    ref_states = list(kl_states)
+                center_batch = statistics.fmean(action_priors(base, e)[2]
+                                                for e in kl_states)
                 center = statistics.fmean(action_priors(base, e)[2]
-                                          for e in kl_states)
+                                          for e in ref_states)
                 # Tempo bonus: search sees the mover's positions as
                 # `tempo_bonus` better than the head's level, i.e. it
                 # prices handing the turn over. 0.44 = the seed's own
                 # level on its self-play states (design_constants.md).
                 pool.value_center = center - args.tempo_bonus
                 row["value_center"] = pool.value_center
-                row["value_level"] = center
+                row["value_level"] = center_batch
+                row["value_level_ref"] = center
             # per-source gradient norms (unclipped, optimizer stubbed)
             norms = signal_grad_norms(base._trainer, kept, rng) if kept else {}
             pn = norms.get("sig_policy_norm")
