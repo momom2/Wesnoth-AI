@@ -52,10 +52,14 @@ def main(argv) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("path", type=Path)
     ap.add_argument("--top", type=int, default=12)
+    ap.add_argument("--min-share", type=float, default=0.0,
+                    help="Skip threads below this share of all samples.")
     args = ap.parse_args(argv[1:])
     total, per_thread, leaf, project = parse(args.path)
     print(f"{args.path.name}: {total} samples")
     for thread, n in per_thread.most_common():
+        if n < args.min_share * total:
+            continue
         print(f"\n== {thread}: {n} samples ({100.0 * n / total:.0f}%)")
         print("  leaf frames:")
         for fr, c in leaf[thread].most_common(args.top):
