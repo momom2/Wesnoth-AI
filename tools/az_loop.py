@@ -185,6 +185,11 @@ def _probe(pin: Path, seed: Path, outdir: Path, games: int, sims: int,
            "--no-turn-search", "--device", device,
            "--outdir", str(outdir), "--time-budget-min", "150",
            "--min-free-mb", "500"]
+    if sims <= 0:
+        # The reference player is raw:t0 (argmax); the legacy sampler
+        # ("raw") is 400 Elo weaker and was what every earlier pin
+        # compared (docs/raw_argmax_control_20260904.md).
+        cmd += ["--raw-temperature-a", "0", "--raw-temperature-b", "0"]
     subprocess.run(cmd, cwd=str(ROOT), check=False)
     return _wdl(outdir)
 

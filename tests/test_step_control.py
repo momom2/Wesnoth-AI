@@ -37,7 +37,13 @@ def _policy():
 
 
 def _weights(policy):
-    return {k: v.detach().clone() for k, v in policy._model.state_dict().items()}
+    """Model AND encoder parameters (one optimizer trains both; a
+    backtrack that restored the model alone left the encoder at the
+    full step, plan 1.6)."""
+    w = {"model." + k: v.detach().clone() for k, v in policy._model.state_dict().items()}
+    w.update({"encoder." + k: v.detach().clone()
+              for k, v in policy._encoder.state_dict().items()})
+    return w
 
 
 def test_contradictory_holdout_skips_and_restores():
@@ -52,10 +58,12 @@ def test_contradictory_holdout_skips_and_restores():
     for k, v in _weights(policy).items():
         if torch.is_floating_point(v):
             assert torch.equal(v, w0[k]), f"{k} not restored"
-    inf = policy._inference_model.state_dict()
+    inf = {"model." + k: v for k, v in policy._inference_model.state_dict().items()}
+    inf.update({"encoder." + k: v for k, v in policy._inference_encoder.state_dict().items()})
     for k, v in w0.items():
         if torch.is_floating_point(v):
             assert torch.equal(inf[k].cpu(), v.cpu()), f"inference {k} not restored"
+    assert any(k.startswith("encoder.") and torch.is_floating_point(v) for k, v in w0.items())
 
 
 def test_agreeing_holdout_accepts_full_step():

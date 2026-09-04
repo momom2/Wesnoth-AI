@@ -179,7 +179,8 @@ def _build_player(spec: str, label: str, sims: int, device,
                   infer_bf16: bool = False,
                   infer_compile: bool = False,
                   value_center: float = 0.0,
-                  raw_temperature=None, raw_seed=None):
+                  raw_temperature=None, raw_seed=None,
+                  gumbel_root: bool = True):
     """`raw_temperature`: sims == 0 only -- the joint-temperature raw
     player (tools/raw_player.py; 0 = argmax). None = the legacy
     factored sampler, the pre-2026-09-04 'raw' procedure."""
@@ -212,6 +213,7 @@ def _build_player(spec: str, label: str, sims: int, device,
         cls = _search_policy_cls(turn_search, plan_tournament)
         mc = MCTSConfig(
             n_simulations=sims,
+            gumbel_root=bool(gumbel_root),
             batch_size=max(1, int(batch_size)),
             moves_left_utility=float(
                 os.environ.get("ELO_MOVES_LEFT_UTILITY", "0") or 0),
@@ -265,6 +267,14 @@ def main(argv) -> int:
                          "mix within an outdir.")
     ap.add_argument("--raw-temperature-b", type=float, default=None,
                     help="Player B (see --raw-temperature-a).")
+    ap.add_argument("--gumbel-root-a", action=argparse.BooleanOptionalAction,
+                    default=True,
+                    help="Root procedure of side A's plain search: Gumbel "
+                         "root (default, procedure 'mcts:<sims>') or "
+                         "--no-gumbel-root-a for plain PUCT ('puct:<sims>', "
+                         "what tools/az_loop.py trains with).")
+    ap.add_argument("--gumbel-root-b", action=argparse.BooleanOptionalAction,
+                    default=True, help="Side B (see --gumbel-root-a).")
     ap.add_argument("--mcts-batch-size", type=int, default=1,
                     help="Leaf-evaluation batch (virtual-loss batching, "
                          "both players). 1 = sequential, the canonical "
@@ -435,11 +445,11 @@ def main(argv) -> int:
             want_a = _procedure_of(
                 sims_a, args.plan_a,
                 args.no_turn_search or args.no_turn_search_a,
-                args.raw_temperature_a)
+                args.raw_temperature_a, args.gumbel_root_a)
             want_b = _procedure_of(
                 sims_b, args.plan_b,
                 args.no_turn_search or args.no_turn_search_b,
-                args.raw_temperature_b)
+                args.raw_temperature_b, args.gumbel_root_b)
             got_a = prev.get("procedure_a")
             got_b = prev.get("procedure_b")
             got_mt = prev.get("max_turns")
@@ -513,7 +523,7 @@ def main(argv) -> int:
         batch_size=args.mcts_batch_size, infer_bf16=inf_bf16,
         infer_compile=inf_compile, value_center=args.value_center_a,
         raw_temperature=args.raw_temperature_a,
-        raw_seed=2 * args.seed)
+        raw_seed=2 * args.seed, gumbel_root=args.gumbel_root_a)
     pb, cnt_b = _build_player(
         args.spec_b, args.label_b, sims_b, device,
         turn_search=not (args.no_turn_search or args.no_turn_search_b),
@@ -521,7 +531,7 @@ def main(argv) -> int:
         batch_size=args.mcts_batch_size, infer_bf16=inf_bf16,
         infer_compile=inf_compile, value_center=args.value_center_b,
         raw_temperature=args.raw_temperature_b,
-        raw_seed=2 * args.seed + 1)
+        raw_seed=2 * args.seed + 1, gumbel_root=args.gumbel_root_b)
 
 
     rng = random.Random(args.seed)
@@ -562,11 +572,13 @@ def main(argv) -> int:
         "procedure_a": _procedure_of(
             sims_a, args.plan_a,
             args.no_turn_search or args.no_turn_search_a,
-            args.raw_temperature_a),
+            args.raw_temperature_a, args.gumbel_root_a),
         "procedure_b": _procedure_of(
             sims_b, args.plan_b,
             args.no_turn_search or args.no_turn_search_b,
-            args.raw_temperature_b),
+            args.raw_temperature_b, args.gumbel_root_b),
+        "gumbel_root_a": bool(args.gumbel_root_a),
+        "gumbel_root_b": bool(args.gumbel_root_b),
         "raw_temperature_a": args.raw_temperature_a,
         "raw_temperature_b": args.raw_temperature_b,
         # The horizon decides decisive-vs-absence, the quantity

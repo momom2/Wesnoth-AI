@@ -167,18 +167,35 @@ def policy_shift(base, states: List, old: List[Tuple[Dict, Dict, float]]) -> Dic
             "n": len(kls)}
 
 
+_MODEL_PREFIX = "model."
+_ENCODER_PREFIX = "encoder."
+
+
 def publish_weights(base, theta: Dict) -> None:
-    """Load `theta` into the trainer model and the inference snapshot
-    (the same two-model contract train_step's publish uses)."""
-    base._model.load_state_dict(theta)
+    """Load `theta` (a flat dict from `_clone_weights`: model and
+    encoder parameters under their prefixes) into the trainer's model
+    AND encoder, then into the inference snapshots, the same contract
+    as TransformerPolicy._snapshot_inference_weights. The encoder is
+    trained by the same optimizer as the model; a backtrack that
+    restored the model alone left the encoder at the full step."""
+    base._model.load_state_dict(
+        {k[len(_MODEL_PREFIX):]: v for k, v in theta.items() if k.startswith(_MODEL_PREFIX)})
+    base._encoder.load_state_dict(
+        {k[len(_ENCODER_PREFIX):]: v for k, v in theta.items() if k.startswith(_ENCODER_PREFIX)})
     with base._lock:
         inf = getattr(base, "_inference_base", base._inference_model)
         inf.load_state_dict(base._model.state_dict())
         inf.eval()
+        base._inference_encoder.load_state_dict(base._encoder.state_dict())
+        base._inference_encoder.eval()
 
 
 def _clone_weights(base) -> Dict:
-    return {k: v.detach().clone() for k, v in base._model.state_dict().items()}
+    theta = {_MODEL_PREFIX + k: v.detach().clone()
+             for k, v in base._model.state_dict().items()}
+    theta.update({_ENCODER_PREFIX + k: v.detach().clone()
+                  for k, v in base._encoder.state_dict().items()})
+    return theta
 
 
 def backtracking_step(base, take_step, train_exps: List, held_exps: List,

@@ -227,6 +227,14 @@ def main(argv: List[str]) -> int:
                     help="Search value centering for player A "
                          "(elo_eval_game --value-center-a).")
     ap.add_argument("--value-center-b", type=float, default=0.0)
+    ap.add_argument("--gumbel-root-a", action=argparse.BooleanOptionalAction,
+                    default=True,
+                    help="Side A's plain-search root: Gumbel (default, "
+                         "'mcts:<sims>') or --no-gumbel-root-a for plain "
+                         "PUCT ('puct:<sims>', the az legs' training "
+                         "search). elo_eval_game --gumbel-root-a.")
+    ap.add_argument("--gumbel-root-b", action=argparse.BooleanOptionalAction,
+                    default=True, help="Side B (see --gumbel-root-a).")
     ap.add_argument("--raw-temperature-a", type=float, default=None,
                     help="Player A at sims 0 plays the joint-temperature "
                          "raw player (elo_eval_game --raw-temperature-a; "
@@ -469,10 +477,10 @@ def main(argv: List[str]) -> int:
     from tools.eval_procedure import procedure_of
     want = (procedure_of(sims_a, args.plan_a,
                           args.no_turn_search or args.no_turn_search_a,
-                          args.raw_temperature_a),
+                          args.raw_temperature_a, args.gumbel_root_a),
             procedure_of(sims_b, args.plan_b,
                           args.no_turn_search or args.no_turn_search_b,
-                          args.raw_temperature_b))
+                          args.raw_temperature_b, args.gumbel_root_b))
     for f in sorted(args.outdir.glob("game_*.json")):
         try:
             prev = json.loads(f.read_text(encoding="utf-8"))
@@ -577,6 +585,10 @@ def main(argv: List[str]) -> int:
             cmd += ["--value-center-a", str(args.value_center_a)]
         if args.value_center_b:
             cmd += ["--value-center-b", str(args.value_center_b)]
+        if not args.gumbel_root_a:
+            cmd.append("--no-gumbel-root-a")
+        if not args.gumbel_root_b:
+            cmd.append("--no-gumbel-root-b")
         if args.raw_temperature_a is not None:
             cmd += ["--raw-temperature-a", str(args.raw_temperature_a)]
         if args.raw_temperature_b is not None:

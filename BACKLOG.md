@@ -78,18 +78,18 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
      policy object between the two sides (3 of 20 games diverged);
      fixed, and the replay agrees exactly with the one-process games
      across repeated runs: the argmax harness is deterministic.
-4. **Defects** (plan 1.6):
-   - `tools/az_loop.py` `_probe`: pins at sims 0 must pass
-     `--raw-temperature-a 0 --raw-temperature-b 0`; every az pin,
-     including the 11-29, compared the sampling player on both sides.
-   - `tools/step_control.py`: `_clone_weights`/`publish_weights`
-     cover `_model` only; the encoder's parameters (same AdamW) keep
-     the full step, even when the step is skipped.
-   - `tests/test_actor_pool_watchdog.py`: five failures since the az4
-     change (the test's pool stub lacks `value_center`).
-   - Eval search procedure: `elo_eval_game` plays the Gumbel root by
-     default while `az_loop` trained plain PUCT at leaf batch 16;
-     record and match the procedure per player.
+4. **Defects** (plan 1.6): DONE 2026-09-04.
+   - `tools/az_loop.py` `_probe` passes `--raw-temperature-a 0
+     --raw-temperature-b 0` at sims 0 (every earlier pin compared the
+     sampling player on both sides).
+   - `tools/step_control.py`: `_clone_weights`/`publish_weights` cover
+     the encoder too (flat dict, `model.`/`encoder.` prefixes); the
+     restore test checks both encoders.
+   - `tests/test_actor_pool_watchdog.py`: the stub carries
+     `value_center` and `server_priors`; green.
+   - Eval search procedure per player: `--gumbel-root-a/-b`
+     (`elo_eval_game`, `run_elo_batch`; default on), procedure tag
+     `puct:<sims>` for a plain PUCT root, recorded in the result JSON.
 5. **Model cost study** (plan 1.4) and **eval at scale** (plan 1.5).
 
 ## Phase 2 prerequisite (measure before designing)

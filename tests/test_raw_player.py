@@ -119,3 +119,19 @@ def test_batch_driver_forwards_temperature():
     src = (repo / "tools/run_elo_batch.py").read_text(encoding="utf-8")
     assert "--raw-temperature-a" in src and "--raw-temperature-b" in src
     assert "args.raw_temperature_a" in src
+
+
+def test_search_root_procedure_is_per_player():
+    """Plan 1.6: the eval harness records and applies the root
+    procedure per player ('mcts:<sims>' Gumbel root, 'puct:<sims>'
+    plain PUCT, what tools/az_loop.py trains with)."""
+    import torch
+    from tools import elo_eval_game as g
+    from tools.eval_procedure import procedure_of
+    assert procedure_of(32, False, True) == "mcts:32"
+    assert procedure_of(32, False, True, gumbel_root=False) == "puct:32"
+    assert procedure_of(32, False, False, gumbel_root=False) == "tcs:32"
+    cpu = torch.device("cpu")
+    puct, _ = g._build_player("random", "A", 2, cpu, turn_search=False, gumbel_root=False)
+    gumbel, _ = g._build_player("random", "B", 2, cpu, turn_search=False)
+    assert puct._mcts_config.gumbel_root is False and gumbel._mcts_config.gumbel_root is True

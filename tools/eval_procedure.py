@@ -6,16 +6,22 @@ from __future__ import annotations
 
 
 def procedure_of(sims: int, plan: bool, no_turn_search: bool,
-                 raw_temperature=None) -> str:
+                 raw_temperature=None, gumbel_root: bool = True) -> str:
     """Canonical procedure tag for result provenance. Carries the
     sims budget (round-13 C2: 'mcts' alone let an outdir silently
-    mix --mcts-sims 16 and 32 games -- different estimands) and,
-    for the raw player, its joint sampling temperature
-    (tools/raw_player.py; None = the legacy factored sampler)."""
+    mix --mcts-sims 16 and 32 games -- different estimands), the
+    root procedure of a plain search ('mcts' = Gumbel root, 'puct' =
+    plain PUCT root, what the az legs trained with) and, for the raw
+    player, its joint sampling temperature (tools/raw_player.py;
+    None = the legacy factored sampler)."""
     if sims <= 0:
         if raw_temperature is None:
             return "raw"
         return f"raw:t{float(raw_temperature):g}"
-    name = ("plan_tournament" if plan
-            else ("mcts" if no_turn_search else "tcs"))
+    if plan:
+        name = "plan_tournament"
+    elif no_turn_search:
+        name = "mcts" if gumbel_root else "puct"
+    else:
+        name = "tcs"
     return f"{name}:{sims}"
