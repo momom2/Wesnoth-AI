@@ -360,3 +360,29 @@ replayed twice through workers and once one-process: all four runs
 counts. The argmax harness is deterministic run to run on this box
 in both modes.
 
+
+## Raw player temperature (2026-09-05, box 49875606)
+
+`run_elo_batch.py --persistent-workers --jobs 10`, 40 games per arm,
+seed base 20000, side A = the seed at temperature T (joint-prior
+sampling, `tools/raw_player.py`), side B = `raw:t0`, max 200 turns.
+Records: `training/metrics/sweeps/raw_temperature_20260905/`.
+
+| T of side A | W-L for A | games at the 200-turn cap | turns p50 / max | wall s |
+|---|---|---|---|---|
+| 0 (self-play of the reference) | 14-9 | 17 | 125 / 201 | 215 |
+| 0.25 | 16-13 | 11 | 33 / 201 | 142 |
+| 0.5 | 22-18 | 0 | 31 / 133 | 130 |
+| 1 | 7-33 | 0 | 20 / 48 | 113 |
+
+Reading: argmax against itself stalls in 17 of 40 games (both sides
+repeat the same non-committal turns until the cap), so its decisive
+rate from turn 1 is 23 of 40 and a self-play game costs 125+ turns at
+the median. Temperature 0.5 removes the stalls and holds the argmax
+player to 22-18 (score 0.55 +- 0.08, within the sample's resolution
+of equal strength); temperature 1 is the ~400 Elo weaker sampler
+(docs/raw_argmax_control_20260904.md). Consequences: playouts and
+self-play generation that need decisive games should run at 0.5
+until a larger match separates 0 from 0.5; the turn-gap playouts were
+switched to 0.5 before that run (docs/turn_gap_prereg_20260904.md,
+amendment).

@@ -134,14 +134,15 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
 
 ## Cheap measurements worth taking
 
-- Temperature sweep for the deployed raw player: 0, 0.25, 0.5 vs
-  `raw:t0`, 40 games each, about 5 minutes of box time.
-- Re-baseline the Elo catalog (`training/metrics/elo_catalog.json`):
-  every edge is `mcts:32`; the board needs `raw:t0` edges.
-- `raw:t0` vs `raw:t0` self-play: decisive rate, turns, decisions per
-  game. The benchmark's 20 such games ran 48 turns median (outcomes
-  not recorded); deterministic self-play may stall, and every
-  play-out cost model depends on this number.
+- DONE 2026-09-05 (docs/box_specs.md "Raw player temperature"):
+  temperature sweep 0 / 0.25 / 0.5 / 1 vs `raw:t0`, 40 games each.
+  `raw:t0` vs itself: 14-9 with 17 stalls at the 200-turn cap (median
+  125 turns); `raw:t0.5`: 22-18, no stalls, median 31 turns;
+  `raw:t1`: 7-33. Open: an 800-game match 0.5 vs 0 to decide the
+  reference's deployment temperature.
+- Re-baseline the Elo catalog (`training/metrics/elo_catalog.json`)
+  on `raw:t0`: four edges against the local checkpoints (2291k,
+  2516k, l4-495k, tcs2-558k) queued on the box 2026-09-05.
 
 ## Ops notes that are still true
 

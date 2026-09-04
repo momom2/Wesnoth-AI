@@ -163,6 +163,23 @@ ceiling can be stopped and read.
   turns after the boundary (not 40: the capped ceiling at 40 is 9.5
   box-hours), `--jobs 14` on the 17.5-core box.
 
+## Amendment before the run (2026-09-05 00:10, operator)
+
+The temperature sweep that finished minutes earlier (docs/box_specs.md,
+"Raw player temperature") showed that `raw:t0` against itself stalls:
+17 of 40 games from turn 1 reached the 200-turn cap (median 125
+turns), while `raw:t0.5` scored 22-18 against `raw:t0` with no game
+past 133 turns (median 31). Playouts at temperature 0 with a 30-turn
+cap would therefore mostly end undecided and compress the outcome
+scale, which the validity condition above already forbids. Ruling:
+the playouts run both sides at temperature 0.5
+(`--playout-temperature 0.5`, one sampling seed per playout derived
+from its salt, side 2 offset by one); the base turn, the alternatives
+(temperature 1) and everything else stay as written. The estimand is
+now the expected outcome under a decisive continuation policy of the
+same strength as the reference within the sweep's resolution
+(40 games, score 0.55 +- 0.08). Predictions unchanged.
+
 ## PREDICTION (operator, 2026-09-04, before the run)
 
 - fraction of positions with gap >= 0.25: 0.35
@@ -185,7 +202,7 @@ manifest's game files packed by
 (as `scripts/bench_box.sh` does):
 
     python tools/turn_gap.py --checkpoint training/checkpoints/seed.pt \
-        --device cuda --jobs 14 --cap-turns 30 --dollars-per-hour 0.33 \
+        --device cuda --jobs 14 --cap-turns 30 --playout-temperature 0.5 --dollars-per-hour 0.33 \
         --states-json configs/bench_states.json --dataset /workspace/bench_dataset \
         --out training/metrics/turn_gap/run1.json
 

@@ -49,6 +49,7 @@ import os
 import statistics
 import sys
 import time
+import zlib
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -85,12 +86,16 @@ class GapConfig:
     temperature: float = 1.0      # of the alternative turns
     cap_turns: int = 40           # playouts end undecided at the start of turn T0 + cap + 1
     seed: int = 1
+    playout_temperature: float = 0.0   # of both sides during the playouts (0 = raw:t0);
+                                       # 2026-09-05: raw:t0 self-play stalls to the
+                                       # 200-turn cap in 17 of 40 games, raw:t0.5
+                                       # scores 22-18 against it with no stalls
 
     def __post_init__(self):
         if self.k_alternatives < 0 or self.playouts < 1 or self.cap_turns < 1:
             raise ValueError("k_alternatives >= 0, playouts >= 1, cap_turns >= 1")
-        if self.temperature < 0.0:
-            raise ValueError("temperature must be >= 0")
+        if self.temperature < 0.0 or self.playout_temperature < 0.0:
+            raise ValueError("temperatures must be >= 0")
 
 
 @dataclass
@@ -214,10 +219,27 @@ def outcome_for(sim: WesnothSim, mover: int) -> Tuple[int, bool]:
     return -1, False
 
 
-def reference_pairs(policy) -> Dict[int, _PolicyPair]:
-    return {side: _PolicyPair(policy=RawPolicyPlayer(policy, 0.0),
-                              label=REFERENCE_PROCEDURE, side=side)
+def reference_pairs(policy, temperature: float = 0.0,
+                    seed: Optional[int] = None) -> Dict[int, _PolicyPair]:
+    """Both sides' players for a playout: the reference `raw:t0`, or
+    the same weights at `temperature` with a per-playout sampling
+    seed (side 2 gets seed + 1)."""
+    label = REFERENCE_PROCEDURE if temperature == 0.0 else f"raw:t{temperature:g}"
+    return {side: _PolicyPair(policy=RawPolicyPlayer(
+                                  policy, temperature,
+                                  seed=None if seed is None else seed + side - 1),
+                              label=label, side=side)
             for side in (1, 2)}
+
+
+def playout_pairs(policy, cfg: "GapConfig", salt: str) -> Dict[int, _PolicyPair]:
+    """The players of one playout: shared argmax players at playout
+    temperature 0, else fresh sampling players seeded from the
+    playout's salt (reproducible, independent across playouts)."""
+    if cfg.playout_temperature == 0.0:
+        return reference_pairs(policy)
+    return reference_pairs(policy, cfg.playout_temperature,
+                           seed=zlib.crc32(salt.encode("utf-8")))
 
 
 def play_out(post_gs: GameState, scenario_id: str, mover: int, max_turns: int,
@@ -253,7 +275,7 @@ def _candidate_turn(position: BoundaryPosition, player, max_turns: int,
 
 def _run_playouts(candidate: Dict, sim: WesnothSim, position: BoundaryPosition,
                   mover: int, max_turns: int, cfg: GapConfig, c: int,
-                  pairs: Dict[int, _PolicyPair], game_label: str) -> None:
+                  policy, game_label: str) -> None:
     outcomes: List[int] = []
     capped: List[bool] = []
     turns: List[int] = []
@@ -266,7 +288,8 @@ def _run_playouts(candidate: Dict, sim: WesnothSim, position: BoundaryPosition,
             t = sim.gs.global_info.turn_number
         else:
             o, cp, t = play_out(sim.gs, position.scenario_id, mover, max_turns,
-                                salt, pairs, f"{game_label}c{c}r{r}")
+                                salt, playout_pairs(policy, cfg, salt),
+                                f"{game_label}c{c}r{r}")
         outcomes.append(o)
         capped.append(cp)
         turns.append(t)
@@ -322,9 +345,9 @@ def measure_position(policy, position: BoundaryPosition, cfg: GapConfig) -> Dict
         seen[alt["post_state_key"]] = f"alt{k}"
         alternatives.append((k, alt, alt_sim))
 
-    _run_playouts(base, base_sim, position, mover, max_turns, cfg, 0, pairs, label)
+    _run_playouts(base, base_sim, position, mover, max_turns, cfg, 0, policy, label)
     for k, alt, alt_sim in alternatives:
-        _run_playouts(alt, alt_sim, position, mover, max_turns, cfg, k + 1, pairs, label)
+        _run_playouts(alt, alt_sim, position, mover, max_turns, cfg, k + 1, policy, label)
 
     meta = {"scenario_id": position.scenario_id, "turn_number": turn0,
             "side": mover, "turn_salt": salt, "meta": dict(position.meta)}
@@ -596,6 +619,10 @@ def main(argv) -> int:
     ap.add_argument("--playouts", type=int, default=40, help="P per candidate.")
     ap.add_argument("--temperature", type=float, default=1.0,
                     help="Sampling temperature of the alternative turns.")
+    ap.add_argument("--playout-temperature", type=float, default=0.0,
+                    help="Temperature of both sides during the playouts "
+                         "(0 = the reference raw:t0; 0.5 avoids the "
+                         "deterministic stalls, docs/box_specs.md).")
     ap.add_argument("--cap-turns", type=int, default=40,
                     help="Playouts end undecided at the start of turn T0 + cap + 1.")
     ap.add_argument("--gap-threshold", type=float, default=0.25)
@@ -625,6 +652,7 @@ def main(argv) -> int:
     spec = _resolve_inference(args)
     cfg = GapConfig(k_alternatives=args.alternatives, playouts=args.playouts,
                     temperature=args.temperature, cap_turns=args.cap_turns,
+                    playout_temperature=args.playout_temperature,
                     seed=args.seed)
     positions = positions_from_manifest(args.states_json, args.dataset, args.n_states)
     log.info("%d positions, K=%d P=%d T=%g cap=%d seed=%d, %s bf16=%s compile=%s jobs=%d",
@@ -638,6 +666,7 @@ def main(argv) -> int:
         "provenance": {
             "reference_procedure": REFERENCE_PROCEDURE,
             "alternative_procedure": f"raw:t{cfg.temperature:g}",
+            "playout_procedure": f"raw:t{cfg.playout_temperature:g}",
             "policy": asdict(spec), "torch": torch.__version__,
             "states_json": str(args.states_json), "dataset": str(args.dataset),
             "n_states": len(positions), "jobs": args.jobs,
