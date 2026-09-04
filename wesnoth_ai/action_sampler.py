@@ -58,6 +58,8 @@ import logging
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
+import os
+
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -485,7 +487,7 @@ def reforward_logprob_entropy(
 # sampler uses, so legality is consistent between sampling and MCTS
 # expansion).
 
-@dataclass
+@dataclass(slots=True)
 class LegalActionPrior:
     """One element of the MCTS expansion list. `prior` is the joint
     probability under the current policy; the trainer's distillation
@@ -505,6 +507,13 @@ class LegalActionPrior:
     type_idx:   Optional[int] = None
 
 
+# Set WESNOTH_ENUM_REFERENCE=1 to route enumeration through the
+# per-actor loop implementation (the differential oracle for the
+# vectorized path; 2026-09-04 baseline: 6.9 ms per decision, the
+# largest Python cost outside the network).
+_ENUM_REFERENCE = os.environ.get("WESNOTH_ENUM_REFERENCE", "") not in ("", "0")
+
+
 def enumerate_legal_actions_with_priors(
     encoded:    EncodedState,
     output:     ModelOutput,
@@ -513,7 +522,141 @@ def enumerate_legal_actions_with_priors(
     decision_step: int = 0,
 ) -> List[LegalActionPrior]:
     """Enumerate every legal action with its joint prior under the
-    model's chain rule:
+    model's chain rule (see `_enumerate_legal_actions_reference` for
+    the rule; this is the vectorized implementation of it).
+
+    Same list, same order, same priors as the reference: actors in
+    slot order; for a unit actor its attack actions (targets in hex
+    order, weapons inner) then its move actions; recruit actors by
+    target hex; end_turn last. Priors are products of the same
+    float32 softmax outputs. Caller MUST be in `torch.no_grad()`.
+    """
+    if _ENUM_REFERENCE:
+        return _enumerate_legal_actions_reference(
+            encoded, output, game_state, decision_step=decision_step)
+    from wesnoth_ai.model import UnitActionType
+
+    masks = _build_legality_masks(encoded, game_state,
+                                  decision_step=decision_step)
+    actor_logits = _masked_actor_logits(
+        encoded, output, masks.actor_valid,
+        end_turn_bias=prior_bias_end_turn(game_state))
+    actor_p = F.softmax(actor_logits.squeeze(0), dim=-1)
+    p_actor = actor_p.detach().cpu().numpy().astype(np.float64)
+    A = p_actor.shape[0]
+    U = output.num_units
+    R = output.num_recruits
+    actor_kind = output.actor_kind[0].detach().cpu().numpy()
+    actor_valid = masks.actor_valid[0].detach().cpu().numpy()
+    live = (actor_valid != 0.0) & (p_actor > 0.0)
+    if not live.any():
+        return []
+    hex_positions = encoded.hex_positions
+    out: List[LegalActionPrior] = []
+
+    # ----- unit actors: type, weapon and target rows in one shot -----
+    unit_rows = [a for a in range(U) if live[a] and actor_kind[a] == ActorKind.UNIT]
+    if unit_rows:
+        idx = torch.as_tensor(unit_rows, dtype=torch.long,
+                              device=output.type_logits.device)
+        type_logits = output.type_logits[0].index_select(0, idx)
+        type_logits = type_logits + masks.type_bias[0].index_select(0, idx)
+        type_mask = masks.type_valid[0].index_select(0, idx)
+        type_p = F.softmax(type_logits.masked_fill(type_mask == 0, _NEG_INF),
+                           dim=-1).detach().cpu().numpy().astype(np.float64)
+        tgt = output.target_logits[0].index_select(0, idx)          # [n, H]
+        atk_mask = masks.target_valid_attack.index_select(0, idx)
+        mv_mask = masks.target_valid_move.index_select(0, idx)
+        atk_logits = (tgt + masks.attack_bias.index_select(0, idx)
+                      ).masked_fill(atk_mask == 0, _NEG_INF)
+        mv_logits = tgt.masked_fill(mv_mask == 0, _NEG_INF)
+        atk_p = F.softmax(atk_logits, dim=-1).detach().cpu().numpy().astype(np.float64)
+        mv_p = F.softmax(mv_logits, dim=-1).detach().cpu().numpy().astype(np.float64)
+        by_id = {u.id: u for u in game_state.map.units}
+        n_attacks = []
+        for a in unit_rows:
+            attacker = by_id.get(encoded.unit_ids[a])
+            n_attacks.append(len(attacker.attacks) if attacker else 0)
+        W = output.weapon_logits.shape[-1]
+        wl = output.weapon_logits[0].index_select(0, idx).clone()     # [n, W]
+        slot = torch.arange(W, device=wl.device).unsqueeze(0)
+        n_att_t = torch.as_tensor(n_attacks, device=wl.device).unsqueeze(1)
+        wl = wl.masked_fill(slot >= n_att_t, _NEG_INF)
+        weapon_p = F.softmax(wl, dim=-1).detach().cpu().numpy().astype(np.float64)
+
+        for r, a in enumerate(unit_rows):
+            pa = p_actor[a]
+            unit_pos = encoded.unit_positions[a]
+            p_attack = type_p[r, UnitActionType.ATTACK]
+            n_att = n_attacks[r]
+            if p_attack > 0.0 and n_att > 0:
+                base = pa * p_attack
+                wp = weapon_p[r, :n_att]
+                w_idx = np.nonzero(wp > 0.0)[0]
+                for h in np.nonzero(atk_p[r] > 0.0)[0]:
+                    target_pos = hex_positions[h]
+                    joint = base * atk_p[r, h]
+                    for w in w_idx:
+                        out.append(LegalActionPrior(
+                            action={"type": "attack", "start_hex": unit_pos,
+                                    "target_hex": target_pos,
+                                    "attack_index": int(w)},
+                            prior=float(joint * wp[w]),
+                            actor_idx=a, target_idx=int(h), weapon_idx=int(w),
+                            type_idx=UnitActionType.ATTACK))
+            p_move = type_p[r, UnitActionType.MOVE]
+            if p_move > 0.0:
+                base = pa * p_move
+                for h in np.nonzero(mv_p[r] > 0.0)[0]:
+                    out.append(LegalActionPrior(
+                        action={"type": "move", "start_hex": unit_pos,
+                                "target_hex": hex_positions[h]},
+                        prior=float(base * mv_p[r, h]),
+                        actor_idx=a, target_idx=int(h), weapon_idx=None,
+                        type_idx=UnitActionType.MOVE))
+            # Reference ordering: a recruit or end_turn slot never sits
+            # between two unit slots, so per-actor emission matches it.
+
+    # ----- recruit actors -------------------------------------------
+    rec_rows = [a for a in range(U, U + R) if live[a] and actor_kind[a] == ActorKind.RECRUIT]
+    if rec_rows:
+        idx = torch.as_tensor(rec_rows, dtype=torch.long,
+                              device=output.target_logits.device)
+        rows = output.target_logits[0].index_select(0, idx)
+        rows = rows + masks.attack_bias.index_select(0, idx)
+        rmask = masks.target_valid.index_select(0, idx)
+        rec_p = F.softmax(rows.masked_fill(rmask == 0, _NEG_INF),
+                          dim=-1).detach().cpu().numpy().astype(np.float64)
+        for r, a in enumerate(rec_rows):
+            recruit_type = encoded.recruit_types[a - U]
+            pa = p_actor[a]
+            for h in np.nonzero(rec_p[r] > 0.0)[0]:
+                out.append(LegalActionPrior(
+                    action={"type": "recruit", "unit_type": recruit_type,
+                            "target_hex": hex_positions[h]},
+                    prior=float(pa * rec_p[r, h]),
+                    actor_idx=a, target_idx=int(h), weapon_idx=None,
+                    type_idx=None))
+
+    # ----- end_turn (always the last slot) ---------------------------
+    a = A - 1
+    if live[a] and actor_kind[a] == ActorKind.END_TURN:
+        out.append(LegalActionPrior(
+            action={"type": "end_turn"}, prior=float(p_actor[a]),
+            actor_idx=a, target_idx=None, weapon_idx=None, type_idx=None))
+    return out
+
+
+def _enumerate_legal_actions_reference(
+    encoded:    EncodedState,
+    output:     ModelOutput,
+    game_state: GameState,
+    *,
+    decision_step: int = 0,
+) -> List[LegalActionPrior]:
+    """Per-actor loop enumeration (the reference implementation and
+    the differential oracle for the vectorized path above). Every
+    legal action with its joint prior under the model's chain rule:
 
       P(action) = P(actor)
                 * P(type | actor)        # only for UNIT actors
@@ -1387,7 +1530,7 @@ def _build_legality_masks(
             # by tests/test_rust_enumerate.py differential runs).
             move_row = _rust_rows[0][i]
             attack_row = _rust_rows[1][i]
-            if can_attack and attack_row.any():
+            if can_attack and attack_row.any() and (target_alpha or type_alpha):
                 _oracle_attack_bias(
                     i, attack_row, u, unit_at, hex_xs, hex_ys,
                     target_alpha, type_alpha, attack_bias_np,
@@ -1459,7 +1602,7 @@ def _build_legality_masks(
                     if _n in _attack_positions:
                         attack_row[_j] = True
                         break
-            if attack_row.any():
+            if attack_row.any() and (target_alpha or type_alpha):
                 _oracle_attack_bias(
                     i, attack_row, u, unit_at, hex_xs, hex_ys,
                     target_alpha, type_alpha, attack_bias_np,

@@ -15,16 +15,36 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
    160 s at 10 jobs, one process per game. Open: run it on a second
    box shape with the Rust wheel built (`scripts/bench_box.sh` now
    builds it) to pin the reproducibility band.
-2. **Rust simulator core** (plan 1.2; `docs/rust_port_plan.md`
-   phases 2b-4): raw encoding, combat and step, Rust-owned GameState
-   with a cheap fork. Certification: byte-identical encodings,
-   24,796-replay corpus sweep clean, strike-level parity. Targets:
-   step and fork under 0.1 ms, encode under 0.2 ms.
-3. **Batched inference server** (plan 1.3): leaves from all games
-   batched by token bucket; bf16 and compile validated on the
-   training path (reproduce or clear the 2026-08-29 deadlock); CUDA
-   graphs where shapes allow. Target: 3,000 leaf evaluations per
-   second per 4090 for the 15M net.
+2. **Per-decision Python work** (plan 1.2), ordered by the measured
+   cost: enumeration 6.9 ms, masks 2.2 (Python path) / ~0.5 (Rust),
+   encoding 2.5, sim step 0.7; fork and deepcopy are 0.05 ms already
+   (the Rust plan's phase 4 "cheap fork" is not where the time is).
+   - DONE 2026-09-04: vectorized enumeration
+     (`enumerate_legal_actions_with_priors`, reference kept as
+     `_enumerate_legal_actions_reference`, `WESNOTH_ENUM_REFERENCE=1`
+     forces it; differential test `tests/test_enumerate_vectorized.py`):
+     7.3 -> 3.8 ms on the laptop including the mask build; the
+     combat-oracle damage computation in the mask builder is skipped
+     when both oracle alphas are 0 (they are). The floor is now the
+     construction of ~600-700 action objects per state; the
+     struct-of-arrays output that removes it belongs to the server
+     step below (arrays are what cross processes cheaply).
+   - NEXT: Rust `encode_raw` (rust_port_plan phase 2b, byte-identical
+     arrays), then combat and step (phase 3, full corpus sweep).
+3. **Batched inference server** (plan 1.3). Measured ceiling: ~600
+   samples/s per process from batch 16 regardless of batch 64, i.e.
+   CPU-side. Suspects, in order: `WesnothModel.forward_batch` pads
+   with per-sample Python loops and rebuilds a per-sample ModelOutput
+   (target logits [A, H] sliced per leaf); `output_to_wire` pickles
+   ~120 KB of target logits per leaf through a multiprocessing queue
+   (72 MB/s at 600 leaves/s); the actor then runs the masked softmax
+   itself. Design to measure on a GPU box: actors ship the legality
+   masks (bit-packed, ~5 KB) with the request, the server computes
+   the masked joint priors on the GPU in the same batch, and replies
+   with the compact legal-action arrays (~12 KB) plus value. Target:
+   3,000 leaf evaluations per second per 4090 for the 15M net; bf16
+   and compile validated on the training path (the 2026-08-29
+   deadlock reproduced or cleared).
 4. **Defects** (plan 1.6):
    - `tools/az_loop.py` `_probe`: pins at sims 0 must pass
      `--raw-temperature-a 0 --raw-temperature-b 0`; every az pin,
