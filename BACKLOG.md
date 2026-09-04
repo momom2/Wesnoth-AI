@@ -64,12 +64,27 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
    - SHIPPED: packed requests (`wesnoth_ai/leaf_wire.py`, one buffer
      per request); server torch threads capped at 4 (358 leaves/s
      against 279-320 uncapped, edge of the ~13% run-to-run noise).
-   - NEXT: more requests in flight (actor count on the same quota, or
-     two in-flight leaf batches per actor); then GPU efficiency of the
-     forward (compile or CUDA graphs, length buckets); then serving
-     from several processes if the server's per-leaf CPU becomes the
-     ceiling. Measurements of 28/38 actors and of the packed requests
-     were queued on the box at the end of this session.
+   - GPU-SIDE DESIGN (docs/gpu_forward_design_20260904.md): GPU time
+     per 16-leaf batch at production sizes is ~24 ms (fed ceiling ~670
+     leaves/s with today's kernels); the physical floor at 1,270
+     tokens per leaf is ~2,950 leaves/s at 100% of the 4090's bf16
+     peak, so the plan's 3,000 needs fewer tokens per leaf (plan 1.4),
+     not better kernels. Ranked GPU levers: sync/copy consolidation
+     in `batched_priors` (-8-12%), packed varlen trunk (-20-25%),
+     inductor compile of a tensor-only `forward_streams` (-15-20% GPU,
+     -50% CPU), length-bucketed coalescing (-8-10% at 16, -30% at 64);
+     CUDA graphs never unless CPU is the limit again. All of it only
+     pays once the server is fed.
+   - THE ACTOR IS THE CEILING: the actor's cycle per 16-leaf request
+     is ~0.95 s of which the server's response is ~0.1 s, i.e. ~50 ms
+     of actor wall per leaf against ~5 ms of benchmarked components
+     (encode, masks, unpack, fork+step). The search loop itself
+     (selection, expansion into ~350 action objects, backup, GC) is
+     untimed. NEXT: profile one searched game in-process
+     (py-spy as parent of elo_eval_game --mcts-sims 32) and attribute
+     the missing ~45 ms per leaf; then fix the largest item; then more
+     requests in flight (28 actors on the 17.5-core quota; 38 actors
+     killed the box's sshd on 2026-09-04).
    - Persistent eval workers shipped (`run_elo_batch
      --persistent-workers`, tools/eval_workers.py): 20 seed-vs-seed
      games at 10 concurrent in 97 s against 408 s one-process
