@@ -164,13 +164,13 @@ def _wdl(games_dir: Path) -> str:
             r = json.load(open(f)).get("outcome_a")
         except Exception:  # noqa: BLE001
             continue
-        if r is None:
-            continue
-        if r > 0:
+        # elo_eval_game writes outcome_a as "win" / "loss" / "draw"
+        # (or "timeout..." for unfinished games, which do not count).
+        if r == "win":
             w += 1
-        elif r < 0:
+        elif r == "loss":
             l_ += 1
-        else:
+        elif r == "draw":
             d += 1
     return f"{w}-{d}-{l_}"
 
