@@ -110,8 +110,24 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
    - Eval search procedure per player: `--gumbel-root-a/-b`
      (`elo_eval_game`, `run_elo_batch`; default on), procedure tag
      `puct:<sims>` for a plain PUCT root, recorded in the result JSON.
-5. **Model cost study** (plan 1.4): scoping in progress (token
-   count per leaf is the path to the throughput target, see 3.).
+5. **Model cost study** (plan 1.4): SCOPED 2026-09-05
+   (docs/model_cost_study_20260905.md, `tools/bench_model_cost.py`
+   queued on the box). Hex tokens are 97% of a leaf's sequence and
+   ~65% of them cannot be targeted by any legal action; the linears
+   are 64% of the FLOPs, so attention sparsity caps at 1.56x and only
+   the token count moves the ceiling. The existing relevant-set
+   encoding (~415 tokens at production sizes, every legal action keeps
+   its token) cuts FLOPs 4x; 2x2 hex pooling with an upsampling target
+   head does the same with the action space untouched; a hex-conv
+   trunk 7-13x but from scratch; hex-local attention 1.2x at best.
+   Every token-cutting option lands on the ~6.6 ms CPU launch floor
+   (~2,400 leaves/s) until the GPU design's floor removal ships.
+   PROPOSAL (needs a yes: ~$4.3, one box-day): two imitation arms
+   from the seed weights, 0.5 epoch each (full-board control vs
+   relevant set), legality-masked holdout CE at equal pairs, then
+   800-game PURE matches of each vs `raw:t0` and 400 arm-vs-arm.
+   Kill: relevant-set arm below the control by > 2 SE, or masked CE
+   worse by > 0.05 nat; the pooling arm then replaces it.
    **Eval at scale** (plan 1.5): 800 raw games in ~65 min / $0.36
    through persistent workers; the target (15 min, $0.25) needs the
    workers' forwards batched through one inference server instead of
