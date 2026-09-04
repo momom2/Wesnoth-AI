@@ -54,7 +54,23 @@ Most replays in `replays_raw/` are from 1.18.x clients; pin
 accordingly. If a replay's `[scenario] version=` says something
 other than 1.18.x, scrape from that version's tag instead.
 
-## Current status (2026-09-03)
+## Current status (2026-09-04): PROJECT ON HIATUS
+
+**User decision 2026-09-04, after the minimal loop's first pin
+(raw policy 11-0-29 vs the seed): the project is on hiatus.** All
+Vast instances destroyed (2026-09-04 07:25 UTC); nothing is
+running or billing. Everything identity-critical is on HF
+`momom2/wesnoth-model-checkpoints`: the seed
+(`tier-b/imit_tierb_start.pt`), leg checkpoints and histories under
+`tier-b/arm_az*_2026090[34]/` (az5: `tier_b_az5.pt`,
+`az_history.csv`, `train.log`, `abort_escrow.tar.gz`), and the
+earlier legs. The last raw pin's game files were not escrowed
+separately; the result and the reading are in
+`docs/az_leg_20260903.md`. If the project resumes, start from
+`BACKLOG.md` NEXT ACTIONS (the three untested target levers) and
+the leg record; the search half of the pin was never measured.
+
+## Current status (2026-09-03, superseded by the hiatus note)
 
 **Restart from a minimal self-play loop (user decision 2026-09-03).**
 Everything above the loop is quarantined, not deleted:
