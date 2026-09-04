@@ -34,7 +34,7 @@ log = logging.getLogger("bench_pool")
 def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
              server_priors: bool, max_turns: int, device, seed: int,
              iteration_timeout: float, log_level: int = logging.WARNING,
-             max_batch: int = 16) -> dict:
+             max_batch: int = 16, serve_threads: int = 2) -> dict:
     from tools.actor_pool import ActorPool
     from tools.mcts import MCTSConfig
     from tools.mcts_policy import MCTSPolicy, ReplayConfig
@@ -58,7 +58,8 @@ def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
                      max_turns=max_turns, max_turns_min=max_turns,
                      pvp_defaults=PvPDefaults(), device=device, max_batch=max_batch,
                      log_level=log_level, iteration_timeout=iteration_timeout,
-                     drain_grace=120.0, server_priors=bool(server_priors))
+                     drain_grace=120.0, server_priors=bool(server_priors),
+                     serve_threads=serve_threads)
     pool.start()
     t0 = time.monotonic()
     try:
@@ -79,7 +80,7 @@ def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
         "infer_bf16": bool(getattr(policy._inference_model, "infer_autocast_bf16", False)
                            or getattr(policy, "_infer_bf16", False)),
         "sims": sims, "leaf_batch": leaf_batch, "max_turns": max_turns,
-        "max_batch": max_batch,
+        "max_batch": max_batch, "serve_threads": serve_threads,
         "games_completed": len(outcomes), "decisive": decided,
         "abandoned": getattr(pool, "_last_abandoned", None),
         "experiences": len(exps),
@@ -112,6 +113,9 @@ def main(argv) -> int:
     ap.add_argument("--max-batch", type=int, default=16,
                     help="Leaves the server coalesces per batch across actors "
                          "(ActorPool max_batch; the az legs used 16).")
+    ap.add_argument("--serve-threads", type=int, default=2,
+                    help="Serving threads in the pool process (2 in the az legs); "
+                         "more overlap the per-batch Python with the GPU wait.")
     ap.add_argument("--max-turns", type=int, default=30)
     ap.add_argument("--server-priors", action="store_true")
     ap.add_argument("--iteration-timeout", type=float, default=1500.0)
@@ -144,7 +148,8 @@ def main(argv) -> int:
     res = run_pool(policy, actors=args.actors, games=args.games, sims=args.sims,
                    leaf_batch=args.leaf_batch, server_priors=args.server_priors,
                    max_turns=args.max_turns, device=device, seed=args.seed,
-                   iteration_timeout=args.iteration_timeout, max_batch=args.max_batch)
+                   iteration_timeout=args.iteration_timeout, max_batch=args.max_batch,
+                   serve_threads=args.serve_threads)
     if args.dollars_per_hour and res["games_per_hour"]:
         res["games_per_dollar"] = res["games_per_hour"] / args.dollars_per_hour
     print(json.dumps(res, indent=1))
