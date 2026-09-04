@@ -81,6 +81,8 @@ def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
                            or getattr(policy, "_infer_bf16", False)),
         "sims": sims, "leaf_batch": leaf_batch, "max_turns": max_turns,
         "max_batch": max_batch, "serve_threads": serve_threads,
+        "packed_trunk": bool(getattr(getattr(policy, "_inference_base", policy._inference_model),
+                                     "infer_packed_trunk", False)),
         "games_completed": len(outcomes), "decisive": decided,
         "abandoned": getattr(pool, "_last_abandoned", None),
         "experiences": len(exps),
@@ -126,6 +128,9 @@ def main(argv) -> int:
                          "(the az legs ran fp32 eager; the eval harness "
                          "defaults to bf16 on cuda).")
     ap.add_argument("--infer-compile", action=argparse.BooleanOptionalAction, default=False)
+    ap.add_argument("--packed-trunk", action="store_true",
+                    help="Run the server's trunk on the packed sequence (flash "
+                         "varlen, wesnoth_ai/packed_trunk.py; needs cuda + bf16).")
     ap.add_argument("--dollars-per-hour", type=float, default=0.0)
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--log-level", default="INFO")
@@ -145,6 +150,10 @@ def main(argv) -> int:
         raise SystemExit("--infer-bf16/--infer-compile need a cuda device")
     policy = _load_policy(args.checkpoint, device, label="pool",
                           infer_bf16=args.infer_bf16, infer_compile=args.infer_compile)
+    if args.packed_trunk:
+        if device.type != "cuda" or not args.infer_bf16:
+            raise SystemExit("--packed-trunk needs --device cuda and --infer-bf16")
+        getattr(policy, "_inference_base", policy._inference_model).infer_packed_trunk = True
     res = run_pool(policy, actors=args.actors, games=args.games, sims=args.sims,
                    leaf_batch=args.leaf_batch, server_priors=args.server_priors,
                    max_turns=args.max_turns, device=device, seed=args.seed,

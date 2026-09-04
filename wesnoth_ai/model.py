@@ -33,6 +33,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from wesnoth_ai.encoder import EncodedState
+from wesnoth_ai.packed_trunk import (
+    build_packed_layout, check_packed_trunk_supported, flash_varlen_applies, packed_trunk,
+)
 
 
 # How many attack slots per unit the weapon head predicts. Wesnoth
@@ -273,6 +276,13 @@ class WesnothModel(nn.Module):
         self.encoder = nn.TransformerEncoder(
             layer, num_layers=num_layers, enable_nested_tensor=False,
         )
+        # Packed varlen trunk for batched inference (docs/
+        # gpu_forward_design_20260904.md section 5.3; wesnoth_ai/
+        # packed_trunk.py). Off until measured on the box. When on, it
+        # serves only the calls the flash varlen kernel can take (CUDA,
+        # bf16/fp16; see _packed_trunk_applies); every other call keeps
+        # the padded trunk.
+        self.infer_packed_trunk = False
 
         # Heads.
         self.actor_head     = nn.Linear(d_model, 1)
@@ -479,25 +489,27 @@ class WesnothModel(nn.Module):
     # ModelOutputs are VIEWS into batched tensors.
     # ------------------------------------------------------------------
 
-    def forward_batch(self, encoded_list, autocast_bf16: Optional[bool] = None):
+    def forward_batch(self, encoded_list, autocast_bf16: Optional[bool] = None,
+                      packed: Optional[bool] = None):
         """Run one padded transformer forward over B encoded states.
 
         Returns a list of B per-sample ModelOutput objects with the
         EXACT shapes the single-sample path produces (views into the
         batched head outputs), so downstream code needs no changes.
         `autocast_bf16` overrides the model's `infer_autocast_bf16`
-        for this call (the inference server's own switch).
+        for this call (the inference server's own switch); `packed`
+        overrides the packed-trunk selection (see forward_streams).
         """
         B = len(encoded_list)
         if B == 0:
             return []
-        if B == 1 and autocast_bf16 is None:
+        if B == 1 and autocast_bf16 is None and packed is None:
             return [self.forward(encoded_list[0])]
-        padded = self.forward_padded(encoded_list, autocast_bf16=autocast_bf16)
+        padded = self.forward_padded(encoded_list, autocast_bf16=autocast_bf16, packed=packed)
         return padded.samples()
 
-    def forward_padded(self, encoded_list,
-                       autocast_bf16: Optional[bool] = None) -> "PaddedOutput":
+    def forward_padded(self, encoded_list, autocast_bf16: Optional[bool] = None,
+                       packed: Optional[bool] = None) -> "PaddedOutput":
         """The batched computation behind forward_batch: every head is
         applied once to padded [B, ...] tensors; actor slots are laid
         out per sample in the canonical compact order (units |
@@ -513,11 +525,11 @@ class WesnothModel(nn.Module):
                     if autocast_bf16 is None else bool(autocast_bf16))
         if use_bf16 and not self.training and device.type == "cuda":
             with torch.autocast("cuda", dtype=torch.bfloat16):
-                out = self._forward_padded_impl(encoded_list)
+                out = self._forward_padded_impl(encoded_list, packed)
             return out.float32()
-        return self._forward_padded_impl(encoded_list)
+        return self._forward_padded_impl(encoded_list, packed)
 
-    def _forward_padded_impl(self, encoded_list) -> "PaddedOutput":
+    def _forward_padded_impl(self, encoded_list, packed: Optional[bool] = None) -> "PaddedOutput":
         d = self.d_model
         device = encoded_list[0].hex_tokens.device
         dtype = encoded_list[0].hex_tokens.dtype
@@ -538,24 +550,33 @@ class WesnothModel(nn.Module):
             _padded([e.recruit_tokens for e in encoded_list], max(Rs)),
             torch.cat([e.global_token for e in encoded_list], dim=0),
             torch.cat([e.end_turn_token for e in encoded_list], dim=0),
-            list(zip(Us, Rs, Hs)))
+            list(zip(Us, Rs, Hs)), packed=packed)
 
     def forward_streams(self, hex_batch, unit_batch, recruit_batch, global_batch,
-                        end_turn_batch, sizes) -> "PaddedOutput":
+                        end_turn_batch, sizes, packed: Optional[bool] = None) -> "PaddedOutput":
         """Batched forward over already-padded streams ([B, L_max, d]
         each, WITHOUT token-kind embeddings) and per-sample sizes
         (U_b, R_b, H_b). The inference server feeds this straight from
         encoder.encode_from_raw_padded; forward_padded feeds it from
         EncodedStates. Same bf16 policy as forward_padded when called
-        through it; callers that come here directly autocast themselves."""
+        through it; callers that come here directly autocast themselves.
+
+        `packed`: None selects the packed trunk where `infer_packed_trunk`
+        and the flash varlen kernel apply (_packed_trunk_applies); True
+        forces the packed code path (per-segment SDPA off the kernel's
+        domain, for tests); False forces the padded trunk."""
+        if packed is None:
+            packed = self._packed_trunk_applies(hex_batch)
+        if packed:
+            return self._forward_streams_packed(hex_batch, unit_batch, recruit_batch,
+                                                global_batch, end_turn_batch, sizes)
         d = self.d_model
         device = hex_batch.device
-        dtype = hex_batch.dtype
         B = len(sizes)
         Us = [s[0] for s in sizes]
         Rs = [s[1] for s in sizes]
         Hs = [s[2] for s in sizes]
-        U_max, R_max, H_max = hex_batch.size(1) * 0 + unit_batch.size(1), recruit_batch.size(1), hex_batch.size(1)
+        U_max, R_max, H_max = unit_batch.size(1), recruit_batch.size(1), hex_batch.size(1)
         kk = self.token_kind_embed.weight
         if H_max:
             hex_batch = hex_batch + kk[TokenKind.HEX]
@@ -592,7 +613,61 @@ class WesnothModel(nn.Module):
         hex_ctx = x[:, :H_max]
         global_ctx = x[:, H_max + U_max + R_max:H_max + U_max + R_max + 1]  # [B, 1, d]
         actor_ctx = torch.gather(x, 1, actor_idx.unsqueeze(-1).expand(-1, -1, d))  # [B, A_max, d]
+        return self._heads(actor_ctx, hex_ctx, global_ctx, actor_kind, sizes,
+                           unit_ctx=x[:, H_max:H_max + U_max] if self.has_gbc else None)
 
+    def _packed_trunk_applies(self, x: torch.Tensor) -> bool:
+        """The packed trunk serves a call when it is switched on, the
+        model is in eval mode, and the in-projections will produce a
+        dtype the flash varlen kernel takes on CUDA: bf16/fp16 inputs, or
+        fp32 inputs under a bf16/fp16 autocast (torch.is_autocast_enabled
+        takes the device type: torch 2.5.1 torch/csrc/autograd/init.cpp
+        :559-580). Everything else keeps the padded trunk."""
+        if not (getattr(self, "infer_packed_trunk", False) and not self.training
+                and x.device.type == "cuda"):
+            return False
+        dtype = torch.get_autocast_dtype("cuda") if torch.is_autocast_enabled("cuda") else x.dtype
+        return flash_varlen_applies(x.device, dtype)
+
+    def _forward_streams_packed(self, hex_batch, unit_batch, recruit_batch, global_batch,
+                                end_turn_batch, sizes) -> "PaddedOutput":
+        """forward_streams on the packed layout (design note section 5.3;
+        the index arrays follow section 4.3). One gather packs the real
+        tokens of the padded streams into [total, d] and one embedding
+        lookup adds the token kinds; the trunk runs on that tensor;
+        index_selects lay the contexts out in the padded shapes, so the
+        heads and PaddedOutput are the padded path's. Every index array
+        is built host-side and shipped in one pinned non-blocking copy:
+        nothing here synchronizes with the host."""
+        if not getattr(self, "_packed_trunk_checked", False):
+            check_packed_trunk_supported(self.encoder)
+            self._packed_trunk_checked = True
+        d = self.d_model
+        B = len(sizes)
+        H_max, U_max, R_max = hex_batch.size(1), unit_batch.size(1), recruit_batch.size(1)
+        A_max = U_max + R_max + 1
+        layout = build_packed_layout(sizes, H_max, U_max, R_max, TokenKind, ActorKind)
+        index = layout.to_device(hex_batch.device)
+        padded = torch.cat([hex_batch, unit_batch, recruit_batch, global_batch, end_turn_batch],
+                           dim=1).reshape(B * (H_max + U_max + R_max + 2), d)
+        x = padded.index_select(0, index.src) + self.token_kind_embed(index.kind)   # [total, d]
+        x = packed_trunk(self.encoder, x, index)
+        actor_ctx = x.index_select(0, index.actor).view(B, A_max, d)
+        hex_ctx = x.index_select(0, index.hex).view(B, H_max, d)
+        global_ctx = x.index_select(0, index.glob).view(B, 1, d)
+        unit_ctx = x.index_select(0, index.unit).view(B, U_max, d) if self.has_gbc else None
+        return self._heads(actor_ctx, hex_ctx, global_ctx, torch.from_numpy(layout.actor_kind),
+                           sizes, unit_ctx)
+
+    def _heads(self, actor_ctx, hex_ctx, global_ctx, actor_kind, sizes,
+               unit_ctx) -> "PaddedOutput":
+        """The four heads on contextualized actor [B, A_max, d], hex
+        [B, H_max, d] and global [B, 1, d] rows, whichever trunk produced
+        them."""
+        d = self.d_model
+        device, dtype = actor_ctx.device, actor_ctx.dtype
+        B, A_max, _ = actor_ctx.shape
+        H_max = hex_ctx.size(1)
         actor_logits = self.actor_head(actor_ctx).squeeze(-1)           # [B, A_max]
         type_logits = self.type_head(actor_ctx)                          # [B, A_max, T]
         weapon_logits = self.weapon_head(actor_ctx)                      # [B, A_max, W]
@@ -619,8 +694,8 @@ class WesnothModel(nn.Module):
             actor_logits=actor_logits, actor_kind=actor_kind, type_logits=type_logits,
             target_logits=target_logits, weapon_logits=weapon_logits, value=value,
             value_logits=value_logits, cliffness=cliffness, aux_score=aux_score,
-            moves_left=moves_left, sizes=list(zip(Us, Rs, Hs)),
-            unit_ctx=x[:, H_max:H_max + U_max] if self.has_gbc else None,
+            moves_left=moves_left, sizes=[tuple(s) for s in sizes],
+            unit_ctx=unit_ctx,
             hex_ctx=hex_ctx if self.has_gbc else None,
             global_ctx=global_ctx if self.has_gbc else None)
 

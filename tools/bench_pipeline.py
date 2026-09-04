@@ -483,6 +483,9 @@ def main(argv) -> int:
     ap.add_argument("--dollars-per-hour", type=float, default=0.0)
     ap.add_argument("--infer-bf16", action=argparse.BooleanOptionalAction, default=None)
     ap.add_argument("--infer-compile", action=argparse.BooleanOptionalAction, default=None)
+    ap.add_argument("--packed-trunk", action="store_true",
+                    help="run the batched forwards (sections B and D) through the packed "
+                         "varlen trunk (model.infer_packed_trunk; CUDA + bf16 only)")
     ap.add_argument("--label", default="")
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--games-outdir", type=Path, default=ROOT / "eval_games" / "bench_pipeline")
@@ -512,11 +515,17 @@ def main(argv) -> int:
     comp = cuda if args.infer_compile is None else args.infer_compile
     policy = _load_policy(args.checkpoint, torch.device("cuda") if cuda else torch.device("cpu"),
                           label="bench", infer_bf16=bf16, infer_compile=comp)
+    if args.packed_trunk:
+        if not (cuda and bf16):
+            raise SystemExit("--packed-trunk needs --device cuda and bf16 inference")
+        # The uncompiled handle owns the attribute; a compiled wrapper
+        # forwards attribute reads to it (OptimizedModule.__getattr__).
+        getattr(policy, "_inference_base", policy._inference_model).infer_packed_trunk = True
     states = load_states(args.manifest, args.dataset, args.states)
     log.info("loaded %d benchmark states", len(states))
     result = {"label": args.label, "checkpoint": str(args.checkpoint), "device": args.device,
-              "infer_bf16": bf16, "infer_compile": comp, "n_states": len(states),
-              "torch": torch.__version__}
+              "infer_bf16": bf16, "infer_compile": comp, "packed_trunk": bool(args.packed_trunk),
+              "n_states": len(states), "torch": torch.__version__}
     result["components"] = component_costs(states, policy, repeats=args.repeats)
     result["forwards"] = forward_costs(
         policy, states, batch_sizes=[int(b) for b in args.batch_sizes.split(",")],

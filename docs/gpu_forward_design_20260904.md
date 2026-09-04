@@ -740,3 +740,161 @@ are in section 7.2 and 4.1. Attention share of FLOPs: 23% at L=700,
   None, cum_seq_q, cum_seq_k, max_q, max_k, dropout_p, int(is_causal),
   compute_logsumexp, scale=...)` — both varlen entry points exist in
   2.5.1 as private ops.
+
+## 12. Option 1 implemented (2026-09-05): the packed varlen trunk
+
+Written without a GPU; every CUDA-side claim below is pinned from the
+torch 2.5.1 source (the box wheel) and waits for the commands at the end
+of this section. The local wheel is 2.10.0+cpu, so the 2.5.1 files were
+fetched from the v2.5.1 tag and read, not executed.
+
+### What is implemented
+
+- `wesnoth_ai/packed_trunk.py` (new): the packed layout, its one-copy
+  device transfer, the attention wrapper and the layer loop.
+  `build_packed_layout(sizes, H_max, U_max, R_max, TokenKind, ActorKind)`
+  builds, in numpy, the index arrays of section 4.3 for the padded row
+  order hex | unit | recruit | global | end_turn: `src` (padded flat row
+  of every packed token), `kind` (TokenKind per packed token), `actor`,
+  `hex`, `unit`, `glob` (packed row of every head slot; padded slots
+  point at the row's end_turn token, a finite value no consumer reads),
+  `cu_seqlens` and `actor_kind`. `PackedLayout.to_device` concatenates
+  them into one int64 buffer, pins it and copies it non-blocking (one
+  transfer, no host synchronization), then splits it into views and
+  casts the offsets to int32 on the device. `packed_trunk` runs the
+  layers' own parameters over the `[total, d]` tensor with the post-norm
+  math of `nn.TransformerEncoderLayer.forward` (transformer.py:902-906,
+  `_sa_block` 911-927, `_ff_block` 930-932 at v2.5.1); `_self_attention`
+  is `F.multi_head_attention_forward`'s self-attention path
+  (`_in_projection_packed` functional.py:5501-5510, head split
+  6274-6276, out projection 6285): one `F.linear` with `in_proj_weight`
+  viewed `[total, 3, heads, head_dim]` and unbound into q, k, v
+  (unit-stride last dim; the kernel reads the row and head strides from
+  the tensors, flash_api.cpp `set_params_fprop` lines 85-88), then
+  `packed_attention`, then `out_proj`.
+- `packed_attention` calls
+  `torch.ops.aten._flash_attention_forward(q, k, v, cu, cu, max_len,
+  max_len, 0.0, False, False)[0]` when q is CUDA fp16/bf16 (the
+  positional arguments of the 2.5.1 schema, native_functions.yaml:14814,
+  quoted in the module docstring; the same call the nested-tensor glue
+  makes, torch/nested/_internal/sdpa.py:752-764). Elsewhere (CPU, fp32)
+  it runs `F.scaled_dot_product_attention` once per segment over the
+  same packed tensors, so the bookkeeping is testable on the laptop and
+  the fp32 CUDA comparison isolates layout from kernel rounding.
+- `wesnoth_ai/model.py`: `WesnothModel.infer_packed_trunk = False` (the
+  switch; a plain attribute, state_dict unchanged);
+  `forward_streams(..., packed=None)`, threaded through `forward_padded`
+  and `forward_batch`. `packed=None` selects the packed trunk only when
+  `_packed_trunk_applies`: switch on, eval mode, CUDA, and the dtype the
+  in-projections will produce is bf16/fp16 (bf16 inputs, or fp32 inputs
+  under a bf16 autocast: `torch.is_autocast_enabled("cuda")` /
+  `torch.get_autocast_dtype("cuda")`, torch/csrc/autograd/init.cpp:559-592
+  at v2.5.1). Every other call keeps the padded trunk unchanged; `True`
+  and `False` force a path (tests). `_forward_streams_packed` packs the
+  five padded streams with one `index_select` on the concatenated
+  `[B*L, d]` tensor, adds the token-kind embedding by one lookup on
+  `kind` (the same fp32 add as the padded path's broadcast adds), runs
+  the trunk, and lays actor / hex / global (and unit, for GBC) contexts
+  out in the padded shapes with `index_select`. The heads moved verbatim
+  into `_heads`, shared by both paths, so `PaddedOutput`, its views,
+  `start_priors` and `batched_priors` are untouched. Nothing between the
+  index copy and the head outputs synchronizes with the host (the padded
+  path's own `pad_mask` / `actor_idx` `.to(device)` copies are blocking:
+  `memcpy_and_sync`, c10/cuda/CUDAFunctions.h:77-86, Copy.cu:384; the
+  packed path's pinned non-blocking copy goes through Copy.cu:362-381).
+- `tools/inference_seam.py` needs no change: `_infer_with_priors` calls
+  `forward_streams` under the bf16 autocast, so the model attribute
+  alone selects the trunk. `tools/bench_pipeline.py --packed-trunk` sets
+  the attribute on the uncompiled inference model (a compiled wrapper
+  forwards attribute access, `OptimizedModule.__getattr__/__setattr__`)
+  and records `packed_trunk` in the JSON; sections B and D then measure
+  the packed path, and the flag refuses CPU or fp32 runs.
+- No CLI flag on the actor pool or the policy loader yet: the production
+  switch is `policy._inference_base.infer_packed_trunk = True`, to be
+  plumbed once the box numbers justify it.
+
+### Facts pinned from the 2.5.1 source while implementing
+
+- The open question of section 5.2 is settled: `seqused_k` is a
+  keyword argument of the 2.5.1 op (`Tensor? seqused_k=None`,
+  native_functions.yaml:14814; flash_api.cpp:652-657 checks it int32,
+  CUDA, contiguous, `[B]`). Route (a) does not use it.
+- `mha_varlen_fwd` (flash_api.cpp:543) requires: fp16/bf16 (572), same
+  dtype for k, v (577-578), int32 cu_seqlens (579-580), CUDA tensors
+  (582-584), unit-stride last dim (595-597), contiguous cu_seqlens
+  (598-599), q `[total_q, heads, head_dim]` and k, v
+  `[total_k, heads_k, head_dim]` (640-644), cu_seqlens `[B+1]` (650-651),
+  head_dim at most 256 and a multiple of 8 (633-635; tier B's 32
+  passes), sm80+ (567). Output `empty_like(q_padded)` (678):
+  `[total, heads, head_dim]`. With dropout 0 the seed/offset tensors are
+  `at::empty` (no RNG state, no host work). The varlen branch of
+  `_flash_attention_forward` is attention.cu:935-964.
+- The 2.5.1 encoder-layer fused fast path is gated by autocast
+  (transformer.py:821), training, odd heads, hooks and grad
+  (793-853), not by dropout, so the `dropout=1e-4` rationale in
+  `WesnothModel.__init__` gates nothing on this torch. The packed loop
+  is eval-only and omits the dropouts.
+- Under autocast, `F.linear` (in/out projections, MLP) runs bf16 and
+  `layer_norm` fp32, in both paths; the residual stream is fp32 in both;
+  the attention kernel receives bf16 q, k, v in both. The only
+  numerical difference between the paths is that kernel: flash varlen
+  (packed) against cutlass mem-efficient with an additive bf16 bias
+  (padded). Expected: bf16 rounding differences of a few 1e-2 of each
+  field's scale after 8 layers. The CUDA test asserts packed-vs-padded
+  below 0.1 of the scale and packed-vs-fp32 within twice the padded
+  path's own bf16 error plus 1% of scale, and prints max abs and
+  scale-relative differences for actor, type, target and weapon logits,
+  value, value_logits and cliffness.
+
+### Tests
+
+- `tests/test_packed_trunk.py` (CPU, 7 tests, 4 s): the layout
+  round-trips the padded streams (pack, kinds, offsets, every head
+  gather, including rows without recruits and batches without hexes);
+  packed and padded `forward_streams` agree on random streams whose pad
+  positions hold random values; on real encoded states,
+  `forward_batch(packed=True)` equals the single-sample forward and the
+  compact priors from the packed output equal those from the padded
+  output; the switch leaves CPU and training-mode calls on the padded
+  trunk; unsupported layer options are refused.
+- `tests/test_packed_trunk_cuda.py` (skipped without CUDA): fp32
+  packed (segment SDPA) vs fp32 padded on the device (bookkeeping only);
+  bf16 packed vs bf16 padded vs fp32 with the differences printed;
+  `torch.cuda.set_sync_debug_mode("error")` around the packed forward;
+  GPU ms per batch of 16 for both trunks, near-homogeneous
+  (1,150-1,300 hexes, padding ratio about 1.1, the production mix) and
+  mixed (600-2,200 tokens, about 1.5), with stream-event timing. Random
+  weights at the tier-B shape; no checkpoint needed.
+
+### Not verifiable here; the box must confirm
+
+1. The op runs on the box wheel: `USE_FLASH_ATTENTION` compiled in
+   (attention.cu:1000 raises otherwise) and the sm_86 SASS / PTX-JIT
+   path on the sm_89 card serving the flash kernels.
+2. The parity numbers: that the bf16 differences land where this
+   section expects (a few 1e-2 of scale) and that the fp32 device
+   comparison sits at 1e-5..1e-4 (TF32 is off by default for matmul; if
+   the fp32 mem-efficient kernel rounds more, the 5e-3 bound in the test
+   says so).
+3. The sync check: `pin_memory()` on the cached host allocator and the
+   `torch.split` views issue no flagged operation on the second call.
+4. The GPU time: section 5.3 predicts -20-25% per batch at padding 1.1
+   (attention 5.5-11 to 3.5-6 ms, mask kernels gone, -8% on the linears).
+5. `torch.is_autocast_enabled("cuda")` accepts the device string in
+   2.5.1 (init.cpp:565 parses that form), read, not executed.
+
+### Commands on the box
+
+    pytest -s tests/test_packed_trunk_cuda.py -p no:cacheprovider
+    pytest tests/test_packed_trunk.py tests/test_forward_batch_padded.py tests/test_server_priors.py tests/test_server_priors_cuda.py
+    python tools/bench_pipeline.py --checkpoint training/checkpoints/seed_imit_tierb_start.pt \
+        --device cuda --batch-sizes 16,64 --label padded --out training/metrics/bench_pipeline/seam_padded.json
+    python tools/bench_pipeline.py --checkpoint training/checkpoints/seed_imit_tierb_start.pt \
+        --device cuda --batch-sizes 16,64 --packed-trunk --label packed --out training/metrics/bench_pipeline/seam_packed.json
+
+Compare the `seam` rows (protocol priors, batch 16 and 64: ms per batch,
+leaves per second) and the `forwards` rows between the two JSONs; the
+GPU-only number is the CUDA test's. No strength check is needed for
+this change (same weights, same math up to bf16 rounding); the `raw:t0`
+self-match of docs/plan_20260904.md remains the gate before the packed
+trunk becomes the pool default.
