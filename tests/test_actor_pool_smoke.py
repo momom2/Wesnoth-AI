@@ -39,6 +39,7 @@ def test_actor_pool_plays_games_end_to_end():
                            ladder_ratio=0.0),
         max_turns=4,
         iteration_timeout=600.0,
+        server_priors=False,          # the legacy protocol stays covered
     )
     pool.start()
     try:

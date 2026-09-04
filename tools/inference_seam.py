@@ -197,11 +197,24 @@ class InferenceServer:
         self, model, encoder, *,
         device: Optional[torch.device] = None,
         output_device: Optional[torch.device] = None,
+        autocast_bf16: Optional[bool] = None,
     ):
         self._model = model
         self._encoder = encoder
         self._device = device or next(model.parameters()).device
         self._out_dev = output_device or torch.device("cpu")
+        # None: follow the model's `infer_autocast_bf16`. The actor
+        # pool sets it explicitly so the generation path runs bf16
+        # while the learner's own in-process probes keep the model's
+        # setting (fp32 unless the policy was loaded with infer_bf16).
+        self._autocast_bf16 = autocast_bf16
+
+    def _use_bf16(self) -> bool:
+        if self._device.type != "cuda":
+            return False
+        if self._autocast_bf16 is None:
+            return bool(getattr(self._model, "infer_autocast_bf16", False))
+        return bool(self._autocast_bf16)
 
     def infer(self, raw: RawEncoded) -> ModelOutput:
         with torch.no_grad():
@@ -224,7 +237,8 @@ class InferenceServer:
         with torch.no_grad():
             encs = self._encoder.encode_from_raw_batch(
                 raws, device=self._device)
-            outs = self._model.forward_batch(encs)
+            outs = self._model.forward_batch(
+                encs, autocast_bf16=self._use_bf16())
             if (self._out_dev.type == "cpu"
                     and outs and torch.is_tensor(outs[0].actor_logits)
                     and outs[0].actor_logits.device.type != "cpu"):
@@ -242,8 +256,7 @@ class InferenceServer:
         placeholder logits (the actor never reads them)."""
         from wesnoth_ai.server_priors import batched_priors
         model = self._model
-        bf16 = (getattr(model, "infer_autocast_bf16", False)
-                and self._device.type == "cuda")
+        bf16 = self._use_bf16()
         with torch.no_grad():
             streams = self._encoder.encode_from_raw_padded(raws, device=self._device)
             if bf16:

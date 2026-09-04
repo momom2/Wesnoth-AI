@@ -54,8 +54,7 @@ def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
                      max_turns=max_turns, max_turns_min=max_turns,
                      pvp_defaults=PvPDefaults(), device=device, max_batch=max_batch,
                      log_level=log_level, iteration_timeout=iteration_timeout,
-                     drain_grace=120.0)
-    pool.server_priors = bool(server_priors)
+                     drain_grace=120.0, server_priors=bool(server_priors))
     pool.start()
     t0 = time.monotonic()
     try:

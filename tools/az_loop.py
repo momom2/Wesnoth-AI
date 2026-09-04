@@ -264,6 +264,16 @@ def main(argv) -> int:
                          "plain search with a level-correct value head "
                          "(step-scale measurement 2026-09-03: K 7 with "
                          "6/8 decisive at the value-loss optimum).")
+    ap.add_argument("--server-priors", action=argparse.BooleanOptionalAction,
+                    default=True,
+                    help="Server-side priors in the actor pool "
+                         "(plan 1.3; 141 -> 172 leaves/s alone, 320 "
+                         "with bf16, docs/box_specs.md).")
+    ap.add_argument("--infer-bf16", action=argparse.BooleanOptionalAction,
+                    default=True,
+                    help="bf16 autocast on the pool's inference server "
+                         "(cuda only; the learner's own probes stay in "
+                         "the model's precision).")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--rng-seed", type=int, default=20260903)
     ap.add_argument("--log-level", default="INFO")
@@ -329,7 +339,9 @@ def main(argv) -> int:
                      pvp_defaults=PvPDefaults(), device=device,
                      max_batch=16, log_level=logging.WARNING,
                      iteration_timeout=args.iteration_timeout,
-                     drain_grace=300.0)
+                     drain_grace=300.0,
+                     server_priors=bool(args.server_priors),
+                     infer_bf16=bool(args.infer_bf16 and device.type == "cuda"))
     pool.start()
 
     workdir = args.workdir

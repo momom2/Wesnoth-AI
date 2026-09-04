@@ -385,7 +385,14 @@ class ActorPool:
         drain_grace: float = 1800.0,
         liveness_interval: float = 2.0,
         serve_threads: int = 2,
+        server_priors: bool = True,
+        infer_bf16: Optional[bool] = None,
     ):
+        """`server_priors`: actors ship packed legality masks and the
+        server returns compact legal actions with priors
+        (wesnoth_ai/server_priors.py; measured 2026-09-04, docs/
+        box_specs.md). `infer_bf16`: the server's autocast switch
+        (None follows the model's `infer_autocast_bf16`)."""
         if n_actors < 1:
             raise ValueError("n_actors must be >= 1")
         self._policy = policy
@@ -397,7 +404,8 @@ class ActorPool:
         # Server-side priors (plan 1.3): actors ship packed legality
         # masks, the server returns compact legal actions. Off by
         # default until the box measurement certifies it.
-        self.server_priors: bool = False
+        self.server_priors: bool = bool(server_priors)
+        self._infer_bf16 = infer_bf16
         # TCS (2026-08-14): when set, actors build TurnCommitPolicy
         # instead of MCTSPolicy -- the third generation path of the
         # worker-side-targets symmetry contract.
@@ -475,7 +483,8 @@ class ActorPool:
             self._procs.append(p)
         self._server = InferenceServer(
             self._policy._inference_model, self._policy._inference_encoder,
-            device=self._device, output_device=torch.device("cpu"))
+            device=self._device, output_device=torch.device("cpu"),
+            autocast_bf16=self._infer_bf16)
         self._started = True
         log.info(f"actor pool started: {self._n} actors, "
                  f"max_batch={self._max_batch}")

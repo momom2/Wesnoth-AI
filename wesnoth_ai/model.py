@@ -479,22 +479,25 @@ class WesnothModel(nn.Module):
     # ModelOutputs are VIEWS into batched tensors.
     # ------------------------------------------------------------------
 
-    def forward_batch(self, encoded_list):
+    def forward_batch(self, encoded_list, autocast_bf16: Optional[bool] = None):
         """Run one padded transformer forward over B encoded states.
 
         Returns a list of B per-sample ModelOutput objects with the
         EXACT shapes the single-sample path produces (views into the
         batched head outputs), so downstream code needs no changes.
+        `autocast_bf16` overrides the model's `infer_autocast_bf16`
+        for this call (the inference server's own switch).
         """
         B = len(encoded_list)
         if B == 0:
             return []
-        if B == 1:
+        if B == 1 and autocast_bf16 is None:
             return [self.forward(encoded_list[0])]
-        padded = self.forward_padded(encoded_list)
+        padded = self.forward_padded(encoded_list, autocast_bf16=autocast_bf16)
         return padded.samples()
 
-    def forward_padded(self, encoded_list) -> "PaddedOutput":
+    def forward_padded(self, encoded_list,
+                       autocast_bf16: Optional[bool] = None) -> "PaddedOutput":
         """The batched computation behind forward_batch: every head is
         applied once to padded [B, ...] tensors; actor slots are laid
         out per sample in the canonical compact order (units |
@@ -506,8 +509,9 @@ class WesnothModel(nn.Module):
         fp32 eager, 1.5 ms per 714-token sample on a 4090, flat from
         batch 4 to 64); outputs are cast back to float32."""
         device = encoded_list[0].hex_tokens.device
-        if (getattr(self, "infer_autocast_bf16", False) and not self.training
-                and device.type == "cuda"):
+        use_bf16 = (getattr(self, "infer_autocast_bf16", False)
+                    if autocast_bf16 is None else bool(autocast_bf16))
+        if use_bf16 and not self.training and device.type == "cuda":
             with torch.autocast("cuda", dtype=torch.bfloat16):
                 out = self._forward_padded_impl(encoded_list)
             return out.float32()

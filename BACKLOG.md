@@ -40,7 +40,7 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
    with bf16 it does 1,584 samples/s at batch 16 (was 602). The
    server-side priors protocol (`wesnoth_ai/server_priors.py`: actors
    ship packed masks, the server returns compact legal actions,
-   `ActorPool.server_priors`, default off) serves ~1,080 leaves/s
+   `ActorPool.server_priors`, default ON since 2026-09-04) serves ~1,080 leaves/s
    per thread on token-sorted batches with 9-15 KB per leaf on the
    wire (was 60-87 KB). Certified: parity tests through seam and
    wire, pool smoke end to end.
@@ -49,10 +49,17 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
      -> priors + bf16 320 leaves/s, 33 -> 64 games/h, same box. The
      serve threads share one GIL and were busy 60-75% of the time:
      the server is still the ceiling.
-   - NEXT: serve from several processes (or move the per-batch Python
-     off the GIL); torch.compile the padded path; length-bucketed
-     batches; then flip `server_priors` and bf16 on by default in the
-     generation path.
+   - DEFAULTS FLIPPED (2026-09-04): `ActorPool(server_priors=True)`
+     and the server's own bf16 switch (`InferenceServer(autocast_bf16)`,
+     `ActorPool(infer_bf16)`); `az_loop.py --server-priors/--infer-bf16`
+     default on (cuda), `--no-...` to opt out. The learner's in-process
+     probes keep the model's precision.
+   - Coalescing 64 leaves per server batch instead of 16: 364 leaves/s
+     against 320 (`pool_mb64`), so per-batch Python is a minor cost.
+   - NEXT: py-spy profile of the server process under load (queued on
+     the box) decides between serving from several processes and
+     trimming the per-batch Python; torch.compile the padded path;
+     length-bucketed batches.
    - Persistent eval workers shipped (`run_elo_batch
      --persistent-workers`, tools/eval_workers.py): 20 seed-vs-seed
      games at 10 concurrent in 97 s against 408 s one-process
