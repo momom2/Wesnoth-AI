@@ -77,6 +77,37 @@ macros actually shipped. Records: eval_games/rust_corpus_cert/.
 
 2b. **Raw encoding** (encoder.encode_raw, the loops): GameState ->
    RawEncoded arrays. Certify: byte-identical arrays.
+   **Ported 2026-09-04** (`rust/wesnoth_core/src/encode.rs`,
+   `encode_raw_streams`, one call per encode). Python keeps the slot
+   orderings (`visible_units_in_slot_order`, `own_recruit_types`, the
+   static hex cache), the vocab lookups (ids cross as arrays; Rust
+   never owns the dicts), the fog and ownership predicates (dict and
+   set lookups on Python objects, including the vision disc) and the
+   Python-object fields of RawEncoded; it hands the facts over as
+   flat int64/float64 arrays and Rust composes every numpy array
+   (hex modifier/dynamic bits, unit stream, recruit stream, global
+   features) with the reference builders' float order: each feature
+   is the f64 expression Python evaluates, cast once to f32. The
+   Python builders (`_python_*` in encoder.py) stay verbatim as the
+   diff oracle. Selection is pathfind_sim's (`_RUST` importable and
+   WESNOTH_RUST != 0); a pre-2b wheel lacks the function and takes
+   the Python path.
+   Certification: laptop differential test only
+   (tests/test_rust_encode_raw.py: 3 scenario starts, 40 dummy-game
+   midstates, fog on/off, recruit rejections, owner-map entries off
+   the village terrain, a petrified unit, out-of-vocab names, both
+   hex-stream modes; every array equal in dtype, shape and bytes,
+   with engagement counters). Box measurement pending.
+   Measured on the laptop (encode_raw over 200 dummy-game states,
+   H ~860): 634 -> 391 us per encode with fog on (visible units mean
+   4.5); on the 26 fog-off states with 12 visible units 112 -> 56 us.
+   The fog-on residue is `visible_hexes_for` (the vision disc) and
+   `units_visible_to`, which are outside this phase.
+   Observation while certifying: sim-path hexes carry the village
+   TERRAIN without the village MODIFIER (replay_dataset.py:740, on
+   purpose), so on scenario_pool maps the static village bit lights
+   only for owned villages; terrain ids still mark them. Unchanged by
+   the port, recorded so the next reader does not rediscover it.
 3. **Combat + sim step** (wesnoth_sim combat resolution, healing,
    advancement, events glue): the [mp_checkup]-oracle-certified
    core. Full-corpus differential run required (the 24,796-replay

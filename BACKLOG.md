@@ -31,8 +31,13 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
      step below (arrays are what cross processes cheaply).
    - Measured on the box with the Rust wheel: masks 0.76 ms,
      enumeration incl. masks 2.53 ms (was 6.90).
-   - NEXT: Rust `encode_raw` (rust_port_plan phase 2b, byte-identical
-     arrays; 1.35 ms per leaf now the largest actor-side item), then
+   - DONE 2026-09-04: Rust `encode_raw` streams (rust_port_plan phase
+     2b, `rust/wesnoth_core/src/encode.rs`, byte-identical on 124
+     states in both hex modes, `tests/test_rust_encode_raw.py`):
+     634 -> 391 us per encode on the laptop with fog on (the residue is
+     the fog visibility computation), 112 -> 56 us fog off. Box
+     measurement pending (wheel rebuild in the box setup).
+   - NEXT: the actor loop's untimed ~45 ms per leaf (see 3.), then
      combat and step (phase 3, full corpus sweep).
 3. **Batched inference server** (plan 1.3). Measured 2026-09-04
    (docs/box_specs.md "Phase-1 iterations"): the batched forward ran
