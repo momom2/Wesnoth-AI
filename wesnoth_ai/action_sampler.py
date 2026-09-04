@@ -534,6 +534,15 @@ def enumerate_legal_actions_with_priors(
     compact = getattr(output, "legal_compact", None)
     if compact is not None:
         from wesnoth_ai.server_priors import unpack_compact
+        # Server-side priors were built by pack_masks at decision_step
+        # 0 (the actor's RemoteEncoder has no step); they equal this
+        # call's reference only while the combat-oracle bias is off at
+        # both steps, which the standing alphas (0.0) guarantee.
+        if any(combat_alphas_at(decision_step)) or any(combat_alphas_at(0)):
+            raise NotImplementedError(
+                "server-side priors do not carry the combat-oracle anneal; "
+                "run with COMBAT_TARGET_ALPHA = COMBAT_TYPE_ALPHA = 0 or "
+                "ActorPool(server_priors=False)")
         return unpack_compact(compact, encoded)
     if _ENUM_REFERENCE:
         return _enumerate_legal_actions_reference(

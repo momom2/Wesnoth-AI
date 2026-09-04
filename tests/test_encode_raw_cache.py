@@ -107,3 +107,19 @@ def test_replaced_hex_set_invalidates_cache():
     assert after.hex_terrain_ids[i] == Terrain.CASTLE.value
     assert before.hex_terrain_ids[i] != after.hex_terrain_ids[i]
     assert len(encoder._STATIC_HEX_CACHE) == 2
+
+
+def test_cache_entry_holds_its_hex_set():
+    """The entry keeps a strong reference to the set it was built
+    from, so its id cannot be recycled by another map; a hit is an
+    identity match."""
+    from wesnoth_ai import encoder
+    encoder._STATIC_HEX_CACHE.clear()
+    gs = _state()
+    _encode(gs)
+    entry = encoder._STATIC_HEX_CACHE[id(gs.map.hexes)]
+    assert entry.hex_set is gs.map.hexes
+    gs2 = _state(seed=4)                         # another map, same process
+    _encode(gs2)
+    assert encoder._STATIC_HEX_CACHE[id(gs2.map.hexes)].hex_set is gs2.map.hexes
+    assert entry.hex_set is not gs2.map.hexes

@@ -50,7 +50,9 @@ def test_bucket_edges_are_quantiles():
 def test_component_costs_on_scenario_states():
     from tools.bench_pipeline import COMPONENTS, component_costs
     costs = component_costs(_scenario_states(2), _tiny_policy(), repeats=1)
-    assert set(costs) == set(COMPONENTS)
+    assert set(costs) == set(COMPONENTS) | {"python_per_decision"}
+    assert costs["python_per_decision"] == pytest.approx(sum(
+        costs[k] for k in ("encode_raw", "encode_from_raw", "enumerate_priors", "sim_step", "state_key")))
     assert all(v >= 0.0 for v in costs.values())
     assert costs["encode_raw"] > 0.0 and costs["enumerate_priors"] > 0.0
 

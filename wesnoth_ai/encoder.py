@@ -24,7 +24,6 @@ import threading
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
-import weakref
 
 import numpy as np
 import torch
@@ -1447,7 +1446,9 @@ class _StaticHexArrays:
                                      # or modifier
     keys: List[Tuple[int, int]]      # (x, y) per hex index
     pos_index: Dict[Tuple[int, int], int]
-    anchor: "weakref.ref"            # one Hex of the set: identity guard
+    hex_set: object                  # the set the entry was built from: a
+                                     # strong reference, so its id cannot be
+                                     # recycled while the entry exists
     n_hexes: int
     hexes: List                      # the hexes in slot order
     positions: List                  # their Position objects
@@ -1456,7 +1457,7 @@ class _StaticHexArrays:
 _STATIC_HEX_CACHE: Dict[int, _StaticHexArrays] = {}
 
 
-def _build_static_hex_arrays(hexes) -> _StaticHexArrays:
+def _build_static_hex_arrays(hexes, hex_set=None) -> _StaticHexArrays:
     MAP_LIMIT = MAX_MAP_SIZE - 1
     H = len(hexes)
     xs = np.empty(H, dtype=np.int64)
@@ -1493,23 +1494,24 @@ def _build_static_hex_arrays(hexes) -> _StaticHexArrays:
         xs=xs, ys=ys, terrain_ids=tids, modifier_flags=mods_np,
         village_idx=village_idx, keys=keys,
         pos_index={k: i for i, k in enumerate(keys)},
-        anchor=weakref.ref(hexes[0]), n_hexes=H,
+        hex_set=hex_set, n_hexes=H,
         hexes=list(hexes), positions=[h.position for h in hexes])
 
 
 def _static_hex_arrays(game_state) -> _StaticHexArrays:
     """Cached slot ordering + static arrays for the full board, keyed
     on the identity of `game_state.map.hexes` (aliased across forks;
-    replaced, never mutated, by terrain-morph events). The guard (one
-    weakly-referenced Hex still in the set, same size) rules out a
-    recycled id."""
+    replaced, never mutated, by terrain-morph events). The entry holds
+    the set itself, so a hit is an identity match (`is`) and a freed
+    set's address can never serve another map (2026-09-04 review: the
+    earlier weakref anchor was kept alive by the entry's own hex list,
+    which made that guard vacuous)."""
     hex_set = game_state.map.hexes
     key = id(hex_set)
     hit = _STATIC_HEX_CACHE.get(key)
-    if (hit is not None and hit.n_hexes == len(hex_set)
-            and hit.anchor() is not None and hit.anchor() in hex_set):
+    if hit is not None and hit.hex_set is hex_set and hit.n_hexes == len(hex_set):
         return hit
-    built = _build_static_hex_arrays(hexes_in_slot_order(game_state))
+    built = _build_static_hex_arrays(hexes_in_slot_order(game_state), hex_set)
     if len(_STATIC_HEX_CACHE) >= 64:      # a few maps per process
         _STATIC_HEX_CACHE.clear()
     _STATIC_HEX_CACHE[key] = built

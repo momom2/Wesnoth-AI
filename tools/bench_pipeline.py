@@ -7,8 +7,10 @@ Three sections, one JSON, one markdown table:
   A. Per-state component costs (CPU, serial, median ms over the
      benchmark states): deepcopy, sim fork, encode_raw,
      encode_from_raw, legality masks, legal-action enumeration with
-     priors, one sim step, state_key. These are the targets of the
-     Rust port; their sum is the Python overhead per decision.
+     priors (which builds the same masks again: do not add the two),
+     one sim step, state_key. These are the targets of the Rust
+     port; `python_per_decision` in the output is encode_raw +
+     encode_from_raw + enumerate_priors + sim_step + state_key.
   B. Network forward cost by token-count bucket and batch size: ms
      per sample and samples per second, with the precision and
      compile flags the eval harness applies.
@@ -235,12 +237,22 @@ def component_costs(states: Sequence[Tuple[object, str]], policy,
         with torch.no_grad():
             compact = batched_priors(model.forward_padded([encoded]), [pack])[0]
         clock("unpack_compact", lambda: unpack_compact(compact, encoded))
-    return {k: statistics.median(v) for k, v in times.items() if v}
+    med = {k: statistics.median(v) for k, v in times.items() if v}
+    med["python_per_decision"] = sum(
+        med.get(k, 0.0) for k in ("encode_raw", "encode_from_raw", "enumerate_priors",
+                                  "sim_step", "state_key"))
+    return med
 
 
 # ---------------------------------------------------------------------
 # Section B: forward cost by bucket and batch size
 # ---------------------------------------------------------------------
+
+def _raw_tokens(raw) -> int:
+    """Sequence length of a RawEncoded: hex + unit + recruit tokens,
+    global and end_turn (the same quantity n_tokens gives an EncodedState)."""
+    return len(raw.hex_xs) + len(raw.unit_xs) + len(raw.recruit_xs) + 2
+
 
 def n_tokens(encoded) -> int:
     return (encoded.hex_tokens.size(1) + encoded.unit_tokens.size(1)
@@ -332,9 +344,9 @@ def seam_costs(policy, states: Sequence[Tuple[object, str]],
             starts = [(c * B) % max(1, len(items) - B + 1) for c in range(calls)]
             batches = [items[st:st + B] for st in starts]
             tok = statistics.fmean(
-                len((it[0] if isinstance(it, tuple) else it).hex_xs)
-                + len((it[0] if isinstance(it, tuple) else it).unit_ids) + 2
+                _raw_tokens(it[0] if isinstance(it, tuple) else it)
                 for b in batches for it in b)
+            b_eff = len(batches[0])           # short when fewer states than B
             with torch.no_grad():
                 wires = [output_to_wire(o) for o in server.infer_batch(batches[0])]
                 sync()
@@ -347,8 +359,8 @@ def seam_costs(policy, states: Sequence[Tuple[object, str]],
                     ts.append((time.perf_counter() - t0) * 1000.0)
             med = statistics.median(ts)
             rows.append({"protocol": proto, "batch": B, "ms_per_batch": med,
-                         "tokens_mean": round(tok), "leaves_per_s": 1000.0 * B / med,
-                         "wire_bytes_per_leaf": len(pickle.dumps(wires, protocol=4)) // B})
+                         "tokens_mean": round(tok), "leaves_per_s": 1000.0 * b_eff / med,
+                         "wire_bytes_per_leaf": len(pickle.dumps(wires, protocol=4)) // b_eff})
     return rows
 
 
@@ -397,8 +409,11 @@ def end_to_end(checkpoint: Path, outdir: Path, games: int, jobs: int, device: st
                                "--mcts-sims-b", "0", "--no-turn-search"],
     }
     out = {}
+    stamp = time.strftime("%Y%m%d_%H%M%S")
     for name, extra in runs.items():
-        d = outdir / name
+        # One directory per run: run_elo_batch resumes an existing
+        # outdir and would count games this run never played.
+        d = outdir / name / stamp
         cmd = [sys.executable, str(ROOT / "tools" / "run_elo_batch.py"),
                "--outdir", str(d)] + extra + common
         t0 = time.perf_counter()

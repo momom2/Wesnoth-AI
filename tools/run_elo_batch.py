@@ -72,6 +72,20 @@ def result_name(label_a: str, label_b: str, side_a: int, seed: int) -> str:
     return f"game_{label_a}_{label_b}_s{side_a}_{seed}.json"
 
 
+def _effective_precision(args, field: str) -> bool:
+    """What elo_eval_game will record for `field` under this batch's
+    flags: the explicit flag, else the device default (cuda on, cpu
+    off), resolving --device auto the way the child does."""
+    flag = getattr(args, field)
+    if flag is not None:
+        return bool(flag)
+    device = args.device
+    if device == "auto":
+        import torch
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    return device == "cuda"
+
+
 def slot_for(i: int, seed_base: int) -> Tuple[int, int]:
     """(side_a, seed) for BASE slot index i."""
     return (1 if i % 2 == 0 else 2), seed_base + i
@@ -341,6 +355,9 @@ def main(argv: List[str]) -> int:
     if ((args.raw_temperature_a is not None and sims_a > 0)
             or (args.raw_temperature_b is not None and sims_b > 0)):
         ap.error("--raw-temperature-a/-b apply to a side at sims 0 only")
+    if args.label_a == args.label_b:
+        ap.error("--label-a and --label-b must differ (result files and "
+                 "the workers' per-side policy cache are keyed by label)")
     if args.device == "cpu" and (args.infer_bf16 or args.infer_compile):
         # Refuse up front: every child would refuse per game.
         ap.error("--infer-bf16/--infer-compile require a cuda device")
@@ -647,7 +664,13 @@ def main(argv: List[str]) -> int:
     _prov = {"label_a": args.label_a, "label_b": args.label_b,
              "procedure_a": want[0], "procedure_b": want[1],
              "max_turns": args.max_turns, "pt_config": None,
-             "turn_config": None}
+             "turn_config": None,
+             # The pre-scan and per-game guards read these three with
+             # absent = B 1 / fp32 / eager; an artifact without them
+             # aborted every resume of a cuda outdir (2026-09-04 review).
+             "mcts_batch": args.mcts_batch_size,
+             "infer_bf16": _effective_precision(args, "infer_bf16"),
+             "infer_compile": _effective_precision(args, "infer_compile")}
     if args.plan_a or args.plan_b:
         from types import SimpleNamespace
         from tools.elo_eval_game import _pt_config

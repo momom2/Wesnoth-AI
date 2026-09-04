@@ -248,8 +248,8 @@ each, max 30 turns, 25-minute cap. Records:
 
 | server priors | bf16 on the server | leaves/s | games done / requested | iteration s | games/h | serve threads: infer / wait s |
 |---|---|---|---|---|---|---|
-| off | off (the az legs' configuration) | 141 | 15 / 16 | 1,620 (cap) | 33 | 2,056 / 1,155 |
-| on | off | 172 | 14 / 16 | 1,620 (cap) | 31 | 2,432 / 741 |
+| off | off (the az legs' configuration) | 141 (lower bound: truncated at the cap, idle tail counted) | 15 / 16 | 1,620 (cap) | 33 | 2,056 / 1,155 |
+| on | off | 172 (lower bound, same reason) | 14 / 16 | 1,620 (cap) | 31 | 2,432 / 741 |
 | on | on | 320 | 16 / 16 | 898 | 64 | 1,088 / 623 |
 | on | on, 64 leaves coalesced per batch (was 16) | 364 | 16 / 16 | 747 | 77 | 1,106 / 335 |
 | on | on, 64 coalesced, 14 actors instead of 19 | 315 | 16 / 16 | 886 | 65 | 1,109 / 599 |
@@ -263,7 +263,11 @@ coalescing, which reached 30 leaves per batch on average), K median 10-12,
 decisive 11-13 of the finished games. The az legs reported 300-370
 leaves/s on a 24-core Ryzen box with 19 actors; this 18-core EPYC
 box gives 141 in that configuration, so the same-box comparison is
-the one that counts: 2.3x from the two committed changes.
+the one that counts: up to 2.3x from the two committed changes (the
+first two rows are lower bounds, so the true ratio is smaller).
+Rows with 19 requested actors and 16 games ran 16 effective actors
+(the pool gives surplus actors no game); the 14-actor row queued two
+games behind the first finishers.
 
 The box's cgroup CPU quota is 17.56 cores (`/sys/fs/cgroup/cpu.max`;
 `nproc` reports the 128-thread host), shared by the actors and the

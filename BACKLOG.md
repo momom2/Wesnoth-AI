@@ -8,9 +8,9 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
 
 1. **Benchmark harness** (plan 1.1): DONE 2026-09-04, baseline in
    `docs/box_specs.md` and `training/metrics/bench_pipeline/`. Per
-   decision: 12.4 ms of Python (enumerate priors 6.9, masks 2.2 on
-   the Python path, encoding 2.5, sim step 0.7) against 5.2 ms per
-   forward; batched forwards plateau at ~600 samples/s per process
+   decision: 10.1 ms of Python (enumerate priors 6.9 including the
+   2.2 ms mask build, encoding 2.5, sim step 0.7; an earlier quote of
+   12.4 counted the masks twice) against 5.2 ms per forward; batched forwards plateau at ~600 samples/s per process
    from batch 16 (CPU-side ceiling). Raw game 35 s, searched game
    160 s at 10 jobs, one process per game. Open: run it on a second
    box shape with the Rust wheel built (`scripts/bench_box.sh` now
@@ -111,6 +111,18 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
      (`elo_eval_game`, `run_elo_batch`; default on), procedure tag
      `puct:<sims>` for a plain PUCT root, recorded in the result JSON.
 5. **Model cost study** (plan 1.4) and **eval at scale** (plan 1.5).
+6. **Review of the day's changes** (2026-09-04, 7 Opus finders + 3
+   refuters per finding): 17 confirmed, 16 fixed the same day (static
+   hex cache keyed on a freed address; timeout artifacts that aborted
+   every cuda resume; `random` cached across worker games; refusal
+   reasons lost in worker mode; per-player root flag recorded for
+   arms that never read it; bench rates over truncated runs and over
+   surplus actors; double-counted masks; reused bench outdirs; seam
+   token and short-batch arithmetic; the priors protocol now refuses
+   a nonzero combat-oracle anneal instead of ignoring it). Open:
+   `RemoteEncoder.encode` packs masks for every encode, including
+   value-only ones (turn search, probes); an `encode(want_priors)`
+   switch when those paths return to use.
 
 ## Phase 2 prerequisite (measure before designing)
 

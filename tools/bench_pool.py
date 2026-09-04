@@ -40,6 +40,10 @@ def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
     from tools.mcts_policy import MCTSPolicy, ReplayConfig
     from tools.sim_self_play import k_median_of
     from tools.wesnoth_sim import PvPDefaults
+    if games < actors:
+        raise ValueError(f"games ({games}) < actors ({actors}): the surplus actors "
+                         f"would play nothing and the record would misstate the "
+                         f"actor count")
     mcts_cfg = MCTSConfig(n_simulations=sims, gumbel_root=False, tree_reuse=False,
                           playout_cap_randomization=False, draw_tiebreak=None,
                           batch_size=leaf_batch)
@@ -65,7 +69,12 @@ def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
     gen = getattr(pool, "last_iteration_seconds", None) or wall
     served = getattr(pool, "last_served_forwards", 0) or 0
     decided = sum(1 for o in outcomes if o.winner != 0)
+    # A run that hit the iteration timeout spends its tail with most
+    # actors idle; its wall-clock rates are lower bounds (2026-09-04
+    # review: the two truncated baseline rows are under-reported).
+    truncated = len(outcomes) < games
     res = {
+        "truncated": truncated,
         "server_priors": bool(server_priors), "actors": actors, "games_requested": games,
         "infer_bf16": bool(getattr(policy._inference_model, "infer_autocast_bf16", False)
                            or getattr(policy, "_infer_bf16", False)),

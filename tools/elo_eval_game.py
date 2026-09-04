@@ -139,13 +139,16 @@ _POLICY_CACHE: dict = {}
 
 
 def _policy_for(spec, device, label, infer_bf16, infer_compile):
+    # spec None is the random-init reference: a fresh draw per game
+    # in one-process mode, so never cached (2026-09-04 review).
+    cacheable = _WORKER_MODE and spec is not None
     key = (spec, label, str(device), bool(infer_bf16), bool(infer_compile))
-    if _WORKER_MODE and key in _POLICY_CACHE:
+    if cacheable and key in _POLICY_CACHE:
         return _POLICY_CACHE[key]
     policy = _load_policy(Path(spec) if spec else None, device,
                           label=label, infer_bf16=infer_bf16,
                           infer_compile=infer_compile)
-    if _WORKER_MODE:
+    if cacheable:
         _POLICY_CACHE[key] = policy
     return policy
 
@@ -164,6 +167,10 @@ def worker_loop() -> int:
         try:
             rc = main(_json.loads(line))
         except SystemExit as e:
+            # main refuses with SystemExit("<reason>"): keep the reason
+            # visible in the worker's stderr as one-process mode does.
+            if e.code is not None and not isinstance(e.code, int):
+                print(str(e.code), file=sys.stderr, flush=True)
             rc = e.code if isinstance(e.code, int) else 1
         except Exception:                            # noqa: BLE001
             _tb.print_exc(file=sys.stderr)
@@ -370,6 +377,20 @@ def main(argv) -> int:
                     + TS_CHOICES["--turn-boundary-frame"])
     ap.add_argument("--log-level", default="WARNING")
     args = ap.parse_args(argv[1:])
+    if args.label_a == args.label_b:
+        raise SystemExit("--label-a and --label-b must differ (result files "
+                         "and the workers' per-side policy cache are keyed "
+                         "by label)")
+    for _side, _flag, _plan, _nts in (
+            ("a", args.gumbel_root_a, args.plan_a,
+             args.no_turn_search or args.no_turn_search_a),
+            ("b", args.gumbel_root_b, args.plan_b,
+             args.no_turn_search or args.no_turn_search_b)):
+        if not _flag and (_plan or not _nts):
+            raise SystemExit(f"--no-gumbel-root-{_side} applies to a plain "
+                             f"search only (--no-turn-search, no --plan-{_side}): "
+                             f"the turn-search and plan-tournament procedures "
+                             f"never read it")
     sims_a = (args.mcts_sims if args.mcts_sims_a is None
               else args.mcts_sims_a)
     sims_b = (args.mcts_sims if args.mcts_sims_b is None
@@ -577,8 +598,12 @@ def main(argv) -> int:
             sims_b, args.plan_b,
             args.no_turn_search or args.no_turn_search_b,
             args.raw_temperature_b, args.gumbel_root_b),
-        "gumbel_root_a": bool(args.gumbel_root_a),
-        "gumbel_root_b": bool(args.gumbel_root_b),
+        # Recorded for plain-search arms only; TCS and plan-tournament
+        # arms never read the flag (2026-09-04 review).
+        "gumbel_root_a": (bool(args.gumbel_root_a) if sims_a > 0 and not args.plan_a
+                          and (args.no_turn_search or args.no_turn_search_a) else None),
+        "gumbel_root_b": (bool(args.gumbel_root_b) if sims_b > 0 and not args.plan_b
+                          and (args.no_turn_search or args.no_turn_search_b) else None),
         "raw_temperature_a": args.raw_temperature_a,
         "raw_temperature_b": args.raw_temperature_b,
         # The horizon decides decisive-vs-absence, the quantity
