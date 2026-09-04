@@ -402,3 +402,28 @@ Coverage rule (round-9): config_from_args clamps cert_redraws to
 the tabled range, so every reachable replicate count has an
 alpha-holding factor; extend the table before raising the knob
 ceiling.
+
+## Search tempo bonus: `tempo_bonus = 0.44` (2026-09-04)
+
+Used by `tools/az_loop.py --tempo-bonus` with `--value-center`: the
+search value center is `mean_V - tempo_bonus`, so search reads every
+value as `V - mean_V + tempo_bonus`. In the mover frame an acting
+child keeps the side (its Q carries `+tempo_bonus`) and the end_turn
+child flips it (`-tempo_bonus`), so the constant prices the tempo
+that ending the turn hands over: a gap of `2 * tempo_bonus` in
+favour of acting when the head is flat within a turn.
+
+Derivation: the imitation seed's value head sits at +0.44 above its
+labels on its own self-play states (measured +0.48 on az2 iteration
+0, +0.45 on az3 iteration 0, both 24-game batches), and that seed
+plays K median 10-12 with 23-24/24 decisive under plain 32-sim
+search -- the strongest configuration ever measured. Correcting the
+level to the label mean (which outcome training does within ~8
+iterations) drops K to 4-7 with 63-84% decided: with a level-free,
+tempo-blind head, PUCT's act-vs-end choice falls to the priors, and
+end_turn is usually the single highest-prior action. The bonus
+restores the seed's measured act/end balance explicitly and keeps
+it fixed while the head's level is trained to the labels. It is a
+config constant, not a weight, so it can be revised from
+measurement (e.g. the value of a tempo estimated from handover
+pairs once the head learns tempo).

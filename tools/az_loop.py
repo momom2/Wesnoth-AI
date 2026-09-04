@@ -70,7 +70,7 @@ COLUMNS = [
     "step_alpha", "step_trials", "held_before", "held_after",
     "held_delta_mean", "held_delta_se",
     "step_kl_median", "step_kl_mean", "step_tv_mean", "end_turn_prior",
-    "step_dv_mean", "step_dv_abs_mean", "value_center",
+    "step_dv_mean", "step_dv_abs_mean", "value_center", "value_level",
     # pins
     "pin_step", "raw_vs_seed_wdl", "search_vs_seed_wdl",
 ]
@@ -232,6 +232,13 @@ def main(argv) -> int:
                          "latest batch from every value it reads "
                          "(MCTSConfig.value_center), so the head's level "
                          "cannot decide act-vs-end_turn. Off = plain.")
+    ap.add_argument("--tempo-bonus", type=float, default=0.0,
+                    help="With --value-center: search sees the mover's "
+                         "positions this much above the head's level, "
+                         "pricing the tempo that end_turn hands over. "
+                         "0.44 = the seed's measured level on its own "
+                         "self-play states, the act/end balance that "
+                         "plays K 10-12 (docs/design_constants.md).")
     ap.add_argument("--iteration-timeout", type=float, default=1800.0,
                     help="Wall-clock seconds after which the pool drains; "
                          "in-flight games are abandoned 300 s later. One "
@@ -451,8 +458,13 @@ def main(argv) -> int:
             if args.value_center and kl_states:
                 center = statistics.fmean(action_priors(base, e)[2]
                                           for e in kl_states)
-                pool.value_center = center
-                row["value_center"] = center
+                # Tempo bonus: search sees the mover's positions as
+                # `tempo_bonus` better than the head's level, i.e. it
+                # prices handing the turn over. 0.44 = the seed's own
+                # level on its self-play states (design_constants.md).
+                pool.value_center = center - args.tempo_bonus
+                row["value_center"] = pool.value_center
+                row["value_level"] = center
             # per-source gradient norms (unclipped, optimizer stubbed)
             norms = signal_grad_norms(base._trainer, kept, rng) if kept else {}
             pn = norms.get("sig_policy_norm")

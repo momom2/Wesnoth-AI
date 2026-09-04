@@ -103,6 +103,7 @@ while [ $tries -lt 10 ]; do
         --start-iter "${START_ITER:-0}" \
         --max-level-shift "${MAX_LEVEL_SHIFT:-0.08}" ${VALUE_CENTER:+--value-center} \
         --step-select "${STEP_SELECT:-first}" --step-trials "${STEP_TRIALS:-7}" \
+        --tempo-bonus "${TEMPO_BONUS:-0}" \
         --device cuda --log-level INFO >> "$WORKDIR/train.log" 2>&1
     rc=$?
     echo "[az] loop exited rc=$rc at $(date -u +%FT%TZ)" >> "$WORKDIR/train.log"
