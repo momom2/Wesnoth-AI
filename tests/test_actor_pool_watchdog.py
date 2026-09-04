@@ -65,6 +65,7 @@ def _pool(procs, results, *, iteration_timeout=1800.0,
     pool._max_batch = 8
     pool._serve_timeout = 0.0
     pool._serve_threads = 1
+    pool.value_center = 0.0     # MCTSConfig.value_center broadcast (az4)
     pool._ctrl_qs = [_FakeQ() for _ in procs]
     pool._resp_qs = [_FakeQ() for _ in procs]
     pool._req_q = _FakeQ()              # always empty -> idle path

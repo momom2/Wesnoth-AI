@@ -25,8 +25,9 @@ condition the weapon head on the target. All changes localized here.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import List, Optional, Tuple
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -464,231 +465,170 @@ class WesnothModel(nn.Module):
         )
 
     # ------------------------------------------------------------------
-    # Batched forward — one transformer pass for many transitions at
-    # once. Used by the trainer to amortize per-forward PyTorch overhead.
-    # Rollout still goes through `forward` (single sample).
+    # Batched forward — one transformer pass for many states at once,
+    # with NO per-sample kernel launches (2026-09-04 rewrite: the
+    # per-sample cat/matmul loop of the old version cost ~10 launches
+    # per leaf and capped the inference server near 600 leaves/s on a
+    # 4090; docs/box_specs.md "Pipeline baseline"). Per-sample
+    # ModelOutputs are VIEWS into batched tensors.
     # ------------------------------------------------------------------
+
     def forward_batch(self, encoded_list):
         """Run one padded transformer forward over B encoded states.
 
         Returns a list of B per-sample ModelOutput objects with the
-        EXACT shapes the single-sample path produces, so downstream code
-        (sampler, reforward_logprob_entropy, legality masking) needs no
-        changes. The point of batching is to amortize Python-side
-        per-op overhead across B samples; the transformer FLOP count is
-        similar either way, but one big Linear/MHA invocation beats B
-        small ones on CPU by ~2-4×.
+        EXACT shapes the single-sample path produces (views into the
+        batched head outputs), so downstream code needs no changes.
         """
         B = len(encoded_list)
         if B == 0:
             return []
         if B == 1:
             return [self.forward(encoded_list[0])]
+        padded = self.forward_padded(encoded_list)
+        return padded.samples()
 
+    def forward_padded(self, encoded_list) -> "PaddedOutput":
+        """The batched computation behind forward_batch: every head is
+        applied once to padded [B, ...] tensors; actor slots are laid
+        out per sample in the canonical compact order (units |
+        recruits | end_turn) by one gather, so a per-sample output is
+        a view. Launch count is independent of B."""
         d = self.d_model
         device = encoded_list[0].hex_tokens.device
-        dtype  = encoded_list[0].hex_tokens.dtype
-
-        Us = [e.unit_tokens.size(1)    for e in encoded_list]
+        dtype = encoded_list[0].hex_tokens.dtype
+        B = len(encoded_list)
+        Us = [e.unit_tokens.size(1) for e in encoded_list]
         Rs = [e.recruit_tokens.size(1) for e in encoded_list]
-        Hs = [e.hex_tokens.size(1)     for e in encoded_list]
-        U_max = max(Us)
-        R_max = max(Rs)
-        H_max = max(Hs)
-
-        def _pad(t, L_target, L_cur):
-            if L_cur == L_target:
-                return t
-            if L_cur == 0:
-                return torch.zeros(1, L_target, d, device=device, dtype=dtype)
-            pad = torch.zeros(1, L_target - L_cur, d, device=device, dtype=dtype)
-            return torch.cat([t, pad], dim=1)
-
-        hex_pads     = [_pad(e.hex_tokens,     H_max, Hs[i]) for i, e in enumerate(encoded_list)]
-        unit_pads    = [_pad(e.unit_tokens,    U_max, Us[i]) for i, e in enumerate(encoded_list)]
-        recruit_pads = [_pad(e.recruit_tokens, R_max, Rs[i]) for i, e in enumerate(encoded_list)]
-
-        hex_batch     = torch.cat(hex_pads,     dim=0)   # [B, H_max, d]
-        unit_batch    = torch.cat(unit_pads,    dim=0)   # [B, U_max, d]
-        recruit_batch = torch.cat(recruit_pads, dim=0)   # [B, R_max, d]
-        global_batch  = torch.cat([e.global_token   for e in encoded_list], dim=0)  # [B, 1, d]
-        end_turn_batch= torch.cat([e.end_turn_token for e in encoded_list], dim=0)  # [B, 1, d]
-
-        # Token-kind additive embeddings.
+        Hs = [e.hex_tokens.size(1) for e in encoded_list]
+        U_max, R_max, H_max = max(Us), max(Rs), max(Hs)
         kk = self.token_kind_embed.weight
-        if H_max > 0:
-            hex_batch      = hex_batch     + kk[TokenKind.HEX]
-        if U_max > 0:
-            unit_batch     = unit_batch    + kk[TokenKind.UNIT]
-        if R_max > 0:
-            recruit_batch  = recruit_batch + kk[TokenKind.RECRUIT]
-        global_batch   = global_batch   + kk[TokenKind.GLOBAL]
-        end_turn_batch = end_turn_batch + kk[TokenKind.END_TURN]
 
-        x = torch.cat([hex_batch, unit_batch, recruit_batch,
-                       global_batch, end_turn_batch], dim=1)
+        def _padded(tokens, L_max, kind):
+            if L_max == 0:
+                return torch.zeros(B, 0, d, device=device, dtype=dtype)
+            seqs = [t.squeeze(0) for t in tokens]
+            out = torch.nn.utils.rnn.pad_sequence(seqs, batch_first=True)
+            if out.size(1) < L_max:      # cannot happen, kept explicit
+                out = F.pad(out, (0, 0, 0, L_max - out.size(1)))
+            return out + kk[kind]
+
+        hex_batch = _padded([e.hex_tokens for e in encoded_list], H_max, TokenKind.HEX)
+        unit_batch = _padded([e.unit_tokens for e in encoded_list], U_max, TokenKind.UNIT)
+        recruit_batch = _padded([e.recruit_tokens for e in encoded_list], R_max,
+                                TokenKind.RECRUIT)
+        global_batch = torch.cat([e.global_token for e in encoded_list], dim=0) + kk[TokenKind.GLOBAL]
+        end_turn_batch = torch.cat([e.end_turn_token for e in encoded_list], dim=0) + kk[TokenKind.END_TURN]
+        x = torch.cat([hex_batch, unit_batch, recruit_batch, global_batch, end_turn_batch], dim=1)
         seq_len = x.size(1)
 
-        # Key-padding mask: True at positions the attention should IGNORE.
-        # For each sample, the pad slots in each block are marked True.
-        # Global + end_turn are always real (1 token each).
-        pad_mask = torch.zeros(B, seq_len, dtype=torch.bool, device=device)
-        for b in range(B):
-            if Hs[b] < H_max:
-                pad_mask[b, Hs[b]:H_max] = True
-            if Us[b] < U_max:
-                pad_mask[b, H_max + Us[b]:H_max + U_max] = True
-            if Rs[b] < R_max:
-                pad_mask[b, H_max + U_max + Rs[b]:H_max + U_max + R_max] = True
-
-        # Safety: every row MUST keep >=1 unmasked position. An all-masked
-        # row makes the attention softmax NaN, which silently poisons the
-        # whole batch's gradient through the shared encoder. The global +
-        # end_turn tokens (last 2 columns) are never masked above, so this
-        # holds by construction -- assert it so a future mask change can't
-        # regress it unnoticed. Cheap: forward_batch is the per-gradient-
-        # step train path, not the per-leaf rollout loop.
-        assert bool((~pad_mask).any(dim=1).all()), \
-            "forward_batch: a sample has all tokens masked (would NaN)"
-
-        x = self.encoder(x, src_key_padding_mask=pad_mask)  # [B, seq_len, d]
-
-        # Split the batched context back into blocks.
-        hex_ctx_b      = x[:, :H_max]                                 # [B, H_max, d]
-        unit_ctx_b     = x[:, H_max : H_max + U_max]                  # [B, U_max, d]
-        recruit_ctx_b  = x[:, H_max + U_max : H_max + U_max + R_max]  # [B, R_max, d]
-        global_ctx_b   = x[:, H_max + U_max + R_max :
-                              H_max + U_max + R_max + 1]              # [B, 1, d]
-        end_turn_ctx_b = x[:, H_max + U_max + R_max + 1 :
-                              H_max + U_max + R_max + 2]              # [B, 1, d]
-
-        # Distributional value head — same logic as single-sample
-        # path. Mirror the field-set: per-sample we hand back
-        # `value_logits` (raw, [K]), `value` (mean, [1]), and
-        # `cliffness` (std, [1]).
-        value_logits_b = self.value_head(global_ctx_b.squeeze(1))     # [B, K]
-        value_probs_b  = F.softmax(value_logits_b, dim=-1)            # [B, K]
-        atoms_b = self._value_atoms                                   # [K]
-        value_b = (value_probs_b * atoms_b).sum(dim=-1, keepdim=True) # [B, 1]
-        var_v_b = ((value_probs_b * atoms_b.pow(2)).sum(dim=-1, keepdim=True)
-                   - value_b.pow(2)).clamp_min(0)
-        cliffness_b = var_v_b.sqrt()                                  # [B, 1]
-        aux_score_b = None
-        if self.aux_score_head is not None:
-            aux_score_b = torch.tanh(
-                self.aux_score_head(global_ctx_b.squeeze(1)))         # [B, 1]
-        moves_left_b = None
-        if self.moves_left_head is not None:
-            moves_left_b = torch.sigmoid(
-                self.moves_left_head(global_ctx_b.squeeze(1)))        # [B, 1]
-
-        # Heads applied to the padded streams once each — replaces the
-        # old per-sample loop that called actor_head / target_q_proj /
-        # target_k_proj / weapon_head separately for every sample (4×B
-        # small Linear launches). On GPU each Linear pays a fixed
-        # ~30 µs launch overhead, so amortizing them with B=32 saves
-        # ~4 ms / batch on the heads alone.
-        unit_actor_b    = self.actor_head(unit_ctx_b).squeeze(-1)     # [B, U_max]
-        recruit_actor_b = self.actor_head(recruit_ctx_b).squeeze(-1)  # [B, R_max]
-        end_actor_b     = self.actor_head(end_turn_ctx_b).squeeze(-1) # [B, 1]
-
-        unit_q_b    = self.target_q_proj(unit_ctx_b)                  # [B, U_max, d]
-        recruit_q_b = self.target_q_proj(recruit_ctx_b)               # [B, R_max, d]
-        end_q_b     = self.target_q_proj(end_turn_ctx_b)              # [B, 1, d]
-        hex_k_b     = self.target_k_proj(hex_ctx_b)                   # [B, H_max, d]
-
-        unit_weapon_b    = self.weapon_head(unit_ctx_b)               # [B, U_max, MAX_ATTACKS]
-        recruit_weapon_b = self.weapon_head(recruit_ctx_b)            # [B, R_max, MAX_ATTACKS]
-        end_weapon_b     = self.weapon_head(end_turn_ctx_b)           # [B, 1, MAX_ATTACKS]
-
-        # Per-actor sub-type head, batched over actors.
-        unit_type_b    = self.type_head(unit_ctx_b)                   # [B, U_max, T]
-        recruit_type_b = self.type_head(recruit_ctx_b)                # [B, R_max, T]
-        end_type_b     = self.type_head(end_turn_ctx_b)               # [B, 1, T]
-
-        scale = d ** 0.5
-        outputs = []
+        # Key-padding mask and the compact actor gather index, both
+        # built host-side in numpy and moved once. Global + end_turn
+        # are never masked, so every row keeps >= 1 real position.
+        pad_np = np.zeros((B, seq_len), dtype=bool)
+        A_max = U_max + R_max + 1
+        idx_np = np.full((B, A_max), H_max + U_max + R_max + 1, dtype=np.int64)
+        kind_np = np.full((B, A_max), ActorKind.END_TURN, dtype=np.int64)
         for b in range(B):
             U_b, R_b, H_b = Us[b], Rs[b], Hs[b]
+            pad_np[b, H_b:H_max] = True
+            pad_np[b, H_max + U_b:H_max + U_max] = True
+            pad_np[b, H_max + U_max + R_b:H_max + U_max + R_max] = True
+            idx_np[b, :U_b] = np.arange(H_max, H_max + U_b)
+            idx_np[b, U_b:U_b + R_b] = np.arange(H_max + U_max, H_max + U_max + R_b)
+            kind_np[b, :U_b] = ActorKind.UNIT
+            kind_np[b, U_b:U_b + R_b] = ActorKind.RECRUIT
+        pad_mask = torch.from_numpy(pad_np).to(device)
+        actor_idx = torch.from_numpy(idx_np).to(device)
+        actor_kind = torch.from_numpy(kind_np)          # stays on CPU
 
-            # Per-sample shapes are produced by slicing the padded
-            # heads down to the real (non-pad) positions and cat'ing
-            # the three actor streams in canonical order:
-            #   units (U_b) | recruits (R_b) | end_turn (1)
-            # All operations here are view/index/cat — no fresh
-            # heavyweight kernel launches.
-            actor_logits = torch.cat([
-                unit_actor_b[b:b+1, :U_b],
-                recruit_actor_b[b:b+1, :R_b],
-                end_actor_b[b:b+1],
-            ], dim=1)  # [1, A_b]
+        x = self.encoder(x, src_key_padding_mask=pad_mask)   # [B, seq_len, d]
+        hex_ctx = x[:, :H_max]
+        global_ctx = x[:, H_max + U_max + R_max:H_max + U_max + R_max + 1]  # [B, 1, d]
+        actor_ctx = torch.gather(x, 1, actor_idx.unsqueeze(-1).expand(-1, -1, d))  # [B, A_max, d]
 
-            actor_kind = torch.tensor(
-                [ActorKind.UNIT] * U_b
-                + [ActorKind.RECRUIT] * R_b
-                + [ActorKind.END_TURN],
-                device=device, dtype=torch.long,
-            ).unsqueeze(0)  # [1, A_b]
+        actor_logits = self.actor_head(actor_ctx).squeeze(-1)           # [B, A_max]
+        type_logits = self.type_head(actor_ctx)                          # [B, A_max, T]
+        weapon_logits = self.weapon_head(actor_ctx)                      # [B, A_max, W]
+        if H_max == 0:
+            target_logits = torch.zeros(B, A_max, 0, device=device, dtype=dtype)
+        else:
+            q = self.target_q_proj(actor_ctx)                            # [B, A_max, d]
+            k = self.target_k_proj(hex_ctx)                              # [B, H_max, d]
+            target_logits = torch.bmm(q, k.transpose(1, 2)) / (d ** 0.5)  # [B, A_max, H_max]
 
-            if H_b == 0:
-                A_b = U_b + R_b + 1
-                target_logits = torch.zeros(
-                    1, A_b, 0, device=device, dtype=dtype,
-                )
-            else:
-                q_b = torch.cat([
-                    unit_q_b[b:b+1, :U_b],
-                    recruit_q_b[b:b+1, :R_b],
-                    end_q_b[b:b+1],
-                ], dim=1)  # [1, A_b, d]
-                k_b = hex_k_b[b:b+1, :H_b]  # [1, H_b, d]
-                target_logits = (q_b @ k_b.transpose(-1, -2)) / scale  # [1, A_b, H_b]
+        g = global_ctx.squeeze(1)
+        value_logits = self.value_head(g)                                # [B, K]
+        value_probs = F.softmax(value_logits, dim=-1)
+        atoms = self._value_atoms
+        value = (value_probs * atoms).sum(dim=-1, keepdim=True)          # [B, 1]
+        var_v = ((value_probs * atoms.pow(2)).sum(dim=-1, keepdim=True)
+                 - value.pow(2)).clamp_min(0)
+        cliffness = var_v.sqrt()
+        aux_score = (torch.tanh(self.aux_score_head(g.detach()))
+                     if self.aux_score_head is not None else None)
+        moves_left = (torch.sigmoid(self.moves_left_head(g.detach()))
+                      if self.moves_left_head is not None else None)
+        return PaddedOutput(
+            actor_logits=actor_logits, actor_kind=actor_kind, type_logits=type_logits,
+            target_logits=target_logits, weapon_logits=weapon_logits, value=value,
+            value_logits=value_logits, cliffness=cliffness, aux_score=aux_score,
+            moves_left=moves_left, sizes=list(zip(Us, Rs, Hs)),
+            unit_ctx=x[:, H_max:H_max + U_max] if self.has_gbc else None,
+            hex_ctx=hex_ctx if self.has_gbc else None,
+            global_ctx=global_ctx if self.has_gbc else None)
 
-            weapon_logits = torch.cat([
-                unit_weapon_b[b:b+1, :U_b],
-                recruit_weapon_b[b:b+1, :R_b],
-                end_weapon_b[b:b+1],
-            ], dim=1)  # [1, A_b, MAX_ATTACKS]
 
-            type_logits = torch.cat([
-                unit_type_b[b:b+1, :U_b],
-                recruit_type_b[b:b+1, :R_b],
-                end_type_b[b:b+1],
-            ], dim=1)  # [1, A_b, T]
+@dataclass
+class PaddedOutput:
+    """Batched head outputs ([B, ...], padded) plus per-sample sizes.
+    `samples()` yields the per-sample ModelOutputs as views; `to_cpu()`
+    moves each batched field ONCE (one transfer per field per batch)
+    and yields CPU views -- the inference server's path."""
+    actor_logits: torch.Tensor          # [B, A_max]
+    actor_kind: torch.Tensor            # [B, A_max] long, CPU
+    type_logits: torch.Tensor           # [B, A_max, T]
+    target_logits: torch.Tensor         # [B, A_max, H_max]
+    weapon_logits: torch.Tensor         # [B, A_max, W]
+    value: torch.Tensor                 # [B, 1]
+    value_logits: torch.Tensor          # [B, K]
+    cliffness: torch.Tensor             # [B, 1]
+    aux_score: Optional[torch.Tensor]
+    moves_left: Optional[torch.Tensor]
+    sizes: List[Tuple[int, int, int]]   # (U_b, R_b, H_b)
+    unit_ctx: Optional[torch.Tensor] = None
+    hex_ctx: Optional[torch.Tensor] = None
+    global_ctx: Optional[torch.Tensor] = None
 
-            value_sample = value_b[b:b+1]                  # [1, 1]
-            value_logits_sample = value_logits_b[b:b+1]    # [1, K]
-            cliffness_sample = cliffness_b[b:b+1]          # [1, 1]
-            aux_sample = (aux_score_b[b:b+1]
-                          if aux_score_b is not None else None)  # [1, 1]
-            ml_sample = (moves_left_b[b:b+1]
-                         if moves_left_b is not None else None)  # [1, 1]
+    _TENSOR_FIELDS = ("actor_logits", "type_logits", "target_logits", "weapon_logits",
+                      "value", "value_logits", "cliffness", "aux_score", "moves_left",
+                      "unit_ctx", "hex_ctx", "global_ctx")
 
-            # marginal_type_logits: lazy property (optimization #2).
-            outputs.append(ModelOutput(
-                actor_logits=actor_logits,
-                actor_kind=actor_kind,
-                type_logits=type_logits,
-                target_logits=target_logits,
-                weapon_logits=weapon_logits,
-                value=value_sample,
-                value_logits=value_logits_sample,
-                cliffness=cliffness_sample,
-                num_units=U_b,
-                num_recruits=R_b,
-                aux_score=aux_sample,
-                moves_left=ml_sample,
-                # GBC tap on the BATCHED path too (2026-08-15 fix:
-                # the trainer forwards chunks through here whenever
-                # train_batch_size > 1, so leaving these None made
-                # the GBC loss a silent no-op on CUDA legs -- the
-                # exact two-forward-paths pitfall the design review
-                # flagged). Per-sample slices strip the padding.
-                unit_ctx=(unit_ctx_b[b:b+1, :U_b]
-                          if self.has_gbc else None),
-                hex_ctx=(hex_ctx_b[b:b+1, :Hs[b]]
-                         if self.has_gbc else None),
-                global_ctx=(global_ctx_b[b:b+1]
-                            if self.has_gbc else None),
-            ))
-        return outputs
+    def to_cpu(self) -> "PaddedOutput":
+        kw = {f: getattr(self, f) for f in ("actor_kind", "sizes")}
+        for f in self._TENSOR_FIELDS:
+            v = getattr(self, f)
+            kw[f] = v.cpu() if v is not None else None
+        return PaddedOutput(**kw)
+
+    def sample(self, b: int) -> ModelOutput:
+        U_b, R_b, H_b = self.sizes[b]
+        A_b = U_b + R_b + 1
+        return ModelOutput(
+            actor_logits=self.actor_logits[b:b + 1, :A_b],
+            actor_kind=self.actor_kind[b:b + 1, :A_b].to(self.actor_logits.device),
+            type_logits=self.type_logits[b:b + 1, :A_b],
+            target_logits=self.target_logits[b:b + 1, :A_b, :H_b],
+            weapon_logits=self.weapon_logits[b:b + 1, :A_b],
+            value=self.value[b:b + 1],
+            value_logits=self.value_logits[b:b + 1],
+            cliffness=self.cliffness[b:b + 1],
+            num_units=U_b, num_recruits=R_b,
+            aux_score=self.aux_score[b:b + 1] if self.aux_score is not None else None,
+            moves_left=self.moves_left[b:b + 1] if self.moves_left is not None else None,
+            unit_ctx=self.unit_ctx[b:b + 1, :U_b] if self.unit_ctx is not None else None,
+            hex_ctx=self.hex_ctx[b:b + 1, :H_b] if self.hex_ctx is not None else None,
+            global_ctx=self.global_ctx[b:b + 1] if self.global_ctx is not None else None)
+
+    def samples(self) -> List[ModelOutput]:
+        return [self.sample(b) for b in range(len(self.sizes))]
