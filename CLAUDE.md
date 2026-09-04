@@ -96,12 +96,16 @@ action, and the visit targets teach more end_turn. **The seed's
 **az5 (running, from the az3 iteration-7 checkpoint): centering +
 `--tempo-bonus 0.44`** (search sees `V - mean_V + 0.44`;
 design_constants.md): K 11-14, 17-20/19-20 decided, full steps,
-KL ~0.0015/step, held-out loss improving. First pin (40 raw + 40
-searched games vs the seed, `raw_vs_seed_wdl` /
-`search_vs_seed_wdl` in `/workspace/az_history.csv`, escrowed to
-HF `tier-b/arm_az5_20260904/az_history.csv`) lands after
-iteration 10, ~07:00 UTC 2026-09-04. Pre-registered predictions and
-the record: `docs/az_leg_20260903.md`. Ops: `scripts/az_stop.sh`
+KL ~0.0015/step, held-out loss improving. **First pin (raw policy
+vs the seed's raw policy, 40 games): 11-0-29 -- clearly worse.**
+Pre-registered reading: the 32-sim visit targets teach something
+the seed's raw policy already did better; levers are the search
+budget or the target temperature, not the step rule. The searched
+half of the pin reruns after the relaunch (~08:30 UTC 2026-09-04;
+columns `raw_vs_seed_wdl` / `search_vs_seed_wdl` in
+`/workspace/az_history.csv`, escrowed to HF
+`tier-b/arm_az5_20260904/az_history.csv`). Pre-registered
+predictions and the record: `docs/az_leg_20260903.md`. Ops: `scripts/az_stop.sh`
 (launcher first, then loop, daemons, orphan sweep);
 `LAUNCH_SKIP_TESTS=1` for resumes (a flaky old-loop test stopped
 the box once). Open: generation throughput varies 2x between

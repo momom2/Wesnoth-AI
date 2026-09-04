@@ -245,6 +245,16 @@ in this file describes the quarantined stack):
    clearly worse (< 35% of 40) -> the visit targets at 32 sims
    teach the wrong thing; next lever is sims / target temperature,
    not the step rule. Record: `docs/az_leg_20260903.md`.
+   RESULT (06:22 UTC): raw pin 11-0-29 vs the seed = clearly worse.
+   The searched half reruns ~08:30 UTC. Next lever candidates, to
+   be measured not guessed: (a) target quality -- more simulations
+   per decision (32 -> 128/256) at the same games/iteration; (b)
+   target temperature -- visit counts^(1/tau) with tau > 1, or
+   mixing the visit distribution with the prior; (c) the seed's raw
+   policy is the strongest player: distill only where search
+   disagrees with confidence (visit-count margin), keep the prior
+   elsewhere. Each is one config knob in `tools/az_loop.py`; a leg
+   of 10 iterations + a raw pin costs ~$3 / 7 h at current speed.
 2. Time stream, open: generation throughput varies 2x between
    iterations of one process (GPU-bound, padding ratio only 1.06;
    tokens/leaf and GC time per generation now logged) -- find the
