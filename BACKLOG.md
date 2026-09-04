@@ -110,7 +110,13 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
    - Eval search procedure per player: `--gumbel-root-a/-b`
      (`elo_eval_game`, `run_elo_batch`; default on), procedure tag
      `puct:<sims>` for a plain PUCT root, recorded in the result JSON.
-5. **Model cost study** (plan 1.4) and **eval at scale** (plan 1.5).
+5. **Model cost study** (plan 1.4): scoping in progress (token
+   count per leaf is the path to the throughput target, see 3.).
+   **Eval at scale** (plan 1.5): 800 raw games in ~65 min / $0.36
+   through persistent workers; the target (15 min, $0.25) needs the
+   workers' forwards batched through one inference server instead of
+   ten processes launching batch-1 forwards on one GPU (24 ms of
+   forward per decision measured, 1.5 ms per sample when batched).
 6. **Review of the day's changes** (2026-09-04, 7 Opus finders + 3
    refuters per finding): 17 confirmed, 16 fixed the same day (static
    hex cache keyed on a freed address; timeout artifacts that aborted
