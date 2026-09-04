@@ -1,0 +1,4 @@
+t0 A W-D-L-other 14 0 9 17 of 40 score 0.35 turns p50 125 max 201 wall 215 proc raw:t0 vs raw:t0
+t025 A W-D-L-other 16 0 13 11 of 40 score 0.4 turns p50 33 max 201 wall 142 proc raw:t0.25 vs raw:t0
+t05 A W-D-L-other 22 0 18 0 of 40 score 0.55 turns p50 31 max 133 wall 130 proc raw:t0.5 vs raw:t0
+t1 A W-D-L-other 7 0 33 0 of 40 score 0.175 turns p50 20 max 48 wall 113 proc raw:t1 vs raw:t0

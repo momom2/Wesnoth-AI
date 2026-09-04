@@ -1,0 +1,61 @@
+21:53:31 INFO explicit --jobs 10 (auto would pick: cpu 17.6->8, ram 92024MB->45, vram 24080MB->40 => jobs 8)
+21:53:31 INFO 0 results done, 0 no-result (replacements used 0/0), 40 pending, 10 concurrent, device=cuda
+21:53:31 INFO persistent workers: up to 10 elo_eval_game --worker processes, policies cached across games
+21:54:49 WARNING game 7 was no-result; guard exhausted (0/0) -- absence recorded, CI will widen
+21:54:49 INFO game 7 done in 1.3 min, peak_rss 1342MB (results=0/40 no_result=1 failed=0, 30 pending, 9 in flight)
+21:55:04 WARNING game 9 was no-result; guard exhausted (0/0) -- absence recorded, CI will widen
+21:55:04 INFO game 9 done in 1.5 min, peak_rss 1390MB (results=0/40 no_result=2 failed=0, 29 pending, 9 in flight)
+21:55:06 INFO game 10 done in 0.3 min, peak_rss 1357MB (results=1/40 no_result=2 failed=0, 28 pending, 9 in flight)
+21:55:20 INFO game 0 done in 1.8 min, peak_rss 1430MB (results=2/40 no_result=2 failed=0, 27 pending, 9 in flight)
+21:55:20 WARNING game 8 was no-result; guard exhausted (0/0) -- absence recorded, CI will widen
+21:55:20 INFO game 8 done in 1.8 min, peak_rss 1456MB (results=2/40 no_result=3 failed=0, 27 pending, 8 in flight)
+21:55:22 INFO game 2 done in 1.8 min, peak_rss 1477MB (results=3/40 no_result=3 failed=0, 25 pending, 9 in flight)
+21:55:28 WARNING game 1 was no-result; guard exhausted (0/0) -- absence recorded, CI will widen
+21:55:28 INFO game 1 done in 1.9 min, peak_rss 1473MB (results=3/40 no_result=4 failed=0, 24 pending, 9 in flight)
+21:55:32 INFO game 13 done in 0.2 min, peak_rss 1432MB (results=4/40 no_result=4 failed=0, 23 pending, 9 in flight)
+21:55:34 INFO game 16 done in 0.1 min, peak_rss 1483MB (results=5/40 no_result=4 failed=0, 22 pending, 9 in flight)
+21:55:36 INFO game 11 done in 0.5 min, peak_rss 1402MB (results=6/40 no_result=4 failed=0, 21 pending, 9 in flight)
+21:55:36 INFO game 14 done in 0.3 min, peak_rss 1458MB (results=7/40 no_result=4 failed=0, 21 pending, 8 in flight)
+21:55:38 INFO game 3 done in 2.1 min, peak_rss 1504MB (results=8/40 no_result=4 failed=0, 19 pending, 9 in flight)
+21:55:38 WARNING game 5 was no-result; guard exhausted (0/0) -- absence recorded, CI will widen
+21:55:38 INFO game 5 done in 2.1 min, peak_rss 1487MB (results=8/40 no_result=5 failed=0, 19 pending, 8 in flight)
+21:55:42 INFO game 4 done in 2.2 min, peak_rss 1484MB (results=9/40 no_result=5 failed=0, 17 pending, 9 in flight)
+21:55:42 INFO game 15 done in 0.3 min, peak_rss 1487MB (results=10/40 no_result=5 failed=0, 17 pending, 8 in flight)
+21:55:44 WARNING game 12 was no-result; guard exhausted (0/0) -- absence recorded, CI will widen
+21:55:44 INFO game 12 done in 0.6 min, peak_rss 1361MB (results=10/40 no_result=6 failed=0, 15 pending, 9 in flight)
+21:55:48 INFO game 17 done in 0.3 min, peak_rss 1437MB (results=11/40 no_result=6 failed=0, 14 pending, 9 in flight)
+21:55:50 WARNING game 19 was no-result; guard exhausted (0/0) -- absence recorded, CI will widen
+21:55:50 INFO game 19 done in 0.2 min, peak_rss 1468MB (results=11/40 no_result=7 failed=0, 13 pending, 9 in flight)
+21:55:50 INFO game 20 done in 0.2 min, peak_rss 1421MB (results=12/40 no_result=7 failed=0, 13 pending, 8 in flight)
+21:55:58 WARNING game 24 was no-result; guard exhausted (0/0) -- absence recorded, CI will widen
+21:55:58 INFO game 24 done in 0.3 min, peak_rss 1484MB (results=12/40 no_result=8 failed=0, 11 pending, 9 in flight)
+21:56:00 WARNING game 25 was no-result; guard exhausted (0/0) -- absence recorded, CI will widen
+21:56:00 INFO game 25 done in 0.3 min, peak_rss 1363MB (results=12/40 no_result=9 failed=0, 10 pending, 9 in flight)
+21:56:00 INFO game 26 done in 0.2 min, peak_rss 1485MB (results=13/40 no_result=9 failed=0, 10 pending, 8 in flight)
+21:56:02 INFO game 21 done in 0.4 min, peak_rss 1517MB (results=14/40 no_result=9 failed=0, 8 pending, 9 in flight)
+21:56:06 INFO game 6 done in 2.6 min, peak_rss 1470MB (results=15/40 no_result=9 failed=0, 7 pending, 9 in flight)
+21:56:06 INFO game 28 done in 0.3 min, peak_rss 1427MB (results=16/40 no_result=9 failed=0, 7 pending, 8 in flight)
+21:56:08 WARNING game 23 was no-result; guard exhausted (0/0) -- absence recorded, CI will widen
+21:56:08 INFO game 23 done in 0.4 min, peak_rss 1523MB (results=16/40 no_result=10 failed=0, 5 pending, 9 in flight)
+21:56:10 INFO game 32 done in 0.1 min, peak_rss 1521MB (results=17/40 no_result=10 failed=0, 4 pending, 9 in flight)
+21:56:10 INFO game 33 done in 0.1 min, peak_rss 1479MB (results=18/40 no_result=10 failed=0, 4 pending, 8 in flight)
+21:56:14 INFO game 27 done in 0.4 min, peak_rss 1473MB (results=19/40 no_result=10 failed=0, 2 pending, 9 in flight)
+21:56:14 WARNING game 29 was no-result; guard exhausted (0/0) -- absence recorded, CI will widen
+21:56:14 INFO game 29 done in 0.3 min, peak_rss 1485MB (results=19/40 no_result=11 failed=0, 2 pending, 8 in flight)
+21:56:14 INFO game 31 done in 0.2 min, peak_rss 1368MB (results=20/40 no_result=11 failed=0, 2 pending, 7 in flight)
+21:56:18 WARNING game 34 was no-result; guard exhausted (0/0) -- absence recorded, CI will widen
+21:56:18 INFO game 34 done in 0.2 min, peak_rss 1433MB (results=20/40 no_result=12 failed=0, 0 pending, 8 in flight)
+21:56:20 INFO game 38 done in 0.1 min, peak_rss 1499MB (results=21/40 no_result=12 failed=0, 0 pending, 7 in flight)
+21:56:22 WARNING game 37 was no-result; guard exhausted (0/0) -- absence recorded, CI will widen
+21:56:22 INFO game 37 done in 0.2 min, peak_rss 1483MB (results=21/40 no_result=13 failed=0, 0 pending, 6 in flight)
+21:56:22 INFO game 39 done in 0.1 min, peak_rss 1371MB (results=22/40 no_result=13 failed=0, 0 pending, 5 in flight)
+21:56:24 WARNING game 30 was no-result; guard exhausted (0/0) -- absence recorded, CI will widen
+21:56:24 INFO game 30 done in 0.4 min, peak_rss 1488MB (results=22/40 no_result=14 failed=0, 0 pending, 4 in flight)
+21:56:24 WARNING game 35 was no-result; guard exhausted (0/0) -- absence recorded, CI will widen
+21:56:24 INFO game 35 done in 0.3 min, peak_rss 1535MB (results=22/40 no_result=15 failed=0, 0 pending, 3 in flight)
+21:56:24 WARNING game 36 was no-result; guard exhausted (0/0) -- absence recorded, CI will widen
+21:56:24 INFO game 36 done in 0.2 min, peak_rss 1524MB (results=22/40 no_result=16 failed=0, 0 pending, 2 in flight)
+21:56:32 INFO game 18 done in 1.0 min, peak_rss 1488MB (results=23/40 no_result=16 failed=0, 0 pending, 1 in flight)
+21:56:44 WARNING game 22 was no-result; guard exhausted (0/0) -- absence recorded, CI will widen
+21:56:44 INFO game 22 done in 1.1 min, peak_rss 1491MB (results=23/40 no_result=17 failed=0, 0 pending, 0 in flight)
+21:57:06 INFO chunk end: 23/40 RESULTS (17 no-result absences, replacements 0/0; 40 files) in /workspace/bench/sweep_t0 (this chunk: 40 played, 0 failed)
