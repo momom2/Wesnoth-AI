@@ -73,6 +73,9 @@ COLUMNS = [
     "step_kl_median", "step_kl_mean", "step_tv_mean", "end_turn_prior",
     "step_dv_mean", "step_dv_abs_mean", "value_center", "value_level",
     "value_level_ref",
+    # serve processes (--serve-processes > 1): the weights version the
+    # serve processes acknowledged after the step
+    "server_weights_version",
     # pins
     "pin_step", "raw_vs_seed_wdl", "search_vs_seed_wdl",
 ]
@@ -281,15 +284,16 @@ def main(argv) -> int:
                          "the model's precision).")
     ap.add_argument("--train-bf16", action=argparse.BooleanOptionalAction,
                     default=True,
-                    help="bf16 autocast around the trainer's forward and "
-                         "backward (TrainerConfig.train_autocast_bf16; "
-                         "cuda only; losses, master weights and AdamW "
-                         "stay fp32). Batch 16 on a 4090: 45.0 against "
-                         "57.1 ms per experience, loss within 3e-4 of "
-                         "fp32, gradient cosine 0.9994, norm within 0.3% "
-                         "on one batch of 64 (docs/box_specs.md "
-                         "'Training path cost (2026-09-05)'). Off until "
-                         "its own loop row is in.")
+                    help="bf16 autocast around the trainer's forward "
+                         "(TrainerConfig.train_autocast_bf16; cuda only). "
+                         "The backward replays the forward's dtypes, so "
+                         "the trunk's matmuls run bf16 both ways; the "
+                         "losses, the master weights and AdamW stay fp32. "
+                         "Batch 16 on a 4090: 45.0 against 57.1 ms per "
+                         "experience, loss within 3e-4 of fp32, gradient "
+                         "cosine 0.9994, norm within 0.3% on one batch of "
+                         "64 (docs/box_specs.md 'Training path cost "
+                         "(2026-09-05)'). Default on.")
     ap.add_argument("--packed-trunk", action=argparse.BooleanOptionalAction,
                     default=True,
                     help="Serve the pool's forwards through the packed varlen "

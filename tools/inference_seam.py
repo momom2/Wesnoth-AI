@@ -145,8 +145,9 @@ def build_light_encoded(
     only ever reads their `.size(1)` (the stream length) and `.device`,
     never their values. Everything the sampler actually consumes (the
     Python position/id/type lists, the `*_is_ours` flags, the
-    visible-unit set, the pos->hex map) is reconstructed exactly from
-    `raw`."""
+    visible-unit set, the pos->hex map, the hex-basis flag the
+    sampler's relevant-set tripwires read) is reconstructed exactly
+    from `raw`."""
     H = len(raw.hex_positions)
     U = len(raw.unit_positions)
     R = len(raw.recruit_types)
@@ -173,6 +174,7 @@ def build_light_encoded(
         end_turn_token=_ph(1),
         recruit_is_ours_np=raw.recruit_is_ours,
         visible_unit_ids=frozenset(raw.unit_ids),
+        hex_subset=bool(raw.hex_subset),
     )
 
 

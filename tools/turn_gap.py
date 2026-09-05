@@ -340,7 +340,9 @@ def _run_playouts(candidate: Dict, sim: WesnothSim, position: BoundaryPosition,
     for r in range(cfg.playout_offset, cfg.playout_offset + cfg.playouts):
         salt = playout_salt(cfg.seed, position.index, c, r)
         if sim.done:
-            # The candidate turn ended the game; every playout is that result.
+            # The candidate turn ended the game: the one terminal
+            # result stands for every playout (the gap arithmetic
+            # reads P entries per candidate) and none is played.
             o, cp = outcome_for(sim, mover)
             t = sim.gs.global_info.turn_number
         else:
@@ -351,7 +353,17 @@ def _run_playouts(candidate: Dict, sim: WesnothSim, position: BoundaryPosition,
         capped.append(cp)
         turns.append(t)
         seeds.append(salt)
-    candidate.update(outcomes=outcomes, capped=capped, turns=turns, seeds=seeds)
+    candidate.update(outcomes=outcomes, capped=capped, turns=turns, seeds=seeds,
+                     playouts_run=0 if sim.done else len(outcomes))
+
+
+def playouts_run(candidate: Dict) -> int:
+    """Playouts actually played for a candidate: none when its turn
+    ended the game (the terminal result is repeated P times for the
+    gap arithmetic). Records from before the field carry the flag."""
+    if "playouts_run" in candidate:
+        return int(candidate["playouts_run"])
+    return 0 if candidate.get("terminal_in_turn") else len(candidate["outcomes"])
 
 
 def finish_record(index: int, meta: Dict, base: Dict, alternatives: List[Dict],
@@ -540,8 +552,11 @@ def summarize(records: Sequence[Dict], *, threshold: float = 0.25,
     split_mean, split_se = _mean_se(splits) if splits else (None, None)
     counts, _ = np.histogram(gaps, bins=GAP_HISTOGRAM_EDGES)
     cands = [([r["base"]] + list(r["alternatives"])) for r in records]
-    playouts_total = sum(len(c["outcomes"]) for cs in cands for c in cs)
-    playouts_capped = sum(sum(bool(x) for x in c["capped"]) for cs in cands for c in cs)
+    # Playouts played (a terminal candidate turn plays none; its
+    # repeated entries count in the means, not here).
+    playouts_total = sum(playouts_run(c) for cs in cands for c in cs)
+    playouts_capped = sum(sum(bool(x) for x in c["capped"])
+                          for cs in cands for c in cs if playouts_run(c))
     alt_decisions = [a["n_decisions"] for r in records for a in r["alternatives"]]
     return {
         "n_positions": n,
@@ -600,7 +615,7 @@ def markdown_summary(s: Dict) -> str:
         ("positions whose base turn ended the game", f"{s['n_terminal_in_turn']}"),
         ("distinct alternatives per position", f"{s['alternatives_distinct_mean']:.2f} "
                                                f"of {s['alternatives_sampled']}"),
-        ("playouts", f"{s['playouts_total']}, capped {s['playouts_capped']} "
+        ("playouts played", f"{s['playouts_total']}, capped {s['playouts_capped']} "
                      f"({s['playouts_capped_frac']:.3f})"),
         ("decisions per turn, base / alternatives",
          f"{s['decisions_per_turn_base']:.1f} / "

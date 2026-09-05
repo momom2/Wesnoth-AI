@@ -68,7 +68,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from multiprocessing.connection import Client, Listener
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
@@ -99,7 +99,8 @@ class ServeStats:
     batches: int = 0
     leaves: int = 0
     connections: int = 0
-    failed_batches: int = 0
+    failed_batches: int = 0      # batches whose forward raised
+    failed_requests: int = 0     # requests that still failed alone
     batch_hist: Counter = field(default_factory=Counter)
     idle_s: float = 0.0      # waiting for a first request
     window_s: float = 0.0    # collecting the rest of a batch
@@ -113,6 +114,7 @@ class ServeStats:
             "requests": self.requests, "batches": self.batches,
             "leaves": self.leaves, "connections": self.connections,
             "failed_batches": self.failed_batches,
+            "failed_requests": self.failed_requests,
             "mean_batch": (self.leaves / self.batches if self.batches else 0.0),
             "batch_hist": {str(k): v for k, v in sorted(self.batch_hist.items())},
             "idle_s": round(self.idle_s, 3), "window_s": round(self.window_s, 3),
@@ -134,7 +136,7 @@ class InferenceService:
     def __init__(self, listener: Listener, infer_fn: Callable, hello: Dict, *,
                  window_s: float, max_batch: int):
         self._listener = listener
-        self._infer = infer_fn
+        self._infer_fn = infer_fn
         self._hello = hello
         self._window = max(0.0, float(window_s))
         self._max_batch = max(1, int(max_batch))
@@ -223,6 +225,47 @@ class InferenceService:
         st.window_s += time.monotonic() - t1
         return batch
 
+    def _infer(self, batch: List[_Pending], gpu: Dict[str, float]) -> list:
+        replies = self._infer_fn([p.payload for p in batch], stats=gpu)
+        if len(replies) != len(batch):
+            raise RuntimeError(f"infer_fn returned {len(replies)} replies "
+                               f"for {len(batch)} requests")
+        return list(replies)
+
+    def _answer(self, batch: List[_Pending], gpu: Dict[str, float]) -> Tuple[list, list]:
+        """(replies, errors) for the batch, one of each per request.
+        One forward for the whole batch; when it raises, each request
+        alone, so only the offenders fail: a batch holds one decision
+        from each of up to `jobs` games, and a fault of one position
+        must not cost the other games their play."""
+        try:
+            return self._infer(batch, gpu), [None] * len(batch)
+        except Exception:                          # noqa: BLE001
+            error = traceback.format_exc()
+        self.stats.failed_batches += 1
+        if len(batch) == 1:
+            replies, errors = [None], [error]
+        else:
+            log.error("batch of %d requests failed; retrying them one at a time:\n%s",
+                      len(batch), error)
+            replies, errors = [], []
+            for p in batch:
+                try:
+                    replies.extend(self._infer([p], gpu))
+                    errors.append(None)
+                except Exception:                  # noqa: BLE001
+                    replies.append(None)
+                    errors.append(traceback.format_exc())
+        failed = [p.rid for p, e in zip(batch, errors) if e is not None]
+        self.stats.failed_requests += len(failed)
+        if failed:
+            log.error("%d of %d request(s) failed (rids %s):\n%s", len(failed), len(batch),
+                      failed, next(e for e in errors if e is not None))
+        else:
+            log.warning("every request of the failed batch passed alone (a batch-level "
+                        "fault, not a position's)")
+        return replies, errors
+
     def _serve(self) -> None:
         st = self.stats
         while not self._stop.is_set():
@@ -231,19 +274,9 @@ class InferenceService:
                 continue
             t0 = time.monotonic()
             gpu: Dict[str, float] = {}
-            try:
-                replies = self._infer([p.payload for p in batch], stats=gpu)
-                if len(replies) != len(batch):
-                    raise RuntimeError(f"infer_fn returned {len(replies)} replies "
-                                       f"for {len(batch)} requests")
-                error = None
-            except Exception:                      # noqa: BLE001
-                error = traceback.format_exc()
-                log.error("batch of %d requests failed:\n%s", len(batch), error)
-                st.failed_batches += 1
-                replies = [None] * len(batch)
+            replies, errors = self._answer(batch, gpu)
             t1 = time.monotonic()
-            for p, reply in zip(batch, replies):
+            for p, reply, error in zip(batch, replies, errors):
                 msg = (p.rid, reply) if error is None else (p.rid, None, error)
                 try:
                     with p.send_lock:
@@ -326,24 +359,29 @@ class InferenceServerHandle:
     reports, and a clean shutdown that returns the stats it wrote."""
 
     def __init__(self, proc, address: str, info: Dict, errf, stats_path: Path,
-                 spec: str):
+                 spec: str, log_path: Path):
         self.proc = proc
         self.address = address
         self.info = info
         self.errf = errf
         self.stats_path = stats_path
         self.spec = spec
+        self.log_path = log_path
 
     def alive(self) -> bool:
         return self.proc.poll() is None
 
     def err_tail(self, n: int = 4096) -> str:
+        """The last `n` bytes of the server's stderr, read from the log
+        on disk: valid while the server runs and after shutdown closed
+        the handle (2026-09-05 review: read through the closed handle,
+        every startup failure reported an empty tail)."""
         try:
-            import os
-            size = os.fstat(self.errf.fileno()).st_size
-            self.errf.seek(max(0, size - n))
-            return self.errf.read().decode("utf-8", "replace")
-        except (OSError, ValueError):
+            with open(self.log_path, "rb") as f:
+                f.seek(0, 2)
+                f.seek(max(0, f.tell() - n))
+                return f.read().decode("utf-8", "replace")
+        except OSError:
             return ""
 
     def shutdown(self, timeout: float = 30.0) -> Optional[Dict]:
@@ -387,7 +425,8 @@ def launch_inference_server(spec: str, outdir: Path, tag: str, *, device: str,
            "--stats-out", str(stats_path), "--label", tag]
     if infer_bf16 is not None:
         cmd.append("--infer-bf16" if infer_bf16 else "--no-infer-bf16")
-    errf = open(outdir / f".inference_server_{tag}.log", "w+b")
+    log_path = outdir / f".inference_server_{tag}.log"
+    errf = open(log_path, "w+b")
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                             stderr=errf, text=True, bufsize=1)
     lines: "queue.Queue[Optional[str]]" = queue.Queue()
@@ -400,20 +439,23 @@ def launch_inference_server(spec: str, outdir: Path, tag: str, *, device: str,
             lines.put(None)
 
     threading.Thread(target=_pump, daemon=True).start()
-    handle = InferenceServerHandle(proc, "", {}, errf, stats_path, spec)
+    handle = InferenceServerHandle(proc, "", {}, errf, stats_path, spec, log_path)
+
+    def _startup_failure(what: str) -> RuntimeError:
+        handle.shutdown(timeout=5.0)            # the child has flushed its stderr after this
+        tail = handle.err_tail()[-800:].strip() or "(stderr empty)"
+        return RuntimeError(f"inference server for {spec} {what} (rc={proc.returncode}); "
+                            f"its stderr tail (full log: {log_path}):\n{tail}")
+
     deadline = time.monotonic() + startup_timeout_s
     address = info = None
     while address is None or info is None:
         try:
             line = lines.get(timeout=max(0.0, deadline - time.monotonic()))
         except queue.Empty:
-            handle.shutdown(timeout=5.0)
-            raise RuntimeError(f"inference server for {spec} gave no address in "
-                               f"{startup_timeout_s:.0f}s: {handle.err_tail()[-800:]}")
+            raise _startup_failure(f"gave no address in {startup_timeout_s:.0f}s")
         if line is None:
-            handle.shutdown(timeout=5.0)
-            raise RuntimeError(f"inference server for {spec} exited (rc={proc.returncode}) "
-                               f"before serving: {handle.err_tail()[-800:]}")
+            raise _startup_failure("exited before serving")
         if line.startswith(ADDR_PREFIX):
             address = line[len(ADDR_PREFIX):].rstrip("\r\n")
         elif line.startswith(INFO_PREFIX):

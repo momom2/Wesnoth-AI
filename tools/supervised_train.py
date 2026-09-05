@@ -262,13 +262,26 @@ def _pair_stream_serial(
 class _ParallelStream:
     """Wraps the worker pool + producer-consumer queues as an iterable.
 
-    Spawns N worker processes that each pop a `Path` from the input
-    queue, run `iter_replay_pairs` + `encode_raw` for the entire
-    replay, and push a single ("file", pairs, gz_name) message — the
-    pairs list is the whole replay. The main thread keeps the input
-    queue topped up: a fresh file goes in for every consumed message,
-    and once all files are dispatched, N sentinels (None) retire the
-    workers.
+    Spawns N worker processes that each pop a `(seq, Path)` from the
+    input queue, run `iter_replay_pairs` + `encode_raw` for the entire
+    replay, and push a single ("file", seq, pairs, gz_name) message —
+    the pairs list is the whole replay. The main thread keeps the
+    input queue topped up: a fresh file goes in for every EMITTED
+    file, and once all files are dispatched, N sentinels (None)
+    retire the workers.
+
+    Dispatch order is delivery order. Workers finish in an order set
+    by replay length and scheduling, so messages are held in a
+    reorder buffer until the next sequence number arrives; the pair
+    stream the trainer sees is therefore the seeded file order at any
+    worker count (`--seed` reproduces it). The buffer is bounded
+    without a separate cap: a refill is sent per emitted file, so at
+    most `workers * 2` files (the priming depth) are dispatched and
+    not yet emitted, in the pipeline and the buffer together. A
+    worker that dies holding a file (OOM kill) would stall the head
+    forever, so corpse reconciliation switches the stream to arrival
+    order for the rest of the pass, loudly; that pass is already not
+    reproducible (its files are lost).
 
     Why batched messages: the per-pair version pickled each RawEncoded
     individually across the queue and the overhead exceeded the
@@ -335,15 +348,27 @@ class _ParallelStream:
             p.start()
             self._procs.append(p)
 
-        # Prime the input queue with up to `workers * 2` files. The
-        # rest are fed lazily, one per consumed message.
-        self._next_file = 0
         self._workers_alive = workers
+        self._init_consumer_state()
+        # Prime the input queue with up to `workers * 2` files (its
+        # capacity, so this never blocks). The rest are fed one per
+        # emitted file.
         for _ in range(min(workers * 2, len(self._files))):
-            self._in_q.put(self._files[self._next_file])
+            self._in_q.put((self._next_file, self._files[self._next_file]))
             self._next_file += 1
+        self._send_sentinels()
 
-        # Per-file unpack state: when a "file" message arrives we
+    def _init_consumer_state(self) -> None:
+        """Dispatch, reorder and per-file unpack state; the tests build
+        a stream with stub workers and call this to get the real
+        consumer logic on top."""
+        self._next_file = 0                 # next file to dispatch; its index is its seq
+        self._next_seq = 0                  # next seq to emit
+        self._reorder: Dict[int, Tuple] = {}    # seq -> message arrived ahead of its turn
+        self._refills_owed = 0              # emitted files not yet paid back with a dispatch
+        self._sentinels_sent = 0
+        self._ordered = True                # False once a corpse may have lost a seq
+        # Per-file unpack state: when a "file" message is emitted we
         # iterate its pairs locally, returning one ("pair", ...) at a
         # time. After the iterator is exhausted, return a synthesized
         # ("file_done", ...) before pulling the next message.
@@ -374,9 +399,18 @@ class _ParallelStream:
             self._pending_file_done = None
             return ("file_done", gz_name, n)
 
-        # 3. Otherwise pull the next message from workers.
+        # 3. Otherwise emit the next file in dispatch order, pulling
+        # worker messages into the reorder buffer until it arrives.
         while True:
+            msg = self._take_ready()
+            if msg is not None:
+                return self._emit(msg)
             if self._workers_alive <= 0:
+                if self._reorder:
+                    # Nothing more can arrive: what is buffered is
+                    # delivered, gaps skipped.
+                    self._ordered = False
+                    continue
                 self.close()
                 raise StopIteration
             # BOUNDED get + corpse reconciliation (2026-08-10, BACKLOG
@@ -391,61 +425,99 @@ class _ParallelStream:
             try:
                 item = self._out_q.get(timeout=self._get_timeout)
             except Exception:                       # queue.Empty
-                n_dead = sum(1 for p in self._procs if not p.is_alive())
-                n_exited = self._workers_n - self._workers_alive
-                if n_dead > n_exited:
-                    missing = n_dead - n_exited
-                    log.error(
-                        f"{missing} encode worker(s) died without a "
-                        f"worker_exit message (OOM-killed?); "
-                        f"reconciling so the stream terminates instead "
-                        f"of hanging. Files those workers held are "
-                        f"LOST from this pass (audible in the "
-                        f"files_seen accounting).")
-                    self._workers_alive -= missing
+                self._reconcile_corpses()
+                self._send_sentinels()
                 continue
             tag = item[0]
-
-            if tag == "file":
-                _, pairs, gz_name = item
-                # Refill the input queue: send one more file if any
-                # remain, else a sentinel for one worker.
-                self._refill_input()
-                if not pairs:
-                    # Empty replay (no actionable pairs). Don't bother
-                    # setting up an iterator; emit file_done directly.
-                    return ("file_done", gz_name, 0)
-                # Hand the pair stream off to step 1 on the next call.
-                self._pair_iter = iter(pairs)
-                self._current_gz = gz_name
-                self._pending_file_done = (gz_name, len(pairs))
-                # Return the first pair from the new buffer immediately.
-                raw, ai = next(self._pair_iter)
-                return ("pair", raw, ai, gz_name)
-
-            if tag == "file_error":
-                _, gz_name, err = item
-                self._refill_input()
-                return ("file_error", gz_name, err)
-
-            if tag == "worker_exit":
+            if tag in ("file", "file_error"):
+                self._reorder[int(item[1])] = item
+            elif tag == "worker_exit":
                 self._workers_alive -= 1
-                continue
+            else:
+                # Unknown tag — should never happen. Log and keep pulling.
+                log.warning(f"  unknown stream event {tag!r}; ignoring")
 
-            # Unknown tag — should never happen. Log and keep pulling.
-            log.warning(f"  unknown stream event {tag!r}; ignoring")
+    def _take_ready(self) -> Optional[Tuple]:
+        """The buffered message whose turn it is: the next seq in order,
+        or the lowest buffered seq once order has been given up."""
+        if not self._reorder:
+            return None
+        if self._ordered:
+            return self._reorder.pop(self._next_seq, None)
+        return self._reorder.pop(min(self._reorder))
 
-    def _refill_input(self) -> None:
-        """Top up the input queue when a worker delivers a file.
+    def _emit(self, msg: Tuple):
+        """Turn a worker message into the trainer-facing event(s) and
+        pay its refill."""
+        tag, seq = msg[0], int(msg[1])
+        self._next_seq = max(self._next_seq, seq + 1)
+        self._refills_owed += 1
+        self._pump_refills()
+        if tag == "file_error":
+            _, _, gz_name, err = msg
+            return ("file_error", gz_name, err)
+        _, _, pairs, gz_name = msg
+        if not pairs:
+            # Empty replay (no actionable pairs). Don't bother
+            # setting up an iterator; emit file_done directly.
+            return ("file_done", gz_name, 0)
+        # Hand the pair stream off to step 1 on the next call.
+        self._pair_iter = iter(pairs)
+        self._current_gz = gz_name
+        self._pending_file_done = (gz_name, len(pairs))
+        # Return the first pair from the new buffer immediately.
+        raw, ai = next(self._pair_iter)
+        return ("pair", raw, ai, gz_name)
 
-        Either feeds one more replay path or, if we've run out of
-        files, sends one None sentinel so a worker can retire.
-        """
-        if self._next_file < len(self._files):
-            self._in_q.put(self._files[self._next_file])
+    def _reconcile_corpses(self) -> None:
+        """A get() timed out: count workers that died without their
+        exit message, and stop waiting on anything they held."""
+        n_dead = sum(1 for p in self._procs if not p.is_alive())
+        n_exited = self._workers_n - self._workers_alive
+        if n_dead <= n_exited:
+            return
+        missing = n_dead - n_exited
+        log.error(
+            f"{missing} encode worker(s) died without a worker_exit "
+            f"message (OOM-killed?); reconciling so the stream "
+            f"terminates instead of hanging. Files those workers held "
+            f"are LOST from this pass (audible in the files_seen "
+            f"accounting), and the pass continues in arrival order: "
+            f"its pair stream is no longer the seeded one.")
+        self._workers_alive -= missing
+        self._ordered = False
+        # Each corpse may have held a file whose refill never comes.
+        self._refills_owed += missing
+        self._pump_refills()
+
+    def _pump_refills(self) -> None:
+        """Dispatch one file per emitted file while files remain, then
+        the workers' sentinels. Never blocks: a full input queue (only
+        possible once no worker is taking files) defers the refill to
+        the next emit or timeout."""
+        while self._refills_owed > 0 and self._next_file < len(self._files):
+            try:
+                self._in_q.put_nowait((self._next_file, self._files[self._next_file]))
+            except Exception:                       # queue.Full
+                break
             self._next_file += 1
-        else:
-            self._in_q.put(None)
+            self._refills_owed -= 1
+        self._send_sentinels()
+
+    def _send_sentinels(self) -> None:
+        """Once every file is dispatched, queue one None per worker so
+        each retires after the files ahead of it. Never blocks: a full
+        input queue is retried on the next call (every refill and every
+        timeout gets here), and a stream with fewer files than workers
+        still retires all of them."""
+        if self._next_file < len(self._files):
+            return
+        while self._sentinels_sent < self._workers_n:
+            try:
+                self._in_q.put_nowait(None)
+            except Exception:                       # queue.Full
+                return
+            self._sentinels_sent += 1
 
     def close(self) -> None:
         if self._closed:
@@ -2291,7 +2363,9 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--seed", type=int, default=None,
                     help="Seed for file order, value-state subsampling "
                          "and torch: two runs with the same seed and "
-                         "corpus train on the same pair stream.")
+                         "corpus train on the same pair stream, at any "
+                         "--workers count (the parallel stream delivers "
+                         "files in dispatch order).")
     args = ap.parse_args(argv[1:])
     bf_arg = (None if args.batched_forward == "auto"
               else args.batched_forward == "on")

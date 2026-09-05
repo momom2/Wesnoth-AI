@@ -40,7 +40,8 @@ _SRV_STOP = "stop"
 # Serve-process replies (serve process -> main), on the shared server queue.
 _S_READY = "ready"        # model built
 _S_SYNCED = "synced"      # payload: the version loaded
-_S_STATS = "stats"        # payload: {"threads": [stats dicts], "picker": {...}}
+_S_STATS = "stats"        # payload: {"threads": [stats dicts], "picker": {...},
+                          #           "packed_compile": model.packed_compile_stats()}
 _S_PROBE = "probe"        # payload: wire outputs
 _S_ERROR = "error"        # payload: traceback string
 
@@ -77,9 +78,14 @@ class _BatchPicker:
     the requests nearest to it in token count fill it (one request is
     one tree on one map, so its token count is its longest leaf), and
     `gap` > 0 refuses any request further than that many tokens from
-    the anchor. A request left behind once goes into the next batch
-    ahead of the anchor rule, so no request is delayed by more than one
-    batch."""
+    the anchor. A request the length rule passes over although the
+    fifo rule would have served it now (it was inside the fifo batch)
+    is DISPLACED: it goes into the very next batch ahead of the anchor
+    rule -- the displaced requests are a subset of one fifo batch, so
+    they always fit -- and no request is displaced twice. The bound is
+    per displacement: a request behind a long queue can still wait
+    several batches while the rule prefers younger requests of its
+    shape. `skipped` counts the displaced requests, each once."""
 
     def __init__(self, policy: str = "fifo", gap: int = 0):
         if policy not in ("fifo", "length"):
@@ -89,8 +95,8 @@ class _BatchPicker:
         self._lock = threading.Lock()
         self._waiting: List[_Waiting] = []
         self._seq = 0
-        # Telemetry: requests deferred by the length rule, and the
-        # waiting requests seen at each pick (queue depth).
+        # Telemetry: requests displaced by the length rule (each once),
+        # and the waiting requests seen at each pick (queue depth).
         self.skipped = 0
         self.picks = 0
         self.depth = 0
@@ -117,11 +123,31 @@ class _BatchPicker:
                 self._waiting.append(self._wrap(item))
             return self._pick(max_batch)
 
+    def flush(self) -> List[_Waiting]:
+        """Every request still parked, removed: serving is stopping
+        and nothing will pick them (the picker is rebuilt on the next
+        start)."""
+        with self._lock:
+            parked, self._waiting = self._waiting, []
+        return parked
+
     def _wrap(self, item) -> _Waiting:
         lens = _request_lengths(item[2])
         self._seq += 1
         return _Waiting(item=item, seq=self._seq, n_leaves=len(lens), lens=lens,
                         tokens=max(lens) if lens else 0)
+
+    @staticmethod
+    def _fifo_count(waiting: List[_Waiting], max_batch: int) -> int:
+        """How many of the waiting requests, in arrival order, the fifo
+        rule serves now: the batch fills until it holds max_batch
+        leaves, the last request overshooting (the rule since
+        2026-07-22)."""
+        n = k = 0
+        while k < len(waiting) and n < max_batch:
+            n += waiting[k].n_leaves
+            k += 1
+        return k
 
     def _pick(self, max_batch: int) -> List[_Waiting]:
         waiting = self._waiting
@@ -129,19 +155,15 @@ class _BatchPicker:
             return []
         self.picks += 1
         self.depth += len(waiting)
+        k = self._fifo_count(waiting, max_batch)
         if self.policy == "fifo":
-            n = k = 0
-            while k < len(waiting) and n < max_batch:
-                n += waiting[k].n_leaves
-                k += 1
             batch, self._waiting = waiting[:k], waiting[k:]
             return batch
-        batch: List[_Waiting] = []
-        n = 0
-        for w in waiting:                         # left behind last time: first, by age
-            if w.skipped and n < max_batch:
-                batch.append(w)
-                n += w.n_leaves
+        # Displaced last time: all of them, by age. They are a subset
+        # of the fifo batch of that pick, so they fit one batch under
+        # the same overshoot rule.
+        batch = [w for w in waiting if w.skipped]
+        n = sum(w.n_leaves for w in batch)
         rest = [w for w in waiting if not w.skipped]
         if rest and n < max_batch:
             anchor = max(w.tokens for w in batch) if batch else rest[0].tokens
@@ -152,11 +174,13 @@ class _BatchPicker:
                 batch.append(w)
                 n += w.n_leaves
         chosen = {w.seq for w in batch}
-        left = [w for w in waiting if w.seq not in chosen]
-        for w in left:
-            w.skipped += 1
-        self.skipped += len(left)
-        self._waiting = left
+        # Passed over although the fifo rule would have served them
+        # now: displaced, first in the next batch.
+        for w in waiting[:k]:
+            if w.seq not in chosen:
+                w.skipped = 1
+                self.skipped += 1
+        self._waiting = [w for w in waiting if w.seq not in chosen]
         return batch
 
 
@@ -266,6 +290,19 @@ def _serve_loop(server, picker: _BatchPicker, req_q, resp_qs, max_batch: int,
         lens = [n for w in batch for n in w.lens]
         st["tokens"] += sum(lens)
         st["padded"] += len(lens) * max(lens)
+    # Requests the picker lifted out of the queue but never batched:
+    # the picker is rebuilt on the next start, so nothing would answer
+    # them and their actors would block forever (2026-09-05 review;
+    # the hard-deadline abandon reaches here with actors in flight).
+    # Fail them so the actors raise. Requests still in the queue itself
+    # stay there for the next start's threads.
+    parked = picker.flush()
+    if parked:
+        log.error("serving stopped with %d request(s) parked in the picker (actors %s); "
+                  "failing them", len(parked), sorted({w.item[0] for w in parked}))
+        for w in parked:
+            aid, rid, _payload = w.item
+            resp_qs[aid].put((rid, None))
     stats_out.append(st)
 
 
@@ -336,21 +373,26 @@ def _server_loop(
                 stop_ev = threading.Event()
                 stats = []
                 picker = _BatchPicker(coalesce, coalesce_gap)
-                threads = [threading.Thread(
-                    target=_serve_loop,
-                    args=(server, picker, req_q, resp_qs, max_batch, serve_timeout,
-                          stop_ev, stats),
-                    daemon=True, name=f"serve-{server_id}-{i}")
-                    for i in range(serve_threads)]
-                for th in threads:
+                # `threads` holds started threads only: a start that
+                # fails (the container's PID limit) is reported as an
+                # error reply, the manager aborts the iteration, and
+                # PAUSE joins what runs.
+                for i in range(serve_threads):
+                    th = threading.Thread(
+                        target=_serve_loop,
+                        args=(server, picker, req_q, resp_qs, max_batch, serve_timeout,
+                              stop_ev, stats),
+                        daemon=True, name=f"serve-{server_id}-{i}")
                     th.start()
+                    threads.append(th)
             elif kind == _SRV_PAUSE:
                 stop_ev.set()
                 for th in threads:
                     th.join(timeout=10.0)
                 threads = []
                 server_q.put((_S_STATS, server_id,
-                              {"threads": list(stats), "picker": _picker_stats(picker)}))
+                              {"threads": list(stats), "picker": _picker_stats(picker),
+                               "packed_compile": model.packed_compile_stats()}))
             elif kind == _SRV_PROBE:
                 outs = server.infer_batch(cmd[1])
                 server_q.put((_S_PROBE, server_id, [output_to_wire(o) for o in outs]))

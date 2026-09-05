@@ -16,15 +16,18 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 
-def _service(window_s: float, max_batch: int):
+def _service(window_s: float, max_batch: int, poison=None):
     """An in-process service over a fake model: each payload is a
     one-element list, its reply the element doubled; the batch sizes
-    it saw are the coalescer's record."""
+    it saw are the coalescer's record. A payload holding `poison`
+    makes the forward raise."""
     from tools.eval_inference_server import InferenceService
     seen = []
 
     def infer(payloads, stats=None):
         seen.append(sum(len(p) for p in payloads))
+        if poison is not None and any(poison in p for p in payloads):
+            raise ValueError(f"poisoned position {poison}")
         return [[2 * p[0]] for p in payloads]
 
     listener = Listener()
@@ -80,6 +83,37 @@ def test_coalescer_window_and_max_batch():
         assert st["batches"] == len(seen) and st["mean_batch"] == pytest.approx(9 / len(seen))
     finally:
         svc.stop()
+
+
+def test_a_failing_request_does_not_fail_its_batch_mates():
+    """A batch holds one decision from each of several games: when
+    the forward raises, the requests are retried one at a time and
+    only the offender's game sees the error."""
+    svc, address, seen = _service(window_s=0.25, max_batch=8, poison=13)
+    try:
+        replies = _send_together(address, [11, 13, 14])
+        assert replies[11] == (11, [22]) and replies[14] == (14, [28])
+        assert replies[13][:2] == (13, None) and "poisoned position 13" in replies[13][2]
+        assert 3 in seen and seen.count(1) >= 3, seen
+        st = svc.stats.as_dict()
+        assert st["failed_batches"] == 1 and st["failed_requests"] == 1
+        assert st["requests"] == 3
+    finally:
+        svc.stop()
+
+
+def test_startup_failure_reports_the_servers_stderr(tmp_path):
+    """A server that dies before serving (here: a --spec that does not
+    exist) surfaces its own stderr in the exception and names the log
+    it was written to."""
+    from tools.eval_inference_server import launch_inference_server
+    with pytest.raises(RuntimeError) as excinfo:
+        launch_inference_server(str(tmp_path / "missing.pt"), tmp_path, "t", device="cpu",
+                                infer_bf16=None, window_ms=1.0, max_batch=2,
+                                startup_timeout_s=120.0)
+    msg = str(excinfo.value)
+    assert "does not exist" in msg, msg
+    assert ".inference_server_t.log" in msg
 
 
 def _tiny_checkpoint(path: Path) -> str:

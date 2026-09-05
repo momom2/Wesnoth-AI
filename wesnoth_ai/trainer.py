@@ -33,6 +33,7 @@ import time
 from dataclasses import dataclass
 from typing import Dict, Iterator, List, Optional, Sequence, Tuple
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -1199,8 +1200,22 @@ def _host_packed_masks(raw: RawEncoded, game_state: GameState,
     # wesnoth_ai does not import tools/ at module load.
     from tools.inference_seam import build_light_encoded
     light = build_light_encoded(raw, _CPU)
-    light.hex_subset = bool(raw.hex_subset)
     return pack_masks(light, game_state, decision_step=decision_step)
+
+
+def _no_action_masks(U: int, R: int, H: int, T: int) -> PackedMasks:
+    """The all-illegal masks of an experience that contributes no policy
+    term (no visit counts: a value-only state). Its row keeps the chunk
+    layout index-aligned; nothing indexes it, and a fully masked row
+    log-softmaxes to a finite uniform (_NEG_INF is finite)."""
+    A = U + R + 1
+    bits = np.zeros((A, (H + 7) // 8), dtype=np.uint8)
+    return PackedMasks(
+        actor_mask=np.zeros(A, dtype=np.uint8),
+        type_valid=np.zeros((A, T), dtype=np.uint8),
+        attack_valid=bits, move_valid=bits, union_valid=bits,
+        n_attacks=np.zeros(A, dtype=np.int8), end_turn_bias=0.0,
+        n_units=U, n_recruits=R, n_hexes=H)
 
 
 def _stage_policy_targets(
@@ -1238,9 +1253,15 @@ def _stage_policy_targets(
         U, R, H = sizes[b]
         A = U + R + 1
         ds = int(getattr(e, "decision_step", 0))
+        vc = e.visit_counts
+        total = float(sum(_unpack_visit(t)[3] for t in vc))
         p = getattr(e, "masks", None)
         if p is None:
-            p = _host_packed_masks(raw, e.game_state, ds)
+            # A value-only experience (no visits) gets no host mask
+            # build: the build is the largest host item of the step and
+            # no term would index the result.
+            p = (_host_packed_masks(raw, e.game_state, ds) if total > 0.0
+                 else _no_action_masks(U, R, H, T))
         elif (p.n_units, p.n_recruits, p.n_hexes) != (U, R, H):
             # Masks packed on another action-space basis than the
             # one this trainer encodes (relevant-set vs full board)
@@ -1250,8 +1271,6 @@ def _stage_policy_targets(
                 f"for (U, R, H) = {(p.n_units, p.n_recruits, p.n_hexes)}, "
                 f"the trainer encoded {(U, R, H)}")
         packs.append(p)
-        vc = e.visit_counts
-        total = float(sum(_unpack_visit(t)[3] for t in vc))
         if total <= 0.0:
             continue
         visits += total

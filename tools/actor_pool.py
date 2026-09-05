@@ -52,8 +52,10 @@ string on each server's control queue and waits for the acks;
 `run_iteration` refuses to start while a server's weights version lags
 the learner's (`WesnothModel._weights_version`, bumped by every
 load_state_dict). Each server's serve stats merge into the iteration's
-(the saturated rate covers all servers). A server death poisons its
-actors' reply queues and aborts the iteration; shutdown stops them.
+(the saturated rate covers all servers) and carry its compiled packed
+trunk's state (`last_packed_compile_per_server`). A server that dies,
+or that reports a failed command while serving, poisons its actors'
+reply queues and aborts the iteration; shutdown stops them.
 
 Windows note: uses the 'spawn' start method (the only one on Windows),
 so the actor entry + all Process args must be picklable -- they are
@@ -488,16 +490,42 @@ class ActorPool:
             log.error(f"serve process(es) {sorted(pending)} did not return their stats")
         return got
 
-    def _abort_on_dead_servers(self, iter_idx: int, dead: List[int]) -> None:
-        """A serve process died mid-iteration: its actors would wait on
-        their reply queues forever. Poison those queues (the client
-        raises on the marker) and abort the iteration."""
+    def _drain_server_replies(self) -> Dict[int, str]:
+        """Replies a serve process posted while serving, read without
+        blocking: the error replies by server id (a failed command --
+        e.g. a serve thread that could not start under the container's
+        PID limit -- after which the process stays alive and answers
+        none of its actors). No other reply is pending during an
+        iteration; anything else is dropped with a warning."""
+        failed: Dict[int, str] = {}
+        while True:
+            try:
+                r_kind, sid, payload = self._server_q.get_nowait()
+            except _queue.Empty:
+                return failed
+            if r_kind == _S_ERROR:
+                failed[sid] = str(payload)
+            else:
+                log.warning(f"serve process {sid}: unexpected reply {r_kind!r} while "
+                            f"serving; dropped")
+
+    def _abort_on_dead_servers(self, iter_idx: int, dead: List[int],
+                               failures: Optional[Dict[int, str]] = None) -> None:
+        """A serve process died or failed mid-iteration: its actors
+        would wait on their reply queues forever. Poison those queues
+        (the client raises on the marker) and abort the iteration.
+        `failures`: the tracebacks of the servers that failed while
+        alive."""
+        failures = failures or {}
         for aid in range(self._n):
             if self._server_of(aid) in dead:
                 self._resp_qs[aid].put((_RID_SERVER_DEAD, None))
+        what = "; ".join(
+            f"serve process {sid} failed:\n{failures[sid]}" if sid in failures
+            else f"serve process {sid} died (exitcode {self._server_procs[sid - 1].exitcode})"
+            for sid in dead)
         raise ServeProcessDied(
-            f"iter {iter_idx}: serve process(es) {dead} died (exitcodes "
-            f"{[self._server_procs[s - 1].exitcode for s in dead]}); actors "
+            f"iter {iter_idx}: {what}\nactors "
             f"{[a for a in range(self._n) if self._server_of(a) in dead]} were "
             f"assigned to them -- aborting the iteration instead of hanging.")
 
@@ -659,6 +687,16 @@ class ActorPool:
                 raise ActorFatalError(
                     f"actor {aid} died on a non-swallowable error "
                     f"(round-35 C0):\n{payload}")
+            if self._server_procs:
+                # A serve process that failed a command while serving
+                # stays alive (the liveness scan below sees nothing)
+                # and answers none of its actors: read its error reply
+                # now, not at PAUSE after the timeout (2026-09-05
+                # review).
+                failed = self._drain_server_replies()
+                if failed:
+                    _stop_serving()
+                    self._abort_on_dead_servers(iter_idx, sorted(failed), failures=failed)
             if not outstanding:
                 break
             now = time.monotonic()
@@ -734,6 +772,16 @@ class ActorPool:
             for k, v in (ss.get("picker") or {}).items():
                 pick[k] = pick.get(k, 0) + int(v)
         self.last_leaves_per_server = leaves_per_server
+        # Each server's compiled packed trunk state (bench_pool records
+        # it): the learner's, then each serve process's own copy; None
+        # where a server's stats never arrived.
+        pc = getattr(self._inference_base(), "packed_compile_stats", None)
+        self.last_packed_compile_per_server: List[Optional[Dict]] = [
+            pc() if pc is not None else {"active": False}]
+        for sid in self._server_ids():
+            ss = server_stats.get(sid)
+            self.last_packed_compile_per_server.append(
+                None if ss is None else dict(ss.get("packed_compile") or {"active": False}))
         # Advance the global anneal counter by the decisions generated this
         # iteration (sum across actors), so the combat-oracle bias keeps
         # annealing across the campaign instead of freezing at ds0.

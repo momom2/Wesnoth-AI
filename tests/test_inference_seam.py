@@ -231,3 +231,19 @@ def test_light_encoded_fields_match_real_encode():
         assert light.hex_tokens.size(1) == real.hex_tokens.size(1)
         assert torch.allclose(light.unit_is_ours, real.unit_is_ours)
         assert torch.allclose(light.recruit_is_ours, real.recruit_is_ours)
+
+
+def test_light_state_carries_the_hex_basis():
+    """RemoteEncoder(relevant_set=True) stamps hex_subset on the light
+    state: the sampler's relevant-set tripwires (a hex the mask offers
+    with no token in the stream is a hard error) read the flag off
+    this state, on every actor and eval worker."""
+    pol = _policy()
+    enc, _mdl, _server, renc, _rmodel = _seam(pol)
+    gs = _states(1)[0].gs
+    full = renc.encode(gs)
+    assert full.hex_subset is False and full._raw.hex_subset is False
+    subset = RemoteEncoder(enc.unit_type_to_id, enc.faction_to_id,
+                           device=torch.device("cpu"), relevant_set=True).encode(gs)
+    assert subset.hex_subset is True and subset._raw.hex_subset is True
+    assert len(subset.hex_positions) < len(full.hex_positions)

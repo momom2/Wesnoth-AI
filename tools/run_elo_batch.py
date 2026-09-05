@@ -72,6 +72,73 @@ def result_name(label_a: str, label_b: str, side_a: int, seed: int) -> str:
     return f"game_{label_a}_{label_b}_s{side_a}_{seed}.json"
 
 
+# Hex-basis provenance (2026-09-05 review). A side plays in the relevant
+# hex subset ("relset") when its --relevant-set flag is set, when its
+# checkpoint carries relevant_set_hexes, or when the inference server
+# serving it does; otherwise on the full board ("full"). The basis
+# changes the tokens the model attends over, so it is an estimand
+# field: recorded per side in every result file and never mixed within
+# an outdir. Shared by elo_eval_game (writer) and elo_collect (reader);
+# this module stays torch-free, so the import is cheap for both.
+BASES = ("full", "relset")
+
+
+def bases_of(record: dict) -> Tuple[str, str]:
+    """(basis_a, basis_b) of a result file. Files from before the field
+    existed played the full board."""
+    return (record.get("basis_a") or "full", record.get("basis_b") or "full")
+
+
+def basis_refusal(name: str, record: dict, want: Tuple[str, str]) -> Optional[str]:
+    """The refusal to keep `record` in an outdir whose games play in
+    the `want` bases; None when they agree."""
+    got = bases_of(record)
+    if got == tuple(want):
+        return None
+    return (f"{name} was played in hex bases (a={got[0]}, b={got[1]}) but this "
+            f"run plays (a={want[0]}, b={want[1]}): the basis changes the tokens "
+            f"the model attends over, refusing to mix. Use a fresh outdir.")
+
+
+_PEEK_BASIS = (
+    "import sys; from pathlib import Path; sys.path.insert(0, sys.argv[2]); "
+    "from tools.eval_sim import peek_checkpoint_arch; "
+    "print('relset' if peek_checkpoint_arch(Path(sys.argv[1]), sys.argv[1])"
+    ".get('relevant_set_hexes') else 'full')")
+
+
+def _checkpoint_basis(spec: str) -> str:
+    """The basis a checkpoint spec plays in on its own: 'relset' when it
+    carries relevant_set_hexes. Read in a child interpreter so the
+    driver stays torch-free; 'random' is a fresh full-board net."""
+    if spec in ("dummy", "random"):
+        return "full"
+    proc = subprocess.run(
+        [sys.executable, "-c", _PEEK_BASIS, spec, str(_THIS.parent.parent)],
+        capture_output=True, text=True, timeout=600)
+    lines = [ln.strip() for ln in proc.stdout.splitlines() if ln.strip()]
+    if proc.returncode != 0 or not lines or lines[-1] not in BASES:
+        raise SystemExit(f"could not read the hex basis of {spec!r}: "
+                         f"{proc.stderr.strip()[-500:]}")
+    return lines[-1]
+
+
+def _want_bases(args, basis_of_spec) -> Tuple[str, str]:
+    """The basis each side of this batch plays in: 'dummy' has no
+    encoder; a --relevant-set flag forces the subset; otherwise
+    `basis_of_spec(spec)` (the checkpoint's flag, or the server's)."""
+    out = []
+    for spec, flag in ((args.spec_a, args.relevant_set_a),
+                       (args.spec_b, args.relevant_set_b)):
+        if spec == "dummy":
+            out.append("full")
+        elif flag:
+            out.append("relset")
+        else:
+            out.append(basis_of_spec(spec))
+    return out[0], out[1]
+
+
 def _effective_precision(args, field: str) -> bool:
     """What elo_eval_game will record for `field` under this batch's
     flags: the explicit flag, else the device default (cuda on, cpu
@@ -567,11 +634,23 @@ def main(argv: List[str]) -> int:
             procedure_of(sims_b, args.plan_b,
                           args.no_turn_search or args.no_turn_search_b,
                           args.raw_temperature_b, args.gumbel_root_b))
+    # Hex-basis pre-scan (see BASES): per-process bases are read from
+    # the checkpoints here; under shared inference the servers report
+    # theirs once launched (below), and the scan repeats there.
+    want_bases = None
+    if not args.shared_inference:
+        _basis_memo: dict = {}
+        want_bases = _want_bases(
+            args, lambda spec: _basis_memo.setdefault(spec, _checkpoint_basis(spec)))
     for f in sorted(args.outdir.glob("game_*.json")):
         try:
             prev = json.loads(f.read_text(encoding="utf-8"))
         except Exception:  # noqa: BLE001 -- unreadable = replayed
             continue
+        if want_bases is not None:
+            _why = basis_refusal(f.name, prev, want_bases)
+            if _why is not None:
+                raise SystemExit(_why)
         got = (prev.get("procedure_a"), prev.get("procedure_b"))
         if prev.get("max_turns") != args.max_turns:
             raise SystemExit(
@@ -692,6 +771,11 @@ def main(argv: List[str]) -> int:
                 raise SystemExit(f"the inference servers disagree on precision "
                                  f"{sorted(infos)}; one match, one numerics path")
             shared_bf16, shared_packed = infos.pop()
+            # A served side plays in the server's basis (its
+            # checkpoint's flag) unless the CLI flag forces the subset.
+            want_bases = _want_bases(
+                args, lambda spec: ("relset" if servers[spec].info.get("relevant_set")
+                                    else "full"))
             for f in sorted(args.outdir.glob("game_*.json")):
                 try:
                     prev = json.loads(f.read_text(encoding="utf-8"))
@@ -705,6 +789,9 @@ def main(argv: List[str]) -> int:
                             f"{bool(prev.get(_fld, False))} but the servers "
                             f"run {_want}: numerics differ, refusing to mix. "
                             f"Use a fresh outdir.")
+                _why = basis_refusal(f.name, prev, want_bases)
+                if _why is not None:
+                    raise SystemExit(_why)
         except BaseException:
             _shutdown_servers(servers)
             raise
@@ -813,7 +900,9 @@ def main(argv: List[str]) -> int:
              "infer_compile": (False if servers
                                else _effective_precision(args, "infer_compile")),
              "shared_inference": bool(servers),
-             "infer_packed_trunk": shared_packed}
+             "infer_packed_trunk": shared_packed,
+             # The effective hex basis per side (see BASES).
+             "basis_a": want_bases[0], "basis_b": want_bases[1]}
     if args.plan_a or args.plan_b:
         from types import SimpleNamespace
         from tools.elo_eval_game import _pt_config

@@ -11,10 +11,12 @@ encodings, without any model change:
 Per row: token counts per state (hex / unit / recruit / total: mean, p50,
 p90, max), padding ratio of the batches, median ms per batch of B leaves
 through model.forward_batch (bf16 on CUDA, batches cut from the
-length-sorted list as tools/bench_pipeline.seam_costs does), leaves per
-second, the analytic GFLOP per leaf at the mean length (linears +
-attention, docs/gpu_forward_design_20260904.md section 0) and the FLOP
-ceiling at the 4090's dense bf16 peak.
+length-sorted list as tools/bench_pipeline.seam_costs does), the leaves
+per second that median implies (the mean-based rate, total leaves over
+total time, is `leaves_per_s_mean` in the JSON: the full-board row's
+longest batches lift it apart), the analytic GFLOP per leaf at the mean
+length (linears + attention, docs/gpu_forward_design_20260904.md
+section 0) and the FLOP ceiling at the 4090's dense bf16 peak.
 
 The relset row runs the checkpoint's own weights on the subset: its
 timing is valid, its outputs are not (the seed was trained full-board).
@@ -128,7 +130,11 @@ def time_batches(model, encoded_list, batch: int, sync) -> Dict[str, float]:
 def measure_row(name: str, model, encoded_list, batch: int, sync, arch) -> dict:
     row = {"row": name, "batch": batch, **token_stats(encoded_list)}
     row.update(time_batches(model, encoded_list, batch, sync))
-    row["leaves_per_s"] = 1000.0 * batch / row["ms_mean"]
+    # The rate the table's own ms column implies (2026-09-05 review:
+    # derived from the mean next to a median, the two columns of the
+    # full-board row disagreed by 9%).
+    row["leaves_per_s"] = 1000.0 * batch / row["ms_median"]
+    row["leaves_per_s_mean"] = 1000.0 * batch / row["ms_mean"]
     row["gflop_per_leaf"] = gflop_per_leaf(row["total_mean"], arch)
     row["ceiling_leaves_per_s"] = 1000.0 * PEAK_TFLOPS_4090 / row["gflop_per_leaf"]
     log.info("%s: tokens %.0f, %.1f ms/batch, %.0f leaves/s", name, row["total_mean"],

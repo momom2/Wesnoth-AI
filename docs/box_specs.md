@@ -491,15 +491,17 @@ processes overlap the serve thread's CPU work with the GPU wait.
 
 `tools/bench_model_cost.py` on the 200 bench states, batch 16, bf16,
 `forward_batch` (per-sample padding inside the call; its floor is
-higher than the seam benchmark's `forward_streams` path).
+higher than the seam benchmark's `forward_streams` path). The ms
+column is the median over the 12 batches and leaves/s is the rate it
+implies (1000 x 16 / ms).
 
 | row | tokens mean | ms per 16-leaf batch | leaves/s | GFLOP per leaf |
 |---|---|---|---|---|
-| full board | 893 | 34.7 | 421 | 35.1 |
-| relevant set | 334 | 26.3 | 610 | 10.8 |
-| hex stream cut to 300 | 327 | 25.9 | 619 | 10.6 |
-| cut to 600 | 626 | 30.7 | 515 | 22.5 |
-| cut to 900 | 813 | 34.4 | 472 | 31.1 |
+| full board | 893 | 34.7 | 461 | 35.1 |
+| relevant set | 334 | 26.3 | 609 | 10.8 |
+| hex stream cut to 300 | 327 | 25.9 | 617 | 10.6 |
+| cut to 600 | 626 | 30.7 | 521 | 22.5 |
+| cut to 900 | 813 | 34.4 | 465 | 31.1 |
 
 Only about 9 ms of the 35 scale with the token count on this path;
 the fixed ~26 ms is the per-sample padding and launch work that the

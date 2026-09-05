@@ -63,6 +63,10 @@ def test_batch_driver_persistent_workers_end_to_end(tmp_path):
     files = sorted(out.glob("game_*.json"))
     assert len(files) == 2
     assert not list(out.glob(".stderr_*"))       # per-game shims never materialize
+    for f in files:
+        r = json.loads(f.read_text(encoding="utf-8"))
+        # The effective hex basis rides every result (dummy: full board).
+        assert (r["basis_a"], r["basis_b"]) == ("full", "full")
 
 
 def test_worker_cache_is_per_side(tmp_path):
@@ -137,5 +141,6 @@ def test_timeout_artifact_passes_the_resume_guards(tmp_path):
     assert len(files) == 1
     art = json.loads(files[0].read_text(encoding="utf-8"))
     assert art["mcts_batch"] == 4 and art["infer_bf16"] is False and art["infer_compile"] is False
+    assert (art["basis_a"], art["basis_b"]) == ("full", "full")
     rc = main(common)                    # the resume must not raise SystemExit
     assert rc == 0

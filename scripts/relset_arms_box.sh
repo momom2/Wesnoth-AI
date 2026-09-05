@@ -107,7 +107,27 @@ run_arm relset --relevant-set-hexes || exit 1
 # arm's checkpoint carries relevant_set_hexes=True; eval_sim's loader
 # peeks it and builds both encoders in that basis, so no
 # --relevant-set-a/-b flag is passed (those force the basis on a
-# checkpoint that was not trained in it).
+# checkpoint that was not trained in it). The result files record the
+# effective basis per side (basis_a/basis_b).
+#
+# A match is DONE only when run_elo_batch exited 0 AND the outdir holds
+# the pre-registered number of decisive results: a time-budget cut, a
+# memory stop or crashed children all leave run_elo_batch at exit 0
+# with a short outdir, and elo_collect fits whatever is there. Short
+# means exit 1 here; re-entry resumes the match from its files.
+decisive_results() {              # decisive_results OUTDIR -> count of win/loss files
+    python - "$1" <<'EOF'
+import json, pathlib, sys
+n = 0
+for p in pathlib.Path(sys.argv[1]).glob("game_*.json"):
+    try:
+        n += json.loads(p.read_text(encoding="utf-8")).get("outcome_a") in ("win", "loss")
+    except Exception:
+        pass
+print(n)
+EOF
+}
+
 run_match() {                     # run_match NAME LABEL_A SPEC_A LABEL_B SPEC_B GAMES SEED_BASE BUDGET_MIN
     local name="$1" la="$2" sa="$3" lb="$4" sb="$5" games="$6" sb0="$7" budget="$8"
     local dir="$OUT/$name"
@@ -118,16 +138,30 @@ run_match() {                     # run_match NAME LABEL_A SPEC_A LABEL_B SPEC_B
         --mcts-sims 0 --raw-temperature-a 0 --raw-temperature-b 0 \
         --persistent-workers --no-infer-compile --device "$DEV" --jobs "$JOBS" \
         --time-budget-min "$budget" 2>&1 | tee -a "$dir.log"
+    local rc=${PIPESTATUS[0]}
+    if [ "$rc" -ne 0 ]; then
+        echo "match $name: run_elo_batch FAILED rc=$rc" >&2; return 1
+    fi
+    local have
+    have=$(decisive_results "$dir")
+    if [ "$have" -lt "$games" ]; then
+        echo "match $name SHORT: $have/$games decisive results; re-run to continue" >&2
+        return 1
+    fi
     python tools/elo_collect.py "$dir" --no-catalog \
         --save-json "$dir.fit.json" 2>&1 | tee -a "$dir.log"
-    [ -f "$dir.fit.json" ] && touch "$dir.DONE"
+    rc=${PIPESTATUS[0]}
+    if [ "$rc" -ne 0 ] || [ ! -f "$dir.fit.json" ]; then
+        echo "match $name: elo_collect FAILED rc=$rc" >&2; return 1
+    fi
+    touch "$dir.DONE"
 }
 
 CONTROL="$OUT/control/arm.pt"
 RELSET="$OUT/relset/arm.pt"
-run_match control_vs_seed control "$CONTROL" seed_t0 "$SEED" "$GAMES_VS_SEED" 10000 120
-run_match relset_vs_seed  relset  "$RELSET"  seed_t0 "$SEED" "$GAMES_VS_SEED" 20000 120
-run_match relset_vs_control relset "$RELSET" control "$CONTROL" "$GAMES_ARMS" 30000 60
+run_match control_vs_seed control "$CONTROL" seed_t0 "$SEED" "$GAMES_VS_SEED" 10000 120 || exit 1
+run_match relset_vs_seed  relset  "$RELSET"  seed_t0 "$SEED" "$GAMES_VS_SEED" 20000 120 || exit 1
+run_match relset_vs_control relset "$RELSET" control "$CONTROL" "$GAMES_ARMS" 30000 60 || exit 1
 
 # What to pull: $OUT/{control,relset}/{arm.pt,arm_eval.jsonl,train.log},
 # $OUT/*.fit.json, $OUT/*.log, $OUT/box.txt. Read

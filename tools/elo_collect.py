@@ -33,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from tools.elo_ladder import PairRecord, fit_elo
+from tools.run_elo_batch import bases_of
 
 
 def load_games(games_dir: Path) -> List[dict]:
@@ -197,8 +198,16 @@ def main(argv) -> int:
             f"{sorted(str(m) for m in _mts)} -- the horizon "
             f"decides decisive-vs-absence, so estimands don't mix "
             f"(round-24 C9).")
+    # The hex basis each side played in (absent = full board): the
+    # basis changes what the model attends over, so one dir holds one
+    # (basis_a, basis_b) pair.
+    _bases = {bases_of(g) for g in games}
+    if len(_bases) > 1:
+        raise SystemExit(f"mixed hex bases in one games dir: "
+                         f"{sorted(_bases)} -- estimands don't mix.")
     _mt = next(iter(_mts)) if _mts else None
     _proc_tag = next(iter(procs)) if procs else ("legacy", "legacy")
+    _basis_tag = next(iter(_bases))
 
     for title, pairs, nr in (
             ("PURE (decisive only, primary)", pure, nores),
@@ -239,7 +248,8 @@ def main(argv) -> int:
                                                se_full)}
     print(f"\ngames: {len(games)} ({n_nores} no-result, excluded from "
           f"PURE) | anchor: {labels[anchor_idx]} = 0"
-          f" | procedure: {_proc_tag[0]}/{_proc_tag[1]}")
+          f" | procedure: {_proc_tag[0]}/{_proc_tag[1]}"
+          f" | hex basis: {_basis_tag[0]}/{_basis_tag[1]}")
     # Auto-update the committed Elo catalog (user directive
     # 2026-08-17): every collected games dir records its PURE
     # per-pair W-D-L as an edge (idempotent by dir name) and the

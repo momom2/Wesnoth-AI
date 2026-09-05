@@ -31,6 +31,23 @@ sys.path.insert(0, str(ROOT / "tools"))
 log = logging.getLogger("bench_pool")
 
 
+def merged_packed_compile(per_server) -> dict:
+    """One record over every server's compiled packed trunk (the
+    certification row of design note section 13): active only when
+    every server's is, recompiles summed, the first fallback reason,
+    and the per-server records. A server whose stats never arrived
+    (None) leaves the row uncertified."""
+    known = [s for s in per_server if s is not None]
+    out = dict(known[0]) if known else {}
+    out["active"] = (bool(known) and len(known) == len(per_server)
+                     and all(bool(s.get("active")) for s in known))
+    out["recompiles"] = sum(int(s.get("recompiles") or 0) for s in known)
+    out["fallback_reason"] = next(
+        (s.get("fallback_reason") for s in known if s.get("fallback_reason")), None)
+    out["per_server"] = list(per_server)
+    return out
+
+
 def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
              server_priors: bool, max_turns: int, device, seed: int,
              iteration_timeout: float, log_level: int = logging.WARNING,
@@ -100,8 +117,11 @@ def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
         "packed_embed": bool(packed_embed),
         "coalesce": coalesce, "coalesce_gap": coalesce_gap,
         # Warmup seconds, recompiles and any eager fallback of the
-        # compiled packed trunk (design note section 13).
-        "packed_compile": base.packed_compile_stats(),
+        # compiled packed trunk, over every server (design note
+        # section 13; each serve process compiles its own copy).
+        "packed_compile": merged_packed_compile(
+            getattr(pool, "last_packed_compile_per_server", None)
+            or [base.packed_compile_stats()]),
         "games_completed": len(outcomes), "decisive": decided,
         "abandoned": getattr(pool, "_last_abandoned", None),
         "experiences": len(exps),

@@ -59,8 +59,9 @@ import torch
 from tools.draw_tiebreak import DrawTiebreakConfig, material_margin
 from tools.elo_ladder import _ScriptedAdapter
 from tools.eval_sim import (_PolicyPair, _load_policy,
-                            _play_one_eval_game)
+                            _play_one_eval_game, peek_checkpoint_arch)
 from tools.inference_seam import RemoteEncoder
+from tools.run_elo_batch import basis_refusal
 from tools.scenario_pool import build_scenario_gamestate, random_setup
 from tools.wesnoth_sim import WesnothSim
 
@@ -156,24 +157,57 @@ class _CountingModel:
 # forward-counting proxy -- side A's counter read 0 on 2026-09-04).
 _WORKER_MODE = False
 _POLICY_CACHE: dict = {}
-# Shared inference: one connection per server address, kept across
-# games in worker mode (the hello handshake is paid once).
+# Shared inference: one connection per server address (the hello
+# handshake is paid once; across games in worker mode).
 _CLIENT_CACHE: dict = {}
+# The basis a checkpoint carries (peeked once per spec in worker mode).
+_BASIS_CACHE: dict = {}
 
 
-def _policy_for(spec, device, label, infer_bf16, infer_compile):
+def _policy_for(spec, device, label, infer_bf16, infer_compile,
+                relevant_set: bool = False):
+    """`relevant_set` forces the relevant-hex-subset basis on the
+    encoder whatever the checkpoint carries. It is part of the cache
+    key: a persistent worker must never hand the mutated encoder to a
+    full-board game."""
     # spec None is the random-init reference: a fresh draw per game
     # in one-process mode, so never cached (2026-09-04 review).
     cacheable = _WORKER_MODE and spec is not None
-    key = (spec, label, str(device), bool(infer_bf16), bool(infer_compile))
+    key = (spec, label, str(device), bool(infer_bf16), bool(infer_compile),
+           bool(relevant_set))
     if cacheable and key in _POLICY_CACHE:
         return _POLICY_CACHE[key]
     policy = _load_policy(Path(spec) if spec else None, device,
                           label=label, infer_bf16=infer_bf16,
                           infer_compile=infer_compile)
+    if relevant_set:
+        policy._inference_encoder.relevant_set_hexes = True
     if cacheable:
         _POLICY_CACHE[key] = policy
     return policy
+
+
+def _effective_basis(spec, relevant_set: bool, inference_address) -> str:
+    """The hex basis this side's encoder plays in (run_elo_batch.BASES):
+    'relset' when the CLI flag, the checkpoint's relevant_set_hexes or
+    the shared inference server's hello says so, else 'full'. Recorded
+    in the result as basis_a/basis_b and guarded per outdir."""
+    if spec == "dummy":
+        return "full"                   # no encoder, no basis
+    if relevant_set:
+        return "relset"
+    if inference_address is not None:
+        return ("relset" if _shared_client(inference_address).hello["relevant_set"]
+                else "full")
+    if spec in (None, "random"):
+        return "full"
+    basis = _BASIS_CACHE.get(spec) if _WORKER_MODE else None
+    if basis is None:
+        basis = ("relset" if peek_checkpoint_arch(Path(spec), spec)
+                 .get("relevant_set_hexes") else "full")
+        if _WORKER_MODE:
+            _BASIS_CACHE[spec] = basis
+    return basis
 
 
 def worker_loop() -> int:
@@ -207,8 +241,7 @@ def _shared_client(address: str):
     client = _CLIENT_CACHE.get(address)
     if client is None or client.broken:
         client = EvalInferenceClient(address)
-        if _WORKER_MODE:
-            _CLIENT_CACHE[address] = client
+        _CLIENT_CACHE[address] = client
     return client
 
 
@@ -276,9 +309,10 @@ def _build_player(spec: str, label: str, sims: int, device,
     player (tools/raw_player.py; 0 = argmax). None = the legacy
     factored sampler, the pre-2026-09-04 'raw' procedure.
     `relevant_set`: encode this side with the relevant hex subset
-    whatever the checkpoint carries. `inference_address`: play the
-    raw player through a shared inference server (main() has checked
-    sims == 0, a temperature and a checkpoint spec)."""
+    whatever the checkpoint carries (main passes the EFFECTIVE basis,
+    `_effective_basis`). `inference_address`: play the raw player
+    through a shared inference server (main() has checked sims == 0,
+    a temperature and a checkpoint spec)."""
     if spec == "random":
         # Deliberate random-init reference (round-24 C8: reaching
         # random init through a nonexistent PATH is how a typo
@@ -291,9 +325,8 @@ def _build_player(spec: str, label: str, sims: int, device,
     if inference_address is not None:
         return _remote_player(inference_address, raw_temperature, raw_seed,
                               relevant_set, infer_bf16, infer_packed_trunk)
-    policy = _policy_for(spec, device, label, infer_bf16, infer_compile)
-    if relevant_set:
-        policy._inference_encoder.relevant_set_hexes = True
+    policy = _policy_for(spec, device, label, infer_bf16, infer_compile,
+                         relevant_set)
     inner = policy._inference_model
     if isinstance(inner, _CountingModel):      # cached policy: fresh counter
         inner = inner._inner
@@ -418,7 +451,8 @@ def main(argv) -> int:
                          "(encoder relevant_set_hexes) whatever the checkpoint "
                          "was trained with: the zero-training probe of the "
                          "token-count study (docs/model_cost_study_20260905.md). "
-                         "Recorded in the result; use a fresh outdir.")
+                         "The effective basis is recorded per side (basis_a/"
+                         "basis_b) and an outdir holds one basis per side.")
     ap.add_argument("--relevant-set-b", action="store_true",
                     help="Side B (see --relevant-set-a).")
     ap.add_argument("--gumbel-root-a", action=argparse.BooleanOptionalAction,
@@ -580,6 +614,10 @@ def main(argv) -> int:
                 f"'random' for a deliberate random-init player.")
     shared = _check_shared_inference_args(args, sims_a, sims_b)
     logging.basicConfig(level=getattr(logging, args.log_level))
+    basis_a = _effective_basis(args.spec_a, args.relevant_set_a,
+                               args.inference_address_a)
+    basis_b = _effective_basis(args.spec_b, args.relevant_set_b,
+                               args.inference_address_b)
 
     torch.set_num_threads(2)
     if shared:
@@ -685,6 +723,10 @@ def main(argv) -> int:
                     f"this run uses {inf_packed}: the packed and padded "
                     f"trunks are different kernels, refusing to mix. Use "
                     f"a fresh outdir.")
+            # The hex basis (effective per side; absent = full board).
+            _why = basis_refusal(out_path.name, prev, (basis_a, basis_b))
+            if _why is not None:
+                raise SystemExit(_why)
             if (got_a, got_b, got_mt) != (want_a, want_b,
                                           args.max_turns):
                 raise SystemExit(
@@ -733,7 +775,7 @@ def main(argv) -> int:
         infer_compile=inf_compile, value_center=args.value_center_a,
         raw_temperature=args.raw_temperature_a,
         raw_seed=2 * args.seed, gumbel_root=args.gumbel_root_a,
-        relevant_set=args.relevant_set_a,
+        relevant_set=basis_a == "relset",
         inference_address=args.inference_address_a,
         infer_packed_trunk=inf_packed)
     pb, cnt_b = _build_player(
@@ -744,7 +786,7 @@ def main(argv) -> int:
         infer_compile=inf_compile, value_center=args.value_center_b,
         raw_temperature=args.raw_temperature_b,
         raw_seed=2 * args.seed + 1, gumbel_root=args.gumbel_root_b,
-        relevant_set=args.relevant_set_b,
+        relevant_set=basis_b == "relset",
         inference_address=args.inference_address_b,
         infer_packed_trunk=inf_packed)
 
@@ -791,10 +833,14 @@ def main(argv) -> int:
             sims_b, args.plan_b,
             args.no_turn_search or args.no_turn_search_b,
             args.raw_temperature_b, args.gumbel_root_b),
-        # Recorded for plain-search arms only; TCS and plan-tournament
-        # arms never read the flag (2026-09-04 review).
+        # The CLI probe flags as given; TCS and plan-tournament arms
+        # never read them (2026-09-04 review).
         "relevant_set_a": bool(args.relevant_set_a),
         "relevant_set_b": bool(args.relevant_set_b),
+        # The EFFECTIVE hex basis per side (flag, checkpoint or server;
+        # run_elo_batch.BASES): an estimand field, guarded per outdir.
+        "basis_a": basis_a,
+        "basis_b": basis_b,
         "gumbel_root_a": (bool(args.gumbel_root_a) if sims_a > 0 and not args.plan_a
                           and (args.no_turn_search or args.no_turn_search_a) else None),
         "gumbel_root_b": (bool(args.gumbel_root_b) if sims_b > 0 and not args.plan_b

@@ -3,13 +3,17 @@
 When `tools/supervised_train.py --workers N>0` is in effect, the main
 process spawns N of these workers. Each one:
 
-  1. Pops a `gz_path` from the input queue.
+  1. Pops a `(seq, gz_path)` from the input queue; `seq` is the file's
+     position in the trainer's dispatch order.
   2. Replays it via `replay_dataset.iter_replay_pairs` to yield
      (GameState, ActionIndices) pairs.
   3. Phase-1 encodes each pair via `encoder.encode_raw` against the
      read-only vocab dicts that were given at startup.
   4. Accumulates ALL pairs from this replay into a list and pushes one
-     `("file", pairs, gz_name)` message to the output queue.
+     `("file", seq, pairs, gz_name)` message to the output queue. The
+     trainer emits files in `seq` order whatever order they complete
+     in, so a seeded file order gives one pair stream at any worker
+     count.
 
 Why one message per replay (not per pair): the multiprocessing.Queue
 boundary pickles every message. RawEncoded carries ~5,000 small Python
@@ -35,9 +39,10 @@ copy, copy-on-write) and via re-pickling on Windows spawn (one copy
 per worker, 100s of KB). Either way, workers treat them as read-only.
 
 Failure mode: any exception inside the worker on a single replay is
-caught, logged, and turned into a `("file_error", gz_name, err_str)`
-message — the trainer skips that file and moves on. A worker only
-exits cleanly when it pops the sentinel `None` from the input queue.
+caught, logged, and turned into a `("file_error", seq, gz_name,
+err_str)` message — the trainer skips that file and moves on. A
+worker only exits cleanly when it pops the sentinel `None` from the
+input queue.
 """
 
 from __future__ import annotations
@@ -69,9 +74,10 @@ def worker_main(
     """Worker entry point.
 
     Each item written to `out_q` is one of:
-      ("file",       pairs, gz_name)        # pairs = list of (RawEncoded, ActionIndices)
-      ("file_error", gz_name, err_str)
+      ("file",       seq, pairs, gz_name)   # pairs = list of (RawEncoded, ActionIndices)
+      ("file_error", seq, gz_name, err_str)
       ("worker_exit",)
+    where `seq` echoes the input item's dispatch index.
 
     The trainer's main loop unpacks "file" messages into individual
     ("pair", raw, ai, gz_name) events for its own consumption (see
@@ -104,8 +110,8 @@ def worker_main(
             out_q.put(("worker_exit",))
             return
 
-        gz_path: Path = item
-        gz_name = gz_path.name
+        seq, gz_path = item
+        gz_name = Path(gz_path).name
         try:
             pairs = []
             for state, ai in iter_replay_pairs(gz_path,
@@ -121,9 +127,9 @@ def worker_main(
             # this replay. Empty lists are valid (replay had no
             # actionable pairs) — the trainer will see file_done with
             # n=0 and move on.
-            out_q.put(("file", pairs, gz_name))
+            out_q.put(("file", seq, pairs, gz_name))
         except Exception as e:
             tb = traceback.format_exception_only(type(e), e)[-1].strip()
-            out_q.put(("file_error", gz_name, tb))
+            out_q.put(("file_error", seq, gz_name, tb))
             log.debug(f"  worker skip {gz_name}: {e}")
             # Keep going; main thread tolerates per-file failures.

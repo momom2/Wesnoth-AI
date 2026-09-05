@@ -5,7 +5,8 @@ bf16/compile validation"): ms per experience for every stage of
 through the trainer's own switch (TrainerConfig.train_autocast_bf16,
 what az_loop --train-bf16 runs; fp32 master weights and the optimizer
 untouched) and against a compiled trunk, the loss/gradient agreement
-of each variant on one batch, and the implied seconds per loop
+of each variant on one batch (the compiled variants against the eager
+fp32 reference on the same weights), and the implied seconds per loop
 iteration next to the pool's generation time.
 
 Stages, as Trainer.step_mcts reports them through its `timings` hook
@@ -357,15 +358,28 @@ def parity_row(name: str, ref: Tuple[dict, torch.Tensor], cand: Tuple[dict, torc
 
 
 def parity_check(policy, exps: List, configs: Sequence[Tuple[str, int]], *,
-                 device: torch.device, label: str = "") -> List[dict]:
-    """Every (precision, batch) against fp32 B=1 on the same batch;
-    the fp32 B=1 rerun is the harness's own noise floor."""
-    ref = stubbed_step(policy, exps, precision="fp32", batch_size=1, device=device)
-    rows = [parity_row("fp32 B=1" + label, ref, ref, is_reference=True),
-            parity_row("fp32 B=1 rerun" + label, ref,
-                       stubbed_step(policy, exps, precision="fp32", batch_size=1, device=device))]
+                 device: torch.device, label: str = "",
+                 reference: Optional[Tuple[dict, torch.Tensor]] = None) -> List[dict]:
+    """Every (precision, batch) against fp32 B=1 on the same batch.
+    Without `reference` the fp32 B=1 result is computed here and its
+    rerun is the harness's own noise floor. With it (the compiled
+    table passes the eager fp32 B=1 result computed before the trunk
+    was compiled, on the weights the compiled rows see) every config
+    is a candidate, fp32 B=1 included: a compiled trunk is scored
+    against the eager one, never against itself."""
+    if reference is None:
+        ref = stubbed_step(policy, exps, precision="fp32", batch_size=1, device=device)
+        rows = [parity_row("fp32 B=1" + label, ref, ref, is_reference=True),
+                parity_row("fp32 B=1 rerun" + label, ref,
+                           stubbed_step(policy, exps, precision="fp32", batch_size=1,
+                                        device=device))]
+        skip = ("fp32", 1)
+    else:
+        ref = reference
+        rows = [parity_row("fp32 B=1 eager", ref, ref, is_reference=True)]
+        skip = None
     for precision, b in configs:
-        if (precision, b) == ("fp32", 1):
+        if (precision, b) == skip:
             continue
         cand = stubbed_step(policy, exps, precision=precision, batch_size=b, device=device)
         rows.append(parity_row(f"{precision} B={b}{label}", ref, cand))
@@ -522,10 +536,15 @@ def run_benchmark(policy, exps: List, *, device: torch.device, n_list: Sequence[
             log.info(f"  -> {rows[-1].get('step_wall_ms_per_exp', rows[-1])}")
             _save_partial(parity, rows, compile_info)
     if compile_trunk:
+        # The eager fp32 B=1 result on the weights the compiled rows
+        # will see (the timed rows above moved them), taken BEFORE the
+        # trunk is compiled: the compiled rows are scored against it.
+        eager_ref = stubbed_step(policy, parity_batch, precision="fp32", batch_size=1,
+                                 device=device)
         try:
             compile_info.update(enable_compiled_trunk(tr.model))
             parity += parity_check(policy, parity_batch, configs, device=device,
-                                   label=" compiled")
+                                   label=" compiled", reference=eager_ref)
             for precision, b in configs:
                 for n in n_list:
                     log.info(f"timing {precision} B={b} N={n} compiled")
@@ -586,7 +605,8 @@ def markdown_report(res: dict) -> str:
             f"{_f(r['unattributed_ms_per_exp'])} | {_f(r['gpu_peak_mb'], 0)} | {_f(r['warmup_s'], 1)} |")
     tol = res["parity_tolerance"]
     out += ["", f"## Parity on one batch of {res['parity_n']} (optimizer stubbed, no clipping; "
-            f"reference fp32 B=1; pass = loss within {tol['loss_rel']:.0%}, gradient norm within "
+            f"reference fp32 B=1 -- for the compiled rows the eager fp32 B=1 on the same "
+            f"weights; pass = loss within {tol['loss_rel']:.0%}, gradient norm within "
             f"{tol['grad_norm_rel']:.0%}, cosine >= {tol['cosine_min']})", "",
             "| config | total loss | loss rel diff | grad norm | norm ratio | grad rel L2 diff | cosine | ok |",
             "|---|---|---|---|---|---|---|---|"]

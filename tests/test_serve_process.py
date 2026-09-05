@@ -2,9 +2,10 @@
 docstring "Serve processes"): the copy of the inference pair another
 process builds, the weight transfer, the dead-server reply marker, and
 -- slow tier, real processes on CPU -- a pool with one serve process
-next to the learner's: games complete, the stats merge, a weight
-publication is refused until synced and changes the server's outputs
-once it is.
+next to the learner's: games complete, the stats merge (each server's
+compiled-trunk state with them), a weight publication is refused until
+synced and changes the server's outputs once it is, and a failure the
+serve process reports while serving aborts the iteration at once.
 """
 from __future__ import annotations
 
@@ -18,7 +19,9 @@ import torch
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tools.actor_pool import _IPCInferenceClient, _RID_SERVER_DEAD  # noqa: E402
+from tools.actor_pool import (  # noqa: E402
+    _S_ERROR, _IPCInferenceClient, _RID_SERVER_DEAD, ServeProcessDied,
+)
 from tools.inference_seam import (  # noqa: E402
     build_inference_pair, inference_blueprint, load_inference_state,
     pack_inference_state,
@@ -106,6 +109,9 @@ def test_pool_with_a_serve_process_serves_syncs_and_refuses_stale_weights():
         assert len(pool.last_leaves_per_server) == 2
         assert all(n > 0 for n in pool.last_leaves_per_server), pool.last_leaves_per_server
         assert pool.last_served_forwards == sum(pool.last_leaves_per_server)
+        # The serve process's own compiled packed trunk state rides its
+        # stats (no compile configured here: not active on either).
+        assert [s["active"] for s in pool.last_packed_compile_per_server] == [False, False]
 
         _perturb(policy)
         with pytest.raises(RuntimeError, match="sync_servers"):
@@ -117,5 +123,13 @@ def test_pool_with_a_serve_process_serves_syncs_and_refuses_stale_weights():
 
         outcomes, _ = pool.run_iteration(1, 2, base_seed=8)
         assert len(outcomes) >= 1
+
+        # An error reply the serve process posts WHILE SERVING (what its
+        # command handler sends when a command fails; the process stays
+        # alive) surfaces during the iteration as a dead server, not at
+        # the timeout.
+        pool._server_q.put((_S_ERROR, 1, "injected failure"))
+        with pytest.raises(ServeProcessDied, match="injected failure"):
+            pool.run_iteration(2, 2, base_seed=9)
     finally:
         pool.shutdown()

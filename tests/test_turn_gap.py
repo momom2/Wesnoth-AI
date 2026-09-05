@@ -82,6 +82,32 @@ def _candidate(outcomes, n_decisions=5):
             "sample_seed": None, "post_state_key": 0, "terminal_in_turn": False}
 
 
+def test_a_terminal_candidate_turn_plays_no_playout(policy, positions):
+    """When the candidate turn itself ends the game, its result is
+    repeated P times (the gap arithmetic reads P entries) but no
+    playout runs: the summary counts only playouts played, in the
+    total and in the capped fraction."""
+    pos = positions[0]
+    mover = pos.gs.global_info.current_side
+    sim = tg.sim_from_state(pos.gs, pos.scenario_id, 5, "terminal")
+    sim.done, sim.winner, sim.ended_by = True, mover, "leader_killed"
+    cfg = tg.GapConfig(k_alternatives=1, playouts=3, cap_turns=2, seed=1)
+    terminal = {"n_decisions": 1, "sample_seed": None, "post_state_key": 0,
+                "terminal_in_turn": True}
+    tg._run_playouts(terminal, sim, pos, mover, 5, cfg, 0, policy, "g")
+    assert terminal["outcomes"] == [1, 1, 1] and terminal["capped"] == [False] * 3
+    assert terminal["playouts_run"] == 0 and len(terminal["seeds"]) == 3
+    record = tg.finish_record(0, {}, terminal, [_candidate([0, 0, 0])], [], cfg, 1.0)
+    assert record["base"]["mean"] == 1.0 and record["gap"] == -1.0
+    s = tg.summarize([record], threshold=0.25, null_permutations=5)
+    assert s["playouts_total"] == 3 and s["playouts_capped"] == 3
+    assert s["playouts_capped_frac"] == pytest.approx(1.0)
+    assert s["n_terminal_in_turn"] == 1
+    # A record from before the field: the flag says the same.
+    del record["base"]["playouts_run"]
+    assert tg.summarize([record], null_permutations=5)["playouts_total"] == 3
+
+
 def test_summary_arithmetic_on_synthetic_records():
     cfg = tg.GapConfig(k_alternatives=2, playouts=4)
     records = [
