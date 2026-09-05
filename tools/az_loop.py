@@ -279,6 +279,16 @@ def main(argv) -> int:
                     help="bf16 autocast on the pool's inference server "
                          "(cuda only; the learner's own probes stay in "
                          "the model's precision).")
+    ap.add_argument("--packed-trunk", action=argparse.BooleanOptionalAction,
+                    default=True,
+                    help="Serve the pool's forwards through the packed varlen "
+                         "trunk (flash attention, no padding; cuda + bf16 only, "
+                         "so the learner's fp32 probes keep the padded path). "
+                         "2026-09-05: 652 -> 833 leaves/s saturated.")
+    ap.add_argument("--compile-packed", action=argparse.BooleanOptionalAction,
+                    default=False,
+                    help="Compile the packed layer loop (one inductor graph); "
+                         "measured separately, off until its row is in.")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--rng-seed", type=int, default=20260903)
     ap.add_argument("--log-level", default="INFO")
@@ -311,6 +321,12 @@ def main(argv) -> int:
     dev_str = "cuda" if device.type == "cuda" else "cpu"
     ckpt_in = args.campaign if args.campaign.exists() else args.seed_checkpoint
     base = _load_policy(ckpt_in, device, label="az")
+    if device.type == "cuda" and args.packed_trunk:
+        inference_base = getattr(base, "_inference_base", base._inference_model)
+        inference_base.infer_packed_trunk = True
+        if args.compile_packed:
+            inference_base.infer_compile_packed = True
+            inference_base.warmup_packed_compile()
     cfg = base._trainer.config
     cfg.value_loss_form = "mse_mean"
     cfg.value_coef = float(args.value_coef)
