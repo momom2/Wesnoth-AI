@@ -469,6 +469,41 @@ would need a throughput check first), two 800-game matches $0.72, one
 covers the cost table, not the retrain; the retrain is the first item
 that needs a rental proposal with this cost attached.
 
+### 7b. Learning-rate control (pre-registered 2026-09-05 night, before the run)
+
+Interim reading of the control arm's match (box 49875606, 340 of 800
+results in): the seed leads 111-51 in the first 162 decisive games,
+about -135 Elo for the arm, with games ending by leader death at
+turns 7-13 (the normal argmax regime: the seed's decisive games
+against its sampling self ran 17 turns median, 5 minimum). On the
+same 1,200 holdout pairs (`--eval-only`, sample seed 0) the seed reads
+CE 2.838 +- 0.079 and masked target CE 1.341 +- 0.051; the control arm
+at the end of its half epoch 2.786 and 1.264. The pre-registered
+prediction (control within +-30 Elo of the seed) is refuted: half an
+epoch of the imitation recipe from the seed costs more than 100 Elo
+while the holdout CE does not move against it.
+
+Two mechanisms: (a) drift, since lr 1e-4 flat is about 20x the seed's
+last-epoch rate and a converged net re-heated at that rate settles in
+another minimum of equal CE whose argmax differs off the human
+distribution; (b) the recipe, since `configs/imitation.json` trains on
+winners only, weights games equally and weights action types
+(recruit 1.75, end_turn 1.44, attack 0.63, move 0.19), all of which
+move the argmax without moving the unweighted CE.
+
+Arm: the control recipe unchanged except lr 1e-5, same stream, file
+order and seed (`chain33` on the box, after the queue), then 800 games
+against the seed at argmax (seed base 30000, sides alternated).
+Cost: 3.9 h + 1.2 h at $0.33/h, about $1.7.
+
+Prediction (operator): (a) is the mechanism; the lr 1e-5 arm lands
+within +-40 Elo of the seed. Readings: within +-40 Elo (2 SE at 800
+decisive is about +-50): drift, and every future fine-tune from the seed
+runs at 1e-5 or below with an argmax match as its acceptance; a loss
+beyond -80 Elo: the recipe, and its knobs are tested one at a time
+(winners-only first); in between: both, and the relevant-set question
+waits for a recipe that keeps the seed's strength.
+
 ## 8. Method notes
 
 - Token counts: `relset_measure.py` reconstructs the 200 states with
