@@ -1,0 +1,48 @@
+
+fp32 packed (segment SDPA) vs fp32 padded
+  actor_logits   max_abs 1.267e-06   max_abs/scale 2.531e-06   (scale 0.5)
+  type_logits    max_abs 1.192e-06   max_abs/scale 9.058e-07   (scale 1.32)
+  target_logits  max_abs 1.311e-06   max_abs/scale 2.503e-06   (scale 0.524)
+  weapon_logits  max_abs 4.768e-07   max_abs/scale 1.590e-06   (scale 0.3)
+  value          max_abs 2.235e-08   max_abs/scale 5.856e-07   (scale 0.0382)
+  value_logits   max_abs 4.470e-07   max_abs/scale 7.413e-07   (scale 0.603)
+  cliffness      max_abs 5.960e-08   max_abs/scale 1.006e-07   (scale 0.592)
+.
+bf16 packed vs bf16 padded
+  actor_logits   max_abs 4.883e-03   max_abs/scale 1.101e-02   (scale 0.443)
+  type_logits    max_abs 7.812e-03   max_abs/scale 5.747e-03   (scale 1.36)
+  target_logits  max_abs 7.812e-03   max_abs/scale 1.429e-02   (scale 0.547)
+  weapon_logits  max_abs 2.930e-03   max_abs/scale 9.494e-03   (scale 0.309)
+  value          max_abs 1.971e-04   max_abs/scale 5.243e-03   (scale 0.0376)
+  value_logits   max_abs 3.906e-03   max_abs/scale 6.135e-03   (scale 0.637)
+  cliffness      max_abs 6.407e-05   max_abs/scale 1.084e-04   (scale 0.591)
+
+bf16 padded vs fp32 padded
+  actor_logits   max_abs 5.800e-03   max_abs/scale 1.308e-02   (scale 0.444)
+  type_logits    max_abs 9.195e-03   max_abs/scale 6.806e-03   (scale 1.35)
+  target_logits  max_abs 7.245e-03   max_abs/scale 1.325e-02   (scale 0.547)
+  weapon_logits  max_abs 3.480e-03   max_abs/scale 1.123e-02   (scale 0.31)
+  value          max_abs 2.286e-04   max_abs/scale 6.064e-03   (scale 0.0377)
+  value_logits   max_abs 3.701e-03   max_abs/scale 5.791e-03   (scale 0.639)
+  cliffness      max_abs 8.601e-05   max_abs/scale 1.455e-04   (scale 0.591)
+
+bf16 packed vs fp32 padded
+  actor_logits   max_abs 5.135e-03   max_abs/scale 1.158e-02   (scale 0.444)
+  type_logits    max_abs 6.968e-03   max_abs/scale 5.158e-03   (scale 1.35)
+  target_logits  max_abs 6.587e-03   max_abs/scale 1.205e-02   (scale 0.547)
+  weapon_logits  max_abs 3.490e-03   max_abs/scale 1.126e-02   (scale 0.31)
+  value          max_abs 1.883e-04   max_abs/scale 4.996e-03   (scale 0.0377)
+  value_logits   max_abs 6.247e-03   max_abs/scale 9.775e-03   (scale 0.639)
+  cliffness      max_abs 6.223e-05   max_abs/scale 1.053e-04   (scale 0.591)
+..
+batch 16, near-homogeneous lengths: 20328 tokens, padded to 21664 (ratio 1.07); GPU ms per batch padded 18.24, packed 10.77 (padded/packed 1.69)
+.
+batch 16, mixed lengths: 24372 tokens, padded to 35024 (ratio 1.44); GPU ms per batch padded 37.43, packed 13.92 (padded/packed 2.69)
+........
+=============================== warnings summary ===============================
+tests/test_packed_trunk_cuda.py::test_packed_forward_issues_no_host_sync
+  /opt/conda/lib/python3.11/site-packages/torch/cuda/__init__.py:1036: UserWarning: Synchronization debug mode is a prototype feature and does not yet detect all synchronizing operations (Triggered internally at ../torch/csrc/cuda/Module.cpp:886.)
+    torch._C._cuda_set_sync_debug_mode(debug_mode)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+12 passed, 1 warning in 5.78s
