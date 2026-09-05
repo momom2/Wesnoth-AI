@@ -479,3 +479,52 @@ Still too expensive or unresolvable at $50:
   its estimand has a noise ceiling below its own reading thresholds at
   any playout count the credit affords; only the confirmation matches
   are kept.
+
+### Data lever: player ratings (test 3 tooling, 2026-09-05)
+
+`tools/player_ratings.py` (tests: `tests/test_player_ratings.py`) builds
+the player index and the Bradley-Terry fit of test 3. Player ids exist
+only in the raw replays' `[side]` headers (the json.gz records carry
+none); the raw corpus is on the laptop (`replays_raw/`, 218 MB for the
+17,124 corpus games) and not on HF, so the index runs once on the
+laptop (52 ms per header measured on 200 files: 15 core-minutes, about
+3 minutes at `--workers 6`) or on a box after those files are shipped.
+Every ai-controlled side is the one id `[ai]`; ratings use every game,
+holdout included; the subset takes only non-holdout games; the AI is
+rated but never in the top set. `fit --build-dataset` writes a
+directory the trainer reads exactly like the full one (hardlinked game
+files, manifest.jsonl, value_corpus_index.jsonl): the subset rows plus
+the holdout games won by top-rated players flagged `holdout`, so the
+trainer's periodic eval and `--eval-only` on the control checkpoint
+give the barrier's two numbers on the same games. Commands:
+
+    # laptop: index once, then kill 0 (seconds, plain python)
+    python tools/player_ratings.py index --dataset replays_dataset_imitation --raw-root . --workers 6
+    python tools/player_ratings.py fit --dataset replays_dataset_imitation --min-games 30 --quantile 0.75 --out ratings/arm1 --report
+    # "KILL 0" in the summary -> arm 2; otherwise ship the index to the box:
+    scp replays_dataset_imitation/players.jsonl BOX:/workspace/Wesnoth-AI/replays_dataset_imitation/
+
+    # 4090 box, after scripts/eval_box_setup.sh staged seed.pt; the control
+    # arm's checkpoint is CONTROL (scripts/relset_arms_box.sh leaves it at
+    # /workspace/relset/control/arm.pt; stage it from HF otherwise)
+    python tools/player_ratings.py fit --dataset replays_dataset_imitation --min-games 30 --quantile 0.75 --out /workspace/toprated/ratings --report --build-dataset replays_dataset_toprated
+    ARCH="--d-model 384 --num-layers 8 --num-heads 12 --d-ff 1536"
+    EVAL="--eval-every 50000 --eval-pairs 1200 --eval-pairs-per-game 8 --eval-sample-seed 0"
+    python tools/supervised_train.py replays_dataset_toprated --checkpoint /workspace/toprated/arm.pt --init-from training/checkpoints/seed.pt --imitation-config configs/imitation.json $ARCH --epochs 30 --max-pairs 1260000 --seed 20260905 --bs 64 --lr 1e-4 --device cuda --workers 20 $EVAL --ckpt-every 2000 --log-every 100
+    # barrier: the control arm's masked CE on the same top-rated holdout games
+    python tools/supervised_train.py replays_dataset_toprated --eval-only --resume CONTROL --imitation-config configs/imitation.json $ARCH --device cuda $EVAL --eval-json /workspace/toprated/control_on_toprated_holdout.json
+    # matches, PURE, raw:t0 both sides; tools/elo_collect.py OUTDIR --no-catalog --save-json OUTDIR.fit.json after each
+    MATCH="--mcts-sims 0 --raw-temperature-a 0 --raw-temperature-b 0 --persistent-workers --no-infer-compile --device cuda --jobs 10"
+    python tools/run_elo_batch.py --label-a toprated --spec-a /workspace/toprated/arm.pt --label-b seed_t0 --spec-b training/checkpoints/seed.pt --outdir /workspace/toprated/vs_seed --games 1300 --seed-base 40000 $MATCH --time-budget-min 120
+    python tools/run_elo_batch.py --label-a toprated --spec-a /workspace/toprated/arm.pt --label-b control --spec-b CONTROL --outdir /workspace/toprated/vs_control --games 600 --seed-base 50000 $MATCH --time-budget-min 60
+
+The training line is the control arm's recipe with the dataset swapped
+and `--epochs 30`: the cosine schedule spans `--epochs` (T_max), so a
+large value keeps the learning rate flat as in the control's half
+epoch while `--max-pairs 1260000` stops the run, which is 2-3 passes
+over a subset of the predicted size (18% of 2,566,963 winner-side
+pairs is 462k; the 250k kill is 9.7%). `--eval-only` repeats the arch
+flags because the trainer checks them against the checkpoint. The
+holdout set of the built dataset is about 18% of the 369 holdout games
+(66 at the prediction), so the stratified probe reads about 530 pairs
+per eval instead of 1,200.
