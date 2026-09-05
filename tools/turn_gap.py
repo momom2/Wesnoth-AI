@@ -82,6 +82,11 @@ GAP_HISTOGRAM_EDGES = [round(-2.0 + 0.25 * i, 2) for i in range(17)]
 @dataclass
 class GapConfig:
     k_alternatives: int = 4
+    continue_edits: int = 0            # continue-edit alternatives: the base turn
+                                       # minus its end_turn plus 1..k more argmax
+                                       # actions (docs/turn_proposer_design_20260905.md:
+                                       # two of the three confirmed gaps were early
+                                       # end_turns)
     playouts: int = 40
     temperature: float = 1.0      # of the alternative turns
     cap_turns: int = 40           # playouts end undecided at the start of turn T0 + cap + 1
@@ -100,6 +105,8 @@ class GapConfig:
             raise ValueError("temperatures must be >= 0")
         if self.playout_offset < 0:
             raise ValueError("playout_offset must be >= 0")
+        if self.continue_edits < 0:
+            raise ValueError("continue_edits must be >= 0")
 
 
 @dataclass
@@ -230,6 +237,61 @@ def play_side_turn(sim: WesnothSim, player, game_label: str,
             actions_out.append(_action_to_json(action))
         sim.step(action)
     return decisions
+
+
+def _action_from_json(action: Dict) -> Dict:
+    """Inverse of _action_to_json for the keys the simulator reads."""
+    from wesnoth_ai.classes import Position
+    out = {}
+    for k, v in action.items():
+        if isinstance(v, list) and len(v) == 2 and all(isinstance(x, int) for x in v) \
+                and (k.endswith("_hex") or k.endswith("_pos") or k == "position"):
+            out[k] = Position(v[0], v[1])
+        else:
+            out[k] = v
+    return out
+
+
+def _continue_candidate(position: BoundaryPosition, base_actions: List[Dict],
+                        policy, extra: int, max_turns: int, salt: str,
+                        game_label: str) -> Tuple[Dict, WesnothSim]:
+    """The base turn without its end_turn, then `extra` more argmax
+    decisions that may not be end_turn (while any other action is
+    legal), then end_turn. Same combat salt as the base, so the
+    replayed prefix realizes identically."""
+    sim = sim_from_state(position.gs, position.scenario_id, max_turns, salt)
+    side = sim.current_side
+    actions: List[Dict] = []
+    for a in base_actions:
+        if a.get("type") == "end_turn" or sim.done or sim.current_side != side:
+            break
+        act = _action_from_json(a)
+        actions.append(_action_to_json(act))
+        sim.step(act)
+    player = RawPolicyPlayer(policy, 0.0, forbid_end_turn=True)
+    added = 0
+    while added < extra and not sim.done and sim.current_side == side:
+        act = _decide(player, sim, game_label)
+        if act.get("type", "end_turn") == "end_turn":
+            break
+        actions.append(_action_to_json(act))
+        sim.step(act)
+        added += 1
+    if not sim.done and sim.current_side == side:
+        end = {"type": "end_turn"}
+        actions.append(end)
+        sim.step(end)
+    mover = position.gs.global_info.current_side
+    candidate = {
+        "sample_seed": None, "proposer": "continue", "extra_decisions": added,
+        "n_decisions": sum(1 for a in actions if a.get("type") != "end_turn"),
+        "actions": actions,
+        "value_post": (None if sim.done else _value_read(player, sim.gs, mover)),
+        "hp_margin_post": _hp_margin(sim.gs, mover),
+        "post_state_key": state_key(sim.gs),
+        "terminal_in_turn": bool(sim.done),
+    }
+    return candidate, sim
 
 
 def _hp_margin(gs: GameState, mover: int) -> int:
@@ -412,6 +474,17 @@ def measure_position(policy, position: BoundaryPosition, cfg: GapConfig) -> Dict
             dropped.append(alt)
             continue
         seen[alt["post_state_key"]] = f"alt{k}"
+        alternatives.append((k, alt, alt_sim))
+    for j in range(1, cfg.continue_edits + 1):
+        k = cfg.k_alternatives + j - 1
+        alt, alt_sim = _continue_candidate(position, base["actions"], policy, j,
+                                           max_turns, salt, f"{label}cont{j}")
+        same = seen.get(alt["post_state_key"])
+        if same is not None:
+            alt["identical_to"] = same
+            dropped.append(alt)
+            continue
+        seen[alt["post_state_key"]] = f"cont{j}"
         alternatives.append((k, alt, alt_sim))
 
     _run_playouts(base, base_sim, position, mover, max_turns, cfg, 0, policy, label)
@@ -688,6 +761,9 @@ def main(argv) -> int:
     ap.add_argument("--n-states", type=int, default=60,
                     help="First N manifest positions.")
     ap.add_argument("--alternatives", type=int, default=4, help="K sampled turns.")
+    ap.add_argument("--continue-edits", type=int, default=0,
+                    help="Continue-edit alternatives: the base turn minus its "
+                         "end_turn plus 1..k more argmax non-end actions.")
     ap.add_argument("--playouts", type=int, default=40, help="P per candidate.")
     ap.add_argument("--temperature", type=float, default=1.0,
                     help="Sampling temperature of the alternative turns.")
@@ -732,6 +808,7 @@ def main(argv) -> int:
                     temperature=args.temperature, cap_turns=args.cap_turns,
                     playout_temperature=args.playout_temperature,
                     playout_offset=args.playout_offset,
+                    continue_edits=args.continue_edits,
                     seed=args.seed)
     if args.positions:
         wanted = sorted({int(x) for x in args.positions.split(",")})

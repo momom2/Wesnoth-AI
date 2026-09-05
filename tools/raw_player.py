@@ -49,12 +49,16 @@ class RawPolicyPlayer:
     trainable = False
 
     def __init__(self, base, temperature: float,
-                 seed: Optional[int] = None):
+                 seed: Optional[int] = None, forbid_end_turn: bool = False):
         if temperature < 0.0:
             raise ValueError("temperature must be >= 0 (0 = argmax)")
         self._base = base
         self.temperature = float(temperature)
         self._rng = np.random.default_rng(seed)
+        # The continue-edit proposer of tools/turn_gap.py: keep acting
+        # while any non-end action is legal (end_turn only when nothing
+        # else is).
+        self.forbid_end_turn = bool(forbid_end_turn)
 
     def select_action(self, game_state, *, game_label: str = "default",
                       sim=None) -> Dict:
@@ -71,6 +75,9 @@ class RawPolicyPlayer:
                 encoded, output, game_state, decision_step=decision_step)
         if not legal:
             return {"type": "end_turn"}
+        if self.forbid_end_turn:
+            acting = [la for la in legal if la.action.get("type") != "end_turn"]
+            legal = acting or legal
         priors = np.array([la.prior for la in legal], dtype=np.float64)
         return legal[pick_index(priors, self.temperature, self._rng)].action
 

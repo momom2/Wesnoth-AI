@@ -361,3 +361,28 @@ margin no better. Kill for value-head pre-grading: residual SD >= 0.3,
 or any confirmed large-gap alternative ranked below its base. Kept
 alive: residual SD <= 0.2 with every confirmed alternative ranked
 above its base.
+
+## Continue-edit proposer (pre-registered 2026-09-05 evening, before the run)
+
+Motivation: two of the three confirmed large gaps were base turns
+that ended early (the audit); docs/turn_proposer_design_20260905.md
+names the "do not end the turn yet" edit as the first deterministic
+proposer arm. Settings: the first 60 positions, K = 0 sampled
+alternatives, `--continue-edits 3` (the base turn minus its end_turn
+plus 1, 2, 3 more argmax non-end actions; identical post-turn states
+dropped), P = 40 playouts at temperature 0.5, cap 30, seed 3, `--jobs
+12`. Cost: at most 60 x 4 x 40 = 9,600 playouts, about 2.2 box-hours,
+$0.75. Estimand: the split-half mean gain of the best continue edit
+over the base (select on even playouts, evaluate on odd), the
+fraction of positions where the best edit's out-of-sample gain is
+>= 0.25, and the fraction of positions where no edit is distinct
+(the base already acts until nothing is left).
+
+Prediction (operator): distinct edits exist in 70-90% of positions;
+split-half mean gain +0.04 (range -0.02 to +0.10), i.e. comparable to
+the sampled proposer's +0.05 at a quarter of its candidates; 2-5 of
+60 positions at >= 0.25. Kill for the edit as a proposer arm: mean
+split-half gain <= 0 within one standard error AND no position at
+>= 0.25. A pass (mean gain positive by two standard errors) makes the
+early-end_turn defect a property of the imitation policy worth a
+training-side fix, not a decode rule.

@@ -248,3 +248,24 @@ def test_candidate_turns_record_actions_and_pre_graders(policy, positions):
             assert cand["terminal_in_turn"] or cand["actions"][-1]["type"] == "end_turn"
             assert isinstance(cand["hp_margin_post"], int)
             assert cand["value_post"] is None or -1.0 <= cand["value_post"] <= 1.0
+
+
+def test_continue_edit_alternatives_extend_the_base_turn(policy, positions):
+    """A continue-edit alternative replays the base turn's actions
+    (end_turn excluded) and adds up to k more non-end actions."""
+    from tools.turn_gap import GapConfig, measure_positions
+    cfg = GapConfig(k_alternatives=0, continue_edits=2, playouts=1, cap_turns=1, seed=3)
+    records = measure_positions(positions, cfg, policy=policy, jobs=1)
+    assert records
+    conts = [a for r in records for a in r["alternatives"] + r["dropped"]
+             if a.get("proposer") == "continue"]
+    assert conts
+    for r in records:
+        base_prefix = [a for a in r["base"]["actions"] if a.get("type") != "end_turn"]
+        for a in r["alternatives"] + r["dropped"]:
+            if a.get("proposer") != "continue":
+                continue
+            acts = [x for x in a["actions"] if x.get("type") != "end_turn"]
+            assert acts[:len(base_prefix)] == base_prefix
+            assert 0 <= a["extra_decisions"] <= 2
+            assert len(acts) == len(base_prefix) + a["extra_decisions"]
