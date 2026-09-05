@@ -437,3 +437,17 @@ def test_cli_confirm_from_selects_the_large_gap_positions(tmp_path, policy, posi
     assert conf["provenance"]["confirm_from"] == str(screen)
     assert conf["positions"][0]["replayed"] is True
     assert conf["positions"][0]["base"]["actions"] == data["positions"][0]["base"]["actions"]
+
+
+def test_pooled_z_reads_a_base_blunder():
+    """Every alternative beating the base gives a large pooled z; equal
+    candidates a small one; a constant position none."""
+    def rec(base, alts):
+        return {"base": {"outcomes": base},
+                "alternatives": [{"outcomes": a} for a in alts]}
+    blunder = rec([-1] * 8 + [1] * 2, [[1] * 9 + [-1], [1] * 8 + [-1] * 2])
+    equal = rec([1, -1] * 5, [[1, -1] * 5, [-1, 1] * 5])
+    assert tg.pooled_z(blunder) > 4.0
+    assert abs(tg.pooled_z(equal)) < 1.0
+    assert tg.pooled_z(rec([1] * 4, [[1] * 4])) is None
+    assert tg.pooled_z(rec([1, -1], [])) is None

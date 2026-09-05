@@ -761,6 +761,19 @@ def measure_positions(positions: Sequence[BoundaryPosition], cfg: GapConfig, *,
 # Summary
 # ---------------------------------------------------------------------
 
+def pooled_z(record: Dict) -> Optional[float]:
+    """The mean over ALL alternatives' outcomes minus the base's mean,
+    in standard errors: a screen statistic that reads a base blunder
+    (every alternative does better) earlier than the best-of-K gap
+    (docs/turn_proposer_design_20260905.md, graders item 3)."""
+    alts = [o for a in record["alternatives"] for o in a["outcomes"]]
+    base = record["base"]["outcomes"]
+    if len(alts) < 2 or len(base) < 2:
+        return None
+    gap, se = gap_stats(alts, base)
+    return None if se == 0.0 else gap / se
+
+
 def split_gap(record: Dict) -> Optional[float]:
     """Best alternative chosen on the even-numbered playouts, its gap
     to the base measured on the odd-numbered ones. None when a half
@@ -824,6 +837,7 @@ def summarize(records: Sequence[Dict], *, threshold: float = 0.25,
     mean_gap, mean_gap_se = _mean_se(gaps)
     splits = [s for s in (split_gap(r) for r in records) if s is not None]
     split_mean, split_se = _mean_se(splits) if splits else (None, None)
+    zs = [z for z in (pooled_z(r) for r in records) if z is not None]
     counts, _ = np.histogram(gaps, bins=GAP_HISTOGRAM_EDGES)
     cands = [([r["base"]] + list(r["alternatives"])) for r in records]
     # Playouts played (a terminal candidate turn plays none; its
@@ -848,6 +862,8 @@ def summarize(records: Sequence[Dict], *, threshold: float = 0.25,
         "mean_gap_split_se": split_se,
         "frac_gap_split_ge_threshold": (sum(s >= threshold for s in splits) / len(splits)
                                         if splits else None),
+        "n_pooled_z_ge_2": int(sum(z >= 2.0 for z in zs)),
+        "n_pooled_z": len(zs),
         "n_base_best": int(sum(bool(r["base_is_best"]) for r in records)),
         "frac_base_best": sum(bool(r["base_is_best"]) for r in records) / n,
         "n_no_alternative": int(sum(r["n_alternatives"] == 0 for r in records)),
@@ -892,6 +908,8 @@ def markdown_summary(s: Dict) -> str:
                                    f"{s['frac_base_best']:.3f}"),
         ("positions without a distinct alternative", f"{s['n_no_alternative']}"),
         ("screen verdicts", ", ".join(f"{k} {v}" for k, v in s["screen_verdicts"].items())),
+        ("pooled-alternatives z >= 2 (base blunders)",
+         f"{s['n_pooled_z_ge_2']}/{s['n_pooled_z']}"),
         ("playouts played / flat-run equivalent",
          f"{s['playouts_total']} / {s['playouts_flat']}"),
         ("positions whose base turn ended the game", f"{s['n_terminal_in_turn']}"),
