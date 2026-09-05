@@ -236,6 +236,22 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
    playouts). Eight rejected. Two refuter calls failed on an API
    safeguard (absent votes). The queued box runs from the
    training-step confirmation on use the fixed tree.
+7c. **Third review** (2026-09-05 night, 5 Opus finders + 2 refuters
+   per finding over the evening's turn_gap work): 28 findings, 19
+   confirmed by both refuters = 11 distinct defects, all fixed the same
+   night (a sequential schedule on a position without a distinct
+   alternative never played the base and crashed the run; a
+   confirmation under the screen's seed reused the screen's playout
+   salts unless an offset was passed; a failing worker initializer
+   hung the pool forever; the server's outdir was not created; a
+   replayed turn was not checked against the screen's realization; the
+   proposed-candidate count ignored continue edits and replays; the
+   flat-run equivalent counted terminal candidates; in the pre-grader
+   script: equal weights regardless of playout count, terminal turns
+   without a read, ties read as misses, an unreachable ALIVE verdict).
+   Three split (the selected statistics under optional stopping are
+   now labelled in the summary; a dropped alternative can still be the
+   recorded best, left as is). Six rejected.
 
 ## Phase 2 prerequisite (measure before designing)
 
