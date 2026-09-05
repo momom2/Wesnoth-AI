@@ -241,6 +241,10 @@ def main(argv: List[str]) -> int:
                     help="Search value centering for player A "
                          "(elo_eval_game --value-center-a).")
     ap.add_argument("--value-center-b", type=float, default=0.0)
+    ap.add_argument("--relevant-set-a", action="store_true",
+                    help="elo_eval_game --relevant-set-a (relevant hex subset "
+                         "for side A's encoder; fresh outdir).")
+    ap.add_argument("--relevant-set-b", action="store_true")
     ap.add_argument("--gumbel-root-a", action=argparse.BooleanOptionalAction,
                     default=True,
                     help="Side A's plain-search root: Gumbel (default, "
@@ -602,6 +606,10 @@ def main(argv: List[str]) -> int:
             cmd += ["--value-center-a", str(args.value_center_a)]
         if args.value_center_b:
             cmd += ["--value-center-b", str(args.value_center_b)]
+        if args.relevant_set_a:
+            cmd.append("--relevant-set-a")
+        if args.relevant_set_b:
+            cmd.append("--relevant-set-b")
         if not args.gumbel_root_a:
             cmd.append("--no-gumbel-root-a")
         if not args.gumbel_root_b:

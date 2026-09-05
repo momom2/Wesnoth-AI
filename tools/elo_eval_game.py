@@ -274,6 +274,14 @@ def main(argv) -> int:
                          "mix within an outdir.")
     ap.add_argument("--raw-temperature-b", type=float, default=None,
                     help="Player B (see --raw-temperature-a).")
+    ap.add_argument("--relevant-set-a", action="store_true",
+                    help="Encode side A's states with the relevant hex subset "
+                         "(encoder relevant_set_hexes) whatever the checkpoint "
+                         "was trained with: the zero-training probe of the "
+                         "token-count study (docs/model_cost_study_20260905.md). "
+                         "Recorded in the result; use a fresh outdir.")
+    ap.add_argument("--relevant-set-b", action="store_true",
+                    help="Side B (see --relevant-set-a).")
     ap.add_argument("--gumbel-root-a", action=argparse.BooleanOptionalAction,
                     default=True,
                     help="Root procedure of side A's plain search: Gumbel "
@@ -553,6 +561,10 @@ def main(argv) -> int:
         infer_compile=inf_compile, value_center=args.value_center_b,
         raw_temperature=args.raw_temperature_b,
         raw_seed=2 * args.seed + 1, gumbel_root=args.gumbel_root_b)
+    for _player, _flag in ((pa, args.relevant_set_a), (pb, args.relevant_set_b)):
+        if _flag:
+            _base = getattr(_player, "_base", _player)
+            _base._inference_encoder.relevant_set_hexes = True
 
 
     rng = random.Random(args.seed)
@@ -600,6 +612,8 @@ def main(argv) -> int:
             args.raw_temperature_b, args.gumbel_root_b),
         # Recorded for plain-search arms only; TCS and plan-tournament
         # arms never read the flag (2026-09-04 review).
+        "relevant_set_a": bool(args.relevant_set_a),
+        "relevant_set_b": bool(args.relevant_set_b),
         "gumbel_root_a": (bool(args.gumbel_root_a) if sims_a > 0 and not args.plan_a
                           and (args.no_turn_search or args.no_turn_search_a) else None),
         "gumbel_root_b": (bool(args.gumbel_root_b) if sims_b > 0 and not args.plan_b
