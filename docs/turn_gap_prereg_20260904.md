@@ -210,3 +210,64 @@ The JSON holds the config, provenance (procedures, precision, torch
 version), every per-position record and the summary; the markdown
 summary lands next to it. Results go in a section appended to this
 document.
+
+## Result (run 1, 2026-09-05, box 49875606)
+
+Settings as amended: 60 positions, K = 4 at temperature 1, P = 40,
+playouts at temperature 0.5, cap 30, `--jobs 14`. Records:
+`training/metrics/turn_gap/run1.{json,md,log}`. Wall 2.71 h, $0.90.
+
+| quantity | value | prediction |
+|---|---|---|
+| positions with gap >= 0.25 | 12/60 = 0.200 +- 0.052 | 0.35 |
+| permutation null of that fraction | 0.179 | 0.30 |
+| mean gap (selection-biased) | +0.113 +- 0.032 | - |
+| mean split-half gap | +0.049 +- 0.041 | +0.03 (-0.02..+0.08) |
+| base turn best or tied | 25/60 | - |
+| playouts capped | 1,202 / 12,000 = 0.10 | 0.35 |
+| distinct alternatives | 4.00 of 4 in every position | - |
+
+Reading against the rules above: the headline exceeds its null by
+0.02, far inside two standard errors (0.10), so it carries no
+information; the split-half mean gap is positive by 1.2 standard
+errors, short of the two required. The kill does not fire either:
+the split-half gain is not below 0.02 and its two-standard-error
+upper bound (0.13) is not below 0.05. Verdict: inconclusive between
+"no gap" and "a small gap of about 0.05 per turn". The prediction
+was inside the result on every line; the null and the capped
+fraction came out lower than predicted because temperature-0.5
+playouts are more decisive than the 50/50 assumption.
+
+Gap histogram: 18 positions negative, 30 in [0, 0.25), 12 at or
+above 0.25 (positions 2, 3, 4, 9, 14, 18, 20, 29, 42, 49, 57, 59;
+nominal gaps 0.27 to 1.07).
+
+What would resolve it: (a) four times the positions for the mean
+(about $3.6, 11 box-hours at this efficiency); (b) cheaper and more
+informative for phase 2, a confirmation run on the 12 nominal
+big-gap positions with 160 fresh playouts per candidate (the same
+sampled alternatives, playout salts offset past the first 40), which
+tests directly whether any large gap is real. Pre-registered below.
+
+## Confirmation run (pre-registered 2026-09-05, before the run)
+
+Settings: `--positions 2,3,4,9,14,18,20,29,42,49,57,59 --playouts
+160 --playout-offset 40`, everything else as run 1 (the alternatives
+reproduce from their seeds; the in-turn combat salt is unchanged).
+Estimand per position: the out-of-sample gap = mean over the 160 new
+playouts of the alternative that run 1 selected, minus the base's
+mean over the same new playouts. Cost: 12 x 5 x 160 = 9,600 playouts,
+about 2.2 box-hours, $0.75 at `--jobs 12`.
+
+Prediction: the confirmed mean gap over the 12 positions is about
++0.10 (regression from the nominal mean of +0.50); at most 3 of the
+12 confirm at >= 0.25 (their standard error at P = 160 is about
+0.06, so a confirmed 0.25 is four standard errors).
+
+Reading: a confirmed position is one whose out-of-sample gap is at
+least 0.25. Three or more confirmed positions, or a confirmed mean
+above 0.15, means large turn-level gaps exist at this proposer
+quality and rollout-graded turn search has something to find; zero
+or one confirmed and a confirmed mean below 0.05 means the nominal
+gaps were selection noise and the proposer (temperature-1 sampling
+of the seed) must improve before turn search is priced again.

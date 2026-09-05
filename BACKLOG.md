@@ -164,11 +164,16 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
 
 ## Phase 2 prerequisite (measure before designing)
 
-- Turn-level value gap: four alternative whole turns at 60 boundary
-  positions, 40 playouts each; fraction of positions where the best
-  alternative differs from the base's turn by at least 0.25 in
-  expected outcome. About $1.3 at current efficiency. Under 5% kills
-  rollout-graded turn search.
+- MEASURED 2026-09-05 (docs/turn_gap_prereg_20260904.md, run 1,
+  $0.90): 60 holdout boundary positions, 4 sampled alternative
+  turns each, 40 playouts at temperature 0.5. Fraction with gap
+  >= 0.25: 12/60 = 0.20 +- 0.05 against a permutation null of 0.18
+  (no information); unbiased split-half gain of the best
+  alternative +0.049 +- 0.041 (1.2 SE). Inconclusive by the
+  pre-registered rules; neither evidence nor kill fired. NEXT: the
+  pre-registered confirmation run on the 12 nominal big-gap
+  positions with 160 fresh playouts each (~$0.75), queued on the
+  box; it decides whether large gaps exist at this proposer quality.
 
 ## Cheap measurements worth taking
 

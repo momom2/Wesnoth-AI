@@ -1,0 +1,308 @@
+2026-09-04 23:41:43,644 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-04 23:41:47,597 turn_gap INFO 60 positions, K=4 P=40 T=1 cap=30 seed=1, cuda bf16=True compile=True jobs=14
+2026-09-04 23:41:49,553 transformer_policy INFO TransformerPolicy device: cuda
+2026-09-04 23:41:49,935 transformer_policy INFO TransformerPolicy device: cuda
+2026-09-04 23:41:50,436 transformer_policy INFO TransformerPolicy device: cuda
+2026-09-04 23:41:50,545 transformer_policy INFO TransformerPolicy device: cuda
+2026-09-04 23:41:50,546 transformer_policy INFO TransformerPolicy device: cuda
+2026-09-04 23:41:50,558 transformer_policy INFO TransformerPolicy device: cuda
+2026-09-04 23:41:50,558 transformer_policy INFO TransformerPolicy device: cuda
+2026-09-04 23:41:50,562 transformer_policy INFO TransformerPolicy device: cuda
+2026-09-04 23:41:50,565 transformer_policy INFO TransformerPolicy device: cuda
+2026-09-04 23:41:50,570 transformer_policy INFO TransformerPolicy device: cuda
+2026-09-04 23:41:50,571 transformer_policy INFO TransformerPolicy device: cuda
+2026-09-04 23:41:50,572 transformer_policy INFO TransformerPolicy device: cuda
+2026-09-04 23:41:50,574 transformer_policy INFO TransformerPolicy device: cuda
+2026-09-04 23:41:50,575 transformer_policy INFO TransformerPolicy device: cuda
+2026-09-04 23:41:51,649 transformer_policy INFO inference bf16 autocast ON
+2026-09-04 23:41:52,221 transformer_policy INFO inference model torch.compile'd (reduce-overhead)
+2026-09-04 23:41:52,273 transformer_policy INFO Loaded checkpoint from training/checkpoints/seed.pt (decision_step=2809659)
+2026-09-04 23:41:52,276 eval_sim INFO [turn_gap] loaded seed.pt
+2026-09-04 23:41:52,288 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-04 23:41:53,275 transformer_policy INFO inference bf16 autocast ON
+2026-09-04 23:41:53,498 transformer_policy INFO inference bf16 autocast ON
+2026-09-04 23:41:54,043 transformer_policy INFO inference model torch.compile'd (reduce-overhead)
+2026-09-04 23:41:54,090 transformer_policy INFO inference bf16 autocast ON
+2026-09-04 23:41:54,101 transformer_policy INFO Loaded checkpoint from training/checkpoints/seed.pt (decision_step=2809659)
+2026-09-04 23:41:54,105 eval_sim INFO [turn_gap] loaded seed.pt
+2026-09-04 23:41:54,119 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-04 23:41:54,128 transformer_policy INFO inference bf16 autocast ON
+2026-09-04 23:41:54,165 transformer_policy INFO inference bf16 autocast ON
+2026-09-04 23:41:54,190 transformer_policy INFO inference bf16 autocast ON
+2026-09-04 23:41:54,205 transformer_policy INFO inference model torch.compile'd (reduce-overhead)
+2026-09-04 23:41:54,214 transformer_policy INFO inference bf16 autocast ON
+2026-09-04 23:41:54,268 transformer_policy INFO inference bf16 autocast ON
+2026-09-04 23:41:54,294 transformer_policy INFO Loaded checkpoint from training/checkpoints/seed.pt (decision_step=2809659)
+2026-09-04 23:41:54,294 transformer_policy INFO inference bf16 autocast ON
+2026-09-04 23:41:54,299 eval_sim INFO [turn_gap] loaded seed.pt
+2026-09-04 23:41:54,301 transformer_policy INFO inference bf16 autocast ON
+2026-09-04 23:41:54,305 transformer_policy INFO inference bf16 autocast ON
+2026-09-04 23:41:54,314 transformer_policy INFO inference bf16 autocast ON
+2026-09-04 23:41:54,316 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-04 23:41:54,338 transformer_policy INFO inference bf16 autocast ON
+2026-09-04 23:41:54,768 transformer_policy INFO inference model torch.compile'd (reduce-overhead)
+2026-09-04 23:41:54,836 transformer_policy INFO Loaded checkpoint from training/checkpoints/seed.pt (decision_step=2809659)
+2026-09-04 23:41:54,836 eval_sim INFO [turn_gap] loaded seed.pt
+2026-09-04 23:41:54,849 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-04 23:41:54,874 transformer_policy INFO inference model torch.compile'd (reduce-overhead)
+2026-09-04 23:41:54,877 transformer_policy INFO inference model torch.compile'd (reduce-overhead)
+2026-09-04 23:41:54,915 transformer_policy INFO inference model torch.compile'd (reduce-overhead)
+2026-09-04 23:41:54,920 transformer_policy INFO inference model torch.compile'd (reduce-overhead)
+2026-09-04 23:41:54,931 transformer_policy INFO Loaded checkpoint from training/checkpoints/seed.pt (decision_step=2809659)
+2026-09-04 23:41:54,934 eval_sim INFO [turn_gap] loaded seed.pt
+2026-09-04 23:41:54,941 transformer_policy INFO inference model torch.compile'd (reduce-overhead)
+2026-09-04 23:41:54,946 transformer_policy INFO Loaded checkpoint from training/checkpoints/seed.pt (decision_step=2809659)
+2026-09-04 23:41:54,947 eval_sim INFO [turn_gap] loaded seed.pt
+2026-09-04 23:41:54,950 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-04 23:41:54,960 transformer_policy INFO inference model torch.compile'd (reduce-overhead)
+2026-09-04 23:41:54,963 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-04 23:41:54,977 transformer_policy INFO Loaded checkpoint from training/checkpoints/seed.pt (decision_step=2809659)
+2026-09-04 23:41:54,982 eval_sim INFO [turn_gap] loaded seed.pt
+2026-09-04 23:41:54,988 transformer_policy INFO Loaded checkpoint from training/checkpoints/seed.pt (decision_step=2809659)
+2026-09-04 23:41:54,992 eval_sim INFO [turn_gap] loaded seed.pt
+2026-09-04 23:41:54,996 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-04 23:41:55,006 transformer_policy INFO inference model torch.compile'd (reduce-overhead)
+2026-09-04 23:41:55,008 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-04 23:41:55,025 transformer_policy INFO inference model torch.compile'd (reduce-overhead)
+2026-09-04 23:41:55,029 transformer_policy INFO Loaded checkpoint from training/checkpoints/seed.pt (decision_step=2809659)
+2026-09-04 23:41:55,030 eval_sim INFO [turn_gap] loaded seed.pt
+2026-09-04 23:41:55,040 transformer_policy INFO Loaded checkpoint from training/checkpoints/seed.pt (decision_step=2809659)
+2026-09-04 23:41:55,044 eval_sim INFO [turn_gap] loaded seed.pt
+2026-09-04 23:41:55,044 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-04 23:41:55,056 transformer_policy INFO inference model torch.compile'd (reduce-overhead)
+2026-09-04 23:41:55,058 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-04 23:41:55,078 transformer_policy INFO Loaded checkpoint from training/checkpoints/seed.pt (decision_step=2809659)
+2026-09-04 23:41:55,083 eval_sim INFO [turn_gap] loaded seed.pt
+2026-09-04 23:41:55,099 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-04 23:41:55,114 transformer_policy INFO Loaded checkpoint from training/checkpoints/seed.pt (decision_step=2809659)
+2026-09-04 23:41:55,118 eval_sim INFO [turn_gap] loaded seed.pt
+2026-09-04 23:41:55,128 transformer_policy INFO Loaded checkpoint from training/checkpoints/seed.pt (decision_step=2809659)
+2026-09-04 23:41:55,131 eval_sim INFO [turn_gap] loaded seed.pt
+2026-09-04 23:41:55,131 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-04 23:41:55,143 transformer_policy INFO inference model torch.compile'd (reduce-overhead)
+2026-09-04 23:41:55,146 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-04 23:41:55,217 transformer_policy INFO Loaded checkpoint from training/checkpoints/seed.pt (decision_step=2809659)
+2026-09-04 23:41:55,222 eval_sim INFO [turn_gap] loaded seed.pt
+2026-09-04 23:41:55,237 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+W0904 23:42:29.117000 153381 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] torch._dynamo hit config.cache_size_limit (8)
+W0904 23:42:29.117000 153381 site-packages/torch/_dynamo/convert_frame.py:844] [0/8]    function: 'forward' (/workspace/Wesnoth-AI/wesnoth_ai/model.py:333)
+W0904 23:42:29.117000 153381 site-packages/torch/_dynamo/convert_frame.py:844] [0/8]    last reason: 0/4: tensor 'L['encoded'].unit_tokens' size mismatch at index 1. expected 17, actual 22
+W0904 23:42:29.117000 153381 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] To log all recompilation reasons, use TORCH_LOGS="recompiles".
+W0904 23:42:29.117000 153381 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] To diagnose recompilation issues, see https://pytorch.org/docs/main/torch.compiler_troubleshooting.html.
+W0904 23:42:29.423000 153380 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] torch._dynamo hit config.cache_size_limit (8)
+W0904 23:42:29.423000 153380 site-packages/torch/_dynamo/convert_frame.py:844] [0/8]    function: 'forward' (/workspace/Wesnoth-AI/wesnoth_ai/model.py:333)
+W0904 23:42:29.423000 153380 site-packages/torch/_dynamo/convert_frame.py:844] [0/8]    last reason: 0/3: tensor 'L['encoded'].unit_tokens' size mismatch at index 1. expected 10, actual 11
+W0904 23:42:29.423000 153380 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] To log all recompilation reasons, use TORCH_LOGS="recompiles".
+W0904 23:42:29.423000 153380 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] To diagnose recompilation issues, see https://pytorch.org/docs/main/torch.compiler_troubleshooting.html.
+W0904 23:42:29.576000 153379 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] torch._dynamo hit config.cache_size_limit (8)
+W0904 23:42:29.576000 153379 site-packages/torch/_dynamo/convert_frame.py:844] [0/8]    function: 'forward' (/workspace/Wesnoth-AI/wesnoth_ai/model.py:333)
+W0904 23:42:29.576000 153379 site-packages/torch/_dynamo/convert_frame.py:844] [0/8]    last reason: 0/3: tensor 'L['encoded'].unit_tokens' size mismatch at index 1. expected 8, actual 10
+W0904 23:42:29.576000 153379 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] To log all recompilation reasons, use TORCH_LOGS="recompiles".
+W0904 23:42:29.576000 153379 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] To diagnose recompilation issues, see https://pytorch.org/docs/main/torch.compiler_troubleshooting.html.
+W0904 23:42:29.975000 153386 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] torch._dynamo hit config.cache_size_limit (8)
+W0904 23:42:29.975000 153386 site-packages/torch/_dynamo/convert_frame.py:844] [0/8]    function: 'forward' (/workspace/Wesnoth-AI/wesnoth_ai/model.py:333)
+W0904 23:42:29.975000 153386 site-packages/torch/_dynamo/convert_frame.py:844] [0/8]    last reason: 0/2: tensor 'L['encoded'].unit_tokens' size mismatch at index 1. expected 13, actual 4
+W0904 23:42:29.975000 153386 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] To log all recompilation reasons, use TORCH_LOGS="recompiles".
+W0904 23:42:29.975000 153386 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] To diagnose recompilation issues, see https://pytorch.org/docs/main/torch.compiler_troubleshooting.html.
+W0904 23:42:30.946000 153385 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] torch._dynamo hit config.cache_size_limit (8)
+W0904 23:42:30.946000 153385 site-packages/torch/_dynamo/convert_frame.py:844] [0/8]    function: 'forward' (/workspace/Wesnoth-AI/wesnoth_ai/model.py:333)
+W0904 23:42:30.946000 153385 site-packages/torch/_dynamo/convert_frame.py:844] [0/8]    last reason: 0/4: tensor 'L['encoded'].unit_tokens' size mismatch at index 1. expected 21, actual 16
+W0904 23:42:30.946000 153385 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] To log all recompilation reasons, use TORCH_LOGS="recompiles".
+W0904 23:42:30.946000 153385 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] To diagnose recompilation issues, see https://pytorch.org/docs/main/torch.compiler_troubleshooting.html.
+W0904 23:42:31.789000 153377 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] torch._dynamo hit config.cache_size_limit (8)
+W0904 23:42:31.789000 153377 site-packages/torch/_dynamo/convert_frame.py:844] [0/8]    function: 'forward' (/workspace/Wesnoth-AI/wesnoth_ai/model.py:333)
+W0904 23:42:31.789000 153377 site-packages/torch/_dynamo/convert_frame.py:844] [0/8]    last reason: 0/6: tensor 'L['encoded'].unit_tokens' size mismatch at index 1. expected 11, actual 12
+W0904 23:42:31.789000 153377 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] To log all recompilation reasons, use TORCH_LOGS="recompiles".
+W0904 23:42:31.789000 153377 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] To diagnose recompilation issues, see https://pytorch.org/docs/main/torch.compiler_troubleshooting.html.
+W0904 23:42:32.086000 153382 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] torch._dynamo hit config.cache_size_limit (8)
+W0904 23:42:32.086000 153382 site-packages/torch/_dynamo/convert_frame.py:844] [0/8]    function: 'forward' (/workspace/Wesnoth-AI/wesnoth_ai/model.py:333)
+W0904 23:42:32.086000 153382 site-packages/torch/_dynamo/convert_frame.py:844] [0/8]    last reason: 0/1: tensor 'L['encoded'].unit_tokens' size mismatch at index 1. expected 24, actual 13
+W0904 23:42:32.086000 153382 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] To log all recompilation reasons, use TORCH_LOGS="recompiles".
+W0904 23:42:32.086000 153382 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] To diagnose recompilation issues, see https://pytorch.org/docs/main/torch.compiler_troubleshooting.html.
+W0904 23:42:33.749000 153384 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] torch._dynamo hit config.cache_size_limit (8)
+W0904 23:42:33.749000 153384 site-packages/torch/_dynamo/convert_frame.py:844] [0/8]    function: 'forward' (/workspace/Wesnoth-AI/wesnoth_ai/model.py:333)
+W0904 23:42:33.749000 153384 site-packages/torch/_dynamo/convert_frame.py:844] [0/8]    last reason: 0/2: tensor 'L['encoded'].unit_tokens' size mismatch at index 1. expected 13, actual 17
+W0904 23:42:33.749000 153384 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] To log all recompilation reasons, use TORCH_LOGS="recompiles".
+W0904 23:42:33.749000 153384 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] To diagnose recompilation issues, see https://pytorch.org/docs/main/torch.compiler_troubleshooting.html.
+W0904 23:42:35.669000 153383 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] torch._dynamo hit config.cache_size_limit (8)
+W0904 23:42:35.669000 153383 site-packages/torch/_dynamo/convert_frame.py:844] [0/8]    function: 'forward' (/workspace/Wesnoth-AI/wesnoth_ai/model.py:333)
+W0904 23:42:35.669000 153383 site-packages/torch/_dynamo/convert_frame.py:844] [0/8]    last reason: 0/3: tensor 'L['encoded'].unit_tokens' size mismatch at index 1. expected 10, actual 14
+W0904 23:42:35.669000 153383 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] To log all recompilation reasons, use TORCH_LOGS="recompiles".
+W0904 23:42:35.669000 153383 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] To diagnose recompilation issues, see https://pytorch.org/docs/main/torch.compiler_troubleshooting.html.
+W0904 23:42:35.993000 153389 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] torch._dynamo hit config.cache_size_limit (8)
+W0904 23:42:35.993000 153389 site-packages/torch/_dynamo/convert_frame.py:844] [0/8]    function: 'forward' (/workspace/Wesnoth-AI/wesnoth_ai/model.py:333)
+W0904 23:42:35.993000 153389 site-packages/torch/_dynamo/convert_frame.py:844] [0/8]    last reason: 0/3: tensor 'L['encoded'].unit_tokens' size mismatch at index 1. expected 37, actual 32
+W0904 23:42:35.993000 153389 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] To log all recompilation reasons, use TORCH_LOGS="recompiles".
+W0904 23:42:35.993000 153389 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] To diagnose recompilation issues, see https://pytorch.org/docs/main/torch.compiler_troubleshooting.html.
+W0904 23:42:37.316000 153388 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] torch._dynamo hit config.cache_size_limit (8)
+W0904 23:42:37.316000 153388 site-packages/torch/_dynamo/convert_frame.py:844] [0/8]    function: 'forward' (/workspace/Wesnoth-AI/wesnoth_ai/model.py:333)
+W0904 23:42:37.316000 153388 site-packages/torch/_dynamo/convert_frame.py:844] [0/8]    last reason: 0/5: tensor 'L['encoded'].unit_tokens' size mismatch at index 1. expected 16, actual 20
+W0904 23:42:37.316000 153388 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] To log all recompilation reasons, use TORCH_LOGS="recompiles".
+W0904 23:42:37.316000 153388 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] To diagnose recompilation issues, see https://pytorch.org/docs/main/torch.compiler_troubleshooting.html.
+W0904 23:42:58.381000 153378 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] torch._dynamo hit config.cache_size_limit (8)
+W0904 23:42:58.381000 153378 site-packages/torch/_dynamo/convert_frame.py:844] [0/8]    function: 'forward' (/workspace/Wesnoth-AI/wesnoth_ai/model.py:333)
+W0904 23:42:58.381000 153378 site-packages/torch/_dynamo/convert_frame.py:844] [0/8]    last reason: 0/1: tensor 'L['encoded'].unit_tokens' size mismatch at index 1. expected 29, actual 35
+W0904 23:42:58.381000 153378 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] To log all recompilation reasons, use TORCH_LOGS="recompiles".
+W0904 23:42:58.381000 153378 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] To diagnose recompilation issues, see https://pytorch.org/docs/main/torch.compiler_troubleshooting.html.
+W0904 23:43:01.887000 153387 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] torch._dynamo hit config.cache_size_limit (8)
+W0904 23:43:01.887000 153387 site-packages/torch/_dynamo/convert_frame.py:844] [0/8]    function: 'forward' (/workspace/Wesnoth-AI/wesnoth_ai/model.py:333)
+W0904 23:43:01.887000 153387 site-packages/torch/_dynamo/convert_frame.py:844] [0/8]    last reason: 0/3: tensor 'L['encoded'].unit_tokens' size mismatch at index 1. expected 36, actual 32
+W0904 23:43:01.887000 153387 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] To log all recompilation reasons, use TORCH_LOGS="recompiles".
+W0904 23:43:01.887000 153387 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] To diagnose recompilation issues, see https://pytorch.org/docs/main/torch.compiler_troubleshooting.html.
+2026-09-04 23:43:32,166 turn_gap INFO position 13 multiplayer_Tombs_of_Kesorak turn 9 side 2: base -1.00 best alt -1.00 gap +0.00, 4/4 alternatives distinct, capped 0/200, 6 decisions, 97 s
+2026-09-04 23:43:32,179 turn_gap INFO collected position 13 (1/60)
+W0904 23:43:32.179000 153390 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] torch._dynamo hit config.cache_size_limit (8)
+W0904 23:43:32.179000 153390 site-packages/torch/_dynamo/convert_frame.py:844] [0/8]    function: 'forward' (/workspace/Wesnoth-AI/wesnoth_ai/model.py:333)
+W0904 23:43:32.179000 153390 site-packages/torch/_dynamo/convert_frame.py:844] [0/8]    last reason: 0/6: tensor 'L['encoded'].unit_tokens' size mismatch at index 1. expected 5, actual 13
+W0904 23:43:32.179000 153390 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] To log all recompilation reasons, use TORCH_LOGS="recompiles".
+W0904 23:43:32.179000 153390 site-packages/torch/_dynamo/convert_frame.py:844] [0/8] To diagnose recompilation issues, see https://pytorch.org/docs/main/torch.compiler_troubleshooting.html.
+2026-09-04 23:43:36,863 turn_gap INFO position 11 multiplayer_Sablestone_Delta turn 14 side 2: base -0.95 best alt -0.90 gap +0.05, 4/4 alternatives distinct, capped 0/200, 12 decisions, 102 s
+2026-09-04 23:43:36,872 turn_gap INFO collected position 11 (2/60)
+2026-09-04 23:46:44,191 turn_gap INFO position 10 multiplayer_elensefar_courtyard turn 11 side 2: base -0.65 best alt -0.70 gap -0.05, 4/4 alternatives distinct, capped 0/200, 2 decisions, 289 s
+2026-09-04 23:46:44,193 turn_gap INFO collected position 10 (3/60)
+2026-09-04 23:52:32,800 turn_gap INFO position 15 multiplayer_Aethermaw turn 7 side 2: base -0.95 best alt -0.75 gap +0.20, 4/4 alternatives distinct, capped 0/200, 11 decisions, 536 s
+2026-09-04 23:52:32,807 turn_gap INFO collected position 15 (4/60)
+2026-09-04 23:55:45,812 turn_gap INFO position 12 multiplayer_Hamlets turn 6 side 2: base +0.82 best alt +1.00 gap +0.18, 4/4 alternatives distinct, capped 8/200, 11 decisions, 831 s
+2026-09-04 23:55:45,814 turn_gap INFO collected position 12 (5/60)
+2026-09-04 23:56:39,105 encoder WARNING unit_type vocab full (MAX_UNIT_TYPES=200); new types like 'Elvish Avenger' will alias id 199. Pre-seed via tools/scrape_unit_stats.py + load on encoder init, OR re-train with a larger MAX_UNIT_TYPES.
+2026-09-05 00:03:38,866 turn_gap INFO position 8 multiplayer_Hamlets turn 6 side 2: base -0.93 best alt -0.93 gap +0.00, 4/4 alternatives distinct, capped 7/200, 4 decisions, 1304 s
+2026-09-05 00:03:38,868 turn_gap INFO collected position 8 (6/60)
+2026-09-05 00:04:24,742 encoder WARNING unit_type vocab full (MAX_UNIT_TYPES=200); new types like 'Soulless:swimmer' will alias id 199. Pre-seed via tools/scrape_unit_stats.py + load on encoder init, OR re-train with a larger MAX_UNIT_TYPES.
+2026-09-05 00:05:51,344 turn_gap INFO position 0 multiplayer_Sablestone_Delta turn 4 side 2: base -0.53 best alt -0.88 gap -0.35, 4/4 alternatives distinct, capped 2/200, 6 decisions, 1439 s
+2026-09-05 00:05:51,346 turn_gap INFO collected position 0 (7/60)
+2026-09-05 00:06:46,383 turn_gap INFO position 6 multiplayer_Weldyn_Channel turn 9 side 2: base +1.00 best alt +0.95 gap -0.05, 4/4 alternatives distinct, capped 10/200, 19 decisions, 1491 s
+2026-09-05 00:06:46,390 turn_gap INFO collected position 6 (8/60)
+2026-09-05 00:12:08,379 turn_gap INFO position 5 multiplayer_Basilisk turn 11 side 2: base +1.00 best alt +1.00 gap +0.00, 4/4 alternatives distinct, capped 3/200, 24 decisions, 1813 s
+2026-09-05 00:12:08,386 turn_gap INFO collected position 5 (9/60)
+2026-09-05 00:17:13,992 turn_gap INFO position 4 multiplayer_Hellhole turn 7 side 2: base -0.30 best alt +0.78 gap +1.07, 4/4 alternatives distinct, capped 29/200, 11 decisions, 2119 s
+2026-09-05 00:17:13,999 turn_gap INFO collected position 4 (10/60)
+2026-09-05 00:17:44,062 turn_gap INFO position 14 multiplayer_Hamlets turn 12 side 2: base -0.78 best alt -0.35 gap +0.43, 4/4 alternatives distinct, capped 20/200, 7 decisions, 2052 s
+2026-09-05 00:17:44,064 turn_gap INFO collected position 14 (11/60)
+2026-09-05 00:17:59,367 turn_gap INFO position 3 multiplayer_Sablestone_Delta turn 3 side 2: base -0.70 best alt -0.42 gap +0.27, 4/4 alternatives distinct, capped 2/200, 5 decisions, 2165 s
+2026-09-05 00:17:59,369 turn_gap INFO collected position 3 (12/60)
+2026-09-05 00:25:27,466 turn_gap INFO position 1 multiplayer_Weldyn_Channel turn 8 side 2: base -0.65 best alt -0.55 gap +0.10, 4/4 alternatives distinct, capped 20/200, 9 decisions, 2613 s
+2026-09-05 00:25:27,478 turn_gap INFO collected position 1 (13/60)
+2026-09-05 00:28:21,934 turn_gap INFO position 9 multiplayer_Den_of_Onis turn 5 side 2: base -0.65 best alt -0.28 gap +0.38, 4/4 alternatives distinct, capped 30/200, 4 decisions, 2787 s
+2026-09-05 00:28:21,941 turn_gap INFO collected position 9 (14/60)
+2026-09-05 00:31:08,652 turn_gap INFO position 16 multiplayer_The_Freelands turn 10 side 2: base +0.42 best alt +0.40 gap -0.02, 4/4 alternatives distinct, capped 27/200, 8 decisions, 2664 s
+2026-09-05 00:31:08,653 turn_gap INFO collected position 16 (15/60)
+2026-09-05 00:34:54,420 turn_gap INFO position 18 multiplayer_Basilisk turn 5 side 2: base +0.03 best alt +0.38 gap +0.35, 4/4 alternatives distinct, capped 14/200, 11 decisions, 2349 s
+2026-09-05 00:34:54,422 turn_gap INFO collected position 18 (16/60)
+2026-09-05 00:35:47,654 turn_gap INFO position 24 multiplayer_Fallenstar_Lake turn 6 side 2: base -0.65 best alt -0.80 gap -0.15, 4/4 alternatives distinct, capped 3/200, 10 decisions, 1084 s
+2026-09-05 00:35:47,655 turn_gap INFO collected position 24 (17/60)
+2026-09-05 00:37:13,093 encoder WARNING unit_type vocab full (MAX_UNIT_TYPES=200); new types like 'Elvish Avenger' will alias id 199. Pre-seed via tools/scrape_unit_stats.py + load on encoder init, OR re-train with a larger MAX_UNIT_TYPES.
+2026-09-05 00:37:28,288 turn_gap INFO position 17 multiplayer_Clearing_Gushes turn 4 side 2: base +0.25 best alt +0.33 gap +0.08, 4/4 alternatives distinct, capped 44/200, 6 decisions, 2695 s
+2026-09-05 00:37:28,290 turn_gap INFO collected position 17 (18/60)
+2026-09-05 00:40:41,954 turn_gap INFO position 2 multiplayer_Basilisk turn 3 side 2: base +0.40 best alt +0.80 gap +0.40, 4/4 alternatives distinct, capped 24/200, 4 decisions, 3528 s
+2026-09-05 00:40:41,956 turn_gap INFO collected position 2 (19/60)
+2026-09-05 00:45:05,877 turn_gap INFO position 7 multiplayer_Sullas_Ruins turn 3 side 2: base +0.15 best alt +0.07 gap -0.07, 4/4 alternatives distinct, capped 62/200, 10 decisions, 3791 s
+2026-09-05 00:45:05,879 turn_gap INFO collected position 7 (20/60)
+2026-09-05 00:45:28,023 turn_gap INFO position 27 multiplayer_Aethermaw turn 9 side 2: base +0.90 best alt +0.90 gap +0.00, 4/4 alternatives distinct, capped 0/200, 9 decisions, 1026 s
+2026-09-05 00:45:28,025 turn_gap INFO collected position 27 (21/60)
+2026-09-05 00:45:33,975 turn_gap INFO position 20 multiplayer_elensefar_courtyard turn 5 side 2: base +0.00 best alt +0.60 gap +0.60, 4/4 alternatives distinct, capped 17/200, 9 decisions, 2383 s
+2026-09-05 00:45:33,977 turn_gap INFO collected position 20 (22/60)
+2026-09-05 00:45:53,498 turn_gap INFO position 26 multiplayer_Den_of_Onis turn 14 side 2: base -1.00 best alt -1.00 gap +0.00, 4/4 alternatives distinct, capped 0/200, 8 decisions, 1226 s
+2026-09-05 00:45:53,500 turn_gap INFO collected position 26 (23/60)
+2026-09-05 00:50:29,935 turn_gap INFO position 25 multiplayer_Silverhead_Crossing turn 2 side 2: base -0.10 best alt -0.38 gap -0.28, 4/4 alternatives distinct, capped 7/200, 7 decisions, 1951 s
+2026-09-05 00:50:29,937 turn_gap INFO collected position 25 (24/60)
+2026-09-05 00:50:42,251 turn_gap INFO position 21 multiplayer_Weldyn_Channel turn 9 side 2: base -0.20 best alt +0.03 gap +0.23, 4/4 alternatives distinct, capped 26/200, 24 decisions, 2636 s
+2026-09-05 00:50:42,252 turn_gap INFO collected position 21 (25/60)
+2026-09-05 00:55:40,255 turn_gap INFO position 22 multiplayer_Fallenstar_Lake turn 13 side 2: base -0.95 best alt -0.95 gap +0.00, 4/4 alternatives distinct, capped 5/200, 7 decisions, 2612 s
+2026-09-05 00:55:40,256 turn_gap INFO collected position 22 (26/60)
+2026-09-05 00:57:35,984 encoder WARNING unit_type vocab full (MAX_UNIT_TYPES=200); new types like 'Elvish Avenger' will alias id 199. Pre-seed via tools/scrape_unit_stats.py + load on encoder init, OR re-train with a larger MAX_UNIT_TYPES.
+2026-09-05 00:59:37,318 encoder WARNING unit_type vocab full (MAX_UNIT_TYPES=200); new types like 'Elvish Avenger' will alias id 199. Pre-seed via tools/scrape_unit_stats.py + load on encoder init, OR re-train with a larger MAX_UNIT_TYPES.
+2026-09-05 01:01:44,814 turn_gap INFO position 19 multiplayer_Hellhole turn 11 side 2: base -0.95 best alt -0.85 gap +0.10, 4/4 alternatives distinct, capped 4/200, 27 decisions, 3486 s
+2026-09-05 01:01:44,815 turn_gap INFO collected position 19 (27/60)
+2026-09-05 01:04:08,849 turn_gap INFO position 29 multiplayer_Hamlets turn 12 side 2: base -0.78 best alt -0.23 gap +0.55, 4/4 alternatives distinct, capped 21/200, 12 decisions, 1754 s
+2026-09-05 01:04:08,851 turn_gap INFO collected position 29 (28/60)
+2026-09-05 01:12:52,002 turn_gap INFO position 28 multiplayer_Clearing_Gushes turn 3 side 2: base -0.25 best alt -0.40 gap -0.15, 4/4 alternatives distinct, capped 37/200, 4 decisions, 2503 s
+2026-09-05 01:12:52,003 turn_gap INFO collected position 28 (29/60)
+2026-09-05 01:14:21,390 turn_gap INFO position 31 multiplayer_Basilisk turn 14 side 2: base -0.85 best alt -0.88 gap -0.03, 4/4 alternatives distinct, capped 3/200, 3 decisions, 2213 s
+2026-09-05 01:14:21,391 turn_gap INFO collected position 31 (30/60)
+2026-09-05 01:17:31,883 turn_gap INFO position 38 multiplayer_Basilisk turn 17 side 2: base -0.65 best alt -0.70 gap -0.05, 4/4 alternatives distinct, capped 4/200, 9 decisions, 1610 s
+2026-09-05 01:17:31,884 turn_gap INFO collected position 38 (31/60)
+2026-09-05 01:21:29,860 turn_gap INFO position 30 multiplayer_Weldyn_Channel turn 5 side 2: base +0.23 best alt +0.30 gap +0.07, 4/4 alternatives distinct, capped 61/200, 11 decisions, 2742 s
+2026-09-05 01:21:29,867 turn_gap INFO collected position 30 (32/60)
+2026-09-05 01:21:41,537 turn_gap INFO position 23 multiplayer_Basilisk turn 4 side 2: base -0.07 best alt -0.10 gap -0.03, 4/4 alternatives distinct, capped 33/200, 15 decisions, 3868 s
+2026-09-05 01:21:41,539 turn_gap INFO collected position 23 (33/60)
+2026-09-05 01:22:13,768 encoder WARNING unit_type vocab full (MAX_UNIT_TYPES=200); new types like 'Soulless:drake' will alias id 199. Pre-seed via tools/scrape_unit_stats.py + load on encoder init, OR re-train with a larger MAX_UNIT_TYPES.
+2026-09-05 01:22:36,739 turn_gap INFO position 32 multiplayer_Hamlets turn 4 side 2: base -0.12 best alt +0.00 gap +0.12, 4/4 alternatives distinct, capped 169/200, 18 decisions, 2515 s
+2026-09-05 01:22:36,740 turn_gap INFO collected position 32 (34/60)
+2026-09-05 01:23:53,178 turn_gap INFO position 35 multiplayer_Sablestone_Delta turn 4 side 2: base +0.70 best alt +0.72 gap +0.03, 4/4 alternatives distinct, capped 4/200, 4 decisions, 2299 s
+2026-09-05 01:23:53,180 turn_gap INFO collected position 35 (35/60)
+2026-09-05 01:27:27,349 turn_gap INFO position 37 multiplayer_Basilisk turn 11 side 2: base -0.72 best alt -0.70 gap +0.03, 4/4 alternatives distinct, capped 10/200, 7 decisions, 2217 s
+2026-09-05 01:27:27,350 turn_gap INFO collected position 37 (36/60)
+2026-09-05 01:27:43,087 turn_gap INFO position 41 multiplayer_Hamlets turn 10 side 2: base -0.95 best alt -0.93 gap +0.02, 4/4 alternatives distinct, capped 6/200, 12 decisions, 1414 s
+2026-09-05 01:27:43,088 turn_gap INFO collected position 41 (37/60)
+2026-09-05 01:30:41,709 turn_gap INFO position 36 multiplayer_Weldyn_Channel turn 7 side 2: base -0.07 best alt -0.17 gap -0.10, 4/4 alternatives distinct, capped 32/200, 7 decisions, 2688 s
+2026-09-05 01:30:41,715 turn_gap INFO collected position 36 (38/60)
+2026-09-05 01:32:04,701 turn_gap INFO position 34 multiplayer_Ruphus_Isle turn 7 side 2: base -0.28 best alt -0.28 gap +0.00, 4/4 alternatives distinct, capped 8/200, 2 decisions, 2797 s
+2026-09-05 01:32:04,702 turn_gap INFO collected position 34 (39/60)
+2026-09-05 01:34:38,814 turn_gap INFO position 33 multiplayer_Weldyn_Channel turn 2 side 2: base +0.17 best alt +0.23 gap +0.05, 4/4 alternatives distinct, capped 27/200, 7 decisions, 2973 s
+2026-09-05 01:34:38,820 turn_gap INFO collected position 33 (40/60)
+2026-09-05 01:40:10,229 turn_gap INFO position 50 multiplayer_Sullas_Ruins turn 10 side 2: base -0.90 best alt -0.95 gap -0.05, 4/4 alternatives distinct, capped 0/200, 8 decisions, 747 s
+2026-09-05 01:40:10,231 turn_gap INFO collected position 50 (41/60)
+2026-09-05 01:41:15,768 turn_gap INFO position 39 multiplayer_Hamlets turn 7 side 2: base +0.70 best alt +0.68 gap -0.02, 4/4 alternatives distinct, capped 12/200, 9 decisions, 2736 s
+2026-09-05 01:41:15,769 turn_gap INFO collected position 39 (42/60)
+2026-09-05 01:41:46,613 turn_gap INFO position 40 multiplayer_Den_of_Onis turn 5 side 2: base -0.68 best alt -0.50 gap +0.18, 4/4 alternatives distinct, capped 11/200, 8 decisions, 2402 s
+2026-09-05 01:41:46,614 turn_gap INFO collected position 40 (43/60)
+2026-09-05 01:42:51,897 turn_gap INFO position 43 multiplayer_Weldyn_Channel turn 5 side 2: base -0.90 best alt -0.70 gap +0.20, 4/4 alternatives distinct, capped 11/200, 15 decisions, 1710 s
+2026-09-05 01:42:51,899 turn_gap INFO collected position 43 (44/60)
+2026-09-05 01:42:52,165 turn_gap INFO position 47 multiplayer_Ruphus_Isle turn 8 side 2: base +0.75 best alt +0.95 gap +0.20, 4/4 alternatives distinct, capped 3/200, 14 decisions, 1215 s
+2026-09-05 01:42:52,166 turn_gap INFO collected position 47 (45/60)
+2026-09-05 01:57:49,552 turn_gap INFO position 42 multiplayer_The_Freelands turn 4 side 2: base -0.30 best alt +0.15 gap +0.45, 4/4 alternatives distinct, capped 20/200, 7 decisions, 2698 s
+2026-09-05 01:57:49,554 turn_gap INFO collected position 42 (46/60)
+2026-09-05 01:58:10,620 turn_gap INFO position 58 multiplayer_Fallenstar_Lake turn 9 side 2: base -0.93 best alt -0.90 gap +0.03, 4/4 alternatives distinct, capped 3/200, 18 decisions, 918 s
+2026-09-05 01:58:10,622 turn_gap INFO collected position 58 (47/60)
+2026-09-05 02:01:18,443 turn_gap INFO position 49 multiplayer_Den_of_Onis turn 6 side 2: base -0.57 best alt +0.17 gap +0.75, 4/4 alternatives distinct, capped 11/200, 11 decisions, 2031 s
+2026-09-05 02:01:18,444 turn_gap INFO collected position 49 (48/60)
+2026-09-05 02:08:07,298 turn_gap INFO position 44 multiplayer_Hamlets turn 5 side 2: base +0.00 best alt +0.05 gap +0.05, 4/4 alternatives distinct, capped 43/200, 10 decisions, 3035 s
+2026-09-05 02:08:07,300 turn_gap INFO collected position 44 (49/60)
+2026-09-05 02:12:57,912 turn_gap INFO position 52 multiplayer_Hamlets turn 25 side 2: base -0.33 best alt -0.47 gap -0.15, 4/4 alternatives distinct, capped 12/200, 13 decisions, 2453 s
+2026-09-05 02:12:57,913 turn_gap INFO collected position 52 (50/60)
+2026-09-05 02:13:04,032 turn_gap INFO position 46 multiplayer_Hamlets turn 9 side 2: base -0.85 best alt -0.72 gap +0.12, 4/4 alternatives distinct, capped 23/200, 15 decisions, 3082 s
+2026-09-05 02:13:04,033 turn_gap INFO collected position 46 (51/60)
+2026-09-05 02:13:54,053 turn_gap INFO position 56 multiplayer_Howling_Ghost_Badlands turn 6 side 2: base +0.23 best alt +0.10 gap -0.12, 4/4 alternatives distinct, capped 4/200, 6 decisions, 1927 s
+2026-09-05 02:13:54,055 turn_gap INFO collected position 56 (52/60)
+2026-09-05 02:15:01,048 turn_gap INFO position 51 multiplayer_Hamlets turn 3 side 2: base -0.15 best alt -0.03 gap +0.12, 4/4 alternatives distinct, capped 20/200, 2 decisions, 2659 s
+2026-09-05 02:15:01,049 turn_gap INFO collected position 51 (53/60)
+2026-09-05 02:16:11,654 turn_gap INFO position 48 multiplayer_Hamlets turn 2 side 2: base -0.10 best alt +0.07 gap +0.17, 4/4 alternatives distinct, capped 44/200, 6 decisions, 3138 s
+2026-09-05 02:16:11,656 turn_gap INFO collected position 48 (54/60)
+2026-09-05 02:18:48,462 turn_gap INFO position 45 multiplayer_Basilisk turn 2 side 2: base +0.45 best alt +0.23 gap -0.23, 4/4 alternatives distinct, capped 38/200, 9 decisions, 3439 s
+2026-09-05 02:18:48,464 turn_gap INFO collected position 45 (55/60)
+2026-09-05 02:19:57,728 turn_gap INFO position 53 multiplayer_Basilisk turn 4 side 2: base -0.10 best alt -0.12 gap -0.02, 4/4 alternatives distinct, capped 29/200, 11 decisions, 2719 s
+2026-09-05 02:19:57,729 turn_gap INFO collected position 53 (56/60)
+2026-09-05 02:20:36,867 turn_gap INFO position 57 multiplayer_Weldyn_Channel turn 13 side 2: base +0.10 best alt +0.42 gap +0.32, 4/4 alternatives distinct, capped 43/200, 5 decisions, 2265 s
+2026-09-05 02:20:36,868 turn_gap INFO collected position 57 (57/60)
+2026-09-05 02:21:00,847 turn_gap INFO position 59 multiplayer_Hamlets turn 9 side 2: base -0.75 best alt -0.33 gap +0.42, 4/4 alternatives distinct, capped 30/200, 3 decisions, 1391 s
+2026-09-05 02:21:00,848 turn_gap INFO collected position 59 (58/60)
+2026-09-05 02:21:50,781 turn_gap INFO position 54 multiplayer_Hamlets turn 2 side 2: base -0.12 best alt +0.03 gap +0.15, 4/4 alternatives distinct, capped 44/200, 7 decisions, 2501 s
+2026-09-05 02:21:50,782 turn_gap INFO collected position 54 (59/60)
+2026-09-05 02:24:35,627 turn_gap INFO position 55 multiplayer_Basilisk turn 2 side 2: base +0.28 best alt +0.47 gap +0.20, 4/4 alternatives distinct, capped 22/200, 8 decisions, 2600 s
+2026-09-05 02:24:35,629 turn_gap INFO collected position 55 (60/60)
+2026-09-05 02:24:37,354 turn_gap INFO wrote /workspace/bench/turn_gap/run1.json
+| quantity | value |
+|---|---|
+| positions | 60 |
+| gap >= 0.25 | 12/60 = 0.200 +- 0.052 |
+| same, permutation null (200 shuffles) | 0.179 |
+| mean gap | +0.113 +- 0.032 |
+| mean split-half gap | +0.049 +- 0.041 (n=60) |
+| split-half gap >= 0.25 | 0.200 |
+| base turn best or tied | 25/60 = 0.417 |
+| positions without a distinct alternative | 0 |
+| positions whose base turn ended the game | 0 |
+| distinct alternatives per position | 4.00 of 4 |
+| playouts | 12000, capped 1202 (0.100) |
+| decisions per turn, base / alternatives | 9.4 / 12.3 |
+| wall | 2.71 h, $0.90 |
+
+| gap bin | positions |
+|---|---|
+| [-0.50, -0.25) | 2 |
+| [-0.25, +0.00) | 16 |
+| [+0.00, +0.25) | 30 |
+| [+0.25, +0.50) | 8 |
+| [+0.50, +0.75) | 2 |
+| [+0.75, +1.00) | 1 |
+| [+1.00, +1.25) | 1 |
