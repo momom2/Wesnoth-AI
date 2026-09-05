@@ -178,6 +178,14 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
    800-game PURE matches of each vs `raw:t0` and 400 arm-vs-arm.
    Kill: relevant-set arm below the control by > 2 SE, or masked CE
    worse by > 0.05 nat; the pooling arm then replaces it.
+   MEASURED 2026-09-05 night (docs/box_specs.md "Relevant-set two-arm
+   retrain"): control -111 +- 13 vs the seed at argmax (800 decisive),
+   relevant-set arm -35 +- 13 vs the seed and +26 +- 18 vs the control;
+   masked holdout CE 1.264 for both arms against the seed's 1.341 on
+   the same pairs. The encoding passes its kill; the recipe's
+   continuation itself costs strength that the CE does not show.
+   Queued: the lr 1e-5 control (study 7b, $1.7); designed: basis
+   transfer by distillation from the seed (7c).
    **Eval at scale** (plan 1.5): 800 raw games in ~65 min / $0.36
    through persistent workers; with the shared inference server
    (2026-09-05, `--shared-inference`) 40 games take 145 s against

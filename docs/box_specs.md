@@ -572,6 +572,45 @@ therefore run; eval of subset-basis checkpoints should run eager or
 through the shared inference server. Records:
 `training/metrics/sweeps/relset_probe_20260905/`.
 
+## Relevant-set two-arm retrain (2026-09-05, box 49875606)
+
+docs/model_cost_study_20260905.md section 7. Two arms from the seed
+weights, half an epoch (1.26M pairs) of the imitation recipe
+(`configs/imitation.json`, lr 1e-4, batch 64, seed 20260905, same
+file order): the control on the full board, the other in the
+relevant-set basis. Each arm 3.9 h (90 pairs/s, 14 workers); the
+matches `raw:t0` on both sides, persistent workers, 10 jobs, sides
+alternated, stalled games (200-turn cap) excluded, replacements up to
+400. Records: `training/metrics/elo/relset_arms/*.fit.json`,
+`training/metrics/imitation_15m/relset_arms/` (holdout curves, train
+logs, the seed's own read of the holdout).
+
+| match | decisive (stalled) | side A score | Elo of A | wall |
+|---|---|---|---|---|
+| control vs seed | 800 (271) | 0.345 | -111 +- 13 | 27 min |
+| relevant-set arm vs seed | 759 (441) | 0.449 | -35 +- 13 | 55 min |
+| relevant-set arm vs control | 391 (209) | 0.537 | +26 +- 18 | 25 min |
+
+Holdout (1,200 pairs, sample seed 0, legality-masked target CE): seed
+1.341 +- 0.051 (total CE 2.838), control 1.264 (2.786), relevant-set
+arm 1.264 (2.638, its own basis). Decisive games end by leader death
+at a median of 24-28 turns, the normal argmax regime.
+
+Readings. (1) The pre-registered control prediction (within +-30 Elo
+of the seed) is refuted: half an epoch more of the seed's own recipe
+costs 111 Elo at argmax while the holdout CE is equal or better.
+Holdout imitation CE does not track argmax strength at this level;
+no retrained checkpoint replaces the seed without its own match.
+(2) The relevant-set arm passes its kill criterion (not below the
+control by 2 SE; masked CE equal): +26 +- 18 directly and +76 +- 18
+through the seed, with 4x fewer tokens per leaf. It still trails
+the seed by 35, so it is not the reference. (3) Stalls: 25% of the
+control's games and 37% of the relevant-set arm's against the seed.
+Next (queued the same night, `chain33`, pre-registered in the study's
+7b): the control recipe at lr 1e-5 and its 800-game match, to tell
+whether continuation at a small rate keeps the seed's strength; the
+distillation route (7c) otherwise.
+
 ## Training path cost (2026-09-05, box 49875606)
 
 `tools/bench_train_step.py` on the 200 bench states (prior-drawn

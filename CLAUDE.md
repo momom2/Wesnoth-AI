@@ -95,9 +95,17 @@ State of play:
   2291k equals the 15M seed (+9 +- 55). Phase-2 prerequisite
   (docs/turn_gap_prereg_20260904.md): large turn-level gaps exist
   but are sparse (3 of 60 positions confirmed out of sample, mean
-  gain of the best sampled turn +0.05 per turn). The relevant-set
-  two-arm imitation experiment (docs/model_cost_study_20260905.md)
-  is running on the box.
+  gain of the best sampled turn +0.05 per turn). Relevant-set
+  two-arm retrain (docs/model_cost_study_20260905.md 7, measured
+  2026-09-05 night): half an epoch more of the seed's own imitation
+  recipe costs 111 +- 13 Elo at argmax with an equal holdout CE;
+  the relevant-set arm is +26 +- 18 over that control and -35 +- 13
+  against the seed. Holdout CE is not a strength proxy; every
+  retrained checkpoint needs its own 800-game match. A lr 1e-5
+  control is queued (7b); distillation from the seed into the new
+  basis is designed (7c). Phase-2 tooling shipped the same night:
+  turn_gap shared inference, sequential grading, replayed
+  confirmations, the pre-grader analysis.
 - Rulings (2026-09-05): no optimizations conditioned on the MCTS
   loop; scope every box test, train sparingly; results are written
   on the run, never as atomic dumps; a box job past ~1.5x its
