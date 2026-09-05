@@ -208,6 +208,51 @@ def scan_slots(outdir: Path, label_a: str, label_b: str, games: int,
     return n_results, n_no_result, pending, spent
 
 
+def _check_shared_inference_args(ap, args, sims_a: int, sims_b: int) -> None:
+    """--shared-inference serves the certified surface only: raw
+    players (sims 0, a raw temperature) on checkpoint specs, through
+    persistent workers, eager kernels."""
+    if not args.persistent_workers:
+        ap.error("--shared-inference requires --persistent-workers")
+    if args.infer_compile:
+        ap.error("--shared-inference serves eager kernels; drop --infer-compile")
+    ckpt_sides = [(s, spec, sims, temp) for s, spec, sims, temp in (
+        ("a", args.spec_a, sims_a, args.raw_temperature_a),
+        ("b", args.spec_b, sims_b, args.raw_temperature_b)) if spec != "dummy"]
+    if not ckpt_sides:
+        ap.error("--shared-inference is inert with no checkpoint side")
+    for side, spec, sims, temp in ckpt_sides:
+        if spec == "random":
+            ap.error(f"--shared-inference cannot serve 'random' for side {side}: "
+                     f"one fixed random-init net for the whole match is a "
+                     f"different estimand than a fresh draw per game")
+        if sims > 0 or temp is None:
+            ap.error(f"--shared-inference serves the raw player only: side {side} "
+                     f"needs sims 0 and --raw-temperature-{side}")
+
+
+def _shutdown_servers(servers: dict) -> dict:
+    """Stop every inference server; the stats each wrote, by spec."""
+    stats = {}
+    for spec, handle in servers.items():
+        stats[spec] = handle.shutdown()
+    servers.clear()
+    return stats
+
+
+def _log_server_stats(stats: dict) -> None:
+    for spec, st in stats.items():
+        if not st:
+            log.warning("inference server for %s left no stats", spec)
+            continue
+        log.info("inference server %s: %d requests in %d batches, mean batch "
+                 "%.2f, hist %s; idle %.1fs window %.1fs infer %.1fs reply %.1fs "
+                 "of %.1fs wall (gpu %.1fs)", Path(spec).name, st["requests"],
+                 st["batches"], st["mean_batch"], st["batch_hist"], st["idle_s"],
+                 st["window_s"], st["infer_s"], st["reply_s"], st["wall_s"],
+                 st["gpu_ms"] / 1000.0)
+
+
 def main(argv: List[str]) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__.split("\n\n")[0],
@@ -340,6 +385,23 @@ def main(argv: List[str]) -> int:
                          "(tools/eval_workers.py) instead of one "
                          "process per game. Same result files, same "
                          "timeouts; a timed-out worker is replaced.")
+    ap.add_argument("--shared-inference", action="store_true",
+                    help="With --persistent-workers: one inference server "
+                         "process per distinct checkpoint owns the model "
+                         "on the GPU and serves the workers' forwards in "
+                         "coalesced batches (tools/eval_inference_server.py). "
+                         "Raw players (sims 0, a raw temperature) only. "
+                         "Results record shared_inference and the "
+                         "precision path; never mixes with per-process "
+                         "games in one outdir. Re-pin raw:t0 against "
+                         "itself once before quoting a gate through it.")
+    ap.add_argument("--inference-window-ms", type=float, default=1.5,
+                    help="Shared inference: after a first request, how long "
+                         "the server collects more before one forward.")
+    ap.add_argument("--inference-max-batch", type=int, default=None,
+                    help="Shared inference: leaves per forward (default: "
+                         "--jobs; with one decision in flight per worker a "
+                         "larger value is inert).")
     ap.add_argument("--per-game-timeout-min", type=float, default=20.0,
                     help="Kill a single game that overruns; its slot is "
                          "skipped and the run continues.")
@@ -362,6 +424,8 @@ def main(argv: List[str]) -> int:
     if args.label_a == args.label_b:
         ap.error("--label-a and --label-b must differ (result files and "
                  "the workers' per-side policy cache are keyed by label)")
+    if args.shared_inference:
+        _check_shared_inference_args(ap, args, sims_a, sims_b)
     if args.device == "cpu" and (args.infer_bf16 or args.infer_compile):
         # Refuse up front: every child would refuse per game.
         ap.error("--infer-bf16/--infer-compile require a cuda device")
@@ -460,7 +524,8 @@ def main(argv: List[str]) -> int:
     from tools.host_resources import auto_jobs
     _auto, how = auto_jobs(
         per_job_mb=args.per_job_mb,
-        per_job_vram_mb=(None if args.device == "cpu"
+        # Shared inference: the workers hold no model, so no VRAM.
+        per_job_vram_mb=(None if args.device == "cpu" or args.shared_inference
                          else args.per_job_vram_mb))
     if args.jobs is None:
         jobs = _auto
@@ -529,6 +594,8 @@ def main(argv: List[str]) -> int:
                             ("infer_compile", args.infer_compile)):
             _want = (_flag if _flag is not None
                      else {"cuda": True, "cpu": False}.get(args.device))
+            if _fld == "infer_compile" and args.shared_inference:
+                _want = False            # the server runs eager kernels
             if _want is not None \
                     and bool(prev.get(_fld, False)) != _want:
                 raise SystemExit(
@@ -536,6 +603,17 @@ def main(argv: List[str]) -> int:
                     f"{bool(prev.get(_fld, False))} but this run "
                     f"uses {_want}: numerics differ, refusing to "
                     f"mix. Use a fresh outdir.")
+        # Shared-inference forwards are batched (and packed on cuda):
+        # different numerics from the per-process single-sample
+        # forward. Absent = per-process. The packed-trunk field is
+        # checked once the servers report it (below).
+        if bool(prev.get("shared_inference", False)) != bool(args.shared_inference):
+            raise SystemExit(
+                f"{f.name} was played with shared_inference="
+                f"{bool(prev.get('shared_inference', False))} but this "
+                f"run uses {bool(args.shared_inference)}: batched "
+                f"forwards have different numerics, refusing to mix. "
+                f"Use a fresh outdir.")
         if got == want and (args.plan_a or args.plan_b):
             # Same procedure but possibly different --pt-* knobs: a
             # chunked resume must not mix plan-tournament configs in
@@ -590,6 +668,47 @@ def main(argv: List[str]) -> int:
         log.info("persistent workers: up to %d elo_eval_game --worker "
                  "processes, policies cached across games", jobs)
 
+    # Shared inference: one server per distinct checkpoint (both sides
+    # of a same-spec match share one). The server reports its
+    # effective precision path; every game records it, and existing
+    # files must agree with it.
+    servers: dict = {}
+    shared_bf16 = shared_packed = False
+    if args.shared_inference:
+        from tools.eval_inference_server import launch_inference_server
+        max_batch = args.inference_max_batch or jobs
+        try:
+            for k, spec in enumerate(dict.fromkeys(
+                    s for s in (args.spec_a, args.spec_b) if s != "dummy")):
+                servers[spec] = launch_inference_server(
+                    spec, args.outdir, tag=str(k), device=args.device,
+                    infer_bf16=args.infer_bf16,
+                    window_ms=args.inference_window_ms, max_batch=max_batch)
+                log.info("inference server %d for %s at %s: %s", k, spec,
+                         servers[spec].address, servers[spec].info)
+            infos = {(bool(h.info["infer_bf16"]), bool(h.info["packed_trunk"]))
+                     for h in servers.values()}
+            if len(infos) != 1:
+                raise SystemExit(f"the inference servers disagree on precision "
+                                 f"{sorted(infos)}; one match, one numerics path")
+            shared_bf16, shared_packed = infos.pop()
+            for f in sorted(args.outdir.glob("game_*.json")):
+                try:
+                    prev = json.loads(f.read_text(encoding="utf-8"))
+                except Exception:  # noqa: BLE001 -- unreadable = replayed
+                    continue
+                for _fld, _want in (("infer_bf16", shared_bf16),
+                                    ("infer_packed_trunk", shared_packed)):
+                    if bool(prev.get(_fld, False)) != _want:
+                        raise SystemExit(
+                            f"{f.name} was played with {_fld}="
+                            f"{bool(prev.get(_fld, False))} but the servers "
+                            f"run {_want}: numerics differ, refusing to mix. "
+                            f"Use a fresh outdir.")
+        except BaseException:
+            _shutdown_servers(servers)
+            raise
+
     def launch(slot):
         i, side_a, seed, _out, _gen = slot
         cmd = [sys.executable, "-u", str(_THIS.parent / "elo_eval_game.py"),
@@ -620,12 +739,24 @@ def main(argv: List[str]) -> int:
             cmd += ["--raw-temperature-b", str(args.raw_temperature_b)]
         if args.mcts_batch_size != 1:
             cmd += ["--mcts-batch-size", str(args.mcts_batch_size)]
-        if args.infer_bf16 is not None:
-            cmd.append("--infer-bf16" if args.infer_bf16
-                       else "--no-infer-bf16")
-        if args.infer_compile is not None:
-            cmd.append("--infer-compile" if args.infer_compile
-                       else "--no-infer-compile")
+        if servers:
+            # The servers' effective precision, stated explicitly so
+            # the game records what ran (elo_eval_game checks it
+            # against the server's hello).
+            for side, spec in (("a", args.spec_a), ("b", args.spec_b)):
+                if spec in servers:
+                    cmd += [f"--inference-address-{side}", servers[spec].address]
+            cmd += ["--infer-bf16" if shared_bf16 else "--no-infer-bf16",
+                    "--no-infer-compile",
+                    "--infer-packed-trunk" if shared_packed
+                    else "--no-infer-packed-trunk"]
+        else:
+            if args.infer_bf16 is not None:
+                cmd.append("--infer-bf16" if args.infer_bf16
+                           else "--no-infer-bf16")
+            if args.infer_compile is not None:
+                cmd.append("--infer-compile" if args.infer_compile
+                           else "--no-infer-compile")
         if args.no_turn_search:
             cmd.append("--no-turn-search")
         if args.no_turn_search_a:
@@ -677,8 +808,12 @@ def main(argv: List[str]) -> int:
              # absent = B 1 / fp32 / eager; an artifact without them
              # aborted every resume of a cuda outdir (2026-09-04 review).
              "mcts_batch": args.mcts_batch_size,
-             "infer_bf16": _effective_precision(args, "infer_bf16"),
-             "infer_compile": _effective_precision(args, "infer_compile")}
+             "infer_bf16": (shared_bf16 if servers
+                            else _effective_precision(args, "infer_bf16")),
+             "infer_compile": (False if servers
+                               else _effective_precision(args, "infer_compile")),
+             "shared_inference": bool(servers),
+             "infer_packed_trunk": shared_packed}
     if args.plan_a or args.plan_b:
         from types import SimpleNamespace
         from tools.elo_eval_game import _pt_config
@@ -853,6 +988,8 @@ def main(argv: List[str]) -> int:
                 _close_err(_errf)
         if worker_pool is not None:
             worker_pool.shutdown()
+        if servers:
+            _log_server_stats(_shutdown_servers(servers))
     total = len(list(args.outdir.glob("game_*.json")))
     # Report as a fraction, never a percentage or an extrapolation.
     log.info("chunk end: %d/%d RESULTS (%d no-result absences, "

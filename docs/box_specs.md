@@ -360,6 +360,51 @@ replayed twice through workers and once one-process: all four runs
 counts. The argmax harness is deterministic run to run on this box
 in both modes.
 
+### Shared batched inference (built 2026-09-05, not yet timed on a box)
+
+`--persistent-workers --shared-inference` adds one
+`tools/eval_inference_server.py` process per distinct checkpoint
+(both sides of a same-spec match share one). The server owns the
+model on the GPU (bf16, the packed varlen trunk) and serves the
+workers' forwards in batches coalesced over `--inference-window-ms`
+(1.5) up to `--inference-max-batch` (default `--jobs`); the workers
+keep the game loop, a RemoteEncoder with server-side priors and the
+raw player. Raw players only (sims 0 with `--raw-temperature-a/-b`),
+checkpoint specs only. Results record `shared_inference: true`,
+`infer_bf16` and `infer_packed_trunk`; the outdir guards refuse to
+mix them with per-process games. The server writes
+`.inference_server_<k>.json` in the outdir (requests, batches, the
+batch-size histogram, time idle / in the window / in the forward),
+and the driver logs it at the end.
+
+    python tools/run_elo_batch.py --label-a seed --spec-a CKPT \
+        --label-b seed_ref --spec-b CKPT --games 40 --max-extra-games 0 \
+        --seed-base 20000 --outdir eval_games/shared_inference_timing_40 \
+        --mcts-sims 0 --raw-temperature-a 0 --raw-temperature-b 0 \
+        --device cuda --jobs 10 --persistent-workers --shared-inference
+
+Expectation from the recorded figures, to be replaced by the
+measurement: a decision costs the worker about 8-10 ms of Python
+(encode, masks, packing, the sim step; the enumeration moves to the
+server's priors kernel) plus the round trip, so ten workers ask for
+roughly 600-700 forwards per second, about the server's saturated
+rate (833 leaves/s with the packed trunk, plan 1.3). Mean batch 4-6,
+wall time 2-2.5x lower than the per-process persistent workers (40
+games at 10 concurrent: ~100 s against 215 s; 800 games ~25-30 min
+against ~65). Under 15 minutes for 800 games needs the per-sample
+cost cut of plan 1.4, not more workers. A second decision in flight
+per worker would not help: the game loop is sequential (the next
+state depends on the step's outcome), so the only overlap is two
+games per worker, which saves worker memory, not GPU time.
+
+Before a gate through shared inference is quoted, re-pin `raw:t0`
+against itself once with the 20-game check above: batch composition
+varies from run to run, so bf16 batched numerics are not
+bit-identical to the per-process path and argmax can flip on
+near-ties. On CPU (fp32, batch 1) the server's priors equal the
+direct path's exactly (tests/test_eval_inference_server.py and the
+seam tests).
+
 
 ## Raw player temperature (2026-09-05, box 49875606)
 

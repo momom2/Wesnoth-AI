@@ -21,6 +21,23 @@ training crutch and does not factor into evaluation, user
 of games.
 Eval search likewise runs WITHOUT the material shapers
 (draw_tiebreak, aux_value_bonus) regardless of training config.
+
+Shared inference (`--inference-address-a/-b`, tools/
+eval_inference_server.py): a checkpoint side at sims 0 with a raw
+temperature plays through a server that owns the model; this process
+keeps the game loop, a RemoteEncoder with server-side priors and the
+raw player. The result records `shared_inference`, `infer_bf16` and
+`infer_packed_trunk` (the server's precision path, passed explicitly
+on argv by the driver and checked against the server's hello), and
+an outdir never mixes shared and per-process games. The procedure
+tag stays `raw:t0`; before a shared-inference gate is quoted, re-pin
+raw:t0 against itself once (the 20-game determinism check of
+docs/box_specs.md), because batched bf16 numerics vary with batch
+composition and argmax can flip on near-ties. One known divergence
+from the per-process path: a unit type absent from the checkpoint's
+vocab is aliased to the overflow bucket here (frozen-vocab
+semantics, warned once per name), where the per-process encoder
+grows its vocab with an untrained row.
 """
 
 from __future__ import annotations
@@ -37,10 +54,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import torch
+
 from tools.draw_tiebreak import DrawTiebreakConfig, material_margin
 from tools.elo_ladder import _ScriptedAdapter
 from tools.eval_sim import (_PolicyPair, _load_policy,
                             _play_one_eval_game)
+from tools.inference_seam import RemoteEncoder
 from tools.scenario_pool import build_scenario_gamestate, random_setup
 from tools.wesnoth_sim import WesnothSim
 
@@ -136,6 +156,9 @@ class _CountingModel:
 # forward-counting proxy -- side A's counter read 0 on 2026-09-04).
 _WORKER_MODE = False
 _POLICY_CACHE: dict = {}
+# Shared inference: one connection per server address, kept across
+# games in worker mode (the hello handshake is paid once).
+_CLIENT_CACHE: dict = {}
 
 
 def _policy_for(spec, device, label, infer_bf16, infer_compile):
@@ -179,6 +202,64 @@ def worker_loop() -> int:
     return 0
 
 
+def _shared_client(address: str):
+    from tools.eval_inference_server import EvalInferenceClient
+    client = _CLIENT_CACHE.get(address)
+    if client is None or client.broken:
+        client = EvalInferenceClient(address)
+        if _WORKER_MODE:
+            _CLIENT_CACHE[address] = client
+    return client
+
+
+def _remote_player(address: str, raw_temperature: float, raw_seed,
+                   relevant_set: bool, infer_bf16: bool, infer_packed_trunk: bool):
+    """The raw player over a shared inference server: a RemoteEncoder
+    on the server's vocab with server-side priors, a RemoteModel
+    behind the forward-counting proxy (its `fwd_secs` is the round
+    trip: queue wait, batch, transport)."""
+    import threading
+    from types import SimpleNamespace
+    from tools.inference_seam import RemoteModel
+    from tools.raw_player import RawPolicyPlayer
+    client = _shared_client(address)
+    h = client.hello
+    got = (bool(h["infer_bf16"]), bool(h["packed_trunk"]))
+    if got != (bool(infer_bf16), bool(infer_packed_trunk)):
+        raise SystemExit(
+            f"the inference server at {address} serves (bf16, packed_trunk)="
+            f"{got} but this game would record {(infer_bf16, infer_packed_trunk)}: "
+            f"pass the server's precision (--infer-bf16/--no-infer-bf16, "
+            f"--infer-packed-trunk/--no-infer-packed-trunk) so the result "
+            f"file says what ran")
+    counter = _CountingModel(RemoteModel(client))
+    encoder = _VocabCheckedRemoteEncoder(
+        h["type_to_id"], h["faction_to_id"], device=torch.device("cpu"),
+        relevant_set=bool(h["relevant_set"]) or bool(relevant_set),
+        server_priors=True)
+    base = SimpleNamespace(_inference_model=counter, _inference_encoder=encoder,
+                           _lock=threading.Lock(), _decision_step=0)
+    return RawPolicyPlayer(base, raw_temperature, seed=raw_seed), counter
+
+
+class _VocabCheckedRemoteEncoder(RemoteEncoder):
+    """RemoteEncoder that warns once per unit type absent from the
+    server's vocab (encode_raw aliases it to the overflow bucket
+    silently; the per-process encoder would grow its vocab)."""
+
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self._warned_names: set = set()
+
+    def encode(self, game_state):
+        for u in game_state.map.units:
+            if u.name not in self._type_to_id and u.name not in self._warned_names:
+                self._warned_names.add(u.name)
+                log.warning("unit type %r is not in the server's vocab; "
+                            "aliased to the overflow bucket", u.name)
+        return super().encode(game_state)
+
+
 def _build_player(spec: str, label: str, sims: int, device,
                   turn_search: bool = True,
                   plan_tournament: bool = False, pt_cfg=None,
@@ -187,10 +268,17 @@ def _build_player(spec: str, label: str, sims: int, device,
                   infer_compile: bool = False,
                   value_center: float = 0.0,
                   raw_temperature=None, raw_seed=None,
-                  gumbel_root: bool = True):
+                  gumbel_root: bool = True,
+                  relevant_set: bool = False,
+                  inference_address=None,
+                  infer_packed_trunk: bool = False):
     """`raw_temperature`: sims == 0 only -- the joint-temperature raw
     player (tools/raw_player.py; 0 = argmax). None = the legacy
-    factored sampler, the pre-2026-09-04 'raw' procedure."""
+    factored sampler, the pre-2026-09-04 'raw' procedure.
+    `relevant_set`: encode this side with the relevant hex subset
+    whatever the checkpoint carries. `inference_address`: play the
+    raw player through a shared inference server (main() has checked
+    sims == 0, a temperature and a checkpoint spec)."""
     if spec == "random":
         # Deliberate random-init reference (round-24 C8: reaching
         # random init through a nonexistent PATH is how a typo
@@ -200,7 +288,12 @@ def _build_player(spec: str, label: str, sims: int, device,
     if spec == "dummy":
         from wesnoth_ai.dummy_policy import DummyPolicy
         return _ScriptedAdapter(DummyPolicy()), None
+    if inference_address is not None:
+        return _remote_player(inference_address, raw_temperature, raw_seed,
+                              relevant_set, infer_bf16, infer_packed_trunk)
     policy = _policy_for(spec, device, label, infer_bf16, infer_compile)
+    if relevant_set:
+        policy._inference_encoder.relevant_set_hexes = True
     inner = policy._inference_model
     if isinstance(inner, _CountingModel):      # cached policy: fresh counter
         inner = inner._inner
@@ -240,6 +333,52 @@ def _build_player(spec: str, label: str, sims: int, device,
         return RawPolicyPlayer(policy, raw_temperature,
                                seed=raw_seed), counter
     return policy, counter
+
+
+def _check_shared_inference_args(args, sims_a: int, sims_b: int) -> bool:
+    """Whether this game plays through shared inference servers, after
+    refusing the combinations that would mislabel the result: a
+    served side must be a checkpoint at sims 0 with a raw temperature
+    (the certified surface), both checkpoint sides must be served or
+    neither (one game, one numerics path), and the server's precision
+    must be stated explicitly on argv (main checks it against the
+    server's hello when connecting)."""
+    sides = (("a", args.inference_address_a, args.spec_a, sims_a, args.raw_temperature_a),
+             ("b", args.inference_address_b, args.spec_b, sims_b, args.raw_temperature_b))
+    shared = any(addr is not None for _, addr, _, _, _ in sides)
+    for side, addr, spec, sims, temp in sides:
+        if addr is not None:
+            if spec in ("dummy", "random"):
+                raise SystemExit(
+                    f"--inference-address-{side} needs a checkpoint spec, not "
+                    f"{spec!r}: a server has nothing to serve for 'dummy', and one "
+                    f"fixed random-init net for a whole match is a different "
+                    f"estimand than a fresh draw per game.")
+            if sims > 0 or temp is None:
+                raise SystemExit(
+                    f"--inference-address-{side} serves the raw player only: that "
+                    f"side needs sims 0 and --raw-temperature-{side}. Search and "
+                    f"the legacy sampler are not certified through the server.")
+        elif shared and spec != "dummy":
+            raise SystemExit(
+                f"side {side} would play per-process while the other side plays "
+                f"through a server: one game, one numerics path. Serve both "
+                f"checkpoint sides or neither.")
+    if not shared:
+        if args.infer_packed_trunk is not None:
+            raise SystemExit("--infer-packed-trunk is shared-inference provenance "
+                             "(an --inference-address-* side); the per-process "
+                             "path never runs the packed trunk.")
+        return False
+    if args.infer_compile:
+        raise SystemExit("--infer-compile with a shared server: the server runs "
+                         "eager kernels; drop the flag.")
+    if args.infer_bf16 is None or args.infer_packed_trunk is None:
+        raise SystemExit("shared inference needs the server's precision stated: "
+                         "--infer-bf16/--no-infer-bf16 and --infer-packed-trunk/"
+                         "--no-infer-packed-trunk (the driver copies them from the "
+                         "server's __INFO__ line; the result file records them).")
+    return True
 
 
 def main(argv) -> int:
@@ -319,6 +458,21 @@ def main(argv) -> int:
                          "contract; ~10-14s compile per shape bucket "
                          "per process, amortized via the shared "
                          "TORCHINDUCTOR_CACHE_DIR kernel cache.")
+    ap.add_argument("--inference-address-a", default=None,
+                    help="Play side A through the shared inference server at "
+                         "this address (tools/eval_inference_server.py; the "
+                         "driver's --shared-inference). Sims 0 with a raw "
+                         "temperature and a checkpoint spec only; requires "
+                         "explicit --infer-bf16/--no-infer-bf16 and "
+                         "--infer-packed-trunk/--no-infer-packed-trunk "
+                         "(the server's precision, recorded in the result).")
+    ap.add_argument("--inference-address-b", default=None,
+                    help="Side B (see --inference-address-a).")
+    ap.add_argument("--infer-packed-trunk", action=argparse.BooleanOptionalAction,
+                    default=None,
+                    help="Shared-inference provenance: whether the server runs "
+                         "the packed varlen trunk. Recorded per result; never "
+                         "mixes within an outdir.")
     ap.add_argument("--device", default="auto", choices=("auto", "cpu", "cuda"),
                     help="'auto' (default) uses CUDA when visible. PREFER "
                          "cuda when a GPU exists: profiled 2026-08-28, "
@@ -424,39 +578,50 @@ def main(argv) -> int:
                 f"checkpoint's label and record a full Elo edge "
                 f"against noise (round-24 C8). Pass the literal "
                 f"'random' for a deliberate random-init player.")
+    shared = _check_shared_inference_args(args, sims_a, sims_b)
     logging.basicConfig(level=getattr(logging, args.log_level))
 
-    import torch
     torch.set_num_threads(2)
-    if args.device == "cpu":
+    if shared:
+        # This process holds no model: encoding and masks run on CPU
+        # and the server's precision path is what the result records.
         device = None
-    elif args.device == "cuda":
-        if not torch.cuda.is_available():
-            raise SystemExit("--device cuda requested but no CUDA device is "
-                             "visible; refusing to silently fall back to CPU "
-                             "(an eval that quietly changes device is an "
-                             "eval whose timings mean nothing).")
-        device = torch.device("cuda")
+        inf_bf16 = bool(args.infer_bf16)
+        inf_compile = False
+        inf_packed = bool(args.infer_packed_trunk)
+        logging.getLogger("elo_eval_game").warning(
+            "shared inference: bf16=%s packed_trunk=%s", inf_bf16, inf_packed)
     else:
-        device = (torch.device("cuda") if torch.cuda.is_available() else None)
+        if args.device == "cpu":
+            device = None
+        elif args.device == "cuda":
+            if not torch.cuda.is_available():
+                raise SystemExit("--device cuda requested but no CUDA device is "
+                                 "visible; refusing to silently fall back to CPU "
+                                 "(an eval that quietly changes device is an "
+                                 "eval whose timings mean nothing).")
+            device = torch.device("cuda")
+        else:
+            device = (torch.device("cuda") if torch.cuda.is_available() else None)
 
-    # Precision/compile resolution (user ruling 2026-08-28:
-    # compile+bf16 is the DEFAULT on cuda -- measured 2.0x together
-    # on the real shape stream, ~1x each alone). On cpu both
-    # default OFF; forcing them ON there is refused because they
-    # would silently no-op and the result would be mislabeled.
-    _cuda = device is not None and device.type == "cuda"
-    inf_bf16 = _cuda if args.infer_bf16 is None else args.infer_bf16
-    inf_compile = (_cuda if args.infer_compile is None
-                   else args.infer_compile)
-    if (inf_bf16 or inf_compile) and not _cuda:
-        raise SystemExit(
-            "--infer-bf16/--infer-compile require a cuda device: on "
-            "cpu they no-op silently, so the result file would claim "
-            "a precision that never ran.")
-    logging.getLogger("elo_eval_game").warning(
-        "inference config: bf16=%s compile=%s device=%s",
-        inf_bf16, inf_compile, "cuda" if _cuda else "cpu")
+        # Precision/compile resolution (user ruling 2026-08-28:
+        # compile+bf16 is the DEFAULT on cuda -- measured 2.0x together
+        # on the real shape stream, ~1x each alone). On cpu both
+        # default OFF; forcing them ON there is refused because they
+        # would silently no-op and the result would be mislabeled.
+        _cuda = device is not None and device.type == "cuda"
+        inf_bf16 = _cuda if args.infer_bf16 is None else args.infer_bf16
+        inf_compile = (_cuda if args.infer_compile is None
+                       else args.infer_compile)
+        inf_packed = False           # the per-process forward is single-sample
+        if (inf_bf16 or inf_compile) and not _cuda:
+            raise SystemExit(
+                "--infer-bf16/--infer-compile require a cuda device: on "
+                "cpu they no-op silently, so the result file would claim "
+                "a precision that never ran.")
+        logging.getLogger("elo_eval_game").warning(
+            "inference config: bf16=%s compile=%s device=%s",
+            inf_bf16, inf_compile, "cuda" if _cuda else "cpu")
 
     args.outdir.mkdir(parents=True, exist_ok=True)
     out_path = args.outdir / (
@@ -505,6 +670,21 @@ def main(argv) -> int:
                     f"this run uses {inf_compile}: compiled kernels "
                     f"may reorder float ops, refusing to mix. Use a "
                     f"fresh outdir.")
+            # Absent = per-process, padded single-sample forward.
+            if bool(prev.get("shared_inference", False)) != shared:
+                raise SystemExit(
+                    f"{out_path.name} was played with shared_inference="
+                    f"{bool(prev.get('shared_inference', False))} but "
+                    f"this run uses {shared}: batched forwards have "
+                    f"different numerics, refusing to mix. Use a fresh "
+                    f"outdir.")
+            if bool(prev.get("infer_packed_trunk", False)) != inf_packed:
+                raise SystemExit(
+                    f"{out_path.name} was played with infer_packed_trunk="
+                    f"{bool(prev.get('infer_packed_trunk', False))} but "
+                    f"this run uses {inf_packed}: the packed and padded "
+                    f"trunks are different kernels, refusing to mix. Use "
+                    f"a fresh outdir.")
             if (got_a, got_b, got_mt) != (want_a, want_b,
                                           args.max_turns):
                 raise SystemExit(
@@ -552,7 +732,10 @@ def main(argv) -> int:
         batch_size=args.mcts_batch_size, infer_bf16=inf_bf16,
         infer_compile=inf_compile, value_center=args.value_center_a,
         raw_temperature=args.raw_temperature_a,
-        raw_seed=2 * args.seed, gumbel_root=args.gumbel_root_a)
+        raw_seed=2 * args.seed, gumbel_root=args.gumbel_root_a,
+        relevant_set=args.relevant_set_a,
+        inference_address=args.inference_address_a,
+        infer_packed_trunk=inf_packed)
     pb, cnt_b = _build_player(
         args.spec_b, args.label_b, sims_b, device,
         turn_search=not (args.no_turn_search or args.no_turn_search_b),
@@ -560,12 +743,10 @@ def main(argv) -> int:
         batch_size=args.mcts_batch_size, infer_bf16=inf_bf16,
         infer_compile=inf_compile, value_center=args.value_center_b,
         raw_temperature=args.raw_temperature_b,
-        raw_seed=2 * args.seed + 1, gumbel_root=args.gumbel_root_b)
-    for _player, _flag in ((pa, args.relevant_set_a), (pb, args.relevant_set_b)):
-        if _flag:
-            _base = getattr(_player, "_base", _player)
-            _base._inference_encoder.relevant_set_hexes = True
-
+        raw_seed=2 * args.seed + 1, gumbel_root=args.gumbel_root_b,
+        relevant_set=args.relevant_set_b,
+        inference_address=args.inference_address_b,
+        infer_packed_trunk=inf_packed)
 
     rng = random.Random(args.seed)
     setup = random_setup(rng)
@@ -631,6 +812,11 @@ def main(argv) -> int:
         # float ops.
         "infer_bf16": inf_bf16,
         "infer_compile": inf_compile,
+        # Shared inference (tools/eval_inference_server.py): batched
+        # forwards on a server process; the packed varlen trunk is
+        # its kernel choice. Both False for the per-process path.
+        "shared_inference": shared,
+        "infer_packed_trunk": inf_packed,
         "side_a": args.side_a, "seed": args.seed,
         "scenario_id": setup.scenario_id,
         "outcome_a": r.outcome,          # win/loss/draw/timeout from A
@@ -644,7 +830,8 @@ def main(argv) -> int:
         # Wall seconds spent inside the model per side, so
         # ms/forward stays measured under whatever precision/
         # compile/device config -- the standing review record for
-        # the compile+bf16 default (user 2026-08-28).
+        # the compile+bf16 default (user 2026-08-28). Under shared
+        # inference: the round trip to the server.
         "fwd_secs_a": (round(cnt_a.fwd_secs, 2) if cnt_a else None),
         "fwd_secs_b": (round(cnt_b.fwd_secs, 2) if cnt_b else None),
         "ended_by": sim.ended_by,
