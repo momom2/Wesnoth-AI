@@ -34,7 +34,8 @@ import torch.nn.functional as F
 
 from wesnoth_ai.encoder import EncodedState
 from wesnoth_ai.packed_trunk import (
-    build_packed_layout, check_packed_trunk_supported, flash_varlen_applies, packed_trunk,
+    CompiledPackedTrunk, PackedTrunkWeights, build_packed_layout, check_packed_trunk_supported,
+    flash_varlen_applies, packed_trunk,
 )
 
 
@@ -283,6 +284,17 @@ class WesnothModel(nn.Module):
         # bf16/fp16; see _packed_trunk_applies); every other call keeps
         # the padded trunk.
         self.infer_packed_trunk = False
+        # Compiled variant of the packed trunk (design note section 13;
+        # packed_trunk.CompiledPackedTrunk): the layer loop as one
+        # inductor graph over a native-dtype (bf16 on CUDA) copy of the
+        # encoder's weights. Requires infer_packed_trunk. Set through
+        # configure_packed_compile (backend, mode) or directly;
+        # warmup_packed_compile compiles before serving;
+        # packed_compile_active says whether compiled code serves.
+        self.infer_compile_packed = False
+        self._weights_version = 0        # bumped by load_state_dict; the copy follows it
+        self._packed_weights: Optional[PackedTrunkWeights] = None
+        self._packed_compile: Optional[CompiledPackedTrunk] = None
 
         # Heads.
         self.actor_head     = nn.Linear(d_model, 1)
@@ -565,6 +577,8 @@ class WesnothModel(nn.Module):
         and the flash varlen kernel apply (_packed_trunk_applies); True
         forces the packed code path (per-segment SDPA off the kernel's
         domain, for tests); False forces the padded trunk."""
+        if self.infer_compile_packed and not self.infer_packed_trunk:
+            raise ValueError("infer_compile_packed requires infer_packed_trunk")
         if packed is None:
             packed = self._packed_trunk_applies(hex_batch)
         if packed:
@@ -651,13 +665,91 @@ class WesnothModel(nn.Module):
         padded = torch.cat([hex_batch, unit_batch, recruit_batch, global_batch, end_turn_batch],
                            dim=1).reshape(B * (H_max + U_max + R_max + 2), d)
         x = padded.index_select(0, index.src) + self.token_kind_embed(index.kind)   # [total, d]
-        x = packed_trunk(self.encoder, x, index)
+        if self.infer_compile_packed:
+            x = self._run_compiled_packed_trunk(x, index)
+        else:
+            x = packed_trunk(self.encoder, x, index)
         actor_ctx = x.index_select(0, index.actor).view(B, A_max, d)
         hex_ctx = x.index_select(0, index.hex).view(B, H_max, d)
         global_ctx = x.index_select(0, index.glob).view(B, 1, d)
         unit_ctx = x.index_select(0, index.unit).view(B, U_max, d) if self.has_gbc else None
         return self._heads(actor_ctx, hex_ctx, global_ctx, torch.from_numpy(layout.actor_kind),
                            sizes, unit_ctx)
+
+    # ------------------------------------------------------------------
+    # Compiled packed trunk (design note section 13)
+    # ------------------------------------------------------------------
+
+    def load_state_dict(self, state_dict, strict: bool = True, assign: bool = False):
+        """Every weight publication goes through here (the policy's
+        inference snapshot, checkpoint loads); the version tells the
+        compiled packed trunk to refresh its native-dtype copy."""
+        result = super().load_state_dict(state_dict, strict=strict, assign=assign)
+        self._weights_version += 1
+        return result
+
+    def configure_packed_compile(self, *, backend="inductor",
+                                 mode: Optional[str] = None) -> CompiledPackedTrunk:
+        """Turns infer_compile_packed on with these torch.compile options
+        (mode None is inductor's default, no CUDA graphs;
+        "max-autotune-no-cudagraphs" adds the GEMM templates)."""
+        if not self.infer_packed_trunk:
+            raise ValueError("infer_compile_packed requires infer_packed_trunk")
+        check_packed_trunk_supported(self.encoder)
+        layer = self.encoder.layers[0]
+        self._packed_compile = CompiledPackedTrunk(layer.activation, layer.norm1.eps,
+                                                   backend=backend, mode=mode)
+        self._packed_weights = None
+        self.infer_compile_packed = True
+        return self._packed_compile
+
+    def warmup_packed_compile(self, shapes=None) -> dict:
+        """Compiles the packed trunk on synthetic batches before serving.
+        `shapes`: (B, hexes, units, recruits) per batch; the defaults
+        bracket production on CUDA (under the server's bf16 autocast)
+        and stay small on CPU. Returns packed_compile_stats()."""
+        if self._packed_compile is None:
+            self.configure_packed_compile()
+        device = self._value_atoms.device
+        cuda = device.type == "cuda"
+        if shapes is None:
+            shapes = ((16, 1300, 30, 7), (8, 700, 2, 0)) if cuda else ((4, 40, 3, 2), (2, 25, 2, 0))
+        with torch.no_grad(), torch.autocast(device.type, dtype=torch.bfloat16, enabled=cuda):
+            for B, H, U, R in shapes:
+                sizes = [(max(1, U - b % 3), max(0, R - b % 2), max(1, H - 7 * b))
+                         for b in range(B)]
+                self.forward_streams(*random_padded_streams(sizes, self.d_model, device),
+                                     packed=True)
+        return self.packed_compile_stats()
+
+    @property
+    def packed_compile_active(self) -> bool:
+        return self._packed_compile is not None and self._packed_compile.active
+
+    def packed_compile_stats(self) -> dict:
+        if self._packed_compile is None:
+            return {"active": False}
+        stats = self._packed_compile.stats()
+        stats["weights_dtype"] = (str(self._packed_weights.dtype).replace("torch.", "")
+                                  if self._packed_weights is not None else None)
+        return stats
+
+    def _run_compiled_packed_trunk(self, x, index):
+        """The compiled loop over the native-dtype weight copy: the
+        autocast dtype where one is active (bf16 on the server), the
+        input's otherwise (fp32 on CPU). The copy is (re)built for a new
+        dtype or device and refreshed when the weight version moved."""
+        dev = x.device.type
+        dtype = torch.get_autocast_dtype(dev) if torch.is_autocast_enabled(dev) else x.dtype
+        if self._packed_compile is None:
+            self.configure_packed_compile()
+        w = self._packed_weights
+        if w is None or w.dtype != dtype or w.device != x.device:
+            w = self._packed_weights = PackedTrunkWeights.build(
+                self.encoder, dtype, x.device, self._weights_version)
+        elif w.version != self._weights_version:
+            w.refresh(self.encoder, self._weights_version)
+        return self._packed_compile.run(x, index, w)
 
     def _heads(self, actor_ctx, hex_ctx, global_ctx, actor_kind, sizes,
                unit_ctx) -> "PaddedOutput":
@@ -762,3 +854,17 @@ class PaddedOutput:
 
     def samples(self) -> List[ModelOutput]:
         return [self.sample(b) for b in range(len(self.sizes))]
+
+
+def random_padded_streams(sizes, d_model: int, device, seed: int = 0):
+    """Random padded streams for per-sample sizes (U, R, H), in
+    forward_streams' argument order. Pad positions hold random values,
+    so a trunk that read them would show. Used by warmup_packed_compile
+    and the packed-trunk tests."""
+    g = torch.Generator(device=device).manual_seed(seed)
+    B = len(sizes)
+    H_max, U_max, R_max = (max(s[i] for s in sizes) for i in (2, 0, 1))
+
+    def stream(n):
+        return torch.randn(B, n, d_model, generator=g, device=device)
+    return stream(H_max), stream(U_max), stream(R_max), stream(1), stream(1), list(sizes)

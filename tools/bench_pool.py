@@ -74,6 +74,7 @@ def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
     # actors idle; its wall-clock rates are lower bounds (2026-09-04
     # review: the two truncated baseline rows are under-reported).
     truncated = len(outcomes) < games
+    base = getattr(policy, "_inference_base", policy._inference_model)
     res = {
         "truncated": truncated,
         "server_priors": bool(server_priors), "actors": actors, "games_requested": games,
@@ -81,8 +82,10 @@ def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
                            or getattr(policy, "_infer_bf16", False)),
         "sims": sims, "leaf_batch": leaf_batch, "max_turns": max_turns,
         "max_batch": max_batch, "serve_threads": serve_threads,
-        "packed_trunk": bool(getattr(getattr(policy, "_inference_base", policy._inference_model),
-                                     "infer_packed_trunk", False)),
+        "packed_trunk": bool(getattr(base, "infer_packed_trunk", False)),
+        # Warmup seconds, recompiles and any eager fallback of the
+        # compiled packed trunk (design note section 13).
+        "packed_compile": base.packed_compile_stats(),
         "games_completed": len(outcomes), "decisive": decided,
         "abandoned": getattr(pool, "_last_abandoned", None),
         "experiences": len(exps),
@@ -131,6 +134,11 @@ def main(argv) -> int:
     ap.add_argument("--packed-trunk", action="store_true",
                     help="Run the server's trunk on the packed sequence (flash "
                          "varlen, wesnoth_ai/packed_trunk.py; needs cuda + bf16).")
+    ap.add_argument("--compile-packed", action="store_true",
+                    help="torch.compile the packed layer loop over native bf16 weights "
+                         "(design note section 13; needs --packed-trunk).")
+    ap.add_argument("--compile-packed-mode", default="default",
+                    choices=("default", "max-autotune-no-cudagraphs"))
     ap.add_argument("--dollars-per-hour", type=float, default=0.0)
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--log-level", default="INFO")
@@ -154,6 +162,13 @@ def main(argv) -> int:
         if device.type != "cuda" or not args.infer_bf16:
             raise SystemExit("--packed-trunk needs --device cuda and --infer-bf16")
         getattr(policy, "_inference_base", policy._inference_model).infer_packed_trunk = True
+    if args.compile_packed:
+        if not args.packed_trunk:
+            raise SystemExit("--compile-packed needs --packed-trunk")
+        base = getattr(policy, "_inference_base", policy._inference_model)
+        mode = None if args.compile_packed_mode == "default" else args.compile_packed_mode
+        base.configure_packed_compile(mode=mode)
+        log.info("packed compile warmup: %s", base.warmup_packed_compile())
     res = run_pool(policy, actors=args.actors, games=args.games, sims=args.sims,
                    leaf_batch=args.leaf_batch, server_priors=args.server_priors,
                    max_turns=args.max_turns, device=device, seed=args.seed,

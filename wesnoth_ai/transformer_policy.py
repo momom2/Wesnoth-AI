@@ -447,6 +447,10 @@ class TransformerPolicy:
             # parameters with the base, so it sees the update).
             base = getattr(self, "_inference_base",
                            self._inference_model)
+            # WesnothModel.load_state_dict bumps its weight version;
+            # the compiled packed trunk's native-dtype weight copy
+            # (packed_trunk.PackedTrunkWeights) refreshes from it at
+            # its next forward.
             base.load_state_dict(self._model.state_dict())
             self._inference_encoder.load_state_dict(self._encoder.state_dict())
             base.eval()

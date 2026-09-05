@@ -898,3 +898,231 @@ GPU-only number is the CUDA test's. No strength check is needed for
 this change (same weights, same math up to bf16 rounding); the `raw:t0`
 self-match of docs/plan_20260904.md remains the gate before the packed
 trunk becomes the pool default.
+
+## 13. Option 2 implemented (2026-09-05): inductor compile of the packed layer loop
+
+Written without a GPU, on top of section 12's packed trunk. The local
+wheel is 2.10.0+cpu; every torch 2.5.1 (box wheel) fact below was read
+from the v2.5.1 tag, and the two wheels' differences that matter are
+listed. Only the CPU tier ran here (inductor's CPU backend, MSVC).
+
+### What is implemented
+
+- `wesnoth_ai/packed_trunk.py`: `packed_trunk_layers` (built by
+  `make_packed_trunk_layers(activation, eps)`) is the section 12 layer
+  loop as a pure function of tensors: `(x [total, d] fp32, cu_seqlens
+  [B+1] int32, max_len, layers, final_norm) -> x`, post-norm math of
+  `nn.TransformerEncoderLayer` with explicit casts (`x.to(weight
+  dtype)` before each linear, fp32 residual stream and LayerNorms);
+  `PackedTrunkWeights`, the encoder's parameters copied in the compute
+  dtype (linear weights bf16 on CUDA, LayerNorm weights fp32, the
+  in-projection shaped `[3, heads, head_dim, E]`), with `refresh` for
+  in-place updates; `CompiledPackedTrunk`, the `torch.compile` wrapper
+  with warmup, recompile and fallback accounting; the custom op
+  `wesnoth_ai::packed_attention` (below).
+- `wesnoth_ai/model.py`: `WesnothModel.infer_compile_packed` (default
+  off, requires `infer_packed_trunk`: `forward_streams` raises
+  otherwise), `configure_packed_compile(backend="inductor",
+  mode=None)`, `warmup_packed_compile(shapes)` (synthetic batches under
+  the server's bf16 autocast on CUDA), `packed_compile_active`,
+  `packed_compile_stats()` (active, backend, mode, warmup_seconds,
+  recompiles, fallback_reason, cache_entries, weights_dtype). The
+  weight copy is versioned: `WesnothModel.load_state_dict` bumps
+  `_weights_version` (every publication goes through it: the policy's
+  `_snapshot_inference_weights`, checkpoint loads), and the next packed
+  forward refreshes the copy in place. The trainer's fp32 module and
+  the padded path are untouched; the eager packed path of section 12 is
+  unchanged (it stays the "eager packed" reference in the benchmarks).
+- `tools/bench_pool.py --compile-packed [--compile-packed-mode
+  default|max-autotune-no-cudagraphs]` and `tools/bench_pipeline.py
+  --compile-packed`: require `--packed-trunk` (hence cuda + bf16), run
+  `warmup_packed_compile` before serving, and record
+  `packed_compile_stats()` after the run in the JSON (recompiles and any
+  fallback during the run show there).
+
+### The compile boundary: the attention as an opaque custom op
+
+The whole loop (8 layers) is one dynamo frame and one inductor graph;
+the attention inside it is `torch.ops.wesnoth_ai.packed_attention`,
+defined with `torch.library.define` (schema `(Tensor q, Tensor k,
+Tensor v, Tensor cu_seqlens, SymInt max_len) -> Tensor`, tag
+`needs_fixed_stride_order`), an eager kernel registered under
+`CompositeExplicitAutograd` and a fake kernel (`q.new_empty(q.shape)`;
+torch 2.5.1 torch/library.py:421, 502, 684). Dynamo records the call,
+inductor emits it as an extern kernel and fuses everything around it;
+the eager kernel picks the flash varlen op or the per-segment SDPA at
+run time, exactly as section 12's `packed_attention`. Reasons for the
+op rather than tracing the flash op or splitting the graph at the
+attention:
+
+- The per-segment SDPA fallback (CPU, fp32) is a Python loop over host
+  offsets; traced, it would specialize the graph on every batch
+  composition. Behind the op it is invisible to dynamo, so the CPU
+  tests exercise the same graph structure as the box.
+- The private `_flash_attention_forward` never enters a graph (its
+  2.5.1 fallback at torch/_inductor/lowering.py:2380 exists, but its
+  meta kernel and `sdpa_constraint` would be one more private surface
+  to pin).
+- One compiled call per batch instead of two per layer (16 guard
+  evaluations and wrapper entries).
+- `SymInt max_len` lets the per-batch longest segment flow through
+  as a symbol; an `int` schema would guard on its value and recompile
+  per batch. The tag makes inductor pass q, k, v with the eager strides
+  (the unbind views of the in-projection output, `(3E, head_dim, 1)`;
+  the 2.5.1 default for custom ops is `flexible_layout`,
+  torch/_inductor/config.py:73, lowering.py:106-127); the kernel reads
+  those strides directly and the eager kernel makes the last dim
+  unit-stride if inductor ever hands it something else.
+
+### Dynamic shapes and what stays static
+
+`torch.compile(dynamic=True, fullgraph=True)`, plus per call
+`mark_dynamic(x, 0)`, `mark_dynamic(cu_seqlens, 0)` and
+`mark_static(x, 1)` (torch/_dynamo/variables/builder.py:2560-2660 at
+v2.5.1: marked dims win over the default, and a marked-dynamic dim that
+dynamo would specialize raises a constraint violation at compile time
+instead of recompiling later). Under `dynamic=True`
+(`assume_static_by_default=False`, eval_frame.py:286-293) every int
+that reaches the function as an argument, a closure cell or an
+attribute becomes a symbol (builder.py:1416-1445, wrap_symint
+1710-1800; observed on 2.10 as well), so `heads` and `head_dim` are
+read from the static shape of the in-projection copy: nn.Parameters
+keep static shapes (`force_parameter_static_shapes`, utils.py:2307-2311
+and the placeholders observed locally). `eps` is a closure float,
+specialized in 2.5.1 (`specialize_float=True`, config.py:64) and a 0-d
+tensor input in 2.10 (`specialize_float=False`); either way no
+recompile. Observed graph on the local wheel: three symbols (`total`,
+`B+1`, `max_len`), every weight static, one cache entry across three
+batch compositions.
+
+The call runs under `torch.no_grad()` with `torch.autocast(device,
+enabled=False)`: grad mode and autocast state are part of dynamo's
+GLOBAL_STATE guard (observed: a call under autocast or with grad on
+recompiles), so the wrapper fixes both regardless of the caller. The
+nested autocast exit does not clear the cast cache
+(torch/amp/autocast_mode.py:363-364 at v2.5.1: only the outermost exit
+does), so the heads' autocast casts after the trunk cost what they
+cost today.
+
+### Mode
+
+Default inductor mode: no CUDA graphs (`triton.cudagraphs` is off
+unless `TORCHINDUCTOR_CUDAGRAPHS=1`, torch/_inductor/config.py:833;
+cudagraph trees would record one graph per distinct shape, section
+3.4). `max-autotune-no-cudagraphs` is one flag away
+(`--compile-packed-mode`) for the GEMM epilogue templates; try it only
+after the default mode has a number.
+
+### Fallback detection
+
+- With `fullgraph=True`, graph breaks, the cache-size limit and backend
+  failures raise to the caller in 2.5.1: `torch.compile(fullgraph)` is
+  `optimize_assert` (eval_frame.py:1602) over `convert_frame_assert`,
+  which bypasses the `suppress_errors` swallow of `ConvertFrame`
+  (convert_frame.py:1111); the cache-limit path is
+  `unimplemented("cache_size_limit reached")` (convert_frame.py:862)
+  re-raised from `_compile`. So `--infer-compile`'s global
+  `suppress_errors=True` in the same process cannot make this path
+  silent. In 2.10 the limit raises `FailOnRecompileLimitHit` (observed).
+  `CompiledPackedTrunk.run` catches any exception from the compiled
+  call, logs one WARNING and serves its own eager loop from then on.
+- Belt and braces after every call: dynamo appends to
+  `torch._dynamo.utils.guard_failures[code]` on every guard miss before
+  deciding to recompile or give up (guards.py:2754 via
+  convert_frame.py:828-833), and `_debug_get_cache_entry_list(code)`
+  (eval_frame.py:130-139) counts the compiled variants. A miss with a
+  new entry is a recompile (WARNING, `recompiles += 1`, still active);
+  a miss without one means dynamo gave up (WARNING once, `active`
+  False, eager loop). Both APIs exist on 2.10 and behave the same
+  (observed).
+- Warmup compiles on the first batch and runs a second, distinct shape
+  (one segment cut from the batch: other `total`, offsets of length 2,
+  other `max_len`); a specialized graph shows as a second cache entry
+  and is logged. `warmup_seconds` is the wall time of both calls.
+
+### Tests
+
+- `tests/test_packed_compile.py` (CPU, 7 tests): compiled equals eager
+  packed on three batch compositions with one cache entry and no
+  recompile, for `aot_eager` (dynamo side, no compiler needed) and
+  `inductor` (skipped without a C++ compiler on PATH); the warmup
+  helper; the weight copy follows `load_state_dict`; a failing backend
+  falls back to the eager loop with exactly one WARNING; a second
+  architecture recompiles (counted, one WARNING) and a third over
+  `cache_size_limit` drops to eager (one WARNING); the switch requires
+  the packed trunk.
+- `tests/test_packed_compile_cuda.py` (skipped without CUDA, one
+  tier-B compile shared by the module): compiled bf16 vs eager packed
+  bf16 with the differences printed (bound 0.05 of scale, and no
+  further from fp32 than the eager packed path plus 1% of scale);
+  `torch.cuda.set_sync_debug_mode("error")` around a compiled forward
+  after warmup; warmup seconds; GPU and wall ms per batch of 16 for
+  eager padded, eager packed, compiled packed (a small table).
+
+### Where the two wheels differ
+
+- Cache-limit failure: `Unsupported` (2.5.1) vs `FailOnRecompileLimitHit`
+  (2.10); both are caught by the same `except`.
+- `torch._dynamo.utils.counters["frames"]` is empty on 2.10; not used.
+- `specialize_float`: True on 2.5.1 (eps constant), False on 2.10 (eps
+  a tensor input); no recompile either way.
+- `torch.library.register_fake` grew an `allow_override` keyword on
+  2.10; the positional form used here is common to both.
+- Inductor's CPU backend on this Windows laptop needs MSVC's `cl` on
+  PATH (`vcvars64.bat`) and a console code page torch can decode
+  (`chcp 1252` or `65001`; the French `cl /help` banner breaks torch
+  2.10's cp1252 decode otherwise). Laptop only; the box has gcc.
+
+### Not verifiable here; the box must confirm
+
+1. Warmup time on the tier-B trunk: the dynamic compile of ~100 ops
+   with a symbolic token count; section 3.4's 40-90 s was for the full
+   forward. Expect 20-60 s cold, 5-10 s with the FX graph cache
+   (`TORCHINDUCTOR_CACHE_DIR`, set by `--infer-compile`; set it for the
+   pool process too). `warmup_seconds` in the stats says.
+2. One cache entry and zero recompiles after warmup and after a pool
+   run (`packed_compile.recompiles == 0`, `cache_entries == 1` in the
+   JSON): the serve threads share the compiled function; the first
+   compile holds dynamo's lock and the second thread waits on it.
+3. Inductor emits the custom op as an extern kernel with the unbind
+   strides. If it copies q, k, v to contiguous buffers instead, that is
+   three extra copy kernels (~0.1 ms at 20k tokens), visible with
+   `TORCH_LOGS=output_code`.
+4. Parity: compiled vs eager packed bf16 a few 1e-3 of scale (same
+   kernel, same cast points; inductor fuses the residual adds and
+   LayerNorms), and no further from fp32 than the eager packed path.
+5. No implicit sync in a compiled forward after warmup (inductor's
+   wrapper reads sizes from the tensors; `assert_size_stride` and the
+   custom op do not synchronize).
+6. GPU ms per batch of 16 at ~1,270 tokens: section 3.5 predicts -3.5
+   to -5 ms of 24 for compiling the whole forward, of which the trunk's
+   elementwise glue (5 -> ~2 ms) is the largest part; the heads and the
+   priors chain stay eager here. Expect compiled packed = eager packed
+   minus 2.5-4 ms, and the serve thread's CPU per batch down by ~2 ms.
+   Kill: under 1 ms of GPU gain at batch 16.
+7. The weight refresh: after the learner's first `train_step`, the
+   compiled path's outputs move with the published weights (the CPU
+   test covers the mechanism; the box run covers the threading).
+8. `torch.library.define` with a tag, `impl("CompositeExplicitAutograd")`
+   and `register_fake` on 2.5.1 (read at the cited lines, not executed).
+
+### Commands on the box
+
+    pytest -s tests/test_packed_compile_cuda.py -p no:cacheprovider
+    pytest tests/test_packed_compile.py tests/test_packed_trunk.py tests/test_forward_batch_padded.py
+    python tools/bench_pipeline.py --checkpoint training/checkpoints/seed_imit_tierb_start.pt \
+        --device cuda --batch-sizes 16,64 --packed-trunk --compile-packed \
+        --label packed_compiled --out training/metrics/bench_pipeline/seam_packed_compiled.json
+    python tools/bench_pool.py --checkpoint training/checkpoints/seed_imit_tierb_start.pt \
+        --actors 19 --games 16 --sims 32 --leaf-batch 16 --server-priors --infer-bf16 \
+        --packed-trunk --compile-packed --max-batch 16 --out pool_packed_compiled.json
+    python tools/bench_pool.py ... --packed-trunk --compile-packed \
+        --compile-packed-mode max-autotune-no-cudagraphs --out pool_packed_autotune.json
+
+Compare the `seam` and `forwards` rows with `seam_packed.json` (section
+12), and read `packed_compile` in every JSON: `warmup_seconds`,
+`recompiles` (must be 0), `fallback_reason` (must be null),
+`cache_entries` (must be 1). GPU-ms per leaf from the pool run as in
+section 9.4. Same weights and math up to bf16 rounding, so no strength
+check; the `raw:t0` self-match remains the gate before any of this
+becomes the pool default.

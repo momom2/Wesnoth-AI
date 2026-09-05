@@ -486,6 +486,9 @@ def main(argv) -> int:
     ap.add_argument("--packed-trunk", action="store_true",
                     help="run the batched forwards (sections B and D) through the packed "
                          "varlen trunk (model.infer_packed_trunk; CUDA + bf16 only)")
+    ap.add_argument("--compile-packed", action="store_true",
+                    help="torch.compile the packed layer loop over native bf16 weights "
+                         "(design note section 13; needs --packed-trunk)")
     ap.add_argument("--label", default="")
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--games-outdir", type=Path, default=ROOT / "eval_games" / "bench_pipeline")
@@ -521,10 +524,17 @@ def main(argv) -> int:
         # The uncompiled handle owns the attribute; a compiled wrapper
         # forwards attribute reads to it (OptimizedModule.__getattr__).
         getattr(policy, "_inference_base", policy._inference_model).infer_packed_trunk = True
+    base = getattr(policy, "_inference_base", policy._inference_model)
+    if args.compile_packed:
+        if not args.packed_trunk:
+            raise SystemExit("--compile-packed needs --packed-trunk")
+        base.configure_packed_compile()
+        log.info("packed compile warmup: %s", base.warmup_packed_compile())
     states = load_states(args.manifest, args.dataset, args.states)
     log.info("loaded %d benchmark states", len(states))
     result = {"label": args.label, "checkpoint": str(args.checkpoint), "device": args.device,
               "infer_bf16": bf16, "infer_compile": comp, "packed_trunk": bool(args.packed_trunk),
+              "compile_packed": bool(args.compile_packed),
               "n_states": len(states), "torch": torch.__version__}
     result["components"] = component_costs(states, policy, repeats=args.repeats)
     result["forwards"] = forward_costs(
@@ -538,6 +548,7 @@ def main(argv) -> int:
         result["games"] = end_to_end(args.checkpoint, args.games_outdir, args.games,
                                      args.jobs, args.device, args.dollars_per_hour,
                                      sims=args.sims)
+    result["packed_compile"] = base.packed_compile_stats()   # after the sections: recompiles show
     report = markdown_report(result)
     print(report)
     if args.out:

@@ -37,16 +37,33 @@ Outside the kernel's domain (CPU, fp32) the same packed bookkeeping runs
 with F.scaled_dot_product_attention per segment, so the layout is tested
 without a GPU; production callers get the packed trunk only where the
 flash kernel applies (WesnothModel._packed_trunk_applies).
+
+Compiled variant (design note section 13): `CompiledPackedTrunk` runs
+`torch.compile(dynamic=True, fullgraph=True)` over `packed_trunk_layers`,
+the same layer loop written as a pure function of tensors with the
+attention behind the custom op `wesnoth_ai::packed_attention`. The op is
+opaque to dynamo and inductor (an extern kernel in the graph); its eager
+kernel picks the flash varlen op or the per-segment SDPA at run time, so
+neither the private flash schema nor the host-side segment loop is ever
+traced. The weights come from `PackedTrunkWeights`, a native-dtype copy
+of the encoder's parameters (bf16 on CUDA) held as nn.Parameters so
+their shapes stay static; only `total`, the offsets' length and
+`max_len` are symbolic.
 """
 from __future__ import annotations
 
+import logging
+import threading
+import time
 from dataclasses import dataclass
-from typing import List, Sequence, Tuple
+from typing import Callable, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+log = logging.getLogger(__name__)
 
 _FLASH_DTYPES = (torch.float16, torch.bfloat16)
 
@@ -163,13 +180,16 @@ def packed_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor,
     """Self-attention within each segment. q, k, v are
     [total, heads, head_dim]; the result has the same shape."""
     if flash_varlen_applies(q.device, q.dtype):
-        # Positional arguments in the order of the 2.5.1 schema quoted in
-        # the module docstring: dropout 0, not causal, no debug mask,
-        # default scale.
-        return torch.ops.aten._flash_attention_forward(
-            q, k, v, index.cu_seqlens, index.cu_seqlens, index.max_len, index.max_len,
-            0.0, False, False)[0]
+        return _flash_varlen(q, k, v, index.cu_seqlens, index.max_len)
     return _segment_sdpa(q, k, v, index.cu_host)
+
+
+def _flash_varlen(q, k, v, cu_seqlens: torch.Tensor, max_len: int) -> torch.Tensor:
+    """Positional arguments in the order of the 2.5.1 schema quoted in
+    the module docstring: dropout 0, not causal, no debug mask, default
+    scale."""
+    return torch.ops.aten._flash_attention_forward(
+        q, k, v, cu_seqlens, cu_seqlens, max_len, max_len, 0.0, False, False)[0]
 
 
 def _segment_sdpa(q, k, v, cu_host: List[int]) -> torch.Tensor:
@@ -191,6 +211,7 @@ def check_packed_trunk_supported(encoder: nn.TransformerEncoder) -> None:
     post-norm forward (torch 2.5.1 torch/nn/modules/transformer.py:902-906,
     _sa_block 911-927, _ff_block 930-932) over the layer's own
     parameters; it refuses the layer options it does not reproduce."""
+    first = encoder.layers[0]
     for layer in encoder.layers:
         mha = layer.self_attn
         if layer.norm_first:
@@ -199,6 +220,18 @@ def check_packed_trunk_supported(encoder: nn.TransformerEncoder) -> None:
             raise NotImplementedError("packed trunk: add_bias_kv / add_zero_attn")
         if not mha._qkv_same_embed_dim:
             raise NotImplementedError("packed trunk: separate q/k/v projection weights")
+        # The compiled loop closes over one activation and one eps.
+        if not _same_activation(layer.activation, first.activation) or \
+                layer.norm1.eps != first.norm1.eps or layer.norm2.eps != first.norm1.eps:
+            raise NotImplementedError("packed trunk: layers with different activations or eps")
+    if encoder.norm is not None and encoder.norm.eps != first.norm1.eps:
+        raise NotImplementedError("packed trunk: final norm with a different eps")
+
+
+def _same_activation(a, b) -> bool:
+    """Functions by identity; modules (nn.TransformerEncoder deep-copies
+    its layer) by type."""
+    return a is b or (isinstance(a, nn.Module) and type(a) is type(b))
 
 
 def packed_trunk(encoder: nn.TransformerEncoder, x: torch.Tensor,
@@ -226,3 +259,303 @@ def _self_attention(mha: nn.MultiheadAttention, x: torch.Tensor,
     q, k, v = qkv.unbind(1)                    # [total, heads, head_dim], unit-stride last dim
     ctx = packed_attention(q, k, v, index)
     return F.linear(ctx.reshape(total, E), mha.out_proj.weight, mha.out_proj.bias)
+
+
+# ---------------------------------------------------------------------
+# The attention as a custom op: the compile boundary
+# ---------------------------------------------------------------------
+#
+# torch 2.5.1 torch/library.py: define (line 421) takes a schema string
+# and tags; impl (502) with "CompositeExplicitAutograd" registers one
+# kernel for every device; register_fake (684) gives the shape function
+# used while tracing. `SymInt max_len` lets a symbolic length flow
+# through under dynamic shapes (an `int` schema would specialize the
+# graph on every value). The needs_fixed_stride_order tag makes inductor
+# hand the kernel the strides the eager code has (torch/_inductor/
+# lowering.py:106-127; the 2.5.1 default for custom ops is
+# flexible_layout), i.e. the unbind views of the in-projection output,
+# which the flash kernel reads directly.
+
+PACKED_ATTENTION_OP = "wesnoth_ai::packed_attention"
+
+
+def _packed_attention_impl(q, k, v, cu_seqlens, max_len: int) -> torch.Tensor:
+    """Eager kernel of the op. Contiguous [total, heads, head_dim] output,
+    as the fake kernel promises (flash_api.cpp:678 allocates the output
+    with empty_like on the strided q view, which yields a contiguous
+    tensor; .contiguous() is then a no-op)."""
+    if flash_varlen_applies(q.device, q.dtype):
+        q, k, v = (t if t.stride(-1) == 1 else t.contiguous() for t in (q, k, v))
+        return _flash_varlen(q, k, v, cu_seqlens, int(max_len)).contiguous()
+    return _segment_sdpa(q, k, v, cu_seqlens.tolist())
+
+
+def _packed_attention_fake(q, k, v, cu_seqlens, max_len):
+    return q.new_empty(q.shape)
+
+
+def _register_packed_attention_op() -> None:
+    """Defines the op once per process (torch refuses a second
+    definition; the namespace lookup raises AttributeError before the
+    first, torch/_ops.py:1207-1234 at v2.5.1)."""
+    if hasattr(torch.ops.wesnoth_ai, "packed_attention"):
+        return
+    torch.library.define(
+        PACKED_ATTENTION_OP,
+        "(Tensor q, Tensor k, Tensor v, Tensor cu_seqlens, SymInt max_len) -> Tensor",
+        tags=(torch._C.Tag.needs_fixed_stride_order,))
+    torch.library.impl(PACKED_ATTENTION_OP, "CompositeExplicitAutograd", _packed_attention_impl)
+    torch.library.register_fake(PACKED_ATTENTION_OP, _packed_attention_fake)
+
+
+_register_packed_attention_op()
+
+
+# ---------------------------------------------------------------------
+# The layer loop as a pure function of tensors
+# ---------------------------------------------------------------------
+
+# One layer's weights in the order packed_trunk_layers unpacks them:
+# in-projection weight [3, heads, head_dim, E] and bias [3, heads,
+# head_dim], out-projection weight and bias, norm1 weight and bias,
+# linear1 weight and bias, linear2 weight and bias, norm2 weight and
+# bias. Absent biases / affine weights are None.
+LayerWeights = Tuple[Optional[torch.Tensor], ...]
+
+
+def make_packed_trunk_layers(activation: Callable, eps: float):
+    """Builds the loop closed over the two layer constants that are not
+    tensors. Under `dynamic=True` dynamo turns every int reaching the
+    function through a local, a closure cell or an attribute into a
+    symbol (torch 2.5.1 torch/_dynamo/variables/builder.py:1416-1445 and
+    wrap_symint 1710-1800), so `heads` and `head_dim` are read from the
+    static shape of the in-projection parameter instead of being passed;
+    floats are specialized (config.specialize_float, config.py:64) and
+    functions are constants."""
+    def packed_trunk_layers(x, cu_seqlens, max_len, layers, final_norm):
+        for (qkv_w, qkv_b, out_w, out_b, ln1_w, ln1_b,
+             ff1_w, ff1_b, ff2_w, ff2_b, ln2_w, ln2_b) in layers:
+            _, heads, head_dim, E = qkv_w.shape
+            total = x.shape[0]
+            qkv = F.linear(x.to(qkv_w.dtype), qkv_w.view(3 * E, E),
+                           None if qkv_b is None else qkv_b.view(3 * E))
+            q, k, v = qkv.view(total, 3, heads, head_dim).unbind(1)
+            ctx = torch.ops.wesnoth_ai.packed_attention.default(q, k, v, cu_seqlens, max_len)
+            sa = F.linear(ctx.view(total, E), out_w, out_b)
+            x = F.layer_norm(x + sa.to(x.dtype), (E,), ln1_w, ln1_b, eps)
+            ff = F.linear(activation(F.linear(x.to(ff1_w.dtype), ff1_w, ff1_b)), ff2_w, ff2_b)
+            x = F.layer_norm(x + ff.to(x.dtype), (E,), ln2_w, ln2_b, eps)
+        if final_norm is not None:
+            x = F.layer_norm(x, (x.shape[1],), final_norm[0], final_norm[1], eps)
+        return x
+    return packed_trunk_layers
+
+
+def _layer_sources(layer: nn.TransformerEncoderLayer, compute_dtype: torch.dtype):
+    """(source parameter or None, dtype of the copy, shape of the copy or
+    None for the source's) per entry of LayerWeights."""
+    mha = layer.self_attn
+    heads, E = mha.num_heads, mha.embed_dim
+    c, f = compute_dtype, torch.float32
+    return [
+        (mha.in_proj_weight, c, (3, heads, E // heads, E)),
+        (mha.in_proj_bias, c, (3, heads, E // heads)),
+        (mha.out_proj.weight, c, None), (mha.out_proj.bias, c, None),
+        (layer.norm1.weight, f, None), (layer.norm1.bias, f, None),
+        (layer.linear1.weight, c, None), (layer.linear1.bias, c, None),
+        (layer.linear2.weight, c, None), (layer.linear2.bias, c, None),
+        (layer.norm2.weight, f, None), (layer.norm2.bias, f, None),
+    ]
+
+
+@dataclass
+class PackedTrunkWeights:
+    """The encoder's parameters as packed_trunk_layers reads them: linear
+    weights in the compute dtype (bf16 on CUDA), LayerNorm weights fp32,
+    the in-projection shaped [3, heads, head_dim, E]. Distinct storage
+    from the encoder's parameters, held as nn.Parameters so dynamo keeps
+    their shapes static under dynamic=True (torch 2.5.1
+    torch/_dynamo/utils.py:2307-2311, config.force_parameter_static_shapes).
+    `refresh` copies the encoder's current values in place, so the
+    compiled graph's guards see the same tensors."""
+    layers: List[LayerWeights]
+    final_norm: Optional[Tuple[torch.Tensor, torch.Tensor]]
+    dtype: torch.dtype
+    device: torch.device
+    version: int
+
+    @classmethod
+    def build(cls, encoder: nn.TransformerEncoder, dtype: torch.dtype, device: torch.device,
+              version: int) -> "PackedTrunkWeights":
+        def copy(src, dt, shape):
+            if src is None:
+                return None
+            t = src.detach().to(device=device, dtype=dt, copy=True)
+            return nn.Parameter(t.reshape(shape) if shape else t, requires_grad=False)
+        layers = [tuple(copy(*entry) for entry in _layer_sources(layer, dtype))
+                  for layer in encoder.layers]
+        final = None if encoder.norm is None else (
+            copy(encoder.norm.weight, torch.float32, None),
+            copy(encoder.norm.bias, torch.float32, None))
+        return cls(layers, final, dtype, device, version)
+
+    def refresh(self, encoder: nn.TransformerEncoder, version: int) -> None:
+        with torch.no_grad():
+            for dst_layer, layer in zip(self.layers, encoder.layers):
+                for dst, (src, _, _) in zip(dst_layer, _layer_sources(layer, self.dtype)):
+                    if dst is not None:
+                        dst.copy_(src.detach().reshape(dst.shape))
+            if self.final_norm is not None:
+                self.final_norm[0].copy_(encoder.norm.weight)
+                self.final_norm[1].copy_(encoder.norm.bias)
+        self.version = version
+
+
+# ---------------------------------------------------------------------
+# torch.compile of the loop, with recompile and fallback accounting
+# ---------------------------------------------------------------------
+
+def _dynamo_cache_entries(fn) -> int:
+    """Compiled variants dynamo holds for fn's code object (torch 2.5.1
+    torch/_dynamo/eval_frame.py:130-139); grows by one per recompile."""
+    from torch._dynamo.eval_frame import _debug_get_cache_entry_list
+    return len(_debug_get_cache_entry_list(fn.__code__))
+
+
+def _dynamo_guard_failures(fn) -> List[str]:
+    """Reasons of every guard failure on fn's code object, appended
+    before dynamo decides between recompiling and giving up (torch 2.5.1
+    torch/_dynamo/guards.py:2754 from convert_frame.py:828-833)."""
+    from torch._dynamo.utils import guard_failures
+    return guard_failures.get(fn.__code__, [])
+
+
+class CompiledPackedTrunk:
+    """`torch.compile(packed_trunk_layers, dynamic=True, fullgraph=True)`
+    in the default inductor mode (no CUDA graphs: cudagraph trees would
+    record one graph per distinct shape, design note section 3.4), or
+    `mode="max-autotune-no-cudagraphs"` for the GEMM templates.
+
+    Warmup compiles on the first batch and runs a second, distinct shape
+    so that a graph specialized on the first shows up as a second cache
+    entry (`recompiles`). Afterwards every call is checked against the
+    per-function guard-failure list: a failure followed by a new cache
+    entry is a recompile (logged, counted), a failure without one means
+    dynamo gave up on the frame (the design's silent eager fallback:
+    logged once, `active` drops and this object's own eager loop serves).
+    With fullgraph=True, graph breaks, the cache-size limit and backend
+    errors raise instead of falling back (torch 2.5.1 optimize_assert,
+    eval_frame.py:1602, runs convert_frame_assert, which bypasses the
+    suppress_errors swallow at convert_frame.py:1111); those raise into
+    the same fallback. Calls run under no_grad with autocast disabled,
+    the two global states dynamo guards on, so the caller's context
+    cannot trigger a recompile."""
+
+    def __init__(self, activation: Callable, eps: float, *, backend="inductor",
+                 mode: Optional[str] = None):
+        self.backend, self.mode = backend, mode
+        self._eager = make_packed_trunk_layers(activation, eps)
+        self._compiled = torch.compile(self._eager, dynamic=True, fullgraph=True,
+                                       backend=backend, mode=mode)
+        self._lock = threading.Lock()
+        self.warmed = False
+        self.active = False
+        self.warmup_seconds: Optional[float] = None
+        self.recompiles = 0
+        self.fallback_reason: Optional[str] = None
+        self._entries = 0
+        self._failures = 0
+
+    def run(self, x: torch.Tensor, index: PackedIndex, weights: PackedTrunkWeights) -> torch.Tensor:
+        if not self.warmed:
+            out = self._warmup(x, index, weights)
+            if out is not None:
+                return out
+        if self.active:
+            try:
+                out = self._call(x, index.cu_seqlens, index.max_len, weights)
+            except Exception as e:                       # noqa: BLE001 -- any compile or run error
+                self._fall_back(f"compiled call raised {type(e).__name__}: {e}")
+            else:
+                self._check_after_call()
+                return out
+        return self._eager(x, index.cu_seqlens, index.max_len, weights.layers, weights.final_norm)
+
+    def stats(self) -> dict:
+        return {"active": self.active, "backend": str(self.backend), "mode": self.mode,
+                "warmup_seconds": self.warmup_seconds, "recompiles": self.recompiles,
+                "fallback_reason": self.fallback_reason,
+                "cache_entries": _dynamo_cache_entries(self._eager)}
+
+    def _call(self, x, cu_seqlens, max_len, weights):
+        # The activation's token dim and the offsets' length are the
+        # dynamic dims; marking them makes dynamo raise at compile time
+        # if anything specializes them (RelaxedUnspecConstraint,
+        # builder.py:2600-2611). The model dim is static.
+        torch._dynamo.mark_dynamic(x, 0)
+        torch._dynamo.mark_static(x, 1)
+        torch._dynamo.mark_dynamic(cu_seqlens, 0)
+        with torch.no_grad(), torch.autocast(x.device.type, enabled=False):
+            return self._compiled(x, cu_seqlens, max_len, weights.layers, weights.final_norm)
+
+    def _warmup(self, x, index, weights):
+        with self._lock:
+            if self.warmed:
+                return None
+            t0 = time.perf_counter()
+            try:
+                before = _dynamo_cache_entries(self._eager)
+                out = self._call(x, index.cu_seqlens, index.max_len, weights)
+                first = _dynamo_cache_entries(self._eager)
+                second = self._second_shape(x, index)
+                if second is not None:
+                    self._call(*second, weights)
+                after = _dynamo_cache_entries(self._eager)
+            except Exception as e:                       # noqa: BLE001 -- eager serves from here on
+                self.warmed = True
+                self._fall_back(f"warmup failed: {type(e).__name__}: {e}")
+                return None
+            self.warmup_seconds = time.perf_counter() - t0
+            self.recompiles = after - first
+            self._entries, self._failures = after, len(_dynamo_guard_failures(self._eager))
+            self.warmed = self.active = True
+            log.info("packed trunk compiled (%s, mode %s): warmup %.1f s, %d cache entries "
+                     "(%d new), second shape %s",
+                     self.backend, self.mode or "default", self.warmup_seconds, after,
+                     after - before, "recompiled" if self.recompiles else "reused the graph")
+            if self.recompiles:
+                log.warning("packed trunk recompiled on the second warmup shape: the graph is "
+                            "specialized (last guard failure: %s)",
+                            (_dynamo_guard_failures(self._eager) or ["?"])[-1])
+            return out
+
+    @staticmethod
+    def _second_shape(x, index):
+        """One segment cut from the batch: another total, offsets of
+        length 2, another max_len. None if the batch is too small."""
+        n = index.cu_host[1]
+        if len(index.cu_host) == 2 or n == index.max_len:
+            n -= 1
+        if n < 2:
+            return None
+        return x[:n], torch.tensor([0, n], dtype=torch.int32, device=x.device), n
+
+    def _check_after_call(self):
+        failures = _dynamo_guard_failures(self._eager)
+        if len(failures) == self._failures:
+            return
+        self._failures = len(failures)
+        entries = _dynamo_cache_entries(self._eager)
+        if entries > self._entries:
+            self.recompiles += entries - self._entries
+            self._entries = entries
+            log.warning("packed trunk recompiled (%d cache entries; guard failure: %s)",
+                        entries, failures[-1])
+        else:
+            self._fall_back(f"dynamo guard failed without a new compile ({failures[-1]})")
+
+    def _fall_back(self, reason: str):
+        self.active = False
+        if self.fallback_reason is None:
+            self.fallback_reason = reason
+            log.warning("packed trunk compile inactive, eager loop serves: %s", reason)
