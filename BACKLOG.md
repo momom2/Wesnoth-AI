@@ -278,6 +278,14 @@ and three proposals that would train on the holdout games. Open
 rulings: distilling confirmed pairs (R2); whether the relevant-set
 retrain replaces the seed; the re-pin of raw:t0 through shared
 inference.
+- TEST 3 QUEUED (2026-09-05 evening, ~$2.4, last in the box queue):
+  the corpus's player ratings are fitted (`tools/player_ratings.py`,
+  records in training/metrics/player_ratings/): 142 regulars at 30+
+  games, top quartile 36 at +147 Elo, the built-in AI at -177 over
+  1,399 games; the winner subset is 3,520 games / 347k pairs (13.8%,
+  inside the predicted 12-28%, passes the 250k kill). The arm trains
+  from the seed on that subset with the control arm's recipe, then
+  1,300 games vs the seed and 600 vs the control arm at argmax.
 
 ## Cheap measurements worth taking
 
