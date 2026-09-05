@@ -483,26 +483,39 @@ prediction (control within +-30 Elo of the seed) is refuted: half an
 epoch of the imitation recipe from the seed costs more than 100 Elo
 while the holdout CE does not move against it.
 
-Two mechanisms: (a) drift, since lr 1e-4 flat is about 20x the seed's
-last-epoch rate and a converged net re-heated at that rate settles in
-another minimum of equal CE whose argmax differs off the human
-distribution; (b) the recipe, since `configs/imitation.json` trains on
-winners only, weights games equally and weights action types
-(recruit 1.75, end_turn 1.44, attack 0.63, move 0.19), all of which
-move the argmax without moving the unweighted CE.
+Final number (2026-09-05, box 49875606): 276-524 over 800 decisive
+games, 271 stalled games excluded, the control arm at -111 +- 13 Elo
+against the seed, losing on both sides (109-291 as side 1, 167-233 as
+side 2). Record: `training/metrics/elo/relset_arms/control_vs_seed.fit.json`.
+
+What the arm is: the seed (`imit_tierb_rescued_2368k`, one epoch of
+this same recipe at lr 1e-4 flat, docs/archive/claude_status_history.md
+2026-08-10) continued for half an epoch over the same games at the
+same rate. Not a recipe change and not a re-heating. Mechanisms left:
+(a) under lr 1e-4 the policy wanders among minima of equal holdout CE
+whose argmax strength differs by ~100 Elo, and the reference is a
+selected good draw (it was the best of several checkpoints measured);
+(b) a second pass over the same 17k games overfits them in a way the
+human-state holdout does not show but self-play states do.
 
 Arm: the control recipe unchanged except lr 1e-5, same stream, file
 order and seed (`chain33` on the box, after the queue), then 800 games
 against the seed at argmax (seed base 30000, sides alternated).
 Cost: 3.9 h + 1.2 h at $0.33/h, about $1.7.
 
-Prediction (operator): (a) is the mechanism; the lr 1e-5 arm lands
-within +-40 Elo of the seed. Readings: within +-40 Elo (2 SE at 800
-decisive is about +-50): drift, and every future fine-tune from the seed
-runs at 1e-5 or below with an argmax match as its acceptance; a loss
-beyond -80 Elo: the recipe, and its knobs are tested one at a time
-(winners-only first); in between: both, and the relevant-set question
-waits for a recipe that keeps the seed's strength.
+Prediction (operator): the lr 1e-5 arm lands within +-40 Elo of the
+seed (small steps stay near the seed's minimum under either
+mechanism). Readings: within +-40 Elo (2 SE at 800 decisive is about
++-26): continuation at 1e-5 keeps the seed's strength, and the
+relevant-set retrain is rerun at 1e-5 with an argmax match as its
+acceptance; a loss beyond -60 Elo: continued imitation itself costs
+strength whatever the rate, and the basis change is done by
+distillation from the seed's own priors on human states (the new
+basis learns the seed's policy, not the human labels) instead of by
+imitation; in between: both arms are run. Whatever the reading, a
+holdout CE within noise of the seed's says nothing about strength,
+and no retrained checkpoint replaces the seed without its own
+800-game match.
 
 ## 8. Method notes
 
