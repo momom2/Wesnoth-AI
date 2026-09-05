@@ -1,0 +1,305 @@
+{
+ "rows": [
+  {
+   "precision": "fp32",
+   "batch_size": 1,
+   "n": 1024,
+   "compiled": false,
+   "repeats": 2,
+   "warmup_s": 61.747995373792946,
+   "ms_per_exp": {
+    "encode_raw": 1.9918563365936282,
+    "encode": 1.6826497653964922,
+    "forward": 5.555133438436319,
+    "policy_loss": 28.898756327864255,
+    "value_loss": 0.22162585947808092,
+    "backward": 21.178725451231006
+   },
+   "fwd_bwd_ms_per_exp": 59.52874717899978,
+   "clip_ms": 1.4672160148620608,
+   "optimizer_ms": 2.5364480018615723,
+   "snapshot_ms": 5.741631984710693,
+   "step_wall_s": 61.485834669554606,
+   "step_wall_ms_per_exp": 60.04476041948692,
+   "unattributed_ms_per_exp": 0.5064963498607398,
+   "gpu_peak_mb": 667.46484375,
+   "grad_norm": 6.297471046447754,
+   "total_loss": 5.559108530208334
+  },
+  {
+   "precision": "fp32",
+   "batch_size": 16,
+   "n": 1024,
+   "compiled": false,
+   "repeats": 2,
+   "warmup_s": 45.90690875099972,
+   "ms_per_exp": {
+    "encode_raw": 1.9815373420715332,
+    "encode": 0.5998616185970604,
+    "forward": 5.065311385318637,
+    "policy_loss": 22.632456370338332,
+    "value_loss": 0.01626696876701317,
+    "backward": 14.064005836844442
+   },
+   "fwd_bwd_ms_per_exp": 44.35943952193702,
+   "clip_ms": 1.4106240272521973,
+   "optimizer_ms": 2.335744023323059,
+   "snapshot_ms": 5.1015520095825195,
+   "step_wall_s": 45.55259226472117,
+   "step_wall_ms_per_exp": 44.48495338351677,
+   "unattributed_ms_per_exp": 0.11687331464600714,
+   "gpu_peak_mb": 6199.65380859375,
+   "grad_norm": 2.255677282810211,
+   "total_loss": 5.232529457658529
+  },
+  {
+   "precision": "bf16",
+   "batch_size": 1,
+   "n": 1024,
+   "compiled": false,
+   "repeats": 2,
+   "warmup_s": 69.3221830399707,
+   "ms_per_exp": {
+    "encode_raw": 1.9594717621803284,
+    "encode": 1.926877563702874,
+    "forward": 7.119364926358686,
+    "policy_loss": 29.09128028154373,
+    "value_loss": 0.22642070297297343,
+    "backward": 27.179141703527428
+   },
+   "fwd_bwd_ms_per_exp": 67.50255694028601,
+   "clip_ms": 1.7355679869651797,
+   "optimizer_ms": 2.690559983253479,
+   "snapshot_ms": 5.9771199226379395,
+   "step_wall_s": 69.92907812050544,
+   "step_wall_ms_per_exp": 68.29011535205609,
+   "unattributed_ms_per_exp": 0.7773989899996919,
+   "gpu_peak_mb": 559.42138671875,
+   "grad_norm": 1.9521145820617676,
+   "total_loss": 5.06518610103376
+  },
+  {
+   "precision": "bf16",
+   "batch_size": 16,
+   "n": 1024,
+   "compiled": false,
+   "repeats": 2,
+   "warmup_s": 36.6391777950339,
+   "ms_per_exp": {
+    "encode_raw": 2.0188368558883667,
+    "encode": 0.3397287500556559,
+    "forward": 1.5388142787851393,
+    "policy_loss": 26.6307113878429,
+    "value_loss": 0.016675796738127243,
+    "backward": 4.719383034855127
+   },
+   "fwd_bwd_ms_per_exp": 35.26415010416532,
+   "clip_ms": 1.6046879887580872,
+   "optimizer_ms": 2.6731519699096675,
+   "snapshot_ms": 6.220671892166139,
+   "step_wall_s": 36.278343263082206,
+   "step_wall_ms_per_exp": 35.42806959285372,
+   "unattributed_ms_per_exp": 0.1536670357090708,
+   "gpu_peak_mb": 3769.98046875,
+   "grad_norm": 1.6953761577606201,
+   "total_loss": 4.8938123201951385
+  }
+ ],
+ "parity": [
+  {
+   "config": "fp32 B=1",
+   "reference": true,
+   "policy_loss": 4.463613528758287,
+   "value_loss": 1.3477247147093294,
+   "total_loss": 5.811338243467617,
+   "grad_norm": 5.475992202758789,
+   "loss_rel_diff": 0.0,
+   "grad_norm_ratio": 1.0000000530792206,
+   "grad_rel_l2_diff": 0.0,
+   "cosine": 1.0000000000000002,
+   "ok": true
+  },
+  {
+   "config": "fp32 B=1 rerun",
+   "reference": false,
+   "policy_loss": 4.463613528758287,
+   "value_loss": 1.3477247147093294,
+   "total_loss": 5.811338243467617,
+   "grad_norm": 5.475992202758789,
+   "loss_rel_diff": 0.0,
+   "grad_norm_ratio": 1.0000000530792206,
+   "grad_rel_l2_diff": 6.404007445895898e-08,
+   "cosine": 0.9999999999999979,
+   "ok": true
+  },
+  {
+   "config": "fp32 B=16",
+   "reference": false,
+   "policy_loss": 4.463613867759705,
+   "value_loss": 1.3477246761322021,
+   "total_loss": 5.811338543891907,
+   "grad_norm": 5.476008892059326,
+   "loss_rel_diff": 5.169623196986223e-08,
+   "grad_norm_ratio": 1.000003100801132,
+   "grad_rel_l2_diff": 0.0001459718967955033,
+   "cosine": 0.9999999893509236,
+   "ok": true
+  },
+  {
+   "config": "bf16 B=1",
+   "reference": false,
+   "policy_loss": 4.463645491749048,
+   "value_loss": 1.3484145304537378,
+   "total_loss": 5.812060022202786,
+   "grad_norm": 5.5244832038879395,
+   "loss_rel_diff": 0.00012420181117155646,
+   "grad_norm_ratio": 1.008855252631657,
+   "grad_rel_l2_diff": 0.03770284582116736,
+   "cosine": 0.9993343494668008,
+   "ok": true
+  },
+  {
+   "config": "bf16 B=16",
+   "reference": false,
+   "policy_loss": 4.463714599609375,
+   "value_loss": 1.3495791554450989,
+   "total_loss": 5.813293755054474,
+   "grad_norm": 5.489576816558838,
+   "loss_rel_diff": 0.0003364993577951122,
+   "grad_norm_ratio": 1.0024808116373256,
+   "grad_rel_l2_diff": 0.033172346605759746,
+   "cosine": 0.9994542287609338,
+   "ok": true
+  }
+ ],
+ "implied": [
+  {
+   "precision": "fp32",
+   "batch_size": 1,
+   "compiled": false,
+   "n_measured": 1024,
+   "fwd_bwd_experiences": 9912.0,
+   "fwd_only_experiences": 648,
+   "step_experiences": 4000,
+   "held_experiences_per_pass": 2700.0,
+   "fixed_s": 0.06473611211776734,
+   "train_path_s": 596.09448457256,
+   "leaves_per_iteration": 414720.0,
+   "generation_s_saturated": 497.86314525810326,
+   "fraction_saturated": 0.5448972321394486,
+   "generation_s_iteration_avg": 848.0981595092024,
+   "fraction_iteration_avg": 0.41275274944470103
+  },
+  {
+   "precision": "fp32",
+   "batch_size": 16,
+   "compiled": false,
+   "n_measured": 1024,
+   "fwd_bwd_experiences": 9912.0,
+   "fwd_only_experiences": 648,
+   "step_experiences": 4000,
+   "held_experiences_per_pass": 2700.0,
+   "fixed_s": 0.05920596849918366,
+   "train_path_s": 444.7050388141386,
+   "leaves_per_iteration": 414720.0,
+   "generation_s_saturated": 497.86314525810326,
+   "fraction_saturated": 0.4718014530183366,
+   "generation_s_iteration_avg": 848.0981595092024,
+   "fraction_iteration_avg": 0.34398510105086705
+  },
+  {
+   "precision": "bf16",
+   "batch_size": 1,
+   "compiled": false,
+   "n_measured": 1024,
+   "fwd_bwd_experiences": 9912.0,
+   "fwd_only_experiences": 648,
+   "step_experiences": 4000,
+   "held_experiences_per_pass": 2700.0,
+   "fixed_s": 0.07056391924619675,
+   "train_path_s": 676.2876111468139,
+   "leaves_per_iteration": 414720.0,
+   "generation_s_saturated": 497.86314525810326,
+   "fraction_saturated": 0.5759802201358798,
+   "generation_s_iteration_avg": 848.0981595092024,
+   "fraction_iteration_avg": 0.44364597476908674
+  },
+  {
+   "precision": "bf16",
+   "batch_size": 16,
+   "compiled": false,
+   "n_measured": 1024,
+   "fwd_bwd_experiences": 9912.0,
+   "fwd_only_experiences": 648,
+   "step_experiences": 4000,
+   "held_experiences_per_pass": 2700.0,
+   "fixed_s": 0.07028817504644394,
+   "train_path_s": 352.1340461728376,
+   "leaves_per_iteration": 414720.0,
+   "generation_s_saturated": 497.86314525810326,
+   "fraction_saturated": 0.4142767172913032,
+   "generation_s_iteration_avg": 848.0981595092024,
+   "fraction_iteration_avg": 0.29338826645860167
+  }
+ ],
+ "compile": {
+  "requested": false,
+  "active": false
+ },
+ "loop": {
+  "games_per_iter": 24,
+  "holdout_frac": 0.2,
+  "exps_per_game": 540.0,
+  "step_cap": 4000,
+  "step_trials": 1,
+  "sims": 32,
+  "leaves_per_s": 833.0,
+  "iteration_leaves_per_s": 489.0,
+  "signal_states": 128,
+  "signal_surgeries": 4,
+  "probe_forwards": 448,
+  "kl_states": 100
+ },
+ "unique_experiences": 200,
+ "parity_n": 64,
+ "n_list": [
+  1024
+ ],
+ "batch_sizes": [
+  1,
+  16
+ ],
+ "precisions": [
+  "fp32",
+  "bf16"
+ ],
+ "repeats": 2,
+ "parity_tolerance": {
+  "loss_rel": 0.01,
+  "grad_norm_rel": 0.05,
+  "cosine_min": 0.99
+ },
+ "env": {
+  "checkpoint": "seed.pt",
+  "arch": {
+   "d_model": 384,
+   "num_layers": 8,
+   "num_heads": 12,
+   "d_ff": 1536
+  },
+  "params_m": 15.03,
+  "torch": "2.5.1+cu124",
+  "device": "cuda",
+  "device_name": "NVIDIA GeForce RTX 4090",
+  "source": {
+   "kind": "bench",
+   "manifest": "/workspace/Wesnoth-AI/configs/bench_states.json",
+   "states": 200,
+   "visits": "32 draws from the prior",
+   "experiences": 200,
+   "build_seconds": 23.025423901621252
+  },
+  "loop_train_batch_size": 16,
+  "note": "az_loop sets TrainerConfig.train_batch_size 16 (2026-09-05); value loss mse_mean, coef 1, lr 1e-4, clip 1, no auxiliary terms"
+ }
+}

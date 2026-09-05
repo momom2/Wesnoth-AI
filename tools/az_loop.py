@@ -280,7 +280,7 @@ def main(argv) -> int:
                          "(cuda only; the learner's own probes stay in "
                          "the model's precision).")
     ap.add_argument("--train-bf16", action=argparse.BooleanOptionalAction,
-                    default=False,
+                    default=True,
                     help="bf16 autocast around the trainer's forward and "
                          "backward (TrainerConfig.train_autocast_bf16; "
                          "cuda only; losses, master weights and AdamW "

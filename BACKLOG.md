@@ -179,10 +179,12 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
    generation. SHIPPED 2026-09-05: the policy loss over the whole
    batch (parity: loss 2e-7, gradient cosine 1.0000000), per-stage
    timings logged per iteration, az_loop at train_batch_size 16.
-   Expected 32 -> 2-3 ms per experience for the loss stage, the
-   training path ~280 s per iteration (from 684); box confirmation
-   queued (2 rows). NEXT: bf16 autocast for forward and backward
-   (cosine 0.9994 measured), then the backward itself.
+   MEASURED: the loss stage 32 -> 22.6 ms per experience (its host
+   side dominates; being profiled), batch 16 + bf16 autocast 35.4 ms
+   per experience (forward 1.5, backward 4.7), training path 352 s
+   per iteration (from 684); parity cosine 0.9994. az_loop now
+   defaults to batch 16 with bf16 training. NEXT: the loss's host
+   cost (in flight), then a second serve process.
 6. **Review of the day's changes** (2026-09-04, 7 Opus finders + 3
    refuters per finding): 17 confirmed, 16 fixed the same day (static
    hex cache keyed on a freed address; timeout artifacts that aborted

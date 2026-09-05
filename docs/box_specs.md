@@ -598,6 +598,21 @@ Levers, in order: the policy loss over the whole batch (32 -> a few
 ms), then batch 16 (exact parity, immediate), then bf16 autocast for
 the forward and backward (parity within bf16 noise).
 
+Same day, after the batched loss (`train_step_batched.md`, N 1024):
+
+| precision | batch | forward | policy loss | backward | fwd + bwd | step wall ms per exp | train path s per iteration |
+|---|---|---|---|---|---|---|---|
+| fp32 | 1 | 5.6 | 28.9 | 21.2 | 59.5 | 60.0 | 596 |
+| fp32 | 16 | 5.1 | 22.6 | 14.1 | 44.4 | 44.5 | 445 |
+| bf16 | 1 | 7.1 | 29.1 | 27.2 | 67.5 | 68.3 | 676 |
+| bf16 | 16 | 1.5 | 26.6 | 4.7 | 35.3 | 35.4 | 352 |
+
+Parity unchanged (fp32 batch 16 exact; bf16 batch 16 loss 3e-4,
+cosine 0.9994). The batched loss took its stage from 32 to 23-27 ms,
+not to the predicted 2-3: its host side (mask rebuild and staging per
+experience) dominates and is being profiled. The loop now trains at
+batch 16 with bf16 autocast (`az_loop --train-bf16` default on).
+
 ## Evaluation through the shared inference server (2026-09-05)
 
 `run_elo_batch --persistent-workers --shared-inference`, 40 games,
