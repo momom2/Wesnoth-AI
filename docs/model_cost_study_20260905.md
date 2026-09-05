@@ -517,6 +517,31 @@ holdout CE within noise of the seed's says nothing about strength,
 and no retrained checkpoint replaces the seed without its own
 800-game match.
 
+### 7c. Basis transfer by distillation from the seed (design, not launched)
+
+If continued imitation costs strength at any rate, the relevant-set
+model can learn the seed's policy instead of the human labels: on the
+corpus's states (and later on self-play states), the target is the
+seed's distribution over the legal actions and its C51 value
+distribution, read once per state through the seed's full-board
+forward; the student, in the relevant-set basis, minimizes the KL to
+it. The relevant set keeps a token for every legal action's hex, so
+the seed's distribution over legal actions maps onto the student's
+action space exactly; the student's argmax equals the seed's wherever
+the basis can represent the same ranking.
+
+Code: a labeling pass writes each state's legal-action list with the
+seed's priors (the `MCTSExperience` shape: visit-count tuples with the
+priors in place of counts, indices resolved in the student's
+encoding), and the existing soft-target trainer (`trainer.step_mcts`)
+consumes it unchanged; the imitation stream provides the states and
+the holdout split. Teacher cost: ~2.5M states at the batched forward
+rate of plan 1.3, about half a box-hour; student training as an
+imitation arm. Acceptance: an 800-game argmax match against the seed
+within +-40 Elo; then the forward-cost row of section 7 item 3.
+Rejected: switching the seed's weights into the new basis without
+training (7-10 with 23 stalls of 40, docs/box_specs.md).
+
 ## 8. Method notes
 
 - Token counts: `relset_measure.py` reconstructs the 200 states with
