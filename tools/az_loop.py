@@ -279,6 +279,17 @@ def main(argv) -> int:
                     help="bf16 autocast on the pool's inference server "
                          "(cuda only; the learner's own probes stay in "
                          "the model's precision).")
+    ap.add_argument("--train-bf16", action=argparse.BooleanOptionalAction,
+                    default=False,
+                    help="bf16 autocast around the trainer's forward and "
+                         "backward (TrainerConfig.train_autocast_bf16; "
+                         "cuda only; losses, master weights and AdamW "
+                         "stay fp32). Batch 16 on a 4090: 45.0 against "
+                         "57.1 ms per experience, loss within 3e-4 of "
+                         "fp32, gradient cosine 0.9994, norm within 0.3% "
+                         "on one batch of 64 (docs/box_specs.md "
+                         "'Training path cost (2026-09-05)'). Off until "
+                         "its own loop row is in.")
     ap.add_argument("--packed-trunk", action=argparse.BooleanOptionalAction,
                     default=True,
                     help="Serve the pool's forwards through the packed varlen "
@@ -345,10 +356,12 @@ def main(argv) -> int:
     # 1 exactly (gradient within 1e-4) on one batch of 64, at 57 vs 68
     # ms per experience before the batched policy loss.
     cfg.train_batch_size = 16
+    cfg.train_autocast_bf16 = bool(args.train_bf16)
     log.info(f"loaded {ckpt_in.name} decision_step={base._decision_step} "
              f"| value_loss={cfg.value_loss_form} c={cfg.value_coef} "
              f"lr={cfg.learning_rate} clip={cfg.grad_clip} "
-             f"batch={cfg.train_batch_size}")
+             f"batch={cfg.train_batch_size} "
+             f"train_bf16={cfg.train_autocast_bf16}")
 
     # Plain PUCT: no Gumbel root, no tree reuse, no playout caps, no
     # tiebreak labels, no auxiliary utilities.

@@ -323,6 +323,18 @@ class TrainerConfig:
     # we default to 1. On a GPU the loop sets 16 (tools/az_loop.py;
     # docs/box_specs.md "Training path cost (2026-09-05)").
     train_batch_size: int = 1
+    # bf16 autocast around step_mcts's network forward (the encoder's
+    # projections, the trunk and the heads), cuda only. The outputs
+    # are cast back to float32 before any loss, so the log-softmaxes,
+    # the C51 projection and the squared errors run in fp32 and only
+    # the matmuls are bf16; the master weights, the AdamW step and the
+    # inference snapshot are untouched (no GradScaler: bf16 keeps
+    # fp32's exponent range). On cpu the switch is a no-op. Batch 16
+    # on a 4090: 45.0 against 57.1 ms per experience; on one batch of
+    # 64 the loss is within 3e-4 of fp32, gradient cosine 0.9994, norm
+    # within 0.3% (docs/box_specs.md "Training path cost
+    # (2026-09-05)"). Off by default; az_loop --train-bf16.
+    train_autocast_bf16: bool = False
 
 
 @dataclass
@@ -1426,6 +1438,14 @@ class _StageTimer:
             self.sink[name] = self.sink.get(name, 0.0) + s
 
 
+def _training_autocast(enabled: bool):
+    """The bf16 region of step_mcts's forward (TrainerConfig.
+    train_autocast_bf16, cuda only); a null context when off."""
+    if not enabled:
+        return contextlib.nullcontext()
+    return torch.autocast("cuda", dtype=torch.bfloat16)
+
+
 def _trainer_step_mcts(
     self,                                     # Trainer (method injected below)
     experiences: List[MCTSExperience],
@@ -1438,6 +1458,10 @@ def _trainer_step_mcts(
     Like REINFORCE `step`, processes experiences in chunks of
     `train_batch_size` and calls `.backward()` per chunk to bound
     peak activation memory. Final `optimizer.step()` once at the end.
+
+    `config.train_autocast_bf16` (cuda only) runs each chunk's encode
+    and forward under bf16 autocast; the losses, the backward's
+    parameter gradients, the clip and the optimizer step stay fp32.
 
     `timings`: seconds per stage (keys STEP_MCTS_STAGES) are ADDED to
     this dict; defaults to `self.stage_timings`. None = no timing.
@@ -1462,6 +1486,8 @@ def _trainer_step_mcts(
     dev = self.device or next(self.model.parameters()).device
     N = len(experiences)
     B = max(1, self.config.train_batch_size)
+    # cuda only: the cpu path stays the fp32 reference (TrainerConfig).
+    autocast_bf16 = bool(self.config.train_autocast_bf16) and dev.type == "cuda"
 
     # Clamp z values to the value head's range (matches REINFORCE
     # path's value_clip handling).
@@ -1620,10 +1646,24 @@ def _trainer_step_mcts(
         chunk = experiences[start:start + B]
         L = len(chunk)
         raw_chunk = raw_cache[start:start + B]
-        with timer.stage("encode"):
-            encoded_chunk = self.encoder.encode_from_raw_batch(raw_chunk)
-        with timer.stage("forward"):
-            padded = self.model.forward_padded(encoded_chunk)
+        # The bf16 region (config.train_autocast_bf16): the encoder's
+        # projections, then the trunk and the heads. The model's own
+        # inference switches (infer_autocast_bf16, the packed trunk)
+        # do not apply to the training forward: this switch is the
+        # only authority over its precision, and the padded trunk is
+        # the one the backward runs through. Every output the losses
+        # read is cast back to float32 as the region's last op, so
+        # the loss stages below run in fp32 whatever the forward ran
+        # in; a cast's backward runs in the dtype its forward used, so
+        # the backward needs no context.
+        with _training_autocast(autocast_bf16):
+            with timer.stage("encode"):
+                encoded_chunk = self.encoder.encode_from_raw_batch(raw_chunk)
+            with timer.stage("forward"):
+                padded = self.model.forward_padded(
+                    encoded_chunk, autocast_bf16=False, packed=False)
+                if autocast_bf16:
+                    padded = padded.float32()
         # Staged on the host while the device runs the forward.
         with timer.stage("policy_loss"):
             targets = _stage_policy_targets(

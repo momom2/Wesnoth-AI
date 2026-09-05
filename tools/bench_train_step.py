@@ -2,10 +2,11 @@
 """Training-path cost of one az_loop update (plan 1.3, "training-path
 bf16/compile validation"): ms per experience for every stage of
 `Trainer.step_mcts` as the loop runs it, fp32 against bf16 autocast
-(fp32 master weights and the optimizer untouched) and against a
-compiled trunk, the loss/gradient agreement of each variant on one
-batch, and the implied seconds per loop iteration next to the pool's
-generation time.
+through the trainer's own switch (TrainerConfig.train_autocast_bf16,
+what az_loop --train-bf16 runs; fp32 master weights and the optimizer
+untouched) and against a compiled trunk, the loss/gradient agreement
+of each variant on one batch, and the implied seconds per loop
+iteration next to the pool's generation time.
 
 Stages, as Trainer.step_mcts reports them through its `timings` hook
 (stream-ordered on cuda: CUDA events, so a CPU stage that overlaps
@@ -157,12 +158,20 @@ def _sync(device: torch.device) -> None:
         torch.cuda.synchronize()
 
 
-def _autocast(precision: str, device: torch.device):
-    if precision == "bf16":
-        return torch.autocast(device.type, dtype=torch.bfloat16)
-    if precision == "fp32":
-        return contextlib.nullcontext()
-    raise ValueError(f"unknown precision {precision!r}")
+@contextlib.contextmanager
+def _train_precision(trainer, precision: str) -> Iterator[None]:
+    """The trainer's own bf16 switch for one step, restored after, so
+    a bf16 row measures what az_loop --train-bf16 runs (a no-op on
+    cpu, where the trainer keeps fp32)."""
+    if precision not in ("fp32", "bf16"):
+        raise ValueError(f"unknown precision {precision!r}")
+    cfg = trainer.config
+    prev = cfg.train_autocast_bf16
+    cfg.train_autocast_bf16 = precision == "bf16"
+    try:
+        yield
+    finally:
+        cfg.train_autocast_bf16 = prev
 
 
 def timed_step(policy, exps: List, *, precision: str, device: torch.device,
@@ -174,7 +183,7 @@ def timed_step(policy, exps: List, *, precision: str, device: torch.device,
     _sync(device)
     t0 = time.perf_counter()
     step_seconds: Dict[str, float] = {}
-    with _autocast(precision, device):
+    with _train_precision(policy._trainer, precision):
         stats = policy._trainer.step_mcts(exps, timings=step_seconds)
     clock.add(step_seconds)
     with clock.stage("snapshot"):
@@ -314,7 +323,7 @@ def stubbed_step(policy, exps: List, *, precision: str, batch_size: int,
     tr.config.grad_clip = 1e9
     tr.config.train_batch_size = batch_size
     try:
-        with _autocast(precision, device):
+        with _train_precision(tr, precision):
             stats = tr.step_mcts(exps)
     finally:
         tr.optimizer.step = real_step
@@ -681,7 +690,7 @@ def main(argv) -> int:
     precisions = (args.precisions.split(",") if args.precisions
                   else (["fp32", "bf16"] if device.type == "cuda" else ["fp32"]))
     if "bf16" in precisions and device.type != "cuda":
-        log.warning("bf16 autocast on cpu measures nothing the box will see")
+        log.warning("the trainer's bf16 switch is a no-op on cpu: bf16 rows repeat fp32")
     policy = _load_policy(args.checkpoint, device, label="bench_train_step")
     rng = random.Random(args.seed)
 
