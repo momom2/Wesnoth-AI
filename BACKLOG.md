@@ -176,9 +176,13 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
    batch 1; the factored policy loss is 32-34 ms of it in every
    configuration (per-experience Python), the backward 17-29 ms.
    The training path is 684 s per default iteration against 498 s of
-   generation. NEXT (in flight): the policy loss vectorized over the
-   batch, train_batch_size 16 in az_loop (exact parity), then bf16
-   autocast for forward and backward (cosine 0.9994).
+   generation. SHIPPED 2026-09-05: the policy loss over the whole
+   batch (parity: loss 2e-7, gradient cosine 1.0000000), per-stage
+   timings logged per iteration, az_loop at train_batch_size 16.
+   Expected 32 -> 2-3 ms per experience for the loss stage, the
+   training path ~280 s per iteration (from 684); box confirmation
+   queued (2 rows). NEXT: bf16 autocast for forward and backward
+   (cosine 0.9994 measured), then the backward itself.
 6. **Review of the day's changes** (2026-09-04, 7 Opus finders + 3
    refuters per finding): 17 confirmed, 16 fixed the same day (static
    hex cache keyed on a freed address; timeout artifacts that aborted
