@@ -97,8 +97,10 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
      the box. MEASURED on the box: parity as expected (bf16 noise
      ~1e-2 of scale, fp32 1e-6), no implicit sync, GPU ms per 16-leaf
      batch 18.2 -> 10.8 (homogeneous lengths) and 37.4 -> 13.9 (mixed);
-     pool run pending. Four serve threads measured worse than two
-     (587 vs 652 saturated): not a lever.
+     pool: 833 leaves/s saturated (from 652), 489 over the iteration.
+     Four serve threads measured worse than two (587 vs 652): not a
+     lever. NEXT: flip `infer_packed_trunk` on by default in the
+     generation path once the compiled-loop row is in.
    - SHIPPED 2026-09-05 (GPU design option 2, behind a switch):
      the packed layer loop as one inductor graph (dynamic total
      length, attention as an opaque custom op, native bf16 weight copy

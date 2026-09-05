@@ -474,6 +474,7 @@ torch threads 4, actor thread pools capped, Rust encode_raw.
 | staged priors (one H2D copy, device compaction, one sync) | 643 | 401 | 2.60 | 858 / 544 | 80 |
 | same, 32 games, 2 serve threads (control for the row below) | 652 | 343 | 2.82 | 1,644 / 1,273 | - |
 | same, 32 games, 4 serve threads | 587 | 339 | 5.14 | 3,048 / 2,778 | - |
+| packed varlen trunk, 32 games, 2 serve threads | 833 | 489 | 2.05 | 1,303 / 857 | - |
 
 Reading: 643 leaves/s in the fed window is the design doc's estimate
 of the fed ceiling with today's kernels (~670); the serve threads'
@@ -493,4 +494,8 @@ as bf16 padded vs fp32); no implicit sync. GPU ms per 16-leaf batch:
 | mixed (pad 1.44) | 24,372 (35,024) | 37.4 | 13.9 | 2.69 |
 
 The flash varlen kernel replaces the masked mem-efficient kernel and
-the padding; the pool row with the packed trunk follows.
+the padding. In the pool the packed trunk lifts the saturated rate
+from 652 to 833 leaves/s (2.05 GPU ms per leaf); the serve threads'
+remaining CPU work (padded embed, priors, unpickling, wire) is now
+the larger part of a batch, which the compiled loop and the length
+buckets address next.
