@@ -116,7 +116,7 @@ run_match() {                     # run_match NAME LABEL_A SPEC_A LABEL_B SPEC_B
         --label-b "$lb" --spec-b "$sb" \
         --outdir "$dir" --games "$games" --seed-base "$sb0" \
         --mcts-sims 0 --raw-temperature-a 0 --raw-temperature-b 0 \
-        --persistent-workers --device "$DEV" --jobs "$JOBS" \
+        --persistent-workers --no-infer-compile --device "$DEV" --jobs "$JOBS" \
         --time-budget-min "$budget" 2>&1 | tee -a "$dir.log"
     python tools/elo_collect.py "$dir" --no-catalog \
         --save-json "$dir.fit.json" 2>&1 | tee -a "$dir.log"

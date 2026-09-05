@@ -156,7 +156,10 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
    trunk 7-13x but from scratch; hex-local attention 1.2x at best.
    Every token-cutting option lands on the ~6.6 ms CPU launch floor
    (~2,400 leaves/s) until the GPU design's floor removal ships.
-   PROPOSAL (needs a yes: ~$4.3, one box-day): two imitation arms
+   PROBED 2026-09-05: the seed in relevant-set mode without retraining
+   plays 7-10 with 23 of 40 stalls (docs/box_specs.md), so the retrain
+   is needed; authorized (user, 2026-09-05) and queued on the box.
+   The two imitation arms
    from the seed weights, 0.5 epoch each (full-board control vs
    relevant set), legality-masked holdout CE at equal pairs, then
    800-game PURE matches of each vs `raw:t0` and 400 arm-vs-arm.

@@ -551,3 +551,17 @@ from 652 to 833 leaves/s (2.05 GPU ms per leaf); the serve threads'
 remaining CPU work (padded embed, priors, unpickling, wire) is now
 the larger part of a batch, which the compiled loop and the length
 buckets address next.
+
+## Relevant-set zero-training probe (2026-09-05, box 49875606)
+
+The seed encoded with the relevant hex subset (`--relevant-set-a`, no
+retraining) against the seed full-board, both `raw:t0`, 40 games,
+persistent workers, 219 s: 7-10 in decided games with 23 of 40 stalled
+at the 200-turn cap (the reference's own self-play stalls 17 of 40).
+The subset side's forward time per turn was 2.2x the full board's
+(0.141 s against 0.064 s): the compiled single-sample path recompiles
+for the varying token counts. Reading: the mode is not usable without
+the retrain (docs/model_cost_study_20260905.md section 7), which is
+therefore run; eval of subset-basis checkpoints should run eager or
+through the shared inference server. Records:
+`training/metrics/sweeps/relset_probe_20260905/`.
