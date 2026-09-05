@@ -472,9 +472,25 @@ torch threads 4, actor thread pools capped, Rust encode_raw.
 | change | saturated leaves/s | iteration leaves/s | GPU ms per leaf (2 threads, over-counted) | infer s / wait s | games/h |
 |---|---|---|---|---|---|
 | staged priors (one H2D copy, device compaction, one sync) | 643 | 401 | 2.60 | 858 / 544 | 80 |
+| same, 32 games, 2 serve threads (control for the row below) | 652 | 343 | 2.82 | 1,644 / 1,273 | - |
+| same, 32 games, 4 serve threads | 587 | 339 | 5.14 | 3,048 / 2,778 | - |
 
 Reading: 643 leaves/s in the fed window is the design doc's estimate
 of the fed ceiling with today's kernels (~670); the serve threads'
 inference stage fell to ~3.0 ms per leaf (from 3.5-6.3 before the
-staging) and the GPU is ~85% busy at saturation. The next rows come
-from the packed varlen trunk and the serve-thread count.
+staging) and the GPU is ~85% busy at saturation. Four serve threads are worse than two (the GPU is the shared
+resource; more threads only interleave their kernels).
+
+Packed varlen trunk (`wesnoth_ai/packed_trunk.py`), CUDA tests on the
+box (`training/metrics/bench_pipeline/packed_trunk_tests.log`): fp32
+packed vs padded agree to 1e-6 of scale; bf16 packed vs bf16 padded
+differ by about 1e-2 of scale (the bf16 kernel noise, the same size
+as bf16 padded vs fp32); no implicit sync. GPU ms per 16-leaf batch:
+
+| lengths | tokens (padded) | padded trunk | packed trunk | ratio |
+|---|---|---|---|---|
+| near-homogeneous (pad 1.07) | 20,328 (21,664) | 18.2 | 10.8 | 1.69 |
+| mixed (pad 1.44) | 24,372 (35,024) | 37.4 | 13.9 | 2.69 |
+
+The flash varlen kernel replaces the masked mem-efficient kernel and
+the padding; the pool row with the packed trunk follows.

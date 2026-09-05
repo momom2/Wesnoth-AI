@@ -94,8 +94,11 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
      packed sequence, `WesnothModel.infer_packed_trunk` (default off),
      `bench_pool --packed-trunk`. CPU tests pass; the CUDA parity,
      no-sync and timing tests plus a 32-game pool run are queued on
-     the box. Turn on by default only after the parity tolerances and
-     the GPU ms per batch are recorded.
+     the box. MEASURED on the box: parity as expected (bf16 noise
+     ~1e-2 of scale, fp32 1e-6), no implicit sync, GPU ms per 16-leaf
+     batch 18.2 -> 10.8 (homogeneous lengths) and 37.4 -> 13.9 (mixed);
+     pool run pending. Four serve threads measured worse than two
+     (587 vs 652 saturated): not a lever.
    - SHIPPED 2026-09-05 (GPU design option 2, behind a switch):
      the packed layer loop as one inductor graph (dynamic total
      length, attention as an opaque custom op, native bf16 weight copy
