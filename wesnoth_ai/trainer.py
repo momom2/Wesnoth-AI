@@ -33,7 +33,6 @@ import time
 from dataclasses import dataclass
 from typing import Dict, Iterator, List, Optional, Sequence, Tuple
 
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -53,6 +52,9 @@ from wesnoth_ai.device import dml_sync
 from wesnoth_ai.encoder import RawEncoded, encode_raw
 from wesnoth_ai.model import UnitActionType
 from wesnoth_ai.packed_trunk import FlatLayout
+from wesnoth_ai.server_priors import (
+    PackedMasks, pack_masks, _stage_masks, _unpack_bits,
+)
 
 import logging
 
@@ -218,6 +220,17 @@ class MCTSExperience:
     # iteration; the proximal term bounds movement away from it.
     # None = state not in the trust region.
     v_anchor: Optional[float] = None
+    # Legality masks of `game_state` as the actor packed them at
+    # search time (server_priors.PackedMasks): a pure function of the
+    # observable state, so the trainer stages them as they are
+    # instead of rebuilding them. None on legacy pickles and on
+    # experiences built without them: step_mcts then rebuilds the
+    # masks on the host (`_host_packed_masks`): 4-13 ms per
+    # experience with warm terrain caches, 55-97 ms when the
+    # per-(map, unit type) caches of tools/pathfind_sim.py thrash
+    # (their 512-entry drop-all bound; the bench's 200 states and a
+    # learner's working set both exceed it).
+    masks: Optional[PackedMasks] = None
 
 
 @dataclass
@@ -1146,42 +1159,48 @@ def _mcts_factored_policy_loss_reference(
 # ---------------------------------------------------------------------
 # Batched factored policy loss (2026-09-05)
 # ---------------------------------------------------------------------
-# The loss above, computed once per chunk instead of once per state:
-# the legality masks are built on the host from each experience's
-# RawEncoded, the index of every visit term and the mask rows those
-# terms need go to the device in ONE flat buffer, and the device runs
-# one masked log-softmax per head -- over the padded batch for the
-# actor and type heads, over the gathered rows for the target and
-# weapon heads -- followed by one weighted gather-sum. The per-state
-# version cost 32-34 ms per experience in every configuration, the
-# largest item of the training path (docs/box_specs.md "Training path
-# cost (2026-09-05)").
+# The loss above, computed once per chunk instead of once per state.
+# The chunk's legality masks are staged the way the inference server
+# stages a batch's (server_priors._stage_masks: bit-packed target rows
+# in one pinned buffer, unpacked on the device); the index and the
+# coefficient of every visit term go in a second flat buffer; the
+# device runs one masked log-softmax per head -- over the padded
+# batch for the actor, type and weapon heads, over the gathered rows
+# for the target head -- then one weighted gather-sum. An experience
+# that carries its `masks` (packed by the actor at search time) costs
+# the trainer no mask work beyond two slice copies; one without them
+# pays `pack_masks` on the host, the largest host item of the
+# training path once the loss itself was batched: 4-5 ms per
+# experience with the Rust wheel and warm terrain caches, 10-13 on
+# the Python path, 55-97 when the terrain caches thrash (laptop;
+# see MCTSExperience.masks).
 
 _KIND_ATTACK, _KIND_MOVE, _KIND_UNION = 0, 1, 2
 
 
 @dataclass
 class _PolicyTargets:
-    """One chunk's visit terms laid out for `_batched_factored_policy_loss`."""
-    layout: FlatLayout
-    host: torch.Tensor          # flat uint8 buffer holding every field
+    """One chunk's masks and visit terms laid out for
+    `_batched_factored_policy_loss`: two flat host buffers (pinned on
+    cuda), one copy each."""
+    mask_layout: FlatLayout
+    mask_host: torch.Tensor
+    term_layout: FlatLayout
+    term_host: torch.Tensor
     n_rows: int                 # target rows: unique (sample, actor, kind)
-    n_wrows: int                # weapon rows: unique (sample, actor)
     visits: float               # sum of total visits over the chunk
 
 
-def _host_legality_masks(raw: RawEncoded, game_state: GameState,
-                         decision_step: int):
-    """One experience's legality masks as CPU tensors, built from its
-    RawEncoded the way the search-time actors build them (a pure
-    function of the observable state), so no per-experience device
-    round trip is needed to stage them."""
+def _host_packed_masks(raw: RawEncoded, game_state: GameState,
+                       decision_step: int) -> PackedMasks:
+    """The masks of an experience that did not bring them, built on the
+    host from its RawEncoded exactly as the actor builds them (a pure
+    function of the observable state)."""
     # wesnoth_ai does not import tools/ at module load.
     from tools.inference_seam import build_light_encoded
     light = build_light_encoded(raw, _CPU)
     light.hex_subset = bool(raw.hex_subset)
-    return _build_legality_masks(light, game_state,
-                                 decision_step=decision_step)
+    return pack_masks(light, game_state, decision_step=decision_step)
 
 
 def _stage_policy_targets(
@@ -1198,54 +1217,45 @@ def _stage_policy_targets(
     coefficient is count x coef / the experience's total visits, so
     the device only sums coefficient x log-probability. Term
     selection and skipping mirror the reference exactly, including
-    the out-of-range guard and the "stale weapon slot" skip."""
+    the out-of-range guard and the "stale weapon slot" skip. Flat
+    indices address each head's log-probabilities flattened: the
+    padded [B, A_max(, T | W)] tables for actor, type and weapon, the
+    gathered [n_rows, H_max] rows for targets."""
     B = len(chunk)
-    actor_mask = np.zeros((B, A_max), dtype=np.uint8)
-    actor_bias = np.zeros((B, A_max), dtype=np.float32)
-    type_valid = np.zeros((B, A_max, T), dtype=np.uint8)
-    type_bias = np.zeros((B, A_max, T), dtype=np.float32)
-    # Flat index (into the head's flattened log-probabilities) and
-    # coefficient per term; actor terms also keep the raw count for
-    # the "entropy" log field.
+    packs: List[PackedMasks] = []
     a_idx: List[int] = []
     a_coef: List[float] = []
     a_cnt: List[float] = []
     t_idx: List[int] = []
     t_coef: List[float] = []
-    g_row: List[int] = []
-    g_hex: List[int] = []
+    g_idx: List[int] = []
     g_coef: List[float] = []
-    w_row: List[int] = []
-    w_slot: List[int] = []
+    w_idx: List[int] = []
     w_coef: List[float] = []
     rows: Dict[Tuple[int, int, int], int] = {}      # (b, a, kind) -> row
-    row_src: List[Tuple[np.ndarray, Optional[np.ndarray], int]] = []
-    wrows: Dict[Tuple[int, int], int] = {}          # (b, a) -> weapon row
-    wrow_natt: List[int] = []
     visits = 0.0
     for b, (e, raw) in enumerate(zip(chunk, raws)):
         U, R, H = sizes[b]
         A = U + R + 1
+        ds = int(getattr(e, "decision_step", 0))
+        p = getattr(e, "masks", None)
+        if p is None:
+            p = _host_packed_masks(raw, e.game_state, ds)
+        elif (p.n_units, p.n_recruits, p.n_hexes) != (U, R, H):
+            # Masks packed on another action-space basis than the
+            # one this trainer encodes (relevant-set vs full board)
+            # would index the wrong slots silently.
+            raise ValueError(
+                f"experience {getattr(e, 'game_id', '')!r}: shipped masks "
+                f"for (U, R, H) = {(p.n_units, p.n_recruits, p.n_hexes)}, "
+                f"the trainer encoded {(U, R, H)}")
+        packs.append(p)
         vc = e.visit_counts
         total = float(sum(_unpack_visit(t)[3] for t in vc))
         if total <= 0.0:
             continue
         visits += total
-        ds = int(getattr(e, "decision_step", 0))
-        gs = e.game_state
-        masks = _host_legality_masks(raw, gs, ds)
-        ownership = np.concatenate([raw.unit_is_ours, raw.recruit_is_ours,
-                                    np.ones(1, dtype=np.float32)])
-        actor_mask[b, :A] = ((ownership != 0.0)
-                             & (masks.actor_valid[0].numpy() != 0.0))
-        actor_bias[b, A - 1] = _prior_bias_end_turn(gs)
-        type_valid[b, :A] = masks.type_valid[0].numpy() != 0.0
-        type_bias[b, :A] = masks.type_bias[0].numpy()
-        attack_valid = masks.target_valid_attack.numpy()
-        move_valid = masks.target_valid_move.numpy()
-        union_valid = masks.target_valid.numpy()
-        attack_bias = masks.attack_bias.numpy()
-        by_id = None
+        n_att = p.n_attacks.tolist()
         c = coef[b] / total
         for tup in vc:
             a, h, w, count, ty = _unpack_visit(tup)
@@ -1262,84 +1272,59 @@ def _stage_policy_targets(
                 t_coef.append(count * c)
             if h is not None:
                 if is_unit and ty == UnitActionType.ATTACK:
-                    kind, valid, bias = _KIND_ATTACK, attack_valid, attack_bias
+                    kind = _KIND_ATTACK
                 elif is_unit and ty == UnitActionType.MOVE:
-                    kind, valid, bias = _KIND_MOVE, move_valid, None
+                    kind = _KIND_MOVE
                 else:
-                    kind, valid, bias = _KIND_UNION, union_valid, attack_bias
+                    kind = _KIND_UNION
                 if H == 0:
                     continue
                 if _oob_index("target", h, H, a, U, ds):
                     continue    # like the reference, the weapon term goes with it
                 r = rows.get((b, a, kind))
                 if r is None:
-                    r = rows[(b, a, kind)] = len(row_src)
-                    row_src.append((valid[a], None if bias is None else bias[a], H))
-                g_row.append(r)
-                g_hex.append(h)
+                    r = rows[(b, a, kind)] = len(rows)
+                g_idx.append(r * H_max + h)
                 g_coef.append(count * c)
             if w is not None:
-                if by_id is None:
-                    by_id = {u.id: u for u in gs.map.units}
-                unit = by_id.get(raw.unit_ids[a]) if is_unit else None
-                n_att = len(unit.attacks) if unit is not None else 0
-                if n_att <= 0 or w >= n_att:
-                    continue    # stale visit-count slot: skipped silently
+                if w >= n_att[a]:
+                    continue    # stale visit-count slot (or a non-unit actor): skipped silently
                 if _oob_index("weapon", w, W, a, U, ds):
                     continue
-                wr = wrows.get((b, a))
-                if wr is None:
-                    wr = wrows[(b, a)] = len(wrow_natt)
-                    wrow_natt.append(n_att)
-                w_row.append(wr)
-                w_slot.append(w)
+                w_idx.append((b * A_max + a) * W + w)
                 w_coef.append(count * c)
 
-    n_rows, n_wrows = len(row_src), len(wrow_natt)
-    n_a, n_t, n_g, n_w = len(a_idx), len(t_idx), len(g_row), len(w_row)
-    layout = FlatLayout([
-        ("actor_idx", torch.int64, (n_a,)), ("type_idx", torch.int64, (n_t,)),
-        ("tgt_idx", torch.int64, (n_g,)), ("wpn_idx", torch.int64, (n_w,)),
+    mask_layout, mask_host, _capacity = _stage_masks(packs, A_max, H_max, T, W, pin)
+    n_rows = len(rows)
+    term_layout = FlatLayout([
+        ("actor_idx", torch.int64, (len(a_idx),)), ("type_idx", torch.int64, (len(t_idx),)),
+        ("tgt_idx", torch.int64, (len(g_idx),)), ("wpn_idx", torch.int64, (len(w_idx),)),
         ("row_b", torch.int64, (n_rows,)), ("row_a", torch.int64, (n_rows,)),
-        ("wrow_b", torch.int64, (n_wrows,)), ("wrow_a", torch.int64, (n_wrows,)),
-        ("actor_coef", torch.float32, (n_a,)), ("actor_cnt", torch.float32, (n_a,)),
-        ("type_coef", torch.float32, (n_t,)), ("tgt_coef", torch.float32, (n_g,)),
-        ("wpn_coef", torch.float32, (n_w,)),
-        ("actor_bias", torch.float32, (B, A_max)),
-        ("type_bias", torch.float32, (B, A_max, T)),
-        ("row_bias", torch.float32, (n_rows, H_max)),
-        ("row_hcount", torch.int32, (n_rows,)), ("wrow_natt", torch.int32, (n_wrows,)),
-        ("actor_mask", torch.uint8, (B, A_max)),
-        ("type_valid", torch.uint8, (B, A_max, T)),
-        ("row_valid", torch.uint8, (n_rows, H_max)),
+        ("row_kind", torch.int64, (n_rows,)),
+        ("actor_coef", torch.float32, (len(a_idx),)), ("actor_cnt", torch.float32, (len(a_idx),)),
+        ("type_coef", torch.float32, (len(t_idx),)), ("tgt_coef", torch.float32, (len(g_idx),)),
+        ("wpn_coef", torch.float32, (len(w_idx),)),
+        ("hcount", torch.int32, (B,)),
     ])
-    host = torch.zeros(layout.nbytes, dtype=torch.uint8, pin_memory=pin)
-    v = layout.numpy_views(host.numpy())
+    # Every field is written in full below, so no zero fill.
+    term_host = torch.empty(term_layout.nbytes, dtype=torch.uint8, pin_memory=pin)
+    v = term_layout.numpy_views(term_host.numpy())
     v["actor_idx"][:] = a_idx
     v["actor_coef"][:] = a_coef
     v["actor_cnt"][:] = a_cnt
     v["type_idx"][:] = t_idx
     v["type_coef"][:] = t_coef
-    v["tgt_idx"][:] = np.asarray(g_row, dtype=np.int64) * H_max + np.asarray(g_hex, dtype=np.int64)
+    v["tgt_idx"][:] = g_idx
     v["tgt_coef"][:] = g_coef
-    v["wpn_idx"][:] = np.asarray(w_row, dtype=np.int64) * W + np.asarray(w_slot, dtype=np.int64)
+    v["wpn_idx"][:] = w_idx
     v["wpn_coef"][:] = w_coef
     v["row_b"][:] = [k[0] for k in rows]
     v["row_a"][:] = [k[1] for k in rows]
-    for r, (valid_row, bias_row, Hb) in enumerate(row_src):
-        v["row_valid"][r, :Hb] = valid_row != 0.0
-        if bias_row is not None:
-            v["row_bias"][r, :Hb] = bias_row
-        v["row_hcount"][r] = Hb
-    v["wrow_b"][:] = [k[0] for k in wrows]
-    v["wrow_a"][:] = [k[1] for k in wrows]
-    v["wrow_natt"][:] = wrow_natt
-    v["actor_mask"][:] = actor_mask
-    v["actor_bias"][:] = actor_bias
-    v["type_valid"][:] = type_valid
-    v["type_bias"][:] = type_bias
-    return _PolicyTargets(layout=layout, host=host, n_rows=n_rows,
-                          n_wrows=n_wrows, visits=visits)
+    v["row_kind"][:] = [k[2] for k in rows]
+    v["hcount"][:] = [s[2] for s in sizes]
+    return _PolicyTargets(mask_layout=mask_layout, mask_host=mask_host,
+                          term_layout=term_layout, term_host=term_host,
+                          n_rows=n_rows, visits=visits)
 
 
 def _batched_factored_policy_loss(
@@ -1351,40 +1336,47 @@ def _batched_factored_policy_loss(
     field). A row whose mask has no legal entry is left unmasked
     within its state, as the reference does."""
     dev = padded.actor_logits.device
-    v = targets.layout.torch_views(targets.host.to(dev, non_blocking=True))
+    mv = targets.mask_layout.torch_views(targets.mask_host.to(dev, non_blocking=True))
+    tv = targets.term_layout.torch_views(targets.term_host.to(dev, non_blocking=True))
     H_max = padded.target_logits.shape[2]
     W = padded.weapon_logits.shape[2]
 
-    al = (padded.actor_logits + v["actor_bias"]).masked_fill(
-        v["actor_mask"] == 0, _NEG_INF)
-    a_vals = F.log_softmax(al, dim=-1).reshape(-1)[v["actor_idx"]]
-    logp_sum = (v["actor_coef"] * a_vals).sum()
-    actor_nlp = -(v["actor_cnt"] * a_vals.detach()).sum()
+    al = (padded.actor_logits + mv["actor_bias"]).masked_fill(
+        mv["actor_mask"] == 0, _NEG_INF)
+    a_vals = F.log_softmax(al, dim=-1).reshape(-1)[tv["actor_idx"]]
+    logp_sum = (tv["actor_coef"] * a_vals).sum()
+    actor_nlp = -(tv["actor_cnt"] * a_vals.detach()).sum()
 
-    if v["type_idx"].numel():
-        tv = v["type_valid"] != 0
-        ok = tv | ~tv.any(dim=-1, keepdim=True)
-        tl = (padded.type_logits + v["type_bias"]).masked_fill(~ok, _NEG_INF)
-        t_vals = F.log_softmax(tl, dim=-1).reshape(-1)[v["type_idx"]]
-        logp_sum = logp_sum + (v["type_coef"] * t_vals).sum()
+    if tv["type_idx"].numel():
+        ok = mv["type_valid"] != 0
+        ok = ok | ~ok.any(dim=-1, keepdim=True)
+        tl = padded.type_logits
+        if "type_bias" in mv:
+            tl = tl + mv["type_bias"]
+        t_vals = F.log_softmax(tl.masked_fill(~ok, _NEG_INF), dim=-1).reshape(-1)[tv["type_idx"]]
+        logp_sum = logp_sum + (tv["type_coef"] * t_vals).sum()
 
     if targets.n_rows:
-        rows = padded.target_logits[v["row_b"], v["row_a"]] + v["row_bias"]
-        rv = v["row_valid"] != 0
+        rb, ra, rk = tv["row_b"], tv["row_a"], tv["row_kind"]
+        bits = torch.stack([mv["attack_bits"], mv["move_bits"], mv["union_bits"]])[rk, rb, ra]
+        valid = _unpack_bits(bits, H_max)                                  # [n_rows, H_max]
+        rows = padded.target_logits[rb, ra]
+        if "attack_bias" in mv:
+            # Attack and union rows carry the oracle bias, move rows do not.
+            rows = rows + mv["attack_bias"][rb, ra] * (rk != _KIND_MOVE).to(rows.dtype).unsqueeze(1)
         in_state = (torch.arange(H_max, device=dev).unsqueeze(0)
-                    < v["row_hcount"].unsqueeze(1))
-        ok = torch.where(rv.any(dim=-1, keepdim=True), rv, in_state)
+                    < tv["hcount"][rb].unsqueeze(1))
+        ok = torch.where(valid.any(dim=-1, keepdim=True), valid, in_state)
         g_vals = F.log_softmax(rows.masked_fill(~ok, _NEG_INF),
-                               dim=-1).reshape(-1)[v["tgt_idx"]]
-        logp_sum = logp_sum + (v["tgt_coef"] * g_vals).sum()
+                               dim=-1).reshape(-1)[tv["tgt_idx"]]
+        logp_sum = logp_sum + (tv["tgt_coef"] * g_vals).sum()
 
-    if targets.n_wrows:
-        wrows = padded.weapon_logits[v["wrow_b"], v["wrow_a"]]
-        ok = (torch.arange(W, device=dev).unsqueeze(0)
-              < v["wrow_natt"].unsqueeze(1))
-        w_vals = F.log_softmax(wrows.masked_fill(~ok, _NEG_INF),
-                               dim=-1).reshape(-1)[v["wpn_idx"]]
-        logp_sum = logp_sum + (v["wpn_coef"] * w_vals).sum()
+    if tv["wpn_idx"].numel():
+        ok = (torch.arange(W, device=dev).view(1, 1, W)
+              < mv["n_attacks"].unsqueeze(-1))                           # [B, A_max, W]
+        w_vals = F.log_softmax(padded.weapon_logits.masked_fill(~ok, _NEG_INF),
+                               dim=-1).reshape(-1)[tv["wpn_idx"]]
+        logp_sum = logp_sum + (tv["wpn_coef"] * w_vals).sum()
 
     return -logp_sum, actor_nlp
 
