@@ -321,3 +321,22 @@ sampling as the proposer and 40 + 160 playouts as the grader. That
 number, not the fraction, is what a phase-2 teacher design has to
 beat: a better proposer raises the hit rate, cheaper playouts (fewer
 tokens per leaf, decisive continuation policies) lower the price.
+
+## Audit of the confirmation (2026-09-05, docs/turn_proposer_design_20260905.md)
+
+Re-reading the two JSON files: 12 of the 48 sampled alternatives in the
+confirmation run were DIFFERENT turns from run 1's (decision counts
+differ by 1 to 6): sampling from a seed is not reproducible across
+runs under bf16 kernels, so the "same alternative, fresh playouts"
+estimand held only where the resampled turn coincided. Positions 4, 18
+and 59 (the three confirmed) are intact; at 20, 49 and 57 the
+confirmation graded a turn nobody had selected; at 20 a matched
+alternative scores +0.40 on 160 fresh playouts, a probable fourth
+confirmed gap. The verdict above stands qualitatively (large gaps
+exist and are sparse); the count is 3 to 4 of 60. Fix, in the tool
+from this commit on: every candidate turn records its action list,
+and confirmations replay the recorded actions instead of resampling.
+The same audit finds two of the three confirmed gaps are base
+blunders (all or most alternatives beat the base, the base turn 4-10
+decisions shorter) and one a find, and it estimates that a sequential
+screen would have found the same nominal hits with 35% fewer playouts.
