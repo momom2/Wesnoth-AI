@@ -258,6 +258,27 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
   after one argmax reply, material) against the 160-playout truth on
   freshly recorded candidates.
 
+## Training-signal panel (2026-09-05, docs/training_signal_panel_20260905.md)
+
+Six proposers, three judges, 21 proposals, 7 kept. Ranked: (1) end_turn
+decided at the actor level, a decode rule with an end_turn-offset
+attribution arm, nothing trained, ~$1.4, kill p <= 0.50 at 800
+decisive (the audit's base blunders were early end_turns); (2) the
+value-ranked whole-turn lookahead player, whose step A is the queued
+pre-grader measurement ($0.03, modal outcome a kill) and step B a
+$1.1 match only on a pass; (3) rating-weighted imitation (Bradley-Terry
+over the corpus's player ids, fine-tune on the top quartile's winner
+pairs, $2.6, waits for the relevant-set control arm's 800-game
+number); (4) recruit type sampled from its marginal; (5) the blunder
+harvest on on-policy boundaries; (6) an own-trunk boundary value net
+from human outcomes; (7) a two-net confirmation rule for any win.
+Rejected (14): everything that distils individually confirmed pairs
+before a ruling, sigma_s readouts the 48-candidate set cannot resolve,
+and three proposals that would train on the holdout games. Open
+rulings: distilling confirmed pairs (R2); whether the relevant-set
+retrain replaces the seed; the re-pin of raw:t0 through shared
+inference.
+
 ## Cheap measurements worth taking
 
 - DONE 2026-09-05 (docs/box_specs.md "Raw player temperature"):
