@@ -74,7 +74,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -95,6 +95,8 @@ from wesnoth_ai.encoder import GameStateEncoder
 from wesnoth_ai.model import WesnothModel
 from tools.wesnoth_sim import WesnothSim
 from tools.draw_tiebreak import DrawTiebreakConfig, draw_tiebreak_z
+if TYPE_CHECKING:
+    from wesnoth_ai.server_priors import PackedMasks
 from tools.combat_outcomes import (
     enumerate_attack_outcomes, outcome_key_for_child,
 )
@@ -549,7 +551,7 @@ class MCTSNode:
                  "expanded", "_total_visits",
                  "tt_hits", "tt_misses",
                  "cliffness", "value", "gumbel_action",
-                 "moves_left",
+                 "moves_left", "masks",
                  "_distill_stats")
 
     def __init__(self, sim: WesnothSim):
@@ -588,6 +590,33 @@ class MCTSNode:
         # head or the node is terminal/unexpanded (terminals back up
         # M=0 directly -- game over IS zero moves left).
         self.moves_left: Optional[float] = None
+        # Legality masks of this node's state as the actor's encoder
+        # packed them at encode time (server_priors.PackedMasks; the
+        # RemoteEncoder under server priors). None when the encoder
+        # packed nothing (the in-process GameStateEncoder). Stamped at
+        # expansion; MCTSPolicy ships the ROOT's pack with the training
+        # target so the trainer stages it instead of rebuilding the
+        # masks on the host. Negligible next to the node's sim fork.
+        self.masks: Optional["PackedMasks"] = None
+
+
+def _packed_masks_of(encoded) -> Optional["PackedMasks"]:
+    """The PackedMasks the encoder attached to `encoded` (`_masks`,
+    set by RemoteEncoder.encode under server priors), or None. Read
+    BEFORE `_leaf_to_cpu`, whose dataclass replace drops the attribute
+    on the CUDA path. The pack must be on the encoding's own action-
+    space basis: its (units, recruits, hexes) are the token streams'."""
+    masks = getattr(encoded, "_masks", None)
+    if masks is None:
+        return None
+    sizes = (encoded.unit_tokens.size(1), encoded.recruit_tokens.size(1),
+             encoded.hex_tokens.size(1))
+    if (masks.n_units, masks.n_recruits, masks.n_hexes) != sizes:
+        raise ValueError(
+            f"encoder attached masks for (U, R, H) = "
+            f"{(masks.n_units, masks.n_recruits, masks.n_hexes)} to an "
+            f"encoding of {sizes}")
+    return masks
 
 
 def tree_depth_stats(root: "MCTSNode") -> Tuple[int, float, int]:
@@ -685,6 +714,7 @@ def _expand(
         return _terminal_value(node.sim, node.side, tiebreak)
     with torch.no_grad():
         encoded = encoder.encode(node.sim.gs)
+        node.masks = _packed_masks_of(encoded)
         output = model(encoded)
         # Sampler-on-CPU split: one bulk D2H here instead of dozens of
         # per-actor syncs inside the enumeration (no-op on CPU).
@@ -1093,6 +1123,7 @@ def _populate_leaf(
     `value`/`cliffness`: pre-read scalars from a batched D2H transfer
     (B2, see `_run_sim_batch`); when None, read them from `output`
     (identical values -- the batch read is a pure transfer coalesce)."""
+    leaf.masks = _packed_masks_of(encoded)
     encoded, output = _leaf_to_cpu(encoded, output)
     leaf.cliffness = (float(output.cliffness.squeeze().item())
                       if cliffness is None else float(cliffness))

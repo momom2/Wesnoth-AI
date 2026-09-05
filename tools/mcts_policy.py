@@ -38,12 +38,14 @@ import random
 import threading
 from collections import deque
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import numpy as np
 
 from wesnoth_ai.classes import GameState, state_key
 from wesnoth_ai.trainer import MCTSExperience, TrainStats
+if TYPE_CHECKING:
+    from wesnoth_ai.server_priors import PackedMasks
 from tools.draw_tiebreak import draw_tiebreak_z, material_margin
 from tools.mcts import (
     MCTSConfig, mcts_search, extract_visit_counts, best_action,
@@ -122,6 +124,15 @@ class _PendingMCTSState:
     # (plan-tournament certify-or-abstain: beta on certified turns,
     # 0.0 on abstained value-only records; 1.0 = legacy full weight).
     policy_weight: float = 1.0
+    # The root's legality masks as the actor's encoder packed them
+    # (MCTSNode.masks; the pack the search's own priors were computed
+    # from under server priors). Shipped as MCTSExperience.masks so
+    # the trainer stages them instead of rebuilding them on the host.
+    # None when the encoder packed nothing: packing here instead
+    # measures 1.2-10 ms per decision on the laptop (2026-09-05, 2-39
+    # units; the trainer's own budget is ~1 ms), so those experiences
+    # leave the rebuild to the trainer.
+    masks: Optional["PackedMasks"] = None
 
 
 def loaded_training_meta(base) -> Dict:
@@ -531,7 +542,8 @@ class MCTSPolicy:
             with self._lock:
                 self._pending.setdefault(game_label, []).append(
                     _PendingMCTSState(gs=game_state, visit_counts=visits,
-                                      side=side, decision_step=decision_step)
+                                      side=side, decision_step=decision_step,
+                                      masks=root.masks)
                 )
                 if ds:
                     a = self._distill_acc
@@ -700,6 +712,7 @@ class MCTSPolicy:
                               if winner == 0 else 1.0),
                 policy_weight=float(getattr(s, "policy_weight", 1.0)),
                 game_id=str(game_label),
+                masks=s.masks,
             ))
         # GBC labels (docs/archive/gbc_spec.md): hindsight event rows per
         # stored state, fog-censored for each state's side-to-move.
