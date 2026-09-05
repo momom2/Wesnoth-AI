@@ -420,6 +420,12 @@ class ActionIndices:
     target_idx:  Optional[int]  = None
     weapon_idx:  Optional[int]  = None
     type_idx:    Optional[int]  = None
+    # Relevant-set label basis only: the human's target hex is on the
+    # board but has no slot in the relevant subset. The pair is kept
+    # (actor / type / weapon heads still train) with target_idx None,
+    # and the trainer counts these -- by construction of the subset
+    # they should never occur (docs/model_cost_study_20260905.md 2.3).
+    target_off_subset: bool = False
 
 
 def _alignment_from_str(s: str) -> AlignmentEnum:
@@ -2621,13 +2627,21 @@ def _capture_village(gs: GameState, x: int, y: int, capturing_side: int) -> None
         )
 
 
-def _action_indices(gs: GameState, cmd: list) -> Optional[ActionIndices]:
+def _action_indices(gs: GameState, cmd: list, *,
+                    relevant_set: bool = False) -> Optional[ActionIndices]:
     """Convert a compact replay command into slot indices the model's
     heads should predict.
 
     Returns None for commands that aren't player policy actions
     (init_side, etc.). Actor/target ordering MATCHES the encoder's
     sort: units sorted by (y, x, id), then recruits.
+
+    `relevant_set`: target_idx indexes `relevant_hexes_in_slot_order`
+    (the basis `encode_raw(relevant_set=True)` emits) instead of the
+    full board. An on-board target with no subset slot keeps the
+    pair and flags it (`target_off_subset`); an off-board target
+    drops the pair exactly as in the full-board basis, so both bases
+    yield the same pair stream.
     """
     if not cmd:
         return None
@@ -2640,11 +2654,24 @@ def _action_indices(gs: GameState, cmd: list) -> Optional[ActionIndices]:
     # mislabeling 19%+ of behavior-cloning pairs; root-caused and
     # de-mirrored 2026-07-16.)
     from wesnoth_ai.visibility import (hexes_in_slot_order, own_recruit_types,
+                            relevant_hexes_in_slot_order,
                             visible_units_in_slot_order)
     current_side = gs.global_info.current_side
     units_sorted = visible_units_in_slot_order(gs, current_side)
     hex_positions = [h.position for h in hexes_in_slot_order(gs)]
     pos_to_hex_idx = {(p.x, p.y): i for i, p in enumerate(hex_positions)}
+    if relevant_set:
+        subset_idx = {(h.position.x, h.position.y): i for i, h
+                      in enumerate(relevant_hexes_in_slot_order(gs))}
+
+    def _target(x: int, y: int) -> Tuple[Optional[int], bool, bool]:
+        """(target_idx, on_board, off_subset) for a target hex."""
+        if (x, y) not in pos_to_hex_idx:
+            return None, False, False
+        if not relevant_set:
+            return pos_to_hex_idx[(x, y)], True, False
+        j = subset_idx.get((x, y))
+        return j, True, j is None
 
     if kind == "end_turn":
         # Last actor slot = end_turn sentinel.
@@ -2664,8 +2691,8 @@ def _action_indices(gs: GameState, cmd: list) -> Optional[ActionIndices]:
                 break
         if actor is None:
             return None
-        target = pos_to_hex_idx.get((tx, ty))
-        if target is None:
+        target, on_board, off_subset = _target(tx, ty)
+        if not on_board:
             return None
         # type_idx=1 (MOVE) for the action-type head; lazy import
         # of model.UnitActionType to avoid a hard dep cycle (model
@@ -2673,7 +2700,8 @@ def _action_indices(gs: GameState, cmd: list) -> Optional[ActionIndices]:
         # encoder).
         from wesnoth_ai.model import UnitActionType
         return ActionIndices("move", actor_idx=actor, target_idx=target,
-                             type_idx=UnitActionType.MOVE)
+                             type_idx=UnitActionType.MOVE,
+                             target_off_subset=off_subset)
 
     if kind == "attack":
         ax, ay, dx, dy, weapon = cmd[1], cmd[2], cmd[3], cmd[4], cmd[5]
@@ -2684,13 +2712,14 @@ def _action_indices(gs: GameState, cmd: list) -> Optional[ActionIndices]:
                 break
         if actor is None:
             return None
-        target = pos_to_hex_idx.get((dx, dy))
-        if target is None:
+        target, on_board, off_subset = _target(dx, dy)
+        if not on_board:
             return None
         from wesnoth_ai.model import UnitActionType
         return ActionIndices("attack", actor_idx=actor,
                              target_idx=target, weapon_idx=weapon,
-                             type_idx=UnitActionType.ATTACK)
+                             type_idx=UnitActionType.ATTACK,
+                             target_off_subset=off_subset)
 
     if kind == "recruit":
         unit_type = cmd[1]
@@ -2704,10 +2733,11 @@ def _action_indices(gs: GameState, cmd: list) -> Optional[ActionIndices]:
                 break
         if actor is None:
             return None
-        target = pos_to_hex_idx.get((tx, ty))
-        if target is None:
+        target, on_board, off_subset = _target(tx, ty)
+        if not on_board:
             return None
-        return ActionIndices("recruit", actor_idx=actor, target_idx=target)
+        return ActionIndices("recruit", actor_idx=actor, target_idx=target,
+                             target_off_subset=off_subset)
 
     # recall / init_side / unknown → skip.
     return None
@@ -2778,15 +2808,17 @@ def _fire_turn_events(gs: GameState, side: int, turn: int) -> None:
     fire_event(gs, events, "side turn")
 
 
-def iter_replay_pairs(gz_path: Path) -> Iterator[Tuple[GameState, ActionIndices]]:
+def iter_replay_pairs(gz_path: Path, *, relevant_set: bool = False
+                      ) -> Iterator[Tuple[GameState, ActionIndices]]:
     """Yield (state_before, action_indices) for each player command
-    in one .json.gz replay."""
+    in one .json.gz replay. `relevant_set` selects the label's hex
+    basis (see `_action_indices`); it must match the encoder's."""
     with gzip.open(gz_path, "rt", encoding="utf-8") as f:
         data = json.load(f)
     gs = _build_initial_gamestate(data)
     _setup_scenario_events(gs, data.get("scenario_id", ""))
     for cmd in data.get("commands", []):
-        ai = _action_indices(gs, cmd)
+        ai = _action_indices(gs, cmd, relevant_set=relevant_set)
         if ai is not None:
             yield gs, ai
         _apply_command(gs, cmd)

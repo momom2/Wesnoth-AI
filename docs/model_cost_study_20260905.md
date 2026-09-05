@@ -487,3 +487,35 @@ that needs a rental proposal with this cost attached.
 - The 76 pairs/s imitation rate is from timestamps in
   `imit_tierb_eval.jsonl`; the batch size (64) is inferred from
   step 782 at 50,048 pairs.
+
+## 9. Run plan (2026-09-05)
+
+`scripts/relset_arms_box.sh` runs section 7 on a 4090 box after
+`scripts/eval_box_setup.sh tier-b/a3/seed_imit_tierb_start.pt=seed.pt`,
+writing under `/workspace/relset/`. Both arms:
+`tools/supervised_train.py replays_dataset_imitation --init-from seed.pt
+--imitation-config configs/imitation.json --epochs 1 --max-pairs 1260000
+--seed 20260905 --bs 64 --lr 1e-4 --workers 20 --eval-every 50000
+--eval-pairs 1200 --eval-pairs-per-game 8 --eval-sample-seed 0` at the
+15M arch; the relevant-set arm adds `--relevant-set-hexes`. `--init-from`
+loads weights and vocab only (fresh optimizer and counters, so a
+completed-epoch seed does not skip the epoch); `--seed` fixes the file
+order and the value-state draws, so the two arms train on the same
+pair stream and stop at the same pair count. Labels are built in the
+encoder's basis (`replay_dataset._action_indices(relevant_set=True)`,
+also in the encode workers); a target with no subset slot keeps the
+pair with the target head silent and is counted
+(`target_off_subset` in the log and in `arm_eval.jsonl`; expected 0).
+Each eval row carries `target_masked_ce` (the softmax over the
+mask-legal hexes of the labelled actor and action type, the quantity
+compared across bases), `target_masked_top1`, `target_masked_n`,
+`target_off_mask` (holdout targets the legality mask does not offer;
+identical for both arms) and the basis-dependent `target_ce`. The
+checkpoint records `relevant_set_hexes`, which `eval_sim.peek_checkpoint_arch`
+reads, so the matches (`run_elo_batch --mcts-sims 0 --raw-temperature-a 0
+--raw-temperature-b 0 --persistent-workers --device cuda --jobs 10`, 800
+games per arm against the seed, 400 arm against arm) build the eval
+encoders in the trained basis without extra flags. Section 7 item 3
+(`bench_model_cost.py`) is not in the script. Cost as in section 7,
+about $4.3; the relevant-set arm's evals replay 150 holdout games in
+the subset basis each, up to ~1 h more.

@@ -14,6 +14,8 @@ self-play path can `--resume` from.
 
 Usage:
     python tools/supervised_train.py DATASET_DIR [--epochs N] [--lr 1e-4] [--bs 8]
+        [--init-from CKPT | --resume CKPT] [--relevant-set-hexes]
+        [--max-pairs N] [--seed N]
 
 Simplicity first: no DataLoader, no workers. Iterate replay files
 sequentially, yield pairs, batch by count. If training gets slow we
@@ -114,6 +116,8 @@ def _save_checkpoint(
     epoch: int = 0,
     arch: Optional[Dict[str, int]] = None,
     carry: Optional[Dict] = None,
+    relevant_set_hexes: bool = False,
+    training_meta: Optional[Dict] = None,
 ) -> None:
     """Atomic-ish checkpoint write: save to .tmp then rename.
 
@@ -122,6 +126,13 @@ def _save_checkpoint(
     `resumed_epoch` and starts the loop at `range(resumed_epoch,
     epochs)`. Older checkpoints didn't carry this key; resume falls
     back to counting per-epoch snapshot files when it's absent.
+
+    `relevant_set_hexes` is a top-level key (kept OUT of `arch`, which
+    the policy loader compares strictly): `eval_sim.peek_checkpoint_arch`
+    reads it with the other CHECKPOINT_STRUCT_FLAGS so every eval
+    entry point builds the encoder in the hex basis this checkpoint
+    was trained in. `training_meta` is provenance (init_from, seed,
+    max_pairs); nothing reads it back.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
@@ -135,6 +146,8 @@ def _save_checkpoint(
         "arch": dict(arch) if arch else {
             "d_model": 128, "num_layers": 3,
             "num_heads": 4, "d_ff": 256},
+        "relevant_set_hexes": bool(relevant_set_hexes),
+        "training_meta":   dict(training_meta or {}),
         "model_state":     model.state_dict(),
         "encoder_state":   encoder.state_dict(),
         "unit_type_to_id": dict(encoder.unit_type_to_id),
@@ -197,6 +210,7 @@ def _pair_stream_serial(
     *,
     max_pairs_per_replay: int = 0,
     sample_seed: Optional[int] = None,
+    relevant_set: bool = False,
 ):
     """Single-process pair stream — reads + encodes inline.
 
@@ -204,7 +218,10 @@ def _pair_stream_serial(
     contributes a seeded RANDOM sample of its pairs (reservoir)
     instead of its first N — the probe's independent-redraw
     mechanism (user ruling 2026-08-25: a low reading is retried
-    with different RNG before it may abort anything)."""
+    with different RNG before it may abort anything).
+
+    `relevant_set` selects the label basis; the encoder that later
+    encodes these states must carry the same flag."""
     rng = random.Random(sample_seed) if sample_seed is not None else None
     for gz in files:
         n = 0
@@ -218,7 +235,8 @@ def _pair_stream_serial(
                 # 0/150).
                 buf: List[Tuple] = []
                 seen = 0
-                for state, ai in iter_replay_pairs(gz):
+                for state, ai in iter_replay_pairs(
+                        gz, relevant_set=relevant_set):
                     seen += 1
                     if len(buf) < max_pairs_per_replay:
                         buf.append((copy.deepcopy(state), ai))
@@ -230,7 +248,8 @@ def _pair_stream_serial(
                     n += 1
                     yield ("pair", state, ai, gz.name)
             else:
-                for state, ai in iter_replay_pairs(gz):
+                for state, ai in iter_replay_pairs(
+                        gz, relevant_set=relevant_set):
                     if max_pairs_per_replay and n >= max_pairs_per_replay:
                         break
                     n += 1
@@ -280,6 +299,7 @@ class _ParallelStream:
         type_to_id,
         faction_to_id,
         prefetch_factor: int,
+        relevant_set: bool = False,
     ):
         self._files = list(files)
         self._workers_n = workers
@@ -309,6 +329,7 @@ class _ParallelStream:
                 target=_encode_worker_main,
                 args=(self._in_q, self._out_q,
                       dict(type_to_id), dict(faction_to_id)),
+                kwargs={"relevant_set": relevant_set},
                 daemon=True,
             )
             p.start()
@@ -459,6 +480,7 @@ def _pair_stream_parallel(
     prefetch_factor: int = 4,
     max_pairs_per_replay: int = 0,  # currently unused in parallel mode;
                                     # added for API symmetry.
+    relevant_set: bool = False,
 ):
     """Multi-process pair stream — encode_raw runs in worker processes."""
     return _ParallelStream(
@@ -467,6 +489,7 @@ def _pair_stream_parallel(
         type_to_id=type_to_id,
         faction_to_id=faction_to_id,
         prefetch_factor=prefetch_factor,
+        relevant_set=relevant_set,
     )
 
 
@@ -893,6 +916,43 @@ def _flush_batch(
             running_loss_weapon.append(w)
 
 
+def _masked_target_nll(
+    target_row: torch.Tensor,     # [H] target logits for the actor
+    legal: torch.Tensor,          # [H] bool, mask-legal hexes
+    target_idx: int,
+) -> Optional[Tuple[float, bool]]:
+    """-log p(target | legal hexes) and the masked top-1 hit, or None
+    when the human's target is not mask-legal (counted by the caller).
+
+    This is the distribution that plays (action_sampler restricts the
+    softmax to the legal set), so it is the same quantity in every hex
+    basis: the unmasked target CE's support is all H hex logits and
+    shrinks with the basis (docs/model_cost_study_20260905.md 2.5).
+    No label smoothing, unlike the training loss."""
+    if not bool(legal[target_idx]):
+        return None
+    masked = target_row.masked_fill(~legal, float("-inf"))
+    logp = F.log_softmax(masked, dim=-1)
+    return float(-logp[target_idx]), int(masked.argmax()) == target_idx
+
+
+def _legal_target_row(masks, ai: ActionIndices) -> Optional[torch.Tensor]:
+    """The legality-mask row the action sampler would apply for this
+    labelled action: type-conditional for unit actors, the recruit
+    hex set for recruit actors. None for actions without a target."""
+    if ai.target_idx is None:
+        return None
+    if ai.action_type == "move":
+        row = masks.target_valid_move[ai.actor_idx]
+    elif ai.action_type == "attack":
+        row = masks.target_valid_attack[ai.actor_idx]
+    elif ai.action_type == "recruit":
+        row = masks.target_valid[ai.actor_idx]
+    else:
+        return None
+    return row > 0.5
+
+
 def _evaluate(
     model, encoder, holdout_files, device, *,
     eval_pairs: int = 1200,
@@ -905,7 +965,18 @@ def _evaluate(
     mean CE over the first `eval_pairs` pairs of the holdout games
     (deterministic file order -> comparable across evals). The
     encoder vocab is not intentionally grown here; unseen names hit
-    the overflow bucket exactly as they would at rollout time."""
+    the overflow bucket exactly as they would at rollout time.
+
+    Labels are built in the encoder's hex basis
+    (`encoder.relevant_set_hexes`). Besides the training CE the
+    function reports the target head two ways: `target_ce` (plain
+    NLL over all H hex logits, basis-dependent) and
+    `target_masked_ce` (`_masked_target_nll`, basis-independent), with
+    the masked top-1, the number of pairs behind it, and the count
+    of holdout targets the legality mask does not offer
+    (`target_off_mask`: the mask is stricter than Wesnoth in places,
+    e.g. multi-turn moves)."""
+    from wesnoth_ai.action_sampler import _build_legality_masks
     was_training = model.training
     model.eval()
     encoder.eval()
@@ -913,6 +984,10 @@ def _evaluate(
     fired = {"actor": 0, "type": 0, "target": 0, "weapon": 0}
     ce_sum, n = 0.0, 0
     ces: List[float] = []         # per-pair CE, for the SE
+    target_ces: List[float] = []  # plain target NLL, all H logits
+    masked_ces: List[float] = []  # target NLL over the legal set
+    masked_hits = 0
+    off_mask = off_subset = mask_errors = 0
     ev_win, ev_loss = [], []      # E[V] samples for value AUC
     # Stratified mode (2026-08-25 instrument repair): cap pairs per
     # game so eval_pairs spans MANY games instead of running ~3
@@ -934,7 +1009,8 @@ def _evaluate(
         for item in _pair_stream_serial(
                 _order,
                 max_pairs_per_replay=eval_pairs_per_game,
-                sample_seed=eval_sample_seed):
+                sample_seed=eval_sample_seed,
+                relevant_set=encoder.relevant_set_hexes):
             if item[0] != "pair":
                 continue
             _, state, ai, _name = item
@@ -946,6 +1022,30 @@ def _evaluate(
             except Exception:                     # noqa: BLE001
                 continue
             n += 1
+            off_subset += int(ai.target_off_subset)
+            if ai.target_idx is not None and ai.action_type != "end_turn" \
+                    and ai.actor_idx < output.actor_logits.size(1) \
+                    and ai.target_idx < output.target_logits.size(2):
+                tgt_row = output.target_logits[0, ai.actor_idx]
+                target_ces.append(float(F.cross_entropy(
+                    tgt_row.unsqueeze(0),
+                    torch.tensor([ai.target_idx], device=device))))
+                try:
+                    legal = _legal_target_row(
+                        _build_legality_masks(encoded, state), ai)
+                except Exception as e:            # noqa: BLE001
+                    mask_errors += 1
+                    if mask_errors <= 3:
+                        log.warning(f"  legality mask failed on a "
+                                    f"holdout pair ({_name}): {e!r}")
+                    legal = None
+                if legal is not None:
+                    r = _masked_target_nll(tgt_row, legal, ai.target_idx)
+                    if r is None:
+                        off_mask += 1
+                    else:
+                        masked_ces.append(r[0])
+                        masked_hits += int(r[1])
             if winner_map and _name in winner_map:
                 ev = float(output.value.item())
                 mover = state.global_info.current_side
@@ -995,6 +1095,25 @@ def _evaluate(
         out["ce_se"] = None
     for k in hits:
         out[f"{k}_top1"] = (hits[k] / fired[k]) if fired[k] else None
+
+    def _mean_se(xs: List[float]):
+        if not xs:
+            return None, None
+        m = sum(xs) / len(xs)
+        if len(xs) < 2:
+            return m, None
+        v = sum((x - m) ** 2 for x in xs) / (len(xs) - 1)
+        return m, (v / len(xs)) ** 0.5
+
+    out["target_n"] = len(target_ces)
+    out["target_ce"], _ = _mean_se(target_ces)
+    out["target_masked_ce"], out["target_masked_ce_se"] = _mean_se(masked_ces)
+    out["target_masked_top1"] = (masked_hits / len(masked_ces)
+                                 if masked_ces else None)
+    out["target_masked_n"] = len(masked_ces)
+    out["target_off_mask"] = off_mask
+    out["target_off_subset"] = off_subset
+    out["mask_errors"] = mask_errors
     # Value discrimination: P(E[V]_winner-to-move > E[V]_loser-to-
     # move) over holdout states -- the same AUC probe_value_head
     # reports, cheap enough to ride every eval so trunk-drift damage
@@ -1067,7 +1186,12 @@ def _log_eval(stats: Dict, epoch: int, global_step: int,
         f"type_top1={fmt(stats['type_top1'])} "
         f"target_top1={fmt(stats['target_top1'])} "
         f"weapon_top1={fmt(stats['weapon_top1'])} "
-        f"value_auc={fmt(stats.get('value_auc'))}")
+        f"value_auc={fmt(stats.get('value_auc'))} "
+        f"target_masked_ce={fmt(stats.get('target_masked_ce'))} "
+        f"masked_top1={fmt(stats.get('target_masked_top1'))} "
+        f"masked_n={stats.get('target_masked_n')} "
+        f"off_mask={stats.get('target_off_mask')} "
+        f"off_subset={stats.get('target_off_subset')}")
     try:
         row = dict(stats)
         row.update({"epoch": epoch, "step": global_step,
@@ -1133,7 +1257,24 @@ def train(
         # per-action-type loss weights; None -> defaults
         # (_DEFAULT_ACTION_TYPE_LOSS_WEIGHT). Pass via --action-type-weights
         # JSON; see tools/compute_action_type_weights.py.
+    relevant_set_hexes: bool = False,
+        # hex basis of the encoder AND the labels: the relevant subset
+        # (visibility.relevant_hexes_in_slot_order) instead of the full
+        # board. Recorded in the checkpoint; eval builds the same basis.
+    init_from: Optional[Path] = None,
+        # warm start: model + encoder weights and vocab from this
+        # checkpoint, fresh optimizer and counters (step 0, epoch 0,
+        # LR schedule from the start). --resume continues a run instead.
+    seed: Optional[int] = None,
+        # seeds `random` (file order, value-state subsampling) and torch,
+        # so two runs on the same corpus see the same pair stream.
 ) -> None:
+    if seed is not None:
+        random.seed(seed)
+        torch.manual_seed(seed)
+        log.info(f"Seed: {seed} (file order, value subsampling, torch)")
+    if resume is not None and init_from is not None:
+        raise ValueError("--resume and --init-from are exclusive")
     # `--device dml` (or `dml:N`) routes through Microsoft DirectML
     # for AMD/Intel GPU acceleration on Windows. NVIDIA users keep
     # passing `cuda` which torch resolves itself.
@@ -1173,8 +1314,14 @@ def train(
     ckpt = None
     aux_flag = moves_flag = False
     carry: Dict = {}
-    if resume is not None and resume.exists():
-        ckpt = torch.load(resume, map_location="cpu",
+    ckpt_src = resume if resume is not None else init_from
+    if ckpt_src is not None and not ckpt_src.exists():
+        if init_from is not None:
+            raise FileNotFoundError(f"--init-from {init_from} not found")
+        log.warning(f"--resume {resume} not found; starting fresh")
+        ckpt_src = None
+    if ckpt_src is not None:
+        ckpt = torch.load(ckpt_src, map_location="cpu",
                           weights_only=False)
         saved_arch = ckpt.get("arch") or {}
         ours = {"d_model": d_model, "num_layers": num_layers,
@@ -1182,9 +1329,22 @@ def train(
         for k, v in ours.items():
             if saved_arch and saved_arch.get(k) != v:
                 raise RuntimeError(
-                    f"--resume arch mismatch on '{k}': checkpoint "
+                    f"checkpoint arch mismatch on '{k}': {ckpt_src} "
                     f"has {saved_arch.get(k)!r}, flags say {v!r}. "
                     f"Pass the checkpoint's arch explicitly.")
+        # Hex basis: a checkpoint trained on the full board warm-
+        # starting the relevant-set arm is the experiment (docs/
+        # model_cost_study_20260905.md 7); evaluating across bases
+        # is meaningless, so eval-only refuses.
+        ckpt_basis = bool(ckpt.get("relevant_set_hexes"))
+        if ckpt_basis != relevant_set_hexes:
+            msg = (f"hex basis switch: {ckpt_src.name} has "
+                   f"relevant_set_hexes={ckpt_basis}, this run "
+                   f"{relevant_set_hexes}")
+            if eval_only:
+                raise RuntimeError(msg + " (pass the checkpoint's basis "
+                                   "for --eval-only)")
+            log.warning(f"  {msg}: warm start across hex bases")
         ms = ckpt.get("model_state", {})
         aux_flag = bool(ckpt.get("aux_score")) or any(
             k.startswith("aux_score_head.") for k in ms)
@@ -1199,7 +1359,8 @@ def train(
             log.info(f"  carrying decision_step="
                      f"{carry['decision_step']} through the SL pass")
 
-    encoder = GameStateEncoder(d_model=d_model).to(device)
+    encoder = GameStateEncoder(
+        d_model=d_model, relevant_set_hexes=relevant_set_hexes).to(device)
     model   = WesnothModel(d_model=d_model, num_layers=num_layers,
                            num_heads=num_heads, d_ff=d_ff,
                            aux_score=aux_flag,
@@ -1208,6 +1369,16 @@ def train(
     encoder.train()
     arch_record = {"d_model": d_model, "num_layers": num_layers,
                    "num_heads": num_heads, "d_ff": d_ff}
+    log.info(f"Hex basis: {'RELEVANT SET' if relevant_set_hexes else 'full board'}")
+    training_meta = {
+        "init_from": str(init_from) if init_from is not None else None,
+        "resume": str(resume) if resume is not None else None,
+        "seed": seed, "max_pairs": max_pairs,
+        "dataset_dir": str(dataset_dir),
+    }
+    save_kwargs = dict(arch=arch_record, carry=carry,
+                       relevant_set_hexes=relevant_set_hexes,
+                       training_meta=training_meta)
 
     opt = torch.optim.AdamW(
         list(model.parameters()) + list(encoder.parameters()),
@@ -1238,7 +1409,8 @@ def train(
     resumed_pairs = 0
     resumed_epoch = 0
     if ckpt is not None:
-        log.info(f"Resuming from {resume}")
+        log.info(f"{'Warm start (weights only) from' if init_from else 'Resuming from'} "
+                 f"{ckpt_src}")
         # strict=False so an architecture-additive change (new head,
         # new embedding column) can warm-start from a prior
         # checkpoint without losing the heads that DID exist.
@@ -1283,7 +1455,13 @@ def train(
         encoder.unit_type_to_id = dict(ckpt.get("unit_type_to_id", {}))
         if "faction_to_id" in ckpt:
             encoder.faction_to_id = dict(ckpt["faction_to_id"])
-        if "optimizer_state" in ckpt and reinit_value_head:
+        if init_from is not None:
+            # Weights and vocab only: the optimizer, the step / pair
+            # / epoch counters and the LR schedule start fresh, so a
+            # completed-epoch checkpoint can seed a new run without
+            # `range(resumed_epoch, epochs)` skipping it.
+            log.info("  --init-from: fresh optimizer and counters")
+        elif "optimizer_state" in ckpt and reinit_value_head:
             # Fresh value-head params must not inherit the old head's
             # Adam moments (state entries match by param order, so the
             # stale moments would land ON the re-initialized tensors).
@@ -1300,6 +1478,7 @@ def train(
             except Exception as e:
                 log.warning(f"  optimizer state restore failed ({e}); "
                             f"re-accumulating momentum from scratch")
+    if ckpt is not None and init_from is None:
         resumed_step  = int(ckpt.get("supervised_step", 0))
         resumed_pairs = int(ckpt.get("supervised_pairs", 0))
         # Global epoch counter -- count of fully-completed epochs
@@ -1493,7 +1672,7 @@ def train(
     # etc.) hit named rows instead of the overflow bucket. Skip if
     # we resumed (the resumed dict already has whatever the previous
     # runs accumulated).
-    if workers > 0 and resume is None:
+    if workers > 0 and ckpt is None:
         _seed_vocab_from_unit_stats(encoder, dataset_dir.parent / "unit_stats.json")
         log.info(
             f"Pre-seeded encoder vocab: "
@@ -1531,6 +1710,10 @@ def train(
     stop = False
     files_seen = 0
     file_errors = 0
+    # Relevant-set basis: labelled targets with no subset slot (kept
+    # as actor/type/weapon pairs, target head silent). Expected 0;
+    # every one is a superset violation worth a look.
+    target_off_subset = 0
 
     # Stage profiling (WESNOTH_PROF=1, same env flag as the rollout
     # prof system): wall-time accumulators for the three loop stages.
@@ -1595,11 +1778,13 @@ def train(
                 faction_to_id=encoder.faction_to_id,
                 prefetch_factor=prefetch_factor,
                 max_pairs_per_replay=max_pairs_per_replay,
+                relevant_set=relevant_set_hexes,
             )
         else:
             stream = _pair_stream_serial(
                 files,
                 max_pairs_per_replay=max_pairs_per_replay,
+                relevant_set=relevant_set_hexes,
             )
 
         # Per-pair / batched: shared bookkeeping below; the differences
@@ -1664,6 +1849,14 @@ def train(
 
                 # kind == "pair"
                 _, state_or_raw, ai, _gz_name = event
+
+                if ai.target_off_subset:
+                    target_off_subset += 1
+                    if target_off_subset <= 5:
+                        log.warning(
+                            f"  relevant-set gap: {_gz_name} "
+                            f"{ai.action_type} target has no subset "
+                            f"slot (pair kept, target head silent)")
 
                 if isinstance(state_or_raw, RawEncoded):
                     mover = 1 if state_or_raw.global_feats[1] < 0 else 2
@@ -1850,7 +2043,7 @@ def train(
                         _save_checkpoint(
                             checkpoint_out, model, encoder, opt,
                             global_step, running_count, epoch=epoch,
-                            arch=arch_record, carry=carry,
+                            **save_kwargs,
                         )
                         log.info(f"  periodic checkpoint @ step={global_step}")
                     if (eval_every and holdout_files
@@ -1864,6 +2057,7 @@ def train(
                             eval_sample_seed=eval_sample_seed,
                             type_loss_weights=type_loss_weights,
                             winner_map=winner_map)
+                        stats["train_target_off_subset"] = target_off_subset
                         _log_eval(stats, epoch, global_step,
                                   running_count, checkpoint_out)
                         if prof_on:
@@ -1938,13 +2132,13 @@ def train(
                      f"resume redoes it)")
         _save_checkpoint(checkpoint_out, model, encoder, opt,
                          global_step, running_count, epoch=completed,
-                         arch=arch_record, carry=carry)
+                         **save_kwargs)
         epoch_path = checkpoint_out.with_name(
             f"{checkpoint_out.stem}_epoch{epoch}{checkpoint_out.suffix}"
         )
         _save_checkpoint(epoch_path, model, encoder, opt,
                          global_step, running_count, epoch=completed,
-                         arch=arch_record, carry=carry)
+                         **save_kwargs)
         log.info(f"Epoch {epoch} saved to {checkpoint_out} and {epoch_path.name}")
         # Accounting line: an epoch that "completes" with a large
         # error count or far fewer pairs than the corpus holds is a
@@ -1952,7 +2146,8 @@ def train(
         log.info(f"  epoch accounting: files_seen={files_seen} "
                  f"file_errors={file_errors} "
                  f"pairs={running_count - run_start_count} "
-                 f"(chain total {running_count})")
+                 f"(chain total {running_count}) "
+                 f"target_off_subset={target_off_subset}")
         if holdout_files:
             stats = _evaluate(model, encoder, holdout_files, device,
                               eval_pairs=eval_pairs,
@@ -1960,6 +2155,7 @@ def train(
                               eval_sample_seed=eval_sample_seed,
                               type_loss_weights=type_loss_weights,
                               winner_map=winner_map)
+            stats["train_target_off_subset"] = target_off_subset
             _log_eval(stats, epoch, global_step, running_count,
                       checkpoint_out, tag=f"epoch{epoch}-end")
         # Advance the LR scheduler one cosine step. Done AFTER the
@@ -2081,6 +2277,21 @@ def main(argv: List[str]) -> int:
                          "(see tools/compute_action_type_weights.py). "
                          "Default: bake-in inverse-frequency weights "
                          "(_DEFAULT_ACTION_TYPE_LOSS_WEIGHT).")
+    ap.add_argument("--relevant-set-hexes", action="store_true",
+                    help="Encode and label in the relevant hex subset "
+                         "(encoder relevant_set_hexes; docs/"
+                         "model_cost_study_20260905.md 2). Recorded "
+                         "in the checkpoint so evals build the same "
+                         "basis. --eval-only must match the checkpoint.")
+    ap.add_argument("--init-from", type=Path, default=None,
+                    help="Warm start: model + encoder weights and vocab "
+                         "from this checkpoint, fresh optimizer and "
+                         "counters (unlike --resume, which continues "
+                         "the chain). Exclusive with --resume.")
+    ap.add_argument("--seed", type=int, default=None,
+                    help="Seed for file order, value-state subsampling "
+                         "and torch: two runs with the same seed and "
+                         "corpus train on the same pair stream.")
     args = ap.parse_args(argv[1:])
     bf_arg = (None if args.batched_forward == "auto"
               else args.batched_forward == "on")
@@ -2124,6 +2335,9 @@ def main(argv: List[str]) -> int:
         reinit_value_head=args.reinit_value_head,
         imitation_config=args.imitation_config,
         type_loss_weights=type_loss_weights,
+        relevant_set_hexes=args.relevant_set_hexes,
+        init_from=args.init_from,
+        seed=args.seed,
     )
     return 0
 

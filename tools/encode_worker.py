@@ -64,6 +64,7 @@ def worker_main(
     type_to_id: Dict[str, int],
     faction_to_id: Dict[str, int],
     log_level: int = logging.WARNING,
+    relevant_set: bool = False,
 ) -> None:
     """Worker entry point.
 
@@ -78,6 +79,11 @@ def worker_main(
     that drives gc / batch-flush bookkeeping is synthesized by the
     stream after a file's pairs are drained — workers don't emit it
     explicitly anymore.
+
+    `relevant_set`: encode the relevant hex subset and build labels in
+    the same basis (label builder and `encode_raw` each compute the
+    subset; the encoder has no entry point that accepts a precomputed
+    one).
     """
     # Re-bootstrap import paths for Windows spawn — fork would inherit.
     if str(_PROJECT_ROOT) not in sys.path:
@@ -102,11 +108,13 @@ def worker_main(
         gz_name = gz_path.name
         try:
             pairs = []
-            for state, ai in iter_replay_pairs(gz_path):
+            for state, ai in iter_replay_pairs(gz_path,
+                                               relevant_set=relevant_set):
                 raw = encode_raw(
                     state,
                     type_to_id=type_to_id,
                     faction_to_id=faction_to_id,
+                    relevant_set=relevant_set,
                 )
                 pairs.append((raw, ai))
             # Single put() amortizes pickle cost across all pairs from
