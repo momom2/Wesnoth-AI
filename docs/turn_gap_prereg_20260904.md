@@ -353,7 +353,10 @@ box-hours, $0.85. Estimand: within each position, the residual
 standard deviation of (playout mean - a * value_post - b) with (a, b)
 fitted across all 60 candidates, and the same for the HP margin; plus
 whether every alternative whose 160-playout gap is >= 0.25 is ranked
-above its base by each pre-grader.
+above its base by each pre-grader. Analysis script:
+`tools/analysis/turn_gap_pregrader.py RESULT.json` (runs on the
+partial file too; prints the fits, the residual SDs, the ranking of
+every confirmed alternative and the verdict under the rule below).
 
 Prediction (operator, from the design's prior evidence): residual SD
 of the value head 0.30-0.35 (worse than a 10-playout grade); the HP

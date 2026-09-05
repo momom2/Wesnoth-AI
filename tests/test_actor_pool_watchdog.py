@@ -57,8 +57,11 @@ def _pool(procs, results, *, iteration_timeout=1800.0,
     pool = ActorPool.__new__(ActorPool)
     pool._n = len(procs)
     pool._started = True
-    pool._policy = SimpleNamespace(_inference_encoder=SimpleNamespace(
-        unit_type_to_id={}, faction_to_id={}))
+    # A bare inference model: no weights version, no compile stats
+    # (the pool reads both through getattr defaults).
+    pool._policy = SimpleNamespace(
+        _inference_model=SimpleNamespace(),
+        _inference_encoder=SimpleNamespace(unit_type_to_id={}, faction_to_id={}))
     pool._iteration_timeout = iteration_timeout
     pool._drain_grace = drain_grace
     pool._liveness_interval = liveness_interval
