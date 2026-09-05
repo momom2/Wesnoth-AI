@@ -224,6 +224,18 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
    `RemoteEncoder.encode` packs masks for every encode, including
    value-only ones (turn search, probes); an `encode(want_priors)`
    switch when those paths return to use.
+7b. **Second review** (2026-09-05 evening, 7 Opus finders + 3
+   refuters per finding over the day's second half): 18 confirmed,
+   all fixed the same evening (parked requests dropped when serving
+   stopped, wedging actors; a serve process failing mid-iteration
+   invisible until the end; the light state losing the hex basis;
+   the imitation pair stream not seed-reproducible with workers; the
+   arms script marking short matches done; the hex basis absent from
+   eval provenance and guards; startup stderr lost; benchmark
+   reporting inconsistencies; terminal candidates counted as
+   playouts). Eight rejected. Two refuter calls failed on an API
+   safeguard (absent votes). The queued box runs from the
+   training-step confirmation on use the fixed tree.
 
 ## Phase 2 prerequisite (measure before designing)
 
