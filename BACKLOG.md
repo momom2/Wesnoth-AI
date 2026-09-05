@@ -196,8 +196,21 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
    side dominates; being profiled), batch 16 + bf16 autocast 35.4 ms
    per experience (forward 1.5, backward 4.7), training path 352 s
    per iteration (from 684); parity cosine 0.9994. az_loop now
-   defaults to batch 16 with bf16 training. NEXT: the loss's host
-   cost (in flight), then a second serve process.
+   defaults to batch 16 with bf16 training.
+   - DIAGNOSED 2026-09-05: the loss stage's 22.6 ms is the host
+     rebuild of each experience's legality masks plus
+     `tools/pathfind_sim.py`'s 512-entry drop-all terrain caches
+     thrashing over a learner-sized working set (the 200 bench states
+     already exceed them). The trainer now consumes
+     `MCTSExperience.masks` (the actor's PackedMasks, bit-packed
+     staging, ~0.4 ms per experience on the laptop, bit-identical).
+     NEXT: ship the root's PackedMasks with the experience
+     (`tools/mcts_policy.py` _PendingMCTSState/finalize_game, the pack
+     kept on the MCTSNode from RemoteEncoder.encode; 4-18 KB per
+     experience); then the bf16 batch-16 row should read ~23 ms per
+     experience and the training path ~230 s per iteration. Also:
+     raise or re-key the pathfind_sim cache bounds for anything that
+     still rebuilds masks over many maps (the bench does).
 6. **Review of the day's changes** (2026-09-04, 7 Opus finders + 3
    refuters per finding): 17 confirmed, 16 fixed the same day (static
    hex cache keyed on a freed address; timeout artifacts that aborted
