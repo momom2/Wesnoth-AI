@@ -521,6 +521,10 @@ torch threads 4, actor thread pools capped, Rust encode_raw.
 | same, 32 games, 4 serve threads | 587 | 339 | 5.14 | 3,048 / 2,778 | - |
 | packed varlen trunk, 32 games, 2 serve threads | 833 | 489 | 2.05 | 1,303 / 857 | - |
 | packed trunk + compiled layer loop, 32 games | 863 | 503 | 1.80 | - | - |
+| packed trunk, 32 games (control for the rows below) | 831 | 466 | 1.90 | - | - |
+| + packed embed | 851 | 481 | 1.75 | - | - |
+| + length-aware coalescing | 833 | 562 | 1.76 | - | - |
+| + packed embed + coalescing | 863 | 402 | 1.81 | - | - |
 
 Reading: 643 leaves/s in the fed window is the design doc's estimate
 of the fed ceiling with today's kernels (~670); the serve threads'
@@ -611,3 +615,26 @@ The ten workers ask for ~195 forwards per second in total, so the
 per decision is the limit now, not the GPU. A 800-game gate is about
 45 minutes this way. A re-pin of raw:t0 against itself through this
 path is still required before its gates are quoted.
+
+## Serve thread host cost per 16-leaf batch (2026-09-05, box 49875606)
+
+The serve stats now split the host milliseconds per batch (records
+`training/metrics/bench_pipeline/pool_c_*.{json,log}`, packed trunk,
+16 actors, 32 games):
+
+| row | unpack | encode | forward launch | priors | GPU wait | reply | wire | total host | saturated leaves/s |
+|---|---|---|---|---|---|---|---|---|---|
+| control | 2.5 | 8.5 | 10.9 | 5.9 | 4.8 | 1.0 | 2.4 | ~36 | 831 |
+| packed embed | 2.5 | 3.7 | 10.4 | 6.1 | 6.2 | 1.1 | 2.9 | ~33 | 851 |
+| coalescing (length) | 2.5 | 8.0 | 10.4 | 5.5 | 4.3 | 0.9 | 2.5 | ~34 | 833 |
+| both | 2.6 | 3.6 | 10.4 | 6.1 | 6.5 | 1.0 | 2.7 | ~33 | 863 |
+
+Reading: with the GPU at 1.8 ms per leaf, two serve threads sharing
+one GIL at ~33-36 ms of host work per batch are the ceiling (~830-860
+leaves/s). Packed embed removes 4.9 ms (kept, on by default in
+`az_loop`); coalescing only lowers the padding ratio (1.10 -> 1.07)
+and delays requests (skipped 90-117k), no rate change (off). The
+remaining host items: the forward's kernel launches (10.4 ms; the
+compiled loop is the lever), the priors extraction (6 ms), request
+unpickling (2.5 ms), wire (2.5 ms). A second serve process would
+double the host budget; the GPU has room for ~1.5x more.
