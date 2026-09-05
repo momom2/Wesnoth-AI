@@ -166,10 +166,19 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
    Kill: relevant-set arm below the control by > 2 SE, or masked CE
    worse by > 0.05 nat; the pooling arm then replaces it.
    **Eval at scale** (plan 1.5): 800 raw games in ~65 min / $0.36
-   through persistent workers; the target (15 min, $0.25) needs the
-   workers' forwards batched through one inference server instead of
-   ten processes launching batch-1 forwards on one GPU (24 ms of
-   forward per decision measured, 1.5 ms per sample when batched).
+   through persistent workers; with the shared inference server
+   (2026-09-05, `--shared-inference`) 40 games take 145 s against
+   215, mean batch 3.7: the workers' own Python per decision is the
+   limit now. ~45 min per 800-game gate. Open: re-pin raw:t0 through
+   the server before quoting gates through it.
+7. **Training path** (measured 2026-09-05, docs/box_specs.md
+   "Training path cost"): 69 ms per experience at the loop's fp32
+   batch 1; the factored policy loss is 32-34 ms of it in every
+   configuration (per-experience Python), the backward 17-29 ms.
+   The training path is 684 s per default iteration against 498 s of
+   generation. NEXT (in flight): the policy loss vectorized over the
+   batch, train_batch_size 16 in az_loop (exact parity), then bf16
+   autocast for forward and backward (cosine 0.9994).
 6. **Review of the day's changes** (2026-09-04, 7 Opus finders + 3
    refuters per finding): 17 confirmed, 16 fixed the same day (static
    hex cache keyed on a freed address; timeout artifacts that aborted

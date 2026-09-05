@@ -1,0 +1,33 @@
+{
+ "spec": "training/checkpoints/seed.pt",
+ "device": "cuda",
+ "infer_bf16": true,
+ "packed_trunk": true,
+ "relevant_set": false,
+ "window_ms": 1.5,
+ "max_batch": 10,
+ "requests": 28188,
+ "batches": 7681,
+ "leaves": 28188,
+ "connections": 10,
+ "failed_batches": 0,
+ "mean_batch": 3.66983465694571,
+ "batch_hist": {
+  "1": 1642,
+  "2": 536,
+  "3": 1045,
+  "4": 1608,
+  "5": 1633,
+  "6": 887,
+  "7": 232,
+  "8": 87,
+  "9": 10,
+  "10": 1
+ },
+ "idle_s": 20.643,
+ "window_s": 12.308,
+ "infer_s": 104.313,
+ "reply_s": 3.555,
+ "gpu_ms": 94922.9,
+ "wall_s": 140.934
+}

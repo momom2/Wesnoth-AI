@@ -565,3 +565,49 @@ the retrain (docs/model_cost_study_20260905.md section 7), which is
 therefore run; eval of subset-basis checkpoints should run eager or
 through the shared inference server. Records:
 `training/metrics/sweeps/relset_probe_20260905/`.
+
+## Training path cost (2026-09-05, box 49875606)
+
+`tools/bench_train_step.py` on the 200 bench states (prior-drawn
+visits), the loop's trainer configuration, medians of 3 steps.
+Records: `training/metrics/bench_pipeline/train_step/`.
+
+| precision | batch | fwd + bwd ms per experience | of which policy loss | step wall ms per experience | GPU peak MB |
+|---|---|---|---|---|---|
+| fp32 | 1 (the loop today) | 67.8 | 33.6 | 68.9 | 667 |
+| fp32 | 16 | 57.1 | 32.3 | 57.5 | 6,200 |
+| bf16 autocast | 1 | 72.1 | 33.8 | 72.2 | 567 |
+| bf16 autocast | 16 | 45.0 | 32.7 | 45.5 | 3,795 |
+
+Parity on one batch of 64 against fp32 batch 1: fp32 batch 16 exact
+to 1e-4 in the gradient; bf16 loss within 3e-4, gradient cosine
+0.9994, norm within 0.3%. Compiling the trainer's trunk gains under
+2 ms per experience and breaks bf16 parity (cosine 0.96): not used.
+
+Reading: the factored policy loss costs 32-34 ms per experience in
+every row because it runs per experience in Python; it is the single
+largest item of the training path, ahead of the backward. Implied
+loop iteration at the loop's defaults (24 games, 9,912
+forward+backward passes): 684 s of training path against 498 s of
+generation at 833 leaves/s, i.e. the trainer is now the longer half.
+Levers, in order: the policy loss over the whole batch (32 -> a few
+ms), then batch 16 (exact parity, immediate), then bf16 autocast for
+the forward and backward (parity within bf16 noise).
+
+## Evaluation through the shared inference server (2026-09-05)
+
+`run_elo_batch --persistent-workers --shared-inference`, 40 games,
+seed vs seed at argmax, 10 workers, the same slots as the T = 0 sweep
+arm. Records: `training/metrics/bench_pipeline/eval_shared/`.
+
+| mode | wall s for 40 games | mean batch | server busy |
+|---|---|---|---|
+| one process per game | 408 | 1 | - |
+| persistent workers | 215 | 1 | - |
+| persistent workers + shared inference | 145 | 3.7 | 72% |
+
+The ten workers ask for ~195 forwards per second in total, so the
+1.5 ms window fills 3.7 requests on average; the workers' own Python
+per decision is the limit now, not the GPU. A 800-game gate is about
+45 minutes this way. A re-pin of raw:t0 against itself through this
+path is still required before its gates are quoted.
