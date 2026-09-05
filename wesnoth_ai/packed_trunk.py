@@ -53,10 +53,11 @@ their shapes stay static; only `total`, the offsets' length and
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 from dataclasses import dataclass
-from typing import Callable, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -116,53 +117,165 @@ class PackedIndex:
     max_len: int
 
 
+def _ragged_arange(counts: np.ndarray) -> np.ndarray:
+    """0 .. c-1 for every count c, concatenated: [sum(counts)]."""
+    starts = np.zeros(counts.size, dtype=np.int64)
+    np.cumsum(counts[:-1], out=starts[1:])
+    return np.arange(int(counts.sum()), dtype=np.int64) - np.repeat(starts, counts)
+
+
+def _exclusive_cumsum(a: np.ndarray) -> np.ndarray:
+    out = np.zeros(a.size + 1, dtype=np.int64)
+    np.cumsum(a, out=out[1:])
+    return out
+
+
+def _sizes_array(sizes: Sequence[Tuple[int, int, int]]) -> np.ndarray:
+    """[B, 3] int64 of (U_b, R_b, H_b)."""
+    return np.asarray(sizes, dtype=np.int64).reshape(len(sizes), 3)
+
+
+def _segment_sources(sizes: np.ndarray, starts: np.ndarray) -> np.ndarray:
+    """Source row of every packed token given, per sample, the source
+    row of its first hex, unit, recruit, global and end_turn token
+    (`starts` [B, 5]); the packed segment of a sample lists them in
+    that order."""
+    Us, Rs, Hs = sizes[:, 0], sizes[:, 1], sizes[:, 2]
+    ones = np.ones(len(sizes), dtype=np.int64)
+    counts = np.stack([Hs, Us, Rs, ones, ones], axis=1).reshape(-1)
+    return np.repeat(starts.reshape(-1), counts) + _ragged_arange(counts)
+
+
+def _padded_starts(sizes: np.ndarray, H_max: int, U_max: int, R_max: int) -> np.ndarray:
+    """First-token rows in the flat padded layout (row b at b * L_max)."""
+    L = H_max + U_max + R_max + 2
+    row = np.arange(len(sizes), dtype=np.int64) * L
+    return np.stack([row, row + H_max, row + H_max + U_max, row + H_max + U_max + R_max,
+                     row + H_max + U_max + R_max + 1], axis=1)
+
+
+def _stream_starts(sizes: np.ndarray) -> np.ndarray:
+    """First-token rows in the stream-concatenated layout of
+    EmbeddedStreams: every sample's hexes, then units, then recruits,
+    one global row per sample, one shared end_turn row."""
+    Us, Rs, Hs = sizes[:, 0], sizes[:, 1], sizes[:, 2]
+    B = len(sizes)
+    hex_off, unit_off, rec_off = _exclusive_cumsum(Hs), _exclusive_cumsum(Us), _exclusive_cumsum(Rs)
+    th, tu, tr = int(hex_off[-1]), int(unit_off[-1]), int(rec_off[-1])
+    return np.stack([hex_off[:-1], th + unit_off[:-1], th + tu + rec_off[:-1],
+                     th + tu + tr + np.arange(B, dtype=np.int64),
+                     np.full(B, th + tu + tr + B, dtype=np.int64)], axis=1)
+
+
 def build_packed_layout(sizes: Sequence[Tuple[int, int, int]], H_max: int, U_max: int,
-                        R_max: int, token_kind, actor_kind) -> PackedLayout:
-    """Index arrays for per-sample sizes (U_b, R_b, H_b) in the padded
-    layout hex(H_max) | unit(U_max) | recruit(R_max) | global | end_turn
-    of model.forward_streams. `token_kind` and `actor_kind` are the
-    model's TokenKind and ActorKind tables, passed in so this module
-    imports nothing from the model."""
+                        R_max: int, token_kind, actor_kind,
+                        source: str = "padded") -> PackedLayout:
+    """Index arrays for per-sample sizes (U_b, R_b, H_b). `src` addresses
+    the tokens of `source`: "padded", the flat padded layout
+    hex(H_max) | unit(U_max) | recruit(R_max) | global | end_turn of
+    model.forward_streams (row b at b * L_max); "streams", the
+    stream-concatenated tokens of EmbeddedStreams. The head arrays
+    (actor, hex, unit, glob) and the offsets address packed rows either
+    way. `token_kind` and `actor_kind` are the model's TokenKind and
+    ActorKind tables, passed in so this module imports nothing from the
+    model. Vectorized numpy; no per-sample loop."""
+    B = len(sizes)
+    sz = _sizes_array(sizes)
+    Us, Rs, Hs = sz[:, 0], sz[:, 1], sz[:, 2]
+    A_max = U_max + R_max + 1
+    lengths = Us + Rs + Hs + 2
+    cu = _exclusive_cumsum(lengths)
+    if source == "padded":
+        starts = _padded_starts(sz, H_max, U_max, R_max)
+    elif source == "streams":
+        starts = _stream_starts(sz)
+    else:
+        raise ValueError(f"build_packed_layout: unknown source {source!r}")
+    src = _segment_sources(sz, starts)
+    ones = np.ones(B, dtype=np.int64)
+    counts = np.stack([Hs, Us, Rs, ones, ones], axis=1).reshape(-1)
+    kind = np.repeat(np.tile(np.array([token_kind.HEX, token_kind.UNIT, token_kind.RECRUIT,
+                                       token_kind.GLOBAL, token_kind.END_TURN], dtype=np.int64),
+                             B), counts)
+    seg0, end = cu[:-1, None], (cu[1:] - 1)[:, None]      # [B, 1] each
+    a = np.arange(A_max, dtype=np.int64)[None, :]
+    actor = np.where(a < (Us + Rs)[:, None], seg0 + Hs[:, None] + a, end)
+    h = np.arange(H_max, dtype=np.int64)[None, :]
+    hexes = np.where(h < Hs[:, None], seg0 + h, end)
+    u = np.arange(U_max, dtype=np.int64)[None, :]
+    unit = np.where(u < Us[:, None], seg0 + Hs[:, None] + u, end)
+    kinds = np.full((B, A_max), actor_kind.END_TURN, dtype=np.int64)
+    kinds[a < (Us + Rs)[:, None]] = actor_kind.RECRUIT
+    kinds[a < Us[:, None]] = actor_kind.UNIT
+    return PackedLayout(src=src, kind=kind, actor=actor.reshape(-1), hex=hexes.reshape(-1),
+                        unit=unit.reshape(-1), glob=(end - 1).reshape(-1), cu_seqlens=cu,
+                        actor_kind=kinds, max_len=int(lengths.max()) if B else 0)
+
+
+def padded_gather_index(sizes: Sequence[Tuple[int, int, int]], H_max: int, U_max: int,
+                        R_max: int) -> np.ndarray:
+    """Stream row (EmbeddedStreams order) of every slot of the flat
+    padded layout ([B * L_max]); pad slots point one past the last
+    stream row, so gathering from the stream tokens with a zero row
+    appended yields the padded streams with zeros at the pads, as
+    pad_sequence builds them."""
+    sz = _sizes_array(sizes)
     B = len(sizes)
     L = H_max + U_max + R_max + 2
-    A_max = U_max + R_max + 1
-    lengths = np.array([U + R + H + 2 for U, R, H in sizes], dtype=np.int64)
-    cu = np.zeros(B + 1, dtype=np.int64)
-    np.cumsum(lengths, out=cu[1:])
-    src = np.empty(int(cu[-1]), dtype=np.int64)
-    kind = np.empty(int(cu[-1]), dtype=np.int64)
-    actor = np.empty((B, A_max), dtype=np.int64)
-    hexes = np.empty((B, H_max), dtype=np.int64)
-    unit = np.empty((B, U_max), dtype=np.int64)
-    glob = np.empty(B, dtype=np.int64)
-    kinds = np.full((B, A_max), actor_kind.END_TURN, dtype=np.int64)
-    for b, (U, R, H) in enumerate(sizes):
-        o, row, n = int(cu[b]), b * L, int(lengths[b])
-        seg = src[o:o + n]
-        seg[:H] = row + np.arange(H)
-        seg[H:H + U] = row + H_max + np.arange(U)
-        seg[H + U:H + U + R] = row + H_max + U_max + np.arange(R)
-        seg[n - 2] = row + H_max + U_max + R_max
-        seg[n - 1] = row + H_max + U_max + R_max + 1
-        kseg = kind[o:o + n]
-        kseg[:H] = token_kind.HEX
-        kseg[H:H + U] = token_kind.UNIT
-        kseg[H + U:H + U + R] = token_kind.RECRUIT
-        kseg[n - 2] = token_kind.GLOBAL
-        kseg[n - 1] = token_kind.END_TURN
-        end = o + n - 1
-        actor[b] = end
-        actor[b, :U + R] = o + H + np.arange(U + R)    # units then recruits, contiguous
-        hexes[b] = end
-        hexes[b, :H] = o + np.arange(H)
-        unit[b] = end
-        unit[b, :U] = o + H + np.arange(U)
-        glob[b] = end - 1
-        kinds[b, :U] = actor_kind.UNIT
-        kinds[b, U:U + R] = actor_kind.RECRUIT
-    return PackedLayout(src=src, kind=kind, actor=actor.reshape(-1), hex=hexes.reshape(-1),
-                        unit=unit.reshape(-1), glob=glob, cu_seqlens=cu, actor_kind=kinds,
-                        max_len=int(lengths.max()) if B else 0)
+    padded_rows = _segment_sources(sz, _padded_starts(sz, H_max, U_max, R_max))
+    stream_rows = _segment_sources(sz, _stream_starts(sz))
+    out = np.full(B * L, int(sz.sum()) + B + 1, dtype=np.int64)
+    out[padded_rows] = stream_rows
+    return out
+
+
+@dataclass
+class EmbeddedStreams:
+    """A batch's token embeddings before the token-kind term, concatenated
+    per stream: the hex tokens of every sample, then the unit tokens of
+    every sample, the recruit tokens, one global row per sample and one
+    end_turn row: [N, d], N = sum(H) + sum(U) + sum(R) + B + 1. Built by
+    GameStateEncoder.encode_from_raw_embedded from one pinned host
+    buffer; WesnothModel.forward_embedded orders the rows into the
+    packed layout (build_packed_layout(source="streams")) or, for the
+    padded trunk, into the padded streams (padded_gather_index)."""
+    tokens: torch.Tensor
+    sizes: List[Tuple[int, int, int]]   # (U_b, R_b, H_b)
+
+
+# ---------------------------------------------------------------------
+# One flat byte buffer for several typed arrays
+# ---------------------------------------------------------------------
+
+_NP_DTYPE = {torch.float64: np.float64, torch.float32: np.float32,
+             torch.int64: np.int64, torch.int32: np.int32,
+             torch.int8: np.int8, torch.uint8: np.uint8}
+
+
+class FlatLayout:
+    """Byte layout of several typed arrays in one flat uint8 buffer, so
+    a batch's arrays cross to the device in one copy. Fields are placed
+    in decreasing element size, so every offset is a multiple of its
+    field's element size (what `Tensor.view(dtype)` requires) with no
+    padding bytes."""
+    __slots__ = ("fields", "nbytes")
+
+    def __init__(self, fields: Sequence[Tuple[str, torch.dtype, Tuple[int, ...]]]):
+        self.fields: List[Tuple[str, torch.dtype, Tuple[int, ...], int, int]] = []
+        off = 0
+        for name, dt, shape in sorted(fields, key=lambda f: -f[1].itemsize):
+            n = math.prod(shape) * dt.itemsize
+            self.fields.append((name, dt, tuple(shape), off, n))
+            off += n
+        self.nbytes = off
+
+    def torch_views(self, buf: torch.Tensor) -> Dict[str, torch.Tensor]:
+        return {name: buf[off:off + n].view(dt).view(shape)
+                for name, dt, shape, off, n in self.fields}
+
+    def numpy_views(self, buf: np.ndarray) -> Dict[str, np.ndarray]:
+        return {name: buf[off:off + n].view(_NP_DTYPE[dt]).reshape(shape)
+                for name, dt, shape, off, n in self.fields}
 
 
 # ---------------------------------------------------------------------

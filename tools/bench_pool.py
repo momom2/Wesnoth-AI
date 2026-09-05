@@ -34,7 +34,8 @@ log = logging.getLogger("bench_pool")
 def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
              server_priors: bool, max_turns: int, device, seed: int,
              iteration_timeout: float, log_level: int = logging.WARNING,
-             max_batch: int = 16, serve_threads: int = 2) -> dict:
+             max_batch: int = 16, serve_threads: int = 2, packed_embed: bool = False,
+             coalesce: str = "fifo", coalesce_gap: int = 0) -> dict:
     from tools.actor_pool import ActorPool
     from tools.mcts import MCTSConfig
     from tools.mcts_policy import MCTSPolicy, ReplayConfig
@@ -59,7 +60,8 @@ def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
                      pvp_defaults=PvPDefaults(), device=device, max_batch=max_batch,
                      log_level=log_level, iteration_timeout=iteration_timeout,
                      drain_grace=120.0, server_priors=bool(server_priors),
-                     serve_threads=serve_threads)
+                     serve_threads=serve_threads, packed_embed=packed_embed,
+                     coalesce=coalesce, coalesce_gap=coalesce_gap)
     pool.start()
     t0 = time.monotonic()
     try:
@@ -83,6 +85,8 @@ def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
         "sims": sims, "leaf_batch": leaf_batch, "max_turns": max_turns,
         "max_batch": max_batch, "serve_threads": serve_threads,
         "packed_trunk": bool(getattr(base, "infer_packed_trunk", False)),
+        "packed_embed": bool(packed_embed),
+        "coalesce": coalesce, "coalesce_gap": coalesce_gap,
         # Warmup seconds, recompiles and any eager fallback of the
         # compiled packed trunk (design note section 13).
         "packed_compile": base.packed_compile_stats(),
@@ -98,6 +102,11 @@ def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
         "leaf_timeline": getattr(pool, "last_leaf_timeline", None),
         "tokens_per_leaf": getattr(pool, "last_tokens_per_leaf", None),
         "pad_ratio": getattr(pool, "last_pad_ratio", None),
+        # Host milliseconds per batch by stage (design note section 14)
+        # and what the batch picker saw.
+        "host_ms_per_batch": getattr(pool, "last_host_ms", None),
+        "queue_depth": getattr(pool, "last_queue_depth", None),
+        "skipped_requests": getattr(pool, "last_skipped_requests", None),
         "game_finish_p50_s": getattr(pool, "last_game_finish_p50", None),
         "game_finish_max_s": getattr(pool, "last_game_finish_max", None),
         "mean_turns": (statistics.fmean(o.turns for o in outcomes) if outcomes else None),
@@ -139,6 +148,17 @@ def main(argv) -> int:
                          "(design note section 13; needs --packed-trunk).")
     ap.add_argument("--compile-packed-mode", default="default",
                     choices=("default", "max-autotune-no-cudagraphs"))
+    ap.add_argument("--packed-embed", action="store_true",
+                    help="Embed each batch from one pinned buffer straight into the "
+                         "trunk's layout (design note section 14; any device, any trunk).")
+    ap.add_argument("--coalesce", default="fifo", choices=("fifo", "length"),
+                    help="How a serve thread picks a batch from the queued requests: "
+                         "arrival order, or the requests nearest in token count to the "
+                         "oldest one when more wait than one batch takes (section 7).")
+    ap.add_argument("--coalesce-gap", type=int, default=0,
+                    help="With --coalesce length: refuse a request further than this many "
+                         "tokens from the batch's anchor even if the batch is not full "
+                         "(0: no gap rule).")
     ap.add_argument("--dollars-per-hour", type=float, default=0.0)
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--log-level", default="INFO")
@@ -173,7 +193,8 @@ def main(argv) -> int:
                    leaf_batch=args.leaf_batch, server_priors=args.server_priors,
                    max_turns=args.max_turns, device=device, seed=args.seed,
                    iteration_timeout=args.iteration_timeout, max_batch=args.max_batch,
-                   serve_threads=args.serve_threads)
+                   serve_threads=args.serve_threads, packed_embed=args.packed_embed,
+                   coalesce=args.coalesce, coalesce_gap=args.coalesce_gap)
     if args.dollars_per_hour and res["games_per_hour"]:
         res["games_per_dollar"] = res["games_per_hour"] / args.dollars_per_hour
     print(json.dumps(res, indent=1))

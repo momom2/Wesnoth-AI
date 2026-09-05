@@ -29,6 +29,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from wesnoth_ai.packed_trunk import EmbeddedStreams, FlatLayout
+
 from wesnoth_ai.classes import (
     Alignment,
     GameState,
@@ -815,12 +817,104 @@ class GameStateEncoder(nn.Module):
         sizes = list(zip(emb["Us"], emb["Rs"], emb["Hs"]))
         return hex_b, unit_b, recruit_b, global_b, end_b, sizes
 
+    def _hex_embedding(self, xs, ys, terrain_ids, modifier_flags, dynamic_flags):
+        """One hex token per row. The sum order here is the one every
+        batched path shares, so their embeddings are the same tensor."""
+        return (self.pos_x_embed(xs) + self.pos_y_embed(ys)
+                + self.terrain_embed(terrain_ids) + self.modifier_proj(modifier_flags)
+                + self.dynamic_flag_proj(dynamic_flags))
+
+    def _unit_embedding(self, type_ids, side_ids, xs, ys, feats):
+        """Unit tokens, and recruit tokens: a recruit is a phantom unit at
+        its leader's keep, embedded by the same tables and projection so
+        the actor head sees "would-be Fighter at our keep" the way it
+        sees "Fighter standing here"."""
+        return (self.unit_type_embed(type_ids) + self.side_embed(side_ids)
+                + self.pos_x_embed(xs) + self.pos_y_embed(ys) + self.unit_feat_proj(feats))
+
+    def _global_embedding(self, feats, our_faction_ids, their_faction_ids):
+        return (self.global_proj(feats) + self.our_faction_embed(our_faction_ids)
+                + self.their_faction_embed(their_faction_ids))
+
+    # RawEncoded's numeric fields per stream: (name, dtype, per-row
+    # shape). encode_from_raw_embedded concatenates each across the
+    # batch into one buffer.
+    _STREAM_FIELDS = (
+        ("hex", (("hex_xs", torch.int64, ()), ("hex_ys", torch.int64, ()),
+                 ("hex_terrain_ids", torch.int64, ()),
+                 ("hex_modifier_flags", torch.float32, (NUM_HEX_MODIFIERS,)),
+                 ("hex_dynamic_flags", torch.float32, (NUM_HEX_DYNAMIC_FLAGS,)))),
+        ("unit", (("unit_type_ids", torch.int64, ()), ("unit_side_ids", torch.int64, ()),
+                  ("unit_xs", torch.int64, ()), ("unit_ys", torch.int64, ()),
+                  ("unit_feats", torch.float32, (UNIT_FEAT_DIM,)))),
+        ("recruit", (("recruit_type_ids", torch.int64, ()), ("recruit_side_ids", torch.int64, ()),
+                     ("recruit_xs", torch.int64, ()), ("recruit_ys", torch.int64, ()),
+                     ("recruit_feats", torch.float32, (UNIT_FEAT_DIM,)))),
+    )
+
+    def encode_from_raw_embedded(
+        self,
+        raws: List[RawEncoded],
+        *,
+        device: Optional[torch.device] = None,
+    ) -> EmbeddedStreams:
+        """Server fast path (2026-09-05): the batch's token embeddings in
+        stream order (packed_trunk.EmbeddedStreams) from ONE pinned host
+        buffer and one non-blocking copy. Every numeric field of every
+        RawEncoded is concatenated straight into the buffer
+        (np.concatenate(out=)), the trained embeddings run on device
+        views of it, and nothing here waits for the device. The padded
+        path (_embed_streams) pins and copies its 17 fields one by one
+        and moves the global features and the faction ids by blocking
+        pageable copies, each a stream synchronization. Same
+        expressions as _embed_streams, so the embeddings are the same;
+        WesnothModel.forward_embedded consumes the result."""
+        if device is None:
+            device = next(self.parameters()).device
+        B = len(raws)
+        if B == 0:
+            raise ValueError("encode_from_raw_embedded: empty batch")
+        Hs = [r.hex_xs.shape[0] for r in raws]
+        Us = [r.unit_xs.shape[0] for r in raws]
+        Rs = [r.recruit_type_ids.shape[0] for r in raws]
+        totals = {"hex": sum(Hs), "unit": sum(Us), "recruit": sum(Rs)}
+        fields = [(name, dt, (totals[stream],) + shape)
+                  for stream, spec in self._STREAM_FIELDS for name, dt, shape in spec]
+        fields += [("global_feats", torch.float32, (B, GLOBAL_FEAT_DIM)),
+                   ("our_faction_id", torch.int64, (B,)),
+                   ("their_faction_id", torch.int64, (B,))]
+        layout = FlatLayout(fields)
+        host = torch.empty(layout.nbytes, dtype=torch.uint8, pin_memory=(device.type == "cuda"))
+        hv = layout.numpy_views(host.numpy())
+        for stream, spec in self._STREAM_FIELDS:
+            if totals[stream]:
+                for name, _, _ in spec:
+                    np.concatenate([getattr(r, name) for r in raws], out=hv[name])
+        np.stack([r.global_feats for r in raws], out=hv["global_feats"])
+        hv["our_faction_id"][:] = [r.our_faction_id for r in raws]
+        hv["their_faction_id"][:] = [r.their_faction_id for r in raws]
+        dev = host if device.type == "cpu" else host.to(device, non_blocking=True)
+        v = layout.torch_views(dev)
+        parts = []
+        if totals["hex"]:
+            parts.append(self._hex_embedding(v["hex_xs"], v["hex_ys"], v["hex_terrain_ids"],
+                                             v["hex_modifier_flags"], v["hex_dynamic_flags"]))
+        if totals["unit"]:
+            parts.append(self._unit_embedding(v["unit_type_ids"], v["unit_side_ids"],
+                                              v["unit_xs"], v["unit_ys"], v["unit_feats"]))
+        if totals["recruit"]:
+            parts.append(self._unit_embedding(v["recruit_type_ids"], v["recruit_side_ids"],
+                                              v["recruit_xs"], v["recruit_ys"], v["recruit_feats"]))
+        parts.append(self._global_embedding(v["global_feats"], v["our_faction_id"],
+                                            v["their_faction_id"]))
+        parts.append(self.end_turn_token.view(1, -1))
+        return EmbeddedStreams(tokens=torch.cat(parts, dim=0), sizes=list(zip(Us, Rs, Hs)))
+
     def _embed_streams(self, raws: List[RawEncoded], device) -> dict:
         """The trained embeddings of every stream for a batch, as
         concatenated [total, d] tensors plus per-sample lengths (None
         for an all-empty stream). Shared by encode_from_raw_batch and
         encode_from_raw_padded."""
-        d = self.d_model
         nb = device.type != "cpu"
         _pin = device.type == "cuda"   # [gpu-perf B3] see encode_from_raw
         Hs = [r.hex_xs.shape[0] for r in raws]
@@ -844,18 +938,14 @@ class GameStateEncoder(nn.Module):
             ht = _cat_to_dev([r.hex_terrain_ids for r in raws], np.int64)
             hm = _cat_to_dev([r.hex_modifier_flags for r in raws], np.float32)
             hd = _cat_to_dev([r.hex_dynamic_flags for r in raws], np.float32)
-            out["hex"] = (self.pos_x_embed(hx) + self.pos_y_embed(hy)
-                          + self.terrain_embed(ht) + self.modifier_proj(hm)
-                          + self.dynamic_flag_proj(hd))
+            out["hex"] = self._hex_embedding(hx, hy, ht, hm, hd)
         if sum(Us):
             ut = _cat_to_dev([r.unit_type_ids for r in raws], np.int64)
             us_ids = _cat_to_dev([r.unit_side_ids for r in raws], np.int64)
             ux = _cat_to_dev([r.unit_xs for r in raws], np.int64)
             uy = _cat_to_dev([r.unit_ys for r in raws], np.int64)
             uf = _cat_to_dev([r.unit_feats for r in raws], np.float32)
-            out["unit"] = (self.unit_type_embed(ut) + self.side_embed(us_ids)
-                           + self.pos_x_embed(ux) + self.pos_y_embed(uy)
-                           + self.unit_feat_proj(uf))
+            out["unit"] = self._unit_embedding(ut, us_ids, ux, uy, uf)
             out["unit_is"] = _cat_to_dev([r.unit_is_ours for r in raws], np.float32)
         if sum(Rs):
             rt = _cat_to_dev([r.recruit_type_ids for r in raws], np.int64)
@@ -863,18 +953,14 @@ class GameStateEncoder(nn.Module):
             rx = _cat_to_dev([r.recruit_xs for r in raws], np.int64)
             ry = _cat_to_dev([r.recruit_ys for r in raws], np.int64)
             rf = _cat_to_dev([r.recruit_feats for r in raws], np.float32)
-            out["recruit"] = (self.unit_type_embed(rt) + self.side_embed(rs)
-                              + self.pos_x_embed(rx) + self.pos_y_embed(ry)
-                              + self.unit_feat_proj(rf))
+            out["recruit"] = self._unit_embedding(rt, rs, rx, ry, rf)
             out["recruit_is"] = _cat_to_dev([r.recruit_is_ours for r in raws], np.float32)
         gf = torch.from_numpy(np.stack([r.global_feats for r in raws]))
         if device.type != "cpu":
             gf = gf.to(device, non_blocking=nb)
         our_fids = torch.tensor([r.our_faction_id for r in raws], device=device, dtype=torch.long)
         them_fids = torch.tensor([r.their_faction_id for r in raws], device=device, dtype=torch.long)
-        out["global"] = (self.global_proj(gf) + self.our_faction_embed(our_fids)
-                         + self.their_faction_embed(them_fids))          # [B, d]
-        del d
+        out["global"] = self._global_embedding(gf, our_fids, them_fids)   # [B, d]
         return out
 
     def encode_from_raw_batch(

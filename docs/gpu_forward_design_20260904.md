@@ -1126,3 +1126,170 @@ Compare the `seam` and `forwards` rows with `seam_packed.json` (section
 section 9.4. Same weights and math up to bf16 rounding, so no strength
 check; the `raw:t0` self-match remains the gate before any of this
 becomes the pool default.
+
+## 14. Serve-thread host work (2026-09-05): packed embed, batched capacity, length-aware coalescing
+
+Written on the laptop without a GPU, on top of sections 12 and 13. With
+the packed trunk the serve threads' own CPU per batch is the larger
+part of a batch (docs/box_specs.md, "Pool runs with the saturated
+rate"); this section cuts it in three independent pieces, each behind
+its own switch or as a pure refactor with a parity test, and adds the
+host milliseconds per batch by stage to the pool's log so the next
+profile is a log line. Host costs below are CPU microbenchmarks at
+production sizes (16 leaves, 1,300 hexes, 30 units, 8 recruits, 4
+weapon slots), minimum over repeats on the shared laptop; the box
+numbers wait for the commands at the end.
+
+### Where the host milliseconds were (per 16-leaf batch, laptop)
+
+- `_stage_masks` 3.1-4.6 ms, of which the per-leaf `_legal_capacity`
+  loop 2.3-4.5 ms (about fifteen small numpy calls per leaf; the
+  popcount itself is 0.3 ms either way); the slice writes 0.15 ms
+  (0.6 with the combat-oracle attack bias, which is present throughout
+  the anneal and after it, `combat_alphas_at` floors at 0.1 of the
+  configured alpha); zeroing the buffer under 0.15 ms.
+- `unpack_request` (wesnoth_ai/leaf_wire.py) 5.9-6.3 ms: 390 us per
+  leaf over 26 fields, mostly `np.prod` on a shape tuple (2 us a call
+  against 0.1 for `math.prod`) plus the view and the two dataclass
+  constructions. Not touched here (the module is owned elsewhere); it
+  is now the `unpack` column of the stats line, and it is the largest
+  host item left.
+- The padded embed's host side: 17 `np.concatenate` + `from_numpy`
+  0.36-0.44 ms, and on CUDA 17 `pin_memory` allocations, 17 copies and
+  three pageable copies (the global features and the two faction-id
+  tensors), each of which synchronizes the stream (the CUDA runtime
+  syncs the stream before a pageable host-to-device copy); the padded
+  `build_packed_layout` loop 0.9-1.5 ms; three `pad_sequence` calls,
+  3B copy launches.
+
+### What is implemented
+
+1. **Packed embed** (`InferenceServer(packed_embed=True)`,
+   `ActorPool(packed_embed=True)`, `bench_pool.py --packed-embed`).
+   `GameStateEncoder.encode_from_raw_embedded` writes every numeric
+   field of every RawEncoded into ONE pinned host buffer
+   (`packed_trunk.FlatLayout`, `np.concatenate(out=)` per field), moves
+   it with one non-blocking copy, runs the same embedding expressions as
+   `_embed_streams` (shared `_hex_embedding` / `_unit_embedding` /
+   `_global_embedding`) on device views of it, and returns
+   `packed_trunk.EmbeddedStreams`: the tokens in stream order (every
+   sample's hexes, then units, recruits, one global row per sample, one
+   end_turn row). `WesnothModel.forward_embedded` orders them on the
+   device: with the packed trunk, `build_packed_layout(source="streams")`
+   and one `index_select` build the packed [total, d] tensor directly,
+   and no padded tensor exists anywhere; with the padded trunk, one
+   gather through `padded_gather_index` (pad slots read an appended
+   zero row) rebuilds the padded streams exactly as `pad_sequence`
+   fills them and `forward_streams` runs unchanged. The padded-stream
+   `_forward_streams_packed` and this path share `_packed_trunk_heads`.
+   Nothing between the buffer write and the heads waits for the device.
+   Host work removed per batch on CUDA: 16 pinned allocations and
+   copies, three stream synchronizations, 3B `pad_sequence` launches and
+   the `torch.cat` of five padded streams; on CPU the staging alone
+   measures 2.4 -> 2.1 ms at a token width of 8 (the CPU has no pins,
+   copies or syncs to remove).
+2. **Batched capacity** (pure refactor, wesnoth_ai/server_priors.py).
+   `_stage_masks` counts the compaction capacity once over the staged
+   batch views (`_staged_capacity`: pad slots hold actor_mask 0 and zero
+   bits, so the count equals the per-leaf sum exactly) instead of
+   calling `_legal_capacity` per leaf: 2.34 -> 0.51 ms, `_stage_masks`
+   whole 3.1-4.6 -> 1.5 ms. The popcount uses `np.bitwise_count` where
+   numpy 2 provides it and the table otherwise. `_legal_capacity` stays
+   as the per-leaf reference (tests). The flat compaction is unchanged.
+3. **Vectorized packed layout** (pure refactor, `build_packed_layout`):
+   the per-sample loop is now numpy over the whole batch (a ragged
+   arange for `src` and `kind`, `np.where` over [B, A_max] / [B, H_max]
+   / [B, U_max] for the head arrays): 0.94 -> 0.2-0.4 ms. Applies to both
+   embed paths, so the control row of the A/B below already carries it.
+4. **Length-aware coalescing** (`ActorPool(coalesce="length",
+   coalesce_gap=N)`, `bench_pool.py --coalesce length [--coalesce-gap
+   N]`; section 7). `_BatchPicker`, shared by the serve threads, moves
+   everything queued into a waiting list and picks each batch under a
+   lock. `fifo` is the arrival-order rule the pool always had (the
+   control; identical batches). `length`: when everything waiting fits
+   one batch, the same; otherwise the oldest request anchors the batch
+   and the requests nearest to it in token count fill it (one request is
+   one tree on one map, so its token count is its longest leaf, read
+   from the PackedRequest headers at intake); `gap` > 0 refuses a
+   request further than that many tokens from the anchor even if the
+   batch is not full. A request left behind once goes into the next
+   batch ahead of the anchor rule, so no request is delayed by more than
+   one batch; the count of deferrals (`skipped_requests`) and the mean
+   number of waiting requests at a pick (`queue_depth`) are recorded, and
+   the policy is inert when the depth is under 2. The failure-reply path
+   and the stats are as before.
+5. **Stats**: the serve dict carries `unpack` (request views) from the
+   pool and, on CUDA, `t_encode`, `t_forward` (launches), `t_priors`
+   (launches), `t_finish` (the one wait for the device) and `t_reply`
+   (building the ModelOutputs) from `_infer_with_priors`; `run_iteration`
+   logs `host ms per batch: unpack= encode= forward= priors= wait=
+   reply= wire= put=` plus `requests/batch`, `queue depth` and
+   `skipped`, and `bench_pool.py` records them as `host_ms_per_batch`,
+   `queue_depth`, `skipped_requests`. Off the device the t_* stages read
+   0 (launching and waiting are not separable there).
+
+### Tests
+
+- `tests/test_packed_embed.py` (CPU, 5 tests): the vectorized layout
+  equals the per-sample reference (kept in the test) on four size sets
+  including rows without recruits, without hexes and without actors; the
+  streams source gathers the same tokens as the padded source and
+  `padded_gather_index` reproduces `pad_sequence`'s zero-padded streams;
+  on real scenario states `forward_embedded` equals `forward_streams` on
+  the padded encode TO THE BIT (`torch.equal`) for both trunks; the
+  server's `packed_embed` switch leaves every reply identical (values,
+  compact actions, priors); the batched capacity equals the per-leaf sum
+  on harvested and synthetic packs with pad rows and pad columns.
+- `tests/test_batch_picker.py` (7 tests): the fifo rule including the
+  overshoot semantics, the length grouping and the one-batch delay
+  bound, the gap rule, blocking only on an empty queue, legacy payloads,
+  policy validation.
+- Existing: tests/test_forward_batch_padded.py, test_packed_trunk.py,
+  test_server_priors.py, test_server_priors_staging.py, test_leaf_wire.py
+  (22 passed, 4 CUDA skipped) and the slow-tier
+  tests/test_actor_pool_smoke.py (both protocols through the real pool
+  with the picker in the loop).
+
+### Not verifiable here; the box must confirm
+
+1. The packed embed's CUDA parity: the trunk sees the same bf16 inputs
+   (same expressions, same concatenation order, so the same kernels per
+   stream), so expect bit-equal outputs or at most the bf16 noise of
+   section 12; and `torch.cuda.set_sync_debug_mode("error")` around
+   `encode_from_raw_embedded` + `forward_embedded` (one pinned copy, no
+   pageable copy).
+2. The host milliseconds: the stats line should show `encode` down by
+   1-2 ms per batch against the control and `priors` down by ~2 ms
+   (capacity), with `unpack` at 4-6 ms the largest remaining item.
+3. The saturated rate: each piece against its control on the same box in
+   one session, 32 games, 2 serve threads, packed trunk on (the current
+   default); a piece is kept when it moves `saturated_leaves_per_s`
+   beyond the run-to-run noise of that box (the 833/863 pair of section
+   13 puts the noise near 30-40 leaves/s).
+4. The coalescing has an effect only when `queue_depth` exceeds 1 (the
+   fed regime); read `pad_ratio` and `skipped_requests` next to the rate.
+   With the packed trunk the padding costs only in the heads and the
+   priors' mask kernels, so a small `pad_ratio` gain may not move the
+   rate; that is a valid null result, recorded like the others.
+
+### Commands on the box
+
+    pytest tests/test_packed_embed.py tests/test_batch_picker.py tests/test_packed_trunk.py \
+        tests/test_server_priors.py tests/test_server_priors_staging.py tests/test_server_priors_cuda.py
+    # control (the vectorized layout and the batched capacity are in every row)
+    python tools/bench_pool.py --checkpoint training/checkpoints/seed_imit_tierb_start.pt \
+        --actors 32 --games 32 --sims 32 --leaf-batch 16 --server-priors --infer-bf16 \
+        --packed-trunk --max-batch 16 --serve-threads 2 --out pool_control.json
+    # piece 1
+    python tools/bench_pool.py ... --packed-trunk --packed-embed --out pool_packed_embed.json
+    # piece 3, on top of whichever embed won
+    python tools/bench_pool.py ... --packed-trunk --coalesce length --out pool_coalesce.json
+    python tools/bench_pool.py ... --packed-trunk --coalesce length --coalesce-gap 256 \
+        --out pool_coalesce_gap256.json
+
+Compare `saturated_leaves_per_s`, `host_ms_per_batch`, `pad_ratio`,
+`queue_depth` and `skipped_requests` across the JSONs; the `host ms per
+batch` log line gives the same split per iteration. Same weights and
+math, so no strength check; the `raw:t0` self-match of
+docs/plan_20260904.md remains the gate before any of this becomes the
+pool default.

@@ -51,6 +51,7 @@ import os
 import queue as _queue
 import random
 import threading
+from dataclasses import dataclass
 import time
 import traceback
 from types import SimpleNamespace
@@ -373,6 +374,121 @@ def _actor_loop(
 # Main-side pool manager
 # =====================================================================
 
+def _request_lengths(payload) -> List[int]:
+    """Hex + unit tokens of every leaf of a request (a PackedRequest
+    carries them in its headers; a legacy list carries RawEncodeds or
+    (RawEncoded, PackedMasks) pairs): the sequence length a batch pads
+    to. The packed trunk pads nothing, but the heads and the priors'
+    mask kernels still run over the batch's longest leaf."""
+    headers = getattr(payload, "headers", None)
+    if headers is not None:
+        return [h.n_hexes + h.n_units for h in headers]
+    return [len(r[0].hex_xs) + len(r[0].unit_xs) if isinstance(r, tuple)
+            else len(r.hex_xs) + len(r.unit_xs) for r in payload]
+
+
+@dataclass(slots=True)
+class _Waiting:
+    item: tuple             # (actor id, request id, payload), as queued
+    seq: int                # arrival order
+    n_leaves: int
+    lens: List[int]         # hex + unit tokens per leaf
+    tokens: int             # the request's longest leaf
+    skipped: int = 0        # batches formed while this request waited
+
+
+class _BatchPicker:
+    """Which queued requests share a batch (docs/gpu_forward_design_
+    20260904.md section 7), shared by the serve threads. "fifo":
+    arrival order until the batch holds max_batch leaves (the rule
+    since 2026-07-22). "length": the same whenever everything waiting
+    fits one batch; otherwise the oldest request anchors the batch and
+    the requests nearest to it in token count fill it (one request is
+    one tree on one map, so its token count is its longest leaf), and
+    `gap` > 0 refuses any request further than that many tokens from
+    the anchor. A request left behind once goes into the next batch
+    ahead of the anchor rule, so no request is delayed by more than one
+    batch."""
+
+    def __init__(self, policy: str = "fifo", gap: int = 0):
+        if policy not in ("fifo", "length"):
+            raise ValueError(f"coalesce policy must be 'fifo' or 'length', got {policy!r}")
+        self.policy = policy
+        self.gap = int(gap)
+        self._lock = threading.Lock()
+        self._waiting: List[_Waiting] = []
+        self._seq = 0
+        # Telemetry: requests deferred by the length rule, and the
+        # waiting requests seen at each pick (queue depth).
+        self.skipped = 0
+        self.picks = 0
+        self.depth = 0
+
+    def take(self, queue, max_batch: int, timeout: float) -> List[_Waiting]:
+        """Moves everything queued into the waiting list (blocking up to
+        `timeout` for a first request only when nothing waits) and
+        returns the next batch; empty when nothing arrived."""
+        fresh = []
+        with self._lock:
+            idle = not self._waiting
+        if idle:
+            try:
+                fresh.append(queue.get(timeout=timeout))
+            except _queue.Empty:
+                return []
+        while True:
+            try:
+                fresh.append(queue.get_nowait())
+            except _queue.Empty:
+                break
+        with self._lock:
+            for item in fresh:
+                self._waiting.append(self._wrap(item))
+            return self._pick(max_batch)
+
+    def _wrap(self, item) -> _Waiting:
+        lens = _request_lengths(item[2])
+        self._seq += 1
+        return _Waiting(item=item, seq=self._seq, n_leaves=len(lens), lens=lens,
+                        tokens=max(lens) if lens else 0)
+
+    def _pick(self, max_batch: int) -> List[_Waiting]:
+        waiting = self._waiting
+        if not waiting:
+            return []
+        self.picks += 1
+        self.depth += len(waiting)
+        if self.policy == "fifo":
+            n = k = 0
+            while k < len(waiting) and n < max_batch:
+                n += waiting[k].n_leaves
+                k += 1
+            batch, self._waiting = waiting[:k], waiting[k:]
+            return batch
+        batch: List[_Waiting] = []
+        n = 0
+        for w in waiting:                         # left behind last time: first, by age
+            if w.skipped and n < max_batch:
+                batch.append(w)
+                n += w.n_leaves
+        rest = [w for w in waiting if not w.skipped]
+        if rest and n < max_batch:
+            anchor = max(w.tokens for w in batch) if batch else rest[0].tokens
+            rest.sort(key=lambda w: (abs(w.tokens - anchor), w.seq))
+            for w in rest:
+                if n >= max_batch or (self.gap and abs(w.tokens - anchor) > self.gap):
+                    break
+                batch.append(w)
+                n += w.n_leaves
+        chosen = {w.seq for w in batch}
+        left = [w for w in waiting if w.seq not in chosen]
+        for w in left:
+            w.skipped += 1
+        self.skipped += len(left)
+        self._waiting = left
+        return batch
+
+
 def _merge_timelines(per_thread: List[List[Tuple[float, int]]],
                      t_start: float) -> List[Tuple[float, int]]:
     """Total leaves served by time t (seconds since t_start), from the
@@ -422,12 +538,20 @@ class ActorPool:
         serve_threads: int = 2,
         server_priors: bool = True,
         infer_bf16: Optional[bool] = None,
+        packed_embed: bool = False,
+        coalesce: str = "fifo",
+        coalesce_gap: int = 0,
     ):
         """`server_priors`: actors ship packed legality masks and the
         server returns compact legal actions with priors
         (wesnoth_ai/server_priors.py; measured 2026-09-04, docs/
         box_specs.md). `infer_bf16`: the server's autocast switch
-        (None follows the model's `infer_autocast_bf16`)."""
+        (None follows the model's `infer_autocast_bf16`).
+        `packed_embed`: the server embeds each batch from one pinned
+        buffer straight into the trunk's layout
+        (tools/inference_seam.InferenceServer). `coalesce` and
+        `coalesce_gap`: how the serve threads pick a batch from the
+        queued requests (_BatchPicker)."""
         if n_actors < 1:
             raise ValueError("n_actors must be >= 1")
         self._policy = policy
@@ -441,6 +565,10 @@ class ActorPool:
         # default until the box measurement certifies it.
         self.server_priors: bool = bool(server_priors)
         self._infer_bf16 = infer_bf16
+        self._packed_embed = bool(packed_embed)
+        self._coalesce = coalesce
+        self._coalesce_gap = int(coalesce_gap)
+        _BatchPicker(coalesce, coalesce_gap)          # validates the policy name
         # TCS (2026-08-14): when set, actors build TurnCommitPolicy
         # instead of MCTSPolicy -- the third generation path of the
         # worker-side-targets symmetry contract.
@@ -528,7 +656,7 @@ class ActorPool:
         self._server = InferenceServer(
             self._policy._inference_model, self._policy._inference_encoder,
             device=self._device, output_device=torch.device("cpu"),
-            autocast_bf16=self._infer_bf16)
+            autocast_bf16=self._infer_bf16, packed_embed=self._packed_embed)
         self._started = True
         log.info(f"actor pool started: {self._n} actors, "
                  f"max_batch={self._max_batch}")
@@ -597,6 +725,7 @@ class ActorPool:
         # and logged at iteration end so the bottleneck stays visible.
         stop_ev = threading.Event()
         serve_stats: List[Dict] = []
+        self._picker = _BatchPicker(self._coalesce, self._coalesce_gap)
         servers = [threading.Thread(
             target=self._serve_worker, args=(stop_ev, serve_stats),
             daemon=True, name=f"serve-{i}")
@@ -731,9 +860,11 @@ class ActorPool:
                         if d.get(k) is not None]
                 out[k] = (sum(vals) / len(vals)) if vals else None
             self.last_distill_stats = out
-        agg = {k: sum(s[k] for s in serve_stats)
-               for k in ("wait", "infer", "wire", "put", "gpu_ms",
-                         "leaves", "batches", "tokens", "padded")} if serve_stats else {}
+        agg = {k: sum(s.get(k, 0) for s in serve_stats)
+               for k in ("wait", "unpack", "infer", "wire", "put", "gpu_ms",
+                         "leaves", "batches", "requests", "tokens", "padded",
+                         "t_encode", "t_forward", "t_priors", "t_finish", "t_reply")
+               } if serve_stats else {}
         served = int(agg.get("leaves", 0))
         elapsed = max(1e-9, time.monotonic() - t_start)
         self.last_leaf_timeline = _merge_timelines(
@@ -749,6 +880,26 @@ class ActorPool:
                 f"{agg['leaves'] / agg['batches']:.1f} "
                 f"saturated={self.last_saturated_leaves_per_s or 0:.0f} leaves/s (best 60 s) "
                 f"throughput={served / elapsed:.0f} leaves/s")
+        # Host milliseconds per batch by stage (the t_* stages come from
+        # the seam on CUDA only, so they read 0 on CPU), and what the
+        # batch picker saw: requests per batch, waiting requests at each
+        # pick, requests deferred by the length rule.
+        picker = self._picker
+        nb = int(agg.get("batches", 0) or 0)
+        self.last_host_ms = ({k: 1000.0 * agg[k] / nb for k in (
+            "unpack", "t_encode", "t_forward", "t_priors", "t_finish", "t_reply", "wire", "put")}
+            if nb else None)
+        self.last_skipped_requests = picker.skipped
+        self.last_queue_depth = picker.depth / picker.picks if picker.picks else None
+        if nb:
+            hm = self.last_host_ms
+            log.info(
+                f"iter {iter_idx}: host ms per batch: unpack={hm['unpack']:.2f} "
+                f"encode={hm['t_encode']:.2f} forward={hm['t_forward']:.2f} "
+                f"priors={hm['t_priors']:.2f} wait={hm['t_finish']:.2f} "
+                f"reply={hm['t_reply']:.2f} wire={hm['wire']:.2f} put={hm['put']:.2f} | "
+                f"coalesce={self._coalesce} requests/batch={agg['requests'] / nb:.2f} "
+                f"queue depth={self.last_queue_depth or 0:.2f} skipped={picker.skipped}")
         log.info(f"iter {iter_idx}: pool served {served} forwards, "
                  f"{len(outcomes)} games, {len(experiences)} experiences, "
                  f"decision_step {ds0} -> {self._global_decision_step()}")
@@ -771,11 +922,12 @@ class ActorPool:
                      f"pad_ratio={self.last_pad_ratio or 0:.2f}")
         return outcomes, experiences
 
-    def _serve_worker(self, stop_ev, stats_out: List[Dict]) -> None:  # noqa: C901
-        """One serving thread: get -> coalesce to max_batch leaves ->
-        encode+forward -> wire-serialize -> reply. Stage times are
-        accumulated locally (no locks on the hot path) and appended
-        to `stats_out` on exit."""
+    def _serve_worker(self, stop_ev, stats_out: List[Dict]) -> None:
+        """One serving thread: take a batch (the picker coalesces the
+        queued requests) -> unpack -> encode+forward -> wire-serialize
+        -> reply. Stage times are accumulated locally (no locks on the
+        hot path) and appended to `stats_out` on exit; on CUDA the seam
+        adds the host seconds of its own stages to the same dict."""
         from tools.inference_seam import output_to_wire
         from wesnoth_ai.leaf_wire import PackedRequest, unpack_request
         # (monotonic time, cumulative leaves) every ~10 s: the iteration
@@ -784,35 +936,26 @@ class ActorPool:
         # the wall); run_iteration derives the saturated rate from it.
         timeline: List[Tuple[float, int]] = []
         next_mark = time.monotonic()
-        st = {"wait": 0.0, "infer": 0.0, "wire": 0.0, "put": 0.0, "gpu_ms": 0.0,
+        st = {"wait": 0.0, "unpack": 0.0, "infer": 0.0, "wire": 0.0, "put": 0.0, "gpu_ms": 0.0,
               "timeline": timeline,
-              "leaves": 0, "batches": 0, "tokens": 0, "padded": 0}
+              "leaves": 0, "batches": 0, "requests": 0, "tokens": 0, "padded": 0}
+        picker = self._picker
         while not stop_ev.is_set():
             t0 = time.monotonic()
-            batch = []
-            try:
-                batch.append(self._req_q.get(timeout=self._serve_timeout))
-            except _queue.Empty:
-                st["wait"] += time.monotonic() - t0
-                continue
-            n_leaves = sum(len(it[2]) for it in batch)
-            while n_leaves < self._max_batch:
-                try:
-                    it = self._req_q.get_nowait()
-                except _queue.Empty:
-                    break
-                batch.append(it)
-                n_leaves += len(it[2])
+            batch = picker.take(self._req_q, self._max_batch, self._serve_timeout)
             t1 = time.monotonic()
+            st["wait"] += t1 - t0
+            if not batch:
+                continue
             flat = []
-            for (_a, _r, raws) in batch:
-                if isinstance(raws, PackedRequest):
-                    flat.extend(unpack_request(raws))
-                else:
-                    flat.extend(raws)
+            for w in batch:
+                payload = w.item[2]
+                flat.extend(unpack_request(payload) if isinstance(payload, PackedRequest)
+                            else payload)
+            t2 = time.monotonic()
             try:
                 outs = self._server.infer_batch(flat, stats=st)
-                t2 = time.monotonic()
+                t3 = time.monotonic()
                 wires = [output_to_wire(o) for o in outs]
             except Exception:                       # noqa: BLE001
                 # A serve-thread death used to hang every actor
@@ -821,33 +964,32 @@ class ActorPool:
                 # failure marker so the actors raise instead.
                 log.error("inference server failed on a batch of %d leaves:\n%s",
                           len(flat), traceback.format_exc())
-                for (aid, rid, raws) in batch:
+                for w in batch:
+                    aid, rid, _payload = w.item
                     self._resp_qs[aid].put((rid, None))
                 continue
-            t3 = time.monotonic()
-            i = 0
-            for (aid, rid, raws) in batch:
-                k = len(raws)
-                self._resp_qs[aid].put((rid, wires[i:i + k]))
-                i += k
             t4 = time.monotonic()
-            st["wait"] += t1 - t0
-            st["infer"] += t2 - t1
-            st["wire"] += t3 - t2
-            st["put"] += t4 - t3
+            i = 0
+            for w in batch:
+                aid, rid, _payload = w.item
+                self._resp_qs[aid].put((rid, wires[i:i + w.n_leaves]))
+                i += w.n_leaves
+            t5 = time.monotonic()
+            st["unpack"] += t2 - t1
+            st["infer"] += t3 - t2
+            st["wire"] += t4 - t3
+            st["put"] += t5 - t4
             st["leaves"] += len(flat)
             st["batches"] += 1
-            if t4 >= next_mark:
-                timeline.append((t4, st["leaves"]))
-                next_mark = t4 + 10.0
+            st["requests"] += len(batch)
+            if t5 >= next_mark:
+                timeline.append((t5, st["leaves"]))
+                next_mark = t5 + 10.0
             # Sequence lengths: hex tokens + unit tokens per leaf, and
-            # what the batch actually costs after padding to its
-            # longest leaf (attention is quadratic in that length).
-            # Items are RawEncoded or (RawEncoded, PackedMasks) pairs.
-            lens = [len(r[0].hex_xs) + len(r[0].unit_xs) if isinstance(r, tuple)
-                    else len(r.hex_xs) + len(r.unit_xs) for r in flat]
+            # what the batch pads to (its longest leaf).
+            lens = [n for w in batch for n in w.lens]
             st["tokens"] += sum(lens)
-            st["padded"] += len(lens) * max(lens) if lens else 0
+            st["padded"] += len(lens) * max(lens)
         stats_out.append(st)
 
     def shutdown(self, timeout: float = 15.0) -> None:

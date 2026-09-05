@@ -47,6 +47,7 @@ above is unchanged.
 from __future__ import annotations
 
 import dataclasses
+import time
 from typing import Dict, List, Optional, Protocol
 
 import torch
@@ -198,9 +199,15 @@ class InferenceServer:
         device: Optional[torch.device] = None,
         output_device: Optional[torch.device] = None,
         autocast_bf16: Optional[bool] = None,
+        packed_embed: bool = False,
     ):
         self._model = model
         self._encoder = encoder
+        # Packed embed (design note section 14): the batch's token
+        # embeddings come from one pinned buffer and are ordered on the
+        # device (encoder.encode_from_raw_embedded + model.forward_embedded)
+        # instead of being built as padded streams and packed after.
+        self._packed_embed = bool(packed_embed)
         self._device = device or next(model.parameters()).device
         self._out_dev = output_device or torch.device("cpu")
         # None: follow the model's `infer_autocast_bf16`. The actor
@@ -228,7 +235,9 @@ class InferenceServer:
         lists are refused: one batch, one protocol. `stats`, when
         given on a CUDA device, accumulates the priors protocol's
         device-stream milliseconds (encode, forward, priors) under
-        "gpu_ms"."""
+        "gpu_ms" and the host seconds of its stages under t_encode,
+        t_forward (launches), t_priors (launches), t_finish (the one
+        wait for the device) and t_reply (building the outputs)."""
         if not raws:
             return []
         paired = [isinstance(r, tuple) for r in raws]
@@ -264,7 +273,8 @@ class InferenceServer:
         wall time between the two records, i.e. device work plus any
         gap where the stream waited for the host to launch (and, with
         several serve threads on one stream, the others' interleaved
-        work)."""
+        work). The host seconds per stage are recorded on CUDA only:
+        off the device, launching and waiting are not separable."""
         from wesnoth_ai.server_priors import start_priors
         model = self._model
         bf16 = self._use_bf16()
@@ -273,19 +283,33 @@ class InferenceServer:
             ev_start = torch.cuda.Event(enable_timing=True)
             ev_end = torch.cuda.Event(enable_timing=True)
             ev_start.record()
+        t0 = time.perf_counter()
         with torch.no_grad():
-            streams = self._encoder.encode_from_raw_padded(raws, device=self._device)
+            if self._packed_embed:
+                streams = self._encoder.encode_from_raw_embedded(raws, device=self._device)
+
+                def forward():
+                    return model.forward_embedded(streams)
+            else:
+                streams = self._encoder.encode_from_raw_padded(raws, device=self._device)
+
+                def forward():
+                    return model.forward_streams(*streams)
+            t1 = time.perf_counter()
             if bf16:
                 with torch.autocast("cuda", dtype=torch.bfloat16):
-                    padded = model.forward_streams(*streams).float32()
+                    padded = forward().float32()
             else:
-                padded = model.forward_streams(*streams)
+                padded = forward()
+            t2 = time.perf_counter()
             names = ["value", "value_logits", "cliffness"]
             names += [n for n in ("aux_score", "moves_left") if getattr(padded, n) is not None]
             pending = start_priors(padded, packs, [getattr(padded, n) for n in names])
             if timing:
                 ev_end.record()
+            t3 = time.perf_counter()
             compact, host = pending.finish()
+            t4 = time.perf_counter()
         if timing:
             stats["gpu_ms"] = stats.get("gpu_ms", 0.0) + ev_start.elapsed_time(ev_end)
         small = {n: torch.from_numpy(a) for n, a in zip(names, host)}
@@ -303,6 +327,11 @@ class InferenceServer:
                 aux_score=aux[b:b + 1] if aux is not None else None,
                 moves_left=ml[b:b + 1] if ml is not None else None,
                 legal_compact=compact[b]))
+        if timing:
+            t5 = time.perf_counter()
+            for key, dt in (("t_encode", t1 - t0), ("t_forward", t2 - t1), ("t_priors", t3 - t2),
+                            ("t_finish", t4 - t3), ("t_reply", t5 - t4)):
+                stats[key] = stats.get(key, 0.0) + dt
         return outs
 
 

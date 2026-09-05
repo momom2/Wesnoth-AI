@@ -39,14 +39,21 @@ from wesnoth_ai.action_sampler import (
     _NEG_INF, LegalActionPrior, _build_legality_masks, prior_bias_end_turn,
 )
 from wesnoth_ai.model import MAX_ATTACKS, ActorKind, UnitActionType
+from wesnoth_ai.packed_trunk import FlatLayout as _Layout
 
 KIND_ATTACK, KIND_MOVE, KIND_RECRUIT, KIND_END_TURN = 0, 1, 2, 3
 # Actor-slot kinds in the staging buffer; 0 marks a padded slot.
 _SLOT_UNIT, _SLOT_RECRUIT, _SLOT_END = 1, 2, 3
 _POPCOUNT = np.array([bin(i).count("1") for i in range(256)], dtype=np.int64)
-_NP_DTYPE = {torch.float64: np.float64, torch.float32: np.float32,
-             torch.int64: np.int64, torch.int32: np.int32,
-             torch.int8: np.int8, torch.uint8: np.uint8}
+
+
+def _popcount(a: np.ndarray) -> np.ndarray:
+    """Bits set per byte of a uint8 array: numpy 2's bitwise_count, or
+    the table (indexed by intp: a uint8 index array goes through a
+    slower conversion path)."""
+    if hasattr(np, "bitwise_count"):
+        return np.bitwise_count(a)
+    return _POPCOUNT[a.astype(np.intp)]
 
 
 @dataclass(slots=True)
@@ -116,31 +123,6 @@ def pack_masks(encoded, game_state, decision_step: int = 0) -> PackedMasks:
 # One flat buffer each way
 # ---------------------------------------------------------------------
 
-class _Layout:
-    """Byte layout of several typed arrays in one flat uint8 buffer.
-    Fields are placed in decreasing element size, so every offset is
-    a multiple of its field's element size (what `Tensor.view(dtype)`
-    requires) with no padding bytes."""
-    __slots__ = ("fields", "nbytes")
-
-    def __init__(self, fields: Sequence[Tuple[str, torch.dtype, Tuple[int, ...]]]):
-        self.fields: List[Tuple[str, torch.dtype, Tuple[int, ...], int, int]] = []
-        off = 0
-        for name, dt, shape in sorted(fields, key=lambda f: -f[1].itemsize):
-            n = int(np.prod(shape, dtype=np.int64)) * dt.itemsize
-            self.fields.append((name, dt, tuple(shape), off, n))
-            off += n
-        self.nbytes = off
-
-    def torch_views(self, buf: torch.Tensor) -> Dict[str, torch.Tensor]:
-        return {name: buf[off:off + n].view(dt).view(shape)
-                for name, dt, shape, off, n in self.fields}
-
-    def numpy_views(self, buf: np.ndarray) -> Dict[str, np.ndarray]:
-        return {name: buf[off:off + n].view(_NP_DTYPE[dt]).reshape(shape)
-                for name, dt, shape, off, n in self.fields}
-
-
 def _legal_capacity(p: PackedMasks, W: int) -> int:
     """Upper bound on one leaf's legal entries, from its masks. The
     device keeps an entry only where every factor's softmax is > 0,
@@ -163,10 +145,33 @@ def _legal_capacity(p: PackedMasks, W: int) -> int:
     return n
 
 
+def _staged_capacity(hv: Dict[str, np.ndarray], W: int) -> int:
+    """`_legal_capacity` summed over the batch, computed once on the
+    staged views: pad slots hold actor_mask 0 and zero bits, so they add
+    nothing, and the count equals the per-leaf sum exactly. About 15
+    numpy calls per batch instead of per leaf; the per-leaf loop was the
+    serve thread's largest host-side item in the priors (2.4-4.5 ms per
+    16-leaf batch on the laptop, against 0.3 ms here)."""
+    act = hv["actor_mask"] != 0                                            # [B, A]
+    slot = hv["slot_kind"]
+    tv = hv["type_valid"] != 0                                             # [B, A, T]
+    atk = _popcount(hv["attack_bits"]).sum(axis=2, dtype=np.int64)         # [B, A]
+    mv = _popcount(hv["move_bits"]).sum(axis=2, dtype=np.int64)
+    uni = _popcount(hv["union_bits"]).sum(axis=2, dtype=np.int64)
+    n_att = np.minimum(hv["n_attacks"].astype(np.int64), W)
+    unit = act & (slot == _SLOT_UNIT)
+    n = int((unit * tv[:, :, UnitActionType.ATTACK] * atk * n_att).sum())
+    n += int((unit * tv[:, :, UnitActionType.MOVE] * mv).sum())
+    n += int(((act & (slot == _SLOT_RECRUIT)) * uni).sum())
+    n += int((act & (slot == _SLOT_END)).sum())
+    return n
+
+
 def _stage_masks(packs: List[PackedMasks], A_max: int, H_max: int, T: int, W: int,
                  pin: bool) -> Tuple[_Layout, torch.Tensor, int]:
     """Host side: every per-batch mask array written into one flat
-    (pinned) host buffer, plus the compaction capacity."""
+    (pinned) host buffer, plus the compaction capacity counted once
+    over the staged views."""
     B = len(packs)
     HB = (H_max + 7) // 8
     fields = [
@@ -187,7 +192,6 @@ def _stage_masks(packs: List[PackedMasks], A_max: int, H_max: int, T: int, W: in
     host = torch.empty(layout.nbytes, dtype=torch.uint8, pin_memory=pin)
     host.zero_()
     hv = layout.numpy_views(host.numpy())
-    capacity = 0
     for b, p in enumerate(packs):
         U, R, H = p.n_units, p.n_recruits, p.n_hexes
         A = U + R + 1
@@ -206,8 +210,7 @@ def _stage_masks(packs: List[PackedMasks], A_max: int, H_max: int, T: int, W: in
             hv["type_bias"][b, :A] = p.type_bias
         if p.attack_bias is not None:
             hv["attack_bias"][b, :A, :H] = p.attack_bias
-        capacity += _legal_capacity(p, W)
-    return layout, host, capacity
+    return layout, host, _staged_capacity(hv, W)
 
 
 def _as_bytes(t: torch.Tensor) -> torch.Tensor:

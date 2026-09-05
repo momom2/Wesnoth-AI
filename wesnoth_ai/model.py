@@ -34,8 +34,8 @@ import torch.nn.functional as F
 
 from wesnoth_ai.encoder import EncodedState
 from wesnoth_ai.packed_trunk import (
-    CompiledPackedTrunk, PackedTrunkWeights, build_packed_layout, check_packed_trunk_supported,
-    flash_varlen_applies, packed_trunk,
+    CompiledPackedTrunk, EmbeddedStreams, PackedTrunkWeights, build_packed_layout,
+    check_packed_trunk_supported, flash_varlen_applies, packed_trunk, padded_gather_index,
 )
 
 
@@ -648,23 +648,66 @@ class WesnothModel(nn.Module):
         """forward_streams on the packed layout (design note section 5.3;
         the index arrays follow section 4.3). One gather packs the real
         tokens of the padded streams into [total, d] and one embedding
-        lookup adds the token kinds; the trunk runs on that tensor;
-        index_selects lay the contexts out in the padded shapes, so the
-        heads and PaddedOutput are the padded path's. Every index array
-        is built host-side and shipped in one pinned non-blocking copy:
-        nothing here synchronizes with the host."""
-        if not getattr(self, "_packed_trunk_checked", False):
-            check_packed_trunk_supported(self.encoder)
-            self._packed_trunk_checked = True
+        lookup adds the token kinds; _packed_trunk_heads does the rest.
+        Every index array is built host-side and shipped in one pinned
+        non-blocking copy: nothing here synchronizes with the host."""
         d = self.d_model
         B = len(sizes)
         H_max, U_max, R_max = hex_batch.size(1), unit_batch.size(1), recruit_batch.size(1)
-        A_max = U_max + R_max + 1
         layout = build_packed_layout(sizes, H_max, U_max, R_max, TokenKind, ActorKind)
         index = layout.to_device(hex_batch.device)
         padded = torch.cat([hex_batch, unit_batch, recruit_batch, global_batch, end_turn_batch],
                            dim=1).reshape(B * (H_max + U_max + R_max + 2), d)
         x = padded.index_select(0, index.src) + self.token_kind_embed(index.kind)   # [total, d]
+        return self._packed_trunk_heads(x, index, layout, sizes, H_max, U_max, R_max)
+
+    def forward_embedded(self, streams: EmbeddedStreams,
+                         packed: Optional[bool] = None) -> "PaddedOutput":
+        """Batched forward over stream-ordered token embeddings
+        (encoder.encode_from_raw_embedded; the server's packed-embed
+        path). With the packed trunk, one gather orders the rows into
+        the packed layout and no padded tensor is built at all. With the
+        padded trunk, one gather lays them out as the padded streams
+        (zeros at the pads, as pad_sequence fills them) and
+        forward_streams runs unchanged. Same PaddedOutput as
+        forward_streams on encode_from_raw_padded's streams; `packed` as
+        in forward_streams."""
+        if self.infer_compile_packed and not self.infer_packed_trunk:
+            raise ValueError("infer_compile_packed requires infer_packed_trunk")
+        tokens, sizes = streams.tokens, streams.sizes
+        B, d = len(sizes), self.d_model
+        U_max, R_max, H_max = (max(s[i] for s in sizes) for i in (0, 1, 2))
+        if packed is None:
+            packed = self._packed_trunk_applies(tokens)
+        if packed:
+            layout = build_packed_layout(sizes, H_max, U_max, R_max, TokenKind, ActorKind,
+                                         source="streams")
+            index = layout.to_device(tokens.device)
+            x = tokens.index_select(0, index.src) + self.token_kind_embed(index.kind)
+            return self._packed_trunk_heads(x, index, layout, sizes, H_max, U_max, R_max)
+        L = H_max + U_max + R_max + 2
+        idx = torch.from_numpy(padded_gather_index(sizes, H_max, U_max, R_max))
+        if tokens.device.type == "cuda":
+            idx = idx.pin_memory().to(tokens.device, non_blocking=True)
+        elif tokens.device.type != "cpu":
+            idx = idx.to(tokens.device)
+        rows = torch.cat([tokens, tokens.new_zeros(1, d)]).index_select(0, idx).view(B, L, d)
+        o = H_max + U_max + R_max
+        return self.forward_streams(rows[:, :H_max], rows[:, H_max:H_max + U_max],
+                                    rows[:, H_max + U_max:o], rows[:, o:o + 1], rows[:, o + 1:],
+                                    sizes, packed=False)
+
+    def _packed_trunk_heads(self, x, index, layout, sizes, H_max, U_max, R_max) -> "PaddedOutput":
+        """The trunk on packed tokens x [total, d] (token kinds added),
+        then the heads on the actor / hex / global (and unit, for GBC)
+        contexts laid out in the padded shapes by index_select, so the
+        heads and PaddedOutput are the padded path's."""
+        if not getattr(self, "_packed_trunk_checked", False):
+            check_packed_trunk_supported(self.encoder)
+            self._packed_trunk_checked = True
+        d = self.d_model
+        B = len(sizes)
+        A_max = U_max + R_max + 1
         if self.infer_compile_packed:
             x = self._run_compiled_packed_trunk(x, index)
         else:
