@@ -204,13 +204,14 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
      already exceed them). The trainer now consumes
      `MCTSExperience.masks` (the actor's PackedMasks, bit-packed
      staging, ~0.4 ms per experience on the laptop, bit-identical).
-     NEXT: ship the root's PackedMasks with the experience
-     (`tools/mcts_policy.py` _PendingMCTSState/finalize_game, the pack
-     kept on the MCTSNode from RemoteEncoder.encode; 4-18 KB per
-     experience); then the bf16 batch-16 row should read ~23 ms per
-     experience and the training path ~230 s per iteration. Also:
-     raise or re-key the pathfind_sim cache bounds for anything that
-     still rebuilds masks over many maps (the bench does).
+     SHIPPED 2026-09-05: the root's PackedMasks ride on the MCTSNode
+     and ship with each MCTSExperience (+3-13% per experience); the
+     learner takes the shipped path (pool smoke asserts it). The
+     pool-sourced training-path confirmation is queued on the box
+     (`bench_train_step --source pool`); expected ~23 ms per
+     experience at bf16 batch 16, ~230 s per iteration. Open: the
+     pathfind_sim 512-entry cache bounds for anything that still
+     rebuilds masks over many maps (the bench-state source does).
 6. **Review of the day's changes** (2026-09-04, 7 Opus finders + 3
    refuters per finding): 17 confirmed, 16 fixed the same day (static
    hex cache keyed on a freed address; timeout artifacts that aborted
