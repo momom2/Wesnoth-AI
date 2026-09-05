@@ -360,11 +360,11 @@ def test_enumerate_legal_actions_with_priors_includes_type_idx():
 
 
 def test_mcts_factored_loss_consumes_type_idx():
-    """Trainer's _mcts_factored_policy_loss handles 5-tuples (with
+    """Trainer's _mcts_factored_policy_loss_reference handles 5-tuples (with
     type_idx). Smoke check that the loss is finite and depends on
     the type term."""
     from wesnoth_ai.action_sampler import enumerate_legal_actions_with_priors
-    from wesnoth_ai.trainer import _mcts_factored_policy_loss
+    from wesnoth_ai.trainer import _mcts_factored_policy_loss_reference
 
     gs = _gs_with_unit_and_enemy()
     encoder = GameStateEncoder()
@@ -386,9 +386,9 @@ def test_mcts_factored_loss_consumes_type_idx():
     legacy_schema_visits = [
         (p0.actor_idx, p0.target_idx, p0.weapon_idx, 1),
     ]
-    loss_new, _, _ = _mcts_factored_policy_loss(
+    loss_new, _, _ = _mcts_factored_policy_loss_reference(
         encoded, out, gs, new_schema_visits)
-    loss_legacy, _, _ = _mcts_factored_policy_loss(
+    loss_legacy, _, _ = _mcts_factored_policy_loss_reference(
         encoded, out, gs, legacy_schema_visits)
     assert torch.isfinite(loss_new).item()
     assert torch.isfinite(loss_legacy).item()

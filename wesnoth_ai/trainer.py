@@ -27,15 +27,19 @@ Pieces:
 
 from __future__ import annotations
 
+import contextlib
 import random
+import time
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterator, List, Optional, Sequence, Tuple
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from wesnoth_ai.action_sampler import (
+    _NEG_INF,
     prior_bias_end_turn as _prior_bias_end_turn,
     _build_legality_masks,
     _masked_actor_logits,
@@ -46,7 +50,9 @@ from wesnoth_ai.action_sampler import (
 )
 from wesnoth_ai.classes import GameState
 from wesnoth_ai.device import dml_sync
-from wesnoth_ai.encoder import encode_raw
+from wesnoth_ai.encoder import RawEncoded, encode_raw
+from wesnoth_ai.model import UnitActionType
+from wesnoth_ai.packed_trunk import FlatLayout
 
 import logging
 
@@ -57,12 +63,20 @@ log = logging.getLogger("trainer")
 _GBC_SILENT_WARNED = False
 
 # Count of visit-count index terms skipped by the stored-index bounds
-# guard in _mcts_factored_policy_loss (see its _oob helper). Module-
-# level so the log throttle survives across steps; a nonzero value on
-# a leg means the search-time and train-time index bases diverged
-# somewhere and the leg needs a root-cause before its gradients are
-# trusted.
+# guard of the factored policy loss (see _oob_index). Module-level so
+# the log throttle survives across steps; a nonzero value on a leg
+# means the search-time and train-time index bases diverged somewhere
+# and the leg needs a root-cause before its gradients are trusted.
 _OOB_INDEX_EVENTS = 0
+
+# Stages of one step_mcts call, in execution order; the keys of the
+# `timings` dict step_mcts fills (seconds, added to whatever the dict
+# already holds). "value_loss" covers every value-side term (value,
+# consistency, trust, aux, moves-left, GBC).
+STEP_MCTS_STAGES = ("encode_raw", "encode", "forward", "policy_loss",
+                    "value_loss", "backward", "clip", "optimizer")
+
+_CPU = torch.device("cpu")
 
 
 @dataclass
@@ -279,18 +293,6 @@ class TrainerConfig:
     # decision resolution, 2 C51 atoms = 0.08). 0 = off.
     trust_lambda:         float = 0.0
     trust_delta:          float = 0.08
-    # Optimization #5 (2026-06-14): vectorize the MCTS factored
-    # policy-loss accumulation -- group the per-(actor/type/target/
-    # weapon) NLL terms per cached log-prob vector and reduce with one
-    # index_select+sum each, collapsing the backward graph from
-    # O(visit-count tuples) to O(unique vectors) (~1.3-2x step_mcts at
-    # 300-900 tuples/state, the Gumbel-root regime). NOT bit-identical
-    # to the per-tuple loop: float32 summation is reassociated (~1e-7
-    # rel drift on loss/grads), so it's gated here. Does NOT touch
-    # combat/state_key/synced-RNG. Validated by
-    # test_mcts_policy_loss_vectorized (asserts grads match the loop
-    # within 1e-5). Set False to restore the exact per-tuple loop.
-    vectorized_mcts_policy_loss: bool = True
     normalize_advantages: bool  = True
     # Clamp discounted returns to the value head's output range so the
     # MSE loss has a finite, well-conditioned target. The model's value
@@ -318,9 +320,8 @@ class TrainerConfig:
     # ran 1.7–2.8× SLOWER than a sequence of single forwards — the
     # padded activations spill past L2/L3 and PyTorch's CPU attention
     # doesn't amortize gemm setup across batch for these shapes. So
-    # we default to 1 (equivalent to the old path via forward_batch's
-    # B==1 shortcut). Raise this on GPU, where batched forwards
-    # actually win. Benchmarks and rationale in history for this file.
+    # we default to 1. On a GPU the loop sets 16 (tools/az_loop.py;
+    # docs/box_specs.md "Training path cost (2026-09-05)").
     train_batch_size: int = 1
 
 
@@ -439,6 +440,11 @@ class Trainer:
         self.encoder = encoder
         self.config  = config if config is not None else TrainerConfig()
         self.device  = device
+        # Default sink for step_mcts's per-stage seconds (keys
+        # STEP_MCTS_STAGES): callers that reach step_mcts through
+        # MCTSPolicy.train_step (az_loop) set a dict here and read it
+        # back; direct callers pass `timings=` instead. None = no timing.
+        self.stage_timings: Optional[Dict[str, float]] = None
         self.optimizer = torch.optim.AdamW(
             list(model.parameters()) + list(encoder.parameters()),
             lr=self.config.learning_rate,
@@ -795,7 +801,42 @@ def _categorical_value_loss(
 # Method-injection at module bottom keeps the diff to the REINFORCE
 # core small.
 
-def _mcts_factored_policy_loss(
+def _unpack_visit(t) -> Tuple:
+    """(actor, target, weapon, count, type) from a legacy 4-tuple or a
+    5-tuple visit-count entry."""
+    if len(t) >= 5:
+        return t[0], t[1], t[2], t[3], t[4]
+    return t[0], t[1], t[2], t[3], None
+
+
+def _oob_index(kind: str, idx: int, size: int, actor_idx: int,
+               num_units: int, decision_step: int) -> bool:
+    """Stored-index bounds guard (2026-08-12). A visit-count tuple's
+    indices were resolved against the SEARCH-time encoding; the loss
+    re-encodes and re-masks, and a divergence puts an out-of-range
+    index into a CUDA gather -- a device-side assert that kills the
+    whole process with an ASYNC, misattributed traceback (observed
+    once on the F1 leg, iter 34: Indexing.cu `srcIndex <
+    srcSelectDimSize`). True = out of range: the caller skips the
+    term; the divergence is logged with enough context to root-cause
+    it (throttled after the first ten)."""
+    if 0 <= idx < size:
+        return False
+    global _OOB_INDEX_EVENTS
+    _OOB_INDEX_EVENTS += 1
+    if _OOB_INDEX_EVENTS <= 10 or _OOB_INDEX_EVENTS % 200 == 0:
+        log.error(
+            f"visit-count {kind} index out of range: idx={idx} "
+            f"size={size} actor_idx={actor_idx} "
+            f"num_units={num_units} "
+            f"decision_step={decision_step} "
+            f"(occurrence #{_OOB_INDEX_EVENTS}; term skipped -- "
+            f"search-time vs train-time index basis diverged; "
+            f"root-cause before trusting this leg)")
+    return True
+
+
+def _mcts_factored_policy_loss_reference(
     encoded,
     output,
     game_state: GameState,
@@ -804,8 +845,11 @@ def _mcts_factored_policy_loss(
     vectorized: bool = True,
     decision_step: int = 0,
 ) -> Tuple[torch.Tensor, float, float]:
-    """Cross-entropy of the model's factored policy against MCTS
-    visit counts. Returns (loss, total_visits, action_kl_proxy).
+    """One state's cross-entropy of the model's factored policy
+    against MCTS visit counts, computed per state in Python: the
+    REFERENCE for `_batched_factored_policy_loss` (which is what
+    step_mcts runs; tests/test_batched_policy_loss.py pins the two
+    together). Returns (loss, total_visits, mean -log p(actor)).
 
     The factored loss decomposes joint cross-entropy across four
     heads:
@@ -814,53 +858,24 @@ def _mcts_factored_policy_loss(
     Mathematically identical to a flat joint CE; avoids
     materializing the A*T*H*MAX_ATTACKS joint.
 
-    Caches per-actor target / weapon / type log-probs since
-    multiple visits typically share an actor.
+    `vectorized=False` is the original per-tuple loop; True groups
+    the terms per cached log-prob vector (same term set, float32
+    summation reassociated).
 
     Visit-count tuple schema: 4-tuple (actor, target, weapon, count)
     on legacy data, 5-tuple (actor, target, weapon, count, type) on
-    new data. The unpacking below tolerates both.
+    new data; both are accepted.
     """
     from wesnoth_ai.action_sampler import _masked_target_logits_from_row, _masked_type_logits
-    from wesnoth_ai.model import UnitActionType
 
-    # Helper to unpack legacy 4-tuple OR new 5-tuple.
-    def _unpack(t):
-        if len(t) >= 5:
-            actor, target, weapon, count, type_idx = t[0], t[1], t[2], t[3], t[4]
-        else:
-            actor, target, weapon, count = t[0], t[1], t[2], t[3]
-            type_idx = None
-        return actor, target, weapon, count, type_idx
+    _unpack = _unpack_visit
 
     masks = _build_legality_masks(encoded, game_state,
                                   decision_step=decision_step)
 
-    # Stored-index bounds guard (2026-08-12). A visit-count tuple's
-    # indices were resolved against the SEARCH-time encoding; the loss
-    # re-encodes and re-masks, and a divergence puts an out-of-range
-    # index into a CUDA index_select/gather -- a device-side assert
-    # that kills the whole process with an ASYNC, misattributed
-    # traceback (observed once on the F1 leg, iter 34: Indexing.cu
-    # `srcIndex < srcSelectDimSize`). The weapon term always had this
-    # guard ("stale visit-count slot"); actor/type/target now get the
-    # same treatment, LOUDLY: skip the term and log enough context to
-    # root-cause the divergence instead of dying on it.
     def _oob(kind: str, idx: int, size: int, actor_idx: int) -> bool:
-        if 0 <= idx < size:
-            return False
-        global _OOB_INDEX_EVENTS
-        _OOB_INDEX_EVENTS += 1
-        if _OOB_INDEX_EVENTS <= 10 or _OOB_INDEX_EVENTS % 200 == 0:
-            log.error(
-                f"visit-count {kind} index out of range: idx={idx} "
-                f"size={size} actor_idx={actor_idx} "
-                f"num_units={output.num_units} "
-                f"decision_step={decision_step} "
-                f"(occurrence #{_OOB_INDEX_EVENTS}; term skipped -- "
-                f"search-time vs train-time index basis diverged; "
-                f"root-cause before trusting this leg)")
-        return True
+        return _oob_index(kind, idx, size, actor_idx, output.num_units,
+                          decision_step)
     # Prior-bias symmetry: the trainer re-forward must apply the
     # SAME end_turn bias the rollout applied, or the CE would fight
     # a target the live priors never produced.
@@ -1116,17 +1131,316 @@ def _mcts_factored_policy_loss(
     return loss, float(total_visits), float(mean_actor_nlp)
 
 
+# ---------------------------------------------------------------------
+# Batched factored policy loss (2026-09-05)
+# ---------------------------------------------------------------------
+# The loss above, computed once per chunk instead of once per state:
+# the legality masks are built on the host from each experience's
+# RawEncoded, the index of every visit term and the mask rows those
+# terms need go to the device in ONE flat buffer, and the device runs
+# one masked log-softmax per head -- over the padded batch for the
+# actor and type heads, over the gathered rows for the target and
+# weapon heads -- followed by one weighted gather-sum. The per-state
+# version cost 32-34 ms per experience in every configuration, the
+# largest item of the training path (docs/box_specs.md "Training path
+# cost (2026-09-05)").
+
+_KIND_ATTACK, _KIND_MOVE, _KIND_UNION = 0, 1, 2
+
+
+@dataclass
+class _PolicyTargets:
+    """One chunk's visit terms laid out for `_batched_factored_policy_loss`."""
+    layout: FlatLayout
+    host: torch.Tensor          # flat uint8 buffer holding every field
+    n_rows: int                 # target rows: unique (sample, actor, kind)
+    n_wrows: int                # weapon rows: unique (sample, actor)
+    visits: float               # sum of total visits over the chunk
+
+
+def _host_legality_masks(raw: RawEncoded, game_state: GameState,
+                         decision_step: int):
+    """One experience's legality masks as CPU tensors, built from its
+    RawEncoded the way the search-time actors build them (a pure
+    function of the observable state), so no per-experience device
+    round trip is needed to stage them."""
+    # wesnoth_ai does not import tools/ at module load.
+    from tools.inference_seam import build_light_encoded
+    light = build_light_encoded(raw, _CPU)
+    light.hex_subset = bool(raw.hex_subset)
+    return _build_legality_masks(light, game_state,
+                                 decision_step=decision_step)
+
+
+def _stage_policy_targets(
+    chunk: Sequence[MCTSExperience],
+    raws: Sequence[RawEncoded],
+    sizes: Sequence[Tuple[int, int, int]],
+    *,
+    A_max: int, H_max: int, T: int, W: int,
+    coef: Sequence[float],
+    pin: bool,
+) -> _PolicyTargets:
+    """Host side. `coef[b]` is experience b's weight on the chunk loss
+    (game weight x policy weight / total game weight); a term's
+    coefficient is count x coef / the experience's total visits, so
+    the device only sums coefficient x log-probability. Term
+    selection and skipping mirror the reference exactly, including
+    the out-of-range guard and the "stale weapon slot" skip."""
+    B = len(chunk)
+    actor_mask = np.zeros((B, A_max), dtype=np.uint8)
+    actor_bias = np.zeros((B, A_max), dtype=np.float32)
+    type_valid = np.zeros((B, A_max, T), dtype=np.uint8)
+    type_bias = np.zeros((B, A_max, T), dtype=np.float32)
+    # Flat index (into the head's flattened log-probabilities) and
+    # coefficient per term; actor terms also keep the raw count for
+    # the "entropy" log field.
+    a_idx: List[int] = []
+    a_coef: List[float] = []
+    a_cnt: List[float] = []
+    t_idx: List[int] = []
+    t_coef: List[float] = []
+    g_row: List[int] = []
+    g_hex: List[int] = []
+    g_coef: List[float] = []
+    w_row: List[int] = []
+    w_slot: List[int] = []
+    w_coef: List[float] = []
+    rows: Dict[Tuple[int, int, int], int] = {}      # (b, a, kind) -> row
+    row_src: List[Tuple[np.ndarray, Optional[np.ndarray], int]] = []
+    wrows: Dict[Tuple[int, int], int] = {}          # (b, a) -> weapon row
+    wrow_natt: List[int] = []
+    visits = 0.0
+    for b, (e, raw) in enumerate(zip(chunk, raws)):
+        U, R, H = sizes[b]
+        A = U + R + 1
+        vc = e.visit_counts
+        total = float(sum(_unpack_visit(t)[3] for t in vc))
+        if total <= 0.0:
+            continue
+        visits += total
+        ds = int(getattr(e, "decision_step", 0))
+        gs = e.game_state
+        masks = _host_legality_masks(raw, gs, ds)
+        ownership = np.concatenate([raw.unit_is_ours, raw.recruit_is_ours,
+                                    np.ones(1, dtype=np.float32)])
+        actor_mask[b, :A] = ((ownership != 0.0)
+                             & (masks.actor_valid[0].numpy() != 0.0))
+        actor_bias[b, A - 1] = _prior_bias_end_turn(gs)
+        type_valid[b, :A] = masks.type_valid[0].numpy() != 0.0
+        type_bias[b, :A] = masks.type_bias[0].numpy()
+        attack_valid = masks.target_valid_attack.numpy()
+        move_valid = masks.target_valid_move.numpy()
+        union_valid = masks.target_valid.numpy()
+        attack_bias = masks.attack_bias.numpy()
+        by_id = None
+        c = coef[b] / total
+        for tup in vc:
+            a, h, w, count, ty = _unpack_visit(tup)
+            if count <= 0:
+                continue
+            if _oob_index("actor", a, A, a, U, ds):
+                continue
+            a_idx.append(b * A_max + a)
+            a_coef.append(count * c)
+            a_cnt.append(count)
+            is_unit = a < U
+            if is_unit and ty is not None and not _oob_index("type", ty, T, a, U, ds):
+                t_idx.append((b * A_max + a) * T + ty)
+                t_coef.append(count * c)
+            if h is not None:
+                if is_unit and ty == UnitActionType.ATTACK:
+                    kind, valid, bias = _KIND_ATTACK, attack_valid, attack_bias
+                elif is_unit and ty == UnitActionType.MOVE:
+                    kind, valid, bias = _KIND_MOVE, move_valid, None
+                else:
+                    kind, valid, bias = _KIND_UNION, union_valid, attack_bias
+                if H == 0:
+                    continue
+                if _oob_index("target", h, H, a, U, ds):
+                    continue    # like the reference, the weapon term goes with it
+                r = rows.get((b, a, kind))
+                if r is None:
+                    r = rows[(b, a, kind)] = len(row_src)
+                    row_src.append((valid[a], None if bias is None else bias[a], H))
+                g_row.append(r)
+                g_hex.append(h)
+                g_coef.append(count * c)
+            if w is not None:
+                if by_id is None:
+                    by_id = {u.id: u for u in gs.map.units}
+                unit = by_id.get(raw.unit_ids[a]) if is_unit else None
+                n_att = len(unit.attacks) if unit is not None else 0
+                if n_att <= 0 or w >= n_att:
+                    continue    # stale visit-count slot: skipped silently
+                if _oob_index("weapon", w, W, a, U, ds):
+                    continue
+                wr = wrows.get((b, a))
+                if wr is None:
+                    wr = wrows[(b, a)] = len(wrow_natt)
+                    wrow_natt.append(n_att)
+                w_row.append(wr)
+                w_slot.append(w)
+                w_coef.append(count * c)
+
+    n_rows, n_wrows = len(row_src), len(wrow_natt)
+    n_a, n_t, n_g, n_w = len(a_idx), len(t_idx), len(g_row), len(w_row)
+    layout = FlatLayout([
+        ("actor_idx", torch.int64, (n_a,)), ("type_idx", torch.int64, (n_t,)),
+        ("tgt_idx", torch.int64, (n_g,)), ("wpn_idx", torch.int64, (n_w,)),
+        ("row_b", torch.int64, (n_rows,)), ("row_a", torch.int64, (n_rows,)),
+        ("wrow_b", torch.int64, (n_wrows,)), ("wrow_a", torch.int64, (n_wrows,)),
+        ("actor_coef", torch.float32, (n_a,)), ("actor_cnt", torch.float32, (n_a,)),
+        ("type_coef", torch.float32, (n_t,)), ("tgt_coef", torch.float32, (n_g,)),
+        ("wpn_coef", torch.float32, (n_w,)),
+        ("actor_bias", torch.float32, (B, A_max)),
+        ("type_bias", torch.float32, (B, A_max, T)),
+        ("row_bias", torch.float32, (n_rows, H_max)),
+        ("row_hcount", torch.int32, (n_rows,)), ("wrow_natt", torch.int32, (n_wrows,)),
+        ("actor_mask", torch.uint8, (B, A_max)),
+        ("type_valid", torch.uint8, (B, A_max, T)),
+        ("row_valid", torch.uint8, (n_rows, H_max)),
+    ])
+    host = torch.zeros(layout.nbytes, dtype=torch.uint8, pin_memory=pin)
+    v = layout.numpy_views(host.numpy())
+    v["actor_idx"][:] = a_idx
+    v["actor_coef"][:] = a_coef
+    v["actor_cnt"][:] = a_cnt
+    v["type_idx"][:] = t_idx
+    v["type_coef"][:] = t_coef
+    v["tgt_idx"][:] = np.asarray(g_row, dtype=np.int64) * H_max + np.asarray(g_hex, dtype=np.int64)
+    v["tgt_coef"][:] = g_coef
+    v["wpn_idx"][:] = np.asarray(w_row, dtype=np.int64) * W + np.asarray(w_slot, dtype=np.int64)
+    v["wpn_coef"][:] = w_coef
+    v["row_b"][:] = [k[0] for k in rows]
+    v["row_a"][:] = [k[1] for k in rows]
+    for r, (valid_row, bias_row, Hb) in enumerate(row_src):
+        v["row_valid"][r, :Hb] = valid_row != 0.0
+        if bias_row is not None:
+            v["row_bias"][r, :Hb] = bias_row
+        v["row_hcount"][r] = Hb
+    v["wrow_b"][:] = [k[0] for k in wrows]
+    v["wrow_a"][:] = [k[1] for k in wrows]
+    v["wrow_natt"][:] = wrow_natt
+    v["actor_mask"][:] = actor_mask
+    v["actor_bias"][:] = actor_bias
+    v["type_valid"][:] = type_valid
+    v["type_bias"][:] = type_bias
+    return _PolicyTargets(layout=layout, host=host, n_rows=n_rows,
+                          n_wrows=n_wrows, visits=visits)
+
+
+def _batched_factored_policy_loss(
+    padded, targets: _PolicyTargets,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Device side. `padded` is the chunk's model.PaddedOutput. Returns
+    (the chunk's policy loss, already weighted and normalized; the
+    detached sum of count x -log p(actor) for the "entropy" log
+    field). A row whose mask has no legal entry is left unmasked
+    within its state, as the reference does."""
+    dev = padded.actor_logits.device
+    v = targets.layout.torch_views(targets.host.to(dev, non_blocking=True))
+    H_max = padded.target_logits.shape[2]
+    W = padded.weapon_logits.shape[2]
+
+    al = (padded.actor_logits + v["actor_bias"]).masked_fill(
+        v["actor_mask"] == 0, _NEG_INF)
+    a_vals = F.log_softmax(al, dim=-1).reshape(-1)[v["actor_idx"]]
+    logp_sum = (v["actor_coef"] * a_vals).sum()
+    actor_nlp = -(v["actor_cnt"] * a_vals.detach()).sum()
+
+    if v["type_idx"].numel():
+        tv = v["type_valid"] != 0
+        ok = tv | ~tv.any(dim=-1, keepdim=True)
+        tl = (padded.type_logits + v["type_bias"]).masked_fill(~ok, _NEG_INF)
+        t_vals = F.log_softmax(tl, dim=-1).reshape(-1)[v["type_idx"]]
+        logp_sum = logp_sum + (v["type_coef"] * t_vals).sum()
+
+    if targets.n_rows:
+        rows = padded.target_logits[v["row_b"], v["row_a"]] + v["row_bias"]
+        rv = v["row_valid"] != 0
+        in_state = (torch.arange(H_max, device=dev).unsqueeze(0)
+                    < v["row_hcount"].unsqueeze(1))
+        ok = torch.where(rv.any(dim=-1, keepdim=True), rv, in_state)
+        g_vals = F.log_softmax(rows.masked_fill(~ok, _NEG_INF),
+                               dim=-1).reshape(-1)[v["tgt_idx"]]
+        logp_sum = logp_sum + (v["tgt_coef"] * g_vals).sum()
+
+    if targets.n_wrows:
+        wrows = padded.weapon_logits[v["wrow_b"], v["wrow_a"]]
+        ok = (torch.arange(W, device=dev).unsqueeze(0)
+              < v["wrow_natt"].unsqueeze(1))
+        w_vals = F.log_softmax(wrows.masked_fill(~ok, _NEG_INF),
+                               dim=-1).reshape(-1)[v["wpn_idx"]]
+        logp_sum = logp_sum + (v["wpn_coef"] * w_vals).sum()
+
+    return -logp_sum, actor_nlp
+
+
+class _StageTimer:
+    """Seconds per stage of one step_mcts call, added into `sink` at
+    `flush` (keys STEP_MCTS_STAGES). On cuda every stage is a pair of
+    events on the current stream, resolved after one synchronize --
+    a host-bound stage is charged the stream's wait for it, a stage
+    that overlaps queued device work only its non-overlapped part; on
+    cpu perf_counter. No sink: every call is a no-op."""
+
+    def __init__(self, device: torch.device, sink: Optional[Dict[str, float]]):
+        self.sink = sink
+        self.cuda = sink is not None and device.type == "cuda"
+        self.seconds: Dict[str, float] = {}
+        self._events: List[Tuple[str, object, object]] = []
+
+    @contextlib.contextmanager
+    def stage(self, name: str) -> Iterator[None]:
+        if self.sink is None:
+            yield
+            return
+        if self.cuda:
+            start = torch.cuda.Event(enable_timing=True)
+            start.record()
+            try:
+                yield
+            finally:
+                end = torch.cuda.Event(enable_timing=True)
+                end.record()
+                self._events.append((name, start, end))
+        else:
+            t0 = time.perf_counter()
+            try:
+                yield
+            finally:
+                self.seconds[name] = (self.seconds.get(name, 0.0)
+                                      + time.perf_counter() - t0)
+
+    def flush(self) -> None:
+        if self.sink is None:
+            return
+        if self.cuda:
+            torch.cuda.synchronize()
+            for name, start, end in self._events:
+                self.seconds[name] = (self.seconds.get(name, 0.0)
+                                      + start.elapsed_time(end) / 1000.0)
+            self._events.clear()
+        for name, s in self.seconds.items():
+            self.sink[name] = self.sink.get(name, 0.0) + s
+
+
 def _trainer_step_mcts(
     self,                                     # Trainer (method injected below)
     experiences: List[MCTSExperience],
+    timings: Optional[Dict[str, float]] = None,
 ) -> TrainStats:
     """One AlphaZero-style gradient step. Each experience contributes
     a factored cross-entropy term against the MCTS visit
-    distribution, plus an MSE term against the terminal outcome z.
+    distribution, plus a value term against the terminal outcome z.
 
     Like REINFORCE `step`, processes experiences in chunks of
     `train_batch_size` and calls `.backward()` per chunk to bound
     peak activation memory. Final `optimizer.step()` once at the end.
+
+    `timings`: seconds per stage (keys STEP_MCTS_STAGES) are ADDED to
+    this dict; defaults to `self.stage_timings`. None = no timing.
     """
     if not experiences:
         return TrainStats()
@@ -1277,180 +1591,87 @@ def _trainer_step_mcts(
     self.model.eval()
     self.encoder.eval()
 
-    # Pre-compute the raw-encoded cache (one encode_raw per experience)
-    # so the policy-loss helper -- which already calls encode internally
-    # via _masked_target_logits' codepath -- doesn't pay the Python-
-    # side state-building cost twice. encode_from_raw runs per chunk
-    # below to produce the grad-tracked tensors.
-    register_names = self.encoder.register_names
-    for e in experiences:
-        register_names(e.game_state)
-    type_to_id    = self.encoder.unit_type_to_id
-    faction_to_id = self.encoder.faction_to_id
-    raw_cache = [
-        encode_raw(e.game_state,
-                   type_to_id=type_to_id,
-                   faction_to_id=faction_to_id,
-                   relevant_set=getattr(self.encoder,
-                                        "relevant_set_hexes", False))
-        for e in experiences
-    ]
+    timer = _StageTimer(dev, timings if timings is not None
+                        else self.stage_timings)
+
+    # Pre-compute the raw-encoded cache (one encode_raw per experience):
+    # encode_from_raw_batch runs per chunk below to produce the grad-
+    # tracked tensors, and the policy targets are staged from the same
+    # RawEncoded (no second state walk).
+    with timer.stage("encode_raw"):
+        register_names = self.encoder.register_names
+        for e in experiences:
+            register_names(e.game_state)
+        type_to_id    = self.encoder.unit_type_to_id
+        faction_to_id = self.encoder.faction_to_id
+        raw_cache = [
+            encode_raw(e.game_state,
+                       type_to_id=type_to_id,
+                       faction_to_id=faction_to_id,
+                       relevant_set=getattr(self.encoder,
+                                            "relevant_set_hexes", False))
+            for e in experiences
+        ]
+    # Each experience's weight on the policy loss (see
+    # MCTSExperience.game_weight / policy_weight).
+    policy_coef = (gws * pws / total_gw).tolist()
 
     for start in range(0, N, B):
         chunk = experiences[start:start + B]
         L = len(chunk)
         raw_chunk = raw_cache[start:start + B]
-        encoded_chunk = self.encoder.encode_from_raw_batch(raw_chunk)
-        outputs = self.model.forward_batch(encoded_chunk)
+        with timer.stage("encode"):
+            encoded_chunk = self.encoder.encode_from_raw_batch(raw_chunk)
+        with timer.stage("forward"):
+            padded = self.model.forward_padded(encoded_chunk)
+        # Staged on the host while the device runs the forward.
+        with timer.stage("policy_loss"):
+            targets = _stage_policy_targets(
+                chunk, raw_chunk, padded.sizes,
+                A_max=padded.actor_logits.shape[1],
+                H_max=padded.target_logits.shape[2],
+                T=padded.type_logits.shape[2],
+                W=padded.weapon_logits.shape[2],
+                coef=policy_coef[start:start + L],
+                pin=dev.type == "cuda")
+            policy_loss_t, actor_nlp_t = _batched_factored_policy_loss(
+                padded, targets)
+        sum_total_visits += targets.visits
 
-        chunk_policy_losses: List[torch.Tensor] = []
-        chunk_values: List[torch.Tensor] = []
-        chunk_value_logits: List[torch.Tensor] = []
-        chunk_aux: List[torch.Tensor] = []
-        chunk_ml: List[torch.Tensor] = []
-        chunk_gbc: List[Tuple[torch.Tensor, torch.Tensor]] = []
-        for ei, (e, encoded, output) in enumerate(
-                zip(chunk, encoded_chunk, outputs)):
-            policy_loss, total_v, mean_actor_nlp = (
-                _mcts_factored_policy_loss(
-                    encoded, output, e.game_state, e.visit_counts,
-                    vectorized=self.config.vectorized_mcts_policy_loss,
-                    decision_step=getattr(e, "decision_step", 0),
-                )
-            )
-            chunk_policy_losses.append(policy_loss)
-            chunk_values.append(output.value.squeeze())
-            chunk_value_logits.append(output.value_logits.squeeze(0))
-            if aux_on:
-                chunk_aux.append(output.aux_score.squeeze())
-            if ml_on:
-                chunk_ml.append(output.moves_left.squeeze())
-            if gbc_on:
-                rows = getattr(e, "gbc_labels", None)
-                if rows:
-                    from wesnoth_ai.gbc import gbc_loss_for_output
-                    gl = gbc_loss_for_output(
-                        self.model, encoded, output, rows)
-                    if gl is not None:
-                        chunk_gbc.append((gl, gws[start + ei]))
-            sum_total_visits += total_v
-            sum_actor_nlp_weighted += mean_actor_nlp * total_v
+        with timer.stage("value_loss"):
+            chunk_loss, value_loss, chunk_sums = self._value_side_losses(
+                padded, chunk, encoded_chunk, start, L,
+                zs=zs, gws=gws, vws=vws, pws=pws, consist_mask=consist_mask,
+                anchor_mask=anchor_mask, anchor_t=anchor_t,
+                n_consist=n_consist, n_anchor=n_anchor,
+                total_gw=total_gw, total_value_w=total_value_w,
+                aux_on=aux_on, aux_t_full=aux_t_full,
+                ml_on=ml_on, ml_t_full=ml_t_full, gbc_on=gbc_on)
+            chunk_loss = policy_loss_t + chunk_loss
+        sum_consist_loss += chunk_sums["consist"]
+        sum_trust_loss += chunk_sums["trust"]
+        sum_aux_loss += chunk_sums["aux"]
+        sum_ml_loss += chunk_sums["ml"]
+        sum_gbc_loss += chunk_sums["gbc"]
 
-        gw_chunk = gws[start:start + L]
-        policy_loss_t = (torch.stack(chunk_policy_losses)
-                         * gw_chunk * pws[start:start + L]).sum() / total_gw
-        val_t = torch.stack(chunk_values)
-        vl_t  = torch.stack(chunk_value_logits)
-        z_t   = zs[start:start + L]
-        # Distributional value loss: categorical CE on the projected
-        # terminal-z target (z ∈ {-1, 0, +1} for win/draw/loss),
-        # consistent with the REINFORCE path. `zs` was already
-        # clipped to [V_MIN, V_MAX] by the value_clip block above.
-        # Draws are down-weighted by config.draw_value_weight and the
-        # loss normalizes by TOTAL WEIGHT (not N), so decisive states
-        # keep full-strength gradient regardless of the batch's draw
-        # share; an all-draw batch at weight 0 contributes no value
-        # gradient at all.
-        atoms = self.model._value_atoms
-        w_t = gw_chunk * vws[start:start + L]
-        if self.config.value_loss_form == "mse_mean":
-            value_loss = ((val_t - z_t).pow(2) * w_t).sum() \
-                / max(float(total_value_w), 1e-9)
-        else:
-            value_loss = _categorical_value_loss(
-                vl_t, z_t, atoms,
-                label_smoothing=self.config.value_label_smoothing,
-                weights=w_t) / max(float(total_value_w), 1e-9)
-
-        chunk_loss = (
-            policy_loss_t
-            + self.config.value_coef * value_loss
-        )
-        # Arm VG2 consistency term: Gaussian NLL of the head's MEAN
-        # prediction against the bias-corrected search estimate,
-        # (v - (z - b))^2 / (2 sigma2), b and sigma2 ESTIMATED from
-        # paired labels by the policy each iteration. Gradient is
-        # linear in the gap (no categorical blow-up), and the
-        # term's strength IS the measured precision -- no weight.
-        # Game-weight normalized like every other term.
-        cm = consist_mask[start:start + L]
-        if bool(cm.any()):
-            tgt = z_t - float(self.config.consist_bias)
-            sq = (val_t - tgt).pow(2) * gw_chunk * cm.float()
-            consist_loss = sq.sum() / (
-                2.0 * max(float(self.config.consist_sigma2), 1e-4)
-                * n_consist)
-            chunk_loss = chunk_loss + consist_loss
-            sum_consist_loss += float(consist_loss.item())
-        # Trust region on consulted states: lambda * (v - v_anchor)^2,
-        # lambda driven by dual ascent on the live dv_consult against
-        # trust_delta (docs/design_constants.md).
-        am = anchor_mask[start:start + L]
-        if self.config.trust_lambda > 0 and bool(am.any()):
-            tr = ((val_t - anchor_t[start:start + L]).pow(2)
-                  * am.float()).sum() / n_anchor
-            trust_loss = self.config.trust_lambda * tr
-            chunk_loss = chunk_loss + trust_loss
-            sum_trust_loss += float(trust_loss.item())
-        # Auxiliary margin loss (KataGo §3.5): MSE of the predicted vs
-        # final material margin, summed over the chunk and normalized by
-        # N (matching the value-loss normalization), weighted by
-        # aux_coef. Regularizes the shared trunk with a denser signal.
-        if aux_on:
-            aux_pred_t = torch.stack(chunk_aux)
-            aux_tgt_t  = aux_t_full[start:start + L]
-            aux_loss = ((aux_pred_t - aux_tgt_t) ** 2
-                        * gw_chunk).sum() / total_gw
-            chunk_loss = chunk_loss + self.config.aux_coef * aux_loss
-            sum_aux_loss += float(aux_loss.item())
-        # Moves-left loss (Lc0-style): MSE of the predicted vs actual
-        # remaining-turn fraction; same normalization/weighting shape
-        # as the aux term.
-        if ml_on:
-            ml_pred_t = torch.stack(chunk_ml)
-            ml_tgt_t  = ml_t_full[start:start + L]
-            ml_loss = ((ml_pred_t - ml_tgt_t) ** 2
-                       * gw_chunk).sum() / total_gw
-            chunk_loss = chunk_loss + self.config.moves_left_coef * ml_loss
-            sum_ml_loss += float(ml_loss.item())
-        # GBC event-supervision loss (2026-08-14, docs/archive/gbc_spec.md):
-        # per-experience BCE of the dies/flips heads vs hindsight
-        # labels, weighted by game_weight and normalized by total_gw
-        # like every other term.
-        if gbc_on and chunk_gbc:
-            gbc_loss = sum(gl * w for gl, w in chunk_gbc) / total_gw
-            chunk_loss = chunk_loss + self.config.gbc_coef * gbc_loss
-            sum_gbc_loss += float(gbc_loss.item())
-        elif gbc_on and any(getattr(e, "gbc_labels", None)
-                            for e in chunk):
-            # THIS CHUNK's labels are present but nothing computed a
-            # loss -- the 2026-08-15 failure shape (ctx tap absent on
-            # one forward path made GBC a silent no-op for hours).
-            # Loud once per process; silence is the enemy here.
-            # Chunks with NO labels at all are expected under value
-            # grounding (label-free value-only experiences) and stay
-            # quiet.
-            global _GBC_SILENT_WARNED
-            if not _GBC_SILENT_WARNED:
-                _GBC_SILENT_WARNED = True
-                log.warning(
-                    "gbc_on but no GBC loss computed for this chunk "
-                    "(ctx tap None? entities unresolvable?) -- the "
-                    "aux signal is NOT training; investigate")
-
-        chunk_loss.backward()
+        with timer.stage("backward"):
+            chunk_loss.backward()
 
         sum_policy_loss += float(policy_loss_t.item())
         sum_value_loss  += float(value_loss.item())
+        sum_actor_nlp_weighted += float(actor_nlp_t.item())
 
-        del chunk_policy_losses, chunk_values, val_t, z_t, chunk_loss
-        del encoded_chunk, outputs
+        del chunk_loss, policy_loss_t, value_loss, targets
+        del encoded_chunk, padded
 
-    grad_norm = torch.nn.utils.clip_grad_norm_(
-        list(self.model.parameters()) + list(self.encoder.parameters()),
-        self.config.grad_clip,
-    )
-    self.optimizer.step()
+    with timer.stage("clip"):
+        grad_norm = torch.nn.utils.clip_grad_norm_(
+            list(self.model.parameters()) + list(self.encoder.parameters()),
+            self.config.grad_clip,
+        )
+    with timer.stage("optimizer"):
+        self.optimizer.step()
+    timer.flush()
 
     self.model.eval()
     self.encoder.eval()
@@ -1485,6 +1706,125 @@ def _trainer_step_mcts(
         moves_left_loss = float(sum_ml_loss),
         value_signal_states = n_value_signal,
     )
+
+
+def _trainer_value_side_losses(
+    self, padded, chunk, encoded_chunk, start: int, L: int, *,
+    zs, gws, vws, pws, consist_mask, anchor_mask, anchor_t,
+    n_consist: int, n_anchor: int, total_gw: float, total_value_w: float,
+    aux_on: bool, aux_t_full, ml_on: bool, ml_t_full, gbc_on: bool,
+) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, float]]:
+    """Every value-side term of one chunk of step_mcts (value,
+    consistency, trust region, aux margin, moves-left, GBC), summed
+    with their coefficients. Returns (chunk sum, the plain value
+    loss, the per-term floats for the step's running sums)."""
+    gw_chunk = gws[start:start + L]
+    val_t = padded.value.squeeze(-1)                 # [L]
+    vl_t  = padded.value_logits                      # [L, K]
+    z_t   = zs[start:start + L]
+    sums = {"consist": 0.0, "trust": 0.0, "aux": 0.0, "ml": 0.0, "gbc": 0.0}
+    # Distributional value loss: categorical CE on the projected
+    # terminal-z target (z ∈ {-1, 0, +1} for win/draw/loss),
+    # consistent with the REINFORCE path. `zs` was already
+    # clipped to [V_MIN, V_MAX] by the value_clip block above.
+    # Draws are down-weighted by config.draw_value_weight and the
+    # loss normalizes by TOTAL WEIGHT (not N), so decisive states
+    # keep full-strength gradient regardless of the batch's draw
+    # share; an all-draw batch at weight 0 contributes no value
+    # gradient at all.
+    atoms = self.model._value_atoms
+    w_t = gw_chunk * vws[start:start + L]
+    if self.config.value_loss_form == "mse_mean":
+        value_loss = ((val_t - z_t).pow(2) * w_t).sum() \
+            / max(float(total_value_w), 1e-9)
+    else:
+        value_loss = _categorical_value_loss(
+            vl_t, z_t, atoms,
+            label_smoothing=self.config.value_label_smoothing,
+            weights=w_t) / max(float(total_value_w), 1e-9)
+
+    chunk_loss = self.config.value_coef * value_loss
+    # Arm VG2 consistency term: Gaussian NLL of the head's MEAN
+    # prediction against the bias-corrected search estimate,
+    # (v - (z - b))^2 / (2 sigma2), b and sigma2 ESTIMATED from
+    # paired labels by the policy each iteration. Gradient is
+    # linear in the gap (no categorical blow-up), and the
+    # term's strength IS the measured precision -- no weight.
+    # Game-weight normalized like every other term.
+    cm = consist_mask[start:start + L]
+    if bool(cm.any()):
+        tgt = z_t - float(self.config.consist_bias)
+        sq = (val_t - tgt).pow(2) * gw_chunk * cm.float()
+        consist_loss = sq.sum() / (
+            2.0 * max(float(self.config.consist_sigma2), 1e-4)
+            * n_consist)
+        chunk_loss = chunk_loss + consist_loss
+        sums["consist"] = float(consist_loss.item())
+    # Trust region on consulted states: lambda * (v - v_anchor)^2,
+    # lambda driven by dual ascent on the live dv_consult against
+    # trust_delta (docs/design_constants.md).
+    am = anchor_mask[start:start + L]
+    if self.config.trust_lambda > 0 and bool(am.any()):
+        tr = ((val_t - anchor_t[start:start + L]).pow(2)
+              * am.float()).sum() / n_anchor
+        trust_loss = self.config.trust_lambda * tr
+        chunk_loss = chunk_loss + trust_loss
+        sums["trust"] = float(trust_loss.item())
+    # Auxiliary margin loss (KataGo §3.5): MSE of the predicted vs
+    # final material margin, summed over the chunk and normalized by
+    # N (matching the value-loss normalization), weighted by
+    # aux_coef. Regularizes the shared trunk with a denser signal.
+    if aux_on:
+        aux_pred_t = padded.aux_score.squeeze(-1)
+        aux_tgt_t  = aux_t_full[start:start + L]
+        aux_loss = ((aux_pred_t - aux_tgt_t) ** 2
+                    * gw_chunk).sum() / total_gw
+        chunk_loss = chunk_loss + self.config.aux_coef * aux_loss
+        sums["aux"] = float(aux_loss.item())
+    # Moves-left loss (Lc0-style): MSE of the predicted vs actual
+    # remaining-turn fraction; same normalization/weighting shape
+    # as the aux term.
+    if ml_on:
+        ml_pred_t = padded.moves_left.squeeze(-1)
+        ml_tgt_t  = ml_t_full[start:start + L]
+        ml_loss = ((ml_pred_t - ml_tgt_t) ** 2
+                   * gw_chunk).sum() / total_gw
+        chunk_loss = chunk_loss + self.config.moves_left_coef * ml_loss
+        sums["ml"] = float(ml_loss.item())
+    # GBC event-supervision loss (2026-08-14, docs/archive/gbc_spec.md):
+    # per-experience BCE of the dies/flips heads vs hindsight
+    # labels, weighted by game_weight and normalized by total_gw
+    # like every other term.
+    if gbc_on:
+        from wesnoth_ai.gbc import gbc_loss_for_output
+        chunk_gbc: List[Tuple[torch.Tensor, torch.Tensor]] = []
+        for ei, e in enumerate(chunk):
+            rows = getattr(e, "gbc_labels", None)
+            if rows:
+                gl = gbc_loss_for_output(
+                    self.model, encoded_chunk[ei], padded.sample(ei), rows)
+                if gl is not None:
+                    chunk_gbc.append((gl, gws[start + ei]))
+        if chunk_gbc:
+            gbc_loss = sum(gl * w for gl, w in chunk_gbc) / total_gw
+            chunk_loss = chunk_loss + self.config.gbc_coef * gbc_loss
+            sums["gbc"] = float(gbc_loss.item())
+        elif any(getattr(e, "gbc_labels", None) for e in chunk):
+            # THIS CHUNK's labels are present but nothing computed a
+            # loss -- the 2026-08-15 failure shape (ctx tap absent on
+            # one forward path made GBC a silent no-op for hours).
+            # Loud once per process; silence is the enemy here.
+            # Chunks with NO labels at all are expected under value
+            # grounding (label-free value-only experiences) and stay
+            # quiet.
+            global _GBC_SILENT_WARNED
+            if not _GBC_SILENT_WARNED:
+                _GBC_SILENT_WARNED = True
+                log.warning(
+                    "gbc_on but no GBC loss computed for this chunk "
+                    "(ctx tap None? entities unresolvable?) -- the "
+                    "aux signal is NOT training; investigate")
+    return chunk_loss, value_loss, sums
 
 
 def _trainer_step_value_from_raw(
@@ -1791,6 +2131,7 @@ def _trainer_eval_value_loss(
 # Inject as a method on Trainer. Gives users `trainer.step_mcts(exps)`
 # alongside the REINFORCE `trainer.step(trajectories)`.
 Trainer.step_mcts = _trainer_step_mcts
+Trainer._value_side_losses = _trainer_value_side_losses
 Trainer.eval_value_loss = _trainer_eval_value_loss
 Trainer.eval_value_metrics = _trainer_eval_value_metrics
 Trainer.values_from_raw = _trainer_values_from_raw

@@ -7,16 +7,16 @@ compiled trunk, the loss/gradient agreement of each variant on one
 batch, and the implied seconds per loop iteration next to the pool's
 generation time.
 
-Stages, stream-ordered on cuda (CUDA events; a CPU stage that overlaps
-queued GPU work is charged only its non-overlapped part), perf_counter
-on cpu:
+Stages, as Trainer.step_mcts reports them through its `timings` hook
+(stream-ordered on cuda: CUDA events, so a CPU stage that overlaps
+queued GPU work is charged only its non-overlapped part; perf_counter
+on cpu), plus the snapshot timed here:
   encode_raw   GameState -> RawEncoded, one per experience, all up front
   encode       encode_from_raw_batch (embedding lookups), per chunk
-  forward      model.forward_batch, per chunk (B=1 takes the
-               single-sample path, which is what the loop runs:
-               az_loop never sets TrainerConfig.train_batch_size)
-  policy_loss  _mcts_factored_policy_loss: legality masks + factored
-               CE, per experience; ends in a .item() sync
+  forward      model.forward_padded, per chunk
+  policy_loss  legality masks staged on the host + the batched
+               factored CE of the chunk (trainer._batched_factored_policy_loss)
+  value_loss   the value-side terms of the chunk
   backward     chunk_loss.backward()
   clip         clip_grad_norm_, once per step
   optimizer    AdamW step, once per step
@@ -65,11 +65,14 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 import torch  # noqa: E402
 
+from wesnoth_ai.trainer import STEP_MCTS_STAGES  # noqa: E402
+
 log = logging.getLogger("bench_train_step")
 
-PER_EXP_STAGES = ("encode_raw", "encode", "forward", "policy_loss", "backward")
+PER_EXP_STAGES = ("encode_raw", "encode", "forward", "policy_loss", "value_loss", "backward")
 PER_STEP_STAGES = ("clip", "optimizer", "snapshot")
 STAGES = PER_EXP_STAGES + PER_STEP_STAGES
+assert set(STAGES) - {"snapshot"} == set(STEP_MCTS_STAGES)
 
 # Pass band for a variant against the fp32 B=1 reference on the same
 # batch: bf16 forward/backward noise on this model measured ~1e-2 of
@@ -110,17 +113,21 @@ class LoopShape:
 class StageClock:
     """Accumulates seconds per stage. On cuda every stage is a pair of
     CUDA events on the current stream, read after one synchronize in
-    `finish`; on cpu perf_counter."""
+    `finish`; on cpu perf_counter. The trainer's own stages arrive
+    through `add` (Trainer.step_mcts's `timings` hook resolves its
+    events itself)."""
 
     def __init__(self, device: torch.device):
         self.cuda = device.type == "cuda"
         self.seconds: Dict[str, float] = {s: 0.0 for s in STAGES}
-        self.calls: Dict[str, int] = {s: 0 for s in STAGES}
         self._events: List[Tuple[str, object, object]] = []
+
+    def add(self, seconds: Dict[str, float]) -> None:
+        for name, s in seconds.items():
+            self.seconds[name] += s
 
     @contextlib.contextmanager
     def stage(self, name: str) -> Iterator[None]:
-        self.calls[name] += 1
         if self.cuda:
             start = torch.cuda.Event(enable_timing=True)
             end = torch.cuda.Event(enable_timing=True)
@@ -145,48 +152,6 @@ class StageClock:
             self._events.clear()
 
 
-def _timed(clock: StageClock, name: str, fn):
-    def wrapper(*args, **kwargs):
-        with clock.stage(name):
-            return fn(*args, **kwargs)
-    return wrapper
-
-
-@contextlib.contextmanager
-def hooked_trainer(policy, clock: StageClock) -> Iterator[None]:
-    """Route each stage of Trainer.step_mcts through `clock` without
-    touching the trainer: the module-level functions it calls
-    (encode_raw, _mcts_factored_policy_loss, clip_grad_norm_,
-    torch.autograd.backward, which Tensor.backward resolves at call
-    time) and the instance methods (encode_from_raw_batch,
-    forward_batch, optimizer.step) are wrapped for the duration. A
-    trainer that reported stage seconds itself would make this
-    unnecessary."""
-    import wesnoth_ai.trainer as trainer_mod
-    tr = policy._trainer
-    saved_encode_raw = trainer_mod.encode_raw
-    saved_loss = trainer_mod._mcts_factored_policy_loss
-    saved_backward = torch.autograd.backward
-    saved_clip = torch.nn.utils.clip_grad_norm_
-    trainer_mod.encode_raw = _timed(clock, "encode_raw", saved_encode_raw)
-    trainer_mod._mcts_factored_policy_loss = _timed(clock, "policy_loss", saved_loss)
-    torch.autograd.backward = _timed(clock, "backward", saved_backward)
-    torch.nn.utils.clip_grad_norm_ = _timed(clock, "clip", saved_clip)
-    tr.encoder.encode_from_raw_batch = _timed(clock, "encode", tr.encoder.encode_from_raw_batch)
-    tr.model.forward_batch = _timed(clock, "forward", tr.model.forward_batch)
-    tr.optimizer.step = _timed(clock, "optimizer", tr.optimizer.step)
-    try:
-        yield
-    finally:
-        trainer_mod.encode_raw = saved_encode_raw
-        trainer_mod._mcts_factored_policy_loss = saved_loss
-        torch.autograd.backward = saved_backward
-        torch.nn.utils.clip_grad_norm_ = saved_clip
-        del tr.encoder.encode_from_raw_batch
-        del tr.model.forward_batch
-        del tr.optimizer.step
-
-
 def _sync(device: torch.device) -> None:
     if device.type == "cuda":
         torch.cuda.synchronize()
@@ -208,8 +173,10 @@ def timed_step(policy, exps: List, *, precision: str, device: torch.device,
     clock = clock or StageClock(device)
     _sync(device)
     t0 = time.perf_counter()
-    with hooked_trainer(policy, clock), _autocast(precision, device):
-        stats = policy._trainer.step_mcts(exps)
+    step_seconds: Dict[str, float] = {}
+    with _autocast(precision, device):
+        stats = policy._trainer.step_mcts(exps, timings=step_seconds)
+    clock.add(step_seconds)
     with clock.stage("snapshot"):
         policy._snapshot_inference_weights()
     _sync(device)
@@ -593,12 +560,13 @@ def markdown_report(res: dict) -> str:
                    f"{env.get('device_name', '?')}, torch {env.get('torch', '?')}; "
                    f"source: {env.get('source', {})}")
         out.append("")
+    stage_cols = " | ".join(PER_EXP_STAGES)
     out += [f"## Stage costs, ms per experience (median of {res['repeats']} steps; "
             f"{res['unique_experiences']} unique experiences, cycled)", "",
-            "| precision | B | N | compiled | encode_raw | encode | forward | policy_loss | "
-            "backward | fwd+bwd | clip ms | optimizer ms | snapshot ms | step wall ms/exp | "
-            "unattributed ms/exp | GPU peak MB | warmup s |",
-            "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+            f"| precision | B | N | compiled | {stage_cols} | fwd+bwd | clip ms | "
+            "optimizer ms | snapshot ms | step wall ms/exp | unattributed ms/exp | "
+            "GPU peak MB | warmup s |",
+            "|---" * (12 + len(PER_EXP_STAGES)) + "|"]
     for r in res["rows"]:
         ms = r["ms_per_exp"]
         out.append(
@@ -678,7 +646,7 @@ def main(argv) -> int:
                     help="experiences per timed step; 512 is about one game's states "
                          "(one held-out per-game loss), the loop's step is capped at 4000")
     ap.add_argument("--batch-sizes", type=_int_list, default=[1, 16],
-                    help="TrainerConfig.train_batch_size; the loop runs 1")
+                    help="TrainerConfig.train_batch_size; the loop runs 16")
     ap.add_argument("--precisions", default=None,
                     help="comma list of fp32,bf16 (default: both on cuda, fp32 on cpu)")
     ap.add_argument("--compile", action="store_true",
@@ -757,8 +725,8 @@ def main(argv) -> int:
         "device": str(device),
         "device_name": (torch.cuda.get_device_name(0) if device.type == "cuda" else "cpu"),
         "source": source,
-        "loop_train_batch_size": 1,
-        "note": "az_loop never sets TrainerConfig.train_batch_size (default 1); "
+        "loop_train_batch_size": 16,
+        "note": "az_loop sets TrainerConfig.train_batch_size 16 (2026-09-05); "
                 "value loss mse_mean, coef 1, lr 1e-4, clip 1, no auxiliary terms",
     }
     md = markdown_report(res)

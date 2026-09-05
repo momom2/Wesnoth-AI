@@ -1,14 +1,12 @@
-"""Optimization #5: the vectorized MCTS factored policy loss must
-match the original per-tuple loop within float tolerance.
+"""The two modes of the per-state reference policy loss
+(trainer._mcts_factored_policy_loss_reference, the oracle for the
+batched loss step_mcts runs) must agree within float tolerance.
 
-The vectorized path groups the per-(actor/type/target/weapon) NLL
+The vectorized mode groups the per-(actor/type/target/weapon) NLL
 terms per cached log-prob vector and reduces each with one
-index_select+sum, collapsing the backward graph from O(visit-count
-tuples) to O(unique vectors). This reassociates the float32
-summation, so it is NOT bit-identical -- this test pins that the
-divergence stays at ULP scale (loss AND every parameter gradient
-within 1e-5 relative), which is the gate the optimization ships
-behind (trainer.TrainerConfig.vectorized_mcts_policy_loss).
+index_select+sum; this reassociates the float32 summation, so it is
+NOT bit-identical -- this test pins that the divergence stays at ULP
+scale (loss AND every parameter gradient within 1e-5 relative).
 """
 from __future__ import annotations
 
@@ -23,7 +21,7 @@ import torch  # noqa: E402
 
 from wesnoth_ai.action_sampler import enumerate_legal_actions_with_priors  # noqa: E402
 from wesnoth_ai.transformer_policy import TransformerPolicy  # noqa: E402
-from wesnoth_ai.trainer import _mcts_factored_policy_loss  # noqa: E402
+from wesnoth_ai.trainer import _mcts_factored_policy_loss_reference  # noqa: E402
 from sim_test_helpers import fresh_scenario_sim  # noqa: E402
 
 
@@ -56,7 +54,7 @@ def _loss_and_grads(enc, mdl, gs, vc, *, vectorized):
     enc.zero_grad(set_to_none=True)
     encoded = enc.encode(gs)
     output = mdl(encoded)
-    loss, total_v, _ = _mcts_factored_policy_loss(
+    loss, total_v, _ = _mcts_factored_policy_loss_reference(
         encoded, output, gs, vc, vectorized=vectorized)
     loss.backward()
     grads = {
@@ -121,7 +119,7 @@ def test_out_of_range_stored_indices_skip_loudly_not_crash(caplog):
     ]
     with caplog.at_level(logging.ERROR, logger="trainer"):
         for vectorized in (False, True):
-            loss, total_v, _ = _mcts_factored_policy_loss(
+            loss, total_v, _ = _mcts_factored_policy_loss_reference(
                 enc.encode(gs), mdl(enc.encode(gs)), gs, vc + bad,
                 vectorized=vectorized)
             assert torch.isfinite(loss).all()

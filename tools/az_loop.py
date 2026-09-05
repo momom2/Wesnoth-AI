@@ -309,6 +309,7 @@ def main(argv) -> int:
     from tools.step_control import (
         action_priors, backtracking_step, split_holdout,
     )
+    from wesnoth_ai.trainer import STEP_MCTS_STAGES
     from signal_profiler.target_amplitude import target_amplitude
 
     device = (torch.device("cuda")
@@ -339,9 +340,15 @@ def main(argv) -> int:
     cfg.value_label_smoothing = 0.0
     cfg.trust_lambda = 0.0
     cfg.grad_clip = 1.0
+    # Sixteen experiences per forward+backward: docs/box_specs.md
+    # "Training path cost (2026-09-05)" -- fp32 batch 16 matched batch
+    # 1 exactly (gradient within 1e-4) on one batch of 64, at 57 vs 68
+    # ms per experience before the batched policy loss.
+    cfg.train_batch_size = 16
     log.info(f"loaded {ckpt_in.name} decision_step={base._decision_step} "
              f"| value_loss={cfg.value_loss_form} c={cfg.value_coef} "
-             f"lr={cfg.learning_rate} clip={cfg.grad_clip}")
+             f"lr={cfg.learning_rate} clip={cfg.grad_clip} "
+             f"batch={cfg.train_batch_size}")
 
     # Plain PUCT: no Gumbel root, no tree reuse, no playout caps, no
     # tiebreak labels, no auxiliary utilities.
@@ -472,6 +479,9 @@ def main(argv) -> int:
                                target_end_turn_delta=cats.get("end_turn"),
                                target_attack_delta=cats.get("attack"))
             # ---- ONE gradient step, backtracked on held-out games --
+            # Every step_mcts call of the block (the held-out probes
+            # and the step itself) adds its stage seconds here.
+            train_stages = base._trainer.stage_timings = {}
             t_tr = time.monotonic()
             train_exps, held_exps = split_holdout(kept, args.holdout_frac, rng)
             kl_states = (held_exps if len(held_exps) <= args.kl_states
@@ -506,6 +516,7 @@ def main(argv) -> int:
                        step_dv_mean=res.shift.get("dv_mean"),
                        step_dv_abs_mean=res.shift.get("dv_abs_mean"),
                        train_seconds=time.monotonic() - t_tr)
+            base._trainer.stage_timings = None
             # Search value centering for the NEXT iteration: the head's
             # mean value on this iteration's held-out states under the
             # weights just published (see MCTSConfig.value_center).
@@ -583,6 +594,13 @@ def main(argv) -> int:
                 f"| sig p/v {pn} {vn} share_v {row['sig_value_share']} "
                 f"| kl {row.get('target_kl_median')} "
                 f"| gen {row['gen_seconds']:.0f}s train {row['train_seconds']:.1f}s")
+            # "other" = the inference snapshot, the policy-shift
+            # forwards and the block's own Python.
+            other = row["train_seconds"] - sum(train_stages.values())
+            log.info("train path (s): "
+                     + " ".join(f"{s} {train_stages.get(s, 0.0):.1f}"
+                                for s in STEP_MCTS_STAGES)
+                     + f" | other {other:.1f}")
     finally:
         pool.shutdown()
         fh.close()
