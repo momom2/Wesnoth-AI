@@ -52,9 +52,11 @@ def seq_confirm(i, n0=20, z=2.0, lo=0.10, use="all"):
         g = a.mean() - b.mean()
         se = math.sqrt((a.var(ddof=1) + b.var(ddof=1)) / n)
         if g >= 0.25 and g - z * se >= lo:
-            verdict = "confirm"; break
+            verdict = "confirm"
+            break
         if g + z * se < 0.25:
-            verdict = "reject"; break
+            verdict = "reject"
+            break
     est = a_est[:n].mean() - b_est[:n].mean()
     playouts = 2 * n * (2 if use == "odd" else 1)
     return verdict, n, playouts, round(g, 3), round(est, 3)

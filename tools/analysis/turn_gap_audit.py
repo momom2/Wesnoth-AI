@@ -4,7 +4,6 @@ truncated-cap graders, blunder-vs-find, decisions-vs-gap, sequential
 testing simulation, per-candidate SD."""
 import json
 import math
-import statistics
 from pathlib import Path
 
 import numpy as np
@@ -126,13 +125,14 @@ def trunc_means(rec, cap):
     out = []
     for c in cands(rec):
         L = lengths(rec, c)
-        out.append(float(np.mean([o if (l <= cap and not cp) else 0
-                                  for o, l, cp in zip(c["outcomes"], L, c["capped"])])))
+        out.append(float(np.mean([o if (ln <= cap and not cp) else 0
+                                  for o, ln, cp in zip(c["outcomes"], L, c["capped"])])))
     return out
 
 
 def spearman(a, b):
-    ra = np.argsort(np.argsort(a)); rb = np.argsort(np.argsort(b))
+    ra = np.argsort(np.argsort(a))
+    rb = np.argsort(np.argsort(b))
     if np.std(ra) == 0 or np.std(rb) == 0:
         return float("nan")
     return float(np.corrcoef(ra, rb)[0, 1])
