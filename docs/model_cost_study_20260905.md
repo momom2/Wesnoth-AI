@@ -519,3 +519,16 @@ encoders in the trained basis without extra flags. Section 7 item 3
 (`bench_model_cost.py`) is not in the script. Cost as in section 7,
 about $4.3; the relevant-set arm's evals replay 150 holdout games in
 the subset basis each, up to ~1 h more.
+
+## Caveats recorded before the arms' matches (2026-09-05 evening)
+
+Two findings of the second adversarial review apply to the run in
+progress. (1) `--seed` does not fix the pair sequence under
+`--workers > 0`: the encode workers emit replays in completion order,
+so the two arms trained on 1.26M pairs drawn from the same shuffled
+file order but not on the same pair set. The comparison stays a
+same-distribution comparison at equal pair count; the pre-registration's
+"same pairs" is not met and the stream is being made deterministic for
+future arms. (2) The box script marks a match done without checking
+its game count; the operator verifies each match's result count
+against the pre-registered 800 / 800 / 400 before the fit is quoted.
