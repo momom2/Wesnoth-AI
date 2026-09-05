@@ -536,18 +536,28 @@ def main(argv) -> int:
               "infer_bf16": bf16, "infer_compile": comp, "packed_trunk": bool(args.packed_trunk),
               "compile_packed": bool(args.compile_packed),
               "n_states": len(states), "torch": torch.__version__}
+    def _save_partial():
+        # Written after every section: a run can be read while it goes.
+        if args.out:
+            args.out.with_suffix(".partial.json").write_text(
+                json.dumps(dict(result, partial=True), indent=1), encoding="utf-8")
+
     result["components"] = component_costs(states, policy, repeats=args.repeats)
+    _save_partial()
     result["forwards"] = forward_costs(
         policy, states, batch_sizes=[int(b) for b in args.batch_sizes.split(",")],
         samples_per_config=args.samples_per_config)
+    _save_partial()
     result["seam"] = seam_costs(
         policy, states, batch_sizes=[b for b in (16, 64)
                                      if b in {int(x) for x in args.batch_sizes.split(",")}]
         or (16,), calls=max(3, args.samples_per_config // 16))
+    _save_partial()
     if args.games > 0:
         result["games"] = end_to_end(args.checkpoint, args.games_outdir, args.games,
                                      args.jobs, args.device, args.dollars_per_hour,
                                      sims=args.sims)
+        _save_partial()
     result["packed_compile"] = base.packed_compile_stats()   # after the sections: recompiles show
     report = markdown_report(result)
     print(report)
