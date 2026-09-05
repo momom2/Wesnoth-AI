@@ -341,3 +341,99 @@ def _server_processes_left():
     me = psutil.Process()
     return [c.name() for c in me.children(recursive=True)
             if "eval_inference_server" in " ".join(c.cmdline())]
+
+
+def test_sequential_grading_reproduces_the_flat_outcomes_prefix(policy, positions):
+    """With rules that never fire, a sequential run plays the same
+    playouts as the flat run (the salts ignore the schedule)."""
+    flat = tg.GapConfig(k_alternatives=2, playouts=4, temperature=1.0, cap_turns=2, seed=1)
+    seq = tg.GapConfig(k_alternatives=2, playouts=4, temperature=1.0, cap_turns=2, seed=1,
+                       rounds=2, threshold=-10.0, stop_margin=10.0)
+    a = tg.measure_position(policy, positions[0], flat)
+    b = tg.measure_position(policy, positions[0], seq)
+    assert b["screen"]["mode"] == "sequential" and b["screen"]["rounds_played"] == 2
+    assert b["screen"]["verdict"] == "exhausted"
+    for x, y in zip([a["base"]] + a["alternatives"], [b["base"]] + b["alternatives"]):
+        assert x["actions"] == y["actions"]
+        assert x["outcomes"] == y["outcomes"] and x["seeds"] == y["seeds"]
+    assert all(alt["dropped_at"] is None for alt in b["alternatives"])
+
+
+def test_sequential_rules_drop_and_stop(monkeypatch):
+    """Scripted playouts: a clearly better alternative stops the
+    position as a hit at the first decidable round, a clearly worse
+    one is dropped, a coin-flip one runs to the cap."""
+    scripted = {0: [-1, 1] * 20, 1: [1] * 40, 2: [-1] * 40, 3: [1, -1] * 20}
+
+    def fake_play(cand, sim, position, mover, max_turns, cfg, c, policy, label):
+        for key in ("outcomes", "capped", "turns", "seeds"):
+            cand.setdefault(key, [])
+        cand["outcomes"].append(scripted[c][len(cand["outcomes"])])
+        cand["capped"].append(False)
+    monkeypatch.setattr(tg, "_play_next", fake_play)
+    base, alts = {}, [(0, {}, None), (1, {}, None), (2, {}, None)]
+    cfg = tg.GapConfig(k_alternatives=3, playouts=40, rounds=4, threshold=0.25)
+    screen = tg._grade(base, None, alts, None, 1, 5, cfg, None, "t")
+    assert screen["verdict"] == "hit" and screen["rounds_played"] == 2   # the base's own noise
+    assert len(alts[2][1]["outcomes"]) == 8
+    assert alts[0][1]["dropped_at"] is None            # the winner
+    assert alts[1][1]["dropped_at"] == 4               # always worse: gone after round 1
+    assert alts[2][1]["dropped_at"] is None            # undecided when the hit stopped it
+    # Without the winner the coin flip runs to the cap: exhausted.
+    base, alts = {}, [(2, {}, None)]
+    screen = tg._grade(base, None, alts, None, 1, 5, cfg, None, "t")
+    assert screen["verdict"] == "exhausted" and len(base["outcomes"]) == 40
+    assert screen["rounds_played"] == 10
+
+
+def test_confirmation_replays_the_screened_turns(policy, positions):
+    """A confirmation run replays the screen's base and best
+    alternative from their recorded actions under the screen's turn
+    salt: same turns, same post-turn states; the same seed and offset
+    reproduce the screen's playouts, a fresh offset plays new ones."""
+    cfg = tg.GapConfig(k_alternatives=2, playouts=2, temperature=1.0, cap_turns=2, seed=1)
+    screen = tg.measure_position(policy, positions[0], cfg)
+    assert screen["alternatives"], "the fixture position needs a distinct alternative"
+    same = tg.measure_position(policy, positions[0], cfg, replay=screen, replay_top=1)
+    best = max(screen["alternatives"], key=lambda a: a["mean"])
+    assert same["replayed"] is True and same["turn_salt"] == screen["turn_salt"]
+    assert same["base"]["actions"] == screen["base"]["actions"]
+    assert same["base"]["post_state_key"] == screen["base"]["post_state_key"]
+    assert [a["actions"] for a in same["alternatives"]] == [best["actions"]]
+    assert same["alternatives"][0]["post_state_key"] == best["post_state_key"]
+    assert same["alternatives"][0]["source"] == "alt0"
+    assert same["base"]["outcomes"] == screen["base"]["outcomes"]
+    fresh = tg.measure_position(policy, positions[0],
+                                tg.GapConfig(k_alternatives=2, playouts=2, temperature=1.0,
+                                             cap_turns=2, seed=1, playout_offset=2),
+                                replay=screen, replay_top=1)
+    assert fresh["base"]["seeds"] != screen["base"]["seeds"]
+    assert fresh["base"]["actions"] == screen["base"]["actions"]
+
+
+def test_cli_confirm_from_selects_the_large_gap_positions(tmp_path, policy, positions,
+                                                          monkeypatch):
+    """`--confirm-from FILE` without --positions takes the file's
+    positions at gap >= threshold and records the provenance."""
+    monkeypatch.setattr(tg, "positions_from_manifest", lambda *a, **k: list(positions))
+    monkeypatch.setattr(tg, "load_reference_policy", lambda spec: policy)
+    monkeypatch.setattr(tg, "_resolve_inference", lambda args: tg.PolicySpec(
+        "x", "cpu", False, False))
+    screen = tmp_path / "screen.json"
+    rc = tg.main(["x", "--checkpoint", "x", "--n-states", "2", "--alternatives", "2",
+                  "--playouts", "2", "--cap-turns", "2", "--out", str(screen)])
+    assert rc == 0
+    data = json.loads(screen.read_text(encoding="utf-8"))
+    data["positions"][0]["gap"] = 0.5      # force one large gap, one small
+    data["positions"][1]["gap"] = 0.0
+    screen.write_text(json.dumps(data), encoding="utf-8")
+    out = tmp_path / "confirm.json"
+    rc = tg.main(["x", "--checkpoint", "x", "--confirm-from", str(screen),
+                  "--playouts", "2", "--cap-turns", "2", "--playout-offset", "2",
+                  "--out", str(out)])
+    assert rc == 0
+    conf = json.loads(out.read_text(encoding="utf-8"))
+    assert [r["index"] for r in conf["positions"]] == [0]
+    assert conf["provenance"]["confirm_from"] == str(screen)
+    assert conf["positions"][0]["replayed"] is True
+    assert conf["positions"][0]["base"]["actions"] == data["positions"][0]["base"]["actions"]

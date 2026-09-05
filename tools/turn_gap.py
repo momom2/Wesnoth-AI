@@ -31,10 +31,23 @@ and the split-half gap (alternative chosen on the even-numbered
 playouts, gap measured on the odd-numbered ones), whose mean is an
 unbiased estimate of the chosen alternative's true advantage.
 
+Grading schedules (docs/turn_proposer_design_20260905.md 2.5 and 4).
+Flat: every candidate plays P playouts. Sequential (`--rounds n0`):
+rounds of n0 playouts per surviving candidate; an alternative is
+dropped when its gap + drop_z SE < threshold, the position stops as a
+hit when the best alternative's gap >= threshold with gap - stop_z SE
+>= stop_margin. A confirmation run (`--confirm-from SCREEN.json`)
+replays the screen's base and best alternatives from their recorded
+actions under the screen's turn salt and grades them with fresh
+playouts (`--playout-offset`, `--rounds 20 --stop-margin 0.10`).
+
 Usage (box, docs/box_specs.md):
   python tools/turn_gap.py --checkpoint training/checkpoints/seed.pt \\
       --device cuda --jobs 10 --dollars-per-hour 0.33 --out turn_gap.json
   python tools/turn_gap.py --summarize turn_gap.partial.json   # mid-run reading
+  python tools/turn_gap.py ... --rounds 10 --out screen.json     # sequential screen
+  python tools/turn_gap.py ... --confirm-from screen.json --rounds 20 \\
+      --stop-margin 0.10 --playouts 160 --playout-offset 40 --out confirm.json
 """
 from __future__ import annotations
 
@@ -50,6 +63,7 @@ import statistics
 import sys
 import time
 import zlib
+from collections import Counter
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -97,10 +111,26 @@ class GapConfig:
                                        # 2026-09-05: raw:t0 self-play stalls to the
                                        # 200-turn cap in 17 of 40 games, raw:t0.5
                                        # scores 22-18 against it with no stalls
+    # Sequential grading (docs/turn_proposer_design_20260905.md 2.5 and
+    # 4): playouts in rounds of `rounds` per surviving candidate (0 =
+    # flat, every candidate plays `playouts`); after each round an
+    # alternative whose gap + drop_z * SE < threshold is dropped, and
+    # the position stops as a hit when the best surviving alternative
+    # has gap >= threshold and gap - stop_z * SE >= stop_margin (0 for
+    # the screen, 0.10 for a confirmation). `playouts` caps every
+    # candidate. The salts do not depend on the schedule, so a
+    # sequential run reproduces a flat run's outcomes prefix by prefix.
+    rounds: int = 0
+    drop_z: float = 2.0
+    stop_z: float = 2.0
+    stop_margin: float = 0.0
+    threshold: float = 0.25
 
     def __post_init__(self):
         if self.k_alternatives < 0 or self.playouts < 1 or self.cap_turns < 1:
             raise ValueError("k_alternatives >= 0, playouts >= 1, cap_turns >= 1")
+        if self.rounds < 0 or self.drop_z < 0.0 or self.stop_z < 0.0:
+            raise ValueError("rounds >= 0, drop_z >= 0, stop_z >= 0")
         if self.temperature < 0.0 or self.playout_temperature < 0.0:
             raise ValueError("temperatures must be >= 0")
         if self.playout_offset < 0:
@@ -419,31 +449,102 @@ def _candidate_turn(position: BoundaryPosition, player, max_turns: int,
     return candidate, sim
 
 
+def _play_next(candidate: Dict, sim: WesnothSim, position: BoundaryPosition,
+               mover: int, max_turns: int, cfg: GapConfig, c: int,
+               policy, game_label: str) -> None:
+    """Append candidate `c`'s next playout (index = playouts recorded so
+    far, offset by cfg.playout_offset; the salt scheme of the module
+    docstring)."""
+    for key in ("outcomes", "capped", "turns", "seeds"):
+        candidate.setdefault(key, [])
+    r = cfg.playout_offset + len(candidate["outcomes"])
+    salt = playout_salt(cfg.seed, position.index, c, r)
+    if sim.done:
+        # The candidate turn ended the game: the one terminal result
+        # stands for every playout (the gap arithmetic reads the same
+        # number of entries per candidate) and none is played.
+        o, cp = outcome_for(sim, mover)
+        t = sim.gs.global_info.turn_number
+    else:
+        o, cp, t = play_out(sim.gs, position.scenario_id, mover, max_turns,
+                            salt, playout_pairs(policy, cfg, salt),
+                            f"{game_label}c{c}r{r}")
+    candidate["outcomes"].append(o)
+    candidate["capped"].append(cp)
+    candidate["turns"].append(t)
+    candidate["seeds"].append(salt)
+    candidate["playouts_run"] = 0 if sim.done else len(candidate["outcomes"])
+
+
 def _run_playouts(candidate: Dict, sim: WesnothSim, position: BoundaryPosition,
                   mover: int, max_turns: int, cfg: GapConfig, c: int,
                   policy, game_label: str) -> None:
-    outcomes: List[int] = []
-    capped: List[bool] = []
-    turns: List[int] = []
-    seeds: List[str] = []
-    for r in range(cfg.playout_offset, cfg.playout_offset + cfg.playouts):
-        salt = playout_salt(cfg.seed, position.index, c, r)
-        if sim.done:
-            # The candidate turn ended the game: the one terminal
-            # result stands for every playout (the gap arithmetic
-            # reads P entries per candidate) and none is played.
-            o, cp = outcome_for(sim, mover)
-            t = sim.gs.global_info.turn_number
-        else:
-            o, cp, t = play_out(sim.gs, position.scenario_id, mover, max_turns,
-                                salt, playout_pairs(policy, cfg, salt),
-                                f"{game_label}c{c}r{r}")
-        outcomes.append(o)
-        capped.append(cp)
-        turns.append(t)
-        seeds.append(salt)
-    candidate.update(outcomes=outcomes, capped=capped, turns=turns, seeds=seeds,
-                     playouts_run=0 if sim.done else len(outcomes))
+    """Flat grading of one candidate: cfg.playouts playouts."""
+    for _ in range(cfg.playouts):
+        _play_next(candidate, sim, position, mover, max_turns, cfg, c, policy, game_label)
+
+
+def gap_stats(alternative: Sequence[float], base: Sequence[float]) -> Tuple[float, float]:
+    """(gap, SE of the gap) between two outcome samples: difference of
+    means, SE from the two sample variances (inf below two playouts
+    on either side, so no rule fires on a single playout)."""
+    if len(alternative) < 2 or len(base) < 2:
+        return float(np.mean(alternative) - np.mean(base)), float("inf")
+    a = np.asarray(alternative, dtype=float)
+    b = np.asarray(base, dtype=float)
+    se = math.sqrt(a.var(ddof=1) / len(a) + b.var(ddof=1) / len(b))
+    return float(a.mean() - b.mean()), se
+
+
+def _grade(base: Dict, base_sim: WesnothSim,
+           alternatives: List[Tuple[int, Dict, WesnothSim]], position: BoundaryPosition,
+           mover: int, max_turns: int, cfg: GapConfig, policy, label: str) -> Dict:
+    """Play the candidates' playouts: flat (every candidate plays
+    cfg.playouts) or in rounds with the drop/stop rules of GapConfig.
+    Returns the screen record (verdict, rounds played)."""
+    if cfg.rounds <= 0:
+        _run_playouts(base, base_sim, position, mover, max_turns, cfg, 0, policy, label)
+        for k, alt, alt_sim in alternatives:
+            _run_playouts(alt, alt_sim, position, mover, max_turns, cfg, k + 1, policy, label)
+        return {"mode": "flat", "verdict": "flat", "rounds_played": 0}
+
+    def play(cand, sim, c):
+        _play_next(cand, sim, position, mover, max_turns, cfg, c, policy, label)
+
+    surviving = list(alternatives)
+    verdict = "exhausted" if surviving else "no_alternative"
+    rounds_played = 0
+    while surviving and len(base.get("outcomes", [])) < cfg.playouts:
+        n = min(cfg.rounds, cfg.playouts - len(base.get("outcomes", [])))
+        for _ in range(n):
+            play(base, base_sim, 0)
+            for k, alt, alt_sim in surviving:
+                play(alt, alt_sim, k + 1)
+        rounds_played += 1
+        still = []
+        best_gap, best_se = None, None
+        for k, alt, alt_sim in surviving:
+            gap, se = gap_stats(alt["outcomes"], base["outcomes"])
+            if gap + cfg.drop_z * se < cfg.threshold:
+                alt["dropped_at"] = len(alt["outcomes"])
+                continue
+            still.append((k, alt, alt_sim))
+            if best_gap is None or gap > best_gap:
+                best_gap, best_se = gap, se
+        surviving = still
+        if not surviving:
+            verdict = "all_dropped"
+            break
+        if (best_gap >= cfg.threshold
+                and best_gap - cfg.stop_z * best_se >= cfg.stop_margin):
+            verdict = "hit"
+            break
+    for _, alt, _ in alternatives:
+        alt.setdefault("dropped_at", None)
+    return {"mode": "sequential", "verdict": verdict, "rounds_played": rounds_played,
+            "rounds": cfg.rounds, "cap": cfg.playouts, "drop_z": cfg.drop_z,
+            "stop_z": cfg.stop_z, "stop_margin": cfg.stop_margin,
+            "threshold": cfg.threshold}
 
 
 def playouts_run(candidate: Dict) -> int:
@@ -476,21 +577,79 @@ def finish_record(index: int, meta: Dict, base: Dict, alternatives: List[Dict],
     return record
 
 
-def measure_position(policy, position: BoundaryPosition, cfg: GapConfig) -> Dict:
+def _replay_candidate(position: BoundaryPosition, actions: List[Dict], policy,
+                      max_turns: int, salt: str, game_label: str,
+                      source: str) -> Tuple[Dict, WesnothSim]:
+    """A recorded turn replayed command by command (a confirmation
+    grades the turn the screen selected, not a fresh sample: 12 of 48
+    sampled turns did not reproduce across runs, docs/
+    turn_proposer_design_20260905.md 2.7). With the screen's turn salt
+    the realization is the screen's too."""
+    sim = sim_from_state(position.gs, position.scenario_id, max_turns, salt)
+    side = sim.current_side
+    played: List[Dict] = []
+    for a in actions:
+        if sim.done or sim.current_side != side:
+            break
+        act = _action_from_json(a)
+        played.append(_action_to_json(act))
+        sim.step(act)
+    mover = position.gs.global_info.current_side
+    candidate = {
+        "sample_seed": None, "proposer": "replay", "source": source,
+        "n_decisions": sum(1 for a in played if a.get("type") != "end_turn"),
+        "actions": played,
+        "value_post": (None if sim.done else _value_read(policy, sim.gs, mover)),
+        "hp_margin_post": _hp_margin(sim.gs, mover),
+        "post_state_key": state_key(sim.gs),
+        "terminal_in_turn": bool(sim.done),
+    }
+    return candidate, sim
+
+
+def replay_selection(record: Dict, top: int) -> List[Tuple[str, List[Dict]]]:
+    """(name, actions) of a screen record's alternatives to confirm:
+    the `top` by screen mean, best first."""
+    alts = sorted(record.get("alternatives", []), key=lambda a: -a["mean"])
+    return [(f"alt{i}" if a.get("proposer") != "continue" else f"cont{a['extra_decisions']}",
+             a["actions"]) for i, a in enumerate(alts[:top])]
+
+
+def measure_position(policy, position: BoundaryPosition, cfg: GapConfig,
+                     replay: Optional[Dict] = None, replay_top: int = 1) -> Dict:
+    """The record of one position. `replay`: a screen record of the
+    same position; the base and its `replay_top` best alternatives are
+    replayed from their recorded actions under the screen's turn salt
+    instead of sampled (a confirmation run)."""
     t0 = time.perf_counter()
     gi = position.gs.global_info
     mover, turn0 = gi.current_side, gi.turn_number
     max_turns = turn0 + cfg.cap_turns
     label = f"tg{position.index}"
-    salt = turn_salt(cfg.seed, position.index)
+    salt = turn_salt(cfg.seed, position.index) if replay is None else replay["turn_salt"]
     pairs = reference_pairs(policy)
 
-    base, base_sim = _candidate_turn(position, pairs[mover].policy, max_turns,
-                                     salt, None, label + "base")
+    if replay is not None:
+        base, base_sim = _replay_candidate(position, replay["base"]["actions"], policy,
+                                           max_turns, salt, label + "base", "base")
+    else:
+        base, base_sim = _candidate_turn(position, pairs[mover].policy, max_turns,
+                                         salt, None, label + "base")
     seen: Dict[int, str] = {base["post_state_key"]: "base"}
     alternatives: List[Tuple[int, Dict, WesnothSim]] = []
     dropped: List[Dict] = []
-    for k in range(cfg.k_alternatives):
+    for k, (name, actions) in enumerate(replay_selection(replay, replay_top)
+                                        if replay is not None else []):
+        alt, alt_sim = _replay_candidate(position, actions, policy, max_turns, salt,
+                                         f"{label}rep{k}", name)
+        same = seen.get(alt["post_state_key"])
+        if same is not None:
+            alt["identical_to"] = same
+            dropped.append(alt)
+            continue
+        seen[alt["post_state_key"]] = name
+        alternatives.append((k, alt, alt_sim))
+    for k in range(cfg.k_alternatives if replay is None else 0):
         sample_seed = alternative_seed(cfg.seed, position.index, k)
         player = RawPolicyPlayer(policy, cfg.temperature, seed=sample_seed)
         alt, alt_sim = _candidate_turn(position, player, max_turns, salt,
@@ -502,7 +661,7 @@ def measure_position(policy, position: BoundaryPosition, cfg: GapConfig) -> Dict
             continue
         seen[alt["post_state_key"]] = f"alt{k}"
         alternatives.append((k, alt, alt_sim))
-    for j in range(1, cfg.continue_edits + 1):
+    for j in range(1, (cfg.continue_edits if replay is None else 0) + 1):
         k = cfg.k_alternatives + j - 1
         alt, alt_sim = _continue_candidate(position, base["actions"], policy, j,
                                            max_turns, salt, f"{label}cont{j}")
@@ -514,23 +673,23 @@ def measure_position(policy, position: BoundaryPosition, cfg: GapConfig) -> Dict
         seen[alt["post_state_key"]] = f"cont{j}"
         alternatives.append((k, alt, alt_sim))
 
-    _run_playouts(base, base_sim, position, mover, max_turns, cfg, 0, policy, label)
-    for k, alt, alt_sim in alternatives:
-        _run_playouts(alt, alt_sim, position, mover, max_turns, cfg, k + 1, policy, label)
+    screen = _grade(base, base_sim, alternatives, position, mover, max_turns, cfg,
+                    policy, label)
 
     meta = {"scenario_id": position.scenario_id, "turn_number": turn0,
-            "side": mover, "turn_salt": salt, "meta": dict(position.meta)}
+            "side": mover, "turn_salt": salt, "meta": dict(position.meta),
+            "screen": screen, "replayed": replay is not None}
     record = finish_record(position.index, meta, base, [a for _, a, _ in alternatives],
                            dropped, cfg, time.perf_counter() - t0)
     n_playouts = sum(len(c["outcomes"]) for c in [base] + record["alternatives"])
     n_capped = sum(c["n_capped"] for c in [base] + record["alternatives"])
     log.info("position %d %s turn %d side %d: base %+.2f best alt %s gap %+.2f, "
-             "%d/%d alternatives distinct, capped %d/%d, %d decisions, %.0f s",
+             "%d/%d alternatives distinct, capped %d/%d, %d decisions, %s, %.0f s",
              position.index, position.scenario_id, turn0, mover, base["mean"],
              ("none" if record["best_alternative_mean"] is None
               else f"{record['best_alternative_mean']:+.2f}"),
              record["gap"], record["n_alternatives"], cfg.k_alternatives,
-             n_capped, n_playouts, base["n_decisions"], record["secs"])
+             n_capped, n_playouts, base["n_decisions"], screen["verdict"], record["secs"])
     return record
 
 
@@ -551,17 +710,18 @@ def _worker_init(spec: PolicySpec, log_level: str) -> None:
 
 
 def _worker_task(args) -> Dict:
-    position, cfg = args
-    return measure_position(_WORKER_POLICY, position, cfg)
+    position, cfg, replay, replay_top = args
+    return measure_position(_WORKER_POLICY, position, cfg, replay, replay_top)
 
 
 def _measure_parallel(positions: Sequence[BoundaryPosition], cfg: GapConfig,
                       spec: PolicySpec, jobs: int, log_level: str,
-                      on_record) -> List[Dict]:
+                      on_record, replays: Dict[int, Dict], replay_top: int) -> List[Dict]:
     ctx = mp.get_context("spawn")
     records: List[Dict] = []
+    tasks = [(p, cfg, replays.get(p.index), replay_top) for p in positions]
     with ctx.Pool(jobs, initializer=_worker_init, initargs=(spec, log_level)) as pool:
-        for rec in pool.imap_unordered(_worker_task, [(p, cfg) for p in positions]):
+        for rec in pool.imap_unordered(_worker_task, tasks):
             records.append(rec)
             log.info("collected position %d (%d/%d)", rec["index"],
                      len(records), len(positions))
@@ -573,23 +733,28 @@ def _measure_parallel(positions: Sequence[BoundaryPosition], cfg: GapConfig,
 def measure_positions(positions: Sequence[BoundaryPosition], cfg: GapConfig, *,
                       policy=None, spec: Optional[PolicySpec] = None,
                       jobs: int = 1, log_level: str = "INFO",
-                      on_record=None) -> List[Dict]:
+                      on_record=None, replays: Optional[Dict[int, Dict]] = None,
+                      replay_top: int = 1) -> List[Dict]:
     """Records for every position, in position order. `jobs` > 1 runs
     positions in separate processes, each loading the policy from
     `spec` once. `on_record` is called with each record as it
-    completes (the CLI writes a partial file from it)."""
+    completes (the CLI writes a partial file from it). `replays`: screen
+    records by position index for a confirmation run (their base and
+    best alternatives are replayed instead of sampled)."""
     on_record = on_record or (lambda rec: None)
+    replays = replays or {}
     if jobs <= 1:
         if policy is None:
             policy = load_reference_policy(spec)
         records = []
         for p in positions:
-            records.append(measure_position(policy, p, cfg))
+            records.append(measure_position(policy, p, cfg, replays.get(p.index), replay_top))
             on_record(records[-1])
         return records
     if spec is None:
         raise ValueError("jobs > 1 needs a PolicySpec: each worker loads the policy")
-    return _measure_parallel(positions, cfg, spec, jobs, log_level, on_record)
+    return _measure_parallel(positions, cfg, spec, jobs, log_level, on_record,
+                             replays, replay_top)
 
 
 # ---------------------------------------------------------------------
@@ -629,6 +794,15 @@ def null_gap_fraction(records: Sequence[Dict], threshold: float,
             hits += (max(means[1:]) - means[0]) >= threshold
         per_position.append(hits / n_permutations)
     return float(np.mean(per_position))
+
+
+def cfg_playouts(record: Dict) -> int:
+    """The per-candidate playout budget a record was measured with:
+    the base's count in a flat run, the screen's cap otherwise."""
+    screen = record.get("screen") or {}
+    if screen.get("mode") == "sequential":
+        return int(screen.get("cap", len(record["base"]["outcomes"])))
+    return len(record["base"]["outcomes"])
 
 
 def _mean_se(values: Sequence[float]) -> Tuple[float, float]:
@@ -677,6 +851,11 @@ def summarize(records: Sequence[Dict], *, threshold: float = 0.25,
         "n_base_best": int(sum(bool(r["base_is_best"]) for r in records)),
         "frac_base_best": sum(bool(r["base_is_best"]) for r in records) / n,
         "n_no_alternative": int(sum(r["n_alternatives"] == 0 for r in records)),
+        "screen_verdicts": dict(sorted(Counter(
+            (r.get("screen") or {}).get("verdict", "flat") for r in records).items())),
+        # Playouts a flat run of the same candidates would have played.
+        "playouts_flat": int(sum(cfg_playouts(r) * (1 + r["n_alternatives"])
+                                 for r in records)),
         "n_terminal_in_turn": int(sum(bool(r["base"].get("terminal_in_turn"))
                                       for r in records)),
         "alternatives_distinct_mean": float(np.mean([r["n_alternatives"] for r in records])),
@@ -712,6 +891,9 @@ def markdown_summary(s: Dict) -> str:
         ("base turn best or tied", f"{s['n_base_best']}/{s['n_positions']} = "
                                    f"{s['frac_base_best']:.3f}"),
         ("positions without a distinct alternative", f"{s['n_no_alternative']}"),
+        ("screen verdicts", ", ".join(f"{k} {v}" for k, v in s["screen_verdicts"].items())),
+        ("playouts played / flat-run equivalent",
+         f"{s['playouts_total']} / {s['playouts_flat']}"),
         ("positions whose base turn ended the game", f"{s['n_terminal_in_turn']}"),
         ("distinct alternatives per position", f"{s['alternatives_distinct_mean']:.2f} "
                                                f"of {s['alternatives_sampled']}"),
@@ -806,7 +988,30 @@ def main(argv) -> int:
                          "deterministic stalls, docs/box_specs.md).")
     ap.add_argument("--cap-turns", type=int, default=40,
                     help="Playouts end undecided at the start of turn T0 + cap + 1.")
-    ap.add_argument("--gap-threshold", type=float, default=0.25)
+    ap.add_argument("--gap-threshold", type=float, default=0.25,
+                    help="The gap that counts as large, in the summary and in "
+                         "the sequential rules.")
+    ap.add_argument("--rounds", type=int, default=0,
+                    help="Sequential grading: playouts per round per surviving "
+                         "candidate (0 = flat: every candidate plays --playouts). "
+                         "The design's screen uses 10, its confirmation 20.")
+    ap.add_argument("--drop-z", type=float, default=2.0,
+                    help="Sequential: drop an alternative when gap + z SE < threshold.")
+    ap.add_argument("--stop-z", type=float, default=2.0,
+                    help="Sequential: the position stops as a hit when the best "
+                         "alternative has gap >= threshold and gap - z SE >= "
+                         "--stop-margin.")
+    ap.add_argument("--stop-margin", type=float, default=0.0,
+                    help="Sequential: 0 for a screen, 0.10 for a confirmation.")
+    ap.add_argument("--confirm-from", type=Path, default=None,
+                    help="A screen's result file: replay its base and best "
+                         "alternatives from their recorded actions (the screen's "
+                         "turn salt) instead of sampling, on --positions or on "
+                         "every position of the file at gap >= --gap-threshold. "
+                         "Playouts use this run's --seed and --playout-offset.")
+    ap.add_argument("--confirm-top", type=int, default=1,
+                    help="With --confirm-from: alternatives per position, best "
+                         "screen mean first.")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--jobs", type=int, default=1,
                     help="Positions in parallel, one process (and policy) each.")
@@ -860,7 +1065,19 @@ def main(argv) -> int:
                     playout_temperature=args.playout_temperature,
                     playout_offset=args.playout_offset,
                     continue_edits=args.continue_edits,
-                    seed=args.seed)
+                    seed=args.seed, rounds=args.rounds, drop_z=args.drop_z,
+                    stop_z=args.stop_z, stop_margin=args.stop_margin,
+                    threshold=args.gap_threshold)
+    replays: Dict[int, Dict] = {}
+    if args.confirm_from is not None:
+        screen = json.loads(args.confirm_from.read_text(encoding="utf-8"))
+        replays = {int(r["index"]): r for r in screen["positions"]}
+        if not args.positions:
+            args.positions = ",".join(str(i) for i, r in sorted(replays.items())
+                                      if r["gap"] >= args.gap_threshold)
+            if not args.positions:
+                raise SystemExit(f"--confirm-from: no position of {args.confirm_from} "
+                                 f"has gap >= {args.gap_threshold:g}")
     if args.positions:
         wanted = sorted({int(x) for x in args.positions.split(",")})
         positions = [p for p in positions_from_manifest(args.states_json, args.dataset,
@@ -869,6 +1086,10 @@ def main(argv) -> int:
         if len(positions) != len(wanted):
             raise SystemExit(f"--positions: {sorted(set(wanted) - {p.index for p in positions})} "
                              f"not in the manifest")
+        missing = [p.index for p in positions if replays and p.index not in replays]
+        if missing:
+            raise SystemExit(f"--confirm-from: positions {missing} are not in "
+                             f"{args.confirm_from}")
     else:
         positions = positions_from_manifest(args.states_json, args.dataset, args.n_states)
     log.info("%d positions, K=%d P=%d T=%g cap=%d seed=%d, %s bf16=%s compile=%s "
@@ -886,6 +1107,8 @@ def main(argv) -> int:
             "alternative_procedure": f"raw:t{cfg.temperature:g}",
             "playout_procedure": f"raw:t{cfg.playout_temperature:g}",
             "policy": asdict(spec), "shared_inference": server is not None,
+            "confirm_from": (None if args.confirm_from is None else str(args.confirm_from)),
+            "confirm_top": args.confirm_top,
             "torch": torch.__version__,
             "states_json": str(args.states_json), "dataset": str(args.dataset),
             "n_states": len(positions), "jobs": args.jobs,
@@ -906,7 +1129,8 @@ def main(argv) -> int:
 
     try:
         records = measure_positions(positions, cfg, spec=spec, jobs=args.jobs,
-                                    log_level=args.log_level, on_record=on_record)
+                                    log_level=args.log_level, on_record=on_record,
+                                    replays=replays, replay_top=args.confirm_top)
     finally:
         server_stats = server.shutdown() if server is not None else None
     wall = time.time() - t0

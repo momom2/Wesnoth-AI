@@ -276,6 +276,13 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
   file). Timing row queued on the box: the continue-edit run's first
   12 positions through 12 and 24 workers, per-position seconds against
   the per-process run of the same positions.
+- SHIPPED 2026-09-05 (late): the design's grading schedules in
+  `turn_gap.py`: sequential rounds with the drop/stop rules
+  (`--rounds 10` for a screen, `--rounds 20 --stop-margin 0.10` for a
+  confirmation; validated on the recorded outcomes at 35% fewer
+  playouts for the same hits) and confirmation runs that replay the
+  screen's recorded turns (`--confirm-from`). Not yet run on a box;
+  the next screen uses them.
 
 ## Training-signal panel (2026-09-05, docs/training_signal_panel_20260905.md)
 

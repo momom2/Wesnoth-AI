@@ -576,6 +576,19 @@ because their candidate sets are 5-8x larger.
 
 About 250-350 lines with tests, none of it on the training path.
 
+Shipped 2026-09-05 (late), all in `tools/turn_gap.py` with tests:
+the sequential schedule (`--rounds`, `--drop-z`, `--stop-z`,
+`--stop-margin`; the flat mode stays the default and a sequential run
+reproduces a flat run's outcomes prefix by prefix), confirmation runs
+that replay recorded turns (`--confirm-from SCREEN.json --confirm-top
+N`, the screen's turn salt, fresh playout salts by `--playout-offset`),
+the pre-grader read-outs (`value_post`, `hp_margin_post`; analysis in
+`tools/analysis/turn_gap_pregrader.py`), the continue-edit proposer
+(`--continue-edits k`) and shared inference (`--shared-inference`).
+The summary reports the screen verdicts and the playouts played
+against the flat-run equivalent. Open: the `--rerealize` pass and the
+pooled-alternatives z in the summary.
+
 ## 8. Rejected, one line each
 
 - rejected: CRN across candidates' playouts, because atomic CRN was
