@@ -518,8 +518,17 @@ def implied_iteration(row: dict, loop: LoopShape) -> dict:
 def run_benchmark(policy, exps: List, *, device: torch.device, n_list: Sequence[int],
                   batch_sizes: Sequence[int], precisions: Sequence[str], repeats: int,
                   parity_n: int, compile_trunk: bool = False,
-                  loop: Optional[LoopShape] = None) -> dict:
+                  loop: Optional[LoopShape] = None,
+                  partial_out: Optional[Path] = None) -> dict:
+    """`partial_out`: rewritten after every parity table and every timed
+    row, so a run can be read (or cut) while it is going."""
     loop = loop or LoopShape()
+
+    def _save_partial(parity, rows, compile_info):
+        if partial_out is not None:
+            partial_out.write_text(json.dumps(
+                {"partial": True, "parity": parity, "rows": rows,
+                 "compile": compile_info}, indent=1), encoding="utf-8")
     tr = policy._trainer
     configure_trainer_like_az_loop(tr, step_cap=max(loop.step_cap, max(n_list)))
     configs = [(p, b) for p in precisions for b in batch_sizes]
@@ -527,12 +536,15 @@ def run_benchmark(policy, exps: List, *, device: torch.device, n_list: Sequence[
     # Parity first, on the checkpoint's weights (the timed steps move them).
     parity = parity_check(policy, parity_batch, configs, device=device)
     rows = []
+    compile_info: dict = {"requested": bool(compile_trunk), "active": False}
+    _save_partial(parity, rows, compile_info)
     for precision, b in configs:
         for n in n_list:
             log.info(f"timing {precision} B={b} N={n}")
             rows.append(measure_config(policy, exps, n=n, batch_size=b, precision=precision,
                                        device=device, repeats=repeats, compiled=False))
-    compile_info: dict = {"requested": bool(compile_trunk), "active": False}
+            log.info(f"  -> {rows[-1].get('step_wall_ms_per_exp', rows[-1])}")
+            _save_partial(parity, rows, compile_info)
     if compile_trunk:
         try:
             compile_info.update(enable_compiled_trunk(tr.model))
@@ -544,6 +556,7 @@ def run_benchmark(policy, exps: List, *, device: torch.device, n_list: Sequence[
                     rows.append(measure_config(policy, exps, n=n, batch_size=b,
                                                precision=precision, device=device,
                                                repeats=repeats, compiled=True))
+                    _save_partial(parity, rows, compile_info)
             compile_info["active"] = True
             compile_info["counters"] = compile_counters()
         except Exception as e:  # noqa: BLE001 -- the tool reports, the reader decides
@@ -734,7 +747,9 @@ def main(argv) -> int:
     res = run_benchmark(policy, exps, device=device, n_list=args.n_list,
                         batch_sizes=args.batch_sizes, precisions=precisions,
                         repeats=args.repeats, parity_n=args.parity_n,
-                        compile_trunk=args.compile, loop=loop)
+                        compile_trunk=args.compile, loop=loop,
+                        partial_out=(args.out.with_suffix(".partial.json")
+                                     if args.out else None))
     n_params = sum(p.numel() for p in _params(policy._trainer))
     res["env"] = {
         "checkpoint": args.checkpoint.name, "arch": policy._arch,

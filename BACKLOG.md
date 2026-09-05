@@ -230,6 +230,10 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
   the zero-training probe of the seed in that mode says it is needed.
 - Temperature is a tool for decisive playouts, not an object of
   study; the seed will be retrained.
+- Results and logs are generated on the run, never as atomic dumps
+  at the end: every tool writes partial results as it goes so an
+  ongoing process can be checked; a box job past ~1.5x its estimate
+  gets inspected and cut.
 
 ## Ops notes that are still true
 
