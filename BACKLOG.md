@@ -269,6 +269,13 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
   design, ~$0.03): forward-only pre-graders (post-turn value, value
   after one argmax reply, material) against the 160-playout truth on
   freshly recorded candidates.
+- SHIPPED 2026-09-05 (late): `turn_gap.py --shared-inference`: one
+  inference server owns the model, the `--jobs` workers keep the sim
+  and the raw player (the same remote base as the eval games; CPU
+  parity test exact; provenance and the server's stats in the result
+  file). Timing row queued on the box: the continue-edit run's first
+  12 positions through 12 and 24 workers, per-position seconds against
+  the per-process run of the same positions.
 
 ## Training-signal panel (2026-09-05, docs/training_signal_panel_20260905.md)
 
