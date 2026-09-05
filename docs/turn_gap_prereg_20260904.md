@@ -340,3 +340,24 @@ The same audit finds two of the three confirmed gaps are base
 blunders (all or most alternatives beat the base, the base turn 4-10
 decisions shorter) and one a find, and it estimates that a sequential
 screen would have found the same nominal hits with 35% fewer playouts.
+
+## Pre-grader measurement (pre-registered 2026-09-05, before the run)
+
+From docs/turn_proposer_design_20260905.md section 5. Settings: the
+same 12 positions, K = 4 alternatives at temperature 1 with a NEW
+sampling seed (2), P = 160 playouts at temperature 0.5, cap 30; every
+candidate turn records its action list, the value head's read of the
+post-turn state from the mover's side (`value_post`) and the HP margin
+(`hp_margin_post`). Cost: 12 x 5 x 160 = 9,600 playouts, about 2.5
+box-hours, $0.85. Estimand: within each position, the residual
+standard deviation of (playout mean - a * value_post - b) with (a, b)
+fitted across all 60 candidates, and the same for the HP margin; plus
+whether every alternative whose 160-playout gap is >= 0.25 is ranked
+above its base by each pre-grader.
+
+Prediction (operator, from the design's prior evidence): residual SD
+of the value head 0.30-0.35 (worse than a 10-playout grade); the HP
+margin no better. Kill for value-head pre-grading: residual SD >= 0.3,
+or any confirmed large-gap alternative ranked below its base. Kept
+alive: residual SD <= 0.2 with every confirmed alternative ranked
+above its base.

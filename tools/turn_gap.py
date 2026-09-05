@@ -199,17 +199,62 @@ def _decide(player, sim: WesnothSim, game_label: str) -> Dict:
     return action
 
 
-def play_side_turn(sim: WesnothSim, player, game_label: str) -> int:
+def _action_to_json(action: Dict) -> Dict:
+    """An action dict with positions as (x, y) lists: recorded so a
+    confirmation run can REPLAY a candidate turn instead of resampling
+    it (2026-09-05 audit: sampling from a seed does not reproduce
+    across runs under bf16 kernels)."""
+    out = {}
+    for k, v in action.items():
+        if hasattr(v, "x") and hasattr(v, "y"):
+            out[k] = [int(v.x), int(v.y)]
+        elif isinstance(v, (str, int, float, bool)) or v is None:
+            out[k] = v
+        else:
+            out[k] = str(v)
+    return out
+
+
+def play_side_turn(sim: WesnothSim, player, game_label: str,
+                   actions_out: Optional[List[Dict]] = None) -> int:
     """Play the side to move until it has ended its turn or the game
-    is over. Returns the number of decisions before the end_turn."""
+    is over. Returns the number of decisions before the end_turn;
+    appends every action (end_turn included) to `actions_out`."""
     side = sim.current_side
     decisions = 0
     while not sim.done and sim.current_side == side:
         action = _decide(player, sim, game_label)
         if action.get("type", "end_turn") != "end_turn":
             decisions += 1
+        if actions_out is not None:
+            actions_out.append(_action_to_json(action))
         sim.step(action)
     return decisions
+
+
+def _hp_margin(gs: GameState, mover: int) -> int:
+    """Mover's total unit HP minus the opponent's: the exact-material
+    pre-grader of docs/turn_proposer_design_20260905.md."""
+    ours = sum(int(u.current_hp) for u in gs.map.units if u.side == mover)
+    theirs = sum(int(u.current_hp) for u in gs.map.units if u.side != mover)
+    return ours - theirs
+
+
+def _value_read(policy, gs: GameState, mover: int) -> Optional[float]:
+    """The policy's value head on `gs` from the mover's side (the head
+    scores the side to move; after the mover's end_turn that is the
+    opponent, hence the sign). None when the player has no base policy
+    (tests with scripted players)."""
+    base = getattr(policy, "_base", policy)
+    enc = getattr(base, "_inference_encoder", None)
+    model = getattr(base, "_inference_model", None)
+    if enc is None or model is None:
+        return None
+    import torch
+    with torch.no_grad():
+        out = model(enc.encode(gs))
+    v = float(out.value.squeeze().item())
+    return v if gs.global_info.current_side == mover else -v
 
 
 def outcome_for(sim: WesnothSim, mover: int) -> Tuple[int, bool]:
@@ -265,10 +310,18 @@ def _candidate_turn(position: BoundaryPosition, player, max_turns: int,
                     salt: str, sample_seed: Optional[int],
                     game_label: str) -> Tuple[Dict, WesnothSim]:
     sim = sim_from_state(position.gs, position.scenario_id, max_turns, salt)
-    decisions = play_side_turn(sim, player, game_label)
+    actions: List[Dict] = []
+    decisions = play_side_turn(sim, player, game_label, actions)
+    mover = position.gs.global_info.current_side
     candidate = {
         "sample_seed": sample_seed,
         "n_decisions": decisions,
+        "actions": actions,
+        # Forward-only pre-graders (docs/turn_proposer_design_20260905.md):
+        # the value head on the post-turn state and the HP margin, both
+        # from the mover's side, to be compared with the playout mean.
+        "value_post": (None if sim.done else _value_read(player, sim.gs, mover)),
+        "hp_margin_post": _hp_margin(sim.gs, mover),
         # Process-local (Python hash of a tuple with strings): used to
         # drop duplicate turns within a run, not comparable across runs.
         "post_state_key": state_key(sim.gs),

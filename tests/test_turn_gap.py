@@ -207,3 +207,18 @@ def test_playout_offset_uses_fresh_salts():
     import pytest
     with pytest.raises(ValueError):
         GapConfig(playout_offset=-1)
+
+
+def test_candidate_turns_record_actions_and_pre_graders(policy, positions):
+    """Every candidate turn records its action list (end_turn included)
+    so a confirmation can replay it, plus the forward-only pre-graders."""
+    from tools.turn_gap import GapConfig, measure_positions
+    cfg = GapConfig(k_alternatives=1, playouts=1, cap_turns=1, seed=3)
+    records = measure_positions(positions, cfg, policy=policy, jobs=1)
+    assert records
+    for r in records:
+        for cand in [r["base"]] + r["alternatives"]:
+            assert len(cand["actions"]) == cand["n_decisions"] + (0 if cand["terminal_in_turn"] else 1)
+            assert cand["terminal_in_turn"] or cand["actions"][-1]["type"] == "end_turn"
+            assert isinstance(cand["hp_margin_post"], int)
+            assert cand["value_post"] is None or -1.0 <= cand["value_post"] <= 1.0
