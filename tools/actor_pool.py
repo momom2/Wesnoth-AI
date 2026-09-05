@@ -37,6 +37,24 @@ encoder; unseen names fall to the overflow bucket on BOTH sides
 (consistent). Pre-seed the vocab broadly to minimize overflow
 collisions.
 
+Serve processes (2026-09-05): `serve_processes=N` adds N-1 serving
+PROCESSES next to the learner's in-process serve threads, each holding
+its own copy of the inference model on the same device with the same
+switches, its own request queue and its own serve threads. Two serve
+threads in one process share one GIL and spend ~33-36 ms of host work
+per 16-leaf batch against ~29 ms of GPU work, so the host side was the
+ceiling (docs/box_specs.md, "Serve thread host cost"). Actors are
+assigned to a server round-robin at PLAY time (actor `aid` asks server
+`aid % N`; server 0 is the learner process). The copies serve the
+learner's CURRENT inference weights: after every publication the loop
+calls `sync_servers()`, which ships the state as one torch.save byte
+string on each server's control queue and waits for the acks;
+`run_iteration` refuses to start while a server's weights version lags
+the learner's (`WesnothModel._weights_version`, bumped by every
+load_state_dict). Each server's serve stats merge into the iteration's
+(the saturated rate covers all servers). A server death poisons its
+actors' reply queues and aborts the iteration; shutdown stops them.
+
 Windows note: uses the 'spawn' start method (the only one on Windows),
 so the actor entry + all Process args must be picklable -- they are
 (queues, plain dataclasses/dicts). The model is never sent to actors.
@@ -73,6 +91,26 @@ _R_DONE    = "iter_done"   # actor finished its quota this iteration
 _R_ERROR   = "error"       # traceback string (non-fatal; logged)
 _R_FATAL   = "fatal"       # non-swallowable death (fork guard, ...)
 
+# Serve-process control commands (main -> serve process).
+_SRV_SYNC = "sync"        # (version, state bytes): load these weights
+_SRV_SERVE = "serve"      # (iter_idx,): start the serve threads
+_SRV_PAUSE = "pause"      # (): stop the serve threads, reply their stats
+_SRV_PROBE = "probe"      # (payload,): one infer_batch outside serving
+_SRV_STOP = "stop"
+# Serve-process replies (serve process -> main), on the shared server queue.
+_S_READY = "ready"        # model built
+_S_SYNCED = "synced"      # payload: the version loaded
+_S_STATS = "stats"        # payload: {"threads": [stats dicts], "picker": {...}}
+_S_PROBE = "probe"        # payload: wire outputs
+_S_ERROR = "error"        # payload: traceback string
+# Reply marker the manager puts on an actor's reply queue when the
+# serve process that actor was assigned to died: the client raises on
+# it whatever request it is waiting for.
+_RID_SERVER_DEAD = -1
+# The intra-op pools torch and its BLAS size at import from these
+# (start() caps them before every spawn; see the PID-limit note there).
+_THREAD_ENV_VARS = ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS")
+
 
 class ActorFatalError(BaseException):
     """An actor died on a non-swallowable error (round-35 C0: the
@@ -80,6 +118,11 @@ class ActorFatalError(BaseException):
     ForkGuardViolation escaped, so the pool topology exited 0 on a
     real fork violation). BaseException for the round-34 reason:
     no log-and-continue handler may eat it."""
+
+
+class ServeProcessDied(ActorFatalError):
+    """A serve process died or failed a command: the actors it served
+    can get no more replies, so the iteration aborts loudly."""
 
 
 # =====================================================================
@@ -97,11 +140,17 @@ class _IPCInferenceClient:
     replaced the pool. Payloads are plain numpy (inference_seam
     output_to_wire/output_from_wire), which pickle inline."""
 
-    def __init__(self, actor_id: int, req_q, resp_q):
+    def __init__(self, actor_id: int, req_qs, resp_q):
+        """`req_qs`: one request queue per server (index 0 is the
+        learner process); `use_server` picks the one this actor asks."""
         self._aid = actor_id
-        self._req = req_q
+        self._req_qs = list(req_qs)
+        self._req = self._req_qs[0]
         self._resp = resp_q
         self._next_id = 0
+
+    def use_server(self, index: int) -> None:
+        self._req = self._req_qs[index]
 
     def infer(self, raw):
         return self.infer_batch([raw])[0]
@@ -121,6 +170,9 @@ class _IPCInferenceClient:
         self._req.put((self._aid, rid, payload))
         while True:
             r_rid, wires = self._resp.get()
+            if r_rid == _RID_SERVER_DEAD:
+                raise RuntimeError("the serve process this actor was assigned to died "
+                                   "(see the pool's log)")
             if r_rid == rid:
                 if wires is None:
                     raise RuntimeError("inference server failed on this batch "
@@ -157,7 +209,7 @@ def _set_fd_safe_sharing() -> None:
 
 
 def _actor_loop(
-    actor_id: int, ctrl_q, req_q, resp_q, result_q,
+    actor_id: int, ctrl_q, req_qs, resp_q, result_q,
     mcts_cfg, scenario_opts: Dict, max_turns: int,
     max_turns_min,
     pvp_kwargs: Optional[Dict], log_level: int, torch_threads: int,
@@ -190,7 +242,7 @@ def _actor_loop(
     from tools.scenario_pool import random_setup, roll_mix
     from tools.wesnoth_sim import PvPDefaults
 
-    client = _IPCInferenceClient(actor_id, req_q, resp_q)
+    client = _IPCInferenceClient(actor_id, req_qs, resp_q)
     rmodel = RemoteModel(client)
     cost_lookup = _recruit_cost_lookup()
     pvp = PvPDefaults(**pvp_kwargs) if pvp_kwargs else PvPDefaults()
@@ -220,6 +272,10 @@ def _actor_loop(
         # Server-side priors (wesnoth_ai/server_priors.py); legacy PLAY
         # tuples without the flag = off.
         _sp = bool(cmd[9]) if len(cmd) > 9 else False
+        # Which server answers this actor this iteration (module
+        # docstring, "Serve processes"); legacy PLAY tuples = the
+        # learner process.
+        client.use_server(int(cmd[10]) if len(cmd) > 10 else 0)
         # Rebuild the encoder each iteration with the freshly-snapshotted
         # vocab so actor indices line up with the server's encoder.
         renc = RemoteEncoder(t2i, f2i, device=cpu,
@@ -518,6 +574,180 @@ def _best_window_rate(timeline: List[Tuple[float, int]], window: float) -> Optio
     return best
 
 
+def _picker_stats(picker: Optional[_BatchPicker]) -> Dict[str, int]:
+    if picker is None:
+        return {"skipped": 0, "picks": 0, "depth": 0}
+    return {"skipped": picker.skipped, "picks": picker.picks, "depth": picker.depth}
+
+
+def _serve_loop(server, picker: _BatchPicker, req_q, resp_qs, max_batch: int,
+                serve_timeout: float, stop_ev, stats_out: List[Dict]) -> None:
+    """One serving thread, in the learner process or a serve process:
+    take a batch (the picker coalesces the queued requests) -> unpack
+    -> encode+forward -> wire-serialize -> reply. Stage times are
+    accumulated locally (no locks on the hot path) and appended to
+    `stats_out` on exit; on CUDA the seam adds the host seconds of its
+    own stages to the same dict."""
+    from tools.inference_seam import output_to_wire
+    from wesnoth_ai.leaf_wire import PackedRequest, unpack_request
+    # (monotonic time, cumulative leaves) every ~10 s: the iteration
+    # average hides the tail where most actors have finished
+    # (2026-09-05 whole-pool profile: median game finish at 40% of
+    # the wall); run_iteration derives the saturated rate from it.
+    # time.monotonic is one system-wide clock, so the marks of every
+    # process merge on the manager's time base.
+    timeline: List[Tuple[float, int]] = []
+    next_mark = time.monotonic()
+    st = {"wait": 0.0, "unpack": 0.0, "infer": 0.0, "wire": 0.0, "put": 0.0, "gpu_ms": 0.0,
+          "timeline": timeline,
+          "leaves": 0, "batches": 0, "requests": 0, "tokens": 0, "padded": 0}
+    while not stop_ev.is_set():
+        t0 = time.monotonic()
+        batch = picker.take(req_q, max_batch, serve_timeout)
+        t1 = time.monotonic()
+        st["wait"] += t1 - t0
+        if not batch:
+            continue
+        flat = []
+        for w in batch:
+            payload = w.item[2]
+            flat.extend(unpack_request(payload) if isinstance(payload, PackedRequest)
+                        else payload)
+        t2 = time.monotonic()
+        try:
+            outs = server.infer_batch(flat, stats=st)
+            t3 = time.monotonic()
+            wires = [output_to_wire(o) for o in outs]
+        except Exception:                       # noqa: BLE001
+            # A serve-thread death used to hang every actor waiting
+            # on this batch (2026-09-04: the stats line below choked
+            # on (raw, masks) items). Reply with a failure marker so
+            # the actors raise instead.
+            log.error("inference server failed on a batch of %d leaves:\n%s",
+                      len(flat), traceback.format_exc())
+            for w in batch:
+                aid, rid, _payload = w.item
+                resp_qs[aid].put((rid, None))
+            continue
+        t4 = time.monotonic()
+        i = 0
+        for w in batch:
+            aid, rid, _payload = w.item
+            resp_qs[aid].put((rid, wires[i:i + w.n_leaves]))
+            i += w.n_leaves
+        t5 = time.monotonic()
+        st["unpack"] += t2 - t1
+        st["infer"] += t3 - t2
+        st["wire"] += t4 - t3
+        st["put"] += t5 - t4
+        st["leaves"] += len(flat)
+        st["batches"] += 1
+        st["requests"] += len(batch)
+        if t5 >= next_mark:
+            timeline.append((t5, st["leaves"]))
+            next_mark = t5 + 10.0
+        # Sequence lengths: hex tokens + unit tokens per leaf, and
+        # what the batch pads to (its longest leaf).
+        lens = [n for w in batch for n in w.lens]
+        st["tokens"] += sum(lens)
+        st["padded"] += len(lens) * max(lens)
+    stats_out.append(st)
+
+
+def _server_loop(
+    server_id: int, ctrl_q, server_q, req_q, resp_qs, blueprint, switches: Dict,
+    device_str: str, serve_threads: int, max_batch: int, serve_timeout: float,
+    coalesce: str, coalesce_gap: int, log_level: int, torch_threads: int,
+) -> None:
+    """Serve-process body: build the inference pair at the learner's
+    architecture and switches, report READY, then answer the control
+    queue (SYNC weights, SERVE / PAUSE the serve threads on this
+    process's request queue, PROBE, STOP). Every failure is a reply on
+    `server_q`, never a silent death; the process also exits on its
+    own when the learner process is gone, so no CUDA context outlives
+    the campaign."""
+    logging.basicConfig(level=log_level,
+                        format="%(asctime)s %(name)s %(levelname)s %(message)s")
+    torch.set_num_threads(max(1, torch_threads))
+    _set_fd_safe_sharing()
+    from tools.inference_seam import (
+        InferenceServer, build_inference_pair, load_inference_state, output_to_wire,
+    )
+    try:
+        device = torch.device(device_str)
+        model, encoder = build_inference_pair(blueprint, device)
+        model.infer_autocast_bf16 = bool(switches["model_bf16"])
+        model.infer_packed_trunk = bool(switches["packed_trunk"])
+        if switches["compile_packed"]:
+            model.configure_packed_compile(backend=switches["compile_backend"],
+                                           mode=switches["compile_mode"])
+            log.info("serve-%d packed compile warmup: %s", server_id,
+                     model.warmup_packed_compile())
+        server = InferenceServer(model, encoder, device=device,
+                                 output_device=torch.device("cpu"),
+                                 autocast_bf16=switches["autocast_bf16"],
+                                 packed_embed=switches["packed_embed"])
+    except Exception:                           # noqa: BLE001
+        server_q.put((_S_ERROR, server_id, traceback.format_exc()))
+        return
+    server_q.put((_S_READY, server_id, None))
+    parent = mp.parent_process()
+    threads: List[threading.Thread] = []
+    stop_ev = threading.Event()
+    stats: List[Dict] = []
+    picker: Optional[_BatchPicker] = None
+    while True:
+        try:
+            cmd = ctrl_q.get(timeout=2.0)
+        except _queue.Empty:
+            if parent is not None and not parent.is_alive():
+                log.error("serve-%d: the learner process is gone; exiting", server_id)
+                break
+            continue
+        kind = cmd[0]
+        try:
+            if kind == _SRV_STOP:
+                break
+            if kind == _SRV_SYNC:
+                if threads:
+                    raise RuntimeError("SYNC while serving: weights change only "
+                                       "between iterations")
+                _, version, blob = cmd
+                load_inference_state(blob, model, encoder, device)
+                server_q.put((_S_SYNCED, server_id, int(version)))
+            elif kind == _SRV_SERVE:
+                if threads:
+                    raise RuntimeError("SERVE while already serving")
+                stop_ev = threading.Event()
+                stats = []
+                picker = _BatchPicker(coalesce, coalesce_gap)
+                threads = [threading.Thread(
+                    target=_serve_loop,
+                    args=(server, picker, req_q, resp_qs, max_batch, serve_timeout,
+                          stop_ev, stats),
+                    daemon=True, name=f"serve-{server_id}-{i}")
+                    for i in range(serve_threads)]
+                for th in threads:
+                    th.start()
+            elif kind == _SRV_PAUSE:
+                stop_ev.set()
+                for th in threads:
+                    th.join(timeout=10.0)
+                threads = []
+                server_q.put((_S_STATS, server_id,
+                              {"threads": list(stats), "picker": _picker_stats(picker)}))
+            elif kind == _SRV_PROBE:
+                outs = server.infer_batch(cmd[1])
+                server_q.put((_S_PROBE, server_id, [output_to_wire(o) for o in outs]))
+            else:
+                raise RuntimeError(f"unknown serve-process command {kind!r}")
+        except Exception:                       # noqa: BLE001
+            server_q.put((_S_ERROR, server_id, traceback.format_exc()))
+    stop_ev.set()
+    for th in threads:
+        th.join(timeout=10.0)
+
+
 class ActorPool:
     """Owns the actor processes and runs the central inference-serve
     loop during each rollout iteration. The model stays in the main
@@ -541,6 +771,10 @@ class ActorPool:
         packed_embed: bool = False,
         coalesce: str = "fifo",
         coalesce_gap: int = 0,
+        serve_processes: int = 1,
+        server_torch_threads: int = 4,
+        server_start_timeout: float = 600.0,
+        server_reply_timeout: float = 120.0,
     ):
         """`server_priors`: actors ship packed legality masks and the
         server returns compact legal actions with priors
@@ -551,11 +785,25 @@ class ActorPool:
         buffer straight into the trunk's layout
         (tools/inference_seam.InferenceServer). `coalesce` and
         `coalesce_gap`: how the serve threads pick a batch from the
-        queued requests (_BatchPicker)."""
+        queued requests (_BatchPicker). `serve_processes`: servers in
+        total, the learner process plus N-1 serve processes (module
+        docstring); `server_torch_threads` caps each serve process's
+        intra-op pools; the two timeouts bound the wait for a serve
+        process to build its model and to answer a command."""
         if n_actors < 1:
             raise ValueError("n_actors must be >= 1")
+        if serve_processes < 1:
+            raise ValueError("serve_processes must be >= 1")
         self._policy = policy
         self._n = n_actors
+        self._serve_processes = int(serve_processes)
+        self._server_torch_threads = int(server_torch_threads)
+        self._server_start_timeout = float(server_start_timeout)
+        self._server_reply_timeout = float(server_reply_timeout)
+        self._server_procs: List = []
+        self._server_ctrl_qs: List = []
+        self._server_versions: List[int] = []
+        self._serving = False
         self._mcts_cfg = mcts_cfg
         # Per-iteration search value centering (MCTSConfig.value_center),
         # set by the learner after each step; rides the PLAY command.
@@ -631,18 +879,20 @@ class ActorPool:
         # container's PID limit (pids.max 4352, 2026-09-04): nothing
         # served, sshd unable to fork. The spawned children inherit
         # this environment, so cap the pools before torch is imported.
-        for var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
+        for var in _THREAD_ENV_VARS:
             os.environ.setdefault(var, "1")
         ctx = mp.get_context("spawn")
-        self._req_q = ctx.Queue()
+        # One request queue per server; index 0 is the learner process.
+        self._req_qs = [ctx.Queue() for _ in range(self._serve_processes)]
         self._result_q = ctx.Queue()
+        self._server_q = ctx.Queue()
         self._ctrl_qs = [ctx.Queue() for _ in range(self._n)]
         self._resp_qs = [ctx.Queue() for _ in range(self._n)]
         self._procs = []
         for aid in range(self._n):
             p = ctx.Process(
                 target=_actor_loop,
-                args=(aid, self._ctrl_qs[aid], self._req_q,
+                args=(aid, self._ctrl_qs[aid], self._req_qs,
                       self._resp_qs[aid], self._result_q, self._mcts_cfg,
                       self._scenario_opts, self._max_turns,
                       self._max_turns_min,
@@ -653,17 +903,247 @@ class ActorPool:
                 daemon=True, name=f"actor-{aid}")
             p.start()
             self._procs.append(p)
+        if self._serve_processes > 1:
+            self._spawn_servers(ctx)
         self._server = InferenceServer(
             self._policy._inference_model, self._policy._inference_encoder,
             device=self._device, output_device=torch.device("cpu"),
             autocast_bf16=self._infer_bf16, packed_embed=self._packed_embed)
         self._started = True
+        if self._server_procs:
+            self._await_servers_ready()
+            self.sync_servers()
         log.info(f"actor pool started: {self._n} actors, "
-                 f"max_batch={self._max_batch}")
+                 f"max_batch={self._max_batch}, {self._serve_processes} servers")
 
     def _vocab_snapshot(self) -> Tuple[Dict, Dict]:
         enc = self._policy._inference_encoder
         return dict(enc.unit_type_to_id), dict(enc.faction_to_id)
+
+    # -- serve processes ----------------------------------------------
+
+    def _inference_base(self):
+        """The learner's uncompiled inference module: the snapshot
+        target, whose `_weights_version` counts publications."""
+        owner = getattr(self._policy, "_base", self._policy)
+        base = getattr(owner, "_inference_base", None)
+        return base if base is not None else self._policy._inference_model
+
+    def _learner_version(self) -> int:
+        return int(getattr(self._inference_base(), "_weights_version", 0))
+
+    def _relevant_set(self) -> bool:
+        return bool(getattr(
+            getattr(self._anneal_base(), "_inference_encoder", None),
+            "relevant_set_hexes", False))
+
+    def _server_of(self, actor_id: int) -> int:
+        """Round-robin assignment; server 0 is the learner process."""
+        return actor_id % self._serve_processes
+
+    def _server_ids(self) -> range:
+        return range(1, self._serve_processes)
+
+    def _spawn_servers(self, ctx) -> None:
+        from tools.inference_seam import inference_blueprint
+        base = self._inference_base()
+        encoder = self._policy._inference_encoder
+        blueprint = inference_blueprint(base, encoder)
+        device = self._device or next(base.parameters()).device
+        compiled = getattr(base, "_packed_compile", None)
+        switches = dict(
+            model_bf16=bool(getattr(base, "infer_autocast_bf16", False)),
+            autocast_bf16=self._infer_bf16,
+            packed_trunk=bool(getattr(base, "infer_packed_trunk", False)),
+            compile_packed=bool(getattr(base, "infer_compile_packed", False)),
+            compile_backend=getattr(compiled, "backend", "inductor"),
+            compile_mode=getattr(compiled, "mode", None),
+            packed_embed=self._packed_embed)
+        # The serve process imports torch while unpickling its target,
+        # before its body runs, so its pool caps must already be in the
+        # environment it inherits at spawn; restored right after.
+        saved = {var: os.environ.get(var) for var in _THREAD_ENV_VARS}
+        for var in _THREAD_ENV_VARS:
+            os.environ[var] = str(self._server_torch_threads)
+        try:
+            for sid in self._server_ids():
+                cq = ctx.Queue()
+                p = ctx.Process(
+                    target=_server_loop,
+                    args=(sid, cq, self._server_q, self._req_qs[sid], self._resp_qs,
+                          blueprint, switches, str(device), self._serve_threads,
+                          self._max_batch, self._serve_timeout, self._coalesce,
+                          self._coalesce_gap, self._log_level,
+                          self._server_torch_threads),
+                    daemon=True, name=f"serve-{sid}")
+                p.start()
+                self._server_ctrl_qs.append(cq)
+                self._server_procs.append(p)
+        finally:
+            for var, old in saved.items():
+                if old is None:
+                    os.environ.pop(var, None)
+                else:
+                    os.environ[var] = old
+        self._server_versions = [-1] * len(self._server_procs)
+
+    def _collect_server_replies(self, kind: str, timeout: float) -> Dict[int, object]:
+        """One reply of `kind` from every serve process, by server id.
+        Raises ServeProcessDied on an error reply, a dead process or
+        the timeout: no command may hang the learner."""
+        pending = set(self._server_ids())
+        got: Dict[int, object] = {}
+        deadline = time.monotonic() + timeout
+        while pending:
+            try:
+                r_kind, sid, payload = self._server_q.get(timeout=0.5)
+            except _queue.Empty:
+                dead = [sid for sid in pending
+                        if not self._server_procs[sid - 1].is_alive()]
+                if dead:
+                    raise ServeProcessDied(
+                        f"serve process(es) {dead} died while the pool waited for "
+                        f"{kind!r} (exitcodes "
+                        f"{[self._server_procs[s - 1].exitcode for s in dead]})")
+                if time.monotonic() > deadline:
+                    raise ServeProcessDied(
+                        f"serve process(es) {sorted(pending)} did not reply "
+                        f"{kind!r} within {timeout:.0f}s")
+                continue
+            if r_kind == _S_ERROR:
+                raise ServeProcessDied(f"serve process {sid} failed:\n{payload}")
+            if r_kind != kind:
+                log.warning(f"serve process {sid}: unexpected reply {r_kind!r} "
+                            f"while waiting for {kind!r}; dropped")
+                continue
+            got[sid] = payload
+            pending.discard(sid)
+        return got
+
+    def _await_servers_ready(self) -> None:
+        self._collect_server_replies(_S_READY, self._server_start_timeout)
+        log.info(f"{len(self._server_procs)} serve process(es) ready")
+
+    def sync_servers(self) -> int:
+        """Ships the learner's current inference weights (model and
+        encoder state_dicts as one torch.save byte string) to every
+        serve process and waits for the acks; returns the version the
+        servers now hold. Call after every publication
+        (TransformerPolicy._snapshot_inference_weights), between
+        iterations: run_iteration refuses a lagging server.
+
+        Why a byte string and not torch's CUDA IPC sharing (torch
+        2.5.1, docs/multiprocessing "Sharing CUDA tensors"): a shared
+        CUDA tensor obliges the sending process to keep the original
+        alive as long as any receiver holds it, refcounted through
+        handles that a receiver killed by a signal never releases, and
+        the strategy setting of this pool ('file_system') does not
+        apply to CUDA tensors at all. One copy per iteration (the
+        weights, tens of MB against iterations of hundreds of seconds)
+        has no such coupling and works the same on CPU and on CUDA."""
+        if not self._server_procs:
+            return self._learner_version()
+        if self._serving:
+            raise RuntimeError("sync_servers() during an iteration: weights change only "
+                               "between iterations")
+        from tools.inference_seam import pack_inference_state
+        base = self._inference_base()
+        version = self._learner_version()
+        t0 = time.monotonic()
+        blob = pack_inference_state(base, self._policy._inference_encoder)
+        for cq in self._server_ctrl_qs:
+            cq.put((_SRV_SYNC, version, blob))
+        acks = self._collect_server_replies(_S_SYNCED, self._server_reply_timeout)
+        wrong = {sid: v for sid, v in acks.items() if int(v) != version}
+        if wrong:
+            raise ServeProcessDied(f"serve process(es) acknowledged the wrong weights "
+                                   f"version: {wrong} (expected {version})")
+        self._server_versions = [version] * len(self._server_procs)
+        log.info(f"serve processes synced to weights version {version} "
+                 f"({len(blob) / 1e6:.1f} MB in {time.monotonic() - t0:.2f}s)")
+        return version
+
+    def _check_servers_synced(self, iter_idx: int) -> None:
+        lv = self._learner_version()
+        lag = {sid: v for sid, v in zip(self._server_ids(), self._server_versions)
+               if v != lv}
+        if lag:
+            raise RuntimeError(
+                f"iter {iter_idx}: serve process(es) hold weights version {lag} but "
+                f"the learner is at {lv}; call sync_servers() after publishing weights")
+        dead = [sid for sid in self._server_ids()
+                if not self._server_procs[sid - 1].is_alive()]
+        if dead:
+            raise ServeProcessDied(f"iter {iter_idx}: serve process(es) {dead} are dead "
+                                   f"(exitcodes "
+                                   f"{[self._server_procs[s - 1].exitcode for s in dead]})")
+
+    def _pause_servers(self) -> Dict[int, Dict]:
+        """Stops every live serve process's serve threads and returns
+        their stats by server id (a dead server contributes nothing
+        and is logged; the dead-server abort happens in the serve loop
+        or at the next iteration's start)."""
+        if not self._server_procs:
+            return {}
+        live = [sid for sid in self._server_ids() if self._server_procs[sid - 1].is_alive()]
+        for sid in live:
+            self._server_ctrl_qs[sid - 1].put((_SRV_PAUSE,))
+        if len(live) < len(self._server_procs):
+            log.error(f"serve process(es) "
+                      f"{sorted(set(self._server_ids()) - set(live))} are dead; "
+                      f"their serve stats are lost")
+        got: Dict[int, Dict] = {}
+        pending = set(live)
+        deadline = time.monotonic() + self._server_reply_timeout
+        while pending and time.monotonic() < deadline:
+            try:
+                r_kind, sid, payload = self._server_q.get(timeout=0.5)
+            except _queue.Empty:
+                pending = {s for s in pending if self._server_procs[s - 1].is_alive()}
+                continue
+            if r_kind == _S_STATS:
+                got[sid] = payload
+                pending.discard(sid)
+            elif r_kind == _S_ERROR:
+                log.error(f"serve process {sid} failed:\n{payload}")
+                pending.discard(sid)
+        if pending:
+            log.error(f"serve process(es) {sorted(pending)} did not return their stats")
+        return got
+
+    def _abort_on_dead_servers(self, iter_idx: int, dead: List[int]) -> None:
+        """A serve process died mid-iteration: its actors would wait on
+        their reply queues forever. Poison those queues (the client
+        raises on the marker) and abort the iteration."""
+        for aid in range(self._n):
+            if self._server_of(aid) in dead:
+                self._resp_qs[aid].put((_RID_SERVER_DEAD, None))
+        raise ServeProcessDied(
+            f"iter {iter_idx}: serve process(es) {dead} died (exitcodes "
+            f"{[self._server_procs[s - 1].exitcode for s in dead]}); actors "
+            f"{[a for a in range(self._n) if self._server_of(a) in dead]} were "
+            f"assigned to them -- aborting the iteration instead of hanging.")
+
+    def probe(self, game_states: List) -> List[List]:
+        """The same leaves through the learner's server and every serve
+        process, outside an iteration: `[server][state]` ModelOutputs.
+        The box's parity check (bf16 noise apart, the copies must
+        agree) and the sync test's witness."""
+        from tools.inference_seam import RemoteEncoder, RemoteModel, output_from_wire
+        if self._serving:
+            raise RuntimeError("probe() during an iteration")
+        t2i, f2i = self._vocab_snapshot()
+        renc = RemoteEncoder(t2i, f2i, device=torch.device("cpu"),
+                             relevant_set=self._relevant_set(),
+                             server_priors=bool(self.server_priors))
+        payload = [RemoteModel._payload(renc.encode(gs)) for gs in game_states]
+        outs = [self._server.infer_batch(payload)]
+        for cq in self._server_ctrl_qs:
+            cq.put((_SRV_PROBE, payload))
+        replies = self._collect_server_replies(_S_PROBE, self._server_reply_timeout)
+        for sid in self._server_ids():
+            outs.append([output_from_wire(w) for w in replies[sid]])
+        return outs
 
     def _anneal_base(self):
         """The object holding the combat-oracle anneal counter. In
@@ -690,20 +1170,24 @@ class ActorPool:
         reports done, and return (outcomes, experiences)."""
         if not self._started:
             raise RuntimeError("ActorPool.start() not called")
+        if self._server_procs:
+            self._check_servers_synced(iter_idx)
+        self._serving = True
+        try:
+            return self._run_iteration(iter_idx, games_per_iter, base_seed)
+        finally:
+            self._serving = False
+
+    def _run_iteration(
+        self, iter_idx: int, games_per_iter: int, base_seed: int,
+    ) -> Tuple[List, List]:
         # Even split of games across actors (+remainder to the first).
         per = [games_per_iter // self._n] * self._n
         for i in range(games_per_iter % self._n):
             per[i] += 1
         t2i, f2i = self._vocab_snapshot()
         ds0 = self._global_decision_step()
-        _rset = bool(getattr(
-            getattr(self._anneal_base(), "_inference_encoder", None),
-            "relevant_set_hexes", False))
-        for aid in range(self._n):
-            self._ctrl_qs[aid].put(
-                (_CMD_PLAY, iter_idx, per[aid],
-                 base_seed + aid * 1_000_003, t2i, f2i, ds0,
-                 _rset, float(self.value_center), bool(self.server_priors)))
+        _rset = self._relevant_set()
 
         outcomes: List = []
         experiences: List = []
@@ -723,15 +1207,34 @@ class ActorPool:
         # GIL, so N threads overlap one thread's serialization with
         # another's encode+forward. Per-stage timers are accumulated
         # and logged at iteration end so the bottleneck stays visible.
+        # The serve processes start their own threads on SERVE.
         stop_ev = threading.Event()
         serve_stats: List[Dict] = []
         self._picker = _BatchPicker(self._coalesce, self._coalesce_gap)
         servers = [threading.Thread(
-            target=self._serve_worker, args=(stop_ev, serve_stats),
+            target=_serve_loop,
+            args=(self._server, self._picker, self._req_qs[0], self._resp_qs,
+                  self._max_batch, self._serve_timeout, stop_ev, serve_stats),
             daemon=True, name=f"serve-{i}")
             for i in range(self._serve_threads)]
         for th in servers:
             th.start()
+        for cq in self._server_ctrl_qs:
+            cq.put((_SRV_SERVE, iter_idx))
+        server_stats: Dict[int, Dict] = {}
+
+        def _stop_serving() -> None:
+            stop_ev.set()
+            for th in servers:
+                th.join(timeout=10.0)
+            server_stats.update(self._pause_servers())
+
+        for aid in range(self._n):
+            self._ctrl_qs[aid].put(
+                (_CMD_PLAY, iter_idx, per[aid],
+                 base_seed + aid * 1_000_003, t2i, f2i, ds0,
+                 _rset, float(self.value_center), bool(self.server_priors),
+                 self._server_of(aid)))
 
         while outstanding:
             # Drain results; blocking with a short timeout (serving no
@@ -773,9 +1276,7 @@ class ActorPool:
             elif kind == _R_ERROR:
                 log.error(f"actor {aid} error:\n{payload}")
             elif kind == _R_FATAL:
-                stop_ev.set()
-                for th in servers:
-                    th.join(timeout=10.0)
+                _stop_serving()
                 # The traceback carries the SIM_FORK_GUARD text the
                 # launcher greps; propagate, never log-and-drop.
                 raise ActorFatalError(
@@ -813,6 +1314,11 @@ class ActorPool:
                 break
             if now - last_liveness > self._liveness_interval:
                 last_liveness = now
+                dead_servers = [sid for sid in self._server_ids()
+                                if not self._server_procs[sid - 1].is_alive()]
+                if dead_servers:
+                    _stop_serving()
+                    self._abort_on_dead_servers(iter_idx, dead_servers)
                 dead = {aid for aid in outstanding
                         if not self._procs[aid].is_alive()}
                 if dead:
@@ -825,9 +1331,7 @@ class ActorPool:
                         # silent drop hid the death from the run's
                         # exit code (round-35 C0). Loud abort; the
                         # supervisor restarts with backoff.
-                        stop_ev.set()
-                        for th in servers:
-                            th.join(timeout=10.0)
+                        _stop_serving()
                         raise ActorFatalError(
                             f"iter {iter_idx}: actor(s) died "
                             f"without reporting done, exitcodes "
@@ -840,9 +1344,19 @@ class ActorPool:
                             f"{self._procs[aid].exitcode}); dropping it.")
                     outstanding -= dead
 
-        stop_ev.set()
-        for th in servers:
-            th.join(timeout=10.0)
+        _stop_serving()
+        # Every server's threads report the same stats dict; the
+        # per-server leaf counts and the pickers' telemetry merge here.
+        leaves_per_server = [sum(int(s.get("leaves", 0)) for s in serve_stats)]
+        pick = _picker_stats(self._picker)
+        for sid in self._server_ids():
+            ss = server_stats.get(sid) or {}
+            threads_stats = list(ss.get("threads", []))
+            leaves_per_server.append(sum(int(s.get("leaves", 0)) for s in threads_stats))
+            serve_stats.extend(threads_stats)
+            for k, v in (ss.get("picker") or {}).items():
+                pick[k] = pick.get(k, 0) + int(v)
+        self.last_leaves_per_server = leaves_per_server
         # Advance the global anneal counter by the decisions generated this
         # iteration (sum across actors), so the combat-oracle bias keeps
         # annealing across the campaign instead of freezing at ds0.
@@ -872,8 +1386,9 @@ class ActorPool:
         self.last_saturated_leaves_per_s = _best_window_rate(self.last_leaf_timeline, 60.0)
         if agg.get("batches"):
             log.info(
-                f"iter {iter_idx}: serve stages ({self._serve_threads} "
-                f"threads): wait={agg['wait']:.1f}s "
+                f"iter {iter_idx}: serve stages ({self._serve_processes} servers x "
+                f"{self._serve_threads} threads, leaves per server "
+                f"{leaves_per_server}): wait={agg['wait']:.1f}s "
                 f"infer={agg['infer']:.1f}s wire={agg['wire']:.1f}s "
                 f"put={agg['put']:.1f}s gpu={agg['gpu_ms'] / 1000.0:.1f}s "
                 f"({agg['gpu_ms'] / max(served, 1):.2f} ms/leaf) leaves/batch="
@@ -883,14 +1398,14 @@ class ActorPool:
         # Host milliseconds per batch by stage (the t_* stages come from
         # the seam on CUDA only, so they read 0 on CPU), and what the
         # batch picker saw: requests per batch, waiting requests at each
-        # pick, requests deferred by the length rule.
-        picker = self._picker
+        # pick, requests deferred by the length rule (summed over the
+        # servers' pickers).
         nb = int(agg.get("batches", 0) or 0)
         self.last_host_ms = ({k: 1000.0 * agg[k] / nb for k in (
             "unpack", "t_encode", "t_forward", "t_priors", "t_finish", "t_reply", "wire", "put")}
             if nb else None)
-        self.last_skipped_requests = picker.skipped
-        self.last_queue_depth = picker.depth / picker.picks if picker.picks else None
+        self.last_skipped_requests = pick["skipped"]
+        self.last_queue_depth = pick["depth"] / pick["picks"] if pick["picks"] else None
         if nb:
             hm = self.last_host_ms
             log.info(
@@ -899,7 +1414,7 @@ class ActorPool:
                 f"priors={hm['t_priors']:.2f} wait={hm['t_finish']:.2f} "
                 f"reply={hm['t_reply']:.2f} wire={hm['wire']:.2f} put={hm['put']:.2f} | "
                 f"coalesce={self._coalesce} requests/batch={agg['requests'] / nb:.2f} "
-                f"queue depth={self.last_queue_depth or 0:.2f} skipped={picker.skipped}")
+                f"queue depth={self.last_queue_depth or 0:.2f} skipped={pick['skipped']}")
         log.info(f"iter {iter_idx}: pool served {served} forwards, "
                  f"{len(outcomes)} games, {len(experiences)} experiences, "
                  f"decision_step {ds0} -> {self._global_decision_step()}")
@@ -922,76 +1437,6 @@ class ActorPool:
                      f"pad_ratio={self.last_pad_ratio or 0:.2f}")
         return outcomes, experiences
 
-    def _serve_worker(self, stop_ev, stats_out: List[Dict]) -> None:
-        """One serving thread: take a batch (the picker coalesces the
-        queued requests) -> unpack -> encode+forward -> wire-serialize
-        -> reply. Stage times are accumulated locally (no locks on the
-        hot path) and appended to `stats_out` on exit; on CUDA the seam
-        adds the host seconds of its own stages to the same dict."""
-        from tools.inference_seam import output_to_wire
-        from wesnoth_ai.leaf_wire import PackedRequest, unpack_request
-        # (monotonic time, cumulative leaves) every ~10 s: the iteration
-        # average hides the tail where most actors have finished
-        # (2026-09-05 whole-pool profile: median game finish at 40% of
-        # the wall); run_iteration derives the saturated rate from it.
-        timeline: List[Tuple[float, int]] = []
-        next_mark = time.monotonic()
-        st = {"wait": 0.0, "unpack": 0.0, "infer": 0.0, "wire": 0.0, "put": 0.0, "gpu_ms": 0.0,
-              "timeline": timeline,
-              "leaves": 0, "batches": 0, "requests": 0, "tokens": 0, "padded": 0}
-        picker = self._picker
-        while not stop_ev.is_set():
-            t0 = time.monotonic()
-            batch = picker.take(self._req_q, self._max_batch, self._serve_timeout)
-            t1 = time.monotonic()
-            st["wait"] += t1 - t0
-            if not batch:
-                continue
-            flat = []
-            for w in batch:
-                payload = w.item[2]
-                flat.extend(unpack_request(payload) if isinstance(payload, PackedRequest)
-                            else payload)
-            t2 = time.monotonic()
-            try:
-                outs = self._server.infer_batch(flat, stats=st)
-                t3 = time.monotonic()
-                wires = [output_to_wire(o) for o in outs]
-            except Exception:                       # noqa: BLE001
-                # A serve-thread death used to hang every actor
-                # waiting on this batch (2026-09-04: the stats line
-                # below choked on (raw, masks) items). Reply with a
-                # failure marker so the actors raise instead.
-                log.error("inference server failed on a batch of %d leaves:\n%s",
-                          len(flat), traceback.format_exc())
-                for w in batch:
-                    aid, rid, _payload = w.item
-                    self._resp_qs[aid].put((rid, None))
-                continue
-            t4 = time.monotonic()
-            i = 0
-            for w in batch:
-                aid, rid, _payload = w.item
-                self._resp_qs[aid].put((rid, wires[i:i + w.n_leaves]))
-                i += w.n_leaves
-            t5 = time.monotonic()
-            st["unpack"] += t2 - t1
-            st["infer"] += t3 - t2
-            st["wire"] += t4 - t3
-            st["put"] += t5 - t4
-            st["leaves"] += len(flat)
-            st["batches"] += 1
-            st["requests"] += len(batch)
-            if t5 >= next_mark:
-                timeline.append((t5, st["leaves"]))
-                next_mark = t5 + 10.0
-            # Sequence lengths: hex tokens + unit tokens per leaf, and
-            # what the batch pads to (its longest leaf).
-            lens = [n for w in batch for n in w.lens]
-            st["tokens"] += sum(lens)
-            st["padded"] += len(lens) * max(lens)
-        stats_out.append(st)
-
     def shutdown(self, timeout: float = 15.0) -> None:
         if not self._started:
             return
@@ -1000,10 +1445,15 @@ class ActorPool:
                 q.put((_CMD_STOP,))
             except Exception:
                 pass
-        for p in self._procs:
+        for q in self._server_ctrl_qs:
+            try:
+                q.put((_SRV_STOP,))
+            except Exception:
+                pass
+        for p in self._procs + self._server_procs:
             p.join(timeout)
             if p.is_alive():
-                log.warning(f"terminating unresponsive actor {p.name}")
+                log.warning(f"terminating unresponsive process {p.name}")
                 p.terminate()
         self._started = False
 

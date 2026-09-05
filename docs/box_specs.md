@@ -653,3 +653,58 @@ remaining host items: the forward's kernel launches (10.4 ms; the
 compiled loop is the lever), the priors extraction (6 ms), request
 unpickling (2.5 ms), wire (2.5 ms). A second serve process would
 double the host budget; the GPU has room for ~1.5x more.
+
+## Serve processes: how to run (built 2026-09-05, not yet timed on a box)
+
+`ActorPool(serve_processes=N)` (tools/actor_pool.py, module docstring
+"Serve processes") keeps the learner's in-process serve threads and
+adds N-1 serve processes on the same device, each with its own copy
+of the inference model at the learner's switches (bf16, packed trunk,
+compiled packed loop, packed embed, server priors), its own request
+queue and its own serve threads. Actor `a` asks server `a % N`
+(server 0 is the learner process), so 16 actors and N = 2 give each
+server 8 actors. Each serve process caps OMP/MKL/OpenBLAS and torch
+at 4 threads (the caps go into the environment before the spawn,
+since the child imports torch while unpickling its target; the
+container's PID limit is 4,352 threads).
+
+Weights: after every publication the loop calls `pool.sync_servers()`
+between iterations; the learner's model and encoder state_dicts go
+to each server as one `torch.save` byte string on its control queue
+and the pool waits for the acks. `run_iteration` refuses to start
+while a server's version (the learner's
+`WesnothModel._weights_version`, bumped by every `load_state_dict`)
+lags. Rejected: torch's CUDA IPC sharing of the state tensors,
+because (torch 2.5.1 docs, "Sharing CUDA tensors") the sending
+process must keep the original tensor alive as long as any receiver
+holds it, a receiver killed by a signal never releases its handle,
+and the pool's 'file_system' sharing strategy does not apply to CUDA
+tensors; one copy of tens of MB per iteration of hundreds of seconds
+buys nothing from the sharing and works the same on CPU and CUDA.
+
+Failure: a dead serve process poisons its actors' reply queues (the
+client raises instead of waiting) and the iteration aborts with
+`ServeProcessDied`; `shutdown()` stops the serve processes; a serve
+process whose learner is gone exits on its own. Stats: each server's
+serve threads report the same dict (host ms split, leaf timeline),
+`run_iteration` merges them, so `saturated_leaves_per_s` covers all
+servers and `leaves_per_server` shows the split.
+
+On the box (16 actors, 32 games, the packed-trunk configuration):
+
+    python tools/bench_pool.py --checkpoint training/checkpoints/seed_imit_tierb_start.pt \
+        --actors 16 --games 32 --sims 32 --leaf-batch 16 --max-batch 16 \
+        --server-priors --infer-bf16 --packed-trunk --packed-embed \
+        --serve-processes 2 --out pool_serve2.json
+
+`bench_pool` first logs `serve-process parity on one leaf` (the value
+and value-logit differences between the serve process and the learner
+process on the same leaf: bf16 kernel noise, ~1e-2 of scale, is the
+expected size; anything larger is a sync or switch mismatch) and
+records `serve_processes`, `leaves_per_server` and `server_parity`.
+Expected: the host budget doubles (two GILs), so if the host work was
+the ceiling the saturated rate moves from ~850 toward the GPU's room
+(~1.5x, 1,100-1,300 leaves/s) and `leaves_per_server` splits about
+evenly; if it stays at ~850 with the GPU ms per leaf unchanged, the
+device stream is the ceiling and the row is dead. Memory: a second
+CUDA context plus the model copy, under 1 GB on the 4090.

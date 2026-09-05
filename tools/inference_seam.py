@@ -47,8 +47,9 @@ above is unchanged.
 from __future__ import annotations
 
 import dataclasses
+import io
 import time
-from typing import Dict, List, Optional, Protocol
+from typing import Dict, List, Optional, Protocol, Tuple
 
 import torch
 
@@ -333,6 +334,62 @@ class InferenceServer:
                             ("t_finish", t4 - t3), ("t_reply", t5 - t4)):
                 stats[key] = stats.get(key, 0.0) + dt
         return outs
+
+
+# ---------------------------------------------------------------------
+# A copy of the inference pair in another process (the serve processes
+# of tools/actor_pool.py)
+# ---------------------------------------------------------------------
+
+@dataclasses.dataclass(frozen=True)
+class InferenceBlueprint:
+    """Constructor arguments that rebuild a learner's inference model
+    and encoder elsewhere, read off the live modules so the copy's
+    state_dict keys and shapes match the learner's. Weights travel
+    separately (pack_inference_state / load_inference_state)."""
+    model_kwargs: Dict
+    encoder_kwargs: Dict
+
+
+def inference_blueprint(model, encoder) -> InferenceBlueprint:
+    layer = model.encoder.layers[0]
+    return InferenceBlueprint(
+        model_kwargs=dict(
+            d_model=int(model.d_model), num_layers=len(model.encoder.layers),
+            num_heads=int(layer.self_attn.num_heads),
+            d_ff=int(layer.linear1.out_features), dropout=float(layer.dropout.p),
+            max_attacks=int(model.max_attacks), aux_score=bool(model.has_aux_score),
+            moves_left=bool(model.has_moves_left), gbc=bool(model.has_gbc)),
+        encoder_kwargs=dict(d_model=int(encoder.d_model),
+                            relevant_set_hexes=bool(encoder.relevant_set_hexes)))
+
+
+def build_inference_pair(blueprint: InferenceBlueprint, device: torch.device) -> Tuple:
+    """A fresh (model, encoder) at the blueprint's architecture, in eval
+    mode on `device`, with random weights until load_inference_state."""
+    from wesnoth_ai.encoder import GameStateEncoder
+    from wesnoth_ai.model import WesnothModel
+    model = WesnothModel(**blueprint.model_kwargs).to(device).eval()
+    encoder = GameStateEncoder(**blueprint.encoder_kwargs).to(device).eval()
+    return model, encoder
+
+
+def pack_inference_state(model, encoder) -> bytes:
+    """Both state_dicts as one torch.save byte string: a single
+    message on a control queue, every dtype supported, no shared-memory
+    or CUDA IPC handle whose lifetime the sender would have to manage
+    (see ActorPool.sync_servers)."""
+    buf = io.BytesIO()
+    torch.save({"model": model.state_dict(), "encoder": encoder.state_dict()}, buf)
+    return buf.getvalue()
+
+
+def load_inference_state(blob: bytes, model, encoder, device: torch.device) -> None:
+    state = torch.load(io.BytesIO(blob), map_location=device, weights_only=True)
+    model.load_state_dict(state["model"])
+    encoder.load_state_dict(state["encoder"])
+    model.eval()
+    encoder.eval()
 
 
 # ---------------------------------------------------------------------

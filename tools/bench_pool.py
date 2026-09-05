@@ -35,7 +35,8 @@ def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
              server_priors: bool, max_turns: int, device, seed: int,
              iteration_timeout: float, log_level: int = logging.WARNING,
              max_batch: int = 16, serve_threads: int = 2, packed_embed: bool = False,
-             coalesce: str = "fifo", coalesce_gap: int = 0) -> dict:
+             coalesce: str = "fifo", coalesce_gap: int = 0,
+             serve_processes: int = 1) -> dict:
     from tools.actor_pool import ActorPool
     from tools.mcts import MCTSConfig
     from tools.mcts_policy import MCTSPolicy, ReplayConfig
@@ -61,10 +62,14 @@ def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
                      log_level=log_level, iteration_timeout=iteration_timeout,
                      drain_grace=120.0, server_priors=bool(server_priors),
                      serve_threads=serve_threads, packed_embed=packed_embed,
-                     coalesce=coalesce, coalesce_gap=coalesce_gap)
+                     coalesce=coalesce, coalesce_gap=coalesce_gap,
+                     serve_processes=serve_processes)
     pool.start()
     t0 = time.monotonic()
     try:
+        parity = _server_parity(pool, seed) if serve_processes > 1 else None
+        if parity:
+            log.info("serve-process parity on one leaf: %s", parity)
         outcomes, exps = pool.run_iteration(0, games, seed)
     finally:
         pool.shutdown()
@@ -84,6 +89,13 @@ def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
                            or getattr(policy, "_infer_bf16", False)),
         "sims": sims, "leaf_batch": leaf_batch, "max_turns": max_turns,
         "max_batch": max_batch, "serve_threads": serve_threads,
+        # Servers in total (the learner process plus N-1 serve processes),
+        # the leaves each served, and how far each serve process's copy
+        # of the model is from the learner's on one leaf (bf16 noise on
+        # cuda, exact on cpu).
+        "serve_processes": serve_processes,
+        "leaves_per_server": getattr(pool, "last_leaves_per_server", None),
+        "server_parity": parity,
         "packed_trunk": bool(getattr(base, "infer_packed_trunk", False)),
         "packed_embed": bool(packed_embed),
         "coalesce": coalesce, "coalesce_gap": coalesce_gap,
@@ -116,6 +128,22 @@ def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
     return res
 
 
+def _server_parity(pool, seed: int) -> list:
+    """One ladder leaf through every server: the largest absolute
+    difference of each serve process's value and value logits from
+    the learner process's."""
+    import random
+    from tools.scenario_pool import build_scenario_gamestate, load_factions, random_setup
+    load_factions()
+    gs = build_scenario_gamestate(random_setup(random.Random(seed), forced_faction=None,
+                                               category="ladder"))
+    outs = pool.probe([gs])
+    ref = outs[0][0]
+    return [{"value_abs_diff": float((o[0].value - ref.value).abs().max()),
+             "value_logits_abs_diff": float((o[0].value_logits - ref.value_logits).abs().max())}
+            for o in outs[1:]]
+
+
 def main(argv) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -128,8 +156,13 @@ def main(argv) -> int:
                     help="Leaves the server coalesces per batch across actors "
                          "(ActorPool max_batch; the az legs used 16).")
     ap.add_argument("--serve-threads", type=int, default=2,
-                    help="Serving threads in the pool process (2 in the az legs); "
+                    help="Serving threads per server (2 in the az legs); "
                          "more overlap the per-batch Python with the GPU wait.")
+    ap.add_argument("--serve-processes", type=int, default=1,
+                    help="Servers in total: the pool process plus N-1 serve processes, "
+                         "each with its own copy of the model on the same device, its "
+                         "own request queue and serve threads; actors are assigned "
+                         "round-robin (docs/box_specs.md, 'Serve processes: how to run').")
     ap.add_argument("--max-turns", type=int, default=30)
     ap.add_argument("--server-priors", action="store_true")
     ap.add_argument("--iteration-timeout", type=float, default=1500.0)
@@ -194,7 +227,8 @@ def main(argv) -> int:
                    max_turns=args.max_turns, device=device, seed=args.seed,
                    iteration_timeout=args.iteration_timeout, max_batch=args.max_batch,
                    serve_threads=args.serve_threads, packed_embed=args.packed_embed,
-                   coalesce=args.coalesce, coalesce_gap=args.coalesce_gap)
+                   coalesce=args.coalesce, coalesce_gap=args.coalesce_gap,
+                   serve_processes=args.serve_processes)
     if args.dollars_per_hour and res["games_per_hour"]:
         res["games_per_dollar"] = res["games_per_hour"] / args.dollars_per_hour
     print(json.dumps(res, indent=1))

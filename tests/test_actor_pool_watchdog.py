@@ -65,13 +65,23 @@ def _pool(procs, results, *, iteration_timeout=1800.0,
     pool._max_batch = 8
     pool._serve_timeout = 0.0
     pool._serve_threads = 1
+    pool._coalesce = "fifo"
+    pool._coalesce_gap = 0
     pool.value_center = 0.0     # MCTSConfig.value_center broadcast (az4)
     pool.server_priors = False  # server-side priors flag (plan 1.3)
     pool._ctrl_qs = [_FakeQ() for _ in procs]
     pool._resp_qs = [_FakeQ() for _ in procs]
-    pool._req_q = _FakeQ()              # always empty -> idle path
+    pool._req_qs = [_FakeQ()]           # always empty -> idle path
+    pool._server = None                 # never asked (no requests)
     pool._result_q = _FakeQ(results)
     pool._procs = list(procs)
+    # No serve processes: the learner process is the only server.
+    pool._serve_processes = 1
+    pool._server_procs = []
+    pool._server_ctrl_qs = []
+    pool._server_versions = []
+    pool._server_q = _FakeQ()
+    pool._serving = False
     return pool
 
 
