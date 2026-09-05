@@ -124,6 +124,19 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
      varlen trunk, the compiled tensor-only forward, length buckets);
      try 3-4 serve threads or serve processes to overlap CPU with the
      GPU wait. The PID limit (4,352) and thread caps stand.
+   - MEASURED 2026-09-05 (serve host split, docs/box_specs.md): ~36 ms
+     of host work per 16-leaf batch per serve thread is the ceiling
+     (forward launches 10.9, padded encode 8.5, priors 5.9, unpack
+     2.5, wire 2.4) with the GPU at 1.8 ms per leaf. Packed embed
+     -4.9 ms (on by default); length coalescing no gain (off).
+   - SHIPPED 2026-09-05: serve processes (`ActorPool(serve_processes=N)`,
+     `bench_pool --serve-processes`): extra serving processes with
+     their own model copy, weights pushed as one blob after each
+     publication with a version check (CUDA IPC sharing rejected per
+     the torch 2.5.1 constraints), stats merged. Pool row queued after
+     the arms; expected toward ~1.5x if the host work is the ceiling.
+     az_loop flag and its sync_servers() call after train_step still
+     to add once the row is in.
    - Persistent eval workers shipped (`run_elo_batch
      --persistent-workers`, tools/eval_workers.py): 20 seed-vs-seed
      games at 10 concurrent in 97 s against 408 s one-process
