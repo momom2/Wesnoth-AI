@@ -85,8 +85,10 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
      the reference order, one sync per batch, and the reply carries
      value/cliffness/aux in the same transfer; serve threads log GPU
      ms per leaf. Bit-identical priors on harvested leaves; the CUDA
-     tests pass on the box (CPU-vs-CUDA equality, no implicit sync);
-     the pool measurement is queued.
+     tests pass on the box (CPU-vs-CUDA equality, no implicit sync).
+     MEASURED: 643 leaves/s in the best 60-s window (401 over the
+     iteration; 16 actors), the design's fed ceiling for today's
+     kernels; the serve inference stage is ~3.0 ms per leaf.
    - SHIPPED 2026-09-05 (GPU design option 1, behind a switch):
      `wesnoth_ai/packed_trunk.py`, flash varlen attention on the
      packed sequence, `WesnothModel.infer_packed_trunk` (default off),

@@ -460,3 +460,21 @@ Only about 9 ms of the 35 scale with the token count on this path;
 the fixed ~26 ms is the per-sample padding and launch work that the
 seam path avoids. The token dependence is what the study needed; the
 absolute floor belongs to the server path's own levers.
+
+## Pool runs with the saturated rate (2026-09-05, box 49875606)
+
+From here every pool row carries the best 60-second window
+(`saturated_leaves_per_s`, the fed rate) next to the iteration
+average, which the tail dilutes (game finish p50 at 40-55% of the
+wall). 16 actors, 16 games, priors + bf16, packed requests, server
+torch threads 4, actor thread pools capped, Rust encode_raw.
+
+| change | saturated leaves/s | iteration leaves/s | GPU ms per leaf (2 threads, over-counted) | infer s / wait s | games/h |
+|---|---|---|---|---|---|
+| staged priors (one H2D copy, device compaction, one sync) | 643 | 401 | 2.60 | 858 / 544 | 80 |
+
+Reading: 643 leaves/s in the fed window is the design doc's estimate
+of the fed ceiling with today's kernels (~670); the serve threads'
+inference stage fell to ~3.0 ms per leaf (from 3.5-6.3 before the
+staging) and the GPU is ~85% busy at saturation. The next rows come
+from the packed varlen trunk and the serve-thread count.
