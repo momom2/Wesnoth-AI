@@ -401,7 +401,10 @@ def test_confirmation_replays_the_screened_turns(policy, positions):
     assert same["base"]["post_state_key"] == screen["base"]["post_state_key"]
     assert [a["actions"] for a in same["alternatives"]] == [best["actions"]]
     assert same["alternatives"][0]["post_state_key"] == best["post_state_key"]
-    assert same["alternatives"][0]["source"] == "alt0"
+    best_j = max(range(len(screen["alternatives"])),
+                 key=lambda j: screen["alternatives"][j]["mean"])
+    assert same["alternatives"][0]["source"] == f"screen_alt{best_j}"
+    assert same["n_alternatives_sampled"] == 1
     assert same["base"]["outcomes"] == screen["base"]["outcomes"]
     fresh = tg.measure_position(policy, positions[0],
                                 tg.GapConfig(k_alternatives=2, playouts=2, temperature=1.0,
@@ -451,3 +454,82 @@ def test_pooled_z_reads_a_base_blunder():
     assert abs(tg.pooled_z(equal)) < 1.0
     assert tg.pooled_z(rec([1] * 4, [[1] * 4])) is None
     assert tg.pooled_z(rec([1, -1], [])) is None
+
+
+def test_sequential_grading_without_alternatives_still_plays_the_base(policy, positions):
+    """K = 0 under a sequential schedule: the base plays one round and
+    the record carries its mean (the run must not crash on a
+    position with no distinct alternative)."""
+    cfg = tg.GapConfig(k_alternatives=0, playouts=4, cap_turns=2, seed=1, rounds=2)
+    rec = tg.measure_position(policy, positions[0], cfg)
+    assert rec["screen"]["verdict"] == "no_alternative"
+    assert len(rec["base"]["outcomes"]) == 2 and "mean" in rec["base"]
+    assert rec["n_alternatives"] == 0 and rec["n_alternatives_sampled"] == 0
+
+
+def test_confirmation_offsets_past_the_screen_under_the_same_seed():
+    """The CLI default offset of 0 becomes the first index past the
+    screen's playouts; an explicit offset inside the screen's range is
+    refused; another seed keeps its own offset."""
+    screen_cfg = {"seed": 1, "playout_offset": 0, "playouts": 40}
+    cfg = tg.GapConfig(seed=1, playouts=160)
+    assert tg._fresh_playouts(cfg, screen_cfg, 0).playout_offset == 40
+    with pytest.raises(SystemExit):
+        tg._fresh_playouts(tg.GapConfig(seed=1, playouts=160, playout_offset=20),
+                           screen_cfg, 20)
+    assert tg._fresh_playouts(tg.GapConfig(seed=1, playouts=160, playout_offset=40),
+                              screen_cfg, 40).playout_offset == 40
+    assert tg._fresh_playouts(tg.GapConfig(seed=2, playouts=160), screen_cfg, 0).playout_offset == 0
+
+
+def test_worker_init_failure_fails_the_task(monkeypatch):
+    """A worker that could not load its policy raises on its first
+    task instead of the pool respawning it forever."""
+    monkeypatch.setattr(tg, "load_reference_policy",
+                        lambda spec: (_ for _ in ()).throw(OSError("no checkpoint")))
+    monkeypatch.setattr(tg, "_WORKER_INIT_ERROR", None)
+    tg._worker_init(tg.PolicySpec("x", "cpu", False, False), "INFO")
+    with pytest.raises(RuntimeError, match="no checkpoint"):
+        tg._worker_task((None, None, None, 1))
+
+
+def test_replay_refuses_a_turn_that_does_not_realize(policy, positions):
+    """A recorded action the sim refuses, or a base whose replay does
+    not reproduce the screen's decisions, aborts the confirmation."""
+    cfg = tg.GapConfig(k_alternatives=1, playouts=2, temperature=1.0, cap_turns=2, seed=1)
+    screen = tg.measure_position(policy, positions[0], cfg)
+    bad = json.loads(json.dumps(screen))
+    bad["base"]["actions"] = [{"type": "move", "start_hex": [0, 0], "target_hex": [0, 1]},
+                              {"type": "end_turn"}]
+    with pytest.raises(RuntimeError):
+        tg.measure_position(policy, positions[0], cfg, replay=bad)
+    other = json.loads(json.dumps(screen))
+    other["base"]["n_decisions"] = screen["base"]["n_decisions"] + 5
+    with pytest.raises(RuntimeError, match="n_decisions"):
+        tg.measure_position(policy, positions[0], cfg, replay=other)
+
+
+def test_pregrader_reads_terminal_turns_and_reports_ties():
+    """The analysis script: a terminal alternative's value read is its
+    outcome; an HP-margin tie is a tie, not a miss; the verdict kills
+    only on a strictly lower rank."""
+    sys.path.insert(0, str(Path(__file__).parent.parent / "tools" / "analysis"))
+    import turn_gap_pregrader as pg
+
+    def cand(outcomes, value, hp, terminal=False):
+        return {"outcomes": outcomes, "capped": [False] * len(outcomes),
+                "value_post": value, "hp_margin_post": hp, "terminal_in_turn": terminal}
+    records = [{"index": 0, "base": cand([-1, -1, 1, -1], -0.5, 10),
+                "alternatives": [cand([1, 1, 1, 1], None, 10, terminal=True)]},
+               {"index": 1, "base": cand([1, -1, 1, -1], 0.0, 0),
+                "alternatives": [cand([1, 1, -1, 1], 0.4, 5)]}]
+    out = pg.analyze(records, 0.25)
+    v = out["pregraders"]["value_post"]
+    assert v["n_skipped"] == 0 and v["n_confirmed"] == 2
+    assert v["n_confirmed_ranked_above"] == 2
+    h = out["pregraders"]["hp_margin_post"]
+    assert h["n_confirmed_tied"] == 1 and h["n_confirmed_ranked_below"] == 0
+    assert pg.verdict(out).startswith("ALIVE") or pg.verdict(out).startswith("inconclusive")
+    below = [{"index": 0, "base": cand([-1, -1, 1, -1], 0.5, 10),
+              "alternatives": [cand([1, 1, 1, -1], 0.1, 10)]}]
+    assert "ranked below" in pg.verdict(pg.analyze(below, 0.25))

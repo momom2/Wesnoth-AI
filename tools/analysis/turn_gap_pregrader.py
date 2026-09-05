@@ -44,38 +44,67 @@ def playout_mean_se(candidate: Dict) -> Tuple[float, float]:
     return float(xs.mean()), se
 
 
-def collect(records: Sequence[Dict], key: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray, int]:
-    """(pre-grader values, playout means, position ids) over candidates
-    where the pre-grader is defined; plus the count of skipped ones."""
-    xs, ys, pos, skipped = [], [], [], 0
+def pregrader_value(candidate: Dict, key: str) -> Optional[float]:
+    """The pre-grader's read of a candidate. A turn that ended the game
+    has no value_post; the value of a terminal state is its outcome
+    (the repeated terminal result), which is what a value head reads."""
+    x = candidate.get(key)
+    if x is None and key == "value_post" and candidate.get("terminal_in_turn"):
+        return float(candidate["outcomes"][0])
+    return None if x is None else float(x)
+
+
+def collect(records: Sequence[Dict], key: str):
+    """(pre-grader values, playout means, playout counts, position ids)
+    over candidates where the pre-grader is defined; plus the count of
+    skipped ones."""
+    xs, ys, ns, pos, skipped = [], [], [], [], 0
     for rec in records:
         for cand in candidates_of(rec):
-            x = cand.get(key)
+            x = pregrader_value(cand, key)
             if x is None:
                 skipped += 1
                 continue
-            xs.append(float(x))
+            xs.append(x)
             ys.append(playout_mean_se(cand)[0])
+            ns.append(len(cand["outcomes"]))
             pos.append(int(rec["index"]))
-    return np.asarray(xs), np.asarray(ys), np.asarray(pos), skipped
+    return np.asarray(xs), np.asarray(ys), np.asarray(ns, dtype=float), np.asarray(pos), skipped
 
 
-def fit_line(x: np.ndarray, y: np.ndarray) -> Tuple[float, float]:
+def fit_line(x: np.ndarray, y: np.ndarray, w: Optional[np.ndarray] = None) -> Tuple[float, float]:
+    """Least squares y = a x + b, weighted by `w` (the playout counts:
+    a candidate graded on few playouts says less about the fit)."""
     if len(x) < 2 or float(np.var(x)) == 0.0:
         return 0.0, float(np.mean(y)) if len(y) else 0.0
-    a, b = np.polyfit(x, y, 1)
+    a, b = np.polyfit(x, y, 1, w=None if w is None else np.sqrt(w))
     return float(a), float(b)
 
 
-def within_position_sd(residuals: np.ndarray, pos: np.ndarray) -> Optional[float]:
-    """Pooled SD of the residuals around their per-position mean
-    (positions with one candidate contribute nothing)."""
+def weighted_sd(values: np.ndarray, w: np.ndarray, ddof: int) -> Optional[float]:
+    """SD of `values` around their weighted mean, weights normalized to
+    the sample size (so ddof keeps its meaning)."""
+    if len(values) <= ddof:
+        return None
+    w = w * len(w) / w.sum()
+    mean = float((w * values).sum() / w.sum())
+    return math.sqrt(float((w * (values - mean) ** 2).sum()) / (len(values) - ddof))
+
+
+def within_position_sd(residuals: np.ndarray, pos: np.ndarray,
+                       w: Optional[np.ndarray] = None) -> Optional[float]:
+    """Pooled SD of the residuals around their per-position (weighted)
+    mean; positions with one candidate contribute nothing."""
+    w = np.ones(len(residuals)) if w is None else w
     ss, dof = 0.0, 0
     for p in np.unique(pos):
-        r = residuals[pos == p]
+        m = pos == p
+        r, wp = residuals[m], w[m]
         if len(r) < 2:
             continue
-        ss += float(((r - r.mean()) ** 2).sum())
+        wp = wp * len(wp) / wp.sum()
+        mean = float((wp * r).sum() / wp.sum())
+        ss += float((wp * (r - mean) ** 2).sum())
         dof += len(r) - 1
     return math.sqrt(ss / dof) if dof else None
 
@@ -83,37 +112,45 @@ def within_position_sd(residuals: np.ndarray, pos: np.ndarray) -> Optional[float
 def rank_checks(records: Sequence[Dict], key: str, threshold: float) -> Dict:
     """Confirmed alternatives (gap >= threshold on the playouts): does
     the pre-grader put each above its base? Plus top-pick agreement."""
-    confirmed, ranked_above = [], []
+    confirmed = []
+    n_unranked = 0
     top_agree, top_close, n_positions = 0, 0, 0
     for rec in records:
         cands = candidates_of(rec)
         base = cands[0]
-        if base.get(key) is None:
-            continue
+        base_x = pregrader_value(base, key)
         base_mean = playout_mean_se(base)[0]
         for alt in cands[1:]:
             gap = playout_mean_se(alt)[0] - base_mean
-            if gap >= threshold and alt.get(key) is not None:
-                above = float(alt[key]) > float(base[key])
-                confirmed.append({"index": rec["index"], "gap": round(gap, 3),
-                                  "base": round(float(base[key]), 4),
-                                  "alt": round(float(alt[key]), 4),
-                                  "ranked_above": bool(above)})
-                ranked_above.append(above)
-        graded = [c for c in cands if c.get(key) is not None]
+            if gap < threshold:
+                continue
+            alt_x = pregrader_value(alt, key)
+            if base_x is None or alt_x is None:
+                n_unranked += 1
+                continue
+            rank = "above" if alt_x > base_x else ("tie" if alt_x == base_x else "below")
+            confirmed.append({"index": rec["index"], "gap": round(gap, 3),
+                              "base": round(base_x, 4), "alt": round(alt_x, 4),
+                              "rank": rank, "ranked_above": rank == "above"})
+        graded = [(c, pregrader_value(c, key)) for c in cands]
+        graded = [(c, x) for c, x in graded if x is not None]
         if len(graded) < 2:
             continue
         n_positions += 1
-        means = [playout_mean_se(c)[0] for c in graded]
-        pick = int(np.argmax([float(c[key]) for c in graded]))
+        means = [playout_mean_se(c)[0] for c, _ in graded]
+        pick = int(np.argmax([x for _, x in graded]))
         best = int(np.argmax(means))
         top_agree += pick == best
         top_close += means[best] - means[pick] <= 0.1
+    ranks = [c["rank"] for c in confirmed]
     return {
         "confirmed": confirmed,
         "n_confirmed": len(confirmed),
-        "n_confirmed_ranked_above": int(sum(ranked_above)),
-        "all_confirmed_ranked_above": bool(ranked_above) and all(ranked_above),
+        "n_confirmed_unranked": n_unranked,
+        "n_confirmed_ranked_above": ranks.count("above"),
+        "n_confirmed_tied": ranks.count("tie"),
+        "n_confirmed_ranked_below": ranks.count("below"),
+        "all_confirmed_ranked_above": bool(ranks) and all(r == "above" for r in ranks),
         "n_positions_ranked": n_positions,
         "top_pick_agrees": top_agree,
         "top_pick_within_0.1": top_close,
@@ -127,16 +164,22 @@ def analyze(records: Sequence[Dict], threshold: float) -> Dict:
            "n_candidates": int(sum(len(candidates_of(r)) for r in records)),
            "playout_mean_se_mean": float(np.mean(ses)) if ses else None,
            "threshold": threshold, "pregraders": {}}
+    noise_var = float(np.mean([s ** 2 for s in ses])) if ses else 0.0
     for key in PREGRADERS:
-        x, y, pos, skipped = collect(records, key)
-        a, b = fit_line(x, y)
+        x, y, n, pos, skipped = collect(records, key)
+        a, b = fit_line(x, y, n)
         resid = y - (a * x + b)
         corr = float(np.corrcoef(x, y)[0, 1]) if len(x) > 2 and np.var(x) > 0 else None
+        within = within_position_sd(resid, pos, n)
         out["pregraders"][key] = {
             "n": int(len(x)), "n_skipped": skipped,
             "slope": a, "intercept": b, "correlation": corr,
-            "residual_sd": float(resid.std(ddof=2)) if len(resid) > 2 else None,
-            "residual_sd_within_position": within_position_sd(resid, pos),
+            "residual_sd": weighted_sd(resid, n, 2) if len(resid) > 2 else None,
+            "residual_sd_within_position": within,
+            # The playout means carry their own noise (mean SE^2 over
+            # the candidates); what is left is the pre-grader's error.
+            "residual_sd_within_position_noise_corrected": (
+                None if within is None else math.sqrt(max(0.0, within ** 2 - noise_var))),
             "playout_mean_sd": float(y.std(ddof=1)) if len(y) > 1 else None,
             **rank_checks(records, key, threshold),
         }
@@ -151,9 +194,15 @@ def verdict(result: Dict) -> str:
     sd = v["residual_sd_within_position"]
     if sd is None:
         return "undetermined (no within-position residuals)"
-    if sd >= 0.3 or (v["n_confirmed"] and not v["all_confirmed_ranked_above"]):
-        return "KILL (value-head pre-grading)"
-    if sd <= 0.2 and v["all_confirmed_ranked_above"]:
+    if sd >= 0.3:
+        return "KILL (residual SD >= 0.3)"
+    if v["n_confirmed_ranked_below"]:
+        return "KILL (a confirmed alternative ranked below its base)"
+    if sd <= 0.2:
+        if v["n_confirmed"] == 0:
+            return "ALIVE on the residual SD; the ranking check is vacuous (no confirmed alternative)"
+        if v["n_confirmed_tied"]:
+            return "inconclusive (residual SD passes, a confirmed alternative ties its base)"
         return "ALIVE"
     return "inconclusive (between the kill and the pass)"
 
@@ -171,16 +220,18 @@ def report(result: Dict) -> str:
             f"{key}: n={p['n']} (skipped {p['n_skipped']}), fit slope {fmt(p['slope'])} "
             f"intercept {fmt(p['intercept'])}, corr {fmt(p['correlation'])}, "
             f"residual SD {fmt(p['residual_sd'])} plain / "
-            f"{fmt(p['residual_sd_within_position'])} within-position "
-            f"(playout-mean SD {fmt(p['playout_mean_sd'])})")
+            f"{fmt(p['residual_sd_within_position'])} within-position / "
+            f"{fmt(p['residual_sd_within_position_noise_corrected'])} noise-corrected "
+            f"(playout-mean SD {fmt(p['playout_mean_sd'])}; fits weighted by playouts)")
         lines.append(
-            f"  confirmed alternatives (gap >= threshold): {p['n_confirmed']}, ranked above "
-            f"base by the pre-grader: {p['n_confirmed_ranked_above']}; top pick agrees "
-            f"{p['top_pick_agrees']}/{p['n_positions_ranked']}, within 0.1: "
+            f"  confirmed alternatives (gap >= threshold): {p['n_confirmed']} ranked "
+            f"(above {p['n_confirmed_ranked_above']}, tie {p['n_confirmed_tied']}, below "
+            f"{p['n_confirmed_ranked_below']}) + {p['n_confirmed_unranked']} without a read; "
+            f"top pick agrees {p['top_pick_agrees']}/{p['n_positions_ranked']}, within 0.1: "
             f"{p['top_pick_within_0.1']}/{p['n_positions_ranked']}")
         for c in p["confirmed"]:
             lines.append(f"    position {c['index']}: gap {c['gap']:+.3f}, base {fmt(c['base'], 'g')}, "
-                         f"alt {fmt(c['alt'], 'g')}, {'above' if c['ranked_above'] else 'BELOW'}")
+                         f"alt {fmt(c['alt'], 'g')}, {c['rank'].upper() if c['rank'] != 'above' else 'above'}")
     lines.append(f"verdict (value head): {verdict(result)}")
     return "\n".join(lines)
 
