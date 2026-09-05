@@ -80,20 +80,30 @@ State of play:
   therefore starts with engineering (10-30x cheaper games, certified
   bit-exact) and then turn-level search built directly against
   `raw:t0` with 800-game gates.
-- 2026-09-04/05 engineering day (details in BACKLOG.md and
-  docs/box_specs.md): pool generation 141 -> ~330 leaves/s (server
-  priors, bf16, packed requests, thread caps; the actor loop's own
-  ~50 ms per leaf is the ceiling now, profile in progress); eval
-  4.2x through persistent workers (800 games in ~65 min); Rust
-  encode_raw; 16 review findings fixed. Measured: `raw:t0` against
-  itself stalls (17 of 40 games at the 200-turn cap) while
-  `raw:t0.5` scores 22-18 against it with no stalls; at argmax the
-  leg-4 self-play product equals the seed (+17 +- 55) and the 5M
-  2291k equals the 15M seed (+9 +- 55). The phase-2 prerequisite
-  (turn-level value gap, docs/turn_gap_prereg_20260904.md) is
-  pre-registered and running.
-- Box 49875606 was running the queued measurements at the end of
-  that window; destroy it if it is still up. Vast credit about $57.
+- 2026-09-04/05 engineering days (details in BACKLOG.md and
+  docs/box_specs.md): pool generation 141 -> 833 leaves/s saturated
+  (server priors, bf16, staged priors, packed varlen trunk, packed
+  embed; all on by default in az_loop); the serve threads' host work
+  (~33 ms per 16-leaf batch) is the ceiling now, a second serve
+  process is implemented and queued for measurement; training path
+  684 -> 352 s per iteration (batched policy loss, batch 16, bf16),
+  the actor's packed masks shipped with each experience is the next
+  cut; eval 4.2x through persistent workers, 1.5x more through the
+  shared inference server. Measured: raw:t0 against itself stalls
+  (17 of 40 at the cap) while raw:t0.5 scores 22-18 with none; at
+  argmax the leg-4 product equals the seed (+17 +- 55) and the 5M
+  2291k equals the 15M seed (+9 +- 55). Phase-2 prerequisite
+  (docs/turn_gap_prereg_20260904.md): large turn-level gaps exist
+  but are sparse (3 of 60 positions confirmed out of sample, mean
+  gain of the best sampled turn +0.05 per turn). The relevant-set
+  two-arm imitation experiment (docs/model_cost_study_20260905.md)
+  is running on the box.
+- Rulings (2026-09-05): no optimizations conditioned on the MCTS
+  loop; scope every box test, train sparingly; results are written
+  on the run, never as atomic dumps; a box job past ~1.5x its
+  estimate gets inspected and cut.
+- Box 49875606 runs the queued measurements and the relevant-set arms;
+  destroy it when the queue is empty. Vast credit about $55.
 
 Standing rules (full list in the plan): the reference player is
 `raw:t0`; every strength claim is a PURE match against it with the
