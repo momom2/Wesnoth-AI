@@ -188,10 +188,16 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
   >= 0.25: 12/60 = 0.20 +- 0.05 against a permutation null of 0.18
   (no information); unbiased split-half gain of the best
   alternative +0.049 +- 0.041 (1.2 SE). Inconclusive by the
-  pre-registered rules; neither evidence nor kill fired. NEXT: the
-  pre-registered confirmation run on the 12 nominal big-gap
-  positions with 160 fresh playouts each (~$0.75), queued on the
-  box; it decides whether large gaps exist at this proposer quality.
+  pre-registered rules; neither evidence nor kill fired.
+- CONFIRMED 2026-09-05 ($0.84): of the 12 nominal big-gap positions,
+  3 confirm out of sample (gains +0.96, +0.38, +0.28), mean +0.13 +-
+  0.10, exactly as predicted. Large turn-level gaps exist but are
+  sparse (~5% of positions); the average gain of the best of four
+  sampled turns is ~+0.05 per turn. Price at this efficiency: about
+  $0.6 per confirmed large-gap example (temperature-1 proposer,
+  40 + 160 playouts). Phase-2 design question: a teacher that finds
+  these cheaper (better proposer, cheaper playouts), and whether
+  5% of turns carrying 0.3-1.0 of outcome is worth distilling.
 
 ## Cheap measurements worth taking
 

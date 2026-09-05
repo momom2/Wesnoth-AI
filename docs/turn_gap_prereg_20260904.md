@@ -271,3 +271,53 @@ quality and rollout-graded turn search has something to find; zero
 or one confirmed and a confirmed mean below 0.05 means the nominal
 gaps were selection noise and the proposer (temperature-1 sampling
 of the seed) must improve before turn search is priced again.
+
+## Confirmation result (2026-09-05, box 49875606)
+
+Settings as pre-registered (12 positions, K = 4 reproduced from their
+seeds, 160 fresh playouts per candidate, salts offset by 40,
+temperature 0.5, `--jobs 12`). Records:
+`training/metrics/turn_gap/confirm1.{json,md,log}`. Wall 2.54 h, $0.84.
+Capped playouts 11%.
+
+Out-of-sample gap of the alternative run 1 selected, on the 160 new
+playouts (the pre-registered estimand):
+
+| position | run 1 nominal gap | out-of-sample gap | base value (new) |
+|---|---|---|---|
+| 2 | +0.40 | -0.04 | +0.55 |
+| 3 | +0.27 | -0.18 | -0.54 |
+| 4 | +1.07 | +0.96 | -0.28 |
+| 9 | +0.38 | -0.11 | -0.48 |
+| 14 | +0.43 | +0.03 | -0.66 |
+| 18 | +0.35 | +0.28 | +0.24 |
+| 20 | +0.60 | +0.21 | +0.06 |
+| 29 | +0.55 | +0.22 | -0.71 |
+| 42 | +0.45 | +0.12 | -0.23 |
+| 49 | +0.75 | -0.42 | -0.39 |
+| 57 | +0.32 | +0.11 | +0.21 |
+| 59 | +0.42 | +0.38 | -0.74 |
+
+Confirmed at >= 0.25: 3 of 12 (prediction: at most 3). Mean
+out-of-sample gap +0.129 +- 0.098 (prediction: about +0.10). Eight of
+twelve positive. The run's own best-of-four on the new playouts (a
+second selection, but with a null of 0.015 at P = 160): 4 of 12 at
+>= 0.25, mean +0.23 +- 0.08, split-half +0.18 +- 0.08.
+
+Reading against the pre-registered rule: three confirmed positions
+meet the evidence threshold exactly, and the confirmed mean (0.13)
+sits between the two bars (0.05 and 0.15). Verdict: large turn-level
+gaps exist at this proposer quality, but they are sparse: about 3 of
+the 60 positions (5%, +- the count's own noise) carry an out-of-sample
+gain of 0.3 to 1.0 in expected outcome, and the average gain of the
+best of four sampled turns over all positions is about +0.05 per
+turn. Position 4 (a -0.28 base turn against a +0.68 alternative) is
+the kind of example a rollout-graded teacher would be built to find.
+
+Price of the signal at this efficiency: finding these three cost
+$0.90 of run 1 plus $0.84 of confirmation for 60 boundaries, i.e.
+about $0.6 per confirmed large-gap example with temperature-1
+sampling as the proposer and 40 + 160 playouts as the grader. That
+number, not the fraction, is what a phase-2 teacher design has to
+beat: a better proposer raises the hit rate, cheaper playouts (fewer
+tokens per leaf, decisive continuation policies) lower the price.
