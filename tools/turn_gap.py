@@ -86,6 +86,8 @@ class GapConfig:
     temperature: float = 1.0      # of the alternative turns
     cap_turns: int = 40           # playouts end undecided at the start of turn T0 + cap + 1
     seed: int = 1
+    playout_offset: int = 0            # first playout index: fresh salts for a
+                                       # confirmation run on selected positions
     playout_temperature: float = 0.0   # of both sides during the playouts (0 = raw:t0);
                                        # 2026-09-05: raw:t0 self-play stalls to the
                                        # 200-turn cap in 17 of 40 games, raw:t0.5
@@ -96,6 +98,8 @@ class GapConfig:
             raise ValueError("k_alternatives >= 0, playouts >= 1, cap_turns >= 1")
         if self.temperature < 0.0 or self.playout_temperature < 0.0:
             raise ValueError("temperatures must be >= 0")
+        if self.playout_offset < 0:
+            raise ValueError("playout_offset must be >= 0")
 
 
 @dataclass
@@ -280,7 +284,7 @@ def _run_playouts(candidate: Dict, sim: WesnothSim, position: BoundaryPosition,
     capped: List[bool] = []
     turns: List[int] = []
     seeds: List[str] = []
-    for r in range(cfg.playouts):
+    for r in range(cfg.playout_offset, cfg.playout_offset + cfg.playouts):
         salt = playout_salt(cfg.seed, position.index, c, r)
         if sim.done:
             # The candidate turn ended the game; every playout is that result.
@@ -619,6 +623,12 @@ def main(argv) -> int:
     ap.add_argument("--playouts", type=int, default=40, help="P per candidate.")
     ap.add_argument("--temperature", type=float, default=1.0,
                     help="Sampling temperature of the alternative turns.")
+    ap.add_argument("--positions", default=None,
+                    help="Comma-separated manifest indices to measure instead of "
+                         "the first --n-states (a confirmation run).")
+    ap.add_argument("--playout-offset", type=int, default=0,
+                    help="First playout index; the salts of a confirmation run "
+                         "must not overlap the run it confirms.")
     ap.add_argument("--playout-temperature", type=float, default=0.0,
                     help="Temperature of both sides during the playouts "
                          "(0 = the reference raw:t0; 0.5 avoids the "
@@ -653,8 +663,18 @@ def main(argv) -> int:
     cfg = GapConfig(k_alternatives=args.alternatives, playouts=args.playouts,
                     temperature=args.temperature, cap_turns=args.cap_turns,
                     playout_temperature=args.playout_temperature,
+                    playout_offset=args.playout_offset,
                     seed=args.seed)
-    positions = positions_from_manifest(args.states_json, args.dataset, args.n_states)
+    if args.positions:
+        wanted = sorted({int(x) for x in args.positions.split(",")})
+        positions = [p for p in positions_from_manifest(args.states_json, args.dataset,
+                                                        max(wanted) + 1)
+                     if p.index in set(wanted)]
+        if len(positions) != len(wanted):
+            raise SystemExit(f"--positions: {sorted(set(wanted) - {p.index for p in positions})} "
+                             f"not in the manifest")
+    else:
+        positions = positions_from_manifest(args.states_json, args.dataset, args.n_states)
     log.info("%d positions, K=%d P=%d T=%g cap=%d seed=%d, %s bf16=%s compile=%s jobs=%d",
              len(positions), cfg.k_alternatives, cfg.playouts, cfg.temperature,
              cfg.cap_turns, cfg.seed, spec.device, spec.infer_bf16,

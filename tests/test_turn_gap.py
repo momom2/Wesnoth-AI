@@ -192,3 +192,18 @@ def test_positions_survive_the_process_boundary(positions):
     assert state_key(back.gs) == state_key(positions[0].gs)
     assert back.scenario_id == positions[0].scenario_id
     assert pickle.loads(pickle.dumps(tg.GapConfig())) == tg.GapConfig()
+
+
+def test_playout_offset_uses_fresh_salts():
+    """A confirmation run's playouts must not reuse the salts of the run
+    it confirms: with playout_offset=40 the recorded salts are those of
+    playouts 40.. (the candidate turns themselves are unchanged)."""
+    from tools.turn_gap import GapConfig, playout_salt
+    cfg = GapConfig(k_alternatives=0, playouts=2, cap_turns=1, seed=5, playout_offset=40)
+    assert [playout_salt(cfg.seed, 7, 0, r) for r in range(cfg.playout_offset,
+                                                             cfg.playout_offset + cfg.playouts)] \
+        == [playout_salt(5, 7, 0, 40), playout_salt(5, 7, 0, 41)]
+    assert playout_salt(5, 7, 0, 40) != playout_salt(5, 7, 0, 0)
+    import pytest
+    with pytest.raises(ValueError):
+        GapConfig(playout_offset=-1)
