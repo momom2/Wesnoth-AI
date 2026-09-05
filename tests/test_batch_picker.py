@@ -1,4 +1,4 @@
-"""The serve threads' batch picker (tools/actor_pool._BatchPicker,
+"""The serve threads' batch picker (tools/serve_worker._BatchPicker,
 design note section 7): the fifo policy is the arrival-order rule the
 pool always had; the length policy groups the queued requests by token
 count, never delays a request by more than one batch, and applies the
