@@ -3,6 +3,7 @@ prerequisite, docs/turn_gap_prereg_20260904.md). CPU, a tiny
 random-init policy, fresh mini-map positions instead of the manifest."""
 from __future__ import annotations
 
+import json
 import math
 import pickle
 import random
@@ -269,3 +270,74 @@ def test_continue_edit_alternatives_extend_the_base_turn(policy, positions):
             assert acts[:len(base_prefix)] == base_prefix
             assert 0 <= a["extra_decisions"] <= 2
             assert len(acts) == len(base_prefix) + a["extra_decisions"]
+
+
+def test_shared_inference_reproduces_the_in_process_measurement(tmp_path, positions):
+    """The remote policy base (RemoteEncoder with server-side priors,
+    RemoteModel over one CPU server) yields the same candidate turns,
+    playout outcomes and pre-grader reads as the same checkpoint
+    loaded in-process: on CPU fp32 the seam is exact."""
+    from test_eval_inference_server import _tiny_checkpoint
+    from tools.eval_inference_server import launch_inference_server
+    spec_path = _tiny_checkpoint(tmp_path / "tiny.pt")
+    local = tg.load_reference_policy(tg.PolicySpec(spec_path, "cpu", False, False))
+    # Both paths must alias a unit type outside the checkpoint's vocab
+    # the same way (the server's dict is frozen by construction).
+    local._inference_encoder.freeze_vocab()
+    server = launch_inference_server(spec_path, tmp_path, "t", device="cpu",
+                                     infer_bf16=False, window_ms=1.0, max_batch=2)
+    cfg = tg.GapConfig(k_alternatives=1, playouts=2, temperature=1.0, cap_turns=2, seed=1)
+    try:
+        remote = tg.remote_policy(server.address)
+        expected = tg.measure_position(local, positions[0], cfg)
+        got = tg.measure_position(remote, positions[0], cfg)
+    finally:
+        stats = server.shutdown()
+    for key in ("base", "alternatives"):
+        assert _strip(got[key]) == _strip(expected[key])
+    for a, b in zip([expected["base"]] + expected["alternatives"],
+                    [got["base"]] + got["alternatives"]):
+        if a["value_post"] is not None:
+            assert abs(a["value_post"] - b["value_post"]) < 1e-4
+    assert stats is not None and stats["requests"] > 0 and stats["connections"] == 1
+
+
+def _strip(cands):
+    """Candidates without the process-local fields (state keys hash
+    strings per process; value_post is compared with a tolerance)."""
+    if isinstance(cands, dict):
+        cands = [cands]
+    return [{k: v for k, v in c.items() if k not in ("post_state_key", "value_post")}
+            for c in cands]
+
+
+def test_cli_shared_inference_launches_one_server_for_the_workers(tmp_path, positions,
+                                                                  monkeypatch):
+    """`--shared-inference --jobs 2`: main launches the server, the
+    spawned workers reach it, the result file records the shared
+    provenance and the server's stats, and the server is shut down."""
+    from test_eval_inference_server import _tiny_checkpoint
+    spec_path = _tiny_checkpoint(tmp_path / "tiny.pt")
+    monkeypatch.setattr(tg, "positions_from_manifest", lambda *a, **k: list(positions))
+    out = tmp_path / "gap.json"
+    rc = tg.main(["x", "--checkpoint", spec_path, "--device", "cpu", "--jobs", "2",
+                  "--shared-inference", "--n-states", "2", "--alternatives", "1",
+                  "--playouts", "1", "--cap-turns", "1", "--out", str(out)])
+    assert rc == 0
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert data["provenance"]["shared_inference"] is True
+    assert data["provenance"]["policy"]["inference_address"]
+    assert data["provenance"]["policy"]["infer_compile"] is False
+    stats = data["summary"]["inference_server"]
+    assert stats["requests"] > 0 and stats["connections"] == 2
+    assert len(data["positions"]) == 2
+    assert _server_processes_left() == []
+
+
+def _server_processes_left():
+    """Names of surviving child processes of this test (the server must
+    have exited with the run)."""
+    import psutil
+    me = psutil.Process()
+    return [c.name() for c in me.children(recursive=True)
+            if "eval_inference_server" in " ".join(c.cmdline())]

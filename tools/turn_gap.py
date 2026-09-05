@@ -111,11 +111,16 @@ class GapConfig:
 
 @dataclass
 class PolicySpec:
-    """What a worker needs to load the reference policy itself."""
+    """What a worker needs to load the reference policy itself, or to
+    reach the shared inference server that holds it."""
     checkpoint: Optional[str]     # path, or "random" for a random init
     device: str                   # "cpu" | "cuda"
     infer_bf16: bool
     infer_compile: bool
+    # Shared inference (tools/eval_inference_server.py): the workers
+    # keep the sim and the raw player, one server owns the model.
+    inference_address: Optional[str] = None
+    infer_packed_trunk: bool = False
 
 
 @dataclass
@@ -141,11 +146,33 @@ def positions_from_manifest(manifest: Path, dataset: Path,
 
 
 def load_reference_policy(spec: PolicySpec):
+    if spec.inference_address is not None:
+        return remote_policy(spec.inference_address)
     import torch
     from tools.eval_sim import _load_policy
     ckpt = None if spec.checkpoint in (None, "random") else Path(spec.checkpoint)
     return _load_policy(ckpt, torch.device(spec.device), label="turn_gap",
                         infer_bf16=spec.infer_bf16, infer_compile=spec.infer_compile)
+
+
+def remote_policy(address: str):
+    """A policy base over the shared inference server: a RemoteEncoder
+    on the server's vocab with server-side priors and a RemoteModel,
+    the surface RawPolicyPlayer and _value_read consume (the same
+    construction as tools/elo_eval_game's shared-inference player)."""
+    import threading
+    from types import SimpleNamespace
+    import torch
+    from tools.eval_inference_server import EvalInferenceClient
+    from tools.inference_seam import RemoteEncoder, RemoteModel
+    client = EvalInferenceClient(address)
+    h = client.hello
+    encoder = RemoteEncoder(h["type_to_id"], h["faction_to_id"],
+                            device=torch.device("cpu"),
+                            relevant_set=bool(h["relevant_set"]), server_priors=True)
+    return SimpleNamespace(_inference_model=RemoteModel(client),
+                           _inference_encoder=encoder,
+                           _lock=threading.Lock(), _decision_step=0)
 
 
 # ---------------------------------------------------------------------
@@ -786,6 +813,15 @@ def main(argv) -> int:
     ap.add_argument("--device", default="cpu", choices=("cpu", "cuda"))
     ap.add_argument("--infer-bf16", action=argparse.BooleanOptionalAction, default=None)
     ap.add_argument("--infer-compile", action=argparse.BooleanOptionalAction, default=None)
+    ap.add_argument("--shared-inference", action="store_true",
+                    help="One inference server (tools/eval_inference_server.py) "
+                         "owns the model; the --jobs workers keep the sim and "
+                         "the raw player and send their forwards to it in "
+                         "coalesced batches. The server's precision path "
+                         "(bf16 and the packed trunk on cuda) is recorded.")
+    ap.add_argument("--inference-window-ms", type=float, default=1.5,
+                    help="Shared inference: how long the server collects "
+                         "requests after the first before one forward.")
     ap.add_argument("--dollars-per-hour", type=float, default=0.0)
     ap.add_argument("--out", type=Path, default=None,
                     help="JSON with every record and the summary; the markdown "
@@ -804,6 +840,21 @@ def main(argv) -> int:
     import torch
     torch.set_num_threads(2)
     spec = _resolve_inference(args)
+    server = None
+    if args.shared_inference:
+        if spec.checkpoint == "random":
+            raise SystemExit("--shared-inference needs a checkpoint file (the server "
+                             "loads it), not 'random'")
+        from tools.eval_inference_server import launch_inference_server
+        server = launch_inference_server(
+            spec.checkpoint, args.out.parent if args.out else Path("."),
+            tag="turn_gap", device=spec.device, infer_bf16=spec.infer_bf16,
+            window_ms=args.inference_window_ms, max_batch=max(1, args.jobs))
+        spec = PolicySpec(checkpoint=spec.checkpoint, device=spec.device,
+                          infer_bf16=bool(server.info["infer_bf16"]),
+                          infer_compile=False, inference_address=server.address,
+                          infer_packed_trunk=bool(server.info["packed_trunk"]))
+        log.info("inference server at %s: %s", server.address, server.info)
     cfg = GapConfig(k_alternatives=args.alternatives, playouts=args.playouts,
                     temperature=args.temperature, cap_turns=args.cap_turns,
                     playout_temperature=args.playout_temperature,
@@ -820,10 +871,12 @@ def main(argv) -> int:
                              f"not in the manifest")
     else:
         positions = positions_from_manifest(args.states_json, args.dataset, args.n_states)
-    log.info("%d positions, K=%d P=%d T=%g cap=%d seed=%d, %s bf16=%s compile=%s jobs=%d",
+    log.info("%d positions, K=%d P=%d T=%g cap=%d seed=%d, %s bf16=%s compile=%s "
+             "packed=%s shared=%s jobs=%d",
              len(positions), cfg.k_alternatives, cfg.playouts, cfg.temperature,
              cfg.cap_turns, cfg.seed, spec.device, spec.infer_bf16,
-             spec.infer_compile, args.jobs)
+             spec.infer_compile, spec.infer_packed_trunk,
+             spec.inference_address is not None, args.jobs)
 
     t0 = time.time()
     header = {
@@ -832,7 +885,8 @@ def main(argv) -> int:
             "reference_procedure": REFERENCE_PROCEDURE,
             "alternative_procedure": f"raw:t{cfg.temperature:g}",
             "playout_procedure": f"raw:t{cfg.playout_temperature:g}",
-            "policy": asdict(spec), "torch": torch.__version__,
+            "policy": asdict(spec), "shared_inference": server is not None,
+            "torch": torch.__version__,
             "states_json": str(args.states_json), "dataset": str(args.dataset),
             "n_states": len(positions), "jobs": args.jobs,
             "dollars_per_hour": args.dollars_per_hour,
@@ -850,11 +904,17 @@ def main(argv) -> int:
                    dict(header, summary={"wall_secs": time.time() - t0},
                         positions=sorted(partial, key=lambda r: r["index"])))
 
-    records = measure_positions(positions, cfg, spec=spec, jobs=args.jobs,
-                                log_level=args.log_level, on_record=on_record)
+    try:
+        records = measure_positions(positions, cfg, spec=spec, jobs=args.jobs,
+                                    log_level=args.log_level, on_record=on_record)
+    finally:
+        server_stats = server.shutdown() if server is not None else None
     wall = time.time() - t0
     summary = summarize(records, threshold=args.gap_threshold, wall_secs=wall,
                         dollars_per_hour=args.dollars_per_hour)
+    if server is not None:
+        summary["inference_server"] = server_stats
+        log.info("inference server stats: %s", server_stats)
     report = markdown_summary(summary)
     print(report)
     if args.out:
