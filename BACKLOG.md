@@ -208,6 +208,20 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
   (+9 +- 55); the mcts:32 gaps (-367, +223) were procedure effects.
   Open: 800-game edges before any of these is quoted as a fact.
 
+## Rulings (user, 2026-09-05)
+
+- No optimizations conditioned on the current MCTS-like training
+  algorithm (leaf reuse, adaptive sims, search batching): the
+  training method may change. Throughput work stays on the generic
+  path: tokens per leaf, the server's per-batch cost, evaluation
+  cost, the training step.
+- Evaluations and training legs bill real hours: scope every box
+  test to the smallest informative version, train sparingly. The
+  relevant-set retrain is authorized at my judgment; it runs only if
+  the zero-training probe of the seed in that mode says it is needed.
+- Temperature is a tool for decisive playouts, not an object of
+  study; the seed will be retrained.
+
 ## Ops notes that are still true
 
 - Boxes: propose specs and cost, wait for a yes, `vms_enabled=false`,
