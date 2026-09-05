@@ -386,7 +386,11 @@ def main(argv) -> int:
                      iteration_timeout=args.iteration_timeout,
                      drain_grace=300.0,
                      server_priors=bool(args.server_priors),
-                     infer_bf16=bool(args.infer_bf16 and device.type == "cuda"))
+                     infer_bf16=bool(args.infer_bf16 and device.type == "cuda"),
+                     # 2026-09-05: the padded encode was 8.5 ms of the ~36 ms
+                     # host work per batch; one pinned copy straight into
+                     # the packed layout is 3.7 (docs/box_specs.md).
+                     packed_embed=bool(args.packed_trunk and device.type == "cuda"))
     pool.start()
 
     workdir = args.workdir
