@@ -494,7 +494,11 @@ as bf16 padded vs fp32); no implicit sync. GPU ms per 16-leaf batch:
 | mixed (pad 1.44) | 24,372 (35,024) | 37.4 | 13.9 | 2.69 |
 
 The flash varlen kernel replaces the masked mem-efficient kernel and
-the padding. In the pool the packed trunk lifts the saturated rate
+the padding. Compiled packed loop (one inductor graph, design section
+13), CUDA tests on the box: warmup 6.9 s, no recompiles, parity within
+bf16 noise; GPU ms per 16-leaf batch eager packed 10.74 -> compiled
+9.79, a 0.95 ms gain at the pre-set kill threshold of 1 ms; its pool
+row decides. In the pool the packed trunk lifts the saturated rate
 from 652 to 833 leaves/s (2.05 GPU ms per leaf); the serve threads'
 remaining CPU work (padded embed, priors, unpickling, wire) is now
 the larger part of a batch, which the compiled loop and the length

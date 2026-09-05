@@ -34,7 +34,9 @@ SHAPES = ([(3, 2, 40), (1, 0, 25), (5, 3, 33), (2, 1, 40)],
 
 
 def _has_cpp_compiler() -> bool:
-    return any(shutil.which(c) for c in ("cl", "g++", "gcc", "clang++", "clang"))
+    # A C compiler alone is not enough: inductor's CPU backend compiles
+    # C++ (the box had gcc but no g++ and fell back to eager, 2026-09-05).
+    return any(shutil.which(c) for c in ("cl", "g++", "clang++"))
 
 
 BACKENDS = ["aot_eager", pytest.param("inductor", marks=pytest.mark.skipif(
