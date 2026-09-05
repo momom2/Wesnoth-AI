@@ -475,6 +475,7 @@ torch threads 4, actor thread pools capped, Rust encode_raw.
 | same, 32 games, 2 serve threads (control for the row below) | 652 | 343 | 2.82 | 1,644 / 1,273 | - |
 | same, 32 games, 4 serve threads | 587 | 339 | 5.14 | 3,048 / 2,778 | - |
 | packed varlen trunk, 32 games, 2 serve threads | 833 | 489 | 2.05 | 1,303 / 857 | - |
+| packed trunk + compiled layer loop, 32 games | 863 | 503 | 1.80 | - | - |
 
 Reading: 643 leaves/s in the fed window is the design doc's estimate
 of the fed ceiling with today's kernels (~670); the serve threads'
@@ -497,8 +498,10 @@ The flash varlen kernel replaces the masked mem-efficient kernel and
 the padding. Compiled packed loop (one inductor graph, design section
 13), CUDA tests on the box: warmup 6.9 s, no recompiles, parity within
 bf16 noise; GPU ms per 16-leaf batch eager packed 10.74 -> compiled
-9.79, a 0.95 ms gain at the pre-set kill threshold of 1 ms; its pool
-row decides. In the pool the packed trunk lifts the saturated rate
+9.79, a 0.95 ms gain at the pre-set kill threshold of 1 ms; in the
+pool 863 against 833 leaves/s saturated (inside the run-to-run noise)
+with GPU ms per leaf 2.05 -> 1.80, so the compile stays off by
+default. In the pool the packed trunk lifts the saturated rate
 from 652 to 833 leaves/s (2.05 GPU ms per leaf); the serve threads'
 remaining CPU work (padded embed, priors, unpickling, wire) is now
 the larger part of a batch, which the compiled loop and the length

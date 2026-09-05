@@ -106,10 +106,12 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
      length, attention as an opaque custom op, native bf16 weight copy
      refreshed on every load_state_dict), `WesnothModel.
      infer_compile_packed`, `bench_pool --compile-packed`. CPU parity
-     3e-7, no recompile on new shapes; CUDA tests and a pool run are
-     queued behind the confirmation run. Kill: under 1 ms of GPU per
-     16-leaf batch gained. model.py is at 870 lines: split PaddedOutput
-     and the stream helpers out in a later pass.
+     3e-7, no recompile on new shapes. MEASURED on the box: warmup
+     6.9 s, 0 recompiles, GPU 10.74 -> 9.79 ms per 16-leaf batch (at
+     the 1 ms kill threshold); pool 863 vs 833 leaves/s saturated
+     (inside noise), GPU 2.05 -> 1.80 ms per leaf. Kept off by default
+     (`az_loop --compile-packed` to opt in). model.py is at 870 lines:
+     split PaddedOutput and the stream helpers out in a later pass.
    - CORRECTED 2026-09-05 (whole-pool profile, docs/box_specs.md):
      the actors idle 95% of the time in the reply receive; the serve
      threads are busy ~88% with the GPU wait as the largest item. The

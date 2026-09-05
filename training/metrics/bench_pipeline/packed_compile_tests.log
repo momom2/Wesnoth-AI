@@ -1,0 +1,190 @@
+
+warmup_packed_compile: 7.1 s wall; {'active': True, 'backend': 'inductor', 'mode': None, 'warmup_seconds': 6.858181433286518, 'recompiles': 0, 'fallback_reason': None, 'cache_entries': 1, 'weights_dtype': 'bfloat16'}
+
+compiled packed bf16 vs eager packed bf16
+  actor_logits   max_abs 6.836e-03   max_abs/scale 1.542e-02   (scale 0.443)
+  type_logits    max_abs 7.812e-03   max_abs/scale 5.780e-03   (scale 1.35)
+  target_logits  max_abs 7.812e-03   max_abs/scale 1.429e-02   (scale 0.547)
+  weapon_logits  max_abs 2.930e-03   max_abs/scale 9.434e-03   (scale 0.311)
+  value          max_abs 1.368e-04   max_abs/scale 3.630e-03   (scale 0.0377)
+  value_logits   max_abs 3.906e-03   max_abs/scale 6.173e-03   (scale 0.633)
+  cliffness      max_abs 8.059e-05   max_abs/scale 1.363e-04   (scale 0.591)
+
+eager packed bf16 vs fp32 padded
+  actor_logits   max_abs 5.135e-03   max_abs/scale 1.158e-02   (scale 0.444)
+  type_logits    max_abs 6.968e-03   max_abs/scale 5.158e-03   (scale 1.35)
+  target_logits  max_abs 6.587e-03   max_abs/scale 1.205e-02   (scale 0.547)
+  weapon_logits  max_abs 3.490e-03   max_abs/scale 1.126e-02   (scale 0.31)
+  value          max_abs 1.883e-04   max_abs/scale 4.996e-03   (scale 0.0377)
+  value_logits   max_abs 6.247e-03   max_abs/scale 9.775e-03   (scale 0.639)
+  cliffness      max_abs 6.223e-05   max_abs/scale 1.053e-04   (scale 0.591)
+
+compiled packed bf16 vs fp32 padded
+  actor_logits   max_abs 4.157e-03   max_abs/scale 9.372e-03   (scale 0.444)
+  type_logits    max_abs 8.025e-03   max_abs/scale 5.940e-03   (scale 1.35)
+  target_logits  max_abs 7.560e-03   max_abs/scale 1.383e-02   (scale 0.547)
+  weapon_logits  max_abs 3.015e-03   max_abs/scale 9.733e-03   (scale 0.31)
+  value          max_abs 1.271e-04   max_abs/scale 3.372e-03   (scale 0.0377)
+  value_logits   max_abs 3.434e-03   max_abs/scale 5.373e-03   (scale 0.639)
+  cliffness      max_abs 1.031e-04   max_abs/scale 1.744e-04   (scale 0.591)
+..
+batch 16, near-homogeneous lengths, 20328 tokens:
+  path               GPU ms  wall ms
+  eager padded        18.02    18.04
+  eager packed        10.74    10.76
+  compiled packed      9.79     9.81
+  packed_compile_stats: {'active': True, 'backend': 'inductor', 'mode': None, 'warmup_seconds': 6.858181433286518, 'recompiles': 0, 'fallback_reason': None, 'cache_entries': 1, 'weights_dtype': 'bfloat16'}
+.
+aot_eager: warmup 0.4 s, 1 cache entry
+.F...W0905 03:48:54.228000 163360 site-packages/torch/_dynamo/convert_frame.py:844] [0/2] torch._dynamo hit config.cache_size_limit (2)
+W0905 03:48:54.228000 163360 site-packages/torch/_dynamo/convert_frame.py:844] [0/2]    function: 'packed_trunk_layers' (/workspace/Wesnoth-AI/wesnoth_ai/packed_trunk.py:335)
+W0905 03:48:54.228000 163360 site-packages/torch/_dynamo/convert_frame.py:844] [0/2]    last reason: 0/0: tensor 'L['x']' size mismatch at index 1. expected 32, actual 16
+W0905 03:48:54.228000 163360 site-packages/torch/_dynamo/convert_frame.py:844] [0/2] To log all recompilation reasons, use TORCH_LOGS="recompiles".
+W0905 03:48:54.228000 163360 site-packages/torch/_dynamo/convert_frame.py:844] [0/2] To diagnose recompilation issues, see https://pytorch.org/docs/main/torch.compiler_troubleshooting.html.
+..
+=================================== FAILURES ===================================
+________ test_compiled_packed_matches_eager_and_compiles_once[inductor] ________
+
+backend = 'inductor'
+
+    @pytest.mark.parametrize("backend", BACKENDS)
+    def test_compiled_packed_matches_eager_and_compiles_once(backend):
+        model = _model()
+        model.configure_packed_compile(backend=backend)
+        tol = dict(atol=1e-4, rtol=1e-3) if backend == "inductor" else dict(atol=1e-5, rtol=1e-4)
+        for i, sizes in enumerate(SHAPES):
+            eager, compiled = _eager_and_compiled(model, _streams(sizes, seed=i))
+            _assert_samples_equal(eager, compiled, **tol)
+>           assert model.packed_compile_active, model.packed_compile_stats()
+E           AssertionError: {'active': False, 'backend': 'inductor', 'mode': None, 'warmup_seconds': None, ...}
+E           assert False
+E            +  where False = WesnothModel(\n  (token_kind_embed): Embedding(5, 32)\n  (encoder): TransformerEncoder(\n    (layers): ModuleList(\n      ...ures=32, bias=True)\n    (1): GELU(approximate='none')\n    (2): Linear(in_features=32, out_features=51, bias=True)\n  )\n).packed_compile_active
+
+tests/test_packed_compile.py:96: AssertionError
+------------------------------ Captured log call -------------------------------
+DEBUG    torch.__trace:convert_frame.py:894 
+DEBUG    torch.__trace:utils.py:953 
+DEBUG    torch.__trace:utils.py:953 
+DEBUG    torch.__trace:meta_utils.py:204 
+DEBUG    torch.__trace:meta_utils.py:417 
+DEBUG    torch.__trace:meta_utils.py:1640 
+DEBUG    torch.__trace:meta_utils.py:204 
+DEBUG    torch.__trace:meta_utils.py:417 
+DEBUG    torch.__trace:meta_utils.py:1640 
+DEBUG    torch.__trace:meta_utils.py:204 
+DEBUG    torch.__trace:meta_utils.py:417 
+DEBUG    torch.__trace:meta_utils.py:1640 
+DEBUG    torch.__trace:meta_utils.py:204 
+DEBUG    torch.__trace:meta_utils.py:417 
+DEBUG    torch.__trace:meta_utils.py:1640 
+DEBUG    torch.__trace:meta_utils.py:204 
+DEBUG    torch.__trace:meta_utils.py:417 
+DEBUG    torch.__trace:meta_utils.py:1640 
+DEBUG    torch.__trace:meta_utils.py:204 
+DEBUG    torch.__trace:meta_utils.py:417 
+DEBUG    torch.__trace:meta_utils.py:1640 
+DEBUG    torch.__trace:meta_utils.py:204 
+DEBUG    torch.__trace:meta_utils.py:417 
+DEBUG    torch.__trace:meta_utils.py:1640 
+DEBUG    torch.__trace:meta_utils.py:204 
+DEBUG    torch.__trace:meta_utils.py:417 
+DEBUG    torch.__trace:meta_utils.py:1640 
+DEBUG    torch.__trace:meta_utils.py:204 
+DEBUG    torch.__trace:meta_utils.py:417 
+DEBUG    torch.__trace:meta_utils.py:1640 
+DEBUG    torch.__trace:meta_utils.py:204 
+DEBUG    torch.__trace:meta_utils.py:417 
+DEBUG    torch.__trace:meta_utils.py:1640 
+DEBUG    torch.__trace:meta_utils.py:204 
+DEBUG    torch.__trace:meta_utils.py:417 
+DEBUG    torch.__trace:meta_utils.py:1640 
+DEBUG    torch.__trace:meta_utils.py:204 
+DEBUG    torch.__trace:meta_utils.py:417 
+DEBUG    torch.__trace:meta_utils.py:1640 
+DEBUG    torch.__trace:meta_utils.py:204 
+DEBUG    torch.__trace:meta_utils.py:417 
+DEBUG    torch.__trace:meta_utils.py:1640 
+DEBUG    torch.__trace:meta_utils.py:204 
+DEBUG    torch.__trace:meta_utils.py:417 
+DEBUG    torch.__trace:meta_utils.py:1640 
+DEBUG    torch.__trace:meta_utils.py:204 
+DEBUG    torch.__trace:meta_utils.py:417 
+DEBUG    torch.__trace:meta_utils.py:1640 
+DEBUG    torch.__trace:meta_utils.py:204 
+DEBUG    torch.__trace:meta_utils.py:417 
+DEBUG    torch.__trace:meta_utils.py:1640 
+DEBUG    torch.__trace:meta_utils.py:204 
+DEBUG    torch.__trace:meta_utils.py:417 
+DEBUG    torch.__trace:meta_utils.py:1640 
+DEBUG    torch.__trace:meta_utils.py:204 
+DEBUG    torch.__trace:meta_utils.py:417 
+DEBUG    torch.__trace:meta_utils.py:1640 
+DEBUG    torch.__trace:meta_utils.py:204 
+DEBUG    torch.__trace:meta_utils.py:417 
+DEBUG    torch.__trace:meta_utils.py:1640 
+DEBUG    torch.__trace:meta_utils.py:204 
+DEBUG    torch.__trace:meta_utils.py:417 
+DEBUG    torch.__trace:meta_utils.py:1640 
+DEBUG    torch.__trace:meta_utils.py:204 
+DEBUG    torch.__trace:meta_utils.py:417 
+DEBUG    torch.__trace:meta_utils.py:1640 
+DEBUG    torch.__trace:meta_utils.py:204 
+DEBUG    torch.__trace:meta_utils.py:417 
+DEBUG    torch.__trace:meta_utils.py:1640 
+DEBUG    torch.__trace:meta_utils.py:204 
+DEBUG    torch.__trace:meta_utils.py:417 
+DEBUG    torch.__trace:meta_utils.py:1640 
+DEBUG    torch.__trace:meta_utils.py:204 
+DEBUG    torch.__trace:meta_utils.py:417 
+DEBUG    torch.__trace:meta_utils.py:1640 
+DEBUG    torch.__trace:meta_utils.py:204 
+DEBUG    torch.__trace:meta_utils.py:417 
+DEBUG    torch.__trace:meta_utils.py:1640 
+DEBUG    torch.__trace:meta_utils.py:204 
+DEBUG    torch.__trace:meta_utils.py:417 
+DEBUG    torch.__trace:meta_utils.py:1640 
+DEBUG    torch.__trace:output_graph.py:1346 
+DEBUG    torch.__trace:utils.py:953 
+DEBUG    torch.__trace:utils.py:953 
+DEBUG    torch.__trace:utils.py:953 
+DEBUG    torch.__trace:dispatch_and_compile_graph.py:215 
+DEBUG    torch.__trace:utils.py:953 
+DEBUG    torch.__trace:utils.py:953 
+DEBUG    torch.__trace:utils.py:953 
+DEBUG    torch.__trace:compile_fx.py:742 
+DEBUG    torch.__trace:compile_fx.py:801 
+DEBUG    torch.__trace:utils.py:953 
+DEBUG    torch.__trace:utils.py:953 
+DEBUG    torch.__trace:utils.py:953 
+DEBUG    torch.__trace:utils.py:953 
+DEBUG    torch.__trace:utils.py:953 
+DEBUG    torch.__trace:utils.py:953 
+DEBUG    torch.__trace:utils.py:953 
+DEBUG    torch.__trace:utils.py:953 
+DEBUG    torch.__trace:utils.py:953 
+DEBUG    torch.__trace:utils.py:953 
+DEBUG    torch.__trace:utils.py:953 
+DEBUG    torch.__trace:utils.py:953 
+DEBUG    torch.__trace:utils.py:953 
+DEBUG    torch.__trace:utils.py:953 
+DEBUG    torch.__trace:utils.py:953 
+DEBUG    torch.__trace:utils.py:953 
+DEBUG    torch.__trace:utils.py:953 
+DEBUG    torch.__trace:utils.py:953 
+DEBUG    torch.__trace:utils.py:810 
+WARNING  wesnoth_ai.packed_trunk:packed_trunk.py:561 packed trunk compile inactive, eager loop serves: warmup failed: BackendCompilerFailed: backend='inductor' raised:
+InvalidCxxCompiler: No working C++ compiler found in torch._inductor.config.cpp.cxx: (None, 'g++')
+
+Set TORCH_LOGS="+dynamo" and TORCHDYNAMO_VERBOSE=1 for more information
+
+
+You can suppress this exception and fall back to eager by setting:
+    import torch._dynamo
+    torch._dynamo.config.suppress_errors = True
+=============================== warnings summary ===============================
+tests/test_packed_compile_cuda.py::test_compiled_forward_issues_no_host_sync
+  /opt/conda/lib/python3.11/site-packages/torch/cuda/__init__.py:1036: UserWarning: Synchronization debug mode is a prototype feature and does not yet detect all synchronizing operations (Triggered internally at ../torch/csrc/cuda/Module.cpp:886.)
+    torch._C._cuda_set_sync_debug_mode(debug_mode)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 failed, 9 passed, 1 warning in 14.01s
