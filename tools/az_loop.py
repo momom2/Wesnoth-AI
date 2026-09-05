@@ -300,6 +300,12 @@ def main(argv) -> int:
                     default=False,
                     help="Compile the packed layer loop (one inductor graph); "
                          "measured separately, off until its row is in.")
+    ap.add_argument("--serve-processes", type=int, default=1,
+                    help="Serving processes for the pool (1 = the learner's "
+                         "own serve threads). Each extra process holds a model "
+                         "copy and receives the weights after every step; the "
+                         "serve threads' host work (~33 ms per batch) is the "
+                         "measured ceiling (docs/box_specs.md).")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--rng-seed", type=int, default=20260903)
     ap.add_argument("--log-level", default="INFO")
@@ -390,7 +396,8 @@ def main(argv) -> int:
                      # 2026-09-05: the padded encode was 8.5 ms of the ~36 ms
                      # host work per batch; one pinned copy straight into
                      # the packed layout is 3.7 (docs/box_specs.md).
-                     packed_embed=bool(args.packed_trunk and device.type == "cuda"))
+                     packed_embed=bool(args.packed_trunk and device.type == "cuda"),
+                     serve_processes=max(1, int(args.serve_processes)))
     pool.start()
 
     workdir = args.workdir
@@ -518,6 +525,11 @@ def main(argv) -> int:
                                     max_trials=args.step_trials,
                                     select=args.step_select)
             stats = captured["stats"]
+            if args.serve_processes > 1:
+                # The step published new inference weights (through the
+                # backtracking's final publish); the serve processes must
+                # hold them before the next iteration's PLAY.
+                row["server_weights_version"] = pool.sync_servers()
             row.update(policy_loss=stats.policy_loss,
                        value_loss=stats.value_loss,
                        grad_norm=stats.grad_norm,
