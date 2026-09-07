@@ -109,6 +109,10 @@ def _build_one(args) -> Optional[dict]:
                 "source": path_str}
     if rec is None:
         return {"error": "extract_none", "source": path_str}
+    from tools.replay_dataset import fog_on_for, quarantine_reason
+    why = quarantine_reason(rec.get("starting_sides", []))
+    if why is not None:
+        return {"quarantined": why, "source": path_str}
     date = src.parent.name
     fname = f"{date}_{src.stem}.json.gz"
     out_path = Path(out_dir_str) / fname
@@ -128,6 +132,8 @@ def _build_one(args) -> Optional[dict]:
         "winner_actions": _winner_action_count(
             rec["commands"], outcome["winner_side"]),
         "holdout": holdout,
+        "fog": fog_on_for(rec.get("starting_sides", [])),
+        "shroud": any(bool(s.get("shroud", False)) for s in rec.get("starting_sides", [])),
     }
 
 
@@ -150,6 +156,7 @@ def main(argv) -> int:
     jobs = [(p, o, str(out_dir), float(config["holdout_fraction"]))
             for p, o in selection]
     n_err = 0
+    quarantined = []
     rows = []
     with open(out_dir / "manifest.jsonl", "w", encoding="utf-8") as mf, \
             Pool(args.workers) as pool:
@@ -158,6 +165,9 @@ def main(argv) -> int:
             if row is None or "error" in row:
                 n_err += 1
                 log.warning("build error: %s", row)
+                continue
+            if "quarantined" in row:
+                quarantined.append(row)
                 continue
             rows.append(row)
             mf.write(json.dumps(row) + "\n")
@@ -177,8 +187,13 @@ def main(argv) -> int:
                 "winner": r["winner_side"],
                 "n_commands": r["n_commands"],
             }) + "\n")
+    with open(out_dir / "quarantined.jsonl", "w", encoding="utf-8") as qf:
+        for r in quarantined:
+            qf.write(json.dumps(r) + "\n")
+    n_fog_off = sum(1 for r in rows if not r["fog"])
     print(f"BUILD_DONE in {(time.time()-t0)/60:.1f}min "
-          f"({len(rows)} games, errors={n_err})", flush=True)
+          f"({len(rows)} games, fog off {n_fog_off}, quarantined {len(quarantined)}, "
+          f"errors={n_err})", flush=True)
     return 1 if n_err else 0
 
 

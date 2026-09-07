@@ -307,6 +307,27 @@ class SideState:
     # the leader type even if our reconstruction lost it.
     leader_type: str = ""
     color: str = ""
+    # The side's fog and shroud settings ([side] fog= / shroud=; the
+    # Wesnoth defaults are fog off and shroud off, but a 2p ladder
+    # replay without the attribute is a fog game in practice, so the
+    # extractor keeps the attribute's own default only when present;
+    # absent = fog on, shroud off). The corpus rule (2026-09-06): a
+    # shroud game counts as a fog game; fog off with shroud on is
+    # quarantined by the dataset builder.
+    fog: bool = True
+    shroud: bool = False
+
+
+def _wml_bool(v, default: bool) -> bool:
+    """WML yes/no/true/false/1/0; `default` when absent or malformed."""
+    if v is None:
+        return default
+    s = str(v).strip().strip('"').lower()
+    if s in ("yes", "true", "1"):
+        return True
+    if s in ("no", "false", "0"):
+        return False
+    return default
 
 
 @dataclass
@@ -476,6 +497,8 @@ def build_initial_state(root: WMLNode) -> GameState:
             village_income=_safe_int(side_node.attrs.get("village_gold", 2), 2),
             village_support=_safe_int(
                 side_node.attrs.get("village_support", 1), 1),
+            fog=_wml_bool(side_node.attrs.get("fog"), True),
+            shroud=_wml_bool(side_node.attrs.get("shroud"), False),
             base_income=income_offset + 2,   # vanilla game_config::base_income
             recruit_list=[r.strip() for r in
                           (side_node.attrs.get("recruit", "") or "").split(",")
@@ -1855,6 +1878,8 @@ def extract_replay(path: Path) -> Optional[dict]:
             "base_income": s.base_income,
             "village_income": s.village_income,
             "village_support": s.village_support,
+            "fog": bool(s.fog),
+            "shroud": bool(s.shroud),
             "recruit": list(s.recruit_list),
             "leader_type": s.leader_type,
             "color": s.color,

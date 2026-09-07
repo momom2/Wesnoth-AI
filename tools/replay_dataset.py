@@ -628,6 +628,31 @@ def _build_recruit_unit(unit_type: str, side: int, x: int, y: int,
     return out
 
 
+def fog_on_for(starting_sides) -> bool:
+    """The encoder's fog switch for a replay: on when any side has fog
+    or shroud (a shroud game counts as a fog game, 2026-09-06 ruling),
+    off when every side has both off. Files from before the flags were
+    recorded (no `fog` key) read as fog on, which is what the encoder
+    assumed for them all along."""
+    sides = list(starting_sides or [])
+    if not sides or not any("fog" in s for s in sides):
+        return True
+    return any(bool(s.get("fog", True)) or bool(s.get("shroud", False)) for s in sides)
+
+
+def quarantine_reason(starting_sides) -> Optional[str]:
+    """Why a replay is kept out of the imitation corpus: fog off with
+    shroud on (the humans saw everything except the unexplored map,
+    which the simulator does not model)."""
+    sides = list(starting_sides or [])
+    if not sides or not any("fog" in s for s in sides):
+        return None
+    if (not any(bool(s.get("fog", True)) for s in sides)
+            and any(bool(s.get("shroud", False)) for s in sides)):
+        return "fog_off_shroud_on"
+    return None
+
+
 def _build_initial_gamestate(data: dict) -> GameState:
     raw_map = data.get("map_data", "")
     hexes = set(parse_map_data(raw_map))
@@ -705,6 +730,10 @@ def _build_initial_gamestate(data: dict) -> GameState:
             int(data.get("tod_start_index", 0) or 0))
     setattr(gs.global_info, "_raw_starting_sides",
             list(data.get("starting_sides", [])))
+    # wesnoth_ai.visibility reads it: the encoder hides enemy units
+    # outside the mover's sight only in fog games (18.9% of the corpus
+    # was played fog-off, tabulated 2026-09-06).
+    setattr(gs.global_info, "_fog", fog_on_for(data.get("starting_sides", [])))
     setattr(gs.global_info, "_scenario_id", data.get("scenario_id", ""))
     setattr(gs.global_info, "_experience_modifier", exp_mod)
     # Wesnoth's monotonic next_unit_id counter — increments on EVERY
