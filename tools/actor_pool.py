@@ -81,7 +81,7 @@ from typing import Dict, List, Optional, Tuple
 import torch
 
 from tools.actor_worker import (
-    _CMD_DRAIN, _CMD_PLAY, _CMD_STOP, _R_DONE, _R_ERROR, _R_EXPS, _R_FATAL, _R_OUTCOME,
+    _CMD_DRAIN, _CMD_PLAY, _TICKET_END, _CMD_STOP, _R_DONE, _R_ERROR, _R_EXPS, _R_FATAL, _R_OUTCOME,
     _RID_SERVER_DEAD, _IPCInferenceClient, _actor_loop, _set_fd_safe_sharing, _zero_reward,
 )
 from tools.serve_worker import (
@@ -267,12 +267,16 @@ class ActorPool:
         self._server_q = ctx.Queue()
         self._ctrl_qs = [ctx.Queue() for _ in range(self._n)]
         self._resp_qs = [ctx.Queue() for _ in range(self._n)]
+        # The iteration's games, shared by every actor (actor_worker
+        # module docstring, "Game tickets").
+        self._game_q = ctx.Queue()
         self._procs = []
         for aid in range(self._n):
             p = ctx.Process(
                 target=_actor_loop,
                 args=(aid, self._ctrl_qs[aid], self._req_qs,
-                      self._resp_qs[aid], self._result_q, self._mcts_cfg,
+                      self._resp_qs[aid], self._result_q, self._game_q,
+                      self._mcts_cfg,
                       self._scenario_opts, self._max_turns,
                       self._max_turns_min,
                       self._pvp_kwargs, self._log_level,
@@ -583,13 +587,29 @@ class ActorPool:
         finally:
             self._serving = False
 
+    def _post_tickets(self, iter_idx: int, games_per_iter: int, base_seed: int) -> None:
+        """One ticket per game (its seed depends on the game index
+        only), then one end marker per actor behind them."""
+        for g in range(games_per_iter):
+            self._game_q.put((iter_idx, g, base_seed + g * 1_000_003))
+        for _ in range(self._n):
+            self._game_q.put((iter_idx, _TICKET_END, None))
+
+    def _flush_tickets(self) -> int:
+        """Drop whatever is left on the game queue (tickets nobody took
+        after a drain, end markers of dropped actors) so nothing
+        stale reaches the next iteration. Returns the count."""
+        n = 0
+        while True:
+            try:
+                self._game_q.get(timeout=0.05)
+                n += 1
+            except _queue.Empty:
+                return n
+
     def _run_iteration(
         self, iter_idx: int, games_per_iter: int, base_seed: int,
     ) -> Tuple[List, List]:
-        # Even split of games across actors (+remainder to the first).
-        per = [games_per_iter // self._n] * self._n
-        for i in range(games_per_iter % self._n):
-            per[i] += 1
         t2i, f2i = self._vocab_snapshot()
         ds0 = self._global_decision_step()
         _rset = self._relevant_set()
@@ -634,10 +654,10 @@ class ActorPool:
                 th.join(timeout=10.0)
             server_stats.update(self._pause_servers())
 
+        self._post_tickets(iter_idx, games_per_iter, base_seed)
         for aid in range(self._n):
             self._ctrl_qs[aid].put(
-                (_CMD_PLAY, iter_idx, per[aid],
-                 base_seed + aid * 1_000_003, t2i, f2i, ds0,
+                (_CMD_PLAY, iter_idx, games_per_iter, base_seed, t2i, f2i, ds0,
                  _rset, float(self.value_center), bool(self.server_priors),
                  self._server_of(aid)))
 
@@ -760,6 +780,10 @@ class ActorPool:
                     outstanding -= dead
 
         _stop_serving()
+        self._last_tickets_flushed = self._flush_tickets()
+        if self._last_tickets_flushed:
+            log.info(f"iter {iter_idx}: {self._last_tickets_flushed} game tickets "
+                     f"and end markers left unplayed (drain or dropped actors)")
         # Every server's threads report the same stats dict; the
         # per-server leaf counts and the pickers' telemetry merge here.
         leaves_per_server = [sum(int(s.get("leaves", 0)) for s in serve_stats)]
@@ -787,7 +811,7 @@ class ActorPool:
         # annealing across the campaign instead of freezing at ds0.
         self._advance_decision_step(total_decisions)
         # Mean of per-actor means (actors carry ~equal decision counts
-        # under the even split); None-valued et_* fields are skipped.
+        # under the shared queue); None-valued et_* fields are skipped.
         # Consumed by sim_self_play's iteration telemetry in place of
         # the learner-side drain (which never searches under the pool).
         self.last_distill_stats = None

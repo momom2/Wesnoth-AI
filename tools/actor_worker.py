@@ -29,9 +29,17 @@ from typing import Dict, Optional
 import torch
 
 # Control-queue commands (main -> actor).
-_CMD_PLAY = "play"        # (iter_idx, n_games, base_seed, t2i, f2i, decision_step)
+_CMD_PLAY = "play"        # (iter_idx, games_per_iter, base_seed, t2i, f2i, decision_step, ...)
 _CMD_STOP = "stop"
 _CMD_DRAIN = "drain"      # finish the current game, take no new ones
+
+# Game tickets (main -> actors, one shared queue): (iter_idx, game
+# index, seed); the manager posts every game of the iteration, then
+# one end marker per actor. Actors pull until they meet an end
+# marker, so an iteration's tail is one game long instead of one
+# actor's whole share (2026-09-06; the median game used to finish at
+# 40% of the wall with the even split).
+_TICKET_END = -1
 
 # Result-queue message kinds (actor -> main).
 _R_OUTCOME = "outcome"    # a GameOutcome
@@ -128,8 +136,36 @@ def _set_fd_safe_sharing() -> None:
         pass
 
 
+def _take_ticket(game_q, ctrl_q, iter_idx: int):
+    """The next game of this iteration from the shared queue, honouring
+    control commands while waiting. Returns ("game", (index, seed)),
+    ("end", None) at the iteration's end marker, ("drain", None) when
+    the manager asked for no new games, ("stop", None) on STOP.
+    Tickets of another iteration are skipped (stale after a drain)."""
+    while True:
+        try:
+            nxt = ctrl_q.get_nowait()
+            if nxt[0] == _CMD_STOP:
+                return "stop", None
+            if nxt[0] == _CMD_DRAIN:
+                return "drain", None
+            # PLAY cannot arrive mid-iteration (the manager is
+            # synchronous); anything else is dropped.
+        except _queue.Empty:
+            pass
+        try:
+            t_iter, g, seed = game_q.get(timeout=0.5)
+        except _queue.Empty:
+            continue
+        if t_iter != iter_idx:
+            continue
+        if g == _TICKET_END:
+            return "end", None
+        return "game", (g, seed)
+
+
 def _actor_loop(
-    actor_id: int, ctrl_q, req_qs, resp_q, result_q,
+    actor_id: int, ctrl_q, req_qs, resp_q, result_q, game_q,
     mcts_cfg, scenario_opts: Dict, max_turns: int,
     max_turns_min,
     pvp_kwargs: Optional[Dict], log_level: int, torch_threads: int,
@@ -137,8 +173,9 @@ def _actor_loop(
     train_kwargs: dict = None, ground_cfg=None,
 ) -> None:
     """Persistent actor process body. Builds a seam-backed MCTSPolicy
-    once, then loops on the control queue: PLAY -> roll `n_games` and
-    ship experiences/outcomes; STOP -> exit."""
+    once, then loops on the control queue: PLAY -> pull game tickets
+    from the shared queue until the iteration's end marker, shipping
+    each game's experiences and outcome; STOP -> exit."""
     logging.basicConfig(level=log_level,
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
     torch.set_num_threads(max(1, torch_threads))
@@ -177,7 +214,7 @@ def _actor_loop(
             cmd = ctrl_q.get()
         if cmd[0] == _CMD_STOP:
             return
-        (_, iter_idx, n_games, base_seed, t2i, f2i,
+        (_, iter_idx, _games_per_iter, _base_seed, t2i, f2i,
          decision_step0) = cmd[:7]
         # The learner's action-space basis rides the PLAY command
         # (project round-2 C3: a hardcoded False here put pool
@@ -235,7 +272,6 @@ def _actor_loop(
         else:
             policy = MCTSPolicy(base, mcts_cfg,
                                 gbc_labels=gbc_labels, **_tk)
-        rng = random.Random(base_seed)
         # Split the mix ratios (absolute, sum to 1; no midgame --
         # the parent CLI rejects --midgame-ratio with --actor-pool)
         # from the pass-through setup options.
@@ -251,27 +287,21 @@ def _actor_loop(
                       if not k.endswith("_ratio")
                       and k != "midgame_dataset"}
         try:
-            for g in range(n_games):
+            while True:
                 # Drain contract (user ruling 2026-08-17, A6): when
                 # the manager's soft deadline fires it sends DRAIN --
                 # finish the game in progress, start no new one. The
                 # check sits BETWEEN games so a completed game is
                 # never thrown away (the leg-3 waste mode).
-                drained = False
-                try:
-                    while True:
-                        nxt = ctrl_q.get_nowait()
-                        if nxt[0] == _CMD_DRAIN:
-                            drained = True
-                        elif nxt[0] == _CMD_STOP:
-                            return
-                        # PLAY cannot arrive mid-iteration (the
-                        # manager is synchronous); anything else is
-                        # dropped with the drain.
-                except _queue.Empty:
-                    pass
-                if drained:
+                kind, ticket = _take_ticket(game_q, ctrl_q, iter_idx)
+                if kind == "stop":
+                    return
+                if kind != "game":
                     break
+                g, seed = ticket
+                # The game's setup depends on (base seed, game index)
+                # only, whichever actor plays it.
+                rng = random.Random(seed)
                 from tools.sim_self_play import _roll_max_turns
                 mt = _roll_max_turns(rng, max_turns, max_turns_min)
                 cat = roll_mix(rng, **mix)
@@ -292,7 +322,7 @@ def _actor_loop(
                 if setup is None:
                     setup = random_setup(rng, category=cat,
                                          **setup_opts)
-                gl = f"iter{iter_idx}_a{actor_id}_g{g}"
+                gl = f"iter{iter_idx}_g{g}_a{actor_id}"
                 outcome = _play_one_game_safe(
                     setup=setup, max_turns=mt, pvp_defaults=pvp,
                     policy=policy, reward_fn=_zero_reward,

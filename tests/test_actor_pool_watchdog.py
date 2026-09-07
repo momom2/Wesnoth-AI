@@ -73,6 +73,7 @@ def _pool(procs, results, *, iteration_timeout=1800.0,
     pool.value_center = 0.0     # MCTSConfig.value_center broadcast (az4)
     pool.server_priors = False  # server-side priors flag (plan 1.3)
     pool._ctrl_qs = [_FakeQ() for _ in procs]
+    pool._game_q = _FakeQ()
     pool._resp_qs = [_FakeQ() for _ in procs]
     pool._req_qs = [_FakeQ()]           # always empty -> idle path
     pool._server = None                 # never asked (no requests)
@@ -168,3 +169,29 @@ def test_all_actors_done_normal_path():
     outcomes, experiences = pool.run_iteration(2, games_per_iter=2, base_seed=1)
     assert sorted(outcomes) == ["g0", "g1"]
     assert experiences == ["e1"]
+
+
+def test_tickets_are_shared_and_stale_ones_skipped():
+    """The manager posts one ticket per game and an end marker per
+    actor; an actor takes games in order, skips another iteration's
+    leftovers, stops at the end marker, and honours DRAIN and STOP
+    while waiting."""
+    from tools.actor_worker import _CMD_DRAIN, _CMD_STOP, _TICKET_END, _take_ticket
+    pool = _pool([_FakeProc(True), _FakeProc(True)], results=[])
+    pool._post_tickets(iter_idx=4, games_per_iter=3, base_seed=100)
+    posted = list(pool._game_q._items)
+    assert posted[:3] == [(4, 0, 100), (4, 1, 100 + 1_000_003), (4, 2, 100 + 2 * 1_000_003)]
+    assert posted[3:] == [(4, _TICKET_END, None)] * 2
+    game_q = _FakeQ([(3, 7, 1)] + posted)          # a stale ticket first
+    ctrl = _FakeQ()
+    assert _take_ticket(game_q, ctrl, 4) == ("game", (0, 100))
+    assert _take_ticket(game_q, ctrl, 4) == ("game", (1, 100 + 1_000_003))
+    ctrl.put((_CMD_DRAIN,))
+    assert _take_ticket(game_q, ctrl, 4) == ("drain", None)
+    assert _take_ticket(game_q, ctrl, 4) == ("game", (2, 100 + 2 * 1_000_003))
+    assert _take_ticket(game_q, ctrl, 4) == ("end", None)
+    ctrl.put((_CMD_STOP,))
+    assert _take_ticket(game_q, ctrl, 4) == ("stop", None)
+    # Whatever is left after the iteration is flushed, never inherited.
+    assert pool._flush_tickets() == 5
+    assert pool._flush_tickets() == 0

@@ -137,6 +137,21 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
      the arms; expected toward ~1.5x if the host work is the ceiling.
      az_loop flag and its sync_servers() call after train_step still
      to add once the row is in.
+   - MEASURED 2026-09-05 night: two serve processes 1,146 leaves/s
+     saturated against 833 with two threads in one process (1.38x),
+     exact parity on the leaf check; `az_loop --serve-processes 2` is
+     the setting to use on a 4090 box.
+   - SHIPPED 2026-09-06 (user order): the iteration's games are a
+     shared ticket queue (`ActorPool._post_tickets`, actor_worker
+     `_take_ticket`): each actor pulls the next game until the end
+     marker, so the iteration's tail is one game long instead of one
+     actor's share (the whole-pool profile had the median game
+     finishing at 40% of the wall, the iteration average at ~55% of
+     the saturated rate). A game's setup depends on (base seed, game
+     index) only. Unit test on the queue contract; the slow pool and
+     serve-process smokes pass through the real path. Not yet
+     measured on a box (one pool row, ~$0.3): expected to bring the
+     iteration average close to the saturated rate.
    - Persistent eval workers shipped (`run_elo_batch
      --persistent-workers`, tools/eval_workers.py): 20 seed-vs-seed
      games at 10 concurrent in 97 s against 408 s one-process
