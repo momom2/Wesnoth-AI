@@ -303,11 +303,17 @@ def _load_policy(
     without this, an eval would silently measure a structurally
     different model than the one that trained (the probe-bug class
     from the 2026-07-29 hoarding probe)."""
+    if ckpt_path is not None and not Path(ckpt_path).exists():
+        # A typo'd path used to measure a random-init net under the
+        # checkpoint's name (2026-09-06: a value-head study ran on one
+        # for two hours). Random init is only ever explicit (None).
+        raise FileNotFoundError(f"[{label}] checkpoint {ckpt_path} does not exist; "
+                                f"pass None for a deliberate random init")
     arch_kwargs = peek_checkpoint_arch(ckpt_path, label)
     policy = TransformerPolicy(device=device, infer_bf16=infer_bf16,
                                infer_compile=infer_compile,
                                **arch_kwargs)
-    if ckpt_path and ckpt_path.exists():
+    if ckpt_path is not None:
         try:
             policy.load_checkpoint(ckpt_path)
             log.info(f"[{label}] loaded {ckpt_path.name}")

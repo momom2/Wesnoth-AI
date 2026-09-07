@@ -19,9 +19,9 @@ decided. Also reported: the pooled AUC per bucket over single states
 (winner-to-move against loser-to-move, across games) and the head's
 Brier score with P(win) = (value + 1) / 2.
 
-Usage (laptop CPU, ~369 games):
-    python tools/analysis/value_head_by_phase.py --checkpoint training/checkpoints/seed.pt \\
-        --out training/metrics/value_head/seed_by_phase.json [--limit 40]
+Usage (a box: --jobs for the reconstruction, --device cuda for the head):
+    python tools/analysis/value_head_by_phase.py --checkpoint CKPT.pt --jobs 12 \\
+        --device cuda --out training/metrics/value_head/seed_by_phase.json [--limit 40]
 """
 import argparse
 import copy
@@ -84,13 +84,29 @@ def turn_start_states(data: dict):
     return out
 
 
-def head_values(policy, states: Sequence, batch: int = 16) -> List[float]:
-    """The head's expected outcome for the side to move, batched on CPU."""
+def _game_rows(args):
+    """One game's turn-start states as picklable rows (worker side):
+    turn, side, material and the RawEncoded for the head."""
+    path, winner_side, type_to_id, faction_to_id, relevant_set = args
+    from wesnoth_ai.encoder import encode_raw
+    data = json.load(gzip.open(path, "rt", encoding="utf-8"))
+    rows = []
+    for turn, side, gs in turn_start_states(data):
+        raw = encode_raw(gs, type_to_id=type_to_id, faction_to_id=faction_to_id,
+                         relevant_set=relevant_set)
+        rows.append({"turn": turn, "side": side, "winner_side": int(winner_side),
+                     "material": material(gs, side), "raw": raw})
+    return rows
+
+
+def head_values(policy, states: Sequence, batch: int = 16, device=None) -> List[float]:
+    """The head's expected outcome for the side to move, batched."""
     import torch
     from tools.inference_seam import InferenceServer
     from wesnoth_ai.encoder import encode_raw
     enc = policy._inference_encoder
-    server = InferenceServer(policy._inference_model, enc, device=torch.device("cpu"),
+    device = device or torch.device("cpu")
+    server = InferenceServer(policy._inference_model, enc, device=device,
                              output_device=torch.device("cpu"), autocast_bf16=False)
     values: List[float] = []
     for i in range(0, len(states), batch):
@@ -188,26 +204,47 @@ def main(argv=None) -> int:
     ap.add_argument("--checkpoint", type=Path, required=True)
     ap.add_argument("--dataset", type=Path, default=DATASET)
     ap.add_argument("--limit", type=int, default=None, help="first N holdout games")
+    ap.add_argument("--jobs", type=int, default=1,
+                    help="Worker processes reconstructing and encoding the games; "
+                         "the head runs in this process.")
+    ap.add_argument("--device", default="cpu", choices=("cpu", "cuda"))
     ap.add_argument("--out", type=Path, default=None)
     args = ap.parse_args(argv)
     import torch
     torch.set_num_threads(4)
     from tools.eval_sim import _load_policy
-    policy = _load_policy(args.checkpoint, torch.device("cpu"), label="value_by_phase")
+    device = torch.device(args.device)
+    policy = _load_policy(args.checkpoint, device, label="value_by_phase")
+    enc = policy._inference_encoder
     manifest = [json.loads(line) for line in
                 (args.dataset / "manifest.jsonl").read_text(encoding="utf-8").splitlines()
                 if line.strip()]
     games = [m for m in manifest if m.get("holdout")][:args.limit]
     t0 = time.time()
     rows: List[dict] = []
-    for i, m in enumerate(games):
-        data = json.load(gzip.open(args.dataset / m["file"], "rt", encoding="utf-8"))
-        states = turn_start_states(data)
-        vals = head_values(policy, [gs for _, _, gs in states])
-        for (turn, side, gs), v in zip(states, vals):
-            rows.append({"game": m["file"], "turn": turn, "side": side,
-                         "winner_side": int(m["winner_side"]), "value": v,
-                         "material": material(gs, side)})
+    tasks = [(str(args.dataset / m["file"]), m["winner_side"], dict(enc.unit_type_to_id),
+              dict(enc.faction_to_id), bool(getattr(enc, "relevant_set_hexes", False)))
+             for m in games]
+    if args.jobs > 1:
+        import multiprocessing as mp
+        pool = mp.get_context("spawn").Pool(args.jobs)
+        game_iter = zip(games, pool.imap(_game_rows, tasks, chunksize=2))
+    else:
+        pool = None
+        game_iter = ((m, _game_rows(t)) for m, t in zip(games, tasks))
+    from tools.inference_seam import InferenceServer
+    server = InferenceServer(policy._inference_model, enc, device=device,
+                             output_device=torch.device("cpu"), autocast_bf16=False)
+    for i, (m, game_rows) in enumerate(game_iter):
+        raws = [r.pop("raw") for r in game_rows]
+        vals = []
+        for j in range(0, len(raws), 16):
+            vals.extend(float(o.value.reshape(-1)[0].item())
+                        for o in server.infer_batch(raws[j:j + 16]))
+        for r, v in zip(game_rows, vals):
+            r["game"] = m["file"]
+            r["value"] = v
+            rows.append(r)
         if (i + 1) % 20 == 0 or i + 1 == len(games):
             print(f"{i + 1}/{len(games)} games, {len(rows)} states, {time.time() - t0:.0f} s",
                   flush=True)
@@ -215,6 +252,8 @@ def main(argv=None) -> int:
                 args.out.parent.mkdir(parents=True, exist_ok=True)
                 args.out.with_suffix(".partial.json").write_text(
                     json.dumps({"games": i + 1, "rows": rows}), encoding="utf-8")
+    if pool is not None:
+        pool.close()
     per_bucket = summarize(rows)
     report = markdown(per_bucket)
     print(report)

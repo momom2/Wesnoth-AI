@@ -79,3 +79,50 @@ def test_extractor_records_the_sides_fog_and_the_encoder_honours_it():
     assert seen_off == {u.id for u in gs_off.map.units}, "fog off: every unit is visible"
     seen_on = {u.id for u in units_visible_to(gs, mover)}
     assert seen_on <= seen_off
+
+
+def test_loader_refuses_a_missing_checkpoint_path(tmp_path):
+    """A wrong path must not measure a random-init net under the
+    checkpoint's name (2026-09-06); random init is explicit (None)."""
+    import torch
+    from tools.eval_sim import _load_policy
+    with pytest.raises(FileNotFoundError):
+        _load_policy(tmp_path / "missing.pt", torch.device("cpu"), label="t")
+
+
+def test_annotate_pass_writes_flags_and_quarantines(tmp_path):
+    """The annotate pass sets fog/shroud per side from the table,
+    marks the manifest, and moves fog-off/shroud-on games out."""
+    import gzip as _gz
+    import json
+    from tools.annotate_corpus_fog import main as annotate
+    ds = tmp_path / "ds"
+    ds.mkdir()
+    games = {"a.json.gz": ("yes", "no"), "b.json.gz": ("no", "no"), "c.json.gz": ("no", "yes")}
+    rows, table = [], []
+    for name, (fog, shroud) in games.items():
+        with _gz.open(ds / name, "wt", encoding="utf-8") as f:
+            json.dump({"starting_sides": [{"side": 1}, {"side": 2}], "commands": []}, f)
+        rows.append({"file": name, "winner_side": 1, "holdout": False, "n_commands": 0})
+        table.append({"file": name, "sides": {"1": {"fog": fog, "shroud": shroud},
+                                              "2": {"fog": fog, "shroud": shroud}}})
+    (ds / "manifest.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    (ds / "value_corpus_index.jsonl").write_text(
+        "".join(json.dumps({"file": r["file"], "winner": 1, "n_commands": 0}) + "\n" for r in rows))
+    tbl = tmp_path / "table.json"
+    tbl.write_text(json.dumps(table))
+    assert annotate(["--dataset", str(ds), "--table", str(tbl)]) == 0
+    kept = [json.loads(line) for line in (ds / "manifest.jsonl").read_text().splitlines()]
+    assert [(r["file"], r["fog"], r["shroud"]) for r in kept] == [
+        ("a.json.gz", True, False), ("b.json.gz", False, False)]
+    q = [json.loads(line) for line in (ds / "quarantined.jsonl").read_text().splitlines()]
+    assert [r["file"] for r in q] == ["c.json.gz"] and q[0]["quarantined"] == "fog_off_shroud_on"
+    idx = [json.loads(line)["file"] for line in (ds / "value_corpus_index.jsonl").read_text().splitlines()]
+    assert idx == ["a.json.gz", "b.json.gz"]
+    with _gz.open(ds / "b.json.gz", "rt", encoding="utf-8") as f:
+        sides = json.load(f)["starting_sides"]
+    assert all(s["fog"] is False and s["shroud"] is False for s in sides)
+    from tools.replay_dataset import fog_on_for
+    assert fog_on_for(sides) is False
+    # Idempotent.
+    assert annotate(["--dataset", str(ds), "--table", str(tbl)]) == 0
