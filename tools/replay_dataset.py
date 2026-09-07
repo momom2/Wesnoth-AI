@@ -628,13 +628,20 @@ def _build_recruit_unit(unit_type: str, side: int, x: int, y: int,
     return out
 
 
+def _player_sides(starting_sides) -> list:
+    """Sides 1 and 2, the players of a 2p game. Maps with a scenery
+    side 3 (1,648 of the first 3,000 corpus games) carry no fog
+    attribute for it, and it must not decide the game's setting."""
+    return [s for s in (starting_sides or []) if int(s.get("side", 0) or 0) in (1, 2)]
+
+
 def fog_on_for(starting_sides) -> bool:
-    """The encoder's fog switch for a replay: on when any side has fog
-    or shroud (a shroud game counts as a fog game, 2026-09-06 ruling),
-    off when every side has both off. Files from before the flags were
-    recorded (no `fog` key) read as fog on, which is what the encoder
-    assumed for them all along."""
-    sides = list(starting_sides or [])
+    """The encoder's fog switch for a replay: on when either player has
+    fog or shroud (a shroud game counts as a fog game, 2026-09-06
+    ruling), off when both players have both off. Files from before
+    the flags were recorded (no `fog` key) read as fog on, which is
+    what the encoder assumed for them all along."""
+    sides = _player_sides(starting_sides)
     if not sides or not any("fog" in s for s in sides):
         return True
     return any(bool(s.get("fog", True)) or bool(s.get("shroud", False)) for s in sides)
@@ -644,7 +651,7 @@ def quarantine_reason(starting_sides) -> Optional[str]:
     """Why a replay is kept out of the imitation corpus: fog off with
     shroud on (the humans saw everything except the unexplored map,
     which the simulator does not model)."""
-    sides = list(starting_sides or [])
+    sides = _player_sides(starting_sides)
     if not sides or not any("fog" in s for s in sides):
         return None
     if (not any(bool(s.get("fog", True)) for s in sides)

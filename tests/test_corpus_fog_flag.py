@@ -29,6 +29,10 @@ def test_fog_switch_and_quarantine_from_the_recorded_sides():
     assert fog_on_for(_sides(True, True)) is True
     assert fog_on_for(_sides(False, True)) is True          # shroud counts as fog
     assert fog_on_for([{"side": 1}, {"side": 2}]) is True   # files from before the flags
+    # A scenery side 3 without the attribute (default fog on) must
+    # not turn a fog-off game into a fog game.
+    assert fog_on_for(_sides(False, False) + [{"side": 3, "fog": True, "shroud": False}]) is False
+    assert quarantine_reason(_sides(False, True) + [{"side": 3, "fog": True}]) == "fog_off_shroud_on"
     assert fog_on_for([]) is True
     assert quarantine_reason(_sides(False, True)) == "fog_off_shroud_on"
     for fog, shroud in ((True, False), (False, False), (True, True)):
