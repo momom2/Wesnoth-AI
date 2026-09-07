@@ -276,6 +276,24 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
    now labelled in the summary; a dropped alternative can still be the
    recorded best, left as is). Six rejected.
 
+## Value head study (2026-09-06/07, user's plan; docs/value_head_study_20260907.md)
+
+- MEASURED: same-turn AUC of the seed's head against human outcomes,
+  by phase: 0.65 (turns 1-5), 0.77, 0.82, 0.84, 0.87, 0.93 (31+);
+  material 0.56, 0.69, 0.77, 0.84, 0.85, 0.94. The head reads who is
+  ahead and beats material in the early and middle game. Half an
+  epoch more of the recipe left the pooled AUC unchanged.
+- CORPUS: fog/shroud were not recorded; 18.9% of the games were
+  fog-off while the encoder hid enemies on all of them. Recorded per
+  side now (extractor, builder, `tools/annotate_corpus_fog.py`), the
+  encoder's switch set from the two player sides; shroud counts as
+  fog, fog-off-with-shroud (20 games) quarantined. Corpus annotated
+  locally and on any box that stages the HF tarball.
+- NEXT (plan step 4): the head with material as an explicit input
+  against the identical recipe without it, judged per phase (~$1.5).
+- Trap fixed: `_load_policy` refused to fall back to a random init on
+  a missing path (a two-hour study measured a random net).
+
 ## Phase 2 prerequisite (measure before designing)
 
 - MEASURED 2026-09-05 (docs/turn_gap_prereg_20260904.md, run 1,

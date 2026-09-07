@@ -105,7 +105,12 @@ State of play:
   control is queued (7b); distillation from the seed into the new
   basis is designed (7c). Phase-2 tooling shipped the same night:
   turn_gap shared inference, sequential grading, replayed
-  confirmations, the pre-grader analysis.
+  confirmations, the pre-grader analysis. 2026-09-07 (user's plan,
+  docs/value_head_study_20260907.md): the seed's value head reads
+  who is ahead in human games better than material in the early and
+  middle game (same-turn AUC 0.65 -> 0.93 by phase against material
+  0.56 -> 0.94); the corpus now records fog/shroud per side (18.9%
+  of games were fog-off) and the encoder's fog switch follows it.
 - Rulings (2026-09-05): no optimizations conditioned on the MCTS
   loop; scope every box test, train sparingly; results are written
   on the run, never as atomic dumps; a box job past ~1.5x its
