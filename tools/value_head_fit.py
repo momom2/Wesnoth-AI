@@ -226,10 +226,18 @@ def main(argv) -> int:
     rows = [json.loads(ln) for ln in index.open(encoding="utf-8")]
     rng = random.Random(args.seed)
     rng.shuffle(rows)
+    from tools.replay_dataset import manifest_holdout_split
+    _split = manifest_holdout_split(rows, args.dataset_dir)
+    if _split is not None:
+        # The dataset's own holdout, never trained on by any tool; the
+        # shuffled first-N split leaked 98% of it (2026-09-08 review).
+        train_rows, holdout_rows = _split
+        log.info(f"manifest holdout: {len(holdout_rows)} games held out")
+    else:
+        holdout_rows = rows[:args.holdout_games]
+        train_rows = rows[args.holdout_games:]
     if args.limit_games:
-        rows = rows[:args.limit_games]
-    holdout_rows = rows[:args.holdout_games]
-    train_rows = rows[args.holdout_games:]
+        train_rows = train_rows[:args.limit_games]
     log.info(f"{len(train_rows)} train games, {len(holdout_rows)} "
              f"held-out games; device={dev}")
 

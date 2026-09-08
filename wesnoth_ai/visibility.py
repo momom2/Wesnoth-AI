@@ -369,6 +369,24 @@ def is_scenery_unit(u) -> bool:
             or (u.side not in (1, 2) and not u.attacks))
 
 
+def enemy_villages_visible_to(state: GameState, side: int,
+                              vis_set: Optional[Set[Tuple[int, int]]] = None) -> int:
+    """How many villages held by `side`'s enemies the side can see.
+    Wesnoth 1.18.4 never tells a player an enemy side's village
+    count under fog or shroud (src/team.cpp:704-716 knows_about_team:
+    "We don't know about enemies"; src/gui/dialogs/game_stats.cpp:139
+    fills gold/villages/units only `if(known || see_all)`), so the
+    count a player can form is over the villages inside its own
+    vision disc; with fog off every enemy village counts."""
+    owner_map = getattr(state.global_info, "_village_owner", None) or {}
+    fog_on = getattr(state.global_info, "_fog", True)
+    if not fog_on:
+        return sum(1 for o in owner_map.values() if o not in (0, side))
+    if vis_set is None:
+        vis_set = visible_hexes_for(state, side)
+    return sum(1 for key, o in owner_map.items() if o not in (0, side) and key in vis_set)
+
+
 def units_visible_to(
     state: GameState, side: int,
     vis_set: Optional[Set[Tuple[int, int]]] = None,

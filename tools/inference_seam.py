@@ -409,9 +409,11 @@ class RemoteEncoder:
         *, device: Optional[torch.device] = None,
         relevant_set: bool = False,
         server_priors: bool = False,
+        fog_hides_enemy_villages: bool = False,
     ):
         self._type_to_id = type_to_id
         self._faction_to_id = faction_to_id
+        self._fog_hides_enemy_villages = bool(fog_hides_enemy_villages)
         self._device = device or torch.device("cpu")
         # Server-side priors: the actor packs the legality masks at
         # encode time and RemoteModel ships them with the leaf.
@@ -428,6 +430,7 @@ class RemoteEncoder:
             type_to_id=self._type_to_id,
             faction_to_id=self._faction_to_id,
             relevant_set=self._relevant_set,
+            fog_hides_enemy_villages=self._fog_hides_enemy_villages,
         )
         enc = build_light_encoded(raw, self._device)
         # Stash the wire payload for RemoteModel; EncodedState is a

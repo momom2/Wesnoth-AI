@@ -16,7 +16,7 @@
 #   bash Wesnoth-AI/scripts/eval_box_setup.sh \
 #       tier-b/a3/seed_imit_tierb_start.pt=seed.pt
 # staged the seed as training/checkpoints/seed.pt. The imitation corpus
-# is staged here from HF (tier-b/replays_dataset_imitation_fog_20260907.tar.gz,
+# is staged here from HF (tier-b/replays_dataset_imitation_dedup_20260908.tar.gz,
 # token in /workspace/.hf_token). Everything lands under
 # /workspace/relset/; finished stages leave a DONE marker and are
 # skipped on re-entry; /workspace/relset/DONE closes the run.
@@ -62,7 +62,7 @@ from huggingface_hub import hf_hub_download
 # The fog-annotated corpus (2026-09-07: fog/shroud per side, 20 games
 # quarantined); the tarball carries its top-level folder.
 p = hf_hub_download("momom2/wesnoth-model-checkpoints",
-                    "tier-b/replays_dataset_imitation_fog_20260907.tar.gz")
+                    "tier-b/replays_dataset_imitation_dedup_20260908.tar.gz")
 dst = pathlib.Path("replays_dataset_imitation")
 with tarfile.open(p, "r:gz") as tf:
     tf.extractall(".")

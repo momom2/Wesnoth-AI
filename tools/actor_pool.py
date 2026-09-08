@@ -315,6 +315,11 @@ class ActorPool:
     def _learner_version(self) -> int:
         return int(getattr(self._inference_base(), "_weights_version", 0))
 
+    def _fog_hides_enemy_villages(self) -> bool:
+        return bool(getattr(
+            getattr(self._anneal_base(), "_inference_encoder", None),
+            "fog_hides_enemy_villages", False))
+
     def _relevant_set(self) -> bool:
         return bool(getattr(
             getattr(self._anneal_base(), "_inference_encoder", None),
@@ -613,6 +618,7 @@ class ActorPool:
         t2i, f2i = self._vocab_snapshot()
         ds0 = self._global_decision_step()
         _rset = self._relevant_set()
+        _fhv = self._fog_hides_enemy_villages()
 
         outcomes: List = []
         experiences: List = []
@@ -659,7 +665,7 @@ class ActorPool:
             self._ctrl_qs[aid].put(
                 (_CMD_PLAY, iter_idx, games_per_iter, base_seed, t2i, f2i, ds0,
                  _rset, float(self.value_center), bool(self.server_priors),
-                 self._server_of(aid)))
+                 self._server_of(aid), _fhv))
 
         while outstanding:
             # Drain results; blocking with a short timeout (serving no

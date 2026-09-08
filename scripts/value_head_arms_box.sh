@@ -36,7 +36,7 @@ for remote, local in (("tier-b/a3/seed_imit_tierb_start.pt", "seed.pt"),
     (dst / local).write_bytes(pathlib.Path(p).read_bytes())
     print("staged", local, (dst / local).stat().st_size, flush=True)
 p = hf_hub_download("momom2/wesnoth-model-checkpoints",
-                    "tier-b/replays_dataset_imitation_fog_20260907.tar.gz")
+                    "tier-b/replays_dataset_imitation_dedup_20260908.tar.gz")
 with tarfile.open(p, "r:gz") as tf:
     tf.extractall(".")
 import json

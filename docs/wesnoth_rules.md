@@ -2055,3 +2055,32 @@ turn attribute; `max_moves` is the separate stat. So `[modify_unit]
 moves=N` changes only the current turn's movement allowance. Sim:
 `_MODIFY_UNIT_SCALARS` maps moves->current_moves only.
 
+## Enemy side statistics under fog or shroud (added 2026-09-08)
+
+**Rule:** a player never sees an enemy side's gold, village count, unit
+count, upkeep or income while fog or shroud is on. The status table
+fills those columns only for sides the viewing team "knows about",
+and an enemy is never known under fog/shroud, whether or not its units
+have been seen.
+
+**Source (1.18.4):** `src/gui/dialogs/game_stats.cpp:90`
+`const bool known = viewing_team_.knows_about_team(team.side() - 1);`
+and `:139` `if(known || see_all) {` around the gold / villages
+(`:148` `std::to_string(team.villages().size())`) / units / upkeep /
+income columns; `src/team.cpp:704-716`:
+
+    bool team::knows_about_team(std::size_t index) const
+    {
+        ...
+        // If we aren't using shroud or fog, then we know about everyone
+        if(!uses_shroud() && !uses_fog()) { return true; }
+        // We don't know about enemies
+        if(is_enemy(index + 1)) { return false; }
+
+**Why non-obvious:** the encoder's global feature 5 was the enemy's
+true village count on every path (found by the 2026-09-08 contamination
+review); `wesnoth_ai/visibility.enemy_villages_visible_to` counts the
+enemy villages inside the mover's vision disc instead, behind the
+checkpoint flag `fog_hides_enemy_villages` (the seed was trained with
+the true count). With fog off every side's statistics are visible, so
+the count is legitimate there.

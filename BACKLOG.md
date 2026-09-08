@@ -289,8 +289,30 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
   encoder's switch set from the two player sides; shroud counts as
   fog, fog-off-with-shroud (20 games) quarantined. Corpus annotated
   locally and on any box that stages the HF tarball.
-- NEXT (plan step 4): the head with material as an explicit input
-  against the identical recipe without it, judged per phase (~$1.5).
+- MEASURED 2026-09-08 (`training/metrics/value_head/arms_20260908/`):
+  `value_head_plus_1` (one more iteration of the recipe on the
+  fog-aware corpus, from the pre-encoded records) reads 0.66, 0.77,
+  0.82, 0.85, 0.87, 0.94 by phase; Brier 0.230 in turns 1-5 against
+  the seed's 0.248. On the 254 clean holdout games (no twin in the old
+  corpus) the seed reads 0.62 and 0.75 in the first two buckets, the
+  arm 0.63 and 0.76; the ordering against material is unchanged.
+- RUNNING (plan step 4): `value_head_plus_material` (material as an
+  explicit input of the head, `--value-material`), same recipe; the
+  box runs its per-phase evaluation at the end. The seed with global
+  feature 5 gated by fog (`--gate-enemy-villages`, with the village
+  lead true and seen as standalone predictors) runs beside it.
+- CONTAMINATION REVIEW 2026-09-08 (docs/data_contamination_20260908.md):
+  the seed's lineage trained on 108 of the 369 imitation-holdout games
+  (twins in the old corpus) and its A3 value head on about 364 of
+  their outcomes; global feature 5 was god-view under fog; 79 clusters
+  of one match under two names, one straddling the split. Fixed:
+  every tool splits by the manifest (`manifest_holdout_split`), the
+  builder and `tools/dedup_corpus.py` keep one copy per match (corpus
+  17,019 games, HF `tier-b/replays_dataset_imitation_dedup_20260908
+  .tar.gz`), midgame starts and the human anchor skip holdout games,
+  feature 5 is gated behind the checkpoint flag
+  `fog_hides_enemy_villages`. Holdout numbers of the seed's lineage
+  keep the caveat; matches do not.
 - Trap fixed: `_load_policy` refused to fall back to a random init on
   a missing path (a two-hour study measured a random net).
 

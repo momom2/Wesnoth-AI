@@ -286,7 +286,8 @@ def check_preencoded(preencoded_dir: Path, files: List[Path], encoder,
     man = load_manifest(preencoded_dir)
     if man is None:
         raise RuntimeError(f"--preencoded {preencoded_dir}: no manifest (not a pre-encoded corpus)")
-    fp = vocab_fingerprint(encoder.unit_type_to_id, encoder.faction_to_id, relevant_set)
+    fp = vocab_fingerprint(encoder.unit_type_to_id, encoder.faction_to_id, relevant_set,
+                           bool(getattr(encoder, "fog_hides_enemy_villages", False)))
     if man.get("fingerprint") != fp:
         raise RuntimeError(f"--preencoded {preencoded_dir} was encoded with another vocab or "
                            f"hex basis ({man.get('fingerprint')}; this run {fp}); "
@@ -1359,6 +1360,7 @@ def train(
     reinit_value_head: bool = False,
     value_material: bool = False,   # the value head also reads material
     preencoded: Optional[Path] = None,  # tools/preencode_corpus.py output
+    fog_hides_enemy_villages: bool = False,  # global feature 5 under fog
         # drop value_head.* from the --resume state (and skip the
         # optimizer-state restore): warm trunk+policy, fresh value.
         # Imitation A/B 2026-08-08 verdict -- see the resume block.
@@ -1468,6 +1470,8 @@ def train(
         # projection) or when the checkpoint carries it.
         value_material = bool(value_material) or bool(ckpt.get("value_material")) or any(
             k.startswith("material_proj.") for k in ms)
+        fog_hides_enemy_villages = (bool(fog_hides_enemy_villages)
+                                    or bool(ckpt.get("fog_hides_enemy_villages")))
         for k in ("decision_step", "aux_score", "moves_left"):
             if k in ckpt:
                 carry[k] = ckpt[k]
@@ -1478,7 +1482,11 @@ def train(
                      f"{carry['decision_step']} through the SL pass")
 
     encoder = GameStateEncoder(
-        d_model=d_model, relevant_set_hexes=relevant_set_hexes).to(device)
+        d_model=d_model, relevant_set_hexes=relevant_set_hexes,
+        fog_hides_enemy_villages=bool(fog_hides_enemy_villages)).to(device)
+    carry["fog_hides_enemy_villages"] = bool(fog_hides_enemy_villages)
+    if fog_hides_enemy_villages:
+        log.info("Global feature 5 under fog: the enemy villages the mover can see")
     model   = WesnothModel(d_model=d_model, num_layers=num_layers,
                            num_heads=num_heads, d_ff=d_ff,
                            aux_score=aux_flag,
@@ -2397,6 +2405,10 @@ def main(argv: List[str]) -> int:
                     help="With --eval-only: also write the stats dict "
                          "as JSON here (machine-readable; the "
                          "campaign holdout-probe loop parses it).")
+    ap.add_argument("--fog-hides-enemy-villages", action="store_true",
+                    help="Global feature 5 under fog counts only the enemy "
+                         "villages the mover can see (the engine never shows "
+                         "the true count); rides the checkpoint.")
     ap.add_argument("--preencoded", type=Path, default=None,
                     help="Read pairs from a pre-encoded corpus "
                          "(tools/preencode_corpus.py) instead of replaying "
@@ -2481,6 +2493,7 @@ def main(argv: List[str]) -> int:
         reinit_value_head=args.reinit_value_head,
         value_material=args.value_material,
         preencoded=args.preencoded,
+        fog_hides_enemy_villages=args.fog_hides_enemy_villages,
         imitation_config=args.imitation_config,
         type_loss_weights=type_loss_weights,
         relevant_set_hexes=args.relevant_set_hexes,

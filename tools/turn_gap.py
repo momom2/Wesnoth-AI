@@ -199,7 +199,8 @@ def remote_policy(address: str):
     h = client.hello
     encoder = RemoteEncoder(h["type_to_id"], h["faction_to_id"],
                             device=torch.device("cpu"),
-                            relevant_set=bool(h["relevant_set"]), server_priors=True)
+                            relevant_set=bool(h["relevant_set"]), server_priors=True,
+                            fog_hides_enemy_villages=bool(h.get("fog_hides_enemy_villages", False)))
     return SimpleNamespace(_inference_model=RemoteModel(client),
                            _inference_encoder=encoder,
                            _lock=threading.Lock(), _decision_step=0)

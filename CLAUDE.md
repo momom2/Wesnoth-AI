@@ -111,6 +111,14 @@ State of play:
   middle game (same-turn AUC 0.65 -> 0.93 by phase against material
   0.56 -> 0.94); the corpus now records fog/shroud per side (18.9%
   of games were fog-off) and the encoder's fog switch follows it.
+  2026-09-08 (docs/data_contamination_20260908.md): a contamination
+  review found the seed's lineage trained on 108 of the 369
+  imitation-holdout games and its value head on about 364 of their
+  outcomes, and global feature 5 god-view under fog; every tool now
+  splits by the corpus manifest, matches are deduplicated (17,019
+  games) and feature 5 is gated behind the checkpoint flag
+  `fog_hides_enemy_villages`. Holdout CE of the seed's lineage
+  carries that caveat; match results do not.
 - Rulings (2026-09-05): no optimizations conditioned on the MCTS
   loop; scope every box test, train sparingly; results are written
   on the run, never as atomic dumps; a box job past ~1.5x its

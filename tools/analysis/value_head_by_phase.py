@@ -74,18 +74,38 @@ def turn_start_states(data: dict):
     return out
 
 
+def village_lead(gs, mover: int, visible_only: bool) -> float:
+    """Own villages minus the enemy's: the true count (what global
+    feature 5 carried before the fog gate) or the count inside the
+    mover's vision disc (what a player can know under fog)."""
+    from wesnoth_ai.visibility import enemy_villages_visible_to
+    own = gs.sides[mover - 1].nb_villages_controlled
+    enemy = 3 - mover
+    if visible_only:
+        return float(own - enemy_villages_visible_to(gs, mover))
+    return float(own - gs.sides[enemy - 1].nb_villages_controlled)
+
+
+# Standalone predictors scored beside the head: (column, row key).
+PREDICTORS = (("material", "material"), ("villages true", "villages_true"),
+              ("villages seen", "villages_seen"))
+
+
 def _game_rows(args):
     """One game's turn-start states as picklable rows (worker side):
-    turn, side, material and the RawEncoded for the head."""
-    path, winner_side, type_to_id, faction_to_id, relevant_set = args
+    turn, side, the predictors and the RawEncoded for the head."""
+    path, winner_side, type_to_id, faction_to_id, relevant_set, gate_villages = args
     from wesnoth_ai.encoder import encode_raw
     data = json.load(gzip.open(path, "rt", encoding="utf-8"))
     rows = []
     for turn, side, gs in turn_start_states(data):
         raw = encode_raw(gs, type_to_id=type_to_id, faction_to_id=faction_to_id,
-                         relevant_set=relevant_set)
+                         relevant_set=relevant_set, fog_hides_enemy_villages=gate_villages)
         rows.append({"turn": turn, "side": side, "winner_side": int(winner_side),
-                     "material": material(gs, side), "raw": raw})
+                     "material": material(gs, side),
+                     "villages_true": village_lead(gs, side, visible_only=False),
+                     "villages_seen": village_lead(gs, side, visible_only=True),
+                     "raw": raw})
     return rows
 
 
@@ -128,64 +148,74 @@ def pooled_auc(pos: Sequence[float], neg: Sequence[float]) -> Optional[float]:
     return float(wins / (len(p) * len(n)))
 
 
+def _same_turn_score(winner: dict, loser: dict, key: str) -> float:
+    if winner[key] > loser[key]:
+        return 1.0
+    return 0.5 if winner[key] == loser[key] else 0.0
+
+
 def summarize(rows: List[dict]) -> Dict:
-    """rows: game, turn, side, winner_side, value, material."""
+    """rows: game, turn, side, winner_side, value and the predictors.
+    Per bucket: the head's and each predictor's same-turn AUC (mean
+    over games of the share of turns where the winner scores higher)
+    and pooled AUC; a predictor absent from the rows (older records)
+    is skipped."""
     by_game_turn: Dict[Tuple[str, int], Dict[int, dict]] = defaultdict(dict)
     for r in rows:
         by_game_turn[(r["game"], r["turn"])][r["side"]] = r
+    scored = [("head", "value")] + [(k, k) for _, k in PREDICTORS if rows and all(k in r for r in rows)]
     per_bucket: Dict[str, dict] = {}
     for lo, hi in BUCKETS:
         name = bucket_of(lo)
-        same_turn_head: Dict[str, List[float]] = defaultdict(list)
-        same_turn_mat: Dict[str, List[float]] = defaultdict(list)
-        pos_v, neg_v, pos_m, neg_m, brier = [], [], [], [], []
+        same_turn = {k: defaultdict(list) for _, k in scored}
+        pos = {k: [] for _, k in scored}
+        neg = {k: [] for _, k in scored}
+        brier = []
         for (game, turn), sides in by_game_turn.items():
             if not (lo <= turn <= hi):
                 continue
             for r in sides.values():
                 win = r["side"] == r["winner_side"]
-                (pos_v if win else neg_v).append(r["value"])
-                (pos_m if win else neg_m).append(r["material"])
+                for _, k in scored:
+                    (pos[k] if win else neg[k]).append(r[k])
                 brier.append((((r["value"] + 1.0) / 2.0) - (1.0 if win else 0.0)) ** 2)
             if len(sides) == 2:
                 w = sides[sides[1]["winner_side"]]
                 ls = sides[3 - w["side"]]
-                same_turn_head[game].append(
-                    1.0 if w["value"] > ls["value"] else (0.5 if w["value"] == ls["value"] else 0.0))
-                same_turn_mat[game].append(
-                    1.0 if w["material"] > ls["material"] else
-                    (0.5 if w["material"] == ls["material"] else 0.0))
-        head_games = [float(np.mean(v)) for v in same_turn_head.values()]
-        mat_games = [float(np.mean(v)) for v in same_turn_mat.values()]
-        h, h_se = _mean_se(head_games)
-        m, m_se = _mean_se(mat_games)
-        per_bucket[name] = {
-            "n_states": len(pos_v) + len(neg_v),
-            "n_games_same_turn": len(head_games),
-            "n_turn_pairs": int(sum(len(v) for v in same_turn_head.values())),
-            "same_turn_auc_head": h, "same_turn_auc_head_se": h_se,
-            "same_turn_auc_material": m, "same_turn_auc_material_se": m_se,
-            "pooled_auc_head": pooled_auc(pos_v, neg_v),
-            "pooled_auc_material": pooled_auc(pos_m, neg_m),
-            "brier_head": float(np.mean(brier)) if brier else None,
-            "winner_share": (len(pos_v) / (len(pos_v) + len(neg_v))
-                             if pos_v or neg_v else None),
-        }
+                for _, k in scored:
+                    same_turn[k][game].append(_same_turn_score(w, ls, k))
+        b = {"n_states": len(pos["value"]) + len(neg["value"]),
+             "n_games_same_turn": len(same_turn["value"]),
+             "n_turn_pairs": int(sum(len(v) for v in same_turn["value"].values())),
+             "brier_head": float(np.mean(brier)) if brier else None,
+             "winner_share": (len(pos["value"]) / (len(pos["value"]) + len(neg["value"]))
+                             if pos["value"] or neg["value"] else None)}
+        for label, k in scored:
+            per_game = [float(np.mean(v)) for v in same_turn[k].values()]
+            b[f"same_turn_auc_{label}"], b[f"same_turn_auc_{label}_se"] = _mean_se(per_game)
+            b[f"pooled_auc_{label}"] = pooled_auc(pos[k], neg[k])
+        per_bucket[name] = b
     return per_bucket
 
 
 def markdown(per_bucket: Dict) -> str:
     def f(v, spec=".3f"):
         return "-" if v is None else format(v, spec)
-    lines = ["| turns | states | games | same-turn AUC head | same-turn AUC material | "
-             "pooled AUC head | pooled AUC material | Brier head |",
-             "|---|---|---|---|---|---|---|---|"]
+    first = next(iter(per_bucket.values()), {})
+    scored = ["head"] + [k for _, k in PREDICTORS if f"same_turn_auc_{k}" in first]
+    label = {k: c for c, k in PREDICTORS}
+    label["head"] = "head"
+    lines = ["| turns | states | games | "
+             + " | ".join(f"same-turn AUC {label[k]}" for k in scored) + " | "
+             + " | ".join(f"pooled AUC {label[k]}" for k in scored) + " | Brier head |",
+             "|---" * (4 + 2 * len(scored)) + "|"]
     for name, b in per_bucket.items():
         lines.append(
             f"| {name} | {b['n_states']} | {b['n_games_same_turn']} | "
-            f"{f(b['same_turn_auc_head'])} +- {f(b['same_turn_auc_head_se'])} | "
-            f"{f(b['same_turn_auc_material'])} +- {f(b['same_turn_auc_material_se'])} | "
-            f"{f(b['pooled_auc_head'])} | {f(b['pooled_auc_material'])} | {f(b['brier_head'])} |")
+            + " | ".join(f"{f(b[f'same_turn_auc_{k}'])} +- {f(b[f'same_turn_auc_{k}_se'])}"
+                         for k in scored) + " | "
+            + " | ".join(f(b[f"pooled_auc_{k}"]) for k in scored)
+            + f" | {f(b['brier_head'])} |")
     return "\n".join(lines)
 
 
@@ -198,6 +228,10 @@ def main(argv=None) -> int:
                     help="Worker processes reconstructing and encoding the games; "
                          "the head runs in this process.")
     ap.add_argument("--device", default="cpu", choices=("cpu", "cuda"))
+    ap.add_argument("--gate-enemy-villages", action="store_true",
+                    help="Feed the head global feature 5 gated by fog (the visible enemy "
+                         "villages) whatever the checkpoint says: what the head loses "
+                         "when the hidden count is taken away.")
     ap.add_argument("--out", type=Path, default=None)
     args = ap.parse_args(argv)
     import torch
@@ -212,8 +246,9 @@ def main(argv=None) -> int:
     games = [m for m in manifest if m.get("holdout")][:args.limit]
     t0 = time.time()
     rows: List[dict] = []
+    gate = bool(args.gate_enemy_villages or getattr(enc, "fog_hides_enemy_villages", False))
     tasks = [(str(args.dataset / m["file"]), m["winner_side"], dict(enc.unit_type_to_id),
-              dict(enc.faction_to_id), bool(getattr(enc, "relevant_set_hexes", False)))
+              dict(enc.faction_to_id), bool(getattr(enc, "relevant_set_hexes", False)), gate)
              for m in games]
     if args.jobs > 1:
         import multiprocessing as mp
@@ -249,6 +284,7 @@ def main(argv=None) -> int:
     print(report)
     if args.out:
         args.out.write_text(json.dumps({"checkpoint": str(args.checkpoint), "games": len(games),
+                                        "gate_enemy_villages": gate,
                                         "n_states": len(rows), "buckets": per_bucket,
                                         "rows": rows}, indent=1), encoding="utf-8")
         args.out.with_suffix(".md").write_text(report + "\n", encoding="utf-8")

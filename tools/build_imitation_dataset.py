@@ -109,7 +109,7 @@ def _build_one(args) -> Optional[dict]:
                 "source": path_str}
     if rec is None:
         return {"error": "extract_none", "source": path_str}
-    from tools.replay_dataset import fog_on_for, quarantine_reason
+    from tools.replay_dataset import fog_on_for, match_key, quarantine_reason
     why = quarantine_reason(rec.get("starting_sides", []))
     if why is not None:
         return {"quarantined": why, "source": path_str}
@@ -134,7 +134,31 @@ def _build_one(args) -> Optional[dict]:
         "holdout": holdout,
         "fog": fog_on_for(rec.get("starting_sides", [])),
         "shroud": any(bool(s.get("shroud", False)) for s in rec.get("starting_sides", [])),
+        "match_key": match_key(rec),
     }
+
+
+def dedup_rows(rows):
+    """One game per match (tools/replay_dataset.match_key): the copy
+    with the most commands survives (ties: the first file name), it
+    is holdout when any copy was, and the others are listed with
+    their survivor. The 2026-09-08 review found 79 clusters of
+    re-saved or re-uploaded games and one straddling the split."""
+    by_key = {}
+    for r in rows:
+        by_key.setdefault(r.get("match_key"), []).append(r)
+    kept, dropped = [], []
+    for key, group in by_key.items():
+        if key is None or len(group) == 1:
+            kept.extend(group)
+            continue
+        group = sorted(group, key=lambda r: (-int(r.get("n_commands", 0)), r["file"]))
+        survivor = dict(group[0])
+        survivor["holdout"] = any(bool(r.get("holdout")) for r in group)
+        kept.append(survivor)
+        for r in group[1:]:
+            dropped.append(dict(r, duplicate_of=survivor["file"]))
+    return kept, dropped
 
 
 def main(argv) -> int:
@@ -158,8 +182,7 @@ def main(argv) -> int:
     n_err = 0
     quarantined = []
     rows = []
-    with open(out_dir / "manifest.jsonl", "w", encoding="utf-8") as mf, \
-            Pool(args.workers) as pool:
+    with Pool(args.workers) as pool:
         for i, row in enumerate(
                 pool.imap_unordered(_build_one, jobs, chunksize=20), 1):
             if row is None or "error" in row:
@@ -170,11 +193,25 @@ def main(argv) -> int:
                 quarantined.append(row)
                 continue
             rows.append(row)
-            mf.write(json.dumps(row) + "\n")
             if i % 2000 == 0:
                 rate = i / (time.time() - t0)
                 print(f"  [{i}/{len(jobs)}] err={n_err} {rate:.1f}/s "
                       f"eta={int((len(jobs)-i)/rate/60)}min", flush=True)
+    # One game per match; the redundant copies' files leave the corpus.
+    rows, duplicates = dedup_rows(rows)
+    dup_dir = out_dir.parent / (out_dir.name + "_duplicates")
+    for r in duplicates:
+        src = out_dir / r["file"]
+        if src.exists():
+            dup_dir.mkdir(parents=True, exist_ok=True)
+            src.replace(dup_dir / r["file"])
+    with open(out_dir / "duplicates.jsonl", "w", encoding="utf-8") as df:
+        for r in duplicates:
+            df.write(json.dumps(r) + "\n")
+    rows.sort(key=lambda r: r["file"])
+    with open(out_dir / "manifest.jsonl", "w", encoding="utf-8") as mf:
+        for r in rows:
+            mf.write(json.dumps(r) + "\n")
     # The trainer's existing value-subsampling path reads
     # value_corpus_index.jsonl (file / winner / n_commands); emit it
     # from the same rows so outcome-supervised value training works
@@ -193,7 +230,7 @@ def main(argv) -> int:
     n_fog_off = sum(1 for r in rows if not r["fog"])
     print(f"BUILD_DONE in {(time.time()-t0)/60:.1f}min "
           f"({len(rows)} games, fog off {n_fog_off}, quarantined {len(quarantined)}, "
-          f"errors={n_err})", flush=True)
+          f"duplicates {len(duplicates)}, errors={n_err})", flush=True)
     return 1 if n_err else 0
 
 

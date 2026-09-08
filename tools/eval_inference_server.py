@@ -557,6 +557,7 @@ def main(argv: List[str]) -> int:
         "spec": str(spec), "device": device.type, "infer_bf16": bf16,
         "packed_trunk": packed,
         "relevant_set": bool(getattr(encoder, "relevant_set_hexes", False)),
+        "fog_hides_enemy_villages": bool(getattr(encoder, "fog_hides_enemy_villages", False)),
         "type_to_id": dict(encoder.unit_type_to_id),
         "faction_to_id": dict(encoder.faction_to_id),
     }

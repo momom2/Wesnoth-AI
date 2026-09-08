@@ -90,6 +90,7 @@ class TransformerPolicy:
         infer_bf16: bool = False,
         infer_compile: bool = False,
         value_material: bool = False,
+        fog_hides_enemy_villages: bool = False,
     ):
         # Default device is CPU. DML runs work for rollout (single-sample
         # forwards are competitive with CPU once the MHA/TransformerEncoder
@@ -129,9 +130,11 @@ class TransformerPolicy:
         # the ACTION SPACE's index basis, so BOTH encoders must agree -- a
         # split would make replayed target_idx meaningless.
         self._relevant_set_hexes = bool(relevant_set_hexes)
+        self._fog_hides_enemy_villages = bool(fog_hides_enemy_villages)
         self._encoder = GameStateEncoder(
             d_model=d_model,
-            relevant_set_hexes=self._relevant_set_hexes).to(self._device)
+            relevant_set_hexes=self._relevant_set_hexes,
+            fog_hides_enemy_villages=self._fog_hides_enemy_villages).to(self._device)
         self._model = WesnothModel(
             d_model=d_model,
             num_layers=num_layers,
@@ -171,7 +174,8 @@ class TransformerPolicy:
         # visible to the trainer's encoder too.
         self._inference_encoder = GameStateEncoder(
             d_model=d_model,
-            relevant_set_hexes=self._relevant_set_hexes).to(self._device)
+            relevant_set_hexes=self._relevant_set_hexes,
+            fog_hides_enemy_villages=self._fog_hides_enemy_villages).to(self._device)
         self._inference_model = WesnothModel(
             d_model=d_model,
             num_layers=num_layers,
@@ -694,6 +698,7 @@ class TransformerPolicy:
                 "value_material":  self._value_material,
                 "gbc":             self._gbc,
                 "relevant_set_hexes": self._relevant_set_hexes,
+                "fog_hides_enemy_villages": self._fog_hides_enemy_villages,
                 "model_state":     self._model.state_dict(),
                 "encoder_state":   self._encoder.state_dict(),
                 "unit_type_to_id": dict(self._encoder.unit_type_to_id),

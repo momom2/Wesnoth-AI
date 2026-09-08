@@ -142,3 +142,5 @@ training/validate_exports/
 training/checkpoints/supervised_5m_eval.jsonl
 replays_dataset_imitation/
 rust/wesnoth_core/target/
+replays_dataset_imitation_quarantined/
+replays_dataset_imitation_duplicates/

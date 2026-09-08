@@ -408,6 +408,7 @@ class GameStateEncoder(nn.Module):
         unit_type_to_id: Optional[Dict[str, int]] = None,
         faction_to_id: Optional[Dict[str, int]] = None,
         relevant_set_hexes: bool = False,
+        fog_hides_enemy_villages: bool = False,
     ):
         super().__init__()
         self.d_model = d_model
@@ -415,6 +416,9 @@ class GameStateEncoder(nn.Module):
         # changes the ACTION SPACE's index basis, so a checkpoint or replay
         # buffer built under one setting is meaningless under the other.
         self.relevant_set_hexes = bool(relevant_set_hexes)
+        # Global feature 5 under fog: the enemy villages the mover can
+        # see instead of the true count (rides the checkpoint).
+        self.fog_hides_enemy_villages = bool(fog_hides_enemy_villages)
 
         # We maintain our OWN name→id map. StateConverter also maintains
         # one (Unit.name_id comes from it), but we intentionally ignore
@@ -487,6 +491,7 @@ class GameStateEncoder(nn.Module):
             type_to_id=self.unit_type_to_id,
             faction_to_id=self.faction_to_id,
             relevant_set=self.relevant_set_hexes,
+            fog_hides_enemy_villages=self.fog_hides_enemy_villages,
         )
         return self.encode_from_raw(raw)
 
@@ -1081,6 +1086,7 @@ def encode_raw(
     type_to_id: Dict[str, int],
     faction_to_id: Dict[str, int],
     relevant_set: bool = False,
+    fog_hides_enemy_villages: bool = False,
 ) -> RawEncoded:
     """Build a `RawEncoded` from a GameState using read-only vocab.
 
@@ -1248,6 +1254,14 @@ def encode_raw(
     our_income     = sides[us_idx].base_income  if 0 <= us_idx < len(sides) else 0
     our_villages   = sides[us_idx].nb_villages_controlled if 0 <= us_idx < len(sides) else 0
     their_villages = sides[them_idx].nb_villages_controlled if 0 <= them_idx < len(sides) else 0
+    if fog_hides_enemy_villages and fog_on:
+        # Global feature 5 was the enemy's TRUE village count on every
+        # path (2026-09-08 contamination review): a player under fog
+        # never sees it (visibility.enemy_villages_visible_to cites
+        # the engine). Behind a checkpoint flag: the seed was trained
+        # with the count, its encoding stays byte-identical.
+        from wesnoth_ai.visibility import enemy_villages_visible_to
+        their_villages = enemy_villages_visible_to(game_state, current_side, _vision_disc())
 
     our_fac  = sides[us_idx].faction   if 0 <= us_idx   < len(sides) else ""
     them_fac = sides[them_idx].faction if 0 <= them_idx < len(sides) else ""

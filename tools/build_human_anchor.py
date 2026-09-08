@@ -88,6 +88,11 @@ def main(argv: List[str]) -> int:
 
     index = args.dataset_dir / "value_corpus_index.jsonl"
     rows = [json.loads(ln) for ln in index.open(encoding="utf-8")]
+    from tools.replay_dataset import manifest_holdout_split
+    _split = manifest_holdout_split(rows, args.dataset_dir)
+    if _split is not None:
+        # Anchor states never come from the holdout games (2026-09-08).
+        rows = _split[0]
     random.Random(0).shuffle(rows)      # the shared corpus shuffle
     rows = rows[args.skip_games:]
     random.Random(args.seed).shuffle(rows)

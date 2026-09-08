@@ -269,7 +269,8 @@ def _remote_player(address: str, raw_temperature: float, raw_seed,
     encoder = _VocabCheckedRemoteEncoder(
         h["type_to_id"], h["faction_to_id"], device=torch.device("cpu"),
         relevant_set=bool(h["relevant_set"]) or bool(relevant_set),
-        server_priors=True)
+        server_priors=True,
+        fog_hides_enemy_villages=bool(h.get("fog_hides_enemy_villages", False)))
     base = SimpleNamespace(_inference_model=counter, _inference_encoder=encoder,
                            _lock=threading.Lock(), _decision_step=0)
     return RawPolicyPlayer(base, raw_temperature, seed=raw_seed), counter

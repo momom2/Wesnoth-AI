@@ -34,6 +34,25 @@ if TYPE_CHECKING:
 log = logging.getLogger("midgame_starts")
 
 _INDEX_CACHE: dict = {}
+_ROOT = Path(__file__).resolve().parent.parent
+# The imitation holdout's command hashes (training/metrics/value_head/
+# contamination/imitation_holdout_command_hashes.json): a start is
+# never cut from one of those games, whichever corpus it is sampled
+# from (replays_dataset/ holds 114 of them under other names,
+# 2026-09-08 review).
+_EXCLUDED_HASHES_FILE = (_ROOT / "training/metrics/value_head/contamination/"
+                         "imitation_holdout_command_hashes.json")
+_EXCLUDED_CACHE: dict = {}
+
+
+def excluded_command_hashes() -> set:
+    if "set" not in _EXCLUDED_CACHE:
+        hashes: set = set()
+        if _EXCLUDED_HASHES_FILE.is_file():
+            hashes = set(json.loads(_EXCLUDED_HASHES_FILE.read_text(
+                encoding="utf-8")).get("hashes", {}).values())
+        _EXCLUDED_CACHE["set"] = hashes
+    return _EXCLUDED_CACHE["set"]
 
 
 def _load_index(dataset_dir: Path) -> List[dict]:
@@ -44,6 +63,11 @@ def _load_index(dataset_dir: Path) -> List[dict]:
         if idx.is_file():
             with idx.open(encoding="utf-8") as f:
                 rows = [json.loads(ln) for ln in f if ln.strip()]
+        # A corpus with a manifest keeps its holdout out of the starts.
+        from tools.replay_dataset import manifest_holdout_split
+        split = manifest_holdout_split(rows, dataset_dir)
+        if split is not None:
+            rows = split[0]
         _INDEX_CACHE[key] = rows
     return _INDEX_CACHE[key]
 
@@ -80,6 +104,10 @@ def sample_midgame_start(
         with gzip.open(gz, "rt", encoding="utf-8") as f:
             data = json.load(f)
         cmds = data.get("commands", [])
+        if excluded_command_hashes():
+            from tools.replay_dataset import command_hash
+            if command_hash(data) in excluded_command_hashes():
+                return None          # an imitation-holdout game under another name
         # Pass 1 (cheap, no state): the game's turn count = number of
         # side-1 init_side commands.
         end_turn = sum(1 for c in cmds if c and c[0] == "init_side"

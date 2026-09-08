@@ -323,7 +323,7 @@ fi
 
 # Stage the IMITATION dataset (games + manifest) for the human-holdout
 # CE probe (the handoff observable) and the anchor builders. Escrowed
-# as tier-b/replays_dataset_imitation_fog_20260907.tar.gz (fog/shroud
+# as tier-b/replays_dataset_imitation_dedup_20260908.tar.gz (fog/shroud
 # per side, 2026-09-07; carries its top-level folder). Idempotent.
 if [ ! -f replays_dataset_imitation/manifest.jsonl ] \
         && { [ -n "${HF_TOKEN:-}" ] || [ -f "$WORKDIR/.hf_token" ]; }; then
@@ -337,7 +337,7 @@ tok = os.environ.get("HF_SEED_TOKEN") or pathlib.Path(
 ).read_text().strip()
 try:
     p = hf_hub_download("momom2/wesnoth-model-checkpoints",
-                        "tier-b/replays_dataset_imitation_fog_20260907.tar.gz",
+                        "tier-b/replays_dataset_imitation_dedup_20260908.tar.gz",
                         token=tok)
 except Exception as e:                                  # noqa: BLE001
     print(f"[onstart] imitation dataset download failed: {e}")
@@ -607,6 +607,10 @@ fi
 # ---- SL_MODE: supervised behavior-cloning pass ----------------------
 # SL_MODE=1 runs tools/supervised_train.py on the staged human corpus
 # INSTEAD of self-play (user directive 2026-07-16: SL pass resumed
+# from the latest campaign checkpoint, never fresh). It trains on the
+# IMITATION corpus with its manifest split (2026-09-08 review: the
+# old replays_dataset pass with its own last-300 split had trained
+# the seed's lineage on 108 of the 369 imitation-holdout games).
 # from the latest campaign checkpoint, never fresh). Preemption-safe:
 # a restart re-enters here and resumes from supervised.pt if it
 # exists, else seeds from the campaign checkpoint (which the HF seed
@@ -630,7 +634,7 @@ if [ "${SL_MODE:-0}" = "1" ]; then
     pkill -f 'supervised_trai[n].py' 2>/dev/null || true
     sleep 2
     echo "[onstart] SL_MODE: behavior cloning, resume from $SL_RESUME"
-    nohup "$PY" tools/supervised_train.py replays_dataset         --checkpoint "$SL_OUT"         --resume "$SL_RESUME"         --epochs "${SL_EPOCHS:-8}"         --bs "${SL_BS:-64}"         --lr "${SL_LR:-1e-4}"         --device cuda         --workers "${SL_WORKERS:-24}"         --d-model $D_MODEL --num-layers $NUM_LAYERS --num-heads $NUM_HEADS --d-ff $D_FF         --holdout-games "${SL_HOLDOUT:-300}"         --value-loss-weight "${SL_VALUE_WEIGHT:-1.0}"         --value-states-per-game "${SL_VALUE_SPG:-16}"         --eval-every "${SL_EVAL_EVERY:-50000}"         --eval-pairs "${SL_EVAL_PAIRS:-1200}"         >> "$WORKDIR/train.log" 2>&1 9>&- &
+    nohup "$PY" tools/supervised_train.py replays_dataset_imitation         --imitation-config configs/imitation.json         --checkpoint "$SL_OUT"         --resume "$SL_RESUME"         --epochs "${SL_EPOCHS:-8}"         --bs "${SL_BS:-64}"         --lr "${SL_LR:-1e-4}"         --device cuda         --workers "${SL_WORKERS:-24}"         --d-model $D_MODEL --num-layers $NUM_LAYERS --num-heads $NUM_HEADS --d-ff $D_FF         --value-loss-weight "${SL_VALUE_WEIGHT:-1.0}"         --value-states-per-game "${SL_VALUE_SPG:-16}"         --eval-every "${SL_EVAL_EVERY:-50000}"         --eval-pairs "${SL_EVAL_PAIRS:-1200}"         >> "$WORKDIR/train.log" 2>&1 9>&- &
     echo "[onstart] SL training launched (tail -f $WORKDIR/train.log)"
     exit 0
 fi

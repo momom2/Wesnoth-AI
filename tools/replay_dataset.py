@@ -25,6 +25,7 @@ prints a summary of the first N replays.
 from __future__ import annotations
 
 import gzip
+import hashlib
 import json
 import logging
 import sys
@@ -645,6 +646,45 @@ def fog_on_for(starting_sides) -> bool:
     if not sides or not any("fog" in s for s in sides):
         return True
     return any(bool(s.get("fog", True)) or bool(s.get("shroud", False)) for s in sides)
+
+
+def manifest_holdout_split(rows, dataset_dir: Path):
+    """(train_rows, holdout_rows) of index rows (dicts with "file") by
+    the dataset manifest's holdout flag, or None without a manifest.
+    Rows absent from the manifest (quarantined, stale) are dropped.
+    Every tool that trains on a corpus splits through here: the
+    shuffled first-N splits of the value tools had 98% of the
+    manifest holdout in their training rows (2026-09-08 review)."""
+    man = Path(dataset_dir) / "manifest.jsonl"
+    if not man.exists():
+        return None
+    flags = {r["file"]: bool(r.get("holdout"))
+             for r in (json.loads(line) for line in man.read_text(encoding="utf-8").splitlines()
+                       if line.strip())}
+    train = [r for r in rows if r["file"] in flags and not flags[r["file"]]]
+    hold = [r for r in rows if flags.get(r["file"])]
+    return train, hold
+
+
+def match_key(data: dict, prefix: int = 200) -> str:
+    """One string per MATCH: the first `prefix` commands (with their
+    engine random seeds), the map and the starting units. Copies of
+    the same game saved at different turns share it; a re-upload
+    under another date shares it; two different games never do."""
+    h = hashlib.sha1()
+    h.update(json.dumps(data.get("commands", [])[:prefix], separators=(",", ":")).encode("utf-8"))
+    h.update(b"|")
+    h.update(str(data.get("map_data", "")).encode("utf-8"))
+    h.update(b"|")
+    h.update(json.dumps(data.get("starting_units", []), sort_keys=True,
+                        separators=(",", ":")).encode("utf-8"))
+    return h.hexdigest()
+
+
+def command_hash(data: dict) -> str:
+    """sha1 of the whole command stream (identity across corpora)."""
+    return hashlib.sha1(json.dumps(data.get("commands", []),
+                                   separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
 def quarantine_reason(starting_sides) -> Optional[str]:

@@ -233,10 +233,14 @@ def _actor_loop(
         # docstring, "Serve processes"); legacy PLAY tuples = the
         # learner process.
         client.use_server(int(cmd[10]) if len(cmd) > 10 else 0)
+        # Global feature 5 under fog (visibility.enemy_villages_visible_to);
+        # legacy PLAY tuples = the true count, as the seed was trained.
+        _fhv = bool(cmd[11]) if len(cmd) > 11 else False
         # Rebuild the encoder each iteration with the freshly-snapshotted
         # vocab so actor indices line up with the server's encoder.
         renc = RemoteEncoder(t2i, f2i, device=cpu,
-                             relevant_set=_rset, server_priors=_sp)
+                             relevant_set=_rset, server_priors=_sp,
+                             fog_hides_enemy_villages=_fhv)
         # MCTSPolicy.select_action reads `_base._lock` / `_base._decision_step`
         # (the combat-oracle anneal, added 2026-06-29). The in-process base is
         # a TransformerPolicy that supplies both; the actor's lightweight base
