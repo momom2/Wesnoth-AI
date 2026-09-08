@@ -123,6 +123,8 @@ def test_annotate_pass_writes_flags_and_quarantines(tmp_path):
     assert [r["file"] for r in q] == ["c.json.gz"] and q[0]["quarantined"] == "fog_off_shroud_on"
     idx = [json.loads(line)["file"] for line in (ds / "value_corpus_index.jsonl").read_text().splitlines()]
     assert idx == ["a.json.gz", "b.json.gz"]
+    assert not (ds / "c.json.gz").exists()
+    assert (tmp_path / "ds_quarantined" / "c.json.gz").exists()
     with _gz.open(ds / "b.json.gz", "rt", encoding="utf-8") as f:
         sides = json.load(f)["starting_sides"]
     assert all(s["fog"] is False and s["shroud"] is False for s in sides)

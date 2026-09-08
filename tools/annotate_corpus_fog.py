@@ -91,6 +91,15 @@ def main(argv=None) -> int:
         kept.append(row)
         if (i + 1) % 2000 == 0:
             print(f"{i + 1}/{len(rows)} {time.time() - t0:.0f} s", flush=True)
+    # The quarantined games leave the directory too (the trainer used
+    # to scan it; it now keeps to the manifest, but a stale copy of
+    # the corpus should not carry them either).
+    qdir = args.dataset.parent / (args.dataset.name + "_quarantined")
+    for r in quarantined:
+        src = args.dataset / r["file"]
+        if src.exists():
+            qdir.mkdir(parents=True, exist_ok=True)
+            os.replace(src, qdir / r["file"])
     tmp = manifest_path.with_suffix(".tmp")
     tmp.write_text("".join(json.dumps(r) + "\n" for r in kept), encoding="utf-8")
     os.replace(tmp, manifest_path)

@@ -1703,6 +1703,15 @@ def train(
                 w = 1.0
             imit_policy_w[r["file"]] = w
             imit_winner_map[r["file"]] = int(r["winner_side"])
+        # Only manifest games train: a file in the directory but not
+        # in the manifest is quarantined or stale (2026-09-08: the
+        # scan had kept training on the 20 quarantined games).
+        manifest_names = {r["file"] for r in man_rows}
+        off_manifest = [f.name for f in files if f.name not in manifest_names]
+        if off_manifest:
+            log.info(f"  {len(off_manifest)} files in {dataset_dir} are not in the "
+                     f"manifest and are skipped (first: {off_manifest[:2]})")
+            files = [f for f in files if f.name in manifest_names]
         holdout_names = {r["file"] for r in man_rows if r["holdout"]}
         holdout_files = [f for f in files if f.name in holdout_names]
         files = [f for f in files if f.name not in holdout_names]
