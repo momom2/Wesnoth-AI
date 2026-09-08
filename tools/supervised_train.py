@@ -259,6 +259,45 @@ def _pair_stream_serial(
             yield ("file_error", gz.name, repr(e))
 
 
+def _pair_stream_preencoded(files: List[Path], preencoded_dir: Path):
+    """The parallel stream's events from pre-encoded records
+    (tools/preencode_corpus.py): one file at a time, in the given
+    order, ("pair", RawEncoded, ActionIndices, name) then
+    ("file_done", name, n). No workers: a record loads in
+    milliseconds against the seconds a replay takes."""
+    from tools.preencode_corpus import read_record, record_path
+    for gz in files:
+        try:
+            pairs = read_record(record_path(preencoded_dir, gz.name))
+        except Exception as e:  # noqa: BLE001 - the file is skipped, loudly
+            yield ("file_error", gz.name, repr(e))
+            continue
+        for raw, ai in pairs:
+            yield ("pair", raw, ai, gz.name)
+        yield ("file_done", gz.name, len(pairs))
+
+
+def check_preencoded(preencoded_dir: Path, files: List[Path], encoder,
+                     relevant_set: bool) -> None:
+    """Refuse a pre-encoded corpus that is not this run's encoding:
+    other vocab or hex basis, or records missing for files of the
+    pass (the pre-encoder is resumable; finish it first)."""
+    from tools.preencode_corpus import load_manifest, record_path, vocab_fingerprint
+    man = load_manifest(preencoded_dir)
+    if man is None:
+        raise RuntimeError(f"--preencoded {preencoded_dir}: no manifest (not a pre-encoded corpus)")
+    fp = vocab_fingerprint(encoder.unit_type_to_id, encoder.faction_to_id, relevant_set)
+    if man.get("fingerprint") != fp:
+        raise RuntimeError(f"--preencoded {preencoded_dir} was encoded with another vocab or "
+                           f"hex basis ({man.get('fingerprint')}; this run {fp}); "
+                           f"re-run tools/preencode_corpus.py with this run's checkpoint")
+    missing = [gz.name for gz in files if not record_path(preencoded_dir, gz.name).exists()]
+    if missing:
+        raise RuntimeError(f"--preencoded {preencoded_dir}: {len(missing)} of {len(files)} "
+                           f"files of this pass have no record (first: {missing[:3]}); "
+                           f"finish the pre-encoding pass")
+
+
 class _ParallelStream:
     """Wraps the worker pool + producer-consumer queues as an iterable.
 
@@ -1319,6 +1358,7 @@ def train(
     eval_json: Optional[Path] = None,  # eval-only: also dump stats JSON
     reinit_value_head: bool = False,
     value_material: bool = False,   # the value head also reads material
+    preencoded: Optional[Path] = None,  # tools/preencode_corpus.py output
         # drop value_head.* from the --resume state (and skip the
         # optimizer-state restore): warm trunk+policy, fresh value.
         # Imitation A/B 2026-08-08 verdict -- see the resume block.
@@ -1852,7 +1892,12 @@ def train(
         # events plus ("file_done", gz_name, n) markers. Either serial
         # (does encoding inline) or parallel (workers prefetch the
         # encode_raw side; main does encode_from_raw + forward + back).
-        if workers > 0:
+        if preencoded is not None:
+            check_preencoded(preencoded, files, encoder, relevant_set_hexes)
+            log.info(f"Pairs from the pre-encoded corpus {preencoded} "
+                     f"(workers ignored; the per-replay cap does not apply)")
+            stream = _pair_stream_preencoded(files, preencoded)
+        elif workers > 0:
             stream = _pair_stream_parallel(
                 files,
                 workers=workers,
@@ -2343,6 +2388,10 @@ def main(argv: List[str]) -> int:
                     help="With --eval-only: also write the stats dict "
                          "as JSON here (machine-readable; the "
                          "campaign holdout-probe loop parses it).")
+    ap.add_argument("--preencoded", type=Path, default=None,
+                    help="Read pairs from a pre-encoded corpus "
+                         "(tools/preencode_corpus.py) instead of replaying "
+                         "the games; the vocab and hex basis must match.")
     ap.add_argument("--value-material", action="store_true",
                     help="Build the value head with material (cost x HP "
                          "fraction, mover minus visible enemies) as an extra "
@@ -2422,6 +2471,7 @@ def main(argv: List[str]) -> int:
         eval_json=args.eval_json,
         reinit_value_head=args.reinit_value_head,
         value_material=args.value_material,
+        preencoded=args.preencoded,
         imitation_config=args.imitation_config,
         type_loss_weights=type_loss_weights,
         relevant_set_hexes=args.relevant_set_hexes,
