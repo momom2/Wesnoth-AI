@@ -323,7 +323,8 @@ fi
 
 # Stage the IMITATION dataset (games + manifest) for the human-holdout
 # CE probe (the handoff observable) and the anchor builders. Escrowed
-# as tier-b/replays_dataset_imitation.tar.gz (2026-08-10). Idempotent.
+# as tier-b/replays_dataset_imitation_fog_20260907.tar.gz (fog/shroud
+# per side, 2026-09-07; carries its top-level folder). Idempotent.
 if [ ! -f replays_dataset_imitation/manifest.jsonl ] \
         && { [ -n "${HF_TOKEN:-}" ] || [ -f "$WORKDIR/.hf_token" ]; }; then
     HF_SEED_TOKEN="${HF_TOKEN:-}" \
@@ -336,15 +337,14 @@ tok = os.environ.get("HF_SEED_TOKEN") or pathlib.Path(
 ).read_text().strip()
 try:
     p = hf_hub_download("momom2/wesnoth-model-checkpoints",
-                        "tier-b/replays_dataset_imitation.tar.gz",
+                        "tier-b/replays_dataset_imitation_fog_20260907.tar.gz",
                         token=tok)
 except Exception as e:                                  # noqa: BLE001
     print(f"[onstart] imitation dataset download failed: {e}")
     sys.exit(1)
 dst = pathlib.Path("replays_dataset_imitation")
-dst.mkdir(parents=True, exist_ok=True)
 with tarfile.open(p, "r:gz") as tf:
-    tf.extractall(dst)              # flat ./*.json.gz + manifest.jsonl
+    tf.extractall(".")
 print(f"[onstart] imitation dataset: "
       f"{len(list(dst.glob('*.json.gz')))} games")
 EOF
