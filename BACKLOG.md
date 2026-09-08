@@ -298,9 +298,23 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
   arm 0.63 and 0.76; the ordering against material is unchanged.
 - RUNNING (plan step 4): `value_head_plus_material` (material as an
   explicit input of the head, `--value-material`), same recipe; the
-  box runs its per-phase evaluation at the end. The seed with global
-  feature 5 gated by fog (`--gate-enemy-villages`, with the village
-  lead true and seen as standalone predictors) runs beside it.
+  box runs its per-phase evaluation at the end.
+- MEASURED 2026-09-08: the seed's head with global feature 5 gated by
+  fog reads 0.645, 0.766, 0.816, 0.838, 0.881, 0.932 by phase against
+  0.647, 0.767, 0.818, 0.838, 0.874, 0.932 with the true count; the
+  village lead alone reads 0.58 early (true) and 0.51 (seen). The
+  god-view count carried nothing the head used.
+- SIGNIFICANCE 2026-09-08 (`tools/analysis/value_head_compare.py`,
+  paired by game): plus_1 against the seed, same-turn AUC difference
+  +0.014 [-0.010, +0.038] in turns 1-5 and within +-0.03 of zero in
+  every later bucket (p 0.24 to 0.99); Brier down in every bucket to
+  turn 30 with the interval clear of zero. One more iteration
+  sharpens the probabilities and does not change the ranking. The
+  2026-09-05 control reads the same way.
+- LATER (user decision 2026-09-08): retrain the seed from scratch on
+  the deduplicated corpus with the manifest split and the fog gate
+  on (the defaults now); it is the clean reference for holdout
+  numbers and a comparison point against the contaminated seed.
 - CONTAMINATION REVIEW 2026-09-08 (docs/data_contamination_20260908.md):
   the seed's lineage trained on 108 of the 369 imitation-holdout games
   (twins in the old corpus) and its A3 value head on about 364 of

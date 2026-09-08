@@ -160,6 +160,7 @@ def _seam_base(policy):
     from tools.inference_seam import InferenceServer, RemoteEncoder, RemoteModel
     enc, model = policy._inference_encoder, policy._inference_model
     renc = RemoteEncoder(enc.unit_type_to_id, enc.faction_to_id,
+                         fog_hides_enemy_villages=enc.fog_hides_enemy_villages,
                          relevant_set=enc.relevant_set_hexes, server_priors=True)
     return SimpleNamespace(_inference_model=RemoteModel(InferenceServer(model, enc)),
                            _inference_encoder=renc, _lock=threading.Lock(),

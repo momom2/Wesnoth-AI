@@ -66,9 +66,27 @@ enemy villages inside the mover's vision disc
 the checkpoint, the eval server hello, the actor PLAY tuple and the
 pre-encoder fingerprint, so the seed keeps the encoding it was trained
 with and a new run opts in with `--fog-hides-enemy-villages`.
-Measurement pending: the same per-phase evaluation with the count
-gated, to bound how much of the seed's early-game AUC the leak
-carries.
+
+Measured (`training/metrics/value_head/arms_20260908/phase_seed_gated.md`):
+the seed's head fed the gated count reads the same as with the true
+count, and the village lead on its own is a weak predictor. Same-turn
+AUC by turn bucket:
+
+| turns | head, true count | head, gated count | village lead, true | village lead, seen |
+|---|---|---|---|---|
+| 1-5 | 0.647 +- 0.018 | 0.645 +- 0.018 | 0.580 +- 0.011 | 0.513 +- 0.013 |
+| 6-10 | 0.767 +- 0.018 | 0.766 +- 0.018 | 0.672 +- 0.015 | 0.589 +- 0.017 |
+| 11-15 | 0.818 +- 0.024 | 0.816 +- 0.024 | 0.745 +- 0.023 | 0.667 +- 0.025 |
+| 16-20 | 0.838 +- 0.034 | 0.838 +- 0.034 | 0.794 +- 0.034 | 0.699 +- 0.037 |
+| 21-30 | 0.874 +- 0.051 | 0.881 +- 0.050 | 0.679 +- 0.074 | 0.674 +- 0.073 |
+| 31+ | 0.932 +- 0.056 | 0.932 +- 0.056 | 0.881 +- 0.087 | 0.888 +- 0.061 |
+
+The leak carried nothing the head's ranking used. It stays gated
+because a self-play player must not read it: a fresh network gates
+by default (`TransformerPolicy`, the supervised trainer), a loaded
+checkpoint keeps its own setting, and every pre-encoded cache (the
+value corpus experiences, the human anchor, the policy anchor) is
+built with the consumer's gate and refused under the other one.
 
 ### 4. Copies of one match under two names, one straddling the split
 
@@ -131,6 +149,37 @@ material is the same on both: the head is ahead in the early and
 middle game and level with material from turn 16. The
 `value_head_plus_material` arm's numbers are added when it finishes.
 
+## Did the extra iteration improve the head? (paired, per phase)
+
+`tools/analysis/value_head_compare.py` pairs the two records by game:
+per turn bucket, each game's same-turn score (the share of its turns
+where the winner's value is above the loser's) under the seed and
+under `value_head_plus_1`, and the per-game difference is the sample.
+Brier is likewise a per-game mean. Records:
+`training/metrics/value_head/arms_20260908/compare_seed_vs_plus_1.md`
+and `compare_seed_vs_control.md`.
+
+| turns | games | same-turn AUC seed | plus 1 | difference, 95% CI | p (paired t) | games better / worse / tied | Brier difference, 95% CI |
+|---|---|---|---|---|---|---|---|
+| 1-5 | 369 | 0.647 | 0.662 | +0.014 [-0.010, +0.038] | 0.24 | 91 / 86 / 192 | -0.018 [-0.023, -0.012] |
+| 6-10 | 337 | 0.767 | 0.766 | -0.000 [-0.023, +0.023] | 0.99 | 55 / 52 / 230 | -0.026 [-0.033, -0.018] |
+| 11-15 | 195 | 0.818 | 0.818 | +0.001 [-0.026, +0.027] | 0.97 | 20 / 18 / 157 | -0.025 [-0.035, -0.016] |
+| 16-20 | 83 | 0.838 | 0.848 | +0.010 [-0.029, +0.048] | 0.62 | 10 / 8 / 65 | -0.021 [-0.034, -0.008] |
+| 21-30 | 28 | 0.874 | 0.867 | -0.007 [-0.082, +0.069] | 0.86 | 4 / 5 / 19 | -0.019 [-0.037, -0.000] |
+| 31+ | 8 | 0.932 | 0.943 | +0.011 [-0.016, +0.038] | 0.35 | 1 / 0 / 7 | -0.002 [-0.047, +0.041] |
+| all | 369 | 0.729 | 0.736 | +0.008 [-0.009, +0.024] | 0.37 | 109 / 97 / 163 | -0.021 [-0.025, -0.016] |
+
+The ranking did not measurably improve in any phase: every interval
+of the same-turn difference covers zero, and most games score the
+same under both heads (the winner already leads in most turns). The
+calibration did: Brier falls in every bucket up to turn 30 with the
+interval clear of zero, and the pooled AUC over all early-game states
+rises by +0.009 to +0.042 (game-level bootstrap). The 2026-09-05
+control arm reads the same way against the seed: same-turn
+differences within noise in every bucket, Brier down in every bucket.
+An iteration of the recipe sharpens the head's probabilities; it does
+not change which side it thinks is ahead.
+
 ## Rules going forward
 
 - The manifest is the only split. Any tool that trains on a corpus
@@ -141,3 +190,9 @@ middle game and level with material from turn 16. The
   descendants) carries the finding 1 and 2 caveat.
 - Matches are identified by `match_key`, not by file name, before
   anything is split.
+- A new network never reads the hidden village count: the gate is on
+  by default, and a cache built under the other gate is refused.
+- The seed's lineage cannot be cleaned; a seed retrained from scratch
+  on this corpus, with the manifest split and the gate on, is the
+  clean reference and a comparison point (user decision 2026-09-08,
+  timing open).

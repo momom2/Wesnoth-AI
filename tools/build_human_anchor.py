@@ -40,11 +40,12 @@ log = logging.getLogger("build_human_anchor")
 _G = {}
 
 
-def _init(dataset_dir, t2i, f2i, stride):
+def _init(dataset_dir, t2i, f2i, stride, fog_hides_enemy_villages=False):
     _G["dir"] = Path(dataset_dir)
     _G["t2i"] = t2i
     _G["f2i"] = f2i
     _G["stride"] = stride
+    _G["fhv"] = bool(fog_hides_enemy_villages)
 
 
 def _one(row):
@@ -53,11 +54,35 @@ def _one(row):
         return game_raw_experiences(
             _G["dir"] / row["file"], row["winner"],
             type_to_id=_G["t2i"], faction_to_id=_G["f2i"],
-            stride=_G["stride"],
+            stride=_G["stride"], fog_hides_enemy_villages=_G["fhv"],
             rng=random.Random(row["game_id"].__hash__() & 0xFFFF))
     except Exception as e:                      # noqa: BLE001
         log.debug(f"skip {row['file']}: {e}")
         return []
+
+
+def anchor_meta_path(anchor: Path) -> Path:
+    return anchor.with_name(anchor.name + ".meta.json")
+
+
+def anchor_gate(anchor: Path) -> bool:
+    """The fog gate the anchor was encoded with (no sidecar: the
+    pre-2026-09-08 encoding, the true enemy village count)."""
+    meta = anchor_meta_path(anchor)
+    if not meta.exists():
+        return False
+    return bool(json.loads(meta.read_text(encoding="utf-8")).get("fog_hides_enemy_villages"))
+
+
+def check_anchor_gate(anchor: Path, policy_gate: bool) -> None:
+    """A cache encoded under the other gate feeds the head a feature
+    it never trained on; refuse it with the rebuild command."""
+    if anchor_gate(anchor) != bool(policy_gate):
+        flag = " --fog-hides-enemy-villages" if policy_gate else ""
+        raise ValueError(
+            f"{anchor}: encoded with fog_hides_enemy_villages={anchor_gate(anchor)}, "
+            f"the policy has {bool(policy_gate)}. Rebuild: python "
+            f"tools/build_human_anchor.py --out {anchor}{flag}")
 
 
 def main(argv: List[str]) -> int:
@@ -74,6 +99,11 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--stride", type=int, default=8)
     ap.add_argument("--workers", type=int, default=16)
     ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--fog-hides-enemy-villages", action="store_true",
+                    help="Encode global feature 5 gated by fog, for a lineage whose "
+                         "checkpoints carry fog_hides_enemy_villages (a fresh network "
+                         "does). Recorded in <out>.meta.json; the consumer refuses a "
+                         "mismatch.")
     args = ap.parse_args(argv[1:])
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
@@ -102,7 +132,8 @@ def main(argv: List[str]) -> int:
 
     out: List = []
     with Pool(args.workers, initializer=_init,
-              initargs=(args.dataset_dir, t2i, f2i, args.stride)) as p:
+              initargs=(args.dataset_dir, t2i, f2i, args.stride,
+                        args.fog_hides_enemy_villages)) as p:
         for i, recs in enumerate(p.imap_unordered(_one, rows, 8), 1):
             out.extend(recs)
             if i % 250 == 0:
@@ -111,6 +142,9 @@ def main(argv: List[str]) -> int:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with args.out.open("wb") as f:
         pickle.dump(out, f, protocol=pickle.HIGHEST_PROTOCOL)
+    anchor_meta_path(args.out).write_text(json.dumps({
+        "fog_hides_enemy_villages": bool(args.fog_hides_enemy_villages),
+        "games": len(rows), "stride": args.stride, "pairs": len(out)}), encoding="utf-8")
     zpos = sum(1 for _, z, _ in out if z > 0)
     log.info(f"wrote {args.out}: {len(out)} pairs "
              f"(z +{zpos} / -{len(out) - zpos}) "

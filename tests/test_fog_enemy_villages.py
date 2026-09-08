@@ -83,7 +83,7 @@ def test_flag_rides_the_checkpoint_the_encoder_and_the_remote_encoder(tmp_path):
     loaded = _load_policy(tmp_path / "on.pt", torch.device("cpu"), label="t")
     assert loaded._inference_encoder.fog_hides_enemy_villages is True
     off = TransformerPolicy(d_model=32, num_layers=1, num_heads=2, d_ff=64,
-                            device=torch.device("cpu"))
+                            device=torch.device("cpu"), fog_hides_enemy_villages=False)
     off.save_checkpoint(tmp_path / "off.pt")
     assert not peek_checkpoint_arch(tmp_path / "off.pt").get("fog_hides_enemy_villages", False)
     gs, side, inside, outside = _state_with_enemy_villages()
@@ -93,3 +93,23 @@ def test_flag_rides_the_checkpoint_the_encoder_and_the_remote_encoder(tmp_path):
     remote = RemoteEncoder(enc.unit_type_to_id, enc.faction_to_id, fog_hides_enemy_villages=True)
     assert _feat5(remote.encode(gs)._raw) == expected
     assert _feat5(RemoteEncoder(enc.unit_type_to_id, enc.faction_to_id).encode(gs)._raw) > expected
+
+
+def test_fresh_networks_gate_by_default_and_checkpoints_keep_their_setting(tmp_path):
+    fresh = TransformerPolicy(d_model=32, num_layers=1, num_heads=2, d_ff=64,
+                              device=torch.device("cpu"))
+    assert fresh._inference_encoder.fog_hides_enemy_villages is True
+    assert fresh._encoder.fog_hides_enemy_villages is True
+    fresh.save_checkpoint(tmp_path / "fresh.pt")
+    legacy = TransformerPolicy(d_model=32, num_layers=1, num_heads=2, d_ff=64,
+                               device=torch.device("cpu"), fog_hides_enemy_villages=False)
+    legacy.save_checkpoint(tmp_path / "legacy.pt")
+    ck = torch.load(tmp_path / "legacy.pt", map_location="cpu", weights_only=False)
+    del ck["fog_hides_enemy_villages"]                 # a checkpoint from before the gate
+    torch.save(ck, tmp_path / "legacy.pt")
+    fresh.load_checkpoint(tmp_path / "legacy.pt")     # the checkpoint's encoding wins
+    assert fresh._inference_encoder.fog_hides_enemy_villages is False
+    assert fresh._encoder.fog_hides_enemy_villages is False
+    legacy.load_checkpoint(tmp_path / "fresh.pt")
+    assert legacy._inference_encoder.fog_hides_enemy_villages is True
+    assert legacy._encoder.fog_hides_enemy_villages is True

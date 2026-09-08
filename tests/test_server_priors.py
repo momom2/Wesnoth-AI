@@ -63,7 +63,8 @@ def test_seam_with_server_priors_matches_direct_path():
     with torch.no_grad():
         direct = [(enc.encode(gs), gs) for gs in states]
         ref = [enumerate_legal_actions_with_priors(e, model(e), gs) for e, gs in direct]
-        renc = RemoteEncoder(enc.unit_type_to_id, enc.faction_to_id, server_priors=True)
+        renc = RemoteEncoder(enc.unit_type_to_id, enc.faction_to_id,
+                         fog_hides_enemy_villages=enc.fog_hides_enemy_villages, server_priors=True)
         rmodel = RemoteModel(InferenceServer(model, enc))
         lencs = [renc.encode(gs) for gs in states]
         outs = rmodel.forward_batch(lencs)
@@ -82,7 +83,8 @@ def test_wire_round_trip_keeps_compact():
     policy = _policy()
     enc, model = policy._inference_encoder, policy._inference_model
     gs = _states()[0]
-    renc = RemoteEncoder(enc.unit_type_to_id, enc.faction_to_id, server_priors=True)
+    renc = RemoteEncoder(enc.unit_type_to_id, enc.faction_to_id,
+                         fog_hides_enemy_villages=enc.fog_hides_enemy_villages, server_priors=True)
     le = renc.encode(gs)
     out = InferenceServer(model, enc).infer_batch([(le._raw, le._masks)])[0]
     back = output_from_wire(output_to_wire(out))
@@ -96,7 +98,8 @@ def test_mixed_batch_refused():
     policy = _policy()
     enc, model = policy._inference_encoder, policy._inference_model
     gs = _states()[0]
-    renc = RemoteEncoder(enc.unit_type_to_id, enc.faction_to_id, server_priors=True)
+    renc = RemoteEncoder(enc.unit_type_to_id, enc.faction_to_id,
+                         fog_hides_enemy_villages=enc.fog_hides_enemy_villages, server_priors=True)
     le = renc.encode(gs)
     with pytest.raises(ValueError, match="mixed"):
         InferenceServer(model, enc).infer_batch([le._raw, (le._raw, le._masks)])

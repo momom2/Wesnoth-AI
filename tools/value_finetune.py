@@ -43,12 +43,14 @@ log = logging.getLogger("value_finetune")
 _W: dict = {}
 
 
-def _init_worker(dataset_dir, type_to_id, faction_to_id, stride, mlnorm):
+def _init_worker(dataset_dir, type_to_id, faction_to_id, stride, mlnorm,
+                 fog_hides_enemy_villages=False):
     _W["dir"] = Path(dataset_dir)
     _W["t2i"] = type_to_id
     _W["f2i"] = faction_to_id
     _W["stride"] = stride
     _W["mlnorm"] = mlnorm
+    _W["fhv"] = bool(fog_hides_enemy_villages)
 
 
 def _work(task):
@@ -60,6 +62,7 @@ def _work(task):
             _W["dir"] / file, winner,
             type_to_id=_W["t2i"], faction_to_id=_W["f2i"],
             stride=_W["stride"], rng=_r.Random(seed),
+            fog_hides_enemy_villages=_W["fhv"],
             moves_left_norm=_W["mlnorm"])
     except Exception as e:                      # noqa: BLE001
         return ("ERR", file, str(e)[:120])
@@ -128,6 +131,7 @@ def main(argv) -> int:
 
     t2i = dict(policy._encoder.unit_type_to_id)
     f2i = dict(policy._encoder.faction_to_id)
+    _fhv = bool(policy._fog_hides_enemy_villages)   # the checkpoint's fog gate
 
     rows = [json.loads(ln) for ln in
             (args.dataset_dir / "value_corpus_index.jsonl")
@@ -157,7 +161,8 @@ def main(argv) -> int:
             for rw, z, _ in game_raw_experiences(
                     args.dataset_dir / r["file"], r["winner"],
                     type_to_id=t2i, faction_to_id=f2i,
-                    stride=args.probe_stride, rng=rng):
+                    stride=args.probe_stride, rng=rng,
+                    fog_hides_enemy_villages=_fhv):
                 probe_raw.append(rw)
                 probe_z.append(z)
         except Exception:                       # noqa: BLE001
@@ -235,7 +240,7 @@ def main(argv) -> int:
         # Serial fallback (local validation; avoids the Windows-spawn
         # Pool). Reconstruct in-process.
         _init_worker(str(args.dataset_dir), t2i, f2i, args.stride,
-                     MOVES_LEFT_NORM_TURNS)
+                     MOVES_LEFT_NORM_TURNS, _fhv)
         for epoch in range(args.epochs):
             np_, er, dt = _run_epoch(
                 epoch, (_work(t) for t in _epoch_tasks(epoch)))
@@ -244,7 +249,7 @@ def main(argv) -> int:
         ctx = mp.get_context("fork" if sys.platform != "win32" else "spawn")
         with ctx.Pool(args.workers, initializer=_init_worker,
                       initargs=(str(args.dataset_dir), t2i, f2i,
-                                args.stride, MOVES_LEFT_NORM_TURNS)) as pool:
+                                args.stride, MOVES_LEFT_NORM_TURNS, _fhv)) as pool:
             for epoch in range(args.epochs):
                 np_, er, dt = _run_epoch(
                     epoch, pool.imap_unordered(_work, _epoch_tasks(epoch),

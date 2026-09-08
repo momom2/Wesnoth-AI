@@ -549,7 +549,8 @@ class ActorPool:
         t2i, f2i = self._vocab_snapshot()
         renc = RemoteEncoder(t2i, f2i, device=torch.device("cpu"),
                              relevant_set=self._relevant_set(),
-                             server_priors=bool(self.server_priors))
+                             server_priors=bool(self.server_priors),
+                             fog_hides_enemy_villages=self._fog_hides_enemy_villages())
         payload = [RemoteModel._payload(renc.encode(gs)) for gs in game_states]
         outs = [self._server.infer_batch(payload)]
         for cq in self._server_ctrl_qs:

@@ -81,7 +81,9 @@ def build_cache(policy, rows, dataset_dir: Path, stride: int,
                                faction_to_id=encoder.faction_to_id,
                                relevant_set=getattr(
                                    encoder, "relevant_set_hexes",
-                                   False))
+                                   False),
+                               fog_hides_enemy_villages=getattr(
+                                   encoder, "fog_hides_enemy_villages", False))
                     for e in pend_states]
             encoded = encoder.encode_from_raw_batch(raws)
             feats_buf.clear()

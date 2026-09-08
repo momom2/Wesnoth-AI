@@ -90,7 +90,7 @@ class TransformerPolicy:
         infer_bf16: bool = False,
         infer_compile: bool = False,
         value_material: bool = False,
-        fog_hides_enemy_villages: bool = False,
+        fog_hides_enemy_villages: bool = True,
     ):
         # Default device is CPU. DML runs work for rollout (single-sample
         # forwards are competitive with CPU once the MHA/TransformerEncoder
@@ -130,6 +130,11 @@ class TransformerPolicy:
         # the ACTION SPACE's index basis, so BOTH encoders must agree -- a
         # split would make replayed target_idx meaningless.
         self._relevant_set_hexes = bool(relevant_set_hexes)
+        # Global feature 5 under fog: a fresh network counts only the
+        # enemy villages the mover can see (Wesnoth never shows the
+        # true count); load_checkpoint restores a checkpoint's own
+        # setting, so the seed's lineage keeps the encoding it was
+        # trained with (docs/data_contamination_20260908.md 3).
         self._fog_hides_enemy_villages = bool(fog_hides_enemy_villages)
         self._encoder = GameStateEncoder(
             d_model=d_model,
@@ -720,6 +725,12 @@ class TransformerPolicy:
         os.replace(tmp, path)
         self._logger.info(f"Saved checkpoint to {path}")
 
+    def set_fog_hides_enemy_villages(self, on: bool) -> None:
+        """Both encoders read global feature 5 the same way."""
+        self._fog_hides_enemy_villages = bool(on)
+        self._encoder.fog_hides_enemy_villages = bool(on)
+        self._inference_encoder.fog_hides_enemy_villages = bool(on)
+
     def load_checkpoint(self, path: Path, *, strict: bool = False) -> None:
         """Load weights from a checkpoint.
 
@@ -758,6 +769,10 @@ class TransformerPolicy:
         # Continuation metadata (see save_checkpoint): stashed for
         # the policy layer, which decides whether it applies.
         self.last_loaded_meta = dict(ckpt.get("training_meta") or {})
+        # The fog gate of global feature 5 is data flow, not weights:
+        # the checkpoint's setting wins over the constructor's (a
+        # checkpoint without the key was trained on the true count).
+        self.set_fog_hides_enemy_villages(bool(ckpt.get("fog_hides_enemy_villages", False)))
         saved_arch = ckpt.get("arch", {})
         for k, v in self._arch.items():
             if saved_arch.get(k) != v:

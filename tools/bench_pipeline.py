@@ -331,7 +331,8 @@ def seam_costs(policy, states: Sequence[Tuple[object, str]],
     server = InferenceServer(model, enc, device=device)
     renc = RemoteEncoder(enc.unit_type_to_id, enc.faction_to_id,
                          relevant_set=bool(getattr(enc, "relevant_set_hexes", False)),
-                         server_priors=True)
+                         server_priors=True,
+                         fog_hides_enemy_villages=bool(getattr(enc, "fog_hides_enemy_villages", False)))
     lights = [renc.encode(gs) for gs, _ in states]
     # Token-sorted batches: production batches are near-homogeneous
     # (padding ratio 1.06 measured on the az legs); cycling the 200

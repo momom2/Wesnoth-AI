@@ -4150,6 +4150,9 @@ def main(argv: List[str]) -> int:
     human_anchor = None
     if getattr(args, "human_anchor_file", None):
         import pickle as _pkl
+        from tools.build_human_anchor import check_anchor_gate
+        check_anchor_gate(args.human_anchor_file,
+                          bool(getattr(policy, "_fog_hides_enemy_villages", False)))
         with args.human_anchor_file.open("rb") as _f:
             _pool = _pkl.load(_f)
         if _pool:
@@ -4166,7 +4169,9 @@ def main(argv: List[str]) -> int:
     human_anchor_policy = None
     if getattr(args, "human_anchor_policy_file", None):
         from tools.policy_anchor import load_policy_anchor
-        _pgames = load_policy_anchor(args.human_anchor_policy_file)
+        _pgames = load_policy_anchor(
+            args.human_anchor_policy_file,
+            fog_hides_enemy_villages=bool(getattr(policy, "_fog_hides_enemy_villages", False)))
         if _pgames:
             _npairs = sum(len(g) for g in _pgames)
             human_anchor_policy = (

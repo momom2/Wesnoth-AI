@@ -116,9 +116,14 @@ State of play:
   imitation-holdout games and its value head on about 364 of their
   outcomes, and global feature 5 god-view under fog; every tool now
   splits by the corpus manifest, matches are deduplicated (17,019
-  games) and feature 5 is gated behind the checkpoint flag
-  `fog_hides_enemy_villages`. Holdout CE of the seed's lineage
-  carries that caveat; match results do not.
+  games) and feature 5 is gated by `fog_hides_enemy_villages`: on
+  for every fresh network, a checkpoint's own setting on load, and
+  pre-encoded caches refuse the other gate. Holdout CE of the seed's
+  lineage carries that caveat; match results do not. One more
+  iteration of the recipe (value_head_plus_1) sharpens the head's
+  Brier in every phase and leaves its ranking unchanged (paired per
+  game, tools/analysis/value_head_compare.py). A seed retrained from
+  scratch on the clean corpus is the planned clean reference.
 - Rulings (2026-09-05): no optimizations conditioned on the MCTS
   loop; scope every box test, train sparingly; results are written
   on the run, never as atomic dumps; a box job past ~1.5x its

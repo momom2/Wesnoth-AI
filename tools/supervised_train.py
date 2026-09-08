@@ -1360,7 +1360,7 @@ def train(
     reinit_value_head: bool = False,
     value_material: bool = False,   # the value head also reads material
     preencoded: Optional[Path] = None,  # tools/preencode_corpus.py output
-    fog_hides_enemy_villages: bool = False,  # global feature 5 under fog
+    fog_hides_enemy_villages: "bool | None" = None,  # global feature 5 under fog
         # drop value_head.* from the --resume state (and skip the
         # optimizer-state restore): warm trunk+policy, fresh value.
         # Imitation A/B 2026-08-08 verdict -- see the resume block.
@@ -1470,8 +1470,11 @@ def train(
         # projection) or when the checkpoint carries it.
         value_material = bool(value_material) or bool(ckpt.get("value_material")) or any(
             k.startswith("material_proj.") for k in ms)
-        fog_hides_enemy_villages = (bool(fog_hides_enemy_villages)
-                                    or bool(ckpt.get("fog_hides_enemy_villages")))
+        # The fog gate of global feature 5: an explicit flag wins,
+        # else the checkpoint's own setting (a checkpoint without the
+        # key was trained on the true count).
+        if fog_hides_enemy_villages is None:
+            fog_hides_enemy_villages = bool(ckpt.get("fog_hides_enemy_villages", False))
         for k in ("decision_step", "aux_score", "moves_left"):
             if k in ckpt:
                 carry[k] = ckpt[k]
@@ -1481,6 +1484,8 @@ def train(
             log.info(f"  carrying decision_step="
                      f"{carry['decision_step']} through the SL pass")
 
+    if fog_hides_enemy_villages is None:
+        fog_hides_enemy_villages = True      # a fresh network never reads the hidden count
     encoder = GameStateEncoder(
         d_model=d_model, relevant_set_hexes=relevant_set_hexes,
         fog_hides_enemy_villages=bool(fog_hides_enemy_villages)).to(device)
@@ -2405,10 +2410,15 @@ def main(argv: List[str]) -> int:
                     help="With --eval-only: also write the stats dict "
                          "as JSON here (machine-readable; the "
                          "campaign holdout-probe loop parses it).")
-    ap.add_argument("--fog-hides-enemy-villages", action="store_true",
+    ap.add_argument("--fog-hides-enemy-villages", action="store_true", default=None,
                     help="Global feature 5 under fog counts only the enemy "
                          "villages the mover can see (the engine never shows "
-                         "the true count); rides the checkpoint.")
+                         "the true count). Default: on for a fresh network, a "
+                         "checkpoint's own setting on a warm start; rides the "
+                         "checkpoint.")
+    ap.add_argument("--no-fog-hides-enemy-villages", action="store_false",
+                    dest="fog_hides_enemy_villages",
+                    help="Feed the true enemy village count (the pre-2026-09-08 encoding).")
     ap.add_argument("--preencoded", type=Path, default=None,
                     help="Read pairs from a pre-encoded corpus "
                          "(tools/preencode_corpus.py) instead of replaying "

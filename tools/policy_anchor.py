@@ -36,7 +36,7 @@ import pickle
 import random
 import sys
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -107,11 +107,15 @@ def anchor_policy_step(trainer, pairs: List) -> Dict[str, float]:
             "grad_norm": grad_norm}
 
 
-def load_policy_anchor(path: Path) -> List[List]:
+def load_policy_anchor(path: Path,
+                       fog_hides_enemy_villages: Optional[bool] = None) -> List[List]:
     """Load and validate a policy-anchor cache; returns the per-game
     pair lists (v2). A v1 (flat-pair) or foreign pickle fails loudly
     with the rebuild command -- silently rehearsing under the wrong
-    normalization is exactly what v2 exists to prevent."""
+    normalization is exactly what v2 exists to prevent. Given the
+    consumer's fog gate of global feature 5, a cache encoded under
+    the other gate is refused the same way (a cache without the key
+    was encoded with the true enemy village count)."""
     with Path(path).open("rb") as f:
         blob = pickle.load(f)
     if not isinstance(blob, dict) or blob.get("version") != CACHE_VERSION:
@@ -119,6 +123,13 @@ def load_policy_anchor(path: Path) -> List[List]:
             f"{path}: not a v{CACHE_VERSION} policy-anchor cache (got "
             f"{blob.get('version') if isinstance(blob, dict) else type(blob)}"
             f"). Rebuild: python tools/policy_anchor.py --out {path}")
+    cache_gate = bool((blob.get("meta") or {}).get("fog_hides_enemy_villages", False))
+    if fog_hides_enemy_villages is not None and cache_gate != bool(fog_hides_enemy_villages):
+        flag = " --fog-hides-enemy-villages" if fog_hides_enemy_villages else ""
+        raise ValueError(
+            f"{path}: encoded with fog_hides_enemy_villages={cache_gate}, the policy "
+            f"has {bool(fog_hides_enemy_villages)}. Rebuild: python "
+            f"tools/policy_anchor.py --out {path}{flag}")
     return blob["games"]
 
 
@@ -144,7 +155,8 @@ def sample_pairs_game_normalized(games: List[List], k: int,
 
 def build_cache(dataset_dir: Path, out: Path, *, games: int,
                 stride: int, seed: int,
-                type_to_id: dict, faction_to_id: dict) -> int:
+                type_to_id: dict, faction_to_id: dict,
+                fog_hides_enemy_villages: bool = False) -> int:
     """Sample winner-side (RawEncoded, ActionIndices) pairs from
     non-holdout imitation games into a pickled cache. Returns the
     number of pairs written."""
@@ -176,7 +188,8 @@ def build_cache(dataset_dir: Path, out: Path, *, games: int,
                 if (k - 1) % stride != offset:
                     continue
                 raw = encode_raw(state, type_to_id=type_to_id,
-                                 faction_to_id=faction_to_id)
+                                 faction_to_id=faction_to_id,
+                                 fog_hides_enemy_villages=fog_hides_enemy_villages)
                 game.append((raw, ai))
         except Exception as e:                      # noqa: BLE001
             log.warning(f"skip {gz.name}: {e!r}")
@@ -193,7 +206,8 @@ def build_cache(dataset_dir: Path, out: Path, *, games: int,
                               "stride": stride,
                               "seed": seed, "winners_only": True,
                               "holdout_excluded": True,
-                              "per_game_normalized": True},
+                              "per_game_normalized": True,
+                              "fog_hides_enemy_villages": bool(fog_hides_enemy_villages)},
                      "games": games_pairs},
                     f, protocol=pickle.HIGHEST_PROTOCOL)
     log.info(f"wrote {n_pairs} pairs across {len(games_pairs)} games "
@@ -214,6 +228,10 @@ def main(argv: List[str]) -> int:
                     help="Keep every stride-th winner-side pair "
                          "(random per-game offset).")
     ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--fog-hides-enemy-villages", action="store_true",
+                    help="Encode global feature 5 gated by fog, for a lineage whose "
+                         "checkpoints carry fog_hides_enemy_villages (a fresh network "
+                         "does); the consumer refuses a mismatch.")
     ap.add_argument("--log-level", default="INFO")
     args = ap.parse_args(argv[1:])
     logging.basicConfig(level=getattr(logging, args.log_level),
@@ -230,7 +248,8 @@ def main(argv: List[str]) -> int:
     n = build_cache(args.dataset_dir, args.out, games=args.games,
                     stride=args.stride, seed=args.seed,
                     type_to_id=enc.unit_type_to_id,
-                    faction_to_id=enc.faction_to_id)
+                    faction_to_id=enc.faction_to_id,
+                    fog_hides_enemy_villages=args.fog_hides_enemy_villages)
     return 0 if n > 0 else 1
 
 
