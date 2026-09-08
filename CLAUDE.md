@@ -122,8 +122,11 @@ State of play:
   lineage carries that caveat; match results do not. One more
   iteration of the recipe (value_head_plus_1) sharpens the head's
   Brier in every phase and leaves its ranking unchanged (paired per
-  game, tools/analysis/value_head_compare.py). A seed retrained from
-  scratch on the clean corpus is the planned clean reference.
+  game, tools/analysis/value_head_compare.py); the material input
+  (value_head_plus_material) adds +0.01 to +0.03 same-turn AUC in
+  every phase, within noise at 369 games. A seed retrained from
+  scratch on the clean corpus is the planned clean reference. No box
+  is rented.
 - Rulings (2026-09-05): no optimizations conditioned on the MCTS
   loop; scope every box test, train sparingly; results are written
   on the run, never as atomic dumps; a box job past ~1.5x its

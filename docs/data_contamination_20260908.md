@@ -134,20 +134,19 @@ The clean subset is the 254 holdout games with no twin in
 of the head against the game's outcome, by turn bucket
 (`training/metrics/value_head/arms_20260908/*_clean_subset.md`):
 
-| turns | games | seed | plus 1 | control (2026-09-05) | material |
-|---|---|---|---|---|---|
-| 1-5 | 254 | 0.624 +- 0.023 | 0.633 +- 0.024 | 0.615 +- 0.026 | 0.571 +- 0.018 |
-| 6-10 | 222 | 0.749 +- 0.024 | 0.758 +- 0.024 | 0.737 +- 0.025 | 0.683 +- 0.023 |
-| 11-15 | 114 | 0.781 +- 0.035 | 0.769 +- 0.035 | 0.762 +- 0.035 | 0.737 +- 0.035 |
-| 16-20 | 45 | 0.814 +- 0.048 | 0.833 +- 0.047 | 0.822 +- 0.049 | 0.830 +- 0.043 |
-| 21-30 | 18 | 0.910 +- 0.039 | 0.960 +- 0.018 | 0.922 +- 0.041 | 0.865 +- 0.051 |
-| 31+ | 7 | 0.987 +- 0.013 | 1.000 +- 0.000 | 0.961 +- 0.039 | 0.928 +- 0.034 |
+| turns | games | seed | plus 1 | plus material | control (2026-09-05) | material |
+|---|---|---|---|---|---|---|
+| 1-5 | 254 | 0.624 +- 0.023 | 0.633 +- 0.024 | 0.644 +- 0.023 | 0.615 +- 0.026 | 0.571 +- 0.018 |
+| 6-10 | 222 | 0.749 +- 0.024 | 0.758 +- 0.024 | 0.776 +- 0.023 | 0.737 +- 0.025 | 0.683 +- 0.023 |
+| 11-15 | 114 | 0.781 +- 0.035 | 0.769 +- 0.035 | 0.793 +- 0.034 | 0.762 +- 0.035 | 0.737 +- 0.035 |
+| 16-20 | 45 | 0.814 +- 0.048 | 0.833 +- 0.047 | 0.858 +- 0.044 | 0.822 +- 0.049 | 0.830 +- 0.043 |
+| 21-30 | 18 | 0.910 +- 0.039 | 0.960 +- 0.018 | 0.972 +- 0.014 | 0.922 +- 0.041 | 0.865 +- 0.051 |
+| 31+ | 7 | 0.987 +- 0.013 | 1.000 +- 0.000 | 0.987 +- 0.013 | 0.961 +- 0.039 | 0.928 +- 0.034 |
 
 On the full holdout the seed reads 0.647 in turns 1-5 and 0.767 in
 turns 6-10; on the clean subset 0.624 and 0.749. The ordering against
 material is the same on both: the head is ahead in the early and
-middle game and level with material from turn 16. The
-`value_head_plus_material` arm's numbers are added when it finishes.
+middle game and level with material from turn 16.
 
 ## Did the extra iteration improve the head? (paired, per phase)
 
@@ -179,6 +178,38 @@ control arm reads the same way against the seed: same-turn
 differences within noise in every bucket, Brier down in every bucket.
 An iteration of the recipe sharpens the head's probabilities; it does
 not change which side it thinks is ahead.
+
+### The material input (`value_head_plus_material`)
+
+Same recipe as `plus_1` with the material score as an explicit input
+of the value head (zero-initialised projection). Its evaluation ran
+on the deduplicated manifest, so one holdout game differs from the
+other records and 368 games pair. Records:
+`compare_seed_vs_plus_material.md`, `compare_plus_1_vs_plus_material.md`.
+
+| turns | games | seed | plus 1 | plus material | vs seed: difference, 95% CI | p | vs plus 1: difference, 95% CI | p |
+|---|---|---|---|---|---|---|---|---|
+| 1-5 | 368 | 0.647 | 0.661 | 0.661 | +0.014 [-0.017, +0.044] | 0.38 | -0.000 [-0.028, +0.028] | 1.00 |
+| 6-10 | 336 | 0.766 | 0.766 | 0.779 | +0.013 [-0.010, +0.036] | 0.25 | +0.013 [-0.009, +0.036] | 0.24 |
+| 11-15 | 195 | 0.818 | 0.818 | 0.831 | +0.013 [-0.017, +0.043] | 0.40 | +0.012 [-0.014, +0.039] | 0.35 |
+| 16-20 | 83 | 0.838 | 0.848 | 0.870 | +0.032 [-0.008, +0.072] | 0.12 | +0.022 [-0.021, +0.065] | 0.31 |
+| 21-30 | 28 | 0.874 | 0.867 | 0.893 | +0.019 [-0.044, +0.082] | 0.55 | +0.025 [-0.018, +0.069] | 0.24 |
+| 31+ | 8 | 0.932 | 0.943 | 0.943 | +0.011 [-0.016, +0.038] | 0.35 | +0.000 [-0.041, +0.041] | 1.00 |
+| all | 368 | 0.728 | 0.736 | 0.740 | +0.012 [-0.010, +0.034] | 0.30 | +0.004 [-0.018, +0.027] | 0.70 |
+
+Against the seed the material input moves the same-turn ranking up
+in every bucket, by +0.01 to +0.03, and no bucket reaches
+significance with this many games; the pooled AUC does (turns 1-15
+and 21-30, game-level bootstrap intervals above zero), and Brier
+falls in every bucket to turn 30. Against `plus_1` the ranking is
++0.01 to +0.025 from turn 6 on, within noise (p 0.24 to 0.35), and
+the calibration is slightly worse (Brier +0.006 to +0.020 in turns
+6-15, intervals above zero). Read plainly: the material input does
+not hurt and may help the middle game by about one to two points of
+AUC; deciding that needs more than 369 games. It changes nothing
+about the study's conclusion: the head reads who is ahead better
+than material in the early and middle game, and one iteration of
+training moves its calibration, not its ranking.
 
 ## Rules going forward
 

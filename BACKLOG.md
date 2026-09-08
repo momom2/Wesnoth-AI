@@ -296,9 +296,16 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
   the seed's 0.248. On the 254 clean holdout games (no twin in the old
   corpus) the seed reads 0.62 and 0.75 in the first two buckets, the
   arm 0.63 and 0.76; the ordering against material is unchanged.
-- RUNNING (plan step 4): `value_head_plus_material` (material as an
-  explicit input of the head, `--value-material`), same recipe; the
-  box runs its per-phase evaluation at the end.
+- MEASURED 2026-09-08 (plan step 4, HF `tier-b/value_head_arms_20260908/`):
+  `value_head_plus_material` (material as an explicit input of the
+  head, `--value-material`, same recipe) reads 0.66, 0.78, 0.83, 0.87,
+  0.89, 0.94 by phase; paired against the seed +0.01 to +0.03 in every
+  bucket, none significant (p 0.12 to 0.55), pooled AUC up in turns
+  1-15 and 21-30, Brier down to turn 30; against plus_1 +0.01 to
+  +0.025 from turn 6 (p 0.24 to 0.35), Brier slightly worse in turns
+  6-15. Does not hurt, may help the middle game by one or two points;
+  undecidable at 369 games. Box 50247106 destroyed; the two arm
+  checkpoints and records are escrowed.
 - MEASURED 2026-09-08: the seed's head with global feature 5 gated by
   fog reads 0.645, 0.766, 0.816, 0.838, 0.881, 0.932 by phase against
   0.647, 0.767, 0.818, 0.838, 0.874, 0.932 with the true count; the
