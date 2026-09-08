@@ -1318,6 +1318,7 @@ def train(
     eval_only: bool = False,         # evaluate --resume ckpt and exit
     eval_json: Optional[Path] = None,  # eval-only: also dump stats JSON
     reinit_value_head: bool = False,
+    value_material: bool = False,   # the value head also reads material
         # drop value_head.* from the --resume state (and skip the
         # optimizer-state restore): warm trunk+policy, fresh value.
         # Imitation A/B 2026-08-08 verdict -- see the resume block.
@@ -1422,6 +1423,11 @@ def train(
             k.startswith("aux_score_head.") for k in ms)
         moves_flag = bool(ckpt.get("moves_left")) or any(
             k.startswith("moves_left_head.") for k in ms)
+        # The material input of the value head: on when asked for
+        # (--value-material, a warm start grafts the zero-initialized
+        # projection) or when the checkpoint carries it.
+        value_material = bool(value_material) or bool(ckpt.get("value_material")) or any(
+            k.startswith("material_proj.") for k in ms)
         for k in ("decision_step", "aux_score", "moves_left"):
             if k in ckpt:
                 carry[k] = ckpt[k]
@@ -1436,7 +1442,11 @@ def train(
     model   = WesnothModel(d_model=d_model, num_layers=num_layers,
                            num_heads=num_heads, d_ff=d_ff,
                            aux_score=aux_flag,
-                           moves_left=moves_flag).to(device)
+                           moves_left=moves_flag,
+                           value_material=bool(value_material)).to(device)
+    carry["value_material"] = bool(value_material)
+    if value_material:
+        log.info("Value head input: material (wesnoth_ai/material.py)")
     model.train()
     encoder.train()
     arch_record = {"d_model": d_model, "num_layers": num_layers,
@@ -2333,6 +2343,10 @@ def main(argv: List[str]) -> int:
                     help="With --eval-only: also write the stats dict "
                          "as JSON here (machine-readable; the "
                          "campaign holdout-probe loop parses it).")
+    ap.add_argument("--value-material", action="store_true",
+                    help="Build the value head with material (cost x HP "
+                         "fraction, mover minus visible enemies) as an extra "
+                         "input; a warm start grafts it zero-initialized.")
     ap.add_argument("--reinit-value-head", action="store_true",
                     help="Drop value_head.* from the --resume state "
                          "and skip optimizer-state restore: warm "
@@ -2407,6 +2421,7 @@ def main(argv: List[str]) -> int:
         eval_only=args.eval_only,
         eval_json=args.eval_json,
         reinit_value_head=args.reinit_value_head,
+        value_material=args.value_material,
         imitation_config=args.imitation_config,
         type_loss_weights=type_loss_weights,
         relevant_set_hexes=args.relevant_set_hexes,

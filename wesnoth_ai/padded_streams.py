@@ -24,6 +24,14 @@ import torch
 from wesnoth_ai.model_output import ActorKind
 
 
+def material_batch(encoded_list):
+    """[B, 1] material of the batch, or None when any state lacks it
+    (a `value_material` model then refuses the forward)."""
+    if any(getattr(e, "material", None) is None for e in encoded_list):
+        return None
+    return torch.cat([e.material for e in encoded_list], dim=0)
+
+
 def pad_encoded_streams(encoded_list, d_model: int):
     """The five padded streams of forward_streams' signature plus the
     per-sample sizes, from EncodedStates (batch dim 1 each). Pad

@@ -52,20 +52,10 @@ def bucket_of(turn: int) -> str:
 
 
 def material(gs, mover: int) -> float:
-    """Cost-weighted HP fraction, mover minus opponent, over the units
-    the mover can see (wesnoth_ai.visibility, the encoder's own filter:
-    own units, enemies inside the vision disc, hidden units excluded)."""
-    from wesnoth_ai.visibility import units_visible_to
-    ours = theirs = 0.0
-    for u in units_visible_to(gs, mover):
-        if u.side not in (1, 2) or u.max_hp <= 0:
-            continue
-        v = float(u.cost) * float(u.current_hp) / float(u.max_hp)
-        if u.side == mover:
-            ours += v
-        else:
-            theirs += v
-    return ours - theirs
+    """The study's material metric (wesnoth_ai/material.py: cost x HP
+    fraction, mover minus the enemies the mover can see)."""
+    from wesnoth_ai.material import material_score
+    return material_score(gs, mover)
 
 
 def turn_start_states(data: dict):

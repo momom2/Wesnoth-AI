@@ -71,6 +71,7 @@ NUM_SIDE_CODES  = 3     # 0 = ours, 1 = theirs, 2 = neutral
 # mods can override in one place. Empty string is reserved for
 # "unknown/unset" -> id 0.
 from wesnoth_ai.constants import DEFAULT_FACTIONS as _DEFAULT_FACTIONS  # noqa: E402 -- re-export point documented above
+from wesnoth_ai.material import material_of_units  # noqa: E402
 from wesnoth_ai.visibility import (  # noqa: E402
     relevant_hexes_in_slot_order, hexes_in_slot_order, own_recruit_types,
                         visible_units_in_slot_order, is_scenery_unit)
@@ -289,6 +290,11 @@ class EncodedState:
     # subset it would mean an action the mask offered has no token to point
     # at -- i.e. a silently shrunken action space.
     hex_subset: bool = False
+    # Material from the mover's side ([1, 1] float32), the value head's
+    # optional input (wesnoth_ai/material.py). None on states built by
+    # hand; a `value_material` model refuses to run without it.
+    material: Optional[torch.Tensor] = None
+
 
 
 # ---------------------------------------------------------------------
@@ -377,6 +383,11 @@ class RawEncoded:
     global_feats:     np.ndarray            # float32 [GLOBAL_FEAT_DIM]
     our_faction_id:   int
     their_faction_id: int
+    # Material from the mover's side over the visible units
+    # (wesnoth_ai/material.py); the value head reads it when the model
+    # is built with `value_material`.
+    material: float = 0.0
+
 
 
     # True when the hex stream is the RELEVANT SUBSET rather than the whole
@@ -782,6 +793,8 @@ class GameStateEncoder(nn.Module):
             end_turn_token=self.end_turn_token.view(1, 1, -1),
             recruit_is_ours_np=raw.recruit_is_ours,  # zero-copy view
             visible_unit_ids=frozenset(raw.unit_ids),  # opt #3
+            material=torch.tensor([[float(raw.material)]], dtype=torch.float32,
+                                  device=global_token.device),
         )
 
     def encode_from_raw_padded(
@@ -1038,6 +1051,8 @@ class GameStateEncoder(nn.Module):
                 end_turn_token=end_turn_token,
                 recruit_is_ours_np=raw.recruit_is_ours,
                 visible_unit_ids=frozenset(raw.unit_ids),  # opt #3
+                material=torch.tensor([[float(raw.material)]], dtype=torch.float32,
+                                      device=global_emb.device),
             ))
         return results
 
@@ -1286,6 +1301,7 @@ def encode_raw(
         global_feats=global_feats_np,
         our_faction_id=our_faction_id,
         their_faction_id=their_faction_id,
+        material=material_of_units(units, current_side),
     )
 
 

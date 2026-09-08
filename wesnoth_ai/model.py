@@ -44,7 +44,9 @@ from wesnoth_ai.packed_trunk import (
     CompiledPackedTrunk, EmbeddedStreams, PackedTrunkWeights, build_packed_layout,
     check_packed_trunk_supported, flash_varlen_applies, packed_trunk, padded_gather_index,
 )
-from wesnoth_ai.padded_streams import pad_encoded_streams, padded_trunk_index, random_padded_streams
+from wesnoth_ai.material import MATERIAL_SCALE
+from wesnoth_ai.padded_streams import (material_batch, pad_encoded_streams,
+                                       padded_trunk_index, random_padded_streams)
 
 __all__ = [
     "WesnothModel",
@@ -77,6 +79,7 @@ class WesnothModel(nn.Module):
         aux_score:   bool = False,
         moves_left:  bool = False,
         gbc:         bool = False,
+        value_material: bool = False,
     ):
         super().__init__()
         self.d_model     = d_model
@@ -84,6 +87,7 @@ class WesnothModel(nn.Module):
         self.has_aux_score = bool(aux_score)
         self.has_moves_left = bool(moves_left)
         self.has_gbc = bool(gbc)
+        self.has_value_material = bool(value_material)
         # GBC event-prediction heads (docs/archive/gbc_spec.md, value-head
         # repair role): built only when `gbc=True`, so the default
         # model is byte-identical. Params ride model.parameters()
@@ -185,6 +189,27 @@ class WesnothModel(nn.Module):
         # the default arch (and existing checkpoints) are unchanged.
         self.moves_left_head = (
             nn.Linear(d_model, 1) if self.has_moves_left else None)
+        # Material as an input of the value head (2026-09-08 study,
+        # docs/value_head_study_20260907.md): a zero-initialized
+        # projection of the scalar added to the global context before
+        # the head, so a model warm-started from a checkpoint without
+        # it starts exactly at that checkpoint. Built only when
+        # `value_material` is on; the policy heads never see it.
+        self.material_proj = nn.Linear(1, d_model) if self.has_value_material else None
+        if self.material_proj is not None:
+            nn.init.zeros_(self.material_proj.weight)
+            nn.init.zeros_(self.material_proj.bias)
+
+    def _value_input(self, g: torch.Tensor, material: Optional[torch.Tensor]) -> torch.Tensor:
+        """The value head's input: the global context, plus the
+        material projection when the model carries one."""
+        if self.material_proj is None:
+            return g
+        if material is None:
+            raise ValueError("a value_material model needs EncodedState.material "
+                             "(the packed embed and the server priors paths do "
+                             "not carry it)")
+        return g + self.material_proj(material.to(g.dtype) / MATERIAL_SCALE)
 
     def forward(self, encoded: "EncodedState") -> ModelOutput:
         # Opt-in bf16 inference autocast (2026-08-05 throughput
@@ -279,7 +304,8 @@ class WesnothModel(nn.Module):
         # distribution. Trainer uses `value_logits` directly for the
         # categorical-CE loss; rollout/MCTS read `value` and
         # `cliffness`.
-        value_logits = self.value_head(global_ctx.squeeze(1))     # [B, K]
+        value_logits = self.value_head(
+            self._value_input(global_ctx.squeeze(1), encoded.material))  # [B, K]
         value_probs  = F.softmax(value_logits, dim=-1)            # [B, K]
         atoms = self._value_atoms                                 # [K]
         value = (value_probs * atoms).sum(dim=-1, keepdim=True)   # [B, 1]
@@ -377,10 +403,11 @@ class WesnothModel(nn.Module):
 
     def _forward_padded_impl(self, encoded_list, packed: Optional[bool] = None) -> "PaddedOutput":
         return self.forward_streams(*pad_encoded_streams(encoded_list, self.d_model),
-                                    packed=packed)
+                                    packed=packed, material=material_batch(encoded_list))
 
     def forward_streams(self, hex_batch, unit_batch, recruit_batch, global_batch,
-                        end_turn_batch, sizes, packed: Optional[bool] = None) -> "PaddedOutput":
+                        end_turn_batch, sizes, packed: Optional[bool] = None,
+                        material: Optional[torch.Tensor] = None) -> "PaddedOutput":
         """Batched forward over already-padded streams ([B, L_max, d]
         each, WITHOUT token-kind embeddings) and per-sample sizes
         (U_b, R_b, H_b). The inference server feeds this straight from
@@ -398,7 +425,7 @@ class WesnothModel(nn.Module):
             packed = self._packed_trunk_applies(hex_batch)
         if packed:
             return self._forward_streams_packed(hex_batch, unit_batch, recruit_batch,
-                                                global_batch, end_turn_batch, sizes)
+                                                global_batch, end_turn_batch, sizes, material=material)
         d = self.d_model
         device = hex_batch.device
         U_max, R_max, H_max = unit_batch.size(1), recruit_batch.size(1), hex_batch.size(1)
@@ -426,7 +453,7 @@ class WesnothModel(nn.Module):
         global_ctx = x[:, H_max + U_max + R_max:H_max + U_max + R_max + 1]  # [B, 1, d]
         actor_ctx = torch.gather(x, 1, actor_idx.unsqueeze(-1).expand(-1, -1, d))  # [B, A_max, d]
         return self._heads(actor_ctx, hex_ctx, global_ctx, actor_kind, sizes,
-                           unit_ctx=x[:, H_max:H_max + U_max] if self.has_gbc else None)
+                           unit_ctx=x[:, H_max:H_max + U_max] if self.has_gbc else None, material=material)
 
     def _packed_trunk_applies(self, x: torch.Tensor) -> bool:
         """The packed trunk serves a call when it is switched on, the
@@ -442,7 +469,8 @@ class WesnothModel(nn.Module):
         return flash_varlen_applies(x.device, dtype)
 
     def _forward_streams_packed(self, hex_batch, unit_batch, recruit_batch, global_batch,
-                                end_turn_batch, sizes) -> "PaddedOutput":
+                                end_turn_batch, sizes,
+                                material: Optional[torch.Tensor] = None) -> "PaddedOutput":
         """forward_streams on the packed layout (design note section 5.3;
         the index arrays follow section 4.3). One gather packs the real
         tokens of the padded streams into [total, d] and one embedding
@@ -457,7 +485,8 @@ class WesnothModel(nn.Module):
         padded = torch.cat([hex_batch, unit_batch, recruit_batch, global_batch, end_turn_batch],
                            dim=1).reshape(B * (H_max + U_max + R_max + 2), d)
         x = padded.index_select(0, index.src) + self.token_kind_embed(index.kind)   # [total, d]
-        return self._packed_trunk_heads(x, index, layout, sizes, H_max, U_max, R_max)
+        return self._packed_trunk_heads(x, index, layout, sizes, H_max, U_max, R_max,
+                                        material=material)
 
     def forward_embedded(self, streams: EmbeddedStreams,
                          packed: Optional[bool] = None) -> "PaddedOutput":
@@ -495,7 +524,8 @@ class WesnothModel(nn.Module):
                                     rows[:, H_max + U_max:o], rows[:, o:o + 1], rows[:, o + 1:],
                                     sizes, packed=False)
 
-    def _packed_trunk_heads(self, x, index, layout, sizes, H_max, U_max, R_max) -> "PaddedOutput":
+    def _packed_trunk_heads(self, x, index, layout, sizes, H_max, U_max, R_max,
+                            material: Optional[torch.Tensor] = None) -> "PaddedOutput":
         """The trunk on packed tokens x [total, d] (token kinds added),
         then the heads on the actor / hex / global (and unit, for GBC)
         contexts laid out in the padded shapes by index_select, so the
@@ -515,7 +545,7 @@ class WesnothModel(nn.Module):
         global_ctx = x.index_select(0, index.glob).view(B, 1, d)
         unit_ctx = x.index_select(0, index.unit).view(B, U_max, d) if self.has_gbc else None
         return self._heads(actor_ctx, hex_ctx, global_ctx, torch.from_numpy(layout.actor_kind),
-                           sizes, unit_ctx)
+                           sizes, unit_ctx, material=material)
 
     # ------------------------------------------------------------------
     # Compiled packed trunk (design note section 13)
@@ -593,7 +623,7 @@ class WesnothModel(nn.Module):
         return self._packed_compile.run(x, index, w)
 
     def _heads(self, actor_ctx, hex_ctx, global_ctx, actor_kind, sizes,
-               unit_ctx) -> "PaddedOutput":
+               unit_ctx, material: Optional[torch.Tensor] = None) -> "PaddedOutput":
         """The four heads on contextualized actor [B, A_max, d], hex
         [B, H_max, d] and global [B, 1, d] rows, whichever trunk produced
         them."""
@@ -612,7 +642,7 @@ class WesnothModel(nn.Module):
             target_logits = torch.bmm(q, k.transpose(1, 2)) / (d ** 0.5)  # [B, A_max, H_max]
 
         g = global_ctx.squeeze(1)
-        value_logits = self.value_head(g)                                # [B, K]
+        value_logits = self.value_head(self._value_input(g, material))   # [B, K]
         value_probs = F.softmax(value_logits, dim=-1)
         atoms = self._value_atoms
         value = (value_probs * atoms).sum(dim=-1, keepdim=True)          # [B, 1]
