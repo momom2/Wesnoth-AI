@@ -33,7 +33,7 @@ if [ ! -d Wesnoth-AI/tools ]; then
     mkdir -p Wesnoth-AI && tar xzf $WORKDIR/stage.tar.gz -C Wesnoth-AI
 fi
 cd Wesnoth-AI
-export HF_TOKEN="$(cat $WORKDIR/.hf_token)"
+export HF_TOKEN="$(tr -d '\r\n' < $WORKDIR/.hf_token)"   # a token file written on Windows carries a CR
 python -m pip install -q huggingface_hub psutil 2>&1 | grep -v "WARNING: Running pip" | tail -1 || true
 
 if [ ! -f "$OUT/STAGED" ]; then
