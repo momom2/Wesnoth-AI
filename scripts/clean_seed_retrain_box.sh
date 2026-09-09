@@ -59,11 +59,12 @@ fi
 # dicts the trainer builds), saved so the pre-encoder can read it.
 if [ ! -f "$OUT/fresh_vocab.pt" ]; then
 python - <<'EOF' || { echo "vocab failed" >&2; exit 1; }
+import pathlib
 import torch
 from wesnoth_ai.encoder import GameStateEncoder
 from tools.supervised_train import _seed_vocab_from_unit_stats
 enc = GameStateEncoder(d_model=32)
-_seed_vocab_from_unit_stats(enc, "unit_stats.json")
+_seed_vocab_from_unit_stats(enc, pathlib.Path("unit_stats.json"))
 torch.save({"unit_type_to_id": dict(enc.unit_type_to_id),
             "faction_to_id": dict(enc.faction_to_id)}, "/workspace/clean_seed/fresh_vocab.pt")
 seed = torch.load("training/checkpoints/seed.pt", map_location="cpu", weights_only=False)
@@ -77,7 +78,7 @@ fi
 if [ ! -f "$ENC/PREENCODE_DONE" ]; then
     python tools/preencode_corpus.py --dataset replays_dataset_imitation --out "$ENC" \
         --vocab-from "$OUT/fresh_vocab.pt" --fog-hides-enemy-villages --workers "$WORKERS" \
-        2>&1 | grep -v "wesnoth_core is not importable" | tee -a "$OUT/preencode.log" | tail -3
+        2>&1 | grep --line-buffered -v "wesnoth_core is not importable" | tee -a "$OUT/preencode.log" | tail -3
     grep -q "PREENCODE_DONE" "$OUT/preencode.log" && touch "$ENC/PREENCODE_DONE" \
         || { echo "pre-encoding failed" >&2; exit 1; }
 fi
@@ -123,7 +124,7 @@ if [ ! -f "$OUT/DONE" ]; then
         --epochs "$EPOCHS" --seed "$RUN_SEED" \
         --bs 64 --lr 1e-4 --device cuda --workers 0 --preencoded "$ENC" \
         $EVAL --ckpt-every 2000 --log-every 100 \
-        2>&1 | grep -v "wesnoth_core is not importable" | tee -a "$OUT/train.log"
+        2>&1 | grep --line-buffered -v "wesnoth_core is not importable" | tee -a "$OUT/train.log"
     rc=${PIPESTATUS[0]}
     if [ "$rc" -ne 0 ] || [ ! -f "$OUT/arm.pt" ]; then
         echo "training FAILED rc=$rc" >&2
