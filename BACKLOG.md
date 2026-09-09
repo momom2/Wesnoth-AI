@@ -322,6 +322,31 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
   the deduplicated corpus with the manifest split and the fog gate
   on (the defaults now); it is the clean reference for holdout
   numbers and a comparison point against the contaminated seed.
+- VERDICT 2026-09-09: the head cannot grade alternative turns. Its
+  within-position error against 160-playout truth is 0.16 and it
+  shrinks real gaps three to one, while the best of four sampled
+  turns beats the played turn by about 0.05 (turn_gap pre-grader,
+  12 positions). Who-is-ahead AUC does not measure this; every
+  outcome-trained head shares the cause (one label per game, 17k
+  games). Material grading dropped (user ruling).
+- NEXT (user, 2026-09-09), the value-head programme:
+  1. Auxiliary value targets from the existing corpus: material
+     lost and killed over the next turn, villages held two turns
+     on, turns to the end. One label per position instead of one
+     per game, no new games needed (KataGo, Wu 2019).
+  2. Weight the value loss and each auxiliary loss by a learned
+     noise parameter (Kendall, Gal & Cipolla 2018). AlphaGo Zero's
+     value weight on human-data-sized corpora is 0.01; ours is 1.0.
+  3. A within-position benchmark: 100 self-play positions at
+     temperature 0.5, four alternative turns each, 160 playouts per
+     candidate (about $7). Every head is scored on it; it is
+     regenerated when the player changes.
+  4. Value network trained apart from the policy trunk (Phasic
+     Policy Gradient, Cobbe 2021): the seed stays byte-identical.
+     Two arms, frozen trunk features against from scratch.
+  5. Scale: 100k self-play games at temperature 0.5 (about $35),
+     with branching for replicate outcomes where the noise share of
+     the loss is wanted exactly.
 - CONTAMINATION REVIEW 2026-09-08 (docs/data_contamination_20260908.md):
   the seed's lineage trained on 108 of the 369 imitation-holdout games
   (twins in the old corpus) and its A3 value head on about 364 of
