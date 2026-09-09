@@ -1815,8 +1815,10 @@ def train(
     # in `unit_stats.json` so common types (Drake Burner, Loyalist,
     # etc.) hit named rows instead of the overflow bucket. Skip if
     # we resumed (the resumed dict already has whatever the previous
-    # runs accumulated).
-    if workers > 0 and ckpt is None:
+    # runs accumulated). A fresh encoder is seeded on every path: the
+    # pre-encoded records carry the seeded vocab's ids, and a serial
+    # run without records only gains named rows up front.
+    if ckpt is None:
         _seed_vocab_from_unit_stats(encoder, dataset_dir.parent / "unit_stats.json")
         log.info(
             f"Pre-seeded encoder vocab: "
