@@ -286,12 +286,25 @@ def check_preencoded(preencoded_dir: Path, files: List[Path], encoder,
     man = load_manifest(preencoded_dir)
     if man is None:
         raise RuntimeError(f"--preencoded {preencoded_dir}: no manifest (not a pre-encoded corpus)")
-    fp = vocab_fingerprint(encoder.unit_type_to_id, encoder.faction_to_id, relevant_set,
+    # The vocab is append-only and grows during a run (the holdout
+    # eval registers names the corpus seeding lacked), so the records'
+    # vocab is a prefix of this run's: compare on that prefix. Names
+    # past it never occur in the records (the pre-encoder mapped them
+    # to the overflow bucket), so they cannot disagree.
+    n_types = int(man.get("unit_types", len(encoder.unit_type_to_id)))
+    n_factions = int(man.get("factions", len(encoder.faction_to_id)))
+    types = {k: v for k, v in encoder.unit_type_to_id.items() if v < n_types}
+    factions = {k: v for k, v in encoder.faction_to_id.items() if v < n_factions}
+    fp = vocab_fingerprint(types, factions, relevant_set,
                            bool(getattr(encoder, "fog_hides_enemy_villages", False)))
     if man.get("fingerprint") != fp:
         raise RuntimeError(f"--preencoded {preencoded_dir} was encoded with another vocab or "
                            f"hex basis ({man.get('fingerprint')}; this run {fp}); "
                            f"re-run tools/preencode_corpus.py with this run's checkpoint")
+    grown = (len(encoder.unit_type_to_id) - len(types), len(encoder.faction_to_id) - len(factions))
+    if any(grown):
+        log.info(f"  pre-encoded vocab is a prefix of this run's: {grown[0]} unit types and "
+                 f"{grown[1]} factions registered since the records were made")
     missing = [gz.name for gz in files if not record_path(preencoded_dir, gz.name).exists()]
     if missing:
         raise RuntimeError(f"--preencoded {preencoded_dir}: {len(missing)} of {len(files)} "

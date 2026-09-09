@@ -91,7 +91,16 @@ def test_other_vocab_or_missing_record_is_refused(encoded, tmp_path):
     from types import SimpleNamespace
     enc = SimpleNamespace(unit_type_to_id=dict(t2i), faction_to_id=dict(f2i))
     check_preencoded(out, files, enc, False)
-    other = SimpleNamespace(unit_type_to_id=dict(t2i, Zzz=999), faction_to_id=dict(f2i))
+    # Names registered after the records were made extend the vocab;
+    # the records' prefix is unchanged, so they are accepted.
+    grown = SimpleNamespace(unit_type_to_id=dict(t2i, Zzz=len(t2i)),
+                            faction_to_id=dict(f2i, Newfolk=len(f2i)))
+    check_preencoded(out, files, grown, False)
+    # A vocab that disagrees inside the prefix is another encoding.
+    a, b = sorted(t2i)[:2]
+    swapped = dict(t2i)
+    swapped[a], swapped[b] = t2i[b], t2i[a]
+    other = SimpleNamespace(unit_type_to_id=swapped, faction_to_id=dict(f2i))
     with pytest.raises(RuntimeError, match="vocab"):
         check_preencoded(out, files, other, False)
     with pytest.raises(RuntimeError, match="no record"):
