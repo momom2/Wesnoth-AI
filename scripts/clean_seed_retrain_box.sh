@@ -115,6 +115,18 @@ export HF_DIR
 ( while [ ! -f "$OUT/DONE" ]; do sleep 1800; escrow >> "$OUT/escrow.log" 2>&1; done ) &
 ESCROW_PID=$!
 
+# A run continued on another box: RESUME_HF names the escrowed
+# checkpoint (e.g. tier-b/clean_seed_20260909/arm_epoch1.pt) to resume from.
+if [ -n "${RESUME_HF:-}" ] && [ ! -f "$OUT/arm.pt" ] && [ ! -f "$OUT/DONE" ]; then
+python - <<EOF || { echo "resume download failed" >&2; exit 1; }
+import pathlib, shutil
+from huggingface_hub import hf_hub_download
+p = hf_hub_download("momom2/wesnoth-model-checkpoints", "$RESUME_HF")
+shutil.copyfile(p, "$OUT/arm.pt")
+print("resuming from $RESUME_HF", pathlib.Path("$OUT/arm.pt").stat().st_size, flush=True)
+EOF
+fi
+
 if [ ! -f "$OUT/DONE" ]; then
     RESUME=""
     [ -f "$OUT/arm.pt" ] && RESUME="--resume $OUT/arm.pt"
