@@ -318,10 +318,23 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
   turn 30 with the interval clear of zero. One more iteration
   sharpens the probabilities and does not change the ranking. The
   2026-09-05 control reads the same way.
-- LATER (user decision 2026-09-08): retrain the seed from scratch on
-  the deduplicated corpus with the manifest split and the fog gate
-  on (the defaults now); it is the clean reference for holdout
-  numbers and a comparison point against the contaminated seed.
+- DONE 2026-09-10, the clean seed (`scripts/clean_seed_retrain_box.sh`,
+  HF `tier-b/clean_seed_20260909/arm_epoch2.pt`, records in
+  `training/metrics/value_head/clean_seed_20260909/`): the 15M
+  architecture from scratch, the seed's imitation recipe, the
+  deduplicated corpus with the manifest split and the fog gate on,
+  cosine over 4 epochs, stopped after epoch 2 by user order when the
+  probe flattened. Holdout CE 3.084 / 2.872 / 2.777 at the three
+  epoch ends (the seed: 3.10), masked target CE 1.281 (seed 1.34),
+  value AUC 0.750 (seed 0.63). Per phase the value head ranks like
+  the seed's (same-turn AUC 0.64 / 0.75 / 0.81 / 0.85 by bucket,
+  every paired difference within noise) and is better calibrated
+  (Brier lower in every bucket to turn 20, intervals clear of zero).
+  It replaces the seed as the reference for holdout numbers and for
+  the value-head programme's frozen-trunk arm. NOT yet matched
+  against raw:t0 (800 games, about $0.75); until then its strength is
+  unknown and the seed stays the reference player. Cost $16 over
+  three boxes (one offer expired, one uplink at 70 kB/s).
 - VERDICT 2026-09-09: the head cannot grade alternative turns. Its
   within-position error against 160-playout truth is 0.16 and it
   shrinks real gaps three to one, while the best of four sampled

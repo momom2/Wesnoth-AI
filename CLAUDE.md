@@ -124,9 +124,13 @@ State of play:
   Brier in every phase and leaves its ranking unchanged (paired per
   game, tools/analysis/value_head_compare.py); the material input
   (value_head_plus_material) adds +0.01 to +0.03 same-turn AUC in
-  every phase, within noise at 369 games. A seed retrained from
-  scratch on the clean corpus is the planned clean reference. No box
-  is rented.
+  every phase, within noise at 369 games. 2026-09-10: the clean seed
+  (15M from scratch, the seed's recipe on the fixed corpus, two
+  epochs, HF `tier-b/clean_seed_20260909/arm_epoch2.pt`) reads
+  holdout CE 2.78 against the seed's 3.10 and a value head that ranks
+  like the seed's and is better calibrated; it is the reference for
+  holdout numbers and the frozen-trunk arm, and it has not yet played
+  raw:t0. No box is rented.
 - Rulings (2026-09-05): no optimizations conditioned on the MCTS
   loop; scope every box test, train sparingly; results are written
   on the run, never as atomic dumps; a box job past ~1.5x its
