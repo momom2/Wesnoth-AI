@@ -90,7 +90,22 @@ from huggingface_hub import HfApi
 api = HfApi(token=os.environ["HF_TOKEN"])
 out = "/workspace/clean_seed"
 hf_dir = os.environ.get("HF_DIR", "tier-b/clean_seed_20260909")
-files = ["train.log", "arm_eval.jsonl", "preencode.log", "box.txt"]
+
+
+def upload(path, name):
+    for attempt in range(3):
+        try:
+            api.upload_file(path_or_fileobj=path, path_in_repo=f"{hf_dir}/{name}",
+                            repo_id="momom2/wesnoth-model-checkpoints")
+            return True
+        except Exception as e:                      # noqa: BLE001 - the loop retries next round
+            print("upload failed", name, attempt, type(e).__name__, str(e)[:120], flush=True)
+            time.sleep(30)
+    return False
+
+
+files = ["train.log", "arm_eval.jsonl", "preencode.log", "box.txt",
+         "phase_clean_seed.json", "phase_clean_seed.md"]
 files += sorted(os.path.basename(p) for p in glob.glob(out + "/arm_epoch*.pt"))
 for name in files:
     p = os.path.join(out, name)
@@ -99,19 +114,20 @@ for name in files:
     marker = p + ".escrowed"
     if name.endswith(".pt") and os.path.exists(marker):
         continue
-    api.upload_file(path_or_fileobj=p, path_in_repo=f"{hf_dir}/{name}",
-                    repo_id="momom2/wesnoth-model-checkpoints")
-    open(marker, "w").close()
+    if upload(p, name):
+        open(marker, "w").close()
 latest = os.path.join(out, "arm.pt")
 if os.path.exists(latest):
     snap = os.path.join(out, "arm_latest_snapshot.pt")
     shutil.copyfile(latest, snap)                # a copy, so the trainer's next save cannot tear it
-    api.upload_file(path_or_fileobj=snap, path_in_repo=f"{hf_dir}/arm_latest.pt",
-                    repo_id="momom2/wesnoth-model-checkpoints")
-print("ESCROW_OK", time.strftime("%Y-%m-%d %H:%M"), flush=True)
+    if upload(snap, "arm_latest.pt"):
+        print("ESCROW_OK", time.strftime("%Y-%m-%d %H:%M"), flush=True)
 EOF
 }
 export HF_DIR
+# The classic LFS upload path: the xet write-token request failed from
+# one host for every checkpoint upload (2026-09-10).
+export HF_HUB_DISABLE_XET=1
 ( while [ ! -f "$OUT/DONE" ]; do sleep 1800; escrow >> "$OUT/escrow.log" 2>&1; done ) &
 ESCROW_PID=$!
 
