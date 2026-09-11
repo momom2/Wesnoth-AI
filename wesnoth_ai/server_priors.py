@@ -410,5 +410,25 @@ def unpack_compact(compact: CompactActions, encoded) -> List[LegalActionPrior]:
     return out
 
 
+def compact_action(compact: CompactActions, i: int, encoded) -> Dict:
+    """The action dict of element `i` alone: what `unpack_compact(...)
+    [i].action` builds, without building the other elements. The raw
+    player picks by prior on the compact arrays and materializes one
+    action (2026-09-11 worker profile: unpacking every legal action
+    was a quarter of the worker's Python per decision)."""
+    a, k, h = int(compact.actor[i]), int(compact.kind[i]), int(compact.target[i])
+    if k == KIND_ATTACK:
+        return {"type": "attack", "start_hex": encoded.unit_positions[a],
+                "target_hex": encoded.hex_positions[h], "attack_index": int(compact.weapon[i])}
+    if k == KIND_MOVE:
+        return {"type": "move", "start_hex": encoded.unit_positions[a],
+                "target_hex": encoded.hex_positions[h]}
+    if k == KIND_RECRUIT:
+        U = encoded.unit_tokens.size(1)
+        return {"type": "recruit", "unit_type": encoded.recruit_types[a - U],
+                "target_hex": encoded.hex_positions[h]}
+    return {"type": "end_turn"}
+
+
 __all__ = ["PackedMasks", "CompactActions", "PendingPriors", "pack_masks",
-           "start_priors", "batched_priors", "unpack_compact", "ActorKind"]
+           "start_priors", "batched_priors", "unpack_compact", "compact_action", "ActorKind"]

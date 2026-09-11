@@ -49,7 +49,8 @@ class RawPolicyPlayer:
     trainable = False
 
     def __init__(self, base, temperature: float,
-                 seed: Optional[int] = None, forbid_end_turn: bool = False):
+                 seed: Optional[int] = None, forbid_end_turn: bool = False,
+                 compact_selection: bool = True):
         if temperature < 0.0:
             raise ValueError("temperature must be >= 0 (0 = argmax)")
         self._base = base
@@ -59,6 +60,33 @@ class RawPolicyPlayer:
         # while any non-end action is legal (end_turn only when nothing
         # else is).
         self.forbid_end_turn = bool(forbid_end_turn)
+        # Behind a shared inference server the model output carries the
+        # legal actions as compact arrays (server-side priors); picking
+        # on those and materializing one action skips building every
+        # LegalActionPrior, a quarter of the worker's Python per
+        # decision (2026-09-11 worker profile). Same choice, same rng
+        # draws (tests/test_server_priors.py); False forces the list.
+        self.compact_selection = bool(compact_selection)
+
+    def _select_compact(self, compact, encoded, decision_step: int) -> Optional[Dict]:
+        """The choice on the compact arrays, or None when the list path
+        applies (an oracle anneal the server cannot carry, which the
+        list path reports)."""
+        from wesnoth_ai.action_sampler import combat_alphas_at
+        from wesnoth_ai.server_priors import KIND_END_TURN, compact_action
+        if any(combat_alphas_at(decision_step)) or any(combat_alphas_at(0)):
+            return None
+        n = len(compact.prior)
+        if n == 0:
+            return {"type": "end_turn"}
+        idx = np.arange(n)
+        if self.forbid_end_turn:
+            acting = idx[compact.kind != KIND_END_TURN]
+            if len(acting):
+                idx = acting
+        priors = np.asarray(compact.prior, dtype=np.float64)[idx]
+        return compact_action(compact, int(idx[pick_index(priors, self.temperature, self._rng)]),
+                              encoded)
 
     def select_action(self, game_state, *, game_label: str = "default",
                       sim=None) -> Dict:
@@ -71,6 +99,11 @@ class RawPolicyPlayer:
         with torch.no_grad():
             encoded = base._inference_encoder.encode(game_state)
             output = base._inference_model(encoded)
+            compact = getattr(output, "legal_compact", None)
+            if compact is not None and self.compact_selection:
+                chosen = self._select_compact(compact, encoded, decision_step)
+                if chosen is not None:
+                    return chosen
             legal = enumerate_legal_actions_with_priors(
                 encoded, output, game_state, decision_step=decision_step)
         if not legal:
