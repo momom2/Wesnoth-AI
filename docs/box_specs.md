@@ -821,6 +821,90 @@ recompiles), and fewer tokens per leaf (plan 1.4, the per-leaf part
 of the GPU cost). The kernel stays on by default: certified, cheaper
 per decision, and the self-play actors do the same work per leaf.
 
+## The relevant-set twin of seed2 at one pass (2026-09-11, box 50585036, RTX 4090)
+
+`scripts/seed2_relset_box.sh`: seed2's recipe from scratch in the
+relevant-set basis (`--relevant-set-hexes`; the deduplicated corpus
+with the manifest split, fog gate on, pre-encoded records, batch 64,
+lr 1e-4 cosine over 4 epochs), stopped after one pass by user order
+(cost), then the per-phase value evaluation and an 800-game PURE
+raw:t0 match against seed2's own one-pass checkpoint
+(`clean_seed_20260909/arm_epoch0.pt`), sides alternated, stalled
+games replaced, each side served in its own basis by its own
+inference server. Records:
+`training/metrics/elo/seed2_relset_e1_20260911/`.
+
+| match | decisive (stalled) | W-D-L for the twin | Elo of the twin | wall |
+|---|---|---|---|---|
+| seed2_relset_e1 vs seed2_e1 | 800 (623) | 464-0-336 | +56 +- 12 | 18 min |
+
+Holdout probe at the end of the pass (1,200 pairs, sample seed 0):
+CE 2.840, actor top-1 0.603, masked target CE 1.347, value AUC 0.752,
+against seed2's one-pass 3.084 / 0.587 / 1.443 / 0.737. The value
+head by phase (same-turn AUC, turns 1-5 to 31+): 0.65, 0.75, 0.80,
+0.85, 0.82, 0.86 (`phase_seed2_relset.md`).
+
+Caveat: the pass is not equal pairs. The twin's epoch trained on
+2,825,379 pairs and seed2's on 2,491,171, with the same 16,650 files,
+recipe and seed. The manifest's winner actions plus their end_turns
+plus the expected value-only states give about 2.83M, so the twin's
+count is the recipe's and seed2's run is 12% short; where its pairs
+went is the pair census below. Training between probes ran 138
+pairs/s against seed2's 107 (fewer tokens); the probe itself took
+143 s against 26 s (the relevant-set encoding of the holdout pairs
+through the simulator), 28% of the wall.
+
+### Self-timings of the two one-pass checkpoints (same box, after the match)
+
+40 games each against itself (seed base 20000, 20 workers, shared
+inference, the Rust core): the relset checkpoint 54 s, seed2's 80 s.
+Different games, so the server's own numbers are the comparison:
+GPU 9.4 ms per batch at mean batch 7.2 (1.30 ms per leaf) for the
+relevant-set basis against 10.2 ms at 6.1 (1.68 ms per leaf) for
+the full board. Records: `seed2_relset_e1_20260911/self_*`.
+
+### The imitation trainer timed before and after the batched flow (same box, idle GPU)
+
+`scripts/train_profile_box.sh` (MODE=time): 30k pairs of the
+relevant-set records from scratch, no probe, the arm's checkout
+against the patched one (`scripts/ship_new_trainer.sh`). Records:
+`training/metrics/bench_pipeline/train_profile_20260911b/`.
+
+| trainer | pairs/s | wall for 30k pairs |
+|---|---|---|
+| per-pair finalize and loss (seed2's, the arm's) | 138 | 235 s |
+| batched flow (`wesnoth_ai/imitation_loss.py`) | 257 | 135 s |
+
+Under py-spy the new trainer's main thread spends 71% in the log
+transfer after the step, that is waiting for the GPU (the forward and
+backward of batch 64 in fp32 through the padded trunk), 7.5% in the
+backward's launches, 4% reading records. The loop is now GPU-bound;
+the levers left are the GPU's: TF32 matmuls or bf16 autocast for the
+trunk (the eval path already runs bf16), then the packed trunk in
+training mode.
+
+### Pair census: the full-board trainer drops batches on out-of-memory (same box)
+
+`scripts/pair_census_box.sh`: the same first 300 training files of
+the seeded order, one epoch each, the arm's trainer with its logger at
+DEBUG, the full-board records (pre-encoded here) against the
+relevant-set ones. Records: `training/metrics/bench_pipeline/pair_census_20260911/`.
+
+| corpus | pairs in the epoch | batch flushes failed |
+|---|---|---|
+| full board | 47,801 | 52, all "CUDA out of memory" |
+| relevant set | 51,129 | 0 |
+
+52 batches of 64 are the 3,328 missing pairs. The padded fp32
+attention of batch 64 over up to ~860 hex tokens fills the 24 GB, the
+flush raises, and the trainer dropped the batch with a DEBUG line and
+no step. Over seed2's whole epochs that was 12% of the pairs
+(2,491,171 trained of the recipe's ~2.83M), and not a random 12%:
+the batches that do not fit are the games on the largest boards.
+Since 2026-09-11 night the trainer splits such a batch in two and
+accumulates (same gradient, nothing lost; `oom_splits` in the epoch
+accounting) and any other flush failure is warned and counted.
+
 ## Serve thread host cost per 16-leaf batch (2026-09-05, box 49875606)
 
 The serve stats now split the host milliseconds per batch (records

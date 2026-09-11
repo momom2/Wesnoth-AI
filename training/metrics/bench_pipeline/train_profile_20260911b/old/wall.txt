@@ -1,0 +1,4 @@
+mode time code /workspace/Wesnoth-AI wall 235 s
+pairs=22400 rate=137.4/s wall=2.7m
+pairs=25600 rate=137.7/s wall=3.1m
+pairs=28800 rate=138.3/s wall=3.5m

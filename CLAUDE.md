@@ -137,7 +137,16 @@ State of play:
   match unchanged: that path is bound by the server's per-batch cycle
   (about 25 ms, mostly a fixed GPU launch cost, 7.5 of 20 workers per
   batch), not by worker CPU (docs/box_specs.md "The observation kernel
-  and the CPU budget").
+  and the CPU budget"). The relevant-set twin of seed2 (same recipe
+  from scratch, 2.7x fewer tokens per leaf, one pass) beats seed2's
+  own one-pass checkpoint +56 +- 12 Elo (800 decisive games), with
+  13% more pairs in its pass (docs/box_specs.md "The relevant-set
+  twin of seed2 at one pass"). Found the same night: the full-board
+  imitation trainer at batch 64 on a 24 GB card dropped the largest
+  boards' batches on CUDA out-of-memory with a DEBUG line, 12% of
+  seed2's pairs; the trainer now splits and accumulates such batches
+  and runs 1.86x faster (the batch embedded and scored at once,
+  docs/box_specs.md "Pair census", "The imitation trainer timed").
 - Rulings (2026-09-05): no optimizations conditioned on the MCTS
   loop; scope every box test, train sparingly; results are written
   on the run, never as atomic dumps; a box job past ~1.5x its

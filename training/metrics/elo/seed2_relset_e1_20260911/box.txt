@@ -1,0 +1,6 @@
+64
+1536000 100000
+               total        used        free      shared  buff/cache   available
+Mem:             125          18          11           0          96         102
+NVIDIA GeForce RTX 4090, 24564 MiB
+wesnoth_core built

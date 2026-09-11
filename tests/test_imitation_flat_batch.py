@@ -156,3 +156,53 @@ def test_holdout_eval_cache_replays_the_same_probe(monkeypatch):
     monkeypatch.setattr(st, "_pair_stream_serial", _no_stream)
     again = st._evaluate(model, enc, files, torch.device("cpu"), eval_pairs=6, cache=cache)
     assert again == first
+
+
+def test_flush_batch_splits_on_out_of_memory(monkeypatch):
+    """A batch that does not fit the device is split and accumulated,
+    never dropped: the step equals the unsplit step and every pair
+    reaches the log. Simulated by an out-of-memory error on any chunk
+    larger than two pairs."""
+    import copy
+    from collections import deque
+    from tools import supervised_train as st
+
+    torch.manual_seed(4)
+    dev = torch.device("cpu")
+    enc = GameStateEncoder(d_model=_ARCH["d_model"])
+    model = WesnothModel(**_ARCH)
+    model.eval()
+    enc.eval()
+    states = _states(6)
+    for s in states:
+        enc.register_names(s)
+    raws = [encode_raw(s, type_to_id=enc.unit_type_to_id, faction_to_id=enc.faction_to_id)
+            for s in states]
+    ais, zw = _labels(raws, random.Random(9))
+    ref_model, ref_enc = copy.deepcopy(model), copy.deepcopy(enc)
+
+    def run(m, e, batch_loss):
+        monkeypatch.setattr(st, "_batch_loss", batch_loss)
+        opt = torch.optim.SGD(list(m.parameters()) + list(e.parameters()), lr=0.1)
+        dq = {k: deque(maxlen=50) for k in ("t", "a", "ty", "tg", "w", "v")}
+        splits = st._flush_batch(m, e, raws, ais, zw, opt, list(m.parameters()), len(raws), dev,
+                                 dq["t"], dq["a"], dq["ty"], dq["tg"], dq["w"], dq["v"],
+                                 type_loss_weights=_TYPE_W)
+        return splits, dq
+
+    original = st._batch_loss
+    ref_splits, ref_dq = run(ref_model, ref_enc, original)
+    assert ref_splits == 0
+
+    def oom_above_two(m, e, chunk, *args):
+        if len(chunk) > 2:
+            raise torch.cuda.OutOfMemoryError("simulated")
+        return original(m, e, chunk, *args)
+
+    splits, dq = run(model, enc, oom_above_two)
+    assert splits == 3                      # 6 -> 3 + 3 -> (1 + 2) + (1 + 2)
+    assert list(dq["a"]) == pytest.approx(list(ref_dq["a"]), abs=1e-5)
+    assert len(dq["a"]) == len(ref_dq["a"]) > 0
+    for p, q in zip(list(model.parameters()) + list(enc.parameters()),
+                    list(ref_model.parameters()) + list(ref_enc.parameters())):
+        assert torch.allclose(p, q, atol=1e-6, rtol=1e-4)

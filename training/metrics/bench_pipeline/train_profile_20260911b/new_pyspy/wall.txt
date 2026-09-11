@@ -1,0 +1,4 @@
+mode pyspy code /workspace/Wesnoth-AI-new wall 135 s
+pairs=22400 rate=254.7/s wall=1.5m
+pairs=25600 rate=255.6/s wall=1.7m
+pairs=28800 rate=257.8/s wall=1.9m

@@ -1,0 +1,263 @@
+pyspy_train.txt: 26160 samples
+
+== <module> (supervised_train.py:2545): 13011 samples (50%)
+  leaf frames:
+     70.7%  log_values (wesnoth_ai/imitation_loss.py:128)
+      7.5%  _engine_run_backward (torch/autograd/graph.py:825)
+      2.6%  read_record (preencode_corpus.py:86)
+      1.5%  _frombuffer (numpy/_core/numeric.py:1934)
+      1.2%  forward (torch/nn/modules/transformer.py:871)
+      0.7%  train (supervised_train.py:2003)
+      0.7%  forward (torch/nn/modules/linear.py:125)
+      0.6%  hexes_in_slot_order (wesnoth_ai/visibility.py:511)
+      0.6%  relu (torch/nn/functional.py:1704)
+      0.4%  visible_hexes_for (wesnoth_ai/visibility.py:211)
+      0.4%  _reach_from_arrays (pathfind_sim.py:472)
+      0.4%  embedding (torch/nn/functional.py:2551)
+      0.3%  relevant_hex_positions (wesnoth_ai/visibility.py:545)
+      0.3%  cross_entropy (torch/nn/functional.py:3479)
+      0.3%  _to_dev (wesnoth_ai/encoder.py:695)
+      0.3%  _pair_stream_preencoded (supervised_train.py:272)
+      0.2%  unit_reach (pathfind_sim.py:415)
+      0.2%  visible_hexes_for (wesnoth_ai/visibility.py:215)
+      0.2%  <dictcomp> (wesnoth_ai/visibility.py:303)
+      0.2%  visible_hexes_for (wesnoth_ai/visibility.py:216)
+      0.2%  multi_head_attention_forward (torch/nn/functional.py:6278)
+      0.2%  <lambda> (wesnoth_ai/visibility.py:512)
+      0.2%  _in_projection_packed (torch/nn/functional.py:5501)
+      0.2%  _to_dev (wesnoth_ai/encoder.py:694)
+      0.2%  relevant_hex_positions (wesnoth_ai/visibility.py:564)
+  innermost project frames:
+     70.7%  log_values (wesnoth_ai/imitation_loss.py:128)
+     16.1%  <no project frame>
+      1.6%  forward_streams (wesnoth_ai/model.py:451)
+      1.4%  _forward_impl (wesnoth_ai/model.py:259)
+      1.4%  relevant_hex_positions (wesnoth_ai/visibility.py:564)
+      0.7%  hexes_in_slot_order (wesnoth_ai/visibility.py:511)
+      0.6%  _build_legality_masks (wesnoth_ai/action_sampler.py:1561)
+      0.4%  visible_hexes_for (wesnoth_ai/visibility.py:211)
+      0.3%  relevant_hex_positions (wesnoth_ai/visibility.py:545)
+      0.3%  _to_dev (wesnoth_ai/encoder.py:695)
+      0.2%  visible_hexes_for (wesnoth_ai/visibility.py:215)
+      0.2%  _to_dev (wesnoth_ai/encoder.py:694)
+      0.2%  <dictcomp> (wesnoth_ai/visibility.py:303)
+      0.2%  visible_hexes_for (wesnoth_ai/visibility.py:216)
+      0.2%  <lambda> (wesnoth_ai/visibility.py:512)
+      0.2%  relevant_hex_positions (wesnoth_ai/visibility.py:541)
+      0.2%  relevant_hex_positions (wesnoth_ai/visibility.py:542)
+      0.1%  visible_hexes_for (wesnoth_ai/visibility.py:202)
+      0.1%  encode_from_raw (wesnoth_ai/encoder.py:775)
+      0.1%  encode_from_raw_embedded (wesnoth_ai/encoder.py:910)
+      0.1%  encode_from_raw (wesnoth_ai/encoder.py:732)
+      0.1%  <dictcomp> (wesnoth_ai/packed_trunk.py:273)
+      0.1%  encode_from_raw (wesnoth_ai/encoder.py:763)
+      0.1%  <listcomp> (wesnoth_ai/visibility.py:579)
+      0.1%  _forward_impl (wesnoth_ai/model.py:297)
+
+== : 12999 samples (50%)
+  leaf frames:
+  innermost project frames:
+
+== <module> (supervised_train.py:45): 80 samples (0%)
+  leaf frames:
+     57.5%  _call_with_frames_removed (<frozen importlib._bootstrap>:241)
+      3.8%  _create_fn (dataclasses.py:433)
+      3.8%  _joinrealpath (<frozen posixpath>:451)
+      2.5%  get_data (<frozen importlib._bootstrap_external>:1130)
+      2.5%  <genexpr> (torch/_ops.py:1003)
+      2.5%  _compile_bytecode (<frozen importlib._bootstrap_external>:729)
+      2.5%  impl (torch/library.py:323)
+      1.2%  <module> (torch/_functorch/autograd_function.py:12)
+      1.2%  _compile (re/_compiler.py:56)
+      1.2%  _is_type (dataclasses.py:705)
+      1.2%  define (torch/library.py:146)
+      1.2%  _get_packet (torch/_ops.py:1248)
+      1.2%  ConstantPad1d (torch/nn/modules/padding.py:267)
+      1.2%  DispatchKey (torchgen/model.py:167)
+      1.2%  activate_meta (torch/_meta_registrations.py:6633)
+      1.2%  _make_prim (torch/_prims/__init__.py:341)
+      1.2%  children (importlib/metadata/__init__.py:800)
+      1.2%  exists (<frozen genericpath>:22)
+      1.2%  get_data (<frozen importlib._bootstrap_external>:1131)
+      1.2%  namedtuple (collections/__init__.py:436)
+      1.2%  _extract_from_extended_frame_gen (traceback.py:425)
+      1.2%  _init_module_attrs (<frozen importlib._bootstrap>:557)
+      1.2%  <module> (torch/distributed/__init__.py:28)
+      1.2%  _joinrealpath (<frozen posixpath>:459)
+      1.2%  getframeinfo (inspect.py:1688)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== _call_impl (torch/nn/modules/module.py:1747): 19 samples (0%)
+  leaf frames:
+     47.4%  multi_head_attention_forward (torch/nn/functional.py:6285)
+     15.8%  multi_head_attention_forward (torch/nn/functional.py:6282)
+     15.8%  forward (torch/nn/modules/linear.py:125)
+      5.3%  dropout (torch/nn/functional.py:1425)
+      5.3%  forward (torch/nn/modules/activation.py:1390)
+      5.3%  embedding (torch/nn/functional.py:2551)
+  innermost project frames:
+     94.7%  <no project frame>
+
+== iter_replay_pairs (replay_dataset.py:2899): 11 samples (0%)
+  leaf frames:
+     27.3%  <listcomp> (wesnoth_ai/visibility.py:579)
+     27.3%  <dictcomp> (replay_dataset.py:2740)
+     18.2%  _action_indices (replay_dataset.py:2778)
+      9.1%  _action_indices (replay_dataset.py:2795)
+      9.1%  <listcomp> (wesnoth_ai/visibility.py:578)
+  innermost project frames:
+     54.5%  <no project frame>
+     27.3%  <listcomp> (wesnoth_ai/visibility.py:579)
+      9.1%  <listcomp> (wesnoth_ai/visibility.py:578)
+
+== _pair_stream_serial (supervised_train.py:257): 4 samples (0%)
+  leaf frames:
+     75.0%  iter_replay_pairs (replay_dataset.py:2897)
+     25.0%  hexes_in_slot_order (wesnoth_ai/visibility.py:511)
+  innermost project frames:
+     75.0%  <no project frame>
+     25.0%  hexes_in_slot_order (wesnoth_ai/visibility.py:511)
+
+== <genexpr> (torch/nn/modules/transformer.py:854): 4 samples (0%)
+  leaf frames:
+  innermost project frames:
+
+== forward (torch/nn/modules/normalization.py:217): 2 samples (0%)
+  leaf frames:
+     50.0%  layer_norm (torch/nn/functional.py:2901)
+  innermost project frames:
+     50.0%  <no project frame>
+
+== forward (torch/nn/modules/dropout.py:70): 2 samples (0%)
+  leaf frames:
+     50.0%  dropout (torch/nn/functional.py:1425)
+  innermost project frames:
+     50.0%  <no project frame>
+
+== _path_stat (<frozen importlib._bootstrap_external>:147): 2 samples (0%)
+  leaf frames:
+  innermost project frames:
+
+== layer_norm (torch/nn/functional.py:2900): 2 samples (0%)
+  leaf frames:
+  innermost project frames:
+
+== named_modules (torch/nn/modules/module.py:2819): 2 samples (0%)
+  leaf frames:
+     50.0%  named_modules (torch/nn/modules/module.py:2778)
+     50.0%  named_modules (torch/nn/modules/module.py:2819)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== <genexpr> (torch/_ops.py:1017): 1 samples (0%)
+  leaf frames:
+    100.0%  _has_script_object_arg (torch/_ops.py:1003)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== _calc_value (terrain_resolver.py:262): 1 samples (0%)
+  leaf frames:
+  innermost project frames:
+
+== <genexpr> (pathfind_sim.py:349): 1 samples (0%)
+  leaf frames:
+  innermost project frames:
+
+== <module> (supervised_train.py:35): 1 samples (0%)
+  leaf frames:
+    100.0%  convert_class (enum.py:1803)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== <genexpr> (torch/nn/modules/transformer.py:822): 1 samples (0%)
+  leaf frames:
+  innermost project frames:
+
+== <module> (supervised_train.py:51): 1 samples (0%)
+  leaf frames:
+    100.0%  define (torch/library.py:146)
+  innermost project frames:
+    100.0%  _register_packed_attention_op (wesnoth_ai/packed_trunk.py:421)
+
+== Union (typing.py:720): 1 samples (0%)
+  leaf frames:
+    100.0%  __init__ (typing.py:1381)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== __getitem__ (re/_parser.py:171): 1 samples (0%)
+  leaf frames:
+    100.0%  __getitem__ (re/_parser.py:169)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== named_modules (torch/nn/modules/module.py:2823): 1 samples (0%)
+  leaf frames:
+  innermost project frames:
+
+== <genexpr> (copy.py:264): 1 samples (0%)
+  leaf frames:
+    100.0%  __deepcopy__ (torch/nn/parameter.py:68)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== <genexpr> (torch/_library/autograd.py:99): 1 samples (0%)
+  leaf frames:
+    100.0%  signature (inspect.py:3263)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== <genexpr> (torch/optim/optimizer.py:184): 1 samples (0%)
+  leaf frames:
+  innermost project frames:
+
+== forward (torch/nn/modules/linear.py:125): 1 samples (0%)
+  leaf frames:
+  innermost project frames:
+
+== <genexpr> (pathfind_sim.py:399): 1 samples (0%)
+  leaf frames:
+  innermost project frames:
+
+== recurr (sympy/solvers/diophantine/__init__.py:1531): 1 samples (0%)
+  leaf frames:
+    100.0%  <module> (sympy/solvers/diophantine/diophantine.py:146)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== _path_join (<frozen importlib._bootstrap_external>:128): 1 samples (0%)
+  leaf frames:
+  innermost project frames:
+
+== _items (supervised_train.py:1156): 1 samples (0%)
+  leaf frames:
+    100.0%  _legal_target_row (supervised_train.py:1061)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== <genexpr> (torch/optim/adamw.py:747): 1 samples (0%)
+  leaf frames:
+  innermost project frames:
+
+== <module> (sympy/polys/domains/realfield.py:167): 1 samples (0%)
+  leaf frames:
+    100.0%  get_data (<frozen importlib._bootstrap_external>:1130)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== <module> (supervised_train.py:43): 1 samples (0%)
+  leaf frames:
+    100.0%  _find_spec (<frozen importlib._bootstrap>:1078)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== <genexpr> (torch/nn/modules/transformer.py:823): 1 samples (0%)
+  leaf frames:
+  innermost project frames:
+
+== find_spec (<frozen importlib._bootstrap_external>:1649): 1 samples (0%)
+  leaf frames:
+    100.0%  _fill_cache (<frozen importlib._bootstrap_external>:1662)
+  innermost project frames:
+    100.0%  <no project frame>

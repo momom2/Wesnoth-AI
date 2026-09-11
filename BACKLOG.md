@@ -229,18 +229,37 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
    continuation itself costs strength that the CE does not show.
    Queued: the lr 1e-5 control (study 7b, $1.7); designed: basis
    transfer by distillation from the seed (7c).
-   RUNNING 2026-09-11 (box 50585036, `scripts/seed2_relset_box.sh`,
-   HF `tier-b/seed2_relset_20260911/`): seed2's twin from scratch in
-   the relevant-set basis, one pass (2.49M pairs; user order, cost),
-   then the phase eval and an 800-game raw:t0 match against seed2's
-   own one-pass checkpoint (`clean_seed_20260909/arm_epoch0.pt`), plus
-   40-game self-timings of both. Kill: the twin loses beyond noise.
-   Holdout probe at 700k pairs tracks seed2's curve (actor top-1
-   0.552 vs 0.546, masked CE 1.574 vs 1.697, value AUC 0.71 vs 0.72).
-   Rate 138 pairs/s between probes, the same as seed2's run: the
-   trainer is not GPU-bound, so fewer tokens do not show here. The
-   holdout probe every 50k pairs (143 s each) takes 28% of the wall
-   in both runs; next imitation run: `--eval-every 250000`.
+   MEASURED 2026-09-11 (box 50585036, `scripts/seed2_relset_box.sh`,
+   docs/box_specs.md "The relevant-set twin of seed2 at one pass"):
+   seed2's twin from scratch in the relevant-set basis, one pass
+   (user order, cost), beats seed2's own one-pass checkpoint +56 +- 12
+   Elo (800 decisive raw:t0 games, 464-336, 623 more at the cap); its
+   holdout probe reads better on every head (CE 2.84 vs 3.08, value
+   AUC 0.75 vs 0.74). The pre-registered kill does not apply. Caveat:
+   the twin's pass held 2,825,379 pairs against seed2's 2,491,171 on
+   the same files, recipe and seed; the recipe's count is the twin's
+   (manifest winner actions + end_turns + value states), so seed2's
+   run was 12% short. MEASURED the same night (docs/box_specs.md
+   "Pair census"): the full-board trainer at batch 64 on a 24 GB
+   card hits CUDA out-of-memory on the largest boards' batches and
+   dropped them with a DEBUG line (52 of ~750 batches over 300 files;
+   the relevant-set records fit). seed2 therefore never trained on
+   the biggest boards' games, and its lineage's eval numbers carry
+   that; the trainer now splits such batches and accumulates
+   (nothing lost). The +56 has two confounds in the twin's favor
+   (13% more pairs, the large boards). The clean one-factor number
+   needs seed2's one pass rerun with the fixed trainer at equal
+   pairs (about 4 h, ~$3.5 with the batched flow); user's call.
+   Self-timings through the shared server: 1.30 ms of GPU per leaf
+   for the relevant-set basis against 1.68 for the full board at
+   mean batch 6-7.
+   Between probes the relset trainer runs 138 pairs/s against seed2's
+   107 on the same recipe: fewer tokens do pay 1.3x in the training
+   loop. Its holdout probe costs 143 s against seed2's 26 s (the
+   relevant-set encoding of 1,200 holdout pairs through the
+   simulator), 28% of its wall, which is why both runs read the same
+   cumulative 100 pairs/s; the probe cache below removes that. Next
+   imitation run: `--eval-every 250000`.
    BUILT 2026-09-11 evening (user: "if there is Python, there is room
    for optimization"): the imitation trainer's batched flow embeds
    the batch from one pinned host buffer (`encode_from_raw_embedded`,
@@ -255,9 +274,12 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
    way: the batched flow backpropagates the UNWEIGHTED actor
    cross-entropy (the action-type weights only scale the per-pair
    CPU flow's total); seed and seed2 trained that way and the new
-   flow keeps it. Measurement queued on the relset box after its
-   match (`scripts/relset_after_match_profile.sh`: old and new
-   trainer timed on 30k pairs, then the new one under py-spy).
+   flow keeps it. MEASURED the same night on the idle 4090
+   (docs/box_specs.md "The imitation trainer timed"): 138 -> 257
+   pairs/s on the relevant-set records (1.86x); the main thread now
+   waits on the GPU 71% of its time. Next levers, one at a time with
+   a holdout curve and a match as the check: TF32 matmuls, bf16
+   autocast for the trunk, the packed trunk in training mode.
    **Eval at scale** (plan 1.5): 800 raw games in ~65 min / $0.36
    through persistent workers; with the shared inference server
    (2026-09-05, `--shared-inference`) 40 games take 145 s against

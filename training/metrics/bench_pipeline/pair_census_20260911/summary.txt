@@ -1,0 +1,17 @@
+== full
+0
+52
+1
+INFO supervised_train: Training on 300 replay files
+INFO supervised_train:   epoch accounting: files_seen=300 file_errors=0 pairs=47801 (chain total 47801) target_off_subset=0
+      2 DEBUG supervised_train:   batch flush failed: CUDA out of memory. Tried to allocate 750.00 MiB. GPU 0 has a total capacity of 23.52 GiB of which 101.69 MiB is free. Process 2490187 has 23.41 GiB memory in use. Of the allocated memory 20.34 GiB is allocated by PyTorch, and 2.61 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+      2 DEBUG supervised_train:   batch flush failed: CUDA out of memory. Tried to allocate 748.00 MiB. GPU 0 has a total capacity of 23.52 GiB of which 101.69 MiB is free. Process 2490187 has 23.41 GiB memory in use. Of the allocated memory 20.27 GiB is allocated by PyTorch, and 2.68 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+      2 DEBUG supervised_train:   batch flush failed: CUDA out of memory. Tried to allocate 648.00 MiB. GPU 0 has a total capacity of 23.52 GiB of which 101.69 MiB is free. Process 2490187 has 23.41 GiB memory in use. Of the allocated memory 19.89 GiB is allocated by PyTorch, and 3.06 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+      1 DEBUG supervised_train:   batch flush failed: CUDA out of memory. Tried to allocate 848.00 MiB. GPU 0 has a total capacity of 23.52 GiB of which 525.69 MiB is free. Process 2490187 has 22.99 GiB memory in use. Of the allocated memory 22.12 GiB is allocated by PyTorch, and 425.09 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+      1 DEBUG supervised_train:   batch flush failed: CUDA out of memory. Tried to allocate 832.00 MiB. GPU 0 has a total capacity of 23.52 GiB of which 525.69 MiB is free. Process 2490187 has 22.99 GiB memory in use. Of the allocated memory 21.75 GiB is allocated by PyTorch, and 808.36 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+== relset
+0
+0
+1
+INFO supervised_train: Training on 300 replay files
+INFO supervised_train:   epoch accounting: files_seen=300 file_errors=0 pairs=51129 (chain total 51129) target_off_subset=0

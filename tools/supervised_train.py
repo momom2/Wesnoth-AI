@@ -944,6 +944,54 @@ def _loss_parts_for_pair(
         policy_weight=policy_weight)
 
 
+def _batch_loss(model, encoder, raws, ais, zw, device, type_loss_weights):
+    """The batch's loss parts and targets: one pinned host buffer of
+    token features (`encode_from_raw_embedded`), one trunk pass
+    (`forward_embedded`), every head scored once
+    (`wesnoth_ai.imitation_loss`)."""
+    streams = encoder.encode_from_raw_embedded(raws, device=device)
+    material = None
+    if getattr(model, "has_value_material", False):
+        material = torch.tensor([[float(r.material)] for r in raws],
+                                dtype=torch.float32, device=device)
+    padded = model.forward_embedded(streams, material=material)
+    targets = build_imitation_targets(
+        ais, zw, streams.sizes,
+        n_types=padded.type_logits.shape[2],
+        n_weapons=padded.weapon_logits.shape[2],
+        n_atoms=padded.value_logits.shape[1],
+        type_loss_weights=type_loss_weights, device=device)
+    return imitation_loss_parts(padded, targets), targets
+
+
+def _backward_batch(model, encoder, raws, ais, zw, batch_size, device,
+                    type_loss_weights, sink: List) -> int:
+    """Backward of the batch's loss / batch_size into the parameters'
+    gradients. On a CUDA out-of-memory error the batch is split in two
+    and each half accumulates into the same gradient (the loss is a
+    sum over the batch divided by batch_size, so the step is the whole
+    batch's); a single pair that does not fit raises. `sink` collects
+    (targets, log values) per chunk in order. Returns the number of
+    splits."""
+    parts = None
+    try:
+        parts, targets = _batch_loss(model, encoder, raws, ais, zw, device, type_loss_weights)
+        (parts.total / batch_size).backward()
+        sink.append((targets, parts.log_values()))
+        return 0
+    except torch.cuda.OutOfMemoryError:
+        if len(raws) == 1:
+            raise
+        parts = None
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    half = len(raws) // 2
+    return (1 + _backward_batch(model, encoder, raws[:half], ais[:half], zw[:half], batch_size,
+                                device, type_loss_weights, sink)
+            + _backward_batch(model, encoder, raws[half:], ais[half:], zw[half:], batch_size,
+                              device, type_loss_weights, sink))
+
+
 def _flush_batch(
     model:           WesnothModel,
     encoder:         GameStateEncoder,
@@ -961,9 +1009,9 @@ def _flush_batch(
     running_loss_weapon: deque,
     running_loss_value:  deque,
     type_loss_weights: Optional[Dict[str, float]] = None,
-) -> None:
+) -> int:
     """One batched forward + summed-loss backward + opt step over B
-    RawEncoded pairs.
+    RawEncoded pairs; returns the number of out-of-memory splits.
 
     The batch's token embeddings come from one pinned host buffer
     (`encode_from_raw_embedded`, the inference server's path), the
@@ -971,6 +1019,10 @@ def _flush_batch(
     (`forward_embedded`), and every head's cross-entropy runs once over
     the PaddedOutput (`wesnoth_ai.imitation_loss`); the only
     host-device synchronization is the log transfer after the step.
+    A batch that does not fit the device is split, never dropped
+    (`_backward_batch`): before 2026-09-11 an out-of-memory batch was
+    dropped with a DEBUG line, and seed2's epochs lost 12% of their
+    pairs that way (docs/box_specs.md "Pair census").
 
     `batch_size` is the *target* batch size used as the loss-scaling
     denominator, so a partial flush at a file boundary scales the
@@ -982,46 +1034,36 @@ def _flush_batch(
     only (see LossParts).
     """
     if not batch_raws:
-        return
+        return 0
     if type_loss_weights is None:
         type_loss_weights = _DEFAULT_ACTION_TYPE_LOSS_WEIGHT
-    streams = encoder.encode_from_raw_embedded(batch_raws, device=device)
-    material = None
-    if getattr(model, "has_value_material", False):
-        material = torch.tensor([[float(r.material)] for r in batch_raws],
-                                dtype=torch.float32, device=device)
-    padded = model.forward_embedded(streams, material=material)
     zw = batch_zw if batch_zw else [(None, 0.0, 1.0)] * len(batch_ais)
-    targets = build_imitation_targets(
-        batch_ais, zw, streams.sizes,
-        n_types=padded.type_logits.shape[2],
-        n_weapons=padded.weapon_logits.shape[2],
-        n_atoms=padded.value_logits.shape[1],
-        type_loss_weights=type_loss_weights, device=device)
-    parts = imitation_loss_parts(padded, targets)
-    (parts.total / batch_size).backward()
+    sink: List = []
+    splits = _backward_batch(model, encoder, batch_raws, batch_ais, zw, batch_size, device,
+                             type_loss_weights, sink)
 
     torch.nn.utils.clip_grad_norm_(params_for_clip, 1.0)
     opt.step()
     opt.zero_grad()
 
-    actor_v, type_v, target_v, weapon_v, value_v = parts.log_values()
-    ok = targets.ok
-    for i in range(targets.n):
-        if not ok["actor"][i]:
-            continue   # actor_idx out of range: the pair contributed 0 to the gradient
-        if ok["value"][i] and running_loss_value is not None:
-            running_loss_value.append(value_v[i])
-        if targets.policy_w[i] == 0.0:
-            continue   # value-only pair: keep the policy averages clean
-        running_loss.append(actor_v[i] + type_v[i] + target_v[i] + weapon_v[i])
-        running_loss_actor.append(actor_v[i])
-        if ok["type"][i]:
-            running_loss_type.append(type_v[i])
-        if ok["target"][i]:
-            running_loss_target.append(target_v[i])
-        if ok["weapon"][i]:
-            running_loss_weapon.append(weapon_v[i])
+    for targets, (actor_v, type_v, target_v, weapon_v, value_v) in sink:
+        ok = targets.ok
+        for i in range(targets.n):
+            if not ok["actor"][i]:
+                continue   # actor_idx out of range: the pair contributed 0 to the gradient
+            if ok["value"][i] and running_loss_value is not None:
+                running_loss_value.append(value_v[i])
+            if targets.policy_w[i] == 0.0:
+                continue   # value-only pair: keep the policy averages clean
+            running_loss.append(actor_v[i] + type_v[i] + target_v[i] + weapon_v[i])
+            running_loss_actor.append(actor_v[i])
+            if ok["type"][i]:
+                running_loss_type.append(type_v[i])
+            if ok["target"][i]:
+                running_loss_target.append(target_v[i])
+            if ok["weapon"][i]:
+                running_loss_weapon.append(weapon_v[i])
+    return splits
 
 
 def _masked_target_nll(
@@ -1882,6 +1924,8 @@ def train(
     stop = False
     files_seen = 0
     file_errors = 0
+    flush_failures = 0        # batches lost to an exception (warned, counted)
+    oom_splits = 0            # out-of-memory splits (nothing lost)
     # Relevant-set basis: labelled targets with no subset slot (kept
     # as actor/type/weapon pairs, target head silent). Expected 0;
     # every one is a superset violation worth a look.
@@ -2087,7 +2131,7 @@ def train(
                         continue
                     _tf = time.perf_counter() if prof_on else 0.0
                     try:
-                        _flush_batch(
+                        oom_splits += _flush_batch(
                             model, encoder, batch_raws, batch_ais,
                             batch_zw,
                             opt, params_for_clip, batch_size, device,
@@ -2100,7 +2144,9 @@ def train(
                             type_loss_weights=type_loss_weights,
                         )
                     except Exception as e:
-                        log.debug(f"  batch flush failed: {e}")
+                        flush_failures += 1
+                        log.warning(f"  batch flush failed ({len(batch_raws)} pairs lost, "
+                                    f"{flush_failures} so far): {e!r}"[:400])
                         opt.zero_grad()
                         batch_raws.clear()
                         batch_ais.clear()
@@ -2264,7 +2310,7 @@ def train(
         if not stop:
             if use_batched and batch_raws:
                 try:
-                    _flush_batch(
+                    oom_splits += _flush_batch(
                         model, encoder, batch_raws, batch_ais,
                         batch_zw,
                         opt, params_for_clip, batch_size, device,
@@ -2278,7 +2324,8 @@ def train(
                     )
                     running_count += len(batch_raws)
                 except Exception as e:
-                    log.debug(f"  end-of-epoch flush failed: {e}")
+                    flush_failures += 1
+                    log.warning(f"  end-of-epoch flush failed ({len(batch_raws)} pairs lost): {e!r}"[:400])
                     opt.zero_grad()
                 batch_raws.clear()
                 batch_ais.clear()
@@ -2324,7 +2371,8 @@ def train(
                  f"file_errors={file_errors} "
                  f"pairs={running_count - run_start_count} "
                  f"(chain total {running_count}) "
-                 f"target_off_subset={target_off_subset}")
+                 f"target_off_subset={target_off_subset} "
+                 f"flush_failures={flush_failures} oom_splits={oom_splits}")
         if holdout_files:
             stats = _evaluate(model, encoder, holdout_files, device,
                               eval_pairs=eval_pairs,
