@@ -750,6 +750,34 @@ batched bf16 near-tie flips the 2026-09-05 note predicted. Outcomes
 seed does. Records: `eval_profile_20260911/PIN*.{log,wall}`,
 `pin_games.tgz`.
 
+### The shared-inference worker under py-spy (2026-09-11, box 50585036, 4090)
+
+`scripts/worker_profile_box.sh`: one raw:t0 game of seed2 against
+itself through a hand-started inference server (max batch 4), the
+worker sampled in parent mode. Records:
+`training/metrics/bench_pipeline/worker_profile_20260911/`. Shares
+of the worker's wall (1,640 samples), inclusive per function:
+
+| item | share | note |
+|---|---|---|
+| waiting for the server's reply (`_recv`) | 62% | one game alone: the server's per-batch cost, not the worker's |
+| `pack_masks`, of which `_build_legality_masks` | 10.6%, 9.6% | the Python around the Rust rows (`_rust_enumerate_rows` 4.4%): occupancy and reach-context dicts, per-hex flag loops |
+| `enumerate_legal_actions_with_priors` = `unpack_compact` | 9.8% | building ~600 LegalActionPrior objects per decision to pick one; fixed 2026-09-11 (the raw player picks on the compact arrays: `compact_selection`) |
+| visibility (`visible_hexes_for` 4.1, `units_visible_to` 1.5, `leader_castle_network` 1.6, dict builds 1.2) | 8.4% | sets of tuples rebuilt per decision |
+| `encode_raw` (village entries 2.7, the vision disc 2.6, Rust streams 0.4) | 3.2% + | the Python predicates around the Rust arrays |
+| the sim step (combat, rng) | 1.5% | not a target on this path |
+| wire packing | 0.5% | |
+
+Reading: after the compact fix the worker's own Python is about 28%
+of a lone game's wall, and three quarters of it is the mask builder,
+the visibility sets and the encoder predicates, all rebuilt from the
+same state every decision. That is plan 1.2's next boundary: one
+Rust call per decision over a flat snapshot of the observable state
+(units, static hexes, owners, rejections) returning the vision disc,
+the visible units, the reach-context flags and the move/attack rows
+together. Combat and the sim step (phase 3 of the port plan) are not
+where this path spends its time.
+
 ## Serve thread host cost per 16-leaf batch (2026-09-05, box 49875606)
 
 The serve stats now split the host milliseconds per batch (records

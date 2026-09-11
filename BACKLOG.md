@@ -37,8 +37,28 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
      634 -> 391 us per encode on the laptop with fog on (the residue is
      the fog visibility computation), 112 -> 56 us fog off. Box
      measurement pending (wheel rebuild in the box setup).
-   - NEXT: the actor loop's untimed ~45 ms per leaf (see 3.), then
-     combat and step (phase 3, full corpus sweep).
+   - MEASURED 2026-09-11 (docs/box_specs.md "The shared-inference
+     worker under py-spy"; user order "do these two", 1.2 and 1.4):
+     the eval worker's own Python per decision is the mask builder's
+     Python around the Rust rows (9.6% of a lone game's wall), the
+     unpacking of every legal action to pick one (9.8%), the
+     visibility sets (8.4%) and the encoder's predicates (3%+); the
+     sim step is 1.5%. Combat and step (phase 3) are NOT this path's
+     cost; the plan's phase order changes accordingly.
+   - DONE 2026-09-11: the raw player picks on the compact arrays
+     behind a shared server (`RawPolicyPlayer(compact_selection)`,
+     one action materialized; differential test).
+   - NEXT (pre-registered): one Rust call per decision over a flat
+     snapshot of the observable state returning the vision disc, the
+     visible units, the reach-context flags and the move/attack rows
+     (the mask builder, the visibility sets and the encoder's disc
+     from one pass); Python keeps the snapshot build (O(units)) and
+     the tensor assembly. Certification: differential tests against
+     the Python originals on the harvested states plus fuzz, then
+     the full-corpus reconstruction sweep on a box. Measurement: the
+     40-game shared-inference timing on one box before and after
+     (`scripts/eval_profile2_box.sh` mode H): prediction 1.3-1.5x
+     on the worker-bound box, kill under 1.15x.
 3. **Batched inference server** (plan 1.3). Measured 2026-09-04
    (docs/box_specs.md "Phase-1 iterations"): the batched forward ran
    fp32 eager (only the single-sample path had bf16 and compile);

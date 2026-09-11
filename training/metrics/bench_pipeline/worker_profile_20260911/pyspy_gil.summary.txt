@@ -1,0 +1,26 @@
+pyspy_gil.txt: 95 samples
+
+== thread (3031): MainThread: 94 samples (99%)
+  leaf frames:
+     47.9%  _call_with_frames_removed (<frozen importlib._bootstrap>:241)
+      4.3%  _compile_bytecode (<frozen importlib._bootstrap_external>:729)
+      4.3%  __init__ (torch/_ops.py:677)
+      3.2%  _create_fn (dataclasses.py:433)
+      1.1%  _joinrealpath (<frozen posixpath>:449)
+      1.1%  inner (torch/_ops.py:120)
+      1.1%  __init__ (torch/_ops.py:686)
+      1.1%  _is_type (dataclasses.py:718)
+      1.1%  __init__ (inspect.py:3005)
+      1.1%  _parse (re/_parser.py:690)
+      1.1%  define (torch/library.py:146)
+      1.1%  _get_field (dataclasses.py:767)
+  innermost project frames:
+     79.8%  <no project frame>
+      1.1%  <module> (wesnoth_ai/packed_trunk.py:484)
+      1.1%  <module> (wesnoth_ai/trainer.py:237)
+
+== thread (3031): 1 samples (1%)
+  leaf frames:
+    100.0%  _compile_bytecode (<frozen importlib._bootstrap_external>:729)
+  innermost project frames:
+    100.0%  <no project frame>
