@@ -1,0 +1,26 @@
+Fri Sep 11 11:01:13 UTC 2026
+ALL_DONE
+F0.games
+F0.log
+F0.server.log
+F0.server_stats.json
+F0.wall
+H.games
+H.log
+H.server.log
+H.server_stats.json
+H.wall
+I.games
+I.log
+I.server.log
+I.server_stats.json
+I.wall
+box.txt
+games_F0
+games_H
+games_I
+progress.txt
+rust.txt
+F0 76 s
+H 73 s
+I 139 s

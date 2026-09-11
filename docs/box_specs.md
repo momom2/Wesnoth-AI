@@ -711,6 +711,37 @@ Next levers, in order: the compiled packed loop on the server (the
 launch overhead at small batches), then the worker's encode and mask
 Python, then tokens per leaf (plan 1.4).
 
+### Round 2: the server's host levers and the batching knobs (2026-09-11, box 50582240, RTX 3090 Ti, 15.4-core quota)
+
+`scripts/eval_profile2_box.sh` plus four hand runs; the same 40-game
+match, shared inference, the Rust core, 20 workers unless stated.
+Records: `training/metrics/bench_pipeline/eval_profile2_20260911/`.
+
+| mode | wall s | server mean batch | server forward s of wall | ms per leaf |
+|---|---|---|---|---|
+| F0 packed embed off | 76 | 7.6 | 51 of 72 | 2.21 |
+| H packed embed on (now the default) | 73 | 7.5 | 48 of 70 | 2.09 |
+| I H + compiled packed loop | 139 | 5.3 | 76 of 126 | 2.64 |
+| J H, window 3 ms | 78 | 7.7 | 48 of 74 | 2.08 |
+| K H, window 5 ms | 83 | 8.1 | 49 of 80 | 2.12 |
+| L H, 24 workers | 78 | 8.0 | 49 of 74 | 2.12 |
+| M H, 24 workers, window 3 ms | 79 | 8.0 | 47 of 75 | 2.12 |
+
+Reading: packed embed is worth about 5% and stays on. The compiled
+packed loop is 12% cheaper per batch and a loss overall: under its
+numerics the 40 games ran 25% more decisions, the batches shrank to
+5.3 because a faster server drains the queue before requests
+accumulate, and the wall per decision went from 3.3 ms to 4.8 ms;
+it stays off (`--compile-packed` to opt in). The window and the
+worker count do not move the batch past about 8 or the wall at all:
+on this box the workers deliver about 314 decisions per second with
+the CPU quota saturated (about 48 ms of worker CPU per decision at
+15 cores) while the server has 30% idle, so the path is balanced
+between the workers' Python and the GPU. The next multiplier needs
+both: the per-decision Python in Rust (plan 1.2's step, fork and
+enumeration objects) and fewer tokens per leaf (plan 1.4). An
+800-game match on this box is about 25 minutes, $0.15.
+
 seed2 self-pin through this path (20 games, seed2 against itself,
 seed base 50000, 20 workers, run twice): 18 of 20 games identical in
 outcome, turns and forward counts; the two that differ are the

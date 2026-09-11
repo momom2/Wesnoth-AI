@@ -356,10 +356,22 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
   takes about 1.25x its cores in workers and no more. An 800-game
   match is about 31 minutes and $0.10 on a 3090 at 20 workers. All
   match scripts now run the shared server and build the Rust core at
-  bring-up. Next levers, in order: the compiled packed loop on the
-  eval server (launch overhead at small batches), the worker's encode
-  and mask Python (13% and 11% of a per-process game), tokens per
-  leaf (1.4).
+  bring-up.
+- MEASURED 2026-09-11, plan 1.5 round 2 (docs/box_specs.md "Round 2";
+  `scripts/eval_profile2_box.sh`; records in
+  `training/metrics/bench_pipeline/eval_profile2_20260911/`): the
+  eval server now runs the pool's packed embed (5%, default on) and
+  offers the compiled packed loop (`--compile-packed`), which is 12%
+  cheaper per batch and a loss overall (139 s against 73: smaller
+  batches, and the 40 games ran 25% more decisions under its
+  numerics); it stays off. Window 3-5 ms and 24 workers change
+  nothing: the batch stays about 8 and the box's CPU quota is
+  saturated at about 314 decisions per second while the server idles
+  30%. The path is balanced; plan 1.5 is closed for this round at
+  about 25 minutes and $0.15 per 800-game match on a 3090 Ti. The next
+  eval multiplier needs the per-decision Python in Rust (plan 1.2's
+  remaining steps) and fewer tokens per leaf (1.4), both measured
+  items, neither a quick win.
 - RULING TO RECORD (2026-09-11): seed2 self-pinned through the shared
   path (20 games twice: 18 of 20 identical, the two others the
   predicted bf16 near-tie flips; 6-5 with 9 at the cap). seed2 is the
