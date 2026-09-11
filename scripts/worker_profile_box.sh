@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# The shared-inference eval worker under py-spy (plan 1.2, 2026-09-11):
+# what a worker's Python per decision is made of once the forward and
+# the priors live on the server. Starts one inference server by hand,
+# plays one raw:t0 game through it under py-spy (parent mode; attach
+# is refused on Vast), summarizes, uploads to HF tier-b/worker_profile_20260911/.
+# Expects /workspace/Wesnoth-AI staged with training/checkpoints/seed2.pt
+# and the Rust core built (seed2_relset_box.sh does both first).
+set -uo pipefail
+OUT=/workspace/workerprof
+mkdir -p "$OUT"
+cd /workspace/Wesnoth-AI
+export HF_TOKEN="$(tr -d '\r\n' < /workspace/.hf_token)" HF_HUB_DISABLE_XET=1
+export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 TORCHINDUCTOR_COMPILE_THREADS=1 PATH="$HOME/.cargo/bin:$PATH"
+python -m pip install -q py-spy >/dev/null 2>&1
+CKPT=training/checkpoints/seed2.pt
+python -u tools/eval_inference_server.py --spec "$CKPT" --device cuda --window-ms 1.5 --max-batch 4 \
+    --stats-out "$OUT/server_stats.json" --label prof > "$OUT/server.out" 2> "$OUT/server.err" &
+SERVER_PID=$!
+for i in $(seq 1 120); do grep -q "^__ADDR__ " "$OUT/server.out" && break; sleep 2; done
+ADDR=$(grep "^__ADDR__ " "$OUT/server.out" | head -1 | sed "s/^__ADDR__ //")
+[ -n "$ADDR" ] || { echo "server gave no address" >&2; cat "$OUT/server.err" | tail -20; kill $SERVER_PID; exit 1; }
+echo "server at $ADDR"
+mkdir -p "$OUT/games"
+for flag in "" "--gil"; do
+    tag=$([ -n "$flag" ] && echo gil || echo all)
+    py-spy record --duration 200 --format raw --threads --idle --nonblocking $flag -o "$OUT/pyspy_$tag.txt" -- \
+        python tools/elo_eval_game.py seed2 "$CKPT" seed2_ref "$CKPT" 1 20001 "$OUT/games" \
+        --max-turns 200 --mcts-sims 0 --raw-temperature-a 0 --raw-temperature-b 0 \
+        --inference-address-a "$ADDR" --inference-address-b "$ADDR" --infer-bf16 --infer-packed-trunk \
+        --log-level INFO > "$OUT/game_$tag.log" 2>&1
+    python tools/pyspy_summary.py "$OUT/pyspy_$tag.txt" > "$OUT/pyspy_$tag.summary.txt" 2>&1 || true
+done
+kill $SERVER_PID 2>/dev/null; sleep 2
+python - <<'EOF'
+import glob, os
+from huggingface_hub import HfApi
+api = HfApi(token=os.environ["HF_TOKEN"])
+for p in sorted(glob.glob("/workspace/workerprof/*")):
+    if os.path.isfile(p) and os.path.getsize(p) < 50_000_000:
+        api.upload_file(path_or_fileobj=p, path_in_repo="tier-b/worker_profile_20260911/" + os.path.basename(p),
+                        repo_id="momom2/wesnoth-model-checkpoints")
+print("uploaded", flush=True)
+EOF
+touch "$OUT/ALL_DONE"
+echo WORKER_PROFILE_DONE
