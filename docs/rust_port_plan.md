@@ -133,8 +133,12 @@ macros actually shipped. Records: eval_games/rust_corpus_cert/.
    enumeration, seam and visibility suites on a box (the laptop
    cannot execute freshly built binaries, so wheels build on a box:
    `pip install rust/wesnoth_core`). Switch: `WESNOTH_RUST_OBSERVE`
-   (default on when the wheel carries it; 0 = Python path). Timing
-   pre-registered in BACKLOG (`scripts/eval_profile3_box.sh`).
+   (default on when the wheel carries it; 0 = Python path). Measured
+   2026-09-11 (docs/box_specs.md "The observation kernel and the CPU
+   budget"): a lone eval game 1.2x faster (15.7 -> 13.1 s, the same
+   587 decisions), the crowded 40-game match unchanged, because that
+   path is bound by the server's per-batch cycle and not by worker
+   CPU (5.4 of 16 cores used). Kept on by default.
 3. **Combat + sim step** (wesnoth_sim combat resolution, healing,
    advancement, events glue): the [mp_checkup]-oracle-certified
    core. Full-corpus differential run required (the 24,796-replay

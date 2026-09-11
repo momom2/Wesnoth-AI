@@ -48,17 +48,25 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
    - DONE 2026-09-11: the raw player picks on the compact arrays
      behind a shared server (`RawPolicyPlayer(compact_selection)`,
      one action materialized; differential test).
-   - NEXT (pre-registered): one Rust call per decision over a flat
-     snapshot of the observable state returning the vision disc, the
-     visible units, the reach-context flags and the move/attack rows
-     (the mask builder, the visibility sets and the encoder's disc
-     from one pass); Python keeps the snapshot build (O(units)) and
-     the tensor assembly. Certification: differential tests against
-     the Python originals on the harvested states plus fuzz, then
-     the full-corpus reconstruction sweep on a box. Measurement: the
-     40-game shared-inference timing on one box before and after
-     (`scripts/eval_profile2_box.sh` mode H): prediction 1.3-1.5x
-     on the worker-bound box, kill under 1.15x.
+   - DONE 2026-09-11: the observation kernel (port plan 2c,
+     `wesnoth_core.observe_side`, `wesnoth_ai/observe.py`): one Rust
+     call per decision returns the vision disc, the visible units,
+     the reach-context flags and the recruit row; the encoder and
+     the mask builder read them. Certified (tests/test_rust_observe.py
+     plus the encoding, enumeration and seam suites on a box); on by
+     default (`WESNOTH_RUST_OBSERVE=0` for the Python path).
+   - MEASURED 2026-09-11 (docs/box_specs.md "The observation kernel
+     and the CPU budget"): a lone game 1.2x faster, the 40-game
+     match unchanged (79-82 s off, 79-94 s on, 5% less CPU). The
+     pre-registered kill (under 1.15x) applies: less worker Python
+     is not an eval lever. The box was not CPU-bound (5.4 of 16
+     cores, 5% of quota periods throttled; round 2's "quota
+     saturated" reading was wrong). The match wall is the loop
+     through one server: about 25 ms per batch, mostly a fixed GPU
+     launch cost (14-15 ms at batch 6-8), 7.5 of 20 workers per
+     batch. Levers left: a second server process per GPU in
+     `run_elo_batch`, a fixed-shape forward (CUDA graphs over
+     bucketed lengths), fewer tokens per leaf (plan 1.4).
 3. **Batched inference server** (plan 1.3). Measured 2026-09-04
    (docs/box_specs.md "Phase-1 iterations"): the batched forward ran
    fp32 eager (only the single-sample path had bf16 and compile);

@@ -734,12 +734,10 @@ numerics the 40 games ran 25% more decisions, the batches shrank to
 accumulate, and the wall per decision went from 3.3 ms to 4.8 ms;
 it stays off (`--compile-packed` to opt in). The window and the
 worker count do not move the batch past about 8 or the wall at all:
-on this box the workers deliver about 314 decisions per second with
-the CPU quota saturated (about 48 ms of worker CPU per decision at
-15 cores) while the server has 30% idle, so the path is balanced
-between the workers' Python and the GPU. The next multiplier needs
-both: the per-decision Python in Rust (plan 1.2's step, fork and
-enumeration objects) and fewer tokens per leaf (plan 1.4). An
+on this box the workers deliver about 314 decisions per second while
+the server has 30% idle. Why is measured in "The observation kernel
+and the CPU budget" below: the box uses about a third of its CPU
+quota, and the wall is the per-batch cycle through one server. An
 800-game match on this box is about 25 minutes, $0.15.
 
 seed2 self-pin through this path (20 games, seed2 against itself,
@@ -777,6 +775,51 @@ Rust call per decision over a flat snapshot of the observable state
 the visible units, the reach-context flags and the move/attack rows
 together. Combat and the sim step (phase 3 of the port plan) are not
 where this path spends its time.
+
+### The observation kernel and the CPU budget (2026-09-11, box 50593470, RTX 3090, 16-core quota)
+
+`scripts/eval_profile3_box.sh` (round 2's 40-game match with the
+kernel off and on, twice each, `WESNOTH_RUST_OBSERVE`),
+`scripts/worker_profile_box.sh` (one lone game under py-spy per
+kernel mode) and `scripts/eval_cpu_budget_box.sh` (the match once
+per mode between two readings of the container's cgroup `cpu.stat`).
+Records: `training/metrics/bench_pipeline/{eval_profile3,worker_profile_obs,eval_cpu}_20260911/`.
+
+| measurement | kernel off | kernel on |
+|---|---|---|
+| 40-game match wall, s (two runs each) | 82, 79 | 94, 81 |
+| 40-game match wall, s (the `cpu.stat` runs) | 79.5 | 79.3 |
+| CPU consumed by the container over the match, s | 426 | 405 |
+| quota periods throttled | 41 of ~795 | 36 of ~793 |
+| one lone game (587 decisions, identical in both modes), s | 15.7 | 13.1 |
+| lone game: the worker outside `_recv`, s | 6.0 | 4.8 |
+| lone game: `visible_hexes_for` / `encode_raw` share of wall | 7.8% / 6.0% | 2.0% / 3.2% |
+| server batches / mean batch over the match | 3017 / 7.4 | 2987-3863 / 6.2-7.6 |
+| server GPU ms per batch | 14.5 | 13.9-15.0 |
+
+Reading: the kernel is real on the worker (a lone game 1.2x faster,
+5% less CPU over a match) and invisible on the match wall, so the
+pre-registered kill (under 1.15x) applies: less worker Python is not
+an eval-throughput lever. The reason is the CPU reading: the match
+used 5.4 of the 16 cores on average and the quota throttled 5% of
+its periods, so round 2's sentence "CPU quota saturated, 48 ms of
+worker CPU per decision" was an inference and is wrong; the measured
+CPU is at most 18 ms per decision (426 s over 23,086 decisions,
+server and driver included). What bounds the path is the loop through
+one server: each batch costs about 25 ms of wall (5.8 idle, 1.5
+window, 14.5 GPU, 1-3 host and reply) and holds 7.5 of the 20
+workers, which fits a two-cohort picture: the workers a batch just
+answered are in their Python while the other half forms the next
+batch, and the server idles until the first of them is back. The GPU
+time per batch barely moves with its size (13.9 ms at 6.2, 15.0 at
+7.6), so it is mostly a fixed launch cost; the GPU is busy 57% of the
+wall. Levers left, in order: a second server process on the same GPU
+(one cohort's forward under the other's host work; the pool has it,
+`run_elo_batch` does not), a fixed-shape forward that cuts the launch
+cost (CUDA graphs over bucketed lengths; the compiled loop lost to
+recompiles), and fewer tokens per leaf (plan 1.4, the per-leaf part
+of the GPU cost). The kernel stays on by default: certified, cheaper
+per decision, and the self-play actors do the same work per leaf.
 
 ## Serve thread host cost per 16-leaf batch (2026-09-05, box 49875606)
 

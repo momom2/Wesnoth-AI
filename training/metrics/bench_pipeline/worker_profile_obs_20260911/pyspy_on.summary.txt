@@ -1,0 +1,29 @@
+pyspy_on.txt: 1473 samples
+
+== thread (8556): MainThread: 1473 samples (100%)
+  leaf frames:
+     63.1%  _recv (multiprocessing/connection.py:395)
+      3.5%  _call_with_frames_removed (<frozen importlib._bootstrap>:241)
+      2.9%  _rust_enumerate_rows (wesnoth_ai/action_sampler.py:1366)
+      1.2%  observe (wesnoth_ai/observe.py:204)
+      1.0%  _any (numpy/_core/_methods.py:65)
+      0.9%  _rust_enumerate_rows (wesnoth_ai/action_sampler.py:1292)
+      0.9%  _bits (wesnoth_ai/server_priors.py:105)
+      0.8%  <dictcomp> (inference_seam.py:158)
+      0.7%  _rust_enumerate_rows (wesnoth_ai/action_sampler.py:1294)
+      0.6%  _build_legality_masks (wesnoth_ai/action_sampler.py:1420)
+      0.5%  visible_hexes_for (wesnoth_ai/visibility.py:215)
+      0.5%  visible_hexes_for (wesnoth_ai/visibility.py:211)
+  innermost project frames:
+     76.6%  <no project frame>
+      2.9%  _rust_enumerate_rows (wesnoth_ai/action_sampler.py:1366)
+      1.2%  observe (wesnoth_ai/observe.py:204)
+      1.0%  _rust_enumerate_rows (wesnoth_ai/action_sampler.py:1292)
+      0.9%  _bits (wesnoth_ai/server_priors.py:105)
+      0.8%  _rust_enumerate_rows (wesnoth_ai/action_sampler.py:1255)
+      0.8%  _rust_enumerate_rows (wesnoth_ai/action_sampler.py:1294)
+      0.7%  _build_legality_masks (wesnoth_ai/action_sampler.py:1576)
+      0.6%  _build_legality_masks (wesnoth_ai/action_sampler.py:1420)
+      0.6%  visible_hexes_for (wesnoth_ai/visibility.py:215)
+      0.5%  visible_hexes_for (wesnoth_ai/visibility.py:211)
+      0.5%  _build_legality_masks (wesnoth_ai/action_sampler.py:1670)

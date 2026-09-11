@@ -132,7 +132,12 @@ State of play:
   the seed +33 +- 12 Elo (800 decisive raw:t0 games, 660 more at the
   cap), the first checkpoint to do so; it is the reference for holdout
   numbers, the frozen-trunk arm, and, after its self-pin, the
-  reference player.
+  reference player. The observation kernel (port plan 2c, on by
+  default) makes a lone eval game 1.2x faster and leaves the 40-game
+  match unchanged: that path is bound by the server's per-batch cycle
+  (about 25 ms, mostly a fixed GPU launch cost, 7.5 of 20 workers per
+  batch), not by worker CPU (docs/box_specs.md "The observation kernel
+  and the CPU budget").
 - Rulings (2026-09-05): no optimizations conditioned on the MCTS
   loop; scope every box test, train sparingly; results are written
   on the run, never as atomic dumps; a box job past ~1.5x its

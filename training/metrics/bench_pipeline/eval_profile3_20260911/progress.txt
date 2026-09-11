@@ -1,0 +1,6 @@
+Fri Sep 11 13:15:05 UTC 2026
+P 82 s
+O 94 s
+P2 79 s
+O2 81 s
+wesnoth_core phase 4

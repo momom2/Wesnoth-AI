@@ -1,0 +1,4 @@
+128
+1536000 100000
+NVIDIA GeForce RTX 3090
+wesnoth_core phase 4

@@ -1,0 +1,5 @@
+13:28:07 INFO TransformerPolicy device: cuda
+13:28:08 INFO inference bf16 autocast ON
+13:28:08 INFO Loaded checkpoint from training/checkpoints/seed2.pt (decision_step=0)
+13:28:08 INFO [prof] loaded seed2.pt
+13:28:08 INFO serving seed2.pt on /tmp/pymp-x_viem77/listener-ideb0owz (device=cuda bf16=True packed=True packed_embed=True compiled=False window=1.5ms max_batch=4)
