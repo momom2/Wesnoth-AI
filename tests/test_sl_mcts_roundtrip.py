@@ -137,8 +137,8 @@ def test_flush_batch_carries_value_loss():
     import torch
     from wesnoth_ai.encoder import GameStateEncoder
     from wesnoth_ai.model import WesnothModel
-    from tools.supervised_train import (_encode_one, _flush_batch,
-                                        _pair_stream_serial)
+    from tools.supervised_train import (_flush_batch, _pair_stream_serial,
+                                        _raw_one)
     from tools.replay_dataset import filter_competitive_2p
     from pathlib import Path as _P
 
@@ -154,7 +154,7 @@ def test_flush_batch_carries_value_loss():
             pairs.append((item[1], item[2]))
         if len(pairs) >= 2:
             break
-    batch = [_encode_one(enc, st, dev) for st, _ in pairs]
+    batch = [_raw_one(enc, st) for st, _ in pairs]
     ais = [ai for _, ai in pairs]
     dq = {k: deque(maxlen=20) for k in
           ("t", "a", "ty", "tg", "w", "v")}

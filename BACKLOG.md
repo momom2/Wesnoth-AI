@@ -241,6 +241,23 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
    trainer is not GPU-bound, so fewer tokens do not show here. The
    holdout probe every 50k pairs (143 s each) takes 28% of the wall
    in both runs; next imitation run: `--eval-every 250000`.
+   BUILT 2026-09-11 evening (user: "if there is Python, there is room
+   for optimization"): the imitation trainer's batched flow embeds
+   the batch from one pinned host buffer (`encode_from_raw_embedded`,
+   the server's path), runs `forward_embedded` once and scores every
+   head over the PaddedOutput (`wesnoth_ai/imitation_loss.py`); one
+   host-device synchronization per batch instead of about four
+   blocking copies per pair. The holdout probe caches its sample
+   after the first draw (`_evaluate(cache=)`), so a probe no longer
+   reconstructs 150 games through the simulator. Differential test
+   against the per-sample reference (values, fired heads, total,
+   every gradient): tests/test_imitation_flat_batch.py. Found on the
+   way: the batched flow backpropagates the UNWEIGHTED actor
+   cross-entropy (the action-type weights only scale the per-pair
+   CPU flow's total); seed and seed2 trained that way and the new
+   flow keeps it. Measurement queued on the relset box after its
+   match (`scripts/relset_after_match_profile.sh`: old and new
+   trainer timed on 30k pairs, then the new one under py-spy).
    **Eval at scale** (plan 1.5): 800 raw games in ~65 min / $0.36
    through persistent workers; with the shared inference server
    (2026-09-05, `--shared-inference`) 40 games take 145 s against

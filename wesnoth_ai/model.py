@@ -489,7 +489,8 @@ class WesnothModel(nn.Module):
                                         material=material)
 
     def forward_embedded(self, streams: EmbeddedStreams,
-                         packed: Optional[bool] = None) -> "PaddedOutput":
+                         packed: Optional[bool] = None,
+                         material: Optional[torch.Tensor] = None) -> "PaddedOutput":
         """Batched forward over stream-ordered token embeddings
         (encoder.encode_from_raw_embedded; the server's packed-embed
         path). With the packed trunk, one gather orders the rows into
@@ -497,8 +498,8 @@ class WesnothModel(nn.Module):
         padded trunk, one gather lays them out as the padded streams
         (zeros at the pads, as pad_sequence fills them) and
         forward_streams runs unchanged. Same PaddedOutput as
-        forward_streams on encode_from_raw_padded's streams; `packed` as
-        in forward_streams."""
+        forward_streams on encode_from_raw_padded's streams; `packed` and
+        `material` as in forward_streams."""
         if self.infer_compile_packed and not self.infer_packed_trunk:
             raise ValueError("infer_compile_packed requires infer_packed_trunk")
         tokens, sizes = streams.tokens, streams.sizes
@@ -511,7 +512,8 @@ class WesnothModel(nn.Module):
                                          source="streams")
             index = layout.to_device(tokens.device)
             x = tokens.index_select(0, index.src) + self.token_kind_embed(index.kind)
-            return self._packed_trunk_heads(x, index, layout, sizes, H_max, U_max, R_max)
+            return self._packed_trunk_heads(x, index, layout, sizes, H_max, U_max, R_max,
+                                            material=material)
         L = H_max + U_max + R_max + 2
         idx = torch.from_numpy(padded_gather_index(sizes, H_max, U_max, R_max))
         if tokens.device.type == "cuda":
@@ -522,7 +524,7 @@ class WesnothModel(nn.Module):
         o = H_max + U_max + R_max
         return self.forward_streams(rows[:, :H_max], rows[:, H_max:H_max + U_max],
                                     rows[:, H_max + U_max:o], rows[:, o:o + 1], rows[:, o + 1:],
-                                    sizes, packed=False)
+                                    sizes, packed=False, material=material)
 
     def _packed_trunk_heads(self, x, index, layout, sizes, H_max, U_max, R_max,
                             material: Optional[torch.Tensor] = None) -> "PaddedOutput":

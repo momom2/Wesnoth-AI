@@ -48,8 +48,9 @@ import torch.nn.functional as F
 # Project imports — assume cwd is the repo root.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from wesnoth_ai.encoder import GameStateEncoder, RawEncoded
+from wesnoth_ai.encoder import GameStateEncoder, RawEncoded, encode_raw
 from wesnoth_ai.model import WesnothModel
+from wesnoth_ai.imitation_loss import build_imitation_targets, imitation_loss_parts
 # Import replay_dataset from the same tools/ dir.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from tools.replay_dataset import ActionIndices, filter_competitive_2p, iter_replay_pairs
@@ -631,6 +632,20 @@ def _encode_one(
     return encoder.encode(state_or_raw)
 
 
+def _raw_one(encoder: GameStateEncoder, state_or_raw) -> RawEncoded:
+    """The RawEncoded of a pair: a worker's or a pre-encoded record's as
+    is; a GameState's through `encode_raw` after registering its names,
+    as `encoder.encode` does."""
+    if isinstance(state_or_raw, RawEncoded):
+        return state_or_raw
+    encoder.register_names(state_or_raw)
+    return encode_raw(state_or_raw,
+                      type_to_id=encoder.unit_type_to_id,
+                      faction_to_id=encoder.faction_to_id,
+                      relevant_set=encoder.relevant_set_hexes,
+                      fog_hides_enemy_villages=encoder.fog_hides_enemy_villages)
+
+
 @dataclass
 class LossParts:
     """Per-head decomposition of one pair's CE loss.
@@ -932,9 +947,9 @@ def _loss_parts_for_pair(
 def _flush_batch(
     model:           WesnothModel,
     encoder:         GameStateEncoder,
-    batch_encoded:   List,
+    batch_raws:      List[RawEncoded],
     batch_ais:       List[ActionIndices],
-    batch_zw:        List,                    # per-sample (z, weight)
+    batch_zw:        List,                    # per-sample (z, value weight, policy weight)
     opt:             torch.optim.Optimizer,
     params_for_clip: List[torch.nn.Parameter],
     batch_size:      int,
@@ -947,98 +962,66 @@ def _flush_batch(
     running_loss_value:  deque,
     type_loss_weights: Optional[Dict[str, float]] = None,
 ) -> None:
-    """One batched forward + summed-loss backward + opt step.
+    """One batched forward + summed-loss backward + opt step over B
+    RawEncoded pairs.
+
+    The batch's token embeddings come from one pinned host buffer
+    (`encode_from_raw_embedded`, the inference server's path), the
+    trunk and the heads run once on the padded batch
+    (`forward_embedded`), and every head's cross-entropy runs once over
+    the PaddedOutput (`wesnoth_ai.imitation_loss`); the only
+    host-device synchronization is the log transfer after the step.
 
     `batch_size` is the *target* batch size used as the loss-scaling
-    denominator. We pass it (rather than `len(batch_encoded)`) so that
-    a partial flush at a file boundary scales the gradient the same
-    way as a full batch — this matches the per-pair flow's behavior
-    of dividing each individual loss by `batch_size` and reproduces
-    the same effective learning rate per pair, regardless of where
-    file boundaries fell.
+    denominator, so a partial flush at a file boundary scales the
+    gradient as a full batch does: the same effective learning rate
+    per pair regardless of where file boundaries fell.
 
-    Per-sample losses (total + per-head) are appended to the
-    `running_loss*` deques for the progress log. We pull them after
-    backward via a single `.detach().cpu().tolist()` to avoid a sync
-    per pair. Per-head averages are taken over fired pairs only — see
-    LossParts docstring.
+    Per-sample losses (per head) go to the `running_loss*` deques for
+    the progress log; per-head averages are taken over fired pairs
+    only (see LossParts).
     """
-    if not batch_encoded:
+    if not batch_raws:
         return
-
-    # Single padded transformer pass over B samples.
-    outputs = model.forward_batch(batch_encoded)
-
+    if type_loss_weights is None:
+        type_loss_weights = _DEFAULT_ACTION_TYPE_LOSS_WEIGHT
+    streams = encoder.encode_from_raw_embedded(batch_raws, device=device)
+    material = None
+    if getattr(model, "has_value_material", False):
+        material = torch.tensor([[float(r.material)] for r in batch_raws],
+                                dtype=torch.float32, device=device)
+    padded = model.forward_embedded(streams, material=material)
     zw = batch_zw if batch_zw else [(None, 0.0, 1.0)] * len(batch_ais)
-    parts_list = [
-        _loss_parts_for_output(out, ai, device,
-                               type_loss_weights=type_loss_weights,
-                               value_z=z, value_weight=w,
-                               policy_weight=pw)
-        for out, ai, (z, w, pw) in zip(outputs, batch_ais, zw)
-    ]
-
-    # Stack each head separately so we can both backprop through the
-    # sum AND retrieve per-head per-sample values for logging in one
-    # post-backward sync.
-    actor_stack  = torch.stack([p.actor  for p in parts_list])  # [B]
-    type_stack   = torch.stack([p.type   for p in parts_list])  # [B]
-    target_stack = torch.stack([p.target for p in parts_list])  # [B]
-    weapon_stack = torch.stack([p.weapon for p in parts_list])  # [B]
-    # Raw per-sample value CE, weighted here by lambda_v x per-game
-    # weight (zw). NOTE: total_loss re-sums the heads rather than
-    # using p.total, so the value term MUST be added explicitly --
-    # omitting this stack would silently drop value training in the
-    # batched (GPU) flow only.
-    value_stack  = torch.stack([p.value  for p in parts_list])  # [B]
-    vw = torch.tensor([w for (_z, w, _pw) in zw],
-                      device=value_stack.device,
-                      dtype=value_stack.dtype)
-    # Per-sample POLICY weight (imitation winners-only / per-game
-    # weighting). NOTE the raw per-head stacks are re-summed here
-    # rather than using p.total, so the policy weight MUST be applied
-    # explicitly -- same trap as the value term below.
-    pw_t = torch.tensor([p.policy_w for p in parts_list],
-                        device=value_stack.device,
-                        dtype=value_stack.dtype)
-
-    # backward() through the same scalar that the per-pair path
-    # produces: sum of all heads divided by batch_size. Linearity
-    # guarantees identical gradients to B individual
-    # `(part.total / bs).backward()` calls.
-    total_loss = (((actor_stack + type_stack
-                    + target_stack + weapon_stack) * pw_t).sum()
-                  + (value_stack * vw).sum()) / batch_size
-    total_loss.backward()
+    targets = build_imitation_targets(
+        batch_ais, zw, streams.sizes,
+        n_types=padded.type_logits.shape[2],
+        n_weapons=padded.weapon_logits.shape[2],
+        n_atoms=padded.value_logits.shape[1],
+        type_loss_weights=type_loss_weights, device=device)
+    parts = imitation_loss_parts(padded, targets)
+    (parts.total / batch_size).backward()
 
     torch.nn.utils.clip_grad_norm_(params_for_clip, 1.0)
     opt.step()
     opt.zero_grad()
 
-    # One sync per head (four small CPU transfers) — vs 4*B if we
-    # called .item() per pair per head. Pre-cast to lists once.
-    actor_floats  = actor_stack.detach().cpu().tolist()
-    type_floats   = type_stack.detach().cpu().tolist()
-    target_floats = target_stack.detach().cpu().tolist()
-    weapon_floats = weapon_stack.detach().cpu().tolist()
-    value_floats  = value_stack.detach().cpu().tolist()
-    for i, p in enumerate(parts_list):
-        if not p.actor_fired:
-            continue   # actor_idx out of range — pair contributed 0 to grad
-        if p.value_fired and running_loss_value is not None:
-            running_loss_value.append(value_floats[i])
-        if p.policy_w == 0.0:
-            continue   # value-only pair: keep policy averages clean
-        a, ty, t, w = (actor_floats[i], type_floats[i],
-                       target_floats[i], weapon_floats[i])
-        running_loss.append(a + ty + t + w)   # total = sum of heads
-        running_loss_actor.append(a)
-        if p.type_fired:
-            running_loss_type.append(ty)
-        if p.target_fired:
-            running_loss_target.append(t)
-        if p.weapon_fired:
-            running_loss_weapon.append(w)
+    actor_v, type_v, target_v, weapon_v, value_v = parts.log_values()
+    ok = targets.ok
+    for i in range(targets.n):
+        if not ok["actor"][i]:
+            continue   # actor_idx out of range: the pair contributed 0 to the gradient
+        if ok["value"][i] and running_loss_value is not None:
+            running_loss_value.append(value_v[i])
+        if targets.policy_w[i] == 0.0:
+            continue   # value-only pair: keep the policy averages clean
+        running_loss.append(actor_v[i] + type_v[i] + target_v[i] + weapon_v[i])
+        running_loss_actor.append(actor_v[i])
+        if ok["type"][i]:
+            running_loss_type.append(type_v[i])
+        if ok["target"][i]:
+            running_loss_target.append(target_v[i])
+        if ok["weapon"][i]:
+            running_loss_weapon.append(weapon_v[i])
 
 
 def _masked_target_nll(
@@ -1085,6 +1068,7 @@ def _evaluate(
     eval_sample_seed: Optional[int] = None,
     type_loss_weights: Optional[Dict[str, float]] = None,
     winner_map: Optional[Dict[str, int]] = None,
+    cache: Optional[list] = None,
 ) -> Dict[str, float]:
     """Held-out behavior-cloning metrics: per-head top-1 accuracy +
     mean CE over the first `eval_pairs` pairs of the holdout games
@@ -1100,7 +1084,14 @@ def _evaluate(
     the masked top-1, the number of pairs behind it, and the count
     of holdout targets the legality mask does not offer
     (`target_off_mask`: the mask is stricter than Wesnoth in places,
-    e.g. multi-turn moves)."""
+    e.g. multi-turn moves).
+
+    `cache`: a list the first call fills with the sample's pairs (their
+    RawEncoded, labels, mover and legality row) and later calls read
+    instead of reconstructing the holdout games through the simulator
+    (about 140 s per probe of 150 games, 28% of a training run's wall
+    before 2026-09-11). The sample is deterministic, so the cached
+    probe is the same probe."""
     from wesnoth_ai.action_sampler import _build_legality_masks
     was_training = model.training
     model.eval()
@@ -1130,7 +1121,13 @@ def _evaluate(
         # biased set). Separate RNG stream from the reservoir's.
         import random as _random
         _random.Random(eval_sample_seed ^ 0x5EED).shuffle(_order)
-    with torch.no_grad():
+    def _items():
+        """(raw, ai, name, mover, legal row, mask error) per holdout pair:
+        from the cache when it is filled, else from the replay stream
+        (remembered in the cache when one is given)."""
+        if cache:
+            yield from cache
+            return
         for item in _pair_stream_serial(
                 _order,
                 max_pairs_per_replay=eval_pairs_per_game,
@@ -1138,12 +1135,32 @@ def _evaluate(
                 relevant_set=encoder.relevant_set_hexes):
             if item[0] != "pair":
                 continue
-            _, state, ai, _name = item
+            _, state, ai, name = item
+            try:
+                raw = _raw_one(encoder, state)
+            except Exception:                     # noqa: BLE001
+                continue
+            legal, mask_error = None, None
+            if ai.target_idx is not None and ai.action_type != "end_turn":
+                try:
+                    with torch.no_grad():
+                        legal = _legal_target_row(_build_legality_masks(
+                            encoder.encode_from_raw(raw, device=device), state), ai)
+                    if legal is not None:
+                        legal = legal.cpu()
+                except Exception as e:            # noqa: BLE001
+                    mask_error = repr(e)
+            entry = (raw, ai, name, state.global_info.current_side, legal, mask_error)
+            if cache is not None:
+                cache.append(entry)
+            yield entry
+
+    with torch.no_grad():
+        for raw, ai, _name, mover, legal, mask_error in _items():
             if n >= eval_pairs:
                 break
             try:
-                encoded = _encode_one(encoder, state, device)
-                output = model(encoded)
+                output = model(encoder.encode_from_raw(raw, device=device))
             except Exception:                     # noqa: BLE001
                 continue
             n += 1
@@ -1155,17 +1172,13 @@ def _evaluate(
                 target_ces.append(float(F.cross_entropy(
                     tgt_row.unsqueeze(0),
                     torch.tensor([ai.target_idx], device=device))))
-                try:
-                    legal = _legal_target_row(
-                        _build_legality_masks(encoded, state), ai)
-                except Exception as e:            # noqa: BLE001
+                if mask_error is not None:
                     mask_errors += 1
                     if mask_errors <= 3:
                         log.warning(f"  legality mask failed on a "
-                                    f"holdout pair ({_name}): {e!r}")
-                    legal = None
-                if legal is not None:
-                    r = _masked_target_nll(tgt_row, legal, ai.target_idx)
+                                    f"holdout pair ({_name}): {mask_error}")
+                elif legal is not None:
+                    r = _masked_target_nll(tgt_row, legal.to(device), ai.target_idx)
                     if r is None:
                         off_mask += 1
                     else:
@@ -1173,7 +1186,6 @@ def _evaluate(
                         masked_hits += int(r[1])
             if winner_map and _name in winner_map:
                 ev = float(output.value.item())
-                mover = state.global_info.current_side
                 (ev_win if winner_map[_name] == mover
                  else ev_loss).append(ev)
                 g = per_game.setdefault(_name, {"w": [], "l": [],
@@ -1802,6 +1814,7 @@ def train(
     # from value_corpus_index keep select_p 0.0, so this cannot
     # enable value training by itself.)
     winner_map.update(imit_winner_map)
+    eval_cache: list = []      # the holdout probe's sample, built once
 
     if eval_only:
         if not holdout_files:
@@ -1812,7 +1825,7 @@ def train(
                           eval_pairs_per_game=eval_pairs_per_game,
                           eval_sample_seed=eval_sample_seed,
                           type_loss_weights=type_loss_weights,
-                          winner_map=winner_map)
+                          winner_map=winner_map, cache=eval_cache)
         stats["decision_step"] = carry.get("decision_step")
         log.info(f"EVAL-ONLY {stats}")
         if eval_json is not None:
@@ -1953,7 +1966,7 @@ def train(
 
         # Per-pair / batched: shared bookkeeping below; the differences
         # are concentrated in the "pair" event handler.
-        batch_encoded: List = []
+        batch_raws: List = []
         batch_ais: List[ActionIndices] = []
         batch_zw: List = []
         losses_in_batch = 0  # used by per-pair flow
@@ -2005,7 +2018,7 @@ def train(
                     # Abandon any partial gradient or batch from this
                     # file — its data is incomplete.
                     opt.zero_grad()
-                    batch_encoded.clear()
+                    batch_raws.clear()
                     batch_ais.clear()
                     batch_zw.clear()
                     losses_in_batch = 0
@@ -2059,7 +2072,7 @@ def train(
                     # === Batched flow: accumulate B, then forward_batch.
                     _te = time.perf_counter() if prof_on else 0.0
                     try:
-                        encoded = _encode_one(encoder, state_or_raw, device)
+                        raw = _raw_one(encoder, state_or_raw)
                     except Exception as e:
                         log.debug(f"  encode failed: {e}")
                         continue
@@ -2067,15 +2080,15 @@ def train(
                         if prof_on:
                             prof_acc["encode"] += time.perf_counter() - _te
                             prof_acc["pairs"] += 1
-                    batch_encoded.append(encoded)
+                    batch_raws.append(raw)
                     batch_ais.append(ai)
                     batch_zw.append((v_z, v_w, p_w))
-                    if len(batch_encoded) < batch_size:
+                    if len(batch_raws) < batch_size:
                         continue
                     _tf = time.perf_counter() if prof_on else 0.0
                     try:
                         _flush_batch(
-                            model, encoder, batch_encoded, batch_ais,
+                            model, encoder, batch_raws, batch_ais,
                             batch_zw,
                             opt, params_for_clip, batch_size, device,
                             running_loss,
@@ -2089,15 +2102,15 @@ def train(
                     except Exception as e:
                         log.debug(f"  batch flush failed: {e}")
                         opt.zero_grad()
-                        batch_encoded.clear()
+                        batch_raws.clear()
                         batch_ais.clear()
                         batch_zw.clear()
                         continue
                     finally:
                         if prof_on:
                             prof_acc["flush"] += time.perf_counter() - _tf
-                    running_count += len(batch_encoded)
-                    batch_encoded.clear()
+                    running_count += len(batch_raws)
+                    batch_raws.clear()
                     batch_ais.clear()
                     batch_zw.clear()
                     step_just_landed = True
@@ -2220,7 +2233,7 @@ def train(
                             eval_pairs_per_game=eval_pairs_per_game,
                             eval_sample_seed=eval_sample_seed,
                             type_loss_weights=type_loss_weights,
-                            winner_map=winner_map)
+                            winner_map=winner_map, cache=eval_cache)
                         stats["train_target_off_subset"] = target_off_subset
                         _log_eval(stats, epoch, global_step,
                                   running_count, checkpoint_out)
@@ -2249,10 +2262,10 @@ def train(
         # the tail (up to bs-1 pairs). Skipped on `stop=True` paths
         # (max_pairs hit, KbInt) where the user wanted to stop *now*.
         if not stop:
-            if use_batched and batch_encoded:
+            if use_batched and batch_raws:
                 try:
                     _flush_batch(
-                        model, encoder, batch_encoded, batch_ais,
+                        model, encoder, batch_raws, batch_ais,
                         batch_zw,
                         opt, params_for_clip, batch_size, device,
                         running_loss,
@@ -2263,11 +2276,11 @@ def train(
                         running_loss_value,
                         type_loss_weights=type_loss_weights,
                     )
-                    running_count += len(batch_encoded)
+                    running_count += len(batch_raws)
                 except Exception as e:
                     log.debug(f"  end-of-epoch flush failed: {e}")
                     opt.zero_grad()
-                batch_encoded.clear()
+                batch_raws.clear()
                 batch_ais.clear()
                 batch_zw.clear()
             elif not use_batched and losses_in_batch > 0:
@@ -2318,7 +2331,7 @@ def train(
                               eval_pairs_per_game=eval_pairs_per_game,
                               eval_sample_seed=eval_sample_seed,
                               type_loss_weights=type_loss_weights,
-                              winner_map=winner_map)
+                              winner_map=winner_map, cache=eval_cache)
             stats["train_target_off_subset"] = target_off_subset
             _log_eval(stats, epoch, global_step, running_count,
                       checkpoint_out, tag=f"epoch{epoch}-end")
