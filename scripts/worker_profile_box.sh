@@ -14,8 +14,10 @@ export HF_TOKEN="$(tr -d '\r\n' < /workspace/.hf_token)" HF_HUB_DISABLE_XET=1
 export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 TORCHINDUCTOR_COMPILE_THREADS=1 PATH="$HOME/.cargo/bin:$PATH"
 python -m pip install -q py-spy >/dev/null 2>&1
 CKPT=training/checkpoints/seed2.pt
-python -u tools/eval_inference_server.py --spec "$CKPT" --device cuda --window-ms 1.5 --max-batch 4 \
-    --stats-out "$OUT/server_stats.json" --label prof > "$OUT/server.out" 2> "$OUT/server.err" &
+# The server serves until its stdin closes (the driver holds a pipe);
+# a sleep on the pipe keeps it alive here, killed with the group.
+setsid bash -c "sleep 100000 | python -u tools/eval_inference_server.py --spec $CKPT --device cuda --window-ms 1.5 --max-batch 4 \
+    --stats-out $OUT/server_stats.json --label prof > $OUT/server.out 2> $OUT/server.err" &
 SERVER_PID=$!
 for i in $(seq 1 120); do grep -q "^__ADDR__ " "$OUT/server.out" && break; sleep 2; done
 ADDR=$(grep "^__ADDR__ " "$OUT/server.out" | head -1 | sed "s/^__ADDR__ //")
@@ -31,7 +33,7 @@ for flag in "" "--gil"; do
         --log-level INFO > "$OUT/game_$tag.log" 2>&1
     python tools/pyspy_summary.py "$OUT/pyspy_$tag.txt" > "$OUT/pyspy_$tag.summary.txt" 2>&1 || true
 done
-kill $SERVER_PID 2>/dev/null; sleep 2
+kill -- -$SERVER_PID 2>/dev/null; pkill -f "tools/eval_inference_server.py --spec $CKPT" 2>/dev/null; sleep 2
 python - <<'EOF'
 import glob, os
 from huggingface_hub import HfApi
