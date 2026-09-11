@@ -462,6 +462,15 @@ def main(argv: List[str]) -> int:
                          "precision path; never mixes with per-process "
                          "games in one outdir. Re-pin raw:t0 against "
                          "itself once before quoting a gate through it.")
+    ap.add_argument("--packed-embed", action=argparse.BooleanOptionalAction, default=True,
+                    help="Shared inference: the server embeds each batch as one packed "
+                         "sequence on the host (the pool's default).")
+    ap.add_argument("--compile-packed", action="store_true",
+                    help="Shared inference: the server serves the compiled packed layer "
+                         "loop (docs/box_specs.md 2026-09-11: the per-batch launch "
+                         "overhead is most of a small batch's cost). bf16 numerics differ "
+                         "slightly from the eager loop; the game records carry the switch "
+                         "and an outdir never mixes them.")
     ap.add_argument("--inference-window-ms", type=float, default=1.5,
                     help="Shared inference: after a first request, how long "
                          "the server collects more before one forward.")
@@ -591,7 +600,11 @@ def main(argv: List[str]) -> int:
     from tools.host_resources import auto_jobs
     _auto, how = auto_jobs(
         per_job_mb=args.per_job_mb,
-        # Shared inference: the workers hold no model, so no VRAM.
+        # Shared inference: the workers hold no model, so no VRAM, and
+        # they wait on the server two thirds of the time, so 1.25 per
+        # core keeps the server's batches full (docs/box_specs.md
+        # 2026-09-11: 20 workers on 16 cores 94 s, 32 workers 125 s).
+        threads_per_job=(0.8 if args.shared_inference else 2),
         per_job_vram_mb=(None if args.device == "cpu" or args.shared_inference
                          else args.per_job_vram_mb))
     if args.jobs is None:
@@ -762,7 +775,9 @@ def main(argv: List[str]) -> int:
                 servers[spec] = launch_inference_server(
                     spec, args.outdir, tag=str(k), device=args.device,
                     infer_bf16=args.infer_bf16,
-                    window_ms=args.inference_window_ms, max_batch=max_batch)
+                    window_ms=args.inference_window_ms, max_batch=max_batch,
+                    packed_embed=bool(args.packed_embed),
+                    compile_packed=bool(args.compile_packed))
                 log.info("inference server %d for %s at %s: %s", k, spec,
                          servers[spec].address, servers[spec].info)
             infos = {(bool(h.info["infer_bf16"]), bool(h.info["packed_trunk"]))

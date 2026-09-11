@@ -626,10 +626,15 @@ def main(argv) -> int:
         # and the server's precision path is what the result records.
         device = None
         inf_bf16 = bool(args.infer_bf16)
-        inf_compile = False
+        # The server's compiled packed loop is a numerics path of its
+        # own; the record carries it as infer_compile so an outdir
+        # never mixes compiled and eager games.
+        _hello = _shared_client(args.inference_address_a or args.inference_address_b).hello
+        inf_compile = bool(_hello.get("compile_packed", False))
         inf_packed = bool(args.infer_packed_trunk)
         logging.getLogger("elo_eval_game").warning(
-            "shared inference: bf16=%s packed_trunk=%s", inf_bf16, inf_packed)
+            "shared inference: bf16=%s packed_trunk=%s compile_packed=%s",
+            inf_bf16, inf_packed, inf_compile)
     else:
         if args.device == "cpu":
             device = None

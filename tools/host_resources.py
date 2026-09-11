@@ -130,7 +130,7 @@ def vram_free_mb() -> Optional[float]:
     return None
 
 
-def auto_jobs(per_job_mb: float, threads_per_job: int = 2,
+def auto_jobs(per_job_mb: float, threads_per_job: float = 2,
               per_job_vram_mb: Optional[float] = None,
               reserve_mb: float = 1500.0, cap: int = 32,
               root: str = "/sys/fs/cgroup") -> Tuple[int, str]:
@@ -139,7 +139,7 @@ def auto_jobs(per_job_mb: float, threads_per_job: int = 2,
     Returns (jobs, human-readable derivation) so the choice is
     always in the log."""
     cores = effective_cores(root)
-    by_cpu = max(1, int(cores // max(1, threads_per_job)))
+    by_cpu = max(1, int(cores / max(0.1, threads_per_job)))
     parts = [f"cpu {cores:.1f}->{by_cpu}"]
     jobs = by_cpu
     avail = available_mb(root)

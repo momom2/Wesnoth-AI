@@ -412,7 +412,9 @@ def launch_inference_server(spec: str, outdir: Path, tag: str, *, device: str,
                             infer_bf16: Optional[bool], window_ms: float,
                             max_batch: int, torch_threads: int = 4,
                             startup_timeout_s: float = 600.0,
-                            python: Optional[str] = None) -> InferenceServerHandle:
+                            python: Optional[str] = None,
+                            packed_embed: bool = True,
+                            compile_packed: bool = False) -> InferenceServerHandle:
     """Popen one server for `spec` and wait for its address and info
     lines. Stderr goes to `outdir/.inference_server_<tag>.log`, stats
     to `.inference_server_<tag>.json` (dot-prefixed: the result globs
@@ -425,6 +427,9 @@ def launch_inference_server(spec: str, outdir: Path, tag: str, *, device: str,
            "--stats-out", str(stats_path), "--label", tag]
     if infer_bf16 is not None:
         cmd.append("--infer-bf16" if infer_bf16 else "--no-infer-bf16")
+    cmd.append("--packed-embed" if packed_embed else "--no-packed-embed")
+    if compile_packed:
+        cmd.append("--compile-packed")
     log_path = outdir / f".inference_server_{tag}.log"
     errf = open(log_path, "w+b")
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -518,6 +523,15 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--packed-trunk", action=argparse.BooleanOptionalAction, default=True,
                     help="The packed varlen trunk (model.infer_packed_trunk) where the "
                          "flash kernel applies (cuda + bf16); the padded trunk elsewhere.")
+    ap.add_argument("--packed-embed", action=argparse.BooleanOptionalAction, default=True,
+                    help="Embed the batch as one packed sequence on the host (the pool's "
+                         "default; -4.9 ms of host work per 16-leaf batch); with the "
+                         "packed trunk only.")
+    ap.add_argument("--compile-packed", action="store_true",
+                    help="torch.compile the packed layer loop (model.configure_packed_compile, "
+                         "inductor, no CUDA graphs) and warm it up before serving: the "
+                         "per-batch launch overhead, which is most of a small batch's cost "
+                         "(docs/box_specs.md 2026-09-11). With the packed trunk only.")
     ap.add_argument("--window-ms", type=float, default=DEFAULT_WINDOW_MS)
     ap.add_argument("--max-batch", type=int, default=16, help="leaves per forward")
     ap.add_argument("--torch-threads", type=int, default=4)
@@ -551,11 +565,21 @@ def main(argv: List[str]) -> int:
         check_packed_trunk_supported(model.encoder)
         model.infer_packed_trunk = True
         packed = True
+    compiled = False
+    if args.compile_packed:
+        if not packed:
+            log.warning("--compile-packed needs the packed trunk (cuda + bf16); serving eager")
+        else:
+            model.configure_packed_compile()
+            log.info("packed compile warmup: %s", model.warmup_packed_compile())
+            compiled = True
+    packed_embed = bool(args.packed_embed and packed)
     server = InferenceServer(model, encoder, device=device,
-                             output_device=torch.device("cpu"), autocast_bf16=bf16)
+                             output_device=torch.device("cpu"), autocast_bf16=bf16,
+                             packed_embed=packed_embed)
     hello = {
         "spec": str(spec), "device": device.type, "infer_bf16": bf16,
-        "packed_trunk": packed,
+        "packed_trunk": packed, "packed_embed": packed_embed, "compile_packed": compiled,
         "relevant_set": bool(getattr(encoder, "relevant_set_hexes", False)),
         "fog_hides_enemy_villages": bool(getattr(encoder, "fog_hides_enemy_villages", False)),
         "type_to_id": dict(encoder.unit_type_to_id),
@@ -569,9 +593,9 @@ def main(argv: List[str]) -> int:
     info.update(window_ms=args.window_ms, max_batch=args.max_batch)
     print(f"{ADDR_PREFIX}{listener.address}", flush=True)
     print(f"{INFO_PREFIX}{json.dumps(info)}", flush=True)
-    log.info("serving %s on %s (device=%s bf16=%s packed=%s window=%.1fms max_batch=%d)",
-             spec.name, listener.address, device.type, bf16, packed, args.window_ms,
-             args.max_batch)
+    log.info("serving %s on %s (device=%s bf16=%s packed=%s packed_embed=%s compiled=%s "
+             "window=%.1fms max_batch=%d)", spec.name, listener.address, device.type, bf16,
+             packed, packed_embed, compiled, args.window_ms, args.max_batch)
     for _line in sys.stdin:            # until the driver closes our stdin
         pass
     service.stop()
