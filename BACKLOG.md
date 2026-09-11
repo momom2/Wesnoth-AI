@@ -331,10 +331,19 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
   every paired difference within noise) and is better calibrated
   (Brier lower in every bucket to turn 20, intervals clear of zero).
   It replaces the seed as the reference for holdout numbers and for
-  the value-head programme's frozen-trunk arm. NOT yet matched
-  against raw:t0 (800 games, about $0.75); until then its strength is
-  unknown and the seed stays the reference player. Cost $16 over
-  three boxes (one offer expired, one uplink at 70 kB/s).
+  the value-head programme's frozen-trunk arm. Named seed2 by the
+  user (2026-09-11, HF `tier-b/seed2.pt`). Cost $16 over three boxes
+  (one offer expired, one uplink at 70 kB/s).
+- MEASURED 2026-09-11 (`training/metrics/elo/seed2_vs_seed_20260911/`):
+  seed2 against the seed, PURE raw:t0 both sides, sides alternated,
+  ladder maps, 800 decisive games (438-362) with 660 more at the turn
+  cap: **+33 +- 12 Elo for seed2**, material-sign diagnostic +23 +- 9.
+  The first checkpoint to beat the seed in a match. seed2 is the new
+  reference player once re-pinned against itself (the 20-game
+  determinism check of docs/box_specs.md); until then matches quote
+  both. Box 50568829 (3090, $0.18/h), about $0.40 for the match. The
+  match ran per-process workers without --shared-inference; the eval
+  profiling of plan 1.5 runs on the same box next.
 - VERDICT 2026-09-09: the head cannot grade alternative turns. Its
   within-position error against 160-playout truth is 0.16 and it
   shrinks real gaps three to one, while the best of four sampled

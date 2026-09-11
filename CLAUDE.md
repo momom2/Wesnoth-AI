@@ -128,9 +128,11 @@ State of play:
   (15M from scratch, the seed's recipe on the fixed corpus, two
   epochs, HF `tier-b/clean_seed_20260909/arm_epoch2.pt`) reads
   holdout CE 2.78 against the seed's 3.10 and a value head that ranks
-  like the seed's and is better calibrated; it is the reference for
-  holdout numbers and the frozen-trunk arm, and it has not yet played
-  raw:t0. No box is rented.
+  like the seed's and is better calibrated. 2026-09-11: seed2 beats
+  the seed +33 +- 12 Elo (800 decisive raw:t0 games, 660 more at the
+  cap), the first checkpoint to do so; it is the reference for holdout
+  numbers, the frozen-trunk arm, and, after its self-pin, the
+  reference player.
 - Rulings (2026-09-05): no optimizations conditioned on the MCTS
   loop; scope every box test, train sparingly; results are written
   on the run, never as atomic dumps; a box job past ~1.5x its

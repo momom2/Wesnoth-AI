@@ -75,8 +75,8 @@ history-encoding name would lie within hours.
                      tier-b/clean_seed_20260909/arm_epoch2.pt,
                      2026-09-10: the seed's imitation recipe on the
                      deduplicated corpus, manifest split, fog gate on,
-                     two epochs; user-named 2026-09-11; match against
-                     the seed pending)
+                     two epochs; user-named 2026-09-11; +33 +- 12 Elo
+                     over 2516k-b-294k at raw:t0, 800 decisive games)
 
 Old labels (`ref_2p29M`, `old_2p40M`, `new_2p52M`, `tcs3`) are
 catalog aliases of the above.

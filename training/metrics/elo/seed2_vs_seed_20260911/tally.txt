@@ -1,0 +1,2 @@
+outcomes for seed2: {'loss': 362, 'win': 438, 'timeout': 660}
+by side: {(1, 'loss'): 202, (2, 'win'): 240, (2, 'loss'): 160, (1, 'win'): 198}

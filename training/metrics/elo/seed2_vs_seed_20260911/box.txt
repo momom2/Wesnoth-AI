@@ -1,0 +1,4 @@
+128
+               total        used        free      shared  buff/cache   available
+Mem:             251          20          26           0         203         228
+NVIDIA GeForce RTX 3090, 24576 MiB
