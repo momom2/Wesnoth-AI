@@ -46,6 +46,17 @@ for arg in sys.argv[1:]:
     print(f"fetched {hf_path} -> {out} ({out.stat().st_size//2**20} MB)")
 EOF
 
+# The Rust core (masks and enumeration): 7% on the eval path
+# (docs/box_specs.md, 2026-09-11), and the production path elsewhere.
+if [ "${WESNOTH_RUST_BUILD:-1}" = "1" ] && ! python -c "import wesnoth_core" 2>/dev/null; then
+    command -v cc >/dev/null 2>&1 || (apt-get update -qq && apt-get install -y -qq gcc) >/dev/null 2>&1 || true
+    command -v cargo >/dev/null 2>&1 || curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal >/dev/null 2>&1
+    export PATH="$HOME/.cargo/bin:$PATH"
+    python -m pip install -q maturin >/dev/null 2>&1
+    python -m pip install -q rust/wesnoth_core 2>&1 | tail -1
+    python -c "import wesnoth_core; print('wesnoth_core built')" || echo "WARNING: wesnoth_core build failed; Python path"
+fi
+
 # Smoke: one cheap self-game through the REAL eval worker. Uses the
 # first fetched checkpoint against itself.
 first_local=$(printf '%s\n' "$@" | head -1 | cut -d= -f2)

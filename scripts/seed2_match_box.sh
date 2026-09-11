@@ -47,6 +47,17 @@ touch "$OUT/STAGED"
 fi
 { nproc --all; free -g | head -2; nvidia-smi --query-gpu=name,memory.total --format=csv,noheader; } > "$OUT/box.txt" 2>&1
 
+# The Rust core (masks and enumeration; 7% on the eval path, measured
+# 2026-09-11 in docs/box_specs.md). bench_box.sh recipe.
+if ! python -c "import wesnoth_core" 2>/dev/null; then
+    command -v cc >/dev/null 2>&1 || (apt-get update -qq && apt-get install -y -qq gcc) >/dev/null 2>&1 || true
+    command -v cargo >/dev/null 2>&1 || curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal >/dev/null 2>&1
+    export PATH="$HOME/.cargo/bin:$PATH"
+    python -m pip install -q maturin >/dev/null 2>&1
+    python -m pip install -q rust/wesnoth_core 2>&1 | tail -1
+    python -c "import wesnoth_core; print('wesnoth_core built')" || echo "WARNING: wesnoth_core build failed; Python path"
+fi
+
 decisive_results() {              # decisive_results OUTDIR -> count of win/loss files
     python - "$1" <<'EOF'
 import json, pathlib, sys
@@ -66,7 +77,7 @@ if [ ! -f "$DIR.DONE" ]; then
         --label-b seed_t0 --spec-b training/checkpoints/seed.pt \
         --outdir "$DIR" --games "$GAMES" --seed-base 40000 \
         --mcts-sims 0 --raw-temperature-a 0 --raw-temperature-b 0 \
-        --persistent-workers --no-infer-compile --device cuda --jobs "$JOBS" \
+        --persistent-workers --shared-inference --no-infer-compile --device cuda --jobs "$JOBS" \
         --time-budget-min 150 2>&1 | grep --line-buffered -v "wesnoth_core is not importable" | tee -a "$DIR.log"
     rc=${PIPESTATUS[0]}
     if [ "$rc" -ne 0 ]; then echo "match: run_elo_batch FAILED rc=$rc" >&2; exit 1; fi
