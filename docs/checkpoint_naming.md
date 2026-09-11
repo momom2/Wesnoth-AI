@@ -70,6 +70,13 @@ history-encoding name would lie within hours.
                      not yet Elo-rated)
     2516k-b-294k-tcs2-558k   leg-3 end (abandoned branch)
     2516k-b-294k-l4-<D>k     leg-4 pins (D = step - 2,809,659)
+    seed2            clean imitation seed, 15M FROM SCRATCH (no
+                     self-play ancestor; HF tier-b/seed2.pt =
+                     tier-b/clean_seed_20260909/arm_epoch2.pt,
+                     2026-09-10: the seed's imitation recipe on the
+                     deduplicated corpus, manifest split, fog gate on,
+                     two epochs; user-named 2026-09-11; match against
+                     the seed pending)
 
 Old labels (`ref_2p29M`, `old_2p40M`, `new_2p52M`, `tcs3`) are
 catalog aliases of the above.
