@@ -4,6 +4,24 @@ Live backlog for `docs/plan_20260904.md`. The pre-restart backlog
 (1,055 lines of rulings and open items, 2026-05 to 2026-09-04) is
 archived verbatim at `docs/archive/backlog_20260904.md`.
 
+## Phase 1 status (2026-09-11 night)
+
+Closed by user ruling: `relset` (the relevant-set twin of seed2 at
+one pass) is the reference player; phase 2 improves it. Done: 1.1,
+1.3 (this round), 1.4 (basis adopted), 1.5 (an 800-game match in 18
+min, $0.20 on a 4090), 1.6; 1.2 through port-plan phase 2c, with
+phases 3-4 deferred because neither the eval path nor the pool is
+bound by that Python. Open, to be taken on phase 2's first
+generation box, no dedicated rental: the pool rate in the relevant-set
+basis (plan 1.3's 3,000 leaves/s per 4090) and the searched games per
+dollar it gives, which is the phase's exit number; the reference's
+self-pin (2 x 20 games, $0.05). Speed levers left, each a one-factor
+test on a run that is needed anyway: the trainer is GPU-bound
+(bf16 autocast or TF32 for the trunk, 1.5-3x on its GPU share); the
+eval path is bound by one server's per-batch cycle (a second server
+process per GPU, 1.3-1.5x expected); the pool's second serve process
+is built and unmeasured.
+
 ## NEXT ACTIONS (phase 1: engineering, in order)
 
 1. **Benchmark harness** (plan 1.1): DONE 2026-09-04, baseline in

@@ -62,10 +62,17 @@ mechanism specs are in `docs/archive/` (index in its README); the 78
 quarantined training mechanisms are in `quarantine/INVENTORY.md`.
 
 State of play:
-- The strongest player measured is the imitation seed played at
-  temperature 0 (`raw:t0`; HF `tier-b/a3/seed_imit_tierb_start.pt`,
-  local `training/checkpoints/seed_imit_tierb_start.pt`). Nothing
-  produced by self-play has beaten it.
+- The reference player (user ruling 2026-09-11 night) is `relset` at
+  temperature 0: the relevant-set twin of seed2 at one pass, HF
+  `tier-b/seed2_relset_20260911/arm_epoch0.pt`, local
+  `training/checkpoints/relset.pt`, relevant-set basis, fog gate on;
+  +56 +- 12 Elo over seed2's one-pass checkpoint (800 decisive
+  games), a number that carries seed2's dropped large boards (see
+  below). Its self-pin through the shared inference path is pending.
+  Before it the reference was seed2 (+33 +- 12 over the original
+  imitation seed), before that the seed itself
+  (`tier-b/a3/seed_imit_tierb_start.pt`). Nothing produced by
+  self-play has beaten any of them.
 - Why (2026-09-04 review, docs/raw_argmax_control_20260904.md): the
   seed at argmax beats the seed sampling 37-3 (+412 ± 97), and the
   seed with Gumbel-MCTS-32 loses to the seed at argmax 13-27
@@ -151,11 +158,13 @@ State of play:
   loop; scope every box test, train sparingly; results are written
   on the run, never as atomic dumps; a box job past ~1.5x its
   estimate gets inspected and cut.
-- Box 49875606 runs the queued measurements and the relevant-set arms;
-  destroy it when the queue is empty. Vast credit about $55.
+- No box is rented (2026-09-11 night). Phase 1 is closed except two
+  measurements that belong to phase 2's first generation run: the
+  pool's leaves per second in the relevant-set basis (the plan's
+  3,000 per 4090 target) and the searched games per dollar it gives.
 
 Standing rules (full list in the plan): the reference player is
-`raw:t0`; every strength claim is a PURE match against it with the
+`relset` at `raw:t0`; every strength claim is a PURE match against it with the
 standard error stated; no teacher is distilled before it wins such a
 match; one factor at a time, each with its own number and kill
 criterion; proxies are crash barriers, never verdicts; compute on
