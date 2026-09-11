@@ -1220,7 +1220,7 @@ _RUST_TYPE_CACHE: Dict = {}
 
 def _rust_enumerate_rows(encoded, game_state, current_side, U, H,
                          pos_to_hex, hex_xs, hex_ys, enemy_mask,
-                         reach_ctx, unit_id_to_obj):
+                         reach_ctx, unit_id_to_obj, observation=None):
     """One Rust call for every unit's move/attack row (docs/
     rust_port_plan.md phase 2 — the state-granularity boundary the
     phase-1 marshaling measurement demanded). Returns (move_rows,
@@ -1239,11 +1239,12 @@ def _rust_enumerate_rows(encoded, game_state, current_side, U, H,
         if not (u.current_moves > 0 or not u.has_attacked):
             continue
         eligible.append((i, u))
-    if len(eligible) < 2:
+    if len(eligible) < (1 if observation is not None else 2):
         # Fixed wrapper overhead (~0.4ms: flag arrays + call) beats
         # the Python path only when it amortizes over units
         # (measured 2026-08-30: 1-unit fresh state 0.47ms python vs
-        # 0.85ms rust; 3-unit midgame 3.28ms vs 0.73ms).
+        # 0.85ms rust; 3-unit midgame 3.28ms vs 0.73ms). With the
+        # observation the flags are ready-made and the call is cheap.
         return None
 
     type_key_to_row: Dict[int, int] = {}
@@ -1304,10 +1305,18 @@ def _rust_enumerate_rows(encoded, game_state, current_side, U, H,
                 a[mi] = 1
         return a
 
-    zoc_a = _flags(reach_ctx.zoc_hexes)
-    enemy_a = _flags(reach_ctx.enemy_hexes)
-    ally_a = _flags(reach_ctx.ally_hexes)
-    occ_a = _flags(reach_ctx.occupied_visible)
+    if observation is not None:
+        # The kernel's flags, map space = these positions (both follow
+        # gs.map.hexes; wesnoth_ai/observe.py).
+        zoc_a, enemy_a, ally_a, occ_a = (observation.zoc, observation.enemy,
+                                         observation.ally, observation.occupied)
+        if len(occ_a) != Hm:
+            return None
+    else:
+        zoc_a = _flags(reach_ctx.zoc_hexes)
+        enemy_a = _flags(reach_ctx.enemy_hexes)
+        ally_a = _flags(reach_ctx.ally_hexes)
+        occ_a = _flags(reach_ctx.occupied_visible)
     rej_a = _flags(getattr(game_state.global_info,
                            "_move_rejected_hexes", None) or set())
 
@@ -1447,7 +1456,19 @@ def _build_legality_masks(
     # recompute (keyed by python id()) when the field is absent --
     # hand-built EncodedState / tests -- so behavior is unchanged
     # there. Both paths identify the same hidden enemies.
-    if encoded.visible_unit_ids is not None:
+    # The encoder's observation (wesnoth_ai/observe.py, the Rust
+    # kernel): occupancy, the reach context and the recruit network
+    # come from its map-space arrays instead of the passes below.
+    observation = getattr(encoded, "observation", None)
+    if observation is not None and getattr(encoded, "hex_subset", False):
+        observation = None                   # subset streams keep the Python path
+    if observation is not None:
+        occupancy, unit_at = _occupancy_from_observation(
+            observation, encoded, pos_to_hex, H, game_state, current_side,
+            need_units=bool(target_alpha or type_alpha))
+        visible_unit_ids = None
+        _use_obj_id = False
+    elif encoded.visible_unit_ids is not None:
         visible_unit_ids = encoded.visible_unit_ids   # by u.id
         _use_obj_id = False
     else:
@@ -1455,9 +1476,10 @@ def _build_legality_masks(
         visible_unit_ids = {id(u) for u in _units_visible_to(
             game_state, current_side)}
         _use_obj_id = True
-    occupancy = np.zeros(H, dtype=np.int8)
-    unit_at: Dict[Tuple[int, int], Unit] = {}
-    for u in game_state.map.units:
+    if observation is None:
+        occupancy = np.zeros(H, dtype=np.int8)
+        unit_at = {}
+    for u in (game_state.map.units if observation is None else ()):
         _vis_key = id(u) if _use_obj_id else u.id
         if u.side != current_side and _vis_key not in visible_unit_ids:
             # Hidden enemy: leave occupancy=0 and DON'T add to
@@ -1503,27 +1525,35 @@ def _build_legality_masks(
         side=current_side,
 
     )
-    for _pos, _uu in unit_at.items():
-        reach_ctx.occupied_visible.add(_pos)
-        if _uu.side == current_side:
-            # Own-side units are pass-through regardless of state
-            # (pathfind.cpp:777-786 keys on is_enemy only).
-            reach_ctx.ally_hexes.add(_pos)
-            continue
-        reach_ctx.enemy_hexes.add(_pos)
-        if _is_scenery(_uu):
-            continue
-        if "petrified" in (_uu.statuses or set()):
-            continue
-        if int(_rd_stats_for(_uu.name).get("level", 1)) < 1:
-            continue
-        reach_ctx.zoc_hexes.update(_hex_neighbors(_pos[0], _pos[1]))
+    if observation is not None:
+        # Built only if a unit falls back to the Python reach below.
+        _reach_ctx_filled = False
+    else:
+        _reach_ctx_filled = True
+        for _pos, _uu in unit_at.items():
+            reach_ctx.occupied_visible.add(_pos)
+            if _uu.side == current_side:
+                # Own-side units are pass-through regardless of state
+                # (pathfind.cpp:777-786 keys on is_enemy only).
+                reach_ctx.ally_hexes.add(_pos)
+                continue
+            reach_ctx.enemy_hexes.add(_pos)
+            if _is_scenery(_uu):
+                continue
+            if "petrified" in (_uu.statuses or set()):
+                continue
+            if int(_rd_stats_for(_uu.name).get("level", 1)) < 1:
+                continue
+            reach_ctx.zoc_hexes.update(_hex_neighbors(_pos[0], _pos[1]))
 
     # Rust batch enumeration (phase 2): all units' move/attack rows
     # in one call; None = Python path (no wheel / relevant-set).
     _rust_rows = _rust_enumerate_rows(
         encoded, game_state, current_side, U, H, pos_to_hex,
-        hex_xs, hex_ys, enemy_mask, reach_ctx, unit_id_to_obj)
+        hex_xs, hex_ys, enemy_mask, reach_ctx, unit_id_to_obj,
+        observation=observation)
+    if _rust_rows is None and not _reach_ctx_filled:
+        _fill_reach_context(reach_ctx, observation)
 
     # ----- Unit actors (slots 0..U-1) -----
     for i in range(U):
@@ -1558,6 +1588,13 @@ def _build_legality_masks(
         # unit could never reach, and whose failed orders used to
         # burn the whole turn. `landable` = hexes this unit can END
         # a move order on given the acting side's observable state.
+        if not _finish and _rust_rows is not None:
+            # The kernel path enumerated every eligible slot; a slot
+            # it skipped (a unit off the terrain map) needs the
+            # Python reach and the context sets.
+            if not _reach_ctx_filled:
+                _fill_reach_context(reach_ctx, observation)
+                _reach_ctx_filled = True
         reach = None if _finish else unit_reach(u, game_state,
                                                 reach_ctx)
 
@@ -1634,7 +1671,27 @@ def _build_legality_masks(
             actor_valid_np[i] = 1.0
 
     # ----- Recruit actors (slots U..U+R-1) -----
-    if R > 0:
+    if R > 0 and observation is not None:
+        recruit_hex_row = _row_from_map(observation.recruit_row, observation, pos_to_hex, H)
+        if observation.leader_on_keep and recruit_hex_row.any():
+            side_gold = 0
+            side_idx = current_side - 1
+            if 0 <= side_idx < len(game_state.sides):
+                side_gold = int(game_state.sides[side_idx].current_gold)
+            if encoded.recruit_is_ours_np is not None:
+                recruit_is_ours_np = encoded.recruit_is_ours_np
+            else:
+                recruit_is_ours_np = encoded.recruit_is_ours.detach().cpu().numpy()[0]
+            from tools.wesnoth_sim import _recruit_cost_for
+            for r_off in range(R):
+                if recruit_is_ours_np[r_off] == 0:
+                    continue
+                if _recruit_cost_for(encoded.recruit_types[r_off]) > side_gold:
+                    continue
+                a = U + r_off
+                target_valid_np[a] = recruit_hex_row.astype(np.float32)
+                actor_valid_np[a] = 1.0
+    elif R > 0:
         leader = next(
             (u for u in game_state.map.units
              if u.side == current_side and u.is_leader),
@@ -1719,6 +1776,54 @@ def _build_legality_masks(
     )
 
 
+
+
+def _row_from_map(row_map: np.ndarray, observation, pos_to_hex, H: int) -> np.ndarray:
+    """A map-space flag row as a token-space bool row (hexes absent
+    from the token stream are dropped: full-board streams only)."""
+    keys = observation.geometry.keys
+    out = np.zeros(H, dtype=bool)
+    for i in np.nonzero(row_map)[0].tolist():
+        j = pos_to_hex.get(keys[i])
+        if j is not None:
+            out[j] = True
+    return out
+
+
+def _occupancy_from_observation(observation, encoded, pos_to_hex, H, game_state,
+                                current_side, need_units: bool):
+    """Token-space occupancy (0 empty, 1 friendly, 2 attackable enemy,
+    3 inert) from the kernel's map-space flags, and the visible units
+    by position when a caller needs the objects (the combat oracle)."""
+    keys = observation.geometry.keys
+    occupancy = np.zeros(H, dtype=np.int8)
+    for i in np.nonzero(observation.occupied)[0].tolist():
+        j = pos_to_hex.get(keys[i])
+        if j is None:
+            continue
+        if observation.inert[i]:
+            occupancy[j] = 3
+        elif observation.ally[i]:
+            occupancy[j] = 1
+        else:
+            occupancy[j] = 2
+    unit_at: Dict[Tuple[int, int], Unit] = {}
+    if need_units:
+        visible = set(observation.visible_ids())
+        for u in game_state.map.units:
+            if u.id in visible:
+                unit_at[(u.position.x, u.position.y)] = u
+    return occupancy, unit_at
+
+
+def _fill_reach_context(reach_ctx, observation) -> None:
+    """The coordinate sets of the Python reach from the kernel's flags."""
+    keys = observation.geometry.keys
+    for arr, target in ((observation.occupied, reach_ctx.occupied_visible),
+                        (observation.enemy, reach_ctx.enemy_hexes),
+                        (observation.ally, reach_ctx.ally_hexes),
+                        (observation.zoc, reach_ctx.zoc_hexes)):
+        target.update(map(keys.__getitem__, np.nonzero(arr)[0].tolist()))
 
 
 def _recruit_hex_mask(

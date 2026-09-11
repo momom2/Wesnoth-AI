@@ -108,6 +108,33 @@ macros actually shipped. Records: eval_games/rust_corpus_cert/.
    purpose), so on scenario_pool maps the static village bit lights
    only for owned villages; terrain ids still mark them. Unchanged by
    the port, recorded so the next reader does not rediscover it.
+2c. **The observation** (2026-09-11, `rust/wesnoth_core/src/observe.rs`,
+   `wesnoth_ai/observe.py`): one call per decision over a flat
+   snapshot of the observable state (map geometry cached per hex
+   container; per-unit arrays built in Python, O(units)) returns
+   the vision disc, unit visibility with the hide-cover gate and
+   adjacency discovery, the reach-context flags (occupied / ally /
+   enemy / ZoC / inert) and the recruit row (castle-network BFS from
+   the leader's keep, minus occupied and rejected hexes), all in MAP
+   space. The encoder computes it once (`encode_raw`), stores it on
+   RawEncoded/EncodedState (`observation`, arrays only, picklable),
+   uses it for the disc and the visible units; the legality mask
+   builder reads occupancy, the reach context and the recruit row
+   from it and hands the flags straight to `enumerate_moves` (no
+   two-unit bail). Relevant-set streams keep the Python path (the
+   Rust rows do not serve subset streams). Why: the 2026-09-11
+   shared-inference worker profile (docs/box_specs.md) put the
+   Python that rebuilt these facts every decision at three quarters
+   of the worker's own time; combat and the sim step were 1.5%.
+   Certified: tests/test_rust_observe.py (disc, visibility, flags,
+   recruit row and the whole legality mask against the Python
+   originals on harvested states, both sides, fog on and off; the
+   detached record pickles) plus the encoding byte-identity,
+   enumeration, seam and visibility suites on a box (the laptop
+   cannot execute freshly built binaries, so wheels build on a box:
+   `pip install rust/wesnoth_core`). Switch: `WESNOTH_RUST_OBSERVE`
+   (default on when the wheel carries it; 0 = Python path). Timing
+   pre-registered in BACKLOG (`scripts/eval_profile3_box.sh`).
 3. **Combat + sim step** (wesnoth_sim combat resolution, healing,
    advancement, events glue): the [mp_checkup]-oracle-certified
    core. Full-corpus differential run required (the 24,796-replay

@@ -15,6 +15,7 @@ use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 
 mod encode;
+mod observe;
 
 /// Movement cost >= this is Wesnoth's UNREACHABLE sentinel
 /// (movetype.hpp: UNREACHABLE = 99).
@@ -363,6 +364,7 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(unit_reach_arrays, m)?)?;
     m.add_function(wrap_pyfunction!(enumerate_moves, m)?)?;
     m.add_function(wrap_pyfunction!(encode::encode_raw_streams, m)?)?;
-    m.add("__phase__", 3)?;
+    m.add_function(wrap_pyfunction!(observe::observe_side, m)?)?;
+    m.add("__phase__", 4)?;
     Ok(())
 }

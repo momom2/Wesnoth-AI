@@ -175,6 +175,7 @@ def build_light_encoded(
         recruit_is_ours_np=raw.recruit_is_ours,
         visible_unit_ids=frozenset(raw.unit_ids),
         hex_subset=bool(raw.hex_subset),
+        observation=getattr(raw, "observation", None),
     )
 
 

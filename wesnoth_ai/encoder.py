@@ -295,6 +295,12 @@ class EncodedState:
     # hand; a `value_material` model refuses to run without it.
     material: Optional[torch.Tensor] = None
 
+    # The side's observation computed once per decision by the Rust
+    # kernel (wesnoth_ai/observe.py): the vision disc, unit visibility,
+    # the reach-context flags and the recruit row. The legality mask
+    # builder reads it instead of rebuilding the same sets; None on
+    # the Python path.
+    observation: Optional[object] = None
 
 
 # ---------------------------------------------------------------------
@@ -388,7 +394,9 @@ class RawEncoded:
     # is built with `value_material`.
     material: float = 0.0
 
-
+    # The side's observation from the Rust kernel (see EncodedState);
+    # arrays only, so the record stays picklable. None on the Python path.
+    observation: Optional[object] = None
 
     # True when the hex stream is the RELEVANT SUBSET rather than the whole
     # board (see encode_raw's `relevant_set`). Consumers that resolve a raw
@@ -800,6 +808,7 @@ class GameStateEncoder(nn.Module):
             visible_unit_ids=frozenset(raw.unit_ids),  # opt #3
             material=torch.tensor([[float(raw.material)]], dtype=torch.float32,
                                   device=global_token.device),
+            observation=getattr(raw, "observation", None),
         )
 
     def encode_from_raw_padded(
@@ -1058,6 +1067,7 @@ class GameStateEncoder(nn.Module):
                 visible_unit_ids=frozenset(raw.unit_ids),  # opt #3
                 material=torch.tensor([[float(raw.material)]], dtype=torch.float32,
                                       device=global_emb.device),
+                observation=getattr(raw, "observation", None),
             ))
         return results
 
@@ -1172,12 +1182,20 @@ def encode_raw(
     # dropped; adversarial review 2026-07-11).
     fog_on = getattr(game_state.global_info, "_fog", True)
     _disc_cache: list = []
+    # One observation per decision through the Rust kernel (wesnoth_ai/
+    # observe.py): the disc, the visible units and the mask builder's
+    # reach context from one pass; None on the Python path.
+    from wesnoth_ai.observe import observe as _observe
+    observation = _observe(game_state, current_side)
 
     def _vision_disc():
         if not _disc_cache:
-            from wesnoth_ai.visibility import visible_hexes_for
-            _disc_cache.append(
-                visible_hexes_for(game_state, current_side))
+            if observation is not None:
+                _disc_cache.append(observation.disc_set())
+            else:
+                from wesnoth_ai.visibility import visible_hexes_for
+                _disc_cache.append(
+                    visible_hexes_for(game_state, current_side))
         return _disc_cache[0]
 
     # Static per-map arrays come from a cache keyed on the hex set's
@@ -1211,12 +1229,17 @@ def encode_raw(
     # Slot contract (visibility.visible_units_in_slot_order): the
     # label builder and any other slot consumer share THIS
     # enumeration -- do not inline a sort here again.
-    units = visible_units_in_slot_order(
-        game_state, current_side,
-        # Reuse the disc if the village fog gate already computed
-        # it; None lets the filter compute lazily.
-        vis_set=_disc_cache[0] if _disc_cache else None,
-    )
+    if observation is not None:
+        # The kernel's visibility, in the slot contract's order.
+        units = sorted(observation.visible_units(),
+                       key=lambda u: (u.position.y, u.position.x, u.id))
+    else:
+        units = visible_units_in_slot_order(
+            game_state, current_side,
+            # Reuse the disc if the village fog gate already computed
+            # it; None lets the filter compute lazily.
+            vis_set=_disc_cache[0] if _disc_cache else None,
+        )
     unit_positions = [u.position for u in units]
     unit_ids       = [u.id for u in units]
 
@@ -1316,6 +1339,7 @@ def encode_raw(
         our_faction_id=our_faction_id,
         their_faction_id=their_faction_id,
         material=material_of_units(units, current_side),
+        observation=observation.detached() if observation is not None else None,
     )
 
 
