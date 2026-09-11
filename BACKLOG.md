@@ -229,6 +229,18 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
    continuation itself costs strength that the CE does not show.
    Queued: the lr 1e-5 control (study 7b, $1.7); designed: basis
    transfer by distillation from the seed (7c).
+   RUNNING 2026-09-11 (box 50585036, `scripts/seed2_relset_box.sh`,
+   HF `tier-b/seed2_relset_20260911/`): seed2's twin from scratch in
+   the relevant-set basis, one pass (2.49M pairs; user order, cost),
+   then the phase eval and an 800-game raw:t0 match against seed2's
+   own one-pass checkpoint (`clean_seed_20260909/arm_epoch0.pt`), plus
+   40-game self-timings of both. Kill: the twin loses beyond noise.
+   Holdout probe at 700k pairs tracks seed2's curve (actor top-1
+   0.552 vs 0.546, masked CE 1.574 vs 1.697, value AUC 0.71 vs 0.72).
+   Rate 138 pairs/s between probes, the same as seed2's run: the
+   trainer is not GPU-bound, so fewer tokens do not show here. The
+   holdout probe every 50k pairs (143 s each) takes 28% of the wall
+   in both runs; next imitation run: `--eval-every 250000`.
    **Eval at scale** (plan 1.5): 800 raw games in ~65 min / $0.36
    through persistent workers; with the shared inference server
    (2026-09-05, `--shared-inference`) 40 games take 145 s against

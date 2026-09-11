@@ -4,8 +4,10 @@
 # hex basis (`--relevant-set-hexes`, docs/model_cost_study_20260905.md
 # section 2: 2.7x fewer tokens per leaf), the same recipe as seed2 to
 # the letter (configs/imitation.json, batch 64, lr 1e-4, cosine over
-# 4 epochs, stopped after epoch 2, the deduplicated corpus with the
-# manifest split, fog gate on, pre-encoded records), then:
+# 4 epochs, stopped after STOP_AFTER_EPOCH passes, the deduplicated
+# corpus with the manifest split, fog gate on, pre-encoded records;
+# user order 2026-09-11: one pass, judged against seed2's own one-pass
+# checkpoint SEED2_HF), then:
 #   the per-phase value evaluation of the checkpoint;
 #   seed2_relset against seed2, PURE raw:t0, 800 decisive games
 #     (each side served in its own basis by its own inference server);
@@ -19,7 +21,8 @@ WORKDIR=/workspace
 OUT=$WORKDIR/relset
 ENC=$WORKDIR/encoded_relset
 EPOCHS="${EPOCHS:-4}"
-STOP_AFTER_EPOCH="${STOP_AFTER_EPOCH:-2}"
+STOP_AFTER_EPOCH="${STOP_AFTER_EPOCH:-1}"
+SEED2_HF="${SEED2_HF:-tier-b/clean_seed_20260909/arm_epoch$((STOP_AFTER_EPOCH - 1)).pt}"
 RUN_SEED="${RUN_SEED:-20260909}"
 WORKERS="${WORKERS:-30}"
 GAMES="${GAMES:-800}"
@@ -161,6 +164,7 @@ shutil.copyfile(hf_hub_download("momom2/wesnoth-model-checkpoints", "$RESUME_HF"
 print("resuming from $RESUME_HF", flush=True)
 EOF
 fi
+[ -f "$OUT/arm_epoch$((STOP_AFTER_EPOCH - 1)).pt" ] && touch "$OUT/DONE"
 if [ ! -f "$OUT/DONE" ]; then
     RESUME=""
     [ -f "$OUT/arm.pt" ] && RESUME="--resume $OUT/arm.pt"
@@ -213,11 +217,19 @@ match() {                         # match NAME SPEC_A SPEC_B GAMES SEED_BASE MAX
         python tools/elo_collect.py "$dir" --no-catalog --save-json "$OUT/$name.fit.json" 2>&1 | tee -a "$OUT/$name.log"
     fi
 }
-SEED2=training/checkpoints/seed2.pt
-RELSET=training/checkpoints/seed2_relset.pt
-match seed2_relset_vs_seed2 "$RELSET" "$SEED2" "$GAMES" 60000 1500
-match relself_vs_relself "$RELSET" "$RELSET" 40 20000 0
-match seed2self_vs_seed2self "$SEED2" "$SEED2" 40 20000 0
+E="e$STOP_AFTER_EPOCH"
+SEED2="training/checkpoints/seed2_$E.pt"
+RELSET="training/checkpoints/seed2_relset_$E.pt"
+cp "$CKPT" "$RELSET"
+[ -f "$SEED2" ] || python - "$SEED2_HF" "$SEED2" <<'EOF'
+import shutil, sys
+from huggingface_hub import hf_hub_download
+shutil.copyfile(hf_hub_download("momom2/wesnoth-model-checkpoints", sys.argv[1]), sys.argv[2])
+print("opponent staged:", sys.argv[1], flush=True)
+EOF
+match "seed2_relset_${E}_vs_seed2_$E" "$RELSET" "$SEED2" "$GAMES" 60000 1500
+match "relself_${E}_vs_relself_$E" "$RELSET" "$RELSET" 40 20000 0
+match "seed2self_${E}_vs_seed2self_$E" "$SEED2" "$SEED2" 40 20000 0
 kill $ESCROW_PID 2>/dev/null
 touch "$OUT/ALL_DONE"
 progress
