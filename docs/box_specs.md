@@ -672,6 +672,53 @@ per decision is the limit now, not the GPU. A 800-game gate is about
 45 minutes this way. A re-pin of raw:t0 against itself through this
 path is still required before its gates are quoted.
 
+## Eval path, one factor at a time (2026-09-11, box 50568829, RTX 3090, 16 cores)
+
+`scripts/eval_profile_box.sh`: the same 40-game raw:t0 match (seed
+against itself, seed base 20000, no replacements) timed per mode on
+one box, then a py-spy profile of one per-process worker. Records:
+`training/metrics/bench_pipeline/eval_profile_20260911/`.
+
+| mode | workers | wall s | server mean batch | server forward s | GPU ms per leaf |
+|---|---|---|---|---|---|
+| A persistent workers, Python enumeration (the match scripts before this date) | 10 | 155 | - | - | - |
+| B A + shared inference | 10 | 121 | 4.3 | 95 of 116 | 3.6 |
+| C B + the Rust core | 10 | 113 | 4.4 | 89 of 108 | 3.5 |
+| D the Rust core alone | 10 | 154 | - | - | - |
+| E C with 16 workers | 16 | 105 | 6.0 | 78 of 100 | 3.3 |
+| F C with 20 workers | 20 | 94 | 7.7 | 70 of 90 | 3.1 |
+| G C with 32 workers | 32 | 125 | 6.9 | 83 of 120 | 3.4 |
+
+Reading: through the shared server the GPU is busy 78-82% of the
+wall at a mean batch of 4-8, and a batch costs 17 ms at 4.4 leaves
+and 24 ms at 7.7, so the per-batch overhead (kernel launches, the
+priors kernel, the reply) is most of the forward time at these
+batches; the pool reaches 1.2 ms per leaf at batch 16 on a 4090. The
+lever is more decisions in flight per box, which raises the batch:
+each worker's cycle is about 48 ms of which about 30 ms is its own
+Python, so the workers sit idle most of the time and the box takes
+twice as many as it has cores. The Rust core is worth 7% here
+(masks and enumeration are a quarter of the worker's Python; the
+worker waits on the server). The per-process worker profile
+(inclusive shares of a game): the forward 27%, enumeration with
+priors 33% (masks 11%, Rust rows 4%), encoding 13%, visibility 4%.
+An 800-game match at 20 workers on this box is about 31 minutes,
+about $0.10. Past the cores the workers contend and the batch stops
+growing: 32 workers on 16 cores ran slower than 20 (125 s, batch
+6.9); size the workers at about 1.25x the cores under shared
+inference.
+Next levers, in order: the compiled packed loop on the server (the
+launch overhead at small batches), then the worker's encode and mask
+Python, then tokens per leaf (plan 1.4).
+
+seed2 self-pin through this path (20 games, seed2 against itself,
+seed base 50000, 20 workers, run twice): 18 of 20 games identical in
+outcome, turns and forward counts; the two that differ are the
+batched bf16 near-tie flips the 2026-09-05 note predicted. Outcomes
+6-5 with 9 at the cap: seed2 stalls against itself at argmax as the
+seed does. Records: `eval_profile_20260911/PIN*.{log,wall}`,
+`pin_games.tgz`.
+
 ## Serve thread host cost per 16-leaf batch (2026-09-05, box 49875606)
 
 The serve stats now split the host milliseconds per batch (records

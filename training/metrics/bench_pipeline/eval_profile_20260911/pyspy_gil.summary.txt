@@ -1,0 +1,32 @@
+pyspy_gil.txt: 194 samples
+
+== thread (7740): MainThread: 191 samples (98%)
+  leaf frames:
+     38.2%  _call_with_frames_removed (<frozen importlib._bootstrap>:241)
+      7.9%  _create_fn (dataclasses.py:433)
+      6.8%  _compile_bytecode (<frozen importlib._bootstrap_external>:729)
+      5.2%  is_available (torch/cuda/__init__.py:129)
+      2.6%  __init__ (torch/_ops.py:677)
+      2.1%  _get_packet (torch/_ops.py:1248)
+      1.0%  impl (torch/library.py:312)
+      1.0%  _init_module_attrs (<frozen importlib._bootstrap>:558)
+      0.5%  name (torch/_ops.py:869)
+      0.5%  <module> (tqdm/std.py:57)
+      0.5%  <module> (torch/__init__.py:1954)
+      0.5%  _joinrealpath (<frozen posixpath>:449)
+  innermost project frames:
+     84.3%  <no project frame>
+      0.5%  _register_packed_attention_op (wesnoth_ai/packed_trunk.py:421)
+      0.5%  <module> (wesnoth_ai/rewards.py:302)
+      0.5%  Unit (wesnoth_ai/classes.py:169)
+      0.5%  _register_builtins (wesnoth_ai/policy.py:110)
+      0.5%  <module> (wesnoth_ai/encoder.py:328)
+      0.5%  <module> (wesnoth_ai/trainer.py:354)
+      0.5%  <module> (wesnoth_ai/rewards.py:198)
+
+== thread (7740): 3 samples (2%)
+  leaf frames:
+     33.3%  _compile_bytecode (<frozen importlib._bootstrap_external>:729)
+     33.3%  get (re/_parser.py:264)
+  innermost project frames:
+     66.7%  <no project frame>

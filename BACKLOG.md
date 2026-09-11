@@ -343,7 +343,29 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
   determinism check of docs/box_specs.md); until then matches quote
   both. Box 50568829 (3090, $0.18/h), about $0.40 for the match. The
   match ran per-process workers without --shared-inference; the eval
-  profiling of plan 1.5 runs on the same box next.
+  profiling of plan 1.5 ran on the same box afterwards (below).
+- MEASURED 2026-09-11, plan 1.5 (docs/box_specs.md "Eval path, one
+  factor at a time"; `scripts/eval_profile_box.sh`; records in
+  `training/metrics/bench_pipeline/eval_profile_20260911/`): the same
+  40-game raw:t0 match on one 3090 box, 10 workers: per-process 155 s,
+  shared inference 121 s, plus the Rust core 113 s, the Rust core
+  alone 154 s; 16 workers 105 s, 20 workers 94 s, 32 workers 125 s.
+  The server's GPU is busy 80% of the wall at a mean batch of 4 to 8,
+  at 17-24 ms per batch, so small batches are the ceiling, not the
+  workers' Python; workers idle two thirds of their cycle, so a box
+  takes about 1.25x its cores in workers and no more. An 800-game
+  match is about 31 minutes and $0.10 on a 3090 at 20 workers. All
+  match scripts now run the shared server and build the Rust core at
+  bring-up. Next levers, in order: the compiled packed loop on the
+  eval server (launch overhead at small batches), the worker's encode
+  and mask Python (13% and 11% of a per-process game), tokens per
+  leaf (1.4).
+- RULING TO RECORD (2026-09-11): seed2 self-pinned through the shared
+  path (20 games twice: 18 of 20 identical, the two others the
+  predicted bf16 near-tie flips; 6-5 with 9 at the cap). seed2 is the
+  reference player from here: `raw:t0` names seed2 unless a match
+  says otherwise, and the seed stays as the second reference in
+  matches that need the older scale.
 - VERDICT 2026-09-09: the head cannot grade alternative turns. Its
   within-position error against 160-playout truth is 0.16 and it
   shrinks real gaps three to one, while the best of four sampled
