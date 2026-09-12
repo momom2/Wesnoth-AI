@@ -49,7 +49,10 @@ fn neighbours(x: i64, y: i64) -> [(i64, i64); 6] {
 /// uscenery, upetrified, uleader, uhider (hide-cover active and not
 /// uncovered, computed by Python for the rare hiders), uzoc (level >= 1).
 /// Returns (disc[H], visible[N], zoc[H], enemy[H], ally[H], occupied[H],
-/// inert[H], recruit_row[H], leader_on_keep) as u8 arrays and a bool.
+/// inert[H], recruit_row[H], network[H], leader_on_keep) as u8 arrays
+/// and a bool; `network` is the leader's castle network itself (the
+/// BFS closure without the keep, occupied hexes included), what
+/// `visibility.leader_castle_network` returns.
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
 pub fn observe_side<'py>(
@@ -73,6 +76,7 @@ pub fn observe_side<'py>(
     side: i64,
     fog_on: bool,
 ) -> PyResult<(
+    Bound<'py, PyArray1<u8>>,
     Bound<'py, PyArray1<u8>>,
     Bound<'py, PyArray1<u8>>,
     Bound<'py, PyArray1<u8>>,
@@ -194,6 +198,7 @@ pub fn observe_side<'py>(
     // leader on a keep (BFS over castle/keep hexes, the keep itself
     // excluded), minus visibly occupied and rejected hexes.
     let mut recruit_row = vec![0u8; h];
+    let mut network = vec![0u8; h];
     let mut leader_on_keep = false;
     if let Some(l) = (0..n).find(|&i| uside[i] == side && uleader[i] != 0) {
         if uhex[l] >= 0 && keep[uhex[l] as usize] != 0 {
@@ -213,6 +218,7 @@ pub fn observe_side<'py>(
                         continue;
                     }
                     seen[nb] = true;
+                    network[nb] = 1;
                     queue.push_back(nb);
                     if occupied[nb] == 0 && recruit_rej[nb] == 0 {
                         recruit_row[nb] = 1;
@@ -231,6 +237,7 @@ pub fn observe_side<'py>(
         occupied.into_pyarray(py),
         inert.into_pyarray(py),
         recruit_row.into_pyarray(py),
+        network.into_pyarray(py),
         leader_on_keep,
     ))
 }

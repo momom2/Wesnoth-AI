@@ -944,17 +944,28 @@ def _loss_parts_for_pair(
         policy_weight=policy_weight)
 
 
-def _batch_loss(model, encoder, raws, ais, zw, device, type_loss_weights):
+def _batch_loss(model, encoder, raws, ais, zw, device, type_loss_weights,
+                autocast_dtype=None):
     """The batch's loss parts and targets: one pinned host buffer of
     token features (`encode_from_raw_embedded`), one trunk pass
     (`forward_embedded`), every head scored once
-    (`wesnoth_ai.imitation_loss`)."""
+    (`wesnoth_ai.imitation_loss`). `autocast_dtype` (torch.bfloat16
+    with --bf16) runs the embeddings, the trunk and the heads in that
+    dtype under autocast; the cross-entropies run in fp32 (autocast
+    promotes log_softmax), the weights and gradients stay fp32."""
+    if autocast_dtype is None:
+        return _batch_loss_impl(model, encoder, raws, ais, zw, device, type_loss_weights)
+    with torch.autocast(device.type, dtype=autocast_dtype):
+        return _batch_loss_impl(model, encoder, raws, ais, zw, device, type_loss_weights)
+
+
+def _batch_loss_impl(model, encoder, raws, ais, zw, device, type_loss_weights):
     streams = encoder.encode_from_raw_embedded(raws, device=device)
     material = None
     if getattr(model, "has_value_material", False):
         material = torch.tensor([[float(r.material)] for r in raws],
                                 dtype=torch.float32, device=device)
-    padded = model.forward_embedded(streams, material=material)
+    padded = model.forward_embedded(streams, material=material).float32()
     targets = build_imitation_targets(
         ais, zw, streams.sizes,
         n_types=padded.type_logits.shape[2],
@@ -965,7 +976,7 @@ def _batch_loss(model, encoder, raws, ais, zw, device, type_loss_weights):
 
 
 def _backward_batch(model, encoder, raws, ais, zw, batch_size, device,
-                    type_loss_weights, sink: List) -> int:
+                    type_loss_weights, sink: List, autocast_dtype=None) -> int:
     """Backward of the batch's loss / batch_size into the parameters'
     gradients. On a CUDA out-of-memory error the batch is split in two
     and each half accumulates into the same gradient (the loss is a
@@ -975,7 +986,8 @@ def _backward_batch(model, encoder, raws, ais, zw, batch_size, device,
     splits."""
     parts = None
     try:
-        parts, targets = _batch_loss(model, encoder, raws, ais, zw, device, type_loss_weights)
+        parts, targets = _batch_loss(model, encoder, raws, ais, zw, device, type_loss_weights,
+                                     autocast_dtype)
         (parts.total / batch_size).backward()
         sink.append((targets, parts.log_values()))
         return 0
@@ -987,9 +999,9 @@ def _backward_batch(model, encoder, raws, ais, zw, batch_size, device,
         torch.cuda.empty_cache()
     half = len(raws) // 2
     return (1 + _backward_batch(model, encoder, raws[:half], ais[:half], zw[:half], batch_size,
-                                device, type_loss_weights, sink)
+                                device, type_loss_weights, sink, autocast_dtype)
             + _backward_batch(model, encoder, raws[half:], ais[half:], zw[half:], batch_size,
-                              device, type_loss_weights, sink))
+                              device, type_loss_weights, sink, autocast_dtype))
 
 
 def _flush_batch(
@@ -1009,6 +1021,7 @@ def _flush_batch(
     running_loss_weapon: deque,
     running_loss_value:  deque,
     type_loss_weights: Optional[Dict[str, float]] = None,
+    autocast_dtype=None,
 ) -> int:
     """One batched forward + summed-loss backward + opt step over B
     RawEncoded pairs; returns the number of out-of-memory splits.
@@ -1040,7 +1053,7 @@ def _flush_batch(
     zw = batch_zw if batch_zw else [(None, 0.0, 1.0)] * len(batch_ais)
     sink: List = []
     splits = _backward_batch(model, encoder, batch_raws, batch_ais, zw, batch_size, device,
-                             type_loss_weights, sink)
+                             type_loss_weights, sink, autocast_dtype)
 
     torch.nn.utils.clip_grad_norm_(params_for_clip, 1.0)
     opt.step()
@@ -1427,6 +1440,7 @@ def train(
     reinit_value_head: bool = False,
     value_material: bool = False,   # the value head also reads material
     preencoded: Optional[Path] = None,  # tools/preencode_corpus.py output
+    bf16: bool = False,                 # autocast the batched flow's forward in bf16
     fog_hides_enemy_villages: "bool | None" = None,  # global feature 5 under fog
         # drop value_head.* from the --resume state (and skip the
         # optimizer-state restore): warm trunk+policy, fresh value.
@@ -1925,6 +1939,9 @@ def train(
     files_seen = 0
     file_errors = 0
     flush_failures = 0        # batches lost to an exception (warned, counted)
+    autocast_dtype = torch.bfloat16 if bf16 else None
+    if bf16:
+        log.info("Batched flow under bf16 autocast (fp32 weights and gradients)")
     oom_splits = 0            # out-of-memory splits (nothing lost)
     # Relevant-set basis: labelled targets with no subset slot (kept
     # as actor/type/weapon pairs, target head silent). Expected 0;
@@ -2142,6 +2159,7 @@ def train(
                             running_loss_weapon,
                             running_loss_value,
                             type_loss_weights=type_loss_weights,
+                            autocast_dtype=autocast_dtype,
                         )
                     except Exception as e:
                         flush_failures += 1
@@ -2321,6 +2339,7 @@ def train(
                         running_loss_weapon,
                         running_loss_value,
                         type_loss_weights=type_loss_weights,
+                        autocast_dtype=autocast_dtype,
                     )
                     running_count += len(batch_raws)
                 except Exception as e:
@@ -2495,6 +2514,9 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--no-fog-hides-enemy-villages", action="store_false",
                     dest="fog_hides_enemy_villages",
                     help="Feed the true enemy village count (the pre-2026-09-08 encoding).")
+    ap.add_argument("--bf16", action="store_true",
+                    help="Run the batched flow's forward and loss under bf16 autocast "
+                         "(fp32 master weights; the eval path already serves bf16).")
     ap.add_argument("--preencoded", type=Path, default=None,
                     help="Read pairs from a pre-encoded corpus "
                          "(tools/preencode_corpus.py) instead of replaying "
@@ -2579,6 +2601,7 @@ def main(argv: List[str]) -> int:
         reinit_value_head=args.reinit_value_head,
         value_material=args.value_material,
         preencoded=args.preencoded,
+        bf16=args.bf16,
         fog_hides_enemy_villages=args.fog_hides_enemy_villages,
         imitation_config=args.imitation_config,
         type_loss_weights=type_loss_weights,

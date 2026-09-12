@@ -1150,16 +1150,31 @@ def encode_raw(
     # it rather than re-sorting), so slot indices stay deterministic --
     # load-bearing, because the trainer replays target_idx against
     # re-encoded states.
+    # One observation per decision through the Rust kernels (wesnoth_ai/
+    # observe.py): the disc, the visible units, the mask builder's
+    # reach context and, in the relevant-set basis, the acting units'
+    # landable rows and the relevant hex set; None on the Python path.
+    from wesnoth_ai.observe import observe as _observe
+    observation = _observe(game_state, current_side, reach=relevant_set)
     if relevant_set:
-        hexes = relevant_hexes_in_slot_order(game_state)   # slot contract
-        hex_positions = [h.position for h in hexes]
-        static = _build_static_hex_arrays(hexes) if hexes else None
+        if observation is not None and observation.relevant is not None:
+            # The kernel's relevant mask over the cached full-board
+            # arrays; the token index goes to the mask builder.
+            static, observation.tok_of_hex = _relevant_subset_static(game_state, observation)
+            hexes = static.hexes
+            hex_positions = static.positions
+        else:
+            hexes = relevant_hexes_in_slot_order(game_state)   # slot contract
+            hex_positions = [h.position for h in hexes]
+            static = _build_static_hex_arrays(hexes) if hexes else None
     else:
         # Full board: the slot ordering and the static arrays are
         # cached per hex set (see _static_hex_arrays).
         static = _static_hex_arrays(game_state)
         hexes = static.hexes
         hex_positions = static.positions
+        if observation is not None:
+            observation.tok_of_hex = observation.geometry.full_slot
     H = len(hex_positions)
 
     # Per-turn rejection set (hexes a previous recruit attempt
@@ -1182,11 +1197,6 @@ def encode_raw(
     # dropped; adversarial review 2026-07-11).
     fog_on = getattr(game_state.global_info, "_fog", True)
     _disc_cache: list = []
-    # One observation per decision through the Rust kernel (wesnoth_ai/
-    # observe.py): the disc, the visible units and the mask builder's
-    # reach context from one pass; None on the Python path.
-    from wesnoth_ai.observe import observe as _observe
-    observation = _observe(game_state, current_side)
 
     def _vision_disc():
         if not _disc_cache:
@@ -1584,6 +1594,7 @@ class _StaticHexArrays:
                                      # village) is left 0 and set per encode
     village_idx: List[int]           # hex indices carrying the village terrain
                                      # or modifier
+    village_flags: np.ndarray        # [H] bool, the same fact per slot
     keys: List[Tuple[int, int]]      # (x, y) per hex index
     pos_index: Dict[Tuple[int, int], int]
     hex_set: object                  # the set the entry was built from: a
@@ -1605,6 +1616,7 @@ def _build_static_hex_arrays(hexes, hex_set=None) -> _StaticHexArrays:
     tids = np.empty(H, dtype=np.int64)
     mods_np = np.zeros((H, NUM_HEX_MODIFIERS), dtype=np.float32)
     village_idx: List[int] = []
+    village_flags = np.zeros(H, dtype=bool)
     keys: List[Tuple[int, int]] = []
     terrain_village = Terrain.VILLAGE
     terrain_castle = Terrain.CASTLE
@@ -1626,16 +1638,50 @@ def _build_static_hex_arrays(hexes, hex_set=None) -> _StaticHexArrays:
         mods = h.modifiers
         if TerrainModifiers.VILLAGE in mods:
             village_idx.append(i)
+            village_flags[i] = True
         if TerrainModifiers.KEEP in mods:
             mods_np[i, 1] = 1.0
         if TerrainModifiers.CASTLE in mods:
             mods_np[i, 2] = 1.0
     return _StaticHexArrays(
         xs=xs, ys=ys, terrain_ids=tids, modifier_flags=mods_np,
-        village_idx=village_idx, keys=keys,
+        village_idx=village_idx, village_flags=village_flags, keys=keys,
         pos_index={k: i for i, k in enumerate(keys)},
         hex_set=hex_set, n_hexes=H,
         hexes=list(hexes), positions=[h.position for h in hexes])
+
+
+def _subset_static(full: _StaticHexArrays, idx: np.ndarray) -> _StaticHexArrays:
+    """The static arrays of the slots `idx` (ascending, so the subset
+    keeps the full board's row-major order) gathered from the cached
+    full-board arrays: no per-hex Python."""
+    keys = [full.keys[i] for i in idx.tolist()]
+    return _StaticHexArrays(
+        xs=full.xs[idx], ys=full.ys[idx], terrain_ids=full.terrain_ids[idx],
+        modifier_flags=full.modifier_flags[idx],
+        village_idx=np.flatnonzero(full.village_flags[idx]).tolist(),
+        village_flags=full.village_flags[idx], keys=keys,
+        pos_index={k: j for j, k in enumerate(keys)},
+        hex_set=None, n_hexes=len(keys),
+        hexes=[full.hexes[i] for i in idx.tolist()],
+        positions=[full.positions[i] for i in idx.tolist()])
+
+
+def _relevant_subset_static(game_state, observation) -> Tuple[_StaticHexArrays, np.ndarray]:
+    """The relevant subset's static arrays and the map-to-token index
+    from the observation's relevant mask (wesnoth_ai/observe.py): the
+    subset in the full board's slot order, as
+    `visibility.relevant_hexes_in_slot_order` filters it."""
+    full = _static_hex_arrays(game_state)
+    geom = observation.geometry
+    if len(geom.keys) != full.n_hexes:
+        raise ValueError("observation geometry and static hex arrays disagree")
+    rel_slot = np.zeros(full.n_hexes, dtype=bool)
+    rel_slot[geom.full_slot[observation.relevant != 0]] = True
+    idx = np.flatnonzero(rel_slot)
+    sub_of_full = np.full(full.n_hexes, -1, dtype=np.int64)
+    sub_of_full[idx] = np.arange(len(idx), dtype=np.int64)
+    return _subset_static(full, idx), sub_of_full[geom.full_slot]
 
 
 def _static_hex_arrays(game_state) -> _StaticHexArrays:

@@ -1,0 +1,4 @@
+48
+2304000 100000
+NVIDIA RTX A4000
+wesnoth_core phase 5 ['encode_raw_streams', 'enumerate_moves', 'observe_side', 'reach_rows', 'rows_from_reach', 'unit_reach_arrays', 'wesnoth_core']

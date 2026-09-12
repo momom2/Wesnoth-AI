@@ -154,6 +154,12 @@ State of play:
   seed2's pairs; the trainer now splits and accumulates such batches
   and runs 1.86x faster (the batch embedded and scored at once,
   docs/box_specs.md "Pair census", "The imitation trainer timed").
+  2026-09-12 (user order: complete the Rust port, then bf16 training):
+  the relevant-set basis runs on the Rust kernels (reach rows, the
+  relevant set, subset streams and masks; the reference player's
+  lone game 27.0 -> 14.5 s) and combat resolves in Rust (fuzz,
+  fixture and 17,039-replay sweep identical); docs/rust_port_plan.md
+  holds the plan for the step kernels and the Rust-owned state.
 - Rulings (2026-09-05): no optimizations conditioned on the MCTS
   loop; scope every box test, train sparingly; results are written
   on the run, never as atomic dumps; a box job past ~1.5x its

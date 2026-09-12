@@ -31,6 +31,7 @@ absolute_silence, etc.) fall through to the no-op baseline. Add as needed.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Dict, List, Optional
@@ -71,6 +72,7 @@ class MTRng:
             seed_int = int(seed_hex, 16) & 0xFFFFFFFF
         except (ValueError, TypeError):
             seed_int = 42
+        self.seed_int = seed_int          # replayed by the Rust kernel
         self._mt = [0] * self._N
         self._idx = self._N           # forces twist on first draw
         self._seed(seed_int)
@@ -560,7 +562,140 @@ class CombatResult:
     checkup_strikes: Optional[List[Dict[str, object]]] = None
 
 
+_RUST_COMBAT_ENABLED = os.environ.get("WESNOTH_RUST_COMBAT", "1") != "0"
+_RUST_COMBAT = None
+_RUST_COMBAT_CHECKED = False
+_ALIGNMENT_CODE = {"LAWFUL": 0, "NEUTRAL": 1, "CHAOTIC": 2, "LIMINAL": 3}
+_UNIT_FLAGS = ("slowed", "poisoned", "petrified", "invulnerable", "fearless", "undrainable",
+               "unpoisonable", "steadfast", "magical", "marksman", "deflect", "backstab",
+               "charge", "swarm", "drains", "plague", "poison", "slow", "petrifies",
+               "firststrike", "berserk")
+
+
+def rust_combat_kernel():
+    """The Rust `resolve_attack` (rust/wesnoth_core/src/combat.rs), or
+    None: wheel absent, older than the kernel, or WESNOTH_RUST_COMBAT=0.
+    Default on since 2026-09-12: 3,000 fuzzed fights and the [mp_checkup]
+    fixture equal the Python resolver strike for strike, and the
+    imitation corpus reconstructs identically with the kernel on and
+    off (tests/test_rust_combat.py, docs/rust_port_plan.md 3a)."""
+    global _RUST_COMBAT, _RUST_COMBAT_CHECKED
+    if not _RUST_COMBAT_CHECKED:
+        _RUST_COMBAT_CHECKED = True
+        if _RUST_COMBAT_ENABLED:
+            try:
+                import wesnoth_core
+            except ImportError:
+                wesnoth_core = None
+            if wesnoth_core is not None and getattr(wesnoth_core, "__phase__", 0) >= 6:
+                _RUST_COMBAT = wesnoth_core.resolve_attack
+    return _RUST_COMBAT
+
+
+def _unit_arrays(me: CombatUnit, opp: CombatUnit, weapon: Optional[Weapon],
+                 opp_weapon_type: Optional[str]):
+    """The kernel's flat view of one combatant (combat.rs: UNIT_INTS,
+    UNIT_FLAGS): the numbers, the opponent's resistance to this unit's
+    weapon type, and the status, ability and special flags."""
+    import numpy as np
+    ints = np.array([
+        me.hp, me.max_hp, me.level, me.experience, me.max_experience,
+        _ALIGNMENT_CODE.get(me.alignment.name, 1), me.defense_pct,
+        opp.resistance.get(weapon.type, 100) if weapon is not None else 100,
+        weapon.damage if weapon is not None else 0,
+        weapon.number if weapon is not None else 0,
+        weapon.accuracy if weapon is not None else 0,
+        weapon.parry if weapon is not None else 0,
+    ], dtype=np.int64)
+    specials = set(weapon.specials) if weapon is not None else set()
+    abilities = set(me.abilities)
+    state = {"slowed": me.is_slowed, "poisoned": me.is_poisoned, "petrified": me.is_petrified,
+             "invulnerable": me.is_invulnerable, "fearless": me.is_fearless,
+             "undrainable": me.is_undrainable, "unpoisonable": me.is_unpoisonable,
+             "steadfast": "steadfast" in abilities}
+    flags = np.array([1 if state.get(f, f in specials) else 0 for f in _UNIT_FLAGS],
+                     dtype=np.uint8)
+    del opp_weapon_type
+    return ints, flags
+
+
+def _resolve_attack_rust(kernel, attacker, defender, a_weapon_idx, d_weapon_idx,
+                         a_lawful_bonus, d_lawful_bonus, rng, a_leadership_bonus,
+                         d_leadership_bonus, a_backstab_active, d_backstab_active):
+    """`resolve_attack` through the kernel: the same mutation of the
+    snapshots and the same CombatResult. The rng must be fresh
+    (`MTRng(seed_hex, call_count)`), as every synced command's is; the
+    kernel replays its draws and the wrapper advances the Python rng
+    by the same count."""
+    a_weapon = attacker.weapons[a_weapon_idx]
+    d_has = d_weapon_idx is not None and 0 <= d_weapon_idx < len(defender.weapons)
+    d_weapon = defender.weapons[d_weapon_idx] if d_has else None
+    a_ints, a_flags = _unit_arrays(attacker, defender, a_weapon, d_weapon.type if d_has else None)
+    d_ints, d_flags = _unit_arrays(defender, attacker, d_weapon, a_weapon.type)
+    out, strikes = kernel(a_ints, a_flags, d_ints, d_flags, bool(d_has),
+                          int(a_lawful_bonus), int(d_lawful_bonus),
+                          int(a_leadership_bonus), int(d_leadership_bonus),
+                          bool(a_backstab_active), bool(d_backstab_active),
+                          rng.seed_int, rng.calls)
+    (a_hp, d_hp, a_xp, d_xp, a_slowed, a_poisoned, a_petrified, d_slowed, d_poisoned,
+     d_petrified, plague_spawned, plague_spawned_attacker_died, calls_used) = out
+    for _ in range(calls_used):
+        rng.get_next_random()
+    attacker.hp, defender.hp = a_hp, d_hp
+    attacker.experience, defender.experience = a_xp, d_xp
+    attacker.is_slowed, attacker.is_poisoned, attacker.is_petrified = (
+        bool(a_slowed), bool(a_poisoned), bool(a_petrified))
+    defender.is_slowed, defender.is_poisoned, defender.is_petrified = (
+        bool(d_slowed), bool(d_poisoned), bool(d_petrified))
+    rec = strikes.tolist()
+    checkup = []
+    for k in range(0, len(rec), 4):
+        checkup.append({"chance": rec[k], "hits": bool(rec[k + 1]), "damage": rec[k + 2]})
+        checkup.append({"dies": bool(rec[k + 3])})
+    return CombatResult(
+        attacker_hp_after=a_hp, defender_hp_after=d_hp,
+        attacker_alive=a_hp > 0, defender_alive=d_hp > 0,
+        attacker_xp_after=a_xp, defender_xp_after=d_xp,
+        attacker_advanced=a_xp >= attacker.max_experience and a_hp > 0,
+        defender_advanced=d_xp >= defender.max_experience and d_hp > 0,
+        defender_poisoned=bool(d_poisoned), defender_slowed=bool(d_slowed),
+        defender_petrified=bool(d_petrified),
+        attacker_poisoned=bool(a_poisoned), attacker_slowed=bool(a_slowed),
+        attacker_petrified=bool(a_petrified),
+        plague_spawned=bool(plague_spawned),
+        plague_spawned_attacker_died=bool(plague_spawned_attacker_died),
+        rng_calls_used=int(calls_used),
+        checkup_strikes=checkup,
+    )
+
+
 def resolve_attack(
+    attacker:      CombatUnit,
+    defender:      CombatUnit,
+    a_weapon_idx:  int,
+    d_weapon_idx:  Optional[int],
+    a_lawful_bonus:int,
+    d_lawful_bonus:int,
+    rng:           MTRng,
+    a_leadership_bonus: int = 0,
+    d_leadership_bonus: int = 0,
+    a_backstab_active:  bool = False,
+    d_backstab_active:  bool = False,
+) -> CombatResult:
+    """Run one full Wesnoth attack-vs-defender combat: the Rust kernel
+    when `rust_combat_kernel()` returns one, else the Python body
+    (`_resolve_attack_python`, the oracle)."""
+    kernel = rust_combat_kernel()
+    if kernel is not None and rng.seed_int is not None:
+        return _resolve_attack_rust(kernel, attacker, defender, a_weapon_idx, d_weapon_idx,
+                                    a_lawful_bonus, d_lawful_bonus, rng, a_leadership_bonus,
+                                    d_leadership_bonus, a_backstab_active, d_backstab_active)
+    return _resolve_attack_python(attacker, defender, a_weapon_idx, d_weapon_idx,
+                                  a_lawful_bonus, d_lawful_bonus, rng, a_leadership_bonus,
+                                  d_leadership_bonus, a_backstab_active, d_backstab_active)
+
+
+def _resolve_attack_python(
     attacker:      CombatUnit,
     defender:      CombatUnit,
     a_weapon_idx:  int,

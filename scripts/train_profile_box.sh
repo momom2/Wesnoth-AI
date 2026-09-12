@@ -17,13 +17,15 @@ OUT="${OUT:-/workspace/trainprof}"
 HF_DIR="${HF_DIR:-tier-b/train_profile_20260911}"
 ENC="${ENC:-/workspace/encoded_relset}"
 PAIRS="${PAIRS:-30000}"
+BASIS="${BASIS:---relevant-set-hexes}"   # empty for the full board
+EXTRA="${EXTRA:-}"                        # more trainer flags, e.g. --bf16
 mkdir -p "$OUT"
 cd "$CODE"
 export HF_HUB_DISABLE_XET=1
 export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 TORCHINDUCTOR_COMPILE_THREADS=1 PATH="$HOME/.cargo/bin:$PATH"
 ARCH="--d-model 384 --num-layers 8 --num-heads 12 --d-ff 1536"
 TRAIN="python tools/supervised_train.py replays_dataset_imitation \
-    --checkpoint $OUT/arm.pt --imitation-config configs/imitation.json $ARCH --relevant-set-hexes \
+    --checkpoint $OUT/arm.pt --imitation-config configs/imitation.json $ARCH $BASIS $EXTRA \
     --epochs 1 --seed 20260909 --bs 64 --lr 1e-4 --device cuda --workers 0 --preencoded $ENC \
     --eval-every 100000000 --ckpt-every 1000000 --log-every 50 --max-pairs $PAIRS"
 t0=$(date +%s)
@@ -35,7 +37,7 @@ if [ "$MODE" = pyspy ]; then
 else
     $TRAIN 2>&1 | grep --line-buffered -v "wesnoth_core is not importable" > "$OUT/train.log"
 fi
-{ echo "mode $MODE code $CODE wall $(( $(date +%s) - t0 )) s";
+{ echo "mode $MODE code $CODE basis [$BASIS] extra [$EXTRA] wall $(( $(date +%s) - t0 )) s";
   grep -o "pairs=[0-9]* rate=[0-9.]*/s wall=[0-9.]*m" "$OUT/train.log" | tail -3; } > "$OUT/wall.txt"
 cat "$OUT/wall.txt"
 python - "$OUT" "$HF_DIR" <<'EOF'

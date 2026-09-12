@@ -1,0 +1,5 @@
+08:00:30 INFO TransformerPolicy device: cuda
+08:00:31 INFO inference bf16 autocast ON
+08:00:31 INFO Loaded checkpoint from training/checkpoints/relset.pt (decision_step=0)
+08:00:31 INFO [prof] loaded relset.pt
+08:00:31 INFO serving relset.pt on /tmp/pymp-oo2rbtto/listener-rmid5knj (device=cuda bf16=True packed=True packed_embed=True compiled=False window=1.5ms max_batch=4)

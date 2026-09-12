@@ -206,3 +206,40 @@ def test_flush_batch_splits_on_out_of_memory(monkeypatch):
     for p, q in zip(list(model.parameters()) + list(enc.parameters()),
                     list(ref_model.parameters()) + list(ref_enc.parameters())):
         assert torch.allclose(p, q, atol=1e-6, rtol=1e-4)
+
+
+def test_bf16_autocast_matches_fp32_within_tolerance():
+    """--bf16 runs the batched flow's forward and loss under bf16
+    autocast with fp32 weights: the loss stays within a few percent of
+    the fp32 loss and the gradient keeps its direction."""
+    from tools.supervised_train import _batch_loss
+
+    torch.manual_seed(5)
+    dev = torch.device("cpu")
+    enc = GameStateEncoder(d_model=_ARCH["d_model"])
+    model = WesnothModel(**_ARCH)
+    model.eval()
+    enc.eval()
+    states = _states(6)
+    for s in states:
+        enc.register_names(s)
+    raws = [encode_raw(s, type_to_id=enc.unit_type_to_id, faction_to_id=enc.faction_to_id)
+            for s in states]
+    ais, zw = _labels(raws, random.Random(11))
+    params = list(model.parameters()) + list(enc.parameters())
+
+    def run(dtype):
+        for p in params:
+            p.grad = None
+        parts, _ = _batch_loss(model, enc, raws, ais, zw, dev, _TYPE_W, autocast_dtype=dtype)
+        parts.total.backward()
+        grads = torch.cat([p.grad.flatten() for p in params if p.grad is not None])
+        return float(parts.total.detach()), grads.clone()
+
+    loss32, g32 = run(None)
+    loss16, g16 = run(torch.bfloat16)
+    assert all(p.dtype == torch.float32 for p in params)
+    assert torch.isfinite(g16).all()
+    assert abs(loss16 - loss32) <= 0.05 * abs(loss32) + 1e-3, (loss16, loss32)
+    cos = torch.nn.functional.cosine_similarity(g16, g32, dim=0)
+    assert float(cos) > 0.95, float(cos)

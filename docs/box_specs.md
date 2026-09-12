@@ -905,6 +905,38 @@ Since 2026-09-11 night the trainer splits such a batch in two and
 accumulates (same gradient, nothing lost; `oom_splits` in the epoch
 accounting) and any other flush failure is warned and counted.
 
+## The relevant-set basis on the Rust kernels (2026-09-12, box 50710134, RTX A4000, 23-core quota)
+
+`scripts/relset_rust_box.sh`: the phase-5 wheel built, the
+certification suites (tests/test_rust_relevant_set.py plus the
+observation, enumeration, encoding, reach, seam, priors, visibility
+and compact-selection suites: 52 passed), then the reference player
+`relset` against itself, 40 games, shared inference, 20 workers,
+with the observation kernels off (`WESNOTH_RUST_OBSERVE=0`, the
+Python subset selection, static arrays and mask enumeration) and
+on, twice each, and one game under py-spy per mode. Records:
+`training/metrics/bench_pipeline/relset_rust_20260912/`. Under
+batched bf16 the games diverge at near-ties, so the walls compare
+different games of the same 40 seeds; the lone game is the same
+614 decisions in both modes.
+
+| measurement | kernels off | kernels on |
+|---|---|---|
+| 40-game match wall, s (two runs) | 79, 73 | 57, 57 |
+| one lone game, 614 decisions, s | 27.0 | 14.5 |
+| worker outside the server wait (lone game) | 35% of wall | 16% of wall |
+| server mean batch over the match | 5.6 | 7.3 |
+
+Reading: in the reference player's basis the eval worker spent
+about 44 ms of Python per decision before (the relevant-set
+selection 9%, the mask enumeration 6%, the slot ordering and static
+arrays 3% of a lone game's wall, on top of the full-board items) and
+about 24 ms after; the crowded match runs 1.3x faster because the
+faster workers form bigger batches on this box (5.6 to 7.3). What
+remains in the worker is `_add_reach`'s per-unit Python (3%) and the
+sim's own visibility calls (1.3%). The same kernels serve the pool's
+actors, unmeasured there.
+
 ## Serve thread host cost per 16-leaf batch (2026-09-05, box 49875606)
 
 The serve stats now split the host milliseconds per batch (records

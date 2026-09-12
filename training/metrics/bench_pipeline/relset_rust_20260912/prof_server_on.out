@@ -1,0 +1,2 @@
+__ADDR__ /tmp/pymp-oo2rbtto/listener-rmid5knj
+__INFO__ {"spec": "training/checkpoints/relset.pt", "device": "cuda", "infer_bf16": true, "packed_trunk": true, "packed_embed": true, "compile_packed": false, "relevant_set": true, "fog_hides_enemy_villages": true, "window_ms": 1.5, "max_batch": 4}

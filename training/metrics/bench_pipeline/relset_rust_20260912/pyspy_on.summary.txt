@@ -1,0 +1,135 @@
+pyspy_on.txt: 1555 samples
+
+== <module> (elo_eval_game.py:904): 1405 samples (90%)
+  leaf frames:
+     77.8%  _recv (multiprocessing/connection.py:395)
+      1.0%  _add_reach (wesnoth_ai/observe.py:339)
+      0.6%  <dictcomp> (wesnoth_ai/encoder.py:1664)
+      0.6%  <dictcomp> (inference_seam.py:158)
+      0.5%  observe (wesnoth_ai/observe.py:260)
+      0.5%  visible_hexes_for (wesnoth_ai/visibility.py:211)
+      0.5%  <listcomp> (wesnoth_ai/visibility.py:155)
+      0.4%  _any (numpy/_core/_methods.py:65)
+      0.4%  _ph (inference_seam.py:156)
+      0.4%  _bits (wesnoth_ai/server_priors.py:105)
+      0.4%  visible_hexes_for (wesnoth_ai/visibility.py:216)
+      0.4%  pack_masks (wesnoth_ai/server_priors.py:97)
+      0.3%  disc_set (wesnoth_ai/observe.py:177)
+      0.3%  defense_pct_at (pathfind_sim.py:214)
+      0.3%  visible_hexes_for (wesnoth_ai/visibility.py:215)
+      0.3%  recv (multiprocessing/connection.py:251)
+      0.3%  <listcomp> (wesnoth_ai/encoder.py:1666)
+      0.2%  _wrapfunc (numpy/_core/fromnumeric.py:57)
+      0.2%  pack_request (wesnoth_ai/leaf_wire.py:111)
+      0.2%  defense_pct_at (pathfind_sim.py:197)
+  innermost project frames:
+     84.1%  <no project frame>
+      1.7%  _add_reach (wesnoth_ai/observe.py:328)
+      1.0%  _add_reach (wesnoth_ai/observe.py:339)
+      0.6%  <dictcomp> (wesnoth_ai/encoder.py:1664)
+      0.5%  observe (wesnoth_ai/observe.py:260)
+      0.5%  visible_hexes_for (wesnoth_ai/visibility.py:211)
+      0.5%  <listcomp> (wesnoth_ai/visibility.py:155)
+      0.4%  disc_set (wesnoth_ai/observe.py:177)
+      0.4%  _bits (wesnoth_ai/server_priors.py:105)
+      0.4%  visible_hexes_for (wesnoth_ai/visibility.py:215)
+      0.4%  visible_hexes_for (wesnoth_ai/visibility.py:216)
+      0.4%  pack_masks (wesnoth_ai/server_priors.py:97)
+      0.3%  _add_reach (wesnoth_ai/observe.py:350)
+      0.3%  <listcomp> (wesnoth_ai/encoder.py:1666)
+      0.2%  pack_request (wesnoth_ai/leaf_wire.py:111)
+      0.2%  _rows_from_observation (wesnoth_ai/action_sampler.py:1403)
+      0.2%  _twist (wesnoth_ai/combat.py:93)
+      0.2%  _seed (wesnoth_ai/combat.py:88)
+      0.2%  visible_hexes_for (wesnoth_ai/visibility.py:202)
+      0.2%  _relevant_subset_static (wesnoth_ai/encoder.py:1680)
+
+== <module> (elo_eval_game.py:57): 106 samples (7%)
+  leaf frames:
+     52.8%  _call_with_frames_removed (<frozen importlib._bootstrap>:241)
+      7.5%  _compile_bytecode (<frozen importlib._bootstrap_external>:729)
+      2.8%  _create_fn (dataclasses.py:433)
+      1.9%  __init__ (torch/_ops.py:677)
+      1.9%  define (torch/library.py:146)
+      1.9%  _joinrealpath (<frozen posixpath>:451)
+      0.9%  impl (torch/library.py:312)
+      0.9%  join (<frozen posixpath>:92)
+      0.9%  activate_meta (torch/_meta_registrations.py:6590)
+      0.9%  _create_fn (dataclasses.py:428)
+      0.9%  <module> (torch/_prims/__init__.py:2777)
+      0.9%  exec_module (<frozen importlib._bootstrap_external>:940)
+      0.9%  __getattr__ (torch/_ops.py:1076)
+      0.9%  <module> (torch/_decomp/decompositions.py:1510)
+      0.9%  <module> (torch/autograd/function.py:320)
+      0.9%  ismodule (inspect.py:290)
+      0.9%  get_data (<frozen importlib._bootstrap_external>:1131)
+      0.9%  _get_packet (torch/_ops.py:1248)
+      0.9%  dataclass (dataclasses.py:1232)
+      0.9%  parse (re/_parser.py:989)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== : 27 samples (2%)
+  leaf frames:
+  innermost project frames:
+
+== <module> (elo_eval_game.py:60): 4 samples (0%)
+  leaf frames:
+     25.0%  _process_class (dataclasses.py:958)
+     25.0%  get_code (<frozen importlib._bootstrap_external>:1069)
+     25.0%  _repr_fn (dataclasses.py:589)
+     25.0%  join (<frozen posixpath>:92)
+  innermost project frames:
+     25.0%  <module> (wesnoth_ai/trainer.py:1182)
+     25.0%  <module> (wesnoth_ai/model.py:39)
+     25.0%  <module> (wesnoth_ai/classes.py:111)
+     25.0%  _register_packed_attention_op (wesnoth_ai/packed_trunk.py:421)
+
+== <module> (elo_eval_game.py:48): 2 samples (0%)
+  leaf frames:
+     50.0%  <module> (contextlib.py:85)
+     50.0%  _compile_bytecode (<frozen importlib._bootstrap_external>:729)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== <genexpr> (sim_self_play.py:249): 2 samples (0%)
+  leaf frames:
+     50.0%  __init__ (<string>:2)
+     50.0%  walk_move_path (pathfind_sim.py:733)
+  innermost project frames:
+     50.0%  hex_distance (wesnoth_ai/rewards.py:761)
+     50.0%  hex_distance (wesnoth_ai/rewards.py:767)
+
+== <genexpr> (torch/_ops.py:1003): 2 samples (0%)
+  leaf frames:
+  innermost project frames:
+
+== <genexpr> (wesnoth_ai/observe.py:239): 2 samples (0%)
+  leaf frames:
+  innermost project frames:
+
+== <genexpr> (pathfind_sim.py:349): 1 samples (0%)
+  leaf frames:
+  innermost project frames:
+
+== exists (<frozen genericpath>:19): 1 samples (0%)
+  leaf frames:
+  innermost project frames:
+
+== Optional (typing.py:727): 1 samples (0%)
+  leaf frames:
+    100.0%  __init__ (typing.py:1386)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== <genexpr> (torch/_library/autograd.py:99): 1 samples (0%)
+  leaf frames:
+    100.0%  is_tensorlist_like_type (torch/_library/utils.py:115)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== <module> (elo_eval_game.py:45): 1 samples (0%)
+  leaf frames:
+    100.0%  _compile_bytecode (<frozen importlib._bootstrap_external>:729)
+  innermost project frames:
+    100.0%  <no project frame>

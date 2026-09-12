@@ -1228,7 +1228,13 @@ def _rust_enumerate_rows(encoded, game_state, current_side, U, H,
     doesn't apply (no wheel, relevant-set stream — its debug
     invariant lives on the Python path — or no acting units)."""
     from tools import pathfind_sim as _pf
-    if _pf._RUST is None or getattr(encoded, "hex_subset", False):
+    if _pf._RUST is None:
+        return None
+    if (observation is not None and observation.landable is not None
+            and observation.tok_of_hex is not None):
+        return _rows_from_observation(observation, encoded, game_state, U, H,
+                                      hex_xs, hex_ys, enemy_mask)
+    if getattr(encoded, "hex_subset", False):
         return None
     eligible = []      # (slot, unit)
     for i in range(U):
@@ -1368,6 +1374,49 @@ def _rust_enumerate_rows(encoded, game_state, current_side, U, H,
             at.reshape(U, H).astype(bool))
 
 
+def _rows_from_observation(observation, encoded, game_state, U, H,
+                           hex_xs, hex_ys, enemy_mask):
+    """The move/attack rows in token space from the observation's
+    landable rows (wesnoth_ai/observe.py, `observe(reach=True)`): the
+    encoded unit slots pick their rows by unit id, the kernel applies
+    the move rejections and finds the attackable enemies in the
+    basis the observation's `tok_of_hex` names (the full board or the
+    relevant subset)."""
+    from wesnoth_ai.observe import kernel_rows_from_reach
+    fn = kernel_rows_from_reach()
+    if fn is None:
+        return None
+    geom = observation.geometry
+    Hm = len(geom.keys)
+    obs_index = {uid: k for k, uid in enumerate(observation.unit_ids)}
+    unit_hexidx = np.full(U, -1, dtype=np.int64)
+    can_move = np.zeros(U, dtype=np.uint8)
+    can_attack = np.zeros(U, dtype=np.uint8)
+    landable = np.zeros((U, Hm), dtype=np.uint8)
+    for i in range(U):
+        k = obs_index.get(encoded.unit_ids[i])
+        if k is None or not observation.acting[k]:
+            continue
+        unit_hexidx[i] = observation.unit_hex[k]
+        can_move[i] = observation.unit_can_move[k]
+        can_attack[i] = observation.unit_can_attack[k]
+        landable[i] = observation.landable[k]
+    rej = np.zeros(Hm, dtype=np.uint8)
+    for p in (getattr(game_state.global_info, "_move_rejected_hexes", None) or ()):
+        mi = geom.pos_index.get(p)
+        if mi is not None:
+            rej[mi] = 1
+    enemy_hexids = []
+    for j in np.flatnonzero(enemy_mask).tolist():
+        mi = geom.pos_index.get((int(hex_xs[j]), int(hex_ys[j])))
+        if mi is not None:
+            enemy_hexids.append(mi)
+    mv, at = fn(landable.reshape(-1), geom.nbrs, observation.tok_of_hex, unit_hexidx,
+                can_move, can_attack, rej, np.asarray(enemy_hexids, dtype=np.int64), H)
+    return (np.asarray(mv).reshape(U, H).astype(bool),
+            np.asarray(at).reshape(U, H).astype(bool))
+
+
 def _build_legality_masks(
     encoded: EncodedState, game_state: GameState,
     *, decision_step: int = 0,
@@ -1460,8 +1509,6 @@ def _build_legality_masks(
     # kernel): occupancy, the reach context and the recruit network
     # come from its map-space arrays instead of the passes below.
     observation = getattr(encoded, "observation", None)
-    if observation is not None and getattr(encoded, "hex_subset", False):
-        observation = None                   # subset streams keep the Python path
     if observation is not None:
         occupancy, unit_at = _occupancy_from_observation(
             observation, encoded, pos_to_hex, H, game_state, current_side,

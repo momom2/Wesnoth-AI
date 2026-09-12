@@ -1,0 +1,2 @@
+TOTAL 17039 replays, 17039 clean, 0 with divergences
+  no divergences detected.

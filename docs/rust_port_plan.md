@@ -139,14 +139,83 @@ macros actually shipped. Records: eval_games/rust_corpus_cert/.
    587 decisions), the crowded 40-game match unchanged, because that
    path is bound by the server's per-batch cycle and not by worker
    CPU (5.4 of 16 cores used). Kept on by default.
-3. **Combat + sim step** (wesnoth_sim combat resolution, healing,
-   advancement, events glue): the [mp_checkup]-oracle-certified
-   core. Full-corpus differential run required (the 24,796-replay
-   sweep, on a box).
-4. **GameState in Rust + cheap fork**: removes deepcopy from
-   select_action and search forks; Python-side classes become
-   views. Largest payoff, largest surgery — only after 1-3 are
-   trusted.
+2d. **The relevant-set basis on the kernels** (2026-09-12, user order
+   "complete the Rust port, including for eval and pool"; the
+   reference player `relset` plays in that basis, which every kernel
+   above declined). `observe(state, side, reach=True)` adds every
+   acting unit's landable row (`wesnoth_core.reach_rows`, the
+   Dijkstra half of `enumerate_moves`) and the relevant hex set: the
+   union of those rows with the villages, the castles, the visible
+   units' hexes and the leader's castle network (`observe_side` now
+   returns the network). The encoder takes the subset from the
+   cached full-board arrays through that mask (`_relevant_subset_static`;
+   the same row-major order `relevant_hexes_in_slot_order` filters)
+   and hands the mask builder the map-to-token index; the mask
+   builder turns the observation's landable rows into move and
+   attack rows in the subset's token space (`rows_from_reach`, the
+   other half of `enumerate_moves`), so no decision in either basis
+   runs the Python enumeration, the Python subset selection or the
+   per-decision static-array build. Certification:
+   tests/test_rust_relevant_set.py (the relevant set and every
+   landable row against the Python originals on harvested states,
+   both sides, fog on and off; the subset records byte-identical to
+   the Python subset path; the subset masks equal to the Python mask
+   path) plus the existing suites, on a box (`scripts/relset_rust_box.sh`),
+   which also times the reference player against itself with the
+   kernels off and on. CERTIFIED 2026-09-12 (52 tests on the box) and
+   measured (docs/box_specs.md "The relevant-set basis on the Rust
+   kernels"): a lone game of the reference player 27.0 -> 14.5 s for
+   the same 614 decisions, the 40-game match 73-79 -> 57 s. Default
+   on with the wheel.
+3a. **Combat** (2026-09-12, `rust/wesnoth_core/src/combat.rs`): one
+   attack resolved in Rust from the two snapshots as flat integers:
+   std::mt19937 with the Knuth seeding (Wesnoth's `mt_rng`),
+   `_compute_battle_stats`, the strike loop and the hit body of
+   `wesnoth_ai/combat.py`, returning the outcome and the per-strike
+   checkup records. `combat.resolve_attack` takes it behind
+   `WESNOTH_RUST_COMBAT` (default off until certified; the Python
+   body stays as `_resolve_attack_python`, the oracle). `random_int`
+   covers the advancement draw. Certification: tests/test_rust_combat.py
+   (3,000 fuzzed fights field for field including the strike records
+   and the draw count; the `[mp_checkup]` fixture through the kernel)
+   and the imitation corpus reconstructed with the kernel on and off,
+   the divergence lists compared (`scripts/combat_rust_box.sh`).
+   CERTIFIED 2026-09-12 on a box: the fuzz and fixture tests pass
+   (the fixture's 29 attacks strike for strike against Wesnoth's
+   records through the kernel), and 17,039 of 17,039 corpus replays
+   reconstruct clean with the kernel on and off, the two sweeps
+   identical (214 and 223 s of wall on 48 shards: combat is not
+   where reconstruction spends its time). Default on since.
+3b. **The step over flat arrays** (next): healing at init_side
+   (healers, curers, regeneration, villages, rest, poison, the
+   turn's events fired first), village capture with income and
+   upkeep, the move walk (path validity, fog discovery, ambush stops)
+   and the attack's aftermath (experience, advancement through the
+   unit-type table, plague corpses) as kernels over the arrays the
+   observation already builds, the Python GameState still canonical.
+   Each kernel lands behind a flag with the corpus sweep as its
+   certificate. The phase-1 lesson applies: a step kernel that
+   marshals the whole state per call pays more than it saves, so 3b
+   ports only what the observation's arrays already hold, and the
+   rest waits for 4.
+4. **GameState in Rust + cheap fork**: a `GameCore` owning the map
+   (geometry and terrain codes, static per map), the village owners,
+   the units (a unit-type table for stats, weapons, abilities,
+   movetype costs and defenses, advancements; per-unit state as a
+   struct) and the sides; `fork` is a clone. Actions apply in Rust
+   (3a and 3b inside); the observation, the streams and the mask rows
+   are methods over the core's own arrays, so the marshaling of
+   phases 1-3 disappears. Scenario events (tools/scenario_events.py,
+   map-specific, once per turn) stay Python and run on a Python
+   view of the core at init_side. Certification: the corpus sweep
+   applied through the core with the Python-applied state compared
+   field by field after every command (`GameCore.to_python`), the
+   encoding byte-identity and mask parity suites on the core's
+   arrays, the self-play determinism tests. Largest payoff (no
+   deepcopy, no per-decision Python object walks; turn-level search
+   simulates whole turns per leaf), largest surgery: the sim's rules
+   live in ~12k lines of Python (replay_dataset, wesnoth_sim,
+   abilities, scenario_events, terrain_resolver).
 
 ## Build/dev
 

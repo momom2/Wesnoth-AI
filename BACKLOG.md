@@ -85,6 +85,24 @@ is built and unmeasured.
      batch. Levers left: a second server process per GPU in
      `run_elo_batch`, a fixed-shape forward (CUDA graphs over
      bucketed lengths), fewer tokens per leaf (plan 1.4).
+   - DONE 2026-09-12 (user order "complete the Rust port, including
+     for eval and pool"): the relevant-set basis on the kernels
+     (port plan 2d): the reach rows and the relevant set from
+     `observe(reach=True)`, the subset from the cached full-board
+     arrays, the mask rows through `rows_from_reach` in the subset's
+     token space. Certified on a box (52 tests); the reference
+     player's lone game 27.0 -> 14.5 s for the same decisions, its
+     40-game match 73-79 -> 57 s (docs/box_specs.md "The relevant-set
+     basis on the Rust kernels"). Combat (port plan 3a,
+     `rust/wesnoth_core/src/combat.rs`) the same day: 3,000 fuzzed
+     fights, the [mp_checkup] fixture and 17,039 corpus replays
+     identical to the Python resolver; default on. Next in the port:
+     the step kernels (3b), the Rust-owned state (4);
+     docs/rust_port_plan.md. Training under bf16 autocast is built
+     (`--bf16`, fp32 weights; tests/test_imitation_flat_batch.py)
+     and timed against fp32 on the box (`scripts/train_bf16_box.sh`);
+     its validation is the next training run's holdout curve and
+     match.
 3. **Batched inference server** (plan 1.3). Measured 2026-09-04
    (docs/box_specs.md "Phase-1 iterations"): the batched forward ran
    fp32 eager (only the single-sample path had bf16 and compile);
