@@ -937,6 +937,28 @@ remains in the worker is `_add_reach`'s per-unit Python (3%) and the
 sim's own visibility calls (1.3%). The same kernels serve the pool's
 actors, unmeasured there.
 
+### bf16 training timed against fp32 (2026-09-12, box 50710134, RTX A4000 16 GB)
+
+`scripts/train_bf16_box.sh`: the full-board corpus pre-encoded from
+a fresh vocab, 30k pairs from scratch with the batched trainer at
+batch 64, fp32 and under `--bf16` (autocast for the embeddings, the
+trunk and the heads; fp32 weights, gradients and cross-entropies).
+Records: `training/metrics/bench_pipeline/train_bf16_20260912/`.
+
+| run | pairs/s | out-of-memory splits in 470 batches | loss at 28.8k pairs |
+|---|---|---|---|
+| fp32 | 27 | 173 | 8.55 |
+| bf16 | 78 | 61 | 8.43 |
+
+Reading: bf16 runs on CUDA without a NaN and with the same early
+loss, and needs about a third of the memory splits at batch 64 on a
+16 GB card. The speed ratio here is not the GPU's: on 16 GB the
+full-board batch does not fit in either precision and both runs
+pay for splitting and recomputation (a 24 GB card ran the fp32
+trainer at 107 pairs/s on the old flow). The clean bf16 number and
+its validation (holdout curve and match against an fp32 twin) belong
+to the next training run on a 24 GB card.
+
 ## Serve thread host cost per 16-leaf batch (2026-09-05, box 49875606)
 
 The serve stats now split the host milliseconds per batch (records

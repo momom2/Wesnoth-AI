@@ -1,0 +1,4 @@
+mode time code /workspace/Wesnoth-AI basis [] extra [--bf16] wall 405 s
+pairs=22400 rate=77.9/s wall=4.8m
+pairs=25600 rate=76.0/s wall=5.6m
+pairs=28800 rate=78.1/s wall=6.1m

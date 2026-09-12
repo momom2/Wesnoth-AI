@@ -13,15 +13,27 @@ mkdir -p "$OUT"
 cd /workspace/Wesnoth-AI
 export HF_TOKEN="$(tr -d '\r\n' < /workspace/.hf_token)" HF_HUB_DISABLE_XET=1
 export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 TORCHINDUCTOR_COMPILE_THREADS=1 PATH="$HOME/.cargo/bin:$PATH"
-if [ ! -f /workspace/encoded_full/PREENCODE_DONE ]; then
-    python tools/preencode_corpus.py --dataset replays_dataset_imitation --out /workspace/encoded_full \
-        --vocab-from training/checkpoints/relset.pt --fog-hides-enemy-villages --workers "$(nproc --all)" \
+ENC=/workspace/encoded_full_fresh
+if [ ! -f "$ENC/PREENCODE_DONE" ]; then
+python - <<'EOF2'
+import pathlib
+import torch
+from wesnoth_ai.encoder import GameStateEncoder
+from tools.supervised_train import _seed_vocab_from_unit_stats
+enc = GameStateEncoder(d_model=32)
+_seed_vocab_from_unit_stats(enc, pathlib.Path("unit_stats.json"))
+torch.save({"unit_type_to_id": dict(enc.unit_type_to_id), "faction_to_id": dict(enc.faction_to_id)},
+           "/workspace/fresh_vocab.pt")
+print("fresh vocab:", len(enc.unit_type_to_id), "types", flush=True)
+EOF2
+    python tools/preencode_corpus.py --dataset replays_dataset_imitation --out "$ENC" \
+        --vocab-from /workspace/fresh_vocab.pt --fog-hides-enemy-villages --workers "$(nproc --all)" \
         2>&1 | grep --line-buffered -v "wesnoth_core is not importable" | tee "$OUT/preencode.log" | tail -2
-    grep -q "PREENCODE_DONE" "$OUT/preencode.log" && touch /workspace/encoded_full/PREENCODE_DONE
+    grep -q "PREENCODE_DONE" "$OUT/preencode.log" && touch "$ENC/PREENCODE_DONE"
 fi
 for run in fp32 bf16; do
     extra=$([ "$run" = bf16 ] && echo "--bf16" || echo "")
-    MODE=time CODE=/workspace/Wesnoth-AI OUT="$OUT/$run" HF_DIR="$HF_DIR/$run" ENC=/workspace/encoded_full BASIS="" EXTRA="$extra" PAIRS=30000 \
+    MODE=time CODE=/workspace/Wesnoth-AI OUT="$OUT/$run" HF_DIR="$HF_DIR/$run" ENC="$ENC" BASIS="" EXTRA="$extra" PAIRS=30000 \
         bash /workspace/train_profile_box.sh > "$OUT/$run.log" 2>&1
     cat "$OUT/$run/wall.txt"
     grep "avg_loss" "$OUT/$run/train.log" | tail -2 | cut -c1-140

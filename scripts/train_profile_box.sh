@@ -17,7 +17,7 @@ OUT="${OUT:-/workspace/trainprof}"
 HF_DIR="${HF_DIR:-tier-b/train_profile_20260911}"
 ENC="${ENC:-/workspace/encoded_relset}"
 PAIRS="${PAIRS:-30000}"
-BASIS="${BASIS:---relevant-set-hexes}"   # empty for the full board
+BASIS="${BASIS-"--relevant-set-hexes"}"   # set it empty for the full board
 EXTRA="${EXTRA:-}"                        # more trainer flags, e.g. --bf16
 mkdir -p "$OUT"
 cd "$CODE"
