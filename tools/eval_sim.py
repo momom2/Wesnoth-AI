@@ -179,11 +179,7 @@ def _play_one_eval_game(
         # as play_one_game in sim_self_play.py.
         while _would_recruit_bounce(action, sim.gs):
             tgt = action["target_hex"]
-            rejected = (getattr(sim.gs.global_info,
-                                "_recruit_rejected_hexes", None) or set())
-            rejected.add((tgt.x, tgt.y))
-            setattr(sim.gs.global_info,
-                    "_recruit_rejected_hexes", rejected)
+            sim.reject_recruit_hex(tgt.x, tgt.y)
             # Discard the bounced decision AND any cached plan
             # (round-24 C6: without this, a search policy that
             # serves from a cached plan -- PlanTournamentPolicy,

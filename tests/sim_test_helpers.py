@@ -62,12 +62,15 @@ def scenario_setup(seed: int = 0, *, mini: bool = False,
 
 def fresh_scenario_sim(seed: int = 0, *, max_turns: int = 6,
                        mini: bool = False,
-                       scenario_id: Optional[str] = None) -> WesnothSim:
-    """One from-scratch sim, the production way."""
+                       scenario_id: Optional[str] = None,
+                       use_core: Optional[bool] = None) -> WesnothSim:
+    """One from-scratch sim, the production way. `use_core` pins the
+    state of record (None = the environment's default) for the tests
+    that are about one of the two."""
     setup = scenario_setup(seed, mini=mini, scenario_id=scenario_id)
     gs = build_scenario_gamestate(setup)
     return WesnothSim(gs, scenario_id=setup.scenario_id,
-                      max_turns=max_turns)
+                      max_turns=max_turns, use_core=use_core)
 
 
 def twin_scenario_sims(seed: int = 0, *, max_turns: int = 6,

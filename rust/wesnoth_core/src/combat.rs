@@ -397,6 +397,34 @@ pub fn resolve_attack<'py>(
             "inconsistent array lengths",
         ));
     }
+    let (out, record) = resolve_fight(
+        a_ints, a_flags, d_ints, d_flags, d_has_weapon, a_lawful_bonus, d_lawful_bonus,
+        a_leadership_bonus, d_leadership_bonus, a_backstab_active, d_backstab_active, seed,
+        call_count,
+    );
+    Ok((out, record.into_pyarray(py)))
+}
+
+/// The fight over the two flat snapshots (the module doc's layout):
+/// the 13 outputs of `resolve_attack` and the strike record, four
+/// integers per strike (chance, hit, damage, dies). The core's attack
+/// kernel (core_attack.rs) calls this directly.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn resolve_fight(
+    a_ints: &[i64],
+    a_flags: &[u8],
+    d_ints: &[i64],
+    d_flags: &[u8],
+    d_has_weapon: bool,
+    a_lawful_bonus: i64,
+    d_lawful_bonus: i64,
+    a_leadership_bonus: i64,
+    d_leadership_bonus: i64,
+    a_backstab_active: bool,
+    d_backstab_active: bool,
+    seed: u32,
+    call_count: u64,
+) -> (Vec<i64>, Vec<i64>) {
     let mut attacker = Unit::from_arrays(a_ints, a_flags);
     let mut defender = Unit::from_arrays(d_ints, d_flags);
     let mut rng = Mt19937::new(seed, call_count);
@@ -493,7 +521,7 @@ pub fn resolve_attack<'py>(
         plague_spawned_attacker_died as i64,
         (rng.calls - starting_calls) as i64,
     ];
-    Ok((out, record.into_pyarray(py)))
+    (out, record)
 }
 
 /// `MTRng.get_random_int(low, high)` after `call_count` draws: the

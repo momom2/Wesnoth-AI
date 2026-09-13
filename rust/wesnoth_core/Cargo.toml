@@ -8,7 +8,7 @@ name = "wesnoth_core"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.23", features = ["extension-module", "abi3-py311"] }
+pyo3 = { version = "0.23", features = ["extension-module", "abi3-py311", "multiple-pymethods"] }
 numpy = "0.23"
 
 [profile.release]

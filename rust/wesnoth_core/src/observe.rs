@@ -15,7 +15,9 @@
 //! (pathfind_sim's ordering); `nbrs` columns follow
 //! `tools.abilities.hex_neighbors` (N, NE, SE, S, SW, NW). Every
 //! rule is a transcription of the Python, which stays the diff
-//! oracle (tests/test_rust_observe.py).
+//! oracle (tests/test_rust_observe.py). `observe_slices` is the
+//! computation over slices; `observe_side` is its numpy entry and
+//! the core (core_observe.rs) calls it over its own arrays.
 
 use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1};
 use pyo3::prelude::*;
@@ -24,7 +26,7 @@ use std::collections::VecDeque;
 /// Wesnoth hex distance, odd-q offset (`visibility._hex_distance`,
 /// map_location.cpp::distance_between).
 #[inline]
-fn hex_distance(ax: i64, ay: i64, bx: i64, by: i64) -> i64 {
+pub(crate) fn hex_distance(ax: i64, ay: i64, bx: i64, by: i64) -> i64 {
     let hd = (ax - bx).abs();
     let a_even = ax & 1 == 0;
     let b_even = bx & 1 == 0;
@@ -35,7 +37,7 @@ fn hex_distance(ax: i64, ay: i64, bx: i64, by: i64) -> i64 {
 
 /// The six neighbours of (x, y), `tools.abilities.hex_neighbors` order.
 #[inline]
-fn neighbours(x: i64, y: i64) -> [(i64, i64); 6] {
+pub(crate) fn neighbours(x: i64, y: i64) -> [(i64, i64); 6] {
     if x % 2 == 0 {
         [(x, y - 1), (x + 1, y - 1), (x + 1, y), (x, y + 1), (x - 1, y), (x - 1, y - 1)]
     } else {
@@ -43,79 +45,59 @@ fn neighbours(x: i64, y: i64) -> [(i64, i64); 6] {
     }
 }
 
-/// See the module doc. Per hex h (H, map space): hx, hy, nbrs[h*6..],
-/// castle_or_keep, keep, recruit_rej. Per unit i (N, `gs.map.units`
-/// order): ux, uy, uhex (map index or -1), uside, uradius (sight),
-/// uscenery, upetrified, uleader, uhider (hide-cover active and not
-/// uncovered, computed by Python for the rare hiders), uzoc (level >= 1).
-/// Returns (disc[H], visible[N], zoc[H], enemy[H], ally[H], occupied[H],
-/// inert[H], recruit_row[H], network[H], leader_on_keep) as u8 arrays
-/// and a bool; `network` is the leader's castle network itself (the
-/// BFS closure without the keep, occupied hexes included), what
+/// Per unit i (N, `gs.map.units` order): ux, uy, uhex (map index or
+/// -1), uside, uradius (sight), uscenery, upetrified, uleader, uhider
+/// (hide-cover active and not uncovered), uzoc (level >= 1).
+pub(crate) struct UnitFacts<'a> {
+    pub ux: &'a [i64],
+    pub uy: &'a [i64],
+    pub uhex: &'a [i64],
+    pub uside: &'a [i64],
+    pub uradius: &'a [i64],
+    pub uscenery: &'a [u8],
+    pub upetrified: &'a [u8],
+    pub uleader: &'a [u8],
+    pub uhider: &'a [u8],
+    pub uzoc: &'a [u8],
+}
+
+/// What a side observes, map space: the vision disc, the units it
+/// sees, the reach context, the recruit row and the castle network.
+pub(crate) struct SideView {
+    pub disc: Vec<u8>,
+    pub visible: Vec<u8>,
+    pub zoc: Vec<u8>,
+    pub enemy: Vec<u8>,
+    pub ally: Vec<u8>,
+    pub occupied: Vec<u8>,
+    pub inert: Vec<u8>,
+    pub recruit_row: Vec<u8>,
+    pub network: Vec<u8>,
+    pub leader_on_keep: bool,
+}
+
+/// The observation over slices (see the module doc). Per hex h (H):
+/// hx, hy, nbrs[h*6..], castle_or_keep, keep, recruit_rej. `network`
+/// is the leader's castle network itself (the BFS closure without
+/// the keep, occupied hexes included), what
 /// `visibility.leader_castle_network` returns.
-#[pyfunction]
 #[allow(clippy::too_many_arguments)]
-pub fn observe_side<'py>(
-    py: Python<'py>,
-    hx: PyReadonlyArray1<'py, i64>,
-    hy: PyReadonlyArray1<'py, i64>,
-    nbrs: PyReadonlyArray1<'py, i64>,
-    castle_or_keep: PyReadonlyArray1<'py, u8>,
-    keep: PyReadonlyArray1<'py, u8>,
-    recruit_rej: PyReadonlyArray1<'py, u8>,
-    ux: PyReadonlyArray1<'py, i64>,
-    uy: PyReadonlyArray1<'py, i64>,
-    uhex: PyReadonlyArray1<'py, i64>,
-    uside: PyReadonlyArray1<'py, i64>,
-    uradius: PyReadonlyArray1<'py, i64>,
-    uscenery: PyReadonlyArray1<'py, u8>,
-    upetrified: PyReadonlyArray1<'py, u8>,
-    uleader: PyReadonlyArray1<'py, u8>,
-    uhider: PyReadonlyArray1<'py, u8>,
-    uzoc: PyReadonlyArray1<'py, u8>,
+pub(crate) fn observe_slices(
+    hx: &[i64],
+    hy: &[i64],
+    nbrs: &[i64],
+    castle_or_keep: &[u8],
+    keep: &[u8],
+    recruit_rej: &[u8],
+    u: &UnitFacts<'_>,
     side: i64,
     fog_on: bool,
-) -> PyResult<(
-    Bound<'py, PyArray1<u8>>,
-    Bound<'py, PyArray1<u8>>,
-    Bound<'py, PyArray1<u8>>,
-    Bound<'py, PyArray1<u8>>,
-    Bound<'py, PyArray1<u8>>,
-    Bound<'py, PyArray1<u8>>,
-    Bound<'py, PyArray1<u8>>,
-    Bound<'py, PyArray1<u8>>,
-    Bound<'py, PyArray1<u8>>,
-    bool,
-)> {
-    let hx = hx.as_slice()?;
-    let hy = hy.as_slice()?;
-    let nbrs = nbrs.as_slice()?;
-    let castle_or_keep = castle_or_keep.as_slice()?;
-    let keep = keep.as_slice()?;
-    let recruit_rej = recruit_rej.as_slice()?;
-    let ux = ux.as_slice()?;
-    let uy = uy.as_slice()?;
-    let uhex = uhex.as_slice()?;
-    let uside = uside.as_slice()?;
-    let uradius = uradius.as_slice()?;
-    let uscenery = uscenery.as_slice()?;
-    let upetrified = upetrified.as_slice()?;
-    let uleader = uleader.as_slice()?;
-    let uhider = uhider.as_slice()?;
-    let uzoc = uzoc.as_slice()?;
+) -> SideView {
     let h = hx.len();
-    let n = ux.len();
-    if hy.len() != h
-        || nbrs.len() != h * 6
-        || [castle_or_keep, keep, recruit_rej].iter().any(|a| a.len() != h)
-        || [uy, uhex, uside, uradius].iter().any(|a| a.len() != n)
-        || [uscenery, upetrified, uleader, uhider, uzoc].iter().any(|a| a.len() != n)
-        || uhex.iter().any(|&i| i >= h as i64)
-    {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "inconsistent array lengths",
-        ));
-    }
+    let n = u.ux.len();
+    let (ux, uy, uhex, uside, uradius) = (u.ux, u.uy, u.uhex, u.uside, u.uradius);
+    let (uscenery, upetrified, uleader, uhider, uzoc) =
+        (u.uscenery, u.upetrified, u.uleader, u.uhider, u.uzoc);
 
     // 1. The vision disc: the union of the own units' sight discs.
     let mut disc = vec![0u8; h];
@@ -228,16 +210,90 @@ pub fn observe_side<'py>(
         }
     }
 
+    SideView { disc, visible, zoc, enemy, ally, occupied, inert, recruit_row, network, leader_on_keep }
+}
+
+/// `observe_slices` over numpy arrays. Returns (disc[H], visible[N],
+/// zoc[H], enemy[H], ally[H], occupied[H], inert[H], recruit_row[H],
+/// network[H], leader_on_keep) as u8 arrays and a bool.
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+pub fn observe_side<'py>(
+    py: Python<'py>,
+    hx: PyReadonlyArray1<'py, i64>,
+    hy: PyReadonlyArray1<'py, i64>,
+    nbrs: PyReadonlyArray1<'py, i64>,
+    castle_or_keep: PyReadonlyArray1<'py, u8>,
+    keep: PyReadonlyArray1<'py, u8>,
+    recruit_rej: PyReadonlyArray1<'py, u8>,
+    ux: PyReadonlyArray1<'py, i64>,
+    uy: PyReadonlyArray1<'py, i64>,
+    uhex: PyReadonlyArray1<'py, i64>,
+    uside: PyReadonlyArray1<'py, i64>,
+    uradius: PyReadonlyArray1<'py, i64>,
+    uscenery: PyReadonlyArray1<'py, u8>,
+    upetrified: PyReadonlyArray1<'py, u8>,
+    uleader: PyReadonlyArray1<'py, u8>,
+    uhider: PyReadonlyArray1<'py, u8>,
+    uzoc: PyReadonlyArray1<'py, u8>,
+    side: i64,
+    fog_on: bool,
+) -> PyResult<(
+    Bound<'py, PyArray1<u8>>,
+    Bound<'py, PyArray1<u8>>,
+    Bound<'py, PyArray1<u8>>,
+    Bound<'py, PyArray1<u8>>,
+    Bound<'py, PyArray1<u8>>,
+    Bound<'py, PyArray1<u8>>,
+    Bound<'py, PyArray1<u8>>,
+    Bound<'py, PyArray1<u8>>,
+    Bound<'py, PyArray1<u8>>,
+    bool,
+)> {
+    let hx = hx.as_slice()?;
+    let hy = hy.as_slice()?;
+    let nbrs = nbrs.as_slice()?;
+    let castle_or_keep = castle_or_keep.as_slice()?;
+    let keep = keep.as_slice()?;
+    let recruit_rej = recruit_rej.as_slice()?;
+    let facts = UnitFacts {
+        ux: ux.as_slice()?,
+        uy: uy.as_slice()?,
+        uhex: uhex.as_slice()?,
+        uside: uside.as_slice()?,
+        uradius: uradius.as_slice()?,
+        uscenery: uscenery.as_slice()?,
+        upetrified: upetrified.as_slice()?,
+        uleader: uleader.as_slice()?,
+        uhider: uhider.as_slice()?,
+        uzoc: uzoc.as_slice()?,
+    };
+    let h = hx.len();
+    let n = facts.ux.len();
+    if hy.len() != h
+        || nbrs.len() != h * 6
+        || [castle_or_keep, keep, recruit_rej].iter().any(|a| a.len() != h)
+        || [facts.uy, facts.uhex, facts.uside, facts.uradius].iter().any(|a| a.len() != n)
+        || [facts.uscenery, facts.upetrified, facts.uleader, facts.uhider, facts.uzoc]
+            .iter()
+            .any(|a| a.len() != n)
+        || facts.uhex.iter().any(|&i| i >= h as i64)
+    {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "inconsistent array lengths",
+        ));
+    }
+    let v = observe_slices(hx, hy, nbrs, castle_or_keep, keep, recruit_rej, &facts, side, fog_on);
     Ok((
-        disc.into_pyarray(py),
-        visible.into_pyarray(py),
-        zoc.into_pyarray(py),
-        enemy.into_pyarray(py),
-        ally.into_pyarray(py),
-        occupied.into_pyarray(py),
-        inert.into_pyarray(py),
-        recruit_row.into_pyarray(py),
-        network.into_pyarray(py),
-        leader_on_keep,
+        v.disc.into_pyarray(py),
+        v.visible.into_pyarray(py),
+        v.zoc.into_pyarray(py),
+        v.enemy.into_pyarray(py),
+        v.ally.into_pyarray(py),
+        v.occupied.into_pyarray(py),
+        v.inert.into_pyarray(py),
+        v.recruit_row.into_pyarray(py),
+        v.network.into_pyarray(py),
+        v.leader_on_keep,
     ))
 }

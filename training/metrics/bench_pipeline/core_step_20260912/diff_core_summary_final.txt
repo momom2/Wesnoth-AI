@@ -1,0 +1,2 @@
+diff_core sweep: 17039 replays, 17039 clean, 0 with divergences; commands rust=5475904 python=63760; wall 825 s
+  attack:rust=1079833, end_turn:rust=474944, init_side:python=61331, init_side:rust=430620, move:rust=3023243, pickadvance:python=2429, recruit:rust=467264

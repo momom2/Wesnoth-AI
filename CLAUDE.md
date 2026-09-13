@@ -158,16 +158,34 @@ State of play:
   the relevant-set basis runs on the Rust kernels (reach rows, the
   relevant set, subset streams and masks; the reference player's
   lone game 27.0 -> 14.5 s) and combat resolves in Rust (fuzz,
-  fixture and 17,039-replay sweep identical); docs/rust_port_plan.md
-  holds the plan for the step kernels and the Rust-owned state.
+  fixture and 17,039-replay sweep identical). Later that day the
+  Rust-owned state (`GameCore`, `wesnoth_ai/game_core.py`) applies
+  init_side, end_turn, move, attack and recruit itself and serves the
+  observation and the encoding from its own records: 17,039 of 17,039
+  corpus replays compare clean after every command against the
+  Python applier (tools/diff_core.py); `WesnothSim(use_core=True)`
+  runs on it behind one Python view (docs/rust_port_plan.md 3b/4).
+  Timed the same day and left DEFAULT OFF: per call it is 2.6-7.3x
+  cheaper (fork 0.019, step 0.050, encode 0.200 ms), but it moves
+  neither the eval path (49 s against 49 s for a 40-game match,
+  which waits on the inference server for four fifths of its wall)
+  nor the pool (two runs inside the Python runs' band).
+  **Phase 1 is CLOSED (2026-09-12).** Its exit criterion -- 10x more
+  searched games per dollar at a fixed search budget -- is met at
+  16x, measured same-box as 64.8 -> about 1,050 saturated leaf
+  evaluations per second (6.8x the committed configuration, 2.4x the
+  relevant-set basis), docs/box_specs.md "Phase 1's exit". The
+  reference player's self-pin over 160 games reads -57 +- 37 Elo (no
+  asymmetry detected). Two optional confirmations need a box and a
+  word: the 3,000-per-4090 target of plan 1.3 (an A4000 cannot judge
+  it) and a tight 800-game self-pin.
 - Rulings (2026-09-05): no optimizations conditioned on the MCTS
   loop; scope every box test, train sparingly; results are written
   on the run, never as atomic dumps; a box job past ~1.5x its
   estimate gets inspected and cut.
-- No box is rented (2026-09-11 night). Phase 1 is closed except two
-  measurements that belong to phase 2's first generation run: the
-  pool's leaves per second in the relevant-set basis (the plan's
-  3,000 per 4090 target) and the searched games per dollar it gives.
+- No box is rented (2026-09-12, after the phase-1 exit run). Phase 2
+  is next: docs/plan_20260904.md 5, whose first measurement is the
+  turn-gap pre-registration.
 
 Standing rules (full list in the plan): the reference player is
 `relset` at `raw:t0`; every strength claim is a PURE match against it with the

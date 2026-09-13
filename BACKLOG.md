@@ -4,23 +4,50 @@ Live backlog for `docs/plan_20260904.md`. The pre-restart backlog
 (1,055 lines of rulings and open items, 2026-05 to 2026-09-04) is
 archived verbatim at `docs/archive/backlog_20260904.md`.
 
-## Phase 1 status (2026-09-11 night)
+## Phase 1 status (CLOSED 2026-09-12)
 
-Closed by user ruling: `relset` (the relevant-set twin of seed2 at
-one pass) is the reference player; phase 2 improves it. Done: 1.1,
-1.3 (this round), 1.4 (basis adopted), 1.5 (an 800-game match in 18
-min, $0.20 on a 4090), 1.6; 1.2 through port-plan phase 2c, with
-phases 3-4 deferred because neither the eval path nor the pool is
-bound by that Python. Open, to be taken on phase 2's first
-generation box, no dedicated rental: the pool rate in the relevant-set
-basis (plan 1.3's 3,000 leaves/s per 4090) and the searched games per
-dollar it gives, which is the phase's exit number; the reference's
-self-pin (2 x 20 games, $0.05). Speed levers left, each a one-factor
-test on a run that is needed anyway: the trainer is GPU-bound
-(bf16 autocast or TF32 for the trunk, 1.5-3x on its GPU share); the
-eval path is bound by one server's per-batch cycle (a second server
-process per GPU, 1.3-1.5x expected); the pool's second serve process
-is built and unmeasured.
+The exit criterion is met and every step has its acceptance
+(docs/plan_20260904.md 4; docs/box_specs.md "Phase 1's exit: the pool
+in the relevant-set basis"). Same box, same search budget, the az
+legs' configuration against today's defaults in the reference
+player's basis: **64.8 -> about 1,050 saturated leaf evaluations per
+second, 16x** (6.8x the configuration, 2.4x the relevant-set basis),
+against a bar of 10x. Quoted on the server's saturated rate because
+two repeats of one configuration differ by 1.64x end to end -- on
+this harness, a pool claim under about 1.7x on the iteration column
+is noise. 1.2 closed the same day with the Rust-owned state: 17,039
+of 17,039 corpus replays clean after every command, and per call
+fork 0.019 ms, step 0.050 ms, encode 0.200 ms (the bars were 0.1 /
+0.1 / 0.2). `relset` is the reference player by user ruling
+2026-09-11; its self-pin over 160 games reads -57 +- 37 Elo, no
+asymmetry detected (`training/metrics/elo/relset_selfpin_20260912/`).
+
+Left open, neither blocking phase 2, both needing a box and a word
+from the user first:
+- plan 1.3's 3,000-leaves-per-second-per-4090 target: an A4000
+  cannot judge it (30 min, $0.25 on a 4090). The prerequisite held:
+  tokens per leaf about 1,200 -> about 300, saturated rate 2.4x.
+- a tight self-pin of the reference player (800 games, 18 min,
+  $0.20), which would replace the +- 37 Elo above with +- 12.
+
+Speed levers left, each a one-factor test on a run that is needed
+anyway, ordered by what the measurements say is binding:
+- the inference server is the ceiling on BOTH paths (eval: over four
+  fifths of a worker's wall is spent waiting on it; pool: the server
+  idles 40-60% of an iteration but its saturated rate is the roof).
+  A second serve process per GPU is built and still unmeasured,
+  1.3-1.5x expected.
+- the trainer is GPU-bound: bf16 autocast is built (`--bf16`) and
+  timed only on a 16 GB card; TF32 for the trunk is untried.
+- the az training path's next recorded cut is shipping the actor's
+  packed masks with each experience instead of rebuilding them.
+- actor-side Python is NOT currently a lever: the Rust-owned state
+  cuts it 3.5x per leaf (0.96 -> 0.27 ms) and moved neither the pool
+  (two runs inside the Python runs' band) nor the eval path (49 s
+  against 49 s). Re-measure the pool at production's games-per-actor
+  ratio (24 games, 8 actors) before spending more there; the
+  benchmark's 19/19 leaves a long idle tail that the production
+  ratio does not.
 
 ## NEXT ACTIONS (phase 1: engineering, in order)
 
@@ -96,13 +123,26 @@ is built and unmeasured.
      basis on the Rust kernels"). Combat (port plan 3a,
      `rust/wesnoth_core/src/combat.rs`) the same day: 3,000 fuzzed
      fights, the [mp_checkup] fixture and 17,039 corpus replays
-     identical to the Python resolver; default on. Next in the port:
-     the step kernels (3b), the Rust-owned state (4);
-     docs/rust_port_plan.md. Training under bf16 autocast is built
+     identical to the Python resolver; default on. Training under bf16 autocast is built
      (`--bf16`, fp32 weights; tests/test_imitation_flat_batch.py)
      and timed against fp32 on the box (`scripts/train_bf16_box.sh`);
      its validation is the next training run's holdout curve and
      match.
+   - DONE 2026-09-12 (port plan 3b/4, user order "complete the
+     port"): the Rust-owned state `GameCore` with init_side,
+     end_turn, move, attack and recruit applied in Rust, the
+     observation and the encoding as methods over its records, and
+     `WesnothSim(use_core=True)` keeping it as the state of record
+     behind one Python view refreshed in place. Certified on a box:
+     17,039 of 17,039 corpus replays compare clean after every
+     command against the Python applier (5.48M commands in Rust;
+     `tools/diff_core.py`, `scripts/diff_core_box.sh`), plus the
+     round-trip, observation, encoding byte-identity, twin-simulator,
+     determinism and fork-isolation suites. Default off
+     (`WESNOTH_RUST_CORE=1` to enable) until the eval-path timing
+     (`scripts/core_sim_box.sh`) is read; Python still holds the
+     unit builders (recruit, advancement, plague), the scenario
+     events, the action translation and the policies' view.
 3. **Batched inference server** (plan 1.3). Measured 2026-09-04
    (docs/box_specs.md "Phase-1 iterations"): the batched forward ran
    fp32 eager (only the single-sample path had bf16 and compile);

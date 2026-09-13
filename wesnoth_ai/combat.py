@@ -42,6 +42,15 @@ from typing import Dict, List, Optional
 # PRNG
 # =====================================================================
 
+def seed_int_of(seed_hex: str) -> int:
+    """The 32-bit seed of a synced command's hex string; 42 when the
+    string is not hex (`if (!(s >> std::hex >> new_seed)) { new_seed = 42; }`)."""
+    try:
+        return int(seed_hex, 16) & 0xFFFFFFFF
+    except (ValueError, TypeError):
+        return 42
+
+
 class MTRng:
     """Bit-exact std::mt19937 — Wesnoth's combat RNG.
 
@@ -66,12 +75,7 @@ class MTRng:
     _MULT_INIT = 1812433253
 
     def __init__(self, seed_hex: str, call_count: int = 0):
-        # Parse hex to uint32, defaulting to 42 on parse failure
-        # (matches `if (!(s >> std::hex >> new_seed)) { new_seed = 42; }`).
-        try:
-            seed_int = int(seed_hex, 16) & 0xFFFFFFFF
-        except (ValueError, TypeError):
-            seed_int = 42
+        seed_int = seed_int_of(seed_hex)
         self.seed_int = seed_int          # replayed by the Rust kernel
         self._mt = [0] * self._N
         self._idx = self._N           # forces twist on first draw

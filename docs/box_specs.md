@@ -959,6 +959,125 @@ trainer at 107 pairs/s on the old flow). The clean bf16 number and
 its validation (holdout curve and match against an fp32 twin) belong
 to the next training run on a 24 GB card.
 
+## The Rust-owned state certified on the corpus (2026-09-12, box 50759583, RTX A4000, 30.7-core quota)
+
+`scripts/diff_core_box.sh`: every replay of the imitation corpus
+through `wesnoth_ai.game_core.CoreState` and through the Python
+applier, the two states compared field by field after every command
+(tools/diff_core.py), 28 shards. Records:
+`training/metrics/bench_pipeline/core_step_20260912/`.
+
+| sweep | replays clean | commands in Rust | through the Python view | wall |
+|---|---|---|---|---|
+| first (recruit still on the view) | 17,036 of 17,039 | 5,008,640 | 531,024 | 841 s |
+| after the fix, recruit in Rust | 17,039 of 17,039 | 5,475,904 | 63,760 | 825 s |
+
+The three flagged lines of the first sweep were two Aethermaw replays:
+the unit-less view the unit builders read had been kept across the
+turn-4 terrain morph, so recruits placed after it walked with
+pre-morph movement costs. In the second sweep the view path carries
+only the init_sides of maps whose scenario still has an event that
+can fire (61,331) and the pickadvance commands (2,429).
+
+### Per call: the Rust-owned state against the Python state (same box)
+
+`tools/bench_core.py`, 8 replayed midgame states (median 20.5 units,
+849 hexes), 40 calls each, median over states. These are plan step
+1.2's acceptance numbers (step and fork under 0.1 ms, encode under
+0.2 ms).
+
+| operation | Python state | Rust-owned state | ratio |
+|---|---|---|---|
+| fork, ms | 0.049 | 0.019 | 2.6x |
+| step (one move), ms | 0.361 | 0.050 | 7.3x |
+| encode (relevant-set basis), ms | 0.546 | 0.200 | 2.7x |
+
+The Python fork was already under the bar (its fast path aliases the
+hexes and the unit objects); the step and the encode were not, and are
+now. The encode number is the whole of `encoder.encode_raw` including
+the observation.
+
+### The simulator on the Rust-owned state, on the eval path (same box)
+
+`scripts/core_sim_box.sh`: the reference player against itself, 40
+games, shared inference, 20 workers, `WESNOTH_RUST_CORE` off and on,
+twice each, then one lone game under py-spy per mode.
+
+| measurement | core off | core on |
+|---|---|---|
+| 40-game match wall, s (two runs) | 49, 48 | 49, 49 |
+| one lone game, s | 10 | 11 |
+| py-spy: waiting on the inference server | 82% | 83% |
+
+Reading: the Rust-owned state is not a lever on the eval path, and the
+kill criterion of plan 1.2 (a speed claim needs the wall to move)
+applies. The reason is the same one the observation kernel ran into
+(see "The observation kernel and the CPU budget"): with the shared
+server, a worker spends over four fifths of its wall waiting for a
+forward, so removing worker Python moves nothing. The lone game is
+about 5% SLOWER with the core because the Python view is rebuilt from
+the core after every command (`to_state` 0.6% of the lone game's
+samples, `unit_from_fields` 0.3%) while the policies still read that
+view. `WESNOTH_RUST_CORE` therefore stays default off on this path;
+the place the per-call numbers above can pay is the pool, where a
+search forks and steps many times per served forward (measured under
+"Phase 1's exit: the pool in the relevant-set basis").
+
+## Phase 1's exit: the pool in the relevant-set basis (2026-09-12, box 50759583, RTX A4000, 30.7-core quota)
+
+`scripts/phase1_exit_box.sh`, one `tools/bench_pool.py` iteration per
+arm as the az legs ran it (plain PUCT, 32 evaluations, leaf batch 16,
+19 actors, one ladder game each, max 30 turns, 25-minute cap). The
+"az legs' configuration" arm turns off what phase 1 committed (server
+priors, bf16 on the server, the packed varlen trunk and embed); the
+others are today's defaults. Records:
+`training/metrics/bench_pipeline/phase1_exit_20260912/`.
+
+| arm | basis | state of record | saturated leaves/s | iteration leaves/s | games/h | games/$ | tokens/leaf | games done |
+|---|---|---|---|---|---|---|---|---|
+| az legs' configuration | full board | Python | 64.8 | 60.9 | 2.2 | 13.9 | 1,176 | 1 of 19 (at the cap) |
+| today's defaults | full board | Python | 441.2 | 327.9 | 72.8 | 455 | 1,234 | 19 of 19 |
+| today's defaults | relevant set | Python | 1,050.8 | 422.4 | 125.1 | 782 | 354 | 19 of 19 |
+| today's defaults, repeat | relevant set | Python | 1,102.5 | 690.7 | 236.4 | 1,478 | 288 | 19 of 19 |
+| today's defaults | relevant set | Rust core | 1,045.7 | 466.7 | 137.7 | 861 | 308 | 19 of 19 |
+| today's defaults, repeat | relevant set | Rust core | 1,003.8 | 470.7 | 163.1 | 1,019 | 305 | 19 of 19 |
+
+**Read the saturated column, not the iteration column.** The two
+repeats of one configuration (rows 3 and 4, identical flags, identical
+seed) differ by 1.64x in iteration leaves/s and 1.89x in games per
+hour, because the actors under-feed the server and the games they
+happen to play differ in length; the saturated rate, which is the
+server's own throughput while it has work, repeats to within 5% across
+all four relevant-set runs. Any pool claim below about 1.7x on the
+iteration column is noise on this harness.
+
+The baseline arm is ONE run (its repeat was stopped on the user's
+order). Its saturated column is the safer of its two numbers: at that
+configuration the server runs at 80% GPU and is the binding constraint,
+so its rate is a machine property rather than a game-composition
+artifact.
+
+Phase 1's exit criterion was at least 10x more searched games per
+dollar at a fixed search budget. Same box, same search budget, on the
+stable measure: **64.8 -> ~1,050 saturated leaf evaluations per second,
+16x**, of which 6.8x is the configuration (server priors, bf16, packed
+trunk and embed) and 2.4x the relevant-set basis. End-to-end games per
+dollar moved 13.9 -> 782-1,478, but the baseline's 13.9 is a lower
+bound (it finished 1 of 19 games inside the cap, with the idle tail
+counted), so the 16x is the number to quote.
+
+What this does not say: the A4000 cannot judge plan 1.3's target of
+3,000 leaves/s per 4090 for the 15M net. It says the target's
+prerequisite held -- the relevant-set basis cut tokens per leaf from
+about 1,200 to about 300 and the saturated rate rose 2.4x with it.
+Confirming the 3,000 on a 4090 is a 30-minute run, about $0.25.
+
+The Rust-owned state (`WESNOTH_RUST_CORE=1`) shows no effect here
+either: its two runs (1,045.7 and 1,003.8 saturated) sit inside the
+Python runs' band (1,050.8 and 1,102.5). Its per-call wins (see "Per
+call: the Rust-owned state against the Python state") are real but
+small against a pool whose ceiling is the server; default stays off.
+
 ## Serve thread host cost per 16-leaf batch (2026-09-05, box 49875606)
 
 The serve stats now split the host milliseconds per batch (records

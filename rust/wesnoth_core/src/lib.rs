@@ -17,6 +17,13 @@ use std::collections::BinaryHeap;
 mod encode;
 mod observe;
 mod combat;
+mod core;
+mod core_step;
+mod core_move;
+mod core_attack;
+mod core_observe;
+mod core_encode;
+mod core_sim;
 
 /// Movement cost >= this is Wesnoth's UNREACHABLE sentinel
 /// (movetype.hpp: UNREACHABLE = 99).
@@ -206,7 +213,7 @@ fn unit_reach_arrays<'py>(
 /// reach context alone; the relevant hex set is the union of the rows
 /// (visibility.relevant_hex_positions, part a).
 #[allow(clippy::too_many_arguments)]
-fn landable_rows(
+pub(crate) fn landable_rows(
     nbrs: &[i64],
     type_mcost: &[i64],
     type_dsub: &[i64],
@@ -502,6 +509,7 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(observe::observe_side, m)?)?;
     m.add_function(wrap_pyfunction!(combat::resolve_attack, m)?)?;
     m.add_function(wrap_pyfunction!(combat::random_int, m)?)?;
-    m.add("__phase__", 6)?;
+    m.add_class::<core::GameCore>()?;
+    m.add("__phase__", 8)?;
     Ok(())
 }

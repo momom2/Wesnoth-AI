@@ -169,8 +169,13 @@ def test_fork_alias_contract():
     (2026-07-29 audit). If this test fails after a deepcopy change,
     update BOTH the fast-path docstrings and the audit conclusion --
     aliasing more is a perf choice that widens the mutation attack
-    surface; aliasing less is safe but slower."""
-    sim = fresh_scenario_sim(0, scenario_id=_AETHERMAW)
+    surface; aliasing less is safe but slower.
+
+    The list is the PYTHON state of record's, so the sim is pinned to
+    it. On the Rust-owned state (docs/rust_port_plan.md 4) a fork
+    shares no unit object at all -- the safe side of the same
+    trade-off, asserted in tests/test_game_core.py."""
+    sim = fresh_scenario_sim(0, scenario_id=_AETHERMAW, use_core=False)
     fork = sim.fork()
     m, fm = sim.gs.map, fork.gs.map
     gi, fgi = sim.gs.global_info, fork.gs.global_info

@@ -58,6 +58,7 @@ Or for AI-vs-AI:
 from __future__ import annotations
 
 import gzip
+import os
 import json
 import logging
 import sys
@@ -350,6 +351,16 @@ def request_seed(request_id: int) -> str:
 _RECRUIT_COSTS_CACHE: Dict[str, int] = {}
 
 
+def core_enabled() -> bool:
+    """The Rust-owned state as the simulator's state of record
+    (docs/rust_port_plan.md phase 4): the wheel carries GameCore and
+    WESNOTH_RUST_CORE is not 0. Off by default until certified."""
+    if os.environ.get("WESNOTH_RUST_CORE", "0") == "0":
+        return False
+    from wesnoth_ai.game_core import game_core_class
+    return game_core_class() is not None
+
+
 def _recruit_cost_for(unit_type: str) -> int:
     """Look up the recruit cost (gold) for a unit type from
     `unit_stats.json`. Returns 14 (the smallfoot/orcishfoot Footpad
@@ -418,6 +429,12 @@ class WesnothSim:
     """One self-play game running fully in-process. Bit-exact game
     logic via the existing replay-reconstruction code."""
 
+    # Class defaults so an instance built without __init__ (fork(),
+    # test helpers that only exercise one method) reads a Python
+    # state of record rather than raising on a missing attribute.
+    core = None                                # the Rust-owned state (CoreState) or None
+    _gs: Optional[GameState] = None
+
     # Hard caps to prevent infinite games. The values are tuned for
     # competitive 2p maps where a typical game ends in 20-40 turns and
     # ~150-300 player actions per side.
@@ -441,7 +458,9 @@ class WesnothSim:
         begin_side: int = 1,
         no_progress_turns: int = 0,
         begin_turn: bool = True,
+        use_core: Optional[bool] = None,
     ):
+        self.core = None                       # the Rust-owned state (CoreState) or None
         self.gs = initial_state
         self.scenario_id = scenario_id
         self.max_turns = max_turns
@@ -467,6 +486,9 @@ class WesnothSim:
         # unit placement (CoB statues) must not double-apply.
         if apply_scenario_events:
             _setup_scenario_events(self.gs, scenario_id)
+        if use_core if use_core is not None else core_enabled():
+            from wesnoth_ai.game_core import CoreState
+            self.core = CoreState.from_state(self._gs)
 
         self.done:      bool = False
         self.winner:    int  = 0
@@ -593,12 +615,108 @@ class WesnothSim:
     # ----- public stepping API ---------------------------------------
 
     @property
+    def gs(self) -> GameState:
+        """The game state. With the core it is one Python view object
+        for the life of the sim, refreshed in place after every
+        command (built on first use for a fork): read it, never
+        mutate it (the mutating entry points are methods of this
+        class)."""
+        if self.core is not None and self._gs is None:
+            self._gs = self.core.to_state()
+        return self._gs
+
+    @gs.setter
+    def gs(self, value: GameState) -> None:
+        self._gs = value
+        if getattr(self, "core", None) is not None:
+            from wesnoth_ai.game_core import CoreState
+            self.core = CoreState.from_state(value)
+
+    def _refresh_view(self) -> None:
+        """After a core command: the view object takes the core's
+        content in place, so every holder of `sim.gs`, its map, its
+        sides or its global info reads the current state."""
+        if self.core is None or self._gs is None:
+            return
+        fresh = self.core.to_state()
+        view = self._gs
+        view.map.units.clear()
+        view.map.units.update(fresh.map.units)
+        if fresh.map.hexes is not view.map.hexes:
+            view.map.hexes, view.map.mask, view.map.fog = fresh.map.hexes, fresh.map.mask, fresh.map.fog
+        view.sides[:] = fresh.sides
+        view.global_info.__dict__.clear()
+        view.global_info.__dict__.update(fresh.global_info.__dict__)
+        view.game_over, view.winner = fresh.game_over, fresh.winner
+
+    @property
     def state(self) -> GameState:
         return self.gs
 
     @property
     def current_side(self) -> int:
-        return self.gs.global_info.current_side
+        if self.core is not None:
+            return int(self.core.core.current_side)
+        return self._gs.global_info.current_side
+
+    @property
+    def turn_number(self) -> int:
+        if self.core is not None:
+            return int(self.core.core.turn_number)
+        return self._gs.global_info.turn_number
+
+    def _progress_fingerprint(self):
+        """(unit count, hit points in play, village owners) for the
+        no-progress tracker."""
+        if self.core is not None:
+            return self.core.core.progress_fingerprint()
+        gs = self._gs
+        owners = getattr(gs.global_info, "_village_owner", None) or {}
+        return (len(gs.map.units), sum(u.current_hp for u in gs.map.units), dict(owners))
+
+    def _set_current_side(self, side: int) -> None:
+        if self.core is not None:
+            self.core.core.set_global_int("current_side", int(side))
+            self._refresh_view()
+        else:
+            self._gs.global_info.current_side = side
+
+    def _set_advance_salt(self, salt: str) -> None:
+        if self.core is not None:
+            self.core.core.set_advance_salt(salt)
+            self._refresh_view()
+        else:
+            self._gs.global_info._advance_salt = salt
+
+    def _clear_checkup_strikes(self) -> None:
+        """The last attack's strike records, consumed by the recorder."""
+        if self.core is not None:
+            self.core.core.set_last_checkup_strikes([])
+            self._refresh_view()
+        else:
+            setattr(self._gs.global_info, "_last_checkup_strikes", None)
+
+    def _clear_advance_events(self) -> None:
+        """The advancement events of the last attack, consumed by the
+        command recorder (one [choose] per event in exports)."""
+        if self.core is not None:
+            self.core.core.clear_last_advance_events()
+            self._refresh_view()
+        else:
+            setattr(self._gs.global_info, "_last_advance_events", [])
+
+    def reject_recruit_hex(self, x: int, y: int) -> None:
+        """A recruit bounced on (x, y) this turn (the god-view occupied
+        hex a harness discovers): the per-turn rejection set the
+        legality mask and the encoder read."""
+        if self.core is not None:
+            self.core.core.add_recruit_rejected(int(x), int(y))
+            self._refresh_view()
+            return
+        gi = self._gs.global_info
+        rejected = getattr(gi, "_recruit_rejected_hexes", None) or set()
+        rejected.add((x, y))
+        setattr(gi, "_recruit_rejected_hexes", rejected)
 
     def fork(self) -> "WesnothSim":
         """Cheap clone for MCTS-style branching. Deepcopies the
@@ -614,7 +732,12 @@ class WesnothSim:
         aliased."""
         import copy as _copy
         out = WesnothSim.__new__(WesnothSim)
-        out.gs = _copy.deepcopy(self.gs)
+        out.core = None
+        if self.core is not None:
+            out.core = self.core.fork()
+            out._gs = None                   # the fork's view is built on first use
+        else:
+            out._gs = _copy.deepcopy(self._gs)
         out.scenario_id = self.scenario_id
         out.max_turns = self.max_turns
         out.max_actions_per_side = self.max_actions_per_side
@@ -644,9 +767,13 @@ class WesnothSim:
         sync in _step_inner decorrelates those forks. Default OFF, so
         replay reconstruction / diff_replay keep the deterministic path
         ([choose] queue, else targets[0])."""
-        self.gs.global_info._advance_uniform = True
-        if not hasattr(self.gs.global_info, "_advance_counter"):
-            self.gs.global_info._advance_counter = 0
+        if self.core is not None:
+            self.core.core.set_global_int("advance_uniform", 1)
+            self._refresh_view()
+            return
+        self._gs.global_info._advance_uniform = True
+        if not hasattr(self._gs.global_info, "_advance_counter"):
+            self._gs.global_info._advance_counter = 0
 
     def enable_engagement_stats(self):
         """Attach a per-game EngagementStats accumulator to THIS sim.
@@ -662,15 +789,25 @@ class WesnothSim:
         replay_dataset). Plain _apply_command when stats are off."""
         es = getattr(self, "_engagement", None)
         if es is None:
-            _apply_command(self.gs, cmd)
+            if self.core is not None:
+                self.core.apply_command(cmd)
+                self._refresh_view()
+            else:
+                _apply_command(self.gs, cmd)
             return
         from tools.engagement_stats import (clear_event_sink,
                                             set_event_sink)
         set_event_sink(es.on_event)
         try:
-            _apply_command(self.gs, cmd)
+            if self.core is None:
+                _apply_command(self.gs, cmd)
+            elif cmd[0] == "init_side":
+                self.core._python_path(cmd)     # the heal events fire in the Python applier
+            else:
+                self.core.apply_command(cmd)
         finally:
             clear_event_sink()
+        self._refresh_view()
 
     def apply_neutral_attack(self, action: dict) -> bool:
         """Execute one pre-validated NEUTRAL-side attack (side >= 3
@@ -695,7 +832,7 @@ class WesnothSim:
         advance_choices = list(getattr(
             self.gs.global_info, "_last_advance_events", []) or [])
         if advance_choices:
-            setattr(self.gs.global_info, "_last_advance_events", [])
+            self._clear_advance_events()
             extras["advance_choices"] = advance_choices
             es = getattr(self, "_engagement", None)
             if es is not None:
@@ -706,7 +843,7 @@ class WesnothSim:
                           "_last_checkup_strikes", None)
         if strikes:
             extras["checkup_strikes"] = strikes
-            setattr(self.gs.global_info, "_last_checkup_strikes", None)
+            self._clear_checkup_strikes()
         self.command_history.append(RecordedCommand(
             kind="attack", side=side_now, cmd=list(cmd),
             extras=extras))
@@ -792,25 +929,19 @@ class WesnothSim:
         delta)."""
         if self.done:
             return True
-        gi = self.gs.global_info
-        t0 = gi.turn_number
-        n0 = len(self.gs.map.units)
-        hp0 = sum(u.current_hp for u in self.gs.map.units)
-        vo0 = dict(getattr(gi, "_village_owner", None) or {})
+        t0 = self.turn_number
+        fp0 = self._progress_fingerprint()
         over = self._step_inner(action)
-        gi = self.gs.global_info
-        progressed = (
-            len(self.gs.map.units) != n0
-            or sum(u.current_hp for u in self.gs.map.units) < hp0
-            or dict(getattr(gi, "_village_owner", None) or {}) != vo0)
+        fp1 = self._progress_fingerprint()
+        progressed = fp1[0] != fp0[0] or fp1[1] < fp0[1] or fp1[2] != fp0[2]
         if progressed:
-            quiet = max(0, gi.turn_number - self._last_progress_turn - 1)
+            quiet = max(0, self.turn_number - self._last_progress_turn - 1)
             if quiet >= 3:
                 self._quiet_resumed.append(quiet)
-            self._last_progress_turn = gi.turn_number
-        elif gi.turn_number > t0:
+            self._last_progress_turn = self.turn_number
+        elif self.turn_number > t0:
             # A turn boundary passed without progress this step.
-            quiet = max(0, gi.turn_number - self._last_progress_turn - 1)
+            quiet = max(0, self.turn_number - self._last_progress_turn - 1)
             self._max_quiet = max(self._max_quiet, quiet)
             if (self.no_progress_turns > 0 and not self.done
                     and quiet >= self.no_progress_turns):
@@ -824,8 +955,7 @@ class WesnothSim:
         """Per-game tracker readout for telemetry / offline
         evaluation of candidate K values. `tail_quiet` is the quiet
         streak the game ENDED on (never resumed)."""
-        tail = max(0, self.gs.global_info.turn_number
-                   - self._last_progress_turn - 1)
+        tail = max(0, self.turn_number - self._last_progress_turn - 1)
         return {
             "max_quiet": max(self._max_quiet, tail),
             "tail_quiet": tail,
@@ -841,8 +971,9 @@ class WesnothSim:
         # before stepping) sample INDEPENDENT advancement targets rather
         # than the live game's choice. Only when the channel is enabled;
         # no-op for live sims (empty salt) and reconstruction.
-        if getattr(self.gs.global_info, "_advance_uniform", False):
-            self.gs.global_info._advance_salt = self._seed_salt
+        if (getattr(self.gs.global_info, "_advance_uniform", False)
+                and getattr(self.gs.global_info, "_advance_salt", "") != self._seed_salt):
+            self._set_advance_salt(self._seed_salt)
 
         _es = getattr(self, "_engagement", None)
         if _es is not None and action.get("type") == "attack":
@@ -993,7 +1124,7 @@ class WesnothSim:
                 # the turn are still visible here and may re-hide
                 # afterwards (user spec 2026-07-12).
                 _es.note_end_turn(self.gs, side_now)
-            _apply_command(self.gs, ["end_turn"])
+            self._apply_with_stats(["end_turn"])
             _et_extras: dict = {}
             _note = getattr(self, "_forced_end_turn_note", None)
             if _note is not None and action.get("type") != "end_turn":
@@ -1051,8 +1182,7 @@ class WesnothSim:
                         # observation, GameOutcome) indexes by
                         # player side. Point it at the survivor.
                         if self.winner in (1, 2):
-                            self.gs.global_info.current_side = \
-                                self.winner
+                            self._set_current_side(self.winner)
             if not self.done:
                 self._begin_side_turn(next_side)
         else:
@@ -1088,8 +1218,7 @@ class WesnothSim:
                     self.gs.global_info, "_last_advance_events", [])
                     or [])
                 if advance_choices:
-                    setattr(self.gs.global_info,
-                            "_last_advance_events", [])
+                    self._clear_advance_events()
                     extras["advance_choices"] = advance_choices
                     if _es is not None:
                         for _adv_side, _ in advance_choices:
@@ -1107,8 +1236,7 @@ class WesnothSim:
                                   "_last_checkup_strikes", None)
                 if strikes:
                     extras["checkup_strikes"] = strikes
-                    setattr(self.gs.global_info,
-                            "_last_checkup_strikes", None)
+                    self._clear_checkup_strikes()
             self.command_history.append(RecordedCommand(
                 kind=cmd[0], side=side_now, cmd=list(cmd), extras=extras))
 
@@ -1186,6 +1314,10 @@ class WesnothSim:
         for the whole turn; source check 2026-07-17 showed the
         engine has no such rule.)
         """
+        if self.core is not None:
+            self.core.core.refresh_uncovered(current_side)
+            self._refresh_view()
+            return
         uncovered: set = getattr(
             self.gs.global_info, "_uncovered_units", None) or set()
         for u in list(self.gs.map.units):
@@ -1248,6 +1380,12 @@ class WesnothSim:
 
         Raises AssertionError with enough context to debug.
         """
+        if self.core is not None:
+            bad = self.core.core.invariant_violation()
+            if bad is not None:
+                raise AssertionError(f"sim invariant: {bad} (after cmd={after_cmd!r}, "
+                                     f"turn={self.turn_number})")
+            return
         seen_hexes: Dict[Tuple[int, int], str] = {}
         leaders_per_side: Dict[int, List[str]] = {}
         for u in self.gs.map.units:
@@ -1287,7 +1425,10 @@ class WesnothSim:
             return
         # Leader-alive heuristic: a side is alive iff it has at least
         # one canrecruit (leader) unit on the map.
-        sides_alive = {u.side for u in self.gs.map.units if u.is_leader}
+        if self.core is not None:
+            sides_alive = set(self.core.core.leader_sides())
+        else:
+            sides_alive = {u.side for u in self.gs.map.units if u.is_leader}
         if 1 in sides_alive and 2 in sides_alive:
             # Both leaders alive -- check turn / action limits.
             if self.gs.global_info.turn_number > self.max_turns:

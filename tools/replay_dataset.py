@@ -2582,6 +2582,28 @@ def _spawn_plague_corpse(gs: GameState, dead: Unit,
     # what type was spawned. The attacker's variation never
     # propagates -- it can't, because the spawn type comes from the
     # plague special, not from the attacker.
+    next_uid = (max(
+        (int(u.id[1:]) for u in gs.map.units if u.id.startswith("u") and u.id[1:].isdigit()),
+        default=0,
+    ) + 1)
+    exp_mod = int(getattr(gs.global_info, "_experience_modifier", 100) or 100)
+    spawned = _build_plague_corpse(dead.name, attacker_side, dead.position.x,
+                                   dead.position.y, next_uid, gs.game_id, exp_mod)
+    gs.map.units.add(spawned)
+    # Bump Wesnoth's monotonic next_unit_id counter (plague spawn
+    # creates a fresh uid in Wesnoth too).
+    cur = int(getattr(gs.global_info, "_next_uid_counter", 1) or 1)
+    setattr(gs.global_info, "_next_uid_counter", cur + 1)
+
+
+def _build_plague_corpse(dead_name: str, side: int, x: int, y: int,
+                         next_uid: int, game_id: str, exp_mod: int) -> Unit:
+    """The Walking Corpse a plague kill of a `dead_name` unit raises
+    for `side` on (x, y): the type and variation of the victim, a
+    fresh recruit that cannot act this turn. The eligibility of the
+    kill is the caller's (`_spawn_plague_corpse`, the core's attack
+    kernel)."""
+    dead_stats = _stats_for(dead_name)
     base_type = "Walking Corpse"
     variation = str(dead_stats.get("undead_variation", "")).strip()
     if not variation:
@@ -2603,17 +2625,12 @@ def _spawn_plague_corpse(gs: GameState, dead: Unit,
         log.debug(f"plague: no variation '{variation}' for {base_type}; using base")
         spawn_type = base_type
 
-    next_uid = (max(
-        (int(u.id[1:]) for u in gs.map.units if u.id.startswith("u") and u.id[1:].isdigit()),
-        default=0,
-    ) + 1)
-    exp_mod = int(getattr(gs.global_info, "_experience_modifier", 100) or 100)
     corpse = _build_recruit_unit(
         spawn_type,
-        side=attacker_side,
-        x=dead.position.x, y=dead.position.y,
+        side=side,
+        x=x, y=y,
         next_uid=next_uid,
-        game_id=gs.game_id,
+        game_id=game_id,
         trait_seed_hex="",
         exp_modifier=exp_mod,
     )
@@ -2626,11 +2643,9 @@ def _spawn_plague_corpse(gs: GameState, dead: Unit,
         has_attacked=True,
         statuses=new_statuses,
     )
-    gs.map.units.add(spawned)
-    # Bump Wesnoth's monotonic next_unit_id counter (plague spawn
-    # creates a fresh uid in Wesnoth too).
-    cur = int(getattr(gs.global_info, "_next_uid_counter", 1) or 1)
-    setattr(gs.global_info, "_next_uid_counter", cur + 1)
+    return spawned
+
+
 
 
 def _capture_village(gs: GameState, x: int, y: int, capturing_side: int) -> None:

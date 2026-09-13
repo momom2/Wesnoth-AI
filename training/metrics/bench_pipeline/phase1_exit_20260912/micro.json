@@ -1,0 +1,12 @@
+{
+ "states": 8,
+ "repeat": 40,
+ "fork_py_ms": 0.0494,
+ "fork_core_ms": 0.0188,
+ "step_py_ms": 0.3606,
+ "step_core_ms": 0.0495,
+ "encode_py_ms": 0.5455,
+ "encode_core_ms": 0.1995,
+ "units": 20.5,
+ "hexes": 849.0
+}

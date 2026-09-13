@@ -186,36 +186,83 @@ macros actually shipped. Records: eval_games/rust_corpus_cert/.
    reconstruct clean with the kernel on and off, the two sweeps
    identical (214 and 223 s of wall on 48 shards: combat is not
    where reconstruction spends its time). Default on since.
-3b. **The step over flat arrays** (next): healing at init_side
-   (healers, curers, regeneration, villages, rest, poison, the
-   turn's events fired first), village capture with income and
-   upkeep, the move walk (path validity, fog discovery, ambush stops)
-   and the attack's aftermath (experience, advancement through the
-   unit-type table, plague corpses) as kernels over the arrays the
-   observation already builds, the Python GameState still canonical.
-   Each kernel lands behind a flag with the corpus sweep as its
-   certificate. The phase-1 lesson applies: a step kernel that
-   marshals the whole state per call pays more than it saves, so 3b
-   ports only what the observation's arrays already hold, and the
-   rest waits for 4.
-4. **GameState in Rust + cheap fork**: a `GameCore` owning the map
-   (geometry and terrain codes, static per map), the village owners,
-   the units (a unit-type table for stats, weapons, abilities,
-   movetype costs and defenses, advancements; per-unit state as a
-   struct) and the sides; `fork` is a clone. Actions apply in Rust
-   (3a and 3b inside); the observation, the streams and the mask rows
-   are methods over the core's own arrays, so the marshaling of
-   phases 1-3 disappears. Scenario events (tools/scenario_events.py,
-   map-specific, once per turn) stay Python and run on a Python
-   view of the core at init_side. Certification: the corpus sweep
-   applied through the core with the Python-applied state compared
-   field by field after every command (`GameCore.to_python`), the
-   encoding byte-identity and mask parity suites on the core's
-   arrays, the self-play determinism tests. Largest payoff (no
-   deepcopy, no per-decision Python object walks; turn-level search
-   simulates whole turns per leaf), largest surgery: the sim's rules
-   live in ~12k lines of Python (replay_dataset, wesnoth_sim,
-   abilities, scenario_events, terrain_resolver).
+3b/4. **The Rust-owned state and its step kernels** (2026-09-12,
+   user order "complete the port"; `rust/wesnoth_core/src/core*.rs`,
+   `wesnoth_ai/game_core.py`, `tools/diff_core.py`). Phase 3b's
+   kernels over flat arrays were skipped: with the state in Rust the
+   commands apply on the state itself and nothing is marshaled.
+   `GameCore` holds the units (a record per unit; the unit-type table
+   for stats, weapons, abilities, advancements; the movement classes,
+   one per unit type, slowed status and defense table: the
+   pathfinder's cost arrays and the resolver's defense percentage on
+   every hex), the sides, the turn scalars, the village owners, the
+   uncovered hiders, the rejection sets, the advancement queue and
+   the recorder's side channels; the map's static facts (geometry,
+   castle and village flags, terrain healing and light, time areas,
+   the encoder's slot order) are built once per hex set by Python and
+   shared across forks behind `Arc`. `fork` is a clone.
+   Commands in Rust: init_side (healing, the move refresh, income and
+   upkeep), end_turn, move (`walk_move_path` with the hide cover,
+   discovery by adjacency, the sight disc and the units a side sees,
+   the village capture), attack (`build_attack_context` and
+   `_to_combat_unit` over the records, the combat kernel of 3a, the
+   outcome on both units, feeding, deaths, plague eligibility) and
+   recruit (the unit from the Python builder with its trait roll, the
+   gold and the uid counter in Rust). Python keeps what constructs
+   units: recruits, advancements (`_maybe_advance_unit` on a carrier
+   holding the unit and the advancement globals) and plague corpses
+   (`_build_plague_corpse`), the scenario events (an init_side while
+   the scenario still has an event that can fire runs on a Python
+   view of the core, and a terrain morph rebuilds the core) and the
+   rare pickadvance and recall commands (the same view path). The
+   observation (`GameCore.observe`, the arrays of `observe.observe`)
+   and the encoding (`GameCore.encode_streams`, every array of
+   `encoder.encode_raw` in either basis) are methods over the core's
+   own records; `CoreState.observe` / `CoreState.encode_raw` wrap
+   them.
+   `WesnothSim(use_core=True)` (default from `WESNOTH_RUST_CORE`,
+   off until the timing below says on) keeps the core as the state
+   of record: `sim.gs` is one Python view object refreshed in place
+   after every command (built on first use for a fork), so every
+   holder of the state, its map, its sides or its global info reads
+   the current state; the mutating entry points are sim methods
+   (`reject_recruit_hex`, `enable_uniform_advancement`, the
+   recorder's clears). The action translation, the neutral side's
+   turn and the policies still read the view.
+   Certified 2026-09-12 on a box (records:
+   `training/metrics/bench_pipeline/core_step_20260912/`):
+   tools/diff_core.py replays the whole imitation corpus through the
+   core and through the Python applier and compares the two states
+   field by field after every command: 17,039 of 17,039 replays
+   clean, 5,475,904 commands applied in Rust (3,023,243 moves,
+   1,079,833 attacks, 467,264 recruits, 430,620 init_sides, 474,944
+   end_turns) and 63,760 through the view (61,331 init_sides on maps
+   with events, 2,429 pickadvances), 825 s of wall on 28 shards
+   (`scripts/diff_core_box.sh`). The first full sweep found one
+   defect, a unit-less view kept across a terrain morph that gave
+   post-morph recruits pre-morph movement costs (2 Aethermaw
+   replays); the round-trip of the first sample found the per-unit
+   attributes the stash must carry. tests/test_game_core.py: the
+   round trip, fork isolation and the state key, init_side and
+   end_turn against the applier, the lawful bonus, three replays
+   through the move and attack kernels, the observation equal to
+   `observe` and the encoding byte-identical to `encode_raw` on
+   harvested and replay states (both sides, fog on and off, both
+   bases, the enemy-village gate), and twin simulators (the Python
+   state of record against the core) playing identical games under
+   a fighting driver and the dummy policy, extras included; the
+   determinism and fork-isolation suites pass with it.
+   Measured 2026-09-12 (docs/box_specs.md "Per call: the Rust-owned
+   state against the Python state"): per call, fork 0.049 -> 0.019 ms,
+   one move 0.361 -> 0.050 ms, an encode in the relevant-set basis
+   0.546 -> 0.200 ms, which is plan step 1.2's acceptance met. On the
+   EVAL path it buys nothing (`scripts/core_sim_box.sh`: a 40-game
+   match 49 s against 49 s, a lone game 10 s against 11 s) because
+   that path waits on the inference server for over four fifths of
+   its wall, and the lone game pays about 5% for rebuilding the
+   Python view after every command. Default off
+   (`WESNOTH_RUST_CORE=1` to enable); the pool is where the per-call
+   numbers can pay, measured as phase 1's exit.
 
 ## Build/dev
 

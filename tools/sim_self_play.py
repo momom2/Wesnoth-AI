@@ -392,13 +392,7 @@ def play_one_game(
         # The pre-check is cheap: a single pass over gs.map.units.
         while _would_recruit_bounce(action, sim.gs):
             tgt = action["target_hex"]
-            rejected = (
-                getattr(sim.gs.global_info,
-                        "_recruit_rejected_hexes", None) or set()
-            )
-            rejected.add((tgt.x, tgt.y))
-            setattr(sim.gs.global_info,
-                    "_recruit_rejected_hexes", rejected)
+            sim.reject_recruit_hex(tgt.x, tgt.y)
             log.debug(
                 f"recruit rejected: {action.get('unit_type')!r} on "
                 f"({tgt.x},{tgt.y}) (god-view occupied); "

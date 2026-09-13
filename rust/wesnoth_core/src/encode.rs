@@ -35,11 +35,11 @@ const RECRUIT_STAT_COLS: usize = 5;
 /// owner code (1 ours, 2 another side's, 0 neutral), owner visible.
 const VILLAGE_ENTRY_COLS: usize = 3;
 /// encoder.py NUM_HEX_MODIFIERS / NUM_HEX_DYNAMIC_FLAGS / GLOBAL_FEAT_DIM.
-const NUM_HEX_MODIFIERS: usize = 3;
-const NUM_HEX_DYNAMIC_FLAGS: usize = 3;
-const GLOBAL_FEAT_DIM: usize = 6;
+pub(crate) const NUM_HEX_MODIFIERS: usize = 3;
+pub(crate) const NUM_HEX_DYNAMIC_FLAGS: usize = 3;
+pub(crate) const GLOBAL_FEAT_DIM: usize = 6;
 /// Order of the `norms` argument (encoder.py's module values).
-const NUM_NORMS: usize = 8;
+pub(crate) const NUM_NORMS: usize = 8;
 
 /// Normalization divisors, in `norms` order.
 struct Norms {
@@ -192,10 +192,31 @@ type StreamArrays<'py> = (
     Bound<'py, PyArray2<f32>>,
 );
 
-/// Every numpy array of RawEncoded from the facts Python gathered.
+/// The arrays of `encode_raw_streams` before they become numpy
+/// (the core's encoder builds them from its own state, core_encode.rs).
+pub(crate) struct Composed {
+    pub u: usize,
+    pub r: usize,
+    pub feat_dim: usize,
+    pub modifier_flags: Vec<f32>,   // [H*3]
+    pub dynamic_flags: Vec<f32>,    // [H*3]
+    pub is_ours: Vec<f32>,
+    pub type_ids: Vec<i64>,
+    pub side_ids: Vec<i64>,
+    pub xs: Vec<i64>,
+    pub ys: Vec<i64>,
+    pub feats: Vec<f32>,            // [U*feat_dim]
+    pub r_ids: Vec<i64>,
+    pub lx: i64,
+    pub ly: i64,
+    pub r_feats: Vec<f32>,          // [R*feat_dim]
+    pub global_feats: Vec<f32>,
+}
+
+/// Every RawEncoded array from the gathered facts, over slices.
 ///
 /// Inputs (H hexes, U units, R recruits, C village candidates):
-///   static_modifier_flags [H, 3] f32 -- the cached static hex bits;
+///   static_modifier_flags [H*3] f32 -- the cached static hex bits;
 ///                         copied, column 0 set per owner visibility.
 ///   village_entries [C*3] i64 -- (slot, owner code, owner visible).
 ///   rejected_slots  [K]   i64 -- hexes a recruit bounced on this turn.
@@ -209,51 +230,34 @@ type StreamArrays<'py> = (
 ///   norms [8] f64 -- HP, MOVES, EXP, COST, GOLD, INCOME, VILLAGES,
 ///                         TURN divisors.
 ///   map_limit -- MAX_MAP_SIZE - 1; num_alignments -- one-hot width.
-///
-/// Returns ((hex_modifier_flags, hex_dynamic_flags),
-///          (unit_is_ours, unit_type_ids, unit_side_ids, unit_xs,
-///           unit_ys, unit_feats),
-///          (recruit_is_ours, recruit_type_ids, recruit_side_ids,
-///           recruit_xs, recruit_ys, recruit_feats),
-///          global_feats).
-#[pyfunction]
 #[allow(clippy::too_many_arguments)]
-pub fn encode_raw_streams<'py>(
-    py: Python<'py>,
-    static_modifier_flags: PyReadonlyArray2<'py, f32>,
-    village_entries: PyReadonlyArray1<'py, i64>,
-    rejected_slots: PyReadonlyArray1<'py, i64>,
-    unit_ints: PyReadonlyArray1<'py, i64>,
-    unit_stats: PyReadonlyArray1<'py, f64>,
-    recruit_type_ids: PyReadonlyArray1<'py, i64>,
-    recruit_stats: PyReadonlyArray1<'py, f64>,
+pub(crate) fn compose_streams(
+    static_modifier_flags: &[f32],
+    h: usize,
+    village_entries: &[i64],
+    rejected_slots: &[i64],
+    unit_ints: &[i64],
+    unit_stats: &[f64],
+    recruit_type_ids: &[i64],
+    recruit_stats: &[f64],
     leader_x: i64,
     leader_y: i64,
     globals: [f64; GLOBAL_FEAT_DIM],
     norms: [f64; NUM_NORMS],
     map_limit: i64,
     num_alignments: usize,
-) -> PyResult<(
-    HexArrays<'py>,
-    StreamArrays<'py>,
-    StreamArrays<'py>,
-    Bound<'py, PyArray1<f32>>,
-)> {
+) -> PyResult<Composed> {
     let norms = Norms::from_array(norms);
     let feat_dim = UNIT_NUMERIC_FEATS + num_alignments;
 
     // ---- hexes ----
-    let shape = static_modifier_flags.shape();
-    if shape.len() != 2 || shape[1] != NUM_HEX_MODIFIERS {
+    if static_modifier_flags.len() != h * NUM_HEX_MODIFIERS {
         return Err(bad_len("static_modifier_flags"));
     }
-    let h = shape[0];
-    let village_entries = village_entries.as_slice()?;
-    let rejected_slots = rejected_slots.as_slice()?;
     if village_entries.len() % VILLAGE_ENTRY_COLS != 0 {
         return Err(bad_len("village_entries"));
     }
-    let mut modifier_flags = static_modifier_flags.as_slice()?.to_vec();
+    let mut modifier_flags = static_modifier_flags.to_vec();
     let mut dynamic_flags = vec![0f32; h * NUM_HEX_DYNAMIC_FLAGS];
     let slot_of = |v: i64| -> PyResult<usize> {
         if v < 0 || v as usize >= h {
@@ -280,14 +284,8 @@ pub fn encode_raw_streams<'py>(
     for &r in rejected_slots {
         dynamic_flags[slot_of(r)? * NUM_HEX_DYNAMIC_FLAGS] = 1.0;
     }
-    let hex_arrays = (
-        to_array2(py, h, NUM_HEX_MODIFIERS, modifier_flags),
-        to_array2(py, h, NUM_HEX_DYNAMIC_FLAGS, dynamic_flags),
-    );
 
     // ---- units ----
-    let unit_ints = unit_ints.as_slice()?;
-    let unit_stats = unit_stats.as_slice()?;
     if unit_ints.len() % UNIT_INT_COLS != 0 {
         return Err(bad_len("unit_ints"));
     }
@@ -319,19 +317,9 @@ pub fn encode_raw_streams<'py>(
             &mut feats[i * feat_dim..(i + 1) * feat_dim],
         )?;
     }
-    let unit_arrays = (
-        is_ours.into_pyarray(py),
-        type_ids.into_pyarray(py),
-        side_ids.into_pyarray(py),
-        xs.into_pyarray(py),
-        ys.into_pyarray(py),
-        to_array2(py, u, feat_dim, feats),
-    );
 
     // ---- recruits: the mover's own list only, phantoms at its
     // leader's position ----
-    let recruit_type_ids = recruit_type_ids.as_slice()?;
-    let recruit_stats = recruit_stats.as_slice()?;
     let r = recruit_type_ids.len();
     if recruit_stats.len() != r * RECRUIT_STAT_COLS {
         return Err(bad_len("recruit_stats"));
@@ -347,16 +335,76 @@ pub fn encode_raw_streams<'py>(
             &mut r_feats[i * feat_dim..(i + 1) * feat_dim],
         )?;
     }
-    let recruit_arrays = (
-        vec![1f32; r].into_pyarray(py),
-        recruit_type_ids.to_vec().into_pyarray(py),
-        vec![0i64; r].into_pyarray(py),
-        vec![lx; r].into_pyarray(py),
-        vec![ly; r].into_pyarray(py),
-        to_array2(py, r, feat_dim, r_feats),
-    );
+    let global_feats = global_feature_row(&globals, &norms);
+    Ok(Composed {
+        u, r, feat_dim, modifier_flags, dynamic_flags, is_ours, type_ids, side_ids, xs, ys, feats,
+        r_ids: recruit_type_ids.to_vec(), lx, ly, r_feats, global_feats,
+    })
+}
 
-    let global_feats = global_feature_row(&globals, &norms).into_pyarray(py);
+/// Every numpy array of RawEncoded from the facts Python gathered
+/// (`compose_streams` over numpy inputs; the argument doc is there).
+///
+/// Returns ((hex_modifier_flags, hex_dynamic_flags),
+///          (unit_is_ours, unit_type_ids, unit_side_ids, unit_xs,
+///           unit_ys, unit_feats),
+///          (recruit_is_ours, recruit_type_ids, recruit_side_ids,
+///           recruit_xs, recruit_ys, recruit_feats),
+///          global_feats).
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+pub fn encode_raw_streams<'py>(
+    py: Python<'py>,
+    static_modifier_flags: PyReadonlyArray2<'py, f32>,
+    village_entries: PyReadonlyArray1<'py, i64>,
+    rejected_slots: PyReadonlyArray1<'py, i64>,
+    unit_ints: PyReadonlyArray1<'py, i64>,
+    unit_stats: PyReadonlyArray1<'py, f64>,
+    recruit_type_ids: PyReadonlyArray1<'py, i64>,
+    recruit_stats: PyReadonlyArray1<'py, f64>,
+    leader_x: i64,
+    leader_y: i64,
+    globals: [f64; GLOBAL_FEAT_DIM],
+    norms: [f64; NUM_NORMS],
+    map_limit: i64,
+    num_alignments: usize,
+) -> PyResult<(
+    HexArrays<'py>,
+    StreamArrays<'py>,
+    StreamArrays<'py>,
+    Bound<'py, PyArray1<f32>>,
+)> {
+    let shape = static_modifier_flags.shape();
+    if shape.len() != 2 || shape[1] != NUM_HEX_MODIFIERS {
+        return Err(bad_len("static_modifier_flags"));
+    }
+    let h = shape[0];
+    let c = compose_streams(
+        static_modifier_flags.as_slice()?, h, village_entries.as_slice()?, rejected_slots.as_slice()?,
+        unit_ints.as_slice()?, unit_stats.as_slice()?, recruit_type_ids.as_slice()?,
+        recruit_stats.as_slice()?, leader_x, leader_y, globals, norms, map_limit, num_alignments,
+    )?;
+    let hex_arrays = (
+        to_array2(py, h, NUM_HEX_MODIFIERS, c.modifier_flags),
+        to_array2(py, h, NUM_HEX_DYNAMIC_FLAGS, c.dynamic_flags),
+    );
+    let unit_arrays = (
+        c.is_ours.into_pyarray(py),
+        c.type_ids.into_pyarray(py),
+        c.side_ids.into_pyarray(py),
+        c.xs.into_pyarray(py),
+        c.ys.into_pyarray(py),
+        to_array2(py, c.u, c.feat_dim, c.feats),
+    );
+    let recruit_arrays = (
+        vec![1f32; c.r].into_pyarray(py),
+        c.r_ids.into_pyarray(py),
+        vec![0i64; c.r].into_pyarray(py),
+        vec![c.lx; c.r].into_pyarray(py),
+        vec![c.ly; c.r].into_pyarray(py),
+        to_array2(py, c.r, c.feat_dim, c.r_feats),
+    );
+    let global_feats = c.global_feats.into_pyarray(py);
     Ok((hex_arrays, unit_arrays, recruit_arrays, global_feats))
 }
 

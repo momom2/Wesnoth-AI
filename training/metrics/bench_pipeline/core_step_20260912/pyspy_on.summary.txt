@@ -1,0 +1,157 @@
+pyspy_on.txt: 1036 samples
+
+== <module> (elo_eval_game.py:904): 892 samples (86%)
+  leaf frames:
+     83.4%  _recv (multiprocessing/connection.py:395)
+      0.9%  _add_reach (wesnoth_ai/observe.py:339)
+      0.7%  _collect_neg_caps (terrain_resolver.py:221)
+      0.6%  to_state (wesnoth_ai/game_core.py:376)
+      0.4%  recv (multiprocessing/connection.py:251)
+      0.4%  _any (numpy/_core/_methods.py:65)
+      0.4%  dumps (multiprocessing/reduction.py:51)
+      0.3%  unit_from_fields (wesnoth_ai/game_core.py:212)
+      0.3%  <dictcomp> (wesnoth_ai/visibility.py:303)
+      0.3%  _terrain_def_pct (replay_dataset.py:891)
+      0.3%  pack_masks (wesnoth_ai/server_priors.py:110)
+      0.2%  _collect_neg_caps (terrain_resolver.py:229)
+      0.2%  _class_id (wesnoth_ai/game_core.py:319)
+      0.2%  select_action (raw_player.py:99)
+      0.2%  _build_legality_masks (wesnoth_ai/action_sampler.py:1468)
+      0.2%  <listcomp> (wesnoth_ai/encoder.py:1658)
+      0.2%  _terrain_arrays_for (pathfind_sim.py:349)
+      0.2%  _build_legality_masks (wesnoth_ai/action_sampler.py:1710)
+      0.2%  build_light_encoded (inference_seam.py:159)
+      0.2%  visible_hexes_for (wesnoth_ai/visibility.py:202)
+      0.2%  observe (wesnoth_ai/observe.py:260)
+      0.2%  _rows_from_observation (wesnoth_ai/action_sampler.py:1416)
+      0.2%  _bits (wesnoth_ai/server_priors.py:105)
+      0.1%  __init__ (<string>:8)
+      0.1%  _add_reach (wesnoth_ai/observe.py:328)
+  innermost project frames:
+     86.8%  <no project frame>
+      1.9%  <listcomp> (wesnoth_ai/game_core.py:321)
+      1.0%  _add_reach (wesnoth_ai/observe.py:339)
+      0.8%  _class_id (wesnoth_ai/game_core.py:317)
+      0.6%  to_state (wesnoth_ai/game_core.py:376)
+      0.3%  unit_from_fields (wesnoth_ai/game_core.py:212)
+      0.3%  <dictcomp> (wesnoth_ai/visibility.py:303)
+      0.3%  _add_reach (wesnoth_ai/observe.py:350)
+      0.3%  pack_masks (wesnoth_ai/server_priors.py:110)
+      0.2%  _add_reach (wesnoth_ai/observe.py:328)
+      0.2%  _class_id (wesnoth_ai/game_core.py:319)
+      0.2%  disc_set (wesnoth_ai/observe.py:178)
+      0.2%  _build_legality_masks (wesnoth_ai/action_sampler.py:1468)
+      0.2%  <listcomp> (wesnoth_ai/encoder.py:1658)
+      0.2%  _build_legality_masks (wesnoth_ai/action_sampler.py:1710)
+      0.2%  visible_hexes_for (wesnoth_ai/visibility.py:202)
+      0.2%  observe (wesnoth_ai/observe.py:260)
+      0.2%  _rows_from_observation (wesnoth_ai/action_sampler.py:1416)
+      0.2%  _bits (wesnoth_ai/server_priors.py:105)
+      0.1%  unit_from_fields (wesnoth_ai/game_core.py:207)
+      0.1%  map_geometry (wesnoth_ai/observe.py:104)
+      0.1%  pack_request (wesnoth_ai/leaf_wire.py:111)
+      0.1%  _aligned (wesnoth_ai/leaf_wire.py:72)
+      0.1%  _occupancy_from_observation (wesnoth_ai/action_sampler.py:1863)
+      0.1%  _occupancy_from_observation (wesnoth_ai/action_sampler.py:1856)
+
+== <module> (elo_eval_game.py:57): 111 samples (11%)
+  leaf frames:
+     42.3%  _call_with_frames_removed (<frozen importlib._bootstrap>:241)
+      7.2%  __init__ (torch/_ops.py:677)
+      6.3%  _compile_bytecode (<frozen importlib._bootstrap_external>:729)
+      5.4%  _create_fn (dataclasses.py:433)
+      5.4%  _joinrealpath (<frozen posixpath>:451)
+      3.6%  impl (torch/library.py:323)
+      2.7%  get_data (<frozen importlib._bootstrap_external>:1130)
+      1.8%  inner (torch/_refs/__init__.py:1026)
+      0.9%  <module> (torch/_library/autograd.py:6)
+      0.9%  activate_meta (torch/_meta_registrations.py:6590)
+      0.9%  define (torch/library.py:146)
+      0.9%  <module> (torch/profiler/profiler.py:25)
+      0.9%  inner (torch/_ops.py:118)
+      0.9%  _make_prim (torch/_prims/__init__.py:308)
+      0.9%  <module> (torch/autograd/forward_ad.py:135)
+      0.9%  verify_matching_signatures (numpy/_core/overrides.py:88)
+      0.9%  register (torch/_library/fake_impl.py:61)
+      0.9%  _is_type (dataclasses.py:720)
+      0.9%  _check_generic (typing_extensions.py:3251)
+      0.9%  _init_module_attrs (<frozen importlib._bootstrap>:563)
+      0.9%  __init__ (torch/_ops.py:678)
+      0.9%  __init__ (torch/_ops.py:658)
+      0.9%  <module> (torch/_weights_only_unpickler.py:73)
+      0.9%  <module> (urllib/request.py:1474)
+      0.9%  __init__ (torch/_ops.py:1018)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== : 17 samples (2%)
+  leaf frames:
+  innermost project frames:
+
+== <genexpr> (wesnoth_ai/observe.py:249): 3 samples (0%)
+  leaf frames:
+     66.7%  _hider_hidden (wesnoth_ai/observe.py:214)
+     33.3%  _hider_hidden (wesnoth_ai/observe.py:216)
+  innermost project frames:
+     66.7%  _hider_hidden (wesnoth_ai/observe.py:214)
+     33.3%  _hider_hidden (wesnoth_ai/observe.py:216)
+
+== <module> (elo_eval_game.py:60): 2 samples (0%)
+  leaf frames:
+     50.0%  _create_fn (dataclasses.py:433)
+     50.0%  _get_field (dataclasses.py:731)
+  innermost project frames:
+     50.0%  <no project frame>
+     50.0%  <module> (wesnoth_ai/encoder.py:1588)
+
+== __init__ (<string>:8): 2 samples (0%)
+  leaf frames:
+     50.0%  unit_from_fields (wesnoth_ai/game_core.py:216)
+     50.0%  unit_from_fields (wesnoth_ai/game_core.py:206)
+  innermost project frames:
+     50.0%  unit_from_fields (wesnoth_ai/game_core.py:216)
+     50.0%  unit_from_fields (wesnoth_ai/game_core.py:206)
+
+== <genexpr> (torch/_ops.py:1017): 1 samples (0%)
+  leaf frames:
+    100.0%  _has_script_object_arg (torch/_ops.py:1003)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== <module> (torch/export/graph_signature.py:490): 1 samples (0%)
+  leaf frames:
+    100.0%  _create_fn (dataclasses.py:433)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== _leaf_arrays (wesnoth_ai/leaf_wire.py:78): 1 samples (0%)
+  leaf frames:
+  innermost project frames:
+
+== <module> (elo_eval_game.py:63): 1 samples (0%)
+  leaf frames:
+    100.0%  _recursive_repr (dataclasses.py:233)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== <listcomp> (wesnoth_ai/game_core.py:212): 1 samples (0%)
+  leaf frames:
+  innermost project frames:
+
+== _tokenize (tokenize.py:602): 1 samples (0%)
+  leaf frames:
+  innermost project frames:
+
+== tqdm.version (tqdm/std.py:1522): 1 samples (0%)
+  leaf frames:
+    100.0%  tqdm (tqdm/std.py:1464)
+  innermost project frames:
+    100.0%  <no project frame>
+
+== <genexpr> (sim_self_play.py:249): 1 samples (0%)
+  leaf frames:
+  innermost project frames:
+
+== <listcomp> (wesnoth_ai/encoder.py:1666): 1 samples (0%)
+  leaf frames:
+  innermost project frames:
