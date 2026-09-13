@@ -115,6 +115,96 @@ def available_mb(root: str = "/sys/fs/cgroup") -> Optional[float]:
     return min(vals) if vals else None
 
 
+# A container's pids controller counts TASKS, i.e. THREADS, not
+# processes. An actor is one process but several tasks (the
+# interpreter, torch's own helpers, the socket reader), so an actor
+# count that looks modest can still exhaust the limit. On 2026-09-04 a
+# run at 38 actors produced ZERO leaves per second for exactly this
+# reason and the rental was wasted; the default actor count has been
+# held under that number ever since, which costs throughput on every
+# box that could take more. Reading the limit turns that guess into a
+# measurement.
+#
+# Tasks per actor is measured on the box by `pids_per_actor()` once
+# the pool is up. Until then this is the budgeting estimate: an actor
+# with `actor_torch_threads=1` still carries the interpreter plus a
+# few runtime helpers.
+PIDS_PER_ACTOR_ESTIMATE = 4
+
+
+def pids_limit(root: str = "/sys/fs/cgroup") -> Optional[int]:
+    """Maximum tasks our cgroup allows, or None when unlimited or
+    unreadable (no cgroup, Windows, bare metal)."""
+    v2 = _read(f"{root}/pids.max")
+    if v2 is None:
+        v2 = _read(f"{root}/pids/pids.max")
+    if v2 is None or v2 == "max":
+        return None
+    try:
+        val = int(v2)
+    except ValueError:
+        return None
+    return None if val >= _V1_UNLIMITED else val
+
+
+def pids_current(root: str = "/sys/fs/cgroup") -> Optional[int]:
+    """Tasks our cgroup is running right now, or None."""
+    cur = _read(f"{root}/pids.current")
+    if cur is None:
+        cur = _read(f"{root}/pids/pids.current")
+    try:
+        return int(cur) if cur is not None else None
+    except ValueError:
+        return None
+
+
+def pids_headroom(reserve: int = 32,
+                  root: str = "/sys/fs/cgroup") -> Optional[int]:
+    """Tasks we may still start before the cgroup refuses, minus a
+    reserve for the processes we have not spawned yet (the inference
+    server's threads, a shell, the uploader). None when there is no
+    limit to respect."""
+    lim = pids_limit(root)
+    cur = pids_current(root)
+    if lim is None or cur is None:
+        return None
+    return max(0, lim - cur - reserve)
+
+
+def max_actors(requested: int, per_actor: int = PIDS_PER_ACTOR_ESTIMATE,
+               reserve: int = 32,
+               root: str = "/sys/fs/cgroup") -> Tuple[int, str]:
+    """(actors we can safely run, one-line reason).
+
+    Returns `requested` unchanged when no pids limit is readable --
+    the caller must not guess a cap from nothing. The reason string is
+    meant to be logged verbatim so a short run tells us what the box
+    allowed, which is how `per_actor` gets calibrated.
+    """
+    head = pids_headroom(reserve, root)
+    if head is None:
+        return requested, "no cgroup pids limit; actor count unclamped"
+    fits = max(1, head // max(1, per_actor))
+    if fits >= requested:
+        return requested, (f"pids headroom {head} tasks fits {requested} actors "
+                           f"at ~{per_actor} tasks each")
+    return fits, (f"pids headroom {head} tasks fits only {fits} actors at "
+                  f"~{per_actor} tasks each, not the {requested} requested "
+                  f"(cgroup limit {pids_limit(root)}, {pids_current(root)} in "
+                  f"use); a run over this limit produces ZERO leaves/s")
+
+
+def pids_per_actor(n_actors: int, baseline: int,
+                   root: str = "/sys/fs/cgroup") -> Optional[float]:
+    """Tasks each actor actually cost, given the task count before the
+    pool started. Log it: it is the only way `PIDS_PER_ACTOR_ESTIMATE`
+    stops being a guess."""
+    cur = pids_current(root)
+    if cur is None or n_actors <= 0:
+        return None
+    return (cur - baseline) / float(n_actors)
+
+
 def vram_free_mb() -> Optional[float]:
     """Free VRAM of GPU 0 via nvidia-smi; None when no GPU/driver."""
     try:

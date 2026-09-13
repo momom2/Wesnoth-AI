@@ -1101,10 +1101,27 @@ One factor, same search budget (plain PUCT, 32 evaluations, leaf batch
 64 actors is 1.68x the rate of 19 and 1.58x the games per dollar, and
 the curve is still rising. The saturated column barely moves, which is
 the point: the server's capacity was always there and the actors were
-not filling it. `az_loop --actors` defaulted to 8; it now defaults to
-32, short of the 64 that measured best, because a 2026-09-04 host hit
-a container pids limit at 38 actors and produced ZERO leaves/s. Raise
-it per box.
+not filling it.
+
+`az_loop --actors` defaulted to 8, then to 24 (this note said 32; the
+code said 24, and since `--games-per-iter` also defaulted to 24 the
+clamp made it 24 either way). It is now **0, meaning "as many as the
+box and the iteration allow"**, because the reason for a low default
+has been removed rather than worked around: a 2026-09-04 host hit a
+container pids limit at 38 actors and produced ZERO leaves/s, so the
+default was held under 38 on every box since, including the ones that
+could take 64. `host_resources.max_actors` now READS that limit
+(`pids.max` / `pids.current`, v2 and v1) and clamps to it, naming the
+numbers in the log; with no readable limit it leaves the count alone
+rather than guessing a cap. The pids controller counts THREADS, not
+processes, which is why an actor count that looks modest can exhaust
+it. Each run also logs the tasks an actor actually cost, so
+`PIDS_PER_ACTOR_ESTIMATE` stops being a guess after the next box.
+
+With actors auto-sized, **`--games-per-iter` is the binding knob**: it
+caps the actor count, and the measured curve was still rising at 64.
+Raising it is a TRAINING change (more games per gradient step), so it
+needs its own decision, not a throughput tweak.
 
 The 2026-09-04 reading that "28 actors gave no more than 19" has aged
 out: the server saturated at 330 leaves/s then, so nothing could fill
@@ -1322,6 +1339,30 @@ both consumers refuse an older one by name. The next box run that
 wants a pre-encoded corpus must re-encode into a fresh `--out`;
 budget one pre-encoding pass (see "The imitation trainer timed").
 Bump the epoch whenever a change alters what a player sees.
+
+## Rejected: making `pos_to_hex` lazy (2026-09-13, measured locally)
+
+`EncodedState.pos_to_hex` is built on every encode and consumed ONLY
+by `action_sampler`'s legality masks and `gbc.py`. The imitation
+trainer does not use it on its loss path (`supervised_train.py`: "NO
+legality mask: the observed action in a human replay is legal by
+construction"), only on the holdout probe, so it looked like free
+waste. The 2026-09-11 py-spy profile put the dictcomp at 2.9% of the
+trainer's samples.
+
+Measured on a 756-hex board: the dictcomp is **0.194 ms of
+`encode_from_raw`'s 2.200 ms, 8.8%** — so about 4% of the imitation
+trainer, and NOTHING on the actor path, where an actor's own Python is
+3 ms of a 27-58 ms cycle that is otherwise spent waiting on the
+server.
+
+**Rejected, because** a lazy mapping has to satisfy `.get`, `[]`,
+`.items()` and `__eq__` across a dozen call sites in
+`_build_legality_masks`, which runs on every actor decision. Risking
+the hot legality path for 4% of one trainer is the wrong trade. Revisit
+only if a FRESH profile of the imitation trainer shows the encode
+dominating again; the 2026-09-11 profile predates both the batched
+flow and the coalesced transfers and should not be re-cited.
 
 ## Serve thread host cost per 16-leaf batch (2026-09-05, box 49875606)
 

@@ -134,9 +134,11 @@ anyway, ordered by what the measurements say is binding:
     (wesnoth_ai/combat.py:635).
   * `_modify_unit_action` mutates a fork-shared Unit in place
     (tools/scenario_events.py:1147), the bug class
-    tests/test_fork_isolation.py exists for; `[effect]
-    apply_to=new_ability` is silently dropped
-    (tools/scenario_events.py:1633).
+    tests/test_fork_isolation.py exists for.
+  * ~~`[effect] apply_to=new_ability` is silently dropped~~ FIXED
+    2026-09-13, together with the deeper mistake under it (members
+    keyed by TAG, not `id=`) -- see "Scenario [effect] members are
+    named by id=" below.
   The full reports are in this session's workflow transcripts.
 
 ## NEXT ACTIONS (phase 1: engineering, in order)

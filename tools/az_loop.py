@@ -215,21 +215,23 @@ def main(argv) -> int:
     ap.add_argument("--workdir", type=Path, default=Path("/workspace"))
     ap.add_argument("--iterations", type=int, default=60)
     ap.add_argument("--games-per-iter", type=int, default=24)
-    ap.add_argument("--actors", type=int, default=24,
-                    help="Actor processes. An actor is BLOCKED on the inference "
-                         "server for nine tenths of its cycle (it holds one "
-                         "request in flight), so the actor count buys in-flight "
-                         "leaves, not CPU; it is capped at --games-per-iter, "
-                         "since an iteration hands out one game per actor and "
-                         "the surplus idles. Measured 2026-09-13 on a 24-core 4090 "
-                         "box, 19 -> 665, 32 -> 914, 48 -> 1,006, 64 -> 1,116 "
-                         "leaf evaluations/s against a server saturating near "
-                         "1,500 (docs/box_specs.md \"Actors buy in-flight "
-                         "leaves\"). The curve was still rising at 64, so raise "
-                         "this on a box that can take it; the default stays "
-                         "under the pids limit that killed a 2026-09-04 run at "
-                         "38 actors (it produced 0 leaves/s, so the failure is "
-                         "worth avoiding by default).")
+    ap.add_argument("--actors", type=int, default=0,
+                    help="Actor processes; 0 (the default) means as many as the "
+                         "box and the iteration allow. An actor is BLOCKED on the "
+                         "inference server for nine tenths of its cycle (it holds "
+                         "one request in flight), so the count buys in-flight "
+                         "leaves, not CPU. Two ceilings apply: --games-per-iter, "
+                         "since an iteration hands out one game per actor and the "
+                         "surplus idles; and the container's pids limit, which "
+                         "counts THREADS and which host_resources.max_actors now "
+                         "READS rather than guesses (exceeding it produces 0 "
+                         "leaves/s, as a 2026-09-04 run at 38 actors did). "
+                         "Measured 2026-09-13 on a 24-core 4090 box: 19 -> 665, "
+                         "32 -> 914, 48 -> 1,006, 64 -> 1,116 leaf evaluations/s "
+                         "against a server saturating near 1,500 "
+                         "(docs/box_specs.md \"Actors buy in-flight leaves\"). "
+                         "The curve was still rising at 64, so --games-per-iter "
+                         "is the knob worth raising on a bigger box.")
     ap.add_argument("--sims", type=int, default=32)
     ap.add_argument("--value-coef", type=float, default=1.0)
     ap.add_argument("--lr", type=float, default=1e-4)
@@ -401,16 +403,40 @@ def main(argv) -> int:
                          mini_ratio=0.0, fogless_ratio=0.0,
                          ladder_ratio=1.0, midgame_ratio=0.0,
                          midgame_dataset=None)
-    # An iteration posts one ticket per game and then one end marker
-    # per actor, so an actor beyond the game count takes an end marker
-    # immediately and idles for the whole iteration. Raise
-    # --games-per-iter to use more actors.
-    n_actors = args.actors
-    if n_actors > args.games_per_iter:
-        log.warning("--actors %d exceeds --games-per-iter %d; running %d actors "
-                    "(the surplus would idle). Raise --games-per-iter to use them.",
-                    n_actors, args.games_per_iter, args.games_per_iter)
+    # Two ceilings, both real, applied in order.
+    #
+    # 1. An iteration posts one ticket per game and then one end
+    #    marker per actor, so an actor beyond the game count takes an
+    #    end marker immediately and idles for the whole iteration.
+    # 2. A container's pids controller counts THREADS, and an actor is
+    #    several. Exceeding it does not degrade, it produces ZERO
+    #    leaves per second -- it cost a whole rental on 2026-09-04,
+    #    and holding the default low "to be safe" has cost throughput
+    #    on every box since. host_resources reads the actual limit.
+    #
+    # --actors 0 (the default) means "as many as the box and the
+    # iteration allow", so raising --games-per-iter on a bigger box
+    # picks up the actors automatically. The measured curve was still
+    # rising at 64 (docs/box_specs.md "Actors buy in-flight leaves"),
+    # so the game count is the binding knob, not this one.
+    from tools.host_resources import (PIDS_PER_ACTOR_ESTIMATE, max_actors,
+                                      pids_current, pids_per_actor)
+    if args.actors <= 0:
         n_actors = args.games_per_iter
+        log.info("--actors auto: %d, matching --games-per-iter", n_actors)
+    else:
+        n_actors = args.actors
+        if n_actors > args.games_per_iter:
+            log.warning("--actors %d exceeds --games-per-iter %d; running %d actors "
+                        "(the surplus would idle). Raise --games-per-iter to use them.",
+                        n_actors, args.games_per_iter, args.games_per_iter)
+            n_actors = args.games_per_iter
+    fits, why = max_actors(n_actors)
+    log.info("actor budget: %s", why)
+    if fits < n_actors:
+        log.warning("clamping actors %d -> %d: %s", n_actors, fits, why)
+        n_actors = fits
+    _pids_before = pids_current()
     pool = ActorPool(policy, n_actors, mcts_cfg, turn_cfg=None,
                      pt_cfg=None, gbc_labels=False, train_kwargs={},
                      scenario_opts=scenario_opts, max_turns=args.max_turns,
@@ -427,6 +453,15 @@ def main(argv) -> int:
                      packed_embed=bool(args.packed_trunk and device.type == "cuda"),
                      serve_processes=max(1, int(args.serve_processes)))
     pool.start()
+    # Calibration: what an actor ACTUALLY costs in cgroup tasks on this
+    # box. host_resources.PIDS_PER_ACTOR_ESTIMATE is a budgeting guess
+    # until a run reports this line; without it the clamp above stays
+    # conservative forever.
+    _per_actor = pids_per_actor(n_actors, _pids_before) if _pids_before else None
+    if _per_actor is not None:
+        log.info("pids: %d actors cost %.1f tasks each (estimate %d); "
+                 "update host_resources.PIDS_PER_ACTOR_ESTIMATE if this differs",
+                 n_actors, _per_actor, PIDS_PER_ACTOR_ESTIMATE)
 
     workdir = args.workdir
     workdir.mkdir(parents=True, exist_ok=True)

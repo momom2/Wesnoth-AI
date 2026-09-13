@@ -4,6 +4,13 @@ Boxes are rented per leg, so --jobs is auto-derived per box. The
 trap under test: host-wide readings (nproc, /proc/meminfo) lie on
 shared hosts -- the cgroup files are authoritative, and the guard
 must take the BINDING minimum.
+
+The pids tests carry a second trap. The pids controller counts
+TASKS, not processes, and exceeding it does not degrade gracefully:
+a 2026-09-04 run at 38 actors produced ZERO leaves per second and
+lost the rental. The clamp must therefore be derived from the file,
+and must leave the count ALONE when no limit is readable -- a guessed
+cap would cost throughput on every box that could take more.
 """
 from __future__ import annotations
 
@@ -89,3 +96,60 @@ def test_auto_jobs_never_zero(tmp_path, monkeypatch):
     monkeypatch.setattr(hr, "_host_available_mb", lambda: 1e6)
     jobs, _ = hr.auto_jobs(per_job_mb=4000.0, root=root)
     assert jobs == 1
+
+
+
+# ---- pids: the limit that kills a run outright ----------------------
+
+def test_pids_limit_and_headroom_v2(tmp_path):
+    root = _cg(tmp_path, **{"pids.max": "512", "pids.current": "100"})
+    assert hr.pids_limit(root) == 512
+    assert hr.pids_current(root) == 100
+    assert hr.pids_headroom(reserve=32, root=root) == 512 - 100 - 32
+
+
+def test_pids_limit_v1_path(tmp_path):
+    root = _cg(tmp_path, **{"pids__pids.max": "300", "pids__pids.current": "60"})
+    assert hr.pids_limit(root) == 300
+    assert hr.pids_current(root) == 60
+
+
+def test_unlimited_pids_leaves_the_actor_count_alone(tmp_path):
+    """No readable limit must NOT become a guessed cap."""
+    root = _cg(tmp_path, **{"pids.max": "max", "pids.current": "10"})
+    assert hr.pids_limit(root) is None
+    assert hr.pids_headroom(root=root) is None
+    fits, why = hr.max_actors(64, root=root)
+    assert fits == 64 and "unclamped" in why
+
+    missing = _cg(tmp_path / "empty")          # no cgroup files at all
+    assert hr.max_actors(64, root=missing)[0] == 64
+
+
+def test_max_actors_clamps_to_what_the_box_allows(tmp_path):
+    # 200 tasks free after the reserve, 4 per actor -> 50 actors.
+    root = _cg(tmp_path, **{"pids.max": "300", "pids.current": "68"})
+    assert hr.pids_headroom(reserve=32, root=root) == 200
+    fits, why = hr.max_actors(64, per_actor=4, reserve=32, root=root)
+    assert fits == 50, why
+    assert "ZERO leaves/s" in why, "the reason must say why this matters"
+
+    # A request that fits is returned untouched.
+    fits, why = hr.max_actors(12, per_actor=4, reserve=32, root=root)
+    assert fits == 12 and "fits 12 actors" in why
+
+
+def test_max_actors_never_returns_zero(tmp_path):
+    """A cramped box should run one actor slowly, not none at all."""
+    root = _cg(tmp_path, **{"pids.max": "40", "pids.current": "39"})
+    fits, _ = hr.max_actors(64, per_actor=4, reserve=32, root=root)
+    assert fits == 1
+
+
+def test_pids_per_actor_measures_the_real_cost(tmp_path, monkeypatch):
+    """The calibration az_loop logs, which is what stops
+    PIDS_PER_ACTOR_ESTIMATE from being a permanent guess."""
+    root = _cg(tmp_path, **{"pids.max": "512", "pids.current": "150"})
+    assert hr.pids_per_actor(10, baseline=100, root=root) == 5.0
+    assert hr.pids_per_actor(0, baseline=100, root=root) is None
+    assert hr.pids_per_actor(10, baseline=100, root=str(tmp_path / "nope")) is None
