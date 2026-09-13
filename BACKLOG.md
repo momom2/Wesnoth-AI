@@ -900,6 +900,73 @@ unknown-unit fallback (94 distinct types in the corpus, all present);
 `vision=`, none reachable); and the remaining weapon-special gaps
 (`absorb`, `plague_type`, `stun` -- none on a recruitable type).
 
+## Stale-claim sweep: what is left after the corrections (2026-09-13)
+
+Twenty-six claims that a LATER measurement in this repo refutes, or
+that disagree between two places. The ones that would cost money or
+correctness are fixed (see the commit). These are the rest, left
+because they are small, need a judgement call, or need a box.
+
+- **`_TERRAIN_BASE` / `_parse_hex_code` attribution.** `box_specs.md`
+  credits `gpu_forward_design_20260904.md` with having "predicted
+  exactly this" for the 4090's 1,450-1,565. The band it predicted
+  (1,300-1,800) was computed at 1,270 tokens per leaf; the measurement
+  is at ~320, where the same doc's arithmetic gives a ceiling about 4x
+  higher. The numbers coincide because the binding cost turned out to
+  be a fixed per-batch LAUNCH that does not scale with tokens -- a
+  different mechanism than the one priced. Reading it as confirmation
+  means nobody re-derives the GPU model, which is the thing phase 2's
+  budget rests on.
+- **`box_specs.md` presents a 20-game wall as a 40-game wall.** The
+  table headed "wall s for 40 games" gives 408 for one-process-per-game;
+  the run it cites (`eval_workers/eval_plain.log`) reads "20 pending",
+  and a neighbouring section labels the same 408 as 20 games. The 145
+  row IS 40 games. So the table understates shared inference against
+  one-process by 2x (2.8x shown, ~5.6x real) and nobody knows what the
+  harness change actually bought.
+- **"the pool reaches 1.2 ms per leaf at batch 16 on a 4090"** is used
+  to justify "the lever is more decisions in flight", but no pool
+  record has 1.2 -- every recorded pool GPU-ms-per-leaf is 1.75-2.82.
+  The nearest matching text is a DERIVATION in gpu_forward_design
+  ("~1.0-1.2 ms per sample"). An estimate that hardened into a
+  measurement.
+- **"A second decision in flight per worker would not help"** is
+  asserted, never measured, on the grounds that the game loop is
+  sequential. In-flight decisions per box is precisely the lever that
+  produced 1.68x on the pool. The 40-worker arm that WAS tried
+  contends for cores, which two games per worker would not. Worth
+  pricing rather than leaving as a settled negative.
+- **Three token-ratio figures for one quantity**: the relevant-set
+  basis is quoted as 2.7x, 4x, and 1,200 -> 300 fewer tokens. The 4x is
+  the FLOP ratio wearing the token label; the token ratio is 2.7x on
+  the bench states and 4x in the pool. Low stakes, but it is cited as a
+  single fact.
+- **Two BACKLOG "NEXT" items are already in the code**: `--packed-trunk`
+  defaults True in az_loop, and both `--serve-processes` and the
+  `sync_servers()` call after train_step exist.
+- **Smaller code-vs-comment disagreements**, all verified: two
+  profilers say the trainer's turn cap is 200 where the code says 100;
+  `rewards.py` documents two defaults as non-zero that are 0.0;
+  `eval_inference_server.py` attributes two numbers to a box_specs
+  section containing neither; `eval_vs_builtin.py` computes every
+  wall-clock estimate without dividing by its own `--parallel`;
+  `wesnoth_rules.md` asserts Default Era uses 5 gold per village (no
+  shipped value is 5), claims a `random_traits=no` closed set that has
+  a fourth member, gives an AMLA sequence its own rounding rule
+  contradicts, miscounts 2p maps, and cites `special-notes.cfg` for
+  `charge` where the enforcing definition is `weapon_specials.cfg`;
+  `design_constants.md` gives two values for one PUCT product without
+  saying they are different operating points. Both files' tables of
+  contents are stale (10 of 18 sections, 2 of 12).
+
+Checked and CLEAN, so nobody re-sweeps them: `raw_argmax_control`,
+`turn_gap_prereg`, `data_contamination` (the one doc that keeps the
+17,104 / 17,019 distinction straight), 11 of 14 entries in
+`design_constants`, 18 of 19 spot-checked `wesnoth_src/data/` citations
+in the rules catalog with every quantitative claim reproducing exactly,
+`az_loop`'s quoted measurements, and the argparse/docstring numerics of
+eighteen other tools.
+
 ## Mirror audit: paths that must agree, and what checks them (2026-09-13)
 
 The shape: two implementations that must produce identical results,
