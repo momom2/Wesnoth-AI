@@ -240,70 +240,93 @@ def _serve_loop(server, picker: _BatchPicker, req_q, resp_qs, max_batch: int,
     st = {"wait": 0.0, "unpack": 0.0, "infer": 0.0, "wire": 0.0, "put": 0.0, "gpu_ms": 0.0,
           "timeline": timeline,
           "leaves": 0, "batches": 0, "requests": 0, "tokens": 0, "padded": 0}
-    while not stop_ev.is_set():
-        t0 = time.monotonic()
-        batch = picker.take(req_q, max_batch, serve_timeout)
-        t1 = time.monotonic()
-        st["wait"] += t1 - t0
-        if not batch:
-            continue
-        flat = []
-        for w in batch:
-            payload = w.item[2]
-            flat.extend(unpack_request(payload) if isinstance(payload, PackedRequest)
-                        else payload)
-        t2 = time.monotonic()
-        try:
-            outs = server.infer_batch(flat, stats=st)
-            t3 = time.monotonic()
-            wires = [output_to_wire(o) for o in outs]
-        except Exception:                       # noqa: BLE001
-            # A serve-thread death used to hang every actor waiting
-            # on this batch (2026-09-04: the stats line below choked
-            # on (raw, masks) items). Reply with a failure marker so
-            # the actors raise instead.
-            log.error("inference server failed on a batch of %d leaves:\n%s",
-                      len(flat), traceback.format_exc())
+    # The batch this thread took out of the picker and has not answered
+    # yet: the exit path below owes those actors a reply exactly as it
+    # owes the parked requests one.
+    in_flight: List[_Waiting] = []
+    try:
+        while not stop_ev.is_set():
+            t0 = time.monotonic()
+            batch = picker.take(req_q, max_batch, serve_timeout)
+            t1 = time.monotonic()
+            st["wait"] += t1 - t0
+            if not batch:
+                continue
+            in_flight = batch
+            flat = []
+            for w in batch:
+                payload = w.item[2]
+                flat.extend(unpack_request(payload) if isinstance(payload, PackedRequest)
+                            else payload)
+            t2 = time.monotonic()
+            try:
+                outs = server.infer_batch(flat, stats=st)
+                t3 = time.monotonic()
+                wires = [output_to_wire(o) for o in outs]
+            except Exception:                       # noqa: BLE001
+                # A serve-thread death used to hang every actor waiting
+                # on this batch (2026-09-04: the stats line below choked
+                # on (raw, masks) items). Reply with a failure marker so
+                # the actors raise instead.
+                log.error("inference server failed on a batch of %d leaves:\n%s",
+                          len(flat), traceback.format_exc())
+                for w in batch:
+                    aid, rid, _payload = w.item
+                    resp_qs[aid].put((rid, None))
+                in_flight = []
+                continue
+            t4 = time.monotonic()
+            i = 0
             for w in batch:
                 aid, rid, _payload = w.item
+                resp_qs[aid].put((rid, wires[i:i + w.n_leaves]))
+                i += w.n_leaves
+            in_flight = []
+            t5 = time.monotonic()
+            st["unpack"] += t2 - t1
+            st["infer"] += t3 - t2
+            st["wire"] += t4 - t3
+            st["put"] += t5 - t4
+            st["leaves"] += len(flat)
+            st["batches"] += 1
+            st["requests"] += len(batch)
+            if t5 >= next_mark:
+                timeline.append((t5, st["leaves"]))
+                next_mark = t5 + 10.0
+            # Sequence lengths: hex tokens + unit tokens per leaf, and
+            # what the batch pads to (its longest leaf).
+            lens = [n for w in batch for n in w.lens]
+            st["tokens"] += sum(lens)
+            st["padded"] += len(lens) * max(lens)
+    except Exception:                           # noqa: BLE001
+        # A serve thread used to die SILENTLY on anything outside the
+        # infer_batch try above (picker.take, the flattening, the lens
+        # arithmetic): it took its parked requests -- whose actors then
+        # blocked forever -- and its stats with it, and at the default
+        # serve_threads=2 the pool just served the rest of the campaign
+        # at half its throughput with nothing in the log (2026-09-13
+        # audit). The manager reads the tag back off the stats.
+        st["error"] = traceback.format_exc()
+        log.error("serve thread died after %d batches; its %d unanswered request(s) "
+                  "are failed below:\n%s",
+                  st["batches"], len(in_flight), st["error"])
+    finally:
+        # Every request this thread owes a reply: the batch it took and
+        # never answered, and the ones the picker lifted out of the
+        # queue but never batched. The picker is rebuilt on the next
+        # start, so nothing else would ever answer them and their actors
+        # would block forever (2026-09-05 review; the hard-deadline
+        # abandon reaches here with actors in flight). Fail them so the
+        # actors raise. Requests still in the queue itself stay there for
+        # the next start's threads.
+        owed = list(in_flight) + picker.flush()
+        if owed:
+            log.error("serving stopped with %d unanswered request(s) (actors %s); "
+                      "failing them", len(owed), sorted({w.item[0] for w in owed}))
+            for w in owed:
+                aid, rid, _payload = w.item
                 resp_qs[aid].put((rid, None))
-            continue
-        t4 = time.monotonic()
-        i = 0
-        for w in batch:
-            aid, rid, _payload = w.item
-            resp_qs[aid].put((rid, wires[i:i + w.n_leaves]))
-            i += w.n_leaves
-        t5 = time.monotonic()
-        st["unpack"] += t2 - t1
-        st["infer"] += t3 - t2
-        st["wire"] += t4 - t3
-        st["put"] += t5 - t4
-        st["leaves"] += len(flat)
-        st["batches"] += 1
-        st["requests"] += len(batch)
-        if t5 >= next_mark:
-            timeline.append((t5, st["leaves"]))
-            next_mark = t5 + 10.0
-        # Sequence lengths: hex tokens + unit tokens per leaf, and
-        # what the batch pads to (its longest leaf).
-        lens = [n for w in batch for n in w.lens]
-        st["tokens"] += sum(lens)
-        st["padded"] += len(lens) * max(lens)
-    # Requests the picker lifted out of the queue but never batched:
-    # the picker is rebuilt on the next start, so nothing would answer
-    # them and their actors would block forever (2026-09-05 review;
-    # the hard-deadline abandon reaches here with actors in flight).
-    # Fail them so the actors raise. Requests still in the queue itself
-    # stay there for the next start's threads.
-    parked = picker.flush()
-    if parked:
-        log.error("serving stopped with %d request(s) parked in the picker (actors %s); "
-                  "failing them", len(parked), sorted({w.item[0] for w in parked}))
-        for w in parked:
-            aid, rid, _payload = w.item
-            resp_qs[aid].put((rid, None))
-    stats_out.append(st)
+        stats_out.append(st)
 
 
 def _server_loop(
@@ -345,6 +368,11 @@ def _server_loop(
     server_q.put((_S_READY, server_id, None))
     parent = mp.parent_process()
     threads: List[threading.Thread] = []
+    # Threads of an EARLIER iteration that did not stop within their
+    # grace. They exit on their own (their stop_ev is set), but they are
+    # kept and re-joined rather than forgotten: while one runs it still
+    # reads this process's request queue.
+    stuck: List[threading.Thread] = []
     stop_ev = threading.Event()
     stats: List[Dict] = []
     picker: Optional[_BatchPicker] = None
@@ -370,6 +398,13 @@ def _server_loop(
             elif kind == _SRV_SERVE:
                 if threads:
                     raise RuntimeError("SERVE while already serving")
+                for th in stuck:
+                    th.join(timeout=10.0)
+                stuck = [th for th in stuck if th.is_alive()]
+                if stuck:
+                    log.error("serve-%d: %d serve thread(s) of an earlier iteration "
+                              "are still running; this one starts alongside them",
+                              server_id, len(stuck))
                 stop_ev = threading.Event()
                 stats = []
                 picker = _BatchPicker(coalesce, coalesce_gap)
@@ -389,6 +424,11 @@ def _server_loop(
                 stop_ev.set()
                 for th in threads:
                     th.join(timeout=10.0)
+                slow = [th for th in threads if th.is_alive()]
+                if slow:
+                    log.error("serve-%d: %d serve thread(s) did not stop within 10s; "
+                              "their stats are incomplete", server_id, len(slow))
+                stuck += slow
                 threads = []
                 server_q.put((_S_STATS, server_id,
                               {"threads": list(stats), "picker": _picker_stats(picker),

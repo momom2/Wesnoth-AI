@@ -19,6 +19,15 @@ docs/archive/tier_b_runbook.md:29).
 2. At 1,270 tokens the linears are 64% of the FLOPs and attention 36%, so
    attention-pattern work (hex-local) caps at 1.25x in practice; only the
    token count moves the ceiling.
+**AMENDED 2026-09-13.** Measured on a real 4090 in exactly this basis,
+the pool reaches **1,450-1,565 saturated leaf evaluations per second at
+about 320 tokens per leaf** (docs/box_specs.md, "Plan 1.3's target, on
+an actual 4090"). That is below even this study's "bench path today"
+figure of 2,420 and 3.2x below its 5,050 @70T ceiling. Budget phase-2
+generation from the measurement, not from the ceilings below, or you
+under-buy box time by about 3x. The ceilings still rank the options
+against each other correctly; they are not a rate.
+
 3. Relevant-set mode (already built, default off) gives 334 tokens mean
    on the bench states (p90 473, max 612), ~415 at production sizes: 2.7x
    to 3.1x fewer tokens, 4x fewer FLOPs, ceiling 5,000 leaves/s at the

@@ -154,12 +154,20 @@ map-invariant; the 10x multiplier calibrates magnitudes:
     (a dominant position reads as near-saturated margin);
   - one village on a 20-village map -> 10 * 0.05 / 5 = 0.1
     (same order as the old per-village 0.20, now map-invariant);
-  - with `aux_value_bonus = 0.3`, one village moves a search leaf by
+  - with `aux_value_bonus = 0.3` (the shipped default is **0.0**,
+    `tools/mcts.py`; this is the worked example, not the setting),
+    one village moves a search leaf by
     ~0.03 -- ~10 villages differential reaches outcome order (user
     calibration target, 2026-07-12).
 
-Gold / unit-value weights (0.05) are NOT normalized: gold scales are
+Gold / unit-value weights are NOT normalized: gold scales are
 already map-independent (start ~100, village income fixed).
+
+**SHIPPED VALUE IS 0.0, not 0.05** (`configs/draw_tiebreak.json`, the
+authoritative source named earlier in this section). Gold was zeroed on
+2026-07-20 because gold-at-par taught hoarding (2.8x the stop-loss
+prior). The derivation above is kept as the reasoning, not as the
+setting: do not "restore the documented value".
 
 ## Spool-worker VRAM budget (2026-07-18, revised 2026-07-20)
 
@@ -403,7 +411,12 @@ the tabled range, so every reachable replicate count has an
 alpha-holding factor; extend the table before raising the knob
 ceiling.
 
-## Search tempo bonus: `tempo_bonus = 0.44` (2026-09-04)
+## Search tempo bonus: `tempo_bonus` (2026-09-04; DEFAULT IS 0.0)
+
+The 0.44 this heading used to carry appears nowhere in `tools/`,
+`configs/`, `scripts/` or `wesnoth_ai/`; `tools/az_loop.py`'s
+`--tempo-bonus` defaults to 0.0. 0.44 is the derived value the
+section below computes, not a shipped one.
 
 Used by `tools/az_loop.py --tempo-bonus` with `--value-center`: the
 search value center is `mean_V - tempo_bonus`, so search reads every

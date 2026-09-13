@@ -122,6 +122,39 @@ class ServeProcessDied(ActorFatalError):
     can get no more replies, so the iteration aborts loudly."""
 
 
+def _done_report(payload) -> Tuple[int, Optional[Dict], Optional[int]]:
+    """An actor's _R_DONE payload as (decisions, distill stats,
+    iteration). The iteration is None for the older two-field and
+    plain-int shapes, which the manager then cannot date."""
+    if isinstance(payload, tuple):
+        if len(payload) >= 3:
+            return payload[0], payload[1], int(payload[2])
+        return payload[0], payload[1], None
+    return payload, None, None
+
+
+def _close_queue(q) -> None:
+    """Release one mp.Queue: drain what nobody read, close the pipe,
+    join the feeder thread.
+
+    Draining first is what makes the join safe: close() lets the feeder
+    flush, and a feeder blocked on a pipe full of tickets no living
+    child will ever read would never return. Every child is joined
+    before this runs, so nothing refills the queue behind us."""
+    if q is None:
+        return
+    while True:
+        try:
+            q.get_nowait()
+        except Exception:            # empty, or a queue already broken
+            break
+    for step in ("close", "join_thread"):
+        try:
+            getattr(q, step)()
+        except Exception:            # a plain queue.Queue has neither
+            pass
+
+
 
 # =====================================================================
 # Main-side pool manager
@@ -245,6 +278,16 @@ class ActorPool:
         # first box bench 28/48 games in.
         self._serve_threads = max(1, int(serve_threads))
         self._started = False
+        # Serve-thread health of the last iteration (2026-09-13 audit):
+        # the tracebacks of the threads that died inside their loop and
+        # the names of those that would not stop at its end. Both mean
+        # the iteration served with fewer threads than it was given.
+        self.last_serve_thread_errors: List[str] = []
+        self.last_stuck_serve_threads: List[str] = []
+        # The thread objects behind that second list, kept so the next
+        # iteration can re-join them instead of forgetting a thread that
+        # is still reading the request queue.
+        self._stuck_serve_threads: List[threading.Thread] = []
 
     # -- lifecycle ----------------------------------------------------
 
@@ -640,6 +683,18 @@ class ActorPool:
         # another's encode+forward. Per-stage timers are accumulated
         # and logged at iteration end so the bottleneck stays visible.
         # The serve processes start their own threads on SERVE.
+        #
+        # First, serve threads of an EARLIER iteration that would not
+        # stop within their grace: re-join them rather than forget them
+        # -- while one runs it still reads the request queue.
+        for th in self._stuck_serve_threads:
+            th.join(timeout=10.0)
+        self._stuck_serve_threads = [th for th in self._stuck_serve_threads
+                                     if th.is_alive()]
+        if self._stuck_serve_threads:
+            log.error(f"iter {iter_idx}: {len(self._stuck_serve_threads)} serve "
+                      f"thread(s) of an earlier iteration are still running; this "
+                      f"one starts alongside them")
         stop_ev = threading.Event()
         serve_stats: List[Dict] = []
         self._picker = _BatchPicker(self._coalesce, self._coalesce_gap)
@@ -655,10 +710,31 @@ class ActorPool:
             cq.put((_SRV_SERVE, iter_idx))
         server_stats: Dict[int, Dict] = {}
 
+        stopped = [False]
+
         def _stop_serving() -> None:
+            """Stop this iteration's serving. Called from the
+            iteration's `finally` -- every path, named raise sites
+            included: started serve threads used to outlive an
+            iteration that ended on any UNNAMED error, and their
+            request queues with them (2026-09-13 audit)."""
+            if stopped[0]:
+                return
+            stopped[0] = True
             stop_ev.set()
             for th in servers:
                 th.join(timeout=10.0)
+            slow = [th for th in servers if th.is_alive()]
+            if slow:
+                # Keeping a thread that would not stop OUT of the
+                # accounting is the leak: it still reads the request
+                # queue and still writes into serve_stats.
+                log.error(f"iter {iter_idx}: serve thread(s) "
+                          f"{[th.name for th in slow]} did not stop within 10s; "
+                          f"their stats are incomplete and they keep reading the "
+                          f"request queue until they do")
+            self.last_stuck_serve_threads = [th.name for th in slow]
+            self._stuck_serve_threads += slow
             server_stats.update(self._pause_servers())
 
         self._post_tickets(iter_idx, games_per_iter, base_seed)
@@ -668,125 +744,130 @@ class ActorPool:
                  _rset, float(self.value_center), bool(self.server_priors),
                  self._server_of(aid), _fhv))
 
-        while outstanding:
-            # Drain results; blocking with a short timeout (serving no
-            # longer happens on this thread, so waiting here is free).
-            try:
-                kind, aid, payload = self._result_q.get(timeout=0.2)
-            except _queue.Empty:
-                kind = None
-            if kind == _R_OUTCOME:
-                outcomes.append(payload)
-                finish_times.append(time.monotonic() - t_start)
-            elif kind == _R_EXPS:
-                # Each _R_EXPS payload is ONE GAME's experiences
-                # (actors ship per game) -- exactly the granularity
-                # the learner's holdout probe needs. Offer the
-                # whole game; only train on it if not diverted.
-                offer = getattr(self._policy, "offer_holdout_game",
-                                None)
-                if offer is None or not offer(payload):
-                    # Boundary-pair harvest (T1-F): this drain never
-                    # called it, so boundary telemetry read n=0
-                    # through the ENTIRE leg-4 campaign (workflow
-                    # finding 2026-08-20). Valid here because each
-                    # _R_EXPS payload is one game in recorded order.
-                    _hv = getattr(self._policy,
-                                  "harvest_boundary_pairs", None)
-                    if _hv is not None:
-                        _hv(payload)
-                    experiences.extend(payload)
-            elif kind == _R_DONE:
-                outstanding.discard(aid)
-                if isinstance(payload, tuple):
-                    n_dec, dstats = payload
-                else:               # legacy shape (plain int)
-                    n_dec, dstats = payload, None
-                total_decisions += int(n_dec or 0)
-                if dstats:
-                    distill_dicts.append(dstats)
-            elif kind == _R_ERROR:
-                log.error(f"actor {aid} error:\n{payload}")
-            elif kind == _R_FATAL:
-                _stop_serving()
-                # The traceback carries the SIM_FORK_GUARD text the
-                # launcher greps; propagate, never log-and-drop.
-                raise ActorFatalError(
-                    f"actor {aid} died on a non-swallowable error "
-                    f"(round-35 C0):\n{payload}")
-            if self._server_procs:
-                # A serve process that failed a command while serving
-                # stays alive (the liveness scan below sees nothing)
-                # and answers none of its actors: read its error reply
-                # now, not at PAUSE after the timeout (2026-09-05
-                # review).
-                failed = self._drain_server_replies()
-                if failed:
-                    _stop_serving()
-                    self._abort_on_dead_servers(iter_idx, sorted(failed), failures=failed)
-            if not outstanding:
-                break
-            now = time.monotonic()
-            if (self._iteration_timeout is not None and not drained
-                    and now - t_start > self._iteration_timeout):
-                # Soft deadline: drain, don't abandon. Completed
-                # games keep streaming in during the grace window.
-                drained = True
-                for aid in sorted(outstanding):
-                    self._ctrl_qs[aid].put((_CMD_DRAIN,))
-                log.warning(
-                    f"iter {iter_idx}: soft deadline "
-                    f"({self._iteration_timeout:.0f}s) reached; "
-                    f"DRAIN sent to actors {sorted(outstanding)} "
-                    f"(finish current game, no new ones; hard "
-                    f"backstop in {self._drain_grace:.0f}s). "
-                    f"{len(outcomes)} games in so far.")
-            if (self._iteration_timeout is not None and drained
-                    and now - t_start > (self._iteration_timeout
-                                         + self._drain_grace)):
-                self._last_abandoned = len(outstanding)
-                log.error(
-                    f"iter {iter_idx}: hard deadline "
-                    f"({self._iteration_timeout:.0f}s + "
-                    f"{self._drain_grace:.0f}s drain grace) exceeded "
-                    f"with actors {sorted(outstanding)} still "
-                    f"outstanding; abandoning their in-flight games "
-                    f"({len(outcomes)} games, {len(experiences)} "
-                    f"exps kept).")
-                break
-            if now - last_liveness > self._liveness_interval:
-                last_liveness = now
-                dead_servers = [sid for sid in self._server_ids()
-                                if not self._server_procs[sid - 1].is_alive()]
-                if dead_servers:
-                    _stop_serving()
-                    self._abort_on_dead_servers(iter_idx, dead_servers)
-                dead = {aid for aid in outstanding
-                        if not self._procs[aid].is_alive()}
-                if dead:
-                    _codes = {aid: self._procs[aid].exitcode
-                              for aid in sorted(dead)}
-                    if any(c not in (0, None)
-                           for c in _codes.values()):
-                        # Killed before its `finally` ran (segfault,
-                        # OOM-kill, guard trip mid-teardown): a
-                        # silent drop hid the death from the run's
-                        # exit code (round-35 C0). Loud abort; the
-                        # supervisor restarts with backoff.
-                        _stop_serving()
-                        raise ActorFatalError(
-                            f"iter {iter_idx}: actor(s) died "
-                            f"without reporting done, exitcodes "
-                            f"{_codes} -- aborting the iteration "
-                            f"instead of silently degrading.")
-                    for aid in sorted(dead):
-                        log.error(
-                            f"iter {iter_idx}: actor {aid} died without "
-                            f"reporting done (exitcode="
-                            f"{self._procs[aid].exitcode}); dropping it.")
-                    outstanding -= dead
+        try:
+            while outstanding:
+                # Drain results; blocking with a short timeout (serving no
+                # longer happens on this thread, so waiting here is free).
+                try:
+                    kind, aid, payload = self._result_q.get(timeout=0.2)
+                except _queue.Empty:
+                    kind = None
+                if kind == _R_OUTCOME:
+                    outcomes.append(payload)
+                    finish_times.append(time.monotonic() - t_start)
+                elif kind == _R_EXPS:
+                    # Each _R_EXPS payload is ONE GAME's experiences
+                    # (actors ship per game) -- exactly the granularity
+                    # the learner's holdout probe needs. Offer the
+                    # whole game; only train on it if not diverted.
+                    offer = getattr(self._policy, "offer_holdout_game",
+                                    None)
+                    if offer is None or not offer(payload):
+                        # Boundary-pair harvest (T1-F): this drain never
+                        # called it, so boundary telemetry read n=0
+                        # through the ENTIRE leg-4 campaign (workflow
+                        # finding 2026-08-20). Valid here because each
+                        # _R_EXPS payload is one game in recorded order.
+                        _hv = getattr(self._policy,
+                                      "harvest_boundary_pairs", None)
+                        if _hv is not None:
+                            _hv(payload)
+                        experiences.extend(payload)
+                elif kind == _R_DONE:
+                    n_dec, dstats, done_iter = _done_report(payload)
+                    if done_iter is not None and done_iter != iter_idx:
+                        # An actor the PREVIOUS iteration abandoned at its
+                        # hard deadline reports that iteration done while
+                        # this one collects. Counting it here would retire
+                        # an actor that has not played a game of THIS
+                        # iteration, ending it early and shifting every
+                        # later iteration by one (2026-09-13 audit).
+                        log.warning(f"iter {iter_idx}: actor {aid} reported iteration "
+                                    f"{done_iter} done (abandoned earlier); ignored")
+                    else:
+                        outstanding.discard(aid)
+                        total_decisions += int(n_dec or 0)
+                        if dstats:
+                            distill_dicts.append(dstats)
+                elif kind == _R_ERROR:
+                    log.error(f"actor {aid} error:\n{payload}")
+                elif kind == _R_FATAL:
+                    # The traceback carries the SIM_FORK_GUARD text the
+                    # launcher greps; propagate, never log-and-drop.
+                    raise ActorFatalError(
+                        f"actor {aid} died on a non-swallowable error "
+                        f"(round-35 C0):\n{payload}")
+                if self._server_procs:
+                    # A serve process that failed a command while serving
+                    # stays alive (the liveness scan below sees nothing)
+                    # and answers none of its actors: read its error reply
+                    # now, not at PAUSE after the timeout (2026-09-05
+                    # review).
+                    failed = self._drain_server_replies()
+                    if failed:
+                        self._abort_on_dead_servers(iter_idx, sorted(failed), failures=failed)
+                if not outstanding:
+                    break
+                now = time.monotonic()
+                if (self._iteration_timeout is not None and not drained
+                        and now - t_start > self._iteration_timeout):
+                    # Soft deadline: drain, don't abandon. Completed
+                    # games keep streaming in during the grace window.
+                    drained = True
+                    for aid in sorted(outstanding):
+                        self._ctrl_qs[aid].put((_CMD_DRAIN,))
+                    log.warning(
+                        f"iter {iter_idx}: soft deadline "
+                        f"({self._iteration_timeout:.0f}s) reached; "
+                        f"DRAIN sent to actors {sorted(outstanding)} "
+                        f"(finish current game, no new ones; hard "
+                        f"backstop in {self._drain_grace:.0f}s). "
+                        f"{len(outcomes)} games in so far.")
+                if (self._iteration_timeout is not None and drained
+                        and now - t_start > (self._iteration_timeout
+                                             + self._drain_grace)):
+                    self._last_abandoned = len(outstanding)
+                    log.error(
+                        f"iter {iter_idx}: hard deadline "
+                        f"({self._iteration_timeout:.0f}s + "
+                        f"{self._drain_grace:.0f}s drain grace) exceeded "
+                        f"with actors {sorted(outstanding)} still "
+                        f"outstanding; abandoning their in-flight games "
+                        f"({len(outcomes)} games, {len(experiences)} "
+                        f"exps kept).")
+                    break
+                if now - last_liveness > self._liveness_interval:
+                    last_liveness = now
+                    dead_servers = [sid for sid in self._server_ids()
+                                    if not self._server_procs[sid - 1].is_alive()]
+                    if dead_servers:
+                        self._abort_on_dead_servers(iter_idx, dead_servers)
+                    dead = {aid for aid in outstanding
+                            if not self._procs[aid].is_alive()}
+                    if dead:
+                        _codes = {aid: self._procs[aid].exitcode
+                                  for aid in sorted(dead)}
+                        if any(c not in (0, None)
+                               for c in _codes.values()):
+                            # Killed before its `finally` ran (segfault,
+                            # OOM-kill, guard trip mid-teardown): a
+                            # silent drop hid the death from the run's
+                            # exit code (round-35 C0). Loud abort; the
+                            # supervisor restarts with backoff.
+                            raise ActorFatalError(
+                                f"iter {iter_idx}: actor(s) died "
+                                f"without reporting done, exitcodes "
+                                f"{_codes} -- aborting the iteration "
+                                f"instead of silently degrading.")
+                        for aid in sorted(dead):
+                            log.error(
+                                f"iter {iter_idx}: actor {aid} died without "
+                                f"reporting done (exitcode="
+                                f"{self._procs[aid].exitcode}); dropping it.")
+                        outstanding -= dead
 
-        _stop_serving()
+        finally:
+            _stop_serving()
         self._last_tickets_flushed = self._flush_tickets()
         if self._last_tickets_flushed:
             log.info(f"iter {iter_idx}: {self._last_tickets_flushed} game tickets "
@@ -803,6 +884,15 @@ class ActorPool:
             for k, v in (ss.get("picker") or {}).items():
                 pick[k] = pick.get(k, 0) + int(v)
         self.last_leaves_per_server = leaves_per_server
+        # A serve thread that died inside its loop still ships its
+        # stats now (tools/serve_worker._serve_loop's finally), so the
+        # manager can say so instead of silently serving the rest of
+        # the campaign at half the threads it was given.
+        self.last_serve_thread_errors = [str(s["error"]) for s in serve_stats
+                                         if s.get("error")]
+        for tb in self.last_serve_thread_errors:
+            log.error(f"iter {iter_idx}: a serve thread died mid-iteration; the "
+                      f"pool served this iteration with one thread fewer:\n{tb}")
         # Each server's compiled packed trunk state (bench_pool records
         # it): the learner's, then each serve process's own copy; None
         # where a server's stats never arrived.
@@ -894,6 +984,11 @@ class ActorPool:
         return outcomes, experiences
 
     def shutdown(self, timeout: float = 15.0) -> None:
+        """Stop every actor and serve process and release the pool's
+        queues. Each mp.Queue holds a pipe pair and (once written to) a
+        feeder thread, so a pool that is dropped without this leaks
+        ~2n+3 of both -- which the test suite feels first, several
+        pools living in one pytest process (2026-09-13 audit)."""
         if not self._started:
             return
         for q in self._ctrl_qs:
@@ -911,4 +1006,23 @@ class ActorPool:
             if p.is_alive():
                 log.warning(f"terminating unresponsive process {p.name}")
                 p.terminate()
+                # terminate() only SIGNALS: without this join the
+                # process stays a live child (and, on the box, a live
+                # CUDA context) while the parent walks on.
+                p.join(5.0)
+                if p.is_alive():
+                    log.error(f"process {p.name} survived terminate(); killing it")
+                    p.kill()
+                    p.join(5.0)
+        self._procs = []
+        self._server_procs = []
+        for q in (list(self._ctrl_qs) + list(self._resp_qs) + list(self._req_qs)
+                  + list(self._server_ctrl_qs)
+                  + [self._result_q, self._server_q, self._game_q]):
+            _close_queue(q)
+        self._ctrl_qs = []
+        self._resp_qs = []
+        self._req_qs = []
+        self._server_ctrl_qs = []
+        self._result_q = self._server_q = self._game_q = None
         self._started = False

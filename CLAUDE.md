@@ -54,7 +54,7 @@ Most replays in `replays_raw/` are from 1.18.x clients; pin
 accordingly. If a replay's `[scenario] version=` says something
 other than 1.18.x, scrape from that version's tag instead.
 
-## Current status (2026-09-04): new phase, engineering first
+## Current status (2026-09-04, entries through 2026-09-13)
 
 **Read `docs/plan_20260904.md` first; `BACKLOG.md` holds the next
 actions in order.** Superseded status blocks, plans, leg records and
@@ -68,7 +68,10 @@ State of play:
   `training/checkpoints/relset.pt`, relevant-set basis, fog gate on;
   +56 +- 12 Elo over seed2's one-pass checkpoint (800 decisive
   games), a number that carries seed2's dropped large boards (see
-  below). Its self-pin through the shared inference path is pending.
+  below). Its self-pin through the shared inference path RAN
+  2026-09-12: -57 +- 37 Elo over 160 games, no asymmetry detected
+  (`training/metrics/elo/relset_selfpin_20260912/`). What is still
+  open is only the tighter 800-game version.
   Before it the reference was seed2 (+33 +- 12 over the original
   imitation seed), before that the seed itself
   (`tier-b/a3/seed_imit_tierb_start.pt`). Nothing produced by
@@ -292,7 +295,7 @@ State of play:
   loop; scope every box test, train sparingly; results are written
   on the run, never as atomic dumps; a box job past ~1.5x its
   estimate gets inspected and cut.
-- No box is rented (2026-09-12, after the phase-1 exit run). Phase 2
+- No box is rented (2026-09-13, after that day's three boxes). Phase 2
   is next: docs/plan_20260904.md 5, whose first measurement is the
   turn-gap pre-registration.
 
@@ -307,9 +310,18 @@ Eval procedure: `tools/run_elo_batch.py ... --mcts-sims 0
 --raw-temperature-a 0 --raw-temperature-b 0` for raw players (the
 procedure tag is `raw:t0`; the legacy sampler is `raw` and never mixes
 in one outdir); searched players carry `mcts:<sims>` (Gumbel root) or
-`tcs:<sims>`. Run on a 4090 box with `--device cuda --jobs 10`
-(docs/box_specs.md): 40 raw games in 2 minutes, 40 searched games in
-14 minutes.
+`tcs:<sims>`. Run on a 4090 box with `--device cuda --jobs 10
+--persistent-workers --shared-inference` (docs/box_specs.md). The last
+two are `store_true` and default OFF; without them you get the slowest
+mode in the repo, and every current match script passes them.
+
+**Timing, corrected 2026-09-13.** The "40 raw games in 2 minutes" that
+stood here was match A of the argmax control -- argmax against the
+SAMPLING player, 17 turns median -- not `raw:t0` against `raw:t0`,
+which stalls: 17 of 40 games at the cap, 125 turns median. A 40-game
+`raw:t0` match one-process at `--jobs 10` is about 408 s; with the
+shared server it is about 145 s. Searched games are the 14-minute
+figure.
 
 ## Architecture
 
@@ -584,10 +596,15 @@ many line-coverage tests.
   [Lua API reference](https://wiki.wesnoth.org/LuaAPI) are authoritative.
 - **Don't guess at Wesnoth WML attrs / engine semantics — check the
   source.** The wiki sometimes lags, has edge cases wrong, or omits
-  attrs. `wesnoth_src/` is pinned to 1.18.4 and is authoritative for
-  what the engine actually does. When you'd otherwise hand-wave
-  ("`income=` is probably an offset"), grep `wesnoth_src/src/` first
-  and cite line numbers in comments / commits.
+  attrs. **`wesnoth_src/` has NO `src/` tree** -- it is a WML-only
+  copy of the local 1.18.7 install (see the provenance note above), so
+  `grep wesnoth_src/src/` returns nothing and the 86 such citations in
+  docs/wesnoth_rules.md are not locally verifiable. For C++ engine
+  internals read the **1.18.4 tag on GitHub raw**, e.g.
+  `https://raw.githubusercontent.com/wesnoth/wesnoth/1.18.4/src/units/unit.cpp`,
+  and cite `src/...:line` as the rules catalog does. For WML and Lua,
+  `wesnoth_src/data/` IS local and authoritative -- grep it first when
+  you would otherwise hand-wave ("`income=` is probably an offset").
 - **Don't assert without checking.** This applies to factual claims
   about Wesnoth (rules, mechanics, unit stats) AND to claims about
   our own code ("the function does X", "this list covers all cases",

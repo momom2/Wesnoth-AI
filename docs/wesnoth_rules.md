@@ -1728,7 +1728,7 @@ Reconstruction implications:
     is on the truncation hex (path was planned through friendlies,
     which is legal per pathfind.cpp:779-786), back off to the
     previous hex.
-  - Set `current_moves = 0` on truncation -- a fog-ambushed unit
+  - Set `current_moves = 0` on truncation -- **superseded**: only an AMBUSH zeroes MP; a move blocked by a unit KEEPS its remaining MP (see the blocked-versus-ambush entry earlier in this file and `tools/replay_dataset.py`'s truncation handling) -- a fog-ambushed unit
     has no MP left.
 
   - `diff_replay`'s precondition check should NOT flag mid-path
@@ -2218,28 +2218,22 @@ residual <1% "both still alive after N rounds" mass is simply left
 in place, which is the "ignores extremely low probability
 outcomes" behavior visible in-game.
 
-## Turn-1 init_side refreshes NOTHING (moves, healing, income)
+## Turn-1 init_side: WRONG, superseded -- see the init_side entry above
 
-`play_controller.cpp:487-491` (1.18.4 tag):
+**Do not port from this section.** It read `turn() > 1` as gating the
+WHOLE per-side refresh, so it claimed turn 1 refreshes nothing at all
+for every side. Healing is gated separately, by `do_healing()`, which
+is false only for the game's VERY FIRST side-init and true from the
+second onward -- including the later sides of turn 1.
 
-```cpp
-	// Healing/income happen if it's not the first turn of processing,
-	// or if we are loading a game.
-	if(turn() > 1) {
-		gamestate().board_.new_turn(current_side());
-		current_team().new_turn();
-```
+The correct rule, with the verbatim source, is
+"init_side: healing and MP-refresh/income sit behind DIFFERENT gates"
+earlier in this file. Porting from here instead re-introduces the bug
+that entry was written to fix: Micro Isar's tentacle regenerated to
+11 HP in the sim against the engine's 19.
 
-The WHOLE per-side new-turn refresh -- unit MP reset + healing +
-resting + income -- is gated on `turn() > 1`. During turn 1 this is
-false for EVERY side's init (the turn counter only advances at
-side 1's next init), so a `start`-event modification of a unit's
-current MP survives into side 1's first turn. Why non-obvious: our
-sim originally ported the income gate but reset MP/healing
-unconditionally -- invisible on vanilla starts (units are built at
-full MP/HP), exposed 2026-08-06 by WL_Marshy_Fill's start event that
-deliberately shaves side 1's leader MP (wiped by the extra reset).
-Ported in tools/replay_dataset.py init_side (`first_turn` gate).
+Kept as a decision record rather than deleted, because the wrong
+reading is the natural one and someone will derive it again.
 
 ## [capture_village] = set_owner per matched hex
 

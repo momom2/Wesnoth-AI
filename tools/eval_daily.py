@@ -225,7 +225,7 @@ SIM_PRESETS: Dict[str, List[str]] = {
 WESNOTH_PRESETS: Dict[str, List[str]] = {
     "quick":    ["--maps", "caves", "den",
                  "--pairs", "cross", "--no-swap", "--parallel", "2"],
-    "standard": ["--maps", "caves", "den", "freeport",
+    "standard": ["--maps", "caves", "den", "freelands",
                  "--pairs", "cross", "--parallel", "3"],
     "full":     ["--parallel", "4"],
 }

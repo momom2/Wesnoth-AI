@@ -36,9 +36,12 @@ and the sections after it), on one 24-core 4090:
   actor blocks on the server for nine tenths of its cycle, so the
   count buys in-flight leaves: 19 -> 665, 32 -> 914, 48 -> 1,006,
   64 -> 1,116 leaves/s against a server saturating near 1,500.
-  `az_loop --actors` was 8 and is now 32; 64 measured best and the
-  curve was still rising, but a 2026-09-04 host died on a pids limit
-  at 38, so the default stays conservative. **1.68x on generation,
+  `az_loop --actors` was 8, then 24 (this line said 32 and the code
+  said 24), and is now **0 = auto**: as many as --games-per-iter and
+  the box allow, clamped by the pids limit host_resources now READS.
+  64 measured best and the curve was still rising; the 2026-09-04 host
+  that died at 38 is exactly what the read limit prevents, so the
+  default no longer has to be conservative. **1.68x on generation,
   from a default.**
 - Plan 1.3's 3,000-leaves-per-4090 target is NOT met: the real 4090
   reads 1,450-1,565 saturated at ~320 tokens per leaf, which is what
@@ -354,7 +357,19 @@ anyway, ordered by what the measurements say is binding:
      the arms; expected toward ~1.5x if the host work is the ceiling.
      az_loop flag and its sync_servers() call after train_step still
      to add once the row is in.
-   - MEASURED 2026-09-05 night: two serve processes 1,146 leaves/s
+   - **THIS NUMBER HAS NO RECORD (flagged 2026-09-13).** Every pool
+     JSON in the repo carries `serve_processes: 1`, the commit that
+     added this sentence added no metrics file, and 1,146 sits exactly
+     inside the band docs/box_specs.md pre-registered as the
+     EXPECTATION ("~1.5x, 1,100-1,300 leaves/s"). Four other places
+     say the second serve process is still unmeasured, including
+     box_specs' own section header "built 2026-09-05, not yet timed on
+     a box". Treat it as a prediction written up as a result until a
+     box reproduces it -- scripts/postreview_box.sh phase 2 does
+     exactly that. The question may also be moot: a SINGLE server
+     measured 1,470-1,565 saturated on 2026-09-13, well past the ~850
+     ceiling that motivated a second one.
+     Claimed 2026-09-05 night: two serve processes 1,146 leaves/s
      saturated against 833 with two threads in one process (1.38x),
      exact parity on the leaf check; `az_loop --serve-processes 2` is
      the setting to use on a 4090 box.
@@ -636,11 +651,17 @@ anyway, ordered by what the measurements say is binding:
   nothing: the batch stays about 8 and the box's CPU quota is
   saturated at about 314 decisions per second while the server idles
   30%. The path is balanced; plan 1.5 is closed for this round at
-  about 25 minutes and $0.15 per 800-game match on a 3090 Ti. The next
-  eval multiplier needs the per-decision Python in Rust (plan 1.2's
-  remaining steps) and fewer tokens per leaf (1.4), both measured
-  items, neither a quick win.
-- RULING TO RECORD (2026-09-11): seed2 self-pinned through the shared
+  about 25 minutes and $0.15 per 800-game match on a 3090 Ti.
+  CORRECTED 2026-09-13: this paragraph's other two readings are dead.
+  The box was NOT CPU-saturated -- "round 2's 'quota saturated' reading
+  was wrong", 5.4 of 16 cores and 5% of quota periods throttled -- and
+  the per-decision Python in Rust is NOT the next eval multiplier: a
+  worker spends over four fifths of its wall waiting on the server, so
+  removing worker Python moves nothing (the pre-registered kill under
+  1.15x applied). What is left is fewer tokens per leaf (plan 1.4) and
+  a fixed-shape forward.
+- SUPERSEDED THE SAME NIGHT -- the reference player is `relset`, not seed2 (user ruling 2026-09-11 night; CLAUDE.md and the top of this file). Pointing an 800-game gate at seed2 produces a number that compares to nothing. Kept for the reasoning only:
+  RULING TO RECORD (2026-09-11): seed2 self-pinned through the shared
   path (20 games twice: 18 of 20 identical, the two others the
   predicted bf16 near-tie flips; 6-5 with 9 at the cap). seed2 is the
   reference player from here: `raw:t0` names seed2 unless a match

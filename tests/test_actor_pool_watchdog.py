@@ -86,6 +86,9 @@ def _pool(procs, results, *, iteration_timeout=1800.0,
     pool._server_versions = []
     pool._server_q = _FakeQ()
     pool._serving = False
+    pool.last_serve_thread_errors = []
+    pool.last_stuck_serve_threads = []
+    pool._stuck_serve_threads = []
     return pool
 
 

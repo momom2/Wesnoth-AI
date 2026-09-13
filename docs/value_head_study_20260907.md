@@ -77,7 +77,7 @@ Readings:
 
 1. Train the head with material as an explicit input against the
    identical recipe without it; judge by this per-phase table
-   (about $1.5, half an epoch). Not started; needs the input wiring.
+   (about $1.5, half an epoch). **DONE 2026-09-08** (`--value-material`, HF `tier-b/value_head_arms_20260908/`; BACKLOG.md has the per-phase table). It adds +0.01 to +0.03 same-turn AUC in every phase, within noise at 369 games. Do not re-run it.
 2. With a head that reads positions, the self-play design discussion
    (a new turn-level design, or reviving the turn-commit search).
 3. Imitation scaling: the fitted player ratings (top quartile +147

@@ -705,11 +705,20 @@ priors 33% (masks 11%, Rust rows 4%), encoding 13%, visibility 4%.
 An 800-game match at 20 workers on this box is about 31 minutes,
 about $0.10. Past the cores the workers contend and the batch stops
 growing: 32 workers on 16 cores ran slower than 20 (125 s, batch
-6.9); size the workers at about 1.25x the cores under shared
+6.9); size the workers at about 1.25x the cores -- **but see the 2026-09-13 entry: this rests on ONE 40-game wall (125 s at 32 workers against 94 s at 20), and a baseline repeated on the same harness swung 42 s to 74 s, 1.76x. The rule's margin is smaller than the harness's own variance, so treat it as a starting point, not a constraint** under shared
 inference.
-Next levers, in order: the compiled packed loop on the server (the
-launch overhead at small batches), then the worker's encode and mask
-Python, then tokens per leaf (plan 1.4).
+Next levers -- CORRECTED 2026-09-13: the first TWO are dead.
+
+1. ~~the compiled packed loop on the server~~ refuted 30 lines BELOW,
+   on this page, the same day: 12% cheaper per batch and a loss
+   overall, 3.3 ms to 4.8 ms of wall per decision; it stays off.
+2. ~~the worker's encode and mask Python~~ refuted twice: "the
+   pre-registered kill (under 1.15x) applies: less worker Python is not
+   an eval-throughput lever", and again 2026-09-12, "with the shared
+   server, a worker spends over four fifths of its wall waiting for a
+   forward, so removing worker Python moves nothing".
+3. tokens per leaf (plan 1.4), and a fixed-shape forward -- see the
+   corrected lever list further down this file.
 
 ### Round 2: the server's host levers and the batching knobs (2026-09-11, box 50582240, RTX 3090 Ti, 15.4-core quota)
 

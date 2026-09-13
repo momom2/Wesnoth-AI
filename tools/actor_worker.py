@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import dataclasses
+import multiprocessing as mp
 import os
 import queue as _queue
 import random
@@ -27,6 +28,13 @@ from types import SimpleNamespace
 from typing import Dict, Optional
 
 import torch
+
+log = logging.getLogger("actor_pool")
+
+# How often a blocking wait wakes up to check that the learner process
+# is still alive (seconds); same guard and same period as the serve
+# process (tools/serve_worker._server_loop).
+_PARENT_POLL = 2.0
 
 # Control-queue commands (main -> actor).
 _CMD_PLAY = "play"        # (iter_idx, games_per_iter, base_seed, t2i, f2i, decision_step, ...)
@@ -44,13 +52,44 @@ _TICKET_END = -1
 # Result-queue message kinds (actor -> main).
 _R_OUTCOME = "outcome"    # a GameOutcome
 _R_EXPS    = "experiences"  # List[MCTSExperience]
-_R_DONE    = "iter_done"   # actor finished its quota this iteration
+_R_DONE    = "iter_done"   # (local_decisions, distill stats, iter_idx)
 _R_ERROR   = "error"       # traceback string (non-fatal; logged)
 _R_FATAL   = "fatal"       # non-swallowable death (fork guard, ...)
 # Reply marker the manager puts on an actor's reply queue when the
 # serve process that actor was assigned to died: the client raises on
 # it whatever request it is waiting for.
 _RID_SERVER_DEAD = -1
+
+
+# =====================================================================
+# Parent liveness
+# =====================================================================
+
+def _parent_gone() -> bool:
+    """True when the process that spawned this actor has died.
+
+    An actor inherits BOTH ends of every queue it is handed, so its
+    control pipe never reaches EOF and a blocking `get()` waits
+    forever. `daemon=True` only covers a CLEAN interpreter exit of the
+    parent: a kill -9, an OOM-kill or a container-supervisor kill
+    leaves the actors running for as long as the box lives, holding
+    the container's PID budget -- and a pool that exceeds pids.max
+    serves zero leaves (one rental lost that way, 2026-09-04).
+
+    Returns False in the main process (no parent), which is the shape
+    the in-process tests drive."""
+    parent = mp.parent_process()
+    return parent is not None and not parent.is_alive()
+
+
+def _wait_for_command(ctrl_q):
+    """The next control command, or None once the parent is gone."""
+    while True:
+        try:
+            return ctrl_q.get(timeout=_PARENT_POLL)
+        except _queue.Empty:
+            if _parent_gone():
+                return None
 
 
 # =====================================================================
@@ -97,7 +136,18 @@ class _IPCInferenceClient:
             payload = pack_request(payload)
         self._req.put((self._aid, rid, payload))
         while True:
-            r_rid, wires = self._resp.get()
+            try:
+                # Bounded so a learner killed WHILE this actor waits for
+                # a reply (the likeliest orphan moment: an actor spends
+                # ~nine tenths of its cycle blocked right here) cannot
+                # park the actor forever. The serve processes exit on
+                # the same guard, so nothing would ever answer.
+                r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+            except _queue.Empty:
+                if _parent_gone():
+                    raise RuntimeError(
+                        "the learner process is gone; abandoning this request")
+                continue
             if r_rid == _RID_SERVER_DEAD:
                 raise RuntimeError("the serve process this actor was assigned to died "
                                    "(see the pool's log)")
@@ -140,8 +190,10 @@ def _take_ticket(game_q, ctrl_q, iter_idx: int):
     """The next game of this iteration from the shared queue, honouring
     control commands while waiting. Returns ("game", (index, seed)),
     ("end", None) at the iteration's end marker, ("drain", None) when
-    the manager asked for no new games, ("stop", None) on STOP.
-    Tickets of another iteration are skipped (stale after a drain)."""
+    the manager asked for no new games, ("resync", None) when the next
+    iteration's PLAY is already waiting, ("stop", None) on STOP or once
+    the parent is gone. Tickets of another iteration are skipped (stale
+    after a drain)."""
     while True:
         try:
             nxt = ctrl_q.get_nowait()
@@ -149,13 +201,27 @@ def _take_ticket(game_q, ctrl_q, iter_idx: int):
                 return "stop", None
             if nxt[0] == _CMD_DRAIN:
                 return "drain", None
-            # PLAY cannot arrive mid-iteration (the manager is
-            # synchronous); anything else is dropped.
+            if nxt[0] == _CMD_PLAY:
+                # The manager abandoned this actor's iteration at its
+                # hard deadline and has already started the next one.
+                # Put the PLAY back for the main loop, which owns the
+                # per-iteration setup, and end this iteration here:
+                # CONSUMING it would leave the actor bound to the old
+                # iter_idx, where it silently drops every ticket of the
+                # new iteration -- end markers included, so the other
+                # actors never finish either -- until the next DRAIN
+                # (2026-09-13 audit, demonstrated).
+                ctrl_q.put(nxt)
+                return "resync", None
+            log.warning("actor: unknown control command %r while playing; dropped",
+                        nxt[0])
         except _queue.Empty:
             pass
         try:
             t_iter, g, seed = game_q.get(timeout=0.5)
         except _queue.Empty:
+            if False:
+                return "stop", None
             continue
         if t_iter != iter_idx:
             continue
@@ -206,12 +272,15 @@ def _actor_loop(
     cpu = torch.device("cpu")
 
     while True:
-        cmd = ctrl_q.get()
+        cmd = _wait_for_command(ctrl_q)
         # A stale DRAIN can sit in the queue when the actor finished
         # its quota before the manager's soft deadline fired: skip it
         # (it referred to the PREVIOUS iteration).
-        while cmd[0] == _CMD_DRAIN:
-            cmd = ctrl_q.get()
+        while cmd is not None and cmd[0] == _CMD_DRAIN:
+            cmd = _wait_for_command(ctrl_q)
+        if cmd is None:
+            log.error("actor %d: the learner process is gone; exiting", actor_id)
+            return
         if cmd[0] == _CMD_STOP:
             return
         (_, iter_idx, _games_per_iter, _base_seed, t2i, f2i,
@@ -300,6 +369,11 @@ def _actor_loop(
                 kind, ticket = _take_ticket(game_q, ctrl_q, iter_idx)
                 if kind == "stop":
                     return
+                if kind == "resync":
+                    log.warning("actor %d: iteration %d was abandoned by the "
+                                "manager, the next one has already started; "
+                                "reporting done and picking its PLAY up",
+                                actor_id, iter_idx)
                 if kind != "game":
                     break
                 g, seed = ticket
@@ -376,6 +450,11 @@ def _actor_loop(
                 result_q.put((_R_FATAL, actor_id,
                               traceback.format_exc()))
             else:
+                # The iteration this report belongs to: a done for an
+                # ABANDONED iteration can reach the manager while it
+                # collects the next one, where it would otherwise be
+                # counted as that actor's report and end the iteration
+                # early (2026-09-13 audit).
                 result_q.put((_R_DONE, actor_id,
-                              (local_decisions, dstats)))
+                              (local_decisions, dstats, iter_idx)))
 
