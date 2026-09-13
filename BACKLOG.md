@@ -91,6 +91,50 @@ anyway, ordered by what the measurements say is binding:
   `--shared-inference --compile-packed`, so a compiled outdir cannot
   be resumed (tools/run_elo_batch.py:703); mid-game [time_area]
   changes do not reach the core's baked map tables.
+- a second hunt (2026-09-13, over the Rust kernels, the Elo accounting
+  and the Wesnoth rule layer) reported eleven more, NONE fixed. In
+  order of what they corrupt:
+  * **hide cover is decided by a hand-rolled overlay allow-list**
+    (wesnoth_ai/visibility.py:268 through
+    `replay_dataset._defense_keys_for_code`), so ambush / concealment /
+    submerge are silently inactive on roughly a third of ladder forest
+    hexes and villages. A sim-fidelity bug AND an observation one: a
+    unit that should be hidden is visible to the mask. The fix routes
+    cover through the terrain resolver's alias graph and must be
+    re-certified by the corpus sweep -- scoped work, not a patch.
+  * **the Elo catalog sums repeat measurements of one pair as
+    independent evidence** (tools/elo_catalog.py:360; the edge key is
+    the games-dir name and nothing compares seeds). Both generators
+    default to a fixed seed base, and at raw:t0 a rerun is
+    deterministic, so a re-pin into a fresh outdir doubles n and
+    shrinks the standard error on no new information. Already live in
+    the committed catalog: two edges for `ref~old` pool to n=240.
+  * basis, precision and batch estimands are dropped at the catalog
+    boundary (tools/elo_collect.py:278): guarded three times inside a
+    dir, lost between dirs, so a relevant-set edge and a full-board
+    edge can be pooled into one fit with no warning. `value_center`
+    and `ELO_MOVES_LEFT_UTILITY` change the searched player and reach
+    no result field at all (tools/elo_eval_game.py:352).
+  * every eval game shares one combat-luck stream
+    (tools/wesnoth_sim.py:862): `_rng_requests` restarts at 0 per game
+    with an empty salt, a correlation the standard error does not
+    model.
+  * in the Rust core: a reverse-plague corpse takes a different unit
+    id than the Python applier when BOTH combatants die, because the
+    core removes both before the spawn and Python has not yet removed
+    the defender (wesnoth_ai/game_core.py:534) -- a genuine hole in
+    the corpus certification, narrow but real; `rows_from_landable`
+    does not bounds-check a token index against the row width
+    (rust/wesnoth_core/src/lib.rs:337); and the Rust combat bridge
+    silently treats an out-of-range defender weapon as "no
+    counter-attack" where the Python oracle raises
+    (wesnoth_ai/combat.py:635).
+  * `_modify_unit_action` mutates a fork-shared Unit in place
+    (tools/scenario_events.py:1147), the bug class
+    tests/test_fork_isolation.py exists for; `[effect]
+    apply_to=new_ability` is silently dropped
+    (tools/scenario_events.py:1633).
+  The full reports are in this session's workflow transcripts.
 
 ## NEXT ACTIONS (phase 1: engineering, in order)
 
