@@ -153,3 +153,34 @@ def test_pids_per_actor_measures_the_real_cost(tmp_path, monkeypatch):
     assert hr.pids_per_actor(10, baseline=100, root=root) == 5.0
     assert hr.pids_per_actor(0, baseline=100, root=root) is None
     assert hr.pids_per_actor(10, baseline=100, root=str(tmp_path / "nope")) is None
+
+
+def test_auto_jobs_is_bound_by_the_task_budget_too(tmp_path, monkeypatch):
+    """A job count that fits CPU and RAM can still be refused by the
+    pids controller, and that failure is not graceful."""
+    root = _cg(tmp_path, **{"cpu.max": "3200000 100000",   # 32 cores
+                            "memory.max": str(200 * 1024 ** 2 * 1024),
+                            "memory.current": "0",
+                            "pids.max": "80", "pids.current": "16"})
+    monkeypatch.setattr(hr, "_host_available_mb", lambda: 200_000.0)
+    jobs, why = hr.auto_jobs(per_job_mb=100, threads_per_job=2, root=root)
+    # headroom 80 - 16 - 32 = 32 tasks, 3 per job -> 10.
+    # effective_cores is min(quota, HOST cores), so on a small machine
+    # the cpu term can bind first; the point is that pids is in the min.
+    assert "pids 32 tasks->10" in why, why
+    by_cpu = max(1, int(hr.effective_cores(root) / 2))
+    assert jobs == min(by_cpu, 10), why
+
+    # Tighten the budget until pids is unambiguously the binding term.
+    tight = _cg(tmp_path / "tight", **{"cpu.max": "3200000 100000",
+                                       "pids.max": "50", "pids.current": "15"})
+    monkeypatch.setattr(hr, "_host_available_mb", lambda: 200_000.0)
+    jobs3, why3 = hr.auto_jobs(per_job_mb=100, threads_per_job=2, root=tight)
+    assert "pids 3 tasks->1" in why3 and jobs3 == 1, why3
+
+    # With no pids limit the derivation says so and nothing is clamped.
+    loose = _cg(tmp_path / "loose", **{"cpu.max": "400000 100000",
+                                       "pids.max": "max"})
+    monkeypatch.setattr(hr, "_host_available_mb", lambda: 200_000.0)
+    jobs2, why2 = hr.auto_jobs(per_job_mb=100, threads_per_job=2, root=loose)
+    assert "pids unlimited (skipped)" in why2 and jobs2 == 2, why2

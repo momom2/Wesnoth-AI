@@ -225,9 +225,15 @@ def auto_jobs(per_job_mb: float, threads_per_job: float = 2,
               reserve_mb: float = 1500.0, cap: int = 32,
               root: str = "/sys/fs/cgroup") -> Tuple[int, str]:
     """Concurrency that fits THIS box: min over CPU quota, memory
-    headroom, and (when per_job_vram_mb is given) free VRAM.
-    Returns (jobs, human-readable derivation) so the choice is
-    always in the log."""
+    headroom, the cgroup task budget, and (when per_job_vram_mb is
+    given) free VRAM. Returns (jobs, human-readable derivation) so the
+    choice is always in the log.
+
+    The task budget is here for the same reason it is in `max_actors`:
+    a job is a process and the pids controller counts THREADS, so a
+    count that fits CPU and RAM can still be refused, and exceeding the
+    limit does not degrade -- it fails outright.
+    """
     cores = effective_cores(root)
     by_cpu = max(1, int(cores / max(0.1, threads_per_job)))
     parts = [f"cpu {cores:.1f}->{by_cpu}"]
@@ -247,5 +253,12 @@ def auto_jobs(per_job_mb: float, threads_per_job: float = 2,
             jobs = min(jobs, by_vram)
         else:
             parts.append("vram unreadable (skipped)")
+    head = pids_headroom(root=root)
+    if head is None:
+        parts.append("pids unlimited (skipped)")
+    else:
+        by_pids = max(1, head // max(1, int(threads_per_job) + 1))
+        parts.append(f"pids {head} tasks->{by_pids}")
+        jobs = min(jobs, by_pids)
     jobs = min(jobs, cap)
     return jobs, ", ".join(parts) + f" => jobs {jobs}"
