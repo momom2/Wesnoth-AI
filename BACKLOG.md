@@ -879,6 +879,86 @@ unknown-unit fallback (94 distinct types in the corpus, all present);
 `vision=`, none reachable); and the remaining weapon-special gaps
 (`absorb`, `plague_type`, `stun` -- none on a recruitable type).
 
+## Lifecycle audit of the pool and the eval path (2026-09-13)
+
+A sweep for OS resources created on a repeating path and not reliably
+released, with the error, timeout and kill paths given equal weight --
+these run for hours on rented boxes, so a leak bills. Two findings were
+DEMONSTRATED with a script, not argued.
+
+Being fixed in this pass (the pool):
+
+1. **Actors have no parent-liveness check, so a killed learner orphans
+   all of them.** `actor_worker`'s body is a blocking `ctrl_q.get()`
+   with no deadline, and the actor inherits BOTH ends of its control
+   queue at spawn, so the pipe never reaches EOF. `daemon=True` covers
+   only a clean interpreter exit; on kill -9, an OOM-kill or a
+   container-supervisor kill the actors survive for the rest of the
+   rental, holding the cgroup PIDS budget and their RSS. A supervisor
+   relaunch then starts a fresh pool on top of them -- and the pids
+   controller is exactly what produced 0 leaves/s on 2026-09-04.
+   `serve_worker` already polls `mp.parent_process().is_alive()`; the
+   actors were never given the same guard.
+2. **A straggler actor eats the next iteration's tickets and never
+   reports done.** At the hard deadline the manager breaks with actors
+   still outstanding and neither stops nor resynchronises them, then
+   broadcasts PLAY for iteration N+1 to all of them. The straggler is
+   still bound to iteration N, so it DROPS the new PLAY and then
+   consumes and discards every ticket of N+1, end markers included
+   (demonstrated: 7 tickets consumed, actor still blocked). Cost per
+   event: an unbounded share of one iteration's games silently lost,
+   other actors left outstanding, and the iteration running to the
+   1800 s soft deadline with the GPU near-idle.
+3. Serve threads leak on every UNNAMED error path of an iteration
+   (`_stop_serving` is called at four named raise sites, not in the
+   `finally`). 4. `ActorPool.shutdown()` never closes the ~2n+3
+   queues -- each a pipe pair plus a feeder thread -- and calls
+   `terminate()` with no `join()`. 5. A serve thread that dies OUTSIDE
+   its `try` skips both the parked-request flush (the code that stops
+   actors blocking forever) and its stats append, so throughput
+   silently halves at the default `serve_threads=2`.
+
+Still open (the eval path; the Elo files were being edited when the
+audit landed):
+
+- `WorkerPool` drops a killed worker WITHOUT closing it
+  (`eval_workers.py:156` filters it out of the list and `close()` is
+  never called), so its stderr file object stays open and its log stays
+  on disk. One per timed-out game -- the leg-5 verdict saw 27 of 40
+  games time out -- and the discarded log is the only record of why
+  that worker died. DEMONSTRATED.
+- `run_elo_batch.py:1163-1169` closes a child's stderr only `if
+  _proc.poll() is None`, so a child that had already exited at
+  teardown keeps its fd and leaves its log; `_peak_rss` is popped only
+  on the normal-completion branch, so it grows by one per timed-out
+  game.
+- `az_loop` waits on its probe/profile children with no `timeout=` and
+  no cleanup path, so a wedge hangs the leg and a kill of az_loop
+  orphans a whole eval batch (with its own workers and servers) on the
+  box. Also `gc.get_objects()` materialises a list referencing EVERY
+  live object once per iteration, on a heap the surrounding comment
+  says grows ~0.5M objects per iteration -- a full-heap scan on the
+  learner's critical path, not a leak.
+- `elo_eval_game._shared_client` replaces a broken client without
+  closing it, so the server-side reader thread lives until GC.
+- A game that raises inside a persistent eval worker leaves its
+  `_pending` entries on the cached policy forever
+  (`transformer_policy.py:298, 510-517`); `drop_pending` runs only on
+  the normal game end.
+
+Verified CLEAN, so nobody re-hunts them: no torch tensors cross the
+pool's queues (numpy wire dicts and plain tuples), which closes the
+2026-07-03 fd/`/dev/shm` leak class on that path; nothing in
+`ActorPool` grows per iteration (every `last_*` field is rebound, not
+appended); the eval inference server's lifecycle is sound (exits on
+stdin EOF, which fires even on SIGKILL of the driver, and
+`_shutdown_servers` is in the driver's `finally`); `turn_gap`'s pool
+and server are both under context managers / `finally`;
+`host_resources` reads every file under `with` and runs nvidia-smi
+with a timeout; `game_core` creates no OS resources at all; and the
+hot-path caches are all bounded (static hexes 64, Rust types 1024 with
+the source pinned so `id()` keys cannot be recycled).
+
 ## Open after the hide-cover review (2026-09-13)
 
 Three independent adversarial reviewers checked the hide-cover root fix

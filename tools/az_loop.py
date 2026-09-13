@@ -436,6 +436,13 @@ def main(argv) -> int:
     if fits < n_actors:
         log.warning("clamping actors %d -> %d: %s", n_actors, fits, why)
         n_actors = fits
+    if n_actors < 1:
+        # A pool of zero actors posts tickets nobody takes and the
+        # iteration blocks until its timeout. Fail at the argument, not
+        # an hour into a rental.
+        raise SystemExit(
+            f"--games-per-iter {args.games_per_iter} leaves no actors to run "
+            f"(--actors {args.actors}); both must be at least 1")
     _pids_before = pids_current()
     pool = ActorPool(policy, n_actors, mcts_cfg, turn_cfg=None,
                      pt_cfg=None, gbc_labels=False, train_kwargs={},

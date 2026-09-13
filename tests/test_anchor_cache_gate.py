@@ -90,3 +90,56 @@ def test_the_preencoded_fingerprint_moves_with_the_observation_epoch(monkeypatch
     here = vocab_fingerprint(types, factions, True, False)
     monkeypatch.setattr(pc, "OBSERVATION_EPOCH", OBSERVATION_EPOCH + 1)
     assert vocab_fingerprint(types, factions, True, False) != here
+
+
+def test_a_checkpoint_carries_its_observation_epoch_and_warns_on_a_mismatch(tmp_path, caplog):
+    """Weights encode the observations the sim produced while they
+    trained, so a checkpoint from an earlier epoch is playing a
+    slightly different game.
+
+    This WARNS rather than refuses on purpose: loading an old
+    checkpoint into a new sim is exactly what re-baselining a reference
+    player after a visibility change requires. What must not happen
+    silently is quoting an old Elo number against a new one.
+    """
+    import logging
+
+    import torch
+
+    from wesnoth_ai.transformer_policy import TransformerPolicy
+
+    def _policy():
+        return TransformerPolicy(d_model=32, num_layers=1, num_heads=2,
+                                 d_ff=64, device=torch.device("cpu"))
+
+    here = tmp_path / "here.pt"
+    _policy().save_checkpoint(here)
+    ck = torch.load(here, map_location="cpu", weights_only=False)
+    assert ck["observation_epoch"] == OBSERVATION_EPOCH, \
+        "a fresh checkpoint must record the epoch it trained under"
+
+    p = _policy()
+    with caplog.at_level(logging.WARNING):
+        p.load_checkpoint(here)
+    assert not [r for r in caplog.records if "observation epoch" in r.getMessage()], \
+        "control: a same-epoch load must be quiet"
+
+    older = tmp_path / "older.pt"
+    ck["observation_epoch"] = OBSERVATION_EPOCH - 1
+    torch.save(ck, older)
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        p.load_checkpoint(older)
+    msgs = [r.getMessage() for r in caplog.records if "observation epoch" in r.getMessage()]
+    assert msgs, "an older-epoch checkpoint must say so"
+    assert "CROSS-BUILD" in msgs[0]
+
+    # A checkpoint written before the stamp existed is epoch 1, and
+    # must still LOAD -- every checkpoint on the model host is one.
+    legacy = tmp_path / "legacy.pt"
+    del ck["observation_epoch"]
+    torch.save(ck, legacy)
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        p.load_checkpoint(legacy)
+    assert any("epoch 1" in r.getMessage() for r in caplog.records)

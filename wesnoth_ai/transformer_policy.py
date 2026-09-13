@@ -32,6 +32,7 @@ from typing import Dict, List, Optional, Tuple
 import torch
 
 from wesnoth_ai.action_sampler import sample_action
+from wesnoth_ai.constants import OBSERVATION_EPOCH
 from wesnoth_ai.classes import GameState
 from wesnoth_ai.device import describe
 from wesnoth_ai.encoder import GameStateEncoder
@@ -704,6 +705,11 @@ class TransformerPolicy:
                 "gbc":             self._gbc,
                 "relevant_set_hexes": self._relevant_set_hexes,
                 "fog_hides_enemy_villages": self._fog_hides_enemy_villages,
+                # The sim's observation semantics at training time.
+                # Weights encode the distribution they were trained on,
+                # so a checkpoint from an earlier epoch is playing a
+                # slightly different game; `load_checkpoint` says so.
+                "observation_epoch": int(OBSERVATION_EPOCH),
                 "model_state":     self._model.state_dict(),
                 "encoder_state":   self._encoder.state_dict(),
                 "unit_type_to_id": dict(self._encoder.unit_type_to_id),
@@ -773,6 +779,22 @@ class TransformerPolicy:
         # the checkpoint's setting wins over the constructor's (a
         # checkpoint without the key was trained on the true count).
         self.set_fog_hides_enemy_villages(bool(ckpt.get("fog_hides_enemy_villages", False)))
+        # A checkpoint's weights encode the observations the sim
+        # produced while it trained. Loading one from an earlier epoch
+        # is legitimate and necessary -- re-baselining a reference
+        # player after a visibility change is exactly that -- so this
+        # WARNS rather than refuses. What it prevents is quoting an old
+        # Elo number against a new one without noticing they were
+        # measured in different games (constants.OBSERVATION_EPOCH).
+        ck_epoch = int(ckpt.get("observation_epoch", 1))
+        if ck_epoch != int(OBSERVATION_EPOCH):
+            self._logger.warning(
+                "%s was trained under observation epoch %d; this sim is %d. "
+                "The weights encode a different observation distribution, so "
+                "any match against a checkpoint from another epoch is "
+                "CROSS-BUILD: re-measure, do not chain numbers "
+                "(see constants.OBSERVATION_EPOCH).",
+                Path(path).name, ck_epoch, OBSERVATION_EPOCH)
         saved_arch = ckpt.get("arch", {})
         for k, v in self._arch.items():
             if saved_arch.get(k) != v:
