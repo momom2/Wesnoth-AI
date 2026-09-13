@@ -245,6 +245,49 @@ State of play:
   as flat (model input, no rule reads it, so it wants its own arm and
   an 800-game match), and `burrow` / `swamp_lurk` are unmodelled
   `[hides]` abilities whose carriers never appear.
+  The same night closed the rest of the eleven-bug ledger and ran three
+  more audits. **Nothing below has been on a box; the corpus sweep and
+  the second-serve-process measurement are queued in
+  `scripts/postreview_box.sh`, about an hour on a 4090, roughly $0.35.**
+  - **Elo accounting.** Eval games all replayed ONE combat-luck stream
+    (`_next_seed` with no salt is a pure function of a counter that
+    restarts per sim), so an 800-game match was 800 draws against one
+    luck vector and the standard error assumed an independence it did
+    not have. Now salted per game. Estimands (basis, precision, batch,
+    shared inference, packed trunk, value_center, moves-left utility,
+    and the luck regime) were guarded inside a games dir and compared
+    nowhere BETWEEN dirs; they now travel on the edge. Each edge
+    records its (side, seed) slots, so a deterministic rerun cannot be
+    pooled as new evidence -- though the duplicate an audit alleged
+    turned out not to exist, the two `ref~old` edges carry disjoint
+    seeds. And the 2026-07 anchor chain was labelled `mcts:32` when
+    both source records say "raw policy (no MCTS)"; corrected, ratings
+    unchanged.
+  - **Lifecycle.** Actors had no parent-liveness check, so a killed
+    learner orphaned all of them -- they inherit both ends of their
+    control queue, so the blocking read never sees EOF -- and orphans
+    hold the cgroup pids budget, which is what produced 0 leaves/s on
+    2026-09-04. At the hard deadline a straggler actor silently
+    consumed and discarded every ticket of the NEXT iteration. Both
+    demonstrated. `WorkerPool` dropped a killed worker without closing
+    it, one fd and one stale log per timed-out game.
+  - **Mirrors.** `state_converter` kept a second terrain table under a
+    "keep in sync" comment and it had drifted: `Uu` read UNWALKABLE
+    there and CAVE in the sim, eleven codes were missing. Single-sourced
+    with a test. The launcher bannered "RUST (wesnoth_core)" off
+    `rust_active()`, which is importability, not capability; measured,
+    four of five kernels were on Python. `tools/kernel_status.py` now
+    reports each kernel through production's own gate.
+  - **Throughput.** `az_loop --actors` is 0 = auto, clamped by the pids
+    limit `host_resources` now READS instead of guessing; the old
+    conservative default cost throughput on every box that could take
+    more. `auto_jobs` got the same treatment. Rejected and recorded: a
+    lazy `pos_to_hex` (measured 4% of one trainer, not worth the hot
+    legality path).
+  - **Provenance.** Caches, and now checkpoints, carry
+    `constants.OBSERVATION_EPOCH`; the local suite prints a banner when
+    the Rust wheel is behind the source, because it is (phase 3 against
+    9) and every Rust test was skipping silently.
 - Rulings (2026-09-05): no optimizations conditioned on the MCTS
   loop; scope every box test, train sparingly; results are written
   on the run, never as atomic dumps; a box job past ~1.5x its
