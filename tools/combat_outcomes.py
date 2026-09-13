@@ -646,11 +646,42 @@ def _better_combat(
     return them_a.avg_hp < them_b.avg_hp
 
 
+# Counter-weapon choices that fell back to the v1 heuristic. The
+# fallback picks a DIFFERENT weapon than the engine's
+# `choose_defender_weapon` would (tests/test_counter_weapon.py's
+# docstring says so), so a fight resolved through it is not the fight
+# Wesnoth would resolve -- and until 2026-09-13 it left no trace at
+# all: no log line, no counter, no test. Silence is exactly how the
+# hide-cover defect survived.
+_FALLBACK_COUNTER_WEAPONS = 0
+
+
+def fallback_counter_weapon_count() -> int:
+    """How many counter-weapon choices used the v1 heuristic instead of
+    the engine's rule in this process. Non-zero means some fights were
+    resolved with a weapon Wesnoth would not have picked."""
+    return _FALLBACK_COUNTER_WEAPONS
+
+
 def _fallback_counter_weapon(d_stats_by_idx: Dict[int, object]) -> int:
     """DP-overflow fallback (huge berserk/swarm fights the engine
     itself would hand to Monte-Carlo): max damage x strikes among
     the candidates, ties to the lowest index -- the pre-port v1
-    heuristic, kept deterministic where the engine is randomized."""
+    heuristic, kept deterministic where the engine is randomized.
+
+    This is a KNOWN divergence from `choose_defender_weapon`, so it
+    counts itself and warns the first time (see
+    `fallback_counter_weapon_count`).
+    """
+    global _FALLBACK_COUNTER_WEAPONS
+    _FALLBACK_COUNTER_WEAPONS += 1
+    if _FALLBACK_COUNTER_WEAPONS == 1:
+        log.warning(
+            "counter-weapon DP overflowed; falling back to the v1 "
+            "damage x strikes heuristic, which picks a DIFFERENT weapon "
+            "than Wesnoth's choose_defender_weapon. Fights resolved this "
+            "way diverge from the engine. Further occurrences are counted "
+            "silently (combat_outcomes.fallback_counter_weapon_count).")
     best_idx, best_score = -1, -1
     for i in sorted(d_stats_by_idx):
         st = d_stats_by_idx[i]

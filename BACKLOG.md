@@ -879,6 +879,102 @@ unknown-unit fallback (94 distinct types in the corpus, all present);
 `vision=`, none reachable); and the remaining weapon-special gaps
 (`absorb`, `plague_type`, `stun` -- none on a recruitable type).
 
+## Mirror audit: paths that must agree, and what checks them (2026-09-13)
+
+The shape: two implementations that must produce identical results,
+with nothing asserting that they do. A mirror without an equality test
+drifts, and here a drift corrupts either the simulator's fidelity or
+the strength verdict.
+
+FIXED in this pass: the two terrain tables (demonstrated drift, see the
+commit), and the launcher's RUST banner answering importability instead
+of capability. Also made visible: `_fallback_counter_weapon`
+(`tools/combat_outcomes.py`) is a KNOWN-divergent v1 heuristic taken
+when the strike DP overflows -- it picks a different retaliation weapon
+than `choose_defender_weapon`, and it had no log line, no counter and
+no test. It now counts itself and warns once.
+
+Open, in the order they would bite:
+
+- **What `diff_core`'s 17,039-replay sweep does NOT compare.** Worth
+  knowing before citing it as certification. About 1.15% of commands
+  are applied by literally the same function on both sides
+  (`game_core._python_path` calls `replay_dataset._apply_command`),
+  which takes every `pickadvance` and every `init_side` of any scenario
+  carrying a `first_time_only=no` event -- so per-turn healing, poison,
+  regeneration, MP refresh, income and ToD are self-compared there. The
+  map, terrain, fog and mask are the SAME Python objects on both sides
+  (`Map.__deepcopy__` aliases the hex set), so a terrain divergence is
+  structurally unrepresentable and those fields are not compared
+  anyway. `stash=False` means `_defense_table`, which drives combat
+  defense, is never compared by the sweep. Unit construction,
+  advancement and every static table are single-sourced Python. The
+  observation and the encoding -- the two outputs the model consumes --
+  are not in the sweep at all. Four compared fields are constants in
+  this corpus, and `_rng_request_counter` has no writer anywhere, so
+  `state_key` hashes a constant. `recall` appears in 0 of 4,000
+  replays. In the TEST path, `diff_core(gz, every=5)` skips 4 of every
+  5 commands.
+- **`tools/mask_sim_fuzz.py` runs in no test.** `wesnoth_sim` states as
+  present-tense fact: "fuzz-verified 2026-08-17: 0 live rejections in
+  11,294 random mask-driven steps". The script is referenced by no
+  test, no marker and no CI, and the mask has since gained the Rust
+  batch enumeration, the observation kernel, `_rows_from_observation`
+  and the relevant-set basis. Re-run 2026-09-13: still 0 rejects in 546
+  steps with the Rust enumeration active -- so the contract holds, but
+  the quoted number is a 2026-08 measurement wearing a guarantee's
+  clothes. Either wire it into the suite or re-date the sentence.
+- **The CUDA numerics tier never runs on a laptop.** `packed_trunk`'s
+  flash path needs CUDA and fp16/bf16, so `test_packed_trunk.py`,
+  `test_packed_embed.py` and `test_packed_compile.py` all exercise the
+  REFERENCE attention, never the kernel that serves production.
+  Flash-vs-padded, compiled-bf16, staged-priors device-vs-CPU and
+  fp32-vs-bf16 training parity all live in `*_cuda.py` files that skip.
+- **`diff_replay._castle_network_from` reimplements
+  `visibility.leader_castle_network`** -- the declared SHARED contract
+  -- inside the fidelity oracle itself, with different semantics and no
+  equality test. Harmless today only because `diff_replay` checks
+  occupancy first.
+- **`tools/fog.py` is a complete second visibility implementation with
+  ZERO importers** and its own ability-to-terrain table. Delete it or
+  test it against `visibility`; the project's own rule is to prefer
+  removing.
+- Smaller: `test_encoder_batch.py` uses three snapshots from ONE replay
+  on ONE map, so hex streams are all equal length and ragged padding is
+  never covered, and nothing anchors `encode_from_raw_padded` /
+  `encode_from_raw_embedded` (what the inference server runs) back to
+  `encode_from_raw`. `test_batched_gumbel.py` asserts sim counts match,
+  not the root action or the visit distribution, while
+  `--mcts-batch-size` is a live flag. `test_rust_observe.py` has no
+  engagement counter, so its hider and level-0-ZoC branches are
+  unasserted, and its reach context is a THIRD hand-written
+  transcription living in the test file.
+- On a fresh wheel, `_rows_from_observation` bypasses the Python path's
+  relevant-set invariant assertion: the Rust kernel silently DROPS a
+  landable hex whose token is -1 where Python raises.
+
+Verified genuinely well covered, so nobody re-hunts them: the
+vectorized enumerator against its reference (extended to 9 real states
+x 4 rejection-set variants x 4 bias configurations, 36 comparisons, no
+disagreement); the Python masks against Rust `enumerate_moves`
+(28 Rust-engaged builds with rejection sets injected -- branches no
+existing test populates); server priors against local enumeration,
+whose combat-oracle guard was PROVEN load-bearing by constructing the
+disagreement it catches (priors differ by 2.8e-02 at a mismatched
+decision step); `compact_action` round-trip over 1,276 actions; the
+three pathfinder reach implementations; batched against reference
+policy loss including every parameter gradient; `forward_batch` /
+`forward_padded` against a single forward; the leaf wire; the replay
+round-trip; Python against Rust `encode_raw_streams` on ten adversarial
+states the harvest cannot produce; and hex distance (four copies) and
+defense percent (two wrappers) compared exhaustively.
+
+One correction to a code comment while there: `pack_masks` DOES ship
+the combat-oracle bias arrays, and with a matched decision step the
+server path reproduces the reference exactly. The guard is right, but
+"server-side priors do not carry the combat-oracle anneal" is not why
+-- what the actor cannot know is the caller's step.
+
 ## Lifecycle audit of the pool and the eval path (2026-09-13)
 
 A sweep for OS resources created on a repeating path and not reliably
