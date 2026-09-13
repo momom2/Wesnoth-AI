@@ -260,3 +260,39 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+def test_the_bridge_and_the_sim_read_terrain_from_ONE_table():
+    """`state_converter.parse_terrain_code` must agree with the sim's
+    `replay_dataset._parse_hex_code` on every code, because it now
+    delegates to it.
+
+    It used to carry its own copy under a "keep in sync" comment, and
+    the copy had drifted: `Uu` (cave_floor, terrain.cfg aliasof=Ut)
+    read UNWALKABLE on the bridge and CAVE in the sim, and eleven codes
+    were missing entirely and silently fell back to FLAT. Nothing
+    tested either table. This path feeds the live-Wesnoth eval, so the
+    drift handed the model an encoding it was never trained on.
+    """
+    from tools.replay_dataset import _TERRAIN_BASE, _parse_hex_code
+    from wesnoth_ai.state_converter import StateConverter
+
+    conv = StateConverter()
+    assert not hasattr(StateConverter, "TERRAIN_BASE_MAP"), \
+        "a second terrain table is how the drift happened; do not re-add one"
+
+    # Every base the sim knows, bare and under each overlay shape.
+    bases = sorted(_TERRAIN_BASE)
+    assert len(bases) > 20, f"only {len(bases)} bases; the import is wrong"
+    codes = [b for b in bases]
+    codes += [f"{b}^Fp" for b in bases[:8]]
+    codes += [f"{b}^Vh" for b in bases[:8]]
+    codes += ["Uu", "Wwf", "Wwg", "Wwr", "Wwt", "Ch", "Cha", "Chr", "Chs",
+              "Chw", "Uue", "_off", "1 Gg^Fp", "", "Zz_not_a_code"]
+    for code in codes:
+        expected, _mods = _parse_hex_code(code)
+        assert conv.parse_terrain_code(code) == set(expected), code
+
+    # The specific regressions, named so a re-drift says which.
+    assert conv.parse_terrain_code("Uu") == set(_parse_hex_code("Uu")[0])
+    assert "CAVE" in {t.name for t in conv.parse_terrain_code("Uu")}

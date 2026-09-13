@@ -78,7 +78,16 @@ if _os.environ.get("WESNOTH_RUST", "1") != "0":
 
 
 def rust_active() -> bool:
-    """True when the certified Rust kernels serve reach/enumeration."""
+    """True when the Rust kernels serve REACH AND ENUMERATION.
+
+    This answers one kernel, not "is the Rust path on". It is
+    `wesnoth_core` imported successfully, and the wheel exposes its
+    kernels by PHASE -- a wheel several phases behind the source
+    imports cleanly while observe, combat and GameCore fall back to
+    Python. A launcher bannered "RUST (wesnoth_core)" off this and was
+    wrong about four kernels out of five. Use
+    `tools.kernel_status.banner()` for the whole picture.
+    """
     return _RUST is not None
 
 # id(nbrs-list) -> (source ref, numpy bundles) for the Rust call.

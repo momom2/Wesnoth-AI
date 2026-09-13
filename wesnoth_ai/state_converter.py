@@ -85,27 +85,6 @@ class StateConverter:
         'slow': AttackSpecial.SLOW
     }
 
-    # Terrain parsing (simplified - handles base^overlay format)
-    TERRAIN_BASE_MAP = {
-        'Aa': Terrain.FROZEN,
-        'Gg': Terrain.FLAT,
-        'Gs': Terrain.FLAT,
-        'Gd': Terrain.FLAT,
-        'Hh': Terrain.HILLS,
-        'Ha': Terrain.HILLS,
-        'Mm': Terrain.MOUNTAINS,
-        'Ms': Terrain.MOUNTAINS,
-        'Md': Terrain.MOUNTAINS,
-        'Ww': Terrain.SHALLOWWATER,
-        'Wo': Terrain.DEEPWATER,
-        'Ss': Terrain.SWAMP,
-        'Ds': Terrain.SAND,
-        'Rr': Terrain.FLAT,
-        'Re': Terrain.FLAT,
-        'Ql': Terrain.CAVE,
-        'Xu': Terrain.IMPASSABLE,
-        'Uu': Terrain.UNWALKABLE,
-    }
 
     def __init__(self):
         # Create unit type to ID mapping (shared across all games)
@@ -252,28 +231,30 @@ class StateConverter:
         )
 
     def parse_terrain_code(self, terrain_code: str) -> Set[Terrain]:
-        """Parse terrain code and return terrain types."""
-        terrains = set()
+        """Terrain types of a WML terrain code.
 
-        # Split base and overlay
-        if '^' in terrain_code:
-            base, overlay = terrain_code.split('^', 1)
-        else:
-            base, overlay = terrain_code, ''
+        ONE source of truth: `replay_dataset._parse_hex_code`, the
+        table the simulator and the whole replay corpus already run on.
 
-        # Map base terrain
-        base_terrain = self.TERRAIN_BASE_MAP.get(base, Terrain.FLAT)
-        terrains.add(base_terrain)
+        This class used to carry its own `TERRAIN_BASE_MAP` under a
+        comment in replay_dataset saying "keep in sync". They had
+        drifted: `Uu` (cave_floor -- `terrain.cfg`:1020-1027,
+        `aliasof=Ut`) read as UNWALKABLE here and CAVE there, and
+        eleven more codes were missing entirely and fell back to FLAT
+        (`Ch`, `Cha`, `Chr`, `Chs`, `Chw`, `Uue`, `Wwf`, `Wwg`, `Wwr`,
+        `Wwt`, `_off`). replay_dataset even carries a comment about
+        fixing the cave-floor case on its own side; the fix was never
+        carried across. Nothing tested either table.
 
-        # Check for special overlays
-        if 'V' in overlay:  # Village
-            terrains.add(Terrain.VILLAGE)
-        if 'F' in overlay:  # Forest
-            terrains.add(Terrain.FOREST)
-        if 'K' in overlay or 'C' in base:  # Keep or Castle
-            terrains.add(Terrain.CASTLE)
-
-        return terrains
+        This path feeds the LIVE-WESNOTH eval only
+        (`tools/eval_vs_builtin.py`, `tools/eval_runner.py`), not the
+        sim and not the `raw:t0` verdict -- but it was handing the
+        model cave floors as unwalkable and fords as flat, an encoding
+        it was never trained on.
+        """
+        from tools.replay_dataset import _parse_hex_code
+        terrains, _modifiers = _parse_hex_code(terrain_code or "")
+        return set(terrains)
 
     def convert_hex(self, hex_data: Dict) -> Hex:
         """Convert hex from parsed data to Hex object.

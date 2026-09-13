@@ -146,7 +146,10 @@ def _stats_for(unit_type: str) -> dict:
 # Map/hex-code parsing
 # ---------------------------------------------------------------------
 
-# Same mapping as state_converter.TERRAIN_BASE_MAP — keep in sync.
+# The ONE terrain-base table. `state_converter.parse_terrain_code`
+# delegates here; it used to keep a copy under a "keep in sync"
+# comment, and the copy had drifted (Uu read UNWALKABLE there and
+# CAVE here, plus eleven codes missing). Add codes HERE only.
 _TERRAIN_BASE = {
     "Aa": Terrain.FROZEN, "Gg": Terrain.FLAT, "Gs": Terrain.FLAT,
     "Gd": Terrain.FLAT, "Hh": Terrain.HILLS, "Ha": Terrain.HILLS,

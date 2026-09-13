@@ -142,6 +142,9 @@ class WorkerPool:
         self._errdir = Path(errdir)
         self._workers: List[Worker] = []
         self._spawned = 0
+        # Logs of workers that died; kept so a caller can read why, and
+        # so `shutdown()` can say how many there were.
+        self._dead_logs: List[Path] = []
 
     def _spawn(self) -> Worker:
         self._spawned += 1
@@ -149,11 +152,35 @@ class WorkerPool:
         self._workers.append(w)
         return w
 
+    def _evict_dead(self) -> None:
+        """Drop workers that are gone, CLOSING them on the way out.
+
+        The filter used to just rebuild the list, which dropped the
+        only reference to a killed worker without calling `close()`:
+        its stderr file object stayed open and its `.worker_N.log`
+        stayed in the outdir until CPython happened to reclaim it, and
+        `shutdown()` only closes what is still in the list. That is one
+        leaked fd and one stale log per KILLED worker -- i.e. per
+        timed-out game, and the leg-5 verdict saw 27 of 40 games time
+        out. The discarded log is also the only record of why that
+        worker died, so it is worth keeping rather than orphaning.
+        """
+        keep, drop = [], []
+        for w in self._workers:
+            (keep if (w.alive() or w.busy) else drop).append(w)
+        self._workers = keep
+        for w in drop:
+            try:
+                w.close()
+            except Exception:        # noqa: BLE001 -- a dead worker must not
+                pass                 # block admitting the next game
+            self._dead_logs.append(Path(w.errf.name))
+
     def submit(self, argv: List[str], game_tag: str = ""):
         """A (handle, errf) pair for the batch loop; the errf is a shim
         onto the worker's stderr whose `name` is a per-game path that
         does not exist (the loop unlinks it on success)."""
-        self._workers = [w for w in self._workers if w.alive() or w.busy]
+        self._evict_dead()
         idle = [w for w in self._workers if w.alive() and not w.busy]
         if idle:
             w = idle[0]
@@ -169,7 +196,14 @@ class WorkerPool:
     def workers(self) -> List[Worker]:
         return list(self._workers)
 
+    @property
+    def dead_worker_logs(self) -> List[Path]:
+        """Stderr logs of workers that died mid-match. Each one is the
+        only record of why that worker went away."""
+        return list(self._dead_logs)
+
     def shutdown(self):
+        self._evict_dead()           # close whatever already died
         for w in self._workers:
             w.close()
         self._workers = []
