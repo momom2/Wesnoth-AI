@@ -24,6 +24,62 @@ for _p in (_ROOT, _ROOT / "tools", _TESTS):
         sys.path.insert(0, _s)
 
 
+def _source_phase() -> int:
+    """`__phase__` as declared in the Rust source, or 0."""
+    import re
+    src = _ROOT / "rust" / "wesnoth_core" / "src" / "lib.rs"
+    try:
+        text = src.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return 0
+    m = re.search(r'__phase__[^0-9]{0,40}?(\d+)', text)
+    return int(m.group(1)) if m else 0
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    """Say out loud when the installed Rust wheel is behind the source.
+
+    Every `tests/test_rust_*.py` and `tests/test_game_core.py` SKIPS
+    when the kernel it needs is missing, and a skip is quiet. That
+    turns "1,050 passed" into a statement about the Python paths only,
+    while reading like full coverage -- the same silence that let a
+    hand-rolled terrain table go wrong for months. This makes the hole
+    impossible to miss without failing a run that is legitimately
+    green for what it covers.
+    """
+    try:
+        import wesnoth_core
+        have = int(getattr(wesnoth_core, "__phase__", 0))
+    except Exception:                        # noqa: BLE001 -- absence is the point
+        have, exports = 0, ()
+    else:
+        exports = tuple(sorted(n for n in dir(wesnoth_core)
+                               if not n.startswith("_")))
+    want = _source_phase()
+    if want and have >= want:
+        return
+    w = terminalreporter.write_line
+    w("")
+    if not want:
+        # The banner's own parser failed. Going quiet here would make
+        # the guard against silence silent, which is the one thing it
+        # must not do.
+        w("!! could not read __phase__ from rust/wesnoth_core/src/lib.rs, so "
+          "the Rust-wheel check did not run.", yellow=True, bold=True)
+        w(f"   installed wheel reports phase {have}. Check it by hand.")
+        return
+    if not have:
+        w("!! wesnoth_core is NOT INSTALLED: every Rust-path test skipped.",
+          yellow=True, bold=True)
+    else:
+        w(f"!! wesnoth_core wheel is phase {have}; the source declares {want}.",
+          yellow=True, bold=True)
+        w(f"   installed exports: {', '.join(exports) or 'none'}")
+    w("   So tests/test_game_core.py and parts of tests/test_rust_*.py were")
+    w("   SKIPPED, and this run says nothing about the Rust paths. Certify")
+    w("   Rust changes on a box (CLAUDE.md, Testing).")
+
+
 def recruit_action_for(unit_type: str):
     """Test helper: build a recruit-action dict for `unit_type` on a
     free castle hex adjacent to the side-to-move's leader, or None if

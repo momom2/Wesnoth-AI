@@ -122,19 +122,35 @@ anyway, ordered by what the measurements say is binding:
     (tools/wesnoth_sim.py:862): `_rng_requests` restarts at 0 per game
     with an empty salt, a correlation the standard error does not
     model.
-  * in the Rust core: a reverse-plague corpse takes a different unit
-    id than the Python applier when BOTH combatants die, because the
-    core removes both before the spawn and Python has not yet removed
-    the defender (wesnoth_ai/game_core.py:534) -- a genuine hole in
-    the corpus certification, narrow but real; `rows_from_landable`
-    does not bounds-check a token index against the row width
-    (rust/wesnoth_core/src/lib.rs:337); and the Rust combat bridge
-    silently treats an out-of-range defender weapon as "no
-    counter-attack" where the Python oracle raises
-    (wesnoth_ai/combat.py:635).
-  * `_modify_unit_action` mutates a fork-shared Unit in place
-    (tools/scenario_events.py:1147), the bug class
-    tests/test_fork_isolation.py exists for.
+  * ~~a reverse-plague corpse takes a different unit id when BOTH
+    combatants die~~ **REFUTED** 2026-09-13. That state is
+    unreachable: 1.18.4 floors drain damage so a strike cannot kill
+    its striker, a target death ends the fight, and the hypothetical
+    both-die path suppresses plague outright. Our two implementations
+    mirror the floor and both loops break on the first death, and for
+    the two reachable plague cases the appliers already agree on the
+    corpse id. Written up with the verbatim quotes in
+    docs/wesnoth_rules.md, "At most ONE combatant dies per fight".
+  * ~~`rows_from_landable` does not bounds-check a token index~~
+    FIXED 2026-09-13, and the severity was understated: an
+    overflowing token stays inside the buffer for every unit but the
+    last, so it writes into the NEXT unit's legality row SILENTLY;
+    only the last unit's overflow panics. Not reachable today (both
+    callers derive the token map and the row width from one object in
+    one call) but the invariant spans three construction sites in two
+    files. `__phase__` is 9; the test skips below it, so the fix
+    needs a box build before it is trusted.
+  * ~~the Rust combat bridge silently treats an out-of-range defender
+    weapon as "no counter-attack"~~ FIXED 2026-09-13 on the BRIDGE,
+    not the oracle: `-1`/`None` is Wesnoth's "no counter", an index
+    past the end is a caller bug, and swallowing it resolves a
+    different fight than the certified reference.
+  * ~~`_modify_unit_action` mutates a fork-shared Unit in place~~
+    FIXED 2026-09-13. It was the last offender in the file; it and
+    `_object_action` now share one `_swap_unit` helper. The existing
+    fork fingerprint guard was BLIND to it because it fired
+    `_object_action` first, which had already swapped in a
+    fork-private copy; reordered, it fails against the old code.
   * ~~`[effect] apply_to=new_ability` is silently dropped~~ FIXED
     2026-09-13, together with the deeper mistake under it (members
     keyed by TAG, not `id=`) -- see "Scenario [effect] members are

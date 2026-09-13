@@ -510,6 +510,22 @@ many line-coverage tests.
 - Use `constants.py` values in assertions (not hardcoded duplicates).
 - Never weaken a test without explicit user confirmation. A failing
   test is a signal — find the root cause first.
+- **A green local run does NOT cover the Rust paths.** The laptop's
+  installed `wesnoth_core` wheel is phase 3 and exports only
+  `encode_raw_streams`, `enumerate_moves`, `unit_reach_arrays` — no
+  `GameCore`, no `resolve_attack`, no `observe_side`. So
+  `tests/test_game_core.py` skips in full and the other
+  `tests/test_rust_*.py` files skip in part, silently. Check
+  `python -c "import wesnoth_core; print(wesnoth_core.__phase__)"`
+  against `rust/wesnoth_core/src/lib.rs` before believing any core-on
+  result, and certify Rust changes on a box.
+  The wheel cannot be rebuilt here, and the reason is narrower than
+  "cargo does not work": `cargo check` in the project tree runs most
+  build scripts fine and is refused on exactly one,
+  `pyo3-build-config` ("Accès refusé", os error 5 — the compiled
+  build-script binary is never executed). That looks like a security
+  policy blocking that one binary. If it is ever whitelisted, the
+  local gate gains the whole Rust path.
 
 ## Working Style
 
