@@ -170,7 +170,8 @@ def _prev(shared: bool, procedure_b: str = "raw:t0") -> dict:
             "procedure_b": procedure_b, "max_turns": 2, "mcts_batch": 1,
             "infer_bf16": False, "infer_compile": False,
             "shared_inference": shared, "infer_packed_trunk": False,
-            "outcome_a": "win", "side_a": 1, "seed": 10000}
+            "outcome_a": "win", "side_a": 1, "seed": 10000,
+            "combat_stream": "per_game"}
 
 
 def test_refuses_to_mix_shared_and_per_process(tmp_path):

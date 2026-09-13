@@ -36,6 +36,54 @@ from tools.elo_ladder import PairRecord, fit_elo
 from tools.run_elo_batch import bases_of
 
 
+# Estimand fields carried by every result file, with the value an
+# absent field implies. These change the PLAYERS or the PROCEDURE, so
+# they may not be mixed inside a games dir and -- the gap this list
+# closes -- may not be pooled BETWEEN dirs either: they ride the
+# catalog edge as `protocol["estimands"]` and elo_catalog compares
+# them component-wise across dirs.
+#   basis_*            relevant-set vs full-board tokens
+#   mcts_batch         batched (virtual-loss) search explores differently
+#   infer_*/shared_*   precision, kernels and the inference path
+#   combat_stream      per-game vs one shared combat-luck vector
+#                      ("shared" = every pre-2026-09-13 result file)
+#   value_center_*     MCTSConfig.value_center per side (search only)
+#   moves_left_utility ELO_MOVES_LEFT_UTILITY (search only)
+# A None default means "legacy files cannot say": the field then
+# constrains nothing, the same silence-unconstrained rule the turn
+# horizon uses.
+ESTIMAND_DEFAULTS = {
+    "basis_a": "full", "basis_b": "full",
+    "mcts_batch": 1,
+    "infer_bf16": False, "infer_compile": False,
+    "shared_inference": False, "infer_packed_trunk": False,
+    "combat_stream": "shared",
+    "value_center_a": None, "value_center_b": None,
+    "moves_left_utility": None,
+}
+
+
+def dir_estimands(games: List[dict]) -> Dict[str, object]:
+    """The estimand fields shared by every game in one dir. Refuses a
+    dir that mixes any of them -- the in-dir belt that matches
+    elo_eval_game's per-file reuse guard and run_elo_batch's pre-scan,
+    so the value shipped to the catalog is well defined."""
+    out: Dict[str, object] = {}
+    for field, default in ESTIMAND_DEFAULTS.items():
+        vals = {json.dumps(g.get(field, default), sort_keys=True)
+                for g in games}
+        if len(vals) > 1:
+            raise SystemExit(
+                f"mixed {field} in one games dir: "
+                f"{sorted(vals)} -- it changes the players or the "
+                f"procedure, so estimands don't mix. Use a fresh "
+                f"outdir.")
+        val = json.loads(next(iter(vals)))
+        if val is not None:
+            out[field] = val
+    return out
+
+
 def load_games(games_dir: Path) -> List[dict]:
     games = []
     for p in sorted(games_dir.glob("game_*.json")):
@@ -208,6 +256,9 @@ def main(argv) -> int:
     _mt = next(iter(_mts)) if _mts else None
     _proc_tag = next(iter(procs)) if procs else ("legacy", "legacy")
     _basis_tag = next(iter(_bases))
+    # Everything that changes the players or the procedure and used to
+    # stop at the dir boundary (see ESTIMAND_DEFAULTS).
+    _estimands = dir_estimands(games)
 
     for title, pairs, nr in (
             ("PURE (decisive only, primary)", pure, nores),
@@ -249,7 +300,9 @@ def main(argv) -> int:
     print(f"\ngames: {len(games)} ({n_nores} no-result, excluded from "
           f"PURE) | anchor: {labels[anchor_idx]} = 0"
           f" | procedure: {_proc_tag[0]}/{_proc_tag[1]}"
-          f" | hex basis: {_basis_tag[0]}/{_basis_tag[1]}")
+          f" | hex basis: {_basis_tag[0]}/{_basis_tag[1]}"
+          f" | combat stream: "
+          f"{_estimands.get('combat_stream', 'shared')}")
     # Auto-update the committed Elo catalog (user directive
     # 2026-08-17): every collected games dir records its PURE
     # per-pair W-D-L as an edge (idempotent by dir name) and the
@@ -327,6 +380,14 @@ def main(argv) -> int:
                 if _mt_eff is not None:
                     proto = dict(proto or {})
                     proto["max_turns"] = int(_mt_eff)
+            # The estimand block rides EVERY edge, tagged or legacy:
+            # it is read off the result files, never declared, so it
+            # needs no flag and no stickiness. It carries no
+            # "procedure" field, so the round-16 polarity guard is
+            # untouched.
+            if _estimands:
+                proto = dict(proto or {})
+                proto["estimands"] = _estimands
             if args.catalog_protocol is not None:
                 # Empty string CLEARS the edge's carried-forward
                 # note (round-20 C3: the clear hatch existed in

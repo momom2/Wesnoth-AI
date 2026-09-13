@@ -35,6 +35,15 @@
 #
 # Expects /workspace/.hf_token (chmod 600). Box: a 4090 with >=24
 # cores does all three; phase 2 alone wants cores, not a GPU.
+#
+# Build the staging tarball with tools/stage_code.py, which REFUSES a
+# payload missing a file the run needs -- a hand-built payload silently
+# dropped a new tool earlier today and the run measured nothing:
+#
+#   python tools/stage_code.py --out /tmp/stage_20260913d.tar.gz \
+#       --require scripts/postreview_box.sh tools/diff_replay.py \
+#                 tools/diff_core.py tools/bench_pool.py \
+#       --upload tier-b/staging/stage_20260913d.tar.gz
 set -uo pipefail
 [ -x /venv/main/bin/python ] && export PATH=/venv/main/bin:$PATH
 OUT=/workspace/postreview

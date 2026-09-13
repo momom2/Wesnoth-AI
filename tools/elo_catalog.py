@@ -18,6 +18,16 @@ double-counting. The catalog updates wherever elo_collect runs; the
 committed copy in this repo is canonical, so box-side game dirs
 should be pulled and collected here (the existing workflow).
 
+WHAT A MEASUREMENT IS: the dir name is the idempotency key, but the
+identity of the evidence is the set of (side_a, seed) GAME SLOTS --
+eval games are deterministic in the slot, so the same pair re-pinned
+into a fresh outdir with the same --seed-base is the same games. Each
+edge carries its slots and a collect that replays another edge's games
+is refused (vary --seed-base for a real replication). Edges also carry
+`protocol["estimands"]` -- basis, leaf batch, precision, inference
+path, combat-luck regime, search value knobs -- compared component-wise
+across dirs so two different estimands cannot pool into one fit.
+
 Reference: 2291k, formerly ref_2p29M (seed_20260718.pt,
 decision_step 2,290,529) = 0
 -- the anchor of the 2026-07-30 preregistered triangle, from which
@@ -173,14 +183,123 @@ def _edge_mass(e: Dict) -> int:
     return e["wins_a"] + e["wins_b"] + e["draws"]
 
 
+# ---------------------------------------------------------------------
+# Game identity: WHICH games an edge is made of
+# ---------------------------------------------------------------------
+# An eval game is a deterministic function of its slot. run_elo_batch's
+# `slot_for(i, seed_base)` is `(1 if i % 2 == 0 else 2, seed_base + i)`;
+# elo_eval_game draws the scenario from `random.Random(seed)` and seeds
+# the raw players from `2*seed` / `2*seed+1`; the sim's combat stream is
+# a pure function of its own request counter and salt. With the default
+# --seed-base, re-pinning the same pair into a fresh outdir therefore
+# REPLAYS the same games, and because the edge key is the dir NAME, the
+# catalog used to pool the copy as new evidence -- doubling n and
+# shrinking the standard error on zero new information.
+#
+# So every edge carries the (side_a, seed) identities of the games it
+# was built from, and update_from_games refuses an edge that shares a
+# game with another dir's edge for the same pair. A genuine independent
+# replication stays one flag away: a different --seed-base gives a
+# disjoint slot range and pools normally.
+def _encode_runs(vals: List[int]) -> List[str]:
+    """Arithmetic runs of a sorted, unique int list as tokens: "n" for
+    a singleton, "lo-hi" at step 1, "lo-hi:step" otherwise. The base
+    slots of a match are one stride-2 run per side, so an 800-game edge
+    is two tokens and the committed catalog stays readable."""
+    toks: List[str] = []
+    i, n = 0, len(vals)
+    while i < n:
+        if i + 2 < n and vals[i + 1] - vals[i] == vals[i + 2] - vals[i + 1]:
+            step = vals[i + 1] - vals[i]
+            j = i + 2
+            while j + 1 < n and vals[j + 1] - vals[j] == step:
+                j += 1
+            toks.append(f"{vals[i]}-{vals[j]}" if step == 1
+                        else f"{vals[i]}-{vals[j]}:{step}")
+            i = j + 1
+        else:
+            toks.append(str(vals[i]))
+            i += 1
+    return toks
+
+
+def encode_game_ids(ids) -> Dict[str, List[str]]:
+    """Compact, EXACT encoding of a set of (side_a, seed) identities:
+    one run list per side_a. Exact because partial overlap (a 400-game
+    dir inside an 800-game one) has to be detectable, not just an
+    identical repeat."""
+    out: Dict[str, List[str]] = {}
+    for side in sorted({int(s) for s, _ in ids}):
+        seeds = sorted({int(v) for s, v in ids if int(s) == side})
+        out[str(side)] = _encode_runs(seeds)
+    return out
+
+
+def decode_game_ids(enc) -> set:
+    """Inverse of encode_game_ids. Anything unparseable decodes to the
+    empty set = unconstrained, the same silence-is-unconstrained rule
+    the horizon guard uses for legacy edges."""
+    out: set = set()
+    if not isinstance(enc, dict):
+        return out
+    for side, toks in enc.items():
+        try:
+            side_i = int(side)
+        except (TypeError, ValueError):
+            continue
+        for t in toks or []:
+            body, _, step = str(t).partition(":")
+            lo, _, hi = body.partition("-")
+            try:
+                lo_i = int(lo)
+                hi_i = int(hi) if hi else lo_i
+                step_i = int(step) if step else 1
+            except ValueError:
+                continue
+            if step_i <= 0:
+                continue
+            out.update((side_i, v)
+                       for v in range(lo_i, hi_i + 1, step_i))
+    return out
+
+
+# ---------------------------------------------------------------------
+# Estimands that travel BETWEEN dirs
+# ---------------------------------------------------------------------
+# The hex basis, leaf batch, precision, inference path, combat-luck
+# regime and the search's value knobs all change the players or the
+# procedure. Each is guarded INSIDE a games dir (elo_eval_game's reuse
+# check, run_elo_batch's pre-scan, elo_collect's per-dir check), but
+# the catalog compared none of them, so a relevant-set edge and a
+# full-board edge pooled into one Bradley-Terry fit in silence.
+# elo_collect now ships them as `protocol["estimands"]` and the guard
+# below compares them COMPONENT-WISE with silence-unconstrained -- a
+# hard tuple slot in _proc_key would refuse every collect against the
+# committed estimand-silent edges (the trap the horizon guard
+# documents at round-25 C5).
+def _estimands(pr) -> Dict[str, object]:
+    """An edge protocol's declared estimand components. None values are
+    dropped: a field the run could not determine constrains nothing."""
+    if not isinstance(pr, dict):
+        return {}
+    est = pr.get("estimands")
+    if not isinstance(est, dict):
+        return {}
+    return {k: v for k, v in est.items() if v is not None}
+
+
 def record_edge(cat: Dict, source_key: str, label_a: str,
                 label_b: str, wins_a: int, draws: int, wins_b: int,
                 protocol: Optional[Dict] = None,
                 date: Optional[str] = None,
-                no_result: int = 0) -> None:
+                no_result: int = 0,
+                game_ids=None) -> None:
     """Upsert one measured edge. `source_key` (games dir / session
     id) is the idempotency key: re-recording the same source
-    replaces, never double-counts. `no_result` records ABSENCES
+    replaces, never double-counts. `game_ids` is the set of
+    (side_a, seed) slots the edge was played on -- the identity of a
+    MEASUREMENT, which the dir name is not (see encode_game_ids).
+    `no_result` records ABSENCES
     (capped/stalled games -- user ruling 2026-08-17: not draws, zero
     rating information; kept for provenance, ignored by refit).
     Labels are alias-resolved so edges recorded under a renamed
@@ -241,8 +360,55 @@ def record_edge(cat: Dict, source_key: str, label_a: str,
         "protocol": _new_proto,
         "date": date or time.strftime("%F"),
     }
+    if game_ids:
+        cat["edges"][source_key]["games"] = encode_game_ids(game_ids)
     for lab in (label_a, label_b):
         cat["checkpoints"].setdefault(lab, {})
+
+
+def _warn_pooled_repeats(cat: Dict) -> None:
+    """Belt for paths that bypass update_from_games (manual JSON
+    edits, direct record_edge callers): two DECISIVE edges of the same
+    pair that share game slots are one measurement counted twice, so
+    the fit's standard error on that pair is too small."""
+    by_pair: Dict[Tuple[str, str], List[Tuple[str, set]]] = {}
+    for key, e in sorted(cat["edges"].items()):
+        if _edge_mass(e) == 0:
+            continue
+        ids = decode_game_ids(e.get("games"))
+        if not ids:
+            continue
+        pair = tuple(sorted((e["label_a"], e["label_b"])))
+        for prev_key, prev_ids in by_pair.get(pair, []):
+            shared = ids & prev_ids
+            if shared:
+                print(f"WARNING: catalog: edges {prev_key} and {key} "
+                      f"share {len(shared)} game slot(s) of the pair "
+                      f"{pair[0]}~{pair[1]}; eval games are "
+                      f"deterministic in the slot, so the fit counts "
+                      f"one measurement twice and understates its "
+                      f"standard error. Drop one edge, or re-run the "
+                      f"replication with a different --seed-base.")
+        by_pair.setdefault(pair, []).append((key, ids))
+
+
+def _warn_mixed_estimands(cat: Dict) -> None:
+    """Belt for the same bypass paths on the estimand axis: decisive
+    edges that declare DIFFERENT values of one component are different
+    estimands pooled into one fit."""
+    seen: Dict[str, set] = {}
+    for e in cat["edges"].values():
+        if _edge_mass(e) == 0:
+            continue
+        for k, v in _estimands(e.get("protocol")).items():
+            seen.setdefault(k, set()).add(v)
+    mixed = {k: sorted(v, key=str) for k, v in seen.items()
+             if len(v) > 1}
+    if mixed:
+        print(f"WARNING: catalog: decisive edges span MIXED estimands "
+              f"{mixed}; the fit pools players or procedures that are "
+              f"not the same. Split them into separate catalogs "
+              f"(elo_collect --catalog-path).")
 
 
 def refit(cat: Dict) -> None:
@@ -282,6 +448,8 @@ def refit(cat: Dict) -> None:
               f"horizons {sorted(_h_mixed)}; the fit pools "
               f"different estimands. Fix with elo_collect "
               f"--catalog-max-turns.")
+    _warn_pooled_repeats(cat)
+    _warn_mixed_estimands(cat)
     for lab in labels:
         meta = cat["checkpoints"][lab]
         meta["n_games"] = n_games_of[lab]
@@ -626,6 +794,33 @@ def update_from_games(games_dir: Path, games: List[dict],
             f"{sorted(_mt_existing)} -- estimands don't mix in "
             f"one fit. Pass --no-catalog, or start a separate "
             f"catalog (--catalog-path) for the new horizon.")
+    # Estimand guard at the DIR BOUNDARY (2026-09-13): the basis,
+    # leaf batch, precision, inference path, combat-luck regime and
+    # search value knobs were each guarded inside a games dir and
+    # compared nowhere between dirs, so two different estimands pooled
+    # into one fit in silence. Component-wise, silence-unconstrained,
+    # and gated on incoming decisive mass for order-independence --
+    # the rules the procedure and horizon guards already follow
+    # (round-29/30 C0).
+    _est_new = _estimands(protocol)
+    _est_existing: Dict[str, set] = {}
+    for _k2, e in _cat.get("edges", {}).items():
+        if _k2.startswith(_pfx) or _edge_mass(e) <= 0:
+            continue
+        for _ek, _ev in _estimands(e.get("protocol")).items():
+            _est_existing.setdefault(_ek, set()).add(_ev)
+    _est_bad = {k: v for k, v in _est_new.items()
+                if k in _est_existing and v not in _est_existing[k]}
+    if _est_bad and _new_mass > 0:
+        _held = {k: sorted(_est_existing[k], key=str)
+                 for k in _est_bad}
+        raise ValueError(
+            f"catalog estimand mismatch: this dir declares "
+            f"{_est_bad} but the catalog's other decisive edges hold "
+            f"{_held} -- these change the players or the procedure, "
+            f"and estimands don't mix in one fit. Pass --no-catalog, "
+            f"or start a separate catalog (--catalog-path) for the "
+            f"new estimand. The catalog is untouched.")
     # Tally = [wins_a, genuine_draws, wins_b, no_result]. Under the
     # 2026-08-17 ruling every non-decisive outcome is a no-result
     # absence (there are no draws in real Wesnoth); the draws slot
@@ -633,6 +828,12 @@ def update_from_games(games_dir: Path, games: List[dict],
     # outcome, and is always 0 from this path.
     tallies: Dict[Tuple[str, str], List[int]] = {}
     _contrib: Dict[Tuple[str, str], set] = {}
+    # (side_a, seed) per raw pair, and whether EVERY game of the pair
+    # declared both -- a dir with any slot-less game records no
+    # identity at all rather than a partial one the overlap guard
+    # would read as "no overlap".
+    _gids: Dict[Tuple[str, str], set] = {}
+    _gids_full: Dict[Tuple[str, str], bool] = {}
     for g in games:
         a = _redirect.get(g["label_a"],
                           label_map.get(g["label_a"],
@@ -644,6 +845,13 @@ def update_from_games(games_dir: Path, games: List[dict],
         t = tallies.setdefault(key, [0, 0, 0, 0])
         _contrib.setdefault(key, set()).update(
             (g["label_a"], g["label_b"]))
+        _side, _seed = g.get("side_a"), g.get("seed")
+        _gids.setdefault(key, set())
+        if _side is None or _seed is None:
+            _gids_full[key] = False
+        else:
+            _gids_full.setdefault(key, True)
+            _gids[key].add((int(_side), int(_seed)))
         out = g["outcome_a"]
         if out == "win":
             t[0 if a <= b else 2] += 1
@@ -659,6 +867,8 @@ def update_from_games(games_dir: Path, games: List[dict],
     # the later write silently dropped the earlier tally's games).
     resolved: dict = {}
     _rcontrib: Dict[Tuple[str, str], set] = {}
+    _rgids: Dict[Tuple[str, str], set] = {}
+    _rgids_full: Dict[Tuple[str, str], bool] = {}
     for (a, b), (wa, d, wb, nr) in sorted(tallies.items()):
         ra, rb = resolve_label(cat, a), resolve_label(cat, b)
         if ra == rb:
@@ -678,6 +888,44 @@ def update_from_games(games_dir: Path, games: List[dict],
         t[3] += nr
         _rcontrib.setdefault((ra, rb), set()).update(
             _contrib.get((a, b), set()))
+        _rgids.setdefault((ra, rb), set()).update(
+            _gids.get((a, b), set()))
+        _rgids_full[(ra, rb)] = (_rgids_full.get((ra, rb), True)
+                                 and _gids_full.get((a, b), False))
+    # Repeat-measurement guard: refuse before ANY write if this dir
+    # replays games another dir's edge for the same pair already
+    # holds. Raising here leaves the on-disk catalog untouched, the
+    # rule the horizon guard follows.
+    _repeats = []
+    for (ra, rb), ids in sorted(_rgids.items()):
+        if not ids or not _rgids_full.get((ra, rb)):
+            continue
+        for _k2, e in sorted(cat["edges"].items()):
+            if _k2.startswith(f"{Path(games_dir).name}:"):
+                continue         # this dir's own edges are REPLACED
+            if {resolve_label(cat, e["label_a"]),
+                    resolve_label(cat, e["label_b"])} != {ra, rb}:
+                continue
+            shared = ids & decode_game_ids(e.get("games"))
+            if shared:
+                _repeats.append((ra, rb, _k2, len(shared), len(ids)))
+    if _repeats:
+        _lines = "\n".join(
+            f"  {ra}~{rb}: {n} of this dir's {tot} games are already "
+            f"on edge {k2}" for ra, rb, k2, n, tot in _repeats)
+        raise ValueError(
+            f"repeat measurement refused -- the same games are "
+            f"already in the catalog:\n{_lines}\n"
+            f"An eval game is a deterministic function of its "
+            f"(side, seed) slot, so re-pinning a pair into a fresh "
+            f"outdir COPIES evidence instead of adding it: pooling "
+            f"both edges would double n and shrink the standard "
+            f"error on nothing. For a genuine independent "
+            f"replication re-run with a different --seed-base (slots "
+            f"are seed_base + index, replacements +1,000,000); to "
+            f"supersede the earlier measurement, collect into its "
+            f"dir name again or remove that edge. The catalog is "
+            f"untouched.")
     _prefix = f"{Path(games_dir).name}:"
     # Snapshot BEFORE the record loop: a rename shuffle can make a
     # NEW pair land on an EXISTING key (displacement), and the old
@@ -691,7 +939,9 @@ def update_from_games(games_dir: Path, games: List[dict],
         source_key = f"{Path(games_dir).name}:{ra}~{rb}"
         new_keys.add(source_key)
         record_edge(cat, source_key, ra, rb, wa, d, wb,
-                    protocol=protocol, no_result=nr)
+                    protocol=protocol, no_result=nr,
+                    game_ids=(_rgids.get((ra, rb))
+                              if _rgids_full.get((ra, rb)) else None))
         _edge_runs = _rcontrib.get((ra, rb), set())
         _persist = {**{k: v for k, v in _all_tombs.items()
                        if v in (ra, rb)},
@@ -910,9 +1160,19 @@ def seed_july(path: Path = CATALOG_PATH) -> None:
         ("elo_triangle_20260730:ref~old", "ref_2p29M", "old_2p40M",
          20, 0, 20, "2026-07-30"),
     ]
-    proto = {"mcts_sims": 32, "convention": "PURE",
+    # RAW, not mcts:32. Both source records say so verbatim --
+    # elo_triangle_20260730/PREREGISTRATION.json: "mirrored setup
+    # pairs, raw policy (no MCTS), max_turns 100", and
+    # elo_q_transform_20260729/POOLED_SUMMARY.json the same. This
+    # bootstrap stamped mcts_sims=32 / procedure="mcts:32" until
+    # 2026-09-13, so the whole anchor chain claimed to be a searched
+    # player. The counts were always right; the label was not, and the
+    # label is what decides which edges may be pooled. Note also that
+    # this is the LEGACY `raw` sampler, not `raw:t0`.
+    proto = {"convention": "PURE", "procedure": "raw", "max_turns": 100,
              "note": "2026-07 tier-a chain (preregistered triangle "
-                     "+ reused edges; see POOLED_TRIANGLE.json)", "procedure": "mcts:32"}
+                     "+ reused edges; see POOLED_TRIANGLE.json). RAW "
+                     "policy, no MCTS."}
     for key, a, b, wa, d, wb, date in edges:
         record_edge(cat, key, a, b, wa, d, wb, protocol=proto,
                     date=date)

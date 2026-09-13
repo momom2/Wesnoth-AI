@@ -22,6 +22,14 @@ of games.
 Eval search likewise runs WITHOUT the material shapers
 (draw_tiebreak, aux_value_bonus) regardless of training config.
 
+Combat luck is PER GAME (2026-09-13): the sim's synced-RNG stream is
+salted with this game's seed, so two games roll independent dice.
+Before that every eval game shared one luck vector (the unsalted
+`request_seed(k)` stream), which made an N-game match N draws against
+one vector while the standard error assumed N independent ones. The
+result records `combat_stream`; `--shared-combat-stream` restores the
+old behavior for reproducing pre-2026-09-13 numbers only.
+
 Shared inference (`--inference-address-a/-b`, tools/
 eval_inference_server.py): a checkpoint side at sims 0 with a raw
 temperature plays through a server that owns the model; this process
@@ -294,6 +302,24 @@ class _VocabCheckedRemoteEncoder(RemoteEncoder):
         return super().encode(game_state)
 
 
+def combat_salt(seed: int, shared_stream: bool = False) -> str:
+    """The sim's combat-luck salt for the eval game on `seed`.
+
+    An unsalted sim draws its k-th synced-RNG seed from
+    `wesnoth_sim.request_seed(k)` = sha256("sim_to_replay:k")[:8], a
+    pure function of the request counter (`WesnothSim._next_seed`, the
+    no-salt branch). Every eval game therefore used to share one luck
+    vector: the scenario and factions varied per game, the dice did
+    not, so an N-game match was N draws against one vector while the
+    standard error assumed N independent ones. Salting off the
+    per-game seed makes the luck independent across games and keeps
+    each game reproducible from its slot.
+
+    `shared_stream=True` returns the empty salt, i.e. the
+    pre-2026-09-13 behavior, for reproducing old numbers only."""
+    return "" if shared_stream else f"elo:{int(seed)}"
+
+
 def _build_player(spec: str, label: str, sims: int, device,
                   turn_search: bool = True,
                   plan_tournament: bool = False, pt_cfg=None,
@@ -437,6 +463,14 @@ def main(argv) -> int:
                     help="MCTSConfig.value_center for player A (the "
                          "centering its training loop used; 0 = off).")
     ap.add_argument("--value-center-b", type=float, default=0.0)
+    ap.add_argument("--shared-combat-stream", action="store_true",
+                    help="Play on the unsalted combat stream every "
+                         "eval game shared before 2026-09-13 (the "
+                         "k-th roll of every game identical). "
+                         "Reproduce pre-2026-09-13 numbers only; the "
+                         "result records combat_stream=shared and the "
+                         "catalog refuses to pool it with per-game "
+                         "streams.")
     ap.add_argument("--raw-temperature-a", type=float, default=None,
                     help="Player A at sims 0 plays the joint-temperature "
                          "raw player (tools/raw_player.py): 0 = argmax "
@@ -729,6 +763,40 @@ def main(argv) -> int:
                     f"this run uses {inf_packed}: the packed and padded "
                     f"trunks are different kernels, refusing to mix. Use "
                     f"a fresh outdir.")
+            # Combat-luck regime; absent = the pre-2026-09-13 stream
+            # every eval game shared.
+            _want_cs = ("shared" if args.shared_combat_stream
+                        else "per_game")
+            if prev.get("combat_stream", "shared") != _want_cs:
+                raise SystemExit(
+                    f"{out_path.name} was played on combat_stream="
+                    f"{prev.get('combat_stream', 'shared')} but this "
+                    f"run uses {_want_cs}: the shared stream gives "
+                    f"every game the same luck vector, so the two are "
+                    f"different estimands. Use a fresh outdir.")
+            _want_vc = (args.value_center_a if sims_a > 0 else None,
+                        args.value_center_b if sims_b > 0 else None)
+            if (prev.get("value_center_a"),
+                    prev.get("value_center_b")) != _want_vc \
+                    and "value_center_a" in prev:
+                raise SystemExit(
+                    f"{out_path.name} was played at value_center "
+                    f"({prev.get('value_center_a')},"
+                    f"{prev.get('value_center_b')}) but this run uses "
+                    f"{_want_vc}: it centers the search, refusing to "
+                    f"mix. Use a fresh outdir.")
+            _want_mlu = (float(os.environ.get(
+                "ELO_MOVES_LEFT_UTILITY", "0") or 0)
+                if (sims_a > 0 or sims_b > 0) else None)
+            if "moves_left_utility" in prev \
+                    and prev.get("moves_left_utility") != _want_mlu:
+                raise SystemExit(
+                    f"{out_path.name} was played at "
+                    f"moves_left_utility="
+                    f"{prev.get('moves_left_utility')} but this run "
+                    f"uses {_want_mlu} (ELO_MOVES_LEFT_UTILITY): it "
+                    f"changes the search's time preference, refusing "
+                    f"to mix. Use a fresh outdir.")
             # The hex basis (effective per side; absent = full board).
             _why = basis_refusal(out_path.name, prev, (basis_a, basis_b))
             if _why is not None:
@@ -801,6 +869,12 @@ def main(argv) -> int:
     gs = build_scenario_gamestate(setup)
     sim = WesnothSim(gs, scenario_id=setup.scenario_id,
                      max_turns=args.max_turns)
+    # PER-GAME COMBAT LUCK (2026-09-13): see combat_salt for why an
+    # unsalted eval stream is wrong. Safe for replay export --
+    # sim_to_replay._seed_from_recorded reads the seed back out of the
+    # recorded command instead of re-deriving it from the counter, so
+    # a salted seed reaches [random_seed] unchanged.
+    sim._seed_salt = combat_salt(args.seed, args.shared_combat_stream)
     game_label = out_path.stem
     t0 = time.time()
     r = _play_one_eval_game(
@@ -869,6 +943,21 @@ def main(argv) -> int:
         # its kernel choice. Both False for the per-process path.
         "shared_inference": shared,
         "infer_packed_trunk": inf_packed,
+        # Combat-luck regime: "per_game" salts the sim's synced-RNG
+        # stream with this game's seed; "shared" is the pre-2026-09-13
+        # stream every eval game had in common. An estimand -- a
+        # number from the shared stream must not pool with one from
+        # per-game streams.
+        "combat_stream": ("shared" if args.shared_combat_stream
+                          else "per_game"),
+        # Search knobs that change the PLAYER (2026-09-13: neither
+        # reached a result field, so neither could be compared). None
+        # when no side searched, so raw dirs stay unconstrained.
+        "value_center_a": (args.value_center_a if sims_a > 0 else None),
+        "value_center_b": (args.value_center_b if sims_b > 0 else None),
+        "moves_left_utility": (
+            float(os.environ.get("ELO_MOVES_LEFT_UTILITY", "0") or 0)
+            if (sims_a > 0 or sims_b > 0) else None),
         "side_a": args.side_a, "seed": args.seed,
         "scenario_id": setup.scenario_id,
         "outcome_a": r.outcome,          # win/loss/draw/timeout from A

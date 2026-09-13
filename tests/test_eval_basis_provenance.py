@@ -17,7 +17,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 def _game(**over) -> dict:
     g = {"label_a": "A", "label_b": "B", "outcome_a": "win", "margin_a": 0.5,
-         "procedure_a": "raw", "procedure_b": "raw", "max_turns": 200}
+         "procedure_a": "raw", "procedure_b": "raw", "max_turns": 200,
+         "combat_stream": "per_game"}
     g.update(over)
     return g
 

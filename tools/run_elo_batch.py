@@ -367,6 +367,11 @@ def main(argv: List[str]) -> int:
                     help="Search value centering for player A "
                          "(elo_eval_game --value-center-a).")
     ap.add_argument("--value-center-b", type=float, default=0.0)
+    ap.add_argument("--shared-combat-stream", action="store_true",
+                    help="Pass --shared-combat-stream to every game: "
+                         "the pre-2026-09-13 luck stream every eval "
+                         "game had in common. Reproduce old numbers "
+                         "only.")
     ap.add_argument("--relevant-set-a", action="store_true",
                     help="elo_eval_game --relevant-set-a (relevant hex subset "
                          "for side A's encoder; fresh outdir).")
@@ -709,6 +714,20 @@ def main(argv: List[str]) -> int:
                 f"{prev.get('mcts_batch', 1)} but this run uses "
                 f"B={args.mcts_batch_size}: batched search explores "
                 f"differently, refusing to mix. Use a fresh outdir.")
+        # Combat-luck regime (absent = the pre-2026-09-13 shared
+        # stream). The per-game guard in elo_eval_game only fires on
+        # slots it is about to SKIP, so a resume into an old outdir
+        # would otherwise append per-game-stream games beside shared-
+        # stream ones without a word.
+        _want_cs = ("shared" if args.shared_combat_stream
+                    else "per_game")
+        if prev.get("combat_stream", "shared") != _want_cs:
+            raise SystemExit(
+                f"{f.name} was played on combat_stream="
+                f"{prev.get('combat_stream', 'shared')} but this run "
+                f"uses {_want_cs}: the shared stream gives every game "
+                f"the same luck vector, so the two are different "
+                f"estimands. Use a fresh outdir.")
         # Precision/compile pre-scan: the effective value is known
         # here only when the flag is explicit or the device is
         # forced; otherwise the per-game guard still protects.
@@ -862,6 +881,8 @@ def main(argv: List[str]) -> int:
             cmd += ["--value-center-a", str(args.value_center_a)]
         if args.value_center_b:
             cmd += ["--value-center-b", str(args.value_center_b)]
+        if args.shared_combat_stream:
+            cmd.append("--shared-combat-stream")
         if args.relevant_set_a:
             cmd.append("--relevant-set-a")
         if args.relevant_set_b:
@@ -959,6 +980,19 @@ def main(argv: List[str]) -> int:
                                else _effective_precision(args, "infer_compile")),
              "shared_inference": bool(servers),
              "infer_packed_trunk": shared_packed,
+             "combat_stream": ("shared" if args.shared_combat_stream
+                               else "per_game"),
+             # Search knobs that change the player; None when no side
+             # searches, matching what elo_eval_game writes -- an
+             # artifact that omitted them would read as a MIXED
+             # estimand to elo_collect and block the whole dir.
+             "value_center_a": (args.value_center_a if sims_a > 0
+                                else None),
+             "value_center_b": (args.value_center_b if sims_b > 0
+                                else None),
+             "moves_left_utility": (
+                 float(os.environ.get("ELO_MOVES_LEFT_UTILITY", "0") or 0)
+                 if (sims_a > 0 or sims_b > 0) else None),
              # The effective hex basis per side (see BASES).
              "basis_a": want_bases[0], "basis_b": want_bases[1]}
     if args.plan_a or args.plan_b:

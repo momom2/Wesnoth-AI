@@ -56,3 +56,88 @@ def test_material_fit_separates_where_pure_has_no_data():
     elo_m, _ = fit_elo(2, mat, 1, 0.0, 1.0, 0.5)
     assert abs(elo_p[0] - elo_p[1]) < 1.0, "pure: no data -> level"
     assert elo_m[0] > elo_m[1] + 100, "material: must separate clearly"
+
+
+# ---------------------------------------------------------------------
+# Estimands the collector must carry to the catalog (2026-09-13): the
+# fields below change the players or the procedure and were guarded
+# only INSIDE a games dir, so two dirs measuring different things
+# pooled into one Bradley-Terry fit in silence.
+# ---------------------------------------------------------------------
+def _result(**over):
+    rec = {"label_a": "ref", "label_b": "chal", "outcome_a": "win",
+           "margin_a": 0.5, "side_a": 1, "seed": 10_000,
+           "basis_a": "relset", "basis_b": "relset",
+           "mcts_batch": 1, "infer_bf16": True, "infer_compile": False,
+           "shared_inference": True, "infer_packed_trunk": True,
+           "combat_stream": "per_game",
+           "value_center_a": None, "value_center_b": None,
+           "moves_left_utility": None}
+    rec.update(over)
+    return rec
+
+
+def test_dir_estimands_reports_every_travelling_field():
+    from tools.elo_collect import dir_estimands
+    est = dir_estimands([_result(), _result(seed=10_001, side_a=2)])
+    assert est == {"basis_a": "relset", "basis_b": "relset",
+                   "mcts_batch": 1, "infer_bf16": True,
+                   "infer_compile": False, "shared_inference": True,
+                   "infer_packed_trunk": True,
+                   "combat_stream": "per_game"}, (
+        "None-valued fields must drop out (they constrain nothing); "
+        "every other field must travel")
+
+
+def test_dir_estimands_refuses_a_mixed_dir():
+    import pytest
+    from tools.elo_collect import dir_estimands
+    for field, other in (("basis_b", "full"),
+                         ("mcts_batch", 4),
+                         ("infer_bf16", False),
+                         ("combat_stream", "shared"),
+                         ("value_center_a", 0.3)):
+        with pytest.raises(SystemExit, match=field):
+            dir_estimands([_result(),
+                           _result(seed=10_001, **{field: other})])
+
+
+def test_legacy_files_default_to_the_old_regime():
+    """A result file from before these fields existed: full board,
+    B=1, fp32 eager, per-process, and the SHARED combat stream."""
+    from tools.elo_collect import dir_estimands
+    est = dir_estimands([{"label_a": "a", "label_b": "b",
+                          "outcome_a": "win"}])
+    assert est["basis_a"] == "full" and est["basis_b"] == "full"
+    assert est["combat_stream"] == "shared"
+    assert est["mcts_batch"] == 1
+    assert est["infer_bf16"] is False
+
+
+def test_estimands_round_trip_through_a_result_file(tmp_path, monkeypatch):
+    """End to end on the production CLI: elo_collect reads a dir of
+    result files, and the catalog edge carries the estimands and the
+    (side, seed) slots the games were played on."""
+    import json
+    from tools import elo_collect
+    from tools.elo_catalog import decode_game_ids, load_catalog
+    games_dir = tmp_path / "pinX"
+    games_dir.mkdir()
+    for i in range(8):
+        rec = _result(seed=10_000 + i, side_a=1 if i % 2 == 0 else 2,
+                      outcome_a="win" if i % 2 == 0 else "loss",
+                      procedure_a="raw:t0", procedure_b="raw:t0",
+                      max_turns=200)
+        (games_dir / f"game_{i}.json").write_text(json.dumps(rec),
+                                                  encoding="utf-8")
+    cat_path = tmp_path / "cat.json"
+    rc = elo_collect.main(["elo_collect", str(games_dir),
+                           "--catalog-path", str(cat_path)])
+    assert rc == 0
+    edge, = load_catalog(cat_path)["edges"].values()
+    est = edge["protocol"]["estimands"]
+    assert est["basis_a"] == "relset"
+    assert est["combat_stream"] == "per_game"
+    assert est["infer_bf16"] is True
+    assert decode_game_ids(edge["games"]) == {
+        (1 if i % 2 == 0 else 2, 10_000 + i) for i in range(8)}

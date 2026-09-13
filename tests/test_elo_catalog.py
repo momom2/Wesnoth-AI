@@ -1247,3 +1247,182 @@ def test_partial_recollect_after_reuse_not_refused(tmp_path):
     with pytest.raises(ValueError, match="resolve"):
         update_from_games(tmp_path / "E", g2 + g3, protocol=proto,
                           path=cat, label_map={"x2": "T1"})
+
+
+# ---------------------------------------------------------------------
+# Repeat measurements (2026-09-13): the identity of an edge is the set
+# of (side_a, seed) GAME SLOTS, not the games-dir name. Eval games are
+# deterministic in the slot, so re-pinning a pair with the same
+# --seed-base copies evidence; pooling the copy shrinks the standard
+# error on nothing.
+# ---------------------------------------------------------------------
+def _slot_games(a, b, outcomes, seed_base=10_000):
+    """Games laid out the way run_elo_batch.slot_for does: side 1 on
+    even indices, seed = seed_base + index."""
+    return [{"label_a": a, "label_b": b, "outcome_a": oc,
+             "side_a": 1 if i % 2 == 0 else 2, "seed": seed_base + i}
+            for i, oc in enumerate(outcomes)]
+
+
+def test_game_ids_round_trip_exactly():
+    from tools.elo_catalog import decode_game_ids, encode_game_ids
+    ids = ({(1, 10_000 + 2 * k) for k in range(400)}
+           | {(2, 10_001 + 2 * k) for k in range(400)}
+           | {(1, 1_010_000), (2, 3)})
+    enc = encode_game_ids(ids)
+    assert decode_game_ids(enc) == ids
+    # Compact enough to live in a committed, human-read JSON.
+    assert sum(len(v) for v in enc.values()) <= 4
+
+
+def test_rerun_into_fresh_outdir_is_refused(tmp_path):
+    """The double count the catalog used to accept: the SAME pair,
+    same default seed base, collected under a second dir name."""
+    import pytest
+    p = _fresh(tmp_path)
+    proto = {"procedure": "raw:t0"}
+    games = _slot_games("ref", "chal", ["win", "loss"] * 20)
+    update_from_games(Path("eval_games/pin1"), games, protocol=proto,
+                      path=p)
+    with pytest.raises(ValueError, match="repeat measurement"):
+        update_from_games(Path("eval_games/pin2"), games,
+                          protocol=proto, path=p)
+    cat = load_catalog(p)
+    assert list(cat["edges"]) == ["pin1:chal~ref"], \
+        "the refused collect must leave the catalog untouched"
+    assert cat["checkpoints"]["ref"]["n_games"] == 40
+
+
+def test_partial_overlap_is_refused(tmp_path):
+    """A longer re-run at the same seed base contains the short one."""
+    import pytest
+    p = _fresh(tmp_path)
+    proto = {"procedure": "raw:t0"}
+    update_from_games(Path("eval_games/short"),
+                      _slot_games("ref", "chal", ["win", "loss"] * 10),
+                      protocol=proto, path=p)
+    with pytest.raises(ValueError, match=r"20 of this dir.s 40 games"):
+        update_from_games(Path("eval_games/long"),
+                          _slot_games("ref", "chal",
+                                      ["win", "loss"] * 20),
+                          protocol=proto, path=p)
+
+
+def test_independent_replication_still_pools(tmp_path):
+    """A different --seed-base is a disjoint slot range: genuinely new
+    evidence, so it pools and the standard error DOES shrink."""
+    p = _fresh(tmp_path)
+    proto = {"procedure": "raw:t0"}
+    update_from_games(Path("eval_games/pin1"),
+                      _slot_games("ref", "chal",
+                                  ["win"] * 30 + ["loss"] * 10),
+                      protocol=proto, path=p)
+    # 'chal' is the auto-designated gauge (se pinned at 0); the
+    # separation is carried by the other node.
+    se_one = load_catalog(p)["checkpoints"]["ref"]["se"]
+    update_from_games(Path("eval_games/pin2"),
+                      _slot_games("ref", "chal",
+                                  ["win"] * 30 + ["loss"] * 10,
+                                  seed_base=20_000),
+                      protocol=proto, path=p)
+    cat = load_catalog(p)
+    assert len(cat["edges"]) == 2
+    assert cat["checkpoints"]["chal"]["n_games"] == 80
+    assert 0.0 < cat["checkpoints"]["ref"]["se"] < se_one
+
+
+def test_recollect_of_same_dir_still_replaces(tmp_path):
+    """The idempotent re-collect must survive the new guard: a dir's
+    own edges are replaced, never compared against themselves."""
+    p = _fresh(tmp_path)
+    proto = {"procedure": "raw:t0"}
+    games = _slot_games("ref", "chal", ["win", "loss"] * 20)
+    update_from_games(Path("eval_games/pin1"), games, protocol=proto,
+                      path=p)
+    update_from_games(Path("eval_games/pin1"), games, protocol=proto,
+                      path=p)
+    cat = load_catalog(p)
+    assert len(cat["edges"]) == 1
+    assert cat["checkpoints"]["ref"]["n_games"] == 40
+
+
+def test_slotless_legacy_games_are_unconstrained(tmp_path):
+    """Legacy records carry no (side, seed): they record no identity
+    and must not be refused by a guard that cannot see them."""
+    p = _fresh(tmp_path)
+    proto = {"procedure": "raw:t0"}
+    games = [{"label_a": "ref", "label_b": "chal",
+              "outcome_a": "win"}] * 10
+    update_from_games(Path("eval_games/oldA"), games, protocol=proto,
+                      path=p)
+    update_from_games(Path("eval_games/oldB"), games, protocol=proto,
+                      path=p)
+    cat = load_catalog(p)
+    assert len(cat["edges"]) == 2
+    assert "games" not in cat["edges"]["oldA:chal~ref"]
+
+
+# ---------------------------------------------------------------------
+# Estimands at the catalog boundary (2026-09-13)
+# ---------------------------------------------------------------------
+def test_basis_mismatch_between_dirs_is_refused(tmp_path):
+    """A relevant-set edge and a full-board edge are different
+    players; the fit must not pool them."""
+    import pytest
+    p = _fresh(tmp_path)
+    proto_full = {"procedure": "raw:t0",
+                  "estimands": {"basis_a": "full", "basis_b": "full"}}
+    proto_rel = {"procedure": "raw:t0",
+                 "estimands": {"basis_a": "relset",
+                               "basis_b": "relset"}}
+    update_from_games(Path("eval_games/full"),
+                      _slot_games("ref", "chal", ["win"] * 20),
+                      protocol=proto_full, path=p)
+    with pytest.raises(ValueError, match="estimand mismatch"):
+        update_from_games(Path("eval_games/rel"),
+                          _slot_games("ref", "other", ["win"] * 20,
+                                      seed_base=50_000),
+                          protocol=proto_rel, path=p)
+    assert list(load_catalog(p)["edges"]) == ["full:chal~ref"]
+
+
+def test_matching_estimands_pool_and_silence_is_unconstrained(tmp_path):
+    """Control: the same estimands pool, and an edge that declares
+    none (every committed pre-2026-09-13 edge) is never refused."""
+    p = _fresh(tmp_path)
+    proto = {"procedure": "raw:t0",
+             "estimands": {"basis_a": "relset", "basis_b": "relset",
+                           "combat_stream": "per_game"}}
+    update_from_games(Path("eval_games/d1"),
+                      _slot_games("ref", "chal", ["win"] * 20),
+                      protocol=proto, path=p)
+    update_from_games(Path("eval_games/d2"),
+                      _slot_games("ref", "other", ["win"] * 20,
+                                  seed_base=60_000),
+                      protocol=proto, path=p)
+    update_from_games(Path("eval_games/d3"),
+                      _slot_games("ref", "third", ["win"] * 20,
+                                  seed_base=70_000),
+                      protocol={"procedure": "raw:t0"}, path=p)
+    assert len(load_catalog(p)["edges"]) == 3
+
+
+def test_combat_stream_regimes_do_not_pool(tmp_path):
+    """Defect 3's regime is an estimand like any other: a number from
+    the shared luck vector must not pool with per-game streams."""
+    import pytest
+    p = _fresh(tmp_path)
+    update_from_games(
+        Path("eval_games/new"),
+        _slot_games("ref", "chal", ["win"] * 20),
+        protocol={"procedure": "raw:t0",
+                  "estimands": {"combat_stream": "per_game"}},
+        path=p)
+    with pytest.raises(ValueError, match="combat_stream"):
+        update_from_games(
+            Path("eval_games/old"),
+            _slot_games("ref", "other", ["win"] * 20,
+                        seed_base=80_000),
+            protocol={"procedure": "raw:t0",
+                      "estimands": {"combat_stream": "shared"}},
+            path=p)

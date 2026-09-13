@@ -105,12 +105,14 @@ def test_eval_game_guard_separates_temperature_estimands(tmp_path):
             "--mcts-sims", "0", "--device", "cpu"]
     (out / "game_A_B_s1_7.json").write_text(
         json.dumps({"procedure_a": "raw", "procedure_b": "raw",
-                    "max_turns": 200}), encoding="utf-8")
+                    "max_turns": 200,
+                    "combat_stream": "per_game"}), encoding="utf-8")
     with pytest.raises(SystemExit, match="refusing to mix"):
         main(base + ["--raw-temperature-a", "0"])
     (out / "game_A_B_s1_7.json").write_text(
         json.dumps({"procedure_a": "raw:t0", "procedure_b": "raw",
-                    "max_turns": 200}), encoding="utf-8")
+                    "max_turns": 200,
+                    "combat_stream": "per_game"}), encoding="utf-8")
     assert main(base + ["--raw-temperature-a", "0"]) == 0
 
 

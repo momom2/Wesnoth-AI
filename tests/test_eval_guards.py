@@ -37,7 +37,7 @@ def test_horizon_mismatch_refused(tmp_path):
     out = tmp_path / "out"
     out.mkdir()
     prev = {"procedure_a": "tcs:32", "procedure_b": "tcs:32",
-            "max_turns": 60}
+            "max_turns": 60, "combat_stream": "per_game"}
     (out / "game_A_B_s1_7.json").write_text(json.dumps(prev),
                                             encoding="utf-8")
     with pytest.raises(SystemExit, match="max_turns"):
@@ -249,7 +249,8 @@ def test_turn_config_mismatch_refused(tmp_path):
     prev_tc = turn_knobs_dict(_ts_config(SimpleNamespace()))
     prev_tc["boundary_frame"] = "mover"
     prev = {"procedure_a": "tcs:32", "procedure_b": "tcs:32",
-            "max_turns": 200, "turn_config": prev_tc}
+            "max_turns": 200, "turn_config": prev_tc,
+            "combat_stream": "per_game"}
     (out / "game_A_B_s1_7.json").write_text(json.dumps(prev),
                                             encoding="utf-8")
     with pytest.raises(SystemExit, match="turn-search config"):
@@ -271,7 +272,7 @@ def test_per_side_sims_procedure_provenance(tmp_path):
     out = tmp_path / "out"
     out.mkdir()
     prev = {"procedure_a": "mcts:32", "procedure_b": "raw",
-            "max_turns": 200}
+            "max_turns": 200, "combat_stream": "per_game"}
     (out / "game_A_B_s1_7.json").write_text(json.dumps(prev),
                                             encoding="utf-8")
     # Matching per-side budgets: guard passes, slot skips.
@@ -295,7 +296,8 @@ def test_leaf_batch_mismatch_refused(tmp_path):
     out = tmp_path / "out"
     out.mkdir()
     prev = {"procedure_a": "mcts:32", "procedure_b": "mcts:32",
-            "max_turns": 200}  # pre-flag file: no mcts_batch key
+            "max_turns": 200,  # pre-flag file: no mcts_batch key
+            "combat_stream": "per_game"}
     (out / "game_A_B_s1_7.json").write_text(json.dumps(prev),
                                             encoding="utf-8")
     # Default B=1 matches the legacy file: guard passes, slot skips.
