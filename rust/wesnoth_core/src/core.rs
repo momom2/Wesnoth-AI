@@ -168,9 +168,12 @@ pub struct MapStatic {
     pub has_light: Vec<u8>,
     pub area_cycle: Vec<i64>,        // index into cycles, -1 = default cycle
     pub cycles: Vec<Vec<i64>>,       // lawful bonus per turn phase
-    pub is_forest: Vec<u8>,          // defense keys of the hex (hide cover)
-    pub is_village_key: Vec<u8>,
-    pub is_deep_water: Vec<u8>,
+    // Hide-ability cover, from the engine's own [hides] terrain globs
+    // (terrain_resolver.hides_cover: *^F*, *^V*, Wo*^*), NOT from the
+    // hex's defense class. Read only by core_move::hide_cover_active.
+    pub is_forest: Vec<u8>,          // ambush cover
+    pub is_village_key: Vec<u8>,     // concealment cover
+    pub is_deep_water: Vec<u8>,      // submerge cover
     pub full_slot: Vec<i64>,         // the full-board token slot of each hex
     pub castle_mod: Vec<u8>,         // TerrainModifiers.CASTLE (the encoder's static bit)
     pub hex_of_slot: Vec<usize>,     // the map hex of each full-board slot

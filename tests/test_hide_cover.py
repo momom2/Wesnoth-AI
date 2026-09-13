@@ -106,3 +106,23 @@ def test_hide_cover_active_uses_the_engine_rule():
     codes[(concealed.position.x, concealed.position.y)] = "Gg^Ve"
     assert _hide_cover_active(gs, concealed), \
         "concealment in a ^Ve village must hide (it did not before 2026-09-13)"
+
+
+def test_farmland_is_not_a_village():
+    """`^Gvs` is Farmland, an embellishment with `aliasof=_bas`
+    (wesnoth_src/data/core/terrain.cfg:399-405) -- not a village. The
+    hand-rolled overlay table listed it as one, so concealment (and the
+    village DEFENSE those keys also feed) applied on open farmland:
+    494 hexes of the shipped maps. The engine's `*^V*` does not match
+    it."""
+    for code in ("Rb^Gvs", "Re^Gvs", "Gs^Gvs", "Gg^Gvs", "Hhd^Gvs", "Dd^Gvs"):
+        assert not hides_cover(code, "concealment"), f"{code} is farmland, not a village"
+        assert not hides_cover(code, "ambush")
+
+
+def test_tropical_deep_water_grants_submerge():
+    """`Wot` is deep_water_tropical (terrain.cfg:44-47). The old base
+    list omitted it, so submerge did not apply on 289 hexes of the
+    shipped maps; the engine's `Wo*^*` matches any Wo base."""
+    for code in ("Wot", "Wot^_fme", "Wog"):
+        assert hides_cover(code, "submerge"), f"{code} is a deep-water base"

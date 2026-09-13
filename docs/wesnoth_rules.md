@@ -317,6 +317,20 @@ single source for both the Python predicate and the cover flags
 `game_core.map_static` bakes for the Rust-owned state
 (tests/test_hide_cover.py).
 
+Moving to the engine's rule also corrected the table in the other
+direction, on hexes where it had been too generous or too mean:
+
+- **`^Gvs` is Farmland, not a village** (`terrain.cfg`:399-405,
+  `aliasof=_bas`, i.e. an embellishment that changes nothing). The
+  table listed it as `["village"]`, so concealment applied on open
+  farmland across 494 hexes of the shipped maps -- and, because those
+  same keys feed `_terrain_keys_at`'s other consumers, farmland also
+  read as village terrain for the encoder's features and trait
+  overrides. `*^V*` does not match it.
+- **`Wot` is deep_water_tropical** (`terrain.cfg`:44-47) and was
+  missing from the base list, so submerge did not apply on 289 hexes.
+  `Wo*^*` matches any `Wo` base.
+
 ### Hidden-unit visibility: live adjacency + persistent UNCOVERED
 
 `wesnoth_src/src/units/unit.cpp:2596-2637` (`unit::invisible`):
