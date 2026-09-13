@@ -131,13 +131,17 @@ def test_ambush_unit_in_forest_is_hidden_until_uncovered():
     The unit is within sight range, so the only reason it's hidden
     is the ambush ability.
 
-    `_hide_cover_active` reads forest-ness via
-    `_terrain_keys_at(state, x, y)`, which consults
-    `global_info._terrain_codes` (WML codes, NOT the
-    `Hex.terrain_types` enum field). So this test pre-populates
-    that dict with a valid forest code (`Gg^Fp`) at the lurker's
-    hex. Real game states get these codes from the scenario
-    parser; tests have to set them manually.
+    `_hide_cover_active` matches the engine's `*^F*` glob against
+    the hex's WML terrain CODE from `global_info._terrain_codes`
+    (NOT the `Hex.terrain_types` enum field), so this test
+    pre-populates that dict at the lurker's hex. Real game states
+    get these codes from the scenario parser; tests set them by hand.
+
+    The code is `Gs^Fms`, mixed deciduous forest, deliberately: the
+    hand-rolled defense-key table this predicate used until
+    2026-09-13 did NOT list it, so the lurker stayed visible there.
+    A code the old table happened to cover (`Gg^Fp`) would pass under
+    both rules and prove nothing about the fix.
     """
     forest_hexes = {Hex(position=Position(x=x, y=0),
                        terrain_types=frozenset({Terrain.FOREST}),
@@ -149,9 +153,8 @@ def test_ambush_unit_in_forest_is_hidden_until_uncovered():
               abilities={'ambush'}),                # inside sight, on forest
     ]
     s = _state(units, forest_hexes)
-    # Populate WML terrain codes so `_terrain_keys_at` reports
-    # 'forest' for the lurker's hex.
-    s.global_info._terrain_codes = {(x, 0): 'Gg^Fp' for x in range(20)}
+    # Populate WML terrain codes so the hex matches ambush's `*^F*`.
+    s.global_info._terrain_codes = {(x, 0): 'Gs^Fms' for x in range(20)}
     seen = {u.id for u in visibility.units_visible_to(s, 1)}
     assert 'lurker' not in seen
 
@@ -204,6 +207,35 @@ def test_encoder_omits_fog_hidden_enemy_tokens():
     assert 'mine_leader' in ids
     assert 'enemy_close' in ids
     assert 'enemy_far' not in ids
+
+
+def test_encoder_omits_cover_hidden_enemy_tokens():
+    """A unit hidden by its ABILITY, not by distance, must also lose
+    its token. The enemy here is well inside sight range: cover is the
+    only reason it can be absent, and `Gs^Fms` is a forest code the
+    pre-2026-09-13 defense-key table did not list, so this fails
+    against that rule.
+
+    This is the half the corpus certification could not reach --
+    `diff_replay` checks that recorded commands stay legal, never what
+    the policy was shown.
+    """
+    units = [
+        _unit('mine_leader', x=0, side=1, max_moves=3, is_leader=True),
+        _unit('plain_enemy', x=2, side=2),
+        _unit('lurker', x=3, side=2, abilities={'ambush'}),
+    ]
+    s = _state(units, _hexes_grid(20))
+    s.global_info._terrain_codes = {(x, 0): 'Gs^Fms' for x in range(20)}
+    ids = list(_encode_raw(s).unit_ids)
+    assert 'mine_leader' in ids and 'plain_enemy' in ids, \
+        "control: units in sight without cover keep their tokens"
+    assert 'lurker' not in ids, \
+        "an ambusher on ^Fms must not reach the policy's observation"
+
+    # Uncovered by a previous ambush trigger: the token comes back.
+    s.global_info._uncovered_units = {'lurker'}
+    assert 'lurker' in list(_encode_raw(s).unit_ids)
 
 
 def test_encoder_recruit_phantoms_only_for_current_side():
@@ -331,15 +363,18 @@ def test_walk_ambush_by_hidden_hider_zeroes_mp():
     ]
     hexes = _hexes_grid(6)
     # Put the ambusher's hex on forest so its cover is active.
-    # Hide-cover resolution reads the raw terrain-code dict
-    # (`_terrain_keys_at` -> `_terrain_codes`), so stamp the code
-    # ("Gg^Fp" = grass + pine forest) rather than the Hex enum.
+    # Hide-cover resolution matches ambush's `*^F*` glob against the
+    # raw terrain-code dict (`_terrain_codes`), so stamp the code
+    # rather than the Hex enum. `Gs^Fms` is a forest the pre-2026-09-13
+    # defense-key table missed, so this asserts the move truncation on
+    # a hex where the old rule would NOT have stopped the mover -- the
+    # one thing the corpus sweep cannot check.
     hexes = {h for h in hexes if not (h.position.x == 2 and h.position.y == 0)}
     hexes.add(Hex(position=Position(x=2, y=0),
                   terrain_types=frozenset({Terrain.FOREST}),
                   modifiers=frozenset()))
     s = _state(units, hexes)
-    s.global_info._terrain_codes = {(2, 0): "Gg^Fp"}
+    s.global_info._terrain_codes = {(2, 0): "Gs^Fms"}
     mover = next(u for u in s.map.units if u.id == 'mover')
     # Path passes adjacent to (2,0): entering (1,0) is adjacent.
     out = walk_move_path(s, mover, [0, 1], [0, 0])

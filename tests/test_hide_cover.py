@@ -11,11 +11,12 @@ on the hex's terrain CODE:
 Until 2026-09-13 the sim answered "is this forest / village / deep
 water?" by looking up the hex's DEFENSE keys in a hand-rolled overlay
 table (`replay_dataset._OVERLAY_DEFENSE_KEYS`). Every code the table
-did not list resolved to plain flat, so ambush and concealment were
-silently INACTIVE there: measured over the shipped maps, 19% of
-forest-overlay hexes and 25% of village-overlay hexes. A unit that
-Wesnoth hides was visible to the fog gate, to the legality mask and to
-the ambush stop in `walk_move_path`.
+did not list resolved to plain flat, so the ability was silently
+INACTIVE there: over the 21 Ladder-pool maps, 30.4% of forest-overlay
+hexes gave no ambush cover and 27.7% of village-overlay hexes gave no
+concealment. A unit that Wesnoth hides was visible to the fog gate, to
+the legality mask and to the ambush stop in `walk_move_path`.
+docs/wesnoth_rules.md carries the full census, in both directions.
 
 These tests pin the rule to the engine's globs and keep a sample of the
 codes that used to fail.
@@ -68,10 +69,19 @@ def test_the_engine_globs_verbatim():
     assert not hides_cover("Gg^Fp", "nightstalk")
 
 
-def test_a_starting_position_prefix_is_stripped():
-    """Map cells carry '1 Gg^Fp' for a start hex; the code is the rest."""
+def test_a_starting_position_label_is_stripped():
+    """Map cells carry '1 Gg^Fp' for a start hex; the code is the rest.
+    The label is any text before a space, not one digit -- the rule and
+    its engine citation live in tests/test_start_positions.py. Reading
+    only a single digit left '10 Wo' as a base terrain named '10 Wo',
+    which matched no glob and gave no cover."""
     assert hides_cover("1 Gs^Fms", "ambush")
     assert hides_cover("2 Gg^Vh", "concealment")
+    assert hides_cover("10 Wo", "submerge")
+    assert hides_cover("12 Gs^Fp", "ambush")
+    assert hides_cover("11 Gg^Vh", "concealment")
+    assert hides_cover("book_start Gg^Fp", "ambush")
+    assert hides_cover("P1_Burner Wo", "submerge")
 
 
 def test_no_code_means_no_terrain_cover():
@@ -113,8 +123,8 @@ def test_farmland_is_not_a_village():
     (wesnoth_src/data/core/terrain.cfg:399-405) -- not a village. The
     hand-rolled overlay table listed it as one, so concealment (and the
     village DEFENSE those keys also feed) applied on open farmland:
-    494 hexes of the shipped maps. The engine's `*^V*` does not match
-    it."""
+    302 playable hexes of the Ladder pool and 640 of all 114 tracked
+    maps. The engine's `*^V*` does not match it."""
     for code in ("Rb^Gvs", "Re^Gvs", "Gs^Gvs", "Gg^Gvs", "Hhd^Gvs", "Dd^Gvs"):
         assert not hides_cover(code, "concealment"), f"{code} is farmland, not a village"
         assert not hides_cover(code, "ambush")
@@ -122,7 +132,8 @@ def test_farmland_is_not_a_village():
 
 def test_tropical_deep_water_grants_submerge():
     """`Wot` is deep_water_tropical (terrain.cfg:44-47). The old base
-    list omitted it, so submerge did not apply on 289 hexes of the
-    shipped maps; the engine's `Wo*^*` matches any Wo base."""
+    list omitted it, so submerge did not apply on 153 playable hexes
+    of the Ladder pool (all on Ruphus Isle) and 332 of all tracked
+    maps; the engine's `Wo*^*` matches any Wo base."""
     for code in ("Wot", "Wot^_fme", "Wog"):
         assert hides_cover(code, "submerge"), f"{code} is a deep-water base"

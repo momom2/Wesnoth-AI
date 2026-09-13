@@ -99,13 +99,12 @@ anyway, ordered by what the measurements say is binding:
     engine matches the hex's terrain CODE (`*^F*`, `*^V*`, `Wo*^*`),
     not its defense class; `terrain_resolver.hides_cover` transcribes
     those globs and both the Python predicate and the Rust core's
-    baked flags read it. Ambush was inactive on 19% of forest-overlay
-    hexes and concealment on 25% of village-overlay hexes, hitting
-    exactly the units that want that terrain (Woses, Elvish
-    Rangers/Avengers, the Fugitive). 17,039 of 17,039 replays
-    reconstruct clean after the fix (docs/box_specs.md "Hide cover
-    certified after the root fix"; docs/wesnoth_rules.md has the
-    rule).
+    baked flags read it. Over the Ladder pool ambush gained 478 hexes,
+    submerge 153 and concealment 93, while concealment LOST 302 to the
+    farmland correction. 17,039 of 17,039 replays reconstruct clean
+    after the fix, which shows no regression and does not certify the
+    new rule (docs/box_specs.md "Hide cover certified after the root
+    fix"; docs/wesnoth_rules.md has the rule and the census).
   * **the Elo catalog sums repeat measurements of one pair as
     independent evidence** (tools/elo_catalog.py:360; the edge key is
     the games-dir name and nothing compares seeds). Both generators
@@ -754,6 +753,193 @@ inference.
   equals the seed (+17 +- 55) and the 5M 2291k equals the 15M seed
   (+9 +- 55); the mcts:32 gaps (-367, +223) were procedure effects.
   Open: 800-game edges before any of these is quoted as a fact.
+
+## Scenario [effect] members are named by id= (2026-09-13, FIXED)
+
+A hunt for siblings of the hide-cover bug -- a Wesnoth rule decided by
+a hand-rolled enumeration with a silent wrong default -- found two
+live ones, both in `tools/scenario_events._apply_effect_to_unit`, both
+firing on **2p Silverhead Crossing**, one of the 21 Ladder maps and
+351 of the 17,019 corpus games.
+
+The root cause is one mistake: OUR model names an ability and a
+weapon special by the engine's `id=` -- that is what unit_stats.json
+scrapes, what combat reads and what the fog gate reads -- and the
+effect handler read the TAG. Three specials share `[chance_to_hit]`
+(`magical`, `marksman`, `deflect`) and every hide ability is `[hides]
+id=<something>`, so the tag produced `chance_to_hit` and `hides`,
+which no consumer knows: the effect was created and then did nothing.
+(The ENGINE uses both keys -- numbers resolve by tag, identity by id;
+docs/wesnoth_rules.md "An ability or weapon special has TWO keys" has
+the citations.)
+
+1. **`magical` never reached combat.** Silverhead's `prestart`
+   `[object]` gives its side-3 Tentacle a ranged arcane 100-1 "evil
+   eye" with `{WEAPON_SPECIAL_MAGICAL}`. `wesnoth_ai/combat.py` reads
+   `"magical" in weapon.specials` for the 70% floor, so every player
+   who attacked the Tentacle at range ate its counter at their OWN
+   terrain's chance-to-hit (30% in forest, 60% on flat) instead of
+   Wesnoth's flat 70%.
+2. **`apply_to=new_ability` was not dispatched at all**, so the
+   `{ABILITY_SUBMERGE}` the same `[object]` grants was dropped. The
+   Tentacle stands on `Wo` at WML (1,1) and both playing sides run
+   `fog=yes`, so Wesnoth hides it and we showed it, all game.
+
+Fixed with `_effect_member_ids`, used by both specials sites and the
+new `new_ability` / `remove_ability` branches; an `apply_to` outside
+the modelled and cosmetic sets now warns once instead of vanishing,
+which is how (2) survived. `tests/test_effect_ids.py` covers both,
+end to end on the real scenario (6 tests). `OBSERVATION_EPOCH` is 3.
+
+**Certification owed.** (1) changes COMBAT, so it needs the corpus
+sweep that `scripts/hide_cover_cert_box.sh` runs, on a box. Budget:
+the last full sweep was 233 s of wall on a 28-core box plus setup, so
+well under an hour at roughly $0.30-0.50. Queue it with the next box
+rental rather than renting for it alone.
+
+Two further findings from the same hunt, NOT fixed:
+
+- **`[set_specials]` without `mode=` REPLACES the weapon's specials;
+  we append.** `src/units/attack_type.cpp:416-429`: `if(mode !=
+  "append") { specials_.clear(); }`, with a deprecation warning when
+  `mode=` is absent. Modelling replace needs a way to say "these are
+  ALL the specials of this weapon": our `Attack.weapon_specials` is an
+  additive overlay that `_to_combat_unit` unions with the scraped base
+  (`tools/replay_dataset.py`), so a faithful fix is a contract change
+  on the combat path, which carries bit-exact parity and would owe the
+  corpus sweep. Zero live impact: the only `[set_specials]` in the
+  shipped multiplayer data is Hornshark Island's `MODIFY_BOWMAN`,
+  which is not in either pool, and a Bowman's bow has no base
+  specials, so append and replace agree there. Cited in the code at
+  the call site and in docs/wesnoth_rules.md.
+
+- **The encoder's terrain one-hot is wrong on most forest hexes.** Not
+  a rule divergence -- every Wesnoth rule routes through
+  `terrain_resolver` / `_terrain_codes`, and the one rule-bearing
+  member (`Terrain.VILLAGE`) is decided correctly. But
+  `_first_terrain_id` (`wesnoth_ai/encoder.py`) tie-breaks a
+  multi-member set with `next(iter(...))`, i.e. by enum ordinal, and
+  `FLAT` (3) sorts before `FOREST` (4): `Gs^Fp` encodes as FLAT while
+  `Hh^Fp` encodes as FOREST. 1,499 of 1,759 forest-overlay Ladder
+  hexes (85%) are not labelled forest, on all 21 maps. Separately,
+  `replay_dataset._TERRAIN_BASE` lists 26 bases and defaults the rest
+  to FLAT, so 6,259 of 23,442 Ladder hexes (27%) take a default, some
+  wrongly (`Xv` void, `Xos` wall, `Wot` deep water, `Hhd` dry hills,
+  `Ai` ice, `Qlf` lava). Fixing it changes every observation the
+  policy has ever been trained on, so it wants its own arm and an
+  800-game match, not a drive-by.
+- **Two more `[hides]` abilities are outside `_AMBUSH_ABILITIES`**:
+  `burrow` (Horned Scarab) and `swamp_lurk` (Crocodile,
+  `wesnoth_src/data/core/units/monsters/Crocodile.cfg:143`,
+  `terrain=S*^*`). Latent: neither carrier is in the pools or in any
+  of the 17,019 corpus games.
+
+Two `apply_to` values DO appear in the mini pool and look alarming;
+both are fine, checked rather than assumed. `loyal` (9 occurrences
+across the three enclave scenarios) sits inside a `[trait] id=loyal`,
+and our loader records the TRAIT, which is what the upkeep math reads
+(`replay_dataset`, init_side gold): those Tentacles come out
+`traits=('loyal',)`. `movement_costs` (5 occurrences, `2p_mini` and
+`2p_mini_edited`) makes a guardian's castle cost 99 so it cannot
+leave; those are side-3 units that never move in our sim anyway, and
+the effect is not dispatched through `_apply_effect_to_unit` at
+scenario build, so the new warning does not fire on them.
+
+Ruled out with evidence, so nobody re-hunts them: terrain resolution
+(587 distinct codes over the shipped maps, zero silent defaults);
+village/castle/keep detection (bidirectional against `terrain.cfg`);
+the trait tables (divergent but dead -- `roll_traits` reads
+`unit_stats.json`); ability-macro scraping (0 dropped macros across
+the 204-type default-era closure); ZOC; init-side healing; the
+unknown-unit fallback (94 distinct types in the corpus, all present);
+`sight_radius_for`'s `max_moves` proxy (only 4 core types set
+`vision=`, none reachable); and the remaining weapon-special gaps
+(`absorb`, `plague_type`, `stun` -- none on a recruitable type).
+
+## Open after the hide-cover review (2026-09-13)
+
+Three independent adversarial reviewers checked the hide-cover root fix
+and its certification. The CODE survived: the globs are transcribed
+correctly (one reviewer ported the engine's `t_translation` matcher
+from the 1.18.4 tag and diffed it over 19,738 codes and every cell of
+the 114 tracked maps, 0 disagreements), the Rust core's baked flags are
+read by nothing but the cover predicate, and no past Elo result is
+invalidated. The WRITE-UP did not, and is corrected in
+docs/box_specs.md and docs/wesnoth_rules.md. What stays open:
+
+- **The certification is a no-regression test, not a proof of the
+  rule.** Measured by restoring the old rule and re-running: 164 of
+  300 sampled replays field a hider, 4 of 120 hider replays
+  reconstruct differently, and `diff_replay` reports 0 divergences on
+  those 4 under BOTH rules. The replay format carries no post-state,
+  so every check asks whether the next recorded command's
+  preconditions hold; nothing reads a move's stop REASON or the
+  uncovered-unit set, which is the only state this change moves (all
+  4 truncate at the same hex). A real check needs Wesnoth ground truth
+  for a truncation, i.e. an `[mp_checkup]`-style oracle on a move an
+  ambush stops -- the same shape as the combat parity we already have.
+  `diff_core` cannot help: `game_core.map_static` bakes its flags from
+  the same `hides_cover` that `visibility` calls, so the two sides
+  cannot disagree by construction.
+- **Post-fix matches are cross-build against pre-fix numbers.** The
+  reference player's +56 +- 12 and seed2's +33 +- 12 were measured in
+  a sim that hid units on a different set of hexes. They stay
+  internally valid (both players in a match always ran the same
+  predicate, and run_elo_batch alternates sides, so there was never a
+  within-match asymmetry), but a new number must not be chained onto
+  them without re-measuring. The relset self-pin is the natural place
+  to re-establish the baseline.
+- **Nightstalk reads a ToD that omits unit illumination.** The engine
+  evaluates `[hides]`'s `time_of_day=chaotic` on the ILLUMINATED ToD
+  (`abilities.cpp`:447-451 sets `use_flat_tod` only for `illuminates`
+  itself; `filter.cpp`:269-273 then calls
+  `get_illuminated_time_of_day`), which adds terrain `light=` AND a
+  scan of the hex plus its 6 neighbours for `illuminates` units
+  (`tod_manager.cpp`:229, 237-262). `visibility._hide_cover_active`
+  uses `_lawful_bonus_at`, which does the terrain half and skips the
+  unit scan; the sim applies unit illumination only in combat
+  (`abilities.illuminate_step` through `replay_dataset._apply_illum`).
+  NOT reachable in the games we play: the illuminator must sit within
+  one hex, only Mage of Light and Mermaid Diviner have the ability,
+  and in the default era only Undead reaches nightstalk (Ghost ->
+  Shadow) while only Loyalists and Rebels reach Mage of Light -- so
+  the illuminator is always an ENEMY of the hider, and
+  `_discovered_by_adjacency` reveals the unit anyway. It fires the
+  moment a >2-side or team game, an allied illuminator, or an
+  ability-granting event enters the pool. Root fix: one
+  `illuminated_lawful_bonus_at()` = `_lawful_bonus_at` +
+  `illuminate_step`'s bounded add, consumed by BOTH the hide predicate
+  and combat, replacing combat's inline `_apply_illum`. That collapses
+  two ToD readings into one; the arithmetic is unchanged, so the
+  existing corpus sweep covers the combat half.
+- **`burrow` is unmodelled** (the fifth `[hides]`,
+  `abilities.cfg`:301-315, `terrain=*^F*,*^Qhhf,*^Qhuf,D*^*` plus a
+  resting condition). Latent: no unit in the pinned 356-unit
+  `unit_stats.json` carries it. Modelling it needs the "has not moved
+  this turn" state the sim does not track.
+- **The Rust core's three cover flags are misnamed.** `is_forest`,
+  `is_village_key` and `is_deep_water` now mean "ambush cover",
+  "concealment cover" and "submerge cover"; `is_village_key` is true
+  for `^Vm`/`^Vov`, which do NOT defend as villages, and false for
+  farmland. Only `core_move::hide_cover_active` reads them, so this is
+  a naming hazard for the next reader, not a behaviour bug. Rename to
+  `hides_ambush` / `hides_concealment` / `hides_submerge` when the
+  crate is next touched.
+
+FIXED in the same pass: the observation half now has tests. The two
+cover tests in tests/test_visibility.py used `Gg^Fp`, a code the OLD
+defense-key table also covered, so they passed under the broken rule;
+they now use `Gs^Fms`, which it missed, and a new
+`test_encoder_omits_cover_hidden_enemy_tokens` asserts a
+cover-hidden enemy loses its encoder token (the set the legality mask
+reads) and gets it back once uncovered. The certification script counted divergences
+with a regex matching a string `diff_replay` never prints, and listed
+12 of 24 shards; it now parses the real string, prints every shard and
+asserts `clean == total`. Pre-encoded corpora and the policy-anchor
+cache now carry `constants.OBSERVATION_EPOCH` and refuse a cache built
+under a different one -- the vocab, hex basis and fog gate all stay
+identical when the sim's visibility rules move, so nothing else could
+have caught a stale cache (tests/test_anchor_cache_gate.py).
 
 ## Rulings (user, 2026-09-05)
 

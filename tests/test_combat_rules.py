@@ -398,3 +398,45 @@ def test_outcome_dp_enumerates_petrified_states():
                            # not petrify; it may still be counter-damaged
                            # if it missed earlier strikes before stoning)
     assert abs(sum(states.values()) - 1.0) < 1e-9   # mass conserved
+
+def test_every_recruitable_unit_has_real_stats():
+    """`_stats_for` falls back to a generic 33 HP level-1 for a type it
+    does not know, which silently corrupts combat, the value head's
+    material reading and the combat oracle. Nothing may hit that path
+    in the games we actually play.
+
+    This is a DATA test: it fails when the pinned 1.18.4 scrape and the
+    default era drift apart, which is the drift CLAUDE.md warns about
+    (1.19's Ghoul gained a resistance override that overdamaged units).
+    """
+    from tools.replay_dataset import _stats_for, unknown_unit_types
+    from tools.scenario_pool import load_factions
+
+    factions = load_factions()
+    assert factions, "the default era must parse"
+
+    wanted = set()
+    for f in factions.values():
+        wanted.update(f.recruit or ())
+        wanted.update(f.leader_pool or ())
+        wanted.update(f.random_leader_pool or ())
+    wanted.discard("random")
+    assert len(wanted) > 30, f"only {len(wanted)} types collected; the era parse is broken"
+
+    before = set(unknown_unit_types())
+    for name in sorted(wanted):
+        _stats_for(name)
+    fell_back = set(unknown_unit_types()) - before
+    assert not fell_back, (
+        f"{len(fell_back)} default-era unit types are missing from "
+        f"unit_stats.json and silently got generic stats: {sorted(fell_back)}")
+
+
+def test_the_unknown_type_fallback_is_reported():
+    """The fallback itself must stay visible -- a quiet one is how a
+    scrape mismatch would hide from the test above."""
+    from tools.replay_dataset import _FALLBACK_STATS, _stats_for, unknown_unit_types
+
+    name = "Not A Wesnoth Unit (test)"
+    assert _stats_for(name) is _FALLBACK_STATS
+    assert name in unknown_unit_types()

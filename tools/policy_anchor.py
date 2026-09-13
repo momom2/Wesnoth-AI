@@ -41,6 +41,8 @@ from typing import Dict, List, Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from wesnoth_ai.constants import OBSERVATION_EPOCH
+
 log = logging.getLogger("policy_anchor")
 
 # v2 (2026-08-16, user ruling): the cache stores pairs GROUPED PER
@@ -115,7 +117,8 @@ def load_policy_anchor(path: Path,
     normalization is exactly what v2 exists to prevent. Given the
     consumer's fog gate of global feature 5, a cache encoded under
     the other gate is refused the same way (a cache without the key
-    was encoded with the true enemy village count)."""
+    was encoded with the true enemy village count), and so is a cache
+    from an earlier `constants.OBSERVATION_EPOCH`."""
     with Path(path).open("rb") as f:
         blob = pickle.load(f)
     if not isinstance(blob, dict) or blob.get("version") != CACHE_VERSION:
@@ -123,7 +126,19 @@ def load_policy_anchor(path: Path,
             f"{path}: not a v{CACHE_VERSION} policy-anchor cache (got "
             f"{blob.get('version') if isinstance(blob, dict) else type(blob)}"
             f"). Rebuild: python tools/policy_anchor.py --out {path}")
-    cache_gate = bool((blob.get("meta") or {}).get("fog_hides_enemy_villages", False))
+    meta = blob.get("meta") or {}
+    # A cache encoded before a visibility rule changed holds
+    # observations the sim no longer produces. Rehearsing on those is
+    # the same defect the fog-gate check below exists to prevent, one
+    # level up: the encoding is right, the WORLD it encoded is stale.
+    # Caches written before the epoch was recorded are epoch 1.
+    cache_epoch = int(meta.get("observation_epoch", 1))
+    if cache_epoch != int(OBSERVATION_EPOCH):
+        raise ValueError(
+            f"{path}: encoded under observation epoch {cache_epoch}, this sim is "
+            f"{OBSERVATION_EPOCH} (see constants.OBSERVATION_EPOCH for what changed). "
+            f"Rebuild: python tools/policy_anchor.py --out {path}")
+    cache_gate = bool(meta.get("fog_hides_enemy_villages", False))
     if fog_hides_enemy_villages is not None and cache_gate != bool(fog_hides_enemy_villages):
         flag = " --fog-hides-enemy-villages" if fog_hides_enemy_villages else ""
         raise ValueError(
@@ -203,6 +218,7 @@ def build_cache(dataset_dir: Path, out: Path, *, games: int,
     with out.open("wb") as f:
         pickle.dump({"version": CACHE_VERSION,
                      "meta": {"games": len(games_pairs),
+                              "observation_epoch": int(OBSERVATION_EPOCH),
                               "stride": stride,
                               "seed": seed, "winners_only": True,
                               "holdout_excluded": True,

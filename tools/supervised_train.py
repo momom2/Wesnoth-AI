@@ -281,8 +281,9 @@ def _pair_stream_preencoded(files: List[Path], preencoded_dir: Path):
 def check_preencoded(preencoded_dir: Path, files: List[Path], encoder,
                      relevant_set: bool) -> None:
     """Refuse a pre-encoded corpus that is not this run's encoding:
-    other vocab or hex basis, or records missing for files of the
-    pass (the pre-encoder is resumable; finish it first)."""
+    other vocab, hex basis or observation epoch, or records missing for
+    files of the pass (the pre-encoder is resumable; finish it first)."""
+    from wesnoth_ai.constants import OBSERVATION_EPOCH
     from tools.preencode_corpus import load_manifest, record_path, vocab_fingerprint
     man = load_manifest(preencoded_dir)
     if man is None:
@@ -298,6 +299,17 @@ def check_preencoded(preencoded_dir: Path, files: List[Path], encoder,
     factions = {k: v for k, v in encoder.faction_to_id.items() if v < n_factions}
     fp = vocab_fingerprint(types, factions, relevant_set,
                            bool(getattr(encoder, "fog_hides_enemy_villages", False)))
+    # The epoch is checked first so a stale-world corpus does not read
+    # as a vocab mismatch: what is wrong is the OBSERVATIONS, not the
+    # encoding of them (constants.OBSERVATION_EPOCH says what changed).
+    cache_epoch = int(man.get("observation_epoch", 1))
+    if cache_epoch != int(OBSERVATION_EPOCH):
+        raise RuntimeError(
+            f"--preencoded {preencoded_dir} was encoded under observation epoch "
+            f"{cache_epoch}; this sim is {OBSERVATION_EPOCH}. The sim's rules about what a "
+            f"player SEES changed since those records were made (see "
+            f"constants.OBSERVATION_EPOCH), so they encode a world that no longer exists. "
+            f"Re-run tools/preencode_corpus.py into a fresh --out")
     if man.get("fingerprint") != fp:
         raise RuntimeError(f"--preencoded {preencoded_dir} was encoded with another vocab or "
                            f"hex basis ({man.get('fingerprint')}; this run {fp}); "

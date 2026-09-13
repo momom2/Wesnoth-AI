@@ -27,6 +27,8 @@ Usage (a box, one pass over the 17k games; ~5 pairs/s per worker):
 """
 import argparse
 import hashlib
+
+from wesnoth_ai.constants import OBSERVATION_EPOCH
 import json
 import logging
 import multiprocessing as mp
@@ -50,9 +52,14 @@ MANIFEST_NAME = "preencoded_manifest.json"
 
 def vocab_fingerprint(type_to_id: Dict[str, int], faction_to_id: Dict[str, int],
                       relevant_set: bool, fog_hides_enemy_villages: bool = False) -> str:
-    """One string for (unit vocab, faction vocab, hex basis, the fog
-    gate of global feature 5): the encoding depends on nothing else
-    that varies between runs."""
+    """One string for everything the encoding depends on: the unit and
+    faction vocabs, the hex basis, the fog gate of global feature 5,
+    and the sim's observation epoch.
+
+    The epoch is what makes a cache from before a visibility rule
+    change refuse to mix with encodings made after it; the four
+    vocab/basis terms do not move when the sim's own rules do. See
+    `constants.OBSERVATION_EPOCH`."""
     h = hashlib.sha1()
     h.update(json.dumps(sorted(type_to_id.items())).encode("utf-8"))
     h.update(b"|")
@@ -60,6 +67,7 @@ def vocab_fingerprint(type_to_id: Dict[str, int], faction_to_id: Dict[str, int],
     h.update(b"|relset=%d" % int(bool(relevant_set)))
     if fog_hides_enemy_villages:
         h.update(b"|fhv=1")
+    h.update(b"|obs=%d" % int(OBSERVATION_EPOCH))
     return h.hexdigest()
 
 
@@ -164,6 +172,7 @@ def main(argv=None) -> int:
     def flush():
         args.out.joinpath(MANIFEST_NAME).write_text(json.dumps({
             "fingerprint": fp, "vocab_from": str(args.vocab_from),
+            "observation_epoch": int(OBSERVATION_EPOCH),
             "relevant_set_hexes": bool(args.relevant_set_hexes),
             "fog_hides_enemy_villages": bool(args.fog_hides_enemy_villages),
             "dataset": str(args.dataset), "n_files": len(counts),

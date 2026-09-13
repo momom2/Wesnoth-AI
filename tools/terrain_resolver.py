@@ -437,6 +437,74 @@ def terrain_light_bonus(code: str, base: int) -> int:
         return max(base + light, min(base, min_l))
 
 
+# ---------------------------------------------------------------------
+# Starting positions: the prefix a map cell may carry
+# ---------------------------------------------------------------------
+
+def split_start_position(cell: str) -> tuple:
+    """(label, code) of a map cell: "1 Gg^Fp" -> ("1", "Gg^Fp"),
+    "Gg^Fp" -> ("", "Gg^Fp").
+
+    The engine's rule lives in `string_to_number_`
+    (wesnoth_src/src/terrain/translation.cpp:743-756, 1.18.4 tag):
+
+        // Strip the spaces around us
+        // unlike the old implementation this also trims newlines.
+        utils::trim(str);
+        ...
+        // Split if we have spaces inside
+        std::size_t offset = str.find(' ', 0);
+        while(offset != std::string::npos) {
+            start_positions.push_back(std::string(str.substr(0, offset)));
+            str.remove_prefix(offset + 1);
+            offset = str.find(' ', 0);
+        }
+
+    Trim first, then cut everything up to the LAST space. A label is
+    any text before a space, not one digit: the engine keeps labels as
+    STRINGS (`starting_positions` is a string-keyed bimap, filled by
+    read_game_map at translation.cpp:317-327). So "10 Wo" is side 10's
+    hex, and the named labels mainline ships -- "lake Gs^Vc" in
+    data/test/maps/simple_find_path.map, "book_start Isc^Ii" in
+    campaigns/Descent_Into_Darkness/maps/07c_A_Small_Favor3.map -- are
+    labels too. Trimming before the split is what makes " 1 Gg" and
+    "1 " come out as the engine has them ("Gg" and "1").
+
+    A cell may carry several labels (the engine pushes one per space);
+    `label` keeps the prefix as written and `label.split()` recovers
+    that list. `f"{label} {code}"` rebuilds the cell, which is how
+    `number_to_string_` (translation.cpp:775-782) writes it back.
+    """
+    label, sep, code = (cell or "").strip().rpartition(" ")
+    return (label if sep else ""), code
+
+
+def strip_start_position(code: str) -> str:
+    """The terrain code of a map cell, its starting-position label
+    dropped: "1 Gg^Fp" -> "Gg^Fp". See `split_start_position`."""
+    return split_start_position(code)[1]
+
+
+def start_position_side(label: str) -> Optional[int]:
+    """The side whose start `label` marks, or None when the label names
+    a location rather than a side.
+
+    `gamemap_base::starting_position` looks the label up by the side's
+    own spelling (wesnoth_src/src/map/map.cpp:324-327, 1.18.4 tag):
+
+        map_location gamemap_base::starting_position(int n) const
+        {
+            return special_location(std::to_string(n));
+        }
+
+    So only the canonical decimal of a side matches: "10" is side 10,
+    while "lake", "P1_Burner" and "01" are special locations that no
+    side ever asks for.
+    """
+    label = label or ""
+    return int(label) if label.isdecimal() and str(int(label)) == label else None
+
+
 # Hide-ability cover, straight from the engine's own filters
 # (wesnoth_src/data/core/macros/abilities.cfg:280-382). Wesnoth does
 # NOT ask what a hex defends like; it matches the hex's terrain CODE
@@ -457,12 +525,9 @@ _AMBUSH_OVERLAY_EXACT = ("Qhhf", "Qhuf")
 
 
 def _split_code(code: str) -> tuple:
-    """(base, overlay) of a terrain code, with a map's starting-position
-    prefix ("1 Gg") stripped. Overlay is "" when the code has none."""
-    c = code or ""
-    if c[:1].isdigit() and c[1:2] == " ":
-        c = c[2:]
-    base, sep, overlay = c.partition("^")
+    """(base, overlay) of a terrain code, starting-position prefix
+    stripped. Overlay is "" when the code has none."""
+    base, sep, overlay = strip_start_position(code).partition("^")
     return base, (overlay if sep else "")
 
 
@@ -488,4 +553,5 @@ __all__ = [
     "load_terrain_db", "merge_alias_lists",
     "mvt_cost", "def_pct", "terrain_heals", "terrain_light_bonus",
     "hides_cover",
+    "split_start_position", "strip_start_position", "start_position_side",
 ]

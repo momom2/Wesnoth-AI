@@ -72,9 +72,15 @@ def test_load_policy_anchor_rejects_value_cache(tmp_path):
 
 
 def test_load_policy_anchor_roundtrip(tmp_path):
+    """A CURRENT cache round-trips. `observation_epoch` is part of what
+    makes it current -- a cache without it was written before the mark
+    existed and is refused as epoch 1 (tests/test_anchor_cache_gate.py
+    owns that refusal)."""
+    from wesnoth_ai.constants import OBSERVATION_EPOCH
     p = tmp_path / "policy_anchor.pkl"
     with p.open("wb") as f:
-        pickle.dump({"version": CACHE_VERSION, "meta": {},
+        pickle.dump({"version": CACHE_VERSION,
+                     "meta": {"observation_epoch": OBSERVATION_EPOCH},
                      "games": [[("r", "ai")], [("r2", "ai2")]]}, f)
     assert load_policy_anchor(p) == [[("r", "ai")], [("r2", "ai2")]]
 

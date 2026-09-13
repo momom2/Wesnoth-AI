@@ -304,32 +304,124 @@ for months: `visibility._hide_cover_active` asked
 `replay_dataset._terrain_keys_at`, whose `_OVERLAY_DEFENSE_KEYS` is a
 hand-rolled allow-list. The engine never consults the defense class.
 Any overlay missing from the list fell through to plain flat, so the
-ability was SILENTLY INACTIVE there — counted over the shipped maps,
-19% of forest-overlay hexes (`Gs^Fms`, `Hh^Fms`, `Gs^Ftd`, `Re^Fms`)
-and 25% of village-overlay hexes (`Gg^Ve`, `Gs^Vht`, `Aa^Vha`). The
-affected units are the ones that want that terrain: Woses and Elvish
-Rangers/Avengers (ambush) and the Fugitive (concealment); the Undead's
-submerge was unaffected because the `Wo` base resolves correctly either
-way.
+ability was SILENTLY INACTIVE there: 30.4% of the Ladder pool's
+forest-overlay hexes gave no ambush cover (`Gs^Fms`, `Hh^Fms`,
+`Gs^Ftd`, `Re^Fms`) and 27.7% of its village-overlay hexes gave no
+concealment (`Gg^Ve`, `Gs^Vht`, `Aa^Vha`). The affected units are the
+ones that want that terrain: Woses and Elvish Rangers/Avengers
+(ambush), the Fugitive (concealment), and the Undead line (submerge,
+which was missing tropical deep water; see below).
 
 The glob is matched by `terrain_resolver.hides_cover`, and it is the
 single source for both the Python predicate and the cover flags
 `game_core.map_static` bakes for the Rust-owned state
 (tests/test_hide_cover.py).
 
-Moving to the engine's rule also corrected the table in the other
-direction, on hexes where it had been too generous or too mean:
+Cover moves in BOTH directions. Counted over playable hexes (the
+1-hex border stripped) with `parse_terrain_codes`, old rule against
+new:
+
+| ability | Ladder pool (21 maps, 20,726 hexes) | all tracked maps (114, 96,133 hexes) |
+|---|---|---|
+| ambush | +478 / -0 | +1,521 / -0 |
+| concealment | +93 / **-302** | +553 / **-640** |
+| submerge | +153 / -0 | +332 / -0 |
+
+Every lost hex, on every map, is farmland. The two corrections behind
+the table:
 
 - **`^Gvs` is Farmland, not a village** (`terrain.cfg`:399-405,
   `aliasof=_bas`, i.e. an embellishment that changes nothing). The
   table listed it as `["village"]`, so concealment applied on open
-  farmland across 494 hexes of the shipped maps -- and, because those
-  same keys feed `_terrain_keys_at`'s other consumers, farmland also
-  read as village terrain for the encoder's features and trait
-  overrides. `*^V*` does not match it.
+  farmland: 302 playable hexes of the Ladder pool, 640 of all tracked
+  maps. `*^V*` does not match it. The blast radius stops at cover --
+  `_terrain_keys_at`'s other callers are `wesnoth_sim._move_cost_at_hex`
+  and `pathfind_sim.defense_pct_at`, both only as a fallback when the
+  hex has no terrain code (pathfind also when `def_pct` raises), and
+  `replay_dataset._resolve_combat`, which passes an explicit
+  `defense_pct` from `terrain_resolver.def_pct` alongside it. The
+  encoder reads its village bit from `_parse_hex_code`, which `Gvs`
+  fails.
 - **`Wot` is deep_water_tropical** (`terrain.cfg`:44-47) and was
-  missing from the base list, so submerge did not apply on 289 hexes.
-  `Wo*^*` matches any `Wo` base.
+  missing from the base list, so submerge did not apply there: 153
+  playable hexes of the Ladder pool, all of them on Ruphus Isle, and
+  332 of all tracked maps. `Wo*^*` matches any `Wo` base.
+
+**`burrow` is the fifth `[hides]` and is not modelled.**
+`abilities.cfg`:301-315 gives it `terrain=*^F*,*^Qhhf,*^Qhuf,D*^*`
+(forest or SAND) plus a resting condition, and `hides_cover` returns
+False for it. Latent, not live: no unit in the pinned `unit_stats.json`
+scrape carries burrow (the Scarab, which does, is not among the 356
+units we scraped). Adding a burrowing unit needs the glob AND the
+"has not moved this turn" state, which the sim does not track.
+
+### An ability or weapon special has TWO keys: its tag and its `id=`
+
+The engine uses both, for different jobs, and confusing them is how a
+granted ability can exist and do nothing.
+
+**Numbers resolve by TAG.** `src/actions/attack.cpp:173`:
+
+```cpp
+cth = weapon->composite_value(weapon->get_specials_and_abilities("chance_to_hit"), cth);
+```
+
+and `src/units/abilities.cpp:933-941` gathers them with
+`specials_.child_range(special)`, a tag lookup. So `[chance_to_hit]
+id=magical` and `[chance_to_hit] id=marksman` are collected by the SAME
+query and combined through their `value=` / `cumulative=`. Hidden
+status is the same shape, `src/units/unit.cpp:2620-2622`:
+
+```cpp
+// Test hidden status
+static const std::string hides("hides");
+bool is_inv = get_ability_bool(hides, loc);
+```
+
+so every hide ability answers to the tag `hides`, and its
+`[filter_location]` decides which one actually fires.
+
+**Identity resolves by `id=`.** Dedup on `apply_to=new_ability`
+(`src/units/unit.cpp:2275-2285` appends only children whose id the unit
+lacks, via `has_ability_by_id`, `:1414-1423`), removal on
+`apply_to=remove_ability` (`:2286-2294` → `remove_ability_by_id`,
+`:1425-1436`, which erases every matching child whatever its tag), and
+named lookup (`has_special` matches tag OR id,
+`src/units/abilities.cpp:807-814`).
+
+**Why non-obvious, and what it means for us.** Our model flattens
+"which rule fires" into the NAME: `unit_stats.json` scrapes abilities
+and specials as ids, combat asks `"magical" in weapon.specials`, and
+the fog gate asks `"submerge" in unit.abilities`. So an `[effect]`'s
+children must be read by `id=` — the engine's ids are unique where its
+tags are not. `tools/scenario_events._effect_member_ids` does that,
+falling back to the tag for a block with no `id=` (which the engine
+keeps working by tag but makes invisible to every id-keyed operation:
+a blank attribute never compares equal to a non-empty string,
+`src/config_attribute_value.cpp:422-427`).
+
+Until 2026-09-13 we read the tag, so 2p Silverhead Crossing's
+`prestart` `[object]` gave its Tentacle an ability called `hides` and a
+special called `chance_to_hit`, neither of which anything consumes. The
+unit was visible where Wesnoth submerges it and its counter-attack lost
+the 70% floor, on a Ladder map and 351 corpus games
+(tests/test_effect_ids.py).
+
+**`[set_specials] mode=` defaults to REPLACE.**
+`src/units/attack_type.cpp:416-429`:
+
+```cpp
+if(mode != "append") {
+    specials_.clear();
+}
+```
+
+with a deprecation warning when `mode=` is absent. Anything that is not
+exactly `"append"` wipes the weapon's existing specials first, and
+append does no de-duplication at all. We model append. No scenario in
+either pool uses `[set_specials]` except Hornshark Island, whose bow
+has no base specials, so the two agree there; the gap is recorded in
+BACKLOG.md.
 
 ### Hidden-unit visibility: live adjacency + persistent UNCOVERED
 

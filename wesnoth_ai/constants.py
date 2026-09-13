@@ -187,3 +187,34 @@ DEFAULT_FACTIONS = (
     "Northerners",
     "Undead",
 )
+
+
+# ----------------------------------------------------------------------
+# Observation semantics epoch
+# ----------------------------------------------------------------------
+# Encoded observations are cached on disk: the pre-encoded corpora
+# (tools/preencode_corpus.py) and the rehearsal cache
+# (tools/policy_anchor.py). Both carry a fingerprint so a run refuses a
+# cache built under a different vocab, hex basis or fog gate. Neither
+# covered the SIM's OWN rules about what a player sees, so a cache
+# built before such a rule changed would be mixed, silently, with
+# encodings made after it.
+#
+# Bump this when a change alters WHAT A PLAYER SEES: the fog or shroud
+# gate, which units are hidden, the hide abilities' terrain cover, the
+# meaning of an encoder feature. Do NOT bump it for speed work that
+# leaves the observation identical.
+#
+#   1  (up to 2026-09-12) the rules as they stood.
+#   2  (2026-09-13) hide cover is the engine's [hides] terrain globs
+#      (tools/terrain_resolver.hides_cover) instead of a defense-key
+#      table, so ambush, concealment and submerge hide units on a
+#      different set of hexes (docs/wesnoth_rules.md, "Hide cover is a
+#      terrain-CODE filter").
+#   3  (2026-09-13) a scenario [effect] identifies an ability and a
+#      weapon special by its `id=`, not by the tag carrying it, and
+#      apply_to=new_ability is applied at all. Silverhead Crossing's
+#      Tentacle now has the submerge its scenario grants it, so it is
+#      hidden on the deep water it stands on, and its evil-eye attack
+#      carries the `magical` 70% floor (tools/scenario_events.py).
+OBSERVATION_EPOCH = 3

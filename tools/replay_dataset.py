@@ -39,6 +39,9 @@ from wesnoth_ai.classes import (
     Hex, Map, Position, SideInfo, Terrain, TerrainModifiers, Unit,
 )
 from wesnoth_ai import combat as cb
+# The one place that knows how a map cell's starting-position prefix is
+# stripped (the engine's string_to_number_); never re-implement it here.
+from tools.terrain_resolver import strip_start_position
 
 
 log = logging.getLogger("replay_dataset")
@@ -100,12 +103,43 @@ _FALLBACK_STATS = {
 }
 
 
+# Unit types that fell back to _FALLBACK_STATS, so the warning fires
+# once per type instead of once per lookup (this is a hot path).
+_UNKNOWN_TYPES: set = set()
+
+
+def unknown_unit_types() -> frozenset:
+    """Every unit type that has fallen back to the generic stats in
+    this process. Empty on a healthy run: the 1.18.4 scrape covers
+    every unit the default era and the shipped scenarios field."""
+    return frozenset(_UNKNOWN_TYPES)
+
+
 def _stats_for(unit_type: str) -> dict:
     """Look up unit-type stats; fall back to defaults for unknown types
     (we'd rather train on approximate stats than crash on a custom unit
-    name)."""
+    name).
+
+    The fallback is a 33 HP level-1 with 50% defense everywhere and one
+    5x2 blade attack, so it is WRONG for anything real: combat math,
+    the value head's material reading and the combat oracle all read
+    these numbers. It used to be silent, which is how a stats mismatch
+    would hide (see the 2026-09-11 out-of-memory batches: a quiet
+    fallback path costs data nobody counts). It now warns once per
+    type, and `unknown_unit_types()` reports the set.
+    """
     _load_unit_db()
-    return _UNIT_DB.get(unit_type, _FALLBACK_STATS)
+    stats = _UNIT_DB.get(unit_type)
+    if stats is None:
+        if unit_type not in _UNKNOWN_TYPES:
+            _UNKNOWN_TYPES.add(unit_type)
+            log.warning(
+                "unit type %r is not in unit_stats.json; using generic "
+                "fallback stats (33 HP, 50%% defense, 5x2 blade). Combat "
+                "and value readings for it are wrong. If this is a real "
+                "1.18.4 unit the scrape is incomplete.", unit_type)
+        return _FALLBACK_STATS
+    return stats
 
 
 # ---------------------------------------------------------------------
@@ -343,9 +377,8 @@ def parse_terrain_codes(map_data: str) -> Dict[Tuple[int, int], str]:
                 continue
             if not cell:
                 continue
-            if cell[:1].isdigit() and cell[1:2] == " ":
-                cell = cell[2:]
-            out[(x_with_border - border, y_with_border - border)] = cell
+            out[(x_with_border - border, y_with_border - border)] = \
+                strip_start_position(cell)
     return out
 
 
@@ -378,9 +411,7 @@ def parse_map_data(map_data: str) -> List[Hex]:
                 continue
             if not cell:
                 continue
-            # Strip leading "1 " or "2 " starting-position markers.
-            if cell[:1].isdigit() and cell[1:2] == " ":
-                cell = cell[2:]
+            cell = strip_start_position(cell)
             # `_off^_usr` (and other `_off*` codes) mark off-board cells
             # that scenarios may convert to playable terrain via [terrain]
             # events. Include them with an IMPASSABLE marker so events
@@ -883,12 +914,9 @@ def _terrain_def_pct(gs: GameState, x: int, y: int,
     code = codes_dict.get((x, y))
     if not code:
         return int(def_table.get("flat", 50))
-    # Strip "1 ", "2 " starting-position markers ("2 Ke" -> "Ke")
-    # before resolving (placement hint, not part of terrain).
-    c = code
-    if c[:1].isdigit() and c[1:2] == " ":
-        c = c[2:]
-    return _resolve_def(c, def_table)
+    # The starting-position prefix ("2 Ke" -> "Ke") is a placement hint,
+    # not part of the terrain code.
+    return _resolve_def(strip_start_position(code), def_table)
 
 
 # Cached at module scope: terrain priority order is fixed.
@@ -1012,11 +1040,8 @@ def _lawful_bonus_at(gs: GameState, x: int, y: int, turn_number: int) -> int:
     codes = getattr(gs.global_info, "_terrain_codes", {}) or {}
     code = codes.get((x, y))
     if code:
-        # Strip the "1 ", "2 " starting-position markers.
-        if code[:1].isdigit() and code[1:2] == " ":
-            code = code[2:]
         from tools.terrain_resolver import terrain_light_bonus
-        return terrain_light_bonus(code, base)
+        return terrain_light_bonus(strip_start_position(code), base)
     return base
 
 
@@ -1845,9 +1870,8 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             # the +HP branch and the poison-cure branch through
             # `map().gives_healing(loc)` -- so any heals>0 hex cures
             # poison just like a village. We capture that here.
-            raw_code = codes_dict.get((u.position.x, u.position.y), "")
-            if raw_code and raw_code[:1].isdigit() and raw_code[1:2] == " ":
-                raw_code = raw_code[2:]
+            raw_code = strip_start_position(
+                codes_dict.get((u.position.x, u.position.y), ""))
             terrain_heal_amt = terrain_heals(raw_code) if raw_code else 0
             has_regen = "regenerate" in abilities
             healer_amt = healer_heal_amount(u, gs.map.units, pos_index=pos_idx)

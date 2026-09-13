@@ -195,14 +195,12 @@ def defense_pct_at(unit, gs, x: int, y: int) -> int:
     Wesnoth's `defense_modifier` (higher = worse), used as the
     per-hex tie-break subcost (pathfind.cpp:815-820)."""
     from tools.replay_dataset import _stats_for, _terrain_keys_at
-    from tools.terrain_resolver import def_pct
+    from tools.terrain_resolver import def_pct, strip_start_position
 
     codes = getattr(gs.global_info, "_terrain_codes", {}) or {}
     code = codes.get((x, y))
     if code:
-        c = code
-        if c[:1].isdigit() and c[1:2] == " ":
-            c = c[2:]
+        c = strip_start_position(code)
         defenses = getattr(unit, "_defense_table", None)
         if defenses is None:
             defenses = dict(_stats_for(unit.name).get("defense", {}))

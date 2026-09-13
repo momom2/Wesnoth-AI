@@ -253,11 +253,15 @@ def extract_player_starts(raw_map: str) -> Dict[int, Position]:
     {N: Position(x, y)} in 0-indexed border-stripped coords (same
     convention as parse_map_data / parse_terrain_codes).
 
-    The leading digit + space prefix marks the keep where side N's
-    leader spawns. Multiple maps occasionally have additional
-    starts (3, 4, ...) for FFA but ladder maps only have 1 and 2.
+    The label before the space marks the keep where side N's leader
+    spawns. Ladder maps only have 1 and 2; FFA maps go further, and
+    nothing in the format stops at 9. A cell may carry several labels,
+    and a label may be a NAME rather than a side ("lake Gs^Vc"): those
+    are special locations no side starts on, so `start_position_side`
+    drops them (see its citation of map.cpp:324-327).
     """
     out: Dict[int, Position] = {}
+    from tools.terrain_resolver import split_start_position, start_position_side
     from tools.replay_dataset import split_map_grid
     rows, border = split_map_grid(raw_map)
     if not rows:
@@ -271,11 +275,11 @@ def extract_player_starts(raw_map: str) -> Dict[int, Position]:
                 continue
             if not cell:
                 continue
-            # Markers look like "1 Kh" or "2 Kh^Vhh" -- digit, space,
-            # terrain code. Anything else: skip.
-            if (len(cell) >= 2 and cell[0].isdigit() and cell[1] == " "):
-                player = int(cell[0])
-                out[player] = Position(x=x_b - border, y=y_b - border)
+            label, _code = split_start_position(cell)
+            for name in label.split():
+                player = start_position_side(name)
+                if player is not None:
+                    out[player] = Position(x=x_b - border, y=y_b - border)
     return out
 
 

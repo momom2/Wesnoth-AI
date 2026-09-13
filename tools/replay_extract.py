@@ -426,11 +426,14 @@ def _recruit_consumes_rng(unit_type: str) -> bool:
 
 
 def _parse_map_starting_positions(map_data: str) -> Dict[int, Tuple[int, int]]:
-    """Scan map_data for cells with a leading '<digit> ' starting-pos
-    marker (e.g. '1 Gg^Vh' = side 1 starts at this hex). Return
+    """Scan map_data for cells carrying a starting-position label
+    (e.g. '1 Gg^Vh' = side 1 starts at this hex). Return
     {side_number: (x, y)} in Python 0-indexed coords (after border
-    stripping — see parse_map_data)."""
+    stripping — see parse_map_data). Named labels ('lake Gs^Vc') are
+    special locations, not sides, and are skipped; the label is not
+    limited to one digit (terrain_resolver.split_start_position)."""
     out: Dict[int, Tuple[int, int]] = {}
+    from tools.terrain_resolver import split_start_position, start_position_side
     # Header-aware row split (border_size=/usage= lines): add-on maps
     # embed their .map headers in map_data; counting them as terrain
     # rows shifted every start position by +2 in y, so every leader
@@ -444,10 +447,13 @@ def _parse_map_starting_positions(map_data: str) -> Dict[int, Tuple[int, int]]:
     for y, row in enumerate(rows):
         cells = [c.strip() for c in row.split(",")]
         for x, cell in enumerate(cells):
-            if len(cell) >= 2 and cell[0].isdigit() and cell[1] == " ":
-                # Subtract the border offset to align with Python
-                # 0-indexed playable-hex coords.
-                out[int(cell[0])] = (x - border, y - border)
+            label, _code = split_start_position(cell)
+            for name in label.split():
+                side = start_position_side(name)
+                if side is not None:
+                    # Subtract the border offset to align with Python
+                    # 0-indexed playable-hex coords.
+                    out[side] = (x - border, y - border)
     return out
 
 

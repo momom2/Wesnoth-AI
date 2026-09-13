@@ -284,6 +284,7 @@ def _move_cost_at_hex(unit, gs, x: int, y: int) -> int:
     for the rule statement and source quotes.
     """
     from tools.terrain_resolver import mvt_cost as _resolve_mvt
+    from tools.terrain_resolver import strip_start_position
     codes = getattr(gs.global_info, "_terrain_codes", {}) or {}
     code = codes.get((x, y))
     # Honor "slowed" status: doubles each terrain cost (except
@@ -298,12 +299,10 @@ def _move_cost_at_hex(unit, gs, x: int, y: int) -> int:
         costs = _movetype_costs(unit.name, slowed=slowed)
         per_key = [int(costs.get(k, 1) or 1) for k in keys]
         return min(per_key) if per_key else 99
-    # Strip "1 ", "2 " starting-position markers ("2 Ke" -> "Ke")
-    # before resolving; the marker is a placement hint, not part of
-    # the terrain code.
-    c = code
-    if c[:1].isdigit() and c[1:2] == " ":
-        c = c[2:]
+    # Drop the starting-position label ("2 Ke" -> "Ke") before
+    # resolving; the label is a placement hint, not part of the
+    # terrain code.
+    c = strip_start_position(code)
     cache_key = (c, unit.name, slowed)
     cached = _MVT_RESOLVE_CACHE.get(cache_key)
     if cached is not None:

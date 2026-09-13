@@ -519,6 +519,7 @@ def _terrain_action(gs: GameState, action: WMLNode) -> None:
     # bookkeeping and to update Hex.terrain_types/modifiers on the
     # parsed grid (so combat defense queries see the change).
     from tools.replay_dataset import _parse_hex_code
+    from tools.terrain_resolver import split_start_position
     new_terr, new_mods = _parse_hex_code(new_code)
 
     # NOTE: `_terrain_codes` stores the FULL code including any
@@ -585,12 +586,17 @@ def _terrain_action(gs: GameState, action: WMLNode) -> None:
         # Raw map_data string: border-included → WML (X, Y) is at
         # raw_cells[Y][X] directly (file row Y col X with the border
         # row at index 0).
+        # A [terrain] event replaces the terrain, never the hex's
+        # starting-position label, so the label is carried over. The
+        # engine writes a cell back as label + " " + code
+        # (wesnoth_src/src/terrain/translation.cpp:775-782,
+        # number_to_string_). Splicing a fixed two characters instead
+        # only recognized a one-digit label, so a rewrite of "10 Kh"
+        # or "lake Gs^Vc" silently DROPPED the start position from the
+        # exported map_data.
         if 0 <= wml_y < len(raw_cells) and 0 <= wml_x < len(raw_cells[wml_y]):
-            old = raw_cells[wml_y][wml_x]
-            prefix = ""
-            if len(old) >= 2 and old[0].isdigit() and old[1] == " ":
-                prefix = old[:2]
-            raw_cells[wml_y][wml_x] = prefix + new_code
+            label, _old_code = split_start_position(raw_cells[wml_y][wml_x])
+            raw_cells[wml_y][wml_x] = f"{label} {new_code}" if label else new_code
 
     gs.map.hexes = new_hexes
     if new_codes is not None:
@@ -1498,8 +1504,11 @@ def _apply_effect_to_unit(u, eff: WMLNode) -> None:
       - `apply_to=hitpoints` (increase_total, set)
       - `apply_to=movement` (set, increase)
       - `apply_to=status` (add named status flag)
-      - `apply_to=ellipse` / `image_mod` / `overlay` / `profile`
-        / `new_animation`: cosmetic, no-op.
+      - `apply_to=new_ability` / `remove_ability` (by the `[abilities]`
+        children's `id=`)
+      - cosmetic values in `_COSMETIC_APPLY_TO`: no-op.
+
+    Anything else is logged once and dropped -- see `_COSMETIC_APPLY_TO`.
     """
     apply_to = (eff.attrs.get("apply_to", "") or "").strip().strip('"')
     from wesnoth_ai.classes import Attack
@@ -1507,8 +1516,7 @@ def _apply_effect_to_unit(u, eff: WMLNode) -> None:
 
     if apply_to == "attack":
         weapon_range = (eff.attrs.get("range", "") or "").strip().strip('"')
-        ss = eff.first("set_specials")
-        new_specials = {ch.tag for ch in ss.children} if ss is not None else set()
+        new_specials = _effect_member_ids(eff.first("set_specials"))
         inc_attacks_raw = eff.attrs.get("increase_attacks", "")
         inc_damage_raw  = eff.attrs.get("increase_damage", "")
         new_attacks = []
@@ -1531,6 +1539,19 @@ def _apply_effect_to_unit(u, eff: WMLNode) -> None:
                     inc_attacks_raw, atk.number_strikes)
                 new_dmg = max(0, new_dmg)
                 new_n = max(0, new_n)
+                # NOTE: this is `mode=append`. The engine DEFAULTS to
+                # replace -- `[set_specials]` clears the weapon's
+                # specials unless `mode=append` exactly
+                # (src/units/attack_type.cpp:416-429: `if(mode !=
+                # "append") { specials_.clear(); }`, with a deprecation
+                # warning when mode is unset). Modelling replace needs
+                # a way to say "these are ALL the specials": our
+                # `Attack.weapon_specials` is an additive overlay that
+                # `_to_combat_unit` unions with the scraped base
+                # (tools/replay_dataset.py). No scenario in either pool
+                # uses [set_specials] -- only Hornshark Island, whose
+                # bow has no base specials, so append and replace agree
+                # there. Recorded in BACKLOG.md rather than half-fixed.
                 merged_specials = set(atk.weapon_specials) | new_specials
                 new_attacks.append(Attack(
                     type_id=atk.type_id,
@@ -1555,8 +1576,8 @@ def _apply_effect_to_unit(u, eff: WMLNode) -> None:
             number = int((eff.attrs.get("number", "1") or "1").strip().strip('"'))
         except ValueError:
             number = 1
-        ss = eff.first("specials") or eff.first("set_specials")
-        specials = {ch.tag for ch in ss.children} if ss is not None else set()
+        specials = _effect_member_ids(
+            eff.first("specials") or eff.first("set_specials"))
         # Map type string -> DamageType enum index.
         try:
             type_id_idx = DAMAGE_TYPES.index(wtype.lower())
@@ -1629,8 +1650,90 @@ def _apply_effect_to_unit(u, eff: WMLNode) -> None:
             u.statuses = new_st
         return
 
-    # apply_to in {ellipse, image_mod, overlay, profile, new_animation,
-    # halo, zoc} are cosmetic / display-only -- silently ignored.
+    if apply_to in ("new_ability", "remove_ability"):
+        ids = _effect_member_ids(eff.first("abilities"))
+        if ids:
+            have = set(u.abilities or set())
+            u.abilities = (have | ids) if apply_to == "new_ability" else (have - ids)
+        return
+
+    if apply_to and apply_to not in _COSMETIC_APPLY_TO:
+        if apply_to not in _APPLY_TO_GAPS_SEEN:
+            _APPLY_TO_GAPS_SEEN.add(apply_to)
+            log.warning("[effect] apply_to=%r is not modelled; the effect is "
+                        "dropped. Scenario behaviour will differ from Wesnoth.",
+                        apply_to)
+
+
+def _effect_member_ids(container: Optional[WMLNode]) -> set:
+    """The ids declared by an `[effect]` container's children.
+
+    OUR model names an ability and a weapon special by the engine's
+    `id=`: `unit_stats.json` scrapes them that way, combat asks
+    `"magical" in weapon.specials` (wesnoth_ai/combat.py) and the fog
+    gate asks `"submerge" in unit.abilities` (wesnoth_ai/visibility.py).
+    So an `[effect]`'s children must be read by `id=`, not by the tag
+    carrying them. Three specials share the `[chance_to_hit]` tag
+    (wesnoth_src/data/core/macros/weapon_specials.cfg):
+
+        #define WEAPON_SPECIAL_MAGICAL
+            [chance_to_hit]
+                id=magical
+                value=70
+
+    and every ability is `[hides] id=submerge`, `[hides] id=ambush`
+    (wesnoth_src/data/core/macros/abilities.cfg). Reading the tag gave
+    `chance_to_hit` and `hides`, which nothing consumes, so the
+    special or ability was created and then silently did nothing.
+
+    Why non-obvious: the ENGINE uses both keys, for different jobs. It
+    resolves an effect's numbers by TAG -- `get_specials_and_abilities
+    ("chance_to_hit")` (src/actions/attack.cpp:173),
+    `get_ability_bool("hides", loc)` (src/units/unit.cpp:2620-2622) --
+    and identifies a member by `id=` for dedup, removal and named
+    lookup (`has_ability_by_id`, unit.cpp:1414-1423;
+    `remove_ability_by_id`, unit.cpp:1425-1436; `has_special` matches
+    tag OR id, abilities.cpp:807-814). A unified id-keyed set is the
+    right shape for us because we flatten "which rule fires" into the
+    name, and the engine's ids are unique where its tags are not.
+
+    The tag is the fallback for a block with no `id=`. The engine keeps
+    such a block working by tag but makes it invisible to every
+    id-keyed operation (a blank attribute never compares equal to a
+    non-empty string, src/config_attribute_value.cpp:422-427).
+    """
+    if container is None:
+        return set()
+    out = set()
+    for ch in container.children:
+        raw = (ch.attrs.get("id") or "").strip().strip('"')
+        out.add(raw or ch.tag)
+    return out
+
+
+# `apply_to` values that are DISPLAY ONLY, so dropping them changes
+# nothing. Anything outside this set and outside the branches below is
+# a gap and is logged: silence is how `new_ability` went missing (2p
+# Silverhead Crossing grants submerge to its Tentacle by [object] and
+# we dropped it).
+#
+# Keep this list strictly display-only. Several values that LOOK
+# incidental are rules we model, and listing them here would re-create
+# the same silence:
+#   loyal     -> upkeep skips loyal units (replay_dataset, init_side
+#                gold), and we test the `loyal` TRAIT, which an
+#                [effect] does not set
+#   zoc       -> pathfind_sim's zone of control
+#   fearless  -> combat's time-of-day penalty
+#   healthy   -> resting and poison
+#   variation / type -> the stats the whole sim reads
+# None of those appears in either scenario pool today; if one shows
+# up, the warning is how we find out.
+_COSMETIC_APPLY_TO = frozenset({
+    "ellipse", "image_mod", "overlay", "profile", "new_animation",
+    "halo", "portrait", "small_profile", "description", "usage",
+})
+_APPLY_TO_GAPS_SEEN: set = set()
 
 
 def _object_action(gs: GameState, action: WMLNode) -> None:

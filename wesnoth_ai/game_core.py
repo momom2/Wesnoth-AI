@@ -79,17 +79,11 @@ def _light_params(code: str) -> Tuple[int, int, int, bool]:
     return light, max_l, min_l, not (light == 0 and max_l == 0 and min_l == 0)
 
 
-def _strip_code(code: str) -> str:
-    if code and code[:1].isdigit() and code[1:2] == " ":
-        return code[2:]
-    return code
-
-
 def map_static(gs: GameState) -> dict:
     """The core's static map arrays from the state: geometry from
     `wesnoth_ai.observe.map_geometry`, terrain facts from the terrain
     codes and the time areas the scenario set up."""
-    from tools.terrain_resolver import hides_cover, terrain_heals
+    from tools.terrain_resolver import hides_cover, strip_start_position, terrain_heals
     from wesnoth_ai.encoder import _first_terrain_id
     from wesnoth_ai.observe import map_geometry
     geom = map_geometry(gs)
@@ -118,7 +112,7 @@ def map_static(gs: GameState) -> dict:
     cycle_index: Dict[tuple, int] = {}
     for i, (x, y) in enumerate(geom.keys):
         raw = codes.get((x, y))
-        code = _strip_code(raw) if raw else ""
+        code = strip_start_position(raw)
         if code:
             heal[i] = terrain_heals(code)
             lm, lx, ln, any_light = _light_params(code)

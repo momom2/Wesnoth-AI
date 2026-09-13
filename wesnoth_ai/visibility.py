@@ -82,8 +82,8 @@ Wesnoth deploy the policy effectively over-estimates its
 information, which is a benign failure mode (the sampler's
 legality mask catches the actual moves Wesnoth would accept).
 
-Dependencies: classes (Unit, GameState), replay_dataset
-  (_terrain_keys_at, _lawful_bonus_at -- read-only).
+Dependencies: classes (Unit, GameState), terrain_resolver
+  (hides_cover), replay_dataset (_lawful_bonus_at -- read-only).
 Dependents: rewards (visible_fraction_for), encoder
   (units_visible_to), action_sampler (units_visible_to),
   tests/visibility/test_visibility.py.
@@ -255,8 +255,10 @@ def _hide_cover_active(state: GameState, unit: Unit) -> bool:
 
     Until 2026-09-13 the terrain covers were decided from the DEFENSE
     keys of a hand-rolled overlay table, which silently gave no cover
-    on 19% of the shipped maps' forest-overlay hexes and 25% of their
-    village-overlay hexes (`terrain_resolver.hides_cover`).
+    on 30.4% of the Ladder pool's forest-overlay hexes and 27.7% of
+    its village-overlay hexes, and gave cover on farmland, which is
+    not a village. `terrain_resolver.hides_cover` matches the engine's
+    globs instead; docs/wesnoth_rules.md has the census.
 
     SINGLE source of truth since 2026-07-18 (the sim's duplicate
     method was removed; walk_move_path and units_visible_to both

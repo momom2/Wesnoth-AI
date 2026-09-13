@@ -1237,32 +1237,91 @@ comparison after every command catches.
 `scripts/hide_cover_cert_box.sh`. Cover for ambush / concealment /
 submerge now comes from the engine's own `[hides]` terrain globs
 (`terrain_resolver.hides_cover`) instead of a hand-rolled overlay
-table's defense keys. MORE hexes hide units after the fix, so more
-moves can be stopped by an ambush and more units are fog-hidden: a
-behaviour change on the reconstruction path, which is why the whole
-corpus is the acceptance test. Records:
+table's defense keys. Records:
 `training/metrics/bench_pipeline/hide_cover_20260913/`.
+
+Cover moves in BOTH directions, over the Ladder pool's 20,726 playable
+hexes: ambush +478, submerge +153, concealment +93 and **-302**. Every
+lost hex is `^Gvs`, which is Farmland and not a village. Over all 114
+tracked maps: +1,521, +332, +553/-640. So concealment NETS A LOSS.
 
 | check | result |
 |---|---|
-| `tools/diff_replay.py`, every replay, 24 shards | **17,039 of 17,039 clean, 0 divergences**, 233 s |
+| `tools/diff_replay.py`, every replay, 24 shards | **17,039 of 17,039 clean**, 233 s |
 | `tools/diff_core.py`, 600 replays | 600 clean, 0 divergences |
 | the nine affected suites, Python state of record | 72 passed |
 | the same suites, `WESNOTH_RUST_CORE=1` | 72 passed |
-| the fast tier, locally | 1,031 passed, 38 skipped |
+| the fast tier, locally (after the review's fixes) | 1,050 passed, 38 skipped |
 
-Reading: the reconstruction path was NOT relying on the bug. That is
-the reassuring half. The other half is that reconstruction could not
-have caught it either -- a missed ambush needs a hider with cover
-adjacent to a recorded move, and the corpus does not exercise that,
-which is exactly why the defect survived every previous sweep.
+**What this establishes, and what it does not.** It establishes NO
+REGRESSION: every recorded command stays legal under the new rule and
+every post-state invariant holds. It does NOT establish that the new
+rule is right -- MEASURED, by restoring the old rule behind a
+monkeypatch and re-running:
+
+| measurement | result |
+|---|---|
+| corpus replays that field a hider (300 sampled) | 164 (54.7%) |
+| of 120 hider replays, reconstructing differently under the two rules | 4 (3.3%) |
+| extra ambush stops under the new rule | 4 |
+| moves whose LANDING HEX differs | **0** |
+| `diff_replay` divergences on those 4, under either rule | **0** |
+
+The replay format is a command STREAM with no recorded post-state, so
+`diff_replay` never compares our position or movement points against
+the replay directly; every check asks whether the NEXT recorded
+command's preconditions hold in our state, plus four generic
+invariants. That gives it an indirect grip on position (a drifted unit
+trips `move:src_missing` or `attack:attacker_missing` later) and a
+one-sided grip on movement points (it flags MP too LOW for a recorded
+path, never too high). What it has no grip on at all is the stop
+REASON of a truncated move and the uncovered-unit set -- and that is
+exactly where this change lands: all four differing replays truncate
+at the same hex, differing only in whether the mover was stopped by an
+ambush and the hider revealed, which persists 10 to 30 commands before
+converging.
+
+So the sweep is not blind to every possible cover-rule change; it is
+blind to the one we made. What establishes the rule is the engine's own
+macro text, transcribed in docs/wesnoth_rules.md and pinned by
+tests/test_hide_cover.py; tests/test_visibility.py now pins the
+observation and move-truncation halves on `Gs^Fms`, a code the old
+table missed, so those tests fail against the old rule.
+
+`diff_core` is weaker still on this question: `game_core.map_static`
+bakes its flags from the same `hides_cover` that `visibility` calls,
+so the two sides cannot disagree about cover by construction.
+
+Two parts of the blast radius the certification did not touch at all:
+the encoder's unit tokens (through `units_visible_to`) and the
+sampler's visible set. Both consume the changed predicate; neither has
+a corpus check.
+
+Provenance of the zero: the aggregate `clean == total` summed over the
+shards is the measurement. The summariser's separate divergence
+counter matched a string `diff_replay` never prints ("with
+divergences" against its "with divergence(s)"), so that field was a
+constant 0 whatever happened; it also printed 12 of 24 shard lines.
+Both fixed, and the summariser now asserts `clean == total`.
 
 Who was affected: the units that want the terrain. `ambush` (Wose,
 Elder/Ancient Wose, Wose Shaman/Sapling, Elvish Ranger, Elvish
-Avenger) on 19% of forest-overlay hexes, and `concealment` (Fugitive)
-on 25% of village-overlay hexes. The Undead line's `submerge` was
-unaffected because a `Wo` base resolves the same either way, and
-`nightstalk` has no terrain condition.
+Avenger), which gained cover on 30.4% of the Ladder pool's
+forest-overlay hexes; `concealment` (Fugitive), which gained villages
+and lost farmland; and `submerge` (14 undead including the Skeleton
+and Skeleton Archer), which was NOT unaffected -- it gained tropical
+deep water, 153 hexes of Ruphus Isle. `nightstalk` has no terrain
+condition and is untouched.
+
+**Operational consequence: every pre-encoded corpus on HF is stale.**
+Those records hold observations the sim no longer produces, and the
+vocab, hex basis and fog gate they fingerprint are all unchanged, so
+nothing would have caught it. `constants.OBSERVATION_EPOCH` is now
+part of the fingerprint and of the policy-anchor cache's meta, and
+both consumers refuse an older one by name. The next box run that
+wants a pre-encoded corpus must re-encode into a fresh `--out`;
+budget one pre-encoding pass (see "The imitation trainer timed").
+Bump the epoch whenever a change alters what a player sees.
 
 ## Serve thread host cost per 16-leaf batch (2026-09-05, box 49875606)
 

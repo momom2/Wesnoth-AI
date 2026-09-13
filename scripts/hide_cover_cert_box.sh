@@ -4,12 +4,16 @@
 # Cover for ambush / concealment / submerge is now decided by the
 # engine's own `[hides] [filter_location]` terrain globs
 # (`terrain_resolver.hides_cover`) instead of a hand-rolled overlay
-# table's defense keys, which gave NO cover on 19% of the shipped maps'
-# forest-overlay hexes and 25% of their village-overlay hexes.
+# table's defense keys, which gave NO cover on 30.4% of the Ladder
+# pool's forest-overlay hexes and 27.7% of its village-overlay hexes.
 #
-# More hexes now hide units, so more moves can be stopped by an ambush
-# and more units are fog-hidden. That is a behaviour change on the
-# reconstruction path, so the acceptance test is the whole corpus:
+# Cover moves in BOTH directions: ambush and submerge gain hexes,
+# concealment gains villages and LOSES farmland (`^Gvs`, which the old
+# table called a village and the engine does not). That is a behaviour
+# change on the reconstruction path, so the acceptance test is the
+# whole corpus. It is a NO-REGRESSION test -- it shows no recorded
+# command stops being legal -- not a test of the new rule, which
+# tests/test_hide_cover.py pins against the engine's macro text:
 #   1. tools/diff_replay.py over every replay, sharded -- does the sim
 #      still accept every recorded command as legal?
 #   2. tools/diff_core.py -- do the Rust-owned state and the Python
@@ -93,15 +97,17 @@ for log in sorted(glob.glob("/workspace/hidecert/shard_??.log")):
         if "replays" in line and ("clean" in line or "diverg" in line):
             lines.append(line.rstrip())
         for pat, key in ((r"(\d+) replays", "tot"), (r"(\d+) clean", "clean"),
-                         (r"(\d+) with divergences", "div")):
+                         (r"(\d+) with divergence", "div")):
             mm = re.search(pat, line)
             if mm:
                 if key == "tot": tot += int(mm.group(1))
                 elif key == "clean": clean += int(mm.group(1))
                 else: div += int(mm.group(1))
 print(f"diff_replay: {tot} replays, {clean} clean, {div} with divergences")
-for l in lines[:12]:
+print(f"shards: {len(lines)}")
+for l in lines:
     print("  " + l)
+assert tot == clean, f"NOT CLEAN: {tot - clean} divergent replays"
 PY
 grep -h "DIVERGENCE\|divergence" "$OUT"/shard_??.log 2>/dev/null | head -25 > "$OUT/replay_divergences.txt" || true
 head -25 "$OUT/replay_divergences.txt"

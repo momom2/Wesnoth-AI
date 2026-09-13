@@ -198,6 +198,53 @@ State of play:
   with tests (BACKLOG.md), the sharpest being an out-of-memory inside
   backward() whose retry double-counted the gradients the failed pass
   had already accumulated.
+- 2026-09-13 night (user order: fix the hiding bug at the root): the
+  sim decided terrain cover for `ambush` / `concealment` / `submerge`
+  from a hand-rolled table's DEFENSE keys; the engine matches the
+  hex's terrain CODE against the `[hides]` globs (`*^F*`, `*^V*`,
+  `Wo*^*`). `terrain_resolver.hides_cover` now transcribes those
+  globs and is the single source for the Python predicate and the
+  Rust core's baked flags. Over the Ladder pool ambush gained 478
+  hexes, submerge 153 (tropical deep water, all on Ruphus Isle) and
+  concealment 93 while LOSING 302 to the farmland correction (`^Gvs`
+  is Farmland, not a village). 17,039 of 17,039 replays reconstruct
+  clean. **That sweep is a no-regression test, not a proof of the
+  rule** -- an adversarial review of three independent lenses showed
+  it passes under the OLD rule too, since the replay format carries no
+  post-state and nothing reads a move's stop reason or the
+  uncovered-unit set, which is the only state this change moves
+  (measured: 4 of 120 hider replays reconstruct differently, 0
+  divergences either way). The rule itself is established by the
+  engine's macro text and pinned by tests/test_hide_cover.py;
+  tests/test_visibility.py pins the observation and move-truncation
+  halves on a code the old table missed.
+  **Consequence for numbers:** matches run after this change are
+  CROSS-BUILD against every Elo measured before it. The old numbers
+  stay internally valid (both players in a match always ran the same
+  predicate) but nothing may be chained onto them without
+  re-measuring; the reference player's self-pin is where to
+  re-establish the baseline. Pre-encoded corpora and anchor caches
+  now carry `constants.OBSERVATION_EPOCH` and refuse an older one.
+  The review's open items are in BACKLOG.md "Open after the
+  hide-cover review".
+  A hunt for SIBLINGS of that bug (a Wesnoth rule decided by a
+  hand-rolled enumeration with a silent wrong default) found two more,
+  both live on 2p Silverhead Crossing -- a Ladder map, 351 corpus
+  games. Its prestart `[object]` grants its Tentacle `{ABILITY_SUBMERGE}`
+  and a `{WEAPON_SPECIAL_MAGICAL}` evil eye; we dropped BOTH, because
+  `[effect]` members were keyed by their TAG (`hides`, `chance_to_hit`)
+  instead of their `id=` (`submerge`, `magical`), and
+  `apply_to=new_ability` had no branch at all. So the Tentacle was
+  visible where Wesnoth hides it, and counter-attacked at the
+  attacker's terrain chance-to-hit instead of the 70% floor. Fixed at
+  the root with tests (tests/test_effect_ids.py); an unmodelled
+  `apply_to` now warns instead of vanishing. The combat half owes the
+  corpus sweep on the next box (BACKLOG.md "Scenario [effect] members
+  are named by id="). Two further findings there are NOT fixed: the
+  encoder's terrain one-hot labels 85% of forest-overlay Ladder hexes
+  as flat (model input, no rule reads it, so it wants its own arm and
+  an 800-game match), and `burrow` / `swamp_lurk` are unmodelled
+  `[hides]` abilities whose carriers never appear.
 - Rulings (2026-09-05): no optimizations conditioned on the MCTS
   loop; scope every box test, train sparingly; results are written
   on the run, never as atomic dumps; a box job past ~1.5x its
