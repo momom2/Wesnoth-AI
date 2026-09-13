@@ -277,6 +277,46 @@ turn ("received a synced [command] from side 1. Expacted was a
 Both directions of the same census rule: WHO ACTS = declared
 controller attribute, never the live unit roster.
 
+### Hide cover is a terrain-CODE filter, not a defense class
+
+`wesnoth_src/data/core/macros/abilities.cfg:280-382` — each `[hides]`
+carries a `[filter_location]` that matches the hex's terrain CODE:
+
+```
+#define ABILITY_AMBUSH
+    [hides]
+        id=ambush
+        # ^Qhh* and ^Qhu* are the bluff and glutch terrains ...
+        [filter]
+            [filter_location]
+                terrain=*^F*,*^Qhhf,*^Qhuf
+            [/filter_location]
+        [/filter]
+    [/hides]
+```
+
+and likewise `terrain=*^V*` (concealment), `terrain=Wo*^*` (submerge),
+`time_of_day=chaotic` (nightstalk, no terrain condition at all).
+
+**Why non-obvious.** The natural reading of "hides in forest" is "hexes
+a unit defends on as forest", and this project implemented it that way
+for months: `visibility._hide_cover_active` asked
+`replay_dataset._terrain_keys_at`, whose `_OVERLAY_DEFENSE_KEYS` is a
+hand-rolled allow-list. The engine never consults the defense class.
+Any overlay missing from the list fell through to plain flat, so the
+ability was SILENTLY INACTIVE there — counted over the shipped maps,
+19% of forest-overlay hexes (`Gs^Fms`, `Hh^Fms`, `Gs^Ftd`, `Re^Fms`)
+and 25% of village-overlay hexes (`Gg^Ve`, `Gs^Vht`, `Aa^Vha`). The
+affected units are the ones that want that terrain: Woses and Elvish
+Rangers/Avengers (ambush) and the Fugitive (concealment); the Undead's
+submerge was unaffected because the `Wo` base resolves correctly either
+way.
+
+The glob is matched by `terrain_resolver.hides_cover`, and it is the
+single source for both the Python predicate and the cover flags
+`game_core.map_static` bakes for the Rust-owned state
+(tests/test_hide_cover.py).
+
 ### Hidden-unit visibility: live adjacency + persistent UNCOVERED
 
 `wesnoth_src/src/units/unit.cpp:2596-2637` (`unit::invisible`):

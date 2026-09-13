@@ -1232,6 +1232,38 @@ address, and a mistake there would show up as a wrong movement cost or
 defense percentage on some unit, which is exactly what a field-by-field
 comparison after every command catches.
 
+## Hide cover certified after the root fix (2026-09-13, box 50882541, 28 cores)
+
+`scripts/hide_cover_cert_box.sh`. Cover for ambush / concealment /
+submerge now comes from the engine's own `[hides]` terrain globs
+(`terrain_resolver.hides_cover`) instead of a hand-rolled overlay
+table's defense keys. MORE hexes hide units after the fix, so more
+moves can be stopped by an ambush and more units are fog-hidden: a
+behaviour change on the reconstruction path, which is why the whole
+corpus is the acceptance test. Records:
+`training/metrics/bench_pipeline/hide_cover_20260913/`.
+
+| check | result |
+|---|---|
+| `tools/diff_replay.py`, every replay, 24 shards | **17,039 of 17,039 clean, 0 divergences**, 233 s |
+| `tools/diff_core.py`, 600 replays | 600 clean, 0 divergences |
+| the nine affected suites, Python state of record | 72 passed |
+| the same suites, `WESNOTH_RUST_CORE=1` | 72 passed |
+| the fast tier, locally | 1,031 passed, 38 skipped |
+
+Reading: the reconstruction path was NOT relying on the bug. That is
+the reassuring half. The other half is that reconstruction could not
+have caught it either -- a missed ambush needs a hider with cover
+adjacent to a recorded move, and the corpus does not exercise that,
+which is exactly why the defect survived every previous sweep.
+
+Who was affected: the units that want the terrain. `ambush` (Wose,
+Elder/Ancient Wose, Wose Shaman/Sapling, Elvish Ranger, Elvish
+Avenger) on 19% of forest-overlay hexes, and `concealment` (Fugitive)
+on 25% of village-overlay hexes. The Undead line's `submerge` was
+unaffected because a `Wo` base resolves the same either way, and
+`nightstalk` has no terrain condition.
+
 ## Serve thread host cost per 16-leaf batch (2026-09-05, box 49875606)
 
 The serve stats now split the host milliseconds per batch (records

@@ -94,14 +94,18 @@ anyway, ordered by what the measurements say is binding:
 - a second hunt (2026-09-13, over the Rust kernels, the Elo accounting
   and the Wesnoth rule layer) reported eleven more, NONE fixed. In
   order of what they corrupt:
-  * **hide cover is decided by a hand-rolled overlay allow-list**
-    (wesnoth_ai/visibility.py:268 through
-    `replay_dataset._defense_keys_for_code`), so ambush / concealment /
-    submerge are silently inactive on roughly a third of ladder forest
-    hexes and villages. A sim-fidelity bug AND an observation one: a
-    unit that should be hidden is visible to the mask. The fix routes
-    cover through the terrain resolver's alias graph and must be
-    re-certified by the corpus sweep -- scoped work, not a patch.
+  * ~~hide cover decided by a hand-rolled overlay allow-list~~ FIXED
+    2026-09-13 at the root and certified on the whole corpus. The
+    engine matches the hex's terrain CODE (`*^F*`, `*^V*`, `Wo*^*`),
+    not its defense class; `terrain_resolver.hides_cover` transcribes
+    those globs and both the Python predicate and the Rust core's
+    baked flags read it. Ambush was inactive on 19% of forest-overlay
+    hexes and concealment on 25% of village-overlay hexes, hitting
+    exactly the units that want that terrain (Woses, Elvish
+    Rangers/Avengers, the Fugitive). 17,039 of 17,039 replays
+    reconstruct clean after the fix (docs/box_specs.md "Hide cover
+    certified after the root fix"; docs/wesnoth_rules.md has the
+    rule).
   * **the Elo catalog sums repeat measurements of one pair as
     independent evidence** (tools/elo_catalog.py:360; the edge key is
     the games-dir name and nothing compares seeds). Both generators
