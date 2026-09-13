@@ -299,16 +299,23 @@ def _check_shared_inference_args(ap, args, sims_a: int, sims_b: int) -> None:
 
 
 def _shutdown_servers(servers: dict) -> dict:
-    """Stop every inference server; the stats each wrote, by spec."""
+    """Stop every inference server; the stats each wrote, by spec. A
+    spec may be served by several processes (--inference-servers), in
+    which case its entry is the list of their stats."""
     stats = {}
-    for spec, handle in servers.items():
-        stats[spec] = handle.shutdown()
+    for spec, handles in servers.items():
+        per = [h.shutdown() for h in handles]
+        stats[spec] = per[0] if len(per) == 1 else per
     servers.clear()
     return stats
 
 
 def _log_server_stats(stats: dict) -> None:
-    for spec, st in stats.items():
+    for spec, st in list(stats.items()):
+        if isinstance(st, list):                 # several servers for one spec
+            for k, one in enumerate(st):
+                _log_server_stats({f"{spec}#{k}": one})
+            continue
         if not st:
             log.warning("inference server for %s left no stats", spec)
             continue
@@ -471,6 +478,13 @@ def main(argv: List[str]) -> int:
                          "overhead is most of a small batch's cost). bf16 numerics differ "
                          "slightly from the eager loop; the game records carry the switch "
                          "and an outdir never mixes them.")
+    ap.add_argument("--inference-servers", type=int, default=1,
+                    help="Inference server PROCESSES per distinct checkpoint "
+                         "(default 1). The eval path is bound by one server's "
+                         "per-batch cycle, most of which is a fixed GPU launch "
+                         "cost, so a second process on the same GPU raises the "
+                         "ceiling; games are handed to servers round-robin. "
+                         "Costs one model copy of VRAM per extra process.")
     ap.add_argument("--inference-window-ms", type=float, default=1.5,
                     help="Shared inference: after a first request, how long "
                          "the server collects more before one forward.")
@@ -770,18 +784,23 @@ def main(argv: List[str]) -> int:
         from tools.eval_inference_server import launch_inference_server
         max_batch = args.inference_max_batch or jobs
         try:
+            n_per_spec = max(1, int(args.inference_servers))
             for k, spec in enumerate(dict.fromkeys(
                     s for s in (args.spec_a, args.spec_b) if s != "dummy")):
-                servers[spec] = launch_inference_server(
-                    spec, args.outdir, tag=str(k), device=args.device,
-                    infer_bf16=args.infer_bf16,
-                    window_ms=args.inference_window_ms, max_batch=max_batch,
-                    packed_embed=bool(args.packed_embed),
-                    compile_packed=bool(args.compile_packed))
-                log.info("inference server %d for %s at %s: %s", k, spec,
-                         servers[spec].address, servers[spec].info)
+                servers[spec] = []
+                for j in range(n_per_spec):
+                    handle = launch_inference_server(
+                        spec, args.outdir, tag=f"{k}_{j}" if n_per_spec > 1 else str(k),
+                        device=args.device,
+                        infer_bf16=args.infer_bf16,
+                        window_ms=args.inference_window_ms, max_batch=max_batch,
+                        packed_embed=bool(args.packed_embed),
+                        compile_packed=bool(args.compile_packed))
+                    servers[spec].append(handle)
+                    log.info("inference server %d/%d for %s at %s: %s", k, j, spec,
+                             handle.address, handle.info)
             infos = {(bool(h.info["infer_bf16"]), bool(h.info["packed_trunk"]))
-                     for h in servers.values()}
+                     for hs in servers.values() for h in hs}
             if len(infos) != 1:
                 raise SystemExit(f"the inference servers disagree on precision "
                                  f"{sorted(infos)}; one match, one numerics path")
@@ -789,7 +808,7 @@ def main(argv: List[str]) -> int:
             # A served side plays in the server's basis (its
             # checkpoint's flag) unless the CLI flag forces the subset.
             want_bases = _want_bases(
-                args, lambda spec: ("relset" if servers[spec].info.get("relevant_set")
+                args, lambda spec: ("relset" if servers[spec][0].info.get("relevant_set")
                                     else "full"))
             for f in sorted(args.outdir.glob("game_*.json")):
                 try:
@@ -847,7 +866,12 @@ def main(argv: List[str]) -> int:
             # against the server's hello).
             for side, spec in (("a", args.spec_a), ("b", args.spec_b)):
                 if spec in servers:
-                    cmd += [f"--inference-address-{side}", servers[spec].address]
+                    # Round-robin by game index: with one server this is
+                    # the old behaviour, with several it spreads the
+                    # workers over them.
+                    handles = servers[spec]
+                    cmd += [f"--inference-address-{side}",
+                            handles[i % len(handles)].address]
             cmd += ["--infer-bf16" if shared_bf16 else "--no-infer-bf16",
                     "--no-infer-compile",
                     "--infer-packed-trunk" if shared_packed

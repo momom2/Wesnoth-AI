@@ -1441,6 +1441,7 @@ def train(
     value_material: bool = False,   # the value head also reads material
     preencoded: Optional[Path] = None,  # tools/preencode_corpus.py output
     bf16: bool = False,                 # autocast the batched flow's forward in bf16
+    tf32: bool = True,                  # fp32 matmuls on the tensor cores (training only)
     fog_hides_enemy_villages: "bool | None" = None,  # global feature 5 under fog
         # drop value_head.* from the --resume state (and skip the
         # optimizer-state restore): warm trunk+policy, fresh value.
@@ -1498,6 +1499,9 @@ def train(
     else:
         device = torch.device(device_str)
         log.info(f"Device: {device}")
+    if tf32:
+        from wesnoth_ai.train_perf import enable_tf32
+        enable_tf32(True)
 
     # Peek the resume checkpoint FIRST: the SL<->MCTS round-trip
     # contract (2026-07-16) requires (a) constructing the OPTIONAL
@@ -1596,10 +1600,9 @@ def train(
                        relevant_set_hexes=relevant_set_hexes,
                        training_meta=training_meta)
 
-    opt = torch.optim.AdamW(
-        list(model.parameters()) + list(encoder.parameters()),
-        lr=lr, weight_decay=1e-4,
-    )
+    from wesnoth_ai.train_perf import adamw
+    opt = adamw(list(model.parameters()) + list(encoder.parameters()),
+                lr=lr, weight_decay=1e-4)
 
     # Cosine learning-rate decay across the planned epoch budget. With
     # the resume-from-checkpoint path, `T_max` is the TOTAL planned
@@ -2514,6 +2517,10 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--no-fog-hides-enemy-villages", action="store_false",
                     dest="fog_hides_enemy_villages",
                     help="Feed the true enemy village count (the pre-2026-09-08 encoding).")
+    ap.add_argument("--tf32", action=argparse.BooleanOptionalAction, default=True,
+                    help="Run fp32 matmuls on the tensor cores (TF32). Training only: "
+                         "the sim, the corpus sweeps and eval are never touched. "
+                         "--no-tf32 restores strict fp32.")
     ap.add_argument("--bf16", action="store_true",
                     help="Run the batched flow's forward and loss under bf16 autocast "
                          "(fp32 master weights; the eval path already serves bf16).")
@@ -2602,6 +2609,7 @@ def main(argv: List[str]) -> int:
         value_material=args.value_material,
         preencoded=args.preencoded,
         bf16=args.bf16,
+        tf32=args.tf32,
         fog_hides_enemy_villages=args.fog_hides_enemy_villages,
         imitation_config=args.imitation_config,
         type_loss_weights=type_loss_weights,

@@ -340,6 +340,11 @@ def main(argv) -> int:
     # CPU work. Cap torch's intra-op pool (default: every hardware
     # thread of the host, far beyond the cgroup quota). See bench_pool.
     torch.set_num_threads(4)
+    # fp32 matmuls on the tensor cores for the learner (training only;
+    # the actors' sim and the eval path are never touched).
+    if device.type == "cuda":
+        from wesnoth_ai.train_perf import enable_tf32
+        enable_tf32(True)
     dev_str = "cuda" if device.type == "cuda" else "cpu"
     ckpt_in = args.campaign if args.campaign.exists() else args.seed_checkpoint
     base = _load_policy(ckpt_in, device, label="az")

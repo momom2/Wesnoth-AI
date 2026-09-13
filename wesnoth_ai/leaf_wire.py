@@ -127,7 +127,13 @@ def unpack_request(req: PackedRequest) -> List[Tuple[RawEncoded, PackedMasks]]:
                 vals.append(None)
                 continue
             off = _aligned(off)
-            n = int(np.prod(shape)) * dt.itemsize
+            # A plain product: np.prod on a 1-2 element tuple costs a
+            # couple of microseconds, and the server pays it once per
+            # field per leaf (26 x 16 per pool batch).
+            count = 1
+            for _d in shape:
+                count *= _d
+            n = count * dt.itemsize
             a = buf[off:off + n].view(dt).reshape(shape) if n else np.empty(shape, dtype=dt)
             vals.append(a)
             off += n

@@ -941,53 +941,84 @@ class GameStateEncoder(nn.Module):
         """The trained embeddings of every stream for a batch, as
         concatenated [total, d] tensors plus per-sample lengths (None
         for an all-empty stream). Shared by encode_from_raw_batch and
-        encode_from_raw_padded."""
+        encode_from_raw_padded.
+
+        The batch crosses to the device in TWO transfers (one per
+        dtype), not one per field. Seventeen separate
+        `from_numpy -> pin_memory -> to(device)` round trips were most
+        of the server's fixed per-batch host cost: a fresh pinned
+        allocation is a synchronizing call, and the server pays it once
+        per batch, not once per leaf (docs/gpu_forward_design_20260904.md
+        section 1.1). The values are untouched -- each field is a view
+        into the coalesced buffer at its own offset, so the embeddings
+        are bit-identical to the per-field path
+        (tests/test_encoder_transfer.py)."""
         nb = device.type != "cpu"
         _pin = device.type == "cuda"   # [gpu-perf B3] see encode_from_raw
         Hs = [r.hex_xs.shape[0] for r in raws]
         Us = [r.unit_xs.shape[0] for r in raws]
         Rs = [r.recruit_type_ids.shape[0] for r in raws]
 
-        def _cat_to_dev(arrays, dtype):
-            cat = np.concatenate(arrays) if arrays else np.zeros(0, dtype=dtype)
-            t = torch.from_numpy(cat)
+        # Gather every field of one dtype into one buffer, remembering
+        # where each lands so it can be sliced back out on the device.
+        plan: Dict[str, List[tuple]] = {"i": [], "f": []}      # key -> (name, rows, width)
+        pieces: Dict[str, List[np.ndarray]] = {"i": [], "f": []}
+
+        def _stage(name: str, arrays: List[np.ndarray], kind: str, width: int) -> None:
+            cat = np.concatenate(arrays) if len(arrays) > 1 else arrays[0]
+            plan[kind].append((name, cat.shape[0], width))
+            pieces[kind].append(cat.reshape(-1))
+
+        if sum(Hs):
+            for nm, f in (("hx", "hex_xs"), ("hy", "hex_ys"), ("ht", "hex_terrain_ids")):
+                _stage(nm, [getattr(r, f) for r in raws], "i", 1)
+            _stage("hm", [r.hex_modifier_flags for r in raws], "f", NUM_HEX_MODIFIERS)
+            _stage("hd", [r.hex_dynamic_flags for r in raws], "f", NUM_HEX_DYNAMIC_FLAGS)
+        if sum(Us):
+            for nm, f in (("ut", "unit_type_ids"), ("us", "unit_side_ids"),
+                          ("ux", "unit_xs"), ("uy", "unit_ys")):
+                _stage(nm, [getattr(r, f) for r in raws], "i", 1)
+            _stage("uf", [r.unit_feats for r in raws], "f", UNIT_FEAT_DIM)
+            _stage("ui", [r.unit_is_ours for r in raws], "f", 1)
+        if sum(Rs):
+            for nm, f in (("rt", "recruit_type_ids"), ("rs", "recruit_side_ids"),
+                          ("rx", "recruit_xs"), ("ry", "recruit_ys")):
+                _stage(nm, [getattr(r, f) for r in raws], "i", 1)
+            _stage("rf", [r.recruit_feats for r in raws], "f", UNIT_FEAT_DIM)
+            _stage("ri", [r.recruit_is_ours for r in raws], "f", 1)
+        _stage("gf", [np.stack([r.global_feats for r in raws])], "f", GLOBAL_FEAT_DIM)
+        _stage("ofi", [np.array([r.our_faction_id for r in raws], dtype=np.int64)], "i", 1)
+        _stage("tfi", [np.array([r.their_faction_id for r in raws], dtype=np.int64)], "i", 1)
+
+        t: Dict[str, torch.Tensor] = {}
+        for kind, dtype in (("i", np.int64), ("f", np.float32)):
+            if not pieces[kind]:
+                continue
+            buf = (np.concatenate(pieces[kind]) if len(pieces[kind]) > 1
+                   else pieces[kind][0]).astype(dtype, copy=False)
+            dev_buf = torch.from_numpy(np.ascontiguousarray(buf))
             if device.type != "cpu":
                 if _pin:
-                    t = t.pin_memory()
-                t = t.to(device, non_blocking=nb)
-            return t
+                    dev_buf = dev_buf.pin_memory()
+                dev_buf = dev_buf.to(device, non_blocking=nb)
+            off = 0
+            for name, rows, width in plan[kind]:
+                n = rows * width
+                view = dev_buf[off:off + n]
+                t[name] = view.view(rows, width) if width > 1 else view
+                off += n
 
         out = {"Hs": Hs, "Us": Us, "Rs": Rs, "hex": None, "unit": None,
                "recruit": None, "unit_is": None, "recruit_is": None}
         if sum(Hs):
-            hx = _cat_to_dev([r.hex_xs for r in raws], np.int64)
-            hy = _cat_to_dev([r.hex_ys for r in raws], np.int64)
-            ht = _cat_to_dev([r.hex_terrain_ids for r in raws], np.int64)
-            hm = _cat_to_dev([r.hex_modifier_flags for r in raws], np.float32)
-            hd = _cat_to_dev([r.hex_dynamic_flags for r in raws], np.float32)
-            out["hex"] = self._hex_embedding(hx, hy, ht, hm, hd)
+            out["hex"] = self._hex_embedding(t["hx"], t["hy"], t["ht"], t["hm"], t["hd"])
         if sum(Us):
-            ut = _cat_to_dev([r.unit_type_ids for r in raws], np.int64)
-            us_ids = _cat_to_dev([r.unit_side_ids for r in raws], np.int64)
-            ux = _cat_to_dev([r.unit_xs for r in raws], np.int64)
-            uy = _cat_to_dev([r.unit_ys for r in raws], np.int64)
-            uf = _cat_to_dev([r.unit_feats for r in raws], np.float32)
-            out["unit"] = self._unit_embedding(ut, us_ids, ux, uy, uf)
-            out["unit_is"] = _cat_to_dev([r.unit_is_ours for r in raws], np.float32)
+            out["unit"] = self._unit_embedding(t["ut"], t["us"], t["ux"], t["uy"], t["uf"])
+            out["unit_is"] = t["ui"]
         if sum(Rs):
-            rt = _cat_to_dev([r.recruit_type_ids for r in raws], np.int64)
-            rs = _cat_to_dev([r.recruit_side_ids for r in raws], np.int64)
-            rx = _cat_to_dev([r.recruit_xs for r in raws], np.int64)
-            ry = _cat_to_dev([r.recruit_ys for r in raws], np.int64)
-            rf = _cat_to_dev([r.recruit_feats for r in raws], np.float32)
-            out["recruit"] = self._unit_embedding(rt, rs, rx, ry, rf)
-            out["recruit_is"] = _cat_to_dev([r.recruit_is_ours for r in raws], np.float32)
-        gf = torch.from_numpy(np.stack([r.global_feats for r in raws]))
-        if device.type != "cpu":
-            gf = gf.to(device, non_blocking=nb)
-        our_fids = torch.tensor([r.our_faction_id for r in raws], device=device, dtype=torch.long)
-        them_fids = torch.tensor([r.their_faction_id for r in raws], device=device, dtype=torch.long)
-        out["global"] = self._global_embedding(gf, our_fids, them_fids)   # [B, d]
+            out["recruit"] = self._unit_embedding(t["rt"], t["rs"], t["rx"], t["ry"], t["rf"])
+            out["recruit_is"] = t["ri"]
+        out["global"] = self._global_embedding(t["gf"], t["ofi"], t["tfi"])   # [B, d]
         return out
 
     def encode_from_raw_batch(

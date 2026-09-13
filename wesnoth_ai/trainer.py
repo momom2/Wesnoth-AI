@@ -471,7 +471,8 @@ class Trainer:
         # MCTSPolicy.train_step (az_loop) set a dict here and read it
         # back; direct callers pass `timings=` instead. None = no timing.
         self.stage_timings: Optional[Dict[str, float]] = None
-        self.optimizer = torch.optim.AdamW(
+        from wesnoth_ai.train_perf import adamw
+        self.optimizer = adamw(
             list(model.parameters()) + list(encoder.parameters()),
             lr=self.config.learning_rate,
             weight_decay=self.config.weight_decay,
