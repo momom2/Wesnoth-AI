@@ -145,15 +145,39 @@ def _close_queue(q, drain: bool) -> None:
     message, and reading one blocks for a remainder that is never
     coming -- there we cancel the join instead, so close() cannot wait
     on anything either. Every child is joined before this runs, so
-    nothing refills a queue behind us."""
+    nothing refills a queue behind us.
+
+    The drain is a BOUNDED wait, not `get_nowait()`. A put() only hands
+    the object to the feeder thread; the bytes reach the pipe later, so
+    a non-blocking get can miss a message that is in flight, leave it
+    in the pipe, and then `join_thread()` -- which is untimed -- waits
+    on a feeder blocked in `send_bytes` on a full pipe whose read end
+    this process still holds, so it never gets EPIPE and never returns.
+    Measured on this machine (CPython 3.13, spawn): with a real
+    `_CMD_PLAY` payload of 6.6 KB against Windows' 8 KiB pipe buffer,
+    three unread messages hang it about half the time and twenty hang
+    it reliably; Linux's 64 KiB pipe needs roughly eight to ten. It is
+    reachable because a C-level-wedged actor is never removed from the
+    broadcast, so it collects one unread PLAY per iteration -- about
+    eight over an overnight run -- and then az_loop's `finally` calls
+    shutdown() and the campaign never exits while the box keeps
+    billing. 50 ms is a wide margin over the ~100 us the feeder needs
+    to pickle one of these, and `_flush_tickets` already drains this
+    way. `cancel_join_thread()` afterwards is the backstop: it trades
+    a hang for a daemon feeder we abandon, which at shutdown is the
+    right side of that trade."""
     if q is None:
         return
     if drain:
         while True:
             try:
-                q.get_nowait()
+                q.get(timeout=0.05)
             except Exception:        # empty, or a queue already broken
                 break
+        try:
+            q.cancel_join_thread()   # backstop: never wait forever here
+        except Exception:
+            pass
     else:
         try:
             q.cancel_join_thread()

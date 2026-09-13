@@ -344,6 +344,52 @@ def test_shutdown_drains_leftover_tickets_without_blocking():
         game_q.put("after close")
 
 
+def test_shutdown_returns_with_big_messages_nobody_read():
+    """The 500-small-tickets case above passes even with a NON-blocking
+    drain, so it does not test the hazard.
+
+    A `put()` only hands the object to the feeder thread; the bytes
+    reach the pipe later. A `get_nowait()` can therefore miss a message
+    still in flight, leave it in the pipe, and then the untimed
+    `join_thread()` waits on a feeder blocked in `send_bytes` on a full
+    pipe whose read end this process still holds -- no EPIPE, no
+    return. It needs messages near the pipe buffer (8 KiB on Windows,
+    64 KiB on Linux), which is what a real `_CMD_PLAY` is: about 6.6 KB
+    once the reference checkpoint's vocab is in it.
+
+    Reachable in production because a C-level-wedged actor is never
+    removed from the broadcast, so it collects one unread PLAY per
+    iteration and az_loop's `finally` then calls shutdown().
+
+    Bounded by a deadline so a regression FAILS instead of hanging the
+    suite.
+    """
+    payload = {"vocab": {f"unit_type_{i}": i for i in range(400)},
+               "blob": "x" * 4096}
+    pool = _queue_pool(n=2)
+    for q in pool._ctrl_qs:
+        for _ in range(24):
+            q.put(("play", payload))
+
+    done = threading.Event()
+    err = []
+
+    def _go():
+        try:
+            pool.shutdown(timeout=0.5)
+        except Exception as exc:            # noqa: BLE001 -- reported below
+            err.append(exc)
+        finally:
+            done.set()
+
+    t = threading.Thread(target=_go, daemon=True)
+    t.start()
+    assert done.wait(20.0), (
+        "shutdown() did not return: the drain lost the race with the feeder "
+        "and join_thread() is waiting on a pipe nobody reads")
+    assert not err, err
+
+
 def test_shutdown_is_idempotent():
     pool = _queue_pool(n=1)
     pool.shutdown(timeout=0.5)
