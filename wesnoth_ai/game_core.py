@@ -89,8 +89,7 @@ def map_static(gs: GameState) -> dict:
     """The core's static map arrays from the state: geometry from
     `wesnoth_ai.observe.map_geometry`, terrain facts from the terrain
     codes and the time areas the scenario set up."""
-    from tools.replay_dataset import _defense_keys_for_code
-    from tools.terrain_resolver import terrain_heals
+    from tools.terrain_resolver import hides_cover, terrain_heals
     from wesnoth_ai.encoder import _first_terrain_id
     from wesnoth_ai.observe import map_geometry
     geom = map_geometry(gs)
@@ -124,12 +123,12 @@ def map_static(gs: GameState) -> dict:
             heal[i] = terrain_heals(code)
             lm, lx, ln, any_light = _light_params(code)
             light_mod[i], light_max[i], light_min[i], has_light[i] = lm, lx, ln, int(any_light)
-            keys = _defense_keys_for_code(raw)
-        else:
-            keys = ["flat"]
-        is_forest[i] = "forest" in keys
-        is_village_key[i] = "village" in keys
-        is_deep_water[i] = "deep_water" in keys
+        # The hide-ability cover flags the core's `hide_cover_active`
+        # reads are the ENGINE's terrain filters, not defense keys
+        # (see `terrain_resolver.hides_cover`).
+        is_forest[i] = hides_cover(raw or "", "ambush")
+        is_village_key[i] = hides_cover(raw or "", "concealment")
+        is_deep_water[i] = hides_cover(raw or "", "submerge")
         cyc = areas.get((x, y))
         if cyc:
             key = tuple(int(v) for v in cyc)

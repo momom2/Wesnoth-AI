@@ -437,8 +437,55 @@ def terrain_light_bonus(code: str, base: int) -> int:
         return max(base + light, min(base, min_l))
 
 
+# Hide-ability cover, straight from the engine's own filters
+# (wesnoth_src/data/core/macros/abilities.cfg:280-382). Wesnoth does
+# NOT ask what a hex defends like; it matches the hex's terrain CODE
+# against a glob list:
+#
+#   ambush       terrain=*^F*,*^Qhhf,*^Qhuf   (any forest overlay, plus
+#                                              the bluff/glutch fungus)
+#   concealment  terrain=*^V*                 (any village overlay)
+#   submerge     terrain=Wo*^*                (any deep-water base)
+#   nightstalk   time_of_day=chaotic          (no terrain at all)
+#
+# Deciding cover from the DEFENSE keys instead was wrong on every code
+# a hand-rolled overlay table did not list: measured over the shipped
+# maps, 19% of forest-overlay hexes (Gs^Fms, Hh^Fms, Gs^Ftd, ...) and
+# 25% of village-overlay hexes (Gg^Ve, Gs^Vht, Aa^Vha, ...) silently
+# provided no cover at all.
+_AMBUSH_OVERLAY_EXACT = ("Qhhf", "Qhuf")
+
+
+def _split_code(code: str) -> tuple:
+    """(base, overlay) of a terrain code, with a map's starting-position
+    prefix ("1 Gg") stripped. Overlay is "" when the code has none."""
+    c = code or ""
+    if c[:1].isdigit() and c[1:2] == " ":
+        c = c[2:]
+    base, sep, overlay = c.partition("^")
+    return base, (overlay if sep else "")
+
+
+def hides_cover(code: str, ability: str) -> bool:
+    """Does the hex `code` give `ability` its cover?
+
+    A transcription of the `[hides]` `[filter_location]` terrain globs
+    in abilities.cfg (see the table above). `nightstalk` has no terrain
+    condition and is not answered here -- its cover is the time of day.
+    """
+    base, overlay = _split_code(code)
+    if ability == "ambush":                      # *^F*,*^Qhhf,*^Qhuf
+        return overlay.startswith("F") or overlay in _AMBUSH_OVERLAY_EXACT
+    if ability == "concealment":                 # *^V*
+        return overlay.startswith("V")
+    if ability == "submerge":                    # Wo*^*
+        return base.startswith("Wo")
+    return False
+
+
 __all__ = [
     "MARKER_PLUS", "MARKER_MINUS", "MARKER_BASE", "UNREACHABLE_COST",
     "load_terrain_db", "merge_alias_lists",
     "mvt_cost", "def_pct", "terrain_heals", "terrain_light_bonus",
+    "hides_cover",
 ]

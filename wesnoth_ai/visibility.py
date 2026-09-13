@@ -244,14 +244,19 @@ def _hide_cover_active(state: GameState, unit: Unit) -> bool:
     terrain (or ToD, for nightstalk) satisfies the ability's
     cover condition.
 
-    Verified abilities + their covers from
-    `wesnoth_src/data/core/abilities.cfg`:
+    The covers are the engine's own `[hides] [filter_location]` filters
+    (`wesnoth_src/data/core/macros/abilities.cfg`:280-382), which match
+    the hex's terrain CODE, not what it defends like:
 
-      - ambush:      forest terrain
-      - concealment: village terrain
-      - submerge:    deep_water terrain
-      - nightstalk:  current ToD has lawful_bonus < 0
-                     (night / second_watch)
+      - ambush:      terrain=*^F*,*^Qhhf,*^Qhuf
+      - concealment: terrain=*^V*
+      - submerge:    terrain=Wo*^*
+      - nightstalk:  time_of_day=chaotic, i.e. lawful_bonus < 0
+
+    Until 2026-09-13 the terrain covers were decided from the DEFENSE
+    keys of a hand-rolled overlay table, which silently gave no cover
+    on 19% of the shipped maps' forest-overlay hexes and 25% of their
+    village-overlay hexes (`terrain_resolver.hides_cover`).
 
     SINGLE source of truth since 2026-07-18 (the sim's duplicate
     method was removed; walk_move_path and units_visible_to both
@@ -264,14 +269,13 @@ def _hide_cover_active(state: GameState, unit: Unit) -> bool:
     # unit_stats.json, etc.). Importing at module load would slow
     # cold tests and cluster start. The lookup is per-unit-with-
     # hide-ability, which is a rare hot path.
-    from tools.replay_dataset import _terrain_keys_at, _lawful_bonus_at
-    keys = _terrain_keys_at(state, unit.position.x, unit.position.y)
-    if "ambush" in abilities and "forest" in keys:
-        return True
-    if "concealment" in abilities and "village" in keys:
-        return True
-    if "submerge" in abilities and "deep_water" in keys:
-        return True
+    from tools.replay_dataset import _lawful_bonus_at
+    from tools.terrain_resolver import hides_cover
+    codes = getattr(state.global_info, "_terrain_codes", None) or {}
+    code = codes.get((unit.position.x, unit.position.y), "")
+    for ability in ("ambush", "concealment", "submerge"):
+        if ability in abilities and hides_cover(code, ability):
+            return True
     if "nightstalk" in abilities:
         bonus = _lawful_bonus_at(
             state, unit.position.x, unit.position.y,
