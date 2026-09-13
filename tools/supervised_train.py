@@ -975,33 +975,42 @@ def _batch_loss_impl(model, encoder, raws, ais, zw, device, type_loss_weights):
     return imitation_loss_parts(padded, targets), targets
 
 
-def _backward_batch(model, encoder, raws, ais, zw, batch_size, device,
-                    type_loss_weights, sink: List, autocast_dtype=None) -> int:
+def _accumulate_batch(model, encoder, raws, ais, zw, batch_size, device,
+                      type_loss_weights, sink: List, opt, autocast_dtype=None) -> int:
     """Backward of the batch's loss / batch_size into the parameters'
-    gradients. On a CUDA out-of-memory error the batch is split in two
-    and each half accumulates into the same gradient (the loss is a
-    sum over the batch divided by batch_size, so the step is the whole
-    batch's); a single pair that does not fit raises. `sink` collects
-    (targets, log values) per chunk in order. Returns the number of
-    splits."""
-    parts = None
-    try:
-        parts, targets = _batch_loss(model, encoder, raws, ais, zw, device, type_loss_weights,
-                                     autocast_dtype)
-        (parts.total / batch_size).backward()
-        sink.append((targets, parts.log_values()))
-        return 0
-    except torch.cuda.OutOfMemoryError:
-        if len(raws) == 1:
-            raise
-        parts = None
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-    half = len(raws) // 2
-    return (1 + _backward_batch(model, encoder, raws[:half], ais[:half], zw[:half], batch_size,
-                                device, type_loss_weights, sink, autocast_dtype)
-            + _backward_batch(model, encoder, raws[half:], ais[half:], zw[half:], batch_size,
-                              device, type_loss_weights, sink, autocast_dtype))
+    gradients, in as many equal chunks as it takes to fit the device.
+
+    On a CUDA out-of-memory error the whole flush is REDONE from zeroed
+    gradients with twice as many chunks. Retrying without zeroing would
+    double-count: the peak is inside `backward()`, so an out-of-memory
+    error there leaves the gradients of the layers it already walked
+    accumulated, and the retry adds those same contributions again.
+    A single pair that does not fit raises.
+
+    `sink` collects (targets, per-sample log tensor) per chunk in
+    order; it is cleared on every attempt. Returns the number of
+    halvings (0 when the batch fit whole)."""
+    n_chunks = 1
+    halvings = 0
+    while True:
+        opt.zero_grad(set_to_none=True)
+        sink.clear()
+        step = -(-len(raws) // n_chunks)          # ceil
+        try:
+            for start in range(0, len(raws), step):
+                parts, targets = _batch_loss(
+                    model, encoder, raws[start:start + step], ais[start:start + step],
+                    zw[start:start + step], device, type_loss_weights, autocast_dtype)
+                (parts.total / batch_size).backward()
+                sink.append((targets, parts.log_tensor()))
+            return halvings
+        except torch.cuda.OutOfMemoryError:
+            if step <= 1:
+                raise
+            halvings += 1
+            n_chunks *= 2
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
 
 def _flush_batch(
@@ -1052,14 +1061,27 @@ def _flush_batch(
         type_loss_weights = _DEFAULT_ACTION_TYPE_LOSS_WEIGHT
     zw = batch_zw if batch_zw else [(None, 0.0, 1.0)] * len(batch_ais)
     sink: List = []
-    splits = _backward_batch(model, encoder, batch_raws, batch_ais, zw, batch_size, device,
-                             type_loss_weights, sink, autocast_dtype)
+    splits = _accumulate_batch(model, encoder, batch_raws, batch_ais, zw, batch_size, device,
+                               type_loss_weights, sink, opt, autocast_dtype)
 
     torch.nn.utils.clip_grad_norm_(params_for_clip, 1.0)
     opt.step()
     opt.zero_grad()
 
-    for targets, (actor_v, type_v, target_v, weapon_v, value_v) in sink:
+    # One transfer for the whole flush, AFTER the optimizer step: the
+    # backward, the clip and the step are all enqueued before the host
+    # blocks on the device. Reading the per-sample losses straight
+    # after backward() was a hard sync that serialized host and GPU.
+    drained = []
+    if sink:
+        widths = [t.shape[1] for _, t in sink]
+        flat = torch.cat([t for _, t in sink], dim=1).cpu().tolist()
+        off = 0
+        for (targets, _), w in zip(sink, widths):
+            drained.append((targets, [row[off:off + w] for row in flat]))
+            off += w
+
+    for targets, (actor_v, type_v, target_v, weapon_v, value_v) in drained:
         ok = targets.ok
         for i in range(targets.n):
             if not ok["actor"][i]:

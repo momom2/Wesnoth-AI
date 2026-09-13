@@ -1078,6 +1078,132 @@ Python runs' band (1,050.8 and 1,102.5). Its per-call wins (see "Per
 call: the Rust-owned state against the Python state") are real but
 small against a pool whose ceiling is the server; default stays off.
 
+## Actors buy in-flight leaves (2026-09-13, box 50869871, RTX 4090, 24 cores, 31 GB)
+
+The pool's constraint was never actor CPU. An actor holds exactly ONE
+inference request in flight and blocks on it: the in-repo whole-pool
+profile (`training/metrics/bench_pipeline/pool_profile/prof_pool_all.txt`,
+4.87M samples) puts 91.3% of actor main-thread samples in `_recv`, and
+its own Python at 6.77 ms per leaf. Throughput is therefore
+(leaves in flight) / (round-trip), and the actor count is the knob.
+
+One factor, same search budget (plain PUCT, 32 evaluations, leaf batch
+16, max 30 turns, one game per actor), `--server-priors --infer-bf16
+--packed-trunk --packed-embed`:
+
+| actors | iteration leaves/s | saturated leaves/s | games/h | games/$ |
+|---|---|---|---|---|
+| 19 | 665 | 1,470 | 219 | 655 |
+| 32 | 914 | 1,495 | 285 | 852 |
+| 48 | 1,006 | 1,524 | 294 | 877 |
+| 64 | 1,116 | 1,565 | 346 | 1,032 |
+
+64 actors is 1.68x the rate of 19 and 1.58x the games per dollar, and
+the curve is still rising. The saturated column barely moves, which is
+the point: the server's capacity was always there and the actors were
+not filling it. `az_loop --actors` defaulted to 8; it now defaults to
+32, short of the 64 that measured best, because a 2026-09-04 host hit
+a container pids limit at 38 actors and produced ZERO leaves/s. Raise
+it per box.
+
+The 2026-09-04 reading that "28 actors gave no more than 19" has aged
+out: the server saturated at 330 leaves/s then, so nothing could fill
+it. A finding about a saturated resource expires when the resource
+stops being saturated.
+
+### Plan 1.3's target, on an actual 4090
+
+The same box answers the target this project could not judge on an
+A4000: **1,450-1,565 saturated leaf evaluations per second in the
+relevant-set basis at about 320 tokens per leaf, against a target of
+3,000** (docs/plan_20260904.md step 1.3). The target is not met and
+docs/gpu_forward_design_20260904.md predicted exactly this: it prices
+today's kernels at 1,300-1,800 and says 3,000 needs fewer tokens per
+leaf or fp8. Per dollar this 4090 at $0.335/h gives 1,032 searched
+games per dollar at 64 actors, against 782-1,478 for the A4000 at
+$0.161/h -- the cheaper card is at least competitive, so pick a box by
+measured leaves per dollar, not by the GPU's name.
+
+## The eval path does not want more workers or more servers (2026-09-13, same box)
+
+Five arms of 40 games, `relset` against itself at raw:t0 through the
+shared server, one factor per arm. The wall is uninformative and the
+server's own counters are not:
+
+| arm | jobs | servers | wall s | requests | batches | mean batch |
+|---|---|---|---|---|---|---|
+| baseline | 20 | 1 | 42 | 19,863 | 2,533 | 7.84 |
+| more workers | 40 | 1 | 46 | 18,809 | 2,239 | 8.40 |
+| second server | 20 | 2 | 52 | 21,584 | 6,065 | 3.56 |
+| both | 40 | 2 | 43 | 18,838 | 3,763 | 5.01 |
+| baseline REPEAT | 20 | 1 | **74** | 20,981 | 4,628 | 4.53 |
+
+**The baseline repeated at 74 s against its own 42 s, a 1.76x swing**,
+so no arm here is resolvable: every difference is inside one
+configuration's own variance. What IS stable and readable is the mean
+batch, and it says why a second server cannot help: splitting the same
+workers across two servers halves the batch (7.84 -> 3.56), and the
+server's cost is mostly a fixed per-batch launch, so half the batch
+means twice the batches. The backlog's standing expectation that a
+second serve process per GPU buys 1.3-1.5x on eval is **not supported**;
+`--inference-servers` is implemented and left at 1, worth using only
+when the two sides run different checkpoints or a much larger worker
+pool keeps batches full.
+
+Consequence for method: an eval throughput claim needs repeats or the
+server counters, never one 40-game wall. The same is true of the pool
+benchmark (1.64x between repeats, "Phase 1's exit").
+
+## bf16 on the imitation trainer, on a 24 GB card (2026-09-13, box 50869871, RTX 4090)
+
+The clean number docs/box_specs.md "bf16 training timed" could not get
+on a 16 GB card, where fp32 was crippled by memory splits (173 against
+bf16's 61) and the ratio read 2.9x. Same seed, same 20,000 pairs, same
+relevant-set basis, on-the-fly encoding, nothing else running:
+
+| arm | wall | rate | loss at 19,200 pairs |
+|---|---|---|---|
+| fp32 | 181 s | 118.8 pairs/s | 7.553 (actor 2.498, value 0.700) |
+| bf16 | 147 s | 148.2 pairs/s | 7.429 (actor 2.421, value 0.697) |
+
+**1.25x, with the loss equivalent** -- not the 2.9x the memory-starved
+card suggested. The number is a lower bound on the pre-encoded path,
+where the encode does not dilute the GPU share. `--bf16` stays OFF by
+default for the imitation trainer: this is 20,000 pairs of loss, and a
+seed checkpoint's acceptance is its holdout curve and an 800-game
+match, not a training-loss comparison. Flipping it is one flag.
+
+## The actor's per-leaf Python, with the phase-8 wheel (2026-09-13, same box)
+
+`tools/bench_leaf.py`, three replayed midgame states (19-37 units,
+888-1,188 hexes), relevant-set basis, model on the GPU:
+
+| component | ms per leaf |
+|---|---|
+| encode_raw | 0.36-0.50 |
+| encode_from_raw (torch tensors) | 0.89-0.92 |
+| enumerate_legal_actions_with_priors | 1.07-1.35 |
+| sort + MCTSEdge over 662-677 legal actions | 0.24 |
+| **total actor Python** | **2.8-3.2** |
+| the forward it waits for, on the GPU | 2.1-2.3 |
+| `CoreState.encode_raw` (the Rust-owned state) | 0.195-0.20 |
+
+This is what settles the earlier puzzle: an actor's 27-58 ms per leaf
+was never its own work. Its Python is about 3 ms and the rest is
+waiting, which is why the Rust core moved nothing and why the actor
+COUNT moved everything. It also says where actor-side effort would go
+if it were ever worth spending: `encode_from_raw` is now the largest
+single item, larger than the numpy/Rust `encode_raw` that feeds it.
+
+### The batch's transfer to the device (same box)
+
+`_embed_streams` sent one host-to-device copy per FIELD, each with its
+own fresh pinned allocation. Coalescing to one buffer per dtype, timed
+directly at batch 16 on the 4090: **0.897 -> 0.630 ms, 1.42x, and the
+embeddings bit-identical**. Against a ~25 ms server cycle that is about
+1% -- real, free, and much smaller than "most of the fixed host cost",
+which is what it looked like before it was measured.
+
 ## Serve thread host cost per 16-leaf batch (2026-09-05, box 49875606)
 
 The serve stats now split the host milliseconds per batch (records

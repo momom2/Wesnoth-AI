@@ -122,10 +122,18 @@ class ImitationLossParts:
     value_raw: torch.Tensor
     value: torch.Tensor
 
+    def log_tensor(self) -> torch.Tensor:
+        """[5, B] on the loss's own device: actor_raw, type, target,
+        weapon, value_raw per sample. Kept on the device so the caller
+        can finish the step before it pays for the transfer -- reading
+        this straight after `backward()` is a hard sync that stops the
+        host from queueing the optimizer step behind the backward."""
+        return torch.stack([self.actor_raw, self.type, self.target,
+                            self.weapon, self.value_raw]).detach()
+
     def log_values(self) -> List[List[float]]:
         """One transfer: [actor_raw, type, target, weapon, value_raw] per sample."""
-        return torch.stack([self.actor_raw, self.type, self.target,
-                            self.weapon, self.value_raw]).detach().cpu().tolist()
+        return self.log_tensor().cpu().tolist()
 
 
 def _smoothed_ce(logits: torch.Tensor, idx: torch.Tensor, valid: Optional[torch.Tensor],

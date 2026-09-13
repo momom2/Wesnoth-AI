@@ -63,10 +63,14 @@ class _StubbedOptimizerStep:
 
 def held_loss(base, exps: List) -> Dict[str, float]:
     """Policy CE + value loss on `exps` through the production loss
-    path, with the optimizer step stubbed out (weights untouched)."""
+    path, with the optimizer step stubbed out (weights untouched).
+
+    Runs the loss WITHOUT gradients: this probe only reads two scalars,
+    and the backward plus clip it used to pay for are 13-32% of a step.
+    The stubbed optimizer stays as a second guard on the weights."""
     tr = base._trainer
     with _StubbedOptimizerStep(tr):
-        st = tr.step_mcts(list(exps))
+        st = tr.step_mcts(list(exps), no_grad=True)
     tr.optimizer.zero_grad(set_to_none=True)
     return {"policy_ce": float(st.policy_loss),
             "value_loss": float(st.value_loss),

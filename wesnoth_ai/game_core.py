@@ -305,7 +305,16 @@ class CoreState:
         from tools.replay_dataset import _rebuild_unit, _stats_for, _terrain_def_pct
         from wesnoth_ai.observe import map_geometry
         def_table = getattr(u, "_defense_table", None) or _stats_for(u.name).get("defense", {})
-        key = (u.name, slowed, id(def_table))
+        # Keyed on the table's CONTENT, not its address: a freed
+        # table's id can be recycled by a different table, which would
+        # hand a unit another unit's defense percentages (the same
+        # hazard `encoder._static_hex_arrays` and
+        # `pathfind_sim._terrain_arrays_for` guard against). Content
+        # keying also collapses every recruit of a type onto one
+        # registered class -- each recruit builds a fresh defense dict,
+        # and the class registry is shared by every fork and never
+        # freed, so address keying grew it without bound.
+        key = (u.name, slowed, hash(frozenset(def_table.items())))
         hit = self.class_ids.get(key)
         if hit is not None:
             return hit

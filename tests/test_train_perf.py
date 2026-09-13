@@ -16,7 +16,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from wesnoth_ai.train_perf import adamw, enable_tf32  # noqa: E402
+from wesnoth_ai.train_perf import adamw, enable_tf32, tf32_training  # noqa: E402
 
 
 def test_enable_tf32_reports_the_previous_setting_and_is_a_noop_without_cuda():
@@ -62,6 +62,24 @@ def test_adamw_uses_the_fused_kernel_on_cuda():
     assert opt.param_groups[0].get("fused", False)
 
 
+def test_tf32_training_restores_what_it_found():
+    """az_loop serves the actors' inference from the SAME process as the
+    learner, so the switch must not outlive the learner's step."""
+    before = bool(torch.backends.cuda.matmul.allow_tf32)
+    with tf32_training():
+        if torch.cuda.is_available():
+            assert torch.backends.cuda.matmul.allow_tf32 is True
+    assert bool(torch.backends.cuda.matmul.allow_tf32) == before
+
+
+def test_tf32_training_restores_even_when_the_block_raises():
+    before = bool(torch.backends.cuda.matmul.allow_tf32)
+    with pytest.raises(RuntimeError):
+        with tf32_training():
+            raise RuntimeError("the learner step failed")
+    assert bool(torch.backends.cuda.matmul.allow_tf32) == before
+
+
 def test_the_sim_and_eval_paths_never_enable_tf32():
     """The knob is training-only by construction: no module outside the
     trainers may call it."""
@@ -71,7 +89,7 @@ def test_the_sim_and_eval_paths_never_enable_tf32():
         if py.name in ("train_perf.py",):
             continue
         text = py.read_text(encoding="utf-8", errors="replace")
-        if "enable_tf32" in text:
+        if "enable_tf32" in text or "tf32_training" in text:
             callers.add(py.name)
     assert callers <= {"supervised_train.py", "az_loop.py", "trainer.py"}, \
         f"TF32 reached a non-training module: {sorted(callers)}"

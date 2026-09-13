@@ -1684,13 +1684,13 @@ class WesnothSim:
             #     new rejection state.
             for u in self.gs.map.units:
                 if u.position.x == target.x and u.position.y == target.y:
-                    rejected = (
-                        getattr(self.gs.global_info,
-                                "_recruit_rejected_hexes", None) or set()
-                    )
-                    rejected.add((target.x, target.y))
-                    setattr(self.gs.global_info,
-                            "_recruit_rejected_hexes", rejected)
+                    # Through the sim's own writer: with the Rust-owned
+                    # state `self.gs` is a VIEW that the next command
+                    # rebuilds, so writing the rejection there loses it
+                    # and the mask offers the same bounced hex again in
+                    # the same turn (the legality contract in CLAUDE.md
+                    # makes the history per TURN, not per command).
+                    self.reject_recruit_hex(target.x, target.y)
                     log.debug(
                         f"sim: recruit on ({target.x},{target.y}) "
                         f"rejected (occupied by {u.id!r}, side {u.side}); "

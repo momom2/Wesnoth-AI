@@ -30,6 +30,30 @@ from the user first:
 - a tight self-pin of the reference player (800 games, 18 min,
   $0.20), which would replace the +- 37 Elo above with +- 12.
 
+Measured 2026-09-13 (docs/box_specs.md "Actors buy in-flight leaves"
+and the sections after it), on one 24-core 4090:
+- **The pool's constraint was the actor COUNT, not actor CPU.** An
+  actor blocks on the server for nine tenths of its cycle, so the
+  count buys in-flight leaves: 19 -> 665, 32 -> 914, 48 -> 1,006,
+  64 -> 1,116 leaves/s against a server saturating near 1,500.
+  `az_loop --actors` was 8 and is now 32; 64 measured best and the
+  curve was still rising, but a 2026-09-04 host died on a pids limit
+  at 38, so the default stays conservative. **1.68x on generation,
+  from a default.**
+- Plan 1.3's 3,000-leaves-per-4090 target is NOT met: the real 4090
+  reads 1,450-1,565 saturated at ~320 tokens per leaf, which is what
+  docs/gpu_forward_design_20260904.md predicted (1,300-1,800 with
+  today's kernels; 3,000 needs fewer tokens or fp8).
+- The eval path wants NEITHER more workers nor more servers. A second
+  server halves the mean batch (7.84 -> 3.56) and the per-batch cost
+  is mostly fixed, so it cannot win; the standing 1.3-1.5x expectation
+  is refuted. `--inference-servers` exists and stays at 1.
+- bf16 on the imitation trainer, on a 24 GB card at last: 1.25x with
+  an equivalent loss, not the 2.9x a memory-starved 16 GB card
+  suggested. Still off by default; flipping it wants a holdout curve.
+- An actor's own Python is ~3 ms per leaf (encode 1.4, enumerate 1.2,
+  edges 0.24), so actor-side optimisation cannot move the pool.
+
 Speed levers left, each a one-factor test on a run that is needed
 anyway, ordered by what the measurements say is binding:
 - the inference server is the ceiling on BOTH paths (eval: over four
@@ -41,13 +65,26 @@ anyway, ordered by what the measurements say is binding:
   timed only on a 16 GB card; TF32 for the trunk is untried.
 - the az training path's next recorded cut is shipping the actor's
   packed masks with each experience instead of rebuilding them.
-- actor-side Python is NOT currently a lever: the Rust-owned state
-  cuts it 3.5x per leaf (0.96 -> 0.27 ms) and moved neither the pool
-  (two runs inside the Python runs' band) nor the eval path (49 s
-  against 49 s). Re-measure the pool at production's games-per-actor
-  ratio (24 games, 8 actors) before spending more there; the
-  benchmark's 19/19 leaves a long idle tail that the production
-  ratio does not.
+- actor-side Python is NOT a lever, now settled: an actor's own
+  Python is ~3 ms of a 27-58 ms per-leaf cycle and the rest is
+  waiting on the server (docs/box_specs.md "The actor's per-leaf
+  Python"). Spend on in-flight leaves or on the server, never on the
+  actor's encode or mask.
+- bugs fixed 2026-09-13 while measuring, each with a regression test:
+  an out-of-memory inside `backward()` left partial gradients that the
+  retry double-counted (tools/supervised_train.py); the search priced
+  a REFUSED action by the material draw tiebreak, so a side that was
+  ahead saw rejected actions as favourable draws (tools/mcts.py); a
+  recruit bounce was written to the core's throwaway view and erased
+  by the next command (tools/wesnoth_sim.py); the movement-class cache
+  was keyed on a dict's ADDRESS (wesnoth_ai/game_core.py); and
+  `--help` crashed on three entry points. Open, reported and not yet
+  fixed: `turn_search`'s mover_mp0 boundary frame mutates Unit objects
+  shared with the live game (tools/turn_search.py:440, non-default
+  frame); the driver records infer_compile=False under
+  `--shared-inference --compile-packed`, so a compiled outdir cannot
+  be resumed (tools/run_elo_batch.py:703); mid-game [time_area]
+  changes do not reach the core's baked map tables.
 
 ## NEXT ACTIONS (phase 1: engineering, in order)
 

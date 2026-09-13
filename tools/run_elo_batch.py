@@ -53,6 +53,13 @@ log = logging.getLogger("run_elo_batch")
 # docstring). Generous on purpose: the cost of pausing is one idle slot,
 # the cost of proceeding is a wasted slot or a hung machine.
 DEFAULT_MIN_FREE_MB = 1800
+# A worker under --shared-inference holds no model: it ships the
+# encoded leaf to the server and waits. Measured peak RSS per game
+# process on that path is about 400 MB (the per-game telemetry in
+# eval_games/), so the full-fat floor refuses jobs a box can easily
+# run -- on a 31 GB box it capped a 20-job match at 13. The shared
+# floor keeps a 1.7x margin over the measurement.
+SHARED_INFERENCE_MIN_FREE_MB = 700
 
 
 def free_mb() -> Optional[float]:
@@ -398,7 +405,12 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--seed-base", type=int, default=10_000)
     ap.add_argument("--time-budget-min", type=float, default=55.0,
                     help="Stop cleanly after this long. Re-run to continue.")
-    ap.add_argument("--min-free-mb", type=float, default=DEFAULT_MIN_FREE_MB)
+    ap.add_argument("--min-free-mb", type=float, default=None,
+                    help=f"Free system memory to require per concurrent game before "
+                         f"starting a chunk. Default {DEFAULT_MIN_FREE_MB:.0f} MB, or "
+                         f"{SHARED_INFERENCE_MIN_FREE_MB:.0f} MB under --shared-inference, "
+                         f"where the worker holds no model (measured peak about 400 MB "
+                         f"per game).")
     ap.add_argument("--device", default="auto",
                     choices=("auto", "cpu", "cuda"),
                     help="Passed to each game. On a GPU box use 'cuda' "
@@ -629,7 +641,11 @@ def main(argv: List[str]) -> int:
         log.info("explicit --jobs %d (auto would pick: %s)",
                  jobs, how)
     # Every concurrent game needs its own headroom, so the floor scales.
-    floor = args.min_free_mb * jobs
+    min_free = args.min_free_mb
+    if min_free is None:
+        min_free = (SHARED_INFERENCE_MIN_FREE_MB if args.shared_inference
+                    else DEFAULT_MIN_FREE_MB)
+    floor = min_free * jobs
     _peak_rss: dict = {}   # pid -> max sampled RSS (MB), best effort
     played = failed = 0
     max_extra = (args.games // 2 if args.max_extra_games is None
@@ -866,12 +882,15 @@ def main(argv: List[str]) -> int:
             # against the server's hello).
             for side, spec in (("a", args.spec_a), ("b", args.spec_b)):
                 if spec in servers:
-                    # Round-robin by game index: with one server this is
-                    # the old behaviour, with several it spreads the
-                    # workers over them.
+                    # Spread the games over the servers WITHOUT lining
+                    # the assignment up with the side swap: slots
+                    # alternate side_a, so `i % 2` would send every
+                    # A-plays-side-1 game to one server and every
+                    # A-plays-side-2 game to another, confounding any
+                    # difference between the servers with the side.
                     handles = servers[spec]
                     cmd += [f"--inference-address-{side}",
-                            handles[i % len(handles)].address]
+                            handles[(i // 2) % len(handles)].address]
             cmd += ["--infer-bf16" if shared_bf16 else "--no-infer-bf16",
                     "--no-infer-compile",
                     "--infer-packed-trunk" if shared_packed

@@ -662,6 +662,12 @@ def tree_depth_stats(root: "MCTSNode") -> Tuple[int, float, int]:
 # Core operations
 # ---------------------------------------------------------------------
 
+# Endings the search invents for an action the sim refused, as opposed
+# to a game that actually ended (see the sentinel children in
+# `_select_one`). They are never scored by the draw tiebreak.
+_SENTINEL_ENDINGS = frozenset({"step_error", "noop_resample"})
+
+
 def _terminal_value(
     sim:  WesnothSim,
     side: int,
@@ -670,9 +676,16 @@ def _terminal_value(
     """v(terminal_state) from `side`'s perspective. Win: +1.
     Loss: -1. Ties / turn-cap timeouts: 0, or the material
     differential in (-cap, +cap) when `tiebreak` is configured
-    (see tools/draw_tiebreak.py)."""
+    (see tools/draw_tiebreak.py).
+
+    The SENTINEL pseudo-terminals are always 0: a step that errored or
+    a no-op resample is not a draw the side reached, it is an action
+    the sim refused, and pricing it by material would make "try the
+    illegal recruit again" look like a favourable draw to a side that
+    is ahead -- the search would steer into rejected actions exactly
+    when it is winning."""
     if sim.winner == 0:
-        if tiebreak is not None:
+        if tiebreak is not None and getattr(sim, "ended_by", "") not in _SENTINEL_ENDINGS:
             return draw_tiebreak_z(sim.gs, side, tiebreak)
         return 0.0
     return 1.0 if sim.winner == side else -1.0

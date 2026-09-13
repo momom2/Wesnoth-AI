@@ -243,6 +243,15 @@ def test_encode_raw_from_core_is_byte_identical():
     assert n >= 64
 
 
+def _one_sim(seed: int, *, mini: bool, max_turns: int, use_core: bool):
+    from tests.sim_test_helpers import scenario_setup
+    from tools.scenario_pool import build_scenario_gamestate
+    from tools.wesnoth_sim import WesnothSim
+    setup = scenario_setup(seed, mini=mini)
+    return WesnothSim(build_scenario_gamestate(setup), scenario_id=setup.scenario_id,
+                      max_turns=max_turns, use_core=use_core)
+
+
 def _twin_sims(seed: int, *, mini: bool, max_turns: int):
     """Two simulators from one starting state: the Python state of
     record and the core as the state of record."""

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import torch
 from typing import Dict, List, Optional
 
 log = logging.getLogger("signal_telemetry")
@@ -80,16 +81,17 @@ def _grad_norm(trainer, exps: List) -> float:
     trainer.config.grad_clip = 1e9
     try:
         trainer.step_mcts(list(exps))
-        tot = 0.0
-        for p in trainer.model.parameters():
-            if p.grad is not None:
-                tot += float(p.grad.detach().pow(2).sum().item())
+        # One device-to-host read for the whole norm. Reading each of
+        # the ~175 parameters' gradients back with its own .item() is
+        # ~175 syncs per call and this runs four times an iteration.
         enc = getattr(trainer, "encoder", None)
+        params = list(trainer.model.parameters())
         if enc is not None:
-            for p in enc.parameters():
-                if p.grad is not None:
-                    tot += float(p.grad.detach().pow(2).sum().item())
-        return tot ** 0.5
+            params += list(enc.parameters())
+        squares = [p.grad.detach().pow(2).sum() for p in params if p.grad is not None]
+        if not squares:
+            return 0.0
+        return float(torch.stack(squares).sum().sqrt().item())
     finally:
         trainer.optimizer = real_opt
         trainer.config.grad_clip = real_clip

@@ -220,12 +220,14 @@ def main(argv) -> int:
                          "server for nine tenths of its cycle (it holds one "
                          "request in flight), so the actor count buys in-flight "
                          "leaves, not CPU: measured 2026-09-13 on a 24-core 4090 "
-                         "box, 19 -> 665, 32 -> 914, 48 -> 1,006 leaf "
-                         "evaluations/s against a server saturating near 1,500 "
-                         "(docs/box_specs.md \"Actors buy in-flight leaves\"). "
-                         "Past 32 the return flattens; a container's pids limit "
-                         "and actor RAM are the ceiling (38 actors hit one in "
-                         "2026-09-04).")
+                         "box, 19 -> 665, 32 -> 914, 48 -> 1,006, 64 -> 1,116 "
+                         "leaf evaluations/s against a server saturating near "
+                         "1,500 (docs/box_specs.md \"Actors buy in-flight "
+                         "leaves\"). The curve was still rising at 64, so raise "
+                         "this on a box that can take it; the default stays "
+                         "under the pids limit that killed a 2026-09-04 run at "
+                         "38 actors (it produced 0 leaves/s, so the failure is "
+                         "worth avoiding by default).")
     ap.add_argument("--sims", type=int, default=32)
     ap.add_argument("--value-coef", type=float, default=1.0)
     ap.add_argument("--lr", type=float, default=1e-4)
@@ -350,11 +352,6 @@ def main(argv) -> int:
     # CPU work. Cap torch's intra-op pool (default: every hardware
     # thread of the host, far beyond the cgroup quota). See bench_pool.
     torch.set_num_threads(4)
-    # fp32 matmuls on the tensor cores for the learner (training only;
-    # the actors' sim and the eval path are never touched).
-    if device.type == "cuda":
-        from wesnoth_ai.train_perf import enable_tf32
-        enable_tf32(True)
     dev_str = "cuda" if device.type == "cuda" else "cpu"
     ckpt_in = args.campaign if args.campaign.exists() else args.seed_checkpoint
     base = _load_policy(ckpt_in, device, label="az")
@@ -534,7 +531,12 @@ def main(argv) -> int:
             def _take_step():
                 with policy._lock:
                     policy._queue = list(train_exps)
-                captured["stats"] = policy.train_step()
+                # TF32 for the learner's matmuls only: this process
+                # also serves the actors' inference, and that must keep
+                # the numerics the spawned serve processes use.
+                from wesnoth_ai.train_perf import tf32_training
+                with tf32_training():
+                    captured["stats"] = policy.train_step()
                 return captured["stats"]
 
             res = backtracking_step(base, _take_step, train_exps, held_exps,
