@@ -1469,8 +1469,12 @@ def _trainer_step_mcts(
     distribution, plus a value term against the terminal outcome z.
 
     `no_grad=True` MEASURES the loss and changes nothing: the backward,
-    the clip and the optimizer step are skipped and the chunk forwards
-    run under `torch.no_grad()`. The held-out line search
+    the clip and the optimizer step are skipped. The CALLER is expected
+    to wrap this in `torch.no_grad()` so the chunk forwards build no
+    graph either (doing it here would mean disabling grad mode
+    globally and restoring it by hand, which an exception in the chunk
+    loop would skip -- leaving every later training step silently
+    gradient-free). The held-out line search
     (tools/step_control.held_loss) wants two scalars per trial and paid
     a full backward plus a clip for them, which the batched-step
     measurements put at 13-32% of a step.
@@ -1663,12 +1667,6 @@ def _trainer_step_mcts(
     # MCTSExperience.game_weight / policy_weight).
     policy_coef = (gws * pws / total_gw).tolist()
 
-    # Under no_grad the chunk forwards build no autograd graph either:
-    # the probe reads two scalars and nothing downstream differentiates
-    # them.
-    _grad_ctx = torch.set_grad_enabled(not no_grad)
-    _grad_ctx.__enter__()
-
     for start in range(0, N, B):
         chunk = experiences[start:start + B]
         L = len(chunk)
@@ -1731,8 +1729,6 @@ def _trainer_step_mcts(
 
         del chunk_loss, policy_loss_t, value_loss, targets
         del encoded_chunk, padded
-
-    _grad_ctx.__exit__(None, None, None)
 
     if no_grad:
         grad_norm = torch.tensor(0.0)

@@ -17,6 +17,8 @@ from __future__ import annotations
 import logging
 import math
 import statistics
+
+import torch
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
@@ -69,7 +71,7 @@ def held_loss(base, exps: List) -> Dict[str, float]:
     and the backward plus clip it used to pay for are 13-32% of a step.
     The stubbed optimizer stays as a second guard on the weights."""
     tr = base._trainer
-    with _StubbedOptimizerStep(tr):
+    with torch.no_grad(), _StubbedOptimizerStep(tr):
         st = tr.step_mcts(list(exps), no_grad=True)
     tr.optimizer.zero_grad(set_to_none=True)
     return {"policy_ce": float(st.policy_loss),
