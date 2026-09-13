@@ -403,7 +403,7 @@ def main(argv: List[str]) -> int:
                     choices=("auto", "cpu", "cuda"),
                     help="Passed to each game. On a GPU box use 'cuda' "
                          "even with --jobs > 1: profiled 2026-08-28, "
-                         "eval games are 86-90% model forward, cuda ran "
+                         "eval games are 86-90%% model forward, cuda ran "
                          "10x faster, and a game process holds only "
                          "~420MB VRAM (a 12GB card fits ~20 concurrent "
                          "games). 'cpu' is for GPU-less boxes.")

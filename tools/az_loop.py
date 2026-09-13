@@ -215,7 +215,17 @@ def main(argv) -> int:
     ap.add_argument("--workdir", type=Path, default=Path("/workspace"))
     ap.add_argument("--iterations", type=int, default=60)
     ap.add_argument("--games-per-iter", type=int, default=24)
-    ap.add_argument("--actors", type=int, default=8)
+    ap.add_argument("--actors", type=int, default=32,
+                    help="Actor processes. An actor is BLOCKED on the inference "
+                         "server for nine tenths of its cycle (it holds one "
+                         "request in flight), so the actor count buys in-flight "
+                         "leaves, not CPU: measured 2026-09-13 on a 24-core 4090 "
+                         "box, 19 -> 665, 32 -> 914, 48 -> 1,006 leaf "
+                         "evaluations/s against a server saturating near 1,500 "
+                         "(docs/box_specs.md \"Actors buy in-flight leaves\"). "
+                         "Past 32 the return flattens; a container's pids limit "
+                         "and actor RAM are the ceiling (38 actors hit one in "
+                         "2026-09-04).")
     ap.add_argument("--sims", type=int, default=32)
     ap.add_argument("--value-coef", type=float, default=1.0)
     ap.add_argument("--lr", type=float, default=1e-4)
@@ -291,7 +301,7 @@ def main(argv) -> int:
                          "losses, the master weights and AdamW stay fp32. "
                          "Batch 16 on a 4090: 45.0 against 57.1 ms per "
                          "experience, loss within 3e-4 of fp32, gradient "
-                         "cosine 0.9994, norm within 0.3% on one batch of "
+                         "cosine 0.9994, norm within 0.3%% on one batch of "
                          "64 (docs/box_specs.md 'Training path cost "
                          "(2026-09-05)'). Default on.")
     ap.add_argument("--packed-trunk", action=argparse.BooleanOptionalAction,

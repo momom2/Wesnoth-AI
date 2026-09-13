@@ -511,7 +511,7 @@ def main(argv) -> int:
     ap.add_argument("--device", default="auto", choices=("auto", "cpu", "cuda"),
                     help="'auto' (default) uses CUDA when visible. PREFER "
                          "cuda when a GPU exists: profiled 2026-08-28, "
-                         "86-90% of a CPU game is the model forward, and "
+                         "86-90%% of a CPU game is the model forward, and "
                          "the same game ran 10x faster on a 3060 at "
                          "~420MB VRAM per game process (6 concurrent = "
                          "2.5/12GB -- a 12GB card fits ~20 games). 'cpu' "
