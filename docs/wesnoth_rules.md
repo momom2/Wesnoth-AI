@@ -860,6 +860,76 @@ and the attacker's strikes proceed normally. Our combat resolver
 must skip the counter-attack when defender is petrified (we already
 do this in `tools/replay_dataset.py`).
 
+### At most ONE combatant dies per fight, and the plague corpse rises after the victim is erased
+
+A fight can never end with both units dead. Only the target of a
+strike takes damage, and a death ends the fight
+(`attack.cpp:1161-1163`, `if(dies) { ... return false; }`). The one
+code path that could kill the striker — negative drain — is floored
+so it cannot:
+
+`wesnoth_src/src/actions/attack.cpp:1039-1040`:
+```cpp
+		// if drain is negative, don't allow drain to kill the attacker
+		drains_damage = std::max<int>(drains_damage, 1 - attacker.get_unit().hitpoints());
+```
+
+so `take_hit(-drains_damage)` always leaves at least 1 HP and the
+`attacker_dies` branch never fires, `attack.cpp:1143-1159`:
+```cpp
+	bool attacker_dies = false;
+
+	if(drains_damage > 0) {
+		attacker.get_unit().heal(drains_damage);
+	} else if(drains_damage < 0) {
+		attacker_dies = attacker.get_unit().take_hit(-drains_damage);
+	}
+
+	if(dies) {
+		unit_killed(attacker, defender, attacker_stats, defender_stats, false);
+		update_fog = true;
+	}
+
+	if(attacker_dies) {
+		unit_killed(defender, attacker, defender_stats, attacker_stats, true);
+		(attacker_turn ? update_att_fog_ : update_def_fog_) = true;
+	}
+```
+
+Even if it did, that call passes `drain_killed=true`, which gates the
+plague spawn off, `attack.cpp:1283-1287`:
+```cpp
+	units_.erase(defender.loc_);
+	resources::whiteboard->on_kill_unit();
+
+	// Plague units make new units on the target hex.
+	if(attacker.valid() && attacker_stats->plagues && !drain_killed) {
+```
+
+Note the ORDER in that same quote: the dead unit is erased from the
+unit map BEFORE the corpse is created, and the corpse takes a fresh
+id from the monotonic `id_manager` (`unit::create`), not from the
+surviving units. `attacker.valid()` is what makes the plague
+direction-agnostic: on a counter-kill the roles are swapped at the
+call site (`unit_killed(defender, attacker, ...)`), so the defender's
+plague weapon raises a corpse for the DEFENDER's side on the
+attacker's hex.
+
+**Why non-obvious**: `unit_killed`'s parameters are named
+`attacker`/`defender` but hold the STRIKER and its TARGET for the
+strike that landed the kill, so the reverse-plague case reads as the
+forward one. And the `attacker_dies` branch looks like a live
+both-die path until you trace the floor 100 lines earlier.
+
+Our mirrors: `wesnoth_ai/combat.py::_perform_hit_body` (`heal =
+max(heal, 1 - striker.hp)`) and `rust/wesnoth_core/src/combat.rs`;
+both fight loops break on the first death, so `resolve_attack` cannot
+return `attacker_alive=False` together with `defender_alive=False`.
+The two appliers (`replay_dataset.py::_apply_command` "attack" and
+`wesnoth_ai/game_core.py::_apply_attack`) therefore agree on the
+corpse's id even though the core erases both combatants up front
+while Python erases them one branch at a time.
+
 ### Chance-to-hit formula uses `accuracy` and `parry`
 
 `wesnoth_src/src/actions/attack.cpp:168-169`:

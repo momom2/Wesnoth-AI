@@ -86,8 +86,11 @@ export PATH="$HOME/.cargo/bin:$PATH"
 python -m pip install -q maturin >/dev/null 2>&1
 touch rust/wesnoth_core/src/*.rs
 python -m pip install --force-reinstall --no-deps rust/wesnoth_core > "$OUT/build.log" 2>&1
-python -c "import wesnoth_core; print('wheel phase', wesnoth_core.__phase__)" | tee -a "$OUT/build.log" \
-    || echo "BUILD_FAILED (the Python path still certifies; the core half does not)" | tee -a "$OUT/build.log"
+# Phase 9 carries the rows_from_landable token bounds check. Two tests
+# skip below it, so record the number rather than only printing it.
+python -c "import wesnoth_core; p = wesnoth_core.__phase__; print('wheel phase', p); \
+assert p >= 9, f'wheel is phase {p}; the token bounds check landed in 9'" | tee -a "$OUT/build.log" \
+    || echo "BUILD_FAILED or PRE-PHASE-9 (the Python path still certifies; the core half does not)" | tee -a "$OUT/build.log"
 {
     echo "cores(nproc)  $(nproc --all)"
     echo "cpu.max       $(cat /sys/fs/cgroup/cpu.max 2>/dev/null || echo n/a)"

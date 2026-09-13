@@ -292,6 +292,16 @@ pub(crate) fn landable_rows(
 /// hex (rejection not applied). Units with `unit_hexidx` < 0 get
 /// empty rows. `tok_of_hex[i]` maps a map hex to its token slot or -1
 /// (the full board or the relevant subset).
+///
+/// Every non-negative `tok_of_hex` entry must be < `ht`. The caller
+/// builds the two from the same hex-position list, so the invariant
+/// holds by construction today; it is checked anyway because breaking
+/// it does NOT fail loudly. `row[u * ht + tok]` with `tok >= ht` still
+/// lands inside the buffer for every unit but the last, so the write
+/// silently sets a bit in the NEXT unit's row — a legality row that
+/// looks like a model error, not like a kernel bug. Only the last
+/// unit's overflow leaves the buffer and panics (CLAUDE.md: failures
+/// are visible). One O(H) pass, negligible beside the Dijkstra.
 #[allow(clippy::too_many_arguments)]
 fn rows_from_landable(
     landable: &[u8],
@@ -313,6 +323,11 @@ fn rows_from_landable(
     {
         return Err(pyo3::exceptions::PyValueError::new_err(
             "inconsistent array lengths",
+        ));
+    }
+    if tok_of_hex.iter().any(|&t| t >= 0 && t as usize >= ht) {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "token index out of range for the row width",
         ));
     }
     let mut move_rows = vec![0u8; un * ht];
@@ -510,6 +525,8 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(combat::resolve_attack, m)?)?;
     m.add_function(wrap_pyfunction!(combat::random_int, m)?)?;
     m.add_class::<core::GameCore>()?;
-    m.add("__phase__", 8)?;
+    // 9: rows_from_landable rejects a token index >= the row width
+    // instead of writing it into the next unit's row.
+    m.add("__phase__", 9)?;
     Ok(())
 }

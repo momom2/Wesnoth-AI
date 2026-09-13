@@ -53,6 +53,17 @@ def test_summer_frosts_prestart_capture_village():
     assert owner.get((39, 6)) == 2, owner
 
 
+def _marshy_leader(gs):
+    """Side 1's leader at WML (18,1), read fresh from the unit set.
+
+    `[modify_unit]` REPLACES the Unit object instead of writing to it
+    (the fork-safety pattern, `scenario_events._swap_unit`), so a
+    reference taken before an event fires goes stale."""
+    return next(u for u in gs.map.units
+                if u.side == 1 and u.position.x == 17
+                and u.position.y == 0)
+
+
 def test_marshy_fill_leader_mp_shave_6mp():
     """WL Marshy Fill start event: side-1 leader at WML (18,1) with
     5 <= max_moves <= 8 gets current moves = 9 - moves on turn 1.
@@ -73,19 +84,18 @@ def test_marshy_fill_leader_mp_branches():
     """The [if] branches on a re-fired fresh event list: moves >= 9
     -> 0; moves <= 4 -> untouched (condition greater_than=4 fails)."""
     sim = _fresh_sim("WL_Marshy_Fill")
-    leader = next(u for u in sim.gs.map.units
-                  if u.side == 1 and u.position.x == 17
-                  and u.position.y == 0)
     # >= 9 branch: else-arm of the inner [if] sets 0.
-    leader.current_moves = 9
+    _marshy_leader(sim.gs).current_moves = 9
     fire_event(sim.gs, load_events_for_scenario("WL_Marshy_Fill"),
                "start")
-    assert leader.current_moves == 0, leader.current_moves
+    moves = _marshy_leader(sim.gs).current_moves
+    assert moves == 0, moves
     # <= 4 branch: outer [if] condition false, no [else] -> untouched.
-    leader.current_moves = 4
+    _marshy_leader(sim.gs).current_moves = 4
     fire_event(sim.gs, load_events_for_scenario("WL_Marshy_Fill"),
                "start")
-    assert leader.current_moves == 4, leader.current_moves
+    moves = _marshy_leader(sim.gs).current_moves
+    assert moves == 4, moves
 
 
 def test_vendored_seamless_variant_shares_event_logic():

@@ -129,3 +129,57 @@ def test_rust_enumeration_matches_python_masks():
     assert engaged[0] >= 2, (
         f"rust path engaged on only {engaged[0]} states -- the "
         f"differential proved nothing; widen the state sample")
+
+
+# ---------------------------------------------------------------------
+# rows_from_landable bounds-checks the token index (lib.rs)
+# ---------------------------------------------------------------------
+#
+# `move_rows[u * ht + tok]` with `tok >= ht` still lands inside the
+# buffer for every unit but the last, so an overflowing token index
+# silently sets a bit in the NEXT unit's legality row; only the last
+# unit's overflow leaves the buffer and panics. The production callers
+# build `tok_of_hex` and `ht` from the same hex-position list, so the
+# invariant holds by construction -- this pins the kernel's own
+# contract so a future basis change cannot break it quietly.
+
+_PHASE = getattr(wesnoth_core, "__phase__", 0)
+_needs_bounds_check = pytest.mark.skipif(
+    _PHASE < 9, reason=f"wheel is phase {_PHASE}; the token bounds check landed in 9")
+
+
+def _line_map_call(tok_of_hex, ht, un=2):
+    """Three hexes in a line (0-1-2), unit 0 on hex 0 with the moves to
+    reach both others, unit 1 parked on hex 2 and unable to move."""
+    import numpy as np
+    nbrs = np.array([1, -1, -1, -1, -1, -1,
+                     0, 2, -1, -1, -1, -1,
+                     1, -1, -1, -1, -1, -1], dtype=np.int64)
+    flat = np.zeros(3, dtype=np.uint8)
+    return wesnoth_core.enumerate_moves(
+        nbrs, np.asarray(tok_of_hex, dtype=np.int64),
+        np.ones(3, dtype=np.int64), np.zeros(3, dtype=np.int64),
+        np.array([0, 2][:un], dtype=np.int64), np.zeros(un, dtype=np.int64),
+        np.full(un, 5, dtype=np.int64), np.zeros(un, dtype=np.uint8),
+        np.array([1, 0][:un], dtype=np.uint8), np.zeros(un, dtype=np.uint8),
+        flat, flat, flat, flat, flat, np.zeros(0, dtype=np.int64), ht)
+
+
+@_needs_bounds_check
+def test_token_index_past_the_row_width_is_rejected():
+    """tok 1 with ht 1 used to write into unit 1's row and come back
+    clean; it must raise instead."""
+    with pytest.raises(ValueError):
+        _line_map_call([0, 0, 1], ht=1)
+
+
+def test_the_same_arrays_enumerate_normally_when_the_width_fits():
+    """Positive control: identical inputs with ht 2 must succeed and
+    produce the real rows, so the rejection above is about the bound
+    and not about a malformed call the kernel would refuse anyway.
+    Ungated on purpose -- it holds on every wheel, so it keeps proving
+    the fixture is a real enumeration even where the test above skips."""
+    mv, at = _line_map_call([0, 0, 1], ht=2)
+    # unit 0 reaches hexes 1 and 2 (tokens 0 and 1); unit 1 cannot move.
+    assert mv.tolist() == [1, 1, 0, 0], mv.tolist()
+    assert at.tolist() == [0, 0, 0, 0], at.tolist()

@@ -22,6 +22,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -440,3 +442,83 @@ def test_the_unknown_type_fallback_is_reported():
     name = "Not A Wesnoth Unit (test)"
     assert _stats_for(name) is _FALLBACK_STATS
     assert name in unknown_unit_types()
+
+
+# ---------------------------------------------------------------------
+# the Rust combat bridge and the Python oracle agree about the
+# defender weapon index (wesnoth_ai/combat.py::_resolve_attack_rust)
+# ---------------------------------------------------------------------
+#
+# The bridge used to fold "index past the end of the weapon list" into
+# its `d_has` flag, so an out-of-range index resolved as a one-sided
+# fight while `_resolve_attack_python` -- the certified oracle -- raised
+# IndexError on the same input. These drive the real dispatch (the
+# module-level kernel handle is pointed at a stub, so they run without
+# the wheel) and fail if the two paths part ways again.
+
+def _stub_kernel(seen):
+    """Stands in for `wesnoth_core.resolve_attack`: records the `d_has`
+    flag the bridge computed, returns an inert fight and no strikes."""
+    import numpy as np
+
+    def kernel(*args):
+        seen.append(args[4])
+        return ((40, 40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+                np.zeros(0, dtype=np.int64))
+    return kernel
+
+
+def _bridged_fight(d_weapon_idx, seen, d_weapons=1):
+    """One fight through the public `resolve_attack` with the bridge
+    dispatched onto the stub -- the production entry point, not a copy."""
+    sword = cb.Weapon("sword", damage=6, number=3, range="melee", type="blade")
+    attacker = _mkunit([sword])
+    defender = _mkunit([cb.Weapon(f"axe{i}", 6, 3, "melee", "blade")
+                        for i in range(d_weapons)])
+    saved = (cb._RUST_COMBAT, cb._RUST_COMBAT_CHECKED)
+    cb._RUST_COMBAT, cb._RUST_COMBAT_CHECKED = _stub_kernel(seen), True
+    try:
+        return cb.resolve_attack(attacker, defender, 0, d_weapon_idx, 0, 0,
+                                 cb.MTRng("deadbeef"))
+    finally:
+        cb._RUST_COMBAT, cb._RUST_COMBAT_CHECKED = saved
+
+
+def test_rust_bridge_passes_the_defender_weapon_the_oracle_would_use():
+    """Positive control for the two tests below: the stub really is on
+    the production path, and the legitimate "no counter-attack"
+    encodings (None and -1) still reach the kernel as `d_has` False
+    while a valid index reaches it as True."""
+    seen = []
+    _bridged_fight(0, seen)
+    _bridged_fight(None, seen)
+    _bridged_fight(-1, seen)
+    assert seen == [True, False, False], (
+        f"bridge handed the kernel d_has={seen}; the stub may not be "
+        f"on the dispatch path at all")
+
+
+def test_rust_bridge_raises_on_an_out_of_range_defender_weapon():
+    """An index past the end of the weapon list is a caller bug, not a
+    third spelling of "no counter-attack". The bridge must raise rather
+    than drop a counter-attack the defender is owed."""
+    seen = []
+    with pytest.raises(IndexError):
+        _bridged_fight(1, seen, d_weapons=1)
+    assert seen == [], "the kernel was called with a bad weapon index"
+
+
+def test_the_oracle_raises_on_the_same_out_of_range_defender_weapon():
+    """The behaviour the bridge is matched against: `_compute_battle_stats`
+    indexes `defender.weapons[d_weapon_idx]` for any index >= 0."""
+    sword = cb.Weapon("sword", damage=6, number=3, range="melee", type="blade")
+    with pytest.raises(IndexError):
+        cb._resolve_attack_python(_mkunit([sword]),
+                                  _mkunit([cb.Weapon("axe", 6, 3, "melee", "blade")]),
+                                  0, 1, 0, 0, cb.MTRng("deadbeef"))
+    # control: the same fight with the in-range index resolves, so the
+    # raise above is about the index and not about the fixture.
+    got = cb._resolve_attack_python(_mkunit([sword]),
+                                    _mkunit([cb.Weapon("axe", 6, 3, "melee", "blade")]),
+                                    0, 0, 0, 0, cb.MTRng("deadbeef"))
+    assert got.attacker_hp_after < 40, "defender never countered; fixture is inert"

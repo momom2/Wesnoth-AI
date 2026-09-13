@@ -151,3 +151,31 @@ def test_mp_checkup_fixture_bit_exact_through_the_kernel():
             checked += 1
         _apply_command(gs, cmd)
     assert checked == len(recorded) > 20 and strikes > 100
+
+
+def test_kernel_path_raises_on_an_out_of_range_defender_weapon():
+    """The kernel path must reject a defender weapon index past the end
+    of the weapon list, as `_resolve_attack_python` does, instead of
+    resolving the fight with no counter-attack. Needs the wheel because
+    the assertion is that the REAL dispatch raises before the kernel
+    runs -- tests/test_combat_rules.py covers the bridge on a stub."""
+    rng = random.Random(20260913)
+    att, dfd = _unit(rng, 1), _unit(rng, 2)
+    bad = len(dfd.weapons)                       # one past the end
+    assert cb.rust_combat_kernel() is not None, "kernel gate let a stale wheel through"
+
+    with pytest.raises(IndexError):
+        cb.resolve_attack(copy.deepcopy(att), copy.deepcopy(dfd), 0, bad, 0, 0,
+                          cb.MTRng("deadbeef"))
+    with pytest.raises(IndexError):
+        cb._resolve_attack_python(copy.deepcopy(att), copy.deepcopy(dfd), 0, bad, 0, 0,
+                                  cb.MTRng("deadbeef"))
+
+    # Positive control: the in-range index still resolves through the
+    # kernel and matches the oracle, so the raises above are about the
+    # index and not about the fixture or the dispatch being broken.
+    k_att, k_dfd = copy.deepcopy(att), copy.deepcopy(dfd)
+    p_att, p_dfd = copy.deepcopy(att), copy.deepcopy(dfd)
+    k = cb.resolve_attack(k_att, k_dfd, 0, bad - 1, 0, 0, cb.MTRng("deadbeef"))
+    p = cb._resolve_attack_python(p_att, p_dfd, 0, bad - 1, 0, 0, cb.MTRng("deadbeef"))
+    assert _same(k, p), "kernel and oracle disagree on the in-range fight"

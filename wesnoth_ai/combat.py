@@ -543,9 +543,12 @@ class CombatResult:
     # kill); a Walking Corpse should spawn on the DEFENDER's side
     # at the ATTACKER's hex. When False (and plague_spawned), the
     # standard direction applies (attacker killed defender; corpse
-    # on attacker's side at defender's hex). Both flags can be set
-    # if both sides have plague AND both die in the same combat —
-    # see replay_dataset's plague handler for resolution.
+    # on attacker's side at defender's hex). The two flags are
+    # mutually exclusive: a fight ends on the first death, and the
+    # only engine path that could kill a striker (negative drain) is
+    # floored at 1 HP, so both combatants can never be dead at the
+    # end of one fight -- docs/wesnoth_rules.md "At most ONE
+    # combatant dies per fight".
     plague_spawned_attacker_died: bool = False
     # Attacker turned to stone by the defender's petrifying COUNTER
     # (rare -- needs a petrifying counter-weapon; no default-era unit
@@ -632,7 +635,21 @@ def _resolve_attack_rust(kernel, attacker, defender, a_weapon_idx, d_weapon_idx,
     kernel replays its draws and the wrapper advances the Python rng
     by the same count."""
     a_weapon = attacker.weapons[a_weapon_idx]
-    d_has = d_weapon_idx is not None and 0 <= d_weapon_idx < len(defender.weapons)
+    # None and -1 are Wesnoth's "no counter-attack" (battle_context
+    # leaves defender_weapon at -1 when the defender has no usable
+    # weapon), and that is all they are. An index past the end of the
+    # weapon list is a caller bug, not a third encoding of "no
+    # counter": raise it, exactly as `_resolve_attack_python` does
+    # (its `_compute_battle_stats(defender, ...)` indexes the list).
+    # Swallowing it would drop a counter-attack the defender is owed
+    # and resolve a different fight than the oracle — the two paths
+    # must not disagree about any input (CLAUDE.md: the simulator must
+    # be perfectly faithful; failures are visible).
+    d_has = d_weapon_idx is not None and d_weapon_idx >= 0
+    if d_has and d_weapon_idx >= len(defender.weapons):
+        raise IndexError(
+            f"defender weapon index {d_weapon_idx} out of range "
+            f"({len(defender.weapons)} weapons)")
     d_weapon = defender.weapons[d_weapon_idx] if d_has else None
     a_ints, a_flags = _unit_arrays(attacker, defender, a_weapon, d_weapon.type if d_has else None)
     d_ints, d_flags = _unit_arrays(defender, attacker, d_weapon, a_weapon.type)

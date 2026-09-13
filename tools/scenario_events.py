@@ -28,6 +28,7 @@ Dependents: tools.replay_dataset
 """
 from __future__ import annotations
 
+import copy as _copy
 import logging
 import re
 from dataclasses import dataclass, field
@@ -1035,6 +1036,21 @@ def _units_matching_filter(gs: GameState, flt: Optional[WMLNode]):
     return out
 
 
+def _swap_unit(gs: GameState, old, new) -> None:
+    """Put `new` in `old`'s place in the fork-local unit set.
+
+    `gs.map.units` is a per-fork SET whose Unit ELEMENTS are shared
+    with the parent and every sibling fork (`Map.__deepcopy__`), so an
+    event handler that changes a unit must build a replacement and
+    swap it in -- assigning to the shared object's attributes rewrites
+    the live game from inside a search (tests/test_fork_isolation.py).
+    Unit eq/hash is (id, side), so discard+add replaces the right
+    element however many fields changed (wesnoth_ai/classes.py:120).
+    """
+    gs.map.units.discard(old)
+    gs.map.units.add(new)
+
+
 def _store_unit_action(gs: GameState, action: WMLNode) -> None:
     """`[store_unit] [filter]..[/filter] variable=V` -- snapshot the
     matched units' scalar attributes into WML variables (`V.moves`,
@@ -1136,21 +1152,33 @@ def _modify_unit_action(gs: GameState, action: WMLNode) -> None:
     """`[modify_unit] [filter]..[/filter] attr=value` for the scalar
     attrs in _MODIFY_UNIT_SCALARS. Marshy Fill's start event uses
     moves=$leader1_moves to shave side 1's leader MP on turn 1 (the
-    anti-first-move-advantage tweak)."""
+    anti-first-move-advantage tweak).
+
+    Uses the replace-unit pattern (`_swap_unit`): the matched units
+    are the fork-SHARED Unit objects, so the new values go on a
+    shallow copy that is swapped into the fork-local set."""
     flt = action.first("filter")
     if flt is None:
         return
+    changes: Dict[str, int] = {}
+    for attr, ufield in _MODIFY_UNIT_SCALARS.items():
+        if attr not in action.attrs:
+            continue
+        raw = _subst_wml_vars(gs, action.attrs[attr]).strip().strip('"')
+        try:
+            val = int(float(raw))
+        except ValueError:
+            continue
+        changes[ufield] = max(0, val)
+    if not changes:
+        return
+    # `_units_matching_filter` materialises its list, so swapping
+    # elements of `gs.map.units` below cannot disturb the iteration.
     for u in _units_matching_filter(gs, flt):
-        for attr, ufield in _MODIFY_UNIT_SCALARS.items():
-            if attr not in action.attrs:
-                continue
-            raw = _subst_wml_vars(
-                gs, action.attrs[attr]).strip().strip('"')
-            try:
-                val = int(float(raw))
-            except ValueError:
-                continue
-            setattr(u, ufield, max(0, val))
+        new_u = _copy.copy(u)
+        for ufield, val in changes.items():
+            setattr(new_u, ufield, val)
+        _swap_unit(gs, u, new_u)
 
 
 _FACTION_LUA_RE = re.compile(
@@ -1789,7 +1817,6 @@ def _object_action(gs: GameState, action: WMLNode) -> None:
     # the original effects-outer loop: each effect touches only the
     # one unit it's applied to.
     effects = action.all("effect")
-    import copy as _copy
     for u in targets:
         new_u = _copy.copy(u)
         for eff in effects:
@@ -1807,8 +1834,7 @@ def _object_action(gs: GameState, action: WMLNode) -> None:
         setattr(new_u, "_object_effects",
                 list(getattr(new_u, "_object_effects", []) or []) +
                 list(effects))
-        gs.map.units.discard(u)
-        gs.map.units.add(new_u)
+        _swap_unit(gs, u, new_u)
 
 
 # Action-tag dispatch table.

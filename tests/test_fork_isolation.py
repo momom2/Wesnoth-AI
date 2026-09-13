@@ -21,6 +21,9 @@ Instances so far:
     `[effect]` mutations in place on shared Unit objects (dormant:
     current-pool [object]s all fire pre-fork, but one scenario away
     from live).
+  - 2026-09-13: `_modify_unit_action` wrote `[modify_unit]`'s scalar
+    attrs straight onto shared Unit objects -- the same class as the
+    [object] one, and dormant for the same reason.
 
 These tests exercise the production mutation paths directly on
 production forks -- no policy, no model, no RNG -- so they are
@@ -38,7 +41,9 @@ from sim_test_helpers import fresh_scenario_sim  # noqa: E402
 
 from tools.replay_dataset import _fire_turn_events  # noqa: E402
 from tools.replay_extract import WMLNode  # noqa: E402
-from tools.scenario_events import _object_action  # noqa: E402
+from tools.scenario_events import (  # noqa: E402
+    _modify_unit_action, _object_action,
+)
 from wesnoth_ai.classes import deep_state_fingerprint  # noqa: E402
 
 
@@ -160,6 +165,82 @@ def test_fork_object_effect_isolated():
     assert fu is not pu
 
 
+def _modify_unit_node(u, **attrs):
+    """A `[modify_unit]` that filters exactly `u`'s hex."""
+    node = WMLNode("modify_unit")
+    node.attrs = dict(attrs)
+    filt = WMLNode("filter")
+    filt.attrs = {"x": str(u.position.x + 1), "y": str(u.position.y + 1)}
+    node.children = [filt]
+    return node
+
+
+def test_fork_modify_unit_isolated():
+    """`[modify_unit]` writes the scalar attrs of units it pulls out of
+    `gs.map.units` -- the same fork-shared Unit objects as the
+    [object] case above. Fired inside a fork it must not rewrite the
+    parent's unit.
+
+    (Dormant today: the only `[modify_unit]` in either pool is Marshy
+    Fill's `start` event, which runs in `WesnothSim.__init__` before
+    any fork exists. `5p_The_Wilderlands` already carries one in a
+    `unit placed,post advance` event, so the tag is one scenario away
+    from firing mid-search.)"""
+    sim = fresh_scenario_sim(0)
+    u = min((x for x in sim.gs.map.units if x.side == 1),
+            key=lambda x: x.id)
+    before_moves, before_hp = u.current_moves, u.current_hp
+    new_moves, new_hp = before_moves + 1, max(1, before_hp - 1)
+    assert (new_moves, new_hp) != (before_moves, before_hp)
+
+    fork = sim.fork()
+    _modify_unit_action(fork.gs, _modify_unit_node(
+        u, moves=str(new_moves), hitpoints=str(new_hp)))
+
+    # Sanity: the FORK's unit took the change.
+    fu = _unit_by_id(fork.gs, u.id)
+    assert (fu.current_moves, fu.current_hp) == (new_moves, new_hp)
+
+    # THE leak assertions: the parent's unit is untouched.
+    pu = _unit_by_id(sim.gs, u.id)
+    assert (pu.current_moves, pu.current_hp) == (before_moves, before_hp), (
+        "[modify_unit] inside a fork leaked into the parent's unit"
+    )
+    assert fu is not pu
+
+
+def test_modify_unit_applies_outside_a_fork():
+    """Positive control for the replace-unit rewrite: the handler must
+    still change the live game when no fork is involved -- a version
+    that quietly wrote to a discarded copy would pass the isolation
+    test above and break Marshy Fill's leader-MP tweak."""
+    sim = fresh_scenario_sim(0)
+    u = min((x for x in sim.gs.map.units if x.side == 1),
+            key=lambda x: x.id)
+    target = u.current_moves + 2
+    _modify_unit_action(sim.gs, _modify_unit_node(u, moves=str(target)))
+    assert _unit_by_id(sim.gs, u.id).current_moves == target
+    # One element per id: discard+add must not double-insert.
+    assert sum(1 for x in sim.gs.map.units if x.id == u.id) == 1
+
+
+def test_modify_unit_keeps_non_field_stashes():
+    """The replacement is a shallow copy, so the setattr-stashed extras
+    every downstream reader depends on (`_defense_table`,
+    `_trait_order`, `_object_effects`, `_feeding_count`) must survive.
+    `dataclasses.replace` would silently drop them."""
+    sim = fresh_scenario_sim(0)
+    u = min((x for x in sim.gs.map.units if x.side == 1),
+            key=lambda x: x.id)
+    setattr(u, "_trait_order", ["quick"])
+    setattr(u, "_feeding_count", 3)
+    _modify_unit_action(sim.gs, _modify_unit_node(
+        u, moves=str(u.current_moves + 1)))
+    new_u = _unit_by_id(sim.gs, u.id)
+    assert getattr(new_u, "_trait_order", None) == ["quick"]
+    assert getattr(new_u, "_feeding_count", None) == 3
+
+
 # ---------------------------------------------------------------------
 # 3. Executable spec of the fork-shared attack surface
 # ---------------------------------------------------------------------
@@ -249,6 +330,11 @@ def test_deep_fingerprint_stable_across_fork_mutation():
     eff = WMLNode("effect")
     eff.attrs = {"apply_to": "attack", "increase_damage": "5"}
     obj.children = [filt, eff]
+    # `[modify_unit]` FIRST: once `_object_action` has swapped in a
+    # fork-private copy, a later in-place write lands on that copy and
+    # this guard could no longer see the leak.
+    _modify_unit_action(fork.gs, _modify_unit_node(
+        u, moves="0", hitpoints="1"))  # unit scalar mutation
     _object_action(fork.gs, obj)       # unit [effect] mutation
     fork.step({"type": "end_turn"})    # a real production step too
 
