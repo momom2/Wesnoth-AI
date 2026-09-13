@@ -133,25 +133,40 @@ def _done_report(payload) -> Tuple[int, Optional[Dict], Optional[int]]:
     return payload, None, None
 
 
-def _close_queue(q) -> None:
-    """Release one mp.Queue: drain what nobody read, close the pipe,
-    join the feeder thread.
+def _close_queue(q, drain: bool) -> None:
+    """Release one mp.Queue: close the pipe and let go of the feeder
+    thread this process may have started for it.
 
-    Draining first is what makes the join safe: close() lets the feeder
-    flush, and a feeder blocked on a pipe full of tickets no living
-    child will ever read would never return. Every child is joined
-    before this runs, so nothing refills the queue behind us."""
+    `drain` reads out whatever nobody took first, which is what makes
+    joining the feeder safe: close() lets the feeder flush, and a feeder
+    blocked on a pipe full of tickets no living child will ever read
+    would never return. Pass it ONLY for a queue this process alone
+    writes to. A queue a killed child wrote to can hold a half-written
+    message, and reading one blocks for a remainder that is never
+    coming -- there we cancel the join instead, so close() cannot wait
+    on anything either. Every child is joined before this runs, so
+    nothing refills a queue behind us."""
     if q is None:
         return
-    while True:
+    if drain:
+        while True:
+            try:
+                q.get_nowait()
+            except Exception:        # empty, or a queue already broken
+                break
+    else:
         try:
-            q.get_nowait()
-        except Exception:            # empty, or a queue already broken
-            break
-    for step in ("close", "join_thread"):
+            q.cancel_join_thread()
+        except Exception:            # a plain queue.Queue has no feeder
+            pass
+    try:
+        q.close()
+    except Exception:
+        pass
+    if drain:
         try:
-            getattr(q, step)()
-        except Exception:            # a plain queue.Queue has neither
+            q.join_thread()
+        except Exception:
             pass
 
 
@@ -775,18 +790,26 @@ class ActorPool:
                         experiences.extend(payload)
                 elif kind == _R_DONE:
                     n_dec, dstats, done_iter = _done_report(payload)
+                    # The decisions count wherever they were made: the
+                    # anneal counter tracks generated decisions, and the
+                    # games behind them are kept too (they arrived on
+                    # this iteration's result queue).
+                    total_decisions += int(n_dec or 0)
                     if done_iter is not None and done_iter != iter_idx:
-                        # An actor the PREVIOUS iteration abandoned at its
-                        # hard deadline reports that iteration done while
-                        # this one collects. Counting it here would retire
-                        # an actor that has not played a game of THIS
-                        # iteration, ending it early and shifting every
-                        # later iteration by one (2026-09-13 audit).
+                        # But an actor the PREVIOUS iteration abandoned
+                        # at its hard deadline is reporting THAT
+                        # iteration done while this one collects:
+                        # retiring it here would end this iteration
+                        # without the actor having played a game of it,
+                        # and shift every later iteration by one
+                        # (2026-09-13 audit). Its per-decision means
+                        # describe another iteration, so they are
+                        # dropped rather than averaged in.
                         log.warning(f"iter {iter_idx}: actor {aid} reported iteration "
-                                    f"{done_iter} done (abandoned earlier); ignored")
+                                    f"{done_iter} done (abandoned earlier); it stays "
+                                    f"outstanding for this one")
                     else:
                         outstanding.discard(aid)
-                        total_decisions += int(n_dec or 0)
                         if dstats:
                             distill_dicts.append(dstats)
                 elif kind == _R_ERROR:
@@ -1016,10 +1039,15 @@ class ActorPool:
                     p.join(5.0)
         self._procs = []
         self._server_procs = []
-        for q in (list(self._ctrl_qs) + list(self._resp_qs) + list(self._req_qs)
-                  + list(self._server_ctrl_qs)
-                  + [self._result_q, self._server_q, self._game_q]):
-            _close_queue(q)
+        # Drained: the queues the manager alone writes to (commands,
+        # weight blobs, tickets), which can hold megabytes nobody took.
+        # Not drained: everything a child writes, where a killed child
+        # may have left half a message behind.
+        for q in list(self._ctrl_qs) + list(self._server_ctrl_qs) + [self._game_q]:
+            _close_queue(q, drain=True)
+        for q in (list(self._resp_qs) + list(self._req_qs)
+                  + [self._result_q, self._server_q]):
+            _close_queue(q, drain=False)
         self._ctrl_qs = []
         self._resp_qs = []
         self._req_qs = []

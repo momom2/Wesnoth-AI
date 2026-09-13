@@ -190,7 +190,7 @@ def _take_ticket(game_q, ctrl_q, iter_idx: int):
     """The next game of this iteration from the shared queue, honouring
     control commands while waiting. Returns ("game", (index, seed)),
     ("end", None) at the iteration's end marker, ("drain", None) when
-    the manager asked for no new games, ("resync", None) when the next
+    the manager asked for no new games, ("play", cmd) when the next
     iteration's PLAY is already waiting, ("stop", None) on STOP or once
     the parent is gone. Tickets of another iteration are skipped (stale
     after a drain)."""
@@ -204,15 +204,14 @@ def _take_ticket(game_q, ctrl_q, iter_idx: int):
             if nxt[0] == _CMD_PLAY:
                 # The manager abandoned this actor's iteration at its
                 # hard deadline and has already started the next one.
-                # Put the PLAY back for the main loop, which owns the
+                # Hand the PLAY to the main loop, which owns the
                 # per-iteration setup, and end this iteration here:
-                # CONSUMING it would leave the actor bound to the old
-                # iter_idx, where it silently drops every ticket of the
-                # new iteration -- end markers included, so the other
-                # actors never finish either -- until the next DRAIN
-                # (2026-09-13 audit, demonstrated).
-                ctrl_q.put(nxt)
-                return "resync", None
+                # DROPPING it (what this did) left the actor bound to
+                # the old iter_idx, where it silently discards every
+                # ticket of the new iteration -- end markers included,
+                # so the other actors never finish either -- until the
+                # next DRAIN (2026-09-13 audit, demonstrated).
+                return "play", nxt
             log.warning("actor: unknown control command %r while playing; dropped",
                         nxt[0])
         except _queue.Empty:
@@ -220,7 +219,7 @@ def _take_ticket(game_q, ctrl_q, iter_idx: int):
         try:
             t_iter, g, seed = game_q.get(timeout=0.5)
         except _queue.Empty:
-            if False:
+            if _parent_gone():
                 return "stop", None
             continue
         if t_iter != iter_idx:
@@ -271,18 +270,25 @@ def _actor_loop(
     pvp = PvPDefaults(**pvp_kwargs) if pvp_kwargs else PvPDefaults()
     cpu = torch.device("cpu")
 
+    # A PLAY the ticket loop met mid-iteration (the manager abandoned
+    # that iteration and started the next one): it is run here rather
+    # than read off the control queue.
+    pending: Optional[tuple] = None
     while True:
-        cmd = _wait_for_command(ctrl_q)
-        # A stale DRAIN can sit in the queue when the actor finished
-        # its quota before the manager's soft deadline fired: skip it
-        # (it referred to the PREVIOUS iteration).
-        while cmd is not None and cmd[0] == _CMD_DRAIN:
+        if pending is not None:
+            cmd, pending = pending, None
+        else:
             cmd = _wait_for_command(ctrl_q)
-        if cmd is None:
-            log.error("actor %d: the learner process is gone; exiting", actor_id)
-            return
-        if cmd[0] == _CMD_STOP:
-            return
+            # A stale DRAIN can sit in the queue when the actor finished
+            # its quota before the manager's soft deadline fired: skip it
+            # (it referred to the PREVIOUS iteration).
+            while cmd is not None and cmd[0] == _CMD_DRAIN:
+                cmd = _wait_for_command(ctrl_q)
+            if cmd is None:
+                log.error("actor %d: the learner process is gone; exiting", actor_id)
+                return
+            if cmd[0] == _CMD_STOP:
+                return
         (_, iter_idx, _games_per_iter, _base_seed, t2i, f2i,
          decision_step0) = cmd[:7]
         # The learner's action-space basis rides the PLAY command
@@ -369,11 +375,11 @@ def _actor_loop(
                 kind, ticket = _take_ticket(game_q, ctrl_q, iter_idx)
                 if kind == "stop":
                     return
-                if kind == "resync":
+                if kind == "play":
+                    pending = ticket
                     log.warning("actor %d: iteration %d was abandoned by the "
                                 "manager, the next one has already started; "
-                                "reporting done and picking its PLAY up",
-                                actor_id, iter_idx)
+                                "reporting done and running it", actor_id, iter_idx)
                 if kind != "game":
                     break
                 g, seed = ticket
