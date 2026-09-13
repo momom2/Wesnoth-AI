@@ -115,3 +115,55 @@ def test_result_file_carries_the_regime_to_the_catalog(tmp_path):
                              str(old_cat)]) == 0
     old_edge, = load_catalog(old_cat)["edges"].values()
     assert old_edge["protocol"]["estimands"]["combat_stream"] == "shared"
+
+
+def test_a_salted_eval_sim_is_not_a_search_fork():
+    """Salting eval games per game must not silence the live-sim
+    contract warnings.
+
+    Three checks in `WesnothSim` (a move target the mask offered that
+    the sim cannot land on, a recruit outside the leader's castle
+    network, a recruit off the side's list) are mask-contract
+    VIOLATIONS on a live sim and worth a WARNING, but ordinary chance
+    divergence inside a search fork. They used to decide which by
+    asking whether `_seed_salt` was set — so the day eval games got a
+    per-game salt, the verdict path silently dropped all three to
+    DEBUG, and one of them even relabelled itself "search-fork chance
+    divergence" on a live game.
+
+    `_seed_salt` is an RNG input; `_is_search_fork` is the question.
+    """
+    import inspect
+
+    from tools import elo_eval_game, wesnoth_sim
+
+    src = inspect.getsource(wesnoth_sim)
+    assert "log.debug if self._seed_salt" not in src, \
+        "the log sites must branch on _is_search_fork, not on the salt"
+    assert src.count("log.debug if self._is_search_fork") == 3, \
+        "all three live-sim contract checks branch on the fork flag"
+
+    # The eval path sets the salt and must NOT set the flag.
+    eval_src = inspect.getsource(elo_eval_game)
+    assert "_seed_salt" in eval_src, "eval games are salted"
+    assert "_is_search_fork" not in eval_src, \
+        "an eval game is a live game of record, not a search fork"
+
+    # Every producer that DOES fork for search sets the flag.
+    for mod in ("tools.mcts", "tools.turn_search", "tools.turn_gap",
+                "tools.plan_tournament"):
+        m = __import__(mod, fromlist=["x"])
+        assert "_is_search_fork = True" in inspect.getsource(m), mod
+
+
+def test_the_fork_flag_defaults_off_and_survives_a_fork():
+    from sim_test_helpers import fresh_scenario_sim
+
+    sim = fresh_scenario_sim(0, max_turns=4, use_core=False)
+    assert sim._is_search_fork is False, "a live sim is not a fork"
+    sim._seed_salt = "elo:7"
+    assert sim._is_search_fork is False, "a salt alone must not make it one"
+
+    sim._is_search_fork = True
+    assert sim.fork()._is_search_fork is True, \
+        "a fork of a fork is still a fork"

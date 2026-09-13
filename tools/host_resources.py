@@ -125,10 +125,17 @@ def available_mb(root: str = "/sys/fs/cgroup") -> Optional[float]:
 # box that could take more. Reading the limit turns that guess into a
 # measurement.
 #
-# Tasks per actor is measured on the box by `pids_per_actor()` once
-# the pool is up. Until then this is the budgeting estimate: an actor
-# with `actor_torch_threads=1` still carries the interpreter plus a
-# few runtime helpers.
+# Tasks per actor is measured on the box by `pids_per_actor()`, which
+# az_loop calls after the FIRST ITERATION -- not at pool start, where a
+# spawned actor is still one task that has not imported torch.
+#
+# Until a box reports that line this is a budgeting estimate, and it is
+# a THIN one: the only per-actor figure this project has ever measured
+# is 38 actors exhausting a 4,352-task limit on 2026-09-04, about 114
+# tasks each. That predates the OMP=1 cap in ActorPool.start(), so 4
+# may well be right now -- but nothing has measured it, and if it is
+# wrong it is wrong in the direction that lets the actor count exceed
+# the limit, which produces ZERO leaves per second.
 PIDS_PER_ACTOR_ESTIMATE = 4
 
 

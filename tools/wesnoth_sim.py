@@ -519,15 +519,32 @@ class WesnothSim:
         # between simulator and Wesnoth playback.
         self._rng_requests: int = 0
 
-        # Search-only seed salt. Empty on every LIVE game sim --
-        # seeds then come from request_seed(counter), the bit-exact
-        # replay-export contract. MCTS chance-node sampling sets a
-        # fresh salt on each search fork before stepping a stochastic
-        # action, so repeated forks of the same parent sample
-        # DIFFERENT combat outcomes / trait rolls instead of
-        # replaying one predetermined seed. Never set this on a sim
-        # whose command_history will be exported.
+        # Seed salt: a pure RNG INPUT. Empty means seeds come from
+        # request_seed(counter), the bit-exact replay-export contract.
+        # MCTS chance-node sampling sets a fresh salt on each search
+        # fork before stepping a stochastic action, so repeated forks
+        # of the same parent sample DIFFERENT combat outcomes and trait
+        # rolls instead of replaying one predetermined seed. Never set
+        # it on a sim whose command_history will be exported.
+        #
+        # NOT a "this is a search fork" marker. Eval games have carried
+        # a per-game salt since 2026-09-13 so that an 800-game match is
+        # 800 independent draws of combat luck rather than 800 replays
+        # of one luck vector; they are live games of record all the
+        # same. Use `_is_search_fork` for that question.
         self._seed_salt: str = ""
+
+        # True only on a sim that is exploring, not playing the game of
+        # record. The three live-sim contract checks below (a move
+        # target the mask offered but the sim cannot land on, a recruit
+        # outside the leader's castle network, a recruit off the side's
+        # list) are mask-contract VIOLATIONS on a live sim and worth a
+        # WARNING; inside a search fork they are ordinary chance
+        # divergence and would bury the log (a probe once logged 1,121
+        # of them). This used to be inferred from `_seed_salt`, which
+        # silently demoted the live eval path the day eval games got
+        # salted.
+        self._is_search_fork: bool = False
 
         # last_step_rejected: did the most recent .step() call refuse
         # to apply the action (rather than apply or fall back to
@@ -750,6 +767,7 @@ class WesnothSim:
         out._actions_by_side = dict(self._actions_by_side)
         out._rng_requests    = self._rng_requests
         out._seed_salt       = self._seed_salt
+        out._is_search_fork  = self._is_search_fork
         out.command_history  = []   # forks don't track history
         return out
 
@@ -1538,12 +1556,12 @@ class WesnothSim:
                 # outcome). The A4 probe logged 1,121 of these at
                 # WARNING and read as a livelock -- fork context is
                 # DEBUG.
-                (log.debug if self._seed_salt else log.warning)(
+                (log.debug if self._is_search_fork else log.warning)(
                     f"sim: move target {tpos} not landable for "
                     f"{mover.id}@{(start.x, start.y)} "
                     f"(mp={mover.current_moves}); "
                     + ("search-fork chance divergence"
-                       if self._seed_salt else
+                       if self._is_search_fork else
                        "mask/sim reachability disagreement")
                     + " -- re-deciding")
                 return ["__reject_action__"], None
@@ -1643,7 +1661,7 @@ class WesnothSim:
                 return None, None
             _on_keep, _network = leader_castle_network(self.gs, _leader)
             if not _on_keep or (target.x, target.y) not in _network:
-                (log.debug if self._seed_salt else log.warning)(
+                (log.debug if self._is_search_fork else log.warning)(
                     f"sim: recruit {unit_type!r} on "
                     f"({target.x},{target.y}) rejected: "
                     f"{'leader off keep' if not _on_keep else 'hex outside leader castle network'}"
@@ -1656,7 +1674,7 @@ class WesnothSim:
             if 0 <= side_idx < len(self.gs.sides):
                 _rlist = self.gs.sides[side_idx].recruits or ()
                 if _rlist and unit_type not in _rlist:
-                    (log.debug if self._seed_salt else log.warning)(
+                    (log.debug if self._is_search_fork else log.warning)(
                         f"sim: recruit {unit_type!r} not on side "
                         f"{self.current_side}'s recruit list -- "
                         f"re-deciding")

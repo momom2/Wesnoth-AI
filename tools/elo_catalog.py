@@ -903,6 +903,17 @@ def update_from_games(games_dir: Path, games: List[dict],
         for _k2, e in sorted(cat["edges"].items()):
             if _k2.startswith(f"{Path(games_dir).name}:"):
                 continue         # this dir's own edges are REPLACED
+            if _edge_mass(e) <= 0:
+                # A zero-mass edge contributes nothing to the fit, so
+                # it cannot be double-counted -- and blocking on one is
+                # worse than useless: a fully censored probe dir (40
+                # games, all at the turn cap, tally 0-0-0) would refuse
+                # the 800-game verdict collect that follows it at the
+                # same seed base. There is no drop-edge command, so
+                # recovery would mean hand-editing committed JSON. The
+                # procedure, horizon and estimand guards all skip
+                # zero-mass edges already; this one did not.
+                continue
             if {resolve_label(cat, e["label_a"]),
                     resolve_label(cat, e["label_b"])} != {ra, rb}:
                 continue

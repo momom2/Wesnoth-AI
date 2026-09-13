@@ -49,6 +49,7 @@ import torch.nn.functional as F
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from wesnoth_ai.encoder import GameStateEncoder, RawEncoded, encode_raw
+from wesnoth_ai.constants import OBSERVATION_EPOCH
 from wesnoth_ai.model import WesnothModel
 from wesnoth_ai.imitation_loss import build_imitation_targets, imitation_loss_parts
 # Import replay_dataset from the same tools/ dir.
@@ -144,6 +145,14 @@ def _save_checkpoint(
     # the SL<->MCTS round-trip contract (2026-07-16). Explicit keys
     # below always win.
     payload.update({
+        # The sim's observation semantics at training time.
+        # Without this, every checkpoint the imitation trainer
+        # writes reads as epoch 1 on load, so the cross-build
+        # warning fires on the newest work and stops meaning
+        # anything. NOT in `carry`, which is the SL<->MCTS
+        # transport: a later session adding it to carry's copy
+        # loop would silently stamp the PARENT checkpoint's epoch.
+        "observation_epoch": int(OBSERVATION_EPOCH),
         "arch": dict(arch) if arch else {
             "d_model": 128, "num_layers": 3,
             "num_heads": 4, "d_ff": 256},

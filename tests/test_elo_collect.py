@@ -71,6 +71,7 @@ def _result(**over):
            "mcts_batch": 1, "infer_bf16": True, "infer_compile": False,
            "shared_inference": True, "infer_packed_trunk": True,
            "combat_stream": "per_game",
+           "observation_epoch": 3,
            "value_center_a": None, "value_center_b": None,
            "moves_left_utility": None}
     rec.update(over)
@@ -84,9 +85,32 @@ def test_dir_estimands_reports_every_travelling_field():
                    "mcts_batch": 1, "infer_bf16": True,
                    "infer_compile": False, "shared_inference": True,
                    "infer_packed_trunk": True,
-                   "combat_stream": "per_game"}, (
+                   "combat_stream": "per_game",
+                   "observation_epoch": 3}, (
         "None-valued fields must drop out (they constrain nothing); "
         "every other field must travel")
+
+
+def test_a_legacy_result_file_reads_as_observation_epoch_1():
+    """A result written before the epoch existed was measured under the
+    rules of that time, and must not pool with one measured after a
+    bump. The default is what makes the two visibly different."""
+    from tools.elo_collect import ESTIMAND_DEFAULTS, dir_estimands
+
+    assert ESTIMAND_DEFAULTS["observation_epoch"] == 1
+    legacy = _result()
+    del legacy["observation_epoch"]
+    est = dir_estimands([legacy, {**legacy, "seed": 10_001, "side_a": 2}])
+    assert est["observation_epoch"] == 1, \
+        "a file with no epoch is epoch 1, not the current one"
+    # And a dir that MIXES epochs is refused, like every other estimand.
+    # SystemExit derives from BaseException, so it must be named: a
+    # bare `raises(Exception)` here would let the refusal escape and
+    # the test would pass for the wrong reason.
+    import pytest as _pytest
+    with _pytest.raises(SystemExit, match="mixed observation_epoch"):
+        dir_estimands([legacy, {**legacy, "seed": 10_001, "side_a": 2,
+                                "observation_epoch": 3}])
 
 
 def test_dir_estimands_refuses_a_mixed_dir():

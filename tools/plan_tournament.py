@@ -423,6 +423,7 @@ def _salted(sim, salt: str):
     """Fork `sim` onto a fresh dice stream -- GRADING forks only.
     Serving spines are deliberately unsalted."""
     f = sim.fork()
+    f._is_search_fork = True
     f._seed_salt = salt
     return f
 

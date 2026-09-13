@@ -236,6 +236,7 @@ def sim_from_state(gs: GameState, scenario_id: str, max_turns: int,
     (WesnothSim._next_seed), the mechanism search forks use."""
     sim = WesnothSim(copy.deepcopy(gs), scenario_id, max_turns=max_turns,
                      apply_scenario_events=False, begin_turn=False)
+    sim._is_search_fork = True
     sim._seed_salt = salt
     return sim
 

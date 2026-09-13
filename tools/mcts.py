@@ -947,8 +947,9 @@ def _select_one(
                 if resample and sample_rng is not None:
                     # Fresh salt => this traversal rolls independent
                     # synced RNG, sampling a fresh outcome.
-                    # Search-only: live sims never carry a salt
+                    # A search fork's salt. Live sims carry one too since 2026-09-13 (eval games are salted per game); what marks a fork is `_is_search_fork`
                     # (replay fidelity).
+                    child_sim._is_search_fork = True
                     child_sim._seed_salt = (
                         f"mcts{int(sample_rng.integers(1 << 62))}")
                 step_error = False

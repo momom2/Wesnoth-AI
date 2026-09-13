@@ -460,15 +460,16 @@ def main(argv) -> int:
                      packed_embed=bool(args.packed_trunk and device.type == "cuda"),
                      serve_processes=max(1, int(args.serve_processes)))
     pool.start()
-    # Calibration: what an actor ACTUALLY costs in cgroup tasks on this
-    # box. host_resources.PIDS_PER_ACTOR_ESTIMATE is a budgeting guess
-    # until a run reports this line; without it the clamp above stays
-    # conservative forever.
-    _per_actor = pids_per_actor(n_actors, _pids_before) if _pids_before else None
-    if _per_actor is not None:
-        log.info("pids: %d actors cost %.1f tasks each (estimate %d); "
-                 "update host_resources.PIDS_PER_ACTOR_ESTIMATE if this differs",
-                 n_actors, _per_actor, PIDS_PER_ACTOR_ESTIMATE)
+    # Calibration happens after the FIRST ITERATION, not here.
+    # `pool.start()` is a loop of `p.start()` with no barrier, so at
+    # this point a spawned actor is one task that has not yet imported
+    # torch; sampling now reads about 1 task per actor and would tell
+    # the reader to lower an estimate that exists to keep a box alive.
+    # The only per-actor figure this repo has ever measured is 38
+    # actors exhausting a 4,352 pids limit -- about 114 tasks each --
+    # from before the OMP=1 cap, so the true number today is genuinely
+    # unknown and worth measuring properly.
+    _pids_calibrated = False
 
     workdir = args.workdir
     workdir.mkdir(parents=True, exist_ok=True)
@@ -498,6 +499,18 @@ def main(argv) -> int:
             # ---- generation --------------------------------------
             outcomes, exps = pool.run_iteration(it, args.games_per_iter,
                                                 rng.randint(0, 2**31 - 1))
+            if not _pids_calibrated:
+                _pids_calibrated = True
+                _per_actor = (pids_per_actor(n_actors, _pids_before)
+                              if _pids_before else None)
+                if _per_actor is not None:
+                    log.info(
+                        "pids: %d actors cost %.1f tasks each after one "
+                        "iteration (budgeting estimate %d). If these differ, "
+                        "update host_resources.PIDS_PER_ACTOR_ESTIMATE -- it "
+                        "is what keeps the actor count under the limit that "
+                        "produces zero leaves/s when exceeded.",
+                        n_actors, _per_actor, PIDS_PER_ACTOR_ESTIMATE)
             capped = {o.game_label for o in outcomes if o.winner == 0}
             kept = [e for e in exps if getattr(e, "game_id", "") not in capped]
             row.update(

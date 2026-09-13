@@ -362,6 +362,7 @@ def materialize(policy, start, side: int, commands: List[Dict],
         cmds.append({"type": "end_turn"})
     if resume is None:
         sim = start.fork()
+        sim._is_search_fork = True
         sim._seed_salt = salt
         rng0 = sim._rng_requests
         executed: List[Dict] = []

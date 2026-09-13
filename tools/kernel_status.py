@@ -80,8 +80,13 @@ def _combat() -> bool:
 
 
 def _game_core() -> bool:
-    from wesnoth_ai.game_core import game_core_class
-    return game_core_class() is not None
+    # `core_enabled()` is what WesnothSim actually consults, and it
+    # honours WESNOTH_RUST_CORE as well as the phase gate -- unset is
+    # the default and means OFF. Asking `game_core_class()` instead
+    # (phase only) reports RUST for a kernel production is not using,
+    # which is the exact failure this file exists to correct.
+    from tools.wesnoth_sim import core_enabled
+    return bool(core_enabled())
 
 
 # name -> the production gate. Add a kernel here when you add a gate,

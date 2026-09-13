@@ -58,6 +58,10 @@ ESTIMAND_DEFAULTS = {
     "infer_bf16": False, "infer_compile": False,
     "shared_inference": False, "infer_packed_trunk": False,
     "combat_stream": "shared",
+    # A result file written before the epoch existed is epoch 1.
+    # Two dirs measured either side of a bump otherwise look
+    # identical on every other axis.
+    "observation_epoch": 1,
     "value_center_a": None, "value_center_b": None,
     "moves_left_utility": None,
 }

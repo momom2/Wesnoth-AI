@@ -334,6 +334,7 @@ def rung0c(args) -> Dict:
         dvs, kills = [], []
         for a in acts:
             f = sim.fork()
+            f._is_search_fork = True
             f._seed_salt = f"gbc0c:{g}"
             try:
                 f.step(a.action)

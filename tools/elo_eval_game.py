@@ -64,6 +64,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import torch
 
+from wesnoth_ai.constants import OBSERVATION_EPOCH
 from tools.draw_tiebreak import DrawTiebreakConfig, material_margin
 from tools.elo_ladder import _ScriptedAdapter
 from tools.eval_sim import (_PolicyPair, _load_policy,
@@ -948,6 +949,12 @@ def main(argv) -> int:
         # stream every eval game had in common. An estimand -- a
         # number from the shared stream must not pool with one from
         # per-game streams.
+        # The SIM's observation semantics AT MEASUREMENT TIME. Two
+        # raw:t0 dirs measured either side of an epoch bump would
+        # declare otherwise identical estimands and pool with no
+        # warning; today alone produced two bumps. This is the
+        # sim's epoch, not the checkpoints' training epoch.
+        "observation_epoch": int(OBSERVATION_EPOCH),
         "combat_stream": ("shared" if args.shared_combat_stream
                           else "per_game"),
         # Search knobs that change the PLAYER (2026-09-13: neither
