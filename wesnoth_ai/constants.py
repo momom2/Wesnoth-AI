@@ -216,5 +216,5 @@ DEFAULT_FACTIONS = (
 #      apply_to=new_ability is applied at all. Silverhead Crossing's
 #      Tentacle now has the submerge its scenario grants it, so it is
 #      hidden on the deep water it stands on, and its evil-eye attack
-#      carries the `magical` 70% floor (tools/scenario_events.py).
+#      carries `magical`, which SETS chance-to-hit to 70 (tools/scenario_events.py).
 OBSERVATION_EPOCH = 3

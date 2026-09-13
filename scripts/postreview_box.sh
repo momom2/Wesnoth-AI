@@ -6,7 +6,8 @@
 #      and none has been through the corpus:
 #        - 2p Silverhead Crossing's Tentacle now gets the submerge and
 #          the `magical` its scenario grants (tools/scenario_events.py).
-#          `magical` is a 70% chance-to-hit floor, so this CHANGES
+#          `magical` SETS chance-to-hit to 70 (cumulative=no, not a
+#          floor -- only marksman is), so this CHANGES
 #          COMBAT on a Ladder map and 351 corpus games.
 #        - the start-position label is any text before a space, which
 #          moved five terrain-code parsers (tools/terrain_resolver.py).
@@ -17,7 +18,10 @@
 #      root fix" for why the distinction matters.
 #
 #   2. THE SECOND SERVE PROCESS. Built on 2026-09-04 and never
-#      measured; 1.3-1.5x expected on generation, which is the biggest
+#      measured ON THE POOL -- on EVAL it is refuted (two servers
+#      halve the mean batch, 7.84 -> 3.56, and the cost is a fixed
+#      per-batch launch). 1.3-1.5x was the standing expectation and
+#      applies, if anywhere, only here, which is the biggest
 #      named unmeasured win in the project (BACKLOG.md). The inference
 #      server is the ceiling on BOTH paths, so this is the one that
 #      pays.

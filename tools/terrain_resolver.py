@@ -518,8 +518,10 @@ def start_position_side(label: str) -> Optional[int]:
 #
 # Deciding cover from the DEFENSE keys instead was wrong on every code
 # a hand-rolled overlay table did not list: measured over the shipped
-# maps, 19% of forest-overlay hexes (Gs^Fms, Hh^Fms, Gs^Ftd, ...) and
-# 25% of village-overlay hexes (Gg^Ve, Gs^Vht, Aa^Vha, ...) silently
+# maps -- Wesnoth's 66 core multiplayer maps, every cell including
+# the 1-hex border -- 18.9% of forest-overlay hexes (Gs^Fms, Hh^Fms,
+# Gs^Ftd, ...) and 25.3% of village-overlay hexes (Gg^Ve, Gs^Vht,
+# Aa^Vha, ...) silently
 # provided no cover at all.
 _AMBUSH_OVERLAY_EXACT = ("Qhhf", "Qhuf")
 

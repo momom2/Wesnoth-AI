@@ -304,10 +304,20 @@ for months: `visibility._hide_cover_active` asked
 `replay_dataset._terrain_keys_at`, whose `_OVERLAY_DEFENSE_KEYS` is a
 hand-rolled allow-list. The engine never consults the defense class.
 Any overlay missing from the list fell through to plain flat, so the
-ability was SILENTLY INACTIVE there: 30.4% of the Ladder pool's
-forest-overlay hexes gave no ambush cover (`Gs^Fms`, `Hh^Fms`,
-`Gs^Ftd`, `Re^Fms`) and 27.7% of its village-overlay hexes gave no
-concealment (`Gg^Ve`, `Gs^Vht`, `Aa^Vha`). The affected units are the
+ability was SILENTLY INACTIVE there. Two denominators, both exact,
+and every published version of this figure is one of them:
+
+| set | no ambush cover | no concealment |
+|---|---|---|
+| Wesnoth's 66 core multiplayer maps, border included | 1,016 of 5,374 = 18.9% | 383 of 1,511 = 25.3% |
+| the 21 Ladder maps, playable hexes only | 478 of 1,572 = 30.4% | 93 of 336 = 27.7% |
+
+(`Gs^Fms`, `Hh^Fms`, `Gs^Ftd`, `Re^Fms` for ambush; `Gg^Ve`,
+`Gs^Vht`, `Aa^Vha` for concealment.) The Ladder pool is the set
+that decides agent behaviour; the 66-map set is what the first
+write-up of this fix counted, which is why "19% and 25%" and
+"30.4% and 27.7%" are both correct and neither was reproducible
+until now. The affected units are the
 ones that want that terrain: Woses and Elvish Rangers/Avengers
 (ambush), the Fugitive (concealment), and the Undead line (submerge,
 which was missing tropical deep water; see below).
@@ -347,7 +357,7 @@ the table:
   playable hexes of the Ladder pool, all of them on Ruphus Isle, and
   332 of all tracked maps. `Wo*^*` matches any `Wo` base.
 
-**`burrow` is the fifth `[hides]` and is not modelled.**
+**`burrow` and `swamp_lurk` are the two `[hides]` we do not model.**
 `abilities.cfg`:301-315 gives it `terrain=*^F*,*^Qhhf,*^Qhuf,D*^*`
 (forest or SAND) plus a resting condition, and `hides_cover` returns
 False for it. Latent, not live: no unit in the pinned `unit_stats.json`
@@ -404,7 +414,9 @@ Until 2026-09-13 we read the tag, so 2p Silverhead Crossing's
 `prestart` `[object]` gave its Tentacle an ability called `hides` and a
 special called `chance_to_hit`, neither of which anything consumes. The
 unit was visible where Wesnoth submerges it and its counter-attack lost
-the 70% floor, on a Ladder map and 351 corpus games
+the flat 70% `magical` SETS (`cumulative=no` replaces the
+defender's terrain defence in BOTH directions; only `marksman` is a
+floor), on a Ladder map and 351 corpus games
 (tests/test_effect_ids.py).
 
 **`[set_specials] mode=` defaults to REPLACE.**

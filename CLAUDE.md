@@ -189,10 +189,12 @@ State of play:
   not CPU: 19 -> 665, 32 -> 914, 48 -> 1,006, 64 -> 1,116 leaf
   evaluations per second against a server saturating near 1,500
   (docs/box_specs.md "Actors buy in-flight leaves"). `az_loop
-  --actors` was 8; it is 24 now, capped at `--games-per-iter` because
-  a surplus actor idles. Also measured that day: plan 1.3's
+  --actors` was 8, then 24; it is **0 = auto** since 2026-09-13 night
+  (as many as `--games-per-iter` and the box's pids limit allow). Also measured that day: plan 1.3's
   3,000-per-4090 target is NOT met on a real 4090 (1,450-1,565
-  saturated, as docs/gpu_forward_design_20260904.md predicted); the
+  saturated; docs/gpu_forward_design_20260904.md's 1,300-1,800 band
+  coincides numerically but priced 1,270 tokens per leaf against
+  this run's ~320, so it is not a confirmation); the
   eval path wants neither more workers nor more servers (a second
   server halves the mean batch, so it cannot win, refuting the
   standing 1.3-1.5x expectation); and bf16 on the imitation trainer
@@ -211,6 +213,8 @@ State of play:
   hexes, submerge 153 (tropical deep water, all on Ruphus Isle) and
   concealment 93 while LOSING 302 to the farmland correction (`^Gvs`
   is Farmland, not a village). 17,039 of 17,039 replays reconstruct
+  (the box's staging set; the current corpus is 17,019, a strict
+  subset)
   clean. **That sweep is a no-regression test, not a proof of the
   rule** -- an adversarial review of three independent lenses showed
   it passes under the OLD rule too, since the replay format carries no
@@ -239,7 +243,8 @@ State of play:
   instead of their `id=` (`submerge`, `magical`), and
   `apply_to=new_ability` had no branch at all. So the Tentacle was
   visible where Wesnoth hides it, and counter-attacked at the
-  attacker's terrain chance-to-hit instead of the 70% floor. Fixed at
+  attacker's terrain chance-to-hit instead of the flat 70% that
+  `magical` sets. Fixed at
   the root with tests (tests/test_effect_ids.py); an unmodelled
   `apply_to` now warns instead of vanishing. The combat half owes the
   corpus sweep on the next box (BACKLOG.md "Scenario [effect] members
@@ -315,13 +320,27 @@ in one outdir); searched players carry `mcts:<sims>` (Gumbel root) or
 two are `store_true` and default OFF; without them you get the slowest
 mode in the repo, and every current match script passes them.
 
-**Timing, corrected 2026-09-13.** The "40 raw games in 2 minutes" that
-stood here was match A of the argmax control -- argmax against the
-SAMPLING player, 17 turns median -- not `raw:t0` against `raw:t0`,
-which stalls: 17 of 40 games at the cap, 125 turns median. A 40-game
-`raw:t0` match one-process at `--jobs 10` is about 408 s; with the
-shared server it is about 145 s. Searched games are the 14-minute
-figure.
+**Timing, corrected 2026-09-13, then corrected again the same night.**
+The "40 raw games in 2 minutes" that stood here was match A of the
+argmax control -- argmax against the SAMPLING player, 17 turns median
+-- not `raw:t0` against `raw:t0`, which stalls: 17 of 40 games at the
+cap, 125 turns median.
+
+Current figure: **a 40-game `raw:t0` match through the recommended
+path is 42-74 s** (2026-09-13, five arms of `relset` against itself,
+docs/box_specs.md "The eval path does not want more workers or more
+servers"). Quote the RANGE: the baseline arm repeated at 74 s against
+its own 42 s, a 1.76x swing, so a single wall is not resolvable and an
+800-game match is budgeted at about 18 minutes and $0.20.
+
+Two older numbers are NOT comparable and should not be re-quoted: the
+408 s one-process figure is a TWENTY-game wall (`eval_workers/
+eval_plain.log` reads "20 pending"), and the 145 s shared-server
+figure is 40 games but from 2026-09-05, on the seed basis, before
+persistent workers were combined with the relevant-set basis, the Rust
+kernels and the observation kernel. The "14 minutes for 40 searched
+games" is the other row of the same superseded 2026-09-04 run, and it
+was MCTS-32 against a RAW opponent, not a searched self-match.
 
 ## Architecture
 
@@ -598,8 +617,9 @@ many line-coverage tests.
   source.** The wiki sometimes lags, has edge cases wrong, or omits
   attrs. **`wesnoth_src/` has NO `src/` tree** -- it is a WML-only
   copy of the local 1.18.7 install (see the provenance note above), so
-  `grep wesnoth_src/src/` returns nothing and the 86 such citations in
-  docs/wesnoth_rules.md are not locally verifiable. For C++ engine
+  `grep wesnoth_src/src/` returns nothing and the 68 such citations in
+  docs/wesnoth_rules.md are not locally verifiable (85 C++ citations
+  in all, over 45 distinct files; 17 are already written bare). For C++ engine
   internals read the **1.18.4 tag on GitHub raw**, e.g.
   `https://raw.githubusercontent.com/wesnoth/wesnoth/1.18.4/src/units/unit.cpp`,
   and cite `src/...:line` as the rules catalog does. For WML and Lua,

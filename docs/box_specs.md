@@ -660,7 +660,7 @@ batch 16 with bf16 autocast (`az_loop --train-bf16` default on).
 seed vs seed at argmax, 10 workers, the same slots as the T = 0 sweep
 arm. Records: `training/metrics/bench_pipeline/eval_shared/`.
 
-| mode | wall s for 40 games | mean batch | server busy |
+| mode | wall s (games as noted) | mean batch | server busy |
 |---|---|---|---|
 | one process per game | 408 | 1 | - |
 | persistent workers | 215 | 1 | - |
@@ -1160,9 +1160,15 @@ The same box answers the target this project could not judge on an
 A4000: **1,450-1,565 saturated leaf evaluations per second in the
 relevant-set basis at about 320 tokens per leaf, against a target of
 3,000** (docs/plan_20260904.md step 1.3). The target is not met and
-docs/gpu_forward_design_20260904.md predicted exactly this: it prices
-today's kernels at 1,300-1,800 and says 3,000 needs fewer tokens per
-leaf or fp8. Per dollar this 4090 at $0.335/h gives 1,032 searched
+docs/gpu_forward_design_20260904.md's band LOOKS like a prediction of
+this and is NOT one. It prices today's kernels at 1,300-1,800 and says
+3,000 needs fewer tokens per leaf or fp8 -- but that band was computed
+at 1,270 tokens per leaf and this run measures ~320, where the same
+doc's arithmetic gives a ceiling about 4x higher. The numbers coincide
+because the binding cost turned out to be a fixed per-batch LAUNCH
+that does not scale with tokens, a different mechanism than the one
+priced. Reading it as confirmation means nobody re-derives the GPU
+model, which is what phase 2's budget rests on. Per dollar this 4090 at $0.335/h gives 1,032 searched
 games per dollar at 64 actors, against 782-1,478 for the A4000 at
 $0.161/h -- the cheaper card is at least competitive, so pick a box by
 measured leaves per dollar, not by the GPU's name.
@@ -1275,7 +1281,7 @@ address, and a mistake there would show up as a wrong movement cost or
 defense percentage on some unit, which is exactly what a field-by-field
 comparison after every command catches.
 
-## Hide cover certified after the root fix (2026-09-13, box 50882541, 28 cores)
+## Hide cover after the root fix: the corpus sweep, and what it does NOT certify (2026-09-13, box 50882541, 28 cores)
 
 `scripts/hide_cover_cert_box.sh`. Cover for ambush / concealment /
 submerge now comes from the engine's own `[hides]` terrain globs
@@ -1368,8 +1374,9 @@ Bump the epoch whenever a change alters what a player sees.
 
 ## Rejected: making `pos_to_hex` lazy (2026-09-13, measured locally)
 
-`EncodedState.pos_to_hex` is built on every encode and consumed ONLY
-by `action_sampler`'s legality masks and `gbc.py`. The imitation
+`EncodedState.pos_to_hex` is built on every encode and consumed only
+by `action_sampler`'s legality masks, `wesnoth_ai/gbc.py` and
+`tools/gbc_heads.py`. The imitation
 trainer does not use it on its loss path (`supervised_train.py`: "NO
 legality mask: the observed action in a human replay is legal by
 construction"), only on the holdout probe, so it looked like free

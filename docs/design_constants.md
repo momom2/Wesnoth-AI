@@ -163,11 +163,13 @@ map-invariant; the 10x multiplier calibrates magnitudes:
 Gold / unit-value weights are NOT normalized: gold scales are
 already map-independent (start ~100, village income fixed).
 
-**SHIPPED VALUE IS 0.0, not 0.05** (`configs/draw_tiebreak.json`, the
-authoritative source named earlier in this section). Gold was zeroed on
-2026-07-20 because gold-at-par taught hoarding (2.8x the stop-loss
-prior). The derivation above is kept as the reasoning, not as the
-setting: do not "restore the documented value".
+**NEITHER IS STILL 0.05** (`configs/draw_tiebreak.json`, the
+authoritative source named earlier in this section). Shipped:
+`weight_gold = 0.0`, zeroed 2026-07-20 because gold-at-par taught
+hoarding (2.8x the stop-loss prior); `weight_unit_value = 0.016667`,
+re-calibrated the next day. The derivation above is kept as the
+reasoning, not as the setting: do not "restore the documented
+value".
 
 ## Spool-worker VRAM budget (2026-07-18, revised 2026-07-20)
 
@@ -413,9 +415,10 @@ ceiling.
 
 ## Search tempo bonus: `tempo_bonus` (2026-09-04; DEFAULT IS 0.0)
 
-The 0.44 this heading used to carry appears nowhere in `tools/`,
-`configs/`, `scripts/` or `wesnoth_ai/`; `tools/az_loop.py`'s
-`--tempo-bonus` defaults to 0.0. 0.44 is the derived value the
+No shipped DEFAULT is 0.44: `tools/az_loop.py`'s `--tempo-bonus`
+defaults to 0.0. 0.44 is the DERIVED value the section below
+computes, and it is quoted as that in az_loop.py (the flag's own
+help, and again later), mcts_policy.py and sim_self_play.py. 0.44 is the derived value the
 section below computes, not a shipped one.
 
 Used by `tools/az_loop.py --tempo-bonus` with `--value-center`: the

@@ -44,9 +44,14 @@ and the sections after it), on one 24-core 4090:
   default no longer has to be conservative. **1.68x on generation,
   from a default.**
 - Plan 1.3's 3,000-leaves-per-4090 target is NOT met: the real 4090
-  reads 1,450-1,565 saturated at ~320 tokens per leaf, which is what
-  docs/gpu_forward_design_20260904.md predicted (1,300-1,800 with
-  today's kernels; 3,000 needs fewer tokens or fp8).
+  reads 1,450-1,565 saturated at ~320 tokens per leaf, which LOOKS like
+  docs/gpu_forward_design_20260904.md's 1,300-1,800 band but is NOT a
+  confirmation of it: that band was computed at 1,270 tokens per
+  leaf and this is measured at ~320, where the same doc's
+  arithmetic gives a ceiling about 4x higher. They coincide because
+  the binding cost turned out to be a fixed per-batch LAUNCH that
+  does not scale with tokens -- a different mechanism than the one
+  priced, so the GPU model still needs re-deriving.
 - The eval path wants NEITHER more workers nor more servers. A second
   server halves the mean batch (7.84 -> 3.56) and the per-batch cost
   is mostly fixed, so it cannot win; the standing 1.3-1.5x expectation
@@ -68,8 +73,12 @@ anyway, ordered by what the measurements say is binding:
 - the inference server is the ceiling on BOTH paths (eval: over four
   fifths of a worker's wall is spent waiting on it; pool: the server
   idles 40-60% of an iteration but its saturated rate is the roof).
-  A second serve process per GPU is built and still unmeasured,
-  1.3-1.5x expected.
+  A second serve process per GPU is built and still unmeasured ON
+  THE POOL. On EVAL it is refuted: splitting the same workers
+  across two servers halves the mean batch (7.84 -> 3.56) and the
+  cost is mostly a fixed per-batch launch, so it cannot win. The
+  standing 1.3-1.5x expectation applies, if anywhere, only to the
+  pool, whose batches stay full.
 - the trainer is GPU-bound: bf16 autocast is built (`--bf16`) and
   timed only on a 16 GB card; TF32 for the trunk is untried.
 - the az training path's next recorded cut is shipping the actor's
@@ -98,13 +107,17 @@ anyway, ordered by what the measurements say is binding:
   and the Wesnoth rule layer) reported eleven more, NONE fixed. In
   order of what they corrupt:
   * ~~hide cover decided by a hand-rolled overlay allow-list~~ FIXED
-    2026-09-13 at the root and certified on the whole corpus. The
+    2026-09-13 at the root and swept over the whole corpus. The
+    sweep shows NO REGRESSION; it does not certify the new rule
+    (it passes under the old one too -- see below). The
     engine matches the hex's terrain CODE (`*^F*`, `*^V*`, `Wo*^*`),
     not its defense class; `terrain_resolver.hides_cover` transcribes
     those globs and both the Python predicate and the Rust core's
     baked flags read it. Over the Ladder pool ambush gained 478 hexes,
     submerge 153 and concealment 93, while concealment LOST 302 to the
     farmland correction. 17,039 of 17,039 replays reconstruct clean
+    (on the staging set the box used: the current corpus plus 20 games
+    that have since left it -- docs/plan_20260904.md has the count)
     after the fix, which shows no regression and does not certify the
     new rule (docs/box_specs.md "Hide cover certified after the root
     fix"; docs/wesnoth_rules.md has the rule and the census).
@@ -820,7 +833,8 @@ the citations.)
 1. **`magical` never reached combat.** Silverhead's `prestart`
    `[object]` gives its side-3 Tentacle a ranged arcane 100-1 "evil
    eye" with `{WEAPON_SPECIAL_MAGICAL}`. `wesnoth_ai/combat.py` reads
-   `"magical" in weapon.specials` for the 70% floor, so every player
+   `"magical" in weapon.specials`, which SETS chance-to-hit to 70
+   (`cumulative=no`; only `marksman` is a floor), so every player
    who attacked the Tentacle at range ate its counter at their OWN
    terrain's chance-to-hit (30% in forest, 60% on flat) instead of
    Wesnoth's flat 70%.
@@ -864,18 +878,25 @@ Two further findings from the same hunt, NOT fixed:
   `_first_terrain_id` (`wesnoth_ai/encoder.py`) tie-breaks a
   multi-member set with `next(iter(...))`, i.e. by enum ordinal, and
   `FLAT` (3) sorts before `FOREST` (4): `Gs^Fp` encodes as FLAT while
-  `Hh^Fp` encodes as FOREST. 1,499 of 1,759 forest-overlay Ladder
-  hexes (85%) are not labelled forest, on all 21 maps. Separately,
-  `replay_dataset._TERRAIN_BASE` lists 26 bases and defaults the rest
-  to FLAT, so 6,259 of 23,442 Ladder hexes (27%) take a default, some
+  `Hh^Fp` encodes as FOREST. **1,356 of 1,572 forest-overlay PLAYABLE
+  Ladder hexes (86%)** are not labelled forest, on all 21 maps --
+  the same border-stripped basis as the hide-cover census, which is
+  the right one here because `parse_map_data` strips the border ring
+  and the encoder never sees it. (Border-inclusive the same counts
+  read 1,499 of 1,759.) Separately, `replay_dataset._TERRAIN_BASE`
+  defaults an unlisted base to FLAT, so 5,742 of 20,726 playable
+  Ladder hexes (28%) take a default, some
   wrongly (`Xv` void, `Xos` wall, `Wot` deep water, `Hhd` dry hills,
   `Ai` ice, `Qlf` lava). Fixing it changes every observation the
   policy has ever been trained on, so it wants its own arm and an
   800-game match, not a drive-by.
 - **Two more `[hides]` abilities are outside `_AMBUSH_ABILITIES`**:
-  `burrow` (Horned Scarab) and `swamp_lurk` (Crocodile,
-  `wesnoth_src/data/core/units/monsters/Crocodile.cfg:143`,
-  `terrain=S*^*`). Latent: neither carrier is in the pools or in any
+  `burrow` (Horned Scarab) and `swamp_lurk` (the Swamp Lizard -- the FILE is
+  Crocodile.cfg but `id=Swamp Lizard` and no unit type called
+  Crocodile exists in 1.18.4;
+  `wesnoth_src/data/core/units/monsters/Crocodile.cfg:143`, its
+  `terrain=S*^*` at :153). It IS in the pinned scrape, the only
+  carrier of the 356. Latent: neither carrier is in the pools or in any
   of the 17,019 corpus games.
 
 Two `apply_to` values DO appear in the mini pool and look alarming;
@@ -883,18 +904,26 @@ both are fine, checked rather than assumed. `loyal` (9 occurrences
 across the three enclave scenarios) sits inside a `[trait] id=loyal`,
 and our loader records the TRAIT, which is what the upkeep math reads
 (`replay_dataset`, init_side gold): those Tentacles come out
-`traits=('loyal',)`. `movement_costs` (5 occurrences, `2p_mini` and
-`2p_mini_edited`) makes a guardian's castle cost 99 so it cannot
+`traits=('loyal',)`. `movement_costs` (5 occurrences over THREE pool scenarios:
+`2p_mini` and `2p_mini_edited` twice each,
+`Modified_Tiny_Close_Relation` once) makes a guardian's castle cost 99 so it cannot
 leave; those are side-3 units that never move in our sim anyway, and
 the effect is not dispatched through `_apply_effect_to_unit` at
 scenario build, so the new warning does not fire on them.
 
 Ruled out with evidence, so nobody re-hunts them: terrain resolution
-(587 distinct codes over the shipped maps, zero silent defaults);
+(354 distinct playable codes over the 21 Ladder maps, 365 over the
+Ladder and mini pools together, 817 over all 114 tracked .map files;
+every code resolves through terrain_db EXCEPT `Md^Xm`, `Mm^Xm`,
+`Ms^Xm` and `_off^_usr`, which take `_get_underlying`'s
+unknown-composite branch because it splits on `^` before checking
+the whole string -- 1,734 Ladder hexes, values still right);
 village/castle/keep detection (bidirectional against `terrain.cfg`);
 the trait tables (divergent but dead -- `roll_traits` reads
 `unit_stats.json`); ability-macro scraping (0 dropped macros across
-the 204-type default-era closure); ZOC; init-side healing; the
+the 158-type Default-Era closure: the six factions' recruit, leader
+and random-leader pools give 78 seed types, closed over
+`advances_to`); ZOC; init-side healing; the
 unknown-unit fallback (94 distinct types in the corpus, all present);
 `sight_radius_for`'s `max_moves` proxy (only 4 core types set
 `vision=`, none reachable); and the remaining weapon-special gaps
@@ -957,7 +986,8 @@ because they are small, need a judgement call, or need a box.
   `charge` where the enforcing definition is `weapon_specials.cfg`;
   `design_constants.md` gives two values for one PUCT product without
   saying they are different operating points. Both files' tables of
-  contents are stale (10 of 18 sections, 2 of 12).
+  contents are stale (neither lists every section; the counts first
+  published here were not checked and are withdrawn).
 
 Checked and CLEAN, so nobody re-sweeps them: `raw_argmax_control`,
 `turn_gap_prereg`, `data_contamination` (the one doc that keeps the
