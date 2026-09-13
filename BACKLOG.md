@@ -56,6 +56,12 @@ and the sections after it), on one 24-core 4090:
 
 Speed levers left, each a one-factor test on a run that is needed
 anyway, ordered by what the measurements say is binding:
+- **the largest generation lever left is more games per iteration.**
+  Actors are capped at `--games-per-iter` (a surplus actor idles), so
+  the 64-actor rate the sweep measured needs 64 games per iteration.
+  That is NOT a throughput-only change: games per iteration sets the
+  learner's batch, so it needs its own one-factor evaluation before
+  it moves.
 - the inference server is the ceiling on BOTH paths (eval: over four
   fifths of a worker's wall is spent waiting on it; pool: the server
   idles 40-60% of an iteration but its saturated rate is the roof).

@@ -1,0 +1,59 @@
+{
+ "wheel_phase": 8,
+ "states": [
+  {
+   "units": 37,
+   "hexes": 984,
+   "turn": 8,
+   "device": "cuda",
+   "encode_raw_ms": 0.4967,
+   "encode_from_raw_ms": 0.917,
+   "encode_total_ms": 1.4542,
+   "forward_ms": 2.2535,
+   "packed_masks_ms": 0.0002,
+   "leaf_to_cpu_ms": 0.128,
+   "enumerate_ms": 1.3466,
+   "n_legal_actions": 662,
+   "sort_ms": 0.0472,
+   "edges_ms": 0.1873,
+   "actor_python_per_leaf_ms": 3.1634,
+   "core_encode_raw_ms": 0.2007
+  },
+  {
+   "units": 19,
+   "hexes": 1188,
+   "turn": 8,
+   "device": "cuda",
+   "encode_raw_ms": 0.4288,
+   "encode_from_raw_ms": 0.8964,
+   "encode_total_ms": 1.3708,
+   "forward_ms": 2.1453,
+   "packed_masks_ms": 0.0001,
+   "leaf_to_cpu_ms": 0.1203,
+   "enumerate_ms": 1.0667,
+   "n_legal_actions": 677,
+   "sort_ms": 0.0481,
+   "edges_ms": 0.1999,
+   "actor_python_per_leaf_ms": 2.8059,
+   "core_encode_raw_ms": 0.1952
+  },
+  {
+   "units": 22,
+   "hexes": 888,
+   "turn": 7,
+   "device": "cuda",
+   "encode_raw_ms": 0.3576,
+   "encode_from_raw_ms": 0.8931,
+   "encode_total_ms": 1.3041,
+   "forward_ms": 2.1339,
+   "packed_masks_ms": 0.0001,
+   "leaf_to_cpu_ms": 0.1203,
+   "enumerate_ms": 0.7388,
+   "n_legal_actions": 256,
+   "sort_ms": 0.0149,
+   "edges_ms": 0.0609,
+   "actor_python_per_leaf_ms": 2.2391,
+   "core_encode_raw_ms": 0.1313
+  }
+ ]
+}

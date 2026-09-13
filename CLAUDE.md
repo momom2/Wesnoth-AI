@@ -179,6 +179,25 @@ State of play:
   asymmetry detected). Two optional confirmations need a box and a
   word: the 3,000-per-4090 target of plan 1.3 (an A4000 cannot judge
   it) and a tight 800-game self-pin.
+- 2026-09-13 (user order: keep optimizing throughput): **the pool's
+  constraint was the actor COUNT.** An actor blocks on the inference
+  server for nine tenths of its cycle -- its own Python is about 3 ms
+  of a 27-58 ms per-leaf wall -- so the count buys in-flight leaves,
+  not CPU: 19 -> 665, 32 -> 914, 48 -> 1,006, 64 -> 1,116 leaf
+  evaluations per second against a server saturating near 1,500
+  (docs/box_specs.md "Actors buy in-flight leaves"). `az_loop
+  --actors` was 8; it is 24 now, capped at `--games-per-iter` because
+  a surplus actor idles. Also measured that day: plan 1.3's
+  3,000-per-4090 target is NOT met on a real 4090 (1,450-1,565
+  saturated, as docs/gpu_forward_design_20260904.md predicted); the
+  eval path wants neither more workers nor more servers (a second
+  server halves the mean batch, so it cannot win, refuting the
+  standing 1.3-1.5x expectation); and bf16 on the imitation trainer
+  is 1.25x with an equivalent loss on a 24 GB card, not the 2.9x a
+  memory-starved 16 GB card suggested. Five bugs were found and fixed
+  with tests (BACKLOG.md), the sharpest being an out-of-memory inside
+  backward() whose retry double-counted the gradients the failed pass
+  had already accumulated.
 - Rulings (2026-09-05): no optimizations conditioned on the MCTS
   loop; scope every box test, train sparingly; results are written
   on the run, never as atomic dumps; a box job past ~1.5x its

@@ -1,0 +1,27 @@
+== actor sweep
+  actors 19 {'leaves_per_s': 664.9, 'saturated_leaves_per_s': 1470.0, 'games_per_hour': 219.2, 'games_per_dollar': 654.5, 'gen_seconds': 312.0, 'games_completed': 19}
+  actors 32 {'leaves_per_s': 913.9, 'saturated_leaves_per_s': 1495.1, 'games_per_hour': 285.4, 'games_per_dollar': 852.0, 'gen_seconds': 403.6, 'games_completed': 32}
+  actors 48 {'leaves_per_s': 1005.5, 'saturated_leaves_per_s': 1524.4, 'games_per_hour': 293.7, 'games_per_dollar': 876.7, 'gen_seconds': 588.3, 'games_completed': 48}
+  actors 64 {'leaves_per_s': 1116.1, 'saturated_leaves_per_s': 1565.4, 'games_per_hour': 345.7, 'games_per_dollar': 1031.8, 'gen_seconds': 666.6, 'games_completed': 64}
+== eval sweep
+base20x1 jobs=20 servers=1 wall 42 s games 40
+j40x1 jobs=40 servers=1 wall 46 s games 40
+j20x2 jobs=20 servers=2 wall 52 s games 40
+j40x2 jobs=40 servers=2 wall 43 s games 40
+base20x1b jobs=20 servers=1 wall 74 s games 40
+== bf16
+fp32 wall 181 s
+pairs=16000 rate=121.5/s wall=2.2m
+pairs=19200 rate=118.8/s wall=2.7m
+loss=7.873 actor=2.227 value=0.686 loss=7.553 actor=2.498 value=0.700 
+bf16 wall 147 s
+pairs=16000 rate=151.1/s wall=1.8m
+pairs=19200 rate=148.2/s wall=2.2m
+loss=7.906 actor=2.273 value=0.716 loss=7.429 actor=2.421 value=0.697 
+NVIDIA GeForce RTX 4090, 24564 MiB
+BF16_DONE
+== embed transfer
+batch 16: per-field 0.897 ms, coalesced 0.630 ms, 1.42x, bit-identical
+== box
+24
+NVIDIA GeForce RTX 4090

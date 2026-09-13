@@ -1204,6 +1204,24 @@ embeddings bit-identical**. Against a ~25 ms server cycle that is about
 1% -- real, free, and much smaller than "most of the fixed host cost",
 which is what it looked like before it was measured.
 
+## Verification of the 2026-09-13 changes (box 50878030, RTX 4090)
+
+`scripts/verify_core_box.sh`, run where the wheel builds (the laptop
+cannot execute freshly built binaries). Records:
+`training/metrics/bench_pipeline/verify_20260913/`.
+
+| check | result |
+|---|---|
+| the nine affected suites, Python state of record | 44 passed, 2 skipped |
+| the same suites, `WESNOTH_RUST_CORE=1` | 44 passed, 2 skipped |
+| `tools/diff_core.py` over 400 corpus replays | 400 clean, 0 divergences |
+
+The sweep matters for one change in particular: the movement-class
+cache is now keyed on the defense table's CONTENT rather than its
+address, and a mistake there would show up as a wrong movement cost or
+defense percentage on some unit, which is exactly what a field-by-field
+comparison after every command catches.
+
 ## Serve thread host cost per 16-leaf batch (2026-09-05, box 49875606)
 
 The serve stats now split the host milliseconds per batch (records

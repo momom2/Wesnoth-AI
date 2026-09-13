@@ -215,11 +215,13 @@ def main(argv) -> int:
     ap.add_argument("--workdir", type=Path, default=Path("/workspace"))
     ap.add_argument("--iterations", type=int, default=60)
     ap.add_argument("--games-per-iter", type=int, default=24)
-    ap.add_argument("--actors", type=int, default=32,
+    ap.add_argument("--actors", type=int, default=24,
                     help="Actor processes. An actor is BLOCKED on the inference "
                          "server for nine tenths of its cycle (it holds one "
                          "request in flight), so the actor count buys in-flight "
-                         "leaves, not CPU: measured 2026-09-13 on a 24-core 4090 "
+                         "leaves, not CPU; it is capped at --games-per-iter, "
+                         "since an iteration hands out one game per actor and "
+                         "the surplus idles. Measured 2026-09-13 on a 24-core 4090 "
                          "box, 19 -> 665, 32 -> 914, 48 -> 1,006, 64 -> 1,116 "
                          "leaf evaluations/s against a server saturating near "
                          "1,500 (docs/box_specs.md \"Actors buy in-flight "
@@ -399,7 +401,17 @@ def main(argv) -> int:
                          mini_ratio=0.0, fogless_ratio=0.0,
                          ladder_ratio=1.0, midgame_ratio=0.0,
                          midgame_dataset=None)
-    pool = ActorPool(policy, args.actors, mcts_cfg, turn_cfg=None,
+    # An iteration posts one ticket per game and then one end marker
+    # per actor, so an actor beyond the game count takes an end marker
+    # immediately and idles for the whole iteration. Raise
+    # --games-per-iter to use more actors.
+    n_actors = args.actors
+    if n_actors > args.games_per_iter:
+        log.warning("--actors %d exceeds --games-per-iter %d; running %d actors "
+                    "(the surplus would idle). Raise --games-per-iter to use them.",
+                    n_actors, args.games_per_iter, args.games_per_iter)
+        n_actors = args.games_per_iter
+    pool = ActorPool(policy, n_actors, mcts_cfg, turn_cfg=None,
                      pt_cfg=None, gbc_labels=False, train_kwargs={},
                      scenario_opts=scenario_opts, max_turns=args.max_turns,
                      max_turns_min=args.max_turns,
