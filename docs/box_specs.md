@@ -813,12 +813,29 @@ answered are in their Python while the other half forms the next
 batch, and the server idles until the first of them is back. The GPU
 time per batch barely moves with its size (13.9 ms at 6.2, 15.0 at
 7.6), so it is mostly a fixed launch cost; the GPU is busy 57% of the
-wall. Levers left, in order: a second server process on the same GPU
-(one cohort's forward under the other's host work; the pool has it,
-`run_elo_batch` does not), a fixed-shape forward that cuts the launch
-cost (CUDA graphs over bucketed lengths; the compiled loop lost to
-recompiles), and fewer tokens per leaf (plan 1.4, the per-leaf part
-of the GPU cost). The kernel stays on by default: certified, cheaper
+wall. Levers left, in order -- CORRECTED 2026-09-13, the first one has
+since been refuted:
+
+1. ~~a second server process on the same GPU~~ **REFUTED** on this
+   path. `--inference-servers` was implemented and measured: splitting
+   the same workers across two servers HALVES the mean batch (7.84 ->
+   3.56) and the cost is mostly a fixed per-batch launch, so half the
+   batch means twice the batches ("The eval path does not want more
+   workers or more servers"). It is worth using only when the two
+   sides run different checkpoints, or when a much larger worker pool
+   keeps both batches full. The POOL is a separate question -- it
+   posts many more leaves per round trip, so its batches stay full;
+   that arm is still unmeasured.
+2. a fixed-shape forward that cuts the launch cost (CUDA graphs over
+   bucketed lengths; the compiled loop lost to recompiles). Note that
+   docs/gpu_forward_design_20260904.md ranks CUDA graphs LAST and says
+   "never unless the CPU column is again the bottleneck" -- but that
+   ranking prices 16-leaf POOL batches, where padding costs more GPU
+   than the launches it saves. This path runs batches of 6-8 where the
+   GPU time barely moves with size, which is the regime the ranking
+   did not cover. Worth pricing before building.
+3. fewer tokens per leaf (plan 1.4, the per-leaf part of the GPU
+   cost). The kernel stays on by default: certified, cheaper
 per decision, and the self-play actors do the same work per leaf.
 
 ## The relevant-set twin of seed2 at one pass (2026-09-11, box 50585036, RTX 4090)

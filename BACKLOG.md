@@ -217,9 +217,14 @@ anyway, ordered by what the measurements say is binding:
      saturated" reading was wrong). The match wall is the loop
      through one server: about 25 ms per batch, mostly a fixed GPU
      launch cost (14-15 ms at batch 6-8), 7.5 of 20 workers per
-     batch. Levers left: a second server process per GPU in
-     `run_elo_batch`, a fixed-shape forward (CUDA graphs over
-     bucketed lengths), fewer tokens per leaf (plan 1.4).
+     batch. Levers left, CORRECTED 2026-09-13: the second server
+     process is REFUTED on this path (it halves the mean batch and
+     the cost is a fixed per-batch launch, see the entry above), so
+     what remains is a fixed-shape forward (CUDA graphs over bucketed
+     lengths) and fewer tokens per leaf (plan 1.4). On CUDA graphs,
+     read docs/gpu_forward_design_20260904.md section 8 first: it
+     ranks them LAST, but it prices 16-leaf POOL batches, not the
+     6-8 batches this path runs, so the ranking does not settle it.
    - DONE 2026-09-12 (user order "complete the Rust port, including
      for eval and pool"): the relevant-set basis on the kernels
      (port plan 2d): the reach rows and the relevant set from
