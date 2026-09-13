@@ -1204,6 +1204,16 @@ embeddings bit-identical**. Against a ~25 ms server cycle that is about
 1% -- real, free, and much smaller than "most of the fixed host cost",
 which is what it looked like before it was measured.
 
+Rejected while here: embedding the unit and recruit streams in ONE
+call instead of two (they share the embedding, so it is the same
+arithmetic and saves five lookups plus a linear per batch, priced at
+~3% of the cycle). Running the linear over N+M rows instead of N and
+then M changes the matmul's tiling, so the embeddings stop being
+bit-identical -- a numerics change on the path that produces every
+strength verdict, for a few percent of a stage that is not the binding
+constraint. The transfer coalescing above was taken precisely because
+it moves bytes and changes no arithmetic.
+
 ## Verification of the 2026-09-13 changes (box 50878030, RTX 4090)
 
 `scripts/verify_core_box.sh`, run where the wheel builds (the laptop
