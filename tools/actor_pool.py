@@ -378,7 +378,11 @@ class ActorPool:
         device = self._device or next(base.parameters()).device
         if not self._graphed_serve:
             return False
-        ok = (device.type == "cuda" and bool(self._infer_bf16)
+        # bf16 as the server resolves it (InferenceServer._use_bf16): the
+        # pool's own switch, else the model's (bench_pool sets the model's).
+        bf16 = (bool(self._infer_bf16) if self._infer_bf16 is not None
+                else bool(getattr(base, "infer_autocast_bf16", False)))
+        ok = (device.type == "cuda" and bf16
               and bool(getattr(base, "infer_packed_trunk", False)))
         if not ok:
             log.warning("graphed_serve needs cuda, bf16 inference and the packed trunk; "
