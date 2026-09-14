@@ -53,7 +53,9 @@ def case():
     policy = TransformerPolicy(device=torch.device("cpu"),
                                d_model=64, num_layers=2, num_heads=4, d_ff=128)
     configure_trainer_like_az_loop(policy._trainer)
-    exps = experiences_from_states(policy, states, sims=32, rng=random.Random(0))
+    # Without masks on purpose: the test ships them itself below and
+    # compares against the host rebuild.
+    exps = experiences_from_states(policy, states, sims=32, rng=random.Random(0), masks=False)
     exps[1].visit_counts = [v[:4] for v in exps[1].visit_counts]     # legacy 4-tuples
     exps[2].policy_weight = 0.5
     exps.append(MCTSExperience(game_state=states[0], visit_counts=[], z=1.0,
