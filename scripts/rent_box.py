@@ -5,6 +5,7 @@ CLI binary is blocked on the laptop).
     python scripts/rent_box.py search [--gpu "RTX 4090"] [--max-dph 0.8] [--min-cpu 16] [--min-hours 4]
     python scripts/rent_box.py create OFFER_ID --onstart HF_STAGING_SCRIPT [--disk 40] [--env K=V ...]
     python scripts/rent_box.py status [INSTANCE_ID]
+    python scripts/rent_box.py start INSTANCE_ID
     python scripts/rent_box.py destroy INSTANCE_ID
 
 `create` starts the pytorch 2.5.1 image with ssh, passes HF_TOKEN (the
@@ -13,6 +14,12 @@ that fetches the named script from HF `tier-b/staging/` and runs it
 detached under /workspace (unattended bring-up: docs/box_specs.md
 "Operational facts"). Offers are filtered client-side: no VM hosts
 (they refuse ssh), a remaining rental window of at least --min-hours.
+
+A create that answers `success: false` with a contract id has made the
+instance in the STOPPED state (2026-09-14: three in a row showed
+`intended_status: stopped` and sat in "loading" for half an hour);
+`start` brings it up, and the onstart runs then, fetching the script
+as it is on HF at that moment.
 """
 from __future__ import annotations
 
@@ -79,10 +86,18 @@ def create(args) -> int:
     res = v.create_instance(id=args.offer_id, image=IMAGE, disk=args.disk, runtype="ssh_direc",
                             env=env, onstart_cmd=ONSTART.format(script=args.onstart))
     print(json.dumps(res, default=str))
+    iid = res.get("new_contract") if isinstance(res, dict) else None
     if not (isinstance(res, dict) and res.get("success")):
+        if iid:
+            print(f"instance {iid} was made STOPPED; `rent_box.py start {iid}` brings it up",
+                  file=sys.stderr)
         return 1
-    iid = res.get("new_contract")
     print("instance", iid)
+    return 0
+
+
+def start(args) -> int:
+    print(_vast().start_instance(id=args.instance_id))
     return 0
 
 
@@ -127,6 +142,9 @@ def main(argv) -> int:
     c.add_argument("--disk", type=int, default=40)
     c.add_argument("--env", action="append")
     c.set_defaults(fn=create)
+    go = sub.add_parser("start")
+    go.add_argument("instance_id", type=int)
+    go.set_defaults(fn=start)
     st = sub.add_parser("status")
     st.add_argument("instance_id", type=int, nargs="?")
     st.set_defaults(fn=status)

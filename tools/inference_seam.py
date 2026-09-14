@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import dataclasses
 import io
+import logging
 import time
 from typing import Dict, List, Optional, Protocol, Tuple
 
@@ -56,6 +57,8 @@ import torch
 from wesnoth_ai.classes import GameState
 from wesnoth_ai.encoder import EncodedState, RawEncoded, encode_raw
 from wesnoth_ai.model import ModelOutput
+
+log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------
@@ -204,9 +207,14 @@ class InferenceServer:
         output_device: Optional[torch.device] = None,
         autocast_bf16: Optional[bool] = None,
         packed_embed: bool = False,
+        graphed=None,
     ):
         self._model = model
         self._encoder = encoder
+        # The static-shape path (wesnoth_ai/graphed_serve.GraphedServe):
+        # a priors batch that fits one of its buckets is served from a
+        # CUDA graph; the rest take the eager path below.
+        self._graphed = graphed
         # Packed embed (design note section 14): the batch's token
         # embeddings come from one pinned buffer and are ordered on the
         # device (encoder.encode_from_raw_embedded + model.forward_embedded)
@@ -288,42 +296,58 @@ class InferenceServer:
             ev_end = torch.cuda.Event(enable_timing=True)
             ev_start.record()
         t0 = time.perf_counter()
-        with torch.no_grad():
-            if self._packed_embed:
-                streams = self._encoder.encode_from_raw_embedded(raws, device=self._device)
-
-                def forward():
-                    return model.forward_embedded(streams)
-            else:
-                streams = self._encoder.encode_from_raw_padded(raws, device=self._device)
-
-                def forward():
-                    return model.forward_streams(*streams)
-            t1 = time.perf_counter()
-            if bf16:
-                with torch.autocast("cuda", dtype=torch.bfloat16):
-                    padded = forward().float32()
-            else:
-                padded = forward()
-            t2 = time.perf_counter()
-            names = ["value", "value_logits", "cliffness"]
-            names += [n for n in ("aux_score", "moves_left") if getattr(padded, n) is not None]
-            pending = start_priors(padded, packs, [getattr(padded, n) for n in names])
+        graphed = None
+        if self._graphed is not None:
+            try:
+                graphed = self._graphed.infer(raws, packs)
+            except Exception:                        # noqa: BLE001 -- the eager path serves from here on
+                log.exception("graphed serve failed on a batch of %d; serving eager from now on",
+                              len(raws))
+                self._graphed = None
+        if graphed is not None:
+            compact, host, actor_kind, sizes = graphed
+            names = list(self._graphed.extras)
+            t1 = t2 = t3 = t4 = time.perf_counter()
             if timing:
                 ev_end.record()
-            t3 = time.perf_counter()
-            compact, host = pending.finish()
-            t4 = time.perf_counter()
+        else:
+            with torch.no_grad():
+                if self._packed_embed:
+                    streams = self._encoder.encode_from_raw_embedded(raws, device=self._device)
+
+                    def forward():
+                        return model.forward_embedded(streams)
+                else:
+                    streams = self._encoder.encode_from_raw_padded(raws, device=self._device)
+
+                    def forward():
+                        return model.forward_streams(*streams)
+                t1 = time.perf_counter()
+                if bf16:
+                    with torch.autocast("cuda", dtype=torch.bfloat16):
+                        padded = forward().float32()
+                else:
+                    padded = forward()
+                t2 = time.perf_counter()
+                names = ["value", "value_logits", "cliffness"]
+                names += [n for n in ("aux_score", "moves_left") if getattr(padded, n) is not None]
+                pending = start_priors(padded, packs, [getattr(padded, n) for n in names])
+                if timing:
+                    ev_end.record()
+                t3 = time.perf_counter()
+                compact, host = pending.finish()
+                t4 = time.perf_counter()
+            actor_kind, sizes = padded.actor_kind, padded.sizes
         if timing:
             stats["gpu_ms"] = stats.get("gpu_ms", 0.0) + ev_start.elapsed_time(ev_end)
         small = {n: torch.from_numpy(a) for n, a in zip(names, host)}
         aux = small.get("aux_score")
         ml = small.get("moves_left")
         outs = []
-        for b, (U, R, H) in enumerate(padded.sizes):
+        for b, (U, R, H) in enumerate(sizes):
             A = U + R + 1
             outs.append(ModelOutput(
-                actor_logits=torch.zeros(1, A), actor_kind=padded.actor_kind[b:b + 1, :A],
+                actor_logits=torch.zeros(1, A), actor_kind=actor_kind[b:b + 1, :A],
                 type_logits=torch.zeros(1, A, 0), target_logits=torch.zeros(1, A, 0),
                 weapon_logits=torch.zeros(1, A, 0),
                 value=small["value"][b:b + 1], value_logits=small["value_logits"][b:b + 1],

@@ -330,6 +330,12 @@ def main(argv) -> int:
                          "copy and receives the weights after every step; the "
                          "serve threads' host work (~33 ms per batch) is the "
                          "measured ceiling (docs/box_specs.md).")
+    ap.add_argument("--graphed-serve", action=argparse.BooleanOptionalAction,
+                    default=False,
+                    help="Every server replays its priors batches from per-bucket "
+                         "CUDA graphs (wesnoth_ai/graphed_serve.py): one launch per "
+                         "batch instead of the ~150 the host pays today. cuda + bf16 "
+                         "+ the packed trunk; off until its box row is in.")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--rng-seed", type=int, default=20260903)
     ap.add_argument("--log-level", default="INFO")
@@ -462,7 +468,8 @@ def main(argv) -> int:
                      # host work per batch; one pinned copy straight into
                      # the packed layout is 3.7 (docs/box_specs.md).
                      packed_embed=bool(args.packed_trunk and device.type == "cuda"),
-                     serve_processes=max(1, int(args.serve_processes)))
+                     serve_processes=max(1, int(args.serve_processes)),
+                     graphed_serve=bool(args.graphed_serve))
     pool.start()
     # Calibration happens after the FIRST ITERATION, not here.
     # `pool.start()` is a loop of `p.start()` with no barrier, so at

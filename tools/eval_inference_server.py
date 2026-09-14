@@ -414,7 +414,8 @@ def launch_inference_server(spec: str, outdir: Path, tag: str, *, device: str,
                             startup_timeout_s: float = 600.0,
                             python: Optional[str] = None,
                             packed_embed: bool = True,
-                            compile_packed: bool = False) -> InferenceServerHandle:
+                            compile_packed: bool = False,
+                            graphed: bool = False) -> InferenceServerHandle:
     """Popen one server for `spec` and wait for its address and info
     lines. Stderr goes to `outdir/.inference_server_<tag>.log`, stats
     to `.inference_server_<tag>.json` (dot-prefixed: the result globs
@@ -430,6 +431,8 @@ def launch_inference_server(spec: str, outdir: Path, tag: str, *, device: str,
     cmd.append("--packed-embed" if packed_embed else "--no-packed-embed")
     if compile_packed:
         cmd.append("--compile-packed")
+    if graphed:
+        cmd.append("--graphed")
     log_path = outdir / f".inference_server_{tag}.log"
     errf = open(log_path, "w+b")
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -532,6 +535,10 @@ def main(argv: List[str]) -> int:
                          "inductor, no CUDA graphs) and warm it up before serving: the "
                          "per-batch launch overhead, which is most of a small batch's cost "
                          "(docs/box_specs.md 2026-09-11). With the packed trunk only.")
+    ap.add_argument("--graphed", action=argparse.BooleanOptionalAction, default=False,
+                    help="Serve priors batches from per-bucket CUDA graphs "
+                         "(wesnoth_ai/graphed_serve.py; cuda + bf16 + packed trunk only): "
+                         "the per-batch host launch cost collapses to one graph launch.")
     ap.add_argument("--window-ms", type=float, default=DEFAULT_WINDOW_MS)
     ap.add_argument("--max-batch", type=int, default=16, help="leaves per forward")
     ap.add_argument("--torch-threads", type=int, default=4)
@@ -574,12 +581,20 @@ def main(argv: List[str]) -> int:
             log.info("packed compile warmup: %s", model.warmup_packed_compile())
             compiled = True
     packed_embed = bool(args.packed_embed and packed)
+    graphed = None
+    if args.graphed:
+        if not packed:
+            log.warning("--graphed needs the packed trunk (cuda + bf16); serving eager")
+        else:
+            from wesnoth_ai.graphed_serve import Caps, GraphedServe
+            graphed = GraphedServe(model, encoder, device, caps=Caps(b_cap=args.max_batch))
     server = InferenceServer(model, encoder, device=device,
                              output_device=torch.device("cpu"), autocast_bf16=bf16,
-                             packed_embed=packed_embed)
+                             packed_embed=packed_embed, graphed=graphed)
     hello = {
         "spec": str(spec), "device": device.type, "infer_bf16": bf16,
         "packed_trunk": packed, "packed_embed": packed_embed, "compile_packed": compiled,
+        "graphed": graphed is not None,
         "relevant_set": bool(getattr(encoder, "relevant_set_hexes", False)),
         "fog_hides_enemy_villages": bool(getattr(encoder, "fog_hides_enemy_villages", False)),
         "type_to_id": dict(encoder.unit_type_to_id),
@@ -600,6 +615,9 @@ def main(argv: List[str]) -> int:
         pass
     service.stop()
     stats = dict(info, **service.stats.as_dict())
+    if graphed is not None:
+        stats["graphed_serve"] = graphed.summary()
+        log.info("graphed serve: %s", stats["graphed_serve"])
     if args.stats_out is not None:
         args.stats_out.parent.mkdir(parents=True, exist_ok=True)
         args.stats_out.write_text(json.dumps(stats, indent=1), encoding="utf-8")

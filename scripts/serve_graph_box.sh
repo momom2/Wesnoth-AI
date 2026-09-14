@@ -11,6 +11,13 @@
 #      bench-state source that rebuilds them on the host. The 26.6 ms
 #      policy-loss figure on record (docs/box_specs.md "Training path
 #      cost") was measured on the latter, before the masks shipped.
+#   3. The static-shape serve path (wesnoth_ai/graphed_serve.py) on both
+#      production paths, one factor each: a 40-game raw:t0 match of
+#      relset against itself through the shared server with and
+#      without --graphed-serve (walls, the server's counters, the
+#      graphed summary in its stats file), and one pool iteration of
+#      48 actors and games with and without it (the committed bf16
+#      packed configuration).
 #
 # Expects /workspace/.hf_token (chmod 600). Records under
 # /workspace/servegraph, uploaded to HF $HF_DIR after each step.
@@ -18,7 +25,10 @@ set -uo pipefail
 [ -x /venv/main/bin/python ] && export PATH=/venv/main/bin:$PATH
 OUT=/workspace/servegraph
 HF_DIR="${HF_DIR:-tier-b/serve_graph_20260914}"
-STAGE="${STAGE:-tier-b/staging/stage_20260914b.tar.gz}"
+STAGE="${STAGE:-tier-b/staging/stage_20260914c.tar.gz}"
+GAMES="${GAMES:-48}"
+SIMS="${SIMS:-32}"
+DPH="${DPH:-0.37}"
 mkdir -p "$OUT"
 cd /workspace
 export HF_TOKEN="$(tr -d '\r\n' < /workspace/.hf_token)" HF_HUB_DISABLE_XET=1
@@ -113,6 +123,63 @@ python tools/bench_train_step.py --checkpoint "$CKPT" --device cuda \
     --precisions bf16 --batch-sizes 16 --n-list 1024 --repeats 2 \
     --out "$OUT/train_bench.json" --md "$OUT/train_bench.md" > "$OUT/train_bench.log" 2>&1
 tail -25 "$OUT/train_bench.log"
+upload
+
+# ---- 3a. the eval path with and without the graphed server ----------
+eval_arm() {                     # eval_arm NAME [--graphed-serve]
+    local name="$1"; shift
+    local dir="$OUT/eval_games_$name"
+    local t0
+    t0=$(date +%s)
+    python tools/run_elo_batch.py --label-a relset --spec-a "$CKPT" \
+        --label-b relset_ref --spec-b "$CKPT" \
+        --outdir "$dir" --games 40 --max-extra-games 0 --seed-base 20000 \
+        --mcts-sims 0 --raw-temperature-a 0 --raw-temperature-b 0 \
+        --persistent-workers --shared-inference --no-infer-compile --device cuda \
+        --jobs 20 --inference-max-batch 20 "$@" \
+        --time-budget-min 30 2>&1 | grep --line-buffered -v "wesnoth_core is not importable" > "$OUT/eval_$name.log"
+    echo "$name $* $(( $(date +%s) - t0 )) s $(ls "$dir"/game_*.json 2>/dev/null | wc -l) games" | tee -a "$OUT/eval.walls"
+    mkdir -p "$OUT/eval_stats_$name"
+    cp "$dir"/.inference_server_*.json "$OUT/eval_stats_$name/" 2>/dev/null || true
+    grep -h "inference server .*requests in .*batches\|graphed serve" "$OUT/eval_$name.log" | tail -3 | tee -a "$OUT/eval.counters"
+}
+eval_arm eager_a
+eval_arm graphed_a --graphed-serve
+eval_arm eager_b
+eval_arm graphed_b --graphed-serve
+tar czf "$OUT/eval_stats.tar.gz" -C "$OUT" $(cd "$OUT" && ls -d eval_stats_* 2>/dev/null) 2>/dev/null || true
+upload
+
+# ---- 3b. the pool with and without the graphed server ---------------
+for arm in eager graphed; do
+    extra=""
+    [ "$arm" = graphed ] && extra="--graphed-serve"
+    python tools/bench_pool.py --checkpoint "$CKPT" \
+        --actors "$GAMES" --games "$GAMES" --sims "$SIMS" \
+        --leaf-batch 16 --max-turns 30 \
+        --dollars-per-hour "$DPH" --server-priors \
+        --infer-bf16 --packed-trunk --packed-embed $extra \
+        > "$OUT/pool_$arm.json" 2> "$OUT/pool_$arm.log"
+    tail -4 "$OUT/pool_$arm.log"
+    upload
+done
+python - <<'PY' | tee "$OUT/pool_verdict.txt"
+import json
+def rd(n):
+    try:
+        return json.load(open(f"/workspace/servegraph/pool_{n}.json"))
+    except Exception:
+        return None
+a, b = rd("eager"), rd("graphed")
+if not (a and b):
+    print("one arm missing; no verdict")
+else:
+    for k in ("leaves_per_s", "saturated_leaves_per_s", "games_per_dollar"):
+        x, y = a.get(k), b.get(k)
+        if x and y:
+            print(f"{k:26s} eager {x:10.1f}   graphed {y:10.1f}   {y / x:.2f}x")
+    print("graphed summary:", b.get("graphed_serve_summary"))
+PY
 upload
 touch "$OUT/ALL_DONE"
 upload

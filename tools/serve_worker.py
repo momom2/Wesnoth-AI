@@ -358,10 +358,14 @@ def _server_loop(
                                            mode=switches["compile_mode"])
             log.info("serve-%d packed compile warmup: %s", server_id,
                      model.warmup_packed_compile())
+        graphed = None
+        if switches.get("graphed"):
+            from wesnoth_ai.graphed_serve import Caps, GraphedServe
+            graphed = GraphedServe(model, encoder, device, caps=Caps(b_cap=max_batch))
         server = InferenceServer(model, encoder, device=device,
                                  output_device=torch.device("cpu"),
                                  autocast_bf16=switches["autocast_bf16"],
-                                 packed_embed=switches["packed_embed"])
+                                 packed_embed=switches["packed_embed"], graphed=graphed)
     except Exception:                           # noqa: BLE001
         server_q.put((_S_ERROR, server_id, traceback.format_exc()))
         return

@@ -307,11 +307,19 @@ def _flash_varlen(q, k, v, cu_seqlens: torch.Tensor, max_len: int) -> torch.Tens
 
 def _segment_sdpa(q, k, v, cu_host: List[int]) -> torch.Tensor:
     """Reference attention for the packed layout off the flash kernel's
-    domain: one F.scaled_dot_product_attention call per segment."""
+    domain: one F.scaled_dot_product_attention call per segment. Rows
+    past the last offset (the static-shape path's spare rows, which the
+    flash kernel leaves untouched) come back as zeros, so the output has
+    q's rows either way."""
     outs = []
     for lo, hi in zip(cu_host[:-1], cu_host[1:]):
+        if hi <= lo:
+            continue
         seg = [t[lo:hi].transpose(0, 1).unsqueeze(0) for t in (q, k, v)]   # [1, heads, n, hd]
         outs.append(F.scaled_dot_product_attention(*seg)[0].transpose(0, 1))
+    spare = q.shape[0] - int(cu_host[-1])
+    if spare > 0:
+        outs.append(q.new_zeros((spare,) + tuple(q.shape[1:])))
     return torch.cat(outs, dim=0)
 
 

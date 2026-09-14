@@ -37,6 +37,7 @@ import time
 from pathlib import Path
 from typing import Dict, Sequence
 
+import numpy as np
 import torch
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -187,6 +188,34 @@ def bench_batch(policy, server, pairs, device: torch.device, bf16: bool, repeats
     if "gpu_ms" in stats:
         row["seam_stages_ms"]["stream_span"] = stats["gpu_ms"] / n
 
+    # The same call through the static-shape path (wesnoth_ai/graphed_serve):
+    # on CUDA the bucket's graph replays, on CPU its body runs eagerly.
+    if graph:
+        from tools.inference_seam import InferenceServer
+        from wesnoth_ai.graphed_serve import Caps, GraphedServe
+        try:
+            gserve = GraphedServe(model, encoder, device, caps=Caps(b_cap=B))
+            gserver = InferenceServer(model, encoder, device=device,
+                                      output_device=torch.device("cpu"), autocast_bf16=bf16,
+                                      packed_embed=True, graphed=gserve)
+            row["infer_batch_graphed"] = _time_ms(lambda: gserver.infer_batch(pairs), device, repeats)
+            row["graphed_summary"] = gserve.summary()
+            ref = server.infer_batch(pairs)
+            got = gserver.infer_batch(pairs)
+            row["graphed_max_abs_diff"] = {
+                "value": max(_max_abs(r.value, g.value) for r, g in zip(ref, got)),
+                "prior": max(float(np.abs(r.legal_compact.prior - g.legal_compact.prior).max())
+                             if r.legal_compact.prior.shape == g.legal_compact.prior.shape else float("inf")
+                             for r, g in zip(ref, got)),
+                "same_actions": all(
+                    np.array_equal(r.legal_compact.actor, g.legal_compact.actor)
+                    and np.array_equal(r.legal_compact.target, g.legal_compact.target)
+                    for r, g in zip(ref, got))}
+        except Exception as e:                       # noqa: BLE001 -- the record says why
+            row["infer_batch_graphed"] = None
+            row["graphed_error"] = f"{type(e).__name__}: {e}"
+            log.warning("graphed serve failed: %s", row["graphed_error"])
+
     row["encode_embedded"] = _time_ms(
         lambda: encoder.encode_from_raw_embedded(raws, device=device), device, repeats)
 
@@ -235,6 +264,13 @@ def markdown(res: Dict[str, object]) -> str:
         if st:
             lines.append(f"\nbatch {r['batch']} seam stages, ms per call: "
                          + ", ".join(f"{k} {v:.2f}" for k, v in st.items()))
+        gi = r.get("infer_batch_graphed")
+        if gi:
+            lines.append(f"batch {r['batch']} infer_batch through graphed serve: "
+                         f"{gi['median_ms']:.2f} ms (min {gi['min_ms']:.2f}); "
+                         f"{r.get('graphed_summary')}; diff vs eager {r.get('graphed_max_abs_diff')}")
+        if r.get("graphed_error"):
+            lines.append(f"batch {r['batch']} graphed serve: {r['graphed_error']}")
         if r.get("graph_max_abs_diff"):
             lines.append(f"batch {r['batch']} graph vs eager max abs diff: {r['graph_max_abs_diff']}")
         if r.get("graph_error"):

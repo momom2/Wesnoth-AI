@@ -497,6 +497,10 @@ def main(argv: List[str]) -> int:
                          "overhead is most of a small batch's cost). bf16 numerics differ "
                          "slightly from the eager loop; the game records carry the switch "
                          "and an outdir never mixes them.")
+    ap.add_argument("--graphed-serve", action="store_true",
+                    help="Shared inference: the server replays each priors batch from a "
+                         "per-bucket CUDA graph (wesnoth_ai/graphed_serve.py; cuda + bf16 "
+                         "+ packed trunk), one launch per batch instead of ~150.")
     ap.add_argument("--inference-servers", type=int, default=1,
                     help="Inference server PROCESSES per distinct checkpoint "
                          "(default 1). The eval path is bound by one server's "
@@ -838,7 +842,8 @@ def main(argv: List[str]) -> int:
                         infer_bf16=args.infer_bf16,
                         window_ms=args.inference_window_ms, max_batch=max_batch,
                         packed_embed=bool(args.packed_embed),
-                        compile_packed=bool(args.compile_packed))
+                        compile_packed=bool(args.compile_packed),
+                        graphed=bool(args.graphed_serve))
                     servers[spec].append(handle)
                     log.info("inference server %d/%d for %s at %s: %s", k, j, spec,
                              handle.address, handle.info)

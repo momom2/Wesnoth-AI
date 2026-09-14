@@ -167,12 +167,11 @@ def _staged_capacity(hv: Dict[str, np.ndarray], W: int) -> int:
     return n
 
 
-def _stage_masks(packs: List[PackedMasks], A_max: int, H_max: int, T: int, W: int,
-                 pin: bool) -> Tuple[_Layout, torch.Tensor, int]:
-    """Host side: every per-batch mask array written into one flat
-    (pinned) host buffer, plus the compaction capacity counted once
-    over the staged views."""
-    B = len(packs)
+def mask_layout(B: int, A_max: int, H_max: int, T: int, W: int, *,
+                type_bias: bool, attack_bias: bool) -> _Layout:
+    """The flat host layout of a batch's masks. The two bias fields are
+    laid out on request: the eager path asks for one when any pack
+    carries it, the static-shape path (graphed_serve) always."""
     HB = (H_max + 7) // 8
     fields = [
         ("actor_bias", torch.float32, (B, A_max)),
@@ -184,14 +183,17 @@ def _stage_masks(packs: List[PackedMasks], A_max: int, H_max: int, T: int, W: in
         ("move_bits", torch.uint8, (B, A_max, HB)),
         ("union_bits", torch.uint8, (B, A_max, HB)),
     ]
-    if any(p.type_bias is not None for p in packs):
+    if type_bias:
         fields.append(("type_bias", torch.float32, (B, A_max, T)))
-    if any(p.attack_bias is not None for p in packs):
+    if attack_bias:
         fields.append(("attack_bias", torch.float32, (B, A_max, H_max)))
-    layout = _Layout(fields)
-    host = torch.empty(layout.nbytes, dtype=torch.uint8, pin_memory=pin)
-    host.zero_()
-    hv = layout.numpy_views(host.numpy())
+    return _Layout(fields)
+
+
+def write_masks(hv: Dict[str, np.ndarray], packs: Sequence[PackedMasks]) -> None:
+    """Pack b's arrays into row b of the ZEROED views of a mask layout;
+    a bias goes in where the layout has the field and the pack the
+    array (a layout field no pack fills stays zero, which adds nothing)."""
     for b, p in enumerate(packs):
         U, R, H = p.n_units, p.n_recruits, p.n_hexes
         A = U + R + 1
@@ -206,10 +208,24 @@ def _stage_masks(packs: List[PackedMasks], A_max: int, H_max: int, T: int, W: in
         hv["attack_bits"][b, :A, :hb] = p.attack_valid
         hv["move_bits"][b, :A, :hb] = p.move_valid
         hv["union_bits"][b, :A, :hb] = p.union_valid
-        if p.type_bias is not None:
+        if p.type_bias is not None and "type_bias" in hv:
             hv["type_bias"][b, :A] = p.type_bias
-        if p.attack_bias is not None:
+        if p.attack_bias is not None and "attack_bias" in hv:
             hv["attack_bias"][b, :A, :H] = p.attack_bias
+
+
+def _stage_masks(packs: List[PackedMasks], A_max: int, H_max: int, T: int, W: int,
+                 pin: bool) -> Tuple[_Layout, torch.Tensor, int]:
+    """Host side: every per-batch mask array written into one flat
+    (pinned) host buffer, plus the compaction capacity counted once
+    over the staged views."""
+    layout = mask_layout(len(packs), A_max, H_max, T, W,
+                         type_bias=any(p.type_bias is not None for p in packs),
+                         attack_bias=any(p.attack_bias is not None for p in packs))
+    host = torch.empty(layout.nbytes, dtype=torch.uint8, pin_memory=pin)
+    host.zero_()
+    hv = layout.numpy_views(host.numpy())
+    write_masks(hv, packs)
     return layout, host, _staged_capacity(hv, W)
 
 
@@ -289,6 +305,25 @@ def start_priors(padded, packs: List[PackedMasks],
     layout, host, capacity = _stage_masks(packs, A_max, H_max, T, W, pin)
     with torch.no_grad():
         v = layout.torch_views(host.to(device, non_blocking=True))
+        out_layout, flat_out = priors_outputs(padded, v, capacity, extras)
+        host_out = torch.empty(out_layout.nbytes, dtype=torch.uint8, pin_memory=pin)
+        host_out.copy_(flat_out, non_blocking=True)
+    return PendingPriors(host=host_out, layout=out_layout, n_samples=B, capacity=capacity,
+                         n_extras=len(extras), device=device)
+
+
+def priors_outputs(padded, v: Dict[str, torch.Tensor], capacity: int,
+                   extras: Sequence[torch.Tensor] = ()) -> Tuple[_Layout, torch.Tensor]:
+    """The device side of `start_priors` on the staged mask views `v`:
+    the masked softmaxes, the compaction of the first `capacity` legal
+    entries in the reference order, and the one flat byte tensor the
+    host reads back, with its layout. Shapes depend only on the padded
+    sizes, `capacity` and the extras, so with those fixed the whole
+    chain is static: graphed_serve captures it in a CUDA graph."""
+    B, A_max, T = padded.type_logits.shape
+    H_max, W = padded.target_logits.shape[2], padded.weapon_logits.shape[2]
+    device = padded.actor_logits.device
+    with torch.no_grad():
         actor_ok = v["actor_mask"] != 0
         slot = v["slot_kind"]
         al = (padded.actor_logits + v["actor_bias"]).masked_fill(~actor_ok, _NEG_INF)
@@ -363,10 +398,7 @@ def start_priors(padded, packs: List[PackedMasks],
             outs[f"extra{i}"] = t
         out_layout = _Layout([(n, t.dtype, tuple(t.shape)) for n, t in outs.items()])
         flat_out = torch.cat([_as_bytes(outs[f[0]]) for f in out_layout.fields])
-        host_out = torch.empty(out_layout.nbytes, dtype=torch.uint8, pin_memory=pin)
-        host_out.copy_(flat_out, non_blocking=True)
-    return PendingPriors(host=host_out, layout=out_layout, n_samples=B, capacity=capacity,
-                         n_extras=len(extras), device=device)
+    return out_layout, flat_out
 
 
 def batched_priors(padded, packs: List[PackedMasks]) -> List[CompactActions]:
@@ -431,4 +463,5 @@ def compact_action(compact: CompactActions, i: int, encoded) -> Dict:
 
 
 __all__ = ["PackedMasks", "CompactActions", "PendingPriors", "pack_masks",
-           "start_priors", "batched_priors", "unpack_compact", "compact_action", "ActorKind"]
+           "start_priors", "priors_outputs", "mask_layout", "write_masks",
+           "batched_priors", "unpack_compact", "compact_action", "ActorKind"]

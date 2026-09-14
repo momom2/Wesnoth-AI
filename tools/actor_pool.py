@@ -206,6 +206,7 @@ class ActorPool:
         server_torch_threads: int = 4,
         server_start_timeout: float = 600.0,
         server_reply_timeout: float = 120.0,
+        graphed_serve: bool = False,
     ):
         """`server_priors`: actors ship packed legality masks and the
         server returns compact legal actions with priors
@@ -245,6 +246,11 @@ class ActorPool:
         self.server_priors: bool = bool(server_priors)
         self._infer_bf16 = infer_bf16
         self._packed_embed = bool(packed_embed)
+        # The static-shape serve path (wesnoth_ai/graphed_serve.py):
+        # every server, in-process and spawned, replays its priors
+        # batches from per-bucket CUDA graphs. cuda + bf16 + the
+        # packed trunk only; elsewhere the flag is ignored with a log.
+        self._graphed_serve = bool(graphed_serve)
         self._coalesce = coalesce
         self._coalesce_gap = int(coalesce_gap)
         _BatchPicker(coalesce, coalesce_gap)          # validates the policy name
@@ -353,7 +359,9 @@ class ActorPool:
         self._server = InferenceServer(
             self._policy._inference_model, self._policy._inference_encoder,
             device=self._device, output_device=torch.device("cpu"),
-            autocast_bf16=self._infer_bf16, packed_embed=self._packed_embed)
+            autocast_bf16=self._infer_bf16, packed_embed=self._packed_embed,
+            graphed=self._graphed_for(self._policy._inference_model,
+                                      self._policy._inference_encoder))
         self._started = True
         if self._server_procs:
             self._await_servers_ready()
@@ -364,6 +372,26 @@ class ActorPool:
     def _vocab_snapshot(self) -> Tuple[Dict, Dict]:
         enc = self._policy._inference_encoder
         return dict(enc.unit_type_to_id), dict(enc.faction_to_id)
+
+    def _graphed_serve_applies(self) -> bool:
+        base = self._inference_base()
+        device = self._device or next(base.parameters()).device
+        if not self._graphed_serve:
+            return False
+        ok = (device.type == "cuda" and bool(self._infer_bf16)
+              and bool(getattr(base, "infer_packed_trunk", False)))
+        if not ok:
+            log.warning("graphed_serve needs cuda, bf16 inference and the packed trunk; "
+                        "serving eager")
+        return ok
+
+    def _graphed_for(self, model, encoder):
+        """A GraphedServe for the in-process server, or None."""
+        if not self._graphed_serve_applies():
+            return None
+        from wesnoth_ai.graphed_serve import Caps, GraphedServe
+        device = self._device or next(model.parameters()).device
+        return GraphedServe(model, encoder, device, caps=Caps(b_cap=self._max_batch))
 
     # -- serve processes ----------------------------------------------
 
@@ -408,7 +436,8 @@ class ActorPool:
             compile_packed=bool(getattr(base, "infer_compile_packed", False)),
             compile_backend=getattr(compiled, "backend", "inductor"),
             compile_mode=getattr(compiled, "mode", None),
-            packed_embed=self._packed_embed)
+            packed_embed=self._packed_embed,
+            graphed=self._graphed_serve_applies())
         # The serve process imports torch while unpickling its target,
         # before its body runs, so its pool caps must already be in the
         # environment it inherits at spawn; restored right after.

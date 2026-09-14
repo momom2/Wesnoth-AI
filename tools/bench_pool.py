@@ -53,7 +53,7 @@ def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
              iteration_timeout: float, log_level: int = logging.WARNING,
              max_batch: int = 16, serve_threads: int = 2, packed_embed: bool = False,
              coalesce: str = "fifo", coalesce_gap: int = 0,
-             serve_processes: int = 1) -> dict:
+             serve_processes: int = 1, graphed_serve: bool = False) -> dict:
     from tools.actor_pool import ActorPool
     from tools.mcts import MCTSConfig
     from tools.mcts_policy import MCTSPolicy, ReplayConfig
@@ -80,7 +80,7 @@ def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
                      drain_grace=120.0, server_priors=bool(server_priors),
                      serve_threads=serve_threads, packed_embed=packed_embed,
                      coalesce=coalesce, coalesce_gap=coalesce_gap,
-                     serve_processes=serve_processes)
+                     serve_processes=serve_processes, graphed_serve=graphed_serve)
     pool.start()
     t0 = time.monotonic()
     try:
@@ -115,6 +115,9 @@ def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
         "server_parity": parity,
         "packed_trunk": bool(getattr(base, "infer_packed_trunk", False)),
         "packed_embed": bool(packed_embed),
+        "graphed_serve": bool(graphed_serve),
+        "graphed_serve_summary": (pool._server._graphed.summary()
+                                  if getattr(pool._server, "_graphed", None) is not None else None),
         "coalesce": coalesce, "coalesce_gap": coalesce_gap,
         # Warmup seconds, recompiles and any eager fallback of the
         # compiled packed trunk, over every server (design note
@@ -204,6 +207,10 @@ def main(argv) -> int:
     ap.add_argument("--packed-embed", action="store_true",
                     help="Embed each batch from one pinned buffer straight into the "
                          "trunk's layout (design note section 14; any device, any trunk).")
+    ap.add_argument("--graphed-serve", action="store_true",
+                    help="Every server replays its priors batches from per-bucket CUDA "
+                         "graphs (wesnoth_ai/graphed_serve.py; needs --infer-bf16 "
+                         "--packed-trunk on cuda).")
     ap.add_argument("--coalesce", default="fifo", choices=("fifo", "length"),
                     help="How a serve thread picks a batch from the queued requests: "
                          "arrival order, or the requests nearest in token count to the "
@@ -248,7 +255,7 @@ def main(argv) -> int:
                    iteration_timeout=args.iteration_timeout, max_batch=args.max_batch,
                    serve_threads=args.serve_threads, packed_embed=args.packed_embed,
                    coalesce=args.coalesce, coalesce_gap=args.coalesce_gap,
-                   serve_processes=args.serve_processes)
+                   serve_processes=args.serve_processes, graphed_serve=args.graphed_serve)
     if args.dollars_per_hour and res["games_per_hour"]:
         res["games_per_dollar"] = res["games_per_hour"] / args.dollars_per_hour
     print(json.dumps(res, indent=1))
