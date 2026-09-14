@@ -110,3 +110,34 @@ def test_batches_past_a_cap_take_the_eager_path():
     for r, g in zip(ref, got):
         assert torch.equal(r.value, g.value)
         assert np.array_equal(r.legal_compact.prior, g.legal_compact.prior)
+
+
+def test_a_factory_gives_each_serve_thread_its_own_instance():
+    """InferenceServer(graphed=<factory>) builds one GraphedServe per
+    calling thread and reports them all in graphed_summary."""
+    import threading
+    from tools.inference_seam import InferenceServer
+    from wesnoth_ai.graphed_serve import Caps, GraphedServe
+    policy = _policy()
+    enc, model = policy._inference_encoder, policy._inference_model
+    _lencs, pairs = _pairs(policy, _states())
+    caps = Caps(b_caps=(8,), a_caps=(128,), h_caps=(4096,), t_caps=(8192, 16384), max_len=4096)
+    server = InferenceServer(model, enc, graphed=lambda: GraphedServe(
+        model, enc, torch.device("cpu"), graphs=False, caps=caps))
+    outs = {}
+
+    def serve(name):
+        with torch.no_grad():
+            outs[name] = server.infer_batch(pairs[:3])
+
+    threads = [threading.Thread(target=serve, args=(n,)) for n in ("t1", "t2")]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    summary = server.graphed_summary()
+    assert set(summary) == {"thread0", "thread1"}, summary
+    assert all(v["served"] == 1 for v in summary.values()), summary
+    for a, b in zip(outs["t1"], outs["t2"]):
+        assert torch.equal(a.value, b.value)
+        assert np.array_equal(a.legal_compact.prior, b.legal_compact.prior)
