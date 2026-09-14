@@ -317,7 +317,10 @@ State of play:
     buffer left its fields unaligned; nightstalk's cover ignored
     unit illumination; preplaced `[unit][abilities]` were still keyed
     by tag; a refused search action was worth 0 rather than its
-    parent's value.
+    parent's value; every SELF-PLAY game replayed one unsalted luck
+    stream (the same defect eval lost on 2026-09-13) and now carries
+    its own; an orphaned actor walked its queued tickets before
+    exiting; the auto actor count is bound by memory too.
   - **Provenance.** Caches, and now checkpoints, carry
     `constants.OBSERVATION_EPOCH`; the local suite prints a banner when
     the Rust wheel is behind the source, because it is (phase 3 against

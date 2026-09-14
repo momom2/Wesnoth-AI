@@ -1183,6 +1183,23 @@ with a timeout; `game_core` creates no OS resources at all; and the
 hot-path caches are all bounded (static hexes 64, Rust types 1024 with
 the source pinned so `id()` keys cannot be recycled).
 
+## Review of the day (2026-09-14, Fable)
+
+What the audit of the 29 commits found and fixed is in the commit
+messages (6e86474, a0f9979 and the one after); the standing
+consequences: TF32 and fused AdamW are OPT-IN (`supervised_train
+--tf32 --fused-adamw`, `az_loop --tf32`), each a one-factor change
+with its own match; self-play games now carry a per-game combat-luck
+salt (`pool:<label or seed>`), so a training run's games are
+independent draws as eval games have been since 2026-09-13 (a
+training-path numerics change; the verdict path is untouched); the
+Rust core is at phase 10 (illuminated nightstalk, renamed cover flags)
+and, like the 2026-09-13 changes, has not been on a box: a build plus
+`scripts/postreview_box.sh` covers both. The unrecorded readings of
+the day are marked where they stand (docs/box_specs.md); the ones that
+matter for a decision -- the two-server mean batch, the old-rule hider
+sample -- go on that same box run with their records kept.
+
 ## Open after the hide-cover review (2026-09-13)
 
 Three independent adversarial reviewers checked the hide-cover root fix

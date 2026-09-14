@@ -684,10 +684,18 @@ def _is_ladder_map(scenario_id: str) -> bool:
 def _play_one_game_safe(
     *, setup, max_turns, pvp_defaults, policy, reward_fn,
     cost_lookup, game_label, no_progress_turns: int = 0,
+    seed_salt: str = "",
 ) -> Optional[GameOutcome]:
     """Run one game end-to-end from a `ScenarioSetup` (random
     scenario + faction + leader picks). Catches exceptions, drops
     pending transitions on crash, returns None on failure.
+
+    `seed_salt` is the game's own combat-luck stream (`WesnothSim.
+    _seed_salt`): without one every self-play game replays the unsalted
+    `request_seed(k)` stream, so the k-th combat roll is the same in
+    every game of a run -- the correlation eval games lost on
+    2026-09-13. Pass something unique per game; exports carry the
+    salted seeds as recorded.
 
     Pre-pivot this used `WesnothSim.from_replay(<replay_path>)`.
     Post-pivot (2026-04-30) it builds the GameState directly from
@@ -708,6 +716,7 @@ def _play_one_game_safe(
                              apply_scenario_events=False,
                              begin_side=begin_side,
                              no_progress_turns=no_progress_turns)
+            sim._seed_salt = seed_salt
             sim.enable_uniform_advancement()
             sim._midgame_start = True
             sim._midgame_provenance = mg_prov
@@ -751,6 +760,7 @@ def _play_one_game_safe(
         sim = WesnothSim(gs, scenario_id=setup.scenario_id,
                          max_turns=max_turns,
                          no_progress_turns=no_progress_turns)
+        sim._seed_salt = seed_salt
         sim.enable_uniform_advancement()
     except Exception as e:
         log.warning(f"skipping {setup.label()}: {e}")
@@ -820,6 +830,7 @@ def _worker_loop(
             pvp_defaults=pvp_defaults, policy=policy,
             reward_fn=reward_fn, cost_lookup=cost_lookup,
             game_label=game_label, no_progress_turns=no_progress_turns,
+            seed_salt=f"pool:{game_label}",
         )
         if outcome is not None:
             with shared["lock"]:
@@ -1515,7 +1526,7 @@ def run_iteration(
                                           max_turns_min),
                 pvp_defaults=pvp_defaults, policy=policy,
                 reward_fn=reward_fn, cost_lookup=cost_lookup,
-                game_label=game_label,
+                game_label=game_label, seed_salt=f"pool:{game_label}",
                 no_progress_turns=no_progress_turns,
             )
             if outcome is not None:

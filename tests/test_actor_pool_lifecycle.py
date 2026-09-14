@@ -91,6 +91,17 @@ def test_playing_actor_exits_when_the_parent_is_gone(dead_parent):
     assert got == ("stop", None)
 
 
+def test_orphaned_actor_does_not_walk_the_queued_tickets(dead_parent):
+    """With tickets still queued the guard must fire before the next
+    one is taken, or the orphan plays on until the queue drains."""
+    game_q = _queue.Queue()
+    for g in range(5):
+        game_q.put((0, g, 1000 + g))
+    got = _call_with_deadline(lambda: _take_ticket(game_q, _queue.Queue(), 0))
+    assert got == ("stop", None)
+    assert game_q.qsize() == 5, "no ticket may be consumed by an orphan"
+
+
 def test_inference_wait_gives_up_when_the_parent_is_gone(dead_parent):
     """An actor spends most of its cycle blocked on a reply, so that is
     where a killed learner most often catches it -- and the serve

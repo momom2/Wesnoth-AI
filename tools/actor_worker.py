@@ -195,6 +195,13 @@ def _take_ticket(game_q, ctrl_q, iter_idx: int):
     the parent is gone. Tickets of another iteration are skipped (stale
     after a drain)."""
     while True:
+        # Checked before every ticket, not only on an empty queue: an
+        # orphaned actor with tickets still queued would otherwise walk
+        # them one by one, building a scenario and waiting one
+        # inference poll on each, before the empty-queue check let it
+        # go (2026-09-14 review).
+        if _parent_gone():
+            return "stop", None
         try:
             nxt = ctrl_q.get_nowait()
             if nxt[0] == _CMD_STOP:
@@ -410,7 +417,8 @@ def _actor_loop(
                 outcome = _play_one_game_safe(
                     setup=setup, max_turns=mt, pvp_defaults=pvp,
                     policy=policy, reward_fn=_zero_reward,
-                    cost_lookup=cost_lookup, game_label=gl)
+                    cost_lookup=cost_lookup, game_label=gl,
+                    seed_salt=f"pool:{seed}")     # this game's own combat luck
                 if outcome is not None:
                     result_q.put((_R_OUTCOME, actor_id, outcome))
                 # Ship this game's experiences immediately (smaller

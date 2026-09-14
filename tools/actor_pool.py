@@ -134,38 +134,23 @@ def _done_report(payload) -> Tuple[int, Optional[Dict], Optional[int]]:
 
 
 def _close_queue(q, drain: bool) -> None:
-    """Release one mp.Queue: close the pipe and let go of the feeder
-    thread this process may have started for it.
+    """Release one mp.Queue without ever waiting on its feeder thread.
 
-    `drain` reads out whatever nobody took first, which is what makes
-    joining the feeder safe: close() lets the feeder flush, and a feeder
-    blocked on a pipe full of tickets no living child will ever read
-    would never return. Pass it ONLY for a queue this process alone
-    writes to. A queue a killed child wrote to can hold a half-written
-    message, and reading one blocks for a remainder that is never
-    coming -- there we cancel the join instead, so close() cannot wait
-    on anything either. Every child is joined before this runs, so
-    nothing refills a queue behind us.
-
-    The drain is a BOUNDED wait, not `get_nowait()`. A put() only hands
-    the object to the feeder thread; the bytes reach the pipe later, so
-    a non-blocking get can miss a message that is in flight, leave it
-    in the pipe, and then `join_thread()` -- which is untimed -- waits
-    on a feeder blocked in `send_bytes` on a full pipe whose read end
-    this process still holds, so it never gets EPIPE and never returns.
-    Measured on this machine (CPython 3.13, spawn): with a real
-    `_CMD_PLAY` payload of 6.6 KB against Windows' 8 KiB pipe buffer,
-    three unread messages hang it about half the time and twenty hang
-    it reliably; Linux's 64 KiB pipe needs roughly eight to ten. It is
-    reachable because a C-level-wedged actor is never removed from the
-    broadcast, so it collects one unread PLAY per iteration -- about
-    eight over an overnight run -- and then az_loop's `finally` calls
-    shutdown() and the campaign never exits while the box keeps
-    billing. 50 ms is a wide margin over the ~100 us the feeder needs
-    to pickle one of these, and `_flush_tickets` already drains this
-    way. `cancel_join_thread()` afterwards is the backstop: it trades
-    a hang for a daemon feeder we abandon, which at shutdown is the
-    right side of that trade."""
+    A put() only hands the object to the queue's feeder thread; the
+    bytes reach the pipe later. A feeder blocked in `send_bytes` on a
+    pipe full of messages nobody will read (a wedged actor's unread
+    PLAYs; measured: three 6.6 KB messages against Windows' 8 KiB pipe
+    hang it about half the time, twenty reliably, Linux's 64 KiB pipe
+    at eight to ten) never returns, and `join_thread()` is untimed.
+    So `cancel_join_thread()` is what keeps this from hanging: after
+    it the feeder is abandoned as a daemon and `join_thread()` is a
+    no-op (CPython's Finalize.cancel clears its key). `drain` first
+    reads out, with a bounded 50 ms wait per message, whatever is
+    still buffered, so the pipe's bytes are released rather than left
+    to the OS; pass it ONLY for a queue this process alone writes to,
+    since a half-written message from a killed child would block a
+    read for a remainder that never comes. Every child is joined
+    before this runs, so nothing refills a queue behind us."""
     if q is None:
         return
     if drain:
@@ -187,11 +172,6 @@ def _close_queue(q, drain: bool) -> None:
         q.close()
     except Exception:
         pass
-    if drain:
-        try:
-            q.join_thread()
-        except Exception:
-            pass
 
 
 

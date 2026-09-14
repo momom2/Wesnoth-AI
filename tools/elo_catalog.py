@@ -898,7 +898,12 @@ def update_from_games(games_dir: Path, games: List[dict],
     # rule the horizon guard follows.
     _repeats = []
     for (ra, rb), ids in sorted(_rgids.items()):
-        if not ids or not _rgids_full.get((ra, rb)):
+        # Gated on the INCOMING dir's mass too, for order-independence
+        # like the other guards (round-29 C0): a fully censored probe
+        # collected after the verdict it replays adds nothing, so it
+        # must not be refused where the reverse order would have
+        # skipped it.
+        if not ids or not _rgids_full.get((ra, rb)) or _new_mass <= 0:
             continue
         for _k2, e in sorted(cat["edges"].items()):
             if _k2.startswith(f"{Path(games_dir).name}:"):
