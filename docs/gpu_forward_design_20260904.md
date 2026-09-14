@@ -1293,3 +1293,28 @@ batch` log line gives the same split per iteration. Same weights and
 math, so no strength check; the `raw:t0` self-match of
 docs/plan_20260904.md remains the gate before any of this becomes the
 pool default.
+
+## 15. Option 2 of section 4 implemented (2026-09-14): CUDA graphs over static buckets
+
+Section 4 priced graphs last because the GPU owned the batch at 1,270
+tokens per leaf and the padding to buckets cost 15-25% of it. The
+relevant-set basis (1.4, 2026-09-11) cut the tokens to ~300, and the
+profile of one 16-leaf batch on a 4090 then read 406 kernel launches
+for 3.0 ms of device time inside 8.6 ms of host wall (docs/box_specs.md
+"The serve batch is launch-bound"): the host feeding the stream is the
+cost, exactly the regime section 4.5 reserved graphs for.
+
+`wesnoth_ai/graphed_serve.py` implements section 4.3's static layout
+with one difference: the packed varlen trunk of section 12 is kept
+(pad segments of one token each, spare rows past the last offset that
+no head reads) instead of the end-aligned padded rows, so the trunk's
+kernels are section 12's. Per bucket (segments, actor slots, hex slots,
+token rows) one `torch.cuda.CUDAGraph` covers the two host->device
+copies, the layer loop over a bf16 copy of the weights (section 13's
+`PackedTrunkWeights`, refreshed in place on publication), the heads,
+`server_priors.priors_outputs` at a fixed compaction capacity and the
+device->host copy; the packed embed, the gather of the real tokens, the
+numpy staging of the index and mask arrays and the unpacking stay
+outside. Batches past a cap take the eager path. Behind
+`--graphed-serve` (az_loop, bench_pool, run_elo_batch) and `--graphed`
+(eval_inference_server); the box rows are in docs/box_specs.md.
