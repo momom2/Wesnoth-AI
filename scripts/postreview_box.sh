@@ -52,8 +52,8 @@
 set -uo pipefail
 [ -x /venv/main/bin/python ] && export PATH=/venv/main/bin:$PATH
 OUT=/workspace/postreview
-HF_DIR="${HF_DIR:-tier-b/postreview_20260913}"
-STAGE="${STAGE:-tier-b/staging/stage_20260913d.tar.gz}"
+HF_DIR="${HF_DIR:-tier-b/postreview_20260914}"
+STAGE="${STAGE:-tier-b/staging/stage_20260914a.tar.gz}"
 SHARDS="${SHARDS:-24}"
 CORE_REPLAYS="${CORE_REPLAYS:-600}"
 GAMES="${GAMES:-48}"
@@ -63,6 +63,9 @@ MAX_TURNS="${MAX_TURNS:-30}"
 DPH="${DPH:-0.34}"
 SKIP_CERT="${SKIP_CERT:-0}"
 SKIP_POOL="${SKIP_POOL:-0}"
+SKIP_EVAL="${SKIP_EVAL:-0}"
+SKIP_HIDER="${SKIP_HIDER:-0}"
+HIDER_SAMPLE="${HIDER_SAMPLE:-300}"
 mkdir -p "$OUT"
 cd /workspace
 export HF_TOKEN="$(tr -d '\r\n' < /workspace/.hf_token)" HF_HUB_DISABLE_XET=1
@@ -100,11 +103,11 @@ export PATH="$HOME/.cargo/bin:$PATH"
 python -m pip install -q maturin >/dev/null 2>&1
 touch rust/wesnoth_core/src/*.rs
 python -m pip install --force-reinstall --no-deps rust/wesnoth_core > "$OUT/build.log" 2>&1
-# Phase 9 carries the rows_from_landable token bounds check. Two tests
-# skip below it, so record the number rather than only printing it.
+# Phase 10 carries the illuminated nightstalk cover and the renamed
+# cover flags (2026-09-14). Record the number rather than only printing it.
 python -c "import wesnoth_core; p = wesnoth_core.__phase__; print('wheel phase', p); \
-assert p >= 9, f'wheel is phase {p}; the token bounds check landed in 9'" | tee -a "$OUT/build.log" \
-    || echo "BUILD_FAILED or PRE-PHASE-9 (the Python path still certifies; the core half does not)" | tee -a "$OUT/build.log"
+assert p >= 10, f'wheel is phase {p}; the source declares 10'" | tee -a "$OUT/build.log" \
+    || echo "BUILD_FAILED or PRE-PHASE-10 (the Python path still certifies; the core half does not)" | tee -a "$OUT/build.log"
 {
     echo "cores(nproc)  $(nproc --all)"
     echo "cpu.max       $(cat /sys/fs/cgroup/cpu.max 2>/dev/null || echo n/a)"
@@ -179,8 +182,6 @@ tail -3 "$OUT/tests_core.log"
 upload
 fi
 
-# ---- phase 2: does a second serve process pay? ----------------------
-if [ "$SKIP_POOL" != "1" ]; then
 python - <<'PY'
 from pathlib import Path
 from huggingface_hub import hf_hub_download
@@ -190,6 +191,53 @@ p = hf_hub_download("momom2/wesnoth-model-checkpoints",
 (dst / "relset.pt").write_bytes(Path(p).read_bytes())
 print("reference player staged", (dst / "relset.pt").stat().st_size)
 PY
+
+# ---- phase 1b: the old-rule hider sample ------------------------------
+# The review's "4 of 120 hider replays reconstruct differently, 0
+# divergences either way" had no record; this is its tool and record.
+if [ "$SKIP_HIDER" != "1" ]; then
+python tools/analysis/hider_rule_sample.py --dataset replays_dataset_imitation \
+    --sample "$HIDER_SAMPLE" --seed 0 --workers "$(( $(nproc --all) < 16 ? $(nproc --all) : 16 ))" \
+    --json "$OUT/hider_rule_sample.json" > "$OUT/hider_rule_sample.txt" 2>&1 || true
+grep -v WARNING "$OUT/hider_rule_sample.txt" | head -12
+upload
+fi
+
+# ---- phase 1c: the eval path's server counters, this time recorded ----
+# The "second server halves the mean batch (7.84 -> 3.56)" reading was
+# taken off the server logs and never saved; both arms rerun with
+# their stats files kept, and repeated once, since a single 40-game
+# wall swings 1.76x on its own.
+if [ "$SKIP_EVAL" != "1" ]; then
+CKPT=training/checkpoints/relset.pt
+eval_arm() {                     # eval_arm NAME SERVERS
+    local name="$1"
+    local servers="$2"
+    local dir="$OUT/eval_games_$name"
+    local t0
+    t0=$(date +%s)
+    python tools/run_elo_batch.py --label-a relset --spec-a "$CKPT" \
+        --label-b relset_ref --spec-b "$CKPT" \
+        --outdir "$dir" --games 40 --max-extra-games 0 --seed-base 20000 \
+        --mcts-sims 0 --raw-temperature-a 0 --raw-temperature-b 0 \
+        --persistent-workers --shared-inference --no-infer-compile --device cuda \
+        --jobs 20 --inference-max-batch 20 --inference-servers "$servers" \
+        --time-budget-min 30 2>&1 | grep --line-buffered -v "wesnoth_core is not importable" > "$OUT/eval_$name.log"
+    echo "$name servers=$servers $(( $(date +%s) - t0 )) s $(ls "$dir"/game_*.json 2>/dev/null | wc -l) games" | tee -a "$OUT/eval.walls"
+    mkdir -p "$OUT/eval_stats_$name"
+    cp "$dir"/.inference_server_*.json "$OUT/eval_stats_$name/" 2>/dev/null || true
+    grep -h "inference server .*requests in .*batches" "$OUT/eval_$name.log" | tail -2 | tee -a "$OUT/eval.counters"
+}
+eval_arm one_a 1
+eval_arm two_a 2
+eval_arm one_b 1
+eval_arm two_b 2
+tar czf "$OUT/eval_stats.tar.gz" -C "$OUT" $(cd "$OUT" && ls -d eval_stats_* 2>/dev/null) 2>/dev/null || true
+upload
+fi
+
+# ---- phase 2: does a second serve process pay? ----------------------
+if [ "$SKIP_POOL" != "1" ]; then
 # One factor: serve processes. Everything else is the committed
 # configuration. Actors track the games so the comparison is fair.
 for np_ in 1 2; do

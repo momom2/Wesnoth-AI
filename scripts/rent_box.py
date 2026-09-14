@@ -57,7 +57,7 @@ def search(args) -> int:
             continue
         rows.append(o)
         print(f"{o['id']:>10}  {o.get('gpu_name'):12s}  ${o.get('dph_total', 0):.3f}/h  "
-              f"{o.get('cpu_cores_effective', 0):5.1f} cores  {o.get('cpu_name', '')[:28]:28s}  "
+              f"{o.get('cpu_cores_effective', 0):5.1f} cores  {(o.get('cpu_name') or '')[:28]:28s}  "
               f"{o.get('geolocation', ''):18s}  up {o.get('inet_up', 0):6.0f} Mb/s  "
               f"disk {o.get('disk_space', 0):5.0f}  {hours:6.1f} h left")
         if len(rows) >= args.limit:
