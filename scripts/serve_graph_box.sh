@@ -155,6 +155,10 @@ eval_arm eager_a
 eval_arm graphed_a --graphed-serve
 eval_arm eager_b
 eval_arm graphed_b --graphed-serve
+# With the server this fast it idles a third of its wall waiting for
+# the workers' requests: do more workers pay now? (They did not while
+# the server was the bound, docs/box_specs.md 2026-09-13.)
+eval_arm graphed_j28 --graphed-serve --jobs 28 --inference-max-batch 28
 tar czf "$OUT/eval_stats.tar.gz" -C "$OUT" $(cd "$OUT" && ls -d eval_stats_* 2>/dev/null) 2>/dev/null || true
 upload
 
