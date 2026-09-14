@@ -246,6 +246,105 @@ def bench_batch(policy, server, pairs, device: torch.device, bf16: bool, repeats
     return row
 
 
+def threaded_check(model, encoder, device: torch.device, bf16: bool, pairs, threads: int,
+                   rounds: int) -> Dict[str, object]:
+    """`threads` serve threads, each with its own GraphedServe through the
+    seam's factory, serving distinct batches concurrently for `rounds`
+    rounds; every reply is compared with the eager seam's on the same
+    batch (actions identical, priors and values within bf16 noise). The
+    pool's two serve threads returned empty action lists on 2026-09-14
+    where the single-threaded eval server was right; this is the
+    reproduction."""
+    import threading
+    from tools.inference_seam import InferenceServer
+    from wesnoth_ai.graphed_serve import Caps, GraphedServe
+    eager = InferenceServer(model, encoder, device=device, output_device=torch.device("cpu"),
+                            autocast_bf16=bf16, packed_embed=True)
+    per = max(1, len(pairs) // threads)
+    batches = [pairs[i * per:(i + 1) * per] for i in range(threads)]
+    refs = [eager.infer_batch(b) for b in batches]
+    gserver = InferenceServer(
+        model, encoder, device=device, output_device=torch.device("cpu"), autocast_bf16=bf16,
+        packed_embed=True,
+        graphed=lambda: GraphedServe(model, encoder, device, caps=Caps(b_cap=per)))
+    bad = {"empty": 0, "actions": 0, "prior": 0, "value": 0, "errors": []}
+    done = [0] * threads
+
+    from wesnoth_ai.leaf_wire import pack_request, unpack_request
+
+    def worker(t):
+        st: Dict[str, float] = {}
+        try:
+            for r in range(rounds):
+                # Alternate the batch so buckets and buffers get reused;
+                # the leaves go through the pool's wire format (views
+                # into one request buffer) and the serve loop's stats.
+                # Batch sizes cycle from 1 to the cap: the pool serves a
+                # lone root leaf as often as a full batch.
+                n = 1 + (r % per)
+                b = unpack_request(pack_request(batches[(t + r) % threads][:n]))
+                ref = refs[(t + r) % threads][:n]
+                outs = gserver.infer_batch(b, stats=st)
+                for o, e in zip(outs, ref):
+                    if o.legal_compact.prior.shape[0] == 0 and e.legal_compact.prior.shape[0] > 0:
+                        bad["empty"] += 1
+                    elif not (np.array_equal(o.legal_compact.actor, e.legal_compact.actor)
+                              and np.array_equal(o.legal_compact.target, e.legal_compact.target)):
+                        bad["actions"] += 1
+                    elif float(np.abs(o.legal_compact.prior - e.legal_compact.prior).max()) > 2e-2:
+                        bad["prior"] += 1
+                    if float((o.value - e.value).abs().max()) > 2e-2:
+                        bad["value"] += 1
+                done[t] += 1
+        except Exception as ex:                          # noqa: BLE001
+            bad["errors"].append(f"thread {t}: {type(ex).__name__}: {ex}")
+
+    ts = [threading.Thread(target=worker, args=(t,)) for t in range(threads)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    return {"threads": threads, "rounds": rounds, "leaves_per_batch": per, "done": done,
+            "bad": bad, "summary": gserver.graphed_summary()}
+
+
+def replay_dump(path: Path, model, encoder, device: torch.device, bf16: bool) -> int:
+    """The dumped batch through the eager seam, then the static body run
+    eagerly (graphs off), then the graph; shapes and outputs printed."""
+    import pickle
+    from tools.inference_seam import InferenceServer
+    from wesnoth_ai.graphed_serve import Caps, GraphedServe
+    pairs = pickle.load(open(path, "rb"))
+    raws = [r for r, _ in pairs]
+    sizes = [(r.unit_xs.shape[0], r.recruit_type_ids.shape[0], r.hex_xs.shape[0]) for r in raws]
+    print("batch", len(pairs), "sizes (U, R, H)", sizes)
+    for r, m in pairs[:3]:
+        print("  raw fields", {k: (tuple(v.shape), str(v.dtype), int(v.min()) if v.size else None,
+                                  int(v.max()) if v.size else None)
+                               for k, v in vars(r).items() if isinstance(v, np.ndarray) and v.dtype.kind in "iu"})
+        print("  masks", m.n_units, m.n_recruits, m.n_hexes, m.attack_valid.shape,
+              None if m.attack_bias is None else m.attack_bias.shape)
+    eager = InferenceServer(model, encoder, device=device, output_device=torch.device("cpu"),
+                            autocast_bf16=bf16, packed_embed=True)
+    ref = eager.infer_batch(pairs)
+    print("eager ok:", [int(o.legal_compact.prior.shape[0]) for o in ref])
+    for graphs in (False, True):
+        g = GraphedServe(model, encoder, device, caps=Caps(b_cap=max(16, len(pairs))), graphs=graphs)
+        srv = InferenceServer(model, encoder, device=device, output_device=torch.device("cpu"),
+                              autocast_bf16=bf16, packed_embed=True, graphed=g)
+        try:
+            outs = srv.infer_batch(pairs)
+            same = all(np.array_equal(o.legal_compact.actor, e.legal_compact.actor)
+                       and np.array_equal(o.legal_compact.target, e.legal_compact.target)
+                       for o, e in zip(outs, ref))
+            print(f"graphs={graphs}: served {g.served}, fallbacks {g.fallbacks}, same actions {same}, "
+                  f"entries {[int(o.legal_compact.prior.shape[0]) for o in outs]}")
+        except Exception as e:                       # noqa: BLE001
+            print(f"graphs={graphs}: FAILED {type(e).__name__}: {e}")
+            return 1
+    return 0
+
+
 def markdown(res: Dict[str, object]) -> str:
     lines = ["| batch | tokens | infer_batch ms | encode ms | forward eager ms | forward graph ms | priors ms | launches | device busy ms | busy of wall |",
              "|---|---|---|---|---|---|---|---|---|---|"]
@@ -292,6 +391,14 @@ def main(argv: Sequence[str]) -> int:
     ap.add_argument("--batch-sizes", default="8,16")
     ap.add_argument("--repeats", type=int, default=50)
     ap.add_argument("--no-graph", action="store_true")
+    ap.add_argument("--replay-dump", type=Path, default=None,
+                    help="a batch the seam dumped on a graphed failure (WESNOTH_GRAPHED_DUMP): "
+                         "serve it eagerly, then through the static body eagerly and through "
+                         "a graph, comparing outputs (run with CUDA_LAUNCH_BLOCKING=1 to name "
+                         "the failing kernel)")
+    ap.add_argument("--threads", type=int, default=0,
+                    help="also run the threaded check: N serve threads with their own graphs")
+    ap.add_argument("--rounds", type=int, default=20)
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--log-level", default="INFO")
     args = ap.parse_args(argv)
@@ -315,18 +422,26 @@ def main(argv: Sequence[str]) -> int:
         packed = True
     server = InferenceServer(model, encoder, device=device, output_device=torch.device("cpu"),
                              autocast_bf16=cuda, packed_embed=packed)
+    if args.replay_dump is not None:
+        return replay_dump(args.replay_dump, model, encoder, device, cuda)
     sizes = [int(s) for s in args.batch_sizes.split(",") if s]
     pairs = load_pairs(policy, args.manifest, args.dataset, max(max(sizes), args.states), device)
     log.info("%d positions, packed trunk %s, bf16 %s", len(pairs), packed, cuda)
     rows = [bench_batch(policy, server, pairs[:B], device, cuda, args.repeats, not args.no_graph)
             for B in sizes]
-    res = {"rows": rows, "env": {
+    threaded = None
+    if args.threads > 0:
+        threaded = threaded_check(model, encoder, device, cuda, pairs, args.threads, args.rounds)
+        log.info("threaded check: %s", threaded)
+    res = {"rows": rows, "threaded": threaded, "env": {
         "checkpoint": args.checkpoint.name, "device": str(device),
         "device_name": torch.cuda.get_device_name(0) if cuda else "cpu",
         "torch": torch.__version__, "packed_trunk": packed, "bf16": cuda,
         "relevant_set": bool(getattr(encoder, "relevant_set_hexes", False)),
         "repeats": args.repeats}}
     print(markdown(res))
+    if threaded is not None:
+        print("threaded check:", json.dumps(threaded))
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(json.dumps(res, indent=1), encoding="utf-8")

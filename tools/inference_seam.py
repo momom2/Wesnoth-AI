@@ -49,6 +49,7 @@ from __future__ import annotations
 import dataclasses
 import io
 import logging
+import os
 import threading
 import time
 from typing import Dict, List, Optional, Protocol, Tuple
@@ -142,6 +143,25 @@ def output_to_wire(out: ModelOutput):
         else:
             w[f.name] = ("p", v)
     return w
+
+
+def _dump_failed_batch(raws, packs) -> None:
+    """With WESNOTH_GRAPHED_DUMP=<dir> set, the (RawEncoded, PackedMasks)
+    pairs of a batch the graphed path failed on go to a pickle there,
+    for tools/bench_serve_graph.py --replay-dump."""
+    import pickle
+    d = os.environ.get("WESNOTH_GRAPHED_DUMP")
+    if not d:
+        return
+    try:
+        os.makedirs(d, exist_ok=True)
+        path = os.path.join(d, f"graphed_fail_{os.getpid()}_{threading.get_ident()}_{time.time():.0f}.pkl")
+        with open(path, "wb") as f:
+            pickle.dump([(dataclasses.replace(r) if dataclasses.is_dataclass(r) else r, m)
+                         for r, m in zip(raws, packs)], f)
+        log.error("graphed serve: the failing batch is in %s", path)
+    except Exception:                                # noqa: BLE001 -- best effort
+        log.exception("graphed serve: could not dump the failing batch")
 
 
 def _host_np(t: Optional[torch.Tensor]):
@@ -378,6 +398,7 @@ class InferenceServer:
             except Exception:                        # noqa: BLE001 -- the eager path serves from here on
                 log.exception("graphed serve failed on a batch of %d; serving eager from now on",
                               len(raws))
+                _dump_failed_batch(raws, packs)
                 self._graphed = self._graphed_factory = None
                 self._graphed_by_thread.clear()
         if graphed is not None:

@@ -390,14 +390,18 @@ class ActorPool:
         return ok
 
     def _graphed_for(self, model, encoder):
-        """A GraphedServe factory for the in-process server (one
-        instance per serve thread), or None."""
+        """One GraphedServe for the in-process server, shared by its
+        serve threads through its lock, or None. One instance per
+        thread crashed the pool with illegal memory accesses on
+        2026-09-14 while one shared instance ran clean (docs/
+        box_specs.md "The graphed server on the pool"). The picker's
+        batches run past max_batch leaves (a request's leaves are not
+        split), so the segment caps go to twice max_batch."""
         if not self._graphed_serve_applies():
             return None
-        from wesnoth_ai.graphed_serve import Caps, GraphedServe
+        from wesnoth_ai.graphed_serve import GraphedServe, pool_caps
         device = self._device or next(model.parameters()).device
-        max_batch = self._max_batch
-        return lambda: GraphedServe(model, encoder, device, caps=Caps(b_cap=max_batch))
+        return GraphedServe(model, encoder, device, caps=pool_caps(self._max_batch))
 
     # -- serve processes ----------------------------------------------
 

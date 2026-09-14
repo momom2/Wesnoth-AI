@@ -95,6 +95,14 @@ class Caps:
         return tuple(sorted(self.b_caps)) if self.b_caps else (self.b_cap,)
 
 
+def pool_caps(max_batch: int) -> Caps:
+    """The pool's caps: the picker fills a batch to `max_batch` leaves
+    with whole requests, so batches run past it (17.4 leaves on average
+    at max_batch 16, up to about twice), and a segment cap of twice
+    max_batch keeps them on the graphed path."""
+    return Caps(b_cap=max_batch, b_caps=(max_batch, 2 * max_batch))
+
+
 @dataclass(frozen=True)
 class Bucket:
     b_cap: int
@@ -485,4 +493,4 @@ class GraphedServe:
                             for b, st in self._states.items()}}
 
 
-__all__ = ["Caps", "Bucket", "StaticIndex", "static_index", "GraphedServe"]
+__all__ = ["Caps", "Bucket", "StaticIndex", "static_index", "GraphedServe", "pool_caps"]

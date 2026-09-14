@@ -360,9 +360,10 @@ def _server_loop(
                      model.warmup_packed_compile())
         graphed = None
         if switches.get("graphed"):
-            from wesnoth_ai.graphed_serve import Caps, GraphedServe
-            # A factory: each serve thread gets its own instance.
-            graphed = lambda: GraphedServe(model, encoder, device, caps=Caps(b_cap=max_batch))  # noqa: E731
+            from wesnoth_ai.graphed_serve import GraphedServe, pool_caps
+            # One instance shared by this process's serve threads
+            # (tools/actor_pool.ActorPool._graphed_for says why).
+            graphed = GraphedServe(model, encoder, device, caps=pool_caps(max_batch))
         server = InferenceServer(model, encoder, device=device,
                                  output_device=torch.device("cpu"),
                                  autocast_bf16=switches["autocast_bf16"],
