@@ -62,12 +62,16 @@ from wesnoth_ai.server_priors import (
 
 log = logging.getLogger(__name__)
 
-# One graph capture at a time per process: the CUDA caching allocator
-# keeps a single capture state per device, and two serve threads
-# capturing at once trip its `captures_underway.empty()` assert
-# (torch 2.5.1 c10/cuda/CUDACachingAllocator.cpp:2967; seen on the
-# 2026-09-14 pool arm with one instance per thread).
-_CAPTURE_LOCK = threading.Lock()
+# Graph work is serialized per process. Two serve threads capturing at
+# once trip the caching allocator's `captures_underway.empty()` assert
+# (torch 2.5.1 c10/cuda/CUDACachingAllocator.cpp:2967), and a REPLAY on
+# one thread while the other captures trips the default CUDA
+# generator's "Offset increment outside graph capture encountered
+# unexpectedly" (every capture registers that generator, and a replay
+# advances its offset; both seen on the 2026-09-14 pool arms). The
+# lock covers the capture and the replay launch, not the wait for the
+# device, so the threads still overlap their staging and their waits.
+_GRAPH_LOCK = threading.RLock()
 
 
 @dataclass(frozen=True)
@@ -356,7 +360,7 @@ class GraphedServe:
         first batch of the bucket is what the warmups and the capture
         compute on, so its buffers already hold real data."""
         t0 = time.perf_counter()
-        with _CAPTURE_LOCK:
+        with _GRAPH_LOCK:
             s = torch.cuda.Stream()
             s.wait_stream(torch.cuda.current_stream())
             with torch.cuda.stream(s):
@@ -380,18 +384,19 @@ class GraphedServe:
         if not self.graphs:
             self._body(st)
             return
-        if st.graph is None:
-            try:
-                self._capture(st)
-            except Exception as e:                       # noqa: BLE001 -- eager serves this bucket
-                log.warning("graphed serve: capture failed for %s (%s: %s); this bucket runs "
-                            "its static body eagerly", st.bucket, type(e).__name__, e)
-                st.graph = False                         # type: ignore[assignment]
-        if st.graph:
-            st.graph.replay()
-            st.replays += 1
-        else:
-            self._body(st)
+        with _GRAPH_LOCK:
+            if st.graph is None:
+                try:
+                    self._capture(st)
+                except Exception as e:                   # noqa: BLE001 -- eager serves this bucket
+                    log.warning("graphed serve: capture failed for %s (%s: %s); this bucket "
+                                "runs its static body eagerly", st.bucket, type(e).__name__, e)
+                    st.graph = False                     # type: ignore[assignment]
+            if st.graph:
+                st.graph.replay()
+                st.replays += 1
+                return
+        self._body(st)
 
     # -- one batch ---------------------------------------------------------
 
