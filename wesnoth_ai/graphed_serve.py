@@ -43,6 +43,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import threading
+import time
 from dataclasses import dataclass, field
 from typing import Dict, Optional, Sequence, Tuple
 
@@ -174,6 +175,7 @@ class _State:
     actor_kind: Optional[torch.Tensor] = None   # CPU, set per call (eager) or at capture
     dirty: Tuple[int, int, int] = (0, 0, 0)     # (B, A_max, H_max) the mask views last held
     replays: int = 0
+    capture_s: float = 0.0
     stats: Dict[str, int] = field(default_factory=dict)
 
 
@@ -208,6 +210,7 @@ class GraphedServe:
         self._lock = threading.Lock()
         self.fallbacks: Dict[str, int] = {}
         self.served = 0
+        self.capture_s = 0.0
 
     # -- buckets ---------------------------------------------------------
 
@@ -339,6 +342,7 @@ class GraphedServe:
         """Warm the body on a side stream, then record it once. The
         first batch of the bucket is what the warmups and the capture
         compute on, so its buffers already hold real data."""
+        t0 = time.perf_counter()
         s = torch.cuda.Stream()
         s.wait_stream(torch.cuda.current_stream())
         with torch.cuda.stream(s):
@@ -348,7 +352,10 @@ class GraphedServe:
         g = torch.cuda.CUDAGraph()
         with torch.cuda.graph(g):
             self._body(st)
+        torch.cuda.synchronize(self.device)
         st.graph = g
+        st.capture_s = time.perf_counter() - t0
+        self.capture_s += st.capture_s
 
     def _run(self, st: _State) -> None:
         if not self.graphs:
@@ -449,6 +456,7 @@ class GraphedServe:
 
     def summary(self) -> Dict[str, object]:
         return {"graphs": self.graphs, "served": self.served, "fallbacks": dict(self.fallbacks),
+                "capture_s": round(self.capture_s, 2),
                 "buckets": {f"{b.b_cap}x{b.a_cap}x{b.h_cap}x{b.t_cap}": st.replays
                             for b, st in self._states.items()}}
 
