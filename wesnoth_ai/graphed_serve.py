@@ -80,7 +80,7 @@ class Caps:
     graph accepts; `capacity` legal entries per batch."""
     b_cap: int = 16
     a_caps: Tuple[int, ...] = (64, 128)
-    h_caps: Tuple[int, ...] = (512, 1024)
+    h_caps: Tuple[int, ...] = (512, 1024, 2048)
     t_caps: Tuple[int, ...] = (1024, 2048, 3072, 4096, 6144, 8192, 12288)
     max_len: int = 2048
     capacity: int = 65536
@@ -222,19 +222,25 @@ class GraphedServe:
     # -- buckets ---------------------------------------------------------
 
     def _pick(self, B: int, A_max: int, H_max: int, total: int,
-              longest: int) -> Optional[Bucket]:
+              longest: int) -> Tuple[Optional[Bucket], str]:
+        """The first bucket the batch fits, or (None, the axis it does
+        not fit: the fallback counter's key)."""
         c = self.caps
         if longest > c.max_len:
-            return None
+            return None, "segment_len"
         b_cap = next((b for b in c.segment_caps if b >= B), None)
+        if b_cap is None:
+            return None, "segments"
         a_cap = next((a for a in c.a_caps if a >= A_max), None)
+        if a_cap is None:
+            return None, "actors"
         h_cap = next((h for h in c.h_caps if h >= H_max), None)
-        if b_cap is None or a_cap is None or h_cap is None:
-            return None
+        if h_cap is None:
+            return None, "hexes"
         t_cap = next((t for t in c.t_caps if t >= total + (b_cap - B)), None)
         if t_cap is None:
-            return None
-        return Bucket(b_cap, a_cap, h_cap, t_cap)
+            return None, "tokens"
+        return Bucket(b_cap, a_cap, h_cap, t_cap), ""
 
     def _state(self, bucket: Bucket) -> _State:
         st = self._states.get(bucket)
@@ -406,9 +412,9 @@ class GraphedServe:
         A_max = U_max + R_max + 1
         lengths = [u + r + h + 2 for u, r, h in sizes]
         total = sum(lengths)
-        bucket = self._pick(B, A_max, H_max, total, max(lengths))
+        bucket, why = self._pick(B, A_max, H_max, total, max(lengths))
         if bucket is None:
-            self._fallback("shape")
+            self._fallback(why)
             return None
         layout = build_packed_layout(sizes, H_max, U_max, R_max, TokenKind, ActorKind,
                                      source="streams")

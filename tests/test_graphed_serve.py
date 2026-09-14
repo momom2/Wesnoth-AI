@@ -104,9 +104,9 @@ def test_batches_past_a_cap_take_the_eager_path():
     with torch.no_grad():
         ref = InferenceServer(model, enc).infer_batch(pairs)
         too_few_segments = GraphedServe(model, enc, torch.device("cpu"), graphs=False,
-                                        caps=Caps(b_cap=2))
+                                        caps=Caps(b_cap=2, max_len=4096))
         got = InferenceServer(model, enc, graphed=too_few_segments).infer_batch(pairs)
-    assert too_few_segments.fallbacks == {"shape": 1} and too_few_segments.served == 0
+    assert too_few_segments.fallbacks == {"segments": 1} and too_few_segments.served == 0
     for r, g in zip(ref, got):
         assert torch.equal(r.value, g.value)
         assert np.array_equal(r.legal_compact.prior, g.legal_compact.prior)
