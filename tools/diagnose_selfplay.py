@@ -200,11 +200,7 @@ def diagnostic_play(
         # "recruit-then-no-op" which isn't what we want to measure.
         while _would_recruit_bounce(action, sim.gs):
             tgt = action["target_hex"]
-            rejected = (getattr(sim.gs.global_info,
-                                "_recruit_rejected_hexes", None) or set())
-            rejected.add((tgt.x, tgt.y))
-            setattr(sim.gs.global_info,
-                    "_recruit_rejected_hexes", rejected)
+            sim.reject_recruit_hex(tgt.x, tgt.y)
             pre_state = copy.deepcopy(sim.gs)
             action = policy.select_action(pre_state, game_label=game_label, sim=sim)
 

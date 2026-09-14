@@ -171,9 +171,9 @@ pub struct MapStatic {
     // Hide-ability cover, from the engine's own [hides] terrain globs
     // (terrain_resolver.hides_cover: *^F*, *^V*, Wo*^*), NOT from the
     // hex's defense class. Read only by core_move::hide_cover_active.
-    pub is_forest: Vec<u8>,          // ambush cover
-    pub is_village_key: Vec<u8>,     // concealment cover
-    pub is_deep_water: Vec<u8>,      // submerge cover
+    pub hides_ambush: Vec<u8>,
+    pub hides_concealment: Vec<u8>,
+    pub hides_submerge: Vec<u8>,
     pub full_slot: Vec<i64>,         // the full-board token slot of each hex
     pub castle_mod: Vec<u8>,         // TerrainModifiers.CASTLE (the encoder's static bit)
     pub hex_of_slot: Vec<usize>,     // the map hex of each full-board slot
@@ -296,9 +296,9 @@ impl GameCore {
             has_light: get(map, "has_light")?,
             area_cycle: get(map, "area_cycle")?,
             cycles,
-            is_forest: get(map, "is_forest")?,
-            is_village_key: get(map, "is_village_key")?,
-            is_deep_water: get(map, "is_deep_water")?,
+            hides_ambush: get(map, "hides_ambush")?,
+            hides_concealment: get(map, "hides_concealment")?,
+            hides_submerge: get(map, "hides_submerge")?,
             full_slot,
             castle_mod: get(map, "castle_mod")?,
             hex_of_slot,
@@ -308,7 +308,7 @@ impl GameCore {
             ("keep", map_static.keep.len()), ("village_terrain", map_static.village_terrain.len()),
             ("village_mod", map_static.village_mod.len()), ("terrain_type_id", map_static.terrain_type_id.len()),
             ("heal", map_static.heal.len()), ("light_mod", map_static.light_mod.len()),
-            ("area_cycle", map_static.area_cycle.len()), ("is_forest", map_static.is_forest.len()),
+            ("area_cycle", map_static.area_cycle.len()), ("hides_ambush", map_static.hides_ambush.len()),
             ("full_slot", map_static.full_slot.len()), ("castle_mod", map_static.castle_mod.len()),
         ] {
             if v != h {

@@ -79,6 +79,11 @@ def _combat() -> bool:
     return rust_combat_kernel() is not None
 
 
+def _encode_streams() -> bool:
+    from wesnoth_ai.encoder import _rust_encode_kernel
+    return _rust_encode_kernel() is not None
+
+
 def _game_core() -> bool:
     # `core_enabled()` is what WesnothSim actually consults, and it
     # honours WESNOTH_RUST_CORE as well as the phase gate -- unset is
@@ -96,6 +101,7 @@ _GATES = {
     "observation": _observe,
     "rows_from_reach": _rows_from_reach,
     "combat": _combat,
+    "encode_streams": _encode_streams,
     "GameCore": _game_core,
 }
 

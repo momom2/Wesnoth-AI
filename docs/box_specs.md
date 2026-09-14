@@ -662,7 +662,7 @@ arm. Records: `training/metrics/bench_pipeline/eval_shared/`.
 
 | mode | wall s (games as noted) | mean batch | server busy |
 |---|---|---|---|
-| one process per game | 408 | 1 | - |
+| one process per game | 408 (TWENTY games; the log reads "20 pending") | 1 | - |
 | persistent workers | 215 | 1 | - |
 | persistent workers + shared inference | 145 | 3.7 | 72% |
 
@@ -828,7 +828,8 @@ since been refuted:
 1. ~~a second server process on the same GPU~~ **REFUTED** on this
    path. `--inference-servers` was implemented and measured: splitting
    the same workers across two servers HALVES the mean batch (7.84 ->
-   3.56) and the cost is mostly a fixed per-batch launch, so half the
+   3.56, read off the server logs and not recorded) and the cost is
+   mostly a fixed per-batch launch, so half the
    batch means twice the batches ("The eval path does not want more
    workers or more servers"). It is worth using only when the two
    sides run different checkpoints, or when a much larger worker pool
@@ -1008,9 +1009,14 @@ can fire (61,331) and the pickadvance commands (2,429).
 ### Per call: the Rust-owned state against the Python state (same box)
 
 `tools/bench_core.py`, 8 replayed midgame states (median 20.5 units,
-849 hexes), 40 calls each, median over states. These are plan step
-1.2's acceptance numbers (step and fork under 0.1 ms, encode under
-0.2 ms).
+849 hexes), 40 calls each, median over states; record
+`training/metrics/bench_pipeline/phase1_exit_20260912/micro.json`.
+These are plan step 1.2's acceptance numbers (step and fork under 0.1
+ms, encode under 0.2 ms). They time the core's OWN calls
+(`CoreState.fork`, `apply_command`, `encode_raw`); the simulator on
+the core adds a Python view rebuilt after every command as long as
+the policies read that view, which is why the eval-path and pool
+walls, not these, are the production numbers.
 
 | operation | Python state | Rust-owned state | ratio |
 |---|---|---|---|
@@ -1041,7 +1047,8 @@ applies. The reason is the same one the observation kernel ran into
 (see "The observation kernel and the CPU budget"): with the shared
 server, a worker spends over four fifths of its wall waiting for a
 forward, so removing worker Python moves nothing. The lone game is
-about 5% SLOWER with the core because the Python view is rebuilt from
+about 10% SLOWER with the core (10 against 11 s, one-second
+resolution; 937 against 1,036 py-spy samples) because the Python view is rebuilt from
 the core after every command (`to_state` 0.6% of the lone game's
 samples, `unit_from_fields` 0.3%) while the policies still read that
 view. `WESNOTH_RUST_CORE` therefore stays default off on this path;
@@ -1079,9 +1086,10 @@ iteration column is noise on this harness.
 
 The baseline arm is ONE run (its repeat was stopped on the user's
 order). Its saturated column is the safer of its two numbers: at that
-configuration the server runs at 80% GPU and is the binding constraint,
-so its rate is a machine property rather than a game-composition
-artifact.
+configuration the server is the binding constraint (the actors
+under-feed it far less than in the faster arms), so its rate is closer
+to a machine property than the iteration column is. No GPU utilisation
+was recorded for this arm.
 
 Phase 1's exit criterion was at least 10x more searched games per
 dollar at a fixed search budget. Same box, same search budget, on the
@@ -1098,19 +1106,21 @@ prerequisite held -- the relevant-set basis cut tokens per leaf from
 about 1,200 to about 300 and the saturated rate rose 2.4x with it.
 Confirming the 3,000 on a 4090 is a 30-minute run, about $0.25.
 
-The Rust-owned state (`WESNOTH_RUST_CORE=1`) shows no effect here
-either: its two runs (1,045.7 and 1,003.8 saturated) sit inside the
-Python runs' band (1,050.8 and 1,102.5). Its per-call wins (see "Per
-call: the Rust-owned state against the Python state") are real but
-small against a pool whose ceiling is the server; default stays off.
+The Rust-owned state (`WESNOTH_RUST_CORE=1`) shows no gain here
+either: its two runs (1,045.7 and 1,003.8 saturated) sit just BELOW
+the Python runs (1,050.8 and 1,102.5), within the 5% the repeats
+spread. Its per-call wins (see "Per call: the Rust-owned state against
+the Python state") are real but small against a pool whose ceiling is
+the server; default stays off.
 
 ## Actors buy in-flight leaves (2026-09-13, box 50869871, RTX 4090, 24 cores, 31 GB)
 
 The pool's constraint was never actor CPU. An actor holds exactly ONE
 inference request in flight and blocks on it: the in-repo whole-pool
 profile (`training/metrics/bench_pipeline/pool_profile/prof_pool_all.txt`,
-4.87M samples) puts 91.3% of actor main-thread samples in `_recv`, and
-its own Python at 6.77 ms per leaf. Throughput is therefore
+4.87M samples) puts about 92% of actor main-thread samples in `_recv`
+(983,960 of 1,070,717), i.e. its own Python is under a tenth of the
+per-leaf wall. Throughput is therefore
 (leaves in flight) / (round-trip), and the actor count is the knob.
 
 One factor, same search budget (plain PUCT, 32 evaluations, leaf batch
@@ -1187,14 +1197,23 @@ server's own counters are not:
 | both | 40 | 2 | 43 | 18,838 | 3,763 | 5.01 |
 | baseline REPEAT | 20 | 1 | **74** | 20,981 | 4,628 | 4.53 |
 
+Provenance (review 2026-09-14): only the five walls are recorded
+(`actor_profile_20260913/summary.txt`, "== eval sweep"). The request,
+batch and mean-batch columns were read off the servers' log lines and
+never saved -- no server-stats file, games dir or script output in
+the tree carries them -- so the "halved mean batch" reading below
+rests on unrecorded numbers until `scripts/postreview_box.sh` repeats
+the two-server arm with its stats file kept.
+
 **The baseline repeated at 74 s against its own 42 s, a 1.76x swing**,
 so no arm here is resolvable: every difference is inside one
 configuration's own variance. What IS stable and readable is the mean
 batch, and it says why a second server cannot help: splitting the same
-workers across two servers halves the batch (7.84 -> 3.56), and the
-server's cost is mostly a fixed per-batch launch, so half the batch
-means twice the batches. The backlog's standing expectation that a
-second serve process per GPU buys 1.3-1.5x on eval is **not supported**;
+workers across two servers halves the batch (7.84 -> 3.56, an
+unrecorded reading, see the provenance note above), and the server's
+cost is mostly a fixed per-batch launch, so half the batch means
+twice the batches. The backlog's standing expectation that a second
+serve process per GPU buys 1.3-1.5x on eval is **not supported**;
 `--inference-servers` is implemented and left at 1, worth using only
 when the two sides run different checkpoints or a much larger worker
 pool keeps batches full.

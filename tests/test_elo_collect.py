@@ -165,3 +165,23 @@ def test_estimands_round_trip_through_a_result_file(tmp_path, monkeypatch):
     assert est["infer_bf16"] is True
     assert decode_game_ids(edge["games"]) == {
         (1 if i % 2 == 0 else 2, 10_000 + i) for i in range(8)}
+
+
+def test_the_batch_runner_s_timeout_artifact_carries_every_estimand():
+    """run_elo_batch writes a no-result artifact for a game it killed
+    on timeout, from its own provenance dict; a field the collector
+    treats as an estimand but the artifact omits reads as the default
+    and blocks the whole dir as MIXED (found 2026-09-14 with
+    observation_epoch). Pin: every estimand key is spelled in that
+    dict's source, and an artifact built from a full record collects."""
+    import re
+    from tools.elo_collect import ESTIMAND_DEFAULTS, dir_estimands
+    src = (Path(__file__).parent.parent / "tools" / "run_elo_batch.py").read_text(encoding="utf-8")
+    m = re.search(r"_prov = \{(.*?)\n    if args\.plan_a or args\.plan_b:", src, re.S)
+    assert m, "run_elo_batch's provenance dict moved; update this pin"
+    block = m.group(1)
+    missing = [k for k in ESTIMAND_DEFAULTS if f'"{k}"' not in block]
+    assert not missing, f"the timeout artifact would omit {missing}"
+    full = _result(procedure_a="raw:t0", procedure_b="raw:t0", max_turns=200)
+    artifact = dict(full, outcome_a="timeout_kill", margin_a=None, timeout_min=30)
+    assert dir_estimands([full, artifact])["observation_epoch"] == 3

@@ -766,6 +766,13 @@ def main(argv) -> int:
                     f"a fresh outdir.")
             # Combat-luck regime; absent = the pre-2026-09-13 stream
             # every eval game shared.
+            _prev_epoch = int(prev.get("observation_epoch", 1))
+            if _prev_epoch != int(OBSERVATION_EPOCH):
+                raise SystemExit(
+                    f"{out_path.name} was played under observation epoch {_prev_epoch} "
+                    f"but this sim is {OBSERVATION_EPOCH}: the players saw different "
+                    f"games, refusing to mix (constants.OBSERVATION_EPOCH). Use a fresh "
+                    f"outdir.")
             _want_cs = ("shared" if args.shared_combat_stream
                         else "per_game")
             if prev.get("combat_stream", "shared") != _want_cs:

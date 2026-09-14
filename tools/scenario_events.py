@@ -1436,22 +1436,11 @@ def _unit_action(gs: GameState, action: WMLNode) -> None:
     # via the same convention scrape_unit_stats uses.
     abil_node = action.first("abilities")
     if abil_node is not None:
-        # Tag-name → canonical id used by tools/abilities.py and combat.
-        # Mirrors the result of scrape_unit_stats's ABILITY_MACROS for
-        # the post-macro-expansion form (each macro emits [heals],
-        # [hides], [leadership], etc. as children).
-        _TAG_TO_ABILITY = {
-            "heals": None,             # value-dependent: heals_4 or heals_8
-            "regenerate": "regenerate",
-            "cures": "cures",
-            "leadership": "leadership",
-            "skirmisher": "skirmisher",
-            "illuminates": "illuminates",
-            "teleport": "teleport",
-            "hides": "ambush",         # ABILITY_AMBUSH expands to [hides]
-            "feeding": "feeding",
-            "steadfast": "steadfast",
-        }
+        # An ability member is named by its `id=` (ambush, submerge,
+        # concealment, nightstalk, burrow all live under [hides];
+        # `_effect_member_ids` has the engine citations), the tag being
+        # the fallback of a block without one. [heals] is the one
+        # value-dependent name: heals_4 or heals_8.
         new_abilities = set(base_unit.abilities)
         for child in abil_node.children:
             tag = child.tag
@@ -1463,10 +1452,8 @@ def _unit_action(gs: GameState, action: WMLNode) -> None:
                 except (TypeError, ValueError):
                     val = 4
                 new_abilities.add("heals_8" if val >= 8 else "heals_4")
-            elif tag in _TAG_TO_ABILITY:
-                aid = _TAG_TO_ABILITY[tag]
-                if aid:
-                    new_abilities.add(aid)
+            else:
+                new_abilities.add((child.attrs.get("id") or "").strip().strip('"') or tag)
         if new_abilities != base_unit.abilities:
             base_unit = _dc_replace(base_unit, abilities=new_abilities)
     # Stash the WML role so later [filter] role= matching can find

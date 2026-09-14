@@ -256,10 +256,7 @@ def _decide(player, sim: WesnothSim, game_label: str) -> Dict:
     action = _select(player, sim, game_label)
     while _would_recruit_bounce(action, sim.gs):
         tgt = action["target_hex"]
-        rejected = (getattr(sim.gs.global_info, "_recruit_rejected_hexes", None)
-                    or set())
-        rejected.add((tgt.x, tgt.y))
-        setattr(sim.gs.global_info, "_recruit_rejected_hexes", rejected)
+        sim.reject_recruit_hex(tgt.x, tgt.y)
         player.drop_last_pending(game_label)
         action = _select(player, sim, game_label)
     return action

@@ -15,6 +15,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
+from wesnoth_ai.constants import OBSERVATION_EPOCH  # noqa: E402
+
 
 def _service(window_s: float, max_batch: int, poison=None):
     """An in-process service over a fake model: each payload is a
@@ -171,7 +173,7 @@ def _prev(shared: bool, procedure_b: str = "raw:t0") -> dict:
             "infer_bf16": False, "infer_compile": False,
             "shared_inference": shared, "infer_packed_trunk": False,
             "outcome_a": "win", "side_a": 1, "seed": 10000,
-            "combat_stream": "per_game"}
+            "combat_stream": "per_game", "observation_epoch": OBSERVATION_EPOCH}
 
 
 def test_refuses_to_mix_shared_and_per_process(tmp_path):

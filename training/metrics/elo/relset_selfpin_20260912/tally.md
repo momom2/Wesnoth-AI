@@ -31,9 +31,15 @@ decisive games split unevenly by side -- A held side 1 in 61 of the 93
 
 What this does and does not settle: it rules out a gross asymmetry in
 how the shared inference server serves the two labels (which is what
-the pin exists to catch). It is not a tight pin: +- 37 Elo. A tight
-one is an 800-game match against itself, about 18 min and $0.20 on a
-4090 (plan 1.5's measured rate).
+the pin exists to catch). It is not a tight pin: +- 37 Elo, and that
+figure assumes 93 independent games, which these are not: the four
+arms replay the SAME 40 seeds (`--seed-base 20000`) on the
+pre-2026-09-13 shared combat-luck stream, so where the players'
+decisions coincide the games coincide too (the arms' scores 10/23,
+9/23, 10/23, 10/24 show how alike they are). The per-game records were
+not brought back from the box; this tally is the whole record. A
+tight pin is an 800-game match against itself under per-game luck,
+about 18 min and $0.20 on a 4090 (plan 1.5's measured rate).
 
 The high cap rate (67 of 160) is the known behaviour of `raw:t0`
 against itself (CLAUDE.md: 17 of 40 at the cap in the 2026-09-04

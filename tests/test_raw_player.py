@@ -13,6 +13,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
+from wesnoth_ai.constants import OBSERVATION_EPOCH  # noqa: E402
+
 
 def test_pick_index_temperatures():
     from tools.raw_player import pick_index
@@ -106,13 +108,13 @@ def test_eval_game_guard_separates_temperature_estimands(tmp_path):
     (out / "game_A_B_s1_7.json").write_text(
         json.dumps({"procedure_a": "raw", "procedure_b": "raw",
                     "max_turns": 200,
-                    "combat_stream": "per_game"}), encoding="utf-8")
+                    "combat_stream": "per_game", "observation_epoch": OBSERVATION_EPOCH}), encoding="utf-8")
     with pytest.raises(SystemExit, match="refusing to mix"):
         main(base + ["--raw-temperature-a", "0"])
     (out / "game_A_B_s1_7.json").write_text(
         json.dumps({"procedure_a": "raw:t0", "procedure_b": "raw",
                     "max_turns": 200,
-                    "combat_stream": "per_game"}), encoding="utf-8")
+                    "combat_stream": "per_game", "observation_epoch": OBSERVATION_EPOCH}), encoding="utf-8")
     assert main(base + ["--raw-temperature-a", "0"]) == 0
 
 

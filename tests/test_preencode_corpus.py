@@ -107,3 +107,32 @@ def test_other_vocab_or_missing_record_is_refused(encoded, tmp_path):
         check_preencoded(out, files + [tmp_path / "missing.json.gz"], enc, False)
     with pytest.raises(RuntimeError, match="manifest"):
         check_preencoded(tmp_path, files, enc, False)
+
+
+def test_another_observation_epoch_is_refused_before_the_vocab(encoded, tmp_path):
+    """A corpus from an earlier epoch encodes a world the sim no longer
+    produces; the manifest's epoch is checked first so the error names
+    the cause, and a manifest without the key is epoch 1."""
+    import json
+    import shutil
+    from tools.preencode_corpus import MANIFEST_NAME, check_manifest_epoch
+    from tools.supervised_train import check_preencoded
+    from wesnoth_ai.constants import OBSERVATION_EPOCH
+    from types import SimpleNamespace
+    out, files, t2i, f2i = encoded
+    enc = SimpleNamespace(unit_type_to_id=dict(t2i), faction_to_id=dict(f2i))
+    stale = tmp_path / "stale"
+    shutil.copytree(out, stale)
+    man_path = stale / MANIFEST_NAME
+    man = json.loads(man_path.read_text(encoding="utf-8"))
+    man["observation_epoch"] = int(OBSERVATION_EPOCH) - 1
+    man_path.write_text(json.dumps(man), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="observation epoch"):
+        check_manifest_epoch(stale)
+    with pytest.raises(RuntimeError, match="observation epoch"):
+        check_preencoded(stale, files, enc, False)
+    if OBSERVATION_EPOCH != 1:
+        del man["observation_epoch"]
+        man_path.write_text(json.dumps(man), encoding="utf-8")
+        with pytest.raises(RuntimeError, match="epoch 1"):
+            check_manifest_epoch(stale)

@@ -19,8 +19,9 @@
 #
 #   2. THE SECOND SERVE PROCESS. Built on 2026-09-04 and never
 #      measured ON THE POOL -- on EVAL it is refuted (two servers
-#      halve the mean batch, 7.84 -> 3.56, and the cost is a fixed
-#      per-batch launch). 1.3-1.5x was the standing expectation and
+#      halve the mean batch, 7.84 -> 3.56 read off the server logs and
+#      never recorded: keep the stats files this time; the cost is a
+#      fixed per-batch launch). 1.3-1.5x was the standing expectation and
 #      applies, if anywhere, only here, which is the biggest
 #      named unmeasured win in the project (BACKLOG.md). The inference
 #      server is the ceiling on BOTH paths, so this is the one that

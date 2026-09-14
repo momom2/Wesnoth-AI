@@ -74,9 +74,28 @@ def anchor_gate(anchor: Path) -> bool:
     return bool(json.loads(meta.read_text(encoding="utf-8")).get("fog_hides_enemy_villages"))
 
 
+def anchor_epoch(anchor: Path) -> int:
+    """The observation epoch the anchor was encoded under (no sidecar
+    or no key: epoch 1, before the mark existed)."""
+    meta = anchor_meta_path(anchor)
+    if not meta.exists():
+        return 1
+    return int(json.loads(meta.read_text(encoding="utf-8")).get("observation_epoch", 1))
+
+
 def check_anchor_gate(anchor: Path, policy_gate: bool) -> None:
     """A cache encoded under the other gate feeds the head a feature
-    it never trained on; refuse it with the rebuild command."""
+    it never trained on, and one encoded under another observation
+    epoch feeds it a world the sim no longer produces
+    (constants.OBSERVATION_EPOCH); refuse either with the rebuild
+    command."""
+    from wesnoth_ai.constants import OBSERVATION_EPOCH
+    if anchor_epoch(anchor) != int(OBSERVATION_EPOCH):
+        flag = " --fog-hides-enemy-villages" if policy_gate else ""
+        raise ValueError(
+            f"{anchor}: encoded under observation epoch {anchor_epoch(anchor)}, this sim is "
+            f"{OBSERVATION_EPOCH} (see constants.OBSERVATION_EPOCH). Rebuild: python "
+            f"tools/build_human_anchor.py --out {anchor}{flag}")
     if anchor_gate(anchor) != bool(policy_gate):
         flag = " --fog-hides-enemy-villages" if policy_gate else ""
         raise ValueError(
@@ -142,8 +161,10 @@ def main(argv: List[str]) -> int:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with args.out.open("wb") as f:
         pickle.dump(out, f, protocol=pickle.HIGHEST_PROTOCOL)
+    from wesnoth_ai.constants import OBSERVATION_EPOCH
     anchor_meta_path(args.out).write_text(json.dumps({
         "fog_hides_enemy_villages": bool(args.fog_hides_enemy_villages),
+        "observation_epoch": int(OBSERVATION_EPOCH),
         "games": len(rows), "stride": args.stride, "pairs": len(out)}), encoding="utf-8")
     zpos = sum(1 for _, z, _ in out if z > 0)
     log.info(f"wrote {args.out}: {len(out)} pairs "

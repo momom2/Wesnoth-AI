@@ -117,7 +117,7 @@ def main(argv: List[str]) -> int:
     logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.WARNING))
     from wesnoth_ai.game_core import game_core_class
     if game_core_class() is None:
-        print(json.dumps({"error": "wesnoth_core.GameCore unavailable (phase 8 wheel)"}))
+        print(json.dumps({"error": "wesnoth_core.GameCore unavailable (a phase 7 or later wheel)"}))
         return 1
     states = _states_from_corpus(args.corpus, args.states, args.skip)
     if not states:

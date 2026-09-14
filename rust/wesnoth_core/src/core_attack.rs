@@ -45,8 +45,8 @@ fn dt_index(name: &str) -> Option<usize> {
     DAMAGE_TYPES.iter().position(|d| *d == name)
 }
 
-/// `_apply_illum`: bounded_add(base, 25, max 25, min 0), positive branch.
-fn apply_illumination(base: i64, illuminated: bool) -> i64 {
+/// `apply_unit_illumination`: bounded_add(base, 25, max 25, min 0), positive branch.
+pub(crate) fn apply_illumination(base: i64, illuminated: bool) -> i64 {
     if illuminated { (base + ILLUMINATION).min(base.max(ILLUMINATION)) } else { base }
 }
 
@@ -151,7 +151,7 @@ impl GameCore {
 
     /// `abilities.illuminate_step`: the unit or any adjacent unit of
     /// any side illuminates and is not petrified.
-    fn illuminated(&self, i: usize) -> bool {
+    pub(crate) fn illuminated(&self, i: usize) -> bool {
         let u = &self.units[i];
         if u.has_ability("illuminates") && !u.has_status("petrified") {
             return true;

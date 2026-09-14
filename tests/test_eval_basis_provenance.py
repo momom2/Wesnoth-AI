@@ -16,9 +16,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 def _game(**over) -> dict:
+    """A prior result of the current epoch (a record without the key
+    reads as epoch 1 and is refused before any basis check)."""
+    from wesnoth_ai.constants import OBSERVATION_EPOCH
     g = {"label_a": "A", "label_b": "B", "outcome_a": "win", "margin_a": 0.5,
          "procedure_a": "raw", "procedure_b": "raw", "max_turns": 200,
-         "combat_stream": "per_game"}
+         "combat_stream": "per_game", "observation_epoch": int(OBSERVATION_EPOCH)}
     g.update(over)
     return g
 

@@ -245,6 +245,34 @@ def test_bf16_autocast_matches_fp32_within_tolerance():
     assert float(cos) > 0.95, float(cos)
 
 
+class _PartialBackward:
+    """Loss parts whose backward accumulates into the FIRST
+    parameter and only then runs out of memory -- what a real
+    out-of-memory inside backward() leaves behind."""
+
+    def __init__(self, inner, victim):
+        self._inner = inner
+        self._victim = victim
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+    @property
+    def total(self):
+        return self
+
+    def __truediv__(self, other):
+        return self
+
+    def backward(self):
+        with torch.no_grad():                      # the partial accumulation
+            if self._victim.grad is None:
+                self._victim.grad = torch.ones_like(self._victim)
+            else:
+                self._victim.grad += torch.ones_like(self._victim)
+        raise torch.cuda.OutOfMemoryError("simulated: out of memory inside backward")
+
+
 def test_out_of_memory_inside_backward_does_not_double_count_the_gradient(monkeypatch):
     """The peak is inside backward(), so that is where the device runs
     out. A backward that raises part way has ALREADY accumulated the
@@ -284,33 +312,6 @@ def test_out_of_memory_inside_backward_does_not_double_count_the_gradient(monkey
     ref_splits, ref_dq = run(ref_model, ref_enc, None)
     assert ref_splits == 0
 
-    class _PartialBackward:
-        """Loss parts whose backward accumulates into the FIRST
-        parameter and only then runs out of memory -- what a real
-        out-of-memory inside backward() leaves behind."""
-
-        def __init__(self, inner, victim):
-            self._inner = inner
-            self._victim = victim
-
-        def __getattr__(self, name):
-            return getattr(self._inner, name)
-
-        @property
-        def total(self):
-            return self
-
-        def __truediv__(self, other):
-            return self
-
-        def backward(self):
-            with torch.no_grad():                      # the partial accumulation
-                if self._victim.grad is None:
-                    self._victim.grad = torch.ones_like(self._victim)
-                else:
-                    self._victim.grad += torch.ones_like(self._victim)
-            raise torch.cuda.OutOfMemoryError("simulated: out of memory inside backward")
-
     victim = next(iter(model.parameters()))
     fired = {"n": 0}
 
@@ -329,3 +330,62 @@ def test_out_of_memory_inside_backward_does_not_double_count_the_gradient(monkey
                       list(ref_model.parameters()) + list(ref_enc.parameters())):
         assert torch.allclose(p_, q_, atol=1e-6, rtol=1e-4), \
             "the retry double-counted the gradients the failed backward left behind"
+
+
+def test_out_of_memory_on_a_later_chunk_restarts_from_zeroed_gradients(monkeypatch):
+    """The first attempt fails at once; the retry's FIRST chunk succeeds
+    and accumulates a real gradient, then the second chunk's backward
+    runs out part way. The next attempt must start from zero again --
+    the completed chunk's gradient is exactly what a resume-in-place
+    would double count -- and end equal to the unsplit step."""
+    import copy
+    from collections import deque
+    from tools import supervised_train as st
+
+    torch.manual_seed(12)
+    dev = torch.device("cpu")
+    enc = GameStateEncoder(d_model=_ARCH["d_model"])
+    model = WesnothModel(**_ARCH)
+    model.eval()
+    enc.eval()
+    states = _states(4)
+    for s_ in states:
+        enc.register_names(s_)
+    raws = [encode_raw(s_, type_to_id=enc.unit_type_to_id, faction_to_id=enc.faction_to_id)
+            for s_ in states]
+    ais, zw = _labels(raws, random.Random(5))
+    ref_model, ref_enc = copy.deepcopy(model), copy.deepcopy(enc)
+
+    def run(m, e, patch):
+        if patch is not None:
+            monkeypatch.setattr(st, "_batch_loss", patch)
+        opt = torch.optim.SGD(list(m.parameters()) + list(e.parameters()), lr=0.1)
+        dq = {k: deque(maxlen=50) for k in ("t", "a", "ty", "tg", "w", "v")}
+        halvings = st._flush_batch(m, e, raws, ais, zw, opt, list(m.parameters()), len(raws), dev,
+                                   dq["t"], dq["a"], dq["ty"], dq["tg"], dq["w"], dq["v"],
+                                   type_loss_weights=_TYPE_W)
+        return halvings, dq
+
+    original = st._batch_loss
+    _, ref_dq = run(ref_model, ref_enc, None)
+    victim = next(iter(model.parameters()))
+    calls = {"n": 0, "fired": 0}
+
+    def oom_on_the_whole_batch_then_on_the_second_half(m, e, chunk, *args):
+        calls["n"] += 1
+        parts, targets = original(m, e, chunk, *args)
+        # call 1: the whole batch (attempt 1); call 3: the second half
+        # (attempt 2, after its first half accumulated for real).
+        if calls["n"] in (1, 3):
+            calls["fired"] += 1
+            return _PartialBackward(parts, victim), targets
+        return parts, targets
+
+    halvings, dq = run(model, enc, oom_on_the_whole_batch_then_on_the_second_half)
+    assert calls["fired"] == 2, "both simulated failures must fire"
+    assert halvings == 2
+    assert list(dq["a"]) == pytest.approx(list(ref_dq["a"]), abs=1e-5)
+    for p_, q_ in zip(list(model.parameters()) + list(enc.parameters()),
+                      list(ref_model.parameters()) + list(ref_enc.parameters())):
+        assert torch.allclose(p_, q_, atol=1e-6, rtol=1e-4), \
+            "the retry kept the completed chunk's gradient from the failed attempt"

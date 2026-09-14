@@ -1,17 +1,17 @@
-"""A refused action is worth 0, not the material draw score.
+"""A refused action is worth what the parent state is worth.
 
 The search parks two outcomes under sentinel children: a step that
 raised (`step_error`) and a step the sim refused or that changed
 nothing (`noop_resample`, e.g. a recruit onto a fog-occupied hex).
-Both are marked terminal so the descent stops and, in the words of the
-code that creates them, "a neutral value backs up".
-
-With `draw_tiebreak` configured -- which `tools/selfplay_worker.py`
-does -- `_terminal_value` used to price every winner==0 state by the
-material differential, so a side that was ahead saw a REFUSED action as
-a favourable draw (+cap * material) and the search steered into
-rejected actions exactly when it was winning. A real draw at the turn
-cap must still get the tiebreak.
+Both are marked terminal so the descent stops, and the value that
+backs up is the PARENT's own estimate: the state did not change, so
+the action is neither a draw nor a win. `_terminal_value` itself never
+prices a sentinel by material (it used to, with `draw_tiebreak`
+configured, which made a refused action look like a favourable draw to
+a side that was ahead) and never by 0 either at the node level (0 is
+above a losing side's material margin, which would have steered the
+search into refused actions when behind). A real draw at the turn cap
+still gets the tiebreak.
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from sim_test_helpers import fresh_scenario_sim  # noqa: E402
 from tools.draw_tiebreak import DrawTiebreakConfig  # noqa: E402
-from tools.mcts import _terminal_value  # noqa: E402
+from tools.mcts import MCTSNode, _node_terminal_value, _terminal_value  # noqa: E402
 
 
 def _drawn_sim(ended_by: str):
@@ -57,6 +57,21 @@ def test_a_refused_action_is_neutral_even_with_a_tiebreak(ending):
     cfg = DrawTiebreakConfig(cap=0.25)
     assert _terminal_value(sim, 1, cfg) == 0.0
     assert _terminal_value(sim, 2, cfg) == 0.0
+
+
+@pytest.mark.parametrize("ending", ["step_error", "noop_resample"])
+def test_a_sentinel_node_backs_up_its_parent_value(ending):
+    """What the search actually reads: the sentinel child carries the
+    parent's own estimate, whatever the tiebreak would say."""
+    node = MCTSNode(_drawn_sim(ending))
+    node.value = 0.37
+    node.is_sentinel = True
+    assert _node_terminal_value(node, DrawTiebreakConfig(cap=0.25)) == 0.37
+    assert _node_terminal_value(node, None) == 0.37
+    real = MCTSNode(_drawn_sim("max_turns"))
+    real.value = 0.37
+    assert _node_terminal_value(real, DrawTiebreakConfig(cap=0.25)) == \
+        _terminal_value(real.sim, real.side, DrawTiebreakConfig(cap=0.25))
 
 
 def test_without_a_tiebreak_every_draw_is_zero():

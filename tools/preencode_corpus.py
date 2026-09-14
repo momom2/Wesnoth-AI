@@ -27,8 +27,6 @@ Usage (a box, one pass over the 17k games; ~5 pairs/s per worker):
 """
 import argparse
 import hashlib
-
-from wesnoth_ai.constants import OBSERVATION_EPOCH
 import json
 import logging
 import multiprocessing as mp
@@ -43,6 +41,8 @@ from typing import Dict, List, Optional, Tuple
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
+
+from wesnoth_ai.constants import OBSERVATION_EPOCH  # noqa: E402
 
 log = logging.getLogger("preencode")
 
@@ -128,6 +128,23 @@ def _worker_encode(gz_path_str: str):
         return gz_path.name, None, f"error: {type(e).__name__}: {e}"[:200]
     write_record(dst, pairs)
     return gz_path.name, len(pairs), "ok"
+
+
+def check_manifest_epoch(preencoded_dir) -> None:
+    """Refuse a pre-encoded corpus from another observation epoch: its
+    records encode a world the sim no longer produces
+    (constants.OBSERVATION_EPOCH). Raises RuntimeError."""
+    man = load_manifest(Path(preencoded_dir))
+    if man is None:
+        raise RuntimeError(f"--preencoded {preencoded_dir}: no manifest (not a pre-encoded corpus)")
+    cache_epoch = int(man.get("observation_epoch", 1))
+    if cache_epoch != int(OBSERVATION_EPOCH):
+        raise RuntimeError(
+            f"--preencoded {preencoded_dir} was encoded under observation epoch "
+            f"{cache_epoch}; this sim is {OBSERVATION_EPOCH}. The sim's rules about what a "
+            f"player SEES changed since those records were made (see "
+            f"constants.OBSERVATION_EPOCH), so they encode a world that no longer exists. "
+            f"Re-run tools/preencode_corpus.py into a fresh --out")
 
 
 def load_manifest(out_dir: Path) -> Optional[Dict]:

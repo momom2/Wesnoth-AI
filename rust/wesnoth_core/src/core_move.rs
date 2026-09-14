@@ -9,6 +9,7 @@
 use pyo3::prelude::*;
 
 use crate::core::GameCore;
+use crate::core_attack::apply_illumination;
 use crate::observe::{hex_distance, neighbours};
 
 /// `pathfind_sim.UNREACHABLE` (movetype.hpp).
@@ -33,8 +34,9 @@ impl GameCore {
     }
 
     /// `visibility._hide_cover_active`: a hide ability whose cover the
-    /// unit's hex provides (forest, village, deep water, or a lawful
-    /// bonus below zero for nightstalk).
+    /// unit's hex provides (the [hides] terrain globs baked into the
+    /// map flags; for nightstalk the ILLUMINATED time of day below
+    /// zero, an [illuminates] unit on or next to the hex counted).
     pub fn hide_cover_active(&self, i: usize) -> bool {
         let u = &self.units[i];
         if !u.abilities.iter().any(|a| HIDE_ABILITIES.contains(&a.as_str())) {
@@ -42,17 +44,18 @@ impl GameCore {
         }
         if u.hex >= 0 {
             let h = u.hex as usize;
-            if u.has_ability("ambush") && self.map.is_forest[h] != 0 {
+            if u.has_ability("ambush") && self.map.hides_ambush[h] != 0 {
                 return true;
             }
-            if u.has_ability("concealment") && self.map.is_village_key[h] != 0 {
+            if u.has_ability("concealment") && self.map.hides_concealment[h] != 0 {
                 return true;
             }
-            if u.has_ability("submerge") && self.map.is_deep_water[h] != 0 {
+            if u.has_ability("submerge") && self.map.hides_submerge[h] != 0 {
                 return true;
             }
         }
-        u.has_ability("nightstalk") && self.lawful_bonus_at(u.hex, self.global.turn_number) < 0
+        u.has_ability("nightstalk")
+            && apply_illumination(self.lawful_bonus_at(u.hex, self.global.turn_number), self.illuminated(i)) < 0
     }
 
     /// `visibility._discovered_by_adjacency`: an enemy of the unit,

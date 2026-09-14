@@ -70,8 +70,12 @@ State of play:
   games), a number that carries seed2's dropped large boards (see
   below). Its self-pin through the shared inference path RAN
   2026-09-12: -57 +- 37 Elo over 160 games, no asymmetry detected
-  (`training/metrics/elo/relset_selfpin_20260912/`). What is still
-  open is only the tighter 800-game version.
+  (`training/metrics/elo/relset_selfpin_20260912/`, the tally only:
+  the game records stayed on the box). The +- 37 overstates what was
+  measured: the 160 games are four arms replaying ONE set of 40 seeds
+  on the pre-2026-09-13 shared luck stream, so the arms are not
+  independent draws. A self-pin worth quoting is the 800-game one
+  under per-game luck and the current hide-cover rule.
   Before it the reference was seed2 (+33 +- 12 over the original
   imitation seed), before that the seed itself
   (`tier-b/a3/seed_imit_tierb_start.pt`). Nothing produced by
@@ -172,16 +176,18 @@ State of play:
   cheaper (fork 0.019, step 0.050, encode 0.200 ms), but it moves
   neither the eval path (49 s against 49 s for a 40-game match,
   which waits on the inference server for four fifths of its wall)
-  nor the pool (two runs inside the Python runs' band).
+  nor the pool (two runs just below the Python runs, within their 5%
+  spread).
   **Phase 1 is CLOSED (2026-09-12).** Its exit criterion -- 10x more
   searched games per dollar at a fixed search budget -- is met at
   16x, measured same-box as 64.8 -> about 1,050 saturated leaf
   evaluations per second (6.8x the committed configuration, 2.4x the
   relevant-set basis), docs/box_specs.md "Phase 1's exit". The
   reference player's self-pin over 160 games reads -57 +- 37 Elo (no
-  asymmetry detected). Two optional confirmations need a box and a
-  word: the 3,000-per-4090 target of plan 1.3 (an A4000 cannot judge
-  it) and a tight 800-game self-pin.
+  asymmetry detected; four replays of one 40-seed set, see above).
+  Two optional confirmations need a box and a word: the
+  3,000-per-4090 target of plan 1.3 (an A4000 cannot judge it) and a
+  tight 800-game self-pin.
 - 2026-09-13 (user order: keep optimizing throughput): **the pool's
   constraint was the actor COUNT.** An actor blocks on the inference
   server for nine tenths of its cycle -- its own Python is about 3 ms
@@ -189,7 +195,7 @@ State of play:
   not CPU: 19 -> 665, 32 -> 914, 48 -> 1,006, 64 -> 1,116 leaf
   evaluations per second against a server saturating near 1,500
   (docs/box_specs.md "Actors buy in-flight leaves"). `az_loop
-  --actors` was 8, then 24; it is **0 = auto** since 2026-09-13 night
+  --actors` was 8, then 32, then 24 within the day; it is **0 = auto** since 2026-09-13 night
   (as many as `--games-per-iter` and the box's pids limit allow). Also measured that day: plan 1.3's
   3,000-per-4090 target is NOT met on a real 4090 (1,450-1,565
   saturated; docs/gpu_forward_design_20260904.md's 1,300-1,800 band
@@ -197,7 +203,8 @@ State of play:
   this run's ~320, so it is not a confirmation); the
   eval path wants neither more workers nor more servers (a second
   server halves the mean batch, so it cannot win, refuting the
-  standing 1.3-1.5x expectation); and bf16 on the imitation trainer
+  standing 1.3-1.5x expectation -- a reading off the server logs, not
+  a recorded number, see docs/box_specs.md); and bf16 on the imitation trainer
   is 1.25x with an equivalent loss on a 24 GB card, not the 2.9x a
   memory-starved 16 GB card suggested. Five bugs were found and fixed
   with tests (BACKLOG.md), the sharpest being an out-of-memory inside
@@ -249,10 +256,13 @@ State of play:
   `apply_to` now warns instead of vanishing. The combat half owes the
   corpus sweep on the next box (BACKLOG.md "Scenario [effect] members
   are named by id="). Two further findings there are NOT fixed: the
-  encoder's terrain one-hot labels 85% of forest-overlay Ladder hexes
-  as flat (model input, no rule reads it, so it wants its own arm and
-  an 800-game match), and `burrow` / `swamp_lurk` are unmodelled
-  `[hides]` abilities whose carriers never appear.
+  encoder's terrain one-hot labels 1356 of the 1,572 forest-overlay
+  Ladder hexes (86%) as something other than forest
+  (`tools/analysis/hide_cover_census.py`; model input, no rule reads
+  it, so it wants its own arm and an 800-game match), and `burrow` /
+  `swamp_lurk` are unmodelled `[hides]` abilities whose carriers (the
+  Horned Scarab, whose burrow the pinned scrape dropped; the Swamp
+  Lizard) appear in neither pool.
   The same night closed the rest of the eleven-bug ledger and ran three
   more audits. **Nothing below has been on a box; the corpus sweep and
   the second-serve-process measurement are queued in
@@ -292,6 +302,21 @@ State of play:
     more. `auto_jobs` got the same treatment. Rejected and recorded: a
     lazy `pos_to_hex` (measured 4% of one trainer, not worth the hot
     legality path).
+  - **Review 2026-09-14 (Fable).** The day's numbers with records
+    match them to the digit; the eval sweep's server counters, the
+    old-rule hider sample (164 of 300, 4 of 120) and "80% GPU" have
+    no record and are marked so; the hex census now has a tool
+    (`tools/analysis/hide_cover_census.py`) and a record. Fixed in
+    code: the trainer's out-of-memory retry kept the failed
+    attempt's activations alive; a resumed optimizer silently took
+    the checkpoint's step kernel; TF32 and fused AdamW had landed as
+    default recipe changes (both opt-in now); `tools/preencode_corpus.py`
+    could not start as a script; the human anchor and the Elo reuse
+    guards ignored the observation epoch; the coalesced embedding
+    buffer left its fields unaligned; nightstalk's cover ignored
+    unit illumination; preplaced `[unit][abilities]` were still keyed
+    by tag; a refused search action was worth 0 rather than its
+    parent's value.
   - **Provenance.** Caches, and now checkpoints, carry
     `constants.OBSERVATION_EPOCH`; the local suite prints a banner when
     the Rust wheel is behind the source, because it is (phase 3 against

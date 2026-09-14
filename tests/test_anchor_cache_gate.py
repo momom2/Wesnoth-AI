@@ -42,18 +42,23 @@ def test_policy_anchor_cache_gate_is_checked_against_the_consumer(tmp_path):
         load_policy_anchor(gated, fog_hides_enemy_villages=False)
 
 
-def test_human_anchor_sidecar_records_the_gate(tmp_path):
+def test_human_anchor_sidecar_records_the_gate_and_the_epoch(tmp_path):
     anchor = tmp_path / "human_anchor.pkl"
     anchor.write_bytes(pickle.dumps([]))
-    assert anchor_gate(anchor) is False                    # no sidecar: the old encoding
-    check_anchor_gate(anchor, False)
-    with pytest.raises(ValueError, match="Rebuild"):
-        check_anchor_gate(anchor, True)
-    anchor_meta_path(anchor).write_text(json.dumps({"fog_hides_enemy_villages": True}))
+    assert anchor_gate(anchor) is False                    # no sidecar: the old encoding, epoch 1
+    if OBSERVATION_EPOCH != 1:
+        with pytest.raises(ValueError, match="observation epoch 1"):
+            check_anchor_gate(anchor, False)                # a stale world is refused first
+    anchor_meta_path(anchor).write_text(json.dumps(
+        {"fog_hides_enemy_villages": True, "observation_epoch": OBSERVATION_EPOCH}))
     assert anchor_gate(anchor) is True
     check_anchor_gate(anchor, True)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Rebuild"):
         check_anchor_gate(anchor, False)
+    anchor_meta_path(anchor).write_text(json.dumps({"fog_hides_enemy_villages": True}))
+    if OBSERVATION_EPOCH != 1:                              # a sidecar without the mark is epoch 1
+        with pytest.raises(ValueError, match="observation epoch 1"):
+            check_anchor_gate(anchor, True)
 
 
 
@@ -142,4 +147,5 @@ def test_a_checkpoint_carries_its_observation_epoch_and_warns_on_a_mismatch(tmp_
     caplog.clear()
     with caplog.at_level(logging.WARNING):
         p.load_checkpoint(legacy)
-    assert any("epoch 1" in r.getMessage() for r in caplog.records)
+    if OBSERVATION_EPOCH != 1:
+        assert any("epoch 1" in r.getMessage() for r in caplog.records)

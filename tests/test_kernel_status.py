@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from tools import kernel_status as ks  # noqa: E402
 
 EXPECTED = {"reach/enumeration", "observation", "rows_from_reach",
-            "combat", "GameCore"}
+            "combat", "encode_streams", "GameCore"}
 
 
 def test_every_kernel_is_reported_and_the_answer_is_a_bool():

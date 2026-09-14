@@ -360,10 +360,19 @@ the table:
 **`burrow` and `swamp_lurk` are the two `[hides]` we do not model.**
 `abilities.cfg`:301-315 gives it `terrain=*^F*,*^Qhhf,*^Qhuf,D*^*`
 (forest or SAND) plus a resting condition, and `hides_cover` returns
-False for it. Latent, not live: no unit in the pinned `unit_stats.json`
-scrape carries burrow (the Scarab, which does, is not among the 356
-units we scraped). Adding a burrowing unit needs the glob AND the
-"has not moved this turn" state, which the sim does not track.
+False for it. Latent, not live: the pinned `unit_stats.json` scrape
+DROPPED burrow -- "Horned Scarab" is among its 356 units with
+`abilities: []` (its scrape's ABILITY_MACROS had no BURROW entry) --
+and `swamp_lurk` (`Crocodile.cfg`, `terrain=S*^*`) rides the Swamp
+Lizard, which the scrape does carry; both units appear only in
+`2p_Isle_of_Mists.lua`, in neither pool. Adding a burrowing unit
+needs the glob AND the "has not moved this turn" state, which the sim
+does not track. Nightstalk's `time_of_day=chaotic` is evaluated on
+the ILLUMINATED time of day (abilities.cpp:447-450 runs the [hides]
+filter with use_flat_tod=false; filter.cpp:268-273 then calls
+get_illuminated_time_of_day), so an [illuminates] unit on or next to
+the hex lifts the cover: `replay_dataset.illuminated_lawful_bonus_at`
+is the one reading the hide predicate and combat share.
 
 ### An ability or weapon special has TWO keys: its tag and its `id=`
 

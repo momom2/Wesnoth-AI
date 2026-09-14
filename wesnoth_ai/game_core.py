@@ -104,9 +104,9 @@ def map_static(gs: GameState) -> dict:
     light_max = np.zeros(H, dtype=np.int64)
     light_min = np.zeros(H, dtype=np.int64)
     has_light = np.zeros(H, dtype=np.uint8)
-    is_forest = np.zeros(H, dtype=np.uint8)
-    is_village_key = np.zeros(H, dtype=np.uint8)
-    is_deep_water = np.zeros(H, dtype=np.uint8)
+    hides_ambush = np.zeros(H, dtype=np.uint8)
+    hides_concealment = np.zeros(H, dtype=np.uint8)
+    hides_submerge = np.zeros(H, dtype=np.uint8)
     area_cycle = np.full(H, -1, dtype=np.int64)
     cycles: List[List[int]] = []
     cycle_index: Dict[tuple, int] = {}
@@ -120,9 +120,9 @@ def map_static(gs: GameState) -> dict:
         # The hide-ability cover flags the core's `hide_cover_active`
         # reads are the ENGINE's terrain filters, not defense keys
         # (see `terrain_resolver.hides_cover`).
-        is_forest[i] = hides_cover(raw or "", "ambush")
-        is_village_key[i] = hides_cover(raw or "", "concealment")
-        is_deep_water[i] = hides_cover(raw or "", "submerge")
+        hides_ambush[i] = hides_cover(raw or "", "ambush")
+        hides_concealment[i] = hides_cover(raw or "", "concealment")
+        hides_submerge[i] = hides_cover(raw or "", "submerge")
         cyc = areas.get((x, y))
         if cyc:
             key = tuple(int(v) for v in cyc)
@@ -138,8 +138,8 @@ def map_static(gs: GameState) -> dict:
         "light_mod": light_mod.tolist(), "light_max": light_max.tolist(),
         "light_min": light_min.tolist(), "has_light": has_light.tolist(),
         "area_cycle": area_cycle.tolist(), "cycles": cycles,
-        "is_forest": is_forest.tolist(), "is_village_key": is_village_key.tolist(),
-        "is_deep_water": is_deep_water.tolist(), "full_slot": geom.full_slot.tolist(),
+        "hides_ambush": hides_ambush.tolist(), "hides_concealment": hides_concealment.tolist(),
+        "hides_submerge": hides_submerge.tolist(), "full_slot": geom.full_slot.tolist(),
         "castle_mod": castle_mod.tolist(),
     }
 

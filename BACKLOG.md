@@ -20,7 +20,9 @@ of 17,039 corpus replays clean after every command, and per call
 fork 0.019 ms, step 0.050 ms, encode 0.200 ms (the bars were 0.1 /
 0.1 / 0.2). `relset` is the reference player by user ruling
 2026-09-11; its self-pin over 160 games reads -57 +- 37 Elo, no
-asymmetry detected (`training/metrics/elo/relset_selfpin_20260912/`).
+asymmetry detected (`training/metrics/elo/relset_selfpin_20260912/`;
+four arms replaying one 40-seed set on the shared luck stream, so the
+standard error is optimistic).
 
 Left open, neither blocking phase 2, both needing a box and a word
 from the user first:
@@ -36,8 +38,8 @@ and the sections after it), on one 24-core 4090:
   actor blocks on the server for nine tenths of its cycle, so the
   count buys in-flight leaves: 19 -> 665, 32 -> 914, 48 -> 1,006,
   64 -> 1,116 leaves/s against a server saturating near 1,500.
-  `az_loop --actors` was 8, then 24 (this line said 32 and the code
-  said 24), and is now **0 = auto**: as many as --games-per-iter and
+  `az_loop --actors` was 8, then 32 (5af8065), then 24 (5868c35), and
+  is now **0 = auto**: as many as --games-per-iter and
   the box allow, clamped by the pids limit host_resources now READS.
   64 measured best and the curve was still rising; the 2026-09-04 host
   that died at 38 is exactly what the read limit prevents, so the
@@ -53,9 +55,11 @@ and the sections after it), on one 24-core 4090:
   does not scale with tokens -- a different mechanism than the one
   priced, so the GPU model still needs re-deriving.
 - The eval path wants NEITHER more workers nor more servers. A second
-  server halves the mean batch (7.84 -> 3.56) and the per-batch cost
-  is mostly fixed, so it cannot win; the standing 1.3-1.5x expectation
-  is refuted. `--inference-servers` exists and stays at 1.
+  server halves the mean batch (7.84 -> 3.56, read off the server logs
+  and not recorded -- docs/box_specs.md has the provenance note) and
+  the per-batch cost is mostly fixed, so it cannot win; the standing
+  1.3-1.5x expectation is refuted. `--inference-servers` exists and
+  stays at 1.
 - bf16 on the imitation trainer, on a 24 GB card at last: 1.25x with
   an equivalent loss, not the 2.9x a memory-starved 16 GB card
   suggested. Still off by default; flipping it wants a holdout curve.
@@ -75,8 +79,9 @@ anyway, ordered by what the measurements say is binding:
   idles 40-60% of an iteration but its saturated rate is the roof).
   A second serve process per GPU is built and still unmeasured ON
   THE POOL. On EVAL it is refuted: splitting the same workers
-  across two servers halves the mean batch (7.84 -> 3.56) and the
-  cost is mostly a fixed per-batch launch, so it cannot win. The
+  across two servers halves the mean batch (7.84 -> 3.56, an
+  unrecorded reading) and the cost is mostly a fixed per-batch
+  launch, so it cannot win. The
   standing 1.3-1.5x expectation applies, if anywhere, only to the
   pool, whose batches stay full.
 - the trainer is GPU-bound: bf16 autocast is built (`--bf16`) and
@@ -119,8 +124,9 @@ anyway, ordered by what the measurements say is binding:
     (on the staging set the box used: the current corpus plus 20 games
     that have since left it -- docs/plan_20260904.md has the count)
     after the fix, which shows no regression and does not certify the
-    new rule (docs/box_specs.md "Hide cover certified after the root
-    fix"; docs/wesnoth_rules.md has the rule and the census).
+    new rule (docs/box_specs.md "Hide cover after the root fix: the
+    corpus sweep, and what it does NOT certify"; docs/wesnoth_rules.md
+    has the rule, `tools/analysis/hide_cover_census.py` the census).
   * **the Elo catalog sums repeat measurements of one pair as
     independent evidence** (tools/elo_catalog.py:360; the edge key is
     the games-dir name and nothing compares seeds). Both generators
@@ -879,7 +885,9 @@ Two further findings from the same hunt, NOT fixed:
   multi-member set with `next(iter(...))`, i.e. by enum ordinal, and
   `FLAT` (3) sorts before `FOREST` (4): `Gs^Fp` encodes as FLAT while
   `Hh^Fp` encodes as FOREST. **1,356 of 1,572 forest-overlay PLAYABLE
-  Ladder hexes (86%)** are not labelled forest, on all 21 maps --
+  Ladder hexes (86%)** are not labelled forest, on all 21 maps
+  (`tools/analysis/hide_cover_census.py`, record
+  `training/metrics/bench_pipeline/hide_cover_20260913/census.json`) --
   the same border-stripped basis as the hide-cover census, which is
   the right one here because `parse_map_data` strips the border ring
   and the encoder never sees it. (Border-inclusive the same counts
@@ -1185,10 +1193,11 @@ invalidated. The WRITE-UP did not, and is corrected in
 docs/box_specs.md and docs/wesnoth_rules.md. What stays open:
 
 - **The certification is a no-regression test, not a proof of the
-  rule.** Measured by restoring the old rule and re-running: 164 of
-  300 sampled replays field a hider, 4 of 120 hider replays
-  reconstruct differently, and `diff_replay` reports 0 divergences on
-  those 4 under BOTH rules. The replay format carries no post-state,
+  rule.** Reported by restoring the old rule and re-running (commit
+  0ed0b27's message; no record in the tree): 164 of 300 sampled
+  replays field a hider, 4 of 120 hider replays reconstruct
+  differently, and `diff_replay` reports 0 divergences on those 4
+  under BOTH rules. The replay format carries no post-state,
   so every check asks whether the next recorded command's
   preconditions hold; nothing reads a move's stop REASON or the
   uncovered-unit set, which is the only state this change moves (all
@@ -1206,7 +1215,11 @@ docs/box_specs.md and docs/wesnoth_rules.md. What stays open:
   within-match asymmetry), but a new number must not be chained onto
   them without re-measuring. The relset self-pin is the natural place
   to re-establish the baseline.
-- **Nightstalk reads a ToD that omits unit illumination.** The engine
+- DONE 2026-09-14 (`replay_dataset.illuminated_lawful_bonus_at`, used by
+  `visibility._hide_cover_active`, `build_attack_context` and the core's
+  `hide_cover_active`; the combat arithmetic is unchanged, the nightstalk
+  half is a behaviour change on a case no pool reaches). Was:
+  **Nightstalk reads a ToD that omits unit illumination.** The engine
   evaluates `[hides]`'s `time_of_day=chaotic` on the ILLUMINATED ToD
   (`abilities.cpp`:447-451 sets `use_flat_tod` only for `illuminates`
   itself; `filter.cpp`:269-273 then calls
@@ -1234,14 +1247,12 @@ docs/box_specs.md and docs/wesnoth_rules.md. What stays open:
   resting condition). Latent: no unit in the pinned 356-unit
   `unit_stats.json` carries it. Modelling it needs the "has not moved
   this turn" state the sim does not track.
-- **The Rust core's three cover flags are misnamed.** `is_forest`,
-  `is_village_key` and `is_deep_water` now mean "ambush cover",
-  "concealment cover" and "submerge cover"; `is_village_key` is true
-  for `^Vm`/`^Vov`, which do NOT defend as villages, and false for
-  farmland. Only `core_move::hide_cover_active` reads them, so this is
-  a naming hazard for the next reader, not a behaviour bug. Rename to
-  `hides_ambush` / `hides_concealment` / `hides_submerge` when the
-  crate is next touched.
+- DONE 2026-09-14: the Rust core's three cover flags are named for
+  what they are (`hides_ambush` / `hides_concealment` /
+  `hides_submerge`, phase-10 wheel), and nightstalk's cover reads the
+  illuminated time of day in both the Python predicate and the core
+  (`replay_dataset.illuminated_lawful_bonus_at`, which combat also
+  uses now: one reading of the time of day).
 
 FIXED in the same pass: the observation half now has tests. The two
 cover tests in tests/test_visibility.py used `Gg^Fp`, a code the OLD

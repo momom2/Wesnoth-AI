@@ -552,7 +552,7 @@ class MCTSNode:
                  "tt_hits", "tt_misses",
                  "cliffness", "value", "gumbel_action",
                  "moves_left", "masks",
-                 "_distill_stats")
+                 "_distill_stats", "is_sentinel")
 
     def __init__(self, sim: WesnothSim):
         self.sim:           WesnothSim   = sim
@@ -584,6 +584,11 @@ class MCTSNode:
         # ROOT by mcts_search when config.gumbel_root). None
         # elsewhere / in classic mode.
         self.gumbel_action: Optional[dict] = None
+        # A pseudo-terminal the search invented for an action the sim
+        # refused (see the sentinel children in `_select_one`): its
+        # state is its parent's, so its `value` is the parent's own
+        # estimate and `_node_terminal_value` backs that up.
+        self.is_sentinel:   bool         = False
         # Moves-left prediction (fraction of the turn budget still to
         # be played, in (0,1)) from the network's optional moves-left
         # head, stamped at expansion. None when the model lacks the
@@ -678,17 +683,24 @@ def _terminal_value(
     differential in (-cap, +cap) when `tiebreak` is configured
     (see tools/draw_tiebreak.py).
 
-    The SENTINEL pseudo-terminals are always 0: a step that errored or
-    a no-op resample is not a draw the side reached, it is an action
-    the sim refused, and pricing it by material would make "try the
-    illegal recruit again" look like a favourable draw to a side that
-    is ahead -- the search would steer into rejected actions exactly
-    when it is winning."""
+    The SENTINEL pseudo-terminals are never priced by material here (a
+    step that errored or a no-op resample is not a draw the side
+    reached); what the search backs up for them is the parent's own
+    value, through `_node_terminal_value`."""
     if sim.winner == 0:
         if tiebreak is not None and getattr(sim, "ended_by", "") not in _SENTINEL_ENDINGS:
             return draw_tiebreak_z(sim.gs, side, tiebreak)
         return 0.0
     return 1.0 if sim.winner == side else -1.0
+
+
+def _node_terminal_value(node: "MCTSNode", tiebreak: Optional[DrawTiebreakConfig] = None) -> float:
+    """The value a terminal NODE backs up: a sentinel's is its parent's
+    own estimate (stamped at creation), a real ending's is
+    `_terminal_value`."""
+    if node.is_sentinel:
+        return node.value
+    return _terminal_value(node.sim, node.side, tiebreak)
 
 
 def _aux_adjusted(v: float, output, aux_value_bonus: float) -> float:
@@ -724,7 +736,7 @@ def _expand(
     (saves a model forward)."""
     if node.is_terminal:
         node.expanded = True
-        return _terminal_value(node.sim, node.side, tiebreak)
+        return _node_terminal_value(node, tiebreak)
     with torch.no_grad():
         encoded = encoder.encode(node.sim.gs)
         node.masks = _packed_masks_of(encoded)
@@ -984,6 +996,13 @@ def _select_one(
                             child_sim.winner = 0
                             child_sim.ended_by = "noop_resample"
                         child = MCTSNode(child_sim)
+                        # The state did not change, so the refused
+                        # action is worth exactly what the parent is
+                        # worth: neither a draw (material would make
+                        # it attractive when ahead) nor 0 (above a
+                        # losing side's margin, attractive when behind).
+                        child.is_sentinel = True
+                        child.value = node.value
                         edge.children[sentinel] = child
                 else:
                     key = state_key(child_sim.gs)
@@ -1189,7 +1208,7 @@ def _run_one_sim(
         exact_outcomes=config.exact_outcome_enumeration,
     )
     if leaf.is_terminal:
-        v = _terminal_value(leaf.sim, leaf.side, config.draw_tiebreak)
+        v = _node_terminal_value(leaf, config.draw_tiebreak)
         _backup(path, v, leaf.side, 0.0, leaf_moves_left=0.0)
         return
     if leaf.expanded:
@@ -1259,7 +1278,7 @@ def _run_sim_batch(
             exact_outcomes=config.exact_outcome_enumeration,
         )
         if leaf.is_terminal:
-            v = _terminal_value(leaf.sim, leaf.side, config.draw_tiebreak)
+            v = _node_terminal_value(leaf, config.draw_tiebreak)
             _backup(path, v, leaf.side, v_loss, leaf_moves_left=0.0)
             completed += 1
         elif leaf.expanded:

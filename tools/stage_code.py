@@ -83,7 +83,7 @@ def differs_from_head(paths: Sequence[str]) -> Set[str]:
     the two ways a box can end up running code no commit contains.
     """
     out: Set[str] = set()
-    for line in _git("status", "--porcelain").splitlines():
+    for line in _git("status", "--porcelain", "-uall").splitlines():
         if len(line) < 4:
             continue
         name = line[3:].strip().strip('"')
@@ -94,13 +94,26 @@ def differs_from_head(paths: Sequence[str]) -> Set[str]:
     return {p for p in paths if p in out}
 
 
+def _relative(path: str) -> str:
+    """A user-given path as the repo-relative, forward-slash name the
+    payload uses. Refuses an absolute path (it would enter the tar
+    with an absolute arcname). `str.lstrip("./")` strips CHARACTERS,
+    which ate the dot of `.github/...` -- hence the loop."""
+    rel = path.replace("\\", "/")
+    if Path(rel).is_absolute():
+        raise SystemExit(f"{path}: give paths relative to {ROOT}")
+    while rel.startswith("./"):
+        rel = rel[2:]
+    return rel
+
+
 def build_payload(extra: Sequence[str],
                   exclude_prefixes: Sequence[str]) -> List[str]:
     paths = [p for p in tracked_files()
              if not any(p.startswith(x) for x in exclude_prefixes)]
     known = set(paths)
     for e in extra:
-        rel = e.replace("\\", "/").lstrip("./")
+        rel = _relative(e)
         if rel in known:
             continue
         if not (ROOT / rel).is_file():
@@ -112,9 +125,7 @@ def build_payload(extra: Sequence[str],
 
 def check_required(paths: Sequence[str], required: Sequence[str]) -> None:
     have = set(paths)
-    missing = [r for r in
-               (x.replace("\\", "/").lstrip("./") for x in required)
-               if r not in have]
+    missing = [r for r in (_relative(x) for x in required) if r not in have]
     if missing:
         raise SystemExit(
             "REFUSING to build the payload: "

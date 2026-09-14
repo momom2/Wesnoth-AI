@@ -310,6 +310,10 @@ def main(argv) -> int:
                          "cosine 0.9994, norm within 0.3%% on one batch of "
                          "64 (docs/box_specs.md 'Training path cost "
                          "(2026-09-05)'). Default on.")
+    ap.add_argument("--tf32", action="store_true",
+                    help="The learner's fp32 matmuls on the tensor cores (TF32), the "
+                         "in-process serving untouched. A recipe change, so off by "
+                         "default and one factor of its own.")
     ap.add_argument("--packed-trunk", action=argparse.BooleanOptionalAction,
                     default=True,
                     help="Serve the pool's forwards through the packed varlen "
@@ -598,11 +602,12 @@ def main(argv) -> int:
             def _take_step():
                 with policy._lock:
                     policy._queue = list(train_exps)
-                # TF32 for the learner's matmuls only: this process
-                # also serves the actors' inference, and that must keep
-                # the numerics the spawned serve processes use.
+                # TF32 (when asked for) for the learner's matmuls only:
+                # this process also serves the actors' inference, and
+                # that must keep the numerics the spawned serve
+                # processes use.
                 from wesnoth_ai.train_perf import tf32_training
-                with tf32_training():
+                with tf32_training(bool(getattr(args, "tf32", False))):
                     captured["stats"] = policy.train_step()
                 return captured["stats"]
 

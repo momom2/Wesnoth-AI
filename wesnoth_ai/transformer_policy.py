@@ -955,6 +955,8 @@ class TransformerPolicy:
         if "optimizer_state" in ckpt and not pre_c51:
             try:
                 self._trainer.optimizer.load_state_dict(ckpt["optimizer_state"])
+                from wesnoth_ai.train_perf import reassert_step_kernel
+                reassert_step_kernel(self._trainer.optimizer)
                 # Legacy checkpoints whose encoder tensors we padded
                 # above carry old-shaped Adam moments; repair them or
                 # the first step() crashes on the broadcast.

@@ -138,7 +138,11 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--out", type=Path, default=None)
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.WARNING)
-    import wesnoth_core
+    try:
+        import wesnoth_core  # noqa: F401 -- the kernels the leaf path runs on
+    except ImportError:
+        print("wesnoth_core is not installed: build the wheel first (rust/wesnoth_core)")
+        return 1
     rows = []
     for i in range(args.states):
         gs = midgame_state(args.corpus, i * 3, args.skip)

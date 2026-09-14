@@ -47,6 +47,8 @@ _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
+from wesnoth_ai.constants import OBSERVATION_EPOCH  # noqa: E402
+
 log = logging.getLogger("run_elo_batch")
 
 # Below this, a torch process thrashes instead of running (see module
@@ -719,6 +721,12 @@ def main(argv: List[str]) -> int:
         # slots it is about to SKIP, so a resume into an old outdir
         # would otherwise append per-game-stream games beside shared-
         # stream ones without a word.
+        _prev_epoch = int(prev.get("observation_epoch", 1))
+        if _prev_epoch != int(OBSERVATION_EPOCH):
+            raise SystemExit(
+                f"{f.name} was played under observation epoch {_prev_epoch} but this "
+                f"sim is {OBSERVATION_EPOCH}: the players saw different games, refusing "
+                f"to mix (constants.OBSERVATION_EPOCH). Use a fresh outdir.")
         _want_cs = ("shared" if args.shared_combat_stream
                     else "per_game")
         if prev.get("combat_stream", "shared") != _want_cs:
@@ -982,6 +990,10 @@ def main(argv: List[str]) -> int:
              "infer_packed_trunk": shared_packed,
              "combat_stream": ("shared" if args.shared_combat_stream
                                else "per_game"),
+             # The sim's observation epoch, as elo_eval_game records it:
+             # an artifact without it reads as epoch 1 to elo_collect
+             # and blocks the whole dir as a MIXED estimand.
+             "observation_epoch": int(OBSERVATION_EPOCH),
              # Search knobs that change the player; None when no side
              # searches, matching what elo_eval_game writes -- an
              # artifact that omitted them would read as a MIXED

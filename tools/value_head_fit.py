@@ -245,9 +245,11 @@ def main(argv) -> int:
 
     # ---- caches (built once per trunk; keyed by trunk+sampling) ----
     args.cache_dir.mkdir(parents=True, exist_ok=True)
+    from wesnoth_ai.constants import OBSERVATION_EPOCH
     key = (f"{args.checkpoint_in.stem}_{step}_s{args.seed}"
            f"_st{args.stride}_c{args.cache_states_per_game}"
-           f"_g{len(rows)}")
+           f"_g{len(rows)}_e{int(OBSERVATION_EPOCH)}"
+           f"_f{int(bool(getattr(policy, 'fog_hides_enemy_villages', False)))}")
     tr_path = args.cache_dir / f"{key}_train.pt"
     pr_path = args.cache_dir / f"{key}_probe.pt"
     if tr_path.exists() and pr_path.exists():

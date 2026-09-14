@@ -407,6 +407,12 @@ class RawEncoded:
     hex_subset: bool = False
 
 
+# torch's CUDA caching allocator rounds every block to this many
+# bytes, so a tensor that starts a fresh block is aligned to it; the
+# coalesced batch buffer puts each field on the same boundary.
+_ALLOCATOR_ALIGNMENT = 512
+
+
 class GameStateEncoder(nn.Module):
     """Learned embedder: GameState → EncodedState."""
 
@@ -950,9 +956,14 @@ class GameStateEncoder(nn.Module):
         allocation is a synchronizing call, and the server pays it once
         per batch, not once per leaf (docs/gpu_forward_design_20260904.md
         section 1.1). The values are untouched -- each field is a view
-        into the coalesced buffer at its own offset, so the embeddings
-        are bit-identical to the per-field path
-        (tests/test_encoder_transfer.py)."""
+        into the coalesced buffer at its own offset -- and every field
+        starts on a 512-byte boundary, the alignment a fresh block from
+        torch's caching allocator has, so the projections see operands
+        aligned exactly as on the per-field path and cuBLAS picks the
+        same kernels (an operand's alignment is one of its kernel
+        selection inputs). Bit-identity with the per-field path is
+        pinned on CPU (tests/test_encoder_transfer.py); the alignment
+        is what carries it to CUDA."""
         nb = device.type != "cpu"
         _pin = device.type == "cuda"   # [gpu-perf B3] see encode_from_raw
         Hs = [r.hex_xs.shape[0] for r in raws]
@@ -966,6 +977,9 @@ class GameStateEncoder(nn.Module):
 
         def _stage(name: str, arrays: List[np.ndarray], kind: str, width: int) -> None:
             cat = np.concatenate(arrays) if len(arrays) > 1 else arrays[0]
+            if cat.shape[1:] != ((width,) if width > 1 else ()):
+                raise ValueError(f"{name}: field width {cat.shape[1:]} is not {width}; "
+                                 f"a cached RawEncoded from another feature layout?")
             plan[kind].append((name, cat.shape[0], width))
             pieces[kind].append(cat.reshape(-1))
 
@@ -994,19 +1008,25 @@ class GameStateEncoder(nn.Module):
         for kind, dtype in (("i", np.int64), ("f", np.float32)):
             if not pieces[kind]:
                 continue
-            buf = (np.concatenate(pieces[kind]) if len(pieces[kind]) > 1
-                   else pieces[kind][0]).astype(dtype, copy=False)
-            dev_buf = torch.from_numpy(np.ascontiguousarray(buf))
+            align = _ALLOCATOR_ALIGNMENT // np.dtype(dtype).itemsize   # elements per boundary
+            offsets: List[int] = []
+            total = 0
+            for piece in pieces[kind]:
+                total = -(-total // align) * align
+                offsets.append(total)
+                total += piece.size
+            buf = np.zeros(total, dtype=dtype)
+            for piece, off in zip(pieces[kind], offsets):
+                buf[off:off + piece.size] = piece
+            dev_buf = torch.from_numpy(buf)
             if device.type != "cpu":
                 if _pin:
                     dev_buf = dev_buf.pin_memory()
                 dev_buf = dev_buf.to(device, non_blocking=nb)
-            off = 0
-            for name, rows, width in plan[kind]:
+            for (name, rows, width), off in zip(plan[kind], offsets):
                 n = rows * width
                 view = dev_buf[off:off + n]
                 t[name] = view.view(rows, width) if width > 1 else view
-                off += n
 
         out = {"Hs": Hs, "Us": Us, "Rs": Rs, "hex": None, "unit": None,
                "recruit": None, "unit_is": None, "recruit_is": None}

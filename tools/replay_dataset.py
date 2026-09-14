@@ -1004,6 +1004,28 @@ def _tod_for_turn(turn_number: int, start_offset: int = 0) -> str:
     return cb.TOD_DEFAULT_CYCLE[_tod_cycle_index(turn_number, start_offset)][0]
 
 
+def apply_unit_illumination(base: int, illuminated: bool) -> int:
+    """`bounded_add(base, 25, max_sum=25, min_sum=0)`'s positive branch
+    (tod_manager.cpp:265-281): the [illuminates] ability on top of the
+    terrain-lit time of day, `min(base + 25, max(base, 25))`."""
+    if not illuminated:
+        return base
+    return min(base + 25, max(base, 25))
+
+
+def illuminated_lawful_bonus_at(gs: GameState, unit: Unit, turn: int) -> int:
+    """The lawful bonus the engine's `get_illuminated_time_of_day`
+    gives a unit's own hex: the time area or default cycle, the
+    terrain light (`_lawful_bonus_at`) and an [illuminates] unit on
+    the hex or next to it (`abilities.illuminate_step`). What combat
+    reads for both combatants and what a [hides] filter reads for
+    nightstalk (abilities.cpp:447-450 evaluates it with
+    use_flat_tod=false, filter.cpp:268-273)."""
+    from tools.abilities import illuminate_step
+    base = _lawful_bonus_at(gs, unit.position.x, unit.position.y, turn)
+    return apply_unit_illumination(base, illuminate_step(unit, gs.map.units) > 0)
+
+
 def _lawful_bonus_at(gs: GameState, x: int, y: int, turn_number: int) -> int:
     """Per-hex lawful_bonus. Honors scenario-defined [time_area] zones
     (Tombs of Kesorak's dark/illuminated regions, Elensefar Courtyard's
@@ -1711,14 +1733,8 @@ def build_attack_context(gs: GameState, att: Unit, dfd: Unit,
     # this preserves 35 instead of dropping to 25 -- the old
     # additive `min(25, base+25)` cap incorrectly clamped down.
     # Edge case (rare in 2p corpus) but correctness-relevant.
-    def _apply_illum(base: int, has_illum: bool) -> int:
-        if not has_illum:
-            return base
-        # bounded_add(base, 25, max_sum=25, min_sum=0); positive
-        # branch: min(base+25, max(base, 25)).
-        return min(base + 25, max(base, 25))
-    a_lawful = _apply_illum(a_base, illuminate_step(att, gs.map.units) > 0)
-    d_lawful = _apply_illum(d_base, illuminate_step(dfd, gs.map.units) > 0)
+    a_lawful = apply_unit_illumination(a_base, illuminate_step(att, gs.map.units) > 0)
+    d_lawful = apply_unit_illumination(d_base, illuminate_step(dfd, gs.map.units) > 0)
 
     # Backstab: active when there's an enemy of the defender on
     # the hex opposite the attacker. Symmetric for the counter-

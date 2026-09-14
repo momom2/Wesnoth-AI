@@ -527,6 +527,9 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<core::GameCore>()?;
     // 9: rows_from_landable rejects a token index >= the row width
     // instead of writing it into the next unit's row.
-    m.add("__phase__", 9)?;
+    // 10: nightstalk's cover reads the illuminated time of day; the
+    // map's cover flags are named hides_ambush / hides_concealment /
+    // hides_submerge.
+    m.add("__phase__", 10)?;
     Ok(())
 }

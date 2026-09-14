@@ -1,0 +1,2 @@
+diff_core: 400 replays, 400 clean, 0 with divergences; commands rust=116976 python=981
+  attack:rust=23567, end_turn:rust=11397, init_side:python=941, init_side:rust=10856, move:rust=61496, pickadvance:python=40, recruit:rust=9660

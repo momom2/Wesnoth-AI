@@ -292,11 +292,12 @@ def check_preencoded(preencoded_dir: Path, files: List[Path], encoder,
     """Refuse a pre-encoded corpus that is not this run's encoding:
     other vocab, hex basis or observation epoch, or records missing for
     files of the pass (the pre-encoder is resumable; finish it first)."""
-    from wesnoth_ai.constants import OBSERVATION_EPOCH
-    from tools.preencode_corpus import load_manifest, record_path, vocab_fingerprint
+    from tools.preencode_corpus import check_manifest_epoch, load_manifest, record_path, vocab_fingerprint
+    # The epoch is checked first so a stale-world corpus does not read
+    # as a vocab mismatch: what is wrong is the OBSERVATIONS, not the
+    # encoding of them.
+    check_manifest_epoch(preencoded_dir)
     man = load_manifest(preencoded_dir)
-    if man is None:
-        raise RuntimeError(f"--preencoded {preencoded_dir}: no manifest (not a pre-encoded corpus)")
     # The vocab is append-only and grows during a run (the holdout
     # eval registers names the corpus seeding lacked), so the records'
     # vocab is a prefix of this run's: compare on that prefix. Names
@@ -308,17 +309,6 @@ def check_preencoded(preencoded_dir: Path, files: List[Path], encoder,
     factions = {k: v for k, v in encoder.faction_to_id.items() if v < n_factions}
     fp = vocab_fingerprint(types, factions, relevant_set,
                            bool(getattr(encoder, "fog_hides_enemy_villages", False)))
-    # The epoch is checked first so a stale-world corpus does not read
-    # as a vocab mismatch: what is wrong is the OBSERVATIONS, not the
-    # encoding of them (constants.OBSERVATION_EPOCH says what changed).
-    cache_epoch = int(man.get("observation_epoch", 1))
-    if cache_epoch != int(OBSERVATION_EPOCH):
-        raise RuntimeError(
-            f"--preencoded {preencoded_dir} was encoded under observation epoch "
-            f"{cache_epoch}; this sim is {OBSERVATION_EPOCH}. The sim's rules about what a "
-            f"player SEES changed since those records were made (see "
-            f"constants.OBSERVATION_EPOCH), so they encode a world that no longer exists. "
-            f"Re-run tools/preencode_corpus.py into a fresh --out")
     if man.get("fingerprint") != fp:
         raise RuntimeError(f"--preencoded {preencoded_dir} was encoded with another vocab or "
                            f"hex basis ({man.get('fingerprint')}; this run {fp}); "
@@ -1013,6 +1003,7 @@ def _accumulate_batch(model, encoder, raws, ais, zw, batch_size, device,
     halvings (0 when the batch fit whole)."""
     n_chunks = 1
     halvings = 0
+    parts = targets = None
     while True:
         opt.zero_grad(set_to_none=True)
         sink.clear()
@@ -1024,14 +1015,21 @@ def _accumulate_batch(model, encoder, raws, ais, zw, batch_size, device,
                     zw[start:start + step], device, type_loss_weights, autocast_dtype)
                 (parts.total / batch_size).backward()
                 sink.append((targets, parts.log_tensor()))
+                parts = targets = None            # the chunk's graph goes now
             return halvings
         except torch.cuda.OutOfMemoryError:
             if step <= 1:
                 raise
             halvings += 1
             n_chunks *= 2
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+        # Past the except clause: the traceback no longer pins the
+        # failed chunk's frame, and dropping its loss frees the graph
+        # with the saved activations the failed backward never walked
+        # (nearly all of them: the peak is at the top of backward).
+        # Only then can the allocator hand the memory to the retry.
+        parts = targets = None
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
 
 def _flush_batch(
@@ -1054,7 +1052,8 @@ def _flush_batch(
     autocast_dtype=None,
 ) -> int:
     """One batched forward + summed-loss backward + opt step over B
-    RawEncoded pairs; returns the number of out-of-memory splits.
+    RawEncoded pairs; returns the number of times the batch had to be
+    halved to fit the device (0 when it fit whole).
 
     The batch's token embeddings come from one pinned host buffer
     (`encode_from_raw_embedded`, the inference server's path), the
@@ -1063,7 +1062,7 @@ def _flush_batch(
     the PaddedOutput (`wesnoth_ai.imitation_loss`); the only
     host-device synchronization is the log transfer after the step.
     A batch that does not fit the device is split, never dropped
-    (`_backward_batch`): before 2026-09-11 an out-of-memory batch was
+    (`_accumulate_batch`): before 2026-09-11 an out-of-memory batch was
     dropped with a DEBUG line, and seed2's epochs lost 12% of their
     pairs that way (docs/box_specs.md "Pair census").
 
@@ -1484,7 +1483,8 @@ def train(
     value_material: bool = False,   # the value head also reads material
     preencoded: Optional[Path] = None,  # tools/preencode_corpus.py output
     bf16: bool = False,                 # autocast the batched flow's forward in bf16
-    tf32: bool = True,                  # fp32 matmuls on the tensor cores (training only)
+    tf32: bool = False,                 # fp32 matmuls on the tensor cores (a recipe change: opt-in)
+    fused_adamw: bool = False,          # the fused optimizer step (another one: opt-in)
     fog_hides_enemy_villages: "bool | None" = None,  # global feature 5 under fog
         # drop value_head.* from the --resume state (and skip the
         # optimizer-state restore): warm trunk+policy, fresh value.
@@ -1643,9 +1643,9 @@ def train(
                        relevant_set_hexes=relevant_set_hexes,
                        training_meta=training_meta)
 
-    from wesnoth_ai.train_perf import adamw
+    from wesnoth_ai.train_perf import adamw, reassert_step_kernel
     opt = adamw(list(model.parameters()) + list(encoder.parameters()),
-                lr=lr, weight_decay=1e-4)
+                lr=lr, weight_decay=1e-4, fused=fused_adamw)
 
     # Cosine learning-rate decay across the planned epoch budget. With
     # the resume-from-checkpoint path, `T_max` is the TOTAL planned
@@ -1733,6 +1733,7 @@ def train(
         elif "optimizer_state" in ckpt:
             try:
                 opt.load_state_dict(ckpt["optimizer_state"])
+                reassert_step_kernel(opt)      # the checkpoint's groups carry their own `fused`
                 # Padded legacy encoder tensors need their Adam
                 # moments padded too (see encoder.py helper).
                 from wesnoth_ai.encoder import repair_optimizer_state_shapes
@@ -1988,7 +1989,7 @@ def train(
     autocast_dtype = torch.bfloat16 if bf16 else None
     if bf16:
         log.info("Batched flow under bf16 autocast (fp32 weights and gradients)")
-    oom_splits = 0            # out-of-memory splits (nothing lost)
+    oom_halvings = 0          # out-of-memory halvings of a batch (nothing lost)
     # Relevant-set basis: labelled targets with no subset slot (kept
     # as actor/type/weapon pairs, target head silent). Expected 0;
     # every one is a superset violation worth a look.
@@ -2194,7 +2195,7 @@ def train(
                         continue
                     _tf = time.perf_counter() if prof_on else 0.0
                     try:
-                        oom_splits += _flush_batch(
+                        oom_halvings += _flush_batch(
                             model, encoder, batch_raws, batch_ais,
                             batch_zw,
                             opt, params_for_clip, batch_size, device,
@@ -2374,7 +2375,7 @@ def train(
         if not stop:
             if use_batched and batch_raws:
                 try:
-                    oom_splits += _flush_batch(
+                    oom_halvings += _flush_batch(
                         model, encoder, batch_raws, batch_ais,
                         batch_zw,
                         opt, params_for_clip, batch_size, device,
@@ -2437,7 +2438,7 @@ def train(
                  f"pairs={running_count - run_start_count} "
                  f"(chain total {running_count}) "
                  f"target_off_subset={target_off_subset} "
-                 f"flush_failures={flush_failures} oom_splits={oom_splits}")
+                 f"flush_failures={flush_failures} oom_halvings={oom_halvings}")
         if holdout_files:
             stats = _evaluate(model, encoder, holdout_files, device,
                               eval_pairs=eval_pairs,
@@ -2560,10 +2561,15 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--no-fog-hides-enemy-villages", action="store_false",
                     dest="fog_hides_enemy_villages",
                     help="Feed the true enemy village count (the pre-2026-09-08 encoding).")
-    ap.add_argument("--tf32", action=argparse.BooleanOptionalAction, default=True,
-                    help="Run fp32 matmuls on the tensor cores (TF32). Training only: "
-                         "the sim, the corpus sweeps and eval are never touched. "
-                         "--no-tf32 restores strict fp32.")
+    ap.add_argument("--tf32", action="store_true",
+                    help="Run this run's fp32 matmuls on the tensor cores (TF32). A "
+                         "recipe change (10-bit matmul inputs; the holdout probe runs "
+                         "under it too), so off by default and one factor of its own. "
+                         "The sim, the corpus sweeps and eval are never touched.")
+    ap.add_argument("--fused-adamw", action="store_true",
+                    help="The fused AdamW kernel (one launch per step instead of one "
+                         "per tensor). Sums in another order than the reference step: "
+                         "off by default, one factor of its own.")
     ap.add_argument("--bf16", action="store_true",
                     help="Run the batched flow's forward and loss under bf16 autocast "
                          "(fp32 master weights; the eval path already serves bf16).")
@@ -2653,6 +2659,7 @@ def main(argv: List[str]) -> int:
         preencoded=args.preencoded,
         bf16=args.bf16,
         tf32=args.tf32,
+        fused_adamw=args.fused_adamw,
         fog_hides_enemy_villages=args.fog_hides_enemy_villages,
         imitation_config=args.imitation_config,
         type_loss_weights=type_loss_weights,

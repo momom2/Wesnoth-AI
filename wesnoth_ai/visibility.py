@@ -271,7 +271,7 @@ def _hide_cover_active(state: GameState, unit: Unit) -> bool:
     # unit_stats.json, etc.). Importing at module load would slow
     # cold tests and cluster start. The lookup is per-unit-with-
     # hide-ability, which is a rare hot path.
-    from tools.replay_dataset import _lawful_bonus_at
+    from tools.replay_dataset import illuminated_lawful_bonus_at
     from tools.terrain_resolver import hides_cover
     codes = getattr(state.global_info, "_terrain_codes", None) or {}
     code = codes.get((unit.position.x, unit.position.y), "")
@@ -279,11 +279,10 @@ def _hide_cover_active(state: GameState, unit: Unit) -> bool:
         if ability in abilities and hides_cover(code, ability):
             return True
     if "nightstalk" in abilities:
-        bonus = _lawful_bonus_at(
-            state, unit.position.x, unit.position.y,
-            state.global_info.turn_number,
-        )
-        if bonus < 0:
+        # `time_of_day=chaotic` on the ILLUMINATED time of day: an
+        # [illuminates] unit on or next to the hex lifts the cover
+        # (abilities.cpp:447-450, filter.cpp:268-273).
+        if illuminated_lawful_bonus_at(state, unit, state.global_info.turn_number) < 0:
             return True
     return False
 

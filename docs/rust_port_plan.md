@@ -259,8 +259,10 @@ macros actually shipped. Records: eval_games/rust_corpus_cert/.
    EVAL path it buys nothing (`scripts/core_sim_box.sh`: a 40-game
    match 49 s against 49 s, a lone game 10 s against 11 s) because
    that path waits on the inference server for over four fifths of
-   its wall, and the lone game pays about 5% for rebuilding the
-   Python view after every command. Default off
+   its wall, and the lone game pays about 10% (10 against 11 s) for
+   rebuilding the Python view after every command while the policies
+   still read that view (the per-call numbers time the core's own
+   calls, not the simulator around them). Default off
    (`WESNOTH_RUST_CORE=1` to enable); the pool is where the per-call
    numbers can pay, measured as phase 1's exit.
 

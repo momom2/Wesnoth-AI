@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from wesnoth_ai.encoder import GameStateEncoder  # noqa: E402
+from wesnoth_ai.encoder import UNIT_FEAT_DIM  # noqa: E402
 
 
 def _raws(n_states=3, relevant_set=False):
@@ -91,7 +92,7 @@ def test_coalesced_transfer_embeds_identically(relevant_set):
         assert got[key].dtype == ref.dtype, key
         assert torch.equal(got[key], ref), f"{key} differs after coalescing"
         checked += 1
-    assert checked >= 4, "the harvest must exercise hexes, units, recruits and globals"
+    assert checked >= 6 and "recruit" in want, "the harvest must exercise hexes, units, recruits and globals"
 
 
 def test_padded_streams_still_match_the_batch_path():
@@ -118,8 +119,7 @@ def test_an_empty_stream_does_not_break_the_buffer():
         r.recruit_side_ids = np.zeros(0, dtype=np.int64)
         r.recruit_xs = np.zeros(0, dtype=np.int64)
         r.recruit_ys = np.zeros(0, dtype=np.int64)
-        r.recruit_feats = np.zeros((0, enc.unit_feat_dim if hasattr(enc, "unit_feat_dim") else 13),
-                                   dtype=np.float32)
+        r.recruit_feats = np.zeros((0, UNIT_FEAT_DIM), dtype=np.float32)
         r.recruit_is_ours = np.zeros(0, dtype=np.float32)
     with torch.no_grad():
         emb = enc._embed_streams(raws, torch.device("cpu"))
