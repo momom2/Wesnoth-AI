@@ -590,10 +590,13 @@ def main(argv: List[str]) -> int:
             # Eval batches run 5-8 leaves at max_batch 20 (docs/box_specs.md
             # "The eval path does not want more workers or more servers"),
             # so the segment axis is bucketed rather than padded to the
-            # maximum every time.
-            b_caps = tuple(b for b in (4, 8, 12, 16, 20, 24, 32) if b < args.max_batch)
+            # maximum every time -- coarsely: a 40-game match is short,
+            # and every bucket costs one capture (a 28-worker arm spent
+            # its infer time capturing 72 of them, docs/box_specs.md).
+            b_caps = tuple(b for b in (8, 16) if b < args.max_batch) + (args.max_batch,)
             graphed = GraphedServe(model, encoder, device,
-                                   caps=Caps(b_cap=args.max_batch, b_caps=b_caps + (args.max_batch,)))
+                                   caps=Caps(b_cap=args.max_batch, b_caps=b_caps,
+                                             t_caps=(1024, 2048, 4096, 8192, 12288)))
     server = InferenceServer(model, encoder, device=device,
                              output_device=torch.device("cpu"), autocast_bf16=bf16,
                              packed_embed=packed_embed, graphed=graphed)
