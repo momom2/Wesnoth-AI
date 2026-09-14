@@ -1,0 +1,5 @@
+leaves_per_s               1 proc     1288.3   2 proc     1151.3   0.89x
+saturated_leaves_per_s     1 proc     1759.2   2 proc     2548.5   1.45x
+games_per_dollar           1 proc     1178.1   2 proc     1071.3   0.91x
+
+bf16 + packed trunk + packed embed, the committed configuration. Expectation on record was 1.3-1.5x. Under 1.1x, drop the idea and say so.

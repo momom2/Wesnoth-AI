@@ -1,0 +1,13 @@
+2026-09-14 11:17:30,284 transformer_policy INFO TransformerPolicy device: cuda
+2026-09-14 11:17:31,021 transformer_policy WARNING relset.pt was trained under observation epoch 1; this sim is 3. The weights encode a different observation distribution, so any match against a checkpoint from another epoch is CROSS-BUILD: re-measure, do not chain numbers (see constants.OBSERVATION_EPOCH).
+2026-09-14 11:17:31,052 transformer_policy INFO Loaded checkpoint from training/checkpoints/relset.pt (decision_step=0)
+2026-09-14 11:17:31,058 eval_sim INFO [pool] loaded relset.pt
+2026-09-14 11:17:35,131 actor_pool INFO 1 serve process(es) ready
+2026-09-14 11:17:35,384 actor_pool INFO serve processes synced to weights version 2 (60.2 MB in 0.25s)
+2026-09-14 11:17:35,387 actor_pool INFO actor pool started: 48 actors, max_batch=16, 2 servers
+2026-09-14 11:17:35,405 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-14 11:17:36,437 bench_pool INFO serve-process parity on one leaf: [{'value_abs_diff': 8.940696716308594e-08, 'value_logits_abs_diff': 2.86102294921875e-06}]
+2026-09-14 11:28:31,945 actor_pool INFO iter 0: serve stages (2 servers x 2 threads, leaves per server [285470, 239472]): wait=892.2s infer=1671.5s wire=34.7s put=2.1s gpu=1495.8s (2.85 ms/leaf) leaves/batch=17.1 saturated=1537 leaves/s (best 60 s) throughput=801 leaves/s
+2026-09-14 11:28:31,945 actor_pool INFO iter 0: host ms per batch: unpack=0.68 encode=3.13 forward=27.37 priors=3.25 wait=19.60 reply=0.66 wire=1.13 put=0.07 | coalesce=fifo requests/batch=1.62 queue depth=10.47 skipped=0
+2026-09-14 11:28:31,945 actor_pool INFO iter 0: pool served 524942 forwards, 48 games, 16609 experiences, decision_step 0 -> 16609
+2026-09-14 11:28:31,945 actor_pool INFO iter 0: game finish times p50=362s p90=451s max=655s | tokens/leaf=303 pad_ratio=1.30

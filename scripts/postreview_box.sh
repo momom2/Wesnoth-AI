@@ -246,6 +246,7 @@ for np_ in 1 2; do
         --actors "$GAMES" --games "$GAMES" --sims "$SIMS" \
         --leaf-batch "$LEAF_BATCH" --max-turns "$MAX_TURNS" \
         --dollars-per-hour "$DPH" --server-priors \
+        --infer-bf16 --packed-trunk --packed-embed \
         --serve-processes "$np_" \
         > "$OUT/pool_p$np_.json" 2> "$OUT/pool_p$np_.log"
     tail -3 "$OUT/pool_p$np_.log"

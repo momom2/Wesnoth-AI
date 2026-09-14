@@ -265,6 +265,15 @@ macros actually shipped. Records: eval_games/rust_corpus_cert/.
    calls, not the simulator around them). Default off
    (`WESNOTH_RUST_CORE=1` to enable); the pool is where the per-call
    numbers can pay, measured as phase 1's exit.
+   Re-certified 2026-09-14 on a box at wheel `__phase__` 10 -- the
+   core's terrain cover flags baked from `terrain_resolver.hides_cover`
+   and nightstalk read through the hex's illumination
+   (`core_attack.rs::apply_illumination`) -- with the corpus on the
+   Python sim (17,039 of 17,039 clean), 600 replays through
+   tools/diff_core.py (600 clean, 159,923 commands in Rust) and the
+   eleven certification suites on both states of record (117 passed
+   each; records `training/metrics/bench_pipeline/postreview_20260914/`,
+   docs/box_specs.md "The post-review box run").
 
 ## Build/dev
 

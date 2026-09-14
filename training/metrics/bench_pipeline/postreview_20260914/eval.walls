@@ -1,0 +1,4 @@
+one_a servers=1 45 s 40 games
+two_a servers=2 36 s 40 games
+one_b servers=1 37 s 40 games
+two_b servers=2 40 s 40 games

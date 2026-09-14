@@ -1,0 +1,193 @@
+{
+ "dataset": "replays_dataset_imitation",
+ "seed": 0,
+ "sampled": 300,
+ "errors": 0,
+ "with_a_hider": 150,
+ "hider_replays_reconstructing_differently": 4,
+ "divergences_engine_rule": 0,
+ "divergences_old_rule": 0,
+ "divergences_engine_rule_among_hiders": 0,
+ "divergences_old_rule_among_hiders": 0,
+ "differing": [
+  {
+   "file": "2026-04-26_2p__Caves_of_the_Basilisk_Turn_29_(34001).json.gz",
+   "cmd": 131,
+   "engine": [
+    "ambush",
+    [
+     31,
+     10
+    ],
+    [
+     "u28",
+     "u36"
+    ]
+   ],
+   "old": [
+    "end",
+    [
+     31,
+     10
+    ],
+    [
+     "u36"
+    ]
+   ]
+  },
+  {
+   "file": "2024-04-26_2p__Hamlets_Turn_46_(13508).json.gz",
+   "cmd": 251,
+   "engine": [
+    "ambush",
+    [
+     7,
+     11
+    ],
+    [
+     "u10",
+     "u11",
+     "u12",
+     "u13",
+     "u14",
+     "u15",
+     "u17",
+     "u19",
+     "u20",
+     "u22",
+     "u23",
+     "u24",
+     "u3",
+     "u4",
+     "u5",
+     "u6",
+     "u7",
+     "u8",
+     "u9"
+    ]
+   ],
+   "old": [
+    "end",
+    [
+     7,
+     11
+    ],
+    [
+     "u10",
+     "u11",
+     "u12",
+     "u13",
+     "u14",
+     "u15",
+     "u17",
+     "u20",
+     "u22",
+     "u23",
+     "u24",
+     "u3",
+     "u4",
+     "u5",
+     "u6",
+     "u7",
+     "u8",
+     "u9"
+    ]
+   ]
+  },
+  {
+   "file": "2025-01-23_2p__Hamlets_Turn_14_(11113).json.gz",
+   "cmd": 260,
+   "engine": [
+    "ambush",
+    [
+     18,
+     13
+    ],
+    [
+     "u10",
+     "u12",
+     "u13",
+     "u14",
+     "u15",
+     "u17",
+     "u18",
+     "u19",
+     "u24",
+     "u26",
+     "u3",
+     "u4",
+     "u5",
+     "u6",
+     "u8",
+     "u9"
+    ]
+   ],
+   "old": [
+    "end",
+    [
+     18,
+     13
+    ],
+    [
+     "u10",
+     "u12",
+     "u13",
+     "u14",
+     "u17",
+     "u18",
+     "u19",
+     "u24",
+     "u26",
+     "u3",
+     "u4",
+     "u5",
+     "u6",
+     "u8",
+     "u9"
+    ]
+   ]
+  },
+  {
+   "file": "2026-05-16_2p__Swamp_of_Dread_Turn_22_(3294).json.gz",
+   "cmd": 253,
+   "engine": [
+    "ambush",
+    [
+     7,
+     16
+    ],
+    [
+     "u10",
+     "u11",
+     "u13",
+     "u14",
+     "u18",
+     "u19",
+     "u22",
+     "u3",
+     "u7",
+     "u8"
+    ]
+   ],
+   "old": [
+    "end",
+    [
+     7,
+     16
+    ],
+    [
+     "u10",
+     "u11",
+     "u13",
+     "u14",
+     "u18",
+     "u19",
+     "u3",
+     "u7",
+     "u8"
+    ]
+   ]
+  }
+ ],
+ "errors_detail": []
+}

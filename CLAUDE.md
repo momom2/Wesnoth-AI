@@ -98,8 +98,10 @@ State of play:
   docs/box_specs.md): pool generation 141 -> 833 leaves/s saturated
   (server priors, bf16, staged priors, packed varlen trunk, packed
   embed; all on by default in az_loop); the serve threads' host work
-  (~33 ms per 16-leaf batch) is the ceiling now, a second serve
-  process is implemented and queued for measurement; training path
+  (~33 ms per 16-leaf batch) was the ceiling then; a second serve
+  process is implemented and, measured 2026-09-14, buys no games per
+  dollar (0.91x; an iteration ends with its longest game,
+  docs/box_specs.md "The post-review box run"); training path
   684 -> 352 s per iteration (batched policy loss, batch 16, bf16),
   the actor's packed masks shipped with each experience is the next
   cut; eval 4.2x through persistent workers, 1.5x more through the
@@ -203,9 +205,9 @@ State of play:
   coincides numerically but priced 1,270 tokens per leaf against
   this run's ~320, so it is not a confirmation); the
   eval path wants neither more workers nor more servers (a second
-  server halves the mean batch, so it cannot win, refuting the
-  standing 1.3-1.5x expectation -- a reading off the server logs, not
-  a recorded number, see docs/box_specs.md); and bf16 on the imitation trainer
+  server halves the mean batch per server, 6.9-8.2 -> 3.5-4.4 recorded
+  2026-09-14 with the walls overlapping, so it cannot win, refuting the
+  standing 1.3-1.5x expectation); and bf16 on the imitation trainer
   is 1.25x with an equivalent loss on a 24 GB card, not the 2.9x a
   memory-starved 16 GB card suggested. Five bugs were found and fixed
   with tests (BACKLOG.md), the sharpest being an out-of-memory inside
@@ -228,8 +230,11 @@ State of play:
   it passes under the OLD rule too, since the replay format carries no
   post-state and nothing reads a move's stop reason or the
   uncovered-unit set, which is the only state this change moves
-  (measured: 4 of 120 hider replays reconstruct differently, 0
-  divergences either way). The rule itself is established by the
+  (recorded 2026-09-14 by `tools/analysis/hider_rule_sample.py`:
+  of 300 sampled replays 150 field a hider, 4 of those reconstruct
+  differently -- an ambush stop the old rule ran through, same landing
+  hex -- and `diff_replay` reports 0 divergences under the engine
+  rule and 0 under the old one). The rule itself is established by the
   engine's macro text and pinned by tests/test_hide_cover.py;
   tests/test_visibility.py pins the observation and move-truncation
   halves on a code the old table missed.
@@ -265,9 +270,11 @@ State of play:
   Horned Scarab, whose burrow the pinned scrape dropped; the Swamp
   Lizard) appear in neither pool.
   The same night closed the rest of the eleven-bug ledger and ran three
-  more audits. **Nothing below has been on a box; the corpus sweep and
-  the second-serve-process measurement are queued in
-  `scripts/postreview_box.sh`, about an hour on a 4090, roughly $0.35.**
+  more audits. **On a box 2026-09-14 (`scripts/postreview_box.sh`,
+  docs/box_specs.md "The post-review box run"): the whole corpus
+  reconstructs clean on the current tree (17,039 of 17,039, the
+  Silverhead `magical` and submerge included), 600 replays clean
+  through the phase-10 core, 117 tests on both states of record.**
   - **Elo accounting.** Eval games all replayed ONE combat-luck stream
     (`_next_seed` with no salt is a pure function of a counter that
     restarts per sim), so an 800-game match was 800 draws against one
@@ -305,9 +312,11 @@ State of play:
     legality path).
   - **Review 2026-09-14 (Fable).** The day's numbers with records
     match them to the digit; the eval sweep's server counters, the
-    old-rule hider sample (164 of 300, 4 of 120) and "80% GPU" have
-    no record and are marked so; the hex census now has a tool
-    (`tools/analysis/hide_cover_census.py`) and a record. Fixed in
+    old-rule hider sample and "80% GPU" had no record and are marked
+    so; the hex census and the hider sample now have tools
+    (`tools/analysis/hide_cover_census.py`, `hider_rule_sample.py`)
+    and records, and the eval counters were re-measured with their
+    stats files kept. Fixed in
     code: the trainer's out-of-memory retry kept the failed
     attempt's activations alive; a resumed optimizer silently took
     the checkpoint's step kernel; TF32 and fused AdamW had landed as
@@ -329,7 +338,7 @@ State of play:
   loop; scope every box test, train sparingly; results are written
   on the run, never as atomic dumps; a box job past ~1.5x its
   estimate gets inspected and cut.
-- No box is rented (2026-09-13, after that day's three boxes). Phase 2
+- No box is rented (2026-09-14, after the post-review run). Phase 2
   is next: docs/plan_20260904.md 5, whose first measurement is the
   turn-gap pre-registration.
 

@@ -57,8 +57,8 @@ and the sections after it), on one 24-core 4090:
   does not scale with tokens -- a different mechanism than the one
   priced, so the GPU model still needs re-deriving.
 - The eval path wants NEITHER more workers nor more servers. A second
-  server halves the mean batch (7.84 -> 3.56, read off the server logs
-  and not recorded -- docs/box_specs.md has the provenance note) and
+  server halves the mean batch per server (6.9-8.2 -> 3.5-4.4,
+  recorded 2026-09-14, docs/box_specs.md "The post-review box run") and
   the per-batch cost is mostly fixed, so it cannot win; the standing
   1.3-1.5x expectation is refuted. `--inference-servers` exists and
   stays at 1.
@@ -79,13 +79,18 @@ anyway, ordered by what the measurements say is binding:
 - the inference server is the ceiling on BOTH paths (eval: over four
   fifths of a worker's wall is spent waiting on it; pool: the server
   idles 40-60% of an iteration but its saturated rate is the roof).
-  A second serve process per GPU is built and still unmeasured ON
-  THE POOL. On EVAL it is refuted: splitting the same workers
-  across two servers halves the mean batch (7.84 -> 3.56, an
-  unrecorded reading) and the cost is mostly a fixed per-batch
-  launch, so it cannot win. The
-  standing 1.3-1.5x expectation applies, if anywhere, only to the
-  pool, whose batches stay full.
+  A second serve process per GPU is measured on BOTH paths
+  (2026-09-14, docs/box_specs.md "The post-review box run") and moves
+  neither. On the POOL it raises the saturated rate 1.45x and games
+  per dollar 0.91x: an iteration of one game per actor ends with its
+  longest game, one actor's serial chain of leaf batches that a
+  second server barely shortens; the capacity is cashable only with
+  more games than actors per
+  iteration, i.e. the lever above. On EVAL splitting the same workers
+  across two servers halves the mean batch per server (6.9-8.2 ->
+  3.5-4.4, recorded 2026-09-14) and the cost is mostly a fixed
+  per-batch launch, so it cannot win. The standing 1.3-1.5x
+  expectation is refuted on both; `--serve-processes` stays at 1.
 - the trainer is GPU-bound: bf16 autocast is built (`--bf16`) and
   timed only on a 16 GB card; TF32 for the trunk is untried.
 - the az training path's next recorded cut is shipping the actor's
@@ -394,6 +399,16 @@ anyway, ordered by what the measurements say is binding:
      saturated against 833 with two threads in one process (1.38x),
      exact parity on the leaf check; `az_loop --serve-processes 2` is
      the setting to use on a 4090 box.
+   - MEASURED 2026-09-14 (box 51006981, one factor, 48 actors and 48
+     games, records `training/metrics/bench_pipeline/postreview_20260914/
+     pool_bf16_p{1,2}.json` in the committed configuration and
+     `pool_p{1,2}.json` in fp32): the second process raises the
+     saturated rate 1.45x (bf16) and 1.15x (fp32) and games per
+     dollar 0.91x and 1.00x. The median game finishes sooner
+     (301 -> 197 s) and the iteration does not, because it ends with its
+     longest game, played by one actor with one leaf batch in flight.
+     Dead as a lever on its own (docs/box_specs.md "The post-review
+     box run"); `--serve-processes` stays at 1.
    - SHIPPED 2026-09-06 (user order): the iteration's games are a
      shared ticket queue (`ActorPool._post_tickets`, actor_worker
      `_take_ticket`): each actor pulls the next game until the end
@@ -1193,12 +1208,15 @@ with its own match; self-play games now carry a per-game combat-luck
 salt (`pool:<label or seed>`), so a training run's games are
 independent draws as eval games have been since 2026-09-13 (a
 training-path numerics change; the verdict path is untouched); the
-Rust core is at phase 10 (illuminated nightstalk, renamed cover flags)
-and, like the 2026-09-13 changes, has not been on a box: a build plus
-`scripts/postreview_box.sh` covers both. The unrecorded readings of
-the day are marked where they stand (docs/box_specs.md); the ones that
-matter for a decision -- the two-server mean batch, the old-rule hider
-sample -- go on that same box run with their records kept.
+Rust core is at phase 10 (illuminated nightstalk, renamed cover
+flags); the box run of 2026-09-14 (`scripts/postreview_box.sh`,
+docs/box_specs.md "The post-review box run") certified both it and the
+2026-09-13 changes on the corpus. The unrecorded readings of the day
+are marked where they stand (docs/box_specs.md); the two that
+mattered for a decision -- the two-server mean batch, the old-rule
+hider sample -- were re-measured on that run with their records kept,
+and the second serve process got its pool measurement: games per
+dollar 0.91x, dead as a lever on its own.
 
 ## Open after the hide-cover review (2026-09-13)
 
@@ -1212,11 +1230,14 @@ invalidated. The WRITE-UP did not, and is corrected in
 docs/box_specs.md and docs/wesnoth_rules.md. What stays open:
 
 - **The certification is a no-regression test, not a proof of the
-  rule.** Reported by restoring the old rule and re-running (commit
-  0ed0b27's message; no record in the tree): 164 of 300 sampled
-  replays field a hider, 4 of 120 hider replays reconstruct
-  differently, and `diff_replay` reports 0 divergences on those 4
-  under BOTH rules. The replay format carries no post-state,
+  rule.** Recorded 2026-09-14 (`tools/analysis/hider_rule_sample.py`,
+  `training/metrics/bench_pipeline/postreview_20260914/hider_rule_sample.json`;
+  the 2026-09-13 write-up's "164 of 300, 4 of 120" was the same
+  measurement from a run with no record): of 300 sampled replays 150
+  field a hider, 4 of those reconstruct differently (an ambush stop
+  the old rule ran through, same landing hex, one more hider
+  revealed), and `diff_replay` reports 0 divergences under the
+  engine rule and 0 under the old one. The replay format carries no post-state,
   so every check asks whether the next recorded command's
   preconditions hold; nothing reads a move's stop REASON or the
   uncovered-unit set, which is the only state this change moves (all

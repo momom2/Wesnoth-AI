@@ -1,0 +1,7 @@
+cores(nproc)  24
+cpu.max       n/a
+pids.max      5888
+pids.current  7
+NVIDIA GeForce RTX 4090, 24564 MiB
+pids headroom 5850
+max_actors(64) -> (46, 'pids headroom 5850 tasks fits 64 actors at ~4 tasks each; memory 29272 MB fits only 46 actors at ~500 MB each after 6144 MB for the learner; more would page-thrash or be OOM-killed')

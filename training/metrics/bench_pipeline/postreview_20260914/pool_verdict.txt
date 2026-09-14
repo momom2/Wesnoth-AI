@@ -1,0 +1,5 @@
+leaves_per_s               1 proc      958.5   2 proc      800.8   0.84x
+saturated_leaves_per_s     1 proc     1338.6   2 proc     1536.7   1.15x
+games_per_dollar           1 proc      778.6   2 proc      775.3   1.00x
+
+Expectation on record was 1.3-1.5x. A second server halves the mean batch, which is why the EVAL path could not win from one (docs/box_specs.md); generation posts more leaves per round trip, so it is a different question. Under 1.1x, drop the idea and say so.

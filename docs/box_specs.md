@@ -360,7 +360,7 @@ replayed twice through workers and once one-process: all four runs
 counts. The argmax harness is deterministic run to run on this box
 in both modes.
 
-### Shared batched inference (built 2026-09-05, not yet timed on a box)
+### Shared batched inference (built 2026-09-05, timed that night and 2026-09-13)
 
 `--persistent-workers --shared-inference` adds one
 `tools/eval_inference_server.py` process per distinct checkpoint
@@ -827,15 +827,17 @@ since been refuted:
 
 1. ~~a second server process on the same GPU~~ **REFUTED** on this
    path. `--inference-servers` was implemented and measured: splitting
-   the same workers across two servers HALVES the mean batch (7.84 ->
-   3.56, read off the server logs and not recorded) and the cost is
+   the same workers across two servers HALVES the mean batch per
+   server (6.9-8.2 -> 3.5-4.4, recorded 2026-09-14 with the stats files
+   kept, "The post-review box run") and the cost is
    mostly a fixed per-batch launch, so half the
    batch means twice the batches ("The eval path does not want more
    workers or more servers"). It is worth using only when the two
    sides run different checkpoints, or when a much larger worker pool
-   keeps both batches full. The POOL is a separate question -- it
-   posts many more leaves per round trip, so its batches stay full;
-   that arm is still unmeasured.
+   keeps both batches full. The POOL was measured 2026-09-14 ("The
+   post-review box run"): the second process raises the saturated
+   rate 1.45x and games per dollar 0.91x, because an iteration of
+   one game per actor ends with its longest game.
 2. a fixed-shape forward that cuts the launch cost (CUDA graphs over
    bucketed lengths; the compiled loop lost to recompiles). Note that
    docs/gpu_forward_design_20260904.md ranks CUDA graphs LAST and says
@@ -1200,17 +1202,17 @@ server's own counters are not:
 Provenance (review 2026-09-14): only the five walls are recorded
 (`actor_profile_20260913/summary.txt`, "== eval sweep"). The request,
 batch and mean-batch columns were read off the servers' log lines and
-never saved -- no server-stats file, games dir or script output in
-the tree carries them -- so the "halved mean batch" reading below
-rests on unrecorded numbers until `scripts/postreview_box.sh` repeats
-the two-server arm with its stats file kept.
+never saved. The one-server and two-server arms were rerun the same
+day with their stats files kept, twice each ("The post-review box
+run" below): one server reads a mean batch of 6.9 and 8.2, two
+servers 3.5-4.4 each, walls 45 and 37 s against 36 and 40 s.
 
 **The baseline repeated at 74 s against its own 42 s, a 1.76x swing**,
 so no arm here is resolvable: every difference is inside one
 configuration's own variance. What IS stable and readable is the mean
 batch, and it says why a second server cannot help: splitting the same
-workers across two servers halves the batch (7.84 -> 3.56, an
-unrecorded reading, see the provenance note above), and the server's
+workers across two servers halves the batch (7.84 -> 3.56 here,
+6.9-8.2 -> 3.5-4.4 per server in the recorded rerun), and the server's
 cost is mostly a fixed per-batch launch, so half the batch means
 twice the batches. The backlog's standing expectation that a second
 serve process per GPU buys 1.3-1.5x on eval is **not supported**;
@@ -1299,6 +1301,94 @@ cache is now keyed on the defense table's CONTENT rather than its
 address, and a mistake there would show up as a wrong movement cost or
 defense percentage on some unit, which is exactly what a field-by-field
 comparison after every command catches.
+
+## The post-review box run (2026-09-14, instance 51006981, RTX 4090, 24 cores, 29 GB free, $0.335/h)
+
+`scripts/postreview_box.sh` on the tree at b89d58b: the phase-10 wheel
+built, then the corpus on the current sim, the core, the suites, the
+old-rule hider sample, the eval path's server counters recorded, and
+the pool with one and two serve processes. Records:
+`training/metrics/bench_pipeline/postreview_20260914/`.
+
+| check | result |
+|---|---|
+| `diff_replay`, the whole staging corpus, 24 shards | 17,039 of 17,039 clean, 137 s wall |
+| `diff_core`, 600 replays through the phase-10 core | 600 clean, 0 divergences (159,923 commands in Rust) |
+| eleven suites, Python state of record | 117 passed |
+| the same, `WESNOTH_RUST_CORE=1` | 117 passed |
+| old-rule hider sample (`tools/analysis/hider_rule_sample.py`, seed 0) | 300 sampled, 150 with a hider, 4 reconstruct differently, 0 / 0 divergences (engine / old rule) |
+
+The corpus sweep now covers the Silverhead Tentacle's `magical` and
+submerge (the combat half the 2026-09-13 review said was owed), the
+start-position parsers and the illuminated nightstalk. The hider
+sample is the measurement the same review quoted with no record: the
+4 differing replays all stop an ambush the old rule walked
+through, at the same landing hex, and neither rule produces a
+`diff_replay` divergence -- the sweep is blind to this rule exactly as
+argued.
+
+**The eval path's server counters, recorded.** Four arms of 40 games,
+`relset` against itself at raw:t0, 20 workers, one factor: one or two
+inference servers, each arm run twice. The stats files are under
+`eval_stats/`, the walls in `eval.walls`.
+
+| arm | servers | wall s | requests | batches | mean batch per server | GPU busy s of the server's wall |
+|---|---|---|---|---|---|---|
+| one_a | 1 | 45 | 19,624 | 2,854 | 6.88 | 23.3 of 43.4 |
+| two_a | 2 | 36 | 8,234 + 9,221 | 2,373 + 2,093 | 3.47, 4.41 | 18.0 of 33.2, 16.0 of 31.9 |
+| one_b | 1 | 37 | 18,479 | 2,252 | 8.21 | 18.3 of 35.4 |
+| two_b | 2 | 40 | 10,185 + 9,639 | 2,725 + 2,581 | 3.74, 3.73 | 20.1 of 37.2, 19.6 of 35.9 |
+
+Per server the mean batch halves (6.9-8.2 with one server, 3.5-4.4 each
+with two) while every server keeps the GPU busy 50-55% of its own
+wall, so the pair spends twice the launches on the same work. The
+walls overlap (45 and 37 s with one server, 36 and 40 s with
+two): at this worker count a second server neither wins nor loses,
+which is the 2026-09-13 reading with a record behind it.
+
+**The second serve process on the pool.** One factor, 48 actors and
+48 games (one game per actor, as `az_loop --actors 0` runs it), 32
+evaluations, leaf batch 16, 30 turns, `relset`, server priors, two
+serve threads per server. `scripts/postreview_box.sh` phase 2 ran the
+pair at `bench_pool`'s own defaults (fp32, the unpacked trunk); the
+pair in the committed configuration (`--infer-bf16 --packed-trunk
+--packed-embed`, az_loop's defaults) followed on the same box through
+`scripts/postreview_pool_bf16.sh`. Records `pool_p{1,2}.json` and
+`pool_bf16_p{1,2}.json`, one iteration each; the serve-process
+parity check on one leaf reads 9e-8 (fp32) and exactly 0 (bf16).
+
+fp32, unpacked:
+
+| serve processes | iteration leaves/s | saturated leaves/s | games per $ | iteration wall s | median game s | longest game s | GPU ms per leaf | mean queue depth |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 959 | 1,339 | 779 | 658 | 499 | 652 | 1.50 | 30.5 |
+| 2 | 801 | 1,537 | 775 | 662 | 362 | 655 | 2.85 | 10.5 |
+
+bf16, packed trunk, packed embed (the committed configuration):
+
+| serve processes | iteration leaves/s | saturated leaves/s | games per $ | iteration wall s | median game s | longest game s | GPU ms per leaf | mean queue depth |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 1,288 | 1,759 | 1,178 | 436 | 301 | 431 | 0.93 | 26.8 |
+| 2 | 1,151 | 2,548 | 1,071 | 481 | 197 | 474 | 1.27 | 6.5 |
+
+The second process raises the server's capacity (1.15x saturated in
+fp32, 1.45x in bf16, inside the 1.3-1.5x band pre-registered in
+"Serve processes: how to run") and finishes the median game sooner
+(301 -> 197 s in bf16), and the iteration does not get shorter: its wall
+is its longest game (431 against 474 s, different games), which one
+actor plays with one leaf batch in flight -- a serial chain a second
+server barely shortens. The servers idle through that tail (mean queue depth 27 -> 7).
+Games per dollar read 1.00x (fp32) and 0.91x (bf16); the
+pre-registered rule was "under 1.1x, drop the idea", so
+`--serve-processes` stays at 1. The capacity would be cashed only by
+an iteration with more games than actors (the 2026-09-06 ticket queue
+amortises the tail), which is more games per gradient step -- the
+training change already first on the levers list, to be measured as
+such. Aside: the bf16 one-process arm reads 1,288 iteration leaves/s
+against 1,006 for the same 48 actors on the 2026-09-13 box, a
+different 4090 on a different day; the pool benchmark swings 1.64x
+between repeats ("Phase 1's exit"), so neither number is the other's
+correction.
 
 ## Hide cover after the root fix: the corpus sweep, and what it does NOT certify (2026-09-13, box 50882541, 28 cores)
 
@@ -1439,7 +1529,7 @@ compiled loop is the lever), the priors extraction (6 ms), request
 unpickling (2.5 ms), wire (2.5 ms). A second serve process would
 double the host budget; the GPU has room for ~1.5x more.
 
-## Serve processes: how to run (built 2026-09-05, not yet timed on a box)
+## Serve processes: how to run (built 2026-09-05, timed 2026-09-14)
 
 `ActorPool(serve_processes=N)` (tools/actor_pool.py, module docstring
 "Serve processes") keeps the learner's in-process serve threads and
@@ -1493,3 +1583,9 @@ the ceiling the saturated rate moves from ~850 toward the GPU's room
 evenly; if it stays at ~850 with the GPU ms per leaf unchanged, the
 device stream is the ceiling and the row is dead. Memory: a second
 CUDA context plus the model copy, under 1 GB on the 4090.
+Measured 2026-09-14 ("The post-review box run"): the saturated rate
+moves 1.45x in the committed configuration and games per dollar
+0.91x, because an iteration of one game per actor ends with its
+longest game whichever the server count. The row is dead as a lever
+on its own; it becomes one only with more games than actors per
+iteration.
