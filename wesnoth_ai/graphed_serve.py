@@ -15,26 +15,28 @@ last when the GPU was the binding cost at 1,270 tokens per leaf; the
 relevant-set basis cut the tokens to ~300 and left the host launches
 as the cost.
 
-Per batch, outside the graph: the packed embed (encoder
-.encode_from_raw_embedded), the gather of the real tokens into the
-static token buffer with their kind term, the static index and mask
-arrays written into two pinned host buffers. Inside the graph: the two
-host->device copies, the packed trunk over the static rows, the heads
-on the capped slots, `server_priors.priors_outputs` at the fixed
-capacity, and the one device->host copy of the results. Padding is
-inert by construction: pad segments hold one token each and attend
-only to themselves (flash varlen), rows past the last segment are
-never read by a head (the flash kernel leaves them untouched; the
-per-segment fallback zeroes them), padded actor and hex slots point at
-a real row and carry zero masks, so the priors' masked softmaxes and
-the compaction see exactly the real batch. `GraphedServe(...,
-graphs=False)` runs the same static-shape body eagerly (the CPU tests,
-and an A/B on a box).
+Per batch, outside the graph: numpy only -- the batch's RawEncoded
+fields concatenated into the pinned embed buffer, the packed rows'
+sources and kinds, the segment offsets and head slots, and the masks,
+into two more pinned buffers. Inside the graph: the three host->device
+copies, the trained embeddings of every buffer row, the gather of the
+real tokens into the packed rows with their kind term, the packed
+trunk over a bf16 copy of the weights, the heads on the capped slots,
+`server_priors.priors_outputs` at the fixed capacity, and the one
+device->host copy of the results. Padding is inert by construction:
+pad segments hold one token each and attend only to themselves (flash
+varlen), rows past the last segment are never read by a head (the
+flash kernel leaves them untouched; the per-segment fallback zeroes
+them), spare embed rows hold stale or zero fields that no real token
+gathers, padded actor and hex slots point at a real row and carry zero
+masks, so the priors' masked softmaxes and the compaction see exactly
+the real batch. `GraphedServe(..., graphs=False)` runs the same
+static-shape body eagerly (the CPU tests, and an A/B on a box).
 
-Not graphed (yet): the embed stage and the wire. A batch that exceeds
-a cap (segments, actor slots, hex slots, tokens, a segment longer than
-`max_len`, legal entries) returns None from `infer` and the caller
-serves it on the eager path; the counters say how often.
+Not graphed: the wire (`tools/inference_seam.output_to_wire`). A batch
+that exceeds a cap (segments, actor slots, hex slots, tokens, a segment
+longer than `max_len`, legal entries) returns None from `infer` and the
+caller serves it on the eager path; the counters say how often.
 """
 from __future__ import annotations
 
@@ -47,6 +49,7 @@ from typing import Dict, Optional, Sequence, Tuple
 import numpy as np
 import torch
 
+from wesnoth_ai.encoder import GLOBAL_FEAT_DIM
 from wesnoth_ai.model import MAX_ATTACKS, ActorKind, TokenKind, UnitActionType
 from wesnoth_ai.packed_trunk import (
     FlatLayout, PackedIndex, PackedTrunkWeights, build_packed_layout,
@@ -158,7 +161,9 @@ def _clear_masks(mv: Dict[str, np.ndarray], dirty: Tuple[int, int, int]) -> None
 class _State:
     """One bucket's static buffers and, once captured, its graph."""
     bucket: Bucket
-    x: torch.Tensor                     # [t_cap, d] fp32 on the device
+    stream_caps: Tuple[int, int, int]   # hex, unit and recruit rows the embed buffer holds
+    embed_layout: FlatLayout            # the RawEncoded fields of the batch, capped
+    embed_host: torch.Tensor            # pinned uint8
     index_layout: FlatLayout
     index_host: torch.Tensor            # pinned uint8
     mask_layout: FlatLayout
@@ -174,9 +179,9 @@ class _State:
 
 class GraphedServe:
     """Serves (RawEncoded, PackedMasks) batches through per-bucket CUDA
-    graphs; see the module docstring. One instance per server process,
-    shared by its serve threads (the static buffers are behind a lock;
-    the embed runs outside it)."""
+    graphs; see the module docstring. One instance per serve thread
+    (tools/inference_seam builds them from a factory), or one shared by
+    several through its lock."""
 
     def __init__(self, model, encoder, device: torch.device, *, caps: Caps = Caps(),
                  graphs: bool = True, extras: Sequence[str] = ("value", "value_logits", "cliffness")):
@@ -227,9 +232,21 @@ class GraphedServe:
             return st
         dev = self.device
         pin = dev.type == "cuda"
-        d = int(self.model.d_model)
+        # The embed buffer: every RawEncoded field of the batch at capped
+        # row counts (hexes fill the token rows; units and recruits are
+        # under a_cap per leaf), plus the per-leaf global fields.
+        caps = (bucket.t_cap, bucket.b_cap * bucket.a_cap, bucket.b_cap * bucket.a_cap)
+        fields = [(name, dt, (cap,) + shape)
+                  for (stream, spec), cap in zip(self.encoder._STREAM_FIELDS, caps)
+                  for name, dt, shape in spec]
+        fields += [("global_feats", torch.float32, (bucket.b_cap, GLOBAL_FEAT_DIM)),
+                   ("our_faction_id", torch.int64, (bucket.b_cap,)),
+                   ("their_faction_id", torch.int64, (bucket.b_cap,))]
+        embed_layout = FlatLayout(fields)
         index_layout = FlatLayout([
             ("cu_seqlens", torch.int32, (bucket.b_cap + 1,)),
+            ("src", torch.int64, (bucket.t_cap,)),
+            ("kind", torch.int64, (bucket.t_cap,)),
             ("actor", torch.int64, (bucket.b_cap * bucket.a_cap,)),
             ("hex", torch.int64, (bucket.b_cap * bucket.h_cap,)),
             ("glob", torch.int64, (bucket.b_cap,)),
@@ -237,8 +254,9 @@ class GraphedServe:
         ml = mask_layout(bucket.b_cap, bucket.a_cap, bucket.h_cap, self.T, self.W,
                          type_bias=True, attack_bias=True)
         st = _State(
-            bucket=bucket,
-            x=torch.zeros(bucket.t_cap, d, dtype=torch.float32, device=dev),
+            bucket=bucket, stream_caps=caps,
+            embed_layout=embed_layout,
+            embed_host=torch.zeros(embed_layout.nbytes, dtype=torch.uint8, pin_memory=pin),
             index_layout=index_layout,
             index_host=torch.zeros(index_layout.nbytes, dtype=torch.uint8, pin_memory=pin),
             mask_layout=ml,
@@ -269,7 +287,7 @@ class GraphedServe:
         model, dev, c = self.model, self.device, self.caps
         bucket = st.bucket
         B, A, H = bucket.b_cap, bucket.a_cap, bucket.h_cap
-        d = st.x.shape[1]
+        d = int(model.d_model)
         bf16 = dev.type == "cuda"
         autocast = (torch.autocast("cuda", dtype=torch.bfloat16) if bf16
                     else contextlib.nullcontext())
@@ -281,8 +299,27 @@ class GraphedServe:
                                 cu_host=st.index_layout.numpy_views(
                                     st.index_host.numpy())["cu_seqlens"].tolist(),
                                 max_len=c.max_len)
+            # The trained embeddings of every stream row (the eager path
+            # runs them outside its autocast, so they stay fp32 here),
+            # the real tokens gathered into the packed rows with their
+            # kind term.
+            enc = self.encoder
+            with torch.autocast("cuda", enabled=False) if bf16 else contextlib.nullcontext():
+                ev = st.embed_layout.torch_views(st.embed_host.to(dev, non_blocking=True))
+                tokens = torch.cat([
+                    enc._hex_embedding(ev["hex_xs"], ev["hex_ys"], ev["hex_terrain_ids"],
+                                       ev["hex_modifier_flags"], ev["hex_dynamic_flags"]),
+                    enc._unit_embedding(ev["unit_type_ids"], ev["unit_side_ids"],
+                                        ev["unit_xs"], ev["unit_ys"], ev["unit_feats"]),
+                    enc._unit_embedding(ev["recruit_type_ids"], ev["recruit_side_ids"],
+                                        ev["recruit_xs"], ev["recruit_ys"], ev["recruit_feats"]),
+                    enc._global_embedding(ev["global_feats"], ev["our_faction_id"],
+                                          ev["their_faction_id"]),
+                    enc.end_turn_token.view(1, -1),
+                ], dim=0)
+                x = tokens.index_select(0, iv["src"]) + model.token_kind_embed(iv["kind"])
             w = self._weights
-            h = self._layers(st.x, index.cu_seqlens, index.max_len, w.layers, w.final_norm)
+            h = self._layers(x, index.cu_seqlens, index.max_len, w.layers, w.final_norm)
             actor_ctx = h.index_select(0, index.actor).view(B, A, d)
             hex_ctx = h.index_select(0, index.hex).view(B, H, d)
             global_ctx = h.index_select(0, index.glob).view(B, 1, d)
@@ -339,10 +376,11 @@ class GraphedServe:
         """(compact actions per sample, the extras as host arrays [b_cap, ...],
         the actor kinds [B, A_max] (CPU long), the sizes) -- or None when
         the batch does not fit a bucket, so the caller serves it eagerly."""
-        model, encoder, dev, c = self.model, self.encoder, self.device, self.caps
-        with torch.no_grad():
-            streams = encoder.encode_from_raw_embedded(raws, device=dev)
-        sizes = streams.sizes
+        dev, c = self.device, self.caps
+        Hs = [r.hex_xs.shape[0] for r in raws]
+        Us = [r.unit_xs.shape[0] for r in raws]
+        Rs = [r.recruit_type_ids.shape[0] for r in raws]
+        sizes = list(zip(Us, Rs, Hs))
         B = len(sizes)
         U_max, R_max, H_max = (max(s[i] for s in sizes) for i in (0, 1, 2))
         A_max = U_max + R_max + 1
@@ -357,15 +395,33 @@ class GraphedServe:
         sidx = static_index(sizes, bucket.b_cap, bucket.a_cap, bucket.h_cap, bucket.t_cap)
         with self._lock:
             st = self._state(bucket)
-            # The real tokens into the static rows, with their kind term.
-            gather = torch.from_numpy(np.concatenate([layout.src, layout.kind]))
-            if dev.type == "cuda":
-                gather = gather.pin_memory().to(dev, non_blocking=True)
-            src, kind = torch.split(gather, [len(layout.src), len(layout.kind)])
-            with torch.no_grad():
-                st.x[:total].copy_(streams.tokens.index_select(0, src)
-                                   + model.token_kind_embed(kind))
+            # The batch's RawEncoded fields into the embed buffer's rows.
+            ev = st.embed_layout.numpy_views(st.embed_host.numpy())
+            for (stream, spec), n_rows in zip(self.encoder._STREAM_FIELDS,
+                                              (sum(Hs), sum(Us), sum(Rs))):
+                if n_rows:
+                    for name, _, _ in spec:
+                        np.concatenate([getattr(r, name) for r in raws], out=ev[name][:n_rows])
+            np.stack([r.global_feats for r in raws], out=ev["global_feats"][:B])
+            ev["our_faction_id"][:B] = [r.our_faction_id for r in raws]
+            ev["their_faction_id"][:B] = [r.their_faction_id for r in raws]
+            # The packed rows' sources, moved from the batch's stream
+            # offsets to the buffer's capped ones; the pad rows and
+            # every end_turn token read the shared end_turn row.
+            hex_cap, unit_cap, rec_cap = st.stream_caps
+            th, tu, tr = sum(Hs), sum(Us), sum(Rs)
+            kind = layout.kind
+            src = layout.src.copy()
+            src[kind == TokenKind.UNIT] += hex_cap - th
+            src[kind == TokenKind.RECRUIT] += (hex_cap + unit_cap) - (th + tu)
+            src[kind == TokenKind.GLOBAL] += (hex_cap + unit_cap + rec_cap) - (th + tu + tr)
+            end_row = hex_cap + unit_cap + rec_cap + bucket.b_cap
+            src[kind == TokenKind.END_TURN] = end_row
             iv = st.index_layout.numpy_views(st.index_host.numpy())
+            iv["src"][:total] = src
+            iv["src"][total:] = end_row
+            iv["kind"][:total] = kind
+            iv["kind"][total:] = TokenKind.END_TURN
             iv["cu_seqlens"][:] = sidx.cu_seqlens
             iv["actor"][:] = sidx.actor
             iv["hex"][:] = sidx.hex
