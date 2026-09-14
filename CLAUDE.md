@@ -102,9 +102,11 @@ State of play:
   process is implemented and, measured 2026-09-14, buys no games per
   dollar (0.91x; an iteration ends with its longest game,
   docs/box_specs.md "The post-review box run"); training path
-  684 -> 352 s per iteration (batched policy loss, batch 16, bf16),
-  the actor's packed masks shipped with each experience is the next
-  cut; eval 4.2x through persistent workers, 1.5x more through the
+  684 -> 352 s per iteration (batched policy loss, batch 16, bf16) on
+  a bench whose experiences carried no masks -- on production's, which
+  ship the actor's masks since 2026-09-05, the step is 2.22 ms per
+  experience and the training path 4% of an iteration (measured
+  2026-09-14); eval 4.2x through persistent workers, 1.5x more through the
   shared inference server. Measured: raw:t0 against itself stalls
   (17 of 40 at the cap) while raw:t0.5 scores 22-18 with none; at
   argmax the leg-4 product equals the seed (+17 +- 55) and the 5M

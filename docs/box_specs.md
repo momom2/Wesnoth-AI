@@ -613,6 +613,13 @@ distillation route (7c) otherwise.
 
 ## Training path cost (2026-09-05, box 49875606)
 
+**Corrected 2026-09-14:** every row below was measured on experiences
+WITHOUT the actor's packed masks (the bench built them that way), so
+the policy-loss column is the host mask rebuild, which production
+does not pay: on the pool's own experiences the step costs 2.2 ms per
+experience, 0.10 in the policy loss ("The serve batch is
+launch-bound, and the trainer costs 2 ms per experience").
+
 `tools/bench_train_step.py` on the 200 bench states (prior-drawn
 visits), the loop's trainer configuration, medians of 3 steps.
 Records: `training/metrics/bench_pipeline/train_step/`.
@@ -1389,6 +1396,66 @@ against 1,006 for the same 48 actors on the 2026-09-13 box, a
 different 4090 on a different day; the pool benchmark swings 1.64x
 between repeats ("Phase 1's exit"), so neither number is the other's
 correction.
+
+## The serve batch is launch-bound, and the trainer costs 2 ms per experience (2026-09-14, instance 51024616, RTX 4090, $0.30/h)
+
+`scripts/serve_graph_box.sh`; records
+`training/metrics/bench_pipeline/serve_graph_20260914/`.
+
+**One serve batch under the profiler** (`tools/bench_serve_graph.py`:
+`relset`, 8 and 16 bench positions in the relevant-set basis, bf16,
+the packed trunk and embed, one thread on an idle box, medians of 50
+calls, ms):
+
+| batch | tokens | infer_batch eager | through the graphed path | forward eager | forward graph replay | priors | encode | kernel launches | device busy |
+|---|---|---|---|---|---|---|---|---|---|
+| 8 | 3,316 | 7.55 | 4.05 | 3.50 | 1.67 | 1.81 | 0.81 | 406 | 2.03 |
+| 16 | 5,950 | 8.63 | 5.50 | 4.50 | 2.55 | 2.41 | 1.03 | 406 | 3.00 |
+
+A batch of 16 launches 406 kernels that keep the device busy 3.0 ms;
+the host takes 8.6 ms to launch them. The forward alone drops from
+4.5 to 2.5 ms when the same kernels replay from one CUDA graph, with
+outputs identical to the last bit. `wesnoth_ai/graphed_serve.py`
+graphs the whole device side of a priors batch (the copies in, the
+trunk, the heads, the priors chain, the copy out) at static shapes
+padded to buckets: 8.6 -> 5.5 ms at 16 leaves and 7.6 -> 4.0 at 8,
+same actions, priors within bf16 noise. What is left in those 5.5 ms
+is host work outside the graph (the packed embed 1.0 ms, the index
+and mask staging, the one wait for the device and the unpacking) and
+the 3 ms of device time itself. The design note ranked graphs last
+(docs/gpu_forward_design_20260904.md section 4) when the GPU was the
+binding cost at 1,270 tokens per leaf; at ~300 the host launches are.
+
+**The trainer on production's experiences** (`tools/bench_train_step.py
+--source pool`: one real pool iteration of 16 games, 2,451
+experiences, every one carrying the actor's packed masks; bf16, batch
+16, 1,024 experiences per step, medians of 2):
+
+| stage | ms per experience |
+|---|---|
+| encode_raw | 0.47 |
+| encode | 0.17 |
+| forward | 0.44 |
+| policy loss | 0.10 |
+| backward | 0.94 |
+| step wall | 2.22 |
+
+The 35.4 ms on record ("Training path cost", 26.6 of them in the
+policy loss) was measured on bench-state experiences that carry no
+masks, so the loss stage rebuilt them on the host; the actors ship
+them since 2026-09-05 (commit 5c877f8, after that bench). On
+production's format the training path of a 24-game iteration is about
+22 s against ~500 s of generation: 4% of the loop. `bench_train_step`
+now attaches the masks to its bench-state experiences too
+(`--no-masks` reproduces the rebuild path). One caveat from the same
+box: on the 200 bench states, which come from 200 replays, the
+learner's `encode_raw` stage read 34 ms per experience against 0.47
+on the pool's 16 games -- the terrain and reach caches of
+tools/pathfind_sim.py (512 entries, drop-all) thrash across that many
+maps and unit types. A production iteration of 48 games on the 21
+Ladder maps sits between the two; it is measured next
+(`train_pool48`), and if it thrashes the cure is the actor shipping
+its RawEncoded with the experience, as it ships the masks.
 
 ## Hide cover after the root fix: the corpus sweep, and what it does NOT certify (2026-09-13, box 50882541, 28 cores)
 

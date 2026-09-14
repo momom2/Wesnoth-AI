@@ -93,13 +93,12 @@ anyway, ordered by what the measurements say is binding:
   expectation is refuted on both; `--serve-processes` stays at 1.
 - the trainer is GPU-bound: bf16 autocast is built (`--bf16`) and
   timed only on a 16 GB card; TF32 for the trunk is untried.
-- the az training path's recorded cost (35.4 ms per experience at
-  bf16 batch 16, 26.6 of them in the policy loss, docs/box_specs.md
-  "Training path cost") was measured on bench-state experiences that
-  carry NO masks, so the loss stage rebuilt them on the host; the
-  actors have shipped their packed masks since 2026-09-05 (commit
-  5c877f8, the same day, after the bench). Production's cost is being
-  measured on the pool's own experiences (scripts/serve_graph_box.sh).
+- the az training path is NOT a lever: on the pool's own experiences
+  (masks shipped, as production trains) the step costs 2.22 ms per
+  experience, 0.10 in the policy loss, and the training path is 4% of
+  an iteration (2026-09-14, docs/box_specs.md "The serve batch is
+  launch-bound"). The 35.4 ms on record was the bench rebuilding masks
+  its experiences did not carry.
 - actor-side Python is NOT a lever, now settled: an actor's own
   Python is ~3 ms of a 27-58 ms per-leaf cycle and the rest is
   waiting on the server (docs/box_specs.md "The actor's per-leaf
