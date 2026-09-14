@@ -309,7 +309,11 @@ class InferenceServer:
             names = list(self._graphed.extras)
             t1 = t2 = t3 = t4 = time.perf_counter()
             if timing:
+                # The graphed path waited for the device inside `infer`;
+                # an event recorded after that must still complete before
+                # elapsed_time reads it (else "device not ready").
                 ev_end.record()
+                ev_end.synchronize()
         else:
             with torch.no_grad():
                 if self._packed_embed:

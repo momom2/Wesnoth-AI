@@ -200,12 +200,18 @@ def timed_step(policy, exps: List, *, precision: str, device: torch.device,
 # ---------------------------------------------------------------------
 
 def experiences_from_states(policy, states: Sequence, *, sims: int, rng: random.Random,
-                            states_per_game: int = 20) -> List:
+                            states_per_game: int = 20, masks: bool = True) -> List:
     """One MCTSExperience per state, visit counts = `sims` draws from
     the prior over its legal actions (the inference model, as search
     would consult it), z a coin flip, states grouped into pseudo-games
-    of `states_per_game` for game_id / game_weight."""
+    of `states_per_game` for game_id / game_weight. `masks`: the
+    state's packed legality masks ride on the experience as the actors
+    ship them (commit 5c877f8); without them the trainer rebuilds the
+    masks on the host, which is what the 2026-09-05 record measured
+    (35.4 against 2.2 ms per experience, docs/box_specs.md "Training
+    path cost")."""
     from wesnoth_ai.action_sampler import enumerate_legal_actions_with_priors
+    from wesnoth_ai.server_priors import pack_masks
     from wesnoth_ai.trainer import MCTSExperience
     encoder, model = policy._inference_encoder, policy._inference_model
     out = []
@@ -223,20 +229,21 @@ def experiences_from_states(policy, states: Sequence, *, sims: int, rng: random.
                    float(c), legal[j].type_idx) for j, c in sorted(counts.items())]
         out.append(MCTSExperience(
             game_state=gs, visit_counts=visits, z=rng.choice((-1.0, 1.0)),
-            game_weight=1.0 / states_per_game, game_id=f"bench{i // states_per_game}"))
+            game_weight=1.0 / states_per_game, game_id=f"bench{i // states_per_game}",
+            masks=pack_masks(enc, gs) if masks else None))
     return out
 
 
 def bench_state_experiences(policy, manifest: Path, dataset: Path, *, limit: Optional[int],
-                            sims: int, rng: random.Random) -> Tuple[List, dict]:
+                            sims: int, rng: random.Random, masks: bool = True) -> Tuple[List, dict]:
     from tools.bench_pipeline import load_states
     if not (dataset / "manifest.jsonl").exists():
         raise SystemExit(f"--dataset {dataset} has no manifest.jsonl (pack it with "
                          f"tools/bench_pipeline.py --pack-states, or use --source pool)")
     states = [gs for gs, _scenario in load_states(manifest, dataset, limit)]
-    exps = experiences_from_states(policy, states, sims=sims, rng=rng)
+    exps = experiences_from_states(policy, states, sims=sims, rng=rng, masks=masks)
     return exps, {"kind": "bench", "manifest": str(manifest), "states": len(states),
-                  "visits": f"{sims} draws from the prior"}
+                  "visits": f"{sims} draws from the prior", "masks_shipped": bool(masks)}
 
 
 def pool_experiences(policy, *, actors: int, games: int, sims: int, max_turns: int,
@@ -662,6 +669,10 @@ def main(argv) -> int:
                     help="directory holding the manifest's game files "
                          "(tools/bench_pipeline.py --pack-states output on a box)")
     ap.add_argument("--states", type=int, default=None, help="bench: cap on positions loaded")
+    ap.add_argument("--masks", action=argparse.BooleanOptionalAction, default=True,
+                    help="bench: the experiences carry their packed legality masks as the "
+                         "actors ship them (production); --no-masks makes the trainer rebuild "
+                         "them on the host, the path the 2026-09-05 record measured.")
     ap.add_argument("--experiences-in", type=Path, default=None, help="--source file input")
     ap.add_argument("--experiences-out", type=Path, default=None,
                     help="pickle the experiences used (rerun with --source file)")
@@ -717,7 +728,8 @@ def main(argv) -> int:
     t0 = time.perf_counter()
     if args.source == "bench":
         exps, source = bench_state_experiences(policy, args.manifest, args.dataset,
-                                               limit=args.states, sims=args.sims, rng=rng)
+                                               limit=args.states, sims=args.sims, rng=rng,
+                                               masks=bool(args.masks))
     elif args.source == "pool":
         exps, source = pool_experiences(policy, actors=args.pool_actors, games=args.pool_games,
                                         sims=args.sims, max_turns=args.pool_max_turns,

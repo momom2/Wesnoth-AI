@@ -29,6 +29,9 @@ STAGE="${STAGE:-tier-b/staging/stage_20260914c.tar.gz}"
 GAMES="${GAMES:-48}"
 SIMS="${SIMS:-32}"
 DPH="${DPH:-0.37}"
+SKIP_MICRO="${SKIP_MICRO:-0}"       # 1: skip the serve microbenchmark
+SKIP_TRAIN="${SKIP_TRAIN:-0}"       # 1: skip the two trainer benches
+SKIP_AB="${SKIP_AB:-0}"             # 1: skip the eval and pool A/B arms
 mkdir -p "$OUT"
 cd /workspace
 export HF_TOKEN="$(tr -d '\r\n' < /workspace/.hf_token)" HF_HUB_DISABLE_XET=1
@@ -97,13 +100,16 @@ PY
 fi
 
 # ---- 1. the serve batch, eager and graphed ---------------------------
+if [ "$SKIP_MICRO" != "1" ]; then
 python tools/bench_serve_graph.py --checkpoint "$CKPT" --device cuda \
     --batch-sizes 8,16 --states 32 --repeats 50 \
     --out "$OUT/serve_graph.json" > "$OUT/serve_graph.log" 2>&1
 tail -12 "$OUT/serve_graph.log"
 upload
+fi
 
 # ---- 2. the trainer on production's experiences ----------------------
+if [ "$SKIP_TRAIN" != "1" ]; then
 python tools/bench_train_step.py --checkpoint "$CKPT" --device cuda \
     --source pool --pool-actors 16 --pool-games 16 --pool-max-turns 12 --pool-timeout 900 \
     --precisions bf16 --batch-sizes 16 --n-list 1024 --repeats 2 \
@@ -124,7 +130,9 @@ python tools/bench_train_step.py --checkpoint "$CKPT" --device cuda \
     --out "$OUT/train_bench.json" --md "$OUT/train_bench.md" > "$OUT/train_bench.log" 2>&1
 tail -25 "$OUT/train_bench.log"
 upload
+fi
 
+if [ "$SKIP_AB" != "1" ]; then
 # ---- 3a. the eval path with and without the graphed server ----------
 eval_arm() {                     # eval_arm NAME [--graphed-serve]
     local name="$1"; shift
@@ -181,6 +189,7 @@ else:
     print("graphed summary:", b.get("graphed_serve_summary"))
 PY
 upload
+fi
 touch "$OUT/ALL_DONE"
 upload
 echo SERVE_GRAPH_DONE

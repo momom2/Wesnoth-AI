@@ -49,7 +49,8 @@ import torch
 
 from wesnoth_ai.model import MAX_ATTACKS, ActorKind, TokenKind, UnitActionType
 from wesnoth_ai.packed_trunk import (
-    FlatLayout, PackedIndex, build_packed_layout, check_packed_trunk_supported, packed_trunk,
+    FlatLayout, PackedIndex, PackedTrunkWeights, build_packed_layout,
+    check_packed_trunk_supported, make_packed_trunk_layers,
 )
 from wesnoth_ai.server_priors import (
     PackedMasks, PendingPriors, _staged_capacity, mask_layout, priors_outputs, write_masks,
@@ -120,6 +121,13 @@ def static_index(sizes: Sequence[Tuple[int, int, int]], b_cap: int, a_cap: int,
     kinds = np.full((b_cap, a_cap), ActorKind.END_TURN, dtype=np.int64)
     kinds[a < (Us + Rs)[:, None]] = ActorKind.RECRUIT
     kinds[a < Us[:, None]] = ActorKind.UNIT
+    # Every slot addresses a row of its own segment, below t_cap; a
+    # wrong index here would be a device-side assert inside a replay,
+    # which poisons the whole CUDA context.
+    rows = int(cu[-1])
+    for name, arr in (("actor", actor), ("hex", hexes), ("glob", glob)):
+        if arr.size and (int(arr.min()) < 0 or int(arr.max()) >= rows):
+            raise ValueError(f"static_index: {name} slot outside the {rows} rows")
     return StaticIndex(cu_seqlens=cu.astype(np.int32), actor=actor.reshape(-1),
                        hex=hexes.reshape(-1), glob=glob, actor_kind=kinds)
 
@@ -173,8 +181,18 @@ class GraphedServe:
         self.extras = tuple(extras)
         self.T = int(UnitActionType.COUNT)
         self.W = int(MAX_ATTACKS)
+        # The layer loop as a pure function of tensors over a copy of
+        # the encoder's weights in the compute dtype (packed_trunk
+        # section 13): no per-call weight casts, and the copy is
+        # refreshed IN PLACE when the model publishes, so a captured
+        # graph reads the new values through the same storage.
+        layer = model.encoder.layers[0]
+        self._layers = make_packed_trunk_layers(layer.activation, layer.norm1.eps)
+        self._weights: Optional[PackedTrunkWeights] = None
         self._states: Dict[Bucket, _State] = {}
-        self._pool = torch.cuda.graph_pool_handle() if self.graphs else None
+        # One private memory pool per graph: sharing one across
+        # graphs is safe only when they replay in capture order, and
+        # buckets replay in whatever order the batches arrive.
         self._lock = threading.Lock()
         self.fallbacks: Dict[str, int] = {}
         self.served = 0
@@ -220,6 +238,20 @@ class GraphedServe:
 
     # -- the static body -------------------------------------------------
 
+    def _current_weights(self) -> PackedTrunkWeights:
+        """The trunk's weight copy at the model's current version
+        (built on first use; refreshed in place after a publication).
+        Called before every run, outside the graph."""
+        model = self.model
+        w = self._weights
+        version = int(getattr(model, "_weights_version", 0))
+        if w is None:
+            dtype = torch.bfloat16 if self.device.type == "cuda" else torch.float32
+            w = self._weights = PackedTrunkWeights.build(model.encoder, dtype, self.device, version)
+        elif w.version != version:
+            w.refresh(model.encoder, version)
+        return w
+
     def _body(self, st: _State) -> None:
         """Everything from the two host->device copies to the one
         device->host copy, on the bucket's static buffers. Captured
@@ -239,7 +271,8 @@ class GraphedServe:
                                 cu_host=st.index_layout.numpy_views(
                                     st.index_host.numpy())["cu_seqlens"].tolist(),
                                 max_len=c.max_len)
-            h = packed_trunk(model.encoder, st.x, index)
+            w = self._weights
+            h = self._layers(st.x, index.cu_seqlens, index.max_len, w.layers, w.final_norm)
             actor_ctx = h.index_select(0, index.actor).view(B, A, d)
             hex_ctx = h.index_select(0, index.hex).view(B, H, d)
             global_ctx = h.index_select(0, index.glob).view(B, 1, d)
@@ -266,7 +299,7 @@ class GraphedServe:
                 self._body(st)
         torch.cuda.current_stream().wait_stream(s)
         g = torch.cuda.CUDAGraph()
-        with torch.cuda.graph(g, pool=self._pool):
+        with torch.cuda.graph(g):
             self._body(st)
         st.graph = g
 
@@ -335,6 +368,7 @@ class GraphedServe:
                 self._fallback("capacity")
                 return None
             st.actor_kind = torch.from_numpy(sidx.actor_kind)
+            self._current_weights()
             self._run(st)
             pending = PendingPriors(host=st.out_host, layout=st.out_layout, n_samples=B,
                                     capacity=c.capacity, n_extras=len(self.extras), device=dev)
