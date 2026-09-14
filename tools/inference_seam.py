@@ -49,6 +49,7 @@ from __future__ import annotations
 import dataclasses
 import io
 import logging
+import threading
 import time
 from typing import Dict, List, Optional, Protocol, Tuple
 
@@ -255,8 +256,15 @@ class InferenceServer:
         self._encoder = encoder
         # The static-shape path (wesnoth_ai/graphed_serve.GraphedServe):
         # a priors batch that fits one of its buckets is served from a
-        # CUDA graph; the rest take the eager path below.
-        self._graphed = graphed
+        # CUDA graph; the rest take the eager path below. An instance
+        # serves every thread through its lock; a zero-argument factory
+        # gives each serve thread its own instance (own buffers and
+        # graphs), so one thread's wait for the device never holds the
+        # other's staging.
+        self._graphed_factory = graphed if callable(graphed) else None
+        self._graphed = None if callable(graphed) else graphed
+        self._graphed_by_thread: Dict[int, object] = {}
+        self._graphed_lock = threading.Lock()
         # Packed embed (design note section 14): the batch's token
         # embeddings come from one pinned buffer and are ordered on the
         # device (encoder.encode_from_raw_embedded + model.forward_embedded)
@@ -269,6 +277,30 @@ class InferenceServer:
         # while the learner's own in-process probes keep the model's
         # setting (fp32 unless the policy was loaded with infer_bf16).
         self._autocast_bf16 = autocast_bf16
+
+    def _graphed_serve(self):
+        """This thread's GraphedServe, or None."""
+        if self._graphed_factory is None:
+            return self._graphed
+        tid = threading.get_ident()
+        g = self._graphed_by_thread.get(tid)
+        if g is None:
+            with self._graphed_lock:
+                g = self._graphed_by_thread.get(tid)
+                if g is None:
+                    g = self._graphed_by_thread[tid] = self._graphed_factory()
+        return g
+
+    def graphed_summary(self) -> Optional[Dict]:
+        """The graphed instances' counters (per thread when there are
+        several), None when the path is off."""
+        insts = ([self._graphed] if self._graphed is not None
+                 else list(self._graphed_by_thread.values()))
+        if not insts:
+            return None
+        if len(insts) == 1:
+            return insts[0].summary()
+        return {f"thread{i}": g.summary() for i, g in enumerate(insts)}
 
     def _use_bf16(self) -> bool:
         if self._device.type != "cuda":
@@ -339,16 +371,18 @@ class InferenceServer:
             ev_start.record()
         t0 = time.perf_counter()
         graphed = None
-        if self._graphed is not None:
+        gserve = self._graphed_serve()
+        if gserve is not None:
             try:
-                graphed = self._graphed.infer(raws, packs)
+                graphed = gserve.infer(raws, packs)
             except Exception:                        # noqa: BLE001 -- the eager path serves from here on
                 log.exception("graphed serve failed on a batch of %d; serving eager from now on",
                               len(raws))
-                self._graphed = None
+                self._graphed = self._graphed_factory = None
+                self._graphed_by_thread.clear()
         if graphed is not None:
             compact, host, actor_kind, sizes = graphed
-            names = list(self._graphed.extras)
+            names = list(gserve.extras)
             t1 = t2 = t3 = t4 = time.perf_counter()
             if timing:
                 # The graphed path waited for the device inside `infer`;

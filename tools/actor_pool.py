@@ -386,12 +386,14 @@ class ActorPool:
         return ok
 
     def _graphed_for(self, model, encoder):
-        """A GraphedServe for the in-process server, or None."""
+        """A GraphedServe factory for the in-process server (one
+        instance per serve thread), or None."""
         if not self._graphed_serve_applies():
             return None
         from wesnoth_ai.graphed_serve import Caps, GraphedServe
         device = self._device or next(model.parameters()).device
-        return GraphedServe(model, encoder, device, caps=Caps(b_cap=self._max_batch))
+        max_batch = self._max_batch
+        return lambda: GraphedServe(model, encoder, device, caps=Caps(b_cap=max_batch))
 
     # -- serve processes ----------------------------------------------
 

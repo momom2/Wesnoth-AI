@@ -116,8 +116,7 @@ def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
         "packed_trunk": bool(getattr(base, "infer_packed_trunk", False)),
         "packed_embed": bool(packed_embed),
         "graphed_serve": bool(graphed_serve),
-        "graphed_serve_summary": (pool._server._graphed.summary()
-                                  if getattr(pool._server, "_graphed", None) is not None else None),
+        "graphed_serve_summary": pool._server.graphed_summary(),
         "coalesce": coalesce, "coalesce_gap": coalesce_gap,
         # Warmup seconds, recompiles and any eager fallback of the
         # compiled packed trunk, over every server (design note
