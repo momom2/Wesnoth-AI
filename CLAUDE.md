@@ -336,6 +336,25 @@ State of play:
     `constants.OBSERVATION_EPOCH`; the local suite prints a banner when
     the Rust wheel is behind the source, because it is (phase 3 against
     9) and every Rust test was skipping silently.
+- 2026-09-14 (user order: every ounce of performance): **the
+  inference server was launch-bound**, and the trainer is not a lever.
+  One 16-leaf serve batch launched 406 kernels for 3.0 ms of device
+  time inside 8.6 ms of host wall; the trainer on production's
+  experiences (masks shipped since 2026-09-05) costs 2.2 ms per
+  experience, 4% of an iteration -- the 35 ms on record was a bench
+  rebuilding masks its experiences lacked. `wesnoth_ai/graphed_serve.py`
+  serves a priors batch from one CUDA graph per static bucket (the
+  embed, the packed trunk over bf16 weights, the heads and the priors
+  chain, the copies in and out), behind `--graphed-serve` (az_loop,
+  bench_pool, run_elo_batch) and `--graphed` (eval_inference_server),
+  default OFF until its box rows are the defaults' own: on the eval
+  path the server's infer time per batch went 27.0 -> 12.7 ms and the
+  40-game walls 1.2-1.4x (the workers' serial chain is the bound now);
+  on the pool the saturated rate moved 1.30x, the iteration rate
+  1.15x and games per dollar 1.04x (docs/box_specs.md "The
+  serve batch is launch-bound"). Both compare a bf16 server to a
+  bf16 server: same weights and math, priors within bf16 noise, so
+  neither is a cross-build for Elo.
 - Rulings (2026-09-05): no optimizations conditioned on the MCTS
   loop; scope every box test, train sparingly; results are written
   on the run, never as atomic dumps; a box job past ~1.5x its

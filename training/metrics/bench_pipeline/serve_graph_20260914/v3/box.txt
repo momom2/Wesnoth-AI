@@ -1,0 +1,5 @@
+128
+NVIDIA GeForce RTX 4090, 24564 MiB
+               total        used        free      shared  buff/cache   available
+Mem:          257742       12099      172321         109       73321      243850
+torch 2.5.1+cu124

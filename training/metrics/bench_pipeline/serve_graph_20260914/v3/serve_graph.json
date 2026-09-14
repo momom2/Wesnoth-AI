@@ -1,0 +1,274 @@
+{
+ "rows": [
+  {
+   "batch": 8,
+   "tokens": 3316,
+   "infer_batch": {
+    "median_ms": 7.661227498829248,
+    "min_ms": 6.758898998668883,
+    "n": 50
+   },
+   "seam_stages_ms": {
+    "encode": 53.84750179966266,
+    "forward": 73.74358389107246,
+    "priors": 12.654950363437159,
+    "finish": 0.06585156343961981,
+    "reply": 0.17707109119245698,
+    "stream_span": 140.24518072821877
+   },
+   "infer_batch_graphed": {
+    "median_ms": 3.436888498981716,
+    "min_ms": 3.364879001310328,
+    "n": 50
+   },
+   "graphed_summary": {
+    "graphs": true,
+    "served": 55,
+    "fallbacks": {},
+    "capture_s": 0.3,
+    "buckets": {
+     "8x64x1024x4096": 55
+    }
+   },
+   "graphed_max_abs_diff": {
+    "value": 0.0019529163837432861,
+    "prior": 0.0037476092188430954,
+    "same_actions": true
+   },
+   "encode_embedded": {
+    "median_ms": 0.9535139997751685,
+    "min_ms": 0.9433240011276212,
+    "n": 50
+   },
+   "forward_packed": true,
+   "forward_eager": {
+    "median_ms": 4.095394499017857,
+    "min_ms": 3.980936002335511,
+    "n": 50
+   },
+   "priors": {
+    "median_ms": 2.063681999061373,
+    "min_ms": 2.047277997917263,
+    "n": 50
+   },
+   "forward_graph": {
+    "median_ms": 1.679889999650186,
+    "min_ms": 1.6707989998394623,
+    "n": 50
+   },
+   "graph_max_abs_diff": {
+    "actor_logits": 0.0,
+    "target_logits": 0.0,
+    "value": 0.0
+   },
+   "profile": {
+    "wall_ms": 63.275838998379186,
+    "kernel_launches": 406,
+    "device_busy_ms": 2.0434060000000325,
+    "busy_fraction": 0.03229362158362491,
+    "top_kernels": [
+     {
+      "name": "void cutlass::Kernel2<cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_64x64_32x6_tn_align8>(",
+      "count": 25,
+      "self_ms": 0.6013149999999905
+     },
+     {
+      "name": "void at::native::unrolled_elementwise_kernel<at::native::direct_copy_kernel_cuda(at::Tenso",
+      "count": 100,
+      "self_ms": 0.3068820000000078
+     },
+     {
+      "name": "void pytorch_flash::flash_fwd_kernel<pytorch_flash::Flash_fwd_kernel_traits<32, 128, 128, ",
+      "count": 8,
+      "self_ms": 0.2574750000000076
+     },
+     {
+      "name": "ampere_bf16_s1688gemm_bf16_128x128_ldg8_relu_f2f_stages_32x1_tn",
+      "count": 8,
+      "self_ms": 0.18742599999999765
+     },
+     {
+      "name": "void at::native::(anonymous namespace)::vectorized_layer_norm_kernel<float, float>(int, fl",
+      "count": 16,
+      "self_ms": 0.11433599999999751
+     },
+     {
+      "name": "void at::native::unrolled_elementwise_kernel<at::native::CUDAFunctor_add<float>, at::detai",
+      "count": 16,
+      "self_ms": 0.07804999999999654
+     },
+     {
+      "name": "void at::native::(anonymous namespace)::indexSelectLargeIndex<float, long, unsigned int, 2",
+      "count": 15,
+      "self_ms": 0.05964800000000014
+     },
+     {
+      "name": "void at::native::vectorized_elementwise_kernel<4, at::native::(anonymous namespace)::launc",
+      "count": 8,
+      "self_ms": 0.04700799999999435
+     },
+     {
+      "name": "void at::native::vectorized_elementwise_kernel<4, at::native::CUDAFunctor_add<float>, at::",
+      "count": 17,
+      "self_ms": 0.03148799999999938
+     },
+     {
+      "name": "ampere_sgemm_128x64_tn",
+      "count": 2,
+      "self_ms": 0.030207999999999628
+     },
+     {
+      "name": "Memcpy HtoD (Pinned -> Device)",
+      "count": 3,
+      "self_ms": 0.025920000000000526
+     },
+     {
+      "name": "void at::native::index_elementwise_kernel<128, 4, at::native::gpu_index_kernel<at::native:",
+      "count": 6,
+      "self_ms": 0.02304099999999744
+     }
+    ]
+   }
+  },
+  {
+   "batch": 16,
+   "tokens": 5950,
+   "infer_batch": {
+    "median_ms": 9.687244997621747,
+    "min_ms": 8.687436002219329,
+    "n": 50
+   },
+   "seam_stages_ms": {
+    "encode": 1.3475640180827626,
+    "forward": 9.61454127265659,
+    "priors": 3.426908981848762,
+    "finish": 0.08276838178227824,
+    "reply": 0.178228545502696,
+    "stream_span": 14.388291428305886
+   },
+   "infer_batch_graphed": {
+    "median_ms": 4.576621498927125,
+    "min_ms": 4.535161999228876,
+    "n": 50
+   },
+   "graphed_summary": {
+    "graphs": true,
+    "served": 55,
+    "fallbacks": {},
+    "capture_s": 0.15,
+    "buckets": {
+     "16x64x1024x6144": 55
+    }
+   },
+   "graphed_max_abs_diff": {
+    "value": 0.002894967794418335,
+    "prior": 0.0018504948350664893,
+    "same_actions": true
+   },
+   "encode_embedded": {
+    "median_ms": 1.062318500771653,
+    "min_ms": 1.0440539990668185,
+    "n": 50
+   },
+   "forward_packed": true,
+   "forward_eager": {
+    "median_ms": 4.539526500593638,
+    "min_ms": 4.465052999876207,
+    "n": 50
+   },
+   "priors": {
+    "median_ms": 2.6840039990929654,
+    "min_ms": 2.3779449984431267,
+    "n": 50
+   },
+   "forward_graph": {
+    "median_ms": 2.554134000092745,
+    "min_ms": 2.5403040017408784,
+    "n": 50
+   },
+   "graph_max_abs_diff": {
+    "actor_logits": 0.0,
+    "target_logits": 0.0,
+    "value": 0.0
+   },
+   "profile": {
+    "wall_ms": 27.355381000234047,
+    "kernel_launches": 406,
+    "device_busy_ms": 2.9978179999999774,
+    "busy_fraction": 0.10958787230835237,
+    "top_kernels": [
+     {
+      "name": "void cutlass::Kernel2<cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_64x64_32x6_tn_align8>(",
+      "count": 36,
+      "self_ms": 1.3377709999999952
+     },
+     {
+      "name": "void at::native::unrolled_elementwise_kernel<at::native::direct_copy_kernel_cuda(at::Tenso",
+      "count": 100,
+      "self_ms": 0.3770579999999973
+     },
+     {
+      "name": "void pytorch_flash::flash_fwd_kernel<pytorch_flash::Flash_fwd_kernel_traits<32, 128, 128, ",
+      "count": 8,
+      "self_ms": 0.3655699999999988
+     },
+     {
+      "name": "void at::native::(anonymous namespace)::vectorized_layer_norm_kernel<float, float>(int, fl",
+      "count": 16,
+      "self_ms": 0.17869099999999707
+     },
+     {
+      "name": "void at::native::unrolled_elementwise_kernel<at::native::CUDAFunctor_add<float>, at::detai",
+      "count": 16,
+      "self_ms": 0.12153600000000006
+     },
+     {
+      "name": "void at::native::(anonymous namespace)::indexSelectLargeIndex<float, long, unsigned int, 2",
+      "count": 15,
+      "self_ms": 0.09228799999999955
+     },
+     {
+      "name": "void at::native::vectorized_elementwise_kernel<4, at::native::(anonymous namespace)::launc",
+      "count": 8,
+      "self_ms": 0.0800010000000002
+     },
+     {
+      "name": "void at::native::vectorized_elementwise_kernel<4, at::native::CUDAFunctor_add<float>, at::",
+      "count": 17,
+      "self_ms": 0.0428179999999993
+     },
+     {
+      "name": "ampere_sgemm_128x64_tn",
+      "count": 2,
+      "self_ms": 0.03891300000000001
+     },
+     {
+      "name": "Memcpy HtoD (Pinned -> Device)",
+      "count": 3,
+      "self_ms": 0.03664000000000078
+     },
+     {
+      "name": "void at::native::index_elementwise_kernel<128, 4, at::native::gpu_index_kernel<at::native:",
+      "count": 6,
+      "self_ms": 0.02300799999999981
+     },
+     {
+      "name": "void at::native::(anonymous namespace)::indexSelectSmallIndex<float, long, unsigned int, 2",
+      "count": 3,
+      "self_ms": 0.01676800000000003
+     }
+    ]
+   }
+  }
+ ],
+ "env": {
+  "checkpoint": "relset.pt",
+  "device": "cuda",
+  "device_name": "NVIDIA GeForce RTX 4090",
+  "torch": "2.5.1+cu124",
+  "packed_trunk": true,
+  "bf16": true,
+  "relevant_set": true,
+  "repeats": 50
+ }
+}

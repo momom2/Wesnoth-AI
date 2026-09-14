@@ -1,0 +1,724 @@
+2026-09-14 16:21:52,473 transformer_policy INFO TransformerPolicy device: cuda
+2026-09-14 16:21:53,383 transformer_policy INFO inference bf16 autocast ON
+2026-09-14 16:21:53,504 transformer_policy WARNING relset.pt was trained under observation epoch 1; this sim is 3. The weights encode a different observation distribution, so any match against a checkpoint from another epoch is CROSS-BUILD: re-measure, do not chain numbers (see constants.OBSERVATION_EPOCH).
+2026-09-14 16:21:53,542 transformer_policy INFO Loaded checkpoint from training/checkpoints/relset.pt (decision_step=0)
+2026-09-14 16:21:53,543 eval_sim INFO [pool] loaded relset.pt
+2026-09-14 16:21:53,710 actor_pool INFO actor pool started: 48 actors, max_batch=16, 1 servers
+2026-09-14 16:22:01,061 wesnoth_ai.graphed_serve WARNING graphed serve: capture failed for Bucket(b_cap=16, a_cap=64, h_cap=512, t_cap=2048) (RuntimeError: CUDA error: operation failed due to a previous error during capture
+CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+); this bucket runs its static body eagerly
+2026-09-14 16:22:01,064 actor_pool ERROR inference server failed on a batch of 17 leaves:
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/serve_worker.py", line 263, in _serve_loop
+    outs = server.infer_batch(flat, stats=st)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 333, in infer_batch
+    return self._infer_with_priors([r for r, _ in raws],
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 408, in _infer_with_priors
+    padded = forward().float32()
+             ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 399, in forward
+    return model.forward_embedded(streams)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/wesnoth_ai/model.py", line 515, in forward_embedded
+    return self._packed_trunk_heads(x, index, layout, sizes, H_max, U_max, R_max,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/wesnoth_ai/model.py", line 544, in _packed_trunk_heads
+    x = packed_trunk(self.encoder, x, index)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/wesnoth_ai/packed_trunk.py", line 365, in packed_trunk
+    x = layer.norm2(x + layer.linear2(layer.activation(layer.linear1(x))))
+                                                       ^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/site-packages/torch/nn/modules/linear.py", line 125, in forward
+    return F.linear(input, self.weight, self.bias)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: CUDA error: operation not permitted when stream is capturing
+CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+
+
+2026-09-14 16:22:01,065 sim_self_play ERROR game iter0_g2_a29 crashed: inference server failed on this batch (see the server's log)
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 570, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 156, in infer_batch
+    raise RuntimeError("inference server failed on this batch "
+RuntimeError: inference server failed on this batch (see the server's log)
+2026-09-14 16:22:01,066 sim_self_play ERROR game iter0_g46_a45 crashed: inference server failed on this batch (see the server's log)
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1630, in mcts_search
+    _expand(root, model, encoder, tiebreak=config.draw_tiebreak,
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 743, in _expand
+    output = model(encoded)
+             ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 566, in __call__
+    return self._t.infer_batch([payload])[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 156, in infer_batch
+    raise RuntimeError("inference server failed on this batch "
+RuntimeError: inference server failed on this batch (see the server's log)
+2026-09-14 16:22:01,070 tools.inference_seam ERROR graphed serve failed on a batch of 16; serving eager from now on
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 377, in _infer_with_priors
+    graphed = gserve.infer(raws, packs)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/wesnoth_ai/graphed_serve.py", line 453, in infer
+    self._run(st)
+  File "/workspace/Wesnoth-AI/wesnoth_ai/graphed_serve.py", line 380, in _run
+    st.graph.replay()
+  File "/opt/conda/lib/python3.11/site-packages/torch/cuda/graphs.py", line 88, in replay
+    super().replay()
+RuntimeError: Offset increment outside graph capture encountered unexpectedly.
+2026-09-14 16:22:20,306 sim_self_play ERROR game iter0_g35_a19 crashed: MCTS produced no action at game_label='iter0_g35_a19'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g35_a19'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:20,308 sim_self_play ERROR game iter0_g4_a25 crashed: MCTS produced no action at game_label='iter0_g4_a25'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g4_a25'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:25,780 sim_self_play ERROR game iter0_g19_a38 crashed: MCTS produced no action at game_label='iter0_g19_a38'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g19_a38'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:27,137 sim_self_play ERROR game iter0_g17_a12 crashed: MCTS produced no action at game_label='iter0_g17_a12'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g17_a12'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:27,137 sim_self_play ERROR game iter0_g43_a8 crashed: MCTS produced no action at game_label='iter0_g43_a8'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g43_a8'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:27,361 sim_self_play ERROR game iter0_g12_a21 crashed: MCTS produced no action at game_label='iter0_g12_a21'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g12_a21'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:27,363 sim_self_play ERROR game iter0_g6_a37 crashed: MCTS produced no action at game_label='iter0_g6_a37'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g6_a37'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:27,575 sim_self_play ERROR game iter0_g7_a24 crashed: MCTS produced no action at game_label='iter0_g7_a24'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g7_a24'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:29,567 sim_self_play ERROR game iter0_g27_a5 crashed: MCTS produced no action at game_label='iter0_g27_a5'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g27_a5'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:29,568 sim_self_play ERROR game iter0_g47_a42 crashed: MCTS produced no action at game_label='iter0_g47_a42'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g47_a42'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:29,614 sim_self_play ERROR game iter0_g32_a1 crashed: MCTS produced no action at game_label='iter0_g32_a1'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g32_a1'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:30,062 sim_self_play ERROR game iter0_g40_a22 crashed: MCTS produced no action at game_label='iter0_g40_a22'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g40_a22'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:30,855 sim_self_play ERROR game iter0_g10_a41 crashed: MCTS produced no action at game_label='iter0_g10_a41'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g10_a41'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:32,430 sim_self_play ERROR game iter0_g13_a2 crashed: MCTS produced no action at game_label='iter0_g13_a2'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g13_a2'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:32,511 sim_self_play ERROR game iter0_g21_a35 crashed: MCTS produced no action at game_label='iter0_g21_a35'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g21_a35'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:32,589 sim_self_play ERROR game iter0_g15_a28 crashed: MCTS produced no action at game_label='iter0_g15_a28'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g15_a28'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:32,589 sim_self_play ERROR game iter0_g39_a9 crashed: MCTS produced no action at game_label='iter0_g39_a9'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g39_a9'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:32,590 sim_self_play ERROR game iter0_g16_a31 crashed: MCTS produced no action at game_label='iter0_g16_a31'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g16_a31'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:33,015 sim_self_play ERROR game iter0_g38_a20 crashed: MCTS produced no action at game_label='iter0_g38_a20'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g38_a20'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:33,016 sim_self_play ERROR game iter0_g20_a0 crashed: MCTS produced no action at game_label='iter0_g20_a0'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g20_a0'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:33,017 sim_self_play ERROR game iter0_g0_a13 crashed: MCTS produced no action at game_label='iter0_g0_a13'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g0_a13'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:33,077 sim_self_play ERROR game iter0_g42_a15 crashed: MCTS produced no action at game_label='iter0_g42_a15'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g42_a15'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:33,077 sim_self_play ERROR game iter0_g37_a40 crashed: MCTS produced no action at game_label='iter0_g37_a40'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g37_a40'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:33,079 sim_self_play ERROR game iter0_g45_a4 crashed: MCTS produced no action at game_label='iter0_g45_a4'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g45_a4'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:33,391 sim_self_play ERROR game iter0_g3_a10 crashed: MCTS produced no action at game_label='iter0_g3_a10'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g3_a10'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:33,411 sim_self_play ERROR game iter0_g34_a6 crashed: MCTS produced no action at game_label='iter0_g34_a6'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g34_a6'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:33,413 sim_self_play ERROR game iter0_g31_a27 crashed: MCTS produced no action at game_label='iter0_g31_a27'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g31_a27'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:33,792 sim_self_play ERROR game iter0_g30_a23 crashed: MCTS produced no action at game_label='iter0_g30_a23'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g30_a23'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:34,647 sim_self_play ERROR game iter0_g33_a32 crashed: MCTS produced no action at game_label='iter0_g33_a32'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g33_a32'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:34,840 sim_self_play ERROR game iter0_g11_a34 crashed: MCTS produced no action at game_label='iter0_g11_a34'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g11_a34'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:34,932 sim_self_play ERROR game iter0_g8_a47 crashed: MCTS produced no action at game_label='iter0_g8_a47'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g8_a47'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:35,569 sim_self_play ERROR game iter0_g9_a39 crashed: MCTS produced no action at game_label='iter0_g9_a39'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g9_a39'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:35,791 sim_self_play ERROR game iter0_g28_a44 crashed: MCTS produced no action at game_label='iter0_g28_a44'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g28_a44'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:35,926 sim_self_play ERROR game iter0_g41_a30 crashed: 'float' object has no attribute 'numerator'
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 516, in select_action
+    self._note_search_diag(game_label, root, action,
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 353, in _note_search_diag
+    spread = _st.pstdev(qs)
+             ^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/statistics.py", line 940, in pstdev
+    return _float_sqrt_of_frac(mss.numerator, mss.denominator)
+                               ^^^^^^^^^^^^^
+AttributeError: 'float' object has no attribute 'numerator'
+2026-09-14 16:22:35,992 sim_self_play ERROR game iter0_g22_a14 crashed: MCTS produced no action at game_label='iter0_g22_a14'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g22_a14'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:44,801 sim_self_play ERROR game iter0_g23_a36 crashed: MCTS produced no action at game_label='iter0_g23_a36'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g23_a36'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:44,822 sim_self_play ERROR game iter0_g24_a16 crashed: MCTS produced no action at game_label='iter0_g24_a16'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g24_a16'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:45,256 sim_self_play ERROR game iter0_g5_a18 crashed: MCTS produced no action at game_label='iter0_g5_a18'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g5_a18'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:47,159 sim_self_play ERROR game iter0_g25_a33 crashed: MCTS produced no action at game_label='iter0_g25_a33'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g25_a33'; root.is_terminal=True, n_edges=0
+2026-09-14 16:22:48,793 sim_self_play ERROR game iter0_g44_a17 crashed: MCTS produced no action at game_label='iter0_g44_a17'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g44_a17'; root.is_terminal=True, n_edges=0
+2026-09-14 16:23:05,420 sim_self_play ERROR game iter0_g26_a43 crashed: MCTS produced no action at game_label='iter0_g26_a43'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g26_a43'; root.is_terminal=True, n_edges=0
+2026-09-14 16:23:18,481 sim_self_play ERROR game iter0_g18_a46 crashed: MCTS produced no action at game_label='iter0_g18_a46'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g18_a46'; root.is_terminal=True, n_edges=0
+2026-09-14 16:23:28,799 sim_self_play ERROR game iter0_g29_a7 crashed: MCTS produced no action at game_label='iter0_g29_a7'; root.is_terminal=True, n_edges=0
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 522, in select_action
+    raise RuntimeError(
+RuntimeError: MCTS produced no action at game_label='iter0_g29_a7'; root.is_terminal=True, n_edges=0
+2026-09-14 16:25:11,551 actor_pool INFO iter 0: serve stages (1 servers x 2 threads, leaves per server [108693]): wait=226.2s infer=155.1s wire=7.3s put=0.5s gpu=149.7s (1.38 ms/leaf) leaves/batch=14.6 saturated=1223 leaves/s (best 60 s) throughput=549 leaves/s
+2026-09-14 16:25:11,551 actor_pool INFO iter 0: host ms per batch: unpack=0.82 encode=3.57 forward=10.50 priors=5.91 wait=0.13 reply=0.24 wire=0.98 put=0.07 | coalesce=fifo requests/batch=1.42 queue depth=12.71 skipped=0
+2026-09-14 16:25:11,551 actor_pool INFO iter 0: pool served 108693 forwards, 3 games, 1204 experiences, decision_step 0 -> 3582
+2026-09-14 16:25:11,551 actor_pool INFO iter 0: game finish times p50=127s p90=197s max=197s | tokens/leaf=261 pad_ratio=1.28

@@ -1,0 +1,10 @@
+2026-09-14 16:11:51,003 transformer_policy INFO TransformerPolicy device: cuda
+2026-09-14 16:11:51,987 transformer_policy INFO inference bf16 autocast ON
+2026-09-14 16:11:52,102 transformer_policy WARNING relset.pt was trained under observation epoch 1; this sim is 3. The weights encode a different observation distribution, so any match against a checkpoint from another epoch is CROSS-BUILD: re-measure, do not chain numbers (see constants.OBSERVATION_EPOCH).
+2026-09-14 16:11:52,140 transformer_policy INFO Loaded checkpoint from training/checkpoints/relset.pt (decision_step=0)
+2026-09-14 16:11:52,141 eval_sim INFO [pool] loaded relset.pt
+2026-09-14 16:11:52,314 actor_pool INFO actor pool started: 48 actors, max_batch=16, 1 servers
+2026-09-14 16:21:38,392 actor_pool INFO iter 0: serve stages (1 servers x 2 threads, leaves per server [536912]): wait=357.2s infer=728.0s wire=48.2s put=2.3s gpu=698.0s (1.30 ms/leaf) leaves/batch=17.3 saturated=1627 leaves/s (best 60 s) throughput=916 leaves/s
+2026-09-14 16:21:38,392 actor_pool INFO iter 0: host ms per batch: unpack=1.16 encode=3.97 forward=11.34 priors=7.04 wait=0.16 reply=0.30 wire=1.56 put=0.07 | coalesce=fifo requests/batch=1.64 queue depth=24.32 skipped=0
+2026-09-14 16:21:38,393 actor_pool INFO iter 0: pool served 536912 forwards, 48 games, 16946 experiences, decision_step 0 -> 16946
+2026-09-14 16:21:38,393 actor_pool INFO iter 0: game finish times p50=352s p90=424s max=585s | tokens/leaf=306 pad_ratio=1.33

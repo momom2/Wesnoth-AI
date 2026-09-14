@@ -1,0 +1,166 @@
+14:59:23 INFO explicit --jobs 20 (auto would pick: cpu 20.5->25, ram 98569MB->48, pids 5081 tasks->5081 => jobs 25)
+14:59:23 INFO 0 results done, 0 no-result (replacements used 0/0), 40 pending, 20 concurrent, device=cuda
+14:59:23 INFO persistent workers: up to 20 elo_eval_game --worker processes, policies cached across games
+14:59:25 INFO inference server 0/0 for training/checkpoints/relset.pt at /tmp/pymp-6ombn6_v/listener-bcf_8lvr: {'spec': 'training/checkpoints/relset.pt', 'device': 'cuda', 'infer_bf16': True, 'packed_trunk': True, 'packed_embed': True, 'compile_packed': False, 'graphed': True, 'relevant_set': True, 'fog_hides_enemy_villages': True, 'window_ms': 1.5, 'max_batch': 20}
+14:59:34 WARNING game 0 (side 1, seed 20000) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:34 INFO game 0 done in 0.1 min, peak_rss 371MB (results=0/40 no_result=0 failed=1, 20 pending, 19 in flight)
+14:59:34 WARNING game 1 (side 2, seed 20001) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:34 INFO game 1 done in 0.1 min, peak_rss 374MB (results=0/40 no_result=0 failed=2, 20 pending, 18 in flight)
+14:59:34 WARNING game 2 (side 1, seed 20002) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:34 INFO game 2 done in 0.1 min, peak_rss 374MB (results=0/40 no_result=0 failed=3, 20 pending, 17 in flight)
+14:59:34 WARNING game 3 (side 2, seed 20003) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:34 INFO game 3 done in 0.1 min, peak_rss 381MB (results=0/40 no_result=0 failed=4, 20 pending, 16 in flight)
+14:59:34 WARNING game 4 (side 1, seed 20004) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:34 INFO game 4 done in 0.1 min, peak_rss 373MB (results=0/40 no_result=0 failed=5, 20 pending, 15 in flight)
+14:59:34 WARNING game 5 (side 2, seed 20005) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:34 INFO game 5 done in 0.1 min, peak_rss 371MB (results=0/40 no_result=0 failed=6, 20 pending, 14 in flight)
+14:59:34 WARNING game 6 (side 1, seed 20006) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:34 INFO game 6 done in 0.1 min, peak_rss 377MB (results=0/40 no_result=0 failed=7, 20 pending, 13 in flight)
+14:59:34 WARNING game 7 (side 2, seed 20007) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:34 INFO game 7 done in 0.1 min, peak_rss 371MB (results=0/40 no_result=0 failed=8, 20 pending, 12 in flight)
+14:59:34 WARNING game 8 (side 1, seed 20008) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:34 INFO game 8 done in 0.1 min, peak_rss 374MB (results=0/40 no_result=0 failed=9, 20 pending, 11 in flight)
+14:59:34 WARNING game 9 (side 2, seed 20009) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:34 INFO game 9 done in 0.1 min, peak_rss 373MB (results=0/40 no_result=0 failed=10, 20 pending, 10 in flight)
+14:59:34 WARNING game 10 (side 1, seed 20010) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:34 INFO game 10 done in 0.1 min, peak_rss 372MB (results=0/40 no_result=0 failed=11, 20 pending, 9 in flight)
+14:59:34 WARNING game 11 (side 2, seed 20011) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:34 INFO game 11 done in 0.1 min, peak_rss 378MB (results=0/40 no_result=0 failed=12, 20 pending, 8 in flight)
+14:59:34 WARNING game 12 (side 1, seed 20012) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:34 INFO game 12 done in 0.1 min, peak_rss 372MB (results=0/40 no_result=0 failed=13, 20 pending, 7 in flight)
+14:59:34 WARNING game 13 (side 2, seed 20013) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:34 INFO game 13 done in 0.1 min, peak_rss 374MB (results=0/40 no_result=0 failed=14, 20 pending, 6 in flight)
+14:59:34 WARNING game 14 (side 1, seed 20014) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:34 INFO game 14 done in 0.1 min, peak_rss 373MB (results=0/40 no_result=0 failed=15, 20 pending, 5 in flight)
+14:59:34 WARNING game 15 (side 2, seed 20015) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:34 INFO game 15 done in 0.1 min, peak_rss 374MB (results=0/40 no_result=0 failed=16, 20 pending, 4 in flight)
+14:59:34 WARNING game 16 (side 1, seed 20016) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:34 INFO game 16 done in 0.1 min, peak_rss 373MB (results=0/40 no_result=0 failed=17, 20 pending, 3 in flight)
+14:59:34 WARNING game 17 (side 2, seed 20017) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:34 INFO game 17 done in 0.1 min, peak_rss 375MB (results=0/40 no_result=0 failed=18, 20 pending, 2 in flight)
+14:59:34 WARNING game 18 (side 1, seed 20018) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:34 INFO game 18 done in 0.1 min, peak_rss 370MB (results=0/40 no_result=0 failed=19, 20 pending, 1 in flight)
+14:59:34 WARNING game 19 (side 2, seed 20019) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:34 INFO game 19 done in 0.1 min, peak_rss 376MB (results=0/40 no_result=0 failed=20, 20 pending, 0 in flight)
+14:59:36 WARNING game 20 (side 1, seed 20020) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:36 INFO game 20 done in 0.0 min, peak_rss 374MB (results=0/40 no_result=0 failed=21, 0 pending, 19 in flight)
+14:59:36 WARNING game 21 (side 2, seed 20021) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:36 INFO game 21 done in 0.0 min, peak_rss 375MB (results=0/40 no_result=0 failed=22, 0 pending, 18 in flight)
+14:59:36 WARNING game 22 (side 1, seed 20022) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:36 INFO game 22 done in 0.0 min, peak_rss 375MB (results=0/40 no_result=0 failed=23, 0 pending, 17 in flight)
+14:59:36 WARNING game 23 (side 2, seed 20023) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:36 INFO game 23 done in 0.0 min, peak_rss 389MB (results=0/40 no_result=0 failed=24, 0 pending, 16 in flight)
+14:59:36 WARNING game 24 (side 1, seed 20024) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:36 INFO game 24 done in 0.0 min, peak_rss 374MB (results=0/40 no_result=0 failed=25, 0 pending, 15 in flight)
+14:59:36 WARNING game 25 (side 2, seed 20025) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:36 INFO game 25 done in 0.0 min, peak_rss 374MB (results=0/40 no_result=0 failed=26, 0 pending, 14 in flight)
+14:59:36 WARNING game 26 (side 1, seed 20026) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:36 INFO game 26 done in 0.0 min, peak_rss 385MB (results=0/40 no_result=0 failed=27, 0 pending, 13 in flight)
+14:59:36 WARNING game 27 (side 2, seed 20027) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:36 INFO game 27 done in 0.0 min, peak_rss 371MB (results=0/40 no_result=0 failed=28, 0 pending, 12 in flight)
+14:59:36 WARNING game 28 (side 1, seed 20028) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:36 INFO game 28 done in 0.0 min, peak_rss 375MB (results=0/40 no_result=0 failed=29, 0 pending, 11 in flight)
+14:59:36 WARNING game 29 (side 2, seed 20029) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:36 INFO game 29 done in 0.0 min, peak_rss 375MB (results=0/40 no_result=0 failed=30, 0 pending, 10 in flight)
+14:59:36 WARNING game 30 (side 1, seed 20030) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:36 INFO game 30 done in 0.0 min, peak_rss 373MB (results=0/40 no_result=0 failed=31, 0 pending, 9 in flight)
+14:59:36 WARNING game 31 (side 2, seed 20031) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:36 INFO game 31 done in 0.0 min, peak_rss 380MB (results=0/40 no_result=0 failed=32, 0 pending, 8 in flight)
+14:59:36 WARNING game 32 (side 1, seed 20032) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:36 INFO game 32 done in 0.0 min, peak_rss 373MB (results=0/40 no_result=0 failed=33, 0 pending, 7 in flight)
+14:59:36 WARNING game 33 (side 2, seed 20033) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:36 INFO game 33 done in 0.0 min, peak_rss 375MB (results=0/40 no_result=0 failed=34, 0 pending, 6 in flight)
+14:59:36 WARNING game 34 (side 1, seed 20034) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:36 INFO game 34 done in 0.0 min, peak_rss 376MB (results=0/40 no_result=0 failed=35, 0 pending, 5 in flight)
+14:59:36 WARNING game 35 (side 2, seed 20035) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:36 INFO game 35 done in 0.0 min, peak_rss 374MB (results=0/40 no_result=0 failed=36, 0 pending, 4 in flight)
+14:59:36 WARNING game 36 (side 1, seed 20036) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:36 INFO game 36 done in 0.0 min, peak_rss 373MB (results=0/40 no_result=0 failed=37, 0 pending, 3 in flight)
+14:59:36 WARNING game 37 (side 2, seed 20037) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:36 INFO game 37 done in 0.0 min, peak_rss 377MB (results=0/40 no_result=0 failed=38, 0 pending, 2 in flight)
+14:59:36 WARNING game 38 (side 1, seed 20038) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:36 INFO game 38 done in 0.0 min, peak_rss 372MB (results=0/40 no_result=0 failed=39, 0 pending, 1 in flight)
+14:59:36 WARNING game 39 (side 2, seed 20039) failed rc=1: y reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+14:59:36 INFO game 39 done in 0.0 min, peak_rss 376MB (results=0/40 no_result=0 failed=40, 0 pending, 0 in flight)
+14:59:44 INFO inference server relset.pt: 1200 requests in 139 batches, mean batch 8.63, hist {'1': 2, '2': 2, '3': 7, '4': 2, '5': 7, '6': 4, '7': 9, '8': 33, '9': 22, '10': 24, '11': 12, '12': 8, '13': 1, '14': 1, '15': 1, '17': 2, '18': 1, '19': 1}; idle 12.6s window 0.2s infer 4.3s reply 0.3s of 17.5s wall (gpu 4.0s)
+14:59:44 INFO chunk end: 0/40 RESULTS (0 no-result absences, replacements 0/0; 0 files) in /workspace/servegraph/eval_games_graphed_b (this chunk: 0 played, 40 failed)

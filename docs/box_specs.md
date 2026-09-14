@@ -1457,6 +1457,98 @@ Ladder maps sits between the two; it is measured next
 (`train_pool48`), and if it thrashes the cure is the actor shipping
 its RawEncoded with the experience, as it ships the masks.
 
+**The graphed server on the eval path** (the same box, 20 workers,
+`relset` against itself at raw:t0, 40 games per arm, one factor:
+`--graphed-serve`, twice each per build). The walls of this box moved by
+up to 1.7x between passes on their own (the eager arms read 54/67 s
+in the morning, 94/105 s at midday, 70/51 s in the evening), so the
+server's own infer time per batch is the reading to compare:
+
+first build: every batch padded to the 20-segment cap, the reply as the eager path's:
+
+| arm | match wall s | requests | batches | mean batch | infer ms per batch | infer s | idle s | server wall s | graphed batches | fallbacks | buckets | capture s |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| eager_a | 94 | 18,519 | 2,663 | 6.95 | 20.0 | 53.2 | 24.4 | 86.7 | - | - | - | - |
+| graphed_a | 69 | 18,442 | 2,576 | 7.16 | 15.1 | 39.0 | 17.1 | 64.9 | 2533 | 43 | 18 | - |
+| eager_b | 105 | 18,543 | 3,245 | 5.71 | 20.4 | 66.3 | 25.9 | 101.7 | - | - | - | - |
+| graphed_b | 77 | 17,834 | 2,756 | 6.47 | 13.6 | 37.6 | 26.4 | 73.4 | 2750 | 6 | 17 | - |
+
+second build: segment buckets, one tuple per reply, one instance per serve thread:
+
+| arm | match wall s | requests | batches | mean batch | infer ms per batch | infer s | idle s | server wall s | graphed batches | fallbacks | buckets | capture s |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| eager_a | 70 | 17,560 | 2,744 | 6.40 | 14.8 | 40.6 | 15.1 | 62.4 | - | - | - | - |
+| graphed_a | 56 | 19,269 | 3,508 | 5.49 | 7.9 | 27.6 | 17.7 | 53.0 | 3503 | 5 | 45 | - |
+| eager_b | 51 | 17,026 | 2,404 | 7.08 | 11.6 | 28.0 | 14.0 | 47.6 | - | - | - | - |
+| graphed_b | 41 | 17,591 | 2,457 | 7.16 | 7.8 | 19.1 | 13.3 | 37.6 | 2452 | 5 | 45 | - |
+| graphed_j28 | 56 | 18,195 | 2,224 | 8.18 | 13.8 | 30.7 | 14.9 | 52.3 | 2211 | 13 | 72 | - |
+
+third build: the embed inside the graph, one capture at a time:
+
+| arm | match wall s | requests | batches | mean batch | infer ms per batch | infer s | idle s | server wall s | graphed batches | fallbacks | buckets | capture s |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| eager_a | 122 | 20,887 | 2,728 | 7.66 | 24.6 | 67.1 | 27.0 | 110.1 | - | - | - | - |
+| graphed_a | 94 | 17,215 | 2,328 | 7.39 | 18.4 | 42.8 | 22.3 | 80.8 | 2289 | 39 | 30 | 10.28 |
+| eager_b | 135 | 19,279 | 3,087 | 6.25 | 29.1 | 89.9 | 23.7 | 130.7 | - | - | - | - |
+| graphed_b | 53 | 18,123 | 3,166 | 5.72 | 8.5 | 27.0 | 14.7 | 49.9 | 3010 | 156 | 24 | 4.66 |
+| graphed_j28 | 66 | 19,781 | 3,829 | 5.17 | 7.0 | 26.9 | 26.0 | 62.2 | 3750 | 79 | 28 | 4.81 |
+
+Per batch the server's infer time goes eager -> graphed
+20.2 -> 14.4 ms (first build), 13.3 -> 7.8 (second),
+27.0 -> 12.7 (third), on a box whose per-thread CPU is about
+2.5x slower than the postreview box's (its eager pool serve thread
+logged 13-20 ms of forward launches per batch against 8.2). The match
+walls followed at 1.2-1.4x, and no further: with the server this fast
+it idles 29% of its wall waiting for the workers' next requests, so
+the workers' serial chain (encode, enumerate, pick, step) is the eval
+path's bound now. A 28-worker arm on the second build did not move
+that (13.8 ms per batch, wall 56 s): it captured 72 buckets
+against 45 in the 20-worker arms, one capture per distinct segment,
+actor, hex and token cap, so the eval server buckets coarsely since
+(8, 16, max_batch segments; power-of-two token rows) and the summary
+counts capture seconds.
+
+**The graphed server on the pool** (one iteration of 48 actors and 48
+games, 32 evaluations, bf16 packed, one factor). The pool's two serve
+threads found two capture rules the single-threaded eval server never
+met: the caching allocator holds one capture state per process (two
+threads capturing at once trip its `captures_underway` assert, second
+build), and a capture in the default global error mode fails every
+CUDA call of the other thread meanwhile ("operation not permitted
+when stream is capturing", third build, which crashed that arm's
+games), and a replay on one thread while the other captures trips
+the default CUDA generator, which every capture registers ("Offset
+increment outside graph capture encountered unexpectedly", fourth
+build, whose graphed arm then served eagerly and read as an
+eager-against-eager repeat: 997 against 1,032 iteration leaves/s,
+1,745 against 1,621 saturated). With captures and replay launches
+under one process-wide lock, TWO instances in one process (one per
+serve thread) still died of illegal memory accesses on the first
+batches, serialized or not, while one instance shared by both
+threads ran clean (fifth build; the failing batch, dumped and
+replayed alone, is served correctly eagerly, by the static body and
+by a graph, so the fault is between the instances, not in the data).
+The pool's picker also fills a batch with whole requests, so 45% of
+its batches ran past 16 leaves and took the eager path; the pool's
+segment caps are max_batch and twice it since. This pair ran on that
+build:
+
+| serve path | iteration leaves/s | saturated leaves/s | games per $ | iteration wall s | median game s | longest game s | queue depth | host ms per batch: unpack, encode, forward, priors, wire |
+|---|---|---|---|---|---|---|---|---|
+| eager | 905 | 1,744 | 786 | 599 | 278 | 594 | 21.8 | 0.9, 3.5, 10.1, 6.2, 1.3 |
+| graphed | 1,042 | 2,270 | 816 | 577 | 256 | 570 | 18.9 | 1.2, 11.8, 0.2, 0.1, 1.3 |
+
+In the graphed row the encode column holds the whole graphed call (the staging, the replay and the wait for the device) and the forward and priors columns only its launch. Iteration rate 1.15x, saturated rate 1.30x, games per dollar 1.04x. Graphed summary: `{"graphs": true, "served": 35278, "fallbacks": {"tokens": 440}, "capture_s": 16.08, "buckets": {"16x64x512x1024": 1768, "16x128x512x3072": 22, "16x64x512x2048": 848, "32x64x512x2048": 177, "32x64x512x3072": 683, "16x64x512x3072": 2230, "16x64x512x6144": 6366, "16x128x512x4096": 91, "32x64x512x4096": 1192, "32x64x512x6144": 2945, "16x64x512x4096": 3044, "32x128x512x2048": 9, "32x128x512x3072": 44, "32x128x512x6144": 410, "32x64x512x1024": 7, "32x128x512x4096": 109, "16x128x512x2048": 13, "16x128x512x6144": 499, "32x64x512x8192": 2071, "32x128x512x8192": 357, "32x64x512x12288": 1161, "32x64x1024`. This box's own swing: its eager pool arms of the day read 474, 798, 916, 1,032, 997 and 905 iteration leaves/s (794, 1,374, 1,627, 1,621, 1,745 and 1,744 saturated), so a single pair here resolves only ratios well outside 1.7x on the iteration column and about 1.3x on the saturated one; a quiet box repeats the saturated column within 5% ("Phase 1's exit").
+
+**The trainer at production's map count** (`bench_train_step --source
+pool`, 48 actors and games, 7,394 experiences, the same loaded box):
+encode_raw 0.35, encode 0.36, forward 0.97, policy loss
+0.22, backward 1.93, step wall 4.00 ms per experience. The
+terrain caches do not thrash at 48 games on the Ladder maps, so the
+actor need not ship its RawEncoded; the doubled forward and backward
+against the 16-game row are this box's load, not the map count.
+
+
 ## Hide cover after the root fix: the corpus sweep, and what it does NOT certify (2026-09-13, box 50882541, 28 cores)
 
 `scripts/hide_cover_cert_box.sh`. Cover for ambush / concealment /

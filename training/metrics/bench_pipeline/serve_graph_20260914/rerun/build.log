@@ -1,0 +1,21 @@
+Processing ./rust/wesnoth_core
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Getting requirements to build wheel: started
+  Getting requirements to build wheel: finished with status 'done'
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Building wheels for collected packages: wesnoth_core
+  Building wheel for wesnoth_core (pyproject.toml): started
+  Building wheel for wesnoth_core (pyproject.toml): finished with status 'done'
+  Created wheel for wesnoth_core: filename=wesnoth_core-0.1.0-cp311-abi3-linux_x86_64.whl size=473726 sha256=d574951df82e434c9e87ce3c39e020a7f77877e2e9fbdf5da97b13a31690be50
+  Stored in directory: /tmp/pip-ephem-wheel-cache-i4oryysl/wheels/48/69/77/d1f82295a3b687583d7bea6541dbbc7cce8a25850201c3d64a
+Successfully built wesnoth_core
+Installing collected packages: wesnoth_core
+  Attempting uninstall: wesnoth_core
+    Found existing installation: wesnoth_core 0.1.0
+    Uninstalling wesnoth_core-0.1.0:
+      Successfully uninstalled wesnoth_core-0.1.0
+Successfully installed wesnoth_core-0.1.0
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable.It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+wheel phase 10

@@ -1,0 +1,22 @@
+2026-09-14 16:40:00,868 transformer_policy INFO TransformerPolicy device: cuda
+2026-09-14 16:40:01,786 transformer_policy INFO inference bf16 autocast ON
+2026-09-14 16:40:01,906 transformer_policy WARNING relset.pt was trained under observation epoch 1; this sim is 3. The weights encode a different observation distribution, so any match against a checkpoint from another epoch is CROSS-BUILD: re-measure, do not chain numbers (see constants.OBSERVATION_EPOCH).
+2026-09-14 16:40:01,934 transformer_policy INFO Loaded checkpoint from training/checkpoints/relset.pt (decision_step=0)
+2026-09-14 16:40:01,935 eval_sim INFO [pool] loaded relset.pt
+2026-09-14 16:40:02,115 actor_pool INFO actor pool started: 48 actors, max_batch=16, 1 servers
+2026-09-14 16:40:10,108 tools.inference_seam ERROR graphed serve failed on a batch of 16; serving eager from now on
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 377, in _infer_with_priors
+    graphed = gserve.infer(raws, packs)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/wesnoth_ai/graphed_serve.py", line 458, in infer
+    self._run(st)
+  File "/workspace/Wesnoth-AI/wesnoth_ai/graphed_serve.py", line 385, in _run
+    st.graph.replay()
+  File "/opt/conda/lib/python3.11/site-packages/torch/cuda/graphs.py", line 88, in replay
+    super().replay()
+RuntimeError: Offset increment outside graph capture encountered unexpectedly.
+2026-09-14 16:49:15,985 actor_pool INFO iter 0: serve stages (1 servers x 2 threads, leaves per server [552426]): wait=357.9s infer=672.9s wire=43.8s put=2.2s gpu=645.7s (1.17 ms/leaf) leaves/batch=17.4 saturated=1744 leaves/s (best 60 s) throughput=997 leaves/s
+2026-09-14 16:49:15,986 actor_pool INFO iter 0: host ms per batch: unpack=0.96 encode=3.64 forward=10.20 priors=6.33 wait=0.14 reply=0.27 wire=1.38 put=0.07 | coalesce=fifo requests/batch=1.65 queue depth=22.84 skipped=0
+2026-09-14 16:49:15,986 actor_pool INFO iter 0: pool served 552426 forwards, 48 games, 17461 experiences, decision_step 0 -> 17461
+2026-09-14 16:49:15,986 actor_pool INFO iter 0: game finish times p50=313s p90=412s max=553s | tokens/leaf=294 pad_ratio=1.32

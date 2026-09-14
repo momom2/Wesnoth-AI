@@ -1,0 +1,4 @@
+leaves_per_s               eager     1032.0   graphed      997.4   0.97x
+saturated_leaves_per_s     eager     1620.8   graphed     1744.5   1.08x
+games_per_dollar           eager      976.2   graphed      843.2   0.86x
+graphed summary: None

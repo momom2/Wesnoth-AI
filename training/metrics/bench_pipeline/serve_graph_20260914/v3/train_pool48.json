@@ -1,0 +1,154 @@
+{
+ "rows": [
+  {
+   "precision": "bf16",
+   "batch_size": 16,
+   "n": 1024,
+   "compiled": false,
+   "repeats": 2,
+   "warmup_s": 4.645960610996553,
+   "ms_per_exp": {
+    "encode_raw": 0.34559367597103113,
+    "encode": 0.3638359074248001,
+    "forward": 0.9696949543431402,
+    "policy_loss": 0.22053757781395686,
+    "value_loss": 0.023442546967999075,
+    "backward": 1.9289045073091986
+   },
+   "fwd_bwd_ms_per_exp": 3.8520091698301258,
+   "clip_ms": 3.1118719577789307,
+   "optimizer_ms": 4.470720052719116,
+   "snapshot_ms": 10.645376205444336,
+   "step_wall_s": 4.0999628999998095,
+   "step_wall_ms_per_exp": 4.003870019531064,
+   "unattributed_ms_per_exp": 0.13406009949005646,
+   "gpu_peak_mb": 1225.19970703125,
+   "grad_norm": 3.2452805042266846,
+   "total_loss": 4.808602281846106
+  }
+ ],
+ "parity": [
+  {
+   "config": "fp32 B=1",
+   "reference": true,
+   "policy_loss": 3.5903152003884315,
+   "value_loss": 0.0,
+   "total_loss": 3.5903152003884315,
+   "grad_norm": 3.0486507415771484,
+   "loss_rel_diff": 0.0,
+   "grad_norm_ratio": 0.9999999949786817,
+   "grad_rel_l2_diff": 0.0,
+   "cosine": 1.0,
+   "ok": true
+  },
+  {
+   "config": "fp32 B=1 rerun",
+   "reference": false,
+   "policy_loss": 3.5903152003884315,
+   "value_loss": 0.0,
+   "total_loss": 3.5903152003884315,
+   "grad_norm": 3.0486507415771484,
+   "loss_rel_diff": 0.0,
+   "grad_norm_ratio": 0.9999999949786817,
+   "grad_rel_l2_diff": 0.0,
+   "cosine": 1.0,
+   "ok": true
+  },
+  {
+   "config": "bf16 B=16",
+   "reference": false,
+   "policy_loss": 3.5893728733062744,
+   "value_loss": 0.0,
+   "total_loss": 3.5893728733062744,
+   "grad_norm": 3.0435500144958496,
+   "loss_rel_diff": 0.0002624636082244773,
+   "grad_norm_ratio": 0.9983268853022851,
+   "grad_rel_l2_diff": 0.019642615696161613,
+   "cosine": 0.9998081624236964,
+   "ok": true
+  }
+ ],
+ "implied": [
+  {
+   "precision": "bf16",
+   "batch_size": 16,
+   "compiled": false,
+   "n_measured": 1024,
+   "fwd_bwd_experiences": 9912.0,
+   "fwd_only_experiences": 648,
+   "step_experiences": 4000,
+   "held_experiences_per_pass": 2700.0,
+   "fixed_s": 0.12566643285751342,
+   "train_path_s": 39.394854024668575,
+   "leaves_per_iteration": 414720.0,
+   "generation_s_saturated": 497.86314525810326,
+   "fraction_saturated": 0.07332576541858823,
+   "generation_s_iteration_avg": 848.0981595092024,
+   "fraction_iteration_avg": 0.04438891734798437
+  }
+ ],
+ "compile": {
+  "requested": false,
+  "active": false
+ },
+ "loop": {
+  "games_per_iter": 24,
+  "holdout_frac": 0.2,
+  "exps_per_game": 540.0,
+  "step_cap": 4000,
+  "step_trials": 1,
+  "sims": 32,
+  "leaves_per_s": 833.0,
+  "iteration_leaves_per_s": 489.0,
+  "signal_states": 128,
+  "signal_surgeries": 4,
+  "probe_forwards": 448,
+  "kl_states": 100
+ },
+ "unique_experiences": 7394,
+ "parity_n": 64,
+ "n_list": [
+  1024
+ ],
+ "batch_sizes": [
+  16
+ ],
+ "precisions": [
+  "bf16"
+ ],
+ "repeats": 2,
+ "parity_tolerance": {
+  "loss_rel": 0.01,
+  "grad_norm_rel": 0.05,
+  "cosine_min": 0.99
+ },
+ "env": {
+  "checkpoint": "relset.pt",
+  "arch": {
+   "d_model": 384,
+   "num_layers": 8,
+   "num_heads": 12,
+   "d_ff": 1536
+  },
+  "params_m": 15.03,
+  "torch": "2.5.1+cu124",
+  "device": "cuda",
+  "device_name": "NVIDIA GeForce RTX 4090",
+  "source": {
+   "kind": "pool",
+   "actors": 48,
+   "games": 48,
+   "decisive": 3,
+   "sims": 32,
+   "max_turns": 12,
+   "gen_seconds": 209.8999775709999,
+   "forwards": 230307,
+   "leaves_per_s": 1097.2226041429533,
+   "experiences_per_game": 154.04166666666666,
+   "experiences": 7394,
+   "build_seconds": 214.75495180500002
+  },
+  "loop_train_batch_size": 16,
+  "note": "az_loop sets TrainerConfig.train_batch_size 16 (2026-09-05); value loss mse_mean, coef 1, lr 1e-4, clip 1, no auxiliary terms"
+ }
+}

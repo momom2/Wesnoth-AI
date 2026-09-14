@@ -1,0 +1,39 @@
+2026-09-14 16:25:40,177 transformer_policy INFO TransformerPolicy device: cuda
+2026-09-14 16:25:41,175 transformer_policy WARNING relset.pt was trained under observation epoch 1; this sim is 3. The weights encode a different observation distribution, so any match against a checkpoint from another epoch is CROSS-BUILD: re-measure, do not chain numbers (see constants.OBSERVATION_EPOCH).
+2026-09-14 16:25:41,204 transformer_policy INFO Loaded checkpoint from training/checkpoints/relset.pt (decision_step=0)
+2026-09-14 16:25:41,216 eval_sim INFO [bench_train_step] loaded relset.pt
+2026-09-14 16:25:41,400 actor_pool INFO actor pool started: 48 actors, max_batch=16, 1 servers
+2026-09-14 16:29:11,301 actor_pool INFO iter 0: serve stages (1 servers x 2 threads, leaves per server [230307]): wait=114.7s infer=274.6s wire=17.5s put=1.5s gpu=264.2s (1.15 ms/leaf) leaves/batch=18.0 saturated=1676 leaves/s (best 60 s) throughput=1097 leaves/s
+2026-09-14 16:29:11,301 actor_pool INFO iter 0: host ms per batch: unpack=0.87 encode=4.74 forward=9.77 priors=5.95 wait=0.12 reply=0.23 wire=1.36 put=0.12 | coalesce=fifo requests/batch=1.73 queue depth=28.81 skipped=0
+2026-09-14 16:29:11,301 actor_pool INFO iter 0: pool served 230307 forwards, 48 games, 7394 experiences, decision_step 0 -> 7394
+2026-09-14 16:29:11,301 actor_pool INFO iter 0: game finish times p50=137s p90=156s max=209s | tokens/leaf=257 pad_ratio=1.35
+2026-09-14 16:29:15,971 bench_train_step INFO experiences: {'kind': 'pool', 'actors': 48, 'games': 48, 'decisive': 3, 'sims': 32, 'max_turns': 12, 'gen_seconds': 209.8999775709999, 'forwards': 230307, 'leaves_per_s': 1097.2226041429533, 'experiences_per_game': 154.04166666666666, 'experiences': 7394, 'build_seconds': 214.75495180500002}
+2026-09-14 16:29:16,005 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-14 16:29:21,332 bench_train_step INFO timing bf16 B=16 N=1024
+2026-09-14 16:29:34,179 bench_train_step INFO   -> 4.003870019531064
+# Training-path cost (tools/bench_train_step.py)
+
+relset.pt (15.03 M params) on NVIDIA GeForce RTX 4090, torch 2.5.1+cu124; source: {'kind': 'pool', 'actors': 48, 'games': 48, 'decisive': 3, 'sims': 32, 'max_turns': 12, 'gen_seconds': 209.8999775709999, 'forwards': 230307, 'leaves_per_s': 1097.2226041429533, 'experiences_per_game': 154.04166666666666, 'experiences': 7394, 'build_seconds': 214.75495180500002}
+
+## Stage costs, ms per experience (median of 2 steps; 7394 unique experiences, cycled)
+
+| precision | B | N | compiled | encode_raw | encode | forward | policy_loss | value_loss | backward | fwd+bwd | clip ms | optimizer ms | snapshot ms | step wall ms/exp | unattributed ms/exp | GPU peak MB | warmup s |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| bf16 | 16 | 1024 | no | 0.35 | 0.36 | 0.97 | 0.22 | 0.02 | 1.93 | 3.85 | 3.11 | 4.47 | 10.65 | 4.00 | 0.13 | 1225 | 4.6 |
+
+## Parity on one batch of 64 (optimizer stubbed, no clipping; reference fp32 B=1 -- for the compiled rows the eager fp32 B=1 on the same weights; pass = loss within 1%, gradient norm within 5%, cosine >= 0.99)
+
+| config | total loss | loss rel diff | grad norm | norm ratio | grad rel L2 diff | cosine | ok |
+|---|---|---|---|---|---|---|---|
+| fp32 B=1 | 3.59032 | 0.00e+00 | 3.0487 | 1.0000 | 0.00e+00 | 1.00000 | ref |
+| fp32 B=1 rerun | 3.59032 | 0.00e+00 | 3.0487 | 1.0000 | 0.00e+00 | 1.00000 | yes |
+| bf16 B=16 | 3.58937 | 2.62e-04 | 3.0436 | 0.9983 | 1.96e-02 | 0.99981 | yes |
+
+## Implied az_loop iteration (24 games, holdout 0.2, 540 experiences per game, step cap 4000, 1 trial(s), 32 sims)
+
+| precision | B | compiled | train-path s | generation s at 833 leaves/s | fraction | generation s at 489 leaves/s | fraction |
+|---|---|---|---|---|---|---|---|
+| bf16 | 16 | no | 39.4 | 498 | 0.073 | 848 | 0.044 |
+
+Training-path passes per iteration: 9912 forward+backward experiences (step 4000, held-out 2700 x 2, signal 512) and 648 forward-only.
+

@@ -1,0 +1,22 @@
+2026-09-14 14:51:14,842 transformer_policy INFO TransformerPolicy device: cuda
+2026-09-14 14:51:16,743 transformer_policy INFO inference bf16 autocast ON
+2026-09-14 14:51:16,841 transformer_policy WARNING relset.pt was trained under observation epoch 1; this sim is 3. The weights encode a different observation distribution, so any match against a checkpoint from another epoch is CROSS-BUILD: re-measure, do not chain numbers (see constants.OBSERVATION_EPOCH).
+2026-09-14 14:51:16,871 transformer_policy INFO Loaded checkpoint from training/checkpoints/relset.pt (decision_step=0)
+2026-09-14 14:51:16,881 eval_sim INFO [bench_serve_graph] loaded relset.pt
+2026-09-14 14:51:16,893 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-14 14:51:19,947 bench_serve_graph INFO 32 positions, packed trunk True, bf16 True
+| batch | tokens | infer_batch ms | encode ms | forward eager ms | forward graph ms | priors ms | launches | device busy ms | busy of wall |
+|---|---|---|---|---|---|---|---|---|---|
+| 8 | 3316 | 7.55 | 0.81 | 3.50 | 1.67 | 1.81 | 406 | 2.03 | 0.04 |
+| 16 | 5950 | 8.63 | 1.03 | 4.50 | 2.55 | 2.41 | 406 | 3.00 | 0.12 |
+
+batch 8 seam stages, ms per call: encode 4.14, forward 12.07, priors 3.90, finish 0.06, reply 0.15, stream_span 20.11
+batch 8 infer_batch through graphed serve: 4.05 ms (min 4.01); {'graphs': True, 'served': 55, 'fallbacks': {}, 'buckets': {'64x1024x4096': 55}}; diff vs eager {'value': 0.0009651482105255127, 'prior': 0.0037476092188430954, 'same_actions': True}
+batch 8 graph vs eager max abs diff: {'actor_logits': 0.0, 'target_logits': 0.0, 'value': 0.0}
+batch 8 top kernels: void cutlass::Kernel2<cutlass_80_tensoro x25 0.60 ms; void at::native::unrolled_elementwise_ke x100 0.31 ms; void pytorch_flash::flash_fwd_kernel<pyt x8 0.26 ms; ampere_bf16_s1688gemm_bf16_128x128_ldg8_ x8 0.19 ms; void at::native::(anonymous namespace):: x16 0.11 ms; void at::native::unrolled_elementwise_ke x16 0.08 ms
+
+batch 16 seam stages, ms per call: encode 0.99, forward 8.89, priors 2.50, finish 0.06, reply 0.25, stream_span 12.39
+batch 16 infer_batch through graphed serve: 5.50 ms (min 5.47); {'graphs': True, 'served': 55, 'fallbacks': {}, 'buckets': {'64x1024x6144': 55}}; diff vs eager {'value': 0.0, 'prior': 0.0, 'same_actions': True}
+batch 16 graph vs eager max abs diff: {'actor_logits': 0.0, 'target_logits': 0.0, 'value': 0.0}
+batch 16 top kernels: void cutlass::Kernel2<cutlass_80_tensoro x36 1.33 ms; void at::native::unrolled_elementwise_ke x100 0.37 ms; void pytorch_flash::flash_fwd_kernel<pyt x8 0.36 ms; void at::native::(anonymous namespace):: x16 0.18 ms; void at::native::unrolled_elementwise_ke x16 0.12 ms; void at::native::(anonymous namespace):: x15 0.09 ms
+wrote /workspace/servegraph/serve_graph.json

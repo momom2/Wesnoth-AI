@@ -1,0 +1,5 @@
+eager_a  70 s 40 games
+graphed_a --graphed-serve 56 s 40 games
+eager_b  51 s 40 games
+graphed_b --graphed-serve 41 s 40 games
+graphed_j28 --graphed-serve --jobs 28 --inference-max-batch 28 56 s 40 games
