@@ -114,7 +114,8 @@ def test_pids_limit_v1_path(tmp_path):
     assert hr.pids_current(root) == 60
 
 
-def test_unlimited_pids_leaves_the_actor_count_alone(tmp_path):
+def test_unlimited_pids_leaves_the_actor_count_alone(tmp_path, monkeypatch):
+    monkeypatch.setattr(hr, "_host_available_mb", lambda: None)   # this laptop's RAM is not the test
     """No readable limit must NOT become a guessed cap."""
     root = _cg(tmp_path, **{"pids.max": "max", "pids.current": "10"})
     assert hr.pids_limit(root) is None
@@ -126,8 +127,9 @@ def test_unlimited_pids_leaves_the_actor_count_alone(tmp_path):
     assert hr.max_actors(64, root=missing)[0] == 64
 
 
-def test_max_actors_clamps_to_what_the_box_allows(tmp_path):
+def test_max_actors_clamps_to_what_the_box_allows(tmp_path, monkeypatch):
     # 200 tasks free after the reserve, 4 per actor -> 50 actors.
+    monkeypatch.setattr(hr, "_host_available_mb", lambda: None)   # the task bound alone
     root = _cg(tmp_path, **{"pids.max": "300", "pids.current": "68"})
     assert hr.pids_headroom(reserve=32, root=root) == 200
     fits, why = hr.max_actors(64, per_actor=4, reserve=32, root=root)
@@ -139,11 +141,30 @@ def test_max_actors_clamps_to_what_the_box_allows(tmp_path):
     assert fits == 12 and "fits 12 actors" in why
 
 
-def test_max_actors_never_returns_zero(tmp_path):
+def test_max_actors_never_returns_zero(tmp_path, monkeypatch):
     """A cramped box should run one actor slowly, not none at all."""
+    monkeypatch.setattr(hr, "_host_available_mb", lambda: None)
     root = _cg(tmp_path, **{"pids.max": "40", "pids.current": "39"})
     fits, _ = hr.max_actors(64, per_actor=4, reserve=32, root=root)
     assert fits == 1
+
+
+def test_max_actors_is_bound_by_memory_too(tmp_path, monkeypatch):
+    """Tasks allow 64 actors; the cgroup has 16 GB of headroom, the
+    learner keeps 6 GB, an actor takes 500 MB -> 20 actors. The memory
+    bound must win, and the reason must say so."""
+    gib = 1024 ** 3
+    root = _cg(tmp_path, **{"pids.max": "1000", "pids.current": "10",
+                            "memory.max": str(32 * gib), "memory.current": str(16 * gib)})
+    monkeypatch.setattr(hr, "_host_available_mb", lambda: 100 * 1024.0)
+    fits, why = hr.max_actors(64, per_actor=4, reserve=32, root=root,
+                              per_actor_mb=500.0, reserve_mb=6144.0)
+    assert fits == 20, why
+    assert "memory" in why and "OOM" in why
+    # With memory unreadable only the task bound applies.
+    monkeypatch.setattr(hr, "_host_available_mb", lambda: None)
+    root2 = _cg(tmp_path / "b", **{"pids.max": "1000", "pids.current": "10"})
+    assert hr.max_actors(64, per_actor=4, reserve=32, root=root2)[0] == 64
 
 
 def test_pids_per_actor_measures_the_real_cost(tmp_path, monkeypatch):

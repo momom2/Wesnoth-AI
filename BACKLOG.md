@@ -40,7 +40,9 @@ and the sections after it), on one 24-core 4090:
   64 -> 1,116 leaves/s against a server saturating near 1,500.
   `az_loop --actors` was 8, then 32 (5af8065), then 24 (5868c35), and
   is now **0 = auto**: as many as --games-per-iter and
-  the box allow, clamped by the pids limit host_resources now READS.
+  the box allow, clamped by the pids limit host_resources now READS
+  and (2026-09-14) by its available memory at ~500 MB per actor after
+  6 GB for the learner, both estimates logged for calibration.
   64 measured best and the curve was still rising; the 2026-09-04 host
   that died at 38 is exactly what the read limit prevents, so the
   default no longer has to be conservative. **1.68x on generation,

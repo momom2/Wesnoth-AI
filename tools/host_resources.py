@@ -178,27 +178,64 @@ def pids_headroom(reserve: int = 32,
     return max(0, lim - cur - reserve)
 
 
+# Resident memory one actor process settles at: the sim, the encoder
+# and torch (an eval worker peaks at about 400 MB, run_elo_batch's
+# per-game logs). A budgeting estimate like the tasks one, and logged
+# the same way; err high, since an actor pool that outgrows the box
+# page-thrashes or is OOM-killed mid-iteration.
+ACTOR_MB_ESTIMATE = 500.0
+# What the learner, the in-process serving and the spawned serve
+# processes need beside the actors.
+LEARNER_RESERVE_MB = 6144.0
+
+
 def max_actors(requested: int, per_actor: int = PIDS_PER_ACTOR_ESTIMATE,
                reserve: int = 32,
-               root: str = "/sys/fs/cgroup") -> Tuple[int, str]:
+               root: str = "/sys/fs/cgroup",
+               per_actor_mb: float = ACTOR_MB_ESTIMATE,
+               reserve_mb: float = LEARNER_RESERVE_MB) -> Tuple[int, str]:
     """(actors we can safely run, one-line reason).
 
-    Returns `requested` unchanged when no pids limit is readable --
-    the caller must not guess a cap from nothing. The reason string is
-    meant to be logged verbatim so a short run tells us what the box
-    allowed, which is how `per_actor` gets calibrated.
+    Two bounds, each skipped when its reading is unavailable rather
+    than guessed: the cgroup's task budget (`pids_headroom`) at
+    `per_actor` tasks each, and the memory the process can still take
+    (`available_mb`, the binding one of the host's and the cgroup's)
+    minus `reserve_mb` for the learner, at `per_actor_mb` each. The
+    reason string is meant to be logged verbatim so a short run tells
+    us what the box allowed, which is how the estimates get calibrated.
     """
+    fits = requested
+    reasons = []
     head = pids_headroom(reserve, root)
     if head is None:
-        return requested, "no cgroup pids limit; actor count unclamped"
-    fits = max(1, head // max(1, per_actor))
+        reasons.append("no cgroup pids limit")
+    else:
+        by_pids = max(1, head // max(1, per_actor))
+        if by_pids >= requested:
+            reasons.append(f"pids headroom {head} tasks fits {requested} actors at "
+                           f"~{per_actor} tasks each")
+        else:
+            reasons.append(f"pids headroom {head} tasks fits only {by_pids} actors at "
+                           f"~{per_actor} tasks each, not the {requested} requested "
+                           f"(cgroup limit {pids_limit(root)}, {pids_current(root)} in "
+                           f"use); a run over this limit produces ZERO leaves/s")
+        fits = min(fits, by_pids)
+    mem = available_mb(root)
+    if mem is None:
+        reasons.append("memory unreadable")
+    else:
+        by_mem = max(1, int((mem - reserve_mb) // max(1.0, per_actor_mb)))
+        if by_mem >= requested:
+            reasons.append(f"memory {mem:.0f} MB fits {requested} actors at "
+                           f"~{per_actor_mb:.0f} MB each after {reserve_mb:.0f} MB for the learner")
+        else:
+            reasons.append(f"memory {mem:.0f} MB fits only {by_mem} actors at "
+                           f"~{per_actor_mb:.0f} MB each after {reserve_mb:.0f} MB for the "
+                           f"learner; more would page-thrash or be OOM-killed")
+        fits = min(fits, by_mem)
     if fits >= requested:
-        return requested, (f"pids headroom {head} tasks fits {requested} actors "
-                           f"at ~{per_actor} tasks each")
-    return fits, (f"pids headroom {head} tasks fits only {fits} actors at "
-                  f"~{per_actor} tasks each, not the {requested} requested "
-                  f"(cgroup limit {pids_limit(root)}, {pids_current(root)} in "
-                  f"use); a run over this limit produces ZERO leaves/s")
+        return requested, "; ".join(reasons) + "; actor count unclamped"
+    return fits, "; ".join(reasons)
 
 
 def pids_per_actor(n_actors: int, baseline: int,

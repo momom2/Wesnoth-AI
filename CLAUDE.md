@@ -196,7 +196,8 @@ State of play:
   evaluations per second against a server saturating near 1,500
   (docs/box_specs.md "Actors buy in-flight leaves"). `az_loop
   --actors` was 8, then 32, then 24 within the day; it is **0 = auto** since 2026-09-13 night
-  (as many as `--games-per-iter` and the box's pids limit allow). Also measured that day: plan 1.3's
+  (as many as `--games-per-iter`, the box's pids limit and, since
+  2026-09-14, its memory allow: `host_resources.max_actors`). Also measured that day: plan 1.3's
   3,000-per-4090 target is NOT met on a real 4090 (1,450-1,565
   saturated; docs/gpu_forward_design_20260904.md's 1,300-1,800 band
   coincides numerically but priced 1,270 tokens per leaf against
