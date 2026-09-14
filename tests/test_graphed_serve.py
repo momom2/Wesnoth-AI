@@ -72,7 +72,7 @@ def test_static_body_matches_the_eager_priors_path():
     with torch.no_grad():
         ref = eager.infer_batch(pairs)
         graphed = GraphedServe(model, enc, torch.device("cpu"), graphs=False,
-                               caps=Caps(b_cap=8, a_caps=(128,), h_caps=(4096,),
+                               caps=Caps(b_caps=(4, 8), a_caps=(128,), h_caps=(4096,),
                                          t_caps=(8192, 16384), max_len=4096))
         got = InferenceServer(model, enc, graphed=graphed).infer_batch(pairs)
     assert graphed.served == 1 and not graphed.fallbacks, graphed.summary()
@@ -90,6 +90,8 @@ def test_static_body_matches_the_eager_priors_path():
         _same(enumerate_legal_actions_with_priors(le, r, gs),
               enumerate_legal_actions_with_priors(le, g, gs))
     assert graphed.served == 2
+    # The 7-state batch took the 8-segment bucket, the 2-state one the 4.
+    assert {k.split("x")[0] for k in graphed.summary()["buckets"]} == {"8", "4"}
 
 
 def test_batches_past_a_cap_take_the_eager_path():

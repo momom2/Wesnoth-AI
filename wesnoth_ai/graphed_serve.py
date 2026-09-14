@@ -61,7 +61,8 @@ log = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class Caps:
-    """The bucket axes. `b_cap` segments per graph (the server's
+    """The bucket axes. Segments per graph from `b_caps` (the first
+    that fits the batch; `b_cap` alone means one value, the server's
     max_batch); actor slots and hex slots bucketed to the first cap
     that fits; token rows to the first bucket that fits the real
     tokens plus one per pad segment; `max_len` the longest segment any
@@ -72,10 +73,16 @@ class Caps:
     t_caps: Tuple[int, ...] = (1024, 2048, 3072, 4096, 6144, 8192, 12288)
     max_len: int = 2048
     capacity: int = 65536
+    b_caps: Tuple[int, ...] = ()
+
+    @property
+    def segment_caps(self) -> Tuple[int, ...]:
+        return tuple(sorted(self.b_caps)) if self.b_caps else (self.b_cap,)
 
 
 @dataclass(frozen=True)
 class Bucket:
+    b_cap: int
     a_cap: int
     h_cap: int
     t_cap: int
@@ -202,29 +209,32 @@ class GraphedServe:
     def _pick(self, B: int, A_max: int, H_max: int, total: int,
               longest: int) -> Optional[Bucket]:
         c = self.caps
-        if B > c.b_cap or longest > c.max_len:
+        if longest > c.max_len:
             return None
+        b_cap = next((b for b in c.segment_caps if b >= B), None)
         a_cap = next((a for a in c.a_caps if a >= A_max), None)
         h_cap = next((h for h in c.h_caps if h >= H_max), None)
-        t_cap = next((t for t in c.t_caps if t >= total + (c.b_cap - B)), None)
-        if a_cap is None or h_cap is None or t_cap is None:
+        if b_cap is None or a_cap is None or h_cap is None:
             return None
-        return Bucket(a_cap, h_cap, t_cap)
+        t_cap = next((t for t in c.t_caps if t >= total + (b_cap - B)), None)
+        if t_cap is None:
+            return None
+        return Bucket(b_cap, a_cap, h_cap, t_cap)
 
     def _state(self, bucket: Bucket) -> _State:
         st = self._states.get(bucket)
         if st is not None:
             return st
-        c, dev = self.caps, self.device
+        dev = self.device
         pin = dev.type == "cuda"
         d = int(self.model.d_model)
         index_layout = FlatLayout([
-            ("cu_seqlens", torch.int32, (c.b_cap + 1,)),
-            ("actor", torch.int64, (c.b_cap * bucket.a_cap,)),
-            ("hex", torch.int64, (c.b_cap * bucket.h_cap,)),
-            ("glob", torch.int64, (c.b_cap,)),
+            ("cu_seqlens", torch.int32, (bucket.b_cap + 1,)),
+            ("actor", torch.int64, (bucket.b_cap * bucket.a_cap,)),
+            ("hex", torch.int64, (bucket.b_cap * bucket.h_cap,)),
+            ("glob", torch.int64, (bucket.b_cap,)),
         ])
-        ml = mask_layout(c.b_cap, bucket.a_cap, bucket.h_cap, self.T, self.W,
+        ml = mask_layout(bucket.b_cap, bucket.a_cap, bucket.h_cap, self.T, self.W,
                          type_bias=True, attack_bias=True)
         st = _State(
             bucket=bucket,
@@ -258,7 +268,7 @@ class GraphedServe:
         once per bucket on CUDA; run as is on CPU."""
         model, dev, c = self.model, self.device, self.caps
         bucket = st.bucket
-        B, A, H = c.b_cap, bucket.a_cap, bucket.h_cap
+        B, A, H = bucket.b_cap, bucket.a_cap, bucket.h_cap
         d = st.x.shape[1]
         bf16 = dev.type == "cuda"
         autocast = (torch.autocast("cuda", dtype=torch.bfloat16) if bf16
@@ -344,7 +354,7 @@ class GraphedServe:
             return None
         layout = build_packed_layout(sizes, H_max, U_max, R_max, TokenKind, ActorKind,
                                      source="streams")
-        sidx = static_index(sizes, c.b_cap, bucket.a_cap, bucket.h_cap, bucket.t_cap)
+        sidx = static_index(sizes, bucket.b_cap, bucket.a_cap, bucket.h_cap, bucket.t_cap)
         with self._lock:
             st = self._state(bucket)
             # The real tokens into the static rows, with their kind term.
@@ -383,7 +393,7 @@ class GraphedServe:
 
     def summary(self) -> Dict[str, object]:
         return {"graphs": self.graphs, "served": self.served, "fallbacks": dict(self.fallbacks),
-                "buckets": {f"{b.a_cap}x{b.h_cap}x{b.t_cap}": st.replays
+                "buckets": {f"{b.b_cap}x{b.a_cap}x{b.h_cap}x{b.t_cap}": st.replays
                             for b, st in self._states.items()}}
 
 
