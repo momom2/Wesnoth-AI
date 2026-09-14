@@ -110,8 +110,8 @@ def batched_outputs_to_cpu(outs: List[ModelOutput]) -> List[ModelOutput]:
     return rebuilt
 
 
-def output_to_wire(out: ModelOutput) -> Dict:
-    """ModelOutput -> plain-numpy dict for mp-queue transport.
+def output_to_wire(out: ModelOutput):
+    """ModelOutput -> plain-numpy payload for mp-queue transport.
 
     Plain numpy arrays pickle INLINE into the queue byte stream;
     torch tensors instead route through torch.multiprocessing's
@@ -119,7 +119,20 @@ def output_to_wire(out: ModelOutput) -> Dict:
     per message under the 'file_system' strategy. At ~9 tensors per
     ModelOutput that constant cost is what capped the old per-leaf
     protocol at ~200 req/s with the GPU idle (and fed the
-    2026-07-03 fd-leak incident under 'file_descriptor')."""
+    2026-07-03 fd-leak incident under 'file_descriptor').
+
+    A priors reply (legal_compact set) carries only what the actor
+    reads -- the value head, the two optional heads, the actor kinds
+    and the compact actions -- as one tuple; its placeholder logits
+    are rebuilt by `output_from_wire` (the serve thread used to
+    convert a dozen fields per leaf, 2.1 ms of its host time per
+    16-leaf batch, docs/box_specs.md "The post-review box run")."""
+    compact = getattr(out, "legal_compact", None)
+    if compact is not None:
+        return ("c", int(out.num_units), int(out.num_recruits),
+                _host_np(out.value), _host_np(out.value_logits), _host_np(out.cliffness),
+                _host_np(out.aux_score), _host_np(out.moves_left),
+                _host_np(out.actor_kind).astype("int8"), compact)
     w = {}
     for f in dataclasses.fields(out):
         v = getattr(out, f.name)
@@ -130,9 +143,38 @@ def output_to_wire(out: ModelOutput) -> Dict:
     return w
 
 
-def output_from_wire(w: Dict) -> ModelOutput:
+def _host_np(t: Optional[torch.Tensor]):
+    return None if t is None else t.detach().cpu().numpy()
+
+
+_PLACEHOLDER_LOGITS: Dict[int, Tuple[torch.Tensor, torch.Tensor]] = {}
+
+
+def placeholder_logits(A: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    """The zero logits a priors reply carries for its A actor slots
+    (`[1, A]` and `[1, A, 0]`), built once per A: nothing reads their
+    values (the compact actions replace the logit heads), so every
+    reply of that width shares them."""
+    pair = _PLACEHOLDER_LOGITS.get(A)
+    if pair is None:
+        pair = _PLACEHOLDER_LOGITS[A] = (torch.zeros(1, A), torch.zeros(1, A, 0))
+    return pair
+
+
+def output_from_wire(w) -> ModelOutput:
     """Inverse of output_to_wire (actor side). torch.from_numpy is
     zero-copy; MCTS only reads these tensors."""
+    if isinstance(w, tuple) and w and w[0] == "c":
+        _, U, R, value, value_logits, cliffness, aux, ml, kinds, compact = w
+        flat, empty = placeholder_logits(U + R + 1)
+        return ModelOutput(
+            actor_logits=flat, actor_kind=torch.from_numpy(kinds.astype("int64")),
+            type_logits=empty, target_logits=empty, weapon_logits=empty,
+            value=torch.from_numpy(value), value_logits=torch.from_numpy(value_logits),
+            cliffness=torch.from_numpy(cliffness), num_units=U, num_recruits=R,
+            aux_score=None if aux is None else torch.from_numpy(aux),
+            moves_left=None if ml is None else torch.from_numpy(ml),
+            legal_compact=compact)
     kw = {}
     for name, (tag, v) in w.items():
         kw[name] = torch.from_numpy(v) if tag == "t" else v
@@ -350,10 +392,10 @@ class InferenceServer:
         outs = []
         for b, (U, R, H) in enumerate(sizes):
             A = U + R + 1
+            flat, empty = placeholder_logits(A)
             outs.append(ModelOutput(
-                actor_logits=torch.zeros(1, A), actor_kind=actor_kind[b:b + 1, :A],
-                type_logits=torch.zeros(1, A, 0), target_logits=torch.zeros(1, A, 0),
-                weapon_logits=torch.zeros(1, A, 0),
+                actor_logits=flat, actor_kind=actor_kind[b:b + 1, :A],
+                type_logits=empty, target_logits=empty, weapon_logits=empty,
                 value=small["value"][b:b + 1], value_logits=small["value_logits"][b:b + 1],
                 cliffness=small["cliffness"][b:b + 1], num_units=U, num_recruits=R,
                 aux_score=aux[b:b + 1] if aux is not None else None,
