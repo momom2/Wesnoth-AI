@@ -358,7 +358,12 @@ class GraphedServe:
                     self._body(st)
             torch.cuda.current_stream().wait_stream(s)
             g = torch.cuda.CUDAGraph()
-            with torch.cuda.graph(g):
+            # thread_local: the other serve thread keeps issuing its own
+            # CUDA work (replays, the eager path) while this one records;
+            # the default "global" mode makes those calls fail and the
+            # capture with them ("operation failed due to a previous
+            # error during capture", the 2026-09-14 pool arm).
+            with torch.cuda.graph(g, capture_error_mode="thread_local"):
                 self._body(st)
             torch.cuda.synchronize(self.device)
         st.graph = g

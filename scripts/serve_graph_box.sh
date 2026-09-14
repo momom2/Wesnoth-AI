@@ -32,6 +32,7 @@ DPH="${DPH:-0.37}"
 SKIP_MICRO="${SKIP_MICRO:-0}"       # 1: skip the serve microbenchmark
 SKIP_TRAIN="${SKIP_TRAIN:-0}"       # 1: skip the two trainer benches
 SKIP_AB="${SKIP_AB:-0}"             # 1: skip the eval and pool A/B arms
+SKIP_EVAL_AB="${SKIP_EVAL_AB:-0}"   # 1: skip the eval A/B arms only
 mkdir -p "$OUT"
 cd /workspace
 export HF_TOKEN="$(tr -d '\r\n' < /workspace/.hf_token)" HF_HUB_DISABLE_XET=1
@@ -133,6 +134,7 @@ upload
 fi
 
 if [ "$SKIP_AB" != "1" ]; then
+if [ "$SKIP_EVAL_AB" != "1" ]; then
 # ---- 3a. the eval path with and without the graphed server ----------
 eval_arm() {                     # eval_arm NAME [--graphed-serve]
     local name="$1"; shift
@@ -161,6 +163,7 @@ eval_arm graphed_b --graphed-serve
 eval_arm graphed_j28 --graphed-serve --jobs 28 --inference-max-batch 28
 tar czf "$OUT/eval_stats.tar.gz" -C "$OUT" $(cd "$OUT" && ls -d eval_stats_* 2>/dev/null) 2>/dev/null || true
 upload
+fi
 
 # ---- 3b. the pool with and without the graphed server ---------------
 for arm in eager graphed; do
