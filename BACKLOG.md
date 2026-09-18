@@ -76,14 +76,22 @@ anyway, ordered by what the measurements say is binding:
   That is NOT a throughput-only change: games per iteration sets the
   learner's batch, so it needs its own one-factor evaluation before
   it moves.
-- the inference server was LAUNCH-BOUND on both paths (406 kernel
-  launches per 16-leaf batch for 3 ms of device time, 2026-09-14). The
-  graphed serve path (`--graphed-serve`, wesnoth_ai/graphed_serve.py)
-  replays one CUDA graph per bucket: eval infer 27.0 -> 12.7 ms per batch,
-  pool saturated rate 1.30x and games per dollar 1.04x on the
-  2026-09-14 box (docs/box_specs.md "The serve batch is
-  launch-bound"). Default off until its rows are repeated on a
-  second box; the eval path's bound is now the workers' own chain.
+- the inference server was LAUNCH-BOUND on the 2026-09-14 shared host
+  (406 kernel launches per 16-leaf batch for 3 ms of device time; 20
+  ms of host per pool batch against 12 ms of device). The graphed
+  serve path (`--graphed-serve`, wesnoth_ai/graphed_serve.py) replays
+  one CUDA graph per bucket and read eval infer 27.0 -> 12.7 ms per
+  batch and pool saturated 1.30x there. Repeated 2026-09-18 on a
+  single-tenant Core Ultra 9 285K host under a pre-registered rule
+  (docs/box_specs.md "The graphed server on a quiet host"): pool
+  saturated 1.05-1.07x, games per dollar 0.95-0.98x, the eval batch
+  1.14-1.16x slower. The gain is the host's, not the model's: with 8
+  ms of host per batch the device span already covers 95% of the
+  server's infer time. **Both defaults stay OFF**; pass
+  `--graphed-serve` on the pool when the first iteration's eager
+  `host ms per batch` sum reads well above 12 ms, never on the eval
+  path. On that host the pool is actor-bound at 48 actors (the server
+  55-65% filled), which is the games-per-iteration lever above.
 - the inference server is the ceiling on BOTH paths (eval: over four
   fifths of a worker's wall is spent waiting on it; pool: the server
   idles 40-60% of an iteration but its saturated rate is the roof).

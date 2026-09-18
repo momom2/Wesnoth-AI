@@ -1,0 +1,53 @@
+cores(nproc) 1
+cores(all) 24
+model name	: Intel(R) Core(TM) Ultra 9 285K
+cpu.max 2304000 100000
+pids.max 5888
+NVIDIA GeForce RTX 4090, 24564 MiB, 580.173.02
+               total        used        free      shared  buff/cache   available
+Mem:           63560        1452       39802           1       22304       61380
+torch 2.5.1+cu124
+no git
+reach/enumeration    RUST
+observation          RUST
+rows_from_reach      RUST
+combat               RUST
+encode_streams       RUST
+GameCore             python
+kernels | RUST: reach/enumeration, observation, rows_from_reach, combat, encode_streams | PYTHON: GameCore | wheel phase 10
+== idle 13:33:25
+1.61 0.46 0.23 1/420 1878
+210 MHz, 3105 MHz, 16.99 W, 47, 0 %
+Mem:           63560        1433       39551           1       22574       61399
+== pool_eager_a before 13:33:32
+1.48 0.46 0.23 1/420 1888
+210 MHz, 3105 MHz, 16.51 W, 46, 0 %
+Mem:           63560        1439       39202           1       22918       61393
+== pool_graphed_a before 13:40:28
+2.10 4.57 2.66 1/399 3287
+480 MHz, 3105 MHz, 33.57 W, 42, 0 %
+Mem:           63560        1441       39057           1       23061       61391
+== pool_eager_b before 13:47:46
+1.66 5.23 4.14 1/400 4686
+420 MHz, 3105 MHz, 45.48 W, 43, 0 %
+Mem:           63560        1433       39067           1       23059       61399
+== pool_graphed_b before 13:53:12
+7.05 7.99 5.91 1/411 6085
+300 MHz, 3105 MHz, 20.13 W, 44, 0 %
+Mem:           63560        1439       39058           1       23062       61393
+== eval_eager_a before 13:58:44
+4.37 8.29 6.93 1/411 7484
+225 MHz, 3105 MHz, 25.73 W, 45, 0 %
+Mem:           63560        1433       39062           1       23064       61399
+== eval_graphed_a before 13:59:09
+3.14 7.69 6.76 1/400 8084
+2565 MHz, 3105 MHz, 61.62 W, 46, 0 %
+Mem:           63560        1443       39051           1       23065       61388
+== eval_eager_b before 13:59:37
+2.30 7.05 6.58 1/400 8684
+2565 MHz, 3105 MHz, 61.65 W, 46, 0 %
+Mem:           63560        1428       39065           1       23065       61403
+== eval_graphed_b before 14:00:01
+3.54 7.02 6.58 1/416 9284
+2565 MHz, 3105 MHz, 61.64 W, 46, 2 %
+Mem:           63560        1610       38882           1       23067       61221

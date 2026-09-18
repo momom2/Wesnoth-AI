@@ -355,11 +355,28 @@ State of play:
   serve batch is launch-bound"). Both compare a bf16 server to a
   bf16 server: same weights and math, priors within bf16 noise, so
   neither is a cross-build for Elo.
+- 2026-09-18 (user authorized the repeat): **the graphed server's gain
+  belongs to slow hosts; both defaults stay OFF.** On a single-tenant
+  Core Ultra 9 285K box (24 cores, whole CPU, eager pool arms
+  repeating within 3.5% on the saturated column) the pool pair read
+  saturated 1.05x and 1.07x, iteration 0.99x and 1.03x, games per
+  dollar 0.95x and 0.98x, and the eval batch 1.14-1.16x SLOWER (the
+  coarse eval buckets cost 27-40% more device time and 30 captures
+  2.5 s of a 22 s match), under a rule written before the box was
+  rented (`scripts/graphed_default_box.sh`). The eager server's host
+  cost per pool batch is 8 ms on that host against 20 ms on the
+  2026-09-14 shared host, and the device span already covers 95% of
+  its infer time, so the graphs have only the launch gaps left to
+  remove. The flag stays for slow hosts: an eager `host ms per batch`
+  sum well above 12 ms on the first iteration says the graphed pool
+  server pays (docs/box_specs.md "The graphed server on a quiet host").
+  The same host plays a 40-game raw:t0 match in 24-25 s and runs the
+  eager pool 1.5x faster than the 2026-09-14 boxes.
 - Rulings (2026-09-05): no optimizations conditioned on the MCTS
   loop; scope every box test, train sparingly; results are written
   on the run, never as atomic dumps; a box job past ~1.5x its
   estimate gets inspected and cut.
-- No box is rented (2026-09-14, after the post-review run). Phase 2
+- No box is rented (2026-09-18, after the graphed-default run). Phase 2
   is next: docs/plan_20260904.md 5, whose first measurement is the
   turn-gap pre-registration.
 
@@ -390,7 +407,10 @@ path is 42-74 s** (2026-09-13, five arms of `relset` against itself,
 docs/box_specs.md "The eval path does not want more workers or more
 servers"). Quote the RANGE: the baseline arm repeated at 74 s against
 its own 42 s, a 1.76x swing, so a single wall is not resolvable and an
-800-game match is budgeted at about 18 minutes and $0.20.
+800-game match is budgeted at about 18 minutes and $0.20. Those
+figures are a box class: a single-tenant Core Ultra 9 285K host
+(2026-09-18) played the same match in 24-25 s, its server at 4.6-4.9
+ms per batch against 27 ms there.
 
 Two older numbers are NOT comparable and should not be re-quoted: the
 408 s one-process figure is a TWENTY-game wall (`eval_workers/

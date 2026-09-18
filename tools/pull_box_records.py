@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+"""Pull a box run's records from the model host into the repo.
+
+    python tools/pull_box_records.py tier-b/graphed_default_20260918 \
+        training/metrics/bench_pipeline/graphed_default_20260918
+
+Every file under the HF prefix lands under the local directory with
+the same basename. Files already present with the same size are
+skipped, so the pull can run again while the box is still uploading.
+Prints one line per file and the count at the end.
+"""
+from __future__ import annotations
+
+import argparse
+import logging
+import shutil
+import sys
+from pathlib import Path
+
+REPO = "momom2/wesnoth-model-checkpoints"
+log = logging.getLogger("pull_box_records")
+
+
+def pull(prefix: str, dest: Path) -> int:
+    from huggingface_hub import HfApi, hf_hub_download
+    api = HfApi()
+    prefix = prefix.rstrip("/") + "/"
+    dest.mkdir(parents=True, exist_ok=True)
+    infos = [i for i in api.list_repo_tree(REPO, path_in_repo=prefix.rstrip("/"))
+             if hasattr(i, "size")]
+    n = 0
+    for info in infos:
+        name = info.path[len(prefix):]
+        target = dest / name
+        if target.exists() and target.stat().st_size == info.size:
+            log.info("kept    %s", name)
+            continue
+        src = hf_hub_download(REPO, info.path)
+        shutil.copyfile(src, target)
+        log.info("pulled  %s (%d bytes)", name, info.size)
+        n += 1
+    log.info("%d files pulled, %d present under %s", n, len(infos), dest)
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("prefix", help="path in the model host repo, e.g. tier-b/graphed_default_20260918")
+    ap.add_argument("dest", type=Path, help="local directory to fill")
+    ap.add_argument("--log-level", default="INFO")
+    args = ap.parse_args(argv)
+    logging.basicConfig(level=getattr(logging, args.log_level), format="%(levelname)s %(message)s")
+    return pull(args.prefix, args.dest)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

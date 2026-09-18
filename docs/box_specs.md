@@ -1538,7 +1538,7 @@ build:
 | eager | 905 | 1,744 | 786 | 599 | 278 | 594 | 21.8 | 0.9, 3.5, 10.1, 6.2, 1.3 |
 | graphed | 1,042 | 2,270 | 816 | 577 | 256 | 570 | 18.9 | 1.2, 11.8, 0.2, 0.1, 1.3 |
 
-In the graphed row the encode column holds the whole graphed call (the staging, the replay and the wait for the device) and the forward and priors columns only its launch. Iteration rate 1.15x, saturated rate 1.30x, games per dollar 1.04x. Graphed summary: `{"graphs": true, "served": 35278, "fallbacks": {"tokens": 440}, "capture_s": 16.08, "buckets": {"16x64x512x1024": 1768, "16x128x512x3072": 22, "16x64x512x2048": 848, "32x64x512x2048": 177, "32x64x512x3072": 683, "16x64x512x3072": 2230, "16x64x512x6144": 6366, "16x128x512x4096": 91, "32x64x512x4096": 1192, "32x64x512x6144": 2945, "16x64x512x4096": 3044, "32x128x512x2048": 9, "32x128x512x3072": 44, "32x128x512x6144": 410, "32x64x512x1024": 7, "32x128x512x4096": 109, "16x128x512x2048": 13, "16x128x512x6144": 499, "32x64x512x8192": 2071, "32x128x512x8192": 357, "32x64x512x12288": 1161, "32x64x1024`. This box's own swing: its eager pool arms of the day read 474, 798, 916, 1,032, 997 and 905 iteration leaves/s (794, 1,374, 1,627, 1,621, 1,745 and 1,744 saturated), so a single pair here resolves only ratios well outside 1.7x on the iteration column and about 1.3x on the saturated one; a quiet box repeats the saturated column within 5% ("Phase 1's exit").
+In the graphed row the encode column holds the whole graphed call (the staging, the replay and the wait for the device) and the forward and priors columns only its launch. Iteration rate 1.15x, saturated rate 1.30x, games per dollar 1.04x. Graphed summary: `{"graphs": true, "served": 35278, "fallbacks": {"tokens": 440}, "capture_s": 16.08, "buckets": {"16x64x512x1024": 1768, "16x128x512x3072": 22, "16x64x512x2048": 848, "32x64x512x2048": 177, "32x64x512x3072": 683, "16x64x512x3072": 2230, "16x64x512x6144": 6366, "16x128x512x4096": 91, "32x64x512x4096": 1192, "32x64x512x6144": 2945, "16x64x512x4096": 3044, "32x128x512x2048": 9, "32x128x512x3072": 44, "32x128x512x6144": 410, "32x64x512x1024": 7, "32x128x512x4096": 109, "16x128x512x2048": 13, "16x128x512x6144": 499, "32x64x512x8192": 2071, "32x128x512x8192": 357, "32x64x512x12288": 1161, "32x64x1024`. This box's own swing: its eager pool arms of the day read 474, 798, 916, 1,032, 997 and 905 iteration leaves/s (794, 1,374, 1,627, 1,621, 1,745 and 1,744 saturated), so a single pair here resolves only ratios well outside 1.7x on the iteration column and about 1.3x on the saturated one; a quiet box repeats the saturated column within 5% ("Phase 1's exit"). Repeated 2026-09-18 on a single-tenant Core Ultra 9 285K host: saturated 1.05-1.07x, iteration 0.99-1.03x, games per dollar 0.95-0.98x, the eval batch 1.14-1.16x SLOWER; the gain belongs to slow hosts ("The graphed server on a quiet host").
 
 **The trainer at production's map count** (`bench_train_step --source
 pool`, 48 actors and games, 7,394 experiences, the same loaded box):
@@ -1548,6 +1548,103 @@ terrain caches do not thrash at 48 games on the Ladder maps, so the
 actor need not ship its RawEncoded; the doubled forward and backward
 against the 16-game row are this box's load, not the map count.
 
+
+## The graphed server on a quiet host: both defaults stay off (2026-09-18, instance 51438660, RTX 4090, Core Ultra 9 285K, 24 cores, whole CPU, $0.384/h)
+
+The repeat the 2026-09-14 pair asked for, on a single-tenant host
+(`cpu.max` 23.04 CPUs of 24, 63 GB, load 1.5 at idle, wheel phase 10,
+all five kernels on Rust, `scripts/graphed_default_box.sh`, records in
+`training/metrics/bench_pipeline/graphed_default_20260918/`). One
+factor, `--graphed-serve`, on both production paths, two interleaved
+pairs each, the committed bf16 packed configuration. The rule was
+written before the box was rented (the script's header): the box
+counts as quiet if the two eager pool arms' saturated rates agree
+within 5%; the pool default flips on at 1.15x saturated in BOTH pairs
+with games per dollar at 0.97x or better; the eval default flips on at
+0.75x infer seconds per batch in both pairs with the walls not slower.
+Cost of the run: about $0.27, including eight minutes of a first
+instance that Vast made STOPPED and never brought up.
+
+**The pool** (48 actors and games, 32 evaluations, leaf batch 16,
+seed 20260904; games per dollar priced at $0.47/h, the ratio is what
+matters):
+
+| arm | iteration leaves/s | saturated leaves/s | games per $ | iteration wall s | median game s | longest game s | queue depth | decisive of 48 | host ms per batch: encode, forward, priors | device ms per leaf |
+|---|---|---|---|---|---|---|---|---|---|---|
+| eager a | 1,434 | 2,634 | 907 | 413 | 200 | 405 | 8.6 | 30 | 1.60, 3.54, 2.91 | 0.54 |
+| graphed a | 1,418 | 2,764 | 862 | 434 | 203 | 426 | 11.2 | 25 | 7.83, 0.07, 0.04 | 0.46 |
+| eager b | 1,706 | 2,728 | 1,168 | 322 | 187 | 314 | 10.9 | 32 | 1.69, 3.53, 2.80 | 0.53 |
+| graphed b | 1,762 | 2,914 | 1,149 | 328 | 169 | 320 | 11.5 | 30 | 7.81, 0.06, 0.04 | 0.46 |
+
+The eager arms repeat within 3.5% on the saturated column, so the box
+is quiet; the iteration column swung 1.19x between the same two arms,
+the longest game 405 against 314 s, so that column stays tail-bound
+even on a quiet host. Graphed against eager: saturated 1.050x and
+1.068x, iteration 0.989x and 1.033x, games per dollar 0.951x and
+0.983x. Graphed summaries: served 36,118 batches, 602 fallbacks past
+the token cap (1.7%), 56 buckets captured in 8.0 s; served 34,293, 445
+fallbacks (1.3%), 48 buckets in 5.1 s. No batch failed. **The pool
+default stays OFF** under the rule.
+
+The serve stages say why. In the eager arms the device span covers 95%
+of the server's infer time (gpu 314 of 332 s, 283 of 299 s): on this
+host the eager launches finish inside the GPU's own execution time,
+which the 2026-09-14 hosts' did not. The graphs remove the launch gaps
+inside that span (0.54 to 0.46 ms per leaf) and nothing else, because
+nothing else is left. The eager server's host cost per batch across
+the three boxes that ran this configuration:
+
+| box | host | host ms per batch: encode, forward, priors | device ms per leaf | saturated leaves/s eager | graphed |
+|---|---|---|---|---|---|
+| 2026-09-14, instance 51024616 | 128-thread shared host, 257 GB | 3.5, 10.1, 6.2 | 1.15 | 1,744 | 2,270 (1.30x) |
+| 2026-09-14, instance 51006981 | 24 cores, 29 GB free | 2.7, 8.2, 5.3 | 0.93 | 1,759 | not run |
+| 2026-09-18, instance 51438660 | Core Ultra 9 285K, 24 cores, whole CPU | 1.6, 3.5, 2.9 | 0.54 | 2,634-2,728 | 2,764-2,914 (1.05-1.07x) |
+
+The 20 ms of host per batch that made the shared host launch-bound is
+8 ms here, and the graphed call costs 7.8 ms on both. So the gain is a
+property of the host's CPU, not of the model: it is worth 1.30x
+saturated where the eager host cost per batch reads well above the
+device time (the shared host's 20 against 12 ms) and 1.05x where it
+does not. The same host also runs the eager pool 1.5x faster than the
+2026-09-14 boxes did, and its server is not the pool's bound at 48
+actors: the serve threads waited 302-507 s of a 315-427 s iteration
+for requests, the queue held 9-12 leaves, so 48 actors on 24 cores
+fill about 55-65% of the server here (the actor count is bound by
+`--games-per-iter`, BACKLOG.md "more games per iteration").
+
+**The eval path** (40 games of `relset` against itself at raw:t0, 20
+workers, max batch 20, seeds 20000-20039, `--max-extra-games 0`):
+
+| arm | match wall s | server wall s | batches | mean batch | infer s | captures s | infer ms per batch | device ms | idle s |
+|---|---|---|---|---|---|---|---|---|---|
+| eager a | 25 | 22.4 | 2,098 | 8.5 | 10.2 | 0 | 4.9 | 9,428 | 7.5 |
+| graphed a | 28 | 26.3 | 2,281 | 7.9 | 12.9 | 2.5 | 5.6 (4.6 without the captures) | 11,974 | 7.9 |
+| eager b | 24 | 22.2 | 2,133 | 8.6 | 9.9 | 0 | 4.6 | 9,140 | 7.9 |
+| graphed b | 28 | 26.3 | 2,600 | 7.5 | 13.8 | 2.5 | 5.3 (4.4 without the captures) | 12,789 | 6.4 |
+
+Graphed against eager: 1.16x and 1.14x infer seconds per batch, the
+walls 25 -> 28 and 24 -> 28 s, 40 of 40 games in every arm, no
+fallbacks and no failures (30-31 buckets per arm). **The eval default
+stays OFF.** Two costs the shared host hid: the eval server buckets
+coarsely (8, 16 and max_batch segments, power-of-two token rows), so a
+7.5-leaf batch replays as an 8- or 16-segment graph over up to twice
+its tokens, and the device time per match rose 27-40%; and 30 captures
+cost 2.5 s of a 22 s match. Without the captures the graphed batch is
+0.94x of eager here, against 0.47x on the shared host (27.0 -> 12.7
+ms). Note the eager figures themselves: this host serves an eval batch
+in 4.6-4.9 ms and plays the 40-game match in 24-25 s, against 27 ms
+and 42-74 s on the boxes the standing figures come from; those figures
+are a box class, not the path.
+
+**What stands after this run.** `--graphed-serve` and `--graphed` stay
+opt-in on every entry point, and they stay: on a slow shared host the
+pool pair read 1.30x saturated with the same code, and that class of
+host is common on Vast. The reading that decides is on the first
+iteration's `host ms per batch` line: an eager encode + forward +
+priors sum well above 12 ms says the host is launch-bound and the
+graphed pool server pays; a sum near 8 ms says it does not. On the
+eval path the flag is not worth passing on any host measured so far
+once the captures are counted.
 
 ## Hide cover after the root fix: the corpus sweep, and what it does NOT certify (2026-09-13, box 50882541, 28 cores)
 
