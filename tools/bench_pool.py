@@ -48,18 +48,68 @@ def merged_packed_compile(per_server) -> dict:
     return out
 
 
+def _run_stream(pool, games: int, seed: int, rounds: int, step_seconds: float,
+                timeout: float):
+    """`rounds` windows of `games` completed games each, a publication
+    (unchanged weights: the sync path under load) and `step_seconds`
+    of idling between them, then the drain. Returns the outcomes and
+    experiences of every window, the drain's included, and one record
+    per window. The pool's `last_*` readbacks describe the whole run
+    afterwards (leaves served over the run, saturated rate over it)."""
+    stream = pool.stream(seed)
+    stream.start()
+    records = []
+    outcomes, exps = [], []
+    t_run = time.monotonic()
+    served_before = stream.leaves_served()
+    try:
+        for r in range(rounds):
+            window = stream.collect(games, timeout=timeout)
+            outcomes.extend(window.outcomes)
+            exps.extend(window.experiences)
+            records.append({
+                "round": r, "games": len(window.games), "seconds": window.seconds,
+                "timed_out": window.timed_out,
+                "leaves_per_s": (pool.last_served_forwards or 0) / max(1e-9, window.seconds),
+                "saturated_leaves_per_s": pool.last_saturated_leaves_per_s,
+                "queue_depth": pool.last_queue_depth,
+                "game_seconds_p50": window.game_seconds_p50,
+                "straddle_mean": window.straddle_mean, "straddle_max": window.straddle_max,
+                "straddled_share": window.straddled_share,
+                "decisions": window.decisions})
+            if step_seconds:
+                time.sleep(step_seconds)
+            stream.publish()
+    finally:
+        tail = stream.stop(grace=120.0)
+        outcomes.extend(tail.outcomes)
+        exps.extend(tail.experiences)
+    # The run's own totals: leaves the in-process server served from
+    # the first window to the end of the drain, over that span.
+    pool.last_served_forwards = stream.leaves_served() - served_before
+    pool.last_iteration_seconds = time.monotonic() - t_run
+    pool.last_saturated_leaves_per_s = max(
+        (r["saturated_leaves_per_s"] or 0 for r in records), default=None)
+    p50s = sorted(r["game_seconds_p50"] for r in records if r["game_seconds_p50"] is not None)
+    pool.last_game_finish_p50 = p50s[len(p50s) // 2] if p50s else None
+    pool.last_game_finish_max = None
+    pool.last_decisions = sum(r["decisions"] for r in records)
+    return outcomes, exps, records
+
+
 def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
              server_priors: bool, max_turns: int, device, seed: int,
              iteration_timeout: float, log_level: int = logging.WARNING,
              max_batch: int = 16, serve_threads: int = 2, packed_embed: bool = False,
              coalesce: str = "fifo", coalesce_gap: int = 0,
-             serve_processes: int = 1, graphed_serve: bool = False) -> dict:
+             serve_processes: int = 1, graphed_serve: bool = False,
+             stream_rounds: int = 0, step_seconds: float = 0.0) -> dict:
     from tools.actor_pool import ActorPool
     from tools.mcts import MCTSConfig
     from tools.mcts_policy import MCTSPolicy, ReplayConfig
     from tools.sim_self_play import k_median_of
     from tools.wesnoth_sim import PvPDefaults
-    if games < actors:
+    if games < actors and not stream_rounds:
         raise ValueError(f"games ({games}) < actors ({actors}): the surplus actors "
                          f"would play nothing and the record would misstate the "
                          f"actor count")
@@ -83,11 +133,16 @@ def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
                      serve_processes=serve_processes, graphed_serve=graphed_serve)
     pool.start()
     t0 = time.monotonic()
+    rounds: list = []
     try:
         parity = _server_parity(pool, seed) if serve_processes > 1 else None
         if parity:
             log.info("serve-process parity on one leaf: %s", parity)
-        outcomes, exps = pool.run_iteration(0, games, seed)
+        if stream_rounds:
+            outcomes, exps, rounds = _run_stream(pool, games, seed, stream_rounds,
+                                                 step_seconds, iteration_timeout)
+        else:
+            outcomes, exps = pool.run_iteration(0, games, seed)
     finally:
         pool.shutdown()
     wall = time.monotonic() - t0
@@ -97,7 +152,8 @@ def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
     # A run that hit the iteration timeout spends its tail with most
     # actors idle; its wall-clock rates are lower bounds (2026-09-04
     # review: the two truncated baseline rows are under-reported).
-    truncated = len(outcomes) < games
+    truncated = (len(outcomes) < games) if not stream_rounds else any(
+        r["timed_out"] for r in rounds)
     base = getattr(policy, "_inference_base", policy._inference_model)
     res = {
         "truncated": truncated,
@@ -118,6 +174,20 @@ def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
         "graphed_serve": bool(graphed_serve),
         "graphed_serve_summary": pool._server.graphed_summary(),
         "coalesce": coalesce, "coalesce_gap": coalesce_gap,
+        # Continuous generation (tools/actor_stream.py): one row per
+        # window, and the whole run's rate below (games per hour over
+        # every window and the drain; the barrier's tail is gone, so
+        # the iteration rate and the saturated rate should meet).
+        "stream": bool(stream_rounds), "stream_rounds": rounds,
+        "step_seconds": step_seconds,
+        # The stream's steady state: the windows' games over their
+        # seconds plus the idle after each (a step's stand-in), the
+        # drain left out. games_per_hour above spans the whole run,
+        # drain included, which a campaign pays once.
+        "window_games_per_hour": (
+            3600.0 * sum(r["games"] for r in rounds)
+            / max(1e-9, sum(r["seconds"] + step_seconds for r in rounds))
+            if rounds else None),
         # Warmup seconds, recompiles and any eager fallback of the
         # compiled packed trunk, over every server (design note
         # section 13; each serve process compiles its own copy).
@@ -218,6 +288,15 @@ def main(argv) -> int:
                     help="With --coalesce length: refuse a request further than this many "
                          "tokens from the batch's anchor even if the batch is not full "
                          "(0: no gap rule).")
+    ap.add_argument("--stream", action="store_true",
+                    help="Continuous generation (tools/actor_stream.py): --rounds "
+                         "windows of --games completed games with every actor playing "
+                         "throughout, instead of one barrier iteration.")
+    ap.add_argument("--rounds", type=int, default=3,
+                    help="Windows to collect under --stream.")
+    ap.add_argument("--step-seconds", type=float, default=0.0,
+                    help="Idle seconds between windows under --stream, standing in "
+                         "for the learner's step (serving goes on meanwhile).")
     ap.add_argument("--dollars-per-hour", type=float, default=0.0)
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--log-level", default="INFO")
@@ -254,7 +333,9 @@ def main(argv) -> int:
                    iteration_timeout=args.iteration_timeout, max_batch=args.max_batch,
                    serve_threads=args.serve_threads, packed_embed=args.packed_embed,
                    coalesce=args.coalesce, coalesce_gap=args.coalesce_gap,
-                   serve_processes=args.serve_processes, graphed_serve=args.graphed_serve)
+                   serve_processes=args.serve_processes, graphed_serve=args.graphed_serve,
+                   stream_rounds=(int(args.rounds) if args.stream else 0),
+                   step_seconds=float(args.step_seconds))
     if args.dollars_per_hour and res["games_per_hour"]:
         res["games_per_dollar"] = res["games_per_hour"] / args.dollars_per_hour
     print(json.dumps(res, indent=1))

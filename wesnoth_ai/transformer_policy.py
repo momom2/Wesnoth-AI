@@ -23,6 +23,7 @@ stored so load can refuse an incompatible model.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import time
@@ -442,6 +443,15 @@ class TransformerPolicy:
     # Inference snapshot (option-b)
     # ------------------------------------------------------------------
 
+    def serve_gate_exclusive(self):
+        """The exclusive side of the inference server's ServeGate when
+        an actor pool serves this policy's snapshot (the pool sets
+        `_serve_gate` on start), else a no-op context. Every load into
+        the inference copies goes through it, so a serve thread's batch
+        never forwards through half a publication."""
+        gate = getattr(self, "_serve_gate", None)
+        return gate.exclusive() if gate is not None else contextlib.nullcontext()
+
     def _snapshot_inference_weights(self) -> None:
         """Copy the current trainer-side `_model` / `_encoder`
         state_dict into the inference copies. Held under `_lock` for
@@ -455,7 +465,7 @@ class TransformerPolicy:
         load_state_dict returns, the inference model has a
         consistent post-step view.
         """
-        with self._lock:
+        with self._lock, self.serve_gate_exclusive():
             # Load into the UNCOMPILED base module (see ctor note:
             # the compiled wrapper rejects plain keys but shares
             # parameters with the base, so it sees the update).

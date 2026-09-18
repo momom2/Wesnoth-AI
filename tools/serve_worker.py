@@ -35,6 +35,7 @@ log = logging.getLogger("actor_pool")
 _SRV_SYNC = "sync"        # (version, state bytes): load these weights
 _SRV_SERVE = "serve"      # (iter_idx,): start the serve threads
 _SRV_PAUSE = "pause"      # (): stop the serve threads, reply their stats
+_SRV_STATS = "stats"      # (): reply the serve threads' live stats, serving on
 _SRV_PROBE = "probe"      # (payload,): one infer_batch outside serving
 _SRV_STOP = "stop"
 # Serve-process replies (serve process -> main), on the shared server queue.
@@ -213,6 +214,12 @@ def _best_window_rate(timeline: List[Tuple[float, int]], window: float) -> Optio
     return best
 
 
+def snapshot_stats(st: Dict) -> Dict:
+    """A copy of one serve thread's live stats dict (its timeline
+    list copied too), safe to ship or to diff against a later copy."""
+    return {k: (list(v) if isinstance(v, list) else v) for k, v in st.items()}
+
+
 def _picker_stats(picker: Optional[_BatchPicker]) -> Dict[str, int]:
     if picker is None:
         return {"skipped": 0, "picks": 0, "depth": 0}
@@ -240,6 +247,11 @@ def _serve_loop(server, picker: _BatchPicker, req_q, resp_qs, max_batch: int,
     st = {"wait": 0.0, "unpack": 0.0, "infer": 0.0, "wire": 0.0, "put": 0.0, "gpu_ms": 0.0,
           "timeline": timeline,
           "leaves": 0, "batches": 0, "requests": 0, "tokens": 0, "padded": 0}
+    # Registered at the start, not at exit: the continuous pool reads
+    # these counters while the thread runs (window deltas between two
+    # learner steps). Plain int and float adds under the GIL; a reader
+    # sees at most one batch of skew between two keys.
+    stats_out.append(st)
     # The batch this thread took out of the picker and has not answered
     # yet: the exit path below owes those actors a reply exactly as it
     # owes the parked requests one.
@@ -326,7 +338,6 @@ def _serve_loop(server, picker: _BatchPicker, req_q, resp_qs, max_batch: int,
             for w in owed:
                 aid, rid, _payload = w.item
                 resp_qs[aid].put((rid, None))
-        stats_out.append(st)
 
 
 def _server_loop(
@@ -395,12 +406,19 @@ def _server_loop(
             if kind == _SRV_STOP:
                 break
             if kind == _SRV_SYNC:
-                if threads:
-                    raise RuntimeError("SYNC while serving: weights change only "
-                                       "between iterations")
+                # While serving (the continuous pool publishes between
+                # its learner steps) the load waits for the batches in
+                # flight and excludes the next ones: no batch forwards
+                # through half a state_dict. Idle, the gate is free.
                 _, version, blob = cmd
-                load_inference_state(blob, model, encoder, device)
+                with server.gate.exclusive():
+                    load_inference_state(blob, model, encoder, device)
                 server_q.put((_S_SYNCED, server_id, int(version)))
+            elif kind == _SRV_STATS:
+                server_q.put((_S_STATS, server_id,
+                              {"threads": [snapshot_stats(s) for s in stats],
+                               "picker": _picker_stats(picker),
+                               "packed_compile": model.packed_compile_stats()}))
             elif kind == _SRV_SERVE:
                 if threads:
                     raise RuntimeError("SERVE while already serving")

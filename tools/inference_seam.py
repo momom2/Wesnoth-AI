@@ -46,6 +46,7 @@ above is unchanged.
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import io
 import logging
@@ -255,6 +256,55 @@ class InferenceTransport(Protocol):
     def infer_batch(self, raws: List[RawEncoded]) -> List[ModelOutput]: ...
 
 
+class ServeGate:
+    """Readers and one writer over the served weights. A serve thread
+    holds the gate SHARED for one batch; a weight publication holds it
+    EXCLUSIVE for its load, so no batch is ever forwarded through half
+    a state_dict. Readers overlap with each other; a pending writer
+    blocks new readers until it has run, so a publication cannot be
+    starved by two serve threads handing the gate back and forth. The
+    continuous pool (tools/actor_stream.py) publishes while serving;
+    the barrier pool publishes between iterations, when the gate has
+    no readers and costs nothing."""
+
+    def __init__(self):
+        self._cv = threading.Condition()
+        self._readers = 0
+        self._writer_waiting = 0
+        self._writer = False
+
+    @contextlib.contextmanager
+    def shared(self):
+        with self._cv:
+            while self._writer or self._writer_waiting:
+                self._cv.wait()
+            self._readers += 1
+        try:
+            yield
+        finally:
+            with self._cv:
+                self._readers -= 1
+                if self._readers == 0:
+                    self._cv.notify_all()
+
+    @contextlib.contextmanager
+    def exclusive(self):
+        with self._cv:
+            self._writer_waiting += 1
+            try:
+                while self._writer or self._readers:
+                    self._cv.wait()
+                self._writer = True
+            finally:
+                self._writer_waiting -= 1
+        try:
+            yield
+        finally:
+            with self._cv:
+                self._writer = False
+                self._cv.notify_all()
+
+
 class InferenceServer:
     """Owns the trained encoder + model and turns RawEncoded into
     ModelOutput. Runs `encode_from_raw` (phase 2, trained embeddings)
@@ -297,6 +347,10 @@ class InferenceServer:
         # while the learner's own in-process probes keep the model's
         # setting (fp32 unless the policy was loaded with infer_bf16).
         self._autocast_bf16 = autocast_bf16
+        # Every batch forwards under the gate's shared side; a weight
+        # publication into this model takes its exclusive side (the
+        # actor pool hands the gate to the policy that publishes).
+        self.gate = ServeGate()
 
     def _graphed_serve(self):
         """This thread's GraphedServe, or None."""
@@ -346,6 +400,10 @@ class InferenceServer:
         wait for the device) and t_reply (building the outputs)."""
         if not raws:
             return []
+        with self.gate.shared():
+            return self._infer_batch(raws, stats)
+
+    def _infer_batch(self, raws, stats: Optional[Dict[str, float]] = None) -> List[ModelOutput]:
         paired = [isinstance(r, tuple) for r in raws]
         if any(paired):
             if not all(paired):

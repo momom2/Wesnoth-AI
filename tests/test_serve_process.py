@@ -4,8 +4,9 @@ process builds, the weight transfer, the dead-server reply marker, and
 -- slow tier, real processes on CPU -- a pool with one serve process
 next to the learner's: games complete, the stats merge (each server's
 compiled-trunk state with them), a weight publication is refused until
-synced and changes the server's outputs once it is, and a failure the
-serve process reports while serving aborts the iteration at once.
+synced and changes the server's outputs once it is, a failure the
+serve process reports while serving aborts the iteration at once, and
+a stream publishes into the serve process while it serves.
 """
 from __future__ import annotations
 
@@ -131,5 +132,23 @@ def test_pool_with_a_serve_process_serves_syncs_and_refuses_stale_weights():
         pool._server_q.put((_S_ERROR, 1, "injected failure"))
         with pytest.raises(ServeProcessDied, match="injected failure"):
             pool.run_iteration(2, 2, base_seed=9)
+
+        # Continuous generation: a publication lands in the serve
+        # process WHILE it serves (its SYNC loads under the gate), the
+        # stream refuses nothing, and both servers agree afterwards.
+        stream = pool.stream(base_seed=11, tag=3)
+        stream.start()
+        first = stream.collect(2, timeout=600.0)
+        assert len(first.games) == 2
+        _perturb(policy)
+        version = stream.publish()
+        assert version == policy._inference_model._weights_version
+        second = stream.collect(2, timeout=600.0)
+        assert len(second.games) == 2 and second.straddled_share == 1.0
+        assert sum(pool.last_leaves_per_server) == pool.last_served_forwards > 0
+        stream.stop(grace=120.0)
+        synced = pool.probe([gs])
+        assert torch.allclose(synced[0][0].value_logits, synced[1][0].value_logits, atol=1e-5)
+        assert not torch.allclose(after[1][0].value_logits, synced[1][0].value_logits)
     finally:
         pool.shutdown()

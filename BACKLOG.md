@@ -70,12 +70,21 @@ and the sections after it), on one 24-core 4090:
 
 Speed levers left, each a one-factor test on a run that is needed
 anyway, ordered by what the measurements say is binding:
-- **the largest generation lever left is more games per iteration.**
-  Actors are capped at `--games-per-iter` (a surplus actor idles), so
-  the 64-actor rate the sweep measured needs 64 games per iteration.
-  That is NOT a throughput-only change: games per iteration sets the
-  learner's batch, so it needs its own one-factor evaluation before
-  it moves.
+- **the largest generation lever left is the iteration's tail, and
+  continuous generation removes it** (user order 2026-09-18, built
+  the same day: `tools/actor_stream.py`, `az_loop --stream`,
+  `bench_pool --stream`, docs/continuous_generation_20260918.md). An
+  iteration ends with its longest game, and the iteration rate sits
+  1.37-1.93x below the saturated rate on the three hosts measured. A
+  stream keeps every actor in a game, the learner steps on windows of
+  `--games-per-iter` completed games and publishes into the running
+  servers under a gate; a game that lives through a publication is
+  counted (straddle columns). NEXT: `scripts/stream_box.sh`, barrier
+  against stream against form A (96 games on 48 actors, which the pool
+  already runs), twice each on a single-tenant 4090, rule
+  pre-registered in the script; then the learner-side question, which
+  needs a learner that improves on the prior, run both ways. `--stream`
+  is opt-in until then.
 - the inference server was LAUNCH-BOUND on the 2026-09-14 shared host
   (406 kernel launches per 16-leaf batch for 3 ms of device time; 20
   ms of host per pool batch against 12 ms of device). The graphed

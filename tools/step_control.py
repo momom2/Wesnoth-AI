@@ -188,7 +188,7 @@ def publish_weights(base, theta: Dict) -> None:
         {k[len(_MODEL_PREFIX):]: v for k, v in theta.items() if k.startswith(_MODEL_PREFIX)})
     base._encoder.load_state_dict(
         {k[len(_ENCODER_PREFIX):]: v for k, v in theta.items() if k.startswith(_ENCODER_PREFIX)})
-    with base._lock:
+    with base._lock, base.serve_gate_exclusive():
         inf = getattr(base, "_inference_base", base._inference_model)
         inf.load_state_dict(base._model.state_dict())
         inf.eval()

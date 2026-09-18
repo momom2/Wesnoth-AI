@@ -376,6 +376,27 @@ State of play:
   loop; scope every box test, train sparingly; results are written
   on the run, never as atomic dumps; a box job past ~1.5x its
   estimate gets inspected and cut.
+- 2026-09-18 (user order: build continuous generation): **the
+  iteration's tail is the largest generation lever left, and
+  `tools/actor_stream.py` removes it.** An iteration ends with its
+  longest game (median 200 s, longest 300-430 s), so the server
+  starves for its second half: the iteration rate sits 1.37x, 1.6x,
+  1.84x and 1.93x below the saturated rate on the three hosts
+  measured. A stream keeps the game queue topped up, the learner
+  collects windows of `--games-per-iter` completed games and
+  publishes weights into the running servers, every load under the
+  server's `ServeGate` (inference_seam) so no batch forwards through
+  half a state_dict; the serve processes sync while serving. A game
+  that lives through a publication straddles it, and every window
+  records the mean, the maximum and the share (az_history columns);
+  with as many actors as games per window that is about one
+  publication per game. `az_loop --stream` and `bench_pool --stream`
+  are opt-in; the measurement against the barrier and against form
+  A (more games than actors, which the pool already runs) is
+  `scripts/stream_box.sh` with its rule pre-registered
+  (docs/continuous_generation_20260918.md). Whether a learner minds
+  the straddling needs a learner that improves on the prior, run
+  both ways.
 - No box is rented (2026-09-18, after the graphed-default run). Phase 2
   is next: docs/plan_20260904.md 5, whose first measurement is the
   turn-gap pre-registration.

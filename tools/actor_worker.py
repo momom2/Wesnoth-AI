@@ -23,6 +23,7 @@ import os
 import queue as _queue
 import random
 import threading
+import time
 import traceback
 from types import SimpleNamespace
 from typing import Dict, Optional
@@ -40,6 +41,10 @@ _PARENT_POLL = 2.0
 _CMD_PLAY = "play"        # (iter_idx, games_per_iter, base_seed, t2i, f2i, decision_step, ...)
 _CMD_STOP = "stop"
 _CMD_DRAIN = "drain"      # finish the current game, take no new ones
+# (value_center, decision_step): the continuous pool's per-step update,
+# applied between games -- the search's value center and the global
+# anneal counter, which the barrier pool re-sends with every PLAY.
+_CMD_UPDATE = "update"
 
 # Game tickets (main -> actors, one shared queue): (iter_idx, game
 # index, seed); the manager posts every game of the iteration, then
@@ -53,6 +58,10 @@ _TICKET_END = -1
 _R_OUTCOME = "outcome"    # a GameOutcome
 _R_EXPS    = "experiences"  # List[MCTSExperience]
 _R_DONE    = "iter_done"   # (local_decisions, distill stats, iter_idx)
+# One per completed game, after its _R_OUTCOME and _R_EXPS: (game index,
+# decisions made in it, time.time() at its start and end, the distill
+# stats drained for it under the continuous pool, else None).
+_R_GAME    = "game"
 _R_ERROR   = "error"       # traceback string (non-fatal; logged)
 _R_FATAL   = "fatal"       # non-swallowable death (fork guard, ...)
 # Reply marker the manager puts on an actor's reply queue when the
@@ -191,9 +200,10 @@ def _take_ticket(game_q, ctrl_q, iter_idx: int):
     control commands while waiting. Returns ("game", (index, seed)),
     ("end", None) at the iteration's end marker, ("drain", None) when
     the manager asked for no new games, ("play", cmd) when the next
-    iteration's PLAY is already waiting, ("stop", None) on STOP or once
-    the parent is gone. Tickets of another iteration are skipped (stale
-    after a drain)."""
+    iteration's PLAY is already waiting, ("update", payload) on the
+    continuous pool's UPDATE, ("stop", None) on STOP or once the parent
+    is gone. Tickets of another iteration are skipped (stale after a
+    drain)."""
     while True:
         # Checked before every ticket, not only on an empty queue: an
         # orphaned actor with tickets still queued would otherwise walk
@@ -219,6 +229,8 @@ def _take_ticket(game_q, ctrl_q, iter_idx: int):
                 # so the other actors never finish either -- until the
                 # next DRAIN (2026-09-13 audit, demonstrated).
                 return "play", nxt
+            if nxt[0] == _CMD_UPDATE:
+                return "update", nxt[1:]
             log.warning("actor: unknown control command %r while playing; dropped",
                         nxt[0])
         except _queue.Empty:
@@ -318,6 +330,10 @@ def _actor_loop(
         # Global feature 5 under fog (visibility.enemy_villages_visible_to);
         # legacy PLAY tuples = the true count, as the seed was trained.
         _fhv = bool(cmd[11]) if len(cmd) > 11 else False
+        # The continuous pool (tools/actor_stream.py): the distill stats
+        # are drained per game and ride its _R_GAME report; the barrier
+        # pool drains them once, with the iteration's done report.
+        _stream = bool(cmd[12]) if len(cmd) > 12 else False
         # Rebuild the encoder each iteration with the freshly-snapshotted
         # vocab so actor indices line up with the server's encoder.
         renc = RemoteEncoder(t2i, f2i, device=cpu,
@@ -382,6 +398,12 @@ def _actor_loop(
                 kind, ticket = _take_ticket(game_q, ctrl_q, iter_idx)
                 if kind == "stop":
                     return
+                if kind == "update":
+                    vc, ds = ticket
+                    policy._mcts_config = dataclasses.replace(
+                        policy._mcts_config, value_center=float(vc))
+                    base._decision_step = int(ds)
+                    continue
                 if kind == "play":
                     pending = ticket
                     log.warning("actor %d: iteration %d was abandoned by the "
@@ -414,6 +436,8 @@ def _actor_loop(
                     setup = random_setup(rng, category=cat,
                                          **setup_opts)
                 gl = f"iter{iter_idx}_g{g}_a{actor_id}"
+                ds_game0 = int(getattr(base, "_decision_step", 0))
+                t_game0 = time.time()
                 outcome = _play_one_game_safe(
                     setup=setup, max_turns=mt, pvp_defaults=pvp,
                     policy=policy, reward_fn=_zero_reward,
@@ -428,6 +452,17 @@ def _actor_loop(
                     policy._queue = []
                 if exps:
                     result_q.put((_R_EXPS, actor_id, exps))
+                game_dstats = None
+                if _stream:
+                    drain = getattr(policy, "drain_distill_stats", None)
+                    if drain is not None:
+                        try:
+                            game_dstats = drain()
+                        except Exception:               # noqa: BLE001
+                            game_dstats = None
+                result_q.put((_R_GAME, actor_id,
+                              (g, int(getattr(base, "_decision_step", ds_game0)) - ds_game0,
+                               t_game0, time.time(), game_dstats)))
         except Exception:
             result_q.put((_R_ERROR, actor_id, traceback.format_exc()))
         finally:

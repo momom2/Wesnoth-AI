@@ -57,6 +57,16 @@ trunk's state (`last_packed_compile_per_server`). A server that dies,
 or that reports a failed command while serving, poisons its actors'
 reply queues and aborts the iteration; shutdown stops them.
 
+Continuous generation (2026-09-18, tools/actor_stream.py): `stream()`
+opens a session in which the actors never wait at an iteration
+barrier -- the game queue is kept topped up, the learner collects
+completed games in windows and publishes weights between them while
+serving goes on. The barrier iteration (`run_iteration`) ends with
+its longest game, and the server starves for the second half of it
+(docs/box_specs.md "The graphed server on a quiet host": iteration
+rate 1.4-1.9x below the saturated rate on three hosts); a stream keeps
+every actor in a game.
+
 Windows note: uses the 'spawn' start method (the only one on Windows),
 so the actor entry + all Process args must be picklable -- they are
 (queues, plain dataclasses/dicts). The model is never sent to actors.
@@ -76,29 +86,31 @@ import os
 import queue as _queue
 import threading
 import time
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 import torch
 
 from tools.actor_worker import (
-    _CMD_DRAIN, _CMD_PLAY, _TICKET_END, _CMD_STOP, _R_DONE, _R_ERROR, _R_EXPS, _R_FATAL, _R_OUTCOME,
-    _RID_SERVER_DEAD, _IPCInferenceClient, _actor_loop, _set_fd_safe_sharing, _zero_reward,
+    _CMD_DRAIN, _CMD_PLAY, _CMD_UPDATE, _TICKET_END, _CMD_STOP, _R_DONE, _R_ERROR, _R_EXPS,
+    _R_FATAL, _R_GAME, _R_OUTCOME, _RID_SERVER_DEAD, _IPCInferenceClient, _actor_loop,
+    _set_fd_safe_sharing, _zero_reward,
 )
 from tools.serve_worker import (
     _S_ERROR, _S_PROBE, _S_READY, _S_STATS, _S_SYNCED, _SRV_PAUSE, _SRV_PROBE, _SRV_SERVE,
-    _SRV_STOP, _SRV_SYNC, _BatchPicker, _best_window_rate, _merge_timelines, _picker_stats,
-    _request_lengths, _serve_loop, _server_loop,
+    _SRV_STATS, _SRV_STOP, _SRV_SYNC, _BatchPicker, _best_window_rate, _merge_timelines,
+    _picker_stats, _request_lengths, _serve_loop, _server_loop,
 )
 
 __all__ = [
     "ActorPool", "ActorFatalError", "ServeProcessDied",
     # Re-exported from tools.actor_worker and tools.serve_worker: tests
     # and scripts import these from here.
-    "_CMD_DRAIN", "_CMD_PLAY", "_CMD_STOP", "_R_DONE", "_R_ERROR", "_R_EXPS", "_R_FATAL",
-    "_R_OUTCOME", "_RID_SERVER_DEAD", "_IPCInferenceClient", "_actor_loop",
+    "_CMD_DRAIN", "_CMD_PLAY", "_CMD_STOP", "_CMD_UPDATE", "_R_DONE", "_R_ERROR", "_R_EXPS",
+    "_R_FATAL", "_R_GAME", "_R_OUTCOME", "_RID_SERVER_DEAD", "_IPCInferenceClient", "_actor_loop",
     "_set_fd_safe_sharing", "_zero_reward",
     "_S_ERROR", "_S_PROBE", "_S_READY", "_S_STATS", "_S_SYNCED", "_SRV_PAUSE", "_SRV_PROBE",
-    "_SRV_SERVE", "_SRV_STOP", "_SRV_SYNC", "_BatchPicker", "_best_window_rate",
+    "_SRV_SERVE", "_SRV_STATS", "_SRV_STOP", "_SRV_SYNC", "_BatchPicker", "_best_window_rate",
     "_merge_timelines", "_picker_stats", "_request_lengths", "_serve_loop", "_server_loop",
 ]
 
@@ -131,6 +143,21 @@ def _done_report(payload) -> Tuple[int, Optional[Dict], Optional[int]]:
             return payload[0], payload[1], int(payload[2])
         return payload[0], payload[1], None
     return payload, None, None
+
+
+@dataclass
+class _Serving:
+    """The serving behind one iteration or one stream: the in-process
+    serve threads with their live stats dicts and picker, and the
+    serve processes' stats once PAUSE brought them back."""
+    iter_idx: int
+    stop_ev: threading.Event
+    picker: _BatchPicker
+    t_start: float
+    threads: List[threading.Thread] = field(default_factory=list)
+    serve_stats: List[Dict] = field(default_factory=list)
+    server_stats: Dict[int, Dict] = field(default_factory=dict)
+    stopped: bool = False
 
 
 def _close_queue(q, drain: bool) -> None:
@@ -236,6 +263,9 @@ class ActorPool:
         self._server_ctrl_qs: List = []
         self._server_versions: List[int] = []
         self._serving = False
+        # A stream (tools/actor_stream.py) is open: serving runs across
+        # learner steps and weights publish under the servers' gates.
+        self._streaming = False
         self._mcts_cfg = mcts_cfg
         # Per-iteration search value centering (MCTSConfig.value_center),
         # set by the learner after each step; rides the PLAY command.
@@ -362,6 +392,11 @@ class ActorPool:
             autocast_bf16=self._infer_bf16, packed_embed=self._packed_embed,
             graphed=self._graphed_for(self._policy._inference_model,
                                       self._policy._inference_encoder))
+        # Every publication into the inference snapshot (the policy's
+        # own after a step, step_control's trial publishes) waits for
+        # the batches in flight and excludes the next ones
+        # (inference_seam.ServeGate): a stream publishes while serving.
+        self._anneal_base()._serve_gate = self._server.gate
         self._started = True
         if self._server_procs:
             self._await_servers_ready()
@@ -519,7 +554,10 @@ class ActorPool:
         serve process and waits for the acks; returns the version the
         servers now hold. Call after every publication
         (TransformerPolicy._snapshot_inference_weights), between
-        iterations: run_iteration refuses a lagging server.
+        iterations: run_iteration refuses a lagging server. A stream
+        calls it between its learner steps while the servers serve;
+        each loads under its gate, so no batch forwards through half a
+        state_dict.
 
         Why a byte string and not torch's CUDA IPC sharing (torch
         2.5.1, docs/multiprocessing "Sharing CUDA tensors"): a shared
@@ -532,7 +570,7 @@ class ActorPool:
         has no such coupling and works the same on CPU and on CUDA."""
         if not self._server_procs:
             return self._learner_version()
-        if self._serving:
+        if self._serving and not getattr(self, "_streaming", False):
             raise RuntimeError("sync_servers() during an iteration: weights change only "
                                "between iterations")
         from tools.inference_seam import pack_inference_state
@@ -686,6 +724,8 @@ class ActorPool:
         reports done, and return (outcomes, experiences)."""
         if not self._started:
             raise RuntimeError("ActorPool.start() not called")
+        if getattr(self, "_streaming", False):
+            raise RuntimeError("run_iteration() while a stream is open; stop it first")
         if self._server_procs:
             self._check_servers_synced(iter_idx)
         self._serving = True
@@ -694,13 +734,31 @@ class ActorPool:
         finally:
             self._serving = False
 
+    def stream(self, base_seed: int, *, tag: int = 0, tickets_ahead: Optional[int] = None):
+        """Continuous generation (tools/actor_stream.ActorStream): the
+        actors take games from a queue the stream keeps topped up, the
+        caller collects completed games in windows and publishes
+        weights between them while serving goes on. `tag` is the
+        iteration index the tickets and the PLAY carry (the actors
+        skip tickets of another tag); `tickets_ahead` is how many
+        unstarted games the queue holds beyond the actors' own (one
+        per actor by default)."""
+        from tools.actor_stream import ActorStream
+        if not self._started:
+            raise RuntimeError("ActorPool.start() not called")
+        return ActorStream(self, base_seed, tag=tag, tickets_ahead=tickets_ahead)
+
     def _post_tickets(self, iter_idx: int, games_per_iter: int, base_seed: int) -> None:
         """One ticket per game (its seed depends on the game index
         only), then one end marker per actor behind them."""
         for g in range(games_per_iter):
-            self._game_q.put((iter_idx, g, base_seed + g * 1_000_003))
+            self._game_q.put(self._ticket(iter_idx, g, base_seed))
         for _ in range(self._n):
             self._game_q.put((iter_idx, _TICKET_END, None))
+
+    @staticmethod
+    def _ticket(iter_idx: int, g: int, base_seed: int) -> Tuple[int, int, int]:
+        return (iter_idx, g, base_seed + g * 1_000_003)
 
     def _flush_tickets(self) -> int:
         """Drop whatever is left on the game queue (tickets nobody took
@@ -714,37 +772,32 @@ class ActorPool:
             except _queue.Empty:
                 return n
 
-    def _run_iteration(
-        self, iter_idx: int, games_per_iter: int, base_seed: int,
-    ) -> Tuple[List, List]:
+    def _play_command(self, iter_idx: int, games_per_iter: int, base_seed: int,
+                      aid: int, *, stream: bool = False) -> tuple:
         t2i, f2i = self._vocab_snapshot()
-        ds0 = self._global_decision_step()
-        _rset = self._relevant_set()
-        _fhv = self._fog_hides_enemy_villages()
+        return (_CMD_PLAY, iter_idx, games_per_iter, base_seed, t2i, f2i,
+                self._global_decision_step(), self._relevant_set(),
+                float(self.value_center), bool(self.server_priors),
+                self._server_of(aid), self._fog_hides_enemy_villages(), bool(stream))
 
-        outcomes: List = []
-        experiences: List = []
-        distill_dicts: List[Dict] = []      # per-actor drained means
-        outstanding = set(range(self._n))   # actors not yet _R_DONE
-        total_decisions = 0                 # summed across actors this iter
-        t_start = time.monotonic()
-        last_liveness = t_start
-        finish_times: List[float] = []   # per-game wall time since t_start
-        drained = False                     # soft deadline fired?
-        self._last_abandoned = 0            # discard telemetry (A6)
+    # -- serving: the threads behind one iteration or one stream ------
 
-        # Serving runs in dedicated threads (2026-07-22: the single-
-        # threaded serve loop capped the box at ~243 leaves/s with the
-        # GPU at 50%). Each thread owns the full get -> coalesce ->
-        # infer -> wire -> put chain; numpy/torch stages release the
-        # GIL, so N threads overlap one thread's serialization with
-        # another's encode+forward. Per-stage timers are accumulated
-        # and logged at iteration end so the bottleneck stays visible.
-        # The serve processes start their own threads on SERVE.
-        #
-        # First, serve threads of an EARLIER iteration that would not
-        # stop within their grace: re-join them rather than forget them
-        # -- while one runs it still reads the request queue.
+    def _start_serving(self, iter_idx: int) -> "_Serving":
+        """Start the in-process serve threads and every serve
+        process's, for this iteration or stream.
+
+        Serving runs in dedicated threads (2026-07-22: the single-
+        threaded serve loop capped the box at ~243 leaves/s with the
+        GPU at 50%). Each thread owns the full get -> coalesce ->
+        infer -> wire -> put chain; numpy/torch stages release the
+        GIL, so N threads overlap one thread's serialization with
+        another's encode+forward. Per-stage timers accumulate in each
+        thread's live stats dict (registered at its start) and are
+        aggregated at the end of the iteration, or of every window of
+        a stream, so the bottleneck stays visible."""
+        # Serve threads of an EARLIER iteration that would not stop
+        # within their grace: re-join them rather than forget them --
+        # while one runs it still reads the request queue.
         for th in self._stuck_serve_threads:
             th.join(timeout=10.0)
         self._stuck_serve_threads = [th for th in self._stuck_serve_threads
@@ -753,55 +806,249 @@ class ActorPool:
             log.error(f"iter {iter_idx}: {len(self._stuck_serve_threads)} serve "
                       f"thread(s) of an earlier iteration are still running; this "
                       f"one starts alongside them")
-        stop_ev = threading.Event()
-        serve_stats: List[Dict] = []
-        self._picker = _BatchPicker(self._coalesce, self._coalesce_gap)
-        servers = [threading.Thread(
+        sv = _Serving(iter_idx=iter_idx, stop_ev=threading.Event(),
+                      picker=_BatchPicker(self._coalesce, self._coalesce_gap),
+                      t_start=time.monotonic())
+        self._picker = sv.picker
+        sv.threads = [threading.Thread(
             target=_serve_loop,
-            args=(self._server, self._picker, self._req_qs[0], self._resp_qs,
-                  self._max_batch, self._serve_timeout, stop_ev, serve_stats),
+            args=(self._server, sv.picker, self._req_qs[0], self._resp_qs,
+                  self._max_batch, self._serve_timeout, sv.stop_ev, sv.serve_stats),
             daemon=True, name=f"serve-{i}")
             for i in range(self._serve_threads)]
-        for th in servers:
+        for th in sv.threads:
             th.start()
         for cq in self._server_ctrl_qs:
             cq.put((_SRV_SERVE, iter_idx))
-        server_stats: Dict[int, Dict] = {}
+        return sv
 
-        stopped = [False]
+    def _stop_serving(self, sv: "_Serving") -> None:
+        """Stop the serving behind `sv`; idempotent. Called from every
+        exit path of an iteration or a stream, named raise sites
+        included: started serve threads used to outlive an iteration
+        that ended on any UNNAMED error, and their request queues with
+        them (2026-09-13 audit). The serve processes' stats come back
+        with their PAUSE reply."""
+        if sv.stopped:
+            return
+        sv.stopped = True
+        sv.stop_ev.set()
+        for th in sv.threads:
+            th.join(timeout=10.0)
+        slow = [th for th in sv.threads if th.is_alive()]
+        if slow:
+            # Keeping a thread that would not stop OUT of the
+            # accounting is the leak: it still reads the request
+            # queue and still writes into its stats.
+            log.error(f"iter {sv.iter_idx}: serve thread(s) "
+                      f"{[th.name for th in slow]} did not stop within 10s; "
+                      f"their stats are incomplete and they keep reading the "
+                      f"request queue until they do")
+        self.last_stuck_serve_threads = [th.name for th in slow]
+        self._stuck_serve_threads += slow
+        sv.server_stats.update(self._pause_servers())
 
-        def _stop_serving() -> None:
-            """Stop this iteration's serving. Called from the
-            iteration's `finally` -- every path, named raise sites
-            included: started serve threads used to outlive an
-            iteration that ended on any UNNAMED error, and their
-            request queues with them (2026-09-13 audit)."""
-            if stopped[0]:
-                return
-            stopped[0] = True
-            stop_ev.set()
-            for th in servers:
-                th.join(timeout=10.0)
-            slow = [th for th in servers if th.is_alive()]
-            if slow:
-                # Keeping a thread that would not stop OUT of the
-                # accounting is the leak: it still reads the request
-                # queue and still writes into serve_stats.
-                log.error(f"iter {iter_idx}: serve thread(s) "
-                          f"{[th.name for th in slow]} did not stop within 10s; "
-                          f"their stats are incomplete and they keep reading the "
-                          f"request queue until they do")
-            self.last_stuck_serve_threads = [th.name for th in slow]
-            self._stuck_serve_threads += slow
-            server_stats.update(self._pause_servers())
+    def _serve_snapshot(self, sv: "_Serving") -> Tuple[List[Dict], Dict[str, int], List[int]]:
+        """The serving's stats so far: every thread's stats dict (the
+        in-process threads' live dicts copied, each serve process's
+        as it replies to STATS, or as its PAUSE reply left them once
+        serving stopped), the pickers' telemetry summed, and the
+        leaves served per server."""
+        from tools.serve_worker import snapshot_stats
+        threads = [snapshot_stats(s) for s in sv.serve_stats]
+        leaves_per_server = [sum(int(s.get("leaves", 0)) for s in threads)]
+        pick = _picker_stats(sv.picker)
+        if sv.stopped:
+            per_server = sv.server_stats
+        else:
+            per_server = self._server_stats_live()
+        for sid in self._server_ids():
+            ss = per_server.get(sid) or {}
+            ts = list(ss.get("threads", []))
+            leaves_per_server.append(sum(int(s.get("leaves", 0)) for s in ts))
+            threads.extend(ts)
+            for k, v in (ss.get("picker") or {}).items():
+                pick[k] = pick.get(k, 0) + int(v)
+        return threads, pick, leaves_per_server
 
+    def _server_stats_live(self) -> Dict[int, Dict]:
+        """Every live serve process's stats while it serves (STATS
+        command; a dead one contributes nothing)."""
+        if not self._server_procs:
+            return {}
+        live = [sid for sid in self._server_ids() if self._server_procs[sid - 1].is_alive()]
+        for sid in live:
+            self._server_ctrl_qs[sid - 1].put((_SRV_STATS,))
+        got: Dict[int, Dict] = {}
+        pending = set(live)
+        deadline = time.monotonic() + self._server_reply_timeout
+        while pending and time.monotonic() < deadline:
+            try:
+                r_kind, sid, payload = self._server_q.get(timeout=0.5)
+            except _queue.Empty:
+                pending = {s for s in pending if self._server_procs[s - 1].is_alive()}
+                continue
+            if r_kind == _S_STATS:
+                got[sid] = payload
+                pending.discard(sid)
+            elif r_kind == _S_ERROR:
+                self._abort_on_dead_servers(-1, [sid], failures={sid: str(payload)})
+        if pending:
+            log.error(f"serve process(es) {sorted(pending)} did not return their stats")
+        return got
+
+    def _record_serve_window(
+        self, iter_idx: int, threads: List[Dict], pick: Dict[str, int],
+        leaves_per_server: List[int], server_stats: Dict[int, Dict],
+        *, t_start: float, elapsed: float, n_games: int, n_exps: int,
+        ds0: int, total_decisions: int, finish_times: List[float],
+        distill_dicts: List[Dict],
+    ) -> None:
+        """Turn one serving window's stats (an iteration's, or the span
+        between two learner steps of a stream) into the `last_*`
+        readbacks the loops record, and log them. `threads` holds one
+        stats dict per serve thread of every server, already reduced
+        to the window (a stream diffs two snapshots)."""
+        self.last_leaves_per_server = leaves_per_server
+        # A serve thread that died inside its loop still ships its
+        # stats (tools/serve_worker._serve_loop's finally), so the
+        # manager can say so instead of silently serving the rest of
+        # the campaign at half the threads it was given.
+        self.last_serve_thread_errors = [str(s["error"]) for s in threads if s.get("error")]
+        for tb in self.last_serve_thread_errors:
+            log.error(f"iter {iter_idx}: a serve thread died mid-iteration; the "
+                      f"pool served this iteration with one thread fewer:\n{tb}")
+        # Each server's compiled packed trunk state (bench_pool records
+        # it): the learner's, then each serve process's own copy; None
+        # where a server's stats never arrived.
+        pc = getattr(self._inference_base(), "packed_compile_stats", None)
+        self.last_packed_compile_per_server: List[Optional[Dict]] = [
+            pc() if pc is not None else {"active": False}]
+        for sid in self._server_ids():
+            ss = server_stats.get(sid)
+            self.last_packed_compile_per_server.append(
+                None if ss is None else dict(ss.get("packed_compile") or {"active": False}))
+        # Advance the global anneal counter by the decisions generated
+        # (sum across actors), so the combat-oracle bias keeps annealing
+        # across the campaign instead of freezing at ds0.
+        self._advance_decision_step(total_decisions)
+        # Mean of per-actor (or, on a stream, per-game) means; None-
+        # valued et_* fields are skipped. Consumed by sim_self_play's
+        # iteration telemetry in place of the learner-side drain (which
+        # never searches under the pool).
+        self.last_distill_stats = None
+        if distill_dicts:
+            keys = set().union(*(d.keys() for d in distill_dicts))
+            out = {}
+            for k in keys:
+                vals = [d[k] for d in distill_dicts if d.get(k) is not None]
+                out[k] = (sum(vals) / len(vals)) if vals else None
+            self.last_distill_stats = out
+        agg = {k: sum(s.get(k, 0) for s in threads)
+               for k in ("wait", "unpack", "infer", "wire", "put", "gpu_ms",
+                         "leaves", "batches", "requests", "tokens", "padded",
+                         "t_encode", "t_forward", "t_priors", "t_finish", "t_reply")
+               } if threads else {}
+        served = int(agg.get("leaves", 0))
+        elapsed = max(1e-9, elapsed)
+        self.last_leaf_timeline = _merge_timelines(
+            [s.get("timeline", []) for s in threads], t_start)
+        self.last_saturated_leaves_per_s = _best_window_rate(self.last_leaf_timeline, 60.0)
+        if agg.get("batches"):
+            log.info(
+                f"iter {iter_idx}: serve stages ({self._serve_processes} servers x "
+                f"{self._serve_threads} threads, leaves per server "
+                f"{leaves_per_server}): wait={agg['wait']:.1f}s "
+                f"infer={agg['infer']:.1f}s wire={agg['wire']:.1f}s "
+                f"put={agg['put']:.1f}s gpu={agg['gpu_ms'] / 1000.0:.1f}s "
+                f"({agg['gpu_ms'] / max(served, 1):.2f} ms/leaf) leaves/batch="
+                f"{agg['leaves'] / agg['batches']:.1f} "
+                f"saturated={self.last_saturated_leaves_per_s or 0:.0f} leaves/s (best 60 s) "
+                f"throughput={served / elapsed:.0f} leaves/s")
+        # Host milliseconds per batch by stage (the t_* stages come from
+        # the seam on CUDA only, so they read 0 on CPU), and what the
+        # batch picker saw: requests per batch, waiting requests at each
+        # pick, requests deferred by the length rule (summed over the
+        # servers' pickers).
+        nb = int(agg.get("batches", 0) or 0)
+        self.last_host_ms = ({k: 1000.0 * agg[k] / nb for k in (
+            "unpack", "t_encode", "t_forward", "t_priors", "t_finish", "t_reply", "wire", "put")}
+            if nb else None)
+        self.last_skipped_requests = pick["skipped"]
+        self.last_queue_depth = pick["depth"] / pick["picks"] if pick["picks"] else None
+        if nb:
+            hm = self.last_host_ms
+            log.info(
+                f"iter {iter_idx}: host ms per batch: unpack={hm['unpack']:.2f} "
+                f"encode={hm['t_encode']:.2f} forward={hm['t_forward']:.2f} "
+                f"priors={hm['t_priors']:.2f} wait={hm['t_finish']:.2f} "
+                f"reply={hm['t_reply']:.2f} wire={hm['wire']:.2f} put={hm['put']:.2f} | "
+                f"coalesce={self._coalesce} requests/batch={agg['requests'] / nb:.2f} "
+                f"queue depth={self.last_queue_depth or 0:.2f} skipped={pick['skipped']}")
+        log.info(f"iter {iter_idx}: pool served {served} forwards, "
+                 f"{n_games} games, {n_exps} experiences, "
+                 f"decision_step {ds0} -> {self._global_decision_step()}")
+        # Time-profiling readbacks (minimal loop, 2026-09-03): the
+        # numbers above were log-only; the loop's CSV wants them.
+        self.last_served_forwards = served
+        self.last_iteration_seconds = elapsed
+        self.last_decisions = self._global_decision_step() - ds0
+        self.last_tokens_per_leaf = (agg["tokens"] / served
+                                     if served and agg.get("tokens") else None)
+        self.last_pad_ratio = (agg["padded"] / agg["tokens"]
+                               if agg.get("tokens") else None)
+        ft = sorted(finish_times)
+        self.last_game_finish_p50 = ft[len(ft) // 2] if ft else None
+        self.last_game_finish_max = ft[-1] if ft else None
+        if ft:
+            log.info(f"iter {iter_idx}: game finish times p50={ft[len(ft) // 2]:.0f}s "
+                     f"p90={ft[int(len(ft) * 0.9)]:.0f}s max={ft[-1]:.0f}s | "
+                     f"tokens/leaf={self.last_tokens_per_leaf or 0:.0f} "
+                     f"pad_ratio={self.last_pad_ratio or 0:.2f}")
+
+    def _scan_liveness(self, iter_idx: int, outstanding: set) -> set:
+        """The dead among `outstanding` actors, and the dead serve
+        processes. A serve process that died aborts (its actors would
+        wait forever); an actor killed before its `finally` ran
+        (segfault, OOM-kill, guard trip mid-teardown) aborts loudly --
+        a silent drop hid the death from the run's exit code (round-35
+        C0); an actor that exited clean without reporting is returned
+        for the caller to drop."""
+        dead_servers = [sid for sid in self._server_ids()
+                        if not self._server_procs[sid - 1].is_alive()]
+        if dead_servers:
+            self._abort_on_dead_servers(iter_idx, dead_servers)
+        dead = {aid for aid in outstanding if not self._procs[aid].is_alive()}
+        if dead:
+            codes = {aid: self._procs[aid].exitcode for aid in sorted(dead)}
+            if any(c not in (0, None) for c in codes.values()):
+                raise ActorFatalError(
+                    f"iter {iter_idx}: actor(s) died without reporting done, "
+                    f"exitcodes {codes} -- aborting the iteration instead of "
+                    f"silently degrading.")
+            for aid in sorted(dead):
+                log.error(f"iter {iter_idx}: actor {aid} died without reporting done "
+                          f"(exitcode={self._procs[aid].exitcode}); dropping it.")
+        return dead
+
+    def _run_iteration(
+        self, iter_idx: int, games_per_iter: int, base_seed: int,
+    ) -> Tuple[List, List]:
+        ds0 = self._global_decision_step()
+        outcomes: List = []
+        experiences: List = []
+        distill_dicts: List[Dict] = []      # per-actor drained means
+        outstanding = set(range(self._n))   # actors not yet _R_DONE
+        total_decisions = 0                 # summed across actors this iter
+        finish_times: List[float] = []      # per-game wall time since t_start
+        drained = False                     # soft deadline fired?
+        self._last_abandoned = 0            # discard telemetry (A6)
+        sv = self._start_serving(iter_idx)
+        t_start = sv.t_start
+        last_liveness = t_start
         self._post_tickets(iter_idx, games_per_iter, base_seed)
         for aid in range(self._n):
-            self._ctrl_qs[aid].put(
-                (_CMD_PLAY, iter_idx, games_per_iter, base_seed, t2i, f2i, ds0,
-                 _rset, float(self.value_center), bool(self.server_priors),
-                 self._server_of(aid), _fhv))
-
+            self._ctrl_qs[aid].put(self._play_command(iter_idx, games_per_iter, base_seed, aid))
         try:
             while outstanding:
                 # Drain results; blocking with a short timeout (serving no
@@ -818,19 +1065,20 @@ class ActorPool:
                     # (actors ship per game) -- exactly the granularity
                     # the learner's holdout probe needs. Offer the
                     # whole game; only train on it if not diverted.
-                    offer = getattr(self._policy, "offer_holdout_game",
-                                    None)
+                    offer = getattr(self._policy, "offer_holdout_game", None)
                     if offer is None or not offer(payload):
                         # Boundary-pair harvest (T1-F): this drain never
                         # called it, so boundary telemetry read n=0
                         # through the ENTIRE leg-4 campaign (workflow
                         # finding 2026-08-20). Valid here because each
                         # _R_EXPS payload is one game in recorded order.
-                        _hv = getattr(self._policy,
-                                      "harvest_boundary_pairs", None)
+                        _hv = getattr(self._policy, "harvest_boundary_pairs", None)
                         if _hv is not None:
                             _hv(payload)
                         experiences.extend(payload)
+                elif kind == _R_GAME:
+                    pass                    # the stream's per-game report; the
+                    #                         iteration reads the done report
                 elif kind == _R_DONE:
                     n_dec, dstats, done_iter = _done_report(payload)
                     # The decisions count wherever they were made: the
@@ -904,149 +1152,20 @@ class ActorPool:
                     break
                 if now - last_liveness > self._liveness_interval:
                     last_liveness = now
-                    dead_servers = [sid for sid in self._server_ids()
-                                    if not self._server_procs[sid - 1].is_alive()]
-                    if dead_servers:
-                        self._abort_on_dead_servers(iter_idx, dead_servers)
-                    dead = {aid for aid in outstanding
-                            if not self._procs[aid].is_alive()}
-                    if dead:
-                        _codes = {aid: self._procs[aid].exitcode
-                                  for aid in sorted(dead)}
-                        if any(c not in (0, None)
-                               for c in _codes.values()):
-                            # Killed before its `finally` ran (segfault,
-                            # OOM-kill, guard trip mid-teardown): a
-                            # silent drop hid the death from the run's
-                            # exit code (round-35 C0). Loud abort; the
-                            # supervisor restarts with backoff.
-                            raise ActorFatalError(
-                                f"iter {iter_idx}: actor(s) died "
-                                f"without reporting done, exitcodes "
-                                f"{_codes} -- aborting the iteration "
-                                f"instead of silently degrading.")
-                        for aid in sorted(dead):
-                            log.error(
-                                f"iter {iter_idx}: actor {aid} died without "
-                                f"reporting done (exitcode="
-                                f"{self._procs[aid].exitcode}); dropping it.")
-                        outstanding -= dead
-
+                    outstanding -= self._scan_liveness(iter_idx, outstanding)
         finally:
-            _stop_serving()
+            self._stop_serving(sv)
         self._last_tickets_flushed = self._flush_tickets()
         if self._last_tickets_flushed:
             log.info(f"iter {iter_idx}: {self._last_tickets_flushed} game tickets "
                      f"and end markers left unplayed (drain or dropped actors)")
-        # Every server's threads report the same stats dict; the
-        # per-server leaf counts and the pickers' telemetry merge here.
-        leaves_per_server = [sum(int(s.get("leaves", 0)) for s in serve_stats)]
-        pick = _picker_stats(self._picker)
-        for sid in self._server_ids():
-            ss = server_stats.get(sid) or {}
-            threads_stats = list(ss.get("threads", []))
-            leaves_per_server.append(sum(int(s.get("leaves", 0)) for s in threads_stats))
-            serve_stats.extend(threads_stats)
-            for k, v in (ss.get("picker") or {}).items():
-                pick[k] = pick.get(k, 0) + int(v)
-        self.last_leaves_per_server = leaves_per_server
-        # A serve thread that died inside its loop still ships its
-        # stats now (tools/serve_worker._serve_loop's finally), so the
-        # manager can say so instead of silently serving the rest of
-        # the campaign at half the threads it was given.
-        self.last_serve_thread_errors = [str(s["error"]) for s in serve_stats
-                                         if s.get("error")]
-        for tb in self.last_serve_thread_errors:
-            log.error(f"iter {iter_idx}: a serve thread died mid-iteration; the "
-                      f"pool served this iteration with one thread fewer:\n{tb}")
-        # Each server's compiled packed trunk state (bench_pool records
-        # it): the learner's, then each serve process's own copy; None
-        # where a server's stats never arrived.
-        pc = getattr(self._inference_base(), "packed_compile_stats", None)
-        self.last_packed_compile_per_server: List[Optional[Dict]] = [
-            pc() if pc is not None else {"active": False}]
-        for sid in self._server_ids():
-            ss = server_stats.get(sid)
-            self.last_packed_compile_per_server.append(
-                None if ss is None else dict(ss.get("packed_compile") or {"active": False}))
-        # Advance the global anneal counter by the decisions generated this
-        # iteration (sum across actors), so the combat-oracle bias keeps
-        # annealing across the campaign instead of freezing at ds0.
-        self._advance_decision_step(total_decisions)
-        # Mean of per-actor means (actors carry ~equal decision counts
-        # under the shared queue); None-valued et_* fields are skipped.
-        # Consumed by sim_self_play's iteration telemetry in place of
-        # the learner-side drain (which never searches under the pool).
-        self.last_distill_stats = None
-        if distill_dicts:
-            keys = set().union(*(d.keys() for d in distill_dicts))
-            out = {}
-            for k in keys:
-                vals = [d[k] for d in distill_dicts
-                        if d.get(k) is not None]
-                out[k] = (sum(vals) / len(vals)) if vals else None
-            self.last_distill_stats = out
-        agg = {k: sum(s.get(k, 0) for s in serve_stats)
-               for k in ("wait", "unpack", "infer", "wire", "put", "gpu_ms",
-                         "leaves", "batches", "requests", "tokens", "padded",
-                         "t_encode", "t_forward", "t_priors", "t_finish", "t_reply")
-               } if serve_stats else {}
-        served = int(agg.get("leaves", 0))
-        elapsed = max(1e-9, time.monotonic() - t_start)
-        self.last_leaf_timeline = _merge_timelines(
-            [s.get("timeline", []) for s in serve_stats], t_start)
-        self.last_saturated_leaves_per_s = _best_window_rate(self.last_leaf_timeline, 60.0)
-        if agg.get("batches"):
-            log.info(
-                f"iter {iter_idx}: serve stages ({self._serve_processes} servers x "
-                f"{self._serve_threads} threads, leaves per server "
-                f"{leaves_per_server}): wait={agg['wait']:.1f}s "
-                f"infer={agg['infer']:.1f}s wire={agg['wire']:.1f}s "
-                f"put={agg['put']:.1f}s gpu={agg['gpu_ms'] / 1000.0:.1f}s "
-                f"({agg['gpu_ms'] / max(served, 1):.2f} ms/leaf) leaves/batch="
-                f"{agg['leaves'] / agg['batches']:.1f} "
-                f"saturated={self.last_saturated_leaves_per_s or 0:.0f} leaves/s (best 60 s) "
-                f"throughput={served / elapsed:.0f} leaves/s")
-        # Host milliseconds per batch by stage (the t_* stages come from
-        # the seam on CUDA only, so they read 0 on CPU), and what the
-        # batch picker saw: requests per batch, waiting requests at each
-        # pick, requests deferred by the length rule (summed over the
-        # servers' pickers).
-        nb = int(agg.get("batches", 0) or 0)
-        self.last_host_ms = ({k: 1000.0 * agg[k] / nb for k in (
-            "unpack", "t_encode", "t_forward", "t_priors", "t_finish", "t_reply", "wire", "put")}
-            if nb else None)
-        self.last_skipped_requests = pick["skipped"]
-        self.last_queue_depth = pick["depth"] / pick["picks"] if pick["picks"] else None
-        if nb:
-            hm = self.last_host_ms
-            log.info(
-                f"iter {iter_idx}: host ms per batch: unpack={hm['unpack']:.2f} "
-                f"encode={hm['t_encode']:.2f} forward={hm['t_forward']:.2f} "
-                f"priors={hm['t_priors']:.2f} wait={hm['t_finish']:.2f} "
-                f"reply={hm['t_reply']:.2f} wire={hm['wire']:.2f} put={hm['put']:.2f} | "
-                f"coalesce={self._coalesce} requests/batch={agg['requests'] / nb:.2f} "
-                f"queue depth={self.last_queue_depth or 0:.2f} skipped={pick['skipped']}")
-        log.info(f"iter {iter_idx}: pool served {served} forwards, "
-                 f"{len(outcomes)} games, {len(experiences)} experiences, "
-                 f"decision_step {ds0} -> {self._global_decision_step()}")
-        # Time-profiling readbacks (minimal loop, 2026-09-03): the
-        # numbers above were log-only; the loop's CSV wants them.
-        self.last_served_forwards = served
-        self.last_iteration_seconds = elapsed
-        self.last_decisions = self._global_decision_step() - ds0
-        self.last_tokens_per_leaf = (agg["tokens"] / served
-                                     if served and agg.get("tokens") else None)
-        self.last_pad_ratio = (agg["padded"] / agg["tokens"]
-                               if agg.get("tokens") else None)
-        ft = sorted(finish_times)
-        self.last_game_finish_p50 = ft[len(ft) // 2] if ft else None
-        self.last_game_finish_max = ft[-1] if ft else None
-        if ft:
-            log.info(f"iter {iter_idx}: game finish times p50={ft[len(ft) // 2]:.0f}s "
-                     f"p90={ft[int(len(ft) * 0.9)]:.0f}s max={ft[-1]:.0f}s | "
-                     f"tokens/leaf={self.last_tokens_per_leaf or 0:.0f} "
-                     f"pad_ratio={self.last_pad_ratio or 0:.2f}")
+        threads, pick, leaves_per_server = self._serve_snapshot(sv)
+        self._record_serve_window(
+            iter_idx, threads, pick, leaves_per_server, sv.server_stats,
+            t_start=t_start, elapsed=time.monotonic() - t_start,
+            n_games=len(outcomes), n_exps=len(experiences), ds0=ds0,
+            total_decisions=total_decisions, finish_times=finish_times,
+            distill_dicts=distill_dicts)
         return outcomes, experiences
 
     def shutdown(self, timeout: float = 15.0) -> None:

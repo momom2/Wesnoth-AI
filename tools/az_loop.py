@@ -22,6 +22,17 @@ Three data streams, every iteration, to az_history.csv:
 
 Kill: raw pin <= seed at the end of the budget (read by hand), or
 K median < 10 for 3 consecutive iterations (exit 7 + ABORTED_7).
+
+`--stream` (2026-09-18, tools/actor_stream.py): the actors never wait
+at the iteration barrier. An "iteration" is then a WINDOW of
+--games-per-iter completed games, collected while every actor keeps
+playing, and the step's weights publish into the running servers. The
+CSV keeps its columns; gen_seconds is the window's span, game_finish_*
+are per-game durations, and four columns describe what the barrier
+never had: straddle_mean / straddle_max / straddled_share (weight
+publications a game lived through) and step_leaves_per_s (what the
+in-process server served while the learner stepped). Opt-in until a
+learner that improves on the prior has been run both ways.
 """
 from __future__ import annotations
 
@@ -76,6 +87,12 @@ COLUMNS = [
     # serve processes (--serve-processes > 1): the weights version the
     # serve processes acknowledged after the step
     "server_weights_version",
+    # --stream (tools/actor_stream.py): publications a game of the
+    # window lived through, the window's median game duration, the
+    # in-process serve rate during the learner's step, a window cut
+    # short by the timeout
+    "straddle_mean", "straddle_max", "straddled_share", "game_seconds_p50",
+    "step_leaves_per_s", "window_timed_out",
     # pins
     "pin_step", "raw_vs_seed_wdl", "search_vs_seed_wdl",
 ]
@@ -336,6 +353,12 @@ def main(argv) -> int:
                          "CUDA graphs (wesnoth_ai/graphed_serve.py): one launch per "
                          "batch instead of the ~150 the host pays today. cuda + bf16 "
                          "+ the packed trunk; off until its box row is in.")
+    ap.add_argument("--stream", action=argparse.BooleanOptionalAction, default=False,
+                    help="Continuous generation (tools/actor_stream.py): no iteration "
+                         "barrier; each step takes the next --games-per-iter completed "
+                         "games while every actor keeps playing, and publishes into the "
+                         "running servers. Games straddle publications (recorded per "
+                         "window). Off until measured against the barrier both ways.")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--rng-seed", type=int, default=20260903)
     ap.add_argument("--log-level", default="INFO")
@@ -436,11 +459,18 @@ def main(argv) -> int:
         log.info("--actors auto: %d, matching --games-per-iter", n_actors)
     else:
         n_actors = args.actors
-        if n_actors > args.games_per_iter:
+        if n_actors > args.games_per_iter and not args.stream:
             log.warning("--actors %d exceeds --games-per-iter %d; running %d actors "
                         "(the surplus would idle). Raise --games-per-iter to use them.",
                         n_actors, args.games_per_iter, args.games_per_iter)
             n_actors = args.games_per_iter
+    if args.stream:
+        # A stream keeps every actor playing whatever the window size;
+        # actors over games per window means a game straddles about
+        # that many publications on average.
+        log.info("--stream: %d actors per %d-game window, about %.2f publications "
+                 "per game", n_actors, args.games_per_iter,
+                 n_actors / max(1, args.games_per_iter))
     fits, why = max_actors(n_actors)
     log.info("actor budget: %s", why)
     if fits < n_actors:
@@ -502,14 +532,28 @@ def main(argv) -> int:
     ref_states = None
     k_low = 0
     pins_done = 0
+    stream = None
+    if args.stream:
+        stream = pool.stream(rng.randint(0, 2**31 - 1), tag=args.start_iter)
+        stream.start()
     try:
         for it in range(args.start_iter, args.iterations):
             t_it = time.monotonic()
             row: Dict = {"iter": it, "decision_step": base._decision_step}
 
             # ---- generation --------------------------------------
-            outcomes, exps = pool.run_iteration(it, args.games_per_iter,
-                                                rng.randint(0, 2**31 - 1))
+            if stream is not None:
+                window = stream.collect(args.games_per_iter,
+                                        timeout=args.iteration_timeout)
+                outcomes, exps = window.outcomes, window.experiences
+                row.update(straddle_mean=window.straddle_mean,
+                           straddle_max=window.straddle_max,
+                           straddled_share=window.straddled_share,
+                           game_seconds_p50=window.game_seconds_p50,
+                           window_timed_out=int(window.timed_out))
+            else:
+                outcomes, exps = pool.run_iteration(it, args.games_per_iter,
+                                                    rng.randint(0, 2**31 - 1))
             if not _pids_calibrated:
                 _pids_calibrated = True
                 _per_actor = (pids_per_actor(n_actors, _pids_before)
@@ -601,6 +645,7 @@ def main(argv) -> int:
             # and the step itself) adds its stage seconds here.
             train_stages = base._trainer.stage_timings = {}
             t_tr = time.monotonic()
+            leaves_before_step = stream.leaves_served() if stream is not None else 0
             train_exps, held_exps = split_holdout(kept, args.holdout_frac, rng)
             kl_states = (held_exps if len(held_exps) <= args.kl_states
                          else rng.sample(held_exps, args.kl_states))
@@ -625,7 +670,7 @@ def main(argv) -> int:
                                     max_trials=args.step_trials,
                                     select=args.step_select)
             stats = captured["stats"]
-            if args.serve_processes > 1:
+            if args.serve_processes > 1 and stream is None:
                 # The step published new inference weights (through the
                 # backtracking's final publish); the serve processes must
                 # hold them before the next iteration's PLAY.
@@ -664,6 +709,17 @@ def main(argv) -> int:
                 row["value_center"] = pool.value_center
                 row["value_level"] = center_batch
                 row["value_level_ref"] = center
+            if stream is not None:
+                # The servers take the step's weights now, the actors
+                # the new center and anneal counter; the publication
+                # is dated for the straddle count of the games in
+                # flight.
+                row["server_weights_version"] = stream.publish(
+                    value_center=pool.value_center,
+                    decision_step=int(base._decision_step))
+                step_s = row["train_seconds"]
+                row["step_leaves_per_s"] = ((stream.leaves_served() - leaves_before_step)
+                                            / step_s if step_s else None)
             # per-source gradient norms (unclipped, optimizer stubbed)
             norms = signal_grad_norms(base._trainer, kept, rng) if kept else {}
             pn = norms.get("sig_policy_norm")
@@ -731,6 +787,8 @@ def main(argv) -> int:
                                 for s in STEP_MCTS_STAGES)
                      + f" | other {other:.1f}")
     finally:
+        if stream is not None:
+            stream.stop(grace=300.0)
         pool.shutdown()
         fh.close()
     return 0

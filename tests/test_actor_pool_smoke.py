@@ -101,3 +101,52 @@ def test_actor_pool_server_priors_end_to_end(monkeypatch):
     policy._trainer.config.train_batch_size = 4
     stats = policy._trainer.step_mcts(exps)
     assert math.isfinite(float(stats.policy_loss))
+
+
+@pytest.mark.slow
+def test_actor_pool_streams_games_across_a_publication():
+    """Continuous generation (tools/actor_stream.py) on the real pool:
+    two windows of games with every actor playing throughout, a weight
+    publication between them that the games in flight straddle, and a
+    clean drain."""
+    from tools.actor_pool import ActorPool
+
+    policy = TransformerPolicy(device=torch.device("cpu"), d_model=32,
+                               num_layers=1, num_heads=2, d_ff=64)
+    cfg = MCTSConfig(n_simulations=2, batch_size=1)
+    pool = ActorPool(
+        policy, 2, cfg,
+        scenario_opts=dict(mini_maps=True, mini_ratio=1.0,
+                           fogless_ratio=0.0, midgame_ratio=0.0,
+                           ladder_ratio=0.0),
+        max_turns=4,
+        iteration_timeout=600.0,
+    )
+    pool.start()
+    try:
+        stream = pool.stream(base_seed=7)
+        stream.start()
+        first = stream.collect(2, timeout=600.0)
+        assert len(first.games) == 2 and len(first.outcomes) == 2
+        assert first.experiences and first.decisions > 0
+        assert first.straddle_max == 0
+        assert pool.last_served_forwards > 0 and stream.leaves_served() > 0
+        version_before = policy._inference_model._weights_version
+        with torch.no_grad():
+            for prm in policy._model.parameters():
+                prm.add_(0.1 * torch.randn_like(prm))
+        policy._snapshot_inference_weights()       # under the server's gate
+        assert policy._inference_model._weights_version == version_before + 1
+        stream.publish(value_center=0.1, decision_step=int(policy._decision_step))
+        second = stream.collect(2, timeout=600.0)
+        assert len(second.games) == 2
+        # Both actors were mid-game at the publication.
+        assert second.straddle_mean == 1.0 and second.straddled_share == 1.0
+        assert [g.index for g in second.games] == [2, 3] or set(
+            g.index for g in second.games) == {2, 3}
+        tail = stream.stop(grace=120.0)
+        assert stream._live == set(), "every actor reported done after the drain"
+        assert not pool._streaming and not pool._serving
+        assert isinstance(tail.games, list)
+    finally:
+        pool.shutdown()
