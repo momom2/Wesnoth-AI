@@ -1,0 +1,3 @@
+games_arm_selfpin: raw:t0 vs raw:t0: 1029 games, W-L-D-capped 402-398-0-229, p 0.502 +- 0.018 over 800 decisive, capped scored 0.5: 0.502, capped fraction 0.22; decisions per side-turn A 5.94 B 5.93 (1.002x)
+games_composed_vs_ref: raw:t0+eo-1.5 vs raw:t0: 835 games, W-L-D-capped 656-144-0-35, p 0.820 +- 0.014 over 800 decisive, capped scored 0.5: 0.807, capped fraction 0.04; decisions per side-turn A 10.03 B 5.67 (1.770x)
+games_composed_vs_refdecode: raw:t0+eo-1.5 vs raw:t0+eo-1.5: 803 games, W-L-D-capped 430-370-0-3, p 0.537 +- 0.018 over 800 decisive, capped scored 0.5: 0.537, capped fraction 0.00; decisions per side-turn A 9.37 B 8.84 (1.060x)

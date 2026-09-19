@@ -1734,6 +1734,25 @@ the terrain set moves the match and not the holdout probe. The
 minutes; this 64-core host played the arm's in 17.5 minutes with two
 servers up (one per view) and 30% of games at the cap.
 
+## Do the two levers add? (2026-09-19 night, instance 51625245, RTX 4090, EPYC 7C13, $0.60/h)
+
+`scripts/composed_levers_box.sh` under docs/composed_levers_prereg_20260919.md,
+each side served in its own terrain view by its own server, 800
+decisive per match. Records under
+`training/metrics/bench_pipeline/composed_levers_20260919/`.
+
+| match | seed base | games (capped) | W-L | p | Elo of A | wall |
+|---|---|---|---|---|---|---|
+| terrain_e1 at `raw:t0+eo-1.5` vs relset at `raw:t0+eo-1.5` | 47000 | 803 (3) | 430-370 | 0.537 +- 0.018 | +26 +- 12 | 489 s |
+| terrain_e1 at `raw:t0+eo-1.5` vs relset at `raw:t0` | 48000 | 835 (35) | 656-144 | 0.820 +- 0.014 | +263 +- 16 | 536 s |
+| terrain_e1 at `raw:t0` against itself | 49000 | 1029 (229) | 402-398 | 0.502 +- 0.018 | +2 +- 12 | 812 s |
+
+The checkpoint lever survives the decode (+26 +- 12, against +44
+alone: the match cannot tell independence from partial overlap), and
+the composed player is about +263 Elo over today's reference with 4%
+of games capped. An 800-decisive match with the offset on one side
+takes 8-9 minutes on this host.
+
 ## The end_turn decode test (2026-09-19, instance 51591595, RTX 4090, a 30.7-core slice of an EPYC 7B13 host, 1 TB host RAM, $0.75/h)
 
 `scripts/endturn_rule_box.sh` under docs/endturn_rule_prereg_20260919.md:

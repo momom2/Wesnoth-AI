@@ -1037,9 +1037,14 @@ Two further findings from the same hunt, NOT fixed:
   equal to the twin's** (docs/terrain_multi_hot_prereg_20260919.md
   "Measured"; checkpoint HF `tier-b/terrain_multi_hot_20260919/arm_epoch0.pt`).
   Under the pre-registered reading the arm is the candidate
-  reference player, pending the user's ruling and a self-pin; the
-  two levers of the day compose in principle (an encoding and a
-  decode) and their sum is unmeasured.
+  reference player, pending the user's ruling and a self-pin. **The
+  composition RAN the same night** (docs/composed_levers_prereg_20260919.md):
+  the arm under the -1.5 decode beats the reference under the same
+  decode +26 +- 12 Elo (430-370), and the composed player beats
+  today's reference +263 +- 16 (656-144, p 0.820, 4% capped). The
+  arm's self-pin reads +2 +- 12 Elo (402-398 over 800 decisive, 22%
+  capped against the reference's own 40%): no asymmetry, and the
+  candidate is pinned.
 - **Two more `[hides]` abilities are outside `_AMBUSH_ABILITIES`**:
   `burrow` (Horned Scarab) and `swamp_lurk` (the Swamp Lizard -- the FILE is
   Crocodile.cfg but `id=Swamp Lizard` and no unit type called

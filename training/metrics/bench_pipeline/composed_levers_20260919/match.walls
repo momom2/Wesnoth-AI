@@ -1,0 +1,3 @@
+composed_vs_refdecode seed_base=47000 --raw-end-turn-offset-a -1.5 --raw-end-turn-offset-b -1.5 489 s 803 games
+composed_vs_ref seed_base=48000 --raw-end-turn-offset-a -1.5 536 s 835 games
+arm_selfpin seed_base=49000  812 s 1029 games

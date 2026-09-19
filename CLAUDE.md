@@ -449,7 +449,10 @@ State of play:
   evening: +44 +- 12 Elo over `relset` (800 decisive, 450-350),
   holdout proxies equal to the twin's**; checkpoint
   `tier-b/terrain_multi_hot_20260919/arm_epoch0.pt`, the candidate
-  reference pending the user's ruling. The same day the panel's
+  reference pending the user's ruling; under the -1.5 decode it
+  keeps +26 +- 12 over the reference under the same decode, and
+  composed it is **+263 +- 16 over today's reference** (656-144,
+  docs/composed_levers_prereg_20260919.md). The same day the panel's
   test 1 (end_turn at the actor level, docs/endturn_rule_prereg_20260919.md)
   ran on a box and **PASSED: p 0.752 +- 0.015 over 800 decisive games
   (602-198), about +193 Elo for a decode rule that trains nothing**,
@@ -465,17 +468,13 @@ State of play:
   end_turn head still marks turns worth passing. Whether
   `raw:t0+eo-1.5` becomes the reference decode is the user's ruling
   (BACKLOG.md "Training-signal panel").
-- One box is rented (2026-09-19 night): instance 51625245, an EPYC
-  7C13 4090 host at $0.60/h, running `scripts/composed_levers_box.sh`
-  (docs/composed_levers_prereg_20260919.md: the terrain arm under the
-  -1.5 decode against the reference under the same decode, the
-  composed player against today's reference, the arm's self-pin;
-  about 50 minutes); a detached reaper pulls to
-  `training/metrics/bench_pipeline/composed_levers_20260919/` and
-  destroys it on ALL_DONE or at 2 hours. The day's rentals cost
-  about $6. Two rulings wait for the user: the reference DECODE
+- No box is rented (2026-09-19 night, after four runs: the end_turn
+  test, the offset sweep, the terrain arm and the composition; about
+  $6 in all). Two rulings wait for the user: the reference DECODE
   (`raw:t0+eo-1.5`, +229 Elo for a config scalar) and the reference
-  CHECKPOINT (the terrain-set arm, +44 Elo). Phase 2 is next:
+  CHECKPOINT (the terrain-set arm, +44 Elo alone, +26 under the
+  decode, self-pinned at +2 +- 12); composed they read +263 +- 16
+  over today's reference. Phase 2 is next:
   docs/plan_20260904.md 5, whose first measurement is the turn-gap
   pre-registration.
 

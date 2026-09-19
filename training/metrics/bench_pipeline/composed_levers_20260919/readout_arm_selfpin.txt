@@ -1,0 +1,1 @@
+games_arm_selfpin: raw:t0 vs raw:t0: 1029 games, W-L-D-capped 402-398-0-229, p 0.502 +- 0.018 over 800 decisive, capped scored 0.5: 0.502, capped fraction 0.22; decisions per side-turn A 5.94 B 5.93 (1.002x)

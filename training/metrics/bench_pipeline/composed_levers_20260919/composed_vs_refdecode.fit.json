@@ -1,0 +1,25 @@
+{
+  "n_games": 803,
+  "tables": {
+    "PURE (decisive only, primary)": {
+      "relset": {
+        "elo": 0.0,
+        "se": 0.0
+      },
+      "terrain_e1": {
+        "elo": 26.073977389730643,
+        "se": 12.310618604070859
+      }
+    },
+    "MATERIAL-SIGN (diagnostic)": {
+      "relset": {
+        "elo": 0.0,
+        "se": 0.0
+      },
+      "terrain_e1": {
+        "elo": 27.280355798752886,
+        "se": 12.290899567432735
+      }
+    }
+  }
+}
