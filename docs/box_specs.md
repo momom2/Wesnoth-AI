@@ -1710,6 +1710,30 @@ both pairs, a cost a campaign pays once at its end. Rental about $2.2,
 of which about $0.8 idle after the last arm: the watcher that should
 have caught the final upload had expired and was not re-armed.
 
+## The terrain-set arm (2026-09-19, instance 51597775, RTX 4090, EPYC 7B13 64 cores, 500 GB, $0.78/h, 4.5 box-hours)
+
+`scripts/terrain_arm_box.sh` under docs/terrain_multi_hot_prereg_20260919.md:
+the reference player's recipe from scratch with `--terrain-multi-hot`
+(one pass in the relevant-set basis, fog gate on, pre-encoded
+records, run seed 20260909), then PURE `raw:t0` against `relset`
+with each side served in its own terrain view by its own inference
+server, 800 decisive games. Records under
+`training/metrics/bench_pipeline/terrain_multi_hot_20260919/`.
+
+| step | reading |
+|---|---|
+| wheel and tests | phase 10; 20 passed, 1 skipped (the encoder under the flag against the Rust kernels) |
+| pre-encoding, 30 workers | 17,019 games, 5.04M pairs, 1,219 s (4,140 pairs/s) |
+| the pass | 2,826,147 pairs, 12,822 s, 221 pairs/s; holdout CE 2.837, actor top-1 0.584, value AUC 0.743 |
+| terrain_e1 vs relset | 1,139 games, 339 capped, 800 decisive: **+44 +- 12 Elo**, p 0.562 +- 0.018, 1,050 s |
+| self-timings | refused: the batch runner keys result files by label and both sides carried one (0 games) |
+
+The arm passes its bar (p >= 0.535) with proxies equal to the twin's:
+the terrain set moves the match and not the holdout probe. The
+21-core sweep box of the same evening played 800 decisive in 14-15
+minutes; this 64-core host played the arm's in 17.5 minutes with two
+servers up (one per view) and 30% of games at the cap.
+
 ## The end_turn decode test (2026-09-19, instance 51591595, RTX 4090, a 30.7-core slice of an EPYC 7B13 host, 1 TB host RAM, $0.75/h)
 
 `scripts/endturn_rule_box.sh` under docs/endturn_rule_prereg_20260919.md:

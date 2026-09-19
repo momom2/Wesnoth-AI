@@ -93,3 +93,43 @@ flow); the per-phase evaluation 5 minutes; the 800-decisive match
 $2.5-3.5 at $0.50-0.75 per hour. `scripts/terrain_arm_box.sh` runs it
 end to end; every exit, clean or not, leaves ALL_DONE on HF so the
 laptop's watcher pulls the records and destroys the box.
+
+## Measured (2026-09-19, instance 51597775: a 64-core EPYC 7B13 host with an RTX 4090, 500 GB RAM, $0.78/h, 4.5 box-hours, about $3.5)
+
+Records under `training/metrics/bench_pipeline/terrain_multi_hot_20260919/`
+(the game records stayed on the box; the fit, the tally and the logs
+are the record). The arm's checkpoint is HF
+`tier-b/terrain_multi_hot_20260919/arm_epoch0.pt`.
+
+Crash barriers: the encoder tests and the Rust encode parity under
+the flag ran on the box first, 20 passed and 1 skipped (`tests_terrain.log`);
+the pass trained 2,826,147 pairs against the twin's 2,825,379
+(0.03% apart). Pre-encoding 17,019 games at 30 workers took 1,219 s
+(4,140 pairs/s over 5.04M pre-encoded pairs); the pass 12,822 s at
+221 pairs/s (the batched flow on this host; the twin ran 138 pairs/s
+on the 2026-09-11 box before it).
+
+| match | seed base | games (capped) | decisive | Elo of the arm | p (from the fit) | wall |
+|---|---|---|---|---|---|---|
+| terrain_e1 vs relset, PURE `raw:t0`, set view against class view | 61000 | 1139 (339) | 800 | +44 +- 12 | 0.562 +- 0.018 (450-350) | 1,050 s |
+
+**PASS** under the pre-registered bar (p >= 0.535, predicted 0.53 with
+a range of 0.46-0.60): the terrain set is worth about +44 Elo to the
+imitation product at the same recipe and pass. The holdout probe at
+the end of the pass reads within noise of the twin's (CE 2.837
+against 2.840, actor top-1 0.584 against 0.603, masked target CE
+1.350 against 1.347, value AUC 0.743 against 0.752), as predicted:
+the proxies do not see the match. The per-phase value AUC
+(`phase_terrain.md`, same-turn, turns 1-5 to 31+): 0.645, 0.733,
+0.783, 0.833, 0.792, 0.864 against the twin's 0.65, 0.75, 0.80, 0.85,
+0.82, 0.86. Capped games: 339 of 1,139 (0.30), the `raw:t0` stall of
+the argmax decode, not an arm effect (the reference against itself
+caps 0.40).
+
+Under the pre-registered reading the arm is the candidate reference
+player, pending the user's ruling and its own self-pin. Not measured:
+the 40-game self-timings (the batch runner now refuses two sides
+under one label, which the relset script's self-match recipe used; the
+throughput number waits for a labelled pair) and the arm under the
+end_turn offset decode (docs/endturn_offset_sweep_prereg_20260919.md),
+which is the other lever on the table.

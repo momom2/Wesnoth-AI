@@ -228,8 +228,9 @@ shutil.copyfile(hf_hub_download("momom2/wesnoth-model-checkpoints", sys.argv[1])
 print("opponent staged:", sys.argv[1], flush=True)
 EOF
 match "seed2_relset_${E}_vs_seed2_$E" "$RELSET" "$SEED2" "$GAMES" 60000 1500
-match "relself_${E}_vs_relself_$E" "$RELSET" "$RELSET" 40 20000 0
-match "seed2self_${E}_vs_seed2self_$E" "$SEED2" "$SEED2" 40 20000 0
+# Self-timings need two labels (the runner keys result files by label).
+match "relself_${E}_vs_relmirror_$E" "$RELSET" "$RELSET" 40 20000 0
+match "seed2self_${E}_vs_seed2mirror_$E" "$SEED2" "$SEED2" 40 20000 0
 kill $ESCROW_PID 2>/dev/null
 touch "$OUT/ALL_DONE"
 progress

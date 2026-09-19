@@ -270,8 +270,10 @@ ARM="training/checkpoints/terrain_$E.pt"
 REF="training/checkpoints/relset.pt"
 cp "$CKPT" "$ARM"
 match "terrain_${E}_vs_relset" "$ARM" "$REF" "$GAMES" 61000 1500
-match "terrainself_${E}_vs_terrainself_$E" "$ARM" "$ARM" 40 62000 0
-match "relself_vs_relself" "$REF" "$REF" 40 62000 0
+# Self-timings: the batch runner keys result files by label, so a
+# side against itself needs two labels (2026-09-19: one label refused).
+match "terrain_${E}_vs_terrainmirror_$E" "$ARM" "$ARM" 40 62000 0
+match "relset_vs_relsetmirror" "$REF" "$REF" 40 62000 0
 kill $ESCROW_PID 2>/dev/null
 touch "$OUT/ALL_DONE"
 progress

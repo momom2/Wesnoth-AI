@@ -445,7 +445,11 @@ State of play:
   tuple) and eval records carry `terrain_a/terrain_b` as an estimand
   next to the basis. The arm (the reference's recipe with the flag,
   one pass, 800 decisive against `relset`) is pre-registered in
-  docs/terrain_multi_hot_prereg_20260919.md. The same day the panel's
+  docs/terrain_multi_hot_prereg_20260919.md and **RAN the same
+  evening: +44 +- 12 Elo over `relset` (800 decisive, 450-350),
+  holdout proxies equal to the twin's**; checkpoint
+  `tier-b/terrain_multi_hot_20260919/arm_epoch0.pt`, the candidate
+  reference pending the user's ruling. The same day the panel's
   test 1 (end_turn at the actor level, docs/endturn_rule_prereg_20260919.md)
   ran on a box and **PASSED: p 0.752 +- 0.015 over 800 decisive games
   (602-198), about +193 Elo for a decode rule that trains nothing**,
@@ -461,12 +465,11 @@ State of play:
   end_turn head still marks turns worth passing. Whether
   `raw:t0+eo-1.5` becomes the reference decode is the user's ruling
   (BACKLOG.md "Training-signal panel").
-- One box is rented (2026-09-19 evening): instance 51597775, a 64-core
-  EPYC 7B13 4090 host at $0.74/h, running `scripts/terrain_arm_box.sh`
-  (the terrain-set arm, about 4-5 box-hours); a detached reaper on the
-  laptop pulls its records to
-  `training/metrics/bench_pipeline/terrain_multi_hot_20260919/` and
-  destroys it on ALL_DONE or at 7 hours. Phase 2 is next:
+- No box is rented (2026-09-19 night, after the terrain arm and the
+  offset sweep; the day's rentals cost about $5.5). Two rulings wait
+  for the user: the reference DECODE (`raw:t0+eo-1.5`, +229 Elo for a
+  config scalar) and the reference CHECKPOINT (the terrain-set arm,
+  +44 Elo); their sum is unmeasured. Phase 2 is next:
   docs/plan_20260904.md 5, whose first measurement is the turn-gap
   pre-registration.
 

@@ -1,0 +1,4 @@
+Sat Sep 19 18:36:58 UTC 2026
+epoch=0 step=44100 pairs=2822400 rate=220.6/s wall=213.2m
+EVAL[epoch0-end] step=44158 pairs=2826147 n=1200 ce=2.8370 actor_top1=0.584 type_top1=0.953 target_top1=0.558 weapon_top1=0.791 value_auc=0.743 target_masked_ce
+ALL_DONE DONE STAGED STOPPED_AFTER_EPOCH arm.pt arm_epoch0.pt arm_epoch0.pt.escrowed arm_eval.jsonl arm_eval.jsonl.escrowed arm_latest_snapshot.pt box.txt box.txt.escrowed build.log build.log.escrowed cc_install.log escrow.log fresh_vocab.pt games_terrain_e1_vs_relset match.walls phase_terrain.json phase_terrain.md phase_terrain.partial.json preencode.log preencode.log.escrowed progress.txt progress.txt.escrowed relself_vs_relself.log terrain_e1_vs_relset.fit.json terrain_e1_vs_relset.log terrainself_e1_vs_terrainself_e1.log tests_terrain.log tests_terrain.log.escrowed timing_relself_vs_relself.txt timing_terrain_e1_vs_relset.txt timing_terrainself_e1_vs_terrainself_e1.txt train.log train.log.escrowed 

@@ -1,0 +1,13 @@
+256
+model name	: AMD EPYC 7B13 64-Core Processor
+               total        used        free      shared  buff/cache   available
+Mem:             503          57         301           0         144         442
+NVIDIA GeForce RTX 4090, 24564 MiB, 590.48.01
+torch 2.5.1+cu124
+reach/enumeration    RUST
+observation          RUST
+rows_from_reach      RUST
+combat               RUST
+encode_streams       RUST
+GameCore             python
+kernels | RUST: reach/enumeration, observation, rows_from_reach, combat, encode_streams | PYTHON: GameCore | wheel phase 10

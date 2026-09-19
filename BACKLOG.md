@@ -1032,6 +1032,14 @@ Two further findings from the same hunt, NOT fixed:
   and its bars: docs/terrain_multi_hot_prereg_20260919.md,
   `scripts/terrain_arm_box.sh` (the reference's recipe with the flag,
   one pass, 800 decisive against `relset`, about $2.5-3.5).
+  **RAN THE SAME EVENING AND PASSED: +44 +- 12 Elo over `relset`
+  (800 decisive, 450-350, 339 of 1,139 capped), holdout proxies
+  equal to the twin's** (docs/terrain_multi_hot_prereg_20260919.md
+  "Measured"; checkpoint HF `tier-b/terrain_multi_hot_20260919/arm_epoch0.pt`).
+  Under the pre-registered reading the arm is the candidate
+  reference player, pending the user's ruling and a self-pin; the
+  two levers of the day compose in principle (an encoding and a
+  decode) and their sum is unmeasured.
 - **Two more `[hides]` abilities are outside `_AMBUSH_ABILITIES`**:
   `burrow` (Horned Scarab) and `swamp_lurk` (the Swamp Lizard -- the FILE is
   Crocodile.cfg but `id=Swamp Lizard` and no unit type called
