@@ -392,6 +392,18 @@ def main(argv: List[str]) -> int:
                          "0 = argmax). Default None = legacy sampler.")
     ap.add_argument("--raw-temperature-b", type=float, default=None,
                     help="Player B (see --raw-temperature-a).")
+    ap.add_argument("--raw-end-turn-a", choices=("joint", "actor"), default="joint",
+                    help="Player A's end_turn decode (elo_eval_game "
+                         "--raw-end-turn-a): 'actor' = end_turn only when its "
+                         "actor mass leads every actor marginal. Procedure "
+                         "tag '+endm'.")
+    ap.add_argument("--raw-end-turn-b", choices=("joint", "actor"), default="joint",
+                    help="Player B (see --raw-end-turn-a).")
+    ap.add_argument("--raw-end-turn-offset-a", type=float, default=0.0,
+                    help="Offset on player A's end_turn actor logit (procedure "
+                         "tag '+eo<x>').")
+    ap.add_argument("--raw-end-turn-offset-b", type=float, default=0.0,
+                    help="Player B (see --raw-end-turn-offset-a).")
     ap.add_argument("--mcts-batch-size", type=int, default=1,
                     help="Leaf-evaluation batch for search, both "
                          "players. 1 = sequential (canonical, CPU "
@@ -684,10 +696,14 @@ def main(argv: List[str]) -> int:
     from tools.eval_procedure import procedure_of
     want = (procedure_of(sims_a, args.plan_a,
                           args.no_turn_search or args.no_turn_search_a,
-                          args.raw_temperature_a, args.gumbel_root_a),
+                          args.raw_temperature_a, args.gumbel_root_a,
+                          raw_end_turn=args.raw_end_turn_a,
+                          raw_end_turn_offset=args.raw_end_turn_offset_a),
             procedure_of(sims_b, args.plan_b,
                           args.no_turn_search or args.no_turn_search_b,
-                          args.raw_temperature_b, args.gumbel_root_b))
+                          args.raw_temperature_b, args.gumbel_root_b,
+                          raw_end_turn=args.raw_end_turn_b,
+                          raw_end_turn_offset=args.raw_end_turn_offset_b))
     # Hex-basis pre-scan (see BASES): per-process bases are read from
     # the checkpoints here; under shared inference the servers report
     # theirs once launched (below), and the scan repeats there.
@@ -908,6 +924,13 @@ def main(argv: List[str]) -> int:
             cmd += ["--raw-temperature-a", str(args.raw_temperature_a)]
         if args.raw_temperature_b is not None:
             cmd += ["--raw-temperature-b", str(args.raw_temperature_b)]
+        for side in ("a", "b"):
+            rule = getattr(args, f"raw_end_turn_{side}")
+            offset = getattr(args, f"raw_end_turn_offset_{side}")
+            if rule != "joint":
+                cmd += [f"--raw-end-turn-{side}", rule]
+            if offset:
+                cmd += [f"--raw-end-turn-offset-{side}", str(offset)]
         if args.mcts_batch_size != 1:
             cmd += ["--mcts-batch-size", str(args.mcts_batch_size)]
         if servers:

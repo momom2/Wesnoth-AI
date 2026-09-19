@@ -850,6 +850,18 @@ and three proposals that would train on the holdout games. Open
 rulings: distilling confirmed pairs (R2); whether the relevant-set
 retrain replaces the seed; the re-pin of raw:t0 through shared
 inference.
+- TEST 1 SHIPPED AS CODE (2026-09-19, autonomous window): the
+  actor-level end_turn rule and the end_turn logit offset are decode
+  options of the raw player (`tools/raw_player.py`, exact on the
+  compact arrays and on the enumerated list), reach a match through
+  `run_elo_batch --raw-end-turn-a/-b` and `--raw-end-turn-offset-a/-b`,
+  and carry procedure tags (`raw:t0+endm`, `raw:t0+eo<x>`). The run
+  is pre-registered against the reference player in
+  docs/endturn_rule_prereg_20260919.md; `scripts/endturn_rule_box.sh`
+  runs the screens, the 800-decisive match and the conditional
+  attribution arm and writes the verdict (`tools/analysis/
+  endturn_readout.py`). About one box-hour, $0.30-0.60 on a
+  single-tenant 4090 host. Waits for the word.
 - TEST 3 QUEUED (2026-09-05 evening, ~$2.4, last in the box queue):
   the corpus's player ratings are fitted (`tools/player_ratings.py`,
   records in training/metrics/player_ratings/): 142 regulars at 30+

@@ -255,7 +255,8 @@ def _shared_client(address: str):
 
 
 def _remote_player(address: str, raw_temperature: float, raw_seed,
-                   relevant_set: bool, infer_bf16: bool, infer_packed_trunk: bool):
+                   relevant_set: bool, infer_bf16: bool, infer_packed_trunk: bool,
+                   raw_end_turn: str = "joint", raw_end_turn_offset: float = 0.0):
     """The raw player over a shared inference server: a RemoteEncoder
     on the server's vocab with server-side priors, a RemoteModel
     behind the forward-counting proxy (its `fwd_secs` is the round
@@ -282,7 +283,9 @@ def _remote_player(address: str, raw_temperature: float, raw_seed,
         fog_hides_enemy_villages=bool(h.get("fog_hides_enemy_villages", False)))
     base = SimpleNamespace(_inference_model=counter, _inference_encoder=encoder,
                            _lock=threading.Lock(), _decision_step=0)
-    return RawPolicyPlayer(base, raw_temperature, seed=raw_seed), counter
+    return RawPolicyPlayer(base, raw_temperature, seed=raw_seed,
+                           end_turn_rule=raw_end_turn,
+                           end_turn_offset=raw_end_turn_offset), counter
 
 
 class _VocabCheckedRemoteEncoder(RemoteEncoder):
@@ -332,7 +335,9 @@ def _build_player(spec: str, label: str, sims: int, device,
                   gumbel_root: bool = True,
                   relevant_set: bool = False,
                   inference_address=None,
-                  infer_packed_trunk: bool = False):
+                  infer_packed_trunk: bool = False,
+                  raw_end_turn: str = "joint",
+                  raw_end_turn_offset: float = 0.0):
     """`raw_temperature`: sims == 0 only -- the joint-temperature raw
     player (tools/raw_player.py; 0 = argmax). None = the legacy
     factored sampler, the pre-2026-09-04 'raw' procedure.
@@ -352,7 +357,8 @@ def _build_player(spec: str, label: str, sims: int, device,
         return _ScriptedAdapter(DummyPolicy()), None
     if inference_address is not None:
         return _remote_player(inference_address, raw_temperature, raw_seed,
-                              relevant_set, infer_bf16, infer_packed_trunk)
+                              relevant_set, infer_bf16, infer_packed_trunk,
+                              raw_end_turn, raw_end_turn_offset)
     policy = _policy_for(spec, device, label, infer_bf16, infer_compile,
                          relevant_set)
     inner = policy._inference_model
@@ -391,8 +397,9 @@ def _build_player(spec: str, label: str, sims: int, device,
         return cls(policy, mc), counter
     if raw_temperature is not None:
         from tools.raw_player import RawPolicyPlayer
-        return RawPolicyPlayer(policy, raw_temperature,
-                               seed=raw_seed), counter
+        return RawPolicyPlayer(policy, raw_temperature, seed=raw_seed,
+                               end_turn_rule=raw_end_turn,
+                               end_turn_offset=raw_end_turn_offset), counter
     return policy, counter
 
 
@@ -482,6 +489,20 @@ def main(argv) -> int:
                          "mix within an outdir.")
     ap.add_argument("--raw-temperature-b", type=float, default=None,
                     help="Player B (see --raw-temperature-a).")
+    ap.add_argument("--raw-end-turn-a", choices=("joint", "actor"), default="joint",
+                    help="How the raw player A decides end_turn: 'joint' = the "
+                         "joint argmax/sample over every legal action; 'actor' = "
+                         "end_turn only when its actor mass leads every actor "
+                         "marginal, else the joint choice among non-end actions "
+                         "(tools/raw_player.py; procedure tag '+endm').")
+    ap.add_argument("--raw-end-turn-b", choices=("joint", "actor"), default="joint",
+                    help="Player B (see --raw-end-turn-a).")
+    ap.add_argument("--raw-end-turn-offset-a", type=float, default=0.0,
+                    help="Offset added to the raw player A's end_turn actor logit "
+                         "before its choice (negative = against passing; procedure "
+                         "tag '+eo<x>').")
+    ap.add_argument("--raw-end-turn-offset-b", type=float, default=0.0,
+                    help="Player B (see --raw-end-turn-offset-a).")
     ap.add_argument("--relevant-set-a", action="store_true",
                     help="Encode side A's states with the relevant hex subset "
                          "(encoder relevant_set_hexes) whatever the checkpoint "
@@ -718,11 +739,15 @@ def main(argv) -> int:
             want_a = _procedure_of(
                 sims_a, args.plan_a,
                 args.no_turn_search or args.no_turn_search_a,
-                args.raw_temperature_a, args.gumbel_root_a)
+                args.raw_temperature_a, args.gumbel_root_a,
+                raw_end_turn=args.raw_end_turn_a,
+                raw_end_turn_offset=args.raw_end_turn_offset_a)
             want_b = _procedure_of(
                 sims_b, args.plan_b,
                 args.no_turn_search or args.no_turn_search_b,
-                args.raw_temperature_b, args.gumbel_root_b)
+                args.raw_temperature_b, args.gumbel_root_b,
+                raw_end_turn=args.raw_end_turn_b,
+                raw_end_turn_offset=args.raw_end_turn_offset_b)
             got_a = prev.get("procedure_a")
             got_b = prev.get("procedure_b")
             got_mt = prev.get("max_turns")
@@ -859,7 +884,9 @@ def main(argv) -> int:
         raw_seed=2 * args.seed, gumbel_root=args.gumbel_root_a,
         relevant_set=basis_a == "relset",
         inference_address=args.inference_address_a,
-        infer_packed_trunk=inf_packed)
+        infer_packed_trunk=inf_packed,
+        raw_end_turn=args.raw_end_turn_a,
+        raw_end_turn_offset=args.raw_end_turn_offset_a)
     pb, cnt_b = _build_player(
         args.spec_b, args.label_b, sims_b, device,
         turn_search=not (args.no_turn_search or args.no_turn_search_b),
@@ -870,7 +897,9 @@ def main(argv) -> int:
         raw_seed=2 * args.seed + 1, gumbel_root=args.gumbel_root_b,
         relevant_set=basis_b == "relset",
         inference_address=args.inference_address_b,
-        infer_packed_trunk=inf_packed)
+        infer_packed_trunk=inf_packed,
+        raw_end_turn=args.raw_end_turn_b,
+        raw_end_turn_offset=args.raw_end_turn_offset_b)
 
     rng = random.Random(args.seed)
     setup = random_setup(rng)
@@ -916,11 +945,15 @@ def main(argv) -> int:
         "procedure_a": _procedure_of(
             sims_a, args.plan_a,
             args.no_turn_search or args.no_turn_search_a,
-            args.raw_temperature_a, args.gumbel_root_a),
+            args.raw_temperature_a, args.gumbel_root_a,
+            raw_end_turn=args.raw_end_turn_a,
+            raw_end_turn_offset=args.raw_end_turn_offset_a),
         "procedure_b": _procedure_of(
             sims_b, args.plan_b,
             args.no_turn_search or args.no_turn_search_b,
-            args.raw_temperature_b, args.gumbel_root_b),
+            args.raw_temperature_b, args.gumbel_root_b,
+            raw_end_turn=args.raw_end_turn_b,
+            raw_end_turn_offset=args.raw_end_turn_offset_b),
         # The CLI probe flags as given; TCS and plan-tournament arms
         # never read them (2026-09-04 review).
         "relevant_set_a": bool(args.relevant_set_a),
@@ -935,6 +968,10 @@ def main(argv) -> int:
                           and (args.no_turn_search or args.no_turn_search_b) else None),
         "raw_temperature_a": args.raw_temperature_a,
         "raw_temperature_b": args.raw_temperature_b,
+        "raw_end_turn_a": args.raw_end_turn_a,
+        "raw_end_turn_b": args.raw_end_turn_b,
+        "raw_end_turn_offset_a": args.raw_end_turn_offset_a,
+        "raw_end_turn_offset_b": args.raw_end_turn_offset_b,
         # The horizon decides decisive-vs-absence, the quantity
         # the PURE fit is built on (round-24 C9).
         "max_turns": args.max_turns,

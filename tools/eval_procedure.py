@@ -6,18 +6,27 @@ from __future__ import annotations
 
 
 def procedure_of(sims: int, plan: bool, no_turn_search: bool,
-                 raw_temperature=None, gumbel_root: bool = True) -> str:
+                 raw_temperature=None, gumbel_root: bool = True, *,
+                 raw_end_turn: str = "joint", raw_end_turn_offset: float = 0.0) -> str:
     """Canonical procedure tag for result provenance. Carries the
     sims budget (round-13 C2: 'mcts' alone let an outdir silently
     mix --mcts-sims 16 and 32 games -- different estimands), the
     root procedure of a plain search ('mcts' = Gumbel root, 'puct' =
     plain PUCT root, what the az legs trained with) and, for the raw
     player, its joint sampling temperature (tools/raw_player.py;
-    None = the legacy factored sampler)."""
+    None = the legacy factored sampler) and its end_turn decode
+    ('+endm' = decided at the actor level, '+eo<x>' = the end_turn
+    logit offset x; panel test 1), so those estimands never share an
+    outdir either."""
     if sims <= 0:
         if raw_temperature is None:
             return "raw"
-        return f"raw:t{float(raw_temperature):g}"
+        tag = f"raw:t{float(raw_temperature):g}"
+        if raw_end_turn == "actor":
+            tag += "+endm"
+        if raw_end_turn_offset:
+            tag += f"+eo{float(raw_end_turn_offset):g}"
+        return tag
     if plan:
         name = "plan_tournament"
     elif no_turn_search:
