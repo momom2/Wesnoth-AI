@@ -782,7 +782,7 @@ def _play_one_game_safe(
 
 def _worker_loop(
     *, worker_id, policy, reward_fn, cost_lookup,
-    max_turns, pvp_defaults, worker_rng, shared,
+    max_turns, pvp_defaults, shared,
     forced_faction=...,
     mini_maps=False,
     mini_ratio: float = 0.0,
@@ -794,11 +794,13 @@ def _worker_loop(
     no_progress_turns: int = 0,
 ):
     """Per-thread rollout loop. Each worker pulls a game index from
-    `shared.next_game` (atomic under the master lock), assigns
-    itself a unique game_label, runs one game, appends the outcome
-    to `shared.outcomes`. Stops when `next_game` would exceed
-    target_games. Uses scenario_pool.random_setup for the seed --
-    no replay pool involved."""
+    `shared.next_game` (atomic under the master lock), runs that game,
+    appends the outcome to `shared.outcomes`. Stops when `next_game`
+    would exceed target_games. A game's draws (its category, setup,
+    turn cap and combat luck) come from `shared.game_seed` and its
+    index only, whichever worker plays it: a per-worker generator made
+    the game depend on which thread won the race for the index, so a
+    seeded run did not repeat (2026-09-18)."""
     from tools.scenario_pool import random_setup, roll_mix
     while True:
         with shared["lock"]:
@@ -806,26 +808,26 @@ def _worker_loop(
                 return
             g_idx = shared["next_game"]
             shared["next_game"] += 1
-        cat = roll_mix(worker_rng, midgame=midgame_ratio,
+        game_rng = random.Random(shared["game_seed"] + g_idx * 1_000_003)
+        cat = roll_mix(game_rng, midgame=midgame_ratio,
                        mini=mini_ratio,
                        fogless=fogless_ratio, ladder=ladder_ratio)
         setup = None
         if cat == "midgame":
             from tools.midgame_starts import sample_midgame_start
             mg = sample_midgame_start(
-                worker_rng, midgame_dataset or Path("replays_dataset"))
+                game_rng, midgame_dataset or Path("replays_dataset"))
             if mg is not None:
                 setup = ("__midgame__",) + mg
             else:
                 cat = "ladder"  # degraded sample -> regular game
         if setup is None:
-            setup = random_setup(worker_rng, forced_faction=forced_faction,
+            setup = random_setup(game_rng, forced_faction=forced_faction,
                                  mini_maps=mini_maps, category=cat)
-        game_label = (f"iter{shared['iter_idx']}_"
-                      f"w{worker_id}_g{g_idx}")
+        game_label = f"iter{shared['iter_idx']}_g{g_idx}"
         outcome = _play_one_game_safe(
             setup=setup,
-            max_turns=_roll_max_turns(worker_rng, max_turns,
+            max_turns=_roll_max_turns(game_rng, max_turns,
                                       max_turns_min),
             pvp_defaults=pvp_defaults, policy=policy,
             reward_fn=reward_fn, cost_lookup=cost_lookup,
@@ -1543,17 +1545,17 @@ def run_iteration(
             "target_games":   games_per_iter,
             "iter_idx":       iter_idx,
             "outcomes":       outcomes,
+            "game_seed":      rng.randint(0, 2**32 - 1),
         }
         threads = []
         for w in range(workers):
-            worker_rng = random.Random(rng.randint(0, 2**32 - 1))
             t = threading.Thread(
                 target=_worker_loop,
                 kwargs=dict(
                     worker_id=w, policy=policy,
                     reward_fn=reward_fn, cost_lookup=cost_lookup,
                     max_turns=max_turns, pvp_defaults=pvp_defaults,
-                    worker_rng=worker_rng, shared=shared,
+                    shared=shared,
                     forced_faction=forced_faction,
                     mini_maps=mini_maps,
                     mini_ratio=mini_ratio,
@@ -2766,7 +2768,10 @@ def main(argv: List[str]) -> int:
                          "guards against noise resetting the stall "
                          "counter).")
     ap.add_argument("--seed", type=int, default=0,
-                    help="RNG seed for replay sampling.")
+                    help="Seed of the run: the scenario draws, torch (a fresh "
+                         "network's init), the search's root sampling and noise "
+                         "(MCTSPolicy rng_seed) and replay sampling, so a run "
+                         "repeats given the same seed.")
     ap.add_argument("--log-level", default="INFO",
                     choices=["DEBUG", "INFO", "WARNING"])
     ap.add_argument("--no-map-settings", dest="use_map_settings",
@@ -3764,6 +3769,13 @@ def main(argv: List[str]) -> int:
              f"compile={args.infer_compile} "
              f"(training default OFF pending pool-path validation; "
              f"eval keeps the 2026-08-28 cuda-auto default)")
+    # The run's seed governs torch too: a fresh network's init read
+    # torch's global generator, whose state is whatever the process
+    # did before (the tripwire test's outcome depended on it,
+    # 2026-09-18).
+    import torch as _torch
+    _torch.manual_seed(args.seed)
+    random.seed(args.seed)
     policy = TransformerPolicy(device=device, aux_score=aux_score_flag,
                                moves_left=moves_left_flag,
                                gbc=gbc_flag,
@@ -3771,6 +3783,9 @@ def main(argv: List[str]) -> int:
                                infer_bf16=args.infer_bf16,
                                infer_compile=args.infer_compile,
                                **arch_kwargs)
+    # The trainer's subsampling caps draw from its own generator; the
+    # run's seed makes that sequence part of the run.
+    policy._trainer.rng.seed(args.seed)
     if relevant_set_flag:
         log.info("relevant-hex encoding ON (action-space index basis "
                  "differs from full-board runs; see docs/archive/autonomous_run.md)")
@@ -4001,6 +4016,7 @@ def main(argv: List[str]) -> int:
                     args.value_memory_states_per_game),
                 value_memory_batch=args.value_memory_batch,
                 gbc_labels=gbc_flag,
+                rng_seed=args.seed,
                 tournament_config=pt_cfg)
             from tools.plan_tournament import launch_echo_schedule
             _n12, _d12, _dem12, _ph12 = launch_echo_schedule(pt_cfg)
@@ -4043,6 +4059,7 @@ def main(argv: List[str]) -> int:
                     args.value_memory_states_per_game),
                 value_memory_batch=args.value_memory_batch,
                 gbc_labels=gbc_flag,
+                rng_seed=args.seed,
                 turn_config=turn_cfg,
                 grounding_config=ground_cfg,
                 signal_telemetry=args.signal_telemetry)
@@ -4070,6 +4087,7 @@ def main(argv: List[str]) -> int:
                     args.value_memory_states_per_game),
                 value_memory_batch=args.value_memory_batch,
                 gbc_labels=gbc_flag,
+                rng_seed=args.seed,
                 signal_telemetry=args.signal_telemetry)
         if args.train_draw_tiebreak:
             log.info("LEGACY draw labels: training z = material "

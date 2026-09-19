@@ -2,6 +2,8 @@
 # Data structures for Wesnoth AI
 
 import copy as _copy
+import functools
+import zlib
 from dataclasses import dataclass
 from typing import List, Optional, Set
 from enum import IntEnum
@@ -117,6 +119,12 @@ class Attack:
     is_ranged: bool
     weapon_specials: Set[AttackSpecial]
 
+@functools.lru_cache(maxsize=65536)
+def _unit_id_hash(unit_id: str) -> int:
+    """A process-independent hash of a unit id (Unit.__hash__)."""
+    return zlib.crc32(unit_id.encode("utf-8"))
+
+
 @dataclass(eq=False)
 class Unit:
     """Complete unit information.
@@ -175,7 +183,14 @@ class Unit:
     statuses: Set[UnitStatus]
 
     def __hash__(self):
-        return hash((self.id, self.side))
+        # A hash the process's hash seed cannot move: `gs.map.units`
+        # is a set, and every consumer that walks it (the encoder's
+        # token and vocab order, the sampler's action order, the sim)
+        # sees the set's iteration order, which follows the members'
+        # hashes. Python's str hash is salted per process, so a game
+        # played twice in two processes used to enumerate its units in
+        # two orders and diverge from its first decision (2026-09-18).
+        return _unit_id_hash(self.id) * 1_000_003 + self.side
 
     def __eq__(self, other):
         if not isinstance(other, Unit):

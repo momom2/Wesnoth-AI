@@ -167,7 +167,8 @@ class MCTSPolicy:
                  draw_value_weight: float = 0.0,
                  value_memory_games: int = 0,
                  value_memory_states_per_game: int = 32,
-                 value_memory_batch: int = 256):
+                 value_memory_batch: int = 256,
+                 rng_seed: Optional[int] = None):
         # GBC event-supervision labels (2026-08-14, docs/archive/gbc_spec.md):
         # when on, finalize_game attaches fog-censored hindsight
         # event labels to every experience (pure state diffs -- no
@@ -294,10 +295,14 @@ class MCTSPolicy:
         # land here (telemetry reads None; the knobs still apply).
         self._distill_acc: Dict[str, float] = {}
         # RNG for temperature sampling at the root (AlphaZero's
-        # tau=1 phase). Unseeded like mcts_search's noise RNG --
-        # self-play data generation wants diversity, not
-        # reproducibility; tests construct their own Generator.
-        self._rng = np.random.default_rng()
+        # tau=1 phase) and the playout cap; with `rng_seed` it also
+        # seeds every search's Dirichlet noise (`_search_rng`), so a
+        # run repeats given its seed. Unseeded (the default, and the
+        # actors' choice), the searches draw their own entropy:
+        # self-play generation wants diversity; tests and
+        # tools/sim_self_play.py --seed want the repeat.
+        self._rng = np.random.default_rng(rng_seed)
+        self._rng_seeded = rng_seed is not None
         # Tree-reuse stash: game_label -> (child_node, child_state_key)
         # for the action played at the previous decision. The next
         # select_action reuses the subtree iff the LIVE state's key
@@ -491,6 +496,7 @@ class MCTSPolicy:
             reuse_root=reuse_root,
             n_sims_override=n_override,
             decision_step=decision_step,
+            rng=self._search_rng(),
         )
         if self.search_stats_sink is not None:
             self.search_stats_sink(root)
@@ -808,6 +814,17 @@ class MCTSPolicy:
             self._reuse.pop(game_label, None)
             self._last_recorded.pop(game_label, None)
             self._gbc_obs.pop(game_label, None)
+
+    def _search_rng(self) -> Optional[np.random.Generator]:
+        """A generator for one search's noise: None when this policy
+        is unseeded (the search draws its own), else a fresh one
+        seeded from the policy's generator, taken under the lock so
+        parallel rollouts on one policy stay a well-defined sequence
+        and never share a Generator across threads."""
+        if not self._rng_seeded:
+            return None
+        with self._lock:
+            return np.random.default_rng(int(self._rng.integers(2 ** 63)))
 
     def drain_distill_stats(self) -> Optional[Dict[str, float]]:
         """Per-iteration means of the distillation-target telemetry

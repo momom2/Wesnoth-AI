@@ -465,6 +465,12 @@ class Trainer:
         self.model   = model
         self.encoder = encoder
         self.config  = config if config is not None else TrainerConfig()
+        # The trainer's own generator for its subsampling caps: unseeded
+        # by default, seeded by a run that wants to repeat
+        # (tools/sim_self_play.py --seed). The global `random` module
+        # used to serve here, so a run's training depended on whatever
+        # the process had drawn before (2026-09-18).
+        self.rng = random.Random()
         self.device  = device
         # Default sink for step_mcts's per-stage seconds (keys
         # STEP_MCTS_STAGES): callers that reach step_mcts through
@@ -520,7 +526,7 @@ class Trainer:
         # batch's in expectation.
         cap = self.config.max_transitions_per_step
         if len(flat) > cap:
-            idxs = random.sample(range(len(flat)), cap)
+            idxs = self.rng.sample(range(len(flat)), cap)
             # Sort to preserve trajectory order for any future
             # logic that walks `flat` sequentially (e.g. value
             # bootstrapping across consecutive steps). The sort is
@@ -1504,7 +1510,7 @@ def _trainer_step_mcts(
         # subset keeps the kept batch's distribution matched to the full
         # set. (Usually inert under the documented replay-buffer recipe,
         # where minibatch <= cap; bites large non-replay iterations.)
-        idxs = random.sample(range(len(experiences)), cap)
+        idxs = self.rng.sample(range(len(experiences)), cap)
         experiences = [experiences[i] for i in idxs]
 
     dev = self.device or next(self.model.parameters()).device
