@@ -465,11 +465,17 @@ State of play:
   end_turn head still marks turns worth passing. Whether
   `raw:t0+eo-1.5` becomes the reference decode is the user's ruling
   (BACKLOG.md "Training-signal panel").
-- No box is rented (2026-09-19 night, after the terrain arm and the
-  offset sweep; the day's rentals cost about $5.5). Two rulings wait
-  for the user: the reference DECODE (`raw:t0+eo-1.5`, +229 Elo for a
-  config scalar) and the reference CHECKPOINT (the terrain-set arm,
-  +44 Elo); their sum is unmeasured. Phase 2 is next:
+- One box is rented (2026-09-19 night): instance 51625245, an EPYC
+  7C13 4090 host at $0.60/h, running `scripts/composed_levers_box.sh`
+  (docs/composed_levers_prereg_20260919.md: the terrain arm under the
+  -1.5 decode against the reference under the same decode, the
+  composed player against today's reference, the arm's self-pin;
+  about 50 minutes); a detached reaper pulls to
+  `training/metrics/bench_pipeline/composed_levers_20260919/` and
+  destroys it on ALL_DONE or at 2 hours. The day's rentals cost
+  about $6. Two rulings wait for the user: the reference DECODE
+  (`raw:t0+eo-1.5`, +229 Elo for a config scalar) and the reference
+  CHECKPOINT (the terrain-set arm, +44 Elo). Phase 2 is next:
   docs/plan_20260904.md 5, whose first measurement is the turn-gap
   pre-registration.
 
