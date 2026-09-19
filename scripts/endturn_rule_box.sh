@@ -6,6 +6,16 @@
 # runs the screens, the 800-decisive match and (on a pass) the
 # attribution arm, and writes the verdict under those bars.
 #
+# Riders on the same rental (each behind a switch, on by default):
+#   RIDER_CERT=1   the Rust-path test files with the phase-10 wheel and
+#                  tools/diff_core.py over 600 corpus replays, after the
+#                  process-independent unit hash (2026-09-18) changed
+#                  the order every set of units iterates in;
+#   RIDER_SELFPIN=1  the reference player against itself to 800
+#                  decisive games under per-game luck, the current
+#                  hide-cover rule and that hash (the tight self-pin
+#                  BACKLOG.md has carried since 2026-09-12).
+#
 # Expects /workspace/.hf_token (chmod 600). Records under
 # /workspace/endturn, uploaded to HF $HF_DIR after each step.
 set -uo pipefail
@@ -17,12 +27,15 @@ JOBS="${JOBS:-20}"
 SCREEN_GAMES="${SCREEN_GAMES:-40}"
 MATCH_DECISIVE="${MATCH_DECISIVE:-800}"
 MATCH_EXTRA="${MATCH_EXTRA:-500}"
+RIDER_CERT="${RIDER_CERT:-1}"
+RIDER_SELFPIN="${RIDER_SELFPIN:-1}"
+CORE_REPLAYS="${CORE_REPLAYS:-600}"
 mkdir -p "$OUT"
 cd /workspace
 export HF_TOKEN="$(tr -d '\r\n' < /workspace/.hf_token)" HF_HUB_DISABLE_XET=1
 export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 TORCHINDUCTOR_COMPILE_THREADS=1
 export HF_DIR
-python -m pip install -q huggingface_hub psutil scipy 2>&1 | tail -1 || true
+python -m pip install -q huggingface_hub pytest psutil scipy 2>&1 | tail -1 || true
 
 upload() {
     python - <<'PY' 2>/dev/null || true
@@ -76,6 +89,29 @@ src = hf_hub_download("momom2/wesnoth-model-checkpoints", "tier-b/seed2_relset_2
 print("reference player staged")
 PY
 
+# ---- rider: the Rust paths after the unit-hash change ---------------
+if [ "$RIDER_CERT" = "1" ]; then
+    SUITES="tests/test_rust_combat.py tests/test_rust_encode_raw.py tests/test_rust_enumerate.py \
+tests/test_rust_observe.py tests/test_rust_reach.py tests/test_rust_relevant_set.py tests/test_game_core.py \
+tests/test_sim_determinism.py tests/test_state_key.py tests/test_holdout_tripwire.py"
+    python -m pytest $SUITES -q -p no:cacheprovider -m "" > "$OUT/tests_rust.log" 2>&1
+    tail -3 "$OUT/tests_rust.log"
+    if [ ! -d replays_dataset_imitation ]; then
+        python - <<'CORPUS'
+import pathlib, tarfile
+from huggingface_hub import hf_hub_download
+p = hf_hub_download("momom2/wesnoth-model-checkpoints",
+                    "tier-b/replays_dataset_imitation_dedup_20260908.tar.gz")
+with tarfile.open(p, "r:gz") as tf:
+    tf.extractall(".")
+print("corpus staged", len(list(pathlib.Path("replays_dataset_imitation").glob("*.json.gz"))))
+CORPUS
+    fi
+    python tools/diff_core.py replays_dataset_imitation --limit "$CORE_REPLAYS" > "$OUT/diff_core.log" 2>&1
+    grep -v WARNING "$OUT/diff_core.log" | head -4
+    upload
+fi
+
 # ---- one match: player A under DECODE against raw:t0 ----------------
 match() {                        # match NAME SEED_BASE GAMES EXTRA [player A decode flags]
     local name="$1" seed_base="$2" games="$3" extra="$4"; shift 4
@@ -118,6 +154,11 @@ if python tools/analysis/endturn_readout.py "$OUT/games_endm" --require-pass 0.5
         *)       offset=-0.75 ;;
     esac
     match "eo$offset" 43000 "$MATCH_DECISIVE" "$MATCH_EXTRA" --raw-end-turn-offset-a "$offset"
+fi
+
+# ---- rider: the reference's tight self-pin ---------------------------
+if [ "$RIDER_SELFPIN" = "1" ]; then
+    match selfpin 44000 "$MATCH_DECISIVE" "$MATCH_EXTRA"
 fi
 
 # ---- the verdict -----------------------------------------------------

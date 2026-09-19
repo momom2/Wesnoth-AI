@@ -78,3 +78,13 @@ decisive match about 1,300 games, 15-30 minutes; the attribution arm
 the same, conditional. About $0.30-0.60 at $0.40-0.60 per hour, one
 box-hour at most. `scripts/endturn_rule_box.sh` runs it end to end
 and writes the verdict under these bars.
+
+Two riders on the same rental, each behind a switch: the Rust-path test
+files with the phase-10 wheel and `tools/diff_core.py` over 600 corpus
+replays (the process-independent unit hash of 2026-09-18 changed the
+order every set of units iterates in; the local wheel cannot run
+them), about 10 minutes; and the reference player against itself to
+800 decisive games (seed base 44000), the tight self-pin BACKLOG.md
+has carried since 2026-09-12, now under per-game luck, the current
+hide-cover rule and that hash, 15-30 minutes. With both, about
+$0.60-1.00 and up to two box-hours.
