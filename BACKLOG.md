@@ -894,7 +894,15 @@ inference.
   (`tools/analysis/decisions_per_side_turn.py`, 3,000 games): 7.50
   decisions per human side-turn, the winner's 9.60 and the loser's
   6.00; the reference at argmax plays 6.0 (the loser's rate) and with
-  the offset -1.5 9.25 (the winner's).
+  the offset -1.5 9.25 (the winner's). **The sweep RAN the same
+  evening: -2.5 reads p 0.801 +- 0.014 (641-159, 1% capped), -4
+  0.754 +- 0.015, -99 (act while anything is legal) 0.666 +- 0.017;
+  the curve peaks between -1.5 and -2.5 (a tie within 1 SE, resolved
+  toward the smaller offset by the pre-registered reading) and the
+  end_turn head carries information the argmax needs** (docs/
+  endturn_offset_sweep_prereg_20260919.md "Measured"). Proposed to the
+  user: `raw:t0+eo-1.5` as the reference decode, -2.5 its equal with
+  fewer capped games.
 - TEST 3 QUEUED (2026-09-05 evening, ~$2.4, last in the box queue):
   the corpus's player ratings are fitted (`tools/player_ratings.py`,
   records in training/metrics/player_ratings/): 142 regulars at 30+

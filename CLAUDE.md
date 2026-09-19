@@ -453,9 +453,14 @@ State of play:
   against the reference's own 0.4; **the attribution arm, a plain
   end_turn logit offset of -1.5, beat it: p 0.789 +- 0.014, about
   +229 Elo**, so the lever is "act more" and the config scalar is the
-  adopted form. Whether `raw:t0+eo-1.5` (or a larger offset) becomes
-  the reference decode is the user's ruling (BACKLOG.md
-  "Training-signal panel").
+  adopted form. The offset curve ran the same evening
+  (docs/endturn_offset_sweep_prereg_20260919.md): -2.5 reads 0.801
+  +- 0.014, -4 0.754, and acting while anything is legal (-99) 0.666,
+  so the peak sits at -1.5 to -2.5 (a tie within 1 SE) at the corpus
+  winners' rate of about 9-11 decisions per side-turn, and the
+  end_turn head still marks turns worth passing. Whether
+  `raw:t0+eo-1.5` becomes the reference decode is the user's ruling
+  (BACKLOG.md "Training-signal panel").
 - One box is rented (2026-09-19 evening): instance 51597775, a 64-core
   EPYC 7B13 4090 host at $0.74/h, running `scripts/terrain_arm_box.sh`
   (the terrain-set arm, about 4-5 box-hours); a detached reaper on the

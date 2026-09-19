@@ -1747,8 +1747,16 @@ here takes 36-46 s and an 800-decisive match about 9 minutes, the
 second box class of the 2026-09-13 range (42-74 s) rather than the
 single-tenant 24-25 s.
 
-Not measured, not pre-registered: the offset's best value (the
-curve still rises at -1.5) and its effect on a searched player.
+The offset curve, measured the same evening on a second box of the
+same family (instance 51598190, a 20.5-core slice, 14-15 minutes per
+800 decisive; docs/endturn_offset_sweep_prereg_20260919.md
+"Measured"): -2.5 reads p 0.801 +- 0.014 (641-159, 8 capped of 808),
+-4 0.754 +- 0.015 (603-197, none capped) and -99, acting while
+anything is legal, 0.666 +- 0.017 (533-267, 2 capped), at 11.0, 12.9
+and 15.6 decisions per side-turn. The peak is -1.5 to -2.5 (a tie
+within 1 SE), the corpus winners' rate; past it every offset plays
+more than any human side-turn and wins less. Not measured: the
+offset's effect on a searched player.
 
 The self-pin rider, `raw:t0` against itself (seed base 44000): 1,300
 games in 791 s, 406-375 with 519 capped (0.40), p 0.520 +- 0.018 over

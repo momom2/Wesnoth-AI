@@ -65,3 +65,32 @@ Three 800-decisive matches at about 9 minutes each on the EPYC 7B13
 box class of the first test, bring-up and wheel about 8 minutes: about
 40 box-minutes, $0.50 at $0.74 per hour. `scripts/endturn_offset_sweep_box.sh`
 runs it end to end and leaves ALL_DONE on HF on every exit.
+
+## Measured (2026-09-19, instance 51598190: a 20.5-core slice of an EPYC 7B13 host with an RTX 4090 (49 GB), $0.77/h)
+
+Records under `training/metrics/bench_pipeline/endturn_offset_20260919/`;
+the -1.5 row is the first test's attribution arm (seed base 43000,
+another box of the same family), quoted for the curve.
+
+| offset | seed base | games (capped) | W-L | p over decisive | capped scored 0.5 | decisions per side-turn A / B | Elo | wall |
+|---|---|---|---|---|---|---|---|---|
+| -1.5 | 43000 | 863 (63) | 631-169 | 0.789 +- 0.014 (800) | 0.768 | 9.25 / 5.90 | +229 +- 15 | 511 s |
+| -2.5 | 46000 | 808 (8) | 641-159 | 0.801 +- 0.014 (800) | 0.798 | 11.03 / 6.05 | +242 +- 15 | 839 s |
+| -4 | 46100 | 800 (0) | 603-197 | 0.754 +- 0.015 (800) | 0.754 | 12.85 / 6.54 | +195 +- 14 | 903 s |
+| -99 | 46200 | 802 (2) | 533-267 | 0.666 +- 0.017 (800) | 0.666 | 15.57 / 6.79 | +120 +- 13 | 882 s |
+
+The curve peaks between -1.5 and -2.5 and falls past it: -2.5 is
+0.012 above -1.5 (under 1 SE, a tie the pre-registered reading
+resolves in favour of the smaller offset), -4 is 3.3 SE below -2.5,
+and -99 is 8 SE below it. So the reading is: **-1.5 is the proposed
+reference decode, with -2.5 its equal within 1 SE and fewer capped
+games (1% against 7%)**; and the end_turn head does carry
+information the argmax needs, since acting while anything is legal
+costs about 120 Elo against the peak. Against the predictions: -2.5
+at 0.801 (predicted 0.80), -4 at 0.754 (0.79, below the range's
+middle), -99 at 0.666 (0.72, inside the range). The corpus context
+holds: the peak sits at the winners' rate (9.3-11.0 decisions per
+side-turn against the corpus winner's 9.60), and every offset past it
+plays more decisions than any human side-turn and wins less. The
+walls are the second box class (a 20.5-core cgroup slice, 14-15
+minutes per 800 decisive).

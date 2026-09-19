@@ -1,0 +1,3 @@
+eo-2.5 seed_base=46000 games=800 --raw-end-turn-offset-a -2.5 839 s 808 games
+eo-4 seed_base=46100 games=800 --raw-end-turn-offset-a -4 903 s 800 games
+eo-99 seed_base=46200 games=800 --raw-end-turn-offset-a -99 882 s 802 games
