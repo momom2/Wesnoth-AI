@@ -456,10 +456,14 @@ State of play:
   adopted form. Whether `raw:t0+eo-1.5` (or a larger offset) becomes
   the reference decode is the user's ruling (BACKLOG.md
   "Training-signal panel").
-- No box is rented (2026-09-18, after the continuous-generation run).
-  Phase 2
-  is next: docs/plan_20260904.md 5, whose first measurement is the
-  turn-gap pre-registration.
+- One box is rented (2026-09-19 evening): instance 51597775, a 64-core
+  EPYC 7B13 4090 host at $0.74/h, running `scripts/terrain_arm_box.sh`
+  (the terrain-set arm, about 4-5 box-hours); a detached reaper on the
+  laptop pulls its records to
+  `training/metrics/bench_pipeline/terrain_multi_hot_20260919/` and
+  destroys it on ALL_DONE or at 7 hours. Phase 2 is next:
+  docs/plan_20260904.md 5, whose first measurement is the turn-gap
+  pre-registration.
 
 Standing rules (full list in the plan): the reference player is
 `relset` at `raw:t0`; every strength claim is a PURE match against it with the

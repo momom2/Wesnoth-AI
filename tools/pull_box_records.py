@@ -21,7 +21,7 @@ REPO = "momom2/wesnoth-model-checkpoints"
 log = logging.getLogger("pull_box_records")
 
 
-def pull(prefix: str, dest: Path) -> int:
+def pull(prefix: str, dest: Path, max_mb: float = 50.0) -> int:
     from huggingface_hub import HfApi, hf_hub_download
     api = HfApi()
     prefix = prefix.rstrip("/") + "/"
@@ -34,6 +34,11 @@ def pull(prefix: str, dest: Path) -> int:
         target = dest / name
         if target.exists() and target.stat().st_size == info.size:
             log.info("kept    %s", name)
+            continue
+        if info.size > max_mb * 1e6:
+            # Checkpoints stay on the model host; the metrics tree holds
+            # records (a run's escrowed .pt files are 180 MB each).
+            log.info("skipped %s (%d MB, over --max-mb %g)", name, info.size // 1_000_000, max_mb)
             continue
         src = hf_hub_download(REPO, info.path)
         shutil.copyfile(src, target)
@@ -48,10 +53,12 @@ def main(argv: list[str]) -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("prefix", help="path in the model host repo, e.g. tier-b/graphed_default_20260918")
     ap.add_argument("dest", type=Path, help="local directory to fill")
+    ap.add_argument("--max-mb", type=float, default=50.0,
+                    help="Skip files larger than this (checkpoints stay on the host).")
     ap.add_argument("--log-level", default="INFO")
     args = ap.parse_args(argv)
     logging.basicConfig(level=getattr(logging, args.log_level), format="%(levelname)s %(message)s")
-    return pull(args.prefix, args.dest)
+    return pull(args.prefix, args.dest, max_mb=args.max_mb)
 
 
 if __name__ == "__main__":
