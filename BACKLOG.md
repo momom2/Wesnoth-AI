@@ -29,6 +29,12 @@ from the user first:
 - plan 1.3's 3,000-leaves-per-second-per-4090 target: an A4000
   cannot judge it (30 min, $0.25 on a 4090). The prerequisite held:
   tokens per leaf about 1,200 -> about 300, saturated rate 2.4x.
+  Read since on real 4090s without a run of its own: 1,450-1,565
+  (2026-09-13), 2,126-2,269 (Ryzen 9 5950X host, 2026-09-18) and
+  2,634-2,914 (Core Ultra 9 285K host, the graphed server's arms,
+  2026-09-18). Not met; the roof is the GPU's own execution time
+  once the host is fast (docs/box_specs.md "The graphed server on a
+  quiet host").
 - a tight self-pin of the reference player (800 games, 18 min,
   $0.20), which would replace the +- 37 Elo above with +- 12.
 

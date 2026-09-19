@@ -292,6 +292,9 @@ def main(argv) -> int:
                     help="Held-out states on which the per-step policy "
                          "movement (KL, TV, end_turn mass) is measured.")
     ap.add_argument("--max-turns", type=int, default=60)
+    ap.add_argument("--mini-ratio", type=float, default=0.0,
+                    help="Share of games on the mini maps instead of the Ladder "
+                         "pool (the smoke test's knob; a campaign leaves it 0).")
     ap.add_argument("--pin-every", type=int, default=10)
     ap.add_argument("--probe-games", type=int, default=40)
     ap.add_argument("--search-probe-every-pins", type=int, default=2)
@@ -432,9 +435,10 @@ def main(argv) -> int:
                         replay_config=ReplayConfig(enabled=False),
                         holdout_size=0, gbc_labels=False,
                         signal_telemetry=True)
-    scenario_opts = dict(forced_faction=None, mini_maps=None,
-                         mini_ratio=0.0, fogless_ratio=0.0,
-                         ladder_ratio=1.0, midgame_ratio=0.0,
+    mini_ratio = min(1.0, max(0.0, float(args.mini_ratio)))
+    scenario_opts = dict(forced_faction=None, mini_maps=(True if mini_ratio > 0 else None),
+                         mini_ratio=mini_ratio, fogless_ratio=0.0,
+                         ladder_ratio=1.0 - mini_ratio, midgame_ratio=0.0,
                          midgame_dataset=None)
     # Two ceilings, both real, applied in order.
     #
