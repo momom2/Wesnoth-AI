@@ -59,14 +59,15 @@ def _run_stream(pool, games: int, seed: int, rounds: int, step_seconds: float,
     stream = pool.stream(seed)
     stream.start()
     records = []
-    outcomes, exps = [], []
+    outcomes: list = []
+    n_exps = 0
     t_run = time.monotonic()
     served_before = stream.leaves_served()
     try:
         for r in range(rounds):
             window = stream.collect(games, timeout=timeout)
             outcomes.extend(window.outcomes)
-            exps.extend(window.experiences)
+            n_exps += len(window.experiences)
             records.append({
                 "round": r, "games": len(window.games), "seconds": window.seconds,
                 "timed_out": window.timed_out,
@@ -77,13 +78,19 @@ def _run_stream(pool, games: int, seed: int, rounds: int, step_seconds: float,
                 "straddle_mean": window.straddle_mean, "straddle_max": window.straddle_max,
                 "straddled_share": window.straddled_share,
                 "decisions": window.decisions})
+            # Counted, not kept: a window's experiences are the size of
+            # an iteration's, and a run of several windows hoarding them
+            # all in the learner pushed a 32 GB host into swap next to
+            # 48 actors (2026-09-18, the box's first stream arm died
+            # there). The record above has what the run wants.
+            del window.games[:]
             if step_seconds:
                 time.sleep(step_seconds)
             stream.publish()
     finally:
         tail = stream.stop(grace=120.0)
         outcomes.extend(tail.outcomes)
-        exps.extend(tail.experiences)
+        n_exps += len(tail.experiences)
     # The run's own totals: leaves the in-process server served from
     # the first window to the end of the drain, over that span.
     pool.last_served_forwards = stream.leaves_served() - served_before
@@ -94,7 +101,7 @@ def _run_stream(pool, games: int, seed: int, rounds: int, step_seconds: float,
     pool.last_game_finish_p50 = p50s[len(p50s) // 2] if p50s else None
     pool.last_game_finish_max = None
     pool.last_decisions = sum(r["decisions"] for r in records)
-    return outcomes, exps, records
+    return outcomes, n_exps, records
 
 
 def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
@@ -139,10 +146,11 @@ def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
         if parity:
             log.info("serve-process parity on one leaf: %s", parity)
         if stream_rounds:
-            outcomes, exps, rounds = _run_stream(pool, games, seed, stream_rounds,
-                                                 step_seconds, iteration_timeout)
+            outcomes, n_exps, rounds = _run_stream(pool, games, seed, stream_rounds,
+                                                   step_seconds, iteration_timeout)
         else:
             outcomes, exps = pool.run_iteration(0, games, seed)
+            n_exps = len(exps)
     finally:
         pool.shutdown()
     wall = time.monotonic() - t0
@@ -196,7 +204,7 @@ def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
             or [base.packed_compile_stats()]),
         "games_completed": len(outcomes), "decisive": decided,
         "abandoned": getattr(pool, "_last_abandoned", None),
-        "experiences": len(exps),
+        "experiences": n_exps,
         "gen_seconds": gen, "wall_seconds": wall,
         "forwards": served, "decisions": getattr(pool, "last_decisions", None),
         "leaves_per_s": served / gen if gen else None,

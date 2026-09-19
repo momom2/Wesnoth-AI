@@ -175,9 +175,12 @@ def test_window_delta_diffs_counters_and_cuts_the_timeline():
            "error": "boom"}
     d = _window_delta(cur, prev, t0=3.0)
     assert d["leaves"] == 15 and d["batches"] == 3 and d["wait"] == pytest.approx(2.5)
-    assert d["timeline"] == [(3.5, 25)] and d["error"] == "boom"
+    # The window's timeline starts at zero leaves at t0 and counts from
+    # the previous snapshot's total, so the merged rate over the window
+    # never sees the thread's cumulative count as a jump.
+    assert d["timeline"] == [(3.0, 0), (3.5, 15)] and d["error"] == "boom"
     first = _window_delta(cur, None, t0=0.0)
-    assert first["leaves"] == 25 and len(first["timeline"]) == 3
+    assert first["leaves"] == 25 and first["timeline"] == [(0.0, 0), (1.0, 5), (2.0, 10), (3.5, 25)]
 
 
 def test_serve_gate_readers_overlap_and_a_writer_excludes_them():

@@ -1,0 +1,21 @@
+pair 1
+  barrier  games   48 in    399s  games/h  433.1  leaves/s  1331  saturated  2187  decisive 32
+  form A   games   96 in    617s  games/h  560.2  leaves/s  1662  saturated  2148  decisive 63
+  stream   games  211 in   1408s  games/h  539.5  leaves/s  1761  saturated  2256  decisive 137
+    window 1: 48 games in 422s, 1863 leaves/s (saturated 2135), game s p50 249, straddle mean 0.00 max 0 share 0.00
+    window 2: 48 games in 258s, 1914 leaves/s (saturated 2256), game s p50 274, straddle mean 0.75 max 1 share 0.75
+    window 3: 48 games in 273s, 1864 leaves/s (saturated 2250), game s p50 293, straddle mean 1.00 max 2 share 0.83
+    window 4: 48 games in 254s, 1827 leaves/s (saturated 2050), game s p50 264, straddle mean 1.02 max 3 share 0.79
+  with a 20s step per iteration: barrier 412.4 games/h, form A 542.6 (1.316x), stream all windows 537.1 (1.302x), steady windows 2-4 613.5 (1.488x)
+  straddle mean over windows 0.69 (steady 0.92); rule (>=1.25x, 0.7-1.5, no timeout) -> FAIL
+pair 2
+  barrier  games   48 in    378s  games/h  456.7  leaves/s  1414  saturated  2126  decisive 34
+  form A   games   96 in    707s  games/h  489.0  leaves/s  1570  saturated  2146  decisive 61
+  stream   games  214 in   1398s  games/h  551.2  leaves/s  1788  saturated  2269  decisive 156
+    window 1: 48 games in 396s, 1886 leaves/s (saturated 2139), game s p50 241, straddle mean 0.00 max 0 share 0.00
+    window 2: 48 games in 251s, 1930 leaves/s (saturated 2190), game s p50 244, straddle mean 0.75 max 1 share 0.75
+    window 3: 48 games in 291s, 1848 leaves/s (saturated 2102), game s p50 313, straddle mean 1.02 max 2 share 0.85
+    window 4: 48 games in 259s, 1917 leaves/s (saturated 2269), game s p50 302, straddle mean 1.02 max 3 share 0.85
+  with a 20s step per iteration: barrier 433.8 games/h, form A 475.5 (1.096x), stream all windows 541.3 (1.248x), steady windows 2-4 602.1 (1.388x)
+  straddle mean over windows 0.70 (steady 0.93); rule (>=1.25x, 0.7-1.5, no timeout) -> FAIL
+STREAM: FAIL

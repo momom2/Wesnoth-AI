@@ -1,0 +1,260 @@
+2026-09-18 17:07:26,898 transformer_policy INFO TransformerPolicy device: cuda
+2026-09-18 17:07:27,564 transformer_policy INFO inference bf16 autocast ON
+2026-09-18 17:07:27,635 transformer_policy WARNING relset.pt was trained under observation epoch 1; this sim is 3. The weights encode a different observation distribution, so any match against a checkpoint from another epoch is CROSS-BUILD: re-measure, do not chain numbers (see constants.OBSERVATION_EPOCH).
+2026-09-18 17:07:27,663 transformer_policy INFO Loaded checkpoint from training/checkpoints/relset.pt (decision_step=0)
+2026-09-18 17:07:27,670 eval_sim INFO [pool] loaded relset.pt
+2026-09-18 17:07:27,986 actor_pool INFO actor pool started: 48 actors, max_batch=16, 1 servers
+2026-09-18 17:07:28,763 actor_stream INFO stream open: 48 actors, 48 games queued ahead, tag 0
+2026-09-18 17:14:04,681 actor_pool INFO iter 0: serve stages (1 servers x 2 threads, leaves per server [746867]): wait=57.3s infer=656.0s wire=45.0s put=3.3s gpu=623.2s (0.83 ms/leaf) leaves/batch=18.4 saturated=2139 leaves/s (best 60 s) throughput=1886 leaves/s
+2026-09-18 17:14:04,681 actor_pool INFO iter 0: host ms per batch: unpack=0.73 encode=2.73 forward=7.47 priors=4.90 wait=0.15 reply=0.20 wire=1.11 put=0.08 | coalesce=fifo requests/batch=1.75 queue depth=34.77 skipped=0
+2026-09-18 17:14:04,681 actor_pool INFO iter 0: pool served 746867 forwards, 48 games, 14339 experiences, decision_step 0 -> 14339
+2026-09-18 17:14:04,681 actor_pool INFO iter 0: game finish times p50=241s p90=349s max=394s | tokens/leaf=285 pad_ratio=1.36
+2026-09-18 17:14:04,682 actor_stream INFO stream window 1: 48 games in 396s, game seconds p50 241, straddled mean 0.00 max 0 share 0.00
+2026-09-18 17:18:35,890 actor_pool INFO iter 0: serve stages (1 servers x 2 threads, leaves per server [484563]): wait=38.9s infer=448.9s wire=31.4s put=2.3s gpu=425.9s (0.88 ms/leaf) leaves/batch=18.5 saturated=2190 leaves/s (best 60 s) throughput=1930 leaves/s
+2026-09-18 17:18:35,890 actor_pool INFO iter 0: host ms per batch: unpack=0.79 encode=2.93 forward=7.85 priors=5.20 wait=0.16 reply=0.21 wire=1.20 put=0.09 | coalesce=fifo requests/batch=1.76 queue depth=33.56 skipped=0
+2026-09-18 17:18:35,890 actor_pool INFO iter 0: pool served 484563 forwards, 48 games, 13933 experiences, decision_step 14339 -> 28272
+2026-09-18 17:18:35,890 actor_pool INFO iter 0: game finish times p50=244s p90=431s max=502s | tokens/leaf=295 pad_ratio=1.36
+2026-09-18 17:18:35,890 actor_stream INFO stream window 2: 48 games in 251s, game seconds p50 244, straddled mean 0.75 max 1 share 0.75
+2026-09-18 17:23:46,858 actor_pool INFO iter 0: serve stages (1 servers x 2 threads, leaves per server [537625]): wait=45.9s infer=513.4s wire=35.9s put=2.7s gpu=486.9s (0.91 ms/leaf) leaves/batch=18.4 saturated=2102 leaves/s (best 60 s) throughput=1848 leaves/s
+2026-09-18 17:23:46,858 actor_pool INFO iter 0: host ms per batch: unpack=0.81 encode=3.15 forward=7.87 priors=5.36 wait=0.18 reply=0.22 wire=1.23 put=0.09 | coalesce=fifo requests/batch=1.75 queue depth=32.92 skipped=0
+2026-09-18 17:23:46,858 actor_pool INFO iter 0: pool served 537625 forwards, 48 games, 17590 experiences, decision_step 28272 -> 45862
+2026-09-18 17:23:46,858 actor_pool INFO iter 0: game finish times p50=313s p90=460s max=857s | tokens/leaf=303 pad_ratio=1.34
+2026-09-18 17:23:46,858 actor_stream INFO stream window 3: 48 games in 291s, game seconds p50 313, straddled mean 1.02 max 2 share 0.85
+2026-09-18 17:28:26,136 actor_pool INFO iter 0: serve stages (1 servers x 2 threads, leaves per server [496738]): wait=40.5s infer=461.2s wire=32.6s put=2.4s gpu=436.8s (0.88 ms/leaf) leaves/batch=18.6 saturated=2269 leaves/s (best 60 s) throughput=1917 leaves/s
+2026-09-18 17:28:26,136 actor_pool INFO iter 0: host ms per batch: unpack=0.81 encode=2.96 forward=7.87 priors=5.29 wait=0.16 reply=0.22 wire=1.22 put=0.09 | coalesce=fifo requests/batch=1.78 queue depth=33.59 skipped=0
+2026-09-18 17:28:26,136 actor_pool INFO iter 0: pool served 496738 forwards, 48 games, 17386 experiences, decision_step 45862 -> 63248
+2026-09-18 17:28:26,136 actor_pool INFO iter 0: game finish times p50=302s p90=479s max=976s | tokens/leaf=283 pad_ratio=1.37
+2026-09-18 17:28:26,137 actor_stream INFO stream window 4: 48 games in 259s, game seconds p50 302, straddled mean 1.02 max 3 share 0.85
+2026-09-18 17:30:46,409 actor_stream ERROR stream stop: actors [1, 4, 5, 6, 8, 9, 11, 12, 13, 15, 16, 18, 19, 20, 23, 24, 26, 27, 28, 30, 32, 33, 34, 37, 38, 39, 41, 43, 46] still playing after the 120s drain grace; their games are abandoned
+2026-09-18 17:30:46,423 actor_pool ERROR serving stopped with 8 unanswered request(s) (actors [1, 4, 8, 19, 20, 24, 38, 41]); failing them
+2026-09-18 17:30:46,425 sim_self_play ERROR game iter0_g148_a4 crashed: inference server failed on this batch (see the server's log)
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 491, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 165, in infer_batch
+    raise RuntimeError("inference server failed on this batch "
+RuntimeError: inference server failed on this batch (see the server's log)
+2026-09-18 17:30:46,425 sim_self_play ERROR game iter0_g222_a8 crashed: inference server failed on this batch (see the server's log)
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 491, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 165, in infer_batch
+    raise RuntimeError("inference server failed on this batch "
+RuntimeError: inference server failed on this batch (see the server's log)
+2026-09-18 17:30:46,425 sim_self_play ERROR game iter0_g213_a24 crashed: inference server failed on this batch (see the server's log)
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 491, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 165, in infer_batch
+    raise RuntimeError("inference server failed on this batch "
+RuntimeError: inference server failed on this batch (see the server's log)
+2026-09-18 17:30:46,425 sim_self_play ERROR game iter0_g210_a41 crashed: inference server failed on this batch (see the server's log)
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 491, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 165, in infer_batch
+    raise RuntimeError("inference server failed on this batch "
+RuntimeError: inference server failed on this batch (see the server's log)
+2026-09-18 17:30:46,425 sim_self_play ERROR game iter0_g232_a1 crashed: inference server failed on this batch (see the server's log)
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 491, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 165, in infer_batch
+    raise RuntimeError("inference server failed on this batch "
+RuntimeError: inference server failed on this batch (see the server's log)
+2026-09-18 17:30:46,425 sim_self_play ERROR game iter0_g223_a38 crashed: inference server failed on this batch (see the server's log)
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 491, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 165, in infer_batch
+    raise RuntimeError("inference server failed on this batch "
+RuntimeError: inference server failed on this batch (see the server's log)
+2026-09-18 17:30:46,426 sim_self_play ERROR game iter0_g242_a19 crashed: inference server failed on this batch (see the server's log)
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 491, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 165, in infer_batch
+    raise RuntimeError("inference server failed on this batch "
+RuntimeError: inference server failed on this batch (see the server's log)
+2026-09-18 17:30:46,426 sim_self_play ERROR game iter0_g235_a20 crashed: inference server failed on this batch (see the server's log)
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 491, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 165, in infer_batch
+    raise RuntimeError("inference server failed on this batch "
+RuntimeError: inference server failed on this batch (see the server's log)
+2026-09-18 17:30:46,483 actor_stream INFO stream: 45 game tickets left unplayed
+2026-09-18 17:30:46,483 actor_stream INFO stream closed: 214 games in 4 windows, 4 publications, 22 games collected during the drain
+2026-09-18 17:31:03,128 actor_pool WARNING terminating unresponsive process actor-5
+2026-09-18 17:31:18,193 actor_pool WARNING terminating unresponsive process actor-6
+2026-09-18 17:31:33,266 actor_pool WARNING terminating unresponsive process actor-9
+2026-09-18 17:31:48,334 actor_pool WARNING terminating unresponsive process actor-11
+2026-09-18 17:32:03,414 actor_pool WARNING terminating unresponsive process actor-12
+2026-09-18 17:32:18,482 actor_pool WARNING terminating unresponsive process actor-13
+2026-09-18 17:32:33,565 actor_pool WARNING terminating unresponsive process actor-15
+2026-09-18 17:32:48,678 actor_pool WARNING terminating unresponsive process actor-16
+2026-09-18 17:33:03,745 actor_pool WARNING terminating unresponsive process actor-18
+2026-09-18 17:33:18,809 actor_pool WARNING terminating unresponsive process actor-23
+2026-09-18 17:33:33,915 actor_pool WARNING terminating unresponsive process actor-26
+2026-09-18 17:33:48,981 actor_pool WARNING terminating unresponsive process actor-27
+2026-09-18 17:34:04,044 actor_pool WARNING terminating unresponsive process actor-28
+2026-09-18 17:34:19,104 actor_pool WARNING terminating unresponsive process actor-30
+2026-09-18 17:34:34,150 actor_pool WARNING terminating unresponsive process actor-32
+2026-09-18 17:34:49,237 actor_pool WARNING terminating unresponsive process actor-33
+2026-09-18 17:35:04,345 actor_pool WARNING terminating unresponsive process actor-34
+2026-09-18 17:35:19,411 actor_pool WARNING terminating unresponsive process actor-37
+2026-09-18 17:35:34,477 actor_pool WARNING terminating unresponsive process actor-39
+2026-09-18 17:35:49,547 actor_pool WARNING terminating unresponsive process actor-43
+2026-09-18 17:36:04,605 actor_pool WARNING terminating unresponsive process actor-46

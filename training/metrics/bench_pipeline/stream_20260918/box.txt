@@ -1,0 +1,31 @@
+cores(all) 32
+model name	: AMD Ryzen 9 5950X 16-Core Processor
+cpu.max 3071999 100000
+pids.max 7680
+NVIDIA GeForce RTX 4090, 24564 MiB, 580.173.02
+               total        used        free      shared  buff/cache   available
+Mem:           32008         756       28897           3        2354       30828
+torch 2.5.1+cu124
+reach/enumeration    RUST
+observation          RUST
+rows_from_reach      RUST
+combat               RUST
+encode_streams       RUST
+GameCore             python
+kernels | RUST: reach/enumeration, observation, rows_from_reach, combat, encode_streams | PYTHON: GameCore | wheel phase 10
+== idle 17:00:48
+5.93 10.27 12.14 1/582 15614
+210 MHz, 22.03 W, 32, 0 %
+Mem:           32008         756       28897           3        2355       30828
+== barrier_2 before 17:00:53
+5.54 10.11 12.08 1/582 15623
+210 MHz, 21.82 W, 32, 0 %
+Mem:           32008         757       28724           3        2527       30827
+== stream_2 before 17:07:25
+4.50 10.24 11.95 1/578 17434
+270 MHz, 23.45 W, 32, 0 %
+Mem:           32008         779       28695           3        2533       30805
+== forma_2 before 17:36:14
+0.08 5.03 9.83 1/579 19251
+210 MHz, 20.94 W, 33, 0 %
+Mem:           32008         766       28692           3        2549       30817

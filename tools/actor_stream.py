@@ -388,12 +388,17 @@ class ActorStream:
 
 def _window_delta(cur: Dict, prev: Optional[Dict], t0: float) -> Dict:
     """One serve thread's stats over a window: counters as differences
-    from the previous snapshot, the timeline restricted to the window,
-    the error tag carried."""
+    from the previous snapshot, the timeline restricted to the window
+    and rebased to zero leaves at its start (the thread's count at the
+    previous snapshot), the error tag carried. Without the rebase the
+    merged timeline jumps by a thread's whole cumulative count at its
+    first mark inside the window, and the best-window rate reads that
+    jump as tens of thousands of leaves per second."""
     out: Dict = {}
+    base = int((prev or {}).get("leaves", 0) or 0)
     for k, v in cur.items():
         if k == "timeline":
-            out[k] = [(t, n) for t, n in v if t >= t0]
+            out[k] = [(t0, 0)] + [(t, n - base) for t, n in v if t >= t0]
         elif isinstance(v, (int, float)) and not isinstance(v, bool):
             out[k] = v - ((prev or {}).get(k, 0) or 0)
         else:

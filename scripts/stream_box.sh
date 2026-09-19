@@ -29,6 +29,9 @@ DPH="${DPH:-0.40}"
 ROUNDS="${ROUNDS:-4}"
 STEP_SECONDS="${STEP_SECONDS:-20}"
 PAIRS="${PAIRS:-2}"
+# The arms to run, in order (a relaunch after a failed arm names the
+# rest); each is NAME:GAMES with the stream flags added for stream_*.
+ARMS="${ARMS:-}"
 mkdir -p "$OUT"
 cd /workspace
 export HF_TOKEN="$(tr -d '\r\n' < /workspace/.hf_token)" HF_HUB_DISABLE_XET=1
@@ -113,10 +116,17 @@ arm() {                          # arm NAME GAMES [extra bench_pool args]
         | sed 's/^.*actor_[a-z]* INFO //'
     upload
 }
-for pair in $(seq 1 "$PAIRS"); do
-    arm "barrier_$pair" "$ACTORS"
-    arm "stream_$pair" "$ACTORS" --stream --rounds "$ROUNDS" --step-seconds "$STEP_SECONDS"
-    arm "forma_$pair" "$(( 2 * ACTORS ))"
+if [ -z "$ARMS" ]; then
+    for pair in $(seq 1 "$PAIRS"); do
+        ARMS="$ARMS barrier_$pair stream_$pair forma_$pair"
+    done
+fi
+for name in $ARMS; do
+    case "$name" in
+        stream_*) arm "$name" "$ACTORS" --stream --rounds "$ROUNDS" --step-seconds "$STEP_SECONDS" ;;
+        forma_*)  arm "$name" "$(( 2 * ACTORS ))" ;;
+        *)        arm "$name" "$ACTORS" ;;
+    esac
 done
 
 # ---- the verdict under the pre-registered rule ----------------------

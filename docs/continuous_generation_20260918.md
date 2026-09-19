@@ -111,3 +111,15 @@ out.
 What the run cannot decide is whether a learner minds the straddling.
 That needs a learner that improves on the prior, run both ways, which
 is phase 2's business; until then `--stream` is opt-in.
+
+## Measured (2026-09-18, docs/box_specs.md "Continuous generation against the barrier")
+
+FAIL under the rule above, by a hair in both pairs: pair 1 reads
+1.302x on games per hour and a straddle mean of 0.69 over all four
+windows (the first window precedes any publication, so the rule's own
+averaging pulled it under 0.70); pair 2 reads a straddle of 0.70 and
+1.248x. Steady windows 2-4: 1.49x and 1.39x at a straddle mean of
+0.92-0.93, the server at its GPU roof. Form A: 1.32x and 1.10x.
+`--stream` stays opt-in. A rule written again would exclude the first
+window from the straddle mean and read the rate on the steady windows;
+that is a different rule, and it was not registered.

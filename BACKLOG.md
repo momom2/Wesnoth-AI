@@ -84,7 +84,12 @@ anyway, ordered by what the measurements say is binding:
   already runs), twice each on a single-tenant 4090, rule
   pre-registered in the script; then the learner-side question, which
   needs a learner that improves on the prior, run both ways. `--stream`
-  is opt-in until then.
+  is opt-in until then. MEASURED 2026-09-18 (docs/box_specs.md
+  "Continuous generation against the barrier"): FAIL under the
+  pre-registered rule by a hair in both pairs (1.302x with straddle
+  0.69; 1.248x with straddle 0.70); steady windows 1.39-1.49x at
+  straddle 0.92-0.93 with the server at its GPU roof; form A 1.10-1.32x.
+  Stays opt-in.
 - the inference server was LAUNCH-BOUND on the 2026-09-14 shared host
   (406 kernel launches per 16-leaf batch for 3 ms of device time; 20
   ms of host per pool batch against 12 ms of device). The graphed

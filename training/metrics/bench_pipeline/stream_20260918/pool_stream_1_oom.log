@@ -1,0 +1,1396 @@
+2026-09-18 15:40:38,116 transformer_policy INFO TransformerPolicy device: cuda
+2026-09-18 15:40:38,816 transformer_policy INFO inference bf16 autocast ON
+2026-09-18 15:40:38,881 transformer_policy WARNING relset.pt was trained under observation epoch 1; this sim is 3. The weights encode a different observation distribution, so any match against a checkpoint from another epoch is CROSS-BUILD: re-measure, do not chain numbers (see constants.OBSERVATION_EPOCH).
+2026-09-18 15:40:38,910 transformer_policy INFO Loaded checkpoint from training/checkpoints/relset.pt (decision_step=0)
+2026-09-18 15:40:38,916 eval_sim INFO [pool] loaded relset.pt
+2026-09-18 15:40:39,248 actor_pool INFO actor pool started: 48 actors, max_batch=16, 1 servers
+2026-09-18 15:40:39,988 actor_stream INFO stream open: 48 actors, 48 games queued ahead, tag 0
+2026-09-18 15:47:01,760 actor_pool INFO iter 0: serve stages (1 servers x 2 threads, leaves per server [734946]): wait=54.5s infer=635.5s wire=41.7s put=3.1s gpu=605.3s (0.82 ms/leaf) leaves/batch=18.5 saturated=2174 leaves/s (best 60 s) throughput=1925 leaves/s
+2026-09-18 15:47:01,761 actor_pool INFO iter 0: host ms per batch: unpack=0.71 encode=2.64 forward=7.43 priors=4.92 wait=0.15 reply=0.19 wire=1.05 put=0.08 | coalesce=fifo requests/batch=1.76 queue depth=34.87 skipped=0
+2026-09-18 15:47:01,761 actor_pool INFO iter 0: pool served 734946 forwards, 48 games, 13142 experiences, decision_step 0 -> 13142
+2026-09-18 15:47:01,761 actor_pool INFO iter 0: game finish times p50=203s p90=337s max=354s | tokens/leaf=284 pad_ratio=1.37
+2026-09-18 15:47:01,761 actor_stream INFO stream window 1: 48 games in 382s, game seconds p50 203, straddled mean 0.00 max 0 share 0.00
+2026-09-18 15:52:46,199 actor_pool INFO iter 0: serve stages (1 servers x 2 threads, leaves per server [610274]): wait=50.2s infer=568.8s wire=39.2s put=2.8s gpu=538.9s (0.88 ms/leaf) leaves/batch=18.6 saturated=8064 leaves/s (best 60 s) throughput=1881 leaves/s
+2026-09-18 15:52:46,199 actor_pool INFO iter 0: host ms per batch: unpack=0.82 encode=2.96 forward=7.78 priors=5.37 wait=0.17 reply=0.21 wire=1.19 put=0.09 | coalesce=fifo requests/batch=1.77 queue depth=33.07 skipped=0
+2026-09-18 15:52:46,199 actor_pool INFO iter 0: pool served 610274 forwards, 48 games, 18095 experiences, decision_step 13142 -> 31237
+2026-09-18 15:52:46,199 actor_pool INFO iter 0: game finish times p50=297s p90=451s max=724s | tokens/leaf=295 pad_ratio=1.35
+2026-09-18 15:52:46,199 actor_stream INFO stream window 2: 48 games in 324s, game seconds p50 297, straddled mean 0.83 max 1 share 0.83
+2026-09-18 15:57:47,838 actor_pool INFO iter 0: serve stages (1 servers x 2 threads, leaves per server [529947]): wait=42.4s infer=497.5s wire=33.5s put=2.5s gpu=472.2s (0.89 ms/leaf) leaves/batch=18.6 saturated=13128 leaves/s (best 60 s) throughput=1882 leaves/s
+2026-09-18 15:57:47,838 actor_pool INFO iter 0: host ms per batch: unpack=0.84 encode=2.92 forward=7.85 priors=5.51 wait=0.16 reply=0.21 wire=1.17 put=0.09 | coalesce=fifo requests/batch=1.77 queue depth=33.17 skipped=0
+2026-09-18 15:57:47,838 actor_pool INFO iter 0: pool served 529947 forwards, 48 games, 17982 experiences, decision_step 31237 -> 49219
+2026-09-18 15:57:47,838 actor_pool INFO iter 0: game finish times p50=327s p90=568s max=945s | tokens/leaf=287 pad_ratio=1.35
+2026-09-18 15:57:47,838 actor_stream INFO stream window 3: 48 games in 282s, game seconds p50 327, straddled mean 0.94 max 2 share 0.77
+2026-09-18 16:03:15,431 actor_pool INFO iter 0: serve stages (1 servers x 2 threads, leaves per server [584648]): wait=46.6s infer=545.7s wire=36.5s put=2.7s gpu=518.3s (0.89 ms/leaf) leaves/batch=18.5 saturated=17663 leaves/s (best 60 s) throughput=1901 leaves/s
+2026-09-18 16:03:15,432 actor_pool INFO iter 0: host ms per batch: unpack=0.84 encode=2.90 forward=7.86 priors=5.34 wait=0.15 reply=0.21 wire=1.15 put=0.09 | coalesce=fifo requests/batch=1.75 queue depth=33.15 skipped=0
+2026-09-18 16:03:15,432 actor_pool INFO iter 0: pool served 584648 forwards, 48 games, 17297 experiences, decision_step 49219 -> 66516
+2026-09-18 16:03:15,432 actor_pool INFO iter 0: game finish times p50=311s p90=465s max=602s | tokens/leaf=284 pad_ratio=1.32
+2026-09-18 16:03:15,432 actor_stream INFO stream window 4: 48 games in 308s, game seconds p50 311, straddled mean 0.92 max 2 share 0.77
+2026-09-18 16:14:23,543 actor_pool ERROR actor 40: the learner process is gone; exiting
+2026-09-18 16:14:23,543 actor_pool ERROR actor 22: the learner process is gone; exiting
+2026-09-18 16:14:23,544 actor_pool ERROR actor 8: the learner process is gone; exiting
+2026-09-18 16:14:23,543 actor_pool ERROR actor 35: the learner process is gone; exiting
+2026-09-18 16:14:23,544 sim_self_play ERROR game iter0_g194_a19 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:23,544 sim_self_play ERROR game iter0_g225_a47 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:23,544 sim_self_play ERROR game iter0_g219_a15 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:23,544 sim_self_play ERROR game iter0_g240_a21 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:23,544 sim_self_play ERROR game iter0_g230_a4 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:23,544 sim_self_play ERROR game iter0_g148_a39 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:23,544 sim_self_play ERROR game iter0_g242_a34 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1630, in mcts_search
+    _expand(root, model, encoder, tiebreak=config.draw_tiebreak,
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 743, in _expand
+    output = model(encoded)
+             ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 645, in __call__
+    return self._t.infer_batch([payload])[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:23,544 sim_self_play ERROR game iter0_g168_a28 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:23,544 sim_self_play ERROR game iter0_g198_a36 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:23,543 sim_self_play ERROR game iter0_g223_a29 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:23,544 sim_self_play ERROR game iter0_g233_a46 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:23,544 sim_self_play ERROR game iter0_g222_a20 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1630, in mcts_search
+    _expand(root, model, encoder, tiebreak=config.draw_tiebreak,
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 743, in _expand
+    output = model(encoded)
+             ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 645, in __call__
+    return self._t.infer_batch([payload])[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:23,544 sim_self_play ERROR game iter0_g170_a3 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:23,544 sim_self_play ERROR game iter0_g155_a11 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:23,544 sim_self_play ERROR game iter0_g214_a5 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:23,544 sim_self_play ERROR game iter0_g195_a38 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:23,544 sim_self_play ERROR game iter0_g180_a44 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:23,721 sim_self_play ERROR game iter0_g237_a9 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:23,980 actor_pool ERROR actor 37: the learner process is gone; exiting
+2026-09-18 16:14:24,288 sim_self_play ERROR game iter0_g238_a33 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1630, in mcts_search
+    _expand(root, model, encoder, tiebreak=config.draw_tiebreak,
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 743, in _expand
+    output = model(encoded)
+             ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 645, in __call__
+    return self._t.infer_batch([payload])[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:24,356 sim_self_play ERROR game iter0_g221_a23 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:24,373 sim_self_play ERROR game iter0_g235_a43 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:24,428 sim_self_play ERROR game iter0_g201_a31 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1630, in mcts_search
+    _expand(root, model, encoder, tiebreak=config.draw_tiebreak,
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 743, in _expand
+    output = model(encoded)
+             ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 645, in __call__
+    return self._t.infer_batch([payload])[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:24,451 actor_pool ERROR actor 6: the learner process is gone; exiting
+2026-09-18 16:14:24,457 sim_self_play ERROR game iter0_g190_a30 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:24,465 sim_self_play ERROR game iter0_g227_a25 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1630, in mcts_search
+    _expand(root, model, encoder, tiebreak=config.draw_tiebreak,
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 743, in _expand
+    output = model(encoded)
+             ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 645, in __call__
+    return self._t.infer_batch([payload])[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:24,533 actor_pool ERROR actor 32: the learner process is gone; exiting
+2026-09-18 16:14:24,541 sim_self_play ERROR game iter0_g239_a10 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1630, in mcts_search
+    _expand(root, model, encoder, tiebreak=config.draw_tiebreak,
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 743, in _expand
+    output = model(encoded)
+             ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 645, in __call__
+    return self._t.infer_batch([payload])[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:24,557 sim_self_play ERROR game iter0_g231_a18 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1630, in mcts_search
+    _expand(root, model, encoder, tiebreak=config.draw_tiebreak,
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 743, in _expand
+    output = model(encoded)
+             ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 645, in __call__
+    return self._t.infer_batch([payload])[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:24,569 sim_self_play ERROR game iter0_g234_a1 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:24,636 actor_pool ERROR actor 7: the learner process is gone; exiting
+2026-09-18 16:14:24,769 sim_self_play ERROR game iter0_g212_a16 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:24,784 actor_pool ERROR actor 26: the learner process is gone; exiting
+2026-09-18 16:14:24,813 sim_self_play ERROR game iter0_g220_a24 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:24,841 sim_self_play ERROR game iter0_g243_a2 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:24,853 sim_self_play ERROR game iter0_g241_a41 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:24,909 sim_self_play ERROR game iter0_g236_a17 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:24,937 sim_self_play ERROR game iter0_g224_a14 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:24,956 sim_self_play ERROR game iter0_g232_a42 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:25,020 actor_pool ERROR actor 27: the learner process is gone; exiting
+2026-09-18 16:14:25,065 sim_self_play ERROR game iter0_g244_a0 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1630, in mcts_search
+    _expand(root, model, encoder, tiebreak=config.draw_tiebreak,
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 743, in _expand
+    output = model(encoded)
+             ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 645, in __call__
+    return self._t.infer_batch([payload])[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:25,097 sim_self_play ERROR game iter0_g226_a13 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1630, in mcts_search
+    _expand(root, model, encoder, tiebreak=config.draw_tiebreak,
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 743, in _expand
+    output = model(encoded)
+             ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 645, in __call__
+    return self._t.infer_batch([payload])[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:25,296 sim_self_play ERROR game iter0_g229_a45 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request
+2026-09-18 16:14:26,256 sim_self_play ERROR game iter0_g211_a12 crashed: the learner process is gone; abandoning this request
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 154, in infer_batch
+    r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/multiprocessing/queues.py", line 114, in get
+    raise Empty
+_queue.Empty
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 773, in _play_one_game_safe
+    return play_one_game(
+           ^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 375, in play_one_game
+    pre_state, action = _decide()
+                        ^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/sim_self_play.py", line 372, in _decide
+    return pre, policy.select_action(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts_policy.py", line 486, in select_action
+    root = mcts_search(
+           ^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1686, in mcts_search
+    sims_done += _run_sim_batch(
+                 ^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/mcts.py", line 1301, in _run_sim_batch
+    outputs = model.forward_batch(encoded_list)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/inference_seam.py", line 649, in forward_batch
+    return self._t.infer_batch([self._payload(e) for e in encoded_list])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Wesnoth-AI/tools/actor_worker.py", line 157, in infer_batch
+    raise RuntimeError(
+RuntimeError: the learner process is gone; abandoning this request

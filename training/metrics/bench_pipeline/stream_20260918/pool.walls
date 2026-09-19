@@ -1,0 +1,6 @@
+barrier_1 games=48  407 s
+stream_1 games=48 --stream --rounds 4 --step-seconds 20 1625 s
+forma_1 games=96  625 s
+barrier_2 games=48  386 s
+stream_2 games=48 --stream --rounds 4 --step-seconds 20 1722 s
+forma_2 games=96  715 s

@@ -1,0 +1,5 @@
+pair 1
+  barrier  games   48 in    399s  games/h   433.1  leaves/s    1331  saturated    2187  decisive 32  truncated False
+  form A   games   96 in    617s  games/h   560.2  leaves/s    1662  saturated    2148  decisive 63  truncated False
+  stream   games  211 in   1408s  games/h   539.5  leaves/s    1761  saturated    2256  decisive 137  truncated False
+  with a 20s step per iteration: barrier 412.4 games/h, form A 542.6 games/h (1.316x); stream windows 0.0 games/h with the same idle

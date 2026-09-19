@@ -1646,6 +1646,70 @@ graphed pool server pays; a sum near 8 ms says it does not. On the
 eval path the flag is not worth passing on any host measured so far
 once the captures are counted.
 
+## Continuous generation against the barrier (2026-09-18, instance 51452193, RTX 4090, Ryzen 9 5950X, 32 threads, 32 GB, $0.585/h)
+
+`scripts/stream_box.sh`, the rule pre-registered in its header and in
+docs/continuous_generation_20260918.md: three arms twice, interleaved,
+48 actors, 32 evaluations, the committed bf16 packed configuration.
+Records in `training/metrics/bench_pipeline/stream_20260918/`; the
+verdict computed from them is `verdict_local.txt` (the box's own
+`verdict.txt` read pair 1's stream windows as empty, see below).
+
+| pair | arm | games | seconds | games/h with a 20 s step | leaves/s | saturated |
+|---|---|---|---|---|---|---|
+| 1 | barrier, 48 on 48 | 48 | 399 | 412 | 1,331 | 2,187 |
+| 1 | form A, 96 on 48 | 96 | 617 | 543 (1.32x) | 1,662 | 2,148 |
+| 1 | stream, 4 windows of 48 | 192 + 19 in the drain | 1,207 + 80 idle | 537 (1.30x); windows 2-4: 613 (1.49x) | 1,827-1,914 | 2,050-2,256 |
+| 2 | barrier | 48 | 378 | 434 | 1,414 | 2,126 |
+| 2 | form A | 96 | 707 | 476 (1.10x) | 1,570 | 2,146 |
+| 2 | stream | 192 + 22 in the drain | 1,197 + 80 idle | 541 (1.25x); windows 2-4: 602 (1.39x) | 1,848-1,930 | 2,102-2,269 |
+
+The stream's windows, pair 1 then pair 2 (48 games each):
+
+| window | seconds | leaves/s | game seconds p50 | straddle mean | max | share |
+|---|---|---|---|---|---|---|
+| 1 | 422 / 396 | 1,863 / 1,886 | 249 / 241 | 0 / 0 | 0 | 0 |
+| 2 | 258 / 251 | 1,914 / 1,930 | 274 / 244 | 0.75 / 0.75 | 1 | 0.75 |
+| 3 | 273 / 291 | 1,864 / 1,848 | 293 / 313 | 1.00 / 1.02 | 2 | 0.83 / 0.85 |
+| 4 | 254 / 259 | 1,827 / 1,917 | 264 / 302 | 1.02 / 1.02 | 3 | 0.79 / 0.85 |
+
+**Verdict under the rule: FAIL, in both pairs by a hair and for two
+different reasons.** Pair 1 clears the rate (1.302x against 1.25x)
+and misses the straddle bound by 0.01 (0.69 against 0.70), because
+the rule averaged the straddle over all four windows and the first
+window precedes the first publication, so it cannot straddle. Pair 2
+clears the straddle (0.70) and misses the rate by 0.2% (1.248x). So
+`--stream` stays opt-in, as the rule says. What the numbers show: the
+first window pays the pipeline fill (396-422 s, as the barrier's own
+start does), and from the second on the stream runs 48 games every
+251-291 s at 1,830-1,930 leaves/s with the server at its GPU roof
+(0.84-0.92 ms per leaf, queue depth 33-35, the serve threads waiting
+41-62 s of a 450-700 s window), which is 1.39-1.49x the barrier's
+games per hour. A game straddles about one publication (mean 0.92-0.93
+over the steady windows, never more than three) at one actor per game
+per window. Form A (two games per actor) read 1.32x and 1.10x: its
+iteration still ends with its longest game, and pair 2's ran 707 s.
+The saturated column agrees across every arm (2,050-2,269), so the
+box was quiet. A rule written again would exclude the first window
+from the straddle mean and put the bar at 1.25x on the steady
+windows; both pairs pass that, and it is not the rule that was
+registered.
+
+Two failures on the way, both in the bench, neither in the stream.
+The first stream arm was killed at the host's 32 GB (the cgroup's
+`oom_kill 1`; `pool_stream_1_oom.log`) after its fourth window: the
+bench kept every window's experiences in the learner, four windows of
+about 17,000 next to 48 actors, and the host swapped from the second
+window on, which is also why ssh timed out for half an hour. The bench
+now counts a window's experiences and releases its games; the arm was
+rerun on that build. Its record then carried the windows' rows emptied
+(the release ran before the row was written; fixed before pair 2), so
+pair 1's windows above come from the arm's log, pair 2's from its
+record. The drain abandoned 29-30 of 48 games after its 120 s grace in
+both pairs, a cost a campaign pays once at its end. Rental about $2.2,
+of which about $0.8 idle after the last arm: the watcher that should
+have caught the final upload had expired and was not re-armed.
+
 ## Hide cover after the root fix: the corpus sweep, and what it does NOT certify (2026-09-13, box 50882541, 28 cores)
 
 `scripts/hide_cover_cert_box.sh`. Cover for ambush / concealment /

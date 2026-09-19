@@ -394,10 +394,42 @@ State of play:
   are opt-in; the measurement against the barrier and against form
   A (more games than actors, which the pool already runs) is
   `scripts/stream_box.sh` with its rule pre-registered
-  (docs/continuous_generation_20260918.md). Whether a learner minds
-  the straddling needs a learner that improves on the prior, run
-  both ways.
-- No box is rented (2026-09-18, after the graphed-default run). Phase 2
+  (docs/continuous_generation_20260918.md). Measured the same day on a
+  single-tenant Ryzen 9 5950X box, two interleaved pairs: **FAIL under
+  the rule by a hair in both pairs** (pair 1: 1.302x games per hour
+  with a straddle mean of 0.69 over all windows, the first of which
+  precedes any publication; pair 2: 1.248x with 0.70); the steady
+  windows read 1.39-1.49x at a straddle of 0.92-0.93 with the server
+  at its GPU roof, and form A 1.10-1.32x (docs/box_specs.md
+  "Continuous generation against the barrier"). `--stream` stays
+  opt-in. Whether a learner minds the straddling needs a learner that
+  improves on the prior, run both ways.
+- 2026-09-18 (a flaky test's root): **a unit's hash followed the
+  process's hash seed, so every process enumerated a board's units
+  in its own order.** `Unit.__hash__` hashed the id STRING, Python
+  salts str hashes per process, and `gs.map.units` is a set: the
+  encoder's token and vocabulary order, the sampler's action order
+  and the sim all walked it, so the same seeded game diverged from
+  its first decision between two processes (a fresh network even
+  gave a unit type a different embedding row per process). Found
+  because `tests/test_holdout_tripwire.py::test_holdout_stall_tripwire_exits_5`
+  failed in one full-suite run and passed alone: its outcome
+  depended on the pytest process's hash seed, not on test order
+  (the exact suite prefix passed). Fixed at the root: the unit hash
+  is a crc32 of the id, process-independent; `sim_self_play --seed`
+  now also seeds torch, the global `random`, the policy's search
+  generators (`MCTSPolicy(rng_seed=)`, threaded through the turn and
+  plan policies) and the trainer's own subsampling generator (it
+  drew from the global module); a rollout worker's game draws come
+  from the iteration seed and the game index, not from which thread
+  won the race for it. A seeded run now repeats byte for byte across
+  processes and hash seeds. Consequence for old numbers: eval
+  workers and pool actors are separate processes, so before this fix
+  no game was reproducible across processes; the estimands and the
+  standard errors are untouched (each game was still one draw), and
+  no Elo needs re-measuring.
+- No box is rented (2026-09-18, after the continuous-generation run).
+  Phase 2
   is next: docs/plan_20260904.md 5, whose first measurement is the
   turn-gap pre-registration.
 
