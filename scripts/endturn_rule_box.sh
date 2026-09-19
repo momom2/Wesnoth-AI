@@ -138,16 +138,17 @@ match screen_eo150 41200 "$SCREEN_GAMES" 0 --raw-end-turn-offset-a -1.5
 # Kill 1: the rule's decisions per side-turn at least 3% above raw:t0's
 # in the same games, else the rule does not fire and the match is not
 # played.
+FIRED=1
 if ! python tools/analysis/endturn_readout.py "$OUT/games_screen_endm" --require-fire 1.03; then
-    echo "KILL 1: the rule does not fire (decisions per side-turn under 1.03x raw:t0's)" | tee "$OUT/verdict.txt"
-    upload; touch "$OUT/ALL_DONE"; upload; exit 0
+    echo "KILL 1: the rule does not fire (decisions per side-turn under 1.03x raw:t0's); the match is not played" | tee -a "$OUT/kill1.txt"
+    FIRED=0
 fi
 
 # ---- 2. the rule to 800 decisive ------------------------------------
-match endm 42000 "$MATCH_DECISIVE" "$MATCH_EXTRA" --raw-end-turn-a actor
+[ "$FIRED" = 1 ] && match endm 42000 "$MATCH_DECISIVE" "$MATCH_EXTRA" --raw-end-turn-a actor
 
 # ---- 3. the attribution arm, on a pass only --------------------------
-if python tools/analysis/endturn_readout.py "$OUT/games_endm" --require-pass 0.535; then
+if [ "$FIRED" = 1 ] && python tools/analysis/endturn_readout.py "$OUT/games_endm" --require-pass 0.535; then
     best=$(python tools/analysis/endturn_readout.py "$OUT/games_screen_eo075" "$OUT/games_screen_eo150" --best-p)
     case "$best" in
         *eo150*) offset=-1.5 ;;
