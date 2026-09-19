@@ -199,10 +199,19 @@ class Unit:
 
 @dataclass
 class Hex:
-    """Single hex on map."""
+    """Single hex on map.
+
+    `terrain_types` is the legacy single-class view the reference
+    player's lineage was trained on (one base class from a hand
+    table, plus village, forest and castle overlays). `terrain_mask`
+    is the hex's full terrain SET from the engine's own aliases
+    (terrain_resolver.terrain_mask: bit v set for Terrain value v),
+    read by the encoder under its `terrain_multi_hot` flag; 0 means
+    "not resolved" and the encoder falls back to the legacy class."""
     position: Position
     terrain_types: Set[Terrain]
     modifiers: Set[TerrainModifiers]
+    terrain_mask: int = 0
 
     def __hash__(self):
         return hash(self.position)

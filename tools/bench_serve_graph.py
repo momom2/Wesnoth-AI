@@ -78,7 +78,8 @@ def load_pairs(policy, manifest: Path, dataset: Path, limit: int, device: torch.
         enc.register_names(gs)
         raw = encode_raw(gs, type_to_id=enc.unit_type_to_id, faction_to_id=enc.faction_to_id,
                          relevant_set=bool(getattr(enc, "relevant_set_hexes", False)),
-                         fog_hides_enemy_villages=bool(getattr(enc, "fog_hides_enemy_villages", False)))
+                         fog_hides_enemy_villages=bool(getattr(enc, "fog_hides_enemy_villages", False)),
+                         terrain_multi_hot=bool(getattr(enc, "terrain_multi_hot", False)))
         light = build_light_encoded(raw, torch.device("cpu"))
         pairs.append((raw, pack_masks(light, gs)))
     return pairs

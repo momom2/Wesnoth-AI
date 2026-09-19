@@ -94,13 +94,14 @@ PREDICTORS = (("material", "material"), ("villages true", "villages_true"),
 def _game_rows(args):
     """One game's turn-start states as picklable rows (worker side):
     turn, side, the predictors and the RawEncoded for the head."""
-    path, winner_side, type_to_id, faction_to_id, relevant_set, gate_villages = args
+    path, winner_side, type_to_id, faction_to_id, relevant_set, gate_villages, terrain_multi_hot = args
     from wesnoth_ai.encoder import encode_raw
     data = json.load(gzip.open(path, "rt", encoding="utf-8"))
     rows = []
     for turn, side, gs in turn_start_states(data):
         raw = encode_raw(gs, type_to_id=type_to_id, faction_to_id=faction_to_id,
-                         relevant_set=relevant_set, fog_hides_enemy_villages=gate_villages)
+                         relevant_set=relevant_set, fog_hides_enemy_villages=gate_villages,
+                         terrain_multi_hot=terrain_multi_hot)
         rows.append({"turn": turn, "side": side, "winner_side": int(winner_side),
                      "material": material(gs, side),
                      "villages_true": village_lead(gs, side, visible_only=False),
@@ -113,7 +114,6 @@ def head_values(policy, states: Sequence, batch: int = 16, device=None) -> List[
     """The head's expected outcome for the side to move, batched."""
     import torch
     from tools.inference_seam import InferenceServer
-    from wesnoth_ai.encoder import encode_raw
     enc = policy._inference_encoder
     device = device or torch.device("cpu")
     server = InferenceServer(policy._inference_model, enc, device=device,
@@ -123,9 +123,7 @@ def head_values(policy, states: Sequence, batch: int = 16, device=None) -> List[
         raws = []
         for gs in states[i:i + batch]:
             enc.register_names(gs)
-            raws.append(encode_raw(gs, type_to_id=enc.unit_type_to_id,
-                                   faction_to_id=enc.faction_to_id,
-                                   relevant_set=bool(getattr(enc, "relevant_set_hexes", False))))
+            raws.append(enc.raw_of(gs))
         for out in server.infer_batch(raws):
             values.append(float(out.value.reshape(-1)[0].item()))
     return values
@@ -248,7 +246,8 @@ def main(argv=None) -> int:
     rows: List[dict] = []
     gate = bool(args.gate_enemy_villages or getattr(enc, "fog_hides_enemy_villages", False))
     tasks = [(str(args.dataset / m["file"]), m["winner_side"], dict(enc.unit_type_to_id),
-              dict(enc.faction_to_id), bool(getattr(enc, "relevant_set_hexes", False)), gate)
+              dict(enc.faction_to_id), bool(getattr(enc, "relevant_set_hexes", False)), gate,
+              bool(getattr(enc, "terrain_multi_hot", False)))
              for m in games]
     if args.jobs > 1:
         import multiprocessing as mp

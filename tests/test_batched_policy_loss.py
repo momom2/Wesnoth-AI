@@ -33,7 +33,6 @@ sys.path.insert(0, str(ROOT / "tools"))
 from tools.bench_pipeline import load_states  # noqa: E402
 from tools.bench_train_step import configure_trainer_like_az_loop  # noqa: E402
 from wesnoth_ai.action_sampler import enumerate_legal_actions_with_priors  # noqa: E402
-from wesnoth_ai.encoder import encode_raw  # noqa: E402
 from wesnoth_ai.trainer import (  # noqa: E402
     STEP_MCTS_STAGES, MCTSExperience, _mcts_factored_policy_loss_reference,
 )
@@ -120,8 +119,9 @@ def reference_policy_step(policy, exps):
     mdl.eval()
     tr.optimizer.zero_grad(set_to_none=True)
     total_gw = sum(e.game_weight for e in exps)
-    raws = [encode_raw(e.game_state, type_to_id=enc.unit_type_to_id,
-                       faction_to_id=enc.faction_to_id) for e in exps]
+    # The reference encodes what the trainer encodes: the encoder's own
+    # switches (basis, fog gate, terrain view), never a bare encode_raw.
+    raws = [enc.raw_of(e.game_state) for e in exps]
     encoded = enc.encode_from_raw_batch(raws)
     outputs = mdl.forward_padded(encoded).samples()
     total = torch.zeros(())

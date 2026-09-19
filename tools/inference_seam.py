@@ -547,7 +547,9 @@ def inference_blueprint(model, encoder) -> InferenceBlueprint:
             max_attacks=int(model.max_attacks), aux_score=bool(model.has_aux_score),
             moves_left=bool(model.has_moves_left), gbc=bool(model.has_gbc)),
         encoder_kwargs=dict(d_model=int(encoder.d_model),
-                            relevant_set_hexes=bool(encoder.relevant_set_hexes)))
+                            relevant_set_hexes=bool(encoder.relevant_set_hexes),
+                            fog_hides_enemy_villages=bool(getattr(encoder, "fog_hides_enemy_villages", False)),
+                            terrain_multi_hot=bool(getattr(encoder, "terrain_multi_hot", False))))
 
 
 def build_inference_pair(blueprint: InferenceBlueprint, device: torch.device) -> Tuple:
@@ -594,10 +596,12 @@ class RemoteEncoder:
         relevant_set: bool = False,
         server_priors: bool = False,
         fog_hides_enemy_villages: bool = False,
+        terrain_multi_hot: bool = False,
     ):
         self._type_to_id = type_to_id
         self._faction_to_id = faction_to_id
         self._fog_hides_enemy_villages = bool(fog_hides_enemy_villages)
+        self.terrain_multi_hot = bool(terrain_multi_hot)
         self._device = device or torch.device("cpu")
         # Server-side priors: the actor packs the legality masks at
         # encode time and RemoteModel ships them with the leaf.
@@ -615,6 +619,7 @@ class RemoteEncoder:
             faction_to_id=self._faction_to_id,
             relevant_set=self._relevant_set,
             fog_hides_enemy_villages=self._fog_hides_enemy_villages,
+            terrain_multi_hot=self.terrain_multi_hot,
         )
         enc = build_light_encoded(raw, self._device)
         # Stash the wire payload for RemoteModel; EncodedState is a

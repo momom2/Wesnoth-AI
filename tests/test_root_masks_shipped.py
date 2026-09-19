@@ -159,7 +159,7 @@ def _seam_base(policy):
     InferenceServer (tools/actor_worker.py builds the same namespace)."""
     from tools.inference_seam import InferenceServer, RemoteEncoder, RemoteModel
     enc, model = policy._inference_encoder, policy._inference_model
-    renc = RemoteEncoder(enc.unit_type_to_id, enc.faction_to_id,
+    renc = RemoteEncoder(enc.unit_type_to_id, enc.faction_to_id, terrain_multi_hot=enc.terrain_multi_hot,
                          fog_hides_enemy_villages=enc.fog_hides_enemy_villages,
                          relevant_set=enc.relevant_set_hexes, server_priors=True)
     return SimpleNamespace(_inference_model=RemoteModel(InferenceServer(model, enc)),

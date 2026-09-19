@@ -189,7 +189,6 @@ def component_costs(states: Sequence[Tuple[object, str]], policy,
     from wesnoth_ai.action_sampler import (_build_legality_masks,
                                            enumerate_legal_actions_with_priors)
     from wesnoth_ai.classes import state_key
-    from wesnoth_ai.encoder import encode_raw
     from tools.wesnoth_sim import WesnothSim
     enc = policy._inference_encoder
     model = policy._inference_model
@@ -211,9 +210,7 @@ def component_costs(states: Sequence[Tuple[object, str]], policy,
                          apply_scenario_events=False, begin_turn=False)
         clock("deepcopy", lambda: copy.deepcopy(gs))
         clock("fork", sim.fork)
-        raw = clock("encode_raw", lambda: encode_raw(
-            gs, type_to_id=enc.unit_type_to_id, faction_to_id=enc.faction_to_id,
-            relevant_set=bool(getattr(enc, "relevant_set_hexes", False))))
+        raw = clock("encode_raw", lambda: enc.raw_of(gs))
         with torch.no_grad():
             encoded = clock("encode_from_raw", lambda: enc.encode_from_raw(raw))
             output = model(encoded)
@@ -329,7 +326,7 @@ def seam_costs(policy, states: Sequence[Tuple[object, str]],
     device = next(policy._model.parameters()).device
     sync = (torch.cuda.synchronize if device.type == "cuda" else (lambda: None))
     server = InferenceServer(model, enc, device=device)
-    renc = RemoteEncoder(enc.unit_type_to_id, enc.faction_to_id,
+    renc = RemoteEncoder(enc.unit_type_to_id, enc.faction_to_id, terrain_multi_hot=enc.terrain_multi_hot,
                          relevant_set=bool(getattr(enc, "relevant_set_hexes", False)),
                          server_priors=True,
                          fog_hides_enemy_villages=bool(getattr(enc, "fog_hides_enemy_villages", False)))

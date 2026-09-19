@@ -8,8 +8,10 @@ deep-water base; how many of those give `ambush`, `concealment` and
 `submerge` their cover under the engine's `[hides]` globs
 (`terrain_resolver.hides_cover`); and, for the encoder's one-hot
 finding, how many forest-overlay hexes the encoder's single terrain id
-(`encoder._first_terrain_id`) labels FLAT, and how many it labels
-anything but FOREST.
+(`encoder._first_terrain_id`) labels FLAT, how many it labels
+anything but FOREST, and how many the hex's alias-derived terrain set
+(`Hex.terrain_mask`, the `terrain_multi_hot` view) leaves without the
+FOREST bit.
 
     python tools/analysis/hide_cover_census.py [--json OUT]
 
@@ -41,7 +43,8 @@ def census(scenario_ids: List[str]) -> Dict[str, object]:
     base = random_setup(random.Random(0))
     totals = {"maps": 0, "playable_hexes": 0, "forest_overlay": 0, "village_overlay": 0,
               "deep_water_base": 0, "ambush_cover": 0, "concealment_cover": 0, "submerge_cover": 0,
-              "forest_overlay_encoded_flat": 0, "forest_overlay_not_encoded_forest": 0}
+              "forest_overlay_encoded_flat": 0, "forest_overlay_not_encoded_forest": 0,
+              "forest_overlay_mask_without_forest": 0}
     per_map: Dict[str, Dict[str, int]] = {}
     for sid in scenario_ids:
         gs = build_scenario_gamestate(dataclasses.replace(base, scenario_id=sid))
@@ -57,6 +60,8 @@ def census(scenario_ids: List[str]) -> Dict[str, object]:
                 tid = _first_terrain_id(h.terrain_types)
                 if tid == Terrain.FLAT.value:
                     row["forest_overlay_encoded_flat"] += 1
+                if not (int(getattr(h, "terrain_mask", 0)) >> Terrain.FOREST.value) & 1:
+                    row["forest_overlay_mask_without_forest"] += 1
                 if tid != Terrain.FOREST.value:
                     row["forest_overlay_not_encoded_forest"] += 1
             if overlay.startswith("V"):

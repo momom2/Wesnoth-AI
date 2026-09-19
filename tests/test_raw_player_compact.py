@@ -21,7 +21,7 @@ from tests.test_server_priors import _policy, _states  # noqa: E402
 def _seam(policy):
     from tools.inference_seam import InferenceServer, RemoteEncoder, RemoteModel
     enc, model = policy._inference_encoder, policy._inference_model
-    renc = RemoteEncoder(enc.unit_type_to_id, enc.faction_to_id, server_priors=True,
+    renc = RemoteEncoder(enc.unit_type_to_id, enc.faction_to_id, terrain_multi_hot=enc.terrain_multi_hot, server_priors=True,
                          fog_hides_enemy_villages=enc.fog_hides_enemy_villages)
     rmodel = RemoteModel(InferenceServer(model, enc))
     return SimpleNamespace(_inference_model=rmodel, _inference_encoder=renc,

@@ -1,0 +1,1 @@
+games_eo-1.5: raw:t0+eo-1.5 vs raw:t0: 863 games, W-L-D-capped 631-169-0-63, p 0.789 +- 0.014 over 800 decisive, capped scored 0.5: 0.768, capped fraction 0.07; decisions per side-turn A 9.25 B 5.90 (1.568x)

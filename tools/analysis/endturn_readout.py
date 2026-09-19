@@ -125,9 +125,19 @@ def verdict(readouts: List[Readout], fire: float, pass_p: float) -> str:
                          f"{'STALL TILT' if tilt else 'clear'}")
     for name, r in by.items():
         if name.startswith("games_eo") and r.p is not None and match is not None and match.p is not None:
-            within = abs(r.p - match.p) <= (match.se or 0.0)
-            lines.append(f"attribution {name}: p {r.p:.3f} against the rule's {match.p:.3f}: "
-                         f"{'within 1 SE, the lever is act more' if within else 'differs, rule-specific'}")
+            # The pre-registered reading: an offset that matches the rule
+            # within 1 SE says the lever is "act more" and the config
+            # scalar is the adopted form; one that BEATS the rule says so
+            # louder; only an offset well below the rule leaves something
+            # rule-specific to explain.
+            se = match.se or 0.0
+            if r.p >= match.p - se:
+                how = ("within 1 SE" if abs(r.p - match.p) <= se
+                       else f"above the rule by {(r.p - match.p) / max(se, 1e-9):.1f} SE")
+                reading = f"{how}, the lever is act more; the config scalar is the adopted form"
+            else:
+                reading = f"below the rule by {(match.p - r.p) / max(se, 1e-9):.1f} SE: rule-specific"
+            lines.append(f"attribution {name}: p {r.p:.3f} against the rule's {match.p:.3f}: {reading}")
     return "\n".join(lines)
 
 

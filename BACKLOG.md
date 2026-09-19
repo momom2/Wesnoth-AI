@@ -37,6 +37,10 @@ from the user first:
   quiet host").
 - a tight self-pin of the reference player (800 games, 18 min,
   $0.20), which would replace the +- 37 Elo above with +- 12.
+  DONE 2026-09-19 as a rider of the end_turn box: 1,300 games,
+  406-375 with 519 capped, p 0.520 +- 0.018 over 781 decisive, about
+  +14 +- 13 Elo for side A, no asymmetry detected
+  (docs/endturn_rule_prereg_20260919.md "Measured").
 
 Measured 2026-09-13 (docs/box_specs.md "Actors buy in-flight leaves"
 and the sections after it), on one 24-core 4090:
@@ -861,7 +865,27 @@ inference.
   runs the screens, the 800-decisive match and the conditional
   attribution arm and writes the verdict (`tools/analysis/
   endturn_readout.py`). About one box-hour, $0.30-0.60 on a
-  single-tenant 4090 host. Waits for the word.
+  single-tenant 4090 host. Approved 2026-09-19 and RUN the same day
+  (a 32-core slice of an EPYC 7B13 4090 host, $0.75/h, after three
+  rentals that never came up or refused ssh and one that had no C
+  linker: the script now falls back to conda's compiler and every
+  failure path uploads ALL_DONE). The riders passed first: 59 Rust-
+  path tests with the phase-10 wheel, `diff_core` 600 of 600 clean.
+  The screen read p 0.806 +- 0.066 over 36 decisive (29-7, 4 of 40
+  capped), decisions per side-turn 8.07 against 5.59 (1.44x; kill 1
+  passed). **The 800-decisive match PASSED: p 0.752 +- 0.015 (602-198,
+  75 capped of 875), about +193 Elo, decisions per side-turn 8.55
+  against 6.03 (1.42x), capped fraction 0.09 against the reference's
+  own 0.4** (docs/endturn_rule_prereg_20260919.md "Measured"). **The
+  attribution arm beat the rule: the end_turn logit offset -1.5 reads
+  p 0.789 +- 0.014 (631-169, 63 capped of 863), about +229 Elo,
+  1.57x the decisions per side-turn**, so under the pre-registered
+  reading the lever is "act more" and the config scalar is the adopted
+  form. Open for the user: whether `raw:t0+eo-1.5` (or a larger
+  offset: the curve is still rising at -1.5, not pre-registered)
+  becomes the reference DECODE (the reference checkpoint is
+  unchanged), which re-pins every strength claim's opponent; and
+  whether the offset helps a searched player.
 - TEST 3 QUEUED (2026-09-05 evening, ~$2.4, last in the box queue):
   the corpus's player ratings are fitted (`tools/player_ratings.py`,
   records in training/metrics/player_ratings/): 142 regulars at 30+
@@ -967,6 +991,30 @@ Two further findings from the same hunt, NOT fixed:
   `Ai` ice, `Qlf` lava). Fixing it changes every observation the
   policy has ever been trained on, so it wants its own arm and an
   800-game match, not a drive-by.
+  **SHIPPED AS CODE 2026-09-19 (autonomous window), the arm
+  pre-registered.** `terrain_resolver.terrain_members` derives each
+  code's terrain SET from the database's aliases (a forested hill is
+  HILLS and FOREST, a ford FLAT and SHALLOWWATER; an engine-defined
+  full code such as `Mm^Xm` keeps its own list; `_off^_usr` and
+  `^_fme` are impassable because no movetype prices them);
+  `Hex.terrain_mask` carries it from the map parse, the scenario
+  morphs and the live converter; behind the checkpoint flag
+  `terrain_multi_hot` (on for a fresh network, absent = the one-class
+  view, so `relset` observes bit for bit what it did) the encoder
+  embeds the mask as a multi-hot over the same table
+  (`GameStateEncoder.terrain_tokens`). The flag rides the pre-encoder
+  fingerprint, the struct flags, the blueprint, the server hello and
+  the pool's PLAY tuple, and eval records carry `terrain_a/terrain_b`
+  as an estimand next to the basis
+  (tests/test_terrain_multi_hot.py, tests/test_eval_terrain_provenance.py).
+  Census on the mask: 0 of 1,572 forest-overlay hexes without the
+  forest bit (`hide_cover_20260913/census_terrain_mask_20260919.json`).
+  GameCore's own encode wrapper refuses the flag (its map bakes one id
+  per hex); the default kernels take the mask from Python's static
+  arrays and the Rust parity test is parametrized over it. The arm
+  and its bars: docs/terrain_multi_hot_prereg_20260919.md,
+  `scripts/terrain_arm_box.sh` (the reference's recipe with the flag,
+  one pass, 800 decisive against `relset`, about $2.5-3.5).
 - **Two more `[hides]` abilities are outside `_AMBUSH_ABILITIES`**:
   `burrow` (Horned Scarab) and `swamp_lurk` (the Swamp Lizard -- the FILE is
   Crocodile.cfg but `id=Swamp Lizard` and no unit type called

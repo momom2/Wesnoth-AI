@@ -33,7 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from tools.elo_ladder import PairRecord, fit_elo
-from tools.run_elo_batch import bases_of
+from tools.run_elo_batch import bases_of, terrain_views_of
 
 
 # Estimand fields carried by every result file, with the value an
@@ -43,6 +43,7 @@ from tools.run_elo_batch import bases_of
 # catalog edge as `protocol["estimands"]` and elo_catalog compares
 # them component-wise across dirs.
 #   basis_*            relevant-set vs full-board tokens
+#   terrain_*          the hex's terrain set vs one class per hex
 #   mcts_batch         batched (virtual-loss) search explores differently
 #   infer_*/shared_*   precision, kernels and the inference path
 #   combat_stream      per-game vs one shared combat-luck vector
@@ -54,6 +55,7 @@ from tools.run_elo_batch import bases_of
 # horizon uses.
 ESTIMAND_DEFAULTS = {
     "basis_a": "full", "basis_b": "full",
+    "terrain_a": "class", "terrain_b": "class",
     "mcts_batch": 1,
     "infer_bf16": False, "infer_compile": False,
     "shared_inference": False, "infer_packed_trunk": False,
@@ -257,9 +259,14 @@ def main(argv) -> int:
     if len(_bases) > 1:
         raise SystemExit(f"mixed hex bases in one games dir: "
                          f"{sorted(_bases)} -- estimands don't mix.")
+    _views = {terrain_views_of(g) for g in games}
+    if len(_views) > 1:
+        raise SystemExit(f"mixed terrain views in one games dir: "
+                         f"{sorted(_views)} -- estimands don't mix.")
     _mt = next(iter(_mts)) if _mts else None
     _proc_tag = next(iter(procs)) if procs else ("legacy", "legacy")
     _basis_tag = next(iter(_bases))
+    _view_tag = next(iter(_views))
     # Everything that changes the players or the procedure and used to
     # stop at the dir boundary (see ESTIMAND_DEFAULTS).
     _estimands = dir_estimands(games)
@@ -305,6 +312,7 @@ def main(argv) -> int:
           f"PURE) | anchor: {labels[anchor_idx]} = 0"
           f" | procedure: {_proc_tag[0]}/{_proc_tag[1]}"
           f" | hex basis: {_basis_tag[0]}/{_basis_tag[1]}"
+          f" | terrain view: {_view_tag[0]}/{_view_tag[1]}"
           f" | combat stream: "
           f"{_estimands.get('combat_stream', 'shared')}")
     # Auto-update the committed Elo catalog (user directive

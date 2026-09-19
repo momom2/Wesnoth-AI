@@ -40,6 +40,16 @@ def test_policy_anchor_cache_gate_is_checked_against_the_consumer(tmp_path):
         load_policy_anchor(legacy, fog_hides_enemy_villages=True)
     with pytest.raises(ValueError, match="fog_hides_enemy_villages=True"):
         load_policy_anchor(gated, fog_hides_enemy_villages=False)
+    # The terrain view, the same way: a cache without the key carries
+    # one class per hex, and a set-view policy refuses it.
+    assert load_policy_anchor(legacy, terrain_multi_hot=False)
+    with pytest.raises(ValueError, match="--terrain-multi-hot"):
+        load_policy_anchor(legacy, terrain_multi_hot=True)
+    masked = tmp_path / "masked.pkl"
+    _policy_cache(masked, {"games": 1, "terrain_multi_hot": True})
+    assert load_policy_anchor(masked, terrain_multi_hot=True)
+    with pytest.raises(ValueError, match="terrain_multi_hot=True"):
+        load_policy_anchor(masked, terrain_multi_hot=False)
 
 
 def test_human_anchor_sidecar_records_the_gate_and_the_epoch(tmp_path):

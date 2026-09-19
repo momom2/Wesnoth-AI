@@ -109,27 +109,85 @@ def basis_refusal(name: str, record: dict, want: Tuple[str, str]) -> Optional[st
             f"the model attends over, refusing to mix. Use a fresh outdir.")
 
 
-_PEEK_BASIS = (
+# The terrain view (2026-09-19): a side's encoder carries each hex's
+# terrain as its full set from the engine's aliases ("set", the
+# checkpoint flag terrain_multi_hot: on for every fresh network) or as
+# one class per hex ("class", every checkpoint before that day). It
+# changes the hex tokens, so it is an estimand field like the basis:
+# recorded per side, never mixed within an outdir, compared between
+# dirs by the catalog. There is no CLI override: a checkpoint plays in
+# its own view, a served side in its server's.
+TERRAIN_VIEWS = ("class", "set")
+
+
+def terrain_views_of(record: dict) -> Tuple[str, str]:
+    """(terrain_a, terrain_b) of a result file. Files from before the
+    field existed played the one-class view."""
+    return (record.get("terrain_a") or "class", record.get("terrain_b") or "class")
+
+
+def terrain_refusal(name: str, record: dict, want: Tuple[str, str]) -> Optional[str]:
+    """The refusal to keep `record` in an outdir whose games play in
+    the `want` terrain views; None when they agree."""
+    got = terrain_views_of(record)
+    if got == tuple(want):
+        return None
+    return (f"{name} was played in terrain views (a={got[0]}, b={got[1]}) but this "
+            f"run plays (a={want[0]}, b={want[1]}): the view changes the hex tokens, "
+            f"refusing to mix. Use a fresh outdir.")
+
+
+_PEEK_FLAGS = (
     "import sys; from pathlib import Path; sys.path.insert(0, sys.argv[2]); "
     "from tools.eval_sim import peek_checkpoint_arch; "
-    "print('relset' if peek_checkpoint_arch(Path(sys.argv[1]), sys.argv[1])"
-    ".get('relevant_set_hexes') else 'full')")
+    "f = peek_checkpoint_arch(Path(sys.argv[1]), sys.argv[1]); "
+    "print(('relset' if f.get('relevant_set_hexes') else 'full') + ' ' "
+    "+ ('set' if f.get('terrain_multi_hot') else 'class'))")
+_FLAGS_MEMO: dict = {}
+
+
+def _checkpoint_flags(spec: str) -> Tuple[str, str]:
+    """(basis, terrain view) a checkpoint spec plays in on its own,
+    read ONCE per spec in a child interpreter so the driver stays
+    torch-free. 'random' is a fresh net: the full board, and the set
+    view every fresh network carries; 'dummy' has no encoder."""
+    if spec == "dummy":
+        return ("full", "class")
+    if spec == "random":
+        return ("full", "set")
+    if spec in _FLAGS_MEMO:
+        return _FLAGS_MEMO[spec]
+    proc = subprocess.run(
+        [sys.executable, "-c", _PEEK_FLAGS, spec, str(_THIS.parent.parent)],
+        capture_output=True, text=True, timeout=600)
+    lines = [ln.strip() for ln in proc.stdout.splitlines() if ln.strip()]
+    parts = lines[-1].split() if lines else []
+    if (proc.returncode != 0 or len(parts) != 2 or parts[0] not in BASES
+            or parts[1] not in TERRAIN_VIEWS):
+        raise SystemExit(f"could not read the hex basis and terrain view of {spec!r}: "
+                         f"{proc.stderr.strip()[-500:]}")
+    _FLAGS_MEMO[spec] = (parts[0], parts[1])
+    return _FLAGS_MEMO[spec]
 
 
 def _checkpoint_basis(spec: str) -> str:
     """The basis a checkpoint spec plays in on its own: 'relset' when it
-    carries relevant_set_hexes. Read in a child interpreter so the
-    driver stays torch-free; 'random' is a fresh full-board net."""
-    if spec in ("dummy", "random"):
-        return "full"
-    proc = subprocess.run(
-        [sys.executable, "-c", _PEEK_BASIS, spec, str(_THIS.parent.parent)],
-        capture_output=True, text=True, timeout=600)
-    lines = [ln.strip() for ln in proc.stdout.splitlines() if ln.strip()]
-    if proc.returncode != 0 or not lines or lines[-1] not in BASES:
-        raise SystemExit(f"could not read the hex basis of {spec!r}: "
-                         f"{proc.stderr.strip()[-500:]}")
-    return lines[-1]
+    carries relevant_set_hexes (see `_checkpoint_flags`)."""
+    return _checkpoint_flags(spec)[0]
+
+
+def _checkpoint_terrain(spec: str) -> str:
+    """The terrain view a checkpoint spec plays in on its own: 'set'
+    when it carries terrain_multi_hot (see `_checkpoint_flags`)."""
+    return _checkpoint_flags(spec)[1]
+
+
+def _want_terrains(args, terrain_of_spec) -> Tuple[str, str]:
+    """The terrain view each side of this batch plays in: 'dummy' has
+    no encoder; otherwise `terrain_of_spec(spec)` (the checkpoint's
+    flag, or the server's)."""
+    return tuple("class" if spec == "dummy" else terrain_of_spec(spec)
+                 for spec in (args.spec_a, args.spec_b))
 
 
 def _want_bases(args, basis_of_spec) -> Tuple[str, str]:
@@ -707,11 +765,10 @@ def main(argv: List[str]) -> int:
     # Hex-basis pre-scan (see BASES): per-process bases are read from
     # the checkpoints here; under shared inference the servers report
     # theirs once launched (below), and the scan repeats there.
-    want_bases = None
+    want_bases = want_terrains = None
     if not args.shared_inference:
-        _basis_memo: dict = {}
-        want_bases = _want_bases(
-            args, lambda spec: _basis_memo.setdefault(spec, _checkpoint_basis(spec)))
+        want_bases = _want_bases(args, _checkpoint_basis)
+        want_terrains = _want_terrains(args, _checkpoint_terrain)
     for f in sorted(args.outdir.glob("game_*.json")):
         try:
             prev = json.loads(f.read_text(encoding="utf-8"))
@@ -719,6 +776,9 @@ def main(argv: List[str]) -> int:
             continue
         if want_bases is not None:
             _why = basis_refusal(f.name, prev, want_bases)
+            if _why is not None:
+                raise SystemExit(_why)
+            _why = terrain_refusal(f.name, prev, want_terrains)
             if _why is not None:
                 raise SystemExit(_why)
         got = (prev.get("procedure_a"), prev.get("procedure_b"))
@@ -874,6 +934,9 @@ def main(argv: List[str]) -> int:
             want_bases = _want_bases(
                 args, lambda spec: ("relset" if servers[spec][0].info.get("relevant_set")
                                     else "full"))
+            want_terrains = _want_terrains(
+                args, lambda spec: ("set" if servers[spec][0].info.get("terrain_multi_hot")
+                                    else "class"))
             for f in sorted(args.outdir.glob("game_*.json")):
                 try:
                     prev = json.loads(f.read_text(encoding="utf-8"))
@@ -888,6 +951,9 @@ def main(argv: List[str]) -> int:
                             f"run {_want}: numerics differ, refusing to mix. "
                             f"Use a fresh outdir.")
                 _why = basis_refusal(f.name, prev, want_bases)
+                if _why is not None:
+                    raise SystemExit(_why)
+                _why = terrain_refusal(f.name, prev, want_terrains)
                 if _why is not None:
                     raise SystemExit(_why)
         except BaseException:
@@ -1033,8 +1099,10 @@ def main(argv: List[str]) -> int:
              "moves_left_utility": (
                  float(os.environ.get("ELO_MOVES_LEFT_UTILITY", "0") or 0)
                  if (sims_a > 0 or sims_b > 0) else None),
-             # The effective hex basis per side (see BASES).
-             "basis_a": want_bases[0], "basis_b": want_bases[1]}
+             # The effective hex basis and terrain view per side (see
+             # BASES, TERRAIN_VIEWS).
+             "basis_a": want_bases[0], "basis_b": want_bases[1],
+             "terrain_a": want_terrains[0], "terrain_b": want_terrains[1]}
     if args.plan_a or args.plan_b:
         from types import SimpleNamespace
         from tools.elo_eval_game import _pt_config

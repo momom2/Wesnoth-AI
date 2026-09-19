@@ -70,6 +70,8 @@ def worker_main(
     faction_to_id: Dict[str, int],
     log_level: int = logging.WARNING,
     relevant_set: bool = False,
+    fog_hides_enemy_villages: bool = False,
+    terrain_multi_hot: bool = False,
 ) -> None:
     """Worker entry point.
 
@@ -89,7 +91,9 @@ def worker_main(
     `relevant_set`: encode the relevant hex subset and build labels in
     the same basis (label builder and `encode_raw` each compute the
     subset; the encoder has no entry point that accepts a precomputed
-    one).
+    one). `fog_hides_enemy_villages` and `terrain_multi_hot` are the
+    trainer encoder's own switches: a worker must encode exactly what
+    the encoder would, else the pairs carry another observation.
     """
     # Re-bootstrap import paths for Windows spawn — fork would inherit.
     if str(_PROJECT_ROOT) not in sys.path:
@@ -121,6 +125,8 @@ def worker_main(
                     type_to_id=type_to_id,
                     faction_to_id=faction_to_id,
                     relevant_set=relevant_set,
+                    fog_hides_enemy_villages=fog_hides_enemy_villages,
+                    terrain_multi_hot=terrain_multi_hot,
                 )
                 pairs.append((raw, ai))
             # Single put() amortizes pickle cost across all pairs from

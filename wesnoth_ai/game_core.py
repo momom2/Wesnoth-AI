@@ -544,7 +544,8 @@ class CoreState:
         return _observation_from_dict(self.core.observe(int(side), bool(reach)), self.geometry())
 
     def encode_raw(self, *, type_to_id: Dict[str, int], faction_to_id: Dict[str, int],
-                   relevant_set: bool = False, fog_hides_enemy_villages: bool = False):
+                   relevant_set: bool = False, fog_hides_enemy_villages: bool = False,
+                   terrain_multi_hot: bool = False):
         """`encoder.encode_raw` over the core for the side to move: the
         same RawEncoded, byte for byte (tests/test_game_core.py)."""
         from wesnoth_ai import encoder as enc
@@ -557,6 +558,10 @@ class CoreState:
         our_fac = sides[us][5] if 0 <= us < len(sides) else ""
         them_fac = sides[them][5] if 0 <= them < len(sides) else ""
         own_recruits = list(sides[us][1]) if 0 <= us < len(sides) else []
+        if terrain_multi_hot:
+            raise NotImplementedError(
+                "GameCore serves the one-class terrain view; the core's map bakes "
+                "one terrain id per hex, not the mask a terrain_multi_hot encoder reads")
         r_ids, r_stats = self._recruit_rows(own_recruits, type_to_id)
         d = core.encode_streams(
             side, bool(relevant_set), self._type_vocab(type_to_id), r_ids, r_stats,

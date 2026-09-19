@@ -1088,19 +1088,13 @@ class MCTSPolicy:
             return {}
         if batch_size is None:
             batch_size = self._value_memory_batch
-        from wesnoth_ai.encoder import encode_raw
         enc = self._base._encoder
         rng = self._replay_rng
         raws, zs = [], []
         while len(raws) < batch_size:
             slot = rng.choice(games)
             e = rng.choice(slot)
-            raws.append(encode_raw(
-                e.game_state,
-                type_to_id=enc.unit_type_to_id,
-                faction_to_id=enc.faction_to_id,
-                relevant_set=bool(getattr(enc, "relevant_set_hexes",
-                                          False))))
+            raws.append(enc.raw_of(e.game_state))
             zs.append(float(e.z))
         # VALUE HEAD ONLY (2026-08-31: arm V K-collapsed in 4
         # iterations -- the full-unfreeze step_value_from_raw sent an

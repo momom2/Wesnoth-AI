@@ -110,7 +110,8 @@ def anchor_policy_step(trainer, pairs: List) -> Dict[str, float]:
 
 
 def load_policy_anchor(path: Path,
-                       fog_hides_enemy_villages: Optional[bool] = None) -> List[List]:
+                       fog_hides_enemy_villages: Optional[bool] = None,
+                       terrain_multi_hot: Optional[bool] = None) -> List[List]:
     """Load and validate a policy-anchor cache; returns the per-game
     pair lists (v2). A v1 (flat-pair) or foreign pickle fails loudly
     with the rebuild command -- silently rehearsing under the wrong
@@ -145,6 +146,15 @@ def load_policy_anchor(path: Path,
             f"{path}: encoded with fog_hides_enemy_villages={cache_gate}, the policy "
             f"has {bool(fog_hides_enemy_villages)}. Rebuild: python "
             f"tools/policy_anchor.py --out {path}{flag}")
+    # The terrain view, the same way (a cache without the key carries
+    # one class per hex).
+    cache_terrain = bool(meta.get("terrain_multi_hot", False))
+    if terrain_multi_hot is not None and cache_terrain != bool(terrain_multi_hot):
+        flag = " --terrain-multi-hot" if terrain_multi_hot else ""
+        raise ValueError(
+            f"{path}: encoded with terrain_multi_hot={cache_terrain}, the policy "
+            f"has {bool(terrain_multi_hot)}. Rebuild: python "
+            f"tools/policy_anchor.py --out {path}{flag}")
     return blob["games"]
 
 
@@ -171,7 +181,8 @@ def sample_pairs_game_normalized(games: List[List], k: int,
 def build_cache(dataset_dir: Path, out: Path, *, games: int,
                 stride: int, seed: int,
                 type_to_id: dict, faction_to_id: dict,
-                fog_hides_enemy_villages: bool = False) -> int:
+                fog_hides_enemy_villages: bool = False,
+                terrain_multi_hot: bool = False) -> int:
     """Sample winner-side (RawEncoded, ActionIndices) pairs from
     non-holdout imitation games into a pickled cache. Returns the
     number of pairs written."""
@@ -204,7 +215,8 @@ def build_cache(dataset_dir: Path, out: Path, *, games: int,
                     continue
                 raw = encode_raw(state, type_to_id=type_to_id,
                                  faction_to_id=faction_to_id,
-                                 fog_hides_enemy_villages=fog_hides_enemy_villages)
+                                 fog_hides_enemy_villages=fog_hides_enemy_villages,
+                                 terrain_multi_hot=terrain_multi_hot)
                 game.append((raw, ai))
         except Exception as e:                      # noqa: BLE001
             log.warning(f"skip {gz.name}: {e!r}")
@@ -223,7 +235,8 @@ def build_cache(dataset_dir: Path, out: Path, *, games: int,
                               "seed": seed, "winners_only": True,
                               "holdout_excluded": True,
                               "per_game_normalized": True,
-                              "fog_hides_enemy_villages": bool(fog_hides_enemy_villages)},
+                              "fog_hides_enemy_villages": bool(fog_hides_enemy_villages),
+                              "terrain_multi_hot": bool(terrain_multi_hot)},
                      "games": games_pairs},
                     f, protocol=pickle.HIGHEST_PROTOCOL)
     log.info(f"wrote {n_pairs} pairs across {len(games_pairs)} games "
@@ -248,6 +261,10 @@ def main(argv: List[str]) -> int:
                     help="Encode global feature 5 gated by fog, for a lineage whose "
                          "checkpoints carry fog_hides_enemy_villages (a fresh network "
                          "does); the consumer refuses a mismatch.")
+    ap.add_argument("--terrain-multi-hot", action="store_true",
+                    help="Encode each hex's terrain as its set (a lineage whose "
+                         "checkpoints carry terrain_multi_hot; a fresh network does); "
+                         "the consumer refuses a mismatch.")
     ap.add_argument("--log-level", default="INFO")
     args = ap.parse_args(argv[1:])
     logging.basicConfig(level=getattr(logging, args.log_level),
@@ -265,7 +282,8 @@ def main(argv: List[str]) -> int:
                     stride=args.stride, seed=args.seed,
                     type_to_id=enc.unit_type_to_id,
                     faction_to_id=enc.faction_to_id,
-                    fog_hides_enemy_villages=args.fog_hides_enemy_villages)
+                    fog_hides_enemy_villages=args.fog_hides_enemy_villages,
+                    terrain_multi_hot=args.terrain_multi_hot)
     return 0 if n > 0 else 1
 
 

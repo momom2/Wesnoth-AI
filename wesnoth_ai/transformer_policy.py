@@ -93,6 +93,7 @@ class TransformerPolicy:
         infer_compile: bool = False,
         value_material: bool = False,
         fog_hides_enemy_villages: bool = True,
+        terrain_multi_hot: bool = True,
     ):
         # Default device is CPU. DML runs work for rollout (single-sample
         # forwards are competitive with CPU once the MHA/TransformerEncoder
@@ -138,10 +139,15 @@ class TransformerPolicy:
         # setting, so the seed's lineage keeps the encoding it was
         # trained with (docs/data_contamination_20260908.md 3).
         self._fog_hides_enemy_villages = bool(fog_hides_enemy_villages)
+        # The hex's terrain as its full set (encoder.terrain_tokens): a
+        # fresh network reads it; a loaded checkpoint keeps its own
+        # setting (load_checkpoint), absent = the one-class view.
+        self._terrain_multi_hot = bool(terrain_multi_hot)
         self._encoder = GameStateEncoder(
             d_model=d_model,
             relevant_set_hexes=self._relevant_set_hexes,
-            fog_hides_enemy_villages=self._fog_hides_enemy_villages).to(self._device)
+            fog_hides_enemy_villages=self._fog_hides_enemy_villages,
+            terrain_multi_hot=self._terrain_multi_hot).to(self._device)
         self._model = WesnothModel(
             d_model=d_model,
             num_layers=num_layers,
@@ -182,7 +188,8 @@ class TransformerPolicy:
         self._inference_encoder = GameStateEncoder(
             d_model=d_model,
             relevant_set_hexes=self._relevant_set_hexes,
-            fog_hides_enemy_villages=self._fog_hides_enemy_villages).to(self._device)
+            fog_hides_enemy_villages=self._fog_hides_enemy_villages,
+            terrain_multi_hot=self._terrain_multi_hot).to(self._device)
         self._inference_model = WesnothModel(
             d_model=d_model,
             num_layers=num_layers,
@@ -715,6 +722,7 @@ class TransformerPolicy:
                 "gbc":             self._gbc,
                 "relevant_set_hexes": self._relevant_set_hexes,
                 "fog_hides_enemy_villages": self._fog_hides_enemy_villages,
+                "terrain_multi_hot": self._terrain_multi_hot,
                 # The sim's observation semantics at training time.
                 # Weights encode the distribution they were trained on,
                 # so a checkpoint from an earlier epoch is playing a
@@ -740,6 +748,14 @@ class TransformerPolicy:
                 pass
         os.replace(tmp, path)
         self._logger.info(f"Saved checkpoint to {path}")
+
+    def set_terrain_multi_hot(self, on: bool) -> None:
+        """Data flow, not weights (like the fog gate): the encoder's
+        hex stream carries terrain masks and the table is read as a
+        multi-hot. A checkpoint's setting wins on load."""
+        self._terrain_multi_hot = bool(on)
+        self._encoder.terrain_multi_hot = bool(on)
+        self._inference_encoder.terrain_multi_hot = bool(on)
 
     def set_fog_hides_enemy_villages(self, on: bool) -> None:
         """Both encoders read global feature 5 the same way."""
@@ -789,6 +805,9 @@ class TransformerPolicy:
         # the checkpoint's setting wins over the constructor's (a
         # checkpoint without the key was trained on the true count).
         self.set_fog_hides_enemy_villages(bool(ckpt.get("fog_hides_enemy_villages", False)))
+        # Same contract: a checkpoint without the key was trained on the
+        # one-class terrain view and keeps it.
+        self.set_terrain_multi_hot(bool(ckpt.get("terrain_multi_hot", False)))
         # A checkpoint's weights encode the observations the sim
         # produced while it trained. Loading one from an earlier epoch
         # is legitimate and necessary -- re-baselining a reference

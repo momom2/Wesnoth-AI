@@ -88,3 +88,69 @@ them), about 10 minutes; and the reference player against itself to
 has carried since 2026-09-12, now under per-game luck, the current
 hide-cover rule and that hash, 15-30 minutes. With both, about
 $0.60-1.00 and up to two box-hours.
+
+## Measured (2026-09-19, box 51591595: a 32-core slice of an EPYC 7B13 host with an RTX 4090, $0.75/h)
+
+The riders first: 59 Rust-path tests passed with the phase-10 wheel
+(1 skipped), `tools/diff_core.py` 600 of 600 corpus replays clean
+through the core after the process-independent unit hash.
+
+The screens, 40 games each (records under
+`training/metrics/bench_pipeline/endturn_rule_20260919/`):
+
+| arm | seed base | W-L (capped) | p over decisive | capped scored 0.5 | decisions per side-turn A / B | wall |
+|---|---|---|---|---|---|---|
+| `raw:t0+endm` | 41000 | 29-7 (4) | 0.806 +- 0.066 (36) | 0.775 | 8.07 / 5.59 (1.44x) | 41 s |
+| `raw:t0+eo-0.75` | 41100 | 22-8 (10) | 0.733 +- 0.081 (30) | 0.675 | 7.30 / 5.08 (1.44x) | 46 s |
+| `raw:t0+eo-1.5` | 41200 | 29-10 (1) | 0.744 +- 0.070 (39) | 0.738 | 9.27 / 6.20 (1.50x) | 36 s |
+
+Kill 1 passed: the rule fires at 1.44x the reference's decisions per
+side-turn, against a bar of 1.03x and a prediction of 1.10x. The
+capped fraction against `raw:t0` read 0.10 for the rule, against the
+reference's own self-match rate of 17 of 40 on 2026-09-13.
+
+The rule's match, seed base 42000, 875 games in 534 s:
+
+| arm | W-L (capped) | p over decisive | capped scored 0.5 | decisions per side-turn A / B |
+|---|---|---|---|---|
+| `raw:t0+endm` vs `raw:t0` | 602-198 (75) | 0.752 +- 0.015 (800) | 0.731 | 8.55 / 6.03 (1.42x) |
+
+**PASS.** p 0.752 against a bar of 0.535 and a prediction of 0.52
+(range 0.46-0.58): about +193 +- 14 Elo for a decode rule that trains
+nothing. The capped fraction, 0.09, is far below the reference's own
+self-match rate (about 0.4), so the barrier does not fire: the rule
+does not win by stalling, it wins by acting.
+
+The attribution arm, the best screened offset (-1.5), seed base 43000,
+863 games in 511 s:
+
+| arm | W-L (capped) | p over decisive | capped scored 0.5 | decisions per side-turn A / B |
+|---|---|---|---|---|
+| `raw:t0+eo-1.5` vs `raw:t0` | 631-169 (63) | 0.789 +- 0.014 (800) | 0.768 | 9.25 / 5.90 (1.57x) |
+
+The offset does not merely match the rule within 1 SE: it beats it by
+0.037 (2.5 SE), about +229 +- 15 Elo against the rule's +193. Under the
+pre-registered reading the lever is "act more", and the config
+scalar (`--raw-end-turn-offset`, a logit offset on end_turn) is the
+adopted form; the actor-level rule is not needed. Open, not
+pre-registered: the offset's best value (the screens read -0.75 at
+0.733 and -1.5 at 0.744 over 30-39 decisive; -1.5 at 800 reads 0.789,
+so the curve is still rising at -1.5) and whether the same offset
+helps a searched player.
+
+The reference's self-pin rider, `raw:t0` against itself, seed base
+44000, 1,300 games in 791 s (the 800-decisive target was not reached
+inside the 500 extra games: 519 of 1,300 capped, a capped fraction of
+0.40):
+
+| match | W-L (capped) | p over decisive | capped scored 0.5 | decisions per side-turn A / B |
+|---|---|---|---|---|
+| `raw:t0` vs `raw:t0` | 406-375 (519) | 0.520 +- 0.018 (781) | 0.512 | 4.83 / 4.82 (1.00x) |
+
+About +14 +- 13 Elo for side A, 1.1 SE from zero: no asymmetry
+detected, under per-game luck, the current hide-cover rule and the
+process-independent unit hash. This replaces the 160-game self-pin
+of 2026-09-12 (-57 +- 37, four replays of one seed set) as the
+reference's baseline. It also re-reads the reference's own capped
+rate: 0.40 here, against the 17 of 40 (0.42) the barrier used.
+

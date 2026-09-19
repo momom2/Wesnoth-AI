@@ -1710,6 +1710,52 @@ both pairs, a cost a campaign pays once at its end. Rental about $2.2,
 of which about $0.8 idle after the last arm: the watcher that should
 have caught the final upload had expired and was not re-armed.
 
+## The end_turn decode test (2026-09-19, instance 51591595, RTX 4090, a 30.7-core slice of an EPYC 7B13 host, 1 TB host RAM, $0.75/h)
+
+`scripts/endturn_rule_box.sh` under docs/endturn_rule_prereg_20260919.md:
+the reference player (`relset`) with end_turn decided at the actor
+level (`raw:t0+endm`) and with an end_turn logit offset
+(`raw:t0+eo<x>`), each against the plain `raw:t0` reference, PURE,
+sides alternated, the recommended eval path (20 persistent workers,
+one shared inference server, bf16 packed serving), decisive results
+bought to 800. Records under
+`training/metrics/bench_pipeline/endturn_rule_20260919/`.
+
+Bring-up: the fourth rental of the day that ran (two never made a
+container, one had no C linker and the script's failure path did not
+upload its marker; both fixed in the script and in memory). apt
+installed gcc, the phase-10 wheel built, and the riders ran first: the
+Rust-path test files 59 passed and 1 skipped with the wheel,
+`tools/diff_core.py` 600 of 600 corpus replays clean through the core
+after the process-independent unit hash (2026-09-18).
+
+| match | seed base | games (capped) | W-L | p over decisive | capped scored 0.5 | decisions per side-turn A / B | wall |
+|---|---|---|---|---|---|---|---|
+| screen `raw:t0+endm` | 41000 | 40 (4) | 29-7 | 0.806 +- 0.066 (36) | 0.775 | 8.07 / 5.59 (1.44x) | 41 s |
+| screen `raw:t0+eo-0.75` | 41100 | 40 (10) | 22-8 | 0.733 +- 0.081 (30) | 0.675 | 7.30 / 5.08 (1.44x) | 46 s |
+| screen `raw:t0+eo-1.5` | 41200 | 40 (1) | 29-10 | 0.744 +- 0.070 (39) | 0.738 | 9.27 / 6.20 (1.50x) | 36 s |
+| `raw:t0+endm` vs `raw:t0` | 42000 | 875 (75) | 602-198 | 0.752 +- 0.015 (800) | 0.731 | 8.55 / 6.03 (1.42x) | 534 s |
+| `raw:t0+eo-1.5` vs `raw:t0` | 43000 | 863 (63) | 631-169 | 0.789 +- 0.014 (800) | 0.768 | 9.25 / 5.90 (1.57x) | 511 s |
+
+Both pass the pre-registered bar (p >= 0.535): about +193 +- 14 Elo
+for the rule and +229 +- 15 for the offset, decode rules that train
+nothing. The capped fraction fell from the reference's own self-match
+rate (about 0.4) to 0.07-0.09, so neither wins by stalling. The
+offset beat the rule by 2.5 SE, so the pre-registered reading is "act
+more" and the config scalar is the adopted form. A 40-game screen
+here takes 36-46 s and an 800-decisive match about 9 minutes, the
+second box class of the 2026-09-13 range (42-74 s) rather than the
+single-tenant 24-25 s.
+
+Not measured, not pre-registered: the offset's best value (the
+curve still rises at -1.5) and its effect on a searched player.
+
+The self-pin rider, `raw:t0` against itself (seed base 44000): 1,300
+games in 791 s, 406-375 with 519 capped (0.40), p 0.520 +- 0.018 over
+781 decisive (the 500 extra games did not reach 800), about +14 +- 13
+Elo for side A, no asymmetry detected. The tight self-pin BACKLOG.md
+carried since 2026-09-12 is done; it replaces the 160-game figure.
+
 ## Hide cover after the root fix: the corpus sweep, and what it does NOT certify (2026-09-13, box 50882541, 28 cores)
 
 `scripts/hide_cover_cert_box.sh`. Cover for ambush / concealment /

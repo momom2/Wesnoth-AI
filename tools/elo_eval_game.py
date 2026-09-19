@@ -70,7 +70,7 @@ from tools.elo_ladder import _ScriptedAdapter
 from tools.eval_sim import (_PolicyPair, _load_policy,
                             _play_one_eval_game, peek_checkpoint_arch)
 from tools.inference_seam import RemoteEncoder
-from tools.run_elo_batch import basis_refusal
+from tools.run_elo_batch import basis_refusal, terrain_refusal
 from tools.scenario_pool import build_scenario_gamestate, random_setup
 from tools.wesnoth_sim import WesnothSim
 
@@ -196,6 +196,31 @@ def _policy_for(spec, device, label, infer_bf16, infer_compile,
     return policy
 
 
+_TERRAIN_CACHE: dict = {}
+
+
+def _effective_terrain(spec, inference_address) -> str:
+    """The terrain view this side's encoder plays in (run_elo_batch.
+    TERRAIN_VIEWS): 'set' when the checkpoint carries terrain_multi_hot
+    or the shared inference server's hello says so, else 'class'; a
+    fresh net ('random') is 'set', 'dummy' has no encoder. Recorded as
+    terrain_a/terrain_b and guarded per outdir like the basis."""
+    if spec == "dummy":
+        return "class"
+    if inference_address is not None:
+        return ("set" if _shared_client(inference_address).hello.get("terrain_multi_hot")
+                else "class")
+    if spec in (None, "random"):
+        return "set"
+    view = _TERRAIN_CACHE.get(spec) if _WORKER_MODE else None
+    if view is None:
+        view = ("set" if peek_checkpoint_arch(Path(spec), spec).get("terrain_multi_hot")
+                else "class")
+        if _WORKER_MODE:
+            _TERRAIN_CACHE[spec] = view
+    return view
+
+
 def _effective_basis(spec, relevant_set: bool, inference_address) -> str:
     """The hex basis this side's encoder plays in (run_elo_batch.BASES):
     'relset' when the CLI flag, the checkpoint's relevant_set_hexes or
@@ -280,7 +305,8 @@ def _remote_player(address: str, raw_temperature: float, raw_seed,
         h["type_to_id"], h["faction_to_id"], device=torch.device("cpu"),
         relevant_set=bool(h["relevant_set"]) or bool(relevant_set),
         server_priors=True,
-        fog_hides_enemy_villages=bool(h.get("fog_hides_enemy_villages", False)))
+        fog_hides_enemy_villages=bool(h.get("fog_hides_enemy_villages", False)),
+        terrain_multi_hot=bool(h.get("terrain_multi_hot", False)))
     base = SimpleNamespace(_inference_model=counter, _inference_encoder=encoder,
                            _lock=threading.Lock(), _decision_step=0)
     return RawPolicyPlayer(base, raw_temperature, seed=raw_seed,
@@ -675,6 +701,8 @@ def main(argv) -> int:
                                args.inference_address_a)
     basis_b = _effective_basis(args.spec_b, args.relevant_set_b,
                                args.inference_address_b)
+    terrain_a = _effective_terrain(args.spec_a, args.inference_address_a)
+    terrain_b = _effective_terrain(args.spec_b, args.inference_address_b)
 
     torch.set_num_threads(2)
     if shared:
@@ -834,6 +862,9 @@ def main(argv) -> int:
             _why = basis_refusal(out_path.name, prev, (basis_a, basis_b))
             if _why is not None:
                 raise SystemExit(_why)
+            _why = terrain_refusal(out_path.name, prev, (terrain_a, terrain_b))
+            if _why is not None:
+                raise SystemExit(_why)
             if (got_a, got_b, got_mt) != (want_a, want_b,
                                           args.max_turns):
                 raise SystemExit(
@@ -962,6 +993,10 @@ def main(argv) -> int:
         # run_elo_batch.BASES): an estimand field, guarded per outdir.
         "basis_a": basis_a,
         "basis_b": basis_b,
+        # The EFFECTIVE terrain view per side (checkpoint or server;
+        # run_elo_batch.TERRAIN_VIEWS): an estimand field, guarded per outdir.
+        "terrain_a": terrain_a,
+        "terrain_b": terrain_b,
         "gumbel_root_a": (bool(args.gumbel_root_a) if sims_a > 0 and not args.plan_a
                           and (args.no_turn_search or args.no_turn_search_a) else None),
         "gumbel_root_b": (bool(args.gumbel_root_b) if sims_b > 0 and not args.plan_b

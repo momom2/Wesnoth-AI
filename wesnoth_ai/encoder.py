@@ -423,9 +423,18 @@ class GameStateEncoder(nn.Module):
         faction_to_id: Optional[Dict[str, int]] = None,
         relevant_set_hexes: bool = False,
         fog_hides_enemy_villages: bool = False,
+        terrain_multi_hot: bool = False,
     ):
         super().__init__()
         self.d_model = d_model
+        # The hex's terrain as its full SET from the engine's aliases
+        # (Hex.terrain_mask), embedded as a multi-hot over the same
+        # table, instead of one class picked by enum ordinal (which
+        # read a forested plain as plain on 86% of the Ladder pool's
+        # forest hexes). Rides the checkpoint like the fog gate: on for
+        # a fresh network, a checkpoint's own setting on load, so the
+        # reference player's lineage keeps its observations.
+        self.terrain_multi_hot = bool(terrain_multi_hot)
         # Opt-in relevant-hex stream (see encode_raw). Default OFF: this
         # changes the ACTION SPACE's index basis, so a checkpoint or replay
         # buffer built under one setting is meaningless under the other.
@@ -456,6 +465,10 @@ class GameStateEncoder(nn.Module):
 
         # --- hex embeddings -------------------------------------------
         self.terrain_embed  = nn.Embedding(NUM_TERRAINS, d_model)
+        # Bit positions for the multi-hot read of a terrain mask; not a
+        # parameter, not in the state_dict.
+        self.register_buffer("_terrain_bits", torch.arange(NUM_TERRAINS, dtype=torch.int64),
+                             persistent=False)
         self.modifier_proj  = nn.Linear(NUM_HEX_MODIFIERS, d_model, bias=False)
         # Dynamic flags (e.g. recruit_rejected) live in their own
         # projection -- old checkpoints lacking this Linear initialize
@@ -500,14 +513,36 @@ class GameStateEncoder(nn.Module):
         is the call self-play and tests use.
         """
         self.register_names(game_state)
-        raw = encode_raw(
+        return self.encode_from_raw(self.raw_of(game_state))
+
+    def raw_of(self, game_state: GameState, *, type_to_id=None, faction_to_id=None) -> RawEncoded:
+        """`encode_raw` under THIS encoder's switches (the hex basis,
+        the fog gate, the terrain view): the one way to build a raw
+        that `encode_from_raw` reads as `encode` would. Every caller
+        that holds an encoder and a GameState goes through here; a
+        bare `encode_raw` call with a subset of the switches encodes
+        another observation (2026-09-19: the trainer built its raws
+        with the basis alone, so a fresh network trained on one-class
+        terrain tokens and played on the set). The vocab defaults to
+        the encoder's own; the trainer passes its frozen snapshot."""
+        return encode_raw(
             game_state,
-            type_to_id=self.unit_type_to_id,
-            faction_to_id=self.faction_to_id,
+            type_to_id=self.unit_type_to_id if type_to_id is None else type_to_id,
+            faction_to_id=self.faction_to_id if faction_to_id is None else faction_to_id,
             relevant_set=self.relevant_set_hexes,
             fog_hides_enemy_villages=self.fog_hides_enemy_villages,
+            terrain_multi_hot=self.terrain_multi_hot,
         )
-        return self.encode_from_raw(raw)
+
+    def terrain_tokens(self, hex_terrain: torch.Tensor) -> torch.Tensor:
+        """The terrain term of the hex tokens: under `terrain_multi_hot`
+        `hex_terrain` holds masks and the term is the sum of the table's
+        rows for the set bits (a multi-hot against the table); else it
+        holds one class id per hex and the term is that row."""
+        if not self.terrain_multi_hot:
+            return self.terrain_embed(hex_terrain)
+        bits = ((hex_terrain.unsqueeze(-1) >> self._terrain_bits) & 1)
+        return bits.to(self.terrain_embed.weight.dtype) @ self.terrain_embed.weight
 
     def freeze_vocab(self) -> None:
         """Lock `unit_type_to_id` / `faction_to_id` so future
@@ -722,7 +757,7 @@ class GameStateEncoder(nn.Module):
             hex_tokens = (
                 self.pos_x_embed(hx)
                 + self.pos_y_embed(hy)
-                + self.terrain_embed(ht)
+                + self.terrain_tokens(ht)
                 + self.modifier_proj(hm)
                 + self.dynamic_flag_proj(hd)
             ).unsqueeze(0)  # [1, H, d]
@@ -854,7 +889,7 @@ class GameStateEncoder(nn.Module):
         """One hex token per row. The sum order here is the one every
         batched path shares, so their embeddings are the same tensor."""
         return (self.pos_x_embed(xs) + self.pos_y_embed(ys)
-                + self.terrain_embed(terrain_ids) + self.modifier_proj(modifier_flags)
+                + self.terrain_tokens(terrain_ids) + self.modifier_proj(modifier_flags)
                 + self.dynamic_flag_proj(dynamic_flags))
 
     def _unit_embedding(self, type_ids, side_ids, xs, ys, feats):
@@ -1148,8 +1183,11 @@ def encode_raw(
     faction_to_id: Dict[str, int],
     relevant_set: bool = False,
     fog_hides_enemy_villages: bool = False,
+    terrain_multi_hot: bool = False,
 ) -> RawEncoded:
     """Build a `RawEncoded` from a GameState using read-only vocab.
+    `terrain_multi_hot`: the hex stream carries each hex's terrain
+    mask (Hex.terrain_mask) instead of its one class id.
 
     Self-contained: no torch, no nn modules, no GPU. The result is
     picklable, so workers can call this and ship results back to the
@@ -1378,7 +1416,8 @@ def encode_raw(
         hex_positions=hex_positions,
         hex_xs=static.xs if H else np.empty(0, dtype=np.int64),
         hex_ys=static.ys if H else np.empty(0, dtype=np.int64),
-        hex_terrain_ids=static.terrain_ids if H else np.empty(0, dtype=np.int64),
+        hex_terrain_ids=((static.terrain_masks if terrain_multi_hot else static.terrain_ids)
+                         if H else np.empty(0, dtype=np.int64)),
         hex_modifier_flags=hex_modifier_flags_np,
         hex_dynamic_flags=hex_dynamic_flags_np,
         unit_positions=unit_positions,
@@ -1640,7 +1679,9 @@ def _python_global_feats(turn_number, current_side, our_gold, our_income,
 class _StaticHexArrays:
     xs: np.ndarray
     ys: np.ndarray
-    terrain_ids: np.ndarray
+    terrain_ids: np.ndarray          # one class per hex (the legacy view)
+    terrain_masks: np.ndarray        # the hex's terrain set as a bitmask; a hex
+                                     # with no resolved set carries its class bit
     modifier_flags: np.ndarray       # [H, NUM_HEX_MODIFIERS]; column 0 (owned
                                      # village) is left 0 and set per encode
     village_idx: List[int]           # hex indices carrying the village terrain
@@ -1665,6 +1706,7 @@ def _build_static_hex_arrays(hexes, hex_set=None) -> _StaticHexArrays:
     xs = np.empty(H, dtype=np.int64)
     ys = np.empty(H, dtype=np.int64)
     tids = np.empty(H, dtype=np.int64)
+    tmasks = np.empty(H, dtype=np.int64)
     mods_np = np.zeros((H, NUM_HEX_MODIFIERS), dtype=np.float32)
     village_idx: List[int] = []
     village_flags = np.zeros(H, dtype=bool)
@@ -1686,6 +1728,8 @@ def _build_static_hex_arrays(hexes, hex_set=None) -> _StaticHexArrays:
             tids[i] = terrain_castle.value
         else:
             tids[i] = next(iter(tt)).value
+        mask = int(getattr(h, "terrain_mask", 0) or 0)
+        tmasks[i] = mask if mask else (1 << int(tids[i]))
         mods = h.modifiers
         if TerrainModifiers.VILLAGE in mods:
             village_idx.append(i)
@@ -1695,7 +1739,7 @@ def _build_static_hex_arrays(hexes, hex_set=None) -> _StaticHexArrays:
         if TerrainModifiers.CASTLE in mods:
             mods_np[i, 2] = 1.0
     return _StaticHexArrays(
-        xs=xs, ys=ys, terrain_ids=tids, modifier_flags=mods_np,
+        xs=xs, ys=ys, terrain_ids=tids, terrain_masks=tmasks, modifier_flags=mods_np,
         village_idx=village_idx, village_flags=village_flags, keys=keys,
         pos_index={k: i for i, k in enumerate(keys)},
         hex_set=hex_set, n_hexes=H,
@@ -1709,6 +1753,7 @@ def _subset_static(full: _StaticHexArrays, idx: np.ndarray) -> _StaticHexArrays:
     keys = [full.keys[i] for i in idx.tolist()]
     return _StaticHexArrays(
         xs=full.xs[idx], ys=full.ys[idx], terrain_ids=full.terrain_ids[idx],
+        terrain_masks=full.terrain_masks[idx],
         modifier_flags=full.modifier_flags[idx],
         village_idx=np.flatnonzero(full.village_flags[idx]).tolist(),
         village_flags=full.village_flags[idx], keys=keys,

@@ -606,6 +606,7 @@ def main(argv: List[str]) -> int:
         "graphed": graphed is not None,
         "relevant_set": bool(getattr(encoder, "relevant_set_hexes", False)),
         "fog_hides_enemy_villages": bool(getattr(encoder, "fog_hides_enemy_villages", False)),
+        "terrain_multi_hot": bool(getattr(encoder, "terrain_multi_hot", False)),
         "type_to_id": dict(encoder.unit_type_to_id),
         "faction_to_id": dict(encoder.faction_to_id),
     }

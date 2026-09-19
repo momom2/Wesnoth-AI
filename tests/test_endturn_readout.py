@@ -59,6 +59,18 @@ def test_verdict_applies_the_bars(tmp_path):
     assert "PASS (p 0.550)" in text
     assert "within 1 SE, the lever is act more" in text
     assert "barrier" in text and "clear" in text
+    # An offset that BEATS the rule reads as "act more" too (2026-09-19:
+    # -1.5 read 0.789 against the rule's 0.752); only one well below
+    # the rule leaves something rule-specific.
+    _write(tmp_path / "games_eo-1.5", ["win"] * 500 + ["loss"] * 300, pa="raw:t0+eo-1.5")
+    _write(tmp_path / "games_eo-0.25", ["win"] * 380 + ["loss"] * 420, pa="raw:t0+eo-0.25")
+    text = verdict([read_dir(tmp_path / n) for n in ("games_screen_endm", "games_endm",
+                                                       "games_eo-1.5", "games_eo-0.25")],
+                   fire=1.03, pass_p=0.535)
+    assert "games_eo-1.5: p 0.625 against the rule's 0.550: above the rule by" in text
+    assert "the lever is act more; the config scalar is the adopted form" in text
+    assert "games_eo-0.25: p 0.475 against the rule's 0.550: below the rule by" in text
+    assert "rule-specific" in text
 
 
 def test_mixed_procedures_are_refused(tmp_path):

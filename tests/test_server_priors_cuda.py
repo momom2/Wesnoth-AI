@@ -79,7 +79,7 @@ def test_cuda_seam_matches_reference_enumeration():
     with torch.no_grad():
         ref = [enumerate_legal_actions_with_priors(e, model(e), gs)
                for e, gs in zip(encs, states)]
-        renc = RemoteEncoder(enc.unit_type_to_id, enc.faction_to_id, server_priors=True)
+        renc = RemoteEncoder(enc.unit_type_to_id, enc.faction_to_id, terrain_multi_hot=enc.terrain_multi_hot, server_priors=True)
         rmodel = RemoteModel(InferenceServer(model_cuda, enc_cuda))
         lencs = [renc.encode(gs) for gs in states]
         outs = rmodel.forward_batch(lencs)
@@ -117,7 +117,7 @@ def test_no_host_sync_between_staging_copy_and_final_transfer():
 def test_gpu_timing_hook_reports_device_time():
     from tools.inference_seam import InferenceServer, RemoteEncoder
     enc, _, enc_cuda, model_cuda, states, _, _ = _setup()
-    renc = RemoteEncoder(enc.unit_type_to_id, enc.faction_to_id, server_priors=True)
+    renc = RemoteEncoder(enc.unit_type_to_id, enc.faction_to_id, terrain_multi_hot=enc.terrain_multi_hot, server_priors=True)
     items = [(le._raw, le._masks) for le in (renc.encode(gs) for gs in states)]
     server = InferenceServer(model_cuda, enc_cuda)
     st = {"gpu_ms": 0.0}

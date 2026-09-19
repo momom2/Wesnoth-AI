@@ -19,7 +19,7 @@ from tests.test_server_priors import _policy, _same, _states  # noqa: E402
 def _pairs(policy, states):
     from tools.inference_seam import RemoteEncoder
     enc = policy._inference_encoder
-    renc = RemoteEncoder(enc.unit_type_to_id, enc.faction_to_id,
+    renc = RemoteEncoder(enc.unit_type_to_id, enc.faction_to_id, terrain_multi_hot=enc.terrain_multi_hot,
                          fog_hides_enemy_villages=enc.fog_hides_enemy_villages, server_priors=True)
     lencs = [renc.encode(gs) for gs in states]
     return lencs, [(le._raw, le._masks) for le in lencs]

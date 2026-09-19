@@ -1,0 +1,10 @@
+games_endm: raw:t0+endm vs raw:t0: 875 games, W-L-D-capped 602-198-0-75, p 0.752 +- 0.015 over 800 decisive, capped scored 0.5: 0.731, capped fraction 0.09; decisions per side-turn A 8.55 B 6.03 (1.418x)
+games_eo-1.5: raw:t0+eo-1.5 vs raw:t0: 863 games, W-L-D-capped 631-169-0-63, p 0.789 +- 0.014 over 800 decisive, capped scored 0.5: 0.768, capped fraction 0.07; decisions per side-turn A 9.25 B 5.90 (1.568x)
+games_screen_endm: raw:t0+endm vs raw:t0: 40 games, W-L-D-capped 29-7-0-4, p 0.806 +- 0.066 over 36 decisive, capped scored 0.5: 0.775, capped fraction 0.10; decisions per side-turn A 8.07 B 5.59 (1.442x)
+games_screen_eo075: raw:t0+eo-0.75 vs raw:t0: 40 games, W-L-D-capped 22-8-0-10, p 0.733 +- 0.081 over 30 decisive, capped scored 0.5: 0.675, capped fraction 0.25; decisions per side-turn A 7.30 B 5.08 (1.436x)
+games_screen_eo150: raw:t0+eo-1.5 vs raw:t0: 40 games, W-L-D-capped 29-10-0-1, p 0.744 +- 0.070 over 39 decisive, capped scored 0.5: 0.738, capped fraction 0.03; decisions per side-turn A 9.27 B 6.20 (1.495x)
+games_selfpin: raw:t0 vs raw:t0: 1300 games, W-L-D-capped 406-375-0-519, p 0.520 +- 0.018 over 781 decisive, capped scored 0.5: 0.512, capped fraction 0.40; decisions per side-turn A 4.83 B 4.82 (1.002x)
+kill 1 (screen fire >= 1.03x): pass (1.442x)
+pass (p >= 0.535 at 800 decisive): PASS (p 0.752)
+barrier (capped fraction 0.09 against the self-match null 0.42, 2 SE 0.03): clear
+attribution games_eo-1.5: p 0.789 against the rule's 0.752: differs, rule-specific

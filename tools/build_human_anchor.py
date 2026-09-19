@@ -30,7 +30,7 @@ import random
 import sys
 from multiprocessing import Pool
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -40,12 +40,13 @@ log = logging.getLogger("build_human_anchor")
 _G = {}
 
 
-def _init(dataset_dir, t2i, f2i, stride, fog_hides_enemy_villages=False):
+def _init(dataset_dir, t2i, f2i, stride, fog_hides_enemy_villages=False, terrain_multi_hot=False):
     _G["dir"] = Path(dataset_dir)
     _G["t2i"] = t2i
     _G["f2i"] = f2i
     _G["stride"] = stride
     _G["fhv"] = bool(fog_hides_enemy_villages)
+    _G["tmh"] = bool(terrain_multi_hot)
 
 
 def _one(row):
@@ -55,6 +56,7 @@ def _one(row):
             _G["dir"] / row["file"], row["winner"],
             type_to_id=_G["t2i"], faction_to_id=_G["f2i"],
             stride=_G["stride"], fog_hides_enemy_villages=_G["fhv"],
+            terrain_multi_hot=_G["tmh"],
             rng=random.Random(row["game_id"].__hash__() & 0xFFFF))
     except Exception as e:                      # noqa: BLE001
         log.debug(f"skip {row['file']}: {e}")
@@ -74,6 +76,15 @@ def anchor_gate(anchor: Path) -> bool:
     return bool(json.loads(meta.read_text(encoding="utf-8")).get("fog_hides_enemy_villages"))
 
 
+def anchor_terrain(anchor: Path) -> bool:
+    """The terrain view the anchor was encoded in (no sidecar or no
+    key: one class per hex, every anchor before 2026-09-19)."""
+    meta = anchor_meta_path(anchor)
+    if not meta.exists():
+        return False
+    return bool(json.loads(meta.read_text(encoding="utf-8")).get("terrain_multi_hot"))
+
+
 def anchor_epoch(anchor: Path) -> int:
     """The observation epoch the anchor was encoded under (no sidecar
     or no key: epoch 1, before the mark existed)."""
@@ -83,7 +94,8 @@ def anchor_epoch(anchor: Path) -> int:
     return int(json.loads(meta.read_text(encoding="utf-8")).get("observation_epoch", 1))
 
 
-def check_anchor_gate(anchor: Path, policy_gate: bool) -> None:
+def check_anchor_gate(anchor: Path, policy_gate: bool,
+                      policy_terrain: Optional[bool] = None) -> None:
     """A cache encoded under the other gate feeds the head a feature
     it never trained on, and one encoded under another observation
     epoch feeds it a world the sim no longer produces
@@ -102,6 +114,13 @@ def check_anchor_gate(anchor: Path, policy_gate: bool) -> None:
             f"{anchor}: encoded with fog_hides_enemy_villages={anchor_gate(anchor)}, "
             f"the policy has {bool(policy_gate)}. Rebuild: python "
             f"tools/build_human_anchor.py --out {anchor}{flag}")
+    if policy_terrain is not None and anchor_terrain(anchor) != bool(policy_terrain):
+        flag = (" --fog-hides-enemy-villages" if policy_gate else "") + \
+               (" --terrain-multi-hot" if policy_terrain else "")
+        raise ValueError(
+            f"{anchor}: encoded with terrain_multi_hot={anchor_terrain(anchor)}, "
+            f"the policy has {bool(policy_terrain)}. Rebuild: python "
+            f"tools/build_human_anchor.py --out {anchor}{flag}")
 
 
 def main(argv: List[str]) -> int:
@@ -118,6 +137,10 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--stride", type=int, default=8)
     ap.add_argument("--workers", type=int, default=16)
     ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--terrain-multi-hot", action="store_true",
+                    help="Encode each hex's terrain as its set, for a lineage whose "
+                         "checkpoints carry terrain_multi_hot (a fresh network does); "
+                         "the consumer refuses a mismatch.")
     ap.add_argument("--fog-hides-enemy-villages", action="store_true",
                     help="Encode global feature 5 gated by fog, for a lineage whose "
                          "checkpoints carry fog_hides_enemy_villages (a fresh network "
@@ -152,7 +175,7 @@ def main(argv: List[str]) -> int:
     out: List = []
     with Pool(args.workers, initializer=_init,
               initargs=(args.dataset_dir, t2i, f2i, args.stride,
-                        args.fog_hides_enemy_villages)) as p:
+                        args.fog_hides_enemy_villages, args.terrain_multi_hot)) as p:
         for i, recs in enumerate(p.imap_unordered(_one, rows, 8), 1):
             out.extend(recs)
             if i % 250 == 0:
@@ -164,6 +187,7 @@ def main(argv: List[str]) -> int:
     from wesnoth_ai.constants import OBSERVATION_EPOCH
     anchor_meta_path(args.out).write_text(json.dumps({
         "fog_hides_enemy_villages": bool(args.fog_hides_enemy_villages),
+        "terrain_multi_hot": bool(args.terrain_multi_hot),
         "observation_epoch": int(OBSERVATION_EPOCH),
         "games": len(rows), "stride": args.stride, "pairs": len(out)}), encoding="utf-8")
     zpos = sum(1 for _, z, _ in out if z > 0)

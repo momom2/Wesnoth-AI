@@ -1,0 +1,6 @@
+screen_endm seed_base=41000 games=40 --raw-end-turn-a actor 41 s 40 games
+screen_eo075 seed_base=41100 games=40 --raw-end-turn-offset-a -0.75 46 s 40 games
+screen_eo150 seed_base=41200 games=40 --raw-end-turn-offset-a -1.5 36 s 40 games
+endm seed_base=42000 games=800 --raw-end-turn-a actor 534 s 875 games
+eo-1.5 seed_base=43000 games=800 --raw-end-turn-offset-a -1.5 511 s 863 games
+selfpin seed_base=44000 games=800  791 s 1300 games

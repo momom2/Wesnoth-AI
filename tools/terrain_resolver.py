@@ -99,6 +99,87 @@ def load_terrain_db() -> Dict[str, dict]:
 
 
 # ---------------------------------------------------------------------
+# The terrain classes a hex belongs to, from the engine's own aliases
+# ---------------------------------------------------------------------
+
+# Every abstract terrain the pinned 1.18.4 scrape aliases a code to
+# (the closed set over terrain_db.json's aliasof / mvt_alias /
+# def_alias lists, 17 letters), mapped onto the encoder's Terrain
+# classes. Wesnoth defines a hex's movement and defense by these
+# aliases (a ford is Gt AND Wst, a forested hill Ht AND Ft), so they
+# are the hex's terrain SET, and what the encoder should carry. Three
+# abstracts have no class of their own in the 14-member enum and take
+# the nearest: reef (Wrt) shallow water, rails (Rt) flat, fungus (Tt)
+# cave. `_bas` names the base under an overlay, `+`/`-` are the
+# best-of / worst-of markers; neither is a class.
+ALIAS_TO_TERRAIN_NAME = {
+    "Gt": "FLAT", "Rt": "FLAT", "Ht": "HILLS", "Mt": "MOUNTAINS", "Ft": "FOREST",
+    "Wst": "SHALLOWWATER", "Wrt": "SHALLOWWATER", "Wdt": "DEEPWATER", "St": "SWAMP",
+    "Dt": "SAND", "At": "FROZEN", "Ut": "CAVE", "Tt": "CAVE", "Xt": "IMPASSABLE",
+    "Qt": "UNWALKABLE", "Vt": "VILLAGE", "Ct": "CASTLE",
+}
+_ALIAS_MARKERS = {MARKER_PLUS, MARKER_MINUS, MARKER_BASE}
+# Terminal terrains no movetype prices (`_off^_usr` off-map and `^_fme`
+# the fake map edge, data/core/terrain.cfg): the engine's cost lookup
+# misses and falls back to UNREACHABLE for every unit, so their class
+# is impassable although no alias says so.
+_IMPASSABLE_TERMINAL_IDS = {"off_map", "off_map2"}
+_WARNED_TERRAIN_CODES: set = set()
+
+
+def _alias_lists(code: str, db: Dict[str, dict]) -> List[List[str]]:
+    """The movement and defense alias lists the engine gives `code`:
+    a code terrain.cfg defines outright (`Mm^Xm`, aliasof=-,Mt,Xt) is
+    found before any base/overlay merge, as the engine's terrain map
+    finds it; anything else merges as `_get_underlying` does."""
+    entry = db.get(code)
+    if entry is not None:
+        return [list(entry["mvt_type"]), list(entry["def_type"])]
+    return [_get_underlying(code, kind, db) for kind in ("mvt_type", "def_type")]
+
+
+def terrain_members(code: str):
+    """The Terrain classes of one hex code (a set), from the movement
+    and defense aliases the terrain database resolves it to, overlays
+    merged the way the engine merges them. A code the database does
+    not know (or an alias outside ALIAS_TO_TERRAIN_NAME) is logged
+    once and contributes nothing: a hex with no member is visible to
+    the encoder as a fallback, never as a silent default."""
+    from wesnoth_ai.classes import Terrain
+    code = strip_start_position(code or "")
+    if not code:
+        return set()
+    db = load_terrain_db()
+    aliases = set()
+    for lst in _alias_lists(code, db):
+        for a in lst:
+            if a not in _ALIAS_MARKERS:
+                aliases.add(a)
+    members = set()
+    for a in aliases:
+        name = ALIAS_TO_TERRAIN_NAME.get(a)
+        if name is None and (db.get(a) or {}).get("id") in _IMPASSABLE_TERMINAL_IDS:
+            name = "IMPASSABLE"
+        if name is None:
+            if code not in _WARNED_TERRAIN_CODES:
+                _WARNED_TERRAIN_CODES.add(code)
+                log.warning("terrain code %r resolves to %r, outside the terrain classes; "
+                            "the hex carries no class for it", code, a)
+            continue
+        members.add(Terrain[name])
+    return members
+
+
+def terrain_mask(code: str) -> int:
+    """`terrain_members` as a bitmask over Terrain values (bit v set
+    for member v), the form the encoder's hex stream carries."""
+    mask = 0
+    for t in terrain_members(code):
+        mask |= 1 << int(t.value)
+    return mask
+
+
+# ---------------------------------------------------------------------
 # Composite alias merge
 # ---------------------------------------------------------------------
 

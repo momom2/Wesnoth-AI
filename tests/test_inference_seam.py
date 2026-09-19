@@ -56,7 +56,7 @@ def _seam(pol):
     for sim in _states():
         enc.register_names(sim.gs)
     server = InferenceServer(mdl, enc, output_device=torch.device("cpu"))
-    renc = RemoteEncoder(enc.unit_type_to_id, enc.faction_to_id,
+    renc = RemoteEncoder(enc.unit_type_to_id, enc.faction_to_id, terrain_multi_hot=enc.terrain_multi_hot,
                          fog_hides_enemy_villages=enc.fog_hides_enemy_villages,
                          device=torch.device("cpu"))
     rmodel = RemoteModel(server)
@@ -244,7 +244,7 @@ def test_light_state_carries_the_hex_basis():
     gs = _states(1)[0].gs
     full = renc.encode(gs)
     assert full.hex_subset is False and full._raw.hex_subset is False
-    subset = RemoteEncoder(enc.unit_type_to_id, enc.faction_to_id,
+    subset = RemoteEncoder(enc.unit_type_to_id, enc.faction_to_id, terrain_multi_hot=enc.terrain_multi_hot,
                          fog_hides_enemy_villages=enc.fog_hides_enemy_villages,
                            device=torch.device("cpu"), relevant_set=True).encode(gs)
     assert subset.hex_subset is True and subset._raw.hex_subset is True

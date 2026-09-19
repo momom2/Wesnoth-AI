@@ -191,10 +191,10 @@ def vocab(states):
     return type_to_id, faction_to_id
 
 
-def _encode_both(gs, vocab, relevant_set):
+def _encode_both(gs, vocab, relevant_set, terrain_multi_hot=False):
     type_to_id, faction_to_id = vocab
     kw = dict(type_to_id=type_to_id, faction_to_id=faction_to_id,
-              relevant_set=relevant_set)
+              relevant_set=relevant_set, terrain_multi_hot=terrain_multi_hot)
     rust = encode_raw(gs, **kw)
     saved = pf._RUST
     pf._RUST = None
@@ -220,10 +220,12 @@ def _assert_identical(py: RawEncoded, rust: RawEncoded, label: str):
 
 
 @pytest.mark.parametrize("relevant_set", [False, True])
-def test_arrays_byte_identical(states, vocab, relevant_set):
+@pytest.mark.parametrize("terrain_multi_hot", [False, True])
+def test_arrays_byte_identical(states, vocab, relevant_set, terrain_multi_hot):
     for k, gs in enumerate(states):
-        py, rust = _encode_both(gs, vocab, relevant_set)
-        _assert_identical(py, rust, f"state {k} relevant_set={relevant_set}")
+        py, rust = _encode_both(gs, vocab, relevant_set, terrain_multi_hot)
+        _assert_identical(py, rust, f"state {k} relevant_set={relevant_set} "
+                                    f"terrain_multi_hot={terrain_multi_hot}")
 
 
 def test_harvest_exercises_every_branch(states, vocab):

@@ -1,0 +1,1 @@
+games_screen_endm: raw:t0+endm vs raw:t0: 40 games, W-L-D-capped 29-7-0-4, p 0.806 +- 0.066 over 36 decisive, capped scored 0.5: 0.775, capped fraction 0.10; decisions per side-turn A 8.07 B 5.59 (1.442x)

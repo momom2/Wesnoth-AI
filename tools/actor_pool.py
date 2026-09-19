@@ -455,6 +455,11 @@ class ActorPool:
             getattr(self._anneal_base(), "_inference_encoder", None),
             "fog_hides_enemy_villages", False))
 
+    def _terrain_multi_hot(self) -> bool:
+        return bool(getattr(
+            getattr(self._anneal_base(), "_inference_encoder", None),
+            "terrain_multi_hot", False))
+
     def _relevant_set(self) -> bool:
         return bool(getattr(
             getattr(self._anneal_base(), "_inference_encoder", None),
@@ -689,7 +694,8 @@ class ActorPool:
         renc = RemoteEncoder(t2i, f2i, device=torch.device("cpu"),
                              relevant_set=self._relevant_set(),
                              server_priors=bool(self.server_priors),
-                             fog_hides_enemy_villages=self._fog_hides_enemy_villages())
+                             fog_hides_enemy_villages=self._fog_hides_enemy_villages(),
+                             terrain_multi_hot=self._terrain_multi_hot())
         payload = [RemoteModel._payload(renc.encode(gs)) for gs in game_states]
         outs = [self._server.infer_batch(payload)]
         for cq in self._server_ctrl_qs:
@@ -778,7 +784,8 @@ class ActorPool:
         return (_CMD_PLAY, iter_idx, games_per_iter, base_seed, t2i, f2i,
                 self._global_decision_step(), self._relevant_set(),
                 float(self.value_center), bool(self.server_priors),
-                self._server_of(aid), self._fog_hides_enemy_villages(), bool(stream))
+                self._server_of(aid), self._fog_hides_enemy_villages(), bool(stream),
+                self._terrain_multi_hot())
 
     # -- serving: the threads behind one iteration or one stream ------
 

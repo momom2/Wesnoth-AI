@@ -51,7 +51,8 @@ MANIFEST_NAME = "preencoded_manifest.json"
 
 
 def vocab_fingerprint(type_to_id: Dict[str, int], faction_to_id: Dict[str, int],
-                      relevant_set: bool, fog_hides_enemy_villages: bool = False) -> str:
+                      relevant_set: bool, fog_hides_enemy_villages: bool = False,
+                      terrain_multi_hot: bool = False) -> str:
     """One string for everything the encoding depends on: the unit and
     faction vocabs, the hex basis, the fog gate of global feature 5,
     and the sim's observation epoch.
@@ -67,6 +68,8 @@ def vocab_fingerprint(type_to_id: Dict[str, int], faction_to_id: Dict[str, int],
     h.update(b"|relset=%d" % int(bool(relevant_set)))
     if fog_hides_enemy_villages:
         h.update(b"|fhv=1")
+    if terrain_multi_hot:
+        h.update(b"|tmh=1")
     h.update(b"|obs=%d" % int(OBSERVATION_EPOCH))
     return h.hexdigest()
 
@@ -95,7 +98,8 @@ def read_record(path: Path) -> List:
 
 
 def encode_game(gz_path: Path, type_to_id: Dict[str, int], faction_to_id: Dict[str, int],
-                relevant_set: bool, fog_hides_enemy_villages: bool = False) -> List:
+                relevant_set: bool, fog_hides_enemy_villages: bool = False,
+                terrain_multi_hot: bool = False) -> List:
     """The encode worker's per-file work (tools/encode_worker.py)."""
     from tools.replay_dataset import iter_replay_pairs
     from wesnoth_ai.encoder import encode_raw
@@ -103,17 +107,20 @@ def encode_game(gz_path: Path, type_to_id: Dict[str, int], faction_to_id: Dict[s
     for state, ai in iter_replay_pairs(gz_path, relevant_set=relevant_set):
         pairs.append((encode_raw(state, type_to_id=type_to_id, faction_to_id=faction_to_id,
                                  relevant_set=relevant_set,
-                                 fog_hides_enemy_villages=fog_hides_enemy_villages), ai))
+                                 fog_hides_enemy_villages=fog_hides_enemy_villages,
+                                 terrain_multi_hot=terrain_multi_hot), ai))
     return pairs
 
 
 _W: Dict = {}
 
 
-def _worker_init(type_to_id, faction_to_id, relevant_set, out_dir, fog_hides_enemy_villages=False):
+def _worker_init(type_to_id, faction_to_id, relevant_set, out_dir, fog_hides_enemy_villages=False,
+                 terrain_multi_hot=False):
     _W.update(type_to_id=type_to_id, faction_to_id=faction_to_id,
               relevant_set=relevant_set, out_dir=Path(out_dir),
-              fog_hides_enemy_villages=fog_hides_enemy_villages)
+              fog_hides_enemy_villages=fog_hides_enemy_villages,
+              terrain_multi_hot=terrain_multi_hot)
 
 
 def _worker_encode(gz_path_str: str):
@@ -123,7 +130,7 @@ def _worker_encode(gz_path_str: str):
         return gz_path.name, None, "exists"
     try:
         pairs = encode_game(gz_path, _W["type_to_id"], _W["faction_to_id"], _W["relevant_set"],
-                            _W["fog_hides_enemy_villages"])
+                            _W["fog_hides_enemy_villages"], _W["terrain_multi_hot"])
     except Exception as e:  # noqa: BLE001 - one bad game must not stop the pass
         return gz_path.name, None, f"error: {type(e).__name__}: {e}"[:200]
     write_record(dst, pairs)
@@ -163,6 +170,9 @@ def main(argv=None) -> int:
     ap.add_argument("--fog-hides-enemy-villages", action="store_true",
                     help="Encode global feature 5 under fog as the visible enemy "
                          "villages (the trainer's --fog-hides-enemy-villages).")
+    ap.add_argument("--terrain-multi-hot", action="store_true",
+                    help="Each hex carries its terrain set as a mask (the trainer's "
+                         "--terrain-multi-hot).")
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 2))
     ap.add_argument("--limit", type=int, default=None, help="first N manifest games")
     ap.add_argument("--log-level", default="INFO")
@@ -171,7 +181,7 @@ def main(argv=None) -> int:
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
     type_to_id, faction_to_id = vocab_from_checkpoint(args.vocab_from)
     fp = vocab_fingerprint(type_to_id, faction_to_id, args.relevant_set_hexes,
-                           args.fog_hides_enemy_villages)
+                           args.fog_hides_enemy_villages, args.terrain_multi_hot)
     args.out.mkdir(parents=True, exist_ok=True)
     existing = load_manifest(args.out)
     if existing and existing.get("fingerprint") != fp:
@@ -192,6 +202,7 @@ def main(argv=None) -> int:
             "observation_epoch": int(OBSERVATION_EPOCH),
             "relevant_set_hexes": bool(args.relevant_set_hexes),
             "fog_hides_enemy_villages": bool(args.fog_hides_enemy_villages),
+            "terrain_multi_hot": bool(args.terrain_multi_hot),
             "dataset": str(args.dataset), "n_files": len(counts),
             "n_pairs": int(sum(counts.values())), "pairs_per_file": counts,
             "errors": errors, "unit_types": len(type_to_id), "factions": len(faction_to_id),
@@ -203,7 +214,7 @@ def main(argv=None) -> int:
     with mp.get_context("spawn").Pool(
             args.workers, initializer=_worker_init,
             initargs=(type_to_id, faction_to_id, args.relevant_set_hexes, str(args.out),
-                      args.fog_hides_enemy_villages)) as pool:
+                      args.fog_hides_enemy_villages, args.terrain_multi_hot)) as pool:
         for i, (name, n, status) in enumerate(pool.imap_unordered(_worker_encode, files,
                                                                     chunksize=4), 1):
             if status == "ok":

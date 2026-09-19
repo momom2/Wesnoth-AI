@@ -61,15 +61,24 @@ with tarfile.open(p, "r:gz") as tf:
 print("code staged")
 PY
 cd /workspace/Wesnoth-AI
-command -v cc >/dev/null 2>&1 || (apt-get update -qq && apt-get install -y -qq gcc) >/dev/null 2>&1 || true
+# A C linker for cargo: apt first, conda-forge's compiler when the host
+# has no apt (2026-09-19: a box built nothing for want of `cc` and the
+# failure was silent), and the build log says which one it got.
+if ! command -v cc >/dev/null 2>&1; then
+    (apt-get update -qq && apt-get install -y -qq gcc) > "$OUT/cc_install.log" 2>&1 \
+        || { conda install -y -q -c conda-forge c-compiler >> "$OUT/cc_install.log" 2>&1 \
+             && ln -sf "$(ls /opt/conda/bin/x86_64-conda-linux-gnu-cc 2>/dev/null | head -1)" /usr/local/bin/cc; } \
+        || true
+fi
+{ echo "cc: $(command -v cc || echo none)"; cc --version 2>&1 | head -1; } > "$OUT/build.log"
 command -v cargo >/dev/null 2>&1 || curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal >/dev/null 2>&1
 export PATH="$HOME/.cargo/bin:$PATH"
 python -m pip install -q maturin >/dev/null 2>&1
 touch rust/wesnoth_core/src/*.rs
-python -m pip install --force-reinstall --no-deps rust/wesnoth_core > "$OUT/build.log" 2>&1
+python -m pip install --force-reinstall --no-deps rust/wesnoth_core >> "$OUT/build.log" 2>&1
 python -c "import wesnoth_core; p = wesnoth_core.__phase__; print('wheel phase', p); \
 assert p >= 10, f'wheel is phase {p}; the source declares 10'" | tee -a "$OUT/build.log" \
-    || { echo BUILD_FAILED | tee -a "$OUT/build.log"; upload; touch "$OUT/ALL_DONE"; exit 1; }
+    || { echo BUILD_FAILED | tee -a "$OUT/build.log"; touch "$OUT/ALL_DONE"; upload; exit 1; }
 { echo "cores(all) $(nproc --all)"; grep -m1 "model name" /proc/cpuinfo;
   echo "cpu.max $(cat /sys/fs/cgroup/cpu.max 2>/dev/null || echo n/a)";
   nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader;

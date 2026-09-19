@@ -54,7 +54,6 @@ def build_cache(policy, rows, dataset_dir: Path, stride: int,
     return {feats [N,d], z [N], game_idx [N]} on CPU."""
     import torch
     from tools.value_pretrain import _load_worker
-    from wesnoth_ai.encoder import encode_raw
 
     model = policy._trainer.model
     encoder = policy._trainer.encoder
@@ -76,15 +75,7 @@ def build_cache(policy, rows, dataset_dir: Path, stride: int,
         with torch.no_grad():
             for e in pend_states:
                 encoder.register_names(e.game_state)
-            raws = [encode_raw(e.game_state,
-                               type_to_id=encoder.unit_type_to_id,
-                               faction_to_id=encoder.faction_to_id,
-                               relevant_set=getattr(
-                                   encoder, "relevant_set_hexes",
-                                   False),
-                               fog_hides_enemy_villages=getattr(
-                                   encoder, "fog_hides_enemy_villages", False))
-                    for e in pend_states]
+            raws = [encoder.raw_of(e.game_state) for e in pend_states]
             encoded = encoder.encode_from_raw_batch(raws)
             feats_buf.clear()
             model.forward_batch(encoded)

@@ -145,7 +145,7 @@ def test_actor_rule_on_the_compact_arrays_matches_the_list_path():
     policy = TransformerPolicy(d_model=32, num_layers=1, num_heads=2, d_ff=64,
                                device=torch.device("cpu"))
     enc, model = policy._inference_encoder, policy._inference_model
-    renc = RemoteEncoder(enc.unit_type_to_id, enc.faction_to_id,
+    renc = RemoteEncoder(enc.unit_type_to_id, enc.faction_to_id, terrain_multi_hot=enc.terrain_multi_hot,
                          fog_hides_enemy_villages=enc.fog_hides_enemy_villages,
                          server_priors=True)
     rmodel = RemoteModel(InferenceServer(model, enc))

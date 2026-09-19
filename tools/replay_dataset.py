@@ -41,7 +41,7 @@ from wesnoth_ai.classes import (
 from wesnoth_ai import combat as cb
 # The one place that knows how a map cell's starting-position prefix is
 # stripped (the engine's string_to_number_); never re-implement it here.
-from tools.terrain_resolver import strip_start_position
+from tools.terrain_resolver import strip_start_position, terrain_mask
 
 
 log = logging.getLogger("replay_dataset")
@@ -428,6 +428,7 @@ def parse_map_data(map_data: str) -> List[Hex]:
                                   y=y_with_border - border),
                 terrain_types=terr,
                 modifiers=mods,
+                terrain_mask=terrain_mask(cell),
             ))
     return out
 

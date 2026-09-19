@@ -50,7 +50,7 @@ from wesnoth_ai.action_sampler import (
 )
 from wesnoth_ai.classes import GameState
 from wesnoth_ai.device import dml_sync
-from wesnoth_ai.encoder import RawEncoded, encode_raw
+from wesnoth_ai.encoder import RawEncoded
 from wesnoth_ai.model import UnitActionType
 from wesnoth_ai.packed_trunk import FlatLayout
 from wesnoth_ai.server_priors import (
@@ -606,12 +606,8 @@ class Trainer:
             type_to_id    = self.encoder.unit_type_to_id
             faction_to_id = self.encoder.faction_to_id
             raw_cache = [
-                encode_raw(t.game_state,
-                           type_to_id=type_to_id,
-                           faction_to_id=faction_to_id,
-                           relevant_set=getattr(self.encoder,
-                                                "relevant_set_hexes",
-                                                False))
+                self.encoder.raw_of(t.game_state, type_to_id=type_to_id,
+                                    faction_to_id=faction_to_id)
                 for t in flat
             ]
 
@@ -1662,11 +1658,8 @@ def _trainer_step_mcts(
         type_to_id    = self.encoder.unit_type_to_id
         faction_to_id = self.encoder.faction_to_id
         raw_cache = [
-            encode_raw(e.game_state,
-                       type_to_id=type_to_id,
-                       faction_to_id=faction_to_id,
-                       relevant_set=getattr(self.encoder,
-                                            "relevant_set_hexes", False))
+            self.encoder.raw_of(e.game_state, type_to_id=type_to_id,
+                                faction_to_id=faction_to_id)
             for e in experiences
         ]
     # Each experience's weight on the policy loss (see
@@ -2099,12 +2092,8 @@ def _trainer_eval_value_metrics(
         for start in range(0, N, B):
             chunk = experiences[start:start + B]
             raw_chunk = [
-                encode_raw(e.game_state,
-                           type_to_id=type_to_id,
-                           faction_to_id=faction_to_id,
-                           relevant_set=getattr(self.encoder,
-                                                "relevant_set_hexes",
-                                                False))
+                self.encoder.raw_of(e.game_state, type_to_id=type_to_id,
+                                    faction_to_id=faction_to_id)
                 for e in chunk
             ]
             encoded_chunk = self.encoder.encode_from_raw_batch(raw_chunk)

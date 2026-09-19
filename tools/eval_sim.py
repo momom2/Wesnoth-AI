@@ -248,7 +248,7 @@ def _play_one_eval_game(
 # evaluates a different model than the one that trained.
 CHECKPOINT_STRUCT_FLAGS = ("aux_score", "moves_left",
                            "relevant_set_hexes", "gbc", "value_material",
-                           "fog_hides_enemy_villages")
+                           "fog_hides_enemy_villages", "terrain_multi_hot")
 
 
 def peek_checkpoint_arch(

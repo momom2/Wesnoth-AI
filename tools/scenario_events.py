@@ -520,8 +520,9 @@ def _terrain_action(gs: GameState, action: WMLNode) -> None:
     # bookkeeping and to update Hex.terrain_types/modifiers on the
     # parsed grid (so combat defense queries see the change).
     from tools.replay_dataset import _parse_hex_code
-    from tools.terrain_resolver import split_start_position
+    from tools.terrain_resolver import split_start_position, terrain_mask
     new_terr, new_mods = _parse_hex_code(new_code)
+    new_mask = terrain_mask(new_code)
 
     # NOTE: `_terrain_codes` stores the FULL code including any
     # overlay, matching the map-load path (parse_terrain_codes). The
@@ -573,6 +574,7 @@ def _terrain_action(gs: GameState, action: WMLNode) -> None:
             position=Position(x=py_x, y=py_y),
             terrain_types=set(new_terr),
             modifiers=set(new_mods),
+            terrain_mask=new_mask,
         ))
 
         # Mirror the change into the per-game terrain-code dict that

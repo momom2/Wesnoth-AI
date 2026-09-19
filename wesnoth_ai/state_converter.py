@@ -13,6 +13,14 @@ from wesnoth_ai.classes import (
     TerrainModifiers, AttackSpecial
 )
 
+def _terrain_mask(code: str) -> int:
+    """The hex's terrain set from the engine's aliases (the same source
+    as the sim's map parse); imported late because tools/ imports this
+    package."""
+    from tools.terrain_resolver import terrain_mask
+    return terrain_mask(code)
+
+
 class StateConverter:
     """Converts the Lua-emitted JSON state payload to GameState objects."""
 
@@ -286,7 +294,8 @@ class StateConverter:
         return Hex(
             position=position,
             terrain_types=terrain_types,
-            modifiers=modifiers
+            modifiers=modifiers,
+            terrain_mask=_terrain_mask(terrain_code),
         )
 
     def _hex_with_village(self, hex_data: Dict, owned_set: Set) -> Hex:
@@ -315,6 +324,7 @@ class StateConverter:
             position=Position(x=w_x - 1, y=w_y - 1),
             terrain_types=terrain_types,
             modifiers=modifiers,
+            terrain_mask=_terrain_mask(terrain_code),
         )
 
     def forget_game(self, game_id: str) -> None:

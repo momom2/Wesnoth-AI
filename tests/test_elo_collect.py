@@ -82,6 +82,7 @@ def test_dir_estimands_reports_every_travelling_field():
     from tools.elo_collect import dir_estimands
     est = dir_estimands([_result(), _result(seed=10_001, side_a=2)])
     assert est == {"basis_a": "relset", "basis_b": "relset",
+                   "terrain_a": "class", "terrain_b": "class",
                    "mcts_batch": 1, "infer_bf16": True,
                    "infer_compile": False, "shared_inference": True,
                    "infer_packed_trunk": True,

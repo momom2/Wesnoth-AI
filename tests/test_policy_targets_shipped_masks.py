@@ -29,7 +29,6 @@ from tools.bench_train_step import (  # noqa: E402
 )
 from tools.inference_seam import build_light_encoded  # noqa: E402
 from wesnoth_ai import trainer as trainer_module  # noqa: E402
-from wesnoth_ai.encoder import encode_raw  # noqa: E402
 from wesnoth_ai.server_priors import pack_masks  # noqa: E402
 from wesnoth_ai.trainer import MCTSExperience  # noqa: E402
 from wesnoth_ai.transformer_policy import TransformerPolicy  # noqa: E402
@@ -41,8 +40,7 @@ def _packed(policy, game_state):
     """The masks as the actor packs them: from the RawEncoded of the
     same vocabulary, on a light EncodedState."""
     enc = policy._trainer.encoder
-    raw = encode_raw(game_state, type_to_id=enc.unit_type_to_id,
-                     faction_to_id=enc.faction_to_id)
+    raw = enc.raw_of(game_state)       # the actor's RemoteEncoder carries the same switches
     return pack_masks(build_light_encoded(raw, torch.device("cpu")), game_state)
 
 

@@ -74,8 +74,12 @@ State of play:
   the game records stayed on the box). The +- 37 overstates what was
   measured: the 160 games are four arms replaying ONE set of 40 seeds
   on the pre-2026-09-13 shared luck stream, so the arms are not
-  independent draws. A self-pin worth quoting is the 800-game one
-  under per-game luck and the current hide-cover rule.
+  independent draws. **The tight self-pin ran 2026-09-19** (a rider
+  of the end_turn box, per-game luck, the current hide-cover rule,
+  the process-independent unit hash): 1,300 games, 406-375 with 519
+  capped, p 0.520 +- 0.018 over 781 decisive, about +14 +- 13 Elo
+  for side A, no asymmetry detected
+  (docs/endturn_rule_prereg_20260919.md "Measured").
   Before it the reference was seed2 (+33 +- 12 over the original
   imitation seed), before that the seed itself
   (`tier-b/a3/seed_imit_tierb_start.pt`). Nothing produced by
@@ -428,6 +432,30 @@ State of play:
   no game was reproducible across processes; the estimands and the
   standard errors are untouched (each game was still one draw), and
   no Elo needs re-measuring.
+- 2026-09-19 (autonomous window): **the hex's terrain is its full set
+  from the engine's aliases, behind a checkpoint flag.** The encoder's
+  one-class view labelled 1,356 of the Ladder pool's 1,572 forest-
+  overlay hexes as something other than forest; `Hex.terrain_mask`
+  now carries each hex's terrain SET (`terrain_resolver.terrain_members`,
+  from the database's movement and defense aliases) and
+  `terrain_multi_hot` (on for a fresh network, absent for every
+  earlier checkpoint, so `relset` observes exactly what it did) embeds
+  it as a multi-hot over the terrain table. It travels with the fog
+  gate everywhere (pre-encoder fingerprint, struct flags, hello, PLAY
+  tuple) and eval records carry `terrain_a/terrain_b` as an estimand
+  next to the basis. The arm (the reference's recipe with the flag,
+  one pass, 800 decisive against `relset`) is pre-registered in
+  docs/terrain_multi_hot_prereg_20260919.md. The same day the panel's
+  test 1 (end_turn at the actor level, docs/endturn_rule_prereg_20260919.md)
+  ran on a box and **PASSED: p 0.752 +- 0.015 over 800 decisive games
+  (602-198), about +193 Elo for a decode rule that trains nothing**,
+  1.42x the decisions per side-turn and a capped fraction of 0.09
+  against the reference's own 0.4; **the attribution arm, a plain
+  end_turn logit offset of -1.5, beat it: p 0.789 +- 0.014, about
+  +229 Elo**, so the lever is "act more" and the config scalar is the
+  adopted form. Whether `raw:t0+eo-1.5` (or a larger offset) becomes
+  the reference decode is the user's ruling (BACKLOG.md
+  "Training-signal panel").
 - No box is rented (2026-09-18, after the continuous-generation run).
   Phase 2
   is next: docs/plan_20260904.md 5, whose first measurement is the

@@ -114,7 +114,7 @@ def test_server_stats_untouched_on_cpu():
     from tools.inference_seam import InferenceServer, RemoteEncoder
     policy, _, _, states = _batch()
     enc, model = policy._inference_encoder, policy._inference_model
-    renc = RemoteEncoder(enc.unit_type_to_id, enc.faction_to_id, server_priors=True)
+    renc = RemoteEncoder(enc.unit_type_to_id, enc.faction_to_id, terrain_multi_hot=enc.terrain_multi_hot, server_priors=True)
     le = renc.encode(states[0])
     st = {"gpu_ms": 0.0}
     outs = InferenceServer(model, enc).infer_batch([(le._raw, le._masks)], stats=st)

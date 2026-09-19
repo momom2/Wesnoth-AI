@@ -77,7 +77,9 @@ def encode_states(policy, states, relevant_set: bool) -> list:
         for gs, _ in states:
             enc.register_names(gs)
             raw = encode_raw(gs, type_to_id=enc.unit_type_to_id,
-                             faction_to_id=enc.faction_to_id, relevant_set=relevant_set)
+                             faction_to_id=enc.faction_to_id, relevant_set=relevant_set,
+                             fog_hides_enemy_villages=bool(getattr(enc, "fog_hides_enemy_villages", False)),
+                             terrain_multi_hot=bool(getattr(enc, "terrain_multi_hot", False)))
             out.append(enc.encode_from_raw(raw))
     return out
 

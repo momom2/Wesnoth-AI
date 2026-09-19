@@ -48,7 +48,7 @@ import torch.nn.functional as F
 # Project imports — assume cwd is the repo root.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from wesnoth_ai.encoder import GameStateEncoder, RawEncoded, encode_raw
+from wesnoth_ai.encoder import GameStateEncoder, RawEncoded
 from wesnoth_ai.constants import OBSERVATION_EPOCH
 from wesnoth_ai.model import WesnothModel
 from wesnoth_ai.imitation_loss import build_imitation_targets, imitation_loss_parts
@@ -120,6 +120,7 @@ def _save_checkpoint(
     carry: Optional[Dict] = None,
     relevant_set_hexes: bool = False,
     training_meta: Optional[Dict] = None,
+    terrain_multi_hot: bool = False,
 ) -> None:
     """Atomic-ish checkpoint write: save to .tmp then rename.
 
@@ -157,6 +158,9 @@ def _save_checkpoint(
             "d_model": 128, "num_layers": 3,
             "num_heads": 4, "d_ff": 256},
         "relevant_set_hexes": bool(relevant_set_hexes),
+        # The hex terrain view (encoder.terrain_tokens), read back by
+        # the policy loader and the eval entry points like the basis.
+        "terrain_multi_hot": bool(terrain_multi_hot),
         "training_meta":   dict(training_meta or {}),
         "model_state":     model.state_dict(),
         "encoder_state":   encoder.state_dict(),
@@ -308,7 +312,8 @@ def check_preencoded(preencoded_dir: Path, files: List[Path], encoder,
     types = {k: v for k, v in encoder.unit_type_to_id.items() if v < n_types}
     factions = {k: v for k, v in encoder.faction_to_id.items() if v < n_factions}
     fp = vocab_fingerprint(types, factions, relevant_set,
-                           bool(getattr(encoder, "fog_hides_enemy_villages", False)))
+                           bool(getattr(encoder, "fog_hides_enemy_villages", False)),
+                           bool(getattr(encoder, "terrain_multi_hot", False)))
     if man.get("fingerprint") != fp:
         raise RuntimeError(f"--preencoded {preencoded_dir} was encoded with another vocab or "
                            f"hex basis ({man.get('fingerprint')}; this run {fp}); "
@@ -378,6 +383,8 @@ class _ParallelStream:
         faction_to_id,
         prefetch_factor: int,
         relevant_set: bool = False,
+        fog_hides_enemy_villages: bool = False,
+        terrain_multi_hot: bool = False,
     ):
         self._files = list(files)
         self._workers_n = workers
@@ -407,7 +414,9 @@ class _ParallelStream:
                 target=_encode_worker_main,
                 args=(self._in_q, self._out_q,
                       dict(type_to_id), dict(faction_to_id)),
-                kwargs={"relevant_set": relevant_set},
+                kwargs={"relevant_set": relevant_set,
+                        "fog_hides_enemy_villages": fog_hides_enemy_villages,
+                        "terrain_multi_hot": terrain_multi_hot},
                 daemon=True,
             )
             p.start()
@@ -618,6 +627,8 @@ def _pair_stream_parallel(
     max_pairs_per_replay: int = 0,  # currently unused in parallel mode;
                                     # added for API symmetry.
     relevant_set: bool = False,
+    fog_hides_enemy_villages: bool = False,
+    terrain_multi_hot: bool = False,
 ):
     """Multi-process pair stream — encode_raw runs in worker processes."""
     return _ParallelStream(
@@ -627,6 +638,8 @@ def _pair_stream_parallel(
         faction_to_id=faction_to_id,
         prefetch_factor=prefetch_factor,
         relevant_set=relevant_set,
+        fog_hides_enemy_villages=fog_hides_enemy_villages,
+        terrain_multi_hot=terrain_multi_hot,
     )
 
 
@@ -650,11 +663,7 @@ def _raw_one(encoder: GameStateEncoder, state_or_raw) -> RawEncoded:
     if isinstance(state_or_raw, RawEncoded):
         return state_or_raw
     encoder.register_names(state_or_raw)
-    return encode_raw(state_or_raw,
-                      type_to_id=encoder.unit_type_to_id,
-                      faction_to_id=encoder.faction_to_id,
-                      relevant_set=encoder.relevant_set_hexes,
-                      fog_hides_enemy_villages=encoder.fog_hides_enemy_villages)
+    return encoder.raw_of(state_or_raw)
 
 
 @dataclass
@@ -1486,6 +1495,10 @@ def train(
     tf32: bool = False,                 # fp32 matmuls on the tensor cores (a recipe change: opt-in)
     fused_adamw: bool = False,          # the fused optimizer step (another one: opt-in)
     fog_hides_enemy_villages: "bool | None" = None,  # global feature 5 under fog
+    terrain_multi_hot: "bool | None" = None,
+        # the hex's terrain as its full set from the engine's aliases
+        # (encoder.terrain_tokens); None = on for a fresh network, a
+        # checkpoint's own setting on a warm start. Rides the checkpoint.
         # drop value_head.* from the --resume state (and skip the
         # optimizer-state restore): warm trunk+policy, fresh value.
         # Imitation A/B 2026-08-08 verdict -- see the resume block.
@@ -1603,6 +1616,18 @@ def train(
         # key was trained on the true count).
         if fog_hides_enemy_villages is None:
             fog_hides_enemy_villages = bool(ckpt.get("fog_hides_enemy_villages", False))
+        # The terrain view, the same way; switching it under a warm
+        # start re-reads every hex token, so it is logged, and an
+        # eval-only run never measures a checkpoint in another view.
+        ckpt_terrain = bool(ckpt.get("terrain_multi_hot", False))
+        if terrain_multi_hot is None:
+            terrain_multi_hot = ckpt_terrain
+        elif bool(terrain_multi_hot) != ckpt_terrain:
+            msg = (f"terrain view switch: {ckpt_src.name} has "
+                   f"terrain_multi_hot={ckpt_terrain}, this run {bool(terrain_multi_hot)}")
+            if eval_only:
+                raise RuntimeError(msg + " (pass the checkpoint's view for --eval-only)")
+            log.warning(f"  {msg}: warm start across terrain views")
         for k in ("decision_step", "aux_score", "moves_left"):
             if k in ckpt:
                 carry[k] = ckpt[k]
@@ -1614,12 +1639,16 @@ def train(
 
     if fog_hides_enemy_villages is None:
         fog_hides_enemy_villages = True      # a fresh network never reads the hidden count
+    if terrain_multi_hot is None:
+        terrain_multi_hot = True             # a fresh network reads the full terrain set
     encoder = GameStateEncoder(
         d_model=d_model, relevant_set_hexes=relevant_set_hexes,
-        fog_hides_enemy_villages=bool(fog_hides_enemy_villages)).to(device)
+        fog_hides_enemy_villages=bool(fog_hides_enemy_villages),
+        terrain_multi_hot=bool(terrain_multi_hot)).to(device)
     carry["fog_hides_enemy_villages"] = bool(fog_hides_enemy_villages)
     if fog_hides_enemy_villages:
         log.info("Global feature 5 under fog: the enemy villages the mover can see")
+    log.info(f"Hex terrain: {'the full set from the engine aliases (multi-hot)' if terrain_multi_hot else 'one class per hex'}")
     model   = WesnothModel(d_model=d_model, num_layers=num_layers,
                            num_heads=num_heads, d_ff=d_ff,
                            aux_score=aux_flag,
@@ -1641,7 +1670,8 @@ def train(
     }
     save_kwargs = dict(arch=arch_record, carry=carry,
                        relevant_set_hexes=relevant_set_hexes,
-                       training_meta=training_meta)
+                       training_meta=training_meta,
+                       terrain_multi_hot=bool(terrain_multi_hot))
 
     from wesnoth_ai.train_perf import adamw, reassert_step_kernel
     opt = adamw(list(model.parameters()) + list(encoder.parameters()),
@@ -2064,6 +2094,8 @@ def train(
                 prefetch_factor=prefetch_factor,
                 max_pairs_per_replay=max_pairs_per_replay,
                 relevant_set=relevant_set_hexes,
+                fog_hides_enemy_villages=bool(encoder.fog_hides_enemy_villages),
+                terrain_multi_hot=bool(encoder.terrain_multi_hot),
             )
         else:
             stream = _pair_stream_serial(
@@ -2561,6 +2593,14 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--no-fog-hides-enemy-villages", action="store_false",
                     dest="fog_hides_enemy_villages",
                     help="Feed the true enemy village count (the pre-2026-09-08 encoding).")
+    ap.add_argument("--terrain-multi-hot", action="store_true", default=None,
+                    help="Each hex carries its full terrain set from the engine's "
+                         "aliases (a forested hill is HILLS and FOREST), embedded as "
+                         "a multi-hot over the terrain table. Default: on for a fresh "
+                         "network, a checkpoint's own setting on a warm start; rides "
+                         "the checkpoint. --eval-only must match the checkpoint.")
+    ap.add_argument("--no-terrain-multi-hot", action="store_false", dest="terrain_multi_hot",
+                    help="One terrain class per hex (the pre-2026-09-19 encoding).")
     ap.add_argument("--tf32", action="store_true",
                     help="Run this run's fp32 matmuls on the tensor cores (TF32). A "
                          "recipe change (10-bit matmul inputs; the holdout probe runs "
@@ -2661,6 +2701,7 @@ def main(argv: List[str]) -> int:
         tf32=args.tf32,
         fused_adamw=args.fused_adamw,
         fog_hides_enemy_villages=args.fog_hides_enemy_villages,
+        terrain_multi_hot=args.terrain_multi_hot,
         imitation_config=args.imitation_config,
         type_loss_weights=type_loss_weights,
         relevant_set_hexes=args.relevant_set_hexes,

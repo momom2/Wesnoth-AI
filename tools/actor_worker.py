@@ -334,11 +334,15 @@ def _actor_loop(
         # are drained per game and ride its _R_GAME report; the barrier
         # pool drains them once, with the iteration's done report.
         _stream = bool(cmd[12]) if len(cmd) > 12 else False
+        # The hex stream's terrain form (encoder.terrain_multi_hot);
+        # legacy PLAY tuples = the one-class view.
+        _tmh = bool(cmd[13]) if len(cmd) > 13 else False
         # Rebuild the encoder each iteration with the freshly-snapshotted
         # vocab so actor indices line up with the server's encoder.
         renc = RemoteEncoder(t2i, f2i, device=cpu,
                              relevant_set=_rset, server_priors=_sp,
-                             fog_hides_enemy_villages=_fhv)
+                             fog_hides_enemy_villages=_fhv,
+                             terrain_multi_hot=_tmh)
         # MCTSPolicy.select_action reads `_base._lock` / `_base._decision_step`
         # (the combat-oracle anneal, added 2026-06-29). The in-process base is
         # a TransformerPolicy that supplies both; the actor's lightweight base
