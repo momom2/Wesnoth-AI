@@ -885,7 +885,16 @@ inference.
   offset: the curve is still rising at -1.5, not pre-registered)
   becomes the reference DECODE (the reference checkpoint is
   unchanged), which re-pins every strength claim's opponent; and
-  whether the offset helps a searched player.
+  whether the offset helps a searched player. The offset curve's
+  next points (-2.5, -4, and -99 = act while anything is legal, 800
+  decisive each, seed bases 46000-46200) are pre-registered in
+  docs/endturn_offset_sweep_prereg_20260919.md and RUNNING the same
+  evening (`scripts/endturn_offset_sweep_box.sh`, about $0.50). The
+  corpus's own rate, read before that result
+  (`tools/analysis/decisions_per_side_turn.py`, 3,000 games): 7.50
+  decisions per human side-turn, the winner's 9.60 and the loser's
+  6.00; the reference at argmax plays 6.0 (the loser's rate) and with
+  the offset -1.5 9.25 (the winner's).
 - TEST 3 QUEUED (2026-09-05 evening, ~$2.4, last in the box queue):
   the corpus's player ratings are fitted (`tools/player_ratings.py`,
   records in training/metrics/player_ratings/): 142 regulars at 30+

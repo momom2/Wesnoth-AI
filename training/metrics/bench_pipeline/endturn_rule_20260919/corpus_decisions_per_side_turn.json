@@ -1,0 +1,47 @@
+{
+ "games": 3000,
+ "side_turns": {
+  "n": 83908,
+  "mean": 7.504779043714544,
+  "median": 6.0,
+  "share_end_turn_only": 0.1521189874624589
+ },
+ "winner_side_turns": {
+  "n": 35052,
+  "mean": 9.603046901745977,
+  "median": 8.0,
+  "share_end_turn_only": 0.01780212256076686
+ },
+ "loser_side_turns": {
+  "n": 48856,
+  "mean": 5.999365482233503,
+  "median": 5.0,
+  "share_end_turn_only": 0.2484853446864254
+ },
+ "by_turn_bucket": {
+  "1-5": {
+   "n": 29999,
+   "mean": 6.146604886829561,
+   "median": 6,
+   "share_end_turn_only": 0.09596986566218874
+  },
+  "6-10": {
+   "n": 26459,
+   "mean": 8.045844514153973,
+   "median": 7,
+   "share_end_turn_only": 0.16527457575872104
+  },
+  "11-20": {
+   "n": 21642,
+   "mean": 8.647121338138804,
+   "median": 7.0,
+   "share_end_turn_only": 0.19323537565844193
+  },
+  "21+": {
+   "n": 5808,
+   "mean": 7.798381542699724,
+   "median": 5.0,
+   "share_end_turn_only": 0.22899449035812672
+  }
+ }
+}

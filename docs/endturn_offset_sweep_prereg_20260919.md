@@ -49,6 +49,16 @@ worse than passing.
 (0.60-0.82), the drop coming from forced attacks and moves out of
 cover late in a turn. Capped fraction under 0.10 for all three.
 
+Context read after the box was rented and before any result
+(`tools/analysis/decisions_per_side_turn.py` over the first 3,000
+manifest games, record `endturn_rule_20260919/corpus_decisions_per_side_turn.json`):
+the corpus's human side-turn holds 7.50 decisions on average
+(end_turn included; median 6), the winner's 9.60 and the loser's
+6.00. The reference at argmax plays 6.0, the loser's rate; with the
+offset -1.5 it plays 9.25, the winner's. So -2.5 and beyond move past
+the rate of the players the product learnt from, which is where the
+predicted drop comes from.
+
 ## Cost
 
 Three 800-decisive matches at about 9 minutes each on the EPYC 7B13
