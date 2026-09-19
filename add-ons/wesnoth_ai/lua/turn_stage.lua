@@ -129,10 +129,17 @@ end
 -- resets naturally between games.
 local full_frame_emitted = false
 
+-- The result of the last executed action, emitted with the next frame
+-- (the oracle reads the engine's path and the mover's final hex from
+-- it; the eval path ignores it).
+local last_action_result = nil
+
 local function emit_state(game_id, turn, side_number)
     local include_map = not full_frame_emitted
     local state = state_collector.collect_game_state(side_number, game_id, include_map)
     full_frame_emitted = true
+    state.last_action = last_action_result
+    last_action_result = nil
     local s1, s2 = leaders_alive()
     if not (s1 and s2) then
         state.game_over = true
@@ -256,6 +263,7 @@ function M:run_turn()
         if action.type == "end_turn" then return end
 
         local result = action_handler.execute_action(action)
+        last_action_result = result
         if not result.success then
             std_print(string.format(
                 "[turn-stage] turn %d side %d action=%s rejected: %s",

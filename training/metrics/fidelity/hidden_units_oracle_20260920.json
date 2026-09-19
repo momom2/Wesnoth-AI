@@ -1,0 +1,10326 @@
+{
+ "summary": {
+  "cases": 54,
+  "agree": 54,
+  "differ": 0,
+  "engine_failed": 0,
+  "wall_s": 480.6
+ },
+ "records": [
+  {
+   "case": "ambush+Gg^Fp",
+   "note": "forest cover",
+   "terrain": [
+    [
+     9,
+     7,
+     "Gg^Fp"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1"
+     ],
+     "sim": [
+      "u1"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      6
+     ],
+     "sim": [
+      8,
+      6
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "2005",
+      "success": false,
+      "final": [
+       8,
+       6,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       6
+      ],
+      "moves_left": 0,
+      "stop_reason": "ambush",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    true,
+    false,
+    false
+   ],
+   "wall_s": 11.3
+  },
+  {
+   "case": "ambush+Hh^Fp",
+   "note": "forest cover",
+   "terrain": [
+    [
+     9,
+     7,
+     "Hh^Fp"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1"
+     ],
+     "sim": [
+      "u1"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      6
+     ],
+     "sim": [
+      8,
+      6
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "2005",
+      "success": false,
+      "final": [
+       8,
+       6,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       6
+      ],
+      "moves_left": 0,
+      "stop_reason": "ambush",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    true,
+    false,
+    false
+   ],
+   "wall_s": 9.7
+  },
+  {
+   "case": "ambush+Aa^Fpa",
+   "note": "forest cover",
+   "terrain": [
+    [
+     9,
+     7,
+     "Aa^Fpa"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1"
+     ],
+     "sim": [
+      "u1"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      6
+     ],
+     "sim": [
+      8,
+      6
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "2005",
+      "success": false,
+      "final": [
+       8,
+       6,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       6
+      ],
+      "moves_left": 0,
+      "stop_reason": "ambush",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    true,
+    false,
+    false
+   ],
+   "wall_s": 11.4
+  },
+  {
+   "case": "ambush+Gg^Fet",
+   "note": "forest cover",
+   "terrain": [
+    [
+     9,
+     7,
+     "Gg^Fet"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1"
+     ],
+     "sim": [
+      "u1"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      6
+     ],
+     "sim": [
+      8,
+      6
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "2005",
+      "success": false,
+      "final": [
+       8,
+       6,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       6
+      ],
+      "moves_left": 0,
+      "stop_reason": "ambush",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    true,
+    false,
+    false
+   ],
+   "wall_s": 10.2
+  },
+  {
+   "case": "ambush+Gg^Fds",
+   "note": "forest cover",
+   "terrain": [
+    [
+     9,
+     7,
+     "Gg^Fds"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1"
+     ],
+     "sim": [
+      "u1"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      6
+     ],
+     "sim": [
+      8,
+      6
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "2005",
+      "success": false,
+      "final": [
+       8,
+       6,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       6
+      ],
+      "moves_left": 0,
+      "stop_reason": "ambush",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    true,
+    false,
+    false
+   ],
+   "wall_s": 9.1
+  },
+  {
+   "case": "ambush+Gg^Fms",
+   "note": "forest cover",
+   "terrain": [
+    [
+     9,
+     7,
+     "Gg^Fms"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1"
+     ],
+     "sim": [
+      "u1"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      6
+     ],
+     "sim": [
+      8,
+      6
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "2005",
+      "success": false,
+      "final": [
+       8,
+       6,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       6
+      ],
+      "moves_left": 0,
+      "stop_reason": "ambush",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    true,
+    false,
+    false
+   ],
+   "wall_s": 9.4
+  },
+  {
+   "case": "ambush+Ss^Fp",
+   "note": "forest cover",
+   "terrain": [
+    [
+     9,
+     7,
+     "Ss^Fp"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1"
+     ],
+     "sim": [
+      "u1"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      6
+     ],
+     "sim": [
+      8,
+      6
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "2005",
+      "success": false,
+      "final": [
+       8,
+       6,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       6
+      ],
+      "moves_left": 0,
+      "stop_reason": "ambush",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    true,
+    false,
+    false
+   ],
+   "wall_s": 8.5
+  },
+  {
+   "case": "ambush+Uu^Fp",
+   "note": "forest cover",
+   "terrain": [
+    [
+     9,
+     7,
+     "Uu^Fp"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1"
+     ],
+     "sim": [
+      "u1"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      6
+     ],
+     "sim": [
+      8,
+      6
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "2005",
+      "success": false,
+      "final": [
+       8,
+       6,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       6
+      ],
+      "moves_left": 0,
+      "stop_reason": "ambush",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    true,
+    false,
+    false
+   ],
+   "wall_s": 8.2
+  },
+  {
+   "case": "ambush+Mm^Fp",
+   "note": "forest cover",
+   "terrain": [
+    [
+     9,
+     7,
+     "Mm^Fp"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1"
+     ],
+     "sim": [
+      "u1"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      6
+     ],
+     "sim": [
+      8,
+      6
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "2005",
+      "success": false,
+      "final": [
+       8,
+       6,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       6
+      ],
+      "moves_left": 0,
+      "stop_reason": "ambush",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    true,
+    false,
+    false
+   ],
+   "wall_s": 9.4
+  },
+  {
+   "case": "ambush+Gg^Qhhf",
+   "note": "forest cover",
+   "terrain": [
+    [
+     9,
+     7,
+     "Gg^Qhhf"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1"
+     ],
+     "sim": [
+      "u1"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      6
+     ],
+     "sim": [
+      8,
+      6
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "2005",
+      "success": false,
+      "final": [
+       8,
+       6,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       6
+      ],
+      "moves_left": 0,
+      "stop_reason": "ambush",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    true,
+    false,
+    false
+   ],
+   "wall_s": 7.5
+  },
+  {
+   "case": "ambush+Gg^Ftd",
+   "note": "forest cover",
+   "terrain": [
+    [
+     9,
+     7,
+     "Gg^Ftd"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1"
+     ],
+     "sim": [
+      "u1"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      6
+     ],
+     "sim": [
+      8,
+      6
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "2005",
+      "success": false,
+      "final": [
+       8,
+       6,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       6
+      ],
+      "moves_left": 0,
+      "stop_reason": "ambush",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    true,
+    false,
+    false
+   ],
+   "wall_s": 12.4
+  },
+  {
+   "case": "ambush-Gg",
+   "note": "no forest",
+   "terrain": [
+    [
+     9,
+     7,
+     "Gg"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      9
+     ],
+     "sim": [
+      8,
+      9
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "0",
+      "success": true,
+      "final": [
+       8,
+       9,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1",
+     "u2"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1",
+     "u2"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       9
+      ],
+      "moves_left": 0,
+      "stop_reason": "end",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    false,
+    false,
+    false
+   ],
+   "wall_s": 7.8
+  },
+  {
+   "case": "ambush-Hh",
+   "note": "no forest",
+   "terrain": [
+    [
+     9,
+     7,
+     "Hh"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      9
+     ],
+     "sim": [
+      8,
+      9
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "0",
+      "success": true,
+      "final": [
+       8,
+       9,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1",
+     "u2"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1",
+     "u2"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       9
+      ],
+      "moves_left": 0,
+      "stop_reason": "end",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    false,
+    false,
+    false
+   ],
+   "wall_s": 10.1
+  },
+  {
+   "case": "ambush-Gg^Efm",
+   "note": "no forest",
+   "terrain": [
+    [
+     9,
+     7,
+     "Gg^Efm"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      9
+     ],
+     "sim": [
+      8,
+      9
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "0",
+      "success": true,
+      "final": [
+       8,
+       9,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1",
+     "u2"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1",
+     "u2"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       9
+      ],
+      "moves_left": 0,
+      "stop_reason": "end",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    false,
+    false,
+    false
+   ],
+   "wall_s": 8.0
+  },
+  {
+   "case": "ambush-Gg^Vh",
+   "note": "no forest",
+   "terrain": [
+    [
+     9,
+     7,
+     "Gg^Vh"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      9
+     ],
+     "sim": [
+      8,
+      9
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "0",
+      "success": true,
+      "final": [
+       8,
+       9,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1",
+     "u2"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1",
+     "u2"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       9
+      ],
+      "moves_left": 0,
+      "stop_reason": "end",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    false,
+    true,
+    false
+   ],
+   "wall_s": 7.1
+  },
+  {
+   "case": "ambush-Gg^Gvs",
+   "note": "no forest",
+   "terrain": [
+    [
+     9,
+     7,
+     "Gg^Gvs"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      9
+     ],
+     "sim": [
+      8,
+      9
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "0",
+      "success": true,
+      "final": [
+       8,
+       9,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1",
+     "u2"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1",
+     "u2"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       9
+      ],
+      "moves_left": 0,
+      "stop_reason": "end",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    false,
+    false,
+    false
+   ],
+   "wall_s": 8.2
+  },
+  {
+   "case": "ambush-Gg^Es",
+   "note": "no forest",
+   "terrain": [
+    [
+     9,
+     7,
+     "Gg^Es"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      9
+     ],
+     "sim": [
+      8,
+      9
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "0",
+      "success": true,
+      "final": [
+       8,
+       9,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1",
+     "u2"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1",
+     "u2"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       9
+      ],
+      "moves_left": 0,
+      "stop_reason": "end",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    false,
+    false,
+    false
+   ],
+   "wall_s": 8.5
+  },
+  {
+   "case": "conceal+Gg^Vh",
+   "note": "village cover",
+   "terrain": [
+    [
+     9,
+     7,
+     "Gg^Vh"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1"
+     ],
+     "sim": [
+      "u1"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      6
+     ],
+     "sim": [
+      8,
+      6
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "2005",
+      "success": false,
+      "final": [
+       8,
+       6,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       6
+      ],
+      "moves_left": 0,
+      "stop_reason": "ambush",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    false,
+    true,
+    false
+   ],
+   "wall_s": 8.4
+  },
+  {
+   "case": "conceal+Hh^Vhh",
+   "note": "village cover",
+   "terrain": [
+    [
+     9,
+     7,
+     "Hh^Vhh"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1"
+     ],
+     "sim": [
+      "u1"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      6
+     ],
+     "sim": [
+      8,
+      6
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "2005",
+      "success": false,
+      "final": [
+       8,
+       6,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       6
+      ],
+      "moves_left": 0,
+      "stop_reason": "ambush",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    false,
+    true,
+    false
+   ],
+   "wall_s": 8.8
+  },
+  {
+   "case": "conceal+Gg^Ve",
+   "note": "village cover",
+   "terrain": [
+    [
+     9,
+     7,
+     "Gg^Ve"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1"
+     ],
+     "sim": [
+      "u1"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      6
+     ],
+     "sim": [
+      8,
+      6
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "2005",
+      "success": false,
+      "final": [
+       8,
+       6,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       6
+      ],
+      "moves_left": 0,
+      "stop_reason": "ambush",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    false,
+    true,
+    false
+   ],
+   "wall_s": 9.8
+  },
+  {
+   "case": "conceal+Gg^Vc",
+   "note": "village cover",
+   "terrain": [
+    [
+     9,
+     7,
+     "Gg^Vc"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1"
+     ],
+     "sim": [
+      "u1"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      6
+     ],
+     "sim": [
+      8,
+      6
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "2005",
+      "success": false,
+      "final": [
+       8,
+       6,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       6
+      ],
+      "moves_left": 0,
+      "stop_reason": "ambush",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    false,
+    true,
+    false
+   ],
+   "wall_s": 8.5
+  },
+  {
+   "case": "conceal+Ww^Vm",
+   "note": "village cover",
+   "terrain": [
+    [
+     9,
+     7,
+     "Ww^Vm"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1"
+     ],
+     "sim": [
+      "u1"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      6
+     ],
+     "sim": [
+      8,
+      6
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "2005",
+      "success": false,
+      "final": [
+       8,
+       6,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       6
+      ],
+      "moves_left": 0,
+      "stop_reason": "ambush",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    false,
+    true,
+    false
+   ],
+   "wall_s": 7.7
+  },
+  {
+   "case": "conceal+Ss^Vhs",
+   "note": "village cover",
+   "terrain": [
+    [
+     9,
+     7,
+     "Ss^Vhs"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1"
+     ],
+     "sim": [
+      "u1"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      6
+     ],
+     "sim": [
+      8,
+      6
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "2005",
+      "success": false,
+      "final": [
+       8,
+       6,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       6
+      ],
+      "moves_left": 0,
+      "stop_reason": "ambush",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    false,
+    true,
+    false
+   ],
+   "wall_s": 7.4
+  },
+  {
+   "case": "conceal+Dd^Vda",
+   "note": "village cover",
+   "terrain": [
+    [
+     9,
+     7,
+     "Dd^Vda"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1"
+     ],
+     "sim": [
+      "u1"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      6
+     ],
+     "sim": [
+      8,
+      6
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "2005",
+      "success": false,
+      "final": [
+       8,
+       6,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       6
+      ],
+      "moves_left": 0,
+      "stop_reason": "ambush",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    false,
+    true,
+    false
+   ],
+   "wall_s": 10.1
+  },
+  {
+   "case": "conceal+Gg^Vl",
+   "note": "village cover",
+   "terrain": [
+    [
+     9,
+     7,
+     "Gg^Vl"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1"
+     ],
+     "sim": [
+      "u1"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      6
+     ],
+     "sim": [
+      8,
+      6
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "2005",
+      "success": false,
+      "final": [
+       8,
+       6,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       6
+      ],
+      "moves_left": 0,
+      "stop_reason": "ambush",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    false,
+    true,
+    false
+   ],
+   "wall_s": 9.3
+  },
+  {
+   "case": "conceal+Gg^Vht",
+   "note": "village cover",
+   "terrain": [
+    [
+     9,
+     7,
+     "Gg^Vht"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1"
+     ],
+     "sim": [
+      "u1"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      6
+     ],
+     "sim": [
+      8,
+      6
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "2005",
+      "success": false,
+      "final": [
+       8,
+       6,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       6
+      ],
+      "moves_left": 0,
+      "stop_reason": "ambush",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    false,
+    true,
+    false
+   ],
+   "wall_s": 9.1
+  },
+  {
+   "case": "conceal-Gg^Gvs",
+   "note": "no village (farmland is not one)",
+   "terrain": [
+    [
+     9,
+     7,
+     "Gg^Gvs"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      9
+     ],
+     "sim": [
+      8,
+      9
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "0",
+      "success": true,
+      "final": [
+       8,
+       9,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1",
+     "u2"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1",
+     "u2"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       9
+      ],
+      "moves_left": 0,
+      "stop_reason": "end",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    false,
+    false,
+    false
+   ],
+   "wall_s": 7.7
+  },
+  {
+   "case": "conceal-Gg",
+   "note": "no village (farmland is not one)",
+   "terrain": [
+    [
+     9,
+     7,
+     "Gg"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      9
+     ],
+     "sim": [
+      8,
+      9
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "0",
+      "success": true,
+      "final": [
+       8,
+       9,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1",
+     "u2"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1",
+     "u2"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       9
+      ],
+      "moves_left": 0,
+      "stop_reason": "end",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    false,
+    false,
+    false
+   ],
+   "wall_s": 10.3
+  },
+  {
+   "case": "conceal-Gg^Fp",
+   "note": "no village (farmland is not one)",
+   "terrain": [
+    [
+     9,
+     7,
+     "Gg^Fp"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      9
+     ],
+     "sim": [
+      8,
+      9
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "0",
+      "success": true,
+      "final": [
+       8,
+       9,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1",
+     "u2"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1",
+     "u2"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       9
+      ],
+      "moves_left": 0,
+      "stop_reason": "end",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    true,
+    false,
+    false
+   ],
+   "wall_s": 8.0
+  },
+  {
+   "case": "conceal-Hh",
+   "note": "no village (farmland is not one)",
+   "terrain": [
+    [
+     9,
+     7,
+     "Hh"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      9
+     ],
+     "sim": [
+      8,
+      9
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "0",
+      "success": true,
+      "final": [
+       8,
+       9,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1",
+     "u2"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1",
+     "u2"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       9
+      ],
+      "moves_left": 0,
+      "stop_reason": "end",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    false,
+    false,
+    false
+   ],
+   "wall_s": 7.4
+  },
+  {
+   "case": "submerge+Wo",
+   "note": "deep water cover",
+   "terrain": [
+    [
+     9,
+     7,
+     "Wo"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1"
+     ],
+     "sim": [
+      "u1"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      6
+     ],
+     "sim": [
+      8,
+      6
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "2005",
+      "success": false,
+      "final": [
+       8,
+       6,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       6
+      ],
+      "moves_left": 0,
+      "stop_reason": "ambush",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    false,
+    false,
+    true
+   ],
+   "wall_s": 8.0
+  },
+  {
+   "case": "submerge+Wot",
+   "note": "deep water cover",
+   "terrain": [
+    [
+     9,
+     7,
+     "Wot"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1"
+     ],
+     "sim": [
+      "u1"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      6
+     ],
+     "sim": [
+      8,
+      6
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "2005",
+      "success": false,
+      "final": [
+       8,
+       6,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       6
+      ],
+      "moves_left": 0,
+      "stop_reason": "ambush",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    false,
+    false,
+    true
+   ],
+   "wall_s": 11.9
+  },
+  {
+   "case": "submerge+Wog",
+   "note": "deep water cover",
+   "terrain": [
+    [
+     9,
+     7,
+     "Wog"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1"
+     ],
+     "sim": [
+      "u1"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      6
+     ],
+     "sim": [
+      8,
+      6
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "2005",
+      "success": false,
+      "final": [
+       8,
+       6,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       6
+      ],
+      "moves_left": 0,
+      "stop_reason": "ambush",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    false,
+    false,
+    true
+   ],
+   "wall_s": 10.7
+  },
+  {
+   "case": "submerge+Wo^Bsb|",
+   "note": "deep water cover",
+   "terrain": [
+    [
+     9,
+     7,
+     "Wo^Bsb|"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1"
+     ],
+     "sim": [
+      "u1"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      6
+     ],
+     "sim": [
+      8,
+      6
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "2005",
+      "success": false,
+      "final": [
+       8,
+       6,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       6
+      ],
+      "moves_left": 0,
+      "stop_reason": "ambush",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    false,
+    false,
+    true
+   ],
+   "wall_s": 9.5
+  },
+  {
+   "case": "submerge-Ww",
+   "note": "not deep water",
+   "terrain": [
+    [
+     9,
+     7,
+     "Ww"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      9
+     ],
+     "sim": [
+      8,
+      9
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "0",
+      "success": true,
+      "final": [
+       8,
+       9,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1",
+     "u2"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1",
+     "u2"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       9
+      ],
+      "moves_left": 0,
+      "stop_reason": "end",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    false,
+    false,
+    false
+   ],
+   "wall_s": 11.6
+  },
+  {
+   "case": "submerge-Wwf",
+   "note": "not deep water",
+   "terrain": [
+    [
+     9,
+     7,
+     "Wwf"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      9
+     ],
+     "sim": [
+      8,
+      9
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "0",
+      "success": true,
+      "final": [
+       8,
+       9,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1",
+     "u2"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1",
+     "u2"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       9
+      ],
+      "moves_left": 0,
+      "stop_reason": "end",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    false,
+    false,
+    false
+   ],
+   "wall_s": 8.2
+  },
+  {
+   "case": "submerge-Wwt",
+   "note": "not deep water",
+   "terrain": [
+    [
+     9,
+     7,
+     "Wwt"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      9
+     ],
+     "sim": [
+      8,
+      9
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "0",
+      "success": true,
+      "final": [
+       8,
+       9,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1",
+     "u2"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1",
+     "u2"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       9
+      ],
+      "moves_left": 0,
+      "stop_reason": "end",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    false,
+    false,
+    false
+   ],
+   "wall_s": 9.8
+  },
+  {
+   "case": "submerge-Wwg",
+   "note": "not deep water",
+   "terrain": [
+    [
+     9,
+     7,
+     "Wwg"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      9
+     ],
+     "sim": [
+      8,
+      9
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "0",
+      "success": true,
+      "final": [
+       8,
+       9,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1",
+     "u2"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1",
+     "u2"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       9
+      ],
+      "moves_left": 0,
+      "stop_reason": "end",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    false,
+    false,
+    false
+   ],
+   "wall_s": 9.4
+  },
+  {
+   "case": "submerge-Wwr",
+   "note": "not deep water",
+   "terrain": [
+    [
+     9,
+     7,
+     "Wwr"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      9
+     ],
+     "sim": [
+      8,
+      9
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "0",
+      "success": true,
+      "final": [
+       8,
+       9,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1",
+     "u2"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1",
+     "u2"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       9
+      ],
+      "moves_left": 0,
+      "stop_reason": "end",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    false,
+    false,
+    false
+   ],
+   "wall_s": 10.9
+  },
+  {
+   "case": "submerge-Ss",
+   "note": "not deep water",
+   "terrain": [
+    [
+     9,
+     7,
+     "Ss"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      9
+     ],
+     "sim": [
+      8,
+      9
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "0",
+      "success": true,
+      "final": [
+       8,
+       9,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1",
+     "u2"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1",
+     "u2"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       9
+      ],
+      "moves_left": 0,
+      "stop_reason": "end",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    false,
+    false,
+    false
+   ],
+   "wall_s": 10.3
+  },
+  {
+   "case": "nightstalk@first_watch",
+   "note": "time of day only",
+   "terrain": [],
+   "tod": "first_watch",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1"
+     ],
+     "sim": [
+      "u1"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "first_watch",
+     "sim": "first_watch",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      6
+     ],
+     "sim": [
+      8,
+      6
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "2005",
+      "success": false,
+      "final": [
+       8,
+       6,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "first_watch",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       6
+      ],
+      "moves_left": 0,
+      "stop_reason": "ambush",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [],
+   "wall_s": 7.8
+  },
+  {
+   "case": "nightstalk@second_watch",
+   "note": "time of day only",
+   "terrain": [],
+   "tod": "second_watch",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1"
+     ],
+     "sim": [
+      "u1"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "second_watch",
+     "sim": "second_watch",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      6
+     ],
+     "sim": [
+      8,
+      6
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "2005",
+      "success": false,
+      "final": [
+       8,
+       6,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "second_watch",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       6
+      ],
+      "moves_left": 0,
+      "stop_reason": "ambush",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [],
+   "wall_s": 7.3
+  },
+  {
+   "case": "nightstalk@morning",
+   "note": "time of day only",
+   "terrain": [],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      9
+     ],
+     "sim": [
+      8,
+      9
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "0",
+      "success": true,
+      "final": [
+       8,
+       9,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1",
+     "u2"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1",
+     "u2"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       9
+      ],
+      "moves_left": 0,
+      "stop_reason": "end",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [],
+   "wall_s": 7.2
+  },
+  {
+   "case": "nightstalk@dusk",
+   "note": "time of day only",
+   "terrain": [],
+   "tod": "dusk",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "dusk",
+     "sim": "dusk",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      9
+     ],
+     "sim": [
+      8,
+      9
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "0",
+      "success": true,
+      "final": [
+       8,
+       9,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "dusk",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1",
+     "u2"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1",
+     "u2"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       9
+      ],
+      "moves_left": 0,
+      "stop_reason": "end",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [],
+   "wall_s": 9.7
+  },
+  {
+   "case": "nightstalk@dawn",
+   "note": "time of day only",
+   "terrain": [],
+   "tod": "dawn",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "dawn",
+     "sim": "dawn",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      9
+     ],
+     "sim": [
+      8,
+      9
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "0",
+      "success": true,
+      "final": [
+       8,
+       9,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "dawn",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1",
+     "u2"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1",
+     "u2"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       9
+      ],
+      "moves_left": 0,
+      "stop_reason": "end",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [],
+   "wall_s": 8.5
+  },
+  {
+   "case": "nightstalk@first_watch+illuminated",
+   "note": "an ally's illuminates next to the hider lifts the cover",
+   "terrain": [],
+   "tod": "first_watch",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1",
+      "u2",
+      "u4"
+     ],
+     "sim": [
+      "u1",
+      "u2",
+      "u4"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "first_watch",
+     "sim": "first_watch",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      9
+     ],
+     "sim": [
+      8,
+      9
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2",
+      "u4"
+     ],
+     "sim": [
+      "u1",
+      "u2",
+      "u4"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "0",
+      "success": true,
+      "final": [
+       8,
+       9,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2",
+       "u4"
+      ]
+     }
+    ],
+    "time_of_day": "first_watch",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ],
+     "u4": [
+      10,
+      7
+     ]
+    },
+    "visible_start": [
+     "u1",
+     "u2",
+     "u4"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1",
+     "u2",
+     "u4"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       9
+      ],
+      "moves_left": 0,
+      "stop_reason": "end",
+      "visible_after": [
+       "u1",
+       "u2",
+       "u4"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [],
+   "wall_s": 7.6
+  },
+  {
+   "case": "nightstalk@first_watch+mage_two_away",
+   "note": "illuminates does not reach two hexes",
+   "terrain": [],
+   "tod": "first_watch",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1",
+      "u4"
+     ],
+     "sim": [
+      "u1",
+      "u4"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "first_watch",
+     "sim": "first_watch",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      6
+     ],
+     "sim": [
+      8,
+      6
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2",
+      "u4"
+     ],
+     "sim": [
+      "u1",
+      "u2",
+      "u4"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "2005",
+      "success": false,
+      "final": [
+       8,
+       6,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2",
+       "u4"
+      ]
+     }
+    ],
+    "time_of_day": "first_watch",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ],
+     "u4": [
+      11,
+      7
+     ]
+    },
+    "visible_start": [
+     "u1",
+     "u4"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1",
+     "u4"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       6
+      ],
+      "moves_left": 0,
+      "stop_reason": "ambush",
+      "visible_after": [
+       "u1",
+       "u2",
+       "u4"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [],
+   "wall_s": 8.1
+  },
+  {
+   "case": "geometry:odd_column",
+   "note": "hider left of the path",
+   "terrain": [
+    [
+     8,
+     7,
+     "Gg^Fp"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1"
+     ],
+     "sim": [
+      "u1"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      9,
+      7
+     ],
+     "sim": [
+      9,
+      7
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        9,
+        3
+       ],
+       [
+        9,
+        4
+       ],
+       [
+        9,
+        5
+       ],
+       [
+        9,
+        6
+       ],
+       [
+        9,
+        7
+       ],
+       [
+        9,
+        8
+       ],
+       [
+        9,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "2005",
+      "success": false,
+      "final": [
+       9,
+       7,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      9,
+      3
+     ],
+     "u2": [
+      8,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        9,
+        3
+       ],
+       [
+        9,
+        4
+       ],
+       [
+        9,
+        5
+       ],
+       [
+        9,
+        6
+       ],
+       [
+        9,
+        7
+       ],
+       [
+        9,
+        8
+       ],
+       [
+        9,
+        9
+       ]
+      ],
+      "landed": [
+       9,
+       7
+      ],
+      "moves_left": 0,
+      "stop_reason": "ambush",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    true,
+    false,
+    false
+   ],
+   "wall_s": 9.4
+  },
+  {
+   "case": "geometry:on_path",
+   "note": "hidden unit on the path: blocked before it, movement kept",
+   "terrain": [
+    [
+     8,
+     7,
+     "Gg^Fp"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1"
+     ],
+     "sim": [
+      "u1"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      6
+     ],
+     "sim": [
+      8,
+      6
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 7,
+      "past_movement": false,
+      "status": "2005",
+      "success": false,
+      "final": [
+       8,
+       6,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      8,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       6
+      ],
+      "moves_left": 0,
+      "stop_reason": "ambush",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    true,
+    false,
+    false
+   ],
+   "wall_s": 8.2
+  },
+  {
+   "case": "zoc:visible_ranger_vs_spearman",
+   "note": "a visible enemy's zone of control: the engine routes the non-skirmisher around (8,6) and ends on (8,7) with its last point",
+   "terrain": [
+    [
+     9,
+     7,
+     "Gg"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      7
+     ],
+     "sim": [
+      8,
+      7
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        7,
+        6
+       ],
+       [
+        7,
+        7
+       ],
+       [
+        8,
+        7
+       ]
+      ],
+      "cost": 5,
+      "past_movement": false,
+      "status": "0",
+      "success": true,
+      "final": [
+       8,
+       7,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1",
+     "u2"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1",
+     "u2"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        7,
+        6
+       ],
+       [
+        7,
+        7
+       ],
+       [
+        8,
+        7
+       ]
+      ],
+      "landed": [
+       8,
+       7
+      ],
+      "moves_left": 0,
+      "stop_reason": "end",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    false,
+    false,
+    false
+   ],
+   "wall_s": 7.2
+  },
+  {
+   "case": "fog_off:ambush",
+   "note": "hides works without fog",
+   "terrain": [
+    [
+     9,
+     7,
+     "Gg^Fp"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": false,
+    "2": false
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1",
+      "u3"
+     ],
+     "sim": [
+      "u1",
+      "u3"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      6
+     ],
+     "sim": [
+      8,
+      6
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2",
+      "u3"
+     ],
+     "sim": [
+      "u1",
+      "u2",
+      "u3"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 6,
+      "past_movement": false,
+      "status": "2005",
+      "success": false,
+      "final": [
+       8,
+       6,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2",
+       "u3"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1",
+     "u3"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1",
+     "u3"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       6
+      ],
+      "moves_left": 0,
+      "stop_reason": "ambush",
+      "visible_after": [
+       "u1",
+       "u2",
+       "u3"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    true,
+    false,
+    false
+   ],
+   "wall_s": 7.1
+  },
+  {
+   "case": "adjacent_start:ambush",
+   "note": "an adjacent enemy sees the hider from the start",
+   "terrain": [
+    [
+     9,
+     7,
+     "Gg^Fp"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      9
+     ],
+     "sim": [
+      8,
+      9
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 4,
+     "sim": 4,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1"
+     ],
+     "sim": [
+      "u1"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 2,
+      "past_movement": false,
+      "status": "0",
+      "success": true,
+      "final": [
+       8,
+       9,
+       4
+      ],
+      "visible_after": [
+       "u1"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      7
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1",
+     "u2"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1",
+     "u2"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       9
+      ],
+      "moves_left": 4,
+      "stop_reason": "end",
+      "visible_after": [
+       "u1"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    true,
+    false,
+    false
+   ],
+   "wall_s": 7.3
+  },
+  {
+   "case": "two_away_start:ambush",
+   "note": "two hexes away is not adjacent: hidden until the walk up passes it",
+   "terrain": [
+    [
+     9,
+     7,
+     "Gg^Fp"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1"
+     ],
+     "sim": [
+      "u1"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      7
+     ],
+     "sim": [
+      8,
+      7
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        4
+       ]
+      ],
+      "cost": 4,
+      "past_movement": false,
+      "status": "2005",
+      "success": false,
+      "final": [
+       8,
+       7,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      8
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        4
+       ]
+      ],
+      "landed": [
+       8,
+       7
+      ],
+      "moves_left": 0,
+      "stop_reason": "ambush",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    true,
+    false,
+    false
+   ],
+   "wall_s": 7.3
+  },
+  {
+   "case": "two_moves:short_then_ambush",
+   "note": "a frame per move",
+   "terrain": [
+    [
+     9,
+     7,
+     "Gg^Fp"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1"
+     ],
+     "sim": [
+      "u1"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      5
+     ],
+     "sim": [
+      8,
+      5
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 4,
+     "sim": 4,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1"
+     ],
+     "sim": [
+      "u1"
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 1 landing hex",
+     "engine": [
+      8,
+      6
+     ],
+     "sim": [
+      8,
+      6
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 1 movement left",
+     "engine": 0,
+     "sim": 0,
+     "agree": true
+    },
+    {
+     "check": "move 1 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ]
+      ],
+      "cost": 2,
+      "past_movement": false,
+      "status": "0",
+      "success": true,
+      "final": [
+       8,
+       5,
+       4
+      ],
+      "visible_after": [
+       "u1"
+      ]
+     },
+     {
+      "path": [
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "cost": 4,
+      "past_movement": false,
+      "status": "2005",
+      "success": false,
+      "final": [
+       8,
+       6,
+       0
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      9,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        4
+       ],
+       [
+        8,
+        5
+       ]
+      ],
+      "landed": [
+       8,
+       5
+      ],
+      "moves_left": 4,
+      "stop_reason": "end",
+      "visible_after": [
+       "u1"
+      ]
+     },
+     {
+      "path": [
+       [
+        8,
+        5
+       ],
+       [
+        8,
+        6
+       ],
+       [
+        8,
+        7
+       ],
+       [
+        8,
+        8
+       ],
+       [
+        8,
+        9
+       ]
+      ],
+      "landed": [
+       8,
+       6
+      ],
+      "moves_left": 0,
+      "stop_reason": "ambush",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [
+    true,
+    false,
+    false
+   ],
+   "wall_s": 8.1
+  }
+ ]
+}

@@ -1,0 +1,21 @@
+{
+  "_comment": "The reference player every strength claim is measured against (user ruling 2026-09-20; docs/plan_20260904.md 3, rule 1). One checkpoint, one decode. tools/reference_player.py reads this file: `--flags a|b` prints the run_elo_batch flags for that side, `--ensure` fetches the checkpoint from the model host when the local copy is missing.",
+  "label": "terrain",
+  "checkpoint_local": "training/checkpoints/terrain.pt",
+  "checkpoint_hf": "tier-b/terrain_multi_hot_20260919/arm_epoch0.pt",
+  "hf_repo": "momom2/wesnoth-model-checkpoints",
+  "decode": {
+    "mcts_sims": 0,
+    "raw_temperature": 0.0,
+    "raw_end_turn": "joint",
+    "raw_end_turn_offset": -1.5
+  },
+  "procedure_tag": "raw:t0+eo-1.5",
+  "adopted": "2026-09-20",
+  "provenance": {
+    "checkpoint": "the terrain-set arm: relset's recipe from scratch with terrain_multi_hot, one pass; +44 +- 12 Elo over relset at raw:t0 (800 decisive, docs/terrain_multi_hot_prereg_20260919.md), self-pinned at +2 +- 12 (docs/composed_levers_prereg_20260919.md)",
+    "decode": "the end_turn logit offset -1.5: +229 +- 15 Elo over raw:t0 for relset (docs/endturn_rule_prereg_20260919.md), the peak of the offset curve with -2.5 (docs/endturn_offset_sweep_prereg_20260919.md)",
+    "composed": "terrain at raw:t0+eo-1.5 is +263 +- 16 Elo over relset at raw:t0 (docs/composed_levers_prereg_20260919.md)",
+    "previous": "relset at raw:t0 (2026-09-11 to 2026-09-20): tier-b/seed2_relset_20260911/arm_epoch0.pt"
+  }
+}

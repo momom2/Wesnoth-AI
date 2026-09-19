@@ -62,8 +62,16 @@ mechanism specs are in `docs/archive/` (index in its README); the 78
 quarantined training mechanisms are in `quarantine/INVENTORY.md`.
 
 State of play:
-- The reference player (user ruling 2026-09-11 night) is `relset` at
-  temperature 0: the relevant-set twin of seed2 at one pass, HF
+- **The reference player (user ruling 2026-09-20) is `terrain` at
+  `raw:t0+eo-1.5`:** the terrain-set arm (HF
+  `tier-b/terrain_multi_hot_20260919/arm_epoch0.pt`, local
+  `training/checkpoints/terrain.pt`; relevant-set basis, fog gate on,
+  terrain set on) decoded with the end_turn logit offset -1.5, both
+  pinned in `configs/reference_player.json`. It is +263 +- 16 Elo
+  over the previous reference (docs/composed_levers_prereg_20260919.md)
+  and self-pinned at +2 +- 12 at `raw:t0`. Before it (2026-09-11 to
+  2026-09-20) the reference was `relset` at temperature 0: the
+  relevant-set twin of seed2 at one pass, HF
   `tier-b/seed2_relset_20260911/arm_epoch0.pt`, local
   `training/checkpoints/relset.pt`, relevant-set basis, fog gate on;
   +56 +- 12 Elo over seed2's one-pass checkpoint (800 decisive
@@ -243,7 +251,12 @@ State of play:
   rule and 0 under the old one). The rule itself is established by the
   engine's macro text and pinned by tests/test_hide_cover.py;
   tests/test_visibility.py pins the observation and move-truncation
-  halves on a code the old table missed.
+  halves on a code the old table missed. **Verified against real
+  Wesnoth 2026-09-20** (user order): `tools/hidden_units_oracle.py`,
+  54 of 54 scripted positions agree with the engine on what side 1
+  sees and where a move stops (docs/wesnoth_rules.md "Verified against
+  the engine"); the live bridge's collector leaked hiders on unfogged
+  hexes and always reported "morning", both fixed the same day.
   **Consequence for numbers:** matches run after this change are
   CROSS-BUILD against every Elo measured before it. The old numbers
   stay internally valid (both players in a match always ran the same
@@ -479,8 +492,11 @@ State of play:
   pre-registration.
 
 Standing rules (full list in the plan): the reference player is
-`relset` at `raw:t0`; every strength claim is a PURE match against it with the
-standard error stated; no teacher is distilled before it wins such a
+`terrain` at `raw:t0+eo-1.5` (user ruling 2026-09-20; one checkpoint
+and one decode, both in `configs/reference_player.json`, which
+`tools/reference_player.py --flags b` turns into run_elo_batch flags);
+every strength claim is a PURE match against it with the standard
+error stated; no teacher is distilled before it wins such a
 match; one factor at a time, each with its own number and kill
 criterion; proxies are crash barriers, never verdicts; compute on
 rented boxes only, proposed with cost first.

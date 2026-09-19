@@ -1359,8 +1359,24 @@ read by nothing but the cover predicate, and no past Elo result is
 invalidated. The WRITE-UP did not, and is corrected in
 docs/box_specs.md and docs/wesnoth_rules.md. What stays open:
 
-- **The certification is a no-regression test, not a proof of the
-  rule.** Recorded 2026-09-14 (`tools/analysis/hider_rule_sample.py`,
+- DONE 2026-09-20: **the hide-cover rules are verified against the
+  engine itself.** `tools/hidden_units_oracle.py` drives real Wesnoth
+  on a scripted board (the `ai_oracle` test scenario, terrain, units,
+  fog and time of day from a setup file at prestart) and compares the
+  engine's `[filter_vision]` verdicts, its chosen route, the landing
+  hex, the movement left and the visible set after each move with the
+  simulator's walk of the same route: 54 of 54 cases agree
+  (`training/metrics/fidelity/hidden_units_oracle_20260920.json`;
+  docs/wesnoth_rules.md "Verified against the engine"). The oracle
+  found two bugs in the LIVE bridge on the way: the Lua collector
+  reported every unit on an unfogged hex, hiders included (now
+  `[filter_vision]`), and its time of day was always "morning" (it
+  read a field that does not exist; now `wesnoth.schedule.get_time_of_day`).
+  The next probes to add when a rule changes: `burrow` and
+  `swamp_lurk` (no carrier in either pool), and the terrain codes of a
+  real Ladder map in place of the grass board.
+- The certification below was, until then, a no-regression test, not
+  a proof of the rule. Recorded 2026-09-14 (`tools/analysis/hider_rule_sample.py`,
   `training/metrics/bench_pipeline/postreview_20260914/hider_rule_sample.json`;
   the 2026-09-13 write-up's "164 of 300, 4 of 120" was the same
   measurement from a run with no record): of 300 sampled replays 150
@@ -1439,7 +1455,14 @@ under a different one -- the vocab, hex basis and fog gate all stay
 identical when the sim's visibility rules move, so nothing else could
 have caught a stale cache (tests/test_anchor_cache_gate.py).
 
-## Rulings (user, 2026-09-05)
+## Rulings (user, 2026-09-05; reference player 2026-09-20)
+
+- 2026-09-20: the reference player is `terrain` at `raw:t0+eo-1.5`
+  (the terrain-set arm decoded with the end_turn logit offset -1.5;
+  `configs/reference_player.json`, `tools/reference_player.py`).
+  "Moving the bar up is a good thing." Every number measured against
+  `relset` at `raw:t0` stays valid as a number against that player;
+  nothing is chained across the two references.
 
 - No optimizations conditioned on the current MCTS-like training
   algorithm (leaf reuse, adaptive sims, search batching): the

@@ -166,15 +166,26 @@ end
 -- old `wesnoth.current.schedule[wesnoth.current.schedule.id]` pattern
 -- dereferences nil on some installs. Fall back to "morning" if anything
 -- fails — the AI doesn't depend on ToD correctness yet.
+-- The current time of day's id, from the schedule API (1.18:
+-- wesnoth.schedule.get_time_of_day(), earlier wesnoth.get_time_of_day()).
+-- Until 2026-09-20 this read `wesnoth.current.schedule.id`, which does
+-- not exist, so every frame said "morning" (the hidden-units oracle
+-- caught it: the engine's night was reported as morning).
 local function safe_time_of_day()
-    local tod_id = "morning"
+    local tod_id = nil
     pcall(function()
-        local sched = wesnoth.current.schedule
-        if type(sched) == "table" and sched.id then
-            tod_id = sched.id
-        end
+        -- (location or nil, turn): data/lua/wml/store_time_of_day.lua
+        local tod = wesnoth.schedule.get_time_of_day(nil, wesnoth.current.turn)
+        if type(tod) == "table" and tod.id then tod_id = tod.id end
     end)
-    return tod_id
+    if not tod_id then
+        pcall(function()
+            local tod = wesnoth.current.schedule.time_of_day
+            if type(tod) == "table" and tod.id then tod_id = tod.id
+            elseif type(tod) == "string" then tod_id = tod end
+        end)
+    end
+    return tod_id or "unknown"
 end
 
 -- `include_map` toggles hex+mask emission. On the first frame of a
@@ -211,13 +222,41 @@ function state_collector.collect_game_state(side_number, game_id, include_map)
         end
     end
 
-    -- Units visible to the current side.
+    -- Units visible to the current side: the engine's own answer,
+    -- [filter_vision] (src/units/filter.cpp: fogged OR an enemy hidden
+    -- by its hides ability), so an ambusher in a forest the side can
+    -- otherwise see is NOT reported. Until 2026-09-20 only the fog was
+    -- checked and every hidden unit on an unfogged hex leaked through.
     local units = {}
     local all_units = wesnoth.units.find_on_map({})
+    local visible_ids = {}
+    for _, unit in ipairs(wesnoth.units.find_on_map({
+            { "filter_vision", { side = side_number, visible = true } } })) do
+        visible_ids[unit.id] = true
+    end
     for _, unit in ipairs(all_units) do
-        if not wesnoth.sides.is_fogged(side_number, unit.x, unit.y) then
+        if visible_ids[unit.id] then
             local u = state_collector.collect_unit(unit)
             if u then table.insert(units, u) end
+        end
+    end
+
+    -- Oracle mode (the ai_oracle scenario): every unit, with the
+    -- engine's visibility verdict per side, for the fidelity check
+    -- in tools/hidden_units_oracle.py. Never emitted in play.
+    local oracle = nil
+    if wml.variables.oracle_mode then
+        oracle = {}
+        for _, unit in ipairs(all_units) do
+            local rec = { id = unit.id, type = unit.type, side = unit.side,
+                          x = unit.x, y = unit.y, moves = unit.moves,
+                          max_moves = unit.max_moves }
+            for viewer = 1, #wesnoth.sides do
+                local seen = wesnoth.units.find_on_map({ id = unit.id,
+                    { "filter_vision", { side = viewer, visible = true } } })
+                rec["visible_to_" .. viewer] = (#seen > 0)
+            end
+            table.insert(oracle, rec)
         end
     end
 
@@ -283,6 +322,7 @@ function state_collector.collect_game_state(side_number, game_id, include_map)
         current_side = side_number,
         turn_number = wesnoth.current.turn,
         time_of_day = safe_time_of_day(),
+        oracle_units = oracle,
         frame_type = include_map and "full" or "delta",
         map = {
             width = width,

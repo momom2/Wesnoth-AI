@@ -374,6 +374,29 @@ get_illuminated_time_of_day), so an [illuminates] unit on or next to
 the hex lifts the cover: `replay_dataset.illuminated_lawful_bonus_at`
 is the one reading the hide predicate and combat share.
 
+**Verified against the engine (2026-09-20).** `tools/hidden_units_oracle.py`
+builds scripted positions on a 14x14 grass board in real Wesnoth (the
+`ai_oracle` test scenario sets terrain, units, fog and time of day at
+prestart from a setup file), asks the engine which units side 1 sees
+(`[filter_vision]`, src/units/filter.cpp: fogged OR an enemy hidden by
+its hides ability), orders a move through the AI stage and reads the
+route the engine chose, the landing hex, the movement left and the
+visible set afterwards; then walks the same route through
+`replay_dataset._apply_command` and compares. 54 of 54 cases agree
+(record `training/metrics/fidelity/hidden_units_oracle_20260920.json`):
+ambush on eleven forest codes and none on six non-forest codes
+(farmland `^Gvs`, a village, embellishments, plain hills); concealment
+on nine village codes and none on farmland, forest or plain; submerge
+on `Wo`, `Wot`, `Wog` and a bridge over deep water (`Wo^Bsb|`) and none
+on shallow water, fords, reefs or swamp; nightstalk at first and second
+watch and not at dawn, morning or dusk, lifted by an ally's
+`illuminates` on the adjacent hex and not from two hexes away; the
+ambush stop on the first hex adjacent to the hider with movement
+zeroed and the hider revealed; hides without fog; the adjacency reveal;
+a visible enemy's zone of control routing a non-skirmisher around; two
+moves in one turn. This is the ground truth the 17,039-replay sweep
+could not give (it passes under the old rule too).
+
 ### An ability or weapon special has TWO keys: its tag and its `id=`
 
 The engine uses both, for different jobs, and confusing them is how a

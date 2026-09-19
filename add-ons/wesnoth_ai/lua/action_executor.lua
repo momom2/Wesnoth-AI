@@ -63,13 +63,38 @@ function action_executor.execute_move(action)
         end
     end
     
+    -- Oracle mode: the route the engine will walk, computed the way
+    -- ai.move computes it (the mover's side's view: hidden enemies do
+    -- not exist for the pathfinder), so the Python driver can walk the
+    -- SAME path through the simulator and compare where each stops.
+    local oracle = nil
+    if wml.variables.oracle_mode then
+        local unit_id = unit.id
+        local path, cost = wesnoth.paths.find_path(unit, { target_x, target_y })
+        local steps = {}
+        for i, loc in ipairs(path or {}) do
+            steps[i] = { x = loc[1], y = loc[2] }
+        end
+        oracle = { unit_id = unit_id, path = steps, cost = cost }
+    end
+
     -- Execute the move using global ai table
     local result = ai.move(unit, target_x, target_y)
-    
+
+    if oracle then
+        local after = wesnoth.units.find_on_map({ id = oracle.unit_id })[1]
+        if after then
+            oracle.final = { x = after.x, y = after.y, moves = after.moves }
+        end
+        oracle.status = tostring(result.status)
+        oracle.gamestate_changed = result.gamestate_changed or false
+    end
+
     return {
         success = result.ok,
         gamestate_changed = result.gamestate_changed or false,
-        error = result.status
+        error = result.status,
+        oracle = oracle,
     }
 end
 
