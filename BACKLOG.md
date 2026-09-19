@@ -385,8 +385,8 @@ anyway, ordered by what the measurements say is binding:
      batch 18.2 -> 10.8 (homogeneous lengths) and 37.4 -> 13.9 (mixed);
      pool: 833 leaves/s saturated (from 652), 489 over the iteration.
      Four serve threads measured worse than two (587 vs 652): not a
-     lever. NEXT: flip `infer_packed_trunk` on by default in the
-     generation path once the compiled-loop row is in.
+     lever. DONE: `--packed-trunk` defaults on in az_loop (the
+     compiled loop stays opt-in, its row below).
    - SHIPPED 2026-09-05 (GPU design option 2, behind a switch):
      the packed layer loop as one inductor graph (dynamic total
      length, attention as an opaque custom op, native bf16 weight copy
@@ -404,12 +404,12 @@ anyway, ordered by what the measurements say is binding:
      "under-fed" reading came from iteration averages over a tail
      where most actors had finished. The server, and inside it the GPU
      time per batch, is the ceiling; the actors' own work is small.
-     NEXT: measure in the saturated window (pool now logs the best
-     60-s rate); apply the GPU levers in the design's order (staged
-     priors shipped and queued for measurement, then the packed
-     varlen trunk, the compiled tensor-only forward, length buckets);
-     try 3-4 serve threads or serve processes to overlap CPU with the
-     GPU wait. The PID limit (4,352) and thread caps stand.
+     DONE since: the saturated window is the pool's standing column;
+     staged priors, the packed trunk and the packed embed shipped and
+     are the defaults; four serve threads and a second serve process
+     measured as no lever (docs/box_specs.md "The post-review box
+     run"); the compiled forward stays opt-in; the PID limit is read
+     from the cgroup, not guessed.
    - MEASURED 2026-09-05 (serve host split, docs/box_specs.md): ~36 ms
      of host work per 16-leaf batch per serve thread is the ceiling
      (forward launches 10.9, padded encode 8.5, priors 5.9, unpack
