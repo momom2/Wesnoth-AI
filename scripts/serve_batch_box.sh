@@ -110,10 +110,26 @@ pool_arm b16_a "$CKPT" 16
 pool_arm b64_a "$CKPT" 64
 pool_arm b16_b "$CKPT" 16
 pool_arm b64_b "$CKPT" 64
-if [ "$EXTRA_ARMS" = "1" ]; then
+# The extra arms only when the core pairs say the cap matters: both 64
+# arms at least 1.10x their 16 arm on the saturated column. A flat pair
+# ends the box here, about $0.30 spent.
+pairs_up=$(python - <<'EOF'
+import json
+def sat(n):
+    try:
+        return json.load(open(f"/workspace/serve_batch/pool_{n}.json"))["saturated_leaves_per_s"]
+    except Exception:
+        return 0.0
+ok = all(sat(f"b64_{p}") >= 1.10 * sat(f"b16_{p}") > 0 for p in ("a", "b"))
+print("1" if ok else "0")
+EOF
+)
+if [ "$EXTRA_ARMS" = "1" ] && [ "$pairs_up" = "1" ]; then
     pool_arm b96_a "$CKPT" 96
     pool_arm b64g_a "$CKPT" 64 --graphed-serve
     pool_arm ref16_a "$REF" 16
+else
+    echo "extra arms skipped (pairs_up=$pairs_up, EXTRA_ARMS=$EXTRA_ARMS)" | tee -a "$OUT/pool.walls"
 fi
 
 # ---- the verdict under the pre-registered rule ----------------------
