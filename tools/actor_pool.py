@@ -94,7 +94,7 @@ import torch
 from tools.actor_worker import (
     _CMD_DRAIN, _CMD_PLAY, _CMD_UPDATE, _TICKET_END, _CMD_STOP, _R_DONE, _R_ERROR, _R_EXPS,
     _R_FATAL, _R_GAME, _R_OUTCOME, _RID_SERVER_DEAD, _IPCInferenceClient, _actor_loop,
-    _set_fd_safe_sharing, _zero_reward,
+    _done_report, _set_fd_safe_sharing, _zero_reward,
 )
 from tools.serve_worker import (
     _S_ERROR, _S_PROBE, _S_READY, _S_STATS, _S_SYNCED, _SRV_PAUSE, _SRV_PROBE, _SRV_SERVE,
@@ -132,17 +132,6 @@ class ActorFatalError(BaseException):
 class ServeProcessDied(ActorFatalError):
     """A serve process died or failed a command: the actors it served
     can get no more replies, so the iteration aborts loudly."""
-
-
-def _done_report(payload) -> Tuple[int, Optional[Dict], Optional[int]]:
-    """An actor's _R_DONE payload as (decisions, distill stats,
-    iteration). The iteration is None for the older two-field and
-    plain-int shapes, which the manager then cannot date."""
-    if isinstance(payload, tuple):
-        if len(payload) >= 3:
-            return payload[0], payload[1], int(payload[2])
-        return payload[0], payload[1], None
-    return payload, None, None
 
 
 @dataclass

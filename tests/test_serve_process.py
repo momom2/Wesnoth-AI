@@ -20,6 +20,9 @@ import torch
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from test_actor_pool_smoke import (  # noqa: E402
+    assert_publication_straddled, collect_across_publication,
+)
 from tools.actor_pool import (  # noqa: E402
     _S_ERROR, _IPCInferenceClient, _RID_SERVER_DEAD, ServeProcessDied,
 )
@@ -140,11 +143,15 @@ def test_pool_with_a_serve_process_serves_syncs_and_refuses_stale_weights():
         stream.start()
         first = stream.collect(2, timeout=600.0)
         assert len(first.games) == 2
-        _perturb(policy)
-        version = stream.publish()
-        assert version == policy._inference_model._weights_version
-        second = stream.collect(2, timeout=600.0)
-        assert len(second.games) == 2 and second.straddled_share == 1.0
+        versions = []
+
+        def publish():
+            _perturb(policy)
+            versions.append(stream.publish())
+
+        games, targets, t_pub = collect_across_publication(stream, publish)
+        assert versions == [policy._inference_model._weights_version]
+        assert_publication_straddled(games, targets, t_pub)
         assert sum(pool.last_leaves_per_server) == pool.last_served_forwards > 0
         stream.stop(grace=120.0)
         synced = pool.probe([gs])

@@ -20,6 +20,7 @@ from tools.actor_pool import (  # noqa: E402
     _CMD_DRAIN, _CMD_PLAY, _CMD_UPDATE, _R_DONE, _R_EXPS, _R_GAME, _R_OUTCOME,
     ActorFatalError,
 )
+from tools.actor_worker import _R_START  # noqa: E402
 from tools.actor_stream import _window_delta  # noqa: E402
 from tools.inference_seam import ServeGate  # noqa: E402
 
@@ -98,6 +99,38 @@ def test_a_game_counts_the_publications_it_straddled():
         updates = [c for c in q._items if c[0] == _CMD_UPDATE]
         assert updates[0] == (_CMD_UPDATE, 0.25, 42)
         assert len(updates) == 2
+
+
+def test_wait_in_flight_reads_the_starts_and_holds_completed_games_for_collect():
+    pool = _stream_pool([])
+    stream = pool.stream(base_seed=1)
+    stream.start()
+    try:
+        assert stream.in_flight() == {}
+        with pytest.raises(RuntimeError, match=r"actors \[0, 1\] not inside a game"):
+            stream.wait_in_flight(timeout=0.3)
+        # Actor 0 starts game 0, finishes it and starts game 2; actor 1
+        # first reports an iteration abandoned before the stream done
+        # (it stays live), then starts game 1. The finished game is
+        # read during the wait and must come out of the next collect.
+        pool._result_q._items.append((_R_START, 0, (0, time.time() - 10)))
+        pool._result_q._items.extend(_game(0, 0))
+        pool._result_q._items.append((_R_START, 0, (2, time.time())))
+        pool._result_q._items.append((_R_DONE, 1, (3, None, 5)))
+        with pytest.raises(RuntimeError, match=r"actors \[1\] not inside a game"):
+            stream.wait_in_flight(timeout=0.3)
+        assert stream._live == {0, 1}
+        pool._result_q._items.append((_R_START, 1, (1, time.time())))
+        flight = stream.wait_in_flight(timeout=5.0)
+        assert {aid: g for aid, (g, _) in flight.items()} == {0: 2, 1: 1}
+        window = stream.collect(1, timeout=5.0)
+        assert [g.index for g in window.games] == [0]
+        assert stream.in_flight() == flight, "a collect does not touch the flight"
+        pool._result_q._items.extend(_game(1, 1))
+        assert [g.index for g in stream.collect(1, timeout=5.0).games] == [1]
+        assert set(stream.in_flight()) == {0}, "actor 1 is between games"
+    finally:
+        stream.stop(grace=0.5)
 
 
 def test_a_window_returns_partial_on_timeout_or_raises_below_its_minimum():

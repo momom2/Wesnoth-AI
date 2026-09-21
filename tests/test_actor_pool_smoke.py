@@ -27,6 +27,41 @@ from tools.mcts import MCTSConfig  # noqa: E402
 from wesnoth_ai.transformer_policy import TransformerPolicy  # noqa: E402
 
 
+def collect_across_publication(stream, publish, *, timeout: float = 600.0):
+    """Publish (through `publish()`) while every actor is inside a game,
+    then collect until those games have completed. Returns the games
+    collected, the games that were in flight at the publication (by
+    index) and the stream's own stamp of it."""
+    flight = stream.wait_in_flight(timeout=120.0)
+    targets = {g for g, _ in flight.values()}
+    publish()
+    t_pub = stream.publications()[-1]
+    games = []
+    while not targets <= {g.index for g in games}:
+        assert len(games) < 4 * len(targets), \
+            f"the games in flight at the publication ({sorted(targets)}) must complete"
+        games.extend(stream.collect(1, timeout=timeout).games)
+    return games, targets, t_pub
+
+
+def assert_publication_straddled(games, targets, t_pub) -> None:
+    """A game inside which the publication fell counts it once; a game
+    that started after it counts nothing. A game that ended in the
+    instant between the wait's return and the stamp is not judged."""
+    checked = 0
+    for g in games:
+        if g.index in targets and g.t_end > t_pub:
+            assert g.straddled == 1, f"game {g.index} was in flight at the publication"
+            checked += 1
+        elif g.index not in targets and g.t_start > t_pub:
+            assert g.straddled == 0, f"game {g.index} started after the publication"
+    timings = [(g.index, round(g.t_start - t_pub, 3), round(g.t_end - t_pub, 3), g.straddled)
+               for g in games]
+    assert checked >= 1, ("no in-flight game outlived the publication: "
+                          f"targets {sorted(targets)}, (index, start, end, straddled) "
+                          f"relative to the stamp {timings}")
+
+
 @pytest.mark.slow
 def test_actor_pool_plays_games_end_to_end():
     from tools.actor_pool import ActorPool
@@ -132,18 +167,21 @@ def test_actor_pool_streams_games_across_a_publication():
         assert first.straddle_max == 0
         assert pool.last_served_forwards > 0 and stream.leaves_served() > 0
         version_before = policy._inference_model._weights_version
-        with torch.no_grad():
-            for prm in policy._model.parameters():
-                prm.add_(0.1 * torch.randn_like(prm))
-        policy._snapshot_inference_weights()       # under the server's gate
-        assert policy._inference_model._weights_version == version_before + 1
-        stream.publish(value_center=0.1, decision_step=int(policy._decision_step))
-        second = stream.collect(2, timeout=600.0)
-        assert len(second.games) == 2
-        # Both actors were mid-game at the publication.
-        assert second.straddle_mean == 1.0 and second.straddled_share == 1.0
-        assert [g.index for g in second.games] == [2, 3] or set(
-            g.index for g in second.games) == {2, 3}
+
+        def publish():
+            with torch.no_grad():
+                for prm in policy._model.parameters():
+                    prm.add_(0.1 * torch.randn_like(prm))
+            policy._snapshot_inference_weights()   # under the server's gate
+            assert policy._inference_model._weights_version == version_before + 1
+            stream.publish(value_center=0.1, decision_step=int(policy._decision_step))
+
+        # An actor between games (report sent, next start not stamped)
+        # would make its next game miss the publication: publish only
+        # once both are inside their second game.
+        games, targets, t_pub = collect_across_publication(stream, publish)
+        assert targets == {2, 3}, "each actor is inside its second game"
+        assert_publication_straddled(games, targets, t_pub)
         tail = stream.stop(grace=120.0)
         assert stream._live == set(), "every actor reported done after the drain"
         assert not pool._streaming and not pool._serving

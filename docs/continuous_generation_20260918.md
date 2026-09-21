@@ -52,7 +52,12 @@ no compute.
   final weights at once.
 - **Straddling.** A game that started before a publication and ended
   after it lived through it. Its experiences mix the two policies'
-  decisions; its label is the game's outcome, as always. Each game
+  decisions; its label is the game's outcome, as always. A publication
+  is dated as it begins: the in-process server serves the snapshot
+  already, and the serve processes load theirs during the sync, so a
+  game that ends while the sync runs may have played under both.
+  Each actor reports a game's start as well as its end, so the stream
+  knows which games are in flight (`in_flight`, `wait_in_flight`). Each game
   reports the count; each window its mean, maximum and the share of
   games that straddled at all. With as many actors as games per window
   a game straddles about one publication on average; with twice as

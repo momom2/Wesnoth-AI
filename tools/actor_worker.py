@@ -26,7 +26,7 @@ import threading
 import time
 import traceback
 from types import SimpleNamespace
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 import torch
 
@@ -62,8 +62,23 @@ _R_DONE    = "iter_done"   # (local_decisions, distill stats, iter_idx)
 # decisions made in it, time.time() at its start and end, the distill
 # stats drained for it under the continuous pool, else None).
 _R_GAME    = "game"
+# Under the continuous pool only, one per game right after its start
+# stamp: (game index, time.time() at its start). The stream keeps the
+# games in flight from it; the barrier pool has no use for it.
+_R_START   = "start"
 _R_ERROR   = "error"       # traceback string (non-fatal; logged)
 _R_FATAL   = "fatal"       # non-swallowable death (fork guard, ...)
+def _done_report(payload) -> Tuple[int, Optional[Dict], Optional[int]]:
+    """An actor's _R_DONE payload as (decisions, distill stats,
+    iteration). The iteration is None for the older two-field and
+    plain-int shapes, which the manager then cannot date."""
+    if isinstance(payload, tuple):
+        if len(payload) >= 3:
+            return payload[0], payload[1], int(payload[2])
+        return payload[0], payload[1], None
+    return payload, None, None
+
+
 # Reply marker the manager puts on an actor's reply queue when the
 # serve process that actor was assigned to died: the client raises on
 # it whatever request it is waiting for.
@@ -442,6 +457,8 @@ def _actor_loop(
                 gl = f"iter{iter_idx}_g{g}_a{actor_id}"
                 ds_game0 = int(getattr(base, "_decision_step", 0))
                 t_game0 = time.time()
+                if _stream:
+                    result_q.put((_R_START, actor_id, (g, t_game0)))
                 outcome = _play_one_game_safe(
                     setup=setup, max_turns=mt, pvp_defaults=pvp,
                     policy=policy, reward_fn=_zero_reward,

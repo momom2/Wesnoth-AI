@@ -28,8 +28,10 @@ tail, and this module removes it:
 
 The actor-side contract (tools/actor_worker.py): one PLAY for the
 whole stream with the `stream` flag; per game the actor reports
-_R_OUTCOME, _R_EXPS and _R_GAME (index, decisions, start and end
-times, its drained distill stats); UPDATE between games carries the
+_R_START (index, start time) as the game begins, then _R_OUTCOME,
+_R_EXPS and _R_GAME (index, decisions, start and end times, its
+drained distill stats) as it ends, so the stream knows which games are
+in flight (`in_flight`, `wait_in_flight`); UPDATE between games carries the
 new value center and the global anneal counter; DRAIN ends the
 stream, the actor finishing its game and reporting done.
 
@@ -46,10 +48,11 @@ import queue as _queue
 import statistics
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from tools.actor_worker import (
     _CMD_DRAIN, _CMD_UPDATE, _R_DONE, _R_ERROR, _R_EXPS, _R_FATAL, _R_GAME, _R_OUTCOME,
+    _R_START, _done_report,
 )
 
 log = logging.getLogger("actor_stream")
@@ -142,6 +145,8 @@ class ActorStream:
         self._completed = 0                 # games reported (any outcome)
         self._publishes: List[float] = []   # time.time() of each publication
         self._pending: Dict[int, Dict] = {} # per actor: the game being reported
+        self._in_flight: Dict[int, Tuple[int, float]] = {}  # per actor: (index, start)
+        self._done: List[CompletedGame] = []  # completed, not yet cut into a window
         self._serving = None
         self._open = False
         self._draining = False
@@ -191,8 +196,8 @@ class ActorStream:
         t0 = time.monotonic()
         try:
             while outstanding and time.monotonic() - t0 < grace:
-                if not self._pump(window, outstanding, timeout=0.2):
-                    continue
+                self._pump(outstanding, timeout=0.2)
+            self._cut(window, None)
             if outstanding:
                 log.error(f"stream stop: actors {sorted(outstanding)} still playing "
                           f"after the {grace:.0f}s drain grace; their games are "
@@ -237,8 +242,10 @@ class ActorStream:
         ds0 = pool._global_decision_step()
         t0 = time.monotonic()
         last_liveness = t0
+        self._cut(window, n_games)          # games read during a wait_in_flight
         while len(window.games) < n_games:
-            self._pump(window, set(), timeout=0.2)
+            self._pump(set(), timeout=0.2)
+            self._cut(window, n_games)
             now = time.monotonic()
             if now - last_liveness > pool._liveness_interval:
                 last_liveness = now
@@ -265,18 +272,48 @@ class ActorStream:
         learner's current inference weights (the in-process server
         already serves them, published under its gate), the actors
         get the new value center and the global anneal counter, and
-        the publication is dated for the straddle count. Returns the
-        weights version the servers hold."""
+        the publication is dated for the straddle count as it begins:
+        the in-process server serves the snapshot already and the
+        serve processes load theirs during the sync, so a game that
+        ends while the sync runs may have played under both. Returns
+        the weights version the servers hold."""
         pool = self._pool
         if not self._open:
             raise RuntimeError("publish() on a stream that is not open")
+        self._publishes.append(time.time())
         version = pool.sync_servers()
         vc = float(pool.value_center if value_center is None else value_center)
         ds = int(pool._global_decision_step() if decision_step is None else decision_step)
         for aid in sorted(self._live):
             pool._ctrl_qs[aid].put((_CMD_UPDATE, vc, ds))
-        self._publishes.append(time.time())
         return version
+
+    def publications(self) -> List[float]:
+        """time.time() of each publication so far, in order."""
+        return list(self._publishes)
+
+    def in_flight(self) -> Dict[int, Tuple[int, float]]:
+        """Per live actor, the game it is inside as of the last message
+        read: (game index, time.time() at its start). An actor between
+        games (its report sent, its next start not yet stamped) is
+        absent."""
+        return dict(self._in_flight)
+
+    def wait_in_flight(self, timeout: float) -> Dict[int, Tuple[int, float]]:
+        """Read messages until every live actor is inside a game, then
+        return `in_flight()`; a publication made right after straddles
+        each of those games. Games that complete meanwhile wait for the
+        next `collect`. Raises past `timeout` seconds."""
+        if not self._open:
+            raise RuntimeError("wait_in_flight() on a stream that is not open")
+        t0 = time.monotonic()
+        while set(self._in_flight) != set(self._live):
+            if time.monotonic() - t0 > timeout:
+                idle = sorted(set(self._live) - set(self._in_flight))
+                raise RuntimeError(
+                    f"stream: actors {idle} not inside a game after {timeout:.0f}s")
+            self._pump(set(), timeout=0.2)
+        return self.in_flight()
 
     def leaves_served(self) -> int:
         """Leaves the in-process server has served so far (its threads'
@@ -297,11 +334,18 @@ class ActorStream:
             pool._game_q.put(pool._ticket(self._tag, self._next_game, self._seed))
             self._next_game += 1
 
-    def _pump(self, window: StreamWindow, outstanding: set, *, timeout: float) -> bool:
-        """One read of the result queue. Completed games go to
-        `window`; a done report retires its actor from `outstanding`
-        (the drain) and from the live set. Returns True when a message
-        was read."""
+    def _cut(self, window: StreamWindow, n_games: Optional[int]) -> None:
+        """Move completed games into `window` up to `n_games` in it
+        (all of them when None); the rest wait for the next window."""
+        take = len(self._done) if n_games is None else max(0, n_games - len(window.games))
+        window.games.extend(self._done[:take])
+        del self._done[:take]
+
+    def _pump(self, outstanding: set, *, timeout: float) -> bool:
+        """One read of the result queue. A start report puts its actor
+        in flight; completed games go to `_done` for the next cut; a
+        done report retires its actor from `outstanding` (the drain)
+        and from the live set. Returns True when a message was read."""
         pool = self._pool
         try:
             kind, aid, payload = pool._result_q.get(timeout=timeout)
@@ -311,7 +355,10 @@ class ActorStream:
                 if failed:
                     pool._abort_on_dead_servers(self._tag, sorted(failed), failures=failed)
             return False
-        if kind == _R_OUTCOME:
+        if kind == _R_START:
+            g, t_start = payload
+            self._in_flight[aid] = (int(g), float(t_start))
+        elif kind == _R_OUTCOME:
             self._pending.setdefault(aid, {})["outcome"] = payload
         elif kind == _R_EXPS:
             offer = getattr(pool._policy, "offer_holdout_game", None)
@@ -330,11 +377,22 @@ class ActorStream:
                 straddled=sum(1 for t in self._publishes if t_start < t <= t_end),
                 distill_stats=dstats)
             self._completed += 1
-            window.games.append(game)
+            self._in_flight.pop(aid, None)
+            self._done.append(game)
             self._top_up()
         elif kind == _R_DONE:
-            outstanding.discard(aid)
-            self._live.discard(aid)
+            _n_dec, _dstats, done_iter = _done_report(payload)
+            if done_iter is not None and done_iter != self._tag:
+                # An iteration abandoned before this stream opened:
+                # the actor reports it done as it takes the stream's
+                # PLAY, and stays live here (the barrier path makes
+                # the same distinction).
+                log.warning(f"stream {self._tag}: actor {aid} reported iteration "
+                            f"{done_iter} done (abandoned earlier); it stays live")
+            else:
+                outstanding.discard(aid)
+                self._live.discard(aid)
+                self._in_flight.pop(aid, None)
         elif kind == _R_ERROR:
             log.error(f"actor {aid} error:\n{payload}")
         elif kind == _R_FATAL:
@@ -351,6 +409,7 @@ class ActorStream:
         for aid in sorted(dead):
             self._live.discard(aid)
             self._pending.pop(aid, None)
+            self._in_flight.pop(aid, None)
             window.dropped_actors.append(aid)
 
     def _record_window(self, window: StreamWindow, ds0: int, t0: float) -> None:
