@@ -35,6 +35,11 @@ def pull(prefix: str, dest: Path, max_mb: float = 50.0) -> int:
         if target.exists() and target.stat().st_size == info.size:
             log.info("kept    %s", name)
             continue
+        if name.endswith(".escrowed") or ".partial." in name or (name.startswith("phase_") and name.endswith(".json")):
+            # Escrow markers, half-written partials and the per-state
+            # value-head records stay on the host (see .gitignore).
+            log.info("skipped %s (not a record the tree keeps)", name)
+            continue
         if info.size > max_mb * 1e6:
             # Checkpoints stay on the model host; the metrics tree holds
             # records (a run's escrowed .pt files are 180 MB each).

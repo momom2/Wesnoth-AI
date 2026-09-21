@@ -144,3 +144,11 @@ replays_dataset_imitation/
 rust/wesnoth_core/target/
 replays_dataset_imitation_quarantined/
 replays_dataset_imitation_duplicates/
+
+# Per-state value-head records (phase_*.json, 2 MB each, 70-90k lines)
+# and box escrow markers: the run's HF dir keeps them, the .md tables
+# derived from them are tracked, git history holds the ones committed
+# before 2026-09-21 (tools/pull_box_records.py skips them since).
+training/metrics/**/phase_*.json
+training/metrics/**/*.escrowed
+training/metrics/**/*.partial.json
