@@ -497,6 +497,26 @@ State of play:
   4090 is MET.** The reference checkpoint ran through the pool for
   the first time (cap 16, 2,354 saturated, no error). The 48-minute
   box cost about $0.45.
+- 2026-09-21 (Opus, branch `signal-levers`): **the scenario's
+  economy is read from the scenario.** `build_scenario_gamestate`
+  hardcoded 2 gold per village and a 70% experience modifier and
+  patched them onto the state after the shared builder ran, while the
+  replay path read both from the record -- one rule in two copies.
+  No whitelist map declares either (two declare `mp_village_gold=2`,
+  the value already used), so no Elo moves and a test pins all 21;
+  five of the seven mini scenarios declare `village_gold=3`, so mini
+  self-play had been paying a third less village income than its maps
+  specify and mini games after this are not comparable with those
+  before. The values now travel in the same dict fields a replay
+  record carries (BACKLOG.md "The scenario's economy is read from the
+  scenario"). `tools/analysis/corpus_census.py` reads era, layout,
+  factions and host settings out of all 17,019 raw replay headers:
+  the corpus is default-era play (29% declare `era_dunefolk`, which
+  is the default era plus one faction, and no game fields a Dunefolk
+  side), every scenario name resolves to one layout, all 23
+  mainline-named maps are byte-identical to the shipped 1.18.7 maps,
+  and the games split 11,457 whitelist / 582 mainline off-whitelist /
+  4,936 mini / 44 custom.
 - No box is rented (2026-09-21). Both 2026-09-19 rulings are taken
   (the reference is `terrain` at `raw:t0+eo-1.5`). Phase 2 is next:
   docs/plan_20260904.md 5, whose first measurement, the turn-level

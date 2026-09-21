@@ -947,6 +947,88 @@ inference.
   (+9 +- 55); the mcts:32 gaps (-367, +223) were procedure effects.
   Open: 800-game edges before any of these is quoted as a fact.
 
+## The scenario's economy is read from the scenario (2026-09-21, FIXED)
+
+Found while sizing the corpus for the fine-tune arm, by asking why no
+replay had ever diverged on gold or on levelling although 348 corpus
+games ran a non-70 experience modifier and 444 a non-2 village gold.
+The answer: the RECONSTRUCTION path reads both from the replay record
+(`replay_extract` writes `village_income`, `village_support`,
+`base_income`, `gold`, `experience_modifier` and `tod_start_index`;
+`_build_initial_gamestate` reads them), so the faithfulness pipeline
+was never at fault. The POOL path was: `build_scenario_gamestate`
+hardcoded 2 gold per village, 1 free upkeep and a 70% experience
+modifier, and patched them onto `global_info` AFTER the shared
+builder had run. One rule, two copies -- the mirror class the
+2026-09-14 audit named -- and the rule itself had been pinned in
+docs/wesnoth_rules.md since May, when the same hardcode caused a
+replay divergence on Den of Onis and was fixed on the replay side
+only.
+
+Scope, measured before the fix:
+- **No ladder map moves, so no Elo moves.** None of the 21 whitelist
+  scenarios declares an experience modifier; two (Clearing Gushes,
+  The Walls of Pyrennis) declare `mp_village_gold=2`, which is the
+  multiplayer default the pool already used. A test pins all 21.
+- **Five of the seven mini scenarios declare `village_gold=3`**
+  (2p_mini, 2p_mini_edited, Modified_Tiny_Close_Relation, both
+  fallenstars), so every mini self-play game and every mini-based
+  test paid a third less village income than its map specifies.
+  Mini self-play games after this commit are not comparable with
+  those before it; ladder matches are untouched.
+
+The fix: `scenario_pool.scenario_economy` reads the per-side
+`village_gold` / `village_support` and the scenario-level
+`mp_village_gold` / `mp_village_support` (the game-creation spelling
+mainline maps use), plus `experience_modifier` in the `"70%"` form the
+add-on scenarios write; `build_scenario_gamestate` takes None for
+each as "the scenario's value, else the multiplayer default" exactly
+as `starting_gold` has since 2026-07-21, and hands them to
+`_build_initial_gamestate` in the same dict fields a replay record
+carries, so the two paths now share one code path instead of two
+copies of the rule. `sim_self_play` stops mapping `PvPDefaults` onto
+them for scenario games, under the same ruling; `PvPDefaults` still
+governs the midgame-splice path, which has no scenario to read.
+tests/test_scenario_economy.py: 9 tests, four of which fail with the
+scenario read monkeypatched back to the old behaviour.
+
+## What the imitation corpus actually contains (2026-09-21)
+
+`tools/analysis/corpus_census.py` reads era, map layout, board size,
+factions and the host's rule settings out of all 17,019 raw replay
+headers (record: `training/metrics/corpus_census.json`). It settles
+four questions that the manifest cannot, and each had been assumed:
+
+- **The corpus is default-era play.** 12,157 games declare
+  `era_default` and 4,862 `era_dunefolk`, but that era is
+  `{ERA_DEFAULT}` plus one faction file
+  (`wesnoth_src/data/multiplayer/eras.cfg:21`), and the 34,038 sides
+  field only the six default factions: Loyalists 6,192, Rebels 6,077,
+  Undead 5,991, Northerners 5,532, Knalgan Alliance 5,292, Drakes
+  4,954. No Dunefolk side survived the corpus filter.
+- **One scenario name, one board.** Each of the 36 names resolves to
+  exactly one layout hash, so `2p_mini_edited` is not a map picker in
+  this window, and all 23 mainline-named maps are byte-identical to
+  the shipped 1.18.7 map files. There is no ladder-variant layout
+  here, and "ladder map" is the wrong name for what the whitelist
+  selects: 21 mainline maps.
+- **Packs.** 11,457 games on the whitelist the evaluation pool plays,
+  582 on mainline maps outside it (Cynsaun Battlefield 334, the
+  deepest board in the corpus at 358 decisions, and Hornshark Island
+  248), 4,936 mini, 44 custom.
+- **Non-default rule sets cluster in the mini pack.** 782 of the
+  11,457 whitelist games changed a host setting (779 turned "use map
+  settings" off, 325 the experience modifier, 190 the village gold,
+  184 to a random time-of-day start) against 2,113 of the 4,936 mini
+  games, 2,093 of them a random time-of-day start, which the
+  evaluation pool never runs. Filtering the whitelist pack to default
+  settings leaves 10,675 games.
+
+Corrected in the catalog on this evidence: docs/wesnoth_rules.md had
+"Default Era uses **5** gold per village (not the historic 1)".
+`mp_village_gold` is 2 in 16,712 of the 17,019 games and 5 in 26, and
+every mainline 2p map that declares it declares 1 or 2.
+
 ## Scenario [effect] members are named by id= (2026-09-13, FIXED)
 
 A hunt for siblings of the hide-cover bug -- a Wesnoth rule decided by

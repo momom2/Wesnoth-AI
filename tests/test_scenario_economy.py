@@ -1,0 +1,154 @@
+"""The village economy and the experience modifier come from the
+scenario, and reach the game through the same fields a replay record
+uses (tools/scenario_pool.build_scenario_gamestate).
+
+Before 2026-09-21 the pool hardcoded 2 gold per village and a 70%
+experience modifier and patched them onto `global_info` after the
+build. No mainline 2p map declares either, so the ladder pool was
+right by luck; five of the seven mini scenarios declare
+`village_gold=3`, so every mini self-play game paid a third less
+village income than its map specifies.
+"""
+from __future__ import annotations
+
+import random
+import sys
+from dataclasses import replace
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from tools import scenario_pool as sp  # noqa: E402
+from tools.replay_dataset import _build_initial_gamestate  # noqa: E402
+from tools.wesnoth_sim import WesnothSim  # noqa: E402
+
+
+def _setup(scenario_id: str) -> sp.ScenarioSetup:
+    base = sp.random_setup(random.Random(1), forced_faction=None,
+                           mini_maps=scenario_id in sp.MINI_MAP_SCENARIO_IDS)
+    return replace(base, scenario_id=scenario_id)
+
+
+def _economy(gs):
+    return (gs.global_info.village_gold, gs.global_info.village_upkeep,
+            getattr(gs.global_info, "_experience_modifier", None))
+
+
+@pytest.mark.parametrize("scenario_id, village_gold, exp_mod", [
+    # Declares village_gold=3 and no experience modifier.
+    ("2p_mini_edited", 3, sp.MP_EXPERIENCE_MODIFIER),
+    # Declares village_gold=3 and experience_modifier="70%": the
+    # percent form has to parse, not fall back.
+    ("enclave_mini_fallenstar_1v1", 3, 70),
+    # Declares village_gold=2, the same as the multiplayer default.
+    ("enclave_micro_isar", 2, 70),
+    # Declares neither: the multiplayer defaults stand.
+    ("multiplayer_Hamlets", sp.MP_VILLAGE_GOLD, sp.MP_EXPERIENCE_MODIFIER),
+    # Declares the game-creation form `mp_village_gold=2` on the
+    # scenario instead of the per-side form: also read.
+    ("multiplayer_Clearing_Gushes", 2, sp.MP_EXPERIENCE_MODIFIER),
+])
+def test_the_scenario_economy_reaches_the_built_state(scenario_id, village_gold, exp_mod):
+    gs = sp.build_scenario_gamestate(_setup(scenario_id))
+    assert _economy(gs) == (village_gold, sp.MP_VILLAGE_SUPPORT, exp_mod)
+
+
+def test_the_ladder_pool_is_unchanged_by_the_scenario_read():
+    """Every strength number this project has measured was played on
+    these 21 maps. None of them declares a village economy or an
+    experience modifier, so reading the scenario must leave all 21 on
+    the multiplayer defaults; if one ever stops, the Elo chain breaks
+    and this test says which map did it."""
+    want = (sp.MP_VILLAGE_GOLD, sp.MP_VILLAGE_SUPPORT, sp.MP_EXPERIENCE_MODIFIER)
+    changed = {sid: _economy(sp.build_scenario_gamestate(_setup(sid)))
+               for sid in sp.LADDER_SCENARIO_IDS}
+    assert {k: v for k, v in changed.items() if v != want} == {}
+
+
+def test_an_explicit_argument_still_overrides_the_scenario():
+    gs = sp.build_scenario_gamestate(_setup("2p_mini_edited"), village_gold=7,
+                                     village_upkeep=4, experience_modifier=30)
+    assert _economy(gs) == (7, 4, 30)
+
+
+def test_the_economy_travels_in_the_record_fields_not_a_post_build_patch(monkeypatch):
+    """The pool and the replay reader share `_build_initial_gamestate`.
+    The economy must be in the dict it consumes -- the same
+    `starting_sides[*].village_income` / `.village_support` and
+    top-level `experience_modifier` a replay record carries -- so both
+    paths agree by construction instead of by two copies of the rule."""
+    seen = {}
+
+    def spy(data):
+        seen.update(data)
+        return _build_initial_gamestate(data)
+
+    monkeypatch.setattr(sp, "_build_initial_gamestate", spy)
+    sp.build_scenario_gamestate(_setup("2p_mini_edited"))
+    assert seen["experience_modifier"] == sp.MP_EXPERIENCE_MODIFIER
+    for side in seen["starting_sides"]:
+        assert side["village_income"] == 3
+        assert side["village_support"] == sp.MP_VILLAGE_SUPPORT
+    # And the shared builder is what turns those fields into the state.
+    built = _build_initial_gamestate(seen)
+    assert _economy(built) == (3, sp.MP_VILLAGE_SUPPORT, sp.MP_EXPERIENCE_MODIFIER)
+
+
+def test_a_village_actually_pays_the_scenario_rate():
+    """The field reaches the turn's income, not just `global_info`.
+    One village on a mini map pays base_income + 3 = 5; under the
+    hardcoded 2 it paid 4."""
+    gs = sp.build_scenario_gamestate(_setup("2p_mini_edited"))
+    sim = WesnothSim(gs, scenario_id="2p_mini_edited", max_turns=6)
+    sim.gs.sides[0] = replace(sim.gs.sides[0], nb_villages_controlled=1)
+    before = sim.gs.sides[0].current_gold
+    sim.step({"type": "end_turn"})            # side 1 -> 2
+    sim.step({"type": "end_turn"})            # side 2 -> 1: side 1's income lands
+    base_income = sim.gs.sides[0].base_income
+    gained = sim.gs.sides[0].current_gold - before
+    assert gained == base_income + 3, (
+        f"one village paid {gained - base_income}, the scenario says 3")
+
+
+def test_both_spellings_of_the_village_economy_are_read():
+    """Runtime reads `[side] village_gold` and the mini add-on writes
+    it there; the mainline maps declare the game-creation setting
+    `mp_village_gold` on the scenario, which multiplayer setup copies
+    onto the sides. A reader that knows only one spelling silently
+    takes the default for half the corpus."""
+    assert sp.scenario_economy("2p_mini_edited")[0] == 3            # per-side
+    assert sp.scenario_economy("multiplayer_Clearing_Gushes")[0] == 2   # mp_ form
+    assert sp.scenario_economy("multiplayer_Hamlets")[0] is None    # neither
+
+
+def test_the_wml_integer_reader_handles_the_add_on_forms():
+    assert sp._wml_int('"70%"') == 70
+    assert sp._wml_int("3") == 3
+    assert sp._wml_int("-2") == -2
+    assert sp._wml_int("0") == 0          # a real setting, not "absent"
+    assert sp._wml_int("") is None
+    assert sp._wml_int("yes") is None
+
+
+def test_a_zero_village_gold_is_a_setting_not_an_absence(monkeypatch):
+    """`village_gold=0` is what the mini maps give their scenery side
+    and what several campaign scenarios give the player. Read through
+    a truthiness test it would silently become the multiplayer default
+    of 2, which is the shape of the bug this whole change fixes."""
+    class _Side:
+        def __init__(self, attrs):
+            self.attrs = attrs
+
+    class _Node:
+        attrs = {"mp_village_gold": "2"}
+
+        def all(self, _tag):
+            return [_Side({"side": "1", "village_gold": "0"})]
+
+        def first(self, _tag):
+            return self
+
+    monkeypatch.setattr(sp, "load_scenario_wml", lambda sid: _Node())
+    assert sp.scenario_economy("whatever")[0] == 0

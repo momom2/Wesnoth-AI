@@ -1568,13 +1568,35 @@ if(village_support.empty()) {
 host's game-options dialog sets it identically across all sides, but
 `replay_extract.py` MUST capture it per-side -- our
 `SideState.village_income` field reads `[side] village_gold` directly.
-Default Era uses **5** gold per village (not the historic 1). The
+The
 host can also customize it. NOT reading the per-side value and
 defaulting to a hardcoded 2 was the cause of a multi-replay diff
 divergence (commit 2026-05-03, Den of Onis #14f7a7c1a17f).
 
 Same for `village_support=` (default 1, mainline always 1 but capture
 it for completeness — `SideState.village_support`).
+
+**A scenario writes it either of two ways, and both must be read**
+(2026-09-21). The per-side `[side] village_gold=` above is the
+runtime form and the one the Mini Maps Collection uses: five of its
+seven 1v1 scenarios ask for 3. Mainline maps instead declare the
+game-creation setting `mp_village_gold=` on the scenario, which
+multiplayer setup copies onto every side --
+`wesnoth_src/data/multiplayer/scenarios/2p_Clearing_Gushes.cfg:15`
+and `2p_The_Walls_of_Pyrennis.cfg:15` (both 2),
+`2p_Cynsaun_Battlefield.cfg:14` (2), `2p_Dark_Forecast.cfg:16` and
+`2p_Isle_of_Mists.cfg:19` (both 1). `tools/scenario_pool.
+scenario_economy` reads both, the per-side form winning.
+
+**The 1v1 multiplayer default is 2, not 5.** An earlier revision of
+this entry read "Default Era uses **5** gold per village (not the
+historic 1)"; nothing supports it. Measured over the corpus's raw
+replay headers (`tools/analysis/corpus_census.py`, 17,019 games):
+`mp_village_gold` is 2 in 16,712, absent in 113, and 5 in 26. Every
+mainline 2p map that declares the setting declares 1 or 2. The engine
+constant `game_config::village_income` is not locally verifiable
+(`wesnoth_src/` carries no `src/` tree); what is corrected here is
+the multiplayer default, which the corpus settles.
 
 ---
 

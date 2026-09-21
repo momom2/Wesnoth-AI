@@ -1,0 +1,278 @@
+{
+ "summary": {
+  "games": 17019,
+  "errors": 0,
+  "packs": {
+   "ladder": 11457,
+   "mainline": 582,
+   "mini": 4936,
+   "other": 44
+  },
+  "maps": {
+   "2p_-_Ashy_Island": {
+    "games": 2,
+    "layouts": 1,
+    "pack": "other"
+   },
+   "2p_-_Autumn_Harvest": {
+    "games": 2,
+    "layouts": 1,
+    "pack": "other"
+   },
+   "2p_-_Benji_Autumn_Siege_small": {
+    "games": 16,
+    "layouts": 1,
+    "pack": "other"
+   },
+   "2p_-_Marshy_Fill": {
+    "games": 1,
+    "layouts": 1,
+    "pack": "other"
+   },
+   "2p_-_Micro_Isar": {
+    "games": 1902,
+    "layouts": 1,
+    "pack": "mini"
+   },
+   "2p_-_Mini_Fallenstar": {
+    "games": 9,
+    "layouts": 1,
+    "pack": "mini"
+   },
+   "2p_-_Small_Fallenstar": {
+    "games": 16,
+    "layouts": 1,
+    "pack": "other"
+   },
+   "2p_-_Troll_Toll": {
+    "games": 5,
+    "layouts": 1,
+    "pack": "other"
+   },
+   "2p_-_Winter_Steps": {
+    "games": 2,
+    "layouts": 1,
+    "pack": "other"
+   },
+   "2p__Aethermaw": {
+    "games": 578,
+    "layouts": 1,
+    "pack": "ladder"
+   },
+   "2p__Arcanclave_Citadel": {
+    "games": 153,
+    "layouts": 1,
+    "pack": "ladder"
+   },
+   "2p__Caves_of_the_Basilisk": {
+    "games": 1505,
+    "layouts": 1,
+    "pack": "ladder"
+   },
+   "2p__Clearing_Gushes": {
+    "games": 349,
+    "layouts": 1,
+    "pack": "ladder"
+   },
+   "2p__Cynsaun_Battlefield": {
+    "games": 334,
+    "layouts": 1,
+    "pack": "mainline"
+   },
+   "2p__Den_of_Onis": {
+    "games": 743,
+    "layouts": 1,
+    "pack": "ladder"
+   },
+   "2p__Elensefar_Courtyard": {
+    "games": 191,
+    "layouts": 1,
+    "pack": "ladder"
+   },
+   "2p__Fallenstar_Lake": {
+    "games": 586,
+    "layouts": 1,
+    "pack": "ladder"
+   },
+   "2p__Hamlets": {
+    "games": 1896,
+    "layouts": 1,
+    "pack": "ladder"
+   },
+   "2p__Hellhole": {
+    "games": 266,
+    "layouts": 1,
+    "pack": "ladder"
+   },
+   "2p__Hornshark_Island": {
+    "games": 248,
+    "layouts": 1,
+    "pack": "mainline"
+   },
+   "2p__Howling_Ghost_Badlands": {
+    "games": 366,
+    "layouts": 1,
+    "pack": "ladder"
+   },
+   "2p__Ruined_Passage": {
+    "games": 182,
+    "layouts": 1,
+    "pack": "ladder"
+   },
+   "2p__Ruphus_Isle": {
+    "games": 606,
+    "layouts": 1,
+    "pack": "ladder"
+   },
+   "2p__Sablestone_Delta": {
+    "games": 895,
+    "layouts": 1,
+    "pack": "ladder"
+   },
+   "2p__Silverhead_Crossing": {
+    "games": 351,
+    "layouts": 1,
+    "pack": "ladder"
+   },
+   "2p__Sullas_Ruins": {
+    "games": 221,
+    "layouts": 1,
+    "pack": "ladder"
+   },
+   "2p__Swamp_of_Dread": {
+    "games": 177,
+    "layouts": 1,
+    "pack": "ladder"
+   },
+   "2p__The_Freelands": {
+    "games": 714,
+    "layouts": 1,
+    "pack": "ladder"
+   },
+   "2p__The_Walls_of_Pyrennis": {
+    "games": 84,
+    "layouts": 1,
+    "pack": "ladder"
+   },
+   "2p__Thousand_Stings_Garrison": {
+    "games": 87,
+    "layouts": 1,
+    "pack": "ladder"
+   },
+   "2p__Tombs_of_Kesorak": {
+    "games": 123,
+    "layouts": 1,
+    "pack": "ladder"
+   },
+   "2p__Weldyn_Channel": {
+    "games": 1384,
+    "layouts": 1,
+    "pack": "ladder"
+   },
+   "2p_mini": {
+    "games": 10,
+    "layouts": 1,
+    "pack": "mini"
+   },
+   "2p_mini_edited": {
+    "games": 3008,
+    "layouts": 1,
+    "pack": "mini"
+   },
+   "Modified_Close_Relation_(2p)": {
+    "games": 4,
+    "layouts": 1,
+    "pack": "mini"
+   },
+   "around_mini": {
+    "games": 3,
+    "layouts": 1,
+    "pack": "mini"
+   }
+  },
+  "multi_layout_maps": {},
+  "settings": {
+   "era_id": {
+    "era_default": 12157,
+    "era_dunefolk": 4862
+   },
+   "experience_modifier": {
+    "70": 16671,
+    "50": 106,
+    "30": 67,
+    "60": 58,
+    "40": 56,
+    "100": 20,
+    "80": 15,
+    "200": 6,
+    "90": 5,
+    "110": 5,
+    "120": 4,
+    "140": 3,
+    "150": 1,
+    "130": 1,
+    "170": 1
+   },
+   "random_start_time": {
+    "no": 11935,
+    "null": 2774,
+    "yes": 2310
+   },
+   "mp_village_gold": {
+    "2": 16712,
+    "null": 113,
+    "3": 83,
+    "4": 32,
+    "8": 26,
+    "5": 26,
+    "1": 12,
+    "0": 7,
+    "6": 5,
+    "7": 3
+   },
+   "mp_use_map_settings": {
+    "yes": 16066,
+    "no": 840,
+    "null": 113
+   }
+  },
+  "factions": {
+   "Loyalists": 6192,
+   "Rebels": 6077,
+   "Undead": 5991,
+   "Northerners": 5532,
+   "Knalgan Alliance": 5292,
+   "Drakes": 4954
+  },
+  "non_default_by_pack": {
+   "mainline": {
+    "mp_use_map_settings": 36,
+    "any": 37,
+    "experience_modifier": 18,
+    "random_start_time": 2,
+    "mp_village_gold": 1
+   },
+   "ladder": {
+    "experience_modifier": 325,
+    "random_start_time": 184,
+    "mp_use_map_settings": 779,
+    "any": 782,
+    "mp_village_gold": 190
+   },
+   "mini": {
+    "random_start_time": 2093,
+    "any": 2113,
+    "mp_use_map_settings": 21,
+    "experience_modifier": 3,
+    "mp_village_gold": 2
+   },
+   "other": {
+    "random_start_time": 31,
+    "any": 32,
+    "mp_village_gold": 1,
+    "mp_use_map_settings": 4,
+    "experience_modifier": 2
+   }
+  }
+ }
+}

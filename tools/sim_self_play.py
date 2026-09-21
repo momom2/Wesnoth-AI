@@ -745,11 +745,16 @@ def _play_one_game_safe(
     # ruling); None = scenario value, 100 fallback for the many
     # maps that specify none. The eval path (elo_ladder) was
     # already scenario-first -- this also closes a train/eval gap.
-    sg = None
+    # The village economy and the experience modifier are NOT mapped
+    # either, for the same reason and by the same ruling (2026-09-21):
+    # `PvPDefaults` carries the multiplayer defaults, and passing them
+    # here overrode `village_gold=3` on five of the seven mini
+    # scenarios, so every mini self-play game paid a third less
+    # village income than its map specifies. None = the scenario's
+    # value. `PvPDefaults` still governs the midgame-splice path
+    # (`WesnothSim.from_replay`), which has no scenario cfg to read.
+    sg = vg = vu = em = None
     bi = (pvp_defaults.base_income   if pvp_defaults else 2)
-    vg = (pvp_defaults.village_gold  if pvp_defaults else 2)
-    vu = (pvp_defaults.village_support if pvp_defaults else 1)
-    em = (pvp_defaults.experience_modifier if pvp_defaults else 70)
     try:
         gs = build_scenario_gamestate(
             setup,

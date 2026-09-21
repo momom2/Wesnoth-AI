@@ -32,7 +32,7 @@ import os
 import random
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from wesnoth_ai.classes import GameState, Position
 from tools.replay_dataset import (
@@ -560,14 +560,81 @@ def sample_tod_start(scenario_id: str, rng: random.Random) -> int:
     return 0
 
 
+# Multiplayer fallbacks for the economy knobs a scenario does not
+# declare. They are the host's game-creation defaults rather than the
+# engine's: a 1v1 game is created at 2 gold per village and a 70%
+# experience modifier, which is what the corpus's 17,019 raw replay
+# headers record (village gold 2 in 16,712 of them, experience
+# modifier 70 in 16,671; tools/analysis/corpus_census.py). The engine
+# constants behind them are not locally verifiable -- wesnoth_src/
+# carries no src/ tree -- so these are named for what they are.
+MP_VILLAGE_GOLD = 2
+MP_VILLAGE_SUPPORT = 1
+MP_EXPERIENCE_MODIFIER = 70
+
+
+def _wml_int(value: str) -> Optional[int]:
+    """A WML integer attribute, tolerating the quoted and percent
+    forms the add-on scenarios use (`experience_modifier="70%"`).
+    None when the attribute is absent or not a number."""
+    text = (value or "").strip().strip('"').strip().rstrip("%").strip()
+    try:
+        return int(text)
+    except ValueError:
+        return None
+
+
+def scenario_economy(scenario_id: str) -> Tuple[Optional[int], Optional[int],
+                                                Optional[int]]:
+    """(village_gold, village_support, experience_modifier) as the
+    scenario declares them, each None when it does not.
+
+    The village economy is written two ways and both are read. It is
+    a [side] attribute at runtime (docs/wesnoth_rules.md "`village_gold`
+    / `village_support` are PER-SIDE attributes, set by host"), which
+    is the form the mini add-on uses and the form that wins here; the
+    mainline maps instead declare the game-creation setting
+    `mp_village_gold` on the scenario, which multiplayer setup copies
+    onto every side. Five of the seven mini scenarios ask for 3 gold
+    per village, and the two whitelist maps that declare anything
+    (Clearing Gushes, The Walls of Pyrennis) ask for 2, which is why
+    the hardcoded values this replaces were right for the ladder pool
+    and wrong for the minis.
+    """
+    root = load_scenario_wml(scenario_id)
+    if root is None:
+        return None, None, None
+    mp = root.first("multiplayer") or root.first("scenario")
+    if mp is None:
+        return None, None, None
+    village_gold = _wml_int(mp.attrs.get("mp_village_gold", ""))
+    village_support = _wml_int(mp.attrs.get("mp_village_support", ""))
+    for want in (1, 2):                     # the per-side form wins
+        side = next((s for s in mp.all("side")
+                     if _wml_int(s.attrs.get("side", "")) == want), None)
+        if side is None:
+            continue
+        # `is not None`, not truthiness: `village_gold=0` is a real
+        # setting (the scenery sides of the mini maps use it).
+        per_side_gold = _wml_int(side.attrs.get("village_gold", ""))
+        per_side_support = _wml_int(side.attrs.get("village_support", ""))
+        if per_side_gold is not None:
+            village_gold = per_side_gold
+        if per_side_support is not None:
+            village_support = per_side_support
+        break
+    return (village_gold, village_support,
+            _wml_int(mp.attrs.get("experience_modifier", "")))
+
+
 def build_scenario_gamestate(
     setup: ScenarioSetup,
     *,
     starting_gold: Optional[int] = None,
     base_income: int = 2,
-    village_gold: int = 2,
-    village_upkeep: int = 1,
-    experience_modifier: int = 70,
+    village_gold: Optional[int] = None,
+    village_upkeep: Optional[int] = None,
+    experience_modifier: Optional[int] = None,
 ) -> GameState:
     """Assemble a fresh GameState from scenario WML + faction picks.
 
@@ -581,6 +648,15 @@ def build_scenario_gamestate(
     `starting_gold=None` (default): read each side's gold from the
     scenario's [side] `gold=` attr (Arcanclave specifies 175;
     Hamlets has none, falls back to 100). Pass an int to override.
+
+    `village_gold`, `village_upkeep` and `experience_modifier` read
+    the same way: None (the default) takes the scenario's value and
+    falls back to the multiplayer default, an int overrides. They
+    travel to `_build_initial_gamestate` in the same dict fields a
+    replay record carries (`starting_sides[*].village_income` /
+    `.village_support`, top-level `experience_modifier`), so a game
+    built from a scenario and a game rebuilt from a replay go through
+    one code path rather than two.
 
     `experience_modifier=70` matches standard PvP defaults (each
     advance needs 70% of base XP). Other args mirror what
@@ -806,6 +882,18 @@ def build_scenario_gamestate(
                 "petrified": petrified,
             })
             next_uid += 1
+    # The scenario's own economy, unless the caller forced one.
+    scn_village_gold, scn_village_support, scn_exp = scenario_economy(
+        setup.scenario_id)
+    if village_gold is None:
+        village_gold = (scn_village_gold if scn_village_gold is not None
+                        else MP_VILLAGE_GOLD)
+    if village_upkeep is None:
+        village_upkeep = (scn_village_support if scn_village_support is not None
+                          else MP_VILLAGE_SUPPORT)
+    if experience_modifier is None:
+        experience_modifier = (scn_exp if scn_exp is not None
+                               else MP_EXPERIENCE_MODIFIER)
     starting_sides = [
         {
             "side": 1,
@@ -814,6 +902,8 @@ def build_scenario_gamestate(
             "recruit": list(factions[setup.faction1].recruit),
             "base_income": base_income + side_income.get(1, 0),
             "nb_villages_controlled": len(side_pre_villages.get(1, [])),
+            "village_income": village_gold,
+            "village_support": village_upkeep,
         },
         {
             "side": 2,
@@ -822,6 +912,8 @@ def build_scenario_gamestate(
             "recruit": list(factions[setup.faction2].recruit),
             "base_income": base_income + side_income.get(2, 0),
             "nb_villages_controlled": len(side_pre_villages.get(2, [])),
+            "village_income": village_gold,
+            "village_support": village_upkeep,
         },
     ]
     data = {
@@ -837,10 +929,12 @@ def build_scenario_gamestate(
     }
 
     gs = _build_initial_gamestate(data)
-    # Override the global_info defaults written by
-    # _build_initial_gamestate to match the user's pvp settings.
-    gs.global_info.village_gold = village_gold
-    gs.global_info.village_upkeep = village_upkeep
+    # The village economy and the experience modifier came through the
+    # dict above, as they do for a replay record. `base_income` has no
+    # dict field -- `_build_initial_gamestate` writes the engine's 2
+    # and every side carries its own `base_income` (the per-[side]
+    # `income=` offset is already folded in) -- so the global copy,
+    # which only feeds `state_key`, is set here.
     gs.global_info.base_income = base_income
 
     # `_build_initial_gamestate` hardcodes nb_villages_controlled=0,

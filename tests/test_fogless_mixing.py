@@ -168,13 +168,41 @@ def test_side_income_offset_does_not_leak_across_sides():
     assert [sd.base_income for sd in gs.sides[:2]] == [2, 2]
 
 
-def test_training_path_does_not_override_scenario_gold():
-    """_play_one_game_safe passed PvPDefaults.starting_gold=100 over
+def test_the_training_path_overrides_no_scenario_setting(monkeypatch):
+    """The training path passed `PvPDefaults.starting_gold=100` over
     every scenario's own gold until 2026-07-21 (minis designed for
-    ~50g trained on 100; (the since-deleted gold=0 drills gained
-    recruiting). The mapping must stay None."""
-    import inspect
-    from tools import sim_self_play
-    src = inspect.getsource(sim_self_play._play_one_game_safe)
-    assert "sg = None" in src
-    assert "pvp_defaults.starting_gold" not in src
+    ~50g trained on 100; the since-deleted gold=0 drills gained
+    recruiting), and its village gold and experience modifier over the
+    scenario's until 2026-09-21 (five of the seven mini scenarios ask
+    for 3 gold per village and got 2). Scenario settings are ground
+    truth: every economy knob must reach the builder as None, whatever
+    `PvPDefaults` carries.
+
+    Checked at the seam rather than by reading the source: the
+    previous version of this test grepped `_play_one_game_safe` for
+    the literal `"sg = None"`, which passes or fails on how the line
+    is spelled."""
+    from tools import scenario_pool, sim_self_play
+    from tools.wesnoth_sim import PvPDefaults
+
+    seen = {}
+
+    class _Stop(RuntimeError):
+        pass
+
+    def spy(setup, **kwargs):
+        seen.update(kwargs)
+        raise _Stop("captured")            # the caller logs and returns None
+
+    monkeypatch.setattr(scenario_pool, "build_scenario_gamestate", spy)
+    loud = PvPDefaults(starting_gold=100, base_income=2, village_gold=2,
+                       village_support=1, experience_modifier=70)
+    out = sim_self_play._play_one_game_safe(
+        setup=random_setup(random.Random(3), mini_maps=True), max_turns=4,
+        pvp_defaults=loud, policy=None, reward_fn=None, cost_lookup=None,
+        game_label="t")
+    assert out is None and seen, "the builder was never reached"
+    assert seen["starting_gold"] is None
+    assert seen["village_gold"] is None
+    assert seen["village_upkeep"] is None
+    assert seen["experience_modifier"] is None
