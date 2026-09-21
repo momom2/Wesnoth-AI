@@ -74,17 +74,18 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 
+from tools import reference_player
 from tools.bench_pipeline import DEFAULT_DATASET, DEFAULT_MANIFEST, load_states
+from tools.eval_procedure import procedure_of
 from tools.eval_sim import _PolicyPair, _play_one_eval_game
 from tools.mcts import fork_guard
-from tools.raw_player import RawPolicyPlayer
+from tools.raw_player import END_TURN_RULES, RawPolicyPlayer
 from tools.sim_self_play import _would_recruit_bounce
 from tools.wesnoth_sim import WesnothSim
 from wesnoth_ai.classes import GameState, state_key
 
 log = logging.getLogger("turn_gap")
 
-REFERENCE_PROCEDURE = "raw:t0"
 # Gap = best alternative mean - base mean, both in [-1, 1].
 GAP_HISTOGRAM_EDGES = [round(-2.0 + 0.25 * i, 2) for i in range(17)]
 
@@ -125,10 +126,18 @@ class GapConfig:
     stop_z: float = 2.0
     stop_margin: float = 0.0
     threshold: float = 0.25
+    # The decode of every player in the measurement: the base turn, the
+    # sampled alternatives, the continue edits and both sides of the
+    # playouts (tools/raw_player.py). The reference player's decode is
+    # configs/reference_player.json's (`--reference`).
+    end_turn_rule: str = "joint"
+    end_turn_offset: float = 0.0
 
     def __post_init__(self):
         if self.k_alternatives < 0 or self.playouts < 1 or self.cap_turns < 1:
             raise ValueError("k_alternatives >= 0, playouts >= 1, cap_turns >= 1")
+        if self.end_turn_rule not in END_TURN_RULES:
+            raise ValueError(f"end_turn_rule must be one of {END_TURN_RULES}")
         if self.rounds < 0 or self.drop_z < 0.0 or self.stop_z < 0.0:
             raise ValueError("rounds >= 0, drop_z >= 0, stop_z >= 0")
         if self.temperature < 0.0 or self.playout_temperature < 0.0:
@@ -137,6 +146,23 @@ class GapConfig:
             raise ValueError("playout_offset must be >= 0")
         if self.continue_edits < 0:
             raise ValueError("continue_edits must be >= 0")
+
+
+def procedure_tag(cfg: GapConfig, temperature: float) -> str:
+    """The raw player's procedure tag under cfg's decode at
+    `temperature` (tools/eval_procedure.py): `raw:t0` for the base
+    turn, `raw:t1` for the sampled alternatives, `+endm` / `+eo<x>`
+    appended when the decode has them."""
+    return procedure_of(0, False, False, temperature, raw_end_turn=cfg.end_turn_rule,
+                        raw_end_turn_offset=cfg.end_turn_offset)
+
+
+def player_for(policy, cfg: GapConfig, temperature: float, *,
+               seed: Optional[int] = None, forbid_end_turn: bool = False) -> RawPolicyPlayer:
+    """A raw player over `policy` under cfg's decode."""
+    return RawPolicyPlayer(policy, temperature, seed=seed, forbid_end_turn=forbid_end_turn,
+                           end_turn_rule=cfg.end_turn_rule,
+                           end_turn_offset=cfg.end_turn_offset)
 
 
 @dataclass
@@ -310,7 +336,7 @@ def _action_from_json(action: Dict) -> Dict:
 
 
 def _continue_candidate(position: BoundaryPosition, base_actions: List[Dict],
-                        policy, extra: int, max_turns: int, salt: str,
+                        policy, cfg: GapConfig, extra: int, max_turns: int, salt: str,
                         game_label: str) -> Tuple[Dict, WesnothSim]:
     """The base turn without its end_turn, then `extra` more argmax
     decisions that may not be end_turn (while any other action is
@@ -325,7 +351,7 @@ def _continue_candidate(position: BoundaryPosition, base_actions: List[Dict],
         act = _action_from_json(a)
         actions.append(_action_to_json(act))
         sim.step(act)
-    player = RawPolicyPlayer(policy, 0.0, forbid_end_turn=True)
+    player = player_for(policy, cfg, 0.0, forbid_end_turn=True)
     added = 0
     while added < extra and not sim.done and sim.current_side == side:
         act = _decide(player, sim, game_label)
@@ -387,26 +413,26 @@ def outcome_for(sim: WesnothSim, mover: int) -> Tuple[int, bool]:
     return -1, False
 
 
-def reference_pairs(policy, temperature: float = 0.0,
+def reference_pairs(policy, cfg: GapConfig, temperature: float = 0.0,
                     seed: Optional[int] = None) -> Dict[int, _PolicyPair]:
-    """Both sides' players for a playout: the reference `raw:t0`, or
-    the same weights at `temperature` with a per-playout sampling
-    seed (side 2 gets seed + 1)."""
-    label = REFERENCE_PROCEDURE if temperature == 0.0 else f"raw:t{temperature:g}"
-    return {side: _PolicyPair(policy=RawPolicyPlayer(
-                                  policy, temperature,
+    """Both sides' players for a playout under cfg's decode: the
+    reference (temperature 0), or the same weights at `temperature`
+    with a per-playout sampling seed (side 2 gets seed + 1)."""
+    label = procedure_tag(cfg, temperature)
+    return {side: _PolicyPair(policy=player_for(
+                                  policy, cfg, temperature,
                                   seed=None if seed is None else seed + side - 1),
                               label=label, side=side)
             for side in (1, 2)}
 
 
-def playout_pairs(policy, cfg: "GapConfig", salt: str) -> Dict[int, _PolicyPair]:
+def playout_pairs(policy, cfg: GapConfig, salt: str) -> Dict[int, _PolicyPair]:
     """The players of one playout: shared argmax players at playout
     temperature 0, else fresh sampling players seeded from the
     playout's salt (reproducible, independent across playouts)."""
     if cfg.playout_temperature == 0.0:
-        return reference_pairs(policy)
-    return reference_pairs(policy, cfg.playout_temperature,
+        return reference_pairs(policy, cfg)
+    return reference_pairs(policy, cfg, cfg.playout_temperature,
                            seed=zlib.crc32(salt.encode("utf-8")))
 
 
@@ -656,7 +682,7 @@ def measure_position(policy, position: BoundaryPosition, cfg: GapConfig,
     max_turns = turn0 + cfg.cap_turns
     label = f"tg{position.index}"
     salt = turn_salt(cfg.seed, position.index) if replay is None else replay["turn_salt"]
-    pairs = reference_pairs(policy)
+    pairs = reference_pairs(policy, cfg)
 
     if replay is not None:
         base, base_sim = _replay_candidate(position, replay["base"]["actions"], policy,
@@ -681,7 +707,7 @@ def measure_position(policy, position: BoundaryPosition, cfg: GapConfig,
         alternatives.append((k, alt, alt_sim))
     for k in range(cfg.k_alternatives if replay is None else 0):
         sample_seed = alternative_seed(cfg.seed, position.index, k)
-        player = RawPolicyPlayer(policy, cfg.temperature, seed=sample_seed)
+        player = player_for(policy, cfg, cfg.temperature, seed=sample_seed)
         alt, alt_sim = _candidate_turn(position, player, max_turns, salt,
                                        sample_seed, f"{label}alt{k}")
         same = seen.get(alt["post_state_key"])
@@ -693,7 +719,7 @@ def measure_position(policy, position: BoundaryPosition, cfg: GapConfig,
         alternatives.append((k, alt, alt_sim))
     for j in range(1, (cfg.continue_edits if replay is None else 0) + 1):
         k = cfg.k_alternatives + j - 1
-        alt, alt_sim = _continue_candidate(position, base["actions"], policy, j,
+        alt, alt_sim = _continue_candidate(position, base["actions"], policy, cfg, j,
                                            max_turns, salt, f"{label}cont{j}")
         same = seen.get(alt["post_state_key"])
         if same is not None:
@@ -1023,6 +1049,39 @@ def _fresh_playouts(cfg: GapConfig, screen_cfg: Dict, offset_arg: int) -> GapCon
     return cfg
 
 
+def _check_decode_matches(cfg: GapConfig, screen_cfg: Dict) -> None:
+    """A confirmation grades the screen's turns under the screen's
+    decode: the playouts and the value reads would otherwise measure
+    another player than the one that proposed the turns. Screen files
+    from before the decode fields carry the joint decode at offset 0."""
+    screen = (str(screen_cfg.get("end_turn_rule", "joint")),
+              float(screen_cfg.get("end_turn_offset", 0.0)))
+    if screen != (cfg.end_turn_rule, cfg.end_turn_offset):
+        raise SystemExit(f"--confirm-from: the screen ran the decode {screen} and this run "
+                         f"{(cfg.end_turn_rule, cfg.end_turn_offset)}; pass the screen's "
+                         f"--raw-end-turn / --raw-end-turn-offset (or --reference)")
+
+
+def _apply_reference(args) -> Optional[Dict]:
+    """`--reference`: the checkpoint (fetched when missing) and the
+    decode of configs/reference_player.json into args. Returns the
+    reference's record for the provenance, None without the flag."""
+    if not args.reference:
+        return None
+    if args.checkpoint is not None or args.raw_end_turn != "joint" or args.raw_end_turn_offset:
+        raise SystemExit("--reference carries its own checkpoint and decode: drop "
+                         "--checkpoint, --raw-end-turn and --raw-end-turn-offset")
+    ref = reference_player.load()
+    decode = ref["decode"]
+    if int(decode.get("mcts_sims", 0)) != 0 or float(decode.get("raw_temperature", 0.0)) != 0.0:
+        raise SystemExit(f"the reference decode {decode} is not a raw argmax player; the "
+                         f"base turn of this measurement is the argmax turn")
+    args.checkpoint = str(reference_player.ensure_checkpoint(ref))
+    args.raw_end_turn = str(decode.get("raw_end_turn", "joint"))
+    args.raw_end_turn_offset = float(decode.get("raw_end_turn_offset", 0.0))
+    return {k: ref.get(k) for k in ("label", "checkpoint_hf", "procedure_tag")}
+
+
 def write_json(path: Path, payload: Dict) -> None:
     """Atomic: a kill mid-write never leaves a truncated file."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1047,6 +1106,15 @@ def main(argv) -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--checkpoint", default=None,
                     help="Reference weights (.pt), or the literal 'random'.")
+    ap.add_argument("--reference", action="store_true",
+                    help="The reference player of configs/reference_player.json: its "
+                         "checkpoint (fetched when missing) and its decode. Excludes "
+                         "--checkpoint and the decode flags.")
+    ap.add_argument("--raw-end-turn", choices=END_TURN_RULES, default="joint",
+                    help="How every player decides end_turn (tools/raw_player.py): "
+                         "the joint argmax or sample, or at the actor level.")
+    ap.add_argument("--raw-end-turn-offset", type=float, default=0.0,
+                    help="Every player's end_turn logit offset (0 = none).")
     ap.add_argument("--summarize", type=Path, default=None,
                     help="Print the summary of an existing result file (full or "
                          ".partial.json) at --gap-threshold and exit.")
@@ -1126,8 +1194,9 @@ def main(argv) -> int:
         _, report = resummarize(args.summarize, args.gap_threshold, args.dollars_per_hour)
         print(report)
         return 0
+    reference = _apply_reference(args)
     if args.checkpoint is None:
-        raise SystemExit("--checkpoint is required (or --summarize FILE)")
+        raise SystemExit("--checkpoint or --reference is required (or --summarize FILE)")
 
     import torch
     torch.set_num_threads(2)
@@ -1156,11 +1225,14 @@ def main(argv) -> int:
                     continue_edits=args.continue_edits,
                     seed=args.seed, rounds=args.rounds, drop_z=args.drop_z,
                     stop_z=args.stop_z, stop_margin=args.stop_margin,
-                    threshold=args.gap_threshold)
+                    threshold=args.gap_threshold,
+                    end_turn_rule=args.raw_end_turn,
+                    end_turn_offset=args.raw_end_turn_offset)
     replays: Dict[int, Dict] = {}
     if args.confirm_from is not None:
         screen = json.loads(args.confirm_from.read_text(encoding="utf-8"))
         replays = {int(r["index"]): r for r in screen["positions"]}
+        _check_decode_matches(cfg, screen["config"])
         cfg = _fresh_playouts(cfg, screen["config"], args.playout_offset)
         if not args.positions:
             args.positions = ",".join(str(i) for i, r in sorted(replays.items())
@@ -1182,10 +1254,10 @@ def main(argv) -> int:
                              f"{args.confirm_from}")
     else:
         positions = positions_from_manifest(args.states_json, args.dataset, args.n_states)
-    log.info("%d positions, K=%d P=%d T=%g cap=%d seed=%d, %s bf16=%s compile=%s "
+    log.info("%d positions, K=%d P=%d T=%g cap=%d seed=%d, base %s, %s bf16=%s compile=%s "
              "packed=%s shared=%s jobs=%d",
              len(positions), cfg.k_alternatives, cfg.playouts, cfg.temperature,
-             cfg.cap_turns, cfg.seed, spec.device, spec.infer_bf16,
+             cfg.cap_turns, cfg.seed, procedure_tag(cfg, 0.0), spec.device, spec.infer_bf16,
              spec.infer_compile, spec.infer_packed_trunk,
              spec.inference_address is not None, args.jobs)
 
@@ -1193,9 +1265,10 @@ def main(argv) -> int:
     header = {
         "config": asdict(cfg),
         "provenance": {
-            "reference_procedure": REFERENCE_PROCEDURE,
-            "alternative_procedure": f"raw:t{cfg.temperature:g}",
-            "playout_procedure": f"raw:t{cfg.playout_temperature:g}",
+            "reference_procedure": procedure_tag(cfg, 0.0),
+            "alternative_procedure": procedure_tag(cfg, cfg.temperature),
+            "playout_procedure": procedure_tag(cfg, cfg.playout_temperature),
+            "reference": reference,
             "policy": asdict(spec), "shared_inference": server is not None,
             "confirm_from": (None if args.confirm_from is None else str(args.confirm_from)),
             "confirm_top": args.confirm_top,

@@ -795,6 +795,20 @@ anyway, ordered by what the measurements say is binding:
 
 ## Phase 2 prerequisite (measure before designing)
 
+- NEXT (pre-registered 2026-09-21, docs/turn_gap_ref_prereg_20260921.md;
+  waits for the user's word on about $1.20, ceiling $2.20): the same
+  measurement against the CURRENT reference. Run 1 measured the seed,
+  and two of its three confirmed gaps were the base ending its turn
+  early, which the reference's -1.5 offset now removes from the base.
+  `tools/turn_gap.py --reference` runs the config's checkpoint under
+  its decode (base turn, sampled alternatives, both playout sides;
+  provenance carries the tags), the screen and the confirmation take
+  the design's sequential schedule, and
+  `tools/analysis/turn_gap_verdict.py` reads KILL (under 3 of 60
+  confirmed) / SPARSE / RICH (6 or more). Predicted: 1 to 3 confirmed,
+  so the plan's kill fires or sits on its boundary, which sends phase
+  2 to the value function on human boundary states first.
+  `scripts/turn_gap_ref_box.sh` runs it end to end.
 - MEASURED 2026-09-05 (docs/turn_gap_prereg_20260904.md, run 1,
   $0.90): 60 holdout boundary positions, 4 sampled alternative
   turns each, 40 playouts at temperature 0.5. Fraction with gap

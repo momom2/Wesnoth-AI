@@ -334,6 +334,59 @@ def test_cli_shared_inference_launches_one_server_for_the_workers(tmp_path, posi
     assert _server_processes_left() == []
 
 
+def test_the_decode_reaches_the_base_the_alternatives_and_the_playouts(policy, positions):
+    """Under an end_turn offset the base turn is the argmax turn with
+    end_turn's logit shifted: at -99 (act while anything else is
+    legal) it plays the offset-0 turn's decisions as a prefix and then
+    goes on, and every player's label carries the decode."""
+    plain = tg.GapConfig(k_alternatives=1, playouts=1, temperature=1.0, cap_turns=1, seed=1)
+    acting = tg.GapConfig(k_alternatives=1, playouts=1, temperature=1.0, cap_turns=1, seed=1,
+                          end_turn_offset=-99.0)
+    a = tg.measure_position(policy, positions[0], plain)
+    b = tg.measure_position(policy, positions[0], acting)
+    a_moves = [x for x in a["base"]["actions"] if x.get("type") != "end_turn"]
+    assert b["base"]["actions"][:len(a_moves)] == a_moves
+    assert b["base"]["n_decisions"] >= a["base"]["n_decisions"]
+    pairs = tg.reference_pairs(policy, acting)
+    assert {p.label for p in pairs.values()} == {"raw:t0+eo-99"}
+    assert all(p.policy.end_turn_offset == -99.0 for p in pairs.values())
+    assert tg.procedure_tag(acting, 1.0) == "raw:t1+eo-99"
+    assert tg.procedure_tag(plain, 0.5) == "raw:t0.5"
+    with pytest.raises(ValueError, match="end_turn_rule"):
+        tg.GapConfig(end_turn_rule="never")
+
+
+def test_cli_reference_takes_the_config_checkpoint_and_decode(tmp_path, positions, monkeypatch):
+    """`--reference` runs the measurement on configs/reference_player.json's
+    checkpoint under its decode, and the result file says so; it
+    refuses an explicit checkpoint; a confirmation under another
+    decode is refused too."""
+    from test_eval_inference_server import _tiny_checkpoint
+    spec_path = _tiny_checkpoint(tmp_path / "tiny.pt")
+    ref = {"label": "tiny", "checkpoint_hf": "tier-b/tiny.pt", "procedure_tag": "raw:t0+eo-1.5",
+           "decode": {"mcts_sims": 0, "raw_temperature": 0.0, "raw_end_turn": "joint",
+                      "raw_end_turn_offset": -1.5}}
+    monkeypatch.setattr(tg.reference_player, "load", lambda: ref)
+    monkeypatch.setattr(tg.reference_player, "ensure_checkpoint", lambda r: Path(spec_path))
+    monkeypatch.setattr(tg, "positions_from_manifest", lambda *a, **k: list(positions))
+    out = tmp_path / "gap.json"
+    rc = tg.main(["x", "--reference", "--device", "cpu", "--n-states", "1",
+                  "--alternatives", "1", "--playouts", "1", "--cap-turns", "1",
+                  "--out", str(out)])
+    assert rc == 0
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert data["config"]["end_turn_offset"] == -1.5
+    assert data["provenance"]["reference_procedure"] == "raw:t0+eo-1.5"
+    assert data["provenance"]["alternative_procedure"] == "raw:t1+eo-1.5"
+    assert data["provenance"]["reference"]["label"] == "tiny"
+    assert data["provenance"]["policy"]["checkpoint"] == str(spec_path)
+    with pytest.raises(SystemExit, match="drop --checkpoint"):
+        tg.main(["x", "--reference", "--checkpoint", spec_path, "--device", "cpu"])
+    with pytest.raises(SystemExit, match="the screen ran the decode"):
+        tg.main(["x", "--checkpoint", spec_path, "--device", "cpu", "--confirm-from", str(out),
+                 "--playouts", "1", "--cap-turns", "1"])
+
+
 def _server_processes_left():
     """Names of surviving child processes of this test (the server must
     have exited with the run)."""

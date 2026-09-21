@@ -499,8 +499,11 @@ State of play:
   box cost about $0.45.
 - No box is rented (2026-09-21). Both 2026-09-19 rulings are taken
   (the reference is `terrain` at `raw:t0+eo-1.5`). Phase 2 is next:
-  docs/plan_20260904.md 5, whose first measurement is the turn-gap
-  pre-registration.
+  docs/plan_20260904.md 5, whose first measurement, the turn-level
+  value gap against the current reference, is pre-registered
+  (docs/turn_gap_ref_prereg_20260921.md; `tools/turn_gap.py
+  --reference`, `scripts/turn_gap_ref_box.sh`, about $1.20) and waits
+  for the user's word.
 
 Standing rules (full list in the plan): the reference player is
 `terrain` at `raw:t0+eo-1.5` (user ruling 2026-09-20; one checkpoint
