@@ -481,16 +481,24 @@ State of play:
   end_turn head still marks turns worth passing. Whether
   `raw:t0+eo-1.5` becomes the reference decode is the user's ruling
   (BACKLOG.md "Training-signal panel").
-- One box is rented (2026-09-21, user order): instance 51884357, a
-  whole-CPU Ryzen 9 5950X 4090 host at $0.56/h, running
-  `scripts/serve_batch_box.sh` (docs/serve_batch_prereg_20260920.md:
-  the serve batch cap 16 against 64 in two interleaved pool pairs,
-  extras only if the pairs move; about 35-65 minutes); a detached
-  reaper on the laptop pulls its records to
-  `training/metrics/bench_pipeline/serve_batch_20260920/` and
-  destroys it on ALL_DONE or at 2.5 hours. Both 2026-09-19 rulings
-  are taken (the reference is `terrain` at `raw:t0+eo-1.5`). Phase 2
-  is next:
+- 2026-09-21 (user order): **the pool's serve batch cap was the
+  binding constraint, and 64 is the default.** Every generation
+  reading through 2026-09-18 ran the server under the az legs'
+  16-leaf cap; the "GPU roof" of 0.46-0.54 ms per leaf was that cap
+  (12% of the card's peak: 400 small kernels per 5,000-token batch).
+  On a whole-CPU Ryzen 9 5950X 4090 host, two interleaved pairs
+  (cap-16 arms repeating to 0.2%): 2,398/2,402 -> 3,223/3,222
+  saturated leaves per second, 1.34x, games per dollar 1.17x and
+  1.09x, batches of 39-40 leaves at 0.49 ms per leaf; the 96 cap adds
+  nothing (the queue binds at 5 waiting requests) and the graphed
+  server at 64 falls back on 75% of batches past its 12,288-token
+  bucket cap (docs/serve_batch_prereg_20260920.md "Measured";
+  docs/box_specs.md "The serve batch cap"). **Plan 1.3's 3,000 per
+  4090 is MET.** The reference checkpoint ran through the pool for
+  the first time (cap 16, 2,354 saturated, no error). The 48-minute
+  box cost about $0.45.
+- No box is rented (2026-09-21). Both 2026-09-19 rulings are taken
+  (the reference is `terrain` at `raw:t0+eo-1.5`). Phase 2 is next:
   docs/plan_20260904.md 5, whose first measurement is the turn-gap
   pre-registration.
 

@@ -125,9 +125,10 @@ def boundary_value(policy, sim, side: int, decision_step: int) -> float:
     return _value_for(output, sim.gs, side)
 
 
-# One inference request per chunk; matches the pool server's
-# max_batch=16 convention (tools/actor_pool.py) so a single actor's
-# candidate batch cannot monopolize a serve cycle.
+# One inference request per chunk: the actors' request size (leaf
+# batch 16, tools/actor_pool.py), so a single actor's candidate batch
+# cannot monopolize a serve cycle. The server coalesces requests up to
+# its own max_batch (64 since 2026-09-21).
 BOUNDARY_BATCH_CHUNK = 16
 
 

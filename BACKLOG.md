@@ -26,15 +26,21 @@ standard error is optimistic).
 
 Left open, neither blocking phase 2, both needing a box and a word
 from the user first:
-- plan 1.3's 3,000-leaves-per-second-per-4090 target: an A4000
-  cannot judge it (30 min, $0.25 on a 4090). The prerequisite held:
-  tokens per leaf about 1,200 -> about 300, saturated rate 2.4x.
-  Read since on real 4090s without a run of its own: 1,450-1,565
-  (2026-09-13), 2,126-2,269 (Ryzen 9 5950X host, 2026-09-18) and
-  2,634-2,914 (Core Ultra 9 285K host, the graphed server's arms,
-  2026-09-18). Not met; the roof is the GPU's own execution time
-  once the host is fast (docs/box_specs.md "The graphed server on a
-  quiet host").
+- plan 1.3's 3,000-leaves-per-second-per-4090 target: MET
+  2026-09-21 (user order). Every earlier reading (1,450-1,565 on
+  2026-09-13, 2,126-2,269 and 2,634-2,914 on 2026-09-18) ran the
+  pool under the az legs' 16-leaf serve batch cap, and "the roof is
+  the GPU's execution time" was a reading of that cap: at 320 tokens
+  per leaf 0.5 ms per leaf is 12% of the card's peak, the cost of
+  400 small kernels per batch. With the cap at 64 (four requests
+  coalesced) the same host that read 2,126-2,269 reads 3,222-3,237,
+  1.34x in two interleaved pairs that repeat to 0.2%, games per
+  dollar 1.09-1.17x; 96 adds nothing (the queue binds at 5 waiting
+  requests); the graphed server at 64 falls back on 75% of batches
+  past its 12,288-token bucket cap. 64 is the default in `az_loop`
+  and `bench_pool` (docs/serve_batch_prereg_20260920.md,
+  docs/box_specs.md "The serve batch cap"). The next generation
+  lever is actors again, and a graphed-64 arm needs bigger buckets.
 - a tight self-pin of the reference player (800 games, 18 min,
   $0.20), which would replace the +- 37 Elo above with +- 12.
   DONE 2026-09-19 as a rider of the end_turn box: 1,300 games,

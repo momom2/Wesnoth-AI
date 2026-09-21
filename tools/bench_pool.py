@@ -107,7 +107,7 @@ def _run_stream(pool, games: int, seed: int, rounds: int, step_seconds: float,
 def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
              server_priors: bool, max_turns: int, device, seed: int,
              iteration_timeout: float, log_level: int = logging.WARNING,
-             max_batch: int = 16, serve_threads: int = 2, packed_embed: bool = False,
+             max_batch: int = 64, serve_threads: int = 2, packed_embed: bool = False,
              coalesce: str = "fifo", coalesce_gap: int = 0,
              serve_processes: int = 1, graphed_serve: bool = False,
              stream_rounds: int = 0, step_seconds: float = 0.0) -> dict:
@@ -252,9 +252,11 @@ def main(argv) -> int:
     ap.add_argument("--games", type=int, default=19)
     ap.add_argument("--sims", type=int, default=32)
     ap.add_argument("--leaf-batch", type=int, default=16)
-    ap.add_argument("--max-batch", type=int, default=16,
+    ap.add_argument("--max-batch", type=int, default=64,
                     help="Leaves the server coalesces per batch across actors "
-                         "(ActorPool max_batch; the az legs used 16).")
+                         "(ActorPool max_batch). 64 since 2026-09-21: 1.34x the "
+                         "saturated rate of the az legs' 16 on a quiet 4090 host "
+                         "(docs/serve_batch_prereg_20260920.md).")
     ap.add_argument("--serve-threads", type=int, default=2,
                     help="Serving threads per server (2 in the az legs); "
                          "more overlap the per-batch Python with the GPU wait.")

@@ -1710,6 +1710,32 @@ both pairs, a cost a campaign pays once at its end. Rental about $2.2,
 of which about $0.8 idle after the last arm: the watcher that should
 have caught the final upload had expired and was not re-armed.
 
+## The serve batch cap: 64 leaves is the default, plan 1.3's target is met (2026-09-21, instance 51884357, RTX 4090, Ryzen 9 5950X whole CPU, $0.56/h)
+
+`scripts/serve_batch_box.sh` under docs/serve_batch_prereg_20260920.md:
+the pool (48 actors and games, 32 evaluations, leaf batch 16, bf16
+packed, eager server) with the server's coalescing cap at 16 and at 64,
+two interleaved pairs, then 96, 64 graphed and the reference checkpoint
+at 16. The cap-16 arms repeat to 0.2%.
+
+| cap | saturated leaves/s | leaves per batch | device ms per leaf | queue depth | games per $ |
+|---|---|---|---|---|---|
+| 16 | 2,398 / 2,402 | 17 | 0.76 / 0.74 | 22 / 23 | 918 / 1,096 |
+| 64 | 3,223 / 3,222 | 39 / 40 | 0.50 / 0.48 | 7.7 / 8.4 | 1,074 / 1,196 |
+| 96 | 3,237 | 38 | 0.51 | 5.0 | 1,127 |
+| 64 graphed | 3,205 (75% of batches past the 12,288-token bucket cap, eager fallback) | 38 | 0.46 | 7.8 | 1,441 (tail swing) |
+| 16, `terrain` checkpoint | 2,354 | 17 | 0.78 | 24 | 1,034 |
+
+1.34x saturated in both pairs, games per dollar 1.17x and 1.09x: the
+64 cap is the default from 2026-09-21 (`az_loop`, `bench_pool`). The
+2026-09-18 reading of 0.46-0.54 ms per leaf as "the GPU's roof" was a
+reading of the 16-leaf cap the az legs used: the same kernels on four
+times the tokens per batch cost 0.49 ms per leaf here against 0.75.
+Past 64 the queue binds (5 requests waiting at 96), so the next
+generation lever is actors again. Plan 1.3's 3,000 leaves per second
+per 4090 is met at 3,222-3,237 on a host that read 2,126-2,269 at cap
+16 three days earlier.
+
 ## The terrain-set arm (2026-09-19, instance 51597775, RTX 4090, EPYC 7B13 64 cores, 500 GB, $0.78/h, 4.5 box-hours)
 
 `scripts/terrain_arm_box.sh` under docs/terrain_multi_hot_prereg_20260919.md:

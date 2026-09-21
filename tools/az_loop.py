@@ -493,7 +493,12 @@ def main(argv) -> int:
                      scenario_opts=scenario_opts, max_turns=args.max_turns,
                      max_turns_min=args.max_turns,
                      pvp_defaults=PvPDefaults(), device=device,
-                     max_batch=16, log_level=logging.WARNING,
+                     # 64 leaves per serve batch (four actor requests
+                     # coalesced): 1.34x the saturated rate of the 16-leaf
+                     # cap the az legs used, measured 2026-09-21 in two
+                     # interleaved pairs on a quiet 4090 host
+                     # (docs/serve_batch_prereg_20260920.md).
+                     max_batch=64, log_level=logging.WARNING,
                      iteration_timeout=args.iteration_timeout,
                      drain_grace=300.0,
                      server_priors=bool(args.server_priors),

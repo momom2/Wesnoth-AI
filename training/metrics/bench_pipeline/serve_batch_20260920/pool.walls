@@ -1,0 +1,7 @@
+b16_a max_batch=16  407 s
+b64_a max_batch=64  349 s
+b16_b max_batch=16  342 s
+b64_b max_batch=64  314 s
+b96_a max_batch=96  333 s
+b64g_a max_batch=64 --graphed-serve 225 s
+ref16_a max_batch=16  362 s

@@ -1,0 +1,50 @@
+cores(nproc) 1
+cores(all) 32
+model name	: AMD Ryzen 9 5950X 16-Core Processor
+cpu.max 3071999 100000
+pids.max 7680
+NVIDIA GeForce RTX 4090, 24564 MiB, 580.173.02
+               total        used        free      shared  buff/cache   available
+Mem:           32008         871       27606           1        3530       30691
+torch 2.5.1+cu124
+no git
+reach/enumeration    RUST
+observation          RUST
+rows_from_reach      RUST
+combat               RUST
+encode_streams       RUST
+GameCore             python
+kernels | RUST: reach/enumeration, observation, rows_from_reach, combat, encode_streams | PYTHON: GameCore | wheel phase 10
+== idle 08:33:30
+0.51 0.13 0.04 1/597 2434
+210 MHz, 3105 MHz, 21.51 W, 30, 0 %
+Mem:           32008         874       27332           1        3801       30687
+reference checkpoint: /workspace/Wesnoth-AI/training/checkpoints/terrain.pt
+== pool_b16_a before 08:33:42
+0.55 0.15 0.05 1/607 2450
+210 MHz, 3105 MHz, 21.57 W, 30, 0 %
+Mem:           32008         880       26636           1        4491       30679
+== pool_b64_a before 08:40:34
+5.53 6.08 3.26 1/580 4241
+330 MHz, 3105 MHz, 27.32 W, 30, 0 %
+Mem:           32008         891       26467           1        4649       30664
+== pool_b16_b before 08:46:26
+2.43 7.27 5.15 1/578 6032
+1080 MHz, 3105 MHz, 41.99 W, 31, 0 %
+Mem:           32008         877       26476           1        4654       30678
+== pool_b64_b before 08:52:14
+3.64 8.35 6.70 2/605 7823
+345 MHz, 3105 MHz, 28.69 W, 32, 0 %
+Mem:           32008         910       26436           1        4661       30644
+== pool_b96_a before 08:57:33
+3.49 8.88 7.81 1/582 9616
+465 MHz, 3105 MHz, 29.15 W, 31, 0 %
+Mem:           32008         914       26430           1        4663       30641
+== pool_b64g_a before 09:03:10
+3.37 8.99 8.67 1/585 11407
+735 MHz, 3105 MHz, 45.49 W, 32, 0 %
+Mem:           32008         916       26425           1        4666       30639
+== pool_ref16_a before 09:07:00
+8.73 10.47 9.45 1/585 13198
+390 MHz, 3105 MHz, 51.36 W, 35, 0 %
+Mem:           32008         916       26423           1        4668       30638

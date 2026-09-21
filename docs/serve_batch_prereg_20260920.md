@@ -85,3 +85,48 @@ Seven pool arms at about 7 minutes each plus bring-up: about 65
 box-minutes, $0.50 at $0.40-0.50 per hour on the quiet host class.
 `scripts/serve_batch_box.sh` runs it end to end and leaves ALL_DONE on
 HF on every exit.
+
+## Measured (2026-09-21, instance 51884357: a whole-CPU Ryzen 9 5950X 4090 host, 30.7-core quota, 32 GB, $0.56/h, 48 box-minutes, about $0.45)
+
+Records under `training/metrics/bench_pipeline/serve_batch_20260920/`
+(`verdict.txt`, one JSON and log per arm). 48 actors and games, 32
+evaluations, leaf batch 16, bf16 packed, eager server unless noted.
+
+| arm | cap | saturated leaves/s | iteration leaves/s | games per $ | leaves per batch | device ms per leaf | queue depth | wall s |
+|---|---|---|---|---|---|---|---|---|
+| b16_a | 16 | 2,398 | 1,454 | 918 | 17.1 | 0.76 | 21.7 | 407 |
+| b64_a | 64 | 3,223 | 1,623 | 1,074 | 38.9 | 0.50 | 7.7 | 349 |
+| b16_b | 16 | 2,402 | 1,644 | 1,096 | 17.2 | 0.74 | 22.7 | 342 |
+| b64_b | 64 | 3,222 | 1,815 | 1,196 | 40.0 | 0.48 | 8.4 | 314 |
+| b96_a | 96 | 3,237 | 1,686 | 1,127 | 38.1 | 0.51 | 5.0 | 333 |
+| b64g_a | 64, graphed | 3,205 | 2,257 | 1,441 | 38.0 | 0.46 | 7.8 | 225 |
+| ref16_a | 16, `terrain` checkpoint | 2,354 | 1,679 | 1,034 | 17.2 | 0.78 | 24.2 | 362 |
+
+QUIET: the cap-16 arms repeat to 0.2%. Pair a: saturated 1.344x,
+iteration 1.116x, games per dollar 1.169x; pair b: 1.341x, 1.104x,
+1.091x. **DEFAULT 64: YES.** `az_loop` and `bench_pool` take 64 from
+this commit. **Plan 1.3's 3,000 leaves per second per 4090: MET**, at
+3,222-3,237 on a mid-class host (this host read 2,126-2,269 at cap
+16 on 2026-09-18, the quiet Core Ultra 9 host 2,634-2,914).
+
+What the columns say. The cap was binding at 16: the queue held 22
+requests, the batches 17 leaves. At 64 the batches hold 39-40 leaves
+(3.7 requests), the device time per leaf falls from 0.75 to 0.49 ms,
+and the queue drains to 8. At 96 nothing moves (3,237, batches of
+38): with the server this fast only 5 requests wait, so the queue,
+not the cap, binds next; more actors would refill it (docs/box_specs.md
+"Actors buy in-flight leaves"). The graphed server at 64 is not a
+reading: three quarters of its batches (5,567 of 7,395) exceeded the
+largest captured bucket, 12,288 tokens, which a 40-leaf batch of
+305-token leaves just fills, and fell back to eager; its iteration
+column is the tail swing. A fair graphed-64 arm needs bucket caps
+past 16k tokens; the graphed default stays OFF. The reference
+checkpoint `terrain` ran through the pool at cap 16 without error
+(the first production run under `terrain_multi_hot`; 323 tokens per
+leaf, 2,354 saturated, within the cap-16 arms' band), so the actor
+pool's flag plumbing holds.
+
+Against the predictions: 1.34x against 1.4x predicted (range
+1.15-1.9x); batches of 39-40 against 45-60 predicted; the 96 cap
+under 10% over 64 as predicted (0.4%); the target met, on a host class
+the prediction had not counted on.
