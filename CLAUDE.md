@@ -481,13 +481,16 @@ State of play:
   end_turn head still marks turns worth passing. Whether
   `raw:t0+eo-1.5` becomes the reference decode is the user's ruling
   (BACKLOG.md "Training-signal panel").
-- No box is rented (2026-09-19 night, after four runs: the end_turn
-  test, the offset sweep, the terrain arm and the composition; about
-  $6 in all). Two rulings wait for the user: the reference DECODE
-  (`raw:t0+eo-1.5`, +229 Elo for a config scalar) and the reference
-  CHECKPOINT (the terrain-set arm, +44 Elo alone, +26 under the
-  decode, self-pinned at +2 +- 12); composed they read +263 +- 16
-  over today's reference. Phase 2 is next:
+- One box is rented (2026-09-21, user order): instance 51884357, a
+  whole-CPU Ryzen 9 5950X 4090 host at $0.56/h, running
+  `scripts/serve_batch_box.sh` (docs/serve_batch_prereg_20260920.md:
+  the serve batch cap 16 against 64 in two interleaved pool pairs,
+  extras only if the pairs move; about 35-65 minutes); a detached
+  reaper on the laptop pulls its records to
+  `training/metrics/bench_pipeline/serve_batch_20260920/` and
+  destroys it on ALL_DONE or at 2.5 hours. Both 2026-09-19 rulings
+  are taken (the reference is `terrain` at `raw:t0+eo-1.5`). Phase 2
+  is next:
   docs/plan_20260904.md 5, whose first measurement is the turn-gap
   pre-registration.
 
