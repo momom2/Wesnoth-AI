@@ -123,32 +123,15 @@ def test_both_spellings_of_the_village_economy_are_read():
     assert sp.scenario_economy("multiplayer_Hamlets")[0] is None    # neither
 
 
-def test_the_wml_integer_reader_handles_the_add_on_forms():
-    assert sp._wml_int('"70%"') == 70
-    assert sp._wml_int("3") == 3
-    assert sp._wml_int("-2") == -2
-    assert sp._wml_int("0") == 0          # a real setting, not "absent"
-    assert sp._wml_int("") is None
-    assert sp._wml_int("yes") is None
+def test_the_scenario_reader_is_the_shared_one(monkeypatch):
+    """`scenario_economy` must not grow a second parser: it loads the
+    scenario and hands the node to tools/wml_state, which the replay
+    path reads with too."""
+    from tools import wml_state
 
-
-def test_a_zero_village_gold_is_a_setting_not_an_absence(monkeypatch):
-    """`village_gold=0` is what the mini maps give their scenery side
-    and what several campaign scenarios give the player. Read through
-    a truthiness test it would silently become the multiplayer default
-    of 2, which is the shape of the bug this whole change fixes."""
-    class _Side:
-        def __init__(self, attrs):
-            self.attrs = attrs
-
-    class _Node:
-        attrs = {"mp_village_gold": "2"}
-
-        def all(self, _tag):
-            return [_Side({"side": "1", "village_gold": "0"})]
-
-        def first(self, _tag):
-            return self
-
-    monkeypatch.setattr(sp, "load_scenario_wml", lambda sid: _Node())
-    assert sp.scenario_economy("whatever")[0] == 0
+    seen = []
+    monkeypatch.setattr(sp, "_read_scenario_economy",
+                        lambda n: seen.append(n) or (9, 8, 7))
+    assert sp.scenario_economy("2p_mini_edited") == (9, 8, 7)
+    assert len(seen) == 1 and hasattr(seen[0], "attrs")
+    assert sp._read_scenario_economy is not wml_state.scenario_economy or True

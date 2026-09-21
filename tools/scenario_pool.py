@@ -39,6 +39,9 @@ from tools.replay_dataset import (
     _build_initial_gamestate,
 )
 from tools.scenario_events import load_scenario_wml
+from tools.wml_state import (MP_EXPERIENCE_MODIFIER, MP_VILLAGE_GOLD,
+                             MP_VILLAGE_SUPPORT, read_villages, wml_int)
+from tools.wml_state import scenario_economy as _read_scenario_economy
 
 
 log = logging.getLogger("scenario_pool")
@@ -560,46 +563,16 @@ def sample_tod_start(scenario_id: str, rng: random.Random) -> int:
     return 0
 
 
-# Multiplayer fallbacks for the economy knobs a scenario does not
-# declare. They are the host's game-creation defaults rather than the
-# engine's: a 1v1 game is created at 2 gold per village and a 70%
-# experience modifier, which is what the corpus's 17,019 raw replay
-# headers record (village gold 2 in 16,712 of them, experience
-# modifier 70 in 16,671; tools/analysis/corpus_census.py). The engine
-# constants behind them are not locally verifiable -- wesnoth_src/
-# carries no src/ tree -- so these are named for what they are.
-MP_VILLAGE_GOLD = 2
-MP_VILLAGE_SUPPORT = 1
-MP_EXPERIENCE_MODIFIER = 70
-
-
-def _wml_int(value: str) -> Optional[int]:
-    """A WML integer attribute, tolerating the quoted and percent
-    forms the add-on scenarios use (`experience_modifier="70%"`).
-    None when the attribute is absent or not a number."""
-    text = (value or "").strip().strip('"').strip().rstrip("%").strip()
-    try:
-        return int(text)
-    except ValueError:
-        return None
-
-
 def scenario_economy(scenario_id: str) -> Tuple[Optional[int], Optional[int],
                                                 Optional[int]]:
     """(village_gold, village_support, experience_modifier) as the
     scenario declares them, each None when it does not.
 
-    The village economy is written two ways and both are read. It is
-    a [side] attribute at runtime (docs/wesnoth_rules.md "`village_gold`
-    / `village_support` are PER-SIDE attributes, set by host"), which
-    is the form the mini add-on uses and the form that wins here; the
-    mainline maps instead declare the game-creation setting
-    `mp_village_gold` on the scenario, which multiplayer setup copies
-    onto every side. Five of the seven mini scenarios ask for 3 gold
-    per village, and the two whitelist maps that declare anything
-    (Clearing Gushes, The Walls of Pyrennis) ask for 2, which is why
-    the hardcoded values this replaces were right for the ladder pool
-    and wrong for the minis.
+    One line of parsing, in `tools/wml_state`, shared with the replay
+    reader: a save and a .cfg spell these the same way, and two
+    parsers of one grammar is how the generation path came to hardcode
+    the village economy while the bit-exact sweep certified only the
+    other parser.
     """
     root = load_scenario_wml(scenario_id)
     if root is None:
@@ -607,24 +580,7 @@ def scenario_economy(scenario_id: str) -> Tuple[Optional[int], Optional[int],
     mp = root.first("multiplayer") or root.first("scenario")
     if mp is None:
         return None, None, None
-    village_gold = _wml_int(mp.attrs.get("mp_village_gold", ""))
-    village_support = _wml_int(mp.attrs.get("mp_village_support", ""))
-    for want in (1, 2):                     # the per-side form wins
-        side = next((s for s in mp.all("side")
-                     if _wml_int(s.attrs.get("side", "")) == want), None)
-        if side is None:
-            continue
-        # `is not None`, not truthiness: `village_gold=0` is a real
-        # setting (the scenery sides of the mini maps use it).
-        per_side_gold = _wml_int(side.attrs.get("village_gold", ""))
-        per_side_support = _wml_int(side.attrs.get("village_support", ""))
-        if per_side_gold is not None:
-            village_gold = per_side_gold
-        if per_side_support is not None:
-            village_support = per_side_support
-        break
-    return (village_gold, village_support,
-            _wml_int(mp.attrs.get("experience_modifier", "")))
+    return _read_scenario_economy(mp)
 
 
 def build_scenario_gamestate(
@@ -746,9 +702,8 @@ def build_scenario_gamestate(
     # playback errored "Expacted was a [command] from side 3").
     neutral_actor_sides: set = set()
     for s in mp.all("side"):
-        try:
-            sn = int(s.attrs.get("side", "0"))
-        except ValueError:
+        sn = wml_int(s.attrs.get("side"), 0)
+        if not sn:
             continue
         if s.attrs.get("controller", "").strip() == "null":
             null_controller_sides.add(sn)
@@ -756,33 +711,26 @@ def build_scenario_gamestate(
             neutral_actor_sides.add(sn)
         if sn not in (1, 2):
             continue
-        if "gold" in s.attrs:
-            try:
-                side_gold[sn] = int(s.attrs["gold"])
-            except ValueError:
-                pass
+        gold = wml_int(s.attrs.get("gold"))
+        if gold is not None:
+            side_gold[sn] = gold
         # [side] income= is an OFFSET on the global base income, not
         # a replacement: team.hpp (1.18.4) `base_income() { return
         # info_.income + game_config::base_income; }`. Thousand
         # Stings Garrison sets income=-2 (net 0 on the no-villages
         # garrison map); ignoring it overpaid both sides 2/turn
         # (found 2026-07-21 with the starting-gold override bug).
-        if "income" in s.attrs:
-            try:
-                side_income[sn] = int(s.attrs["income"])
-            except ValueError:
-                pass
+        income = wml_int(s.attrs.get("income"))
+        if income is not None:
+            side_income[sn] = income
         # Pre-owned villages from [village] subblocks. Wesnoth
         # auto-captures these to the side at scenario start, which
-        # affects income from turn 1 onward.
-        for v in s.all("village"):
-            try:
-                vx = int(v.attrs.get("x", "0")) - 1
-                vy = int(v.attrs.get("y", "0")) - 1
-            except ValueError:
-                continue
+        # affects income from turn 1 onward. Read by the same function
+        # the replay path uses, which also drops the 0-coordinate
+        # placeholders a hand-edited scenario can carry.
+        for v in read_villages(s, sn):
             side_pre_villages.setdefault(sn, []).append(
-                Position(x=vx, y=vy))
+                Position(x=v["x"], y=v["y"]))
 
     def _gold_for(sn: int) -> int:
         if starting_gold is not None:

@@ -1,0 +1,2358 @@
+{
+ "2p_mini": {
+  "experience_modifier": 70,
+  "fog": true,
+  "global_base_income": 2,
+  "map": [
+   6,
+   4,
+   24
+  ],
+  "n_units": 2,
+  "pre_owned_villages": [],
+  "sides": [
+   {
+    "base_income": 2,
+    "faction": "Rebels",
+    "gold": 40,
+    "n_recruits": 7,
+    "villages": 0
+   },
+   {
+    "base_income": 2,
+    "faction": "Loyalists",
+    "gold": 40,
+    "n_recruits": 8,
+    "villages": 0
+   }
+  ],
+  "terrain_digest": "93d3cd04ecdd",
+  "time_of_day": "morning",
+  "tod_start_offset": 1,
+  "units": [
+   [
+    1,
+    5,
+    1,
+    "Elvish Captain",
+    true,
+    47,
+    60
+   ],
+   [
+    2,
+    0,
+    2,
+    "Lieutenant",
+    true,
+    40,
+    60
+   ]
+  ],
+  "village_gold": 3,
+  "village_upkeep": 1
+ },
+ "2p_mini_edited": {
+  "experience_modifier": 70,
+  "fog": true,
+  "global_base_income": 2,
+  "map": [
+   6,
+   6,
+   36
+  ],
+  "n_units": 2,
+  "pre_owned_villages": [],
+  "sides": [
+   {
+    "base_income": 2,
+    "faction": "Rebels",
+    "gold": 40,
+    "n_recruits": 7,
+    "villages": 0
+   },
+   {
+    "base_income": 2,
+    "faction": "Loyalists",
+    "gold": 40,
+    "n_recruits": 8,
+    "villages": 0
+   }
+  ],
+  "terrain_digest": "7febc9d0a43a",
+  "time_of_day": "morning",
+  "tod_start_offset": 1,
+  "units": [
+   [
+    1,
+    5,
+    2,
+    "Elvish Captain",
+    true,
+    47,
+    60
+   ],
+   [
+    2,
+    0,
+    3,
+    "Lieutenant",
+    true,
+    40,
+    60
+   ]
+  ],
+  "village_gold": 3,
+  "village_upkeep": 1
+ },
+ "Benji_Autumn_Siege_small": {
+  "experience_modifier": 70,
+  "fog": true,
+  "global_base_income": 2,
+  "map": [
+   16,
+   10,
+   160
+  ],
+  "n_units": 2,
+  "pre_owned_villages": [],
+  "sides": [
+   {
+    "base_income": 2,
+    "faction": "Rebels",
+    "gold": 100,
+    "n_recruits": 7,
+    "villages": 0
+   },
+   {
+    "base_income": 2,
+    "faction": "Loyalists",
+    "gold": 100,
+    "n_recruits": 8,
+    "villages": 0
+   }
+  ],
+  "terrain_digest": "28ee49ae79b5",
+  "time_of_day": "morning",
+  "tod_start_offset": 1,
+  "units": [
+   [
+    1,
+    2,
+    1,
+    "Elvish Captain",
+    true,
+    47,
+    60
+   ],
+   [
+    2,
+    13,
+    8,
+    "Lieutenant",
+    true,
+    40,
+    60
+   ]
+  ],
+  "village_gold": 2,
+  "village_upkeep": 1
+ },
+ "Modified_Tiny_Close_Relation": {
+  "experience_modifier": 70,
+  "fog": true,
+  "global_base_income": 2,
+  "map": [
+   5,
+   3,
+   15
+  ],
+  "n_units": 2,
+  "pre_owned_villages": [],
+  "sides": [
+   {
+    "base_income": 2,
+    "faction": "Rebels",
+    "gold": 40,
+    "n_recruits": 7,
+    "villages": 0
+   },
+   {
+    "base_income": 2,
+    "faction": "Loyalists",
+    "gold": 40,
+    "n_recruits": 8,
+    "villages": 0
+   }
+  ],
+  "terrain_digest": "08eb7c327688",
+  "time_of_day": "morning",
+  "tod_start_offset": 1,
+  "units": [
+   [
+    1,
+    4,
+    1,
+    "Elvish Captain",
+    true,
+    47,
+    60
+   ],
+   [
+    2,
+    0,
+    1,
+    "Lieutenant",
+    true,
+    40,
+    60
+   ]
+  ],
+  "village_gold": 3,
+  "village_upkeep": 1
+ },
+ "enclave_micro_isar": {
+  "experience_modifier": 70,
+  "fog": true,
+  "global_base_income": 2,
+  "map": [
+   7,
+   5,
+   35
+  ],
+  "n_units": 2,
+  "pre_owned_villages": [],
+  "sides": [
+   {
+    "base_income": 2,
+    "faction": "Rebels",
+    "gold": 50,
+    "n_recruits": 7,
+    "villages": 0
+   },
+   {
+    "base_income": 2,
+    "faction": "Loyalists",
+    "gold": 50,
+    "n_recruits": 8,
+    "villages": 0
+   }
+  ],
+  "terrain_digest": "5f3e5cdff7ec",
+  "time_of_day": "morning",
+  "tod_start_offset": 1,
+  "units": [
+   [
+    1,
+    0,
+    4,
+    "Elvish Captain",
+    true,
+    47,
+    60
+   ],
+   [
+    2,
+    6,
+    1,
+    "Lieutenant",
+    true,
+    40,
+    60
+   ]
+  ],
+  "village_gold": 2,
+  "village_upkeep": 1
+ },
+ "enclave_mini_fallenstar_1v1": {
+  "experience_modifier": 70,
+  "fog": true,
+  "global_base_income": 2,
+  "map": [
+   11,
+   11,
+   121
+  ],
+  "n_units": 2,
+  "pre_owned_villages": [],
+  "sides": [
+   {
+    "base_income": 2,
+    "faction": "Rebels",
+    "gold": 75,
+    "n_recruits": 7,
+    "villages": 0
+   },
+   {
+    "base_income": 2,
+    "faction": "Loyalists",
+    "gold": 75,
+    "n_recruits": 8,
+    "villages": 0
+   }
+  ],
+  "terrain_digest": "e8098425b112",
+  "time_of_day": "morning",
+  "tod_start_offset": 1,
+  "units": [
+   [
+    1,
+    0,
+    4,
+    "Elvish Captain",
+    true,
+    47,
+    60
+   ],
+   [
+    2,
+    10,
+    4,
+    "Lieutenant",
+    true,
+    40,
+    60
+   ]
+  ],
+  "village_gold": 3,
+  "village_upkeep": 1
+ },
+ "enclave_small_fallenstar_1v1": {
+  "experience_modifier": 70,
+  "fog": true,
+  "global_base_income": 2,
+  "map": [
+   19,
+   11,
+   209
+  ],
+  "n_units": 2,
+  "pre_owned_villages": [],
+  "sides": [
+   {
+    "base_income": 2,
+    "faction": "Rebels",
+    "gold": 75,
+    "n_recruits": 7,
+    "villages": 0
+   },
+   {
+    "base_income": 2,
+    "faction": "Loyalists",
+    "gold": 75,
+    "n_recruits": 8,
+    "villages": 0
+   }
+  ],
+  "terrain_digest": "0cdeb7e2bf78",
+  "time_of_day": "morning",
+  "tod_start_offset": 1,
+  "units": [
+   [
+    1,
+    1,
+    10,
+    "Elvish Captain",
+    true,
+    47,
+    60
+   ],
+   [
+    2,
+    17,
+    10,
+    "Lieutenant",
+    true,
+    40,
+    60
+   ]
+  ],
+  "village_gold": 3,
+  "village_upkeep": 1
+ },
+ "multiplayer_Aethermaw": {
+  "experience_modifier": 70,
+  "fog": true,
+  "global_base_income": 2,
+  "map": [
+   49,
+   40,
+   1960
+  ],
+  "n_units": 2,
+  "pre_owned_villages": [],
+  "sides": [
+   {
+    "base_income": 2,
+    "faction": "Rebels",
+    "gold": 75,
+    "n_recruits": 7,
+    "villages": 0
+   },
+   {
+    "base_income": 2,
+    "faction": "Loyalists",
+    "gold": 75,
+    "n_recruits": 8,
+    "villages": 0
+   }
+  ],
+  "terrain_digest": "113fbd8af126",
+  "time_of_day": "morning",
+  "tod_start_offset": 1,
+  "units": [
+   [
+    1,
+    28,
+    17,
+    "Elvish Captain",
+    true,
+    47,
+    60
+   ],
+   [
+    2,
+    20,
+    23,
+    "Lieutenant",
+    true,
+    40,
+    60
+   ]
+  ],
+  "village_gold": 2,
+  "village_upkeep": 1
+ },
+ "multiplayer_Arcanclave_Citadel": {
+  "experience_modifier": 70,
+  "fog": true,
+  "global_base_income": 2,
+  "map": [
+   47,
+   46,
+   2162
+  ],
+  "n_units": 2,
+  "pre_owned_villages": [
+   [
+    "4,3",
+    2
+   ],
+   [
+    "6,40",
+    2
+   ]
+  ],
+  "sides": [
+   {
+    "base_income": 2,
+    "faction": "Rebels",
+    "gold": 175,
+    "n_recruits": 7,
+    "villages": 0
+   },
+   {
+    "base_income": 2,
+    "faction": "Loyalists",
+    "gold": 175,
+    "n_recruits": 8,
+    "villages": 2
+   }
+  ],
+  "terrain_digest": "26786ba6dd69",
+  "time_of_day": "morning",
+  "tod_start_offset": 1,
+  "units": [
+   [
+    1,
+    45,
+    22,
+    "Elvish Captain",
+    true,
+    47,
+    60
+   ],
+   [
+    2,
+    1,
+    23,
+    "Lieutenant",
+    true,
+    40,
+    60
+   ]
+  ],
+  "village_gold": 2,
+  "village_upkeep": 1
+ },
+ "multiplayer_Basilisk": {
+  "experience_modifier": 70,
+  "fog": true,
+  "global_base_income": 2,
+  "map": [
+   41,
+   24,
+   984
+  ],
+  "n_units": 17,
+  "pre_owned_villages": [
+   [
+    "15,20",
+    2
+   ]
+  ],
+  "sides": [
+   {
+    "base_income": 2,
+    "faction": "Rebels",
+    "gold": 100,
+    "n_recruits": 7,
+    "villages": 0
+   },
+   {
+    "base_income": 2,
+    "faction": "Loyalists",
+    "gold": 100,
+    "n_recruits": 8,
+    "villages": 1
+   }
+  ],
+  "terrain_digest": "9a45750cd71d",
+  "time_of_day": "morning",
+  "tod_start_offset": 1,
+  "units": [
+   [
+    1,
+    20,
+    3,
+    "Elvish Captain",
+    true,
+    47,
+    60
+   ],
+   [
+    2,
+    20,
+    20,
+    "Lieutenant",
+    true,
+    40,
+    60
+   ],
+   [
+    3,
+    1,
+    10,
+    "Elvish Marksman",
+    false,
+    37,
+    56
+   ],
+   [
+    3,
+    4,
+    7,
+    "Highwayman",
+    false,
+    70,
+    105
+   ],
+   [
+    3,
+    7,
+    12,
+    "Armageddon Drake",
+    false,
+    98,
+    140
+   ],
+   [
+    3,
+    7,
+    17,
+    "Direwolf Rider",
+    false,
+    61,
+    105
+   ],
+   [
+    3,
+    14,
+    10,
+    "Grand Marshal",
+    false,
+    68,
+    140
+   ],
+   [
+    3,
+    16,
+    10,
+    "Mermaid Siren",
+    false,
+    51,
+    105
+   ],
+   [
+    3,
+    19,
+    11,
+    "Naga Myrmidon",
+    false,
+    49,
+    105
+   ],
+   [
+    3,
+    21,
+    11,
+    "Sea Serpent",
+    false,
+    85,
+    105
+   ],
+   [
+    3,
+    24,
+    13,
+    "Grand Knight",
+    false,
+    84,
+    105
+   ],
+   [
+    3,
+    26,
+    13,
+    "Sky Drake",
+    false,
+    45,
+    53
+   ],
+   [
+    3,
+    33,
+    5,
+    "Elder Wose",
+    false,
+    64,
+    56
+   ],
+   [
+    3,
+    33,
+    10,
+    "Iron Mauler",
+    false,
+    64,
+    105
+   ],
+   [
+    3,
+    36,
+    16,
+    "Giant Spider",
+    false,
+    54,
+    105
+   ],
+   [
+    3,
+    38,
+    7,
+    "Saurian Oracle",
+    false,
+    29,
+    52
+   ],
+   [
+    3,
+    39,
+    7,
+    "Saurian Flanker",
+    false,
+    54,
+    105
+   ]
+  ],
+  "village_gold": 2,
+  "village_upkeep": 1
+ },
+ "multiplayer_Clearing_Gushes": {
+  "experience_modifier": 70,
+  "fog": true,
+  "global_base_income": 2,
+  "map": [
+   27,
+   31,
+   837
+  ],
+  "n_units": 2,
+  "pre_owned_villages": [
+   [
+    "1,9",
+    2
+   ]
+  ],
+  "sides": [
+   {
+    "base_income": 2,
+    "faction": "Rebels",
+    "gold": 100,
+    "n_recruits": 7,
+    "villages": 0
+   },
+   {
+    "base_income": 2,
+    "faction": "Loyalists",
+    "gold": 100,
+    "n_recruits": 8,
+    "villages": 1
+   }
+  ],
+  "terrain_digest": "f29977c7d28e",
+  "time_of_day": "morning",
+  "tod_start_offset": 1,
+  "units": [
+   [
+    1,
+    23,
+    19,
+    "Elvish Captain",
+    true,
+    47,
+    60
+   ],
+   [
+    2,
+    3,
+    11,
+    "Lieutenant",
+    true,
+    40,
+    60
+   ]
+  ],
+  "village_gold": 2,
+  "village_upkeep": 1
+ },
+ "multiplayer_Den_of_Onis": {
+  "experience_modifier": 70,
+  "fog": true,
+  "global_base_income": 2,
+  "map": [
+   29,
+   24,
+   696
+  ],
+  "n_units": 2,
+  "pre_owned_villages": [
+   [
+    "23,5",
+    2
+   ]
+  ],
+  "sides": [
+   {
+    "base_income": 2,
+    "faction": "Rebels",
+    "gold": 100,
+    "n_recruits": 7,
+    "villages": 0
+   },
+   {
+    "base_income": 2,
+    "faction": "Loyalists",
+    "gold": 100,
+    "n_recruits": 8,
+    "villages": 1
+   }
+  ],
+  "terrain_digest": "579c8a8e83b6",
+  "time_of_day": "morning",
+  "tod_start_offset": 1,
+  "units": [
+   [
+    1,
+    14,
+    23,
+    "Elvish Captain",
+    true,
+    47,
+    60
+   ],
+   [
+    2,
+    14,
+    1,
+    "Lieutenant",
+    true,
+    40,
+    60
+   ]
+  ],
+  "village_gold": 2,
+  "village_upkeep": 1
+ },
+ "multiplayer_Fallenstar_Lake": {
+  "experience_modifier": 70,
+  "fog": true,
+  "global_base_income": 2,
+  "map": [
+   41,
+   22,
+   902
+  ],
+  "n_units": 2,
+  "pre_owned_villages": [
+   [
+    "36,20",
+    2
+   ]
+  ],
+  "sides": [
+   {
+    "base_income": 2,
+    "faction": "Rebels",
+    "gold": 100,
+    "n_recruits": 7,
+    "villages": 0
+   },
+   {
+    "base_income": 2,
+    "faction": "Loyalists",
+    "gold": 100,
+    "n_recruits": 8,
+    "villages": 1
+   }
+  ],
+  "terrain_digest": "bb4b0cb7d06f",
+  "time_of_day": "morning",
+  "tod_start_offset": 1,
+  "units": [
+   [
+    1,
+    1,
+    6,
+    "Elvish Captain",
+    true,
+    47,
+    60
+   ],
+   [
+    2,
+    39,
+    6,
+    "Lieutenant",
+    true,
+    40,
+    60
+   ]
+  ],
+  "village_gold": 2,
+  "village_upkeep": 1
+ },
+ "multiplayer_Hamlets": {
+  "experience_modifier": 70,
+  "fog": true,
+  "global_base_income": 2,
+  "map": [
+   27,
+   28,
+   756
+  ],
+  "n_units": 2,
+  "pre_owned_villages": [
+   [
+    "21,26",
+    2
+   ]
+  ],
+  "sides": [
+   {
+    "base_income": 2,
+    "faction": "Rebels",
+    "gold": 100,
+    "n_recruits": 7,
+    "villages": 0
+   },
+   {
+    "base_income": 2,
+    "faction": "Loyalists",
+    "gold": 100,
+    "n_recruits": 8,
+    "villages": 1
+   }
+  ],
+  "terrain_digest": "ba909ce71bd9",
+  "time_of_day": "morning",
+  "tod_start_offset": 1,
+  "units": [
+   [
+    1,
+    13,
+    3,
+    "Elvish Captain",
+    true,
+    47,
+    60
+   ],
+   [
+    2,
+    13,
+    24,
+    "Lieutenant",
+    true,
+    40,
+    60
+   ]
+  ],
+  "village_gold": 2,
+  "village_upkeep": 1
+ },
+ "multiplayer_Hellhole": {
+  "experience_modifier": 70,
+  "fog": true,
+  "global_base_income": 2,
+  "map": [
+   40,
+   29,
+   1160
+  ],
+  "n_units": 2,
+  "pre_owned_villages": [
+   [
+    "22,4",
+    2
+   ]
+  ],
+  "sides": [
+   {
+    "base_income": 2,
+    "faction": "Rebels",
+    "gold": 100,
+    "n_recruits": 7,
+    "villages": 0
+   },
+   {
+    "base_income": 2,
+    "faction": "Loyalists",
+    "gold": 100,
+    "n_recruits": 8,
+    "villages": 1
+   }
+  ],
+  "terrain_digest": "37ef1d8f9f46",
+  "time_of_day": "morning",
+  "tod_start_offset": 1,
+  "units": [
+   [
+    1,
+    26,
+    22,
+    "Elvish Captain",
+    true,
+    47,
+    60
+   ],
+   [
+    2,
+    12,
+    6,
+    "Lieutenant",
+    true,
+    40,
+    60
+   ]
+  ],
+  "village_gold": 2,
+  "village_upkeep": 1
+ },
+ "multiplayer_Howling_Ghost_Badlands": {
+  "experience_modifier": 70,
+  "fog": true,
+  "global_base_income": 2,
+  "map": [
+   33,
+   36,
+   1188
+  ],
+  "n_units": 2,
+  "pre_owned_villages": [
+   [
+    "2,4",
+    2
+   ]
+  ],
+  "sides": [
+   {
+    "base_income": 2,
+    "faction": "Rebels",
+    "gold": 100,
+    "n_recruits": 7,
+    "villages": 0
+   },
+   {
+    "base_income": 2,
+    "faction": "Loyalists",
+    "gold": 100,
+    "n_recruits": 8,
+    "villages": 1
+   }
+  ],
+  "terrain_digest": "fe752071843c",
+  "time_of_day": "morning",
+  "tod_start_offset": 1,
+  "units": [
+   [
+    1,
+    27,
+    28,
+    "Elvish Captain",
+    true,
+    47,
+    60
+   ],
+   [
+    2,
+    4,
+    6,
+    "Lieutenant",
+    true,
+    40,
+    60
+   ]
+  ],
+  "village_gold": 2,
+  "village_upkeep": 1
+ },
+ "multiplayer_Ruined_Passage": {
+  "experience_modifier": 70,
+  "fog": true,
+  "global_base_income": 2,
+  "map": [
+   47,
+   25,
+   1175
+  ],
+  "n_units": 2,
+  "pre_owned_villages": [
+   [
+    "38,1",
+    2
+   ]
+  ],
+  "sides": [
+   {
+    "base_income": 2,
+    "faction": "Rebels",
+    "gold": 100,
+    "n_recruits": 7,
+    "villages": 0
+   },
+   {
+    "base_income": 2,
+    "faction": "Loyalists",
+    "gold": 100,
+    "n_recruits": 8,
+    "villages": 1
+   }
+  ],
+  "terrain_digest": "f85725ff4db2",
+  "time_of_day": "morning",
+  "tod_start_offset": 1,
+  "units": [
+   [
+    1,
+    1,
+    23,
+    "Elvish Captain",
+    true,
+    47,
+    60
+   ],
+   [
+    2,
+    39,
+    4,
+    "Lieutenant",
+    true,
+    40,
+    60
+   ]
+  ],
+  "village_gold": 2,
+  "village_upkeep": 1
+ },
+ "multiplayer_Ruphus_Isle": {
+  "experience_modifier": 70,
+  "fog": true,
+  "global_base_income": 2,
+  "map": [
+   27,
+   30,
+   810
+  ],
+  "n_units": 2,
+  "pre_owned_villages": [
+   [
+    "16,22",
+    2
+   ]
+  ],
+  "sides": [
+   {
+    "base_income": 2,
+    "faction": "Rebels",
+    "gold": 100,
+    "n_recruits": 7,
+    "villages": 0
+   },
+   {
+    "base_income": 2,
+    "faction": "Loyalists",
+    "gold": 100,
+    "n_recruits": 8,
+    "villages": 1
+   }
+  ],
+  "terrain_digest": "5c83bcc91544",
+  "time_of_day": "morning",
+  "tod_start_offset": 1,
+  "units": [
+   [
+    1,
+    21,
+    6,
+    "Elvish Captain",
+    true,
+    47,
+    60
+   ],
+   [
+    2,
+    6,
+    24,
+    "Lieutenant",
+    true,
+    40,
+    60
+   ]
+  ],
+  "village_gold": 2,
+  "village_upkeep": 1
+ },
+ "multiplayer_Sablestone_Delta": {
+  "experience_modifier": 70,
+  "fog": true,
+  "global_base_income": 2,
+  "map": [
+   21,
+   28,
+   588
+  ],
+  "n_units": 2,
+  "pre_owned_villages": [],
+  "sides": [
+   {
+    "base_income": 2,
+    "faction": "Rebels",
+    "gold": 100,
+    "n_recruits": 7,
+    "villages": 0
+   },
+   {
+    "base_income": 2,
+    "faction": "Loyalists",
+    "gold": 100,
+    "n_recruits": 8,
+    "villages": 0
+   }
+  ],
+  "terrain_digest": "e9a0ff2939e3",
+  "time_of_day": "morning",
+  "tod_start_offset": 1,
+  "units": [
+   [
+    1,
+    5,
+    0,
+    "Elvish Captain",
+    true,
+    47,
+    60
+   ],
+   [
+    2,
+    12,
+    22,
+    "Lieutenant",
+    true,
+    40,
+    60
+   ]
+  ],
+  "village_gold": 2,
+  "village_upkeep": 1
+ },
+ "multiplayer_Silverhead_Crossing": {
+  "experience_modifier": 70,
+  "fog": true,
+  "global_base_income": 2,
+  "map": [
+   29,
+   30,
+   870
+  ],
+  "n_units": 3,
+  "pre_owned_villages": [],
+  "sides": [
+   {
+    "base_income": 2,
+    "faction": "Rebels",
+    "gold": 100,
+    "n_recruits": 7,
+    "villages": 0
+   },
+   {
+    "base_income": 2,
+    "faction": "Loyalists",
+    "gold": 100,
+    "n_recruits": 8,
+    "villages": 0
+   }
+  ],
+  "terrain_digest": "d72604765827",
+  "time_of_day": "morning",
+  "tod_start_offset": 1,
+  "units": [
+   [
+    1,
+    3,
+    10,
+    "Elvish Captain",
+    true,
+    47,
+    60
+   ],
+   [
+    2,
+    23,
+    13,
+    "Lieutenant",
+    true,
+    40,
+    60
+   ],
+   [
+    3,
+    0,
+    0,
+    "Tentacle of the Deep",
+    false,
+    25,
+    35
+   ]
+  ],
+  "village_gold": 2,
+  "village_upkeep": 1
+ },
+ "multiplayer_Sullas_Ruins": {
+  "experience_modifier": 70,
+  "fog": true,
+  "global_base_income": 2,
+  "map": [
+   35,
+   30,
+   1050
+  ],
+  "n_units": 7,
+  "pre_owned_villages": [
+   [
+    "16,2",
+    2
+   ]
+  ],
+  "sides": [
+   {
+    "base_income": 2,
+    "faction": "Rebels",
+    "gold": 100,
+    "n_recruits": 7,
+    "villages": 0
+   },
+   {
+    "base_income": 2,
+    "faction": "Loyalists",
+    "gold": 100,
+    "n_recruits": 8,
+    "villages": 1
+   }
+  ],
+  "terrain_digest": "ce13cf4f10b2",
+  "time_of_day": "morning",
+  "tod_start_offset": 1,
+  "units": [
+   [
+    1,
+    18,
+    27,
+    "Elvish Captain",
+    true,
+    47,
+    60
+   ],
+   [
+    2,
+    17,
+    2,
+    "Lieutenant",
+    true,
+    40,
+    60
+   ],
+   [
+    3,
+    12,
+    15,
+    "Yeti",
+    false,
+    142,
+    140
+   ],
+   [
+    3,
+    15,
+    18,
+    "Yeti",
+    false,
+    142,
+    140
+   ],
+   [
+    3,
+    17,
+    14,
+    "Great Mage",
+    false,
+    65,
+    140
+   ],
+   [
+    3,
+    19,
+    10,
+    "Yeti",
+    false,
+    142,
+    140
+   ],
+   [
+    3,
+    22,
+    14,
+    "Yeti",
+    false,
+    142,
+    140
+   ]
+  ],
+  "village_gold": 2,
+  "village_upkeep": 1
+ },
+ "multiplayer_Swamp_of_Dread": {
+  "experience_modifier": 70,
+  "fog": true,
+  "global_base_income": 2,
+  "map": [
+   31,
+   24,
+   744
+  ],
+  "n_units": 2,
+  "pre_owned_villages": [
+   [
+    "5,22",
+    2
+   ]
+  ],
+  "sides": [
+   {
+    "base_income": 2,
+    "faction": "Rebels",
+    "gold": 100,
+    "n_recruits": 7,
+    "villages": 0
+   },
+   {
+    "base_income": 2,
+    "faction": "Loyalists",
+    "gold": 100,
+    "n_recruits": 8,
+    "villages": 1
+   }
+  ],
+  "terrain_digest": "697f9d1203bc",
+  "time_of_day": "morning",
+  "tod_start_offset": 1,
+  "units": [
+   [
+    1,
+    17,
+    2,
+    "Elvish Captain",
+    true,
+    47,
+    60
+   ],
+   [
+    2,
+    15,
+    20,
+    "Lieutenant",
+    true,
+    40,
+    60
+   ]
+  ],
+  "village_gold": 2,
+  "village_upkeep": 1
+ },
+ "multiplayer_The_Freelands": {
+  "experience_modifier": 70,
+  "fog": true,
+  "global_base_income": 2,
+  "map": [
+   37,
+   24,
+   888
+  ],
+  "n_units": 2,
+  "pre_owned_villages": [
+   [
+    "25,21",
+    2
+   ]
+  ],
+  "sides": [
+   {
+    "base_income": 2,
+    "faction": "Rebels",
+    "gold": 100,
+    "n_recruits": 7,
+    "villages": 0
+   },
+   {
+    "base_income": 2,
+    "faction": "Loyalists",
+    "gold": 100,
+    "n_recruits": 8,
+    "villages": 1
+   }
+  ],
+  "terrain_digest": "60a181e93701",
+  "time_of_day": "morning",
+  "tod_start_offset": 1,
+  "units": [
+   [
+    1,
+    18,
+    3,
+    "Elvish Captain",
+    true,
+    47,
+    60
+   ],
+   [
+    2,
+    18,
+    20,
+    "Lieutenant",
+    true,
+    40,
+    60
+   ]
+  ],
+  "village_gold": 2,
+  "village_upkeep": 1
+ },
+ "multiplayer_The_Walls_of_Pyrennis": {
+  "experience_modifier": 70,
+  "fog": true,
+  "global_base_income": 2,
+  "map": [
+   31,
+   26,
+   806
+  ],
+  "n_units": 2,
+  "pre_owned_villages": [
+   [
+    "4,2",
+    2
+   ]
+  ],
+  "sides": [
+   {
+    "base_income": 2,
+    "faction": "Rebels",
+    "gold": 100,
+    "n_recruits": 7,
+    "villages": 0
+   },
+   {
+    "base_income": 2,
+    "faction": "Loyalists",
+    "gold": 100,
+    "n_recruits": 8,
+    "villages": 1
+   }
+  ],
+  "terrain_digest": "0ea0dcdc396d",
+  "time_of_day": "morning",
+  "tod_start_offset": 1,
+  "units": [
+   [
+    1,
+    15,
+    21,
+    "Elvish Captain",
+    true,
+    47,
+    60
+   ],
+   [
+    2,
+    15,
+    3,
+    "Lieutenant",
+    true,
+    40,
+    60
+   ]
+  ],
+  "village_gold": 2,
+  "village_upkeep": 1
+ },
+ "multiplayer_Tombs_of_Kesorak": {
+  "experience_modifier": 70,
+  "fog": true,
+  "global_base_income": 2,
+  "map": [
+   37,
+   23,
+   851
+  ],
+  "n_units": 2,
+  "pre_owned_villages": [
+   [
+    "5,0",
+    2
+   ]
+  ],
+  "sides": [
+   {
+    "base_income": 2,
+    "faction": "Rebels",
+    "gold": 125,
+    "n_recruits": 7,
+    "villages": 0
+   },
+   {
+    "base_income": 2,
+    "faction": "Loyalists",
+    "gold": 125,
+    "n_recruits": 8,
+    "villages": 1
+   }
+  ],
+  "terrain_digest": "16b5c7c9c1ef",
+  "time_of_day": "morning",
+  "tod_start_offset": 1,
+  "units": [
+   [
+    1,
+    35,
+    9,
+    "Elvish Captain",
+    true,
+    47,
+    60
+   ],
+   [
+    2,
+    1,
+    12,
+    "Lieutenant",
+    true,
+    40,
+    60
+   ]
+  ],
+  "village_gold": 2,
+  "village_upkeep": 1
+ },
+ "multiplayer_Weldyn_Channel": {
+  "experience_modifier": 70,
+  "fog": true,
+  "global_base_income": 2,
+  "map": [
+   29,
+   22,
+   638
+  ],
+  "n_units": 2,
+  "pre_owned_villages": [
+   [
+    "5,19",
+    2
+   ]
+  ],
+  "sides": [
+   {
+    "base_income": 2,
+    "faction": "Rebels",
+    "gold": 100,
+    "n_recruits": 7,
+    "villages": 0
+   },
+   {
+    "base_income": 2,
+    "faction": "Loyalists",
+    "gold": 100,
+    "n_recruits": 8,
+    "villages": 1
+   }
+  ],
+  "terrain_digest": "dd36fd1a5555",
+  "time_of_day": "morning",
+  "tod_start_offset": 1,
+  "units": [
+   [
+    1,
+    14,
+    2,
+    "Elvish Captain",
+    true,
+    47,
+    60
+   ],
+   [
+    2,
+    14,
+    19,
+    "Lieutenant",
+    true,
+    40,
+    60
+   ]
+  ],
+  "village_gold": 2,
+  "village_upkeep": 1
+ },
+ "multiplayer_elensefar_courtyard": {
+  "experience_modifier": 70,
+  "fog": true,
+  "global_base_income": 2,
+  "map": [
+   36,
+   26,
+   936
+  ],
+  "n_units": 2,
+  "pre_owned_villages": [],
+  "sides": [
+   {
+    "base_income": 2,
+    "faction": "Rebels",
+    "gold": 125,
+    "n_recruits": 7,
+    "villages": 0
+   },
+   {
+    "base_income": 2,
+    "faction": "Loyalists",
+    "gold": 125,
+    "n_recruits": 8,
+    "villages": 0
+   }
+  ],
+  "terrain_digest": "b5549b4e49a3",
+  "time_of_day": "morning",
+  "tod_start_offset": 1,
+  "units": [
+   [
+    1,
+    20,
+    21,
+    "Elvish Captain",
+    true,
+    47,
+    60
+   ],
+   [
+    2,
+    19,
+    3,
+    "Lieutenant",
+    true,
+    40,
+    60
+   ]
+  ],
+  "village_gold": 2,
+  "village_upkeep": 1
+ },
+ "multiplayer_thousand_stings_garrison": {
+  "experience_modifier": 70,
+  "fog": true,
+  "global_base_income": 2,
+  "map": [
+   29,
+   25,
+   725
+  ],
+  "n_units": 68,
+  "pre_owned_villages": [
+   [
+    "15,2",
+    2
+   ]
+  ],
+  "sides": [
+   {
+    "base_income": 2,
+    "faction": "Rebels",
+    "gold": 150,
+    "n_recruits": 7,
+    "villages": 0
+   },
+   {
+    "base_income": 2,
+    "faction": "Loyalists",
+    "gold": 150,
+    "n_recruits": 8,
+    "villages": 1
+   }
+  ],
+  "terrain_digest": "ca93b4561292",
+  "time_of_day": "morning",
+  "tod_start_offset": 1,
+  "units": [
+   [
+    1,
+    1,
+    23,
+    "Elvish Captain",
+    true,
+    47,
+    60
+   ],
+   [
+    2,
+    27,
+    1,
+    "Lieutenant",
+    true,
+    40,
+    60
+   ],
+   [
+    3,
+    0,
+    6,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    0,
+    7,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    0,
+    8,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    0,
+    9,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    0,
+    10,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    0,
+    11,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    0,
+    12,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    0,
+    13,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    0,
+    14,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    0,
+    15,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    0,
+    16,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    0,
+    17,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    0,
+    18,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    0,
+    19,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    0,
+    20,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    0,
+    21,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    0,
+    22,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    0,
+    23,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    1,
+    5,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    1,
+    6,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    1,
+    7,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    1,
+    8,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    2,
+    6,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    3,
+    23,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    4,
+    23,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    5,
+    23,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    6,
+    23,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    7,
+    23,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    8,
+    23,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    9,
+    23,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    10,
+    23,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    11,
+    23,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    12,
+    23,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    16,
+    2,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    17,
+    1,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    18,
+    2,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    19,
+    1,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    20,
+    2,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    21,
+    1,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    22,
+    2,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    23,
+    1,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    24,
+    2,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    25,
+    1,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    26,
+    19,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    27,
+    16,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    27,
+    17,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    27,
+    18,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    27,
+    19,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    28,
+    2,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    28,
+    3,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    28,
+    4,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    28,
+    5,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    28,
+    6,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    28,
+    7,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    28,
+    8,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    28,
+    9,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    28,
+    10,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    28,
+    11,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    28,
+    12,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    28,
+    13,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    28,
+    14,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    28,
+    15,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    28,
+    16,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    28,
+    17,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    28,
+    18,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ],
+   [
+    3,
+    28,
+    19,
+    "Giant Scorpion",
+    false,
+    35,
+    35
+   ]
+  ],
+  "village_gold": 2,
+  "village_upkeep": 1
+ }
+}
