@@ -40,7 +40,8 @@ from tools.replay_dataset import (
 )
 from tools.scenario_events import load_scenario_wml
 from tools.wml_state import (MP_EXPERIENCE_MODIFIER, MP_VILLAGE_GOLD,
-                             MP_VILLAGE_SUPPORT, read_villages, wml_int)
+                             MP_VILLAGE_SUPPORT, map_starting_positions,
+                             read_villages, resolve_map_file, wml_int)
 from tools.wml_state import scenario_economy as _read_scenario_economy
 
 
@@ -251,39 +252,13 @@ def load_factions(faction_dir: Optional[Path] = None) -> Dict[str, FactionInfo]:
 # ---------------------------------------------------------------------
 
 def extract_player_starts(raw_map: str) -> Dict[int, Position]:
-    """Walk the .map data for cells like `"1 Kh"` / `"2 Kh"` --
-    Wesnoth's marker for player N's starting hex. Returns
-    {N: Position(x, y)} in 0-indexed border-stripped coords (same
-    convention as parse_map_data / parse_terrain_codes).
-
-    The label before the space marks the keep where side N's leader
-    spawns. Ladder maps only have 1 and 2; FFA maps go further, and
-    nothing in the format stops at 9. A cell may carry several labels,
-    and a label may be a NAME rather than a side ("lake Gs^Vc"): those
-    are special locations no side starts on, so `start_position_side`
-    drops them (see its citation of map.cpp:324-327).
+    """{N: Position} for the cells marking where side N's leader
+    spawns. The parsing is `wml_state.map_starting_positions`, shared
+    with the replay reader, which used to carry its own copy; this
+    wraps the coordinates in `Position` for the pool's callers.
     """
-    out: Dict[int, Position] = {}
-    from tools.terrain_resolver import split_start_position, start_position_side
-    from tools.replay_dataset import split_map_grid
-    rows, border = split_map_grid(raw_map)
-    if not rows:
-        return out
-    for y_b, row in enumerate(rows):
-        if y_b < border or y_b >= len(rows) - border:
-            continue
-        cells = [c.strip() for c in row.split(",")]
-        for x_b, cell in enumerate(cells):
-            if x_b < border or x_b >= len(cells) - border:
-                continue
-            if not cell:
-                continue
-            label, _code = split_start_position(cell)
-            for name in label.split():
-                player = start_position_side(name)
-                if player is not None:
-                    out[player] = Position(x=x_b - border, y=y_b - border)
-    return out
+    return {side: Position(x=x, y=y)
+            for side, (x, y) in map_starting_positions(raw_map).items()}
 
 
 # ---------------------------------------------------------------------
@@ -635,31 +610,10 @@ def build_scenario_gamestate(
         raise RuntimeError(
             f"scenario {setup.scenario_id} has no [multiplayer] / "
             f"[scenario] block")
-    map_file_attr = mp.attrs.get("map_file", "").strip().strip('"')
-    map_data_attr = mp.attrs.get("map_data", "").strip().strip('"')
     project_root = Path(__file__).resolve().parent.parent
-    map_path: Optional[Path] = None
-    if map_file_attr:
-        # Standard mainline form: map_file=multiplayer/maps/<name>.map
-        # Resolves under wesnoth_src/data/.
-        map_path = project_root / "wesnoth_src" / "data" / map_file_attr
-    elif map_data_attr:
-        # Add-on form: map_data="{~add-ons/<pkg>/maps/<name>.map}".
-        # The {...} syntax is Wesnoth's preprocessor file-inclusion;
-        # `~add-ons/` resolves to <userdata>/data/add-ons/ on a real
-        # Wesnoth install. Vendored add-ons live under
-        # wesnoth_src/data/add-ons/; OUR OWN add-on (the capability
-        # scenarios) lives at the project root's add-ons/ (junctioned
-        # into userdata), so try both roots.
-        import re as _re
-        m = _re.match(r"\s*\{\s*~?([^}]+?)\s*\}\s*", map_data_attr)
-        if m:
-            relpath = m.group(1).lstrip("/")
-            # "add-ons/<pkg>/..." -> wesnoth_src/data/add-ons/...
-            map_path = project_root / "wesnoth_src" / "data" / relpath
-            if not map_path.is_file():
-                # ... or the project's own add-on tree.
-                map_path = project_root / relpath
+    map_path = resolve_map_file(project_root,
+                                map_file=mp.attrs.get("map_file", ""),
+                                map_data=mp.attrs.get("map_data", ""))
     if map_path is None:
         raise RuntimeError(
             f"scenario {setup.scenario_id} has no map_file or "

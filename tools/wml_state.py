@@ -31,6 +31,7 @@ Coordinates: WML is 1-indexed, everything here returns 0-indexed
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 # Wesnoth's `game_config::base_income`: a `[side] income=` is an offset
@@ -238,3 +239,106 @@ def read_tod(node, *, default_slots: int = 6) -> Tuple[Optional[int], bool, int]
 def side_numbers(nodes: Sequence) -> List[int]:
     """The side numbers of a sequence of `[side]` nodes, in order."""
     return [n for n in (wml_int(s.attrs.get("side"), 0) for s in nodes) if n]
+
+
+# ---------------------------------------------------------------------
+# The map grid. A replay inlines it as `map_data=` and a scenario
+# points at a `.map` file, but from the raw text on both are the same
+# format and there is one reader.
+# ---------------------------------------------------------------------
+
+_MAP_INCLUDE = re.compile(r"\s*\{\s*~?([^}]+?)\s*\}\s*")
+
+
+def resolve_map_file(project_root: Path, *, map_file: str = "",
+                     map_data: str = "") -> Optional[Path]:
+    """The `.map` a scenario points at, or None when it points at
+    neither.
+
+    A scenario writes the reference two ways and both are read: the
+    mainline form `map_file=multiplayer/maps/2p_Name.map`, resolved
+    under `wesnoth_src/data/`, and the add-on form
+    `map_data="{~add-ons/<pkg>/maps/<name>.map}"`, which is Wesnoth's
+    preprocessor file inclusion. `~add-ons/` lives under
+    `wesnoth_src/data/add-ons/` for the vendored add-ons and under the
+    project root for this project's own, so both roots are tried.
+
+    Three partial copies of this lived in the exporter, the replay
+    builder and the template builder, all of them handling only the
+    mainline form, so each raised on a mini map.
+    """
+    map_file = (map_file or "").strip().strip('"').lstrip("/")
+    map_data = (map_data or "").strip().strip('"')
+    if map_file:
+        return project_root / "wesnoth_src" / "data" / map_file
+    match = _MAP_INCLUDE.match(map_data) if map_data else None
+    if match is None:
+        return None
+    relative = match.group(1).lstrip("/")
+    vendored = project_root / "wesnoth_src" / "data" / relative
+    return vendored if vendored.is_file() else project_root / relative
+
+
+def split_map_grid(map_data: str) -> Tuple[List[str], int]:
+    """Canonical map_data normalizer: (terrain rows, border size).
+
+    Wesnoth .map / map_data may start with HEADER lines
+    (`border_size=1`, `usage=map`) before the terrain grid -- mainline
+    maps omit them, add-on maps (the whole Mini Maps collection) carry
+    them. Every parser that counts rows MUST strip headers first or
+    its entire coordinate frame shifts against Wesnoth's: counting
+    them as terrain rows displaced every start position by +2 in y,
+    and 29 of 34 sampled 2p_mini_edited replays forked from turn 1
+    (2026-08-06 fidelity sweep; the export path had hit the same bug
+    on 2026-07-06). The border defaults to Wesnoth's 1
+    (wesnoth_src/src/map/map.hpp `border_size`).
+    """
+    border = 1
+    rows: List[str] = []
+    in_grid = False
+    for line in map_data.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if not in_grid and "=" in stripped and "," not in stripped:
+            key, _, val = stripped.partition("=")
+            if key.strip() == "border_size":
+                parsed = wml_int(val)
+                if parsed is not None:
+                    border = parsed
+            continue                      # a header line (usage=, ...)
+        in_grid = True
+        rows.append(line)
+    return rows, border
+
+
+def map_starting_positions(map_data: str) -> Dict[int, Tuple[int, int]]:
+    """{side: (x, y)} for the cells carrying a starting-position label
+    (`"1 Kh"` marks where side 1's leader spawns), 0-indexed and
+    border-stripped like `parse_map_data`.
+
+    A cell may carry several labels, and a label may be a NAME rather
+    than a side (`"lake Gs^Vc"`); those are special locations no side
+    starts on and `start_position_side` drops them (map.cpp:324-327).
+    Border cells are skipped: a marker there would otherwise come back
+    with a negative coordinate.
+    """
+    from tools.terrain_resolver import split_start_position, start_position_side
+
+    out: Dict[int, Tuple[int, int]] = {}
+    rows, border = split_map_grid(map_data)
+    if not rows:
+        return out
+    for y, row in enumerate(rows):
+        if y < border or y >= len(rows) - border:
+            continue
+        cells = [c.strip() for c in row.split(",")]
+        for x, cell in enumerate(cells):
+            if x < border or x >= len(cells) - border or not cell:
+                continue
+            label, _code = split_start_position(cell)
+            for name in label.split():
+                side = start_position_side(name)
+                if side is not None:
+                    out[side] = (x - border, y - border)
+    return out

@@ -73,6 +73,7 @@ from wesnoth_ai import combat as cb
 from tools.replay_dataset import (
     iter_replay_pairs_with_state, _stats_for,
 )
+from tools.wml_state import MP_VILLAGE_GOLD, MP_VILLAGE_SUPPORT
 
 
 # ----------------------------------------------------------------------
@@ -411,6 +412,8 @@ def _trait_block_wml(trait_id: str) -> List[str]:
 def _side_block(side_idx: int, side: SideInfo, units: List[Unit],
                 raw_side_meta: Optional[dict] = None,
                 villages_owned: Optional[List[Tuple[int, int]]] = None,
+                village_economy: Tuple[int, int] = (MP_VILLAGE_GOLD,
+                                                    MP_VILLAGE_SUPPORT),
                 ) -> List[str]:
     """One [side] block with all its [unit] children. `raw_side_meta`
     is the matching dict from the original replay's `starting_sides`
@@ -438,8 +441,12 @@ def _side_block(side_idx: int, side: SideInfo, units: List[Unit],
         "color": color,
         "gold": int(side.current_gold),
         "income": int(side.base_income),
-        "village_gold": 1,
-        "village_support": 1,
+        # The game's own economy, not an invented one: this emitted a
+        # flat 1 until 2026-09-22 while the pipeline ran at 2 and the
+        # mini scenarios at 3, so a dumped save described a different
+        # game from the one that was played.
+        "village_gold": int(village_economy[0]),
+        "village_support": int(village_economy[1]),
         "faction": side.faction or "Custom",
         "recruit": ",".join(side.recruits),
         "canrecruit": "yes",
@@ -500,6 +507,9 @@ def dump_savestate(gs: GameState, scenario_id: str = "multiplayer_test",
     raw_sides = getattr(gs.global_info, "_raw_starting_sides", []) or []
     raw_side_by_num = {int(s.get("side", 0)): s for s in raw_sides}
 
+    # The game's own village economy, emitted rather than invented.
+    village_economy = (int(gs.global_info.village_gold or MP_VILLAGE_GOLD),
+                       int(gs.global_info.village_upkeep or MP_VILLAGE_SUPPORT))
     lines: List[str] = []
     # Top-level metadata
     lines.extend(_emit_attrs({
@@ -543,6 +553,7 @@ def dump_savestate(gs: GameState, scenario_id: str = "multiplayer_test",
                     side_idx, side, units_by_side.get(side_idx, []),
                     raw_side_meta=raw_side_by_num.get(side_idx),
                     villages_owned=villages_by_side.get(side_idx, []),
+                    village_economy=village_economy,
                 ))
             )
 
@@ -595,8 +606,8 @@ def dump_savestate(gs: GameState, scenario_id: str = "multiplayer_test",
         "mp_scenario": scenario_id,
         "mp_scenario_name": scenario_id,
         "mp_use_map_settings": "yes",
-        "mp_village_gold": 1,
-        "mp_village_support": 1,
+        "mp_village_gold": village_economy[0],
+        "mp_village_support": village_economy[1],
         "scenario": scenario_id,
         "savegame": "no",
     }, []))

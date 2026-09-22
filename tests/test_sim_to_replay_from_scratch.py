@@ -362,6 +362,29 @@ def test_scrape_starting_gold_arcanclave():
     assert ham == {}, ham
 
 
+def test_the_export_reads_the_gold_a_macro_declares():
+    """The exporter scraped the scenario's gold with a regex until
+    2026-09-22; the mini add-on declares its gold inside a macro, which
+    a regex cannot expand, so the scrape came back empty and the export
+    fell back to 100. The sim meanwhile read the .cfg through the node
+    parser and played at 50 or 75, so an exported enclave replay
+    started Wesnoth playback with gold the game never had.
+
+    Both sides now read the same way, which is the point of sharing one
+    reader: these values must equal what the pool builds."""
+    from tools.scenario_pool import ScenarioSetup, build_scenario_gamestate
+
+    for scenario_id, gold in (("enclave_micro_isar", 50),
+                              ("enclave_mini_fallenstar_1v1", 75),
+                              ("enclave_small_fallenstar_1v1", 75)):
+        scraped = _scrape_scenario_starting_gold(_scenario_cfg_path(scenario_id))
+        assert scraped[1] == scraped[2] == gold, (scenario_id, scraped)
+        built = build_scenario_gamestate(ScenarioSetup(
+            scenario_id=scenario_id, faction1="Rebels", leader1="Elvish Captain",
+            faction2="Loyalists", leader2="Lieutenant", fogless=False, tod_start=1))
+        assert [s.current_gold for s in built.sides[:2]] == [gold, gold], scenario_id
+
+
 def test_all_mini_maps_emit_without_error(tmp_path):
     """Same guarantee as the 21-ladder-map test, for the tactical-
     training mini pool (Mini Maps Collection add-on). Mini templates

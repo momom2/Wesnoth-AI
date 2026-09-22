@@ -42,6 +42,7 @@ from wesnoth_ai import combat as cb
 # The one place that knows how a map cell's starting-position prefix is
 # stripped (the engine's string_to_number_); never re-implement it here.
 from tools.terrain_resolver import strip_start_position, terrain_mask
+from tools.wml_state import split_map_grid          # noqa: F401 (re-export)
 
 
 log = logging.getLogger("replay_dataset")
@@ -322,41 +323,6 @@ def _parse_hex_code(code: str) -> Tuple[set, set]:
         modifiers.add(TerrainModifiers.CASTLE)
         terrains.add(Terrain.CASTLE)
     return terrains, modifiers
-
-
-def split_map_grid(map_data: str) -> Tuple[List[str], int]:
-    """Canonical map_data normalizer: return (terrain rows, border).
-
-    Wesnoth .map / map_data may start with HEADER lines
-    (`border_size=1`, `usage=map`) before the terrain grid — mainline
-    ladder maps omit them, add-on maps (the whole Mini Maps
-    collection) carry them. Every parser that counts rows MUST strip
-    headers first or its entire coordinate frame shifts vs Wesnoth's
-    (2026-07-06: exported mini replays desynced on the FIRST action —
-    the sim's grid was internally consistent but displaced, and the
-    off-board anchoring only shows up in real-Wesnoth playback).
-
-    Returns the terrain rows (still including the border ring) and
-    the border size (declared, else Wesnoth's default 1 — see
-    wesnoth_src/src/map/map.hpp border_size)."""
-    border = 1
-    rows: List[str] = []
-    in_grid = False
-    for line in map_data.splitlines():
-        s = line.strip()
-        if not s:
-            continue
-        if not in_grid and "=" in s and "," not in s:
-            key, _, val = s.partition("=")
-            if key.strip() == "border_size":
-                try:
-                    border = int(val.strip())
-                except ValueError:
-                    pass
-            continue                      # header line (usage=, etc.)
-        in_grid = True
-        rows.append(line)
-    return rows, border
 
 
 def parse_terrain_codes(map_data: str) -> Dict[Tuple[int, int], str]:

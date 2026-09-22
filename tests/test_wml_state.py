@@ -140,3 +140,36 @@ def test_the_time_of_day_attributes_are_read_not_resolved():
     assert ws.read_tod(n) == (5, True, 2)
     # No schedule: the caller's slot count stands.
     assert ws.read_tod(node('[scenario]\n[/scenario]\n')) == (None, False, 6)
+
+
+def test_no_second_parser_of_the_side_block_survives():
+    """The point of this module is that there is one reader. A new
+    regex over `[side]` or its economy attributes in the pipeline
+    files is the drift this replaced, so it fails here rather than in
+    a replay sweep nobody runs locally.
+
+    Scope: the files that build or emit a starting state. Diagnostics
+    that scan raw text on purpose (`check_replay_consistency`,
+    `filter_replays`) and the census are out of scope, and the census
+    reads headers the pipelines never parse.
+    """
+    import re
+
+    root = Path(__file__).parent.parent
+    watched = ["tools/scenario_pool.py", "tools/replay_extract.py",
+               "tools/sim_to_replay.py", "tools/replay_builder.py",
+               "tools/dump_savestate.py"]
+    # A regex that reaches into a [side] block or its economy attrs.
+    suspicious = re.compile(
+        r"re\.(compile|search|match|finditer|findall)\([^)]*"
+        r"(\[side\]|village_gold|village_support|experience_modifier"
+        r"|canrecruit|\[village\])")
+    offenders = {}
+    for rel in watched:
+        text = (root / rel).read_text(encoding="utf-8")
+        hits = [m.group(0)[:70] for m in suspicious.finditer(text)]
+        if hits:
+            offenders[rel] = hits
+    assert offenders == {}, (
+        f"a second parser of the side block appeared: {offenders}. "
+        f"Read it through tools/wml_state instead.")

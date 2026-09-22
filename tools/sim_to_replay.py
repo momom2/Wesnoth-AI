@@ -64,6 +64,7 @@ sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
 from tools.wesnoth_sim import PvPDefaults, RecordedCommand, WesnothSim
+from tools.wml_state import read_unit, read_villages, resolve_map_file, wml_int
 
 
 log = logging.getLogger("sim_to_replay")
@@ -901,10 +902,8 @@ def _load_map_data(map_file_attr: str) -> str:
 
     Wesnoth's `map_file=` is repo-relative to `wesnoth_src/data/`,
     so we resolve under there."""
-    rel = map_file_attr.strip().strip('"').lstrip("/")
-    # `multiplayer/maps/2p_*.map` -> `wesnoth_src/data/multiplayer/maps/...`
-    abs_path = _WESNOTH_SRC / "data" / rel
-    if not abs_path.exists():
+    abs_path = resolve_map_file(_WESNOTH_SRC.parent, map_file=map_file_attr)
+    if abs_path is None or not abs_path.exists():
         raise FileNotFoundError(
             f"map file not found at {abs_path} "
             f"(map_file attr was {map_file_attr!r})"
@@ -1054,68 +1053,60 @@ def _scrape_all_keep_tiles(map_data: str) -> set:
     return keeps
 
 
-def _scrape_scenario_starting_gold(cfg_path: Path) -> Dict[int, int]:
-    """Walk a `2p_*.cfg` for per-side `gold=N` attrs. Some scenarios
-    (Arcanclave, Weldyn Channel) override the default 100 starting
-    gold; we need the scenario-defined value to populate the save's
-    `[side] gold=` attr correctly. Without it Wesnoth would show
-    the wrong starting gold when the replay viewer renders turn 1.
+def _scenario_sides(cfg_path: Path):
+    """The `[side]` nodes of a scenario .cfg, through the same parser
+    and the same macro expansion the pool uses. Empty when the file
+    will not parse, which keeps every caller's fallback intact."""
+    from tools.scenario_events import parse_scenario_cfg
 
-    Returns side_num -> gold. Sides without an explicit `gold=`
-    don't appear in the map; callers fall back to 100 (Wesnoth's
-    default starting gold for `mp_use_map_settings=yes`).
+    root = parse_scenario_cfg(cfg_path)
+    if root is None:
+        return []
+    block = root.first("multiplayer") or root.first("scenario")
+    return block.all("side") if block is not None else []
+
+
+def _scrape_scenario_starting_gold(cfg_path: Path) -> Dict[int, int]:
+    """Per-side `gold=` from a scenario .cfg. Some scenarios
+    (Arcanclave, Weldyn Channel) override the default 100 starting
+    gold, and the save's `[side] gold=` has to carry the scenario's
+    value or Wesnoth shows the wrong gold when the replay viewer
+    renders turn 1.
+
+    Returns side_num -> gold; sides without an explicit `gold=` do not
+    appear, and callers fall back to 100 (Wesnoth's default under
+    `mp_use_map_settings=yes`).
     """
-    text = cfg_path.read_text(encoding="utf-8", errors="replace")
     out: Dict[int, int] = {}
-    side_re = re.compile(r'\[side\]([\s\S]*?)\[/side\]')
-    for sm in side_re.finditer(text):
-        body = sm.group(1)
-        sn_m = re.search(r'^\s*side\s*=\s*(\d+)', body, re.MULTILINE)
-        gd_m = re.search(r'^\s*gold\s*=\s*(\d+)', body, re.MULTILINE)
-        if sn_m and gd_m:
-            out[int(sn_m.group(1))] = int(gd_m.group(1))
+    for side in _scenario_sides(cfg_path):
+        sn = wml_int(side.attrs.get("side"))
+        gold = wml_int(side.attrs.get("gold"))
+        if sn is not None and gold is not None:
+            out[sn] = gold
     return out
 
 
 def _scrape_scenario_villages(cfg_path: Path) -> Dict[int, List[Tuple[int, int]]]:
-    """Walk a `2p_*.cfg` scenario file and pull out per-side pre-placed
-    `[village] x=N y=N [/village]` entries. Used by Hamlets, Sablestone,
-    Arcanclave, and a few others that grant a side a starting village
-    via the .cfg [side] block.
+    """Per-side pre-placed `[village]` entries from a scenario .cfg, as
+    1-indexed WML coordinates. Hamlets, Sablestone, Arcanclave and a
+    few others grant a side a starting village this way, and the export
+    has to re-emit them: playback otherwise starts them unowned, the
+    first friendly visit becomes a CAPTURE, and the move after it fails
+    as "found corrupt movement".
 
-    Returns side_num -> list of (x, y) WML coords (1-indexed).
+    Read through `wml_state.read_villages` rather than a regex of its
+    own. The regex handled only the split `x=`/`y=` form and dropped
+    every combined `x,y=2,10` village -- Clearing Gushes, The Walls of
+    Pyrennis -- until 2026-07-19; the node parser has always normalized
+    both, which is the whole argument for one reader.
     """
-    text = cfg_path.read_text(encoding="utf-8", errors="replace")
     out: Dict[int, List[Tuple[int, int]]] = {1: [], 2: []}
-    # Walk per-[side] block.
-    side_re = re.compile(r'\[side\]([\s\S]*?)\[/side\]')
-    # WML writes coordinates in TWO forms: split (`x=2` + `y=10`,
-    # most maps) and combined (`x,y=2,10` -- Clearing Gushes, The
-    # Walls of Pyrennis). Only the split form was parsed until
-    # 2026-07-19: combined-form villages were silently DROPPED from
-    # exports, so playback started them unowned and the first
-    # friendly visit became a CAPTURE -- zeroing MP the sim had
-    # kept, then failing the next move as 'found corrupt movement'
-    # (caught by the pre-box verification sweep on Clearing Gushes).
-    # scenario_pool's node-based parser always handled both; this
-    # regex mirror didn't.
-    village_block_re = re.compile(r'\[village\]([\s\S]*?)\[/village\]')
-    split_re = re.compile(
-        r'x\s*=\s*"?(\d+)"?[\s\S]*?y\s*=\s*"?(\d+)"?')
-    combined_re = re.compile(r'x\s*,\s*y\s*=\s*"?(\d+)\s*,\s*(\d+)"?')
-    for sm in side_re.finditer(text):
-        body = sm.group(1)
-        sn_m = re.search(r'^\s*side\s*=\s*(\d+)', body, re.MULTILINE)
-        if not sn_m:
+    for side in _scenario_sides(cfg_path):
+        sn = wml_int(side.attrs.get("side"))
+        if sn is None:
             continue
-        sn = int(sn_m.group(1))
-        if sn not in out:
-            out[sn] = []
-        for vb in village_block_re.finditer(body):
-            vbody = vb.group(1)
-            m = combined_re.search(vbody) or split_re.search(vbody)
-            if m:
-                out[sn].append((int(m.group(1)), int(m.group(2))))
+        out.setdefault(sn, [])
+        out[sn].extend((v["x"] + 1, v["y"] + 1) for v in read_villages(side, sn))
     return out
 
 
@@ -1127,29 +1118,18 @@ def _scrape_scenario_preplaced_units(
     fixed armies this way). Returns side -> [(type, x, y)] in WML
     coords. The exported save must re-emit these: a from-scratch
     [replay_start] otherwise contains only the leaders, and Wesnoth
-    playback would run the recorded commands against a unitless
-    field while the sim played with the army present."""
-    text = cfg_path.read_text(encoding="utf-8", errors="replace")
+    playback would run the recorded commands against a unitless field
+    while the sim played with the army present."""
     out: Dict[int, List[Tuple[str, int, int]]] = {1: [], 2: []}
-    side_re = re.compile(r'\[side\]([\s\S]*?)\[/side\]')
-    unit_re = re.compile(r'\[unit\]([\s\S]*?)\[/unit\]')
-    for sm in side_re.finditer(text):
-        body = sm.group(1)
-        sn_m = re.search(r'^\s*side\s*=\s*(\d+)', body, re.MULTILINE)
-        if not sn_m:
-            continue
-        sn = int(sn_m.group(1))
+    for side in _scenario_sides(cfg_path):
+        sn = wml_int(side.attrs.get("side"))
         if sn not in (1, 2):
             continue
-        for um in unit_re.finditer(body):
-            ubody = um.group(1)
-            t_m = re.search(r'^\s*type\s*=\s*"?([^"\n]+?)"?\s*$',
-                            ubody, re.MULTILINE)
-            x_m = re.search(r'^\s*x\s*=\s*"?(\d+)"?', ubody, re.MULTILINE)
-            y_m = re.search(r'^\s*y\s*=\s*"?(\d+)"?', ubody, re.MULTILINE)
-            if t_m and x_m and y_m:
-                out[sn].append((t_m.group(1).strip(),
-                                int(x_m.group(1)), int(y_m.group(1))))
+        for index, unit_node in enumerate(side.all("unit")):
+            fields = read_unit(unit_node, sn, uid=index)
+            if fields is None or not fields["type"]:
+                continue
+            out[sn].append((fields["type"], fields["x"] + 1, fields["y"] + 1))
     return out
 
 

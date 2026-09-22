@@ -379,11 +379,26 @@ def load_scenario_wml(scenario_id: str) -> Optional[WMLNode]:
     add-on scenarios the raw id like "2p_mini" or "drill_duel".
     Search order: see `find_scenario_cfg_path`.
     """
-    global _CORE_MACROS_CACHE
     candidate = find_scenario_cfg_path(scenario_id)
     if candidate is None:
         return None
+    return parse_scenario_cfg(candidate)
 
+
+def parse_scenario_cfg(candidate: Path) -> Optional[WMLNode]:
+    """Parse a scenario .cfg at a known path: macros expanded (core,
+    the file's own, and an add-on's siblings) and parallel assigns
+    normalized, as `load_scenario_wml` does for an id.
+
+    Split out 2026-09-22 so a caller holding the path -- the replay
+    exporter -- reads the scenario the same way the pool does instead
+    of scraping it with regex. That split is not hypothetical: the
+    exporter's village scraper handled only the `x=`/`y=` form and
+    silently dropped every combined `x,y=` village until 2026-07-19,
+    which made Clearing Gushes playback capture a village the sim
+    already owned.
+    """
+    global _CORE_MACROS_CACHE
     if _CORE_MACROS_CACHE is None:
         _CORE_MACROS_CACHE = _load_core_macros()
 

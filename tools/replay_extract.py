@@ -40,6 +40,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from tools.wml_state import (map_starting_positions, read_side,  # noqa: E402
+                             read_unit, read_villages, wml_bool, wml_int)
+
 
 log = logging.getLogger("replay_extract")
 
@@ -111,31 +116,11 @@ def _strip_quotes(v: str) -> str:
 
 
 def _safe_int(v, default: int = 0) -> int:
-    """Robust `int()` for WML attribute values. Some replays in the
-    wild carry malformed quoted values where multiple attrs got
-    concatenated (e.g. `village_gold="1 controller=human"` in a
-    handful of 2p Evil Factory saves). We salvage the leading integer
-    if present, else return `default`. None / empty / whitespace also
-    map to `default`."""
-    if v is None:
-        return default
-    s = str(v).strip()
-    if not s:
-        return default
-    try:
-        return int(s)
-    except (ValueError, TypeError):
-        # Pull leading integer literal if any. Wesnoth doesn't emit
-        # negative ints in side-summary or per-unit health attrs we
-        # care about, so a lenient `\d+` prefix is enough.
-        import re as _re
-        m = _re.match(r"-?\d+", s)
-        if m:
-            try:
-                return int(m.group(0))
-            except (ValueError, TypeError):
-                pass
-        return default
+    """`wml_state.wml_int` with an int return: a WML integer, the
+    leading integer of a malformed one, else `default`. Kept as a name
+    because this module reads dozens of attributes through it."""
+    parsed = wml_int(v, None)
+    return default if parsed is None else parsed
 
 
 def parse_wml(text: str) -> WMLNode:
@@ -319,15 +304,8 @@ class SideState:
 
 
 def _wml_bool(v, default: bool) -> bool:
-    """WML yes/no/true/false/1/0; `default` when absent or malformed."""
-    if v is None:
-        return default
-    s = str(v).strip().strip('"').lower()
-    if s in ("yes", "true", "1"):
-        return True
-    if s in ("no", "false", "0"):
-        return False
-    return default
+    """`wml_state.wml_bool` under this module's older name."""
+    return wml_bool(v, default)
 
 
 @dataclass
@@ -425,36 +403,11 @@ def _recruit_consumes_rng(unit_type: str) -> bool:
     return unit_type not in _RECRUIT_NO_RNG_TYPES
 
 
-def _parse_map_starting_positions(map_data: str) -> Dict[int, Tuple[int, int]]:
-    """Scan map_data for cells carrying a starting-position label
-    (e.g. '1 Gg^Vh' = side 1 starts at this hex). Return
-    {side_number: (x, y)} in Python 0-indexed coords (after border
-    stripping — see parse_map_data). Named labels ('lake Gs^Vc') are
-    special locations, not sides, and are skipped; the label is not
-    limited to one digit (terrain_resolver.split_start_position)."""
-    out: Dict[int, Tuple[int, int]] = {}
-    from tools.terrain_resolver import split_start_position, start_position_side
-    # Header-aware row split (border_size=/usage= lines): add-on maps
-    # embed their .map headers in map_data; counting them as terrain
-    # rows shifted every start position by +2 in y, so every leader
-    # command src-missed SILENTLY and mini-map server replays forked
-    # from turn 1 (29/34 sampled 2p_mini_edited diverged, 2026-08-06
-    # fidelity sweep). Same bug class split_map_grid was built for on
-    # the export path (2026-07-06) -- this parser predates it and
-    # never adopted it. Local import: replay_dataset imports us.
-    from tools.replay_dataset import split_map_grid
-    rows, border = split_map_grid(map_data)
-    for y, row in enumerate(rows):
-        cells = [c.strip() for c in row.split(",")]
-        for x, cell in enumerate(cells):
-            label, _code = split_start_position(cell)
-            for name in label.split():
-                side = start_position_side(name)
-                if side is not None:
-                    # Subtract the border offset to align with Python
-                    # 0-indexed playable-hex coords.
-                    out[side] = (x - border, y - border)
-    return out
+# The start markers are read by `wml_state.map_starting_positions`,
+# which the scenario pool reads them with too. This module carried its
+# own copy until 2026-09-22; the two agreed only because a test
+# asserted it (tests/test_start_positions.py).
+_parse_map_starting_positions = map_starting_positions
 
 
 def build_initial_state(root: WMLNode) -> GameState:
@@ -495,22 +448,19 @@ def build_initial_state(root: WMLNode) -> GameState:
         # use `_safe_int` so a parse failure on a side-summary attr
         # doesn't poison the whole replay — it falls back to the WML
         # default for that field.
-        income_offset = _safe_int(side_node.attrs.get("income", 0), 0)
+        fields = read_side(side_node)
         ss = SideState(
             side_num=side_num,
-            faction=side_node.attrs.get("faction", ""),
-            gold=_safe_int(side_node.attrs.get("gold", 100), 100),
-            village_income=_safe_int(side_node.attrs.get("village_gold", 2), 2),
-            village_support=_safe_int(
-                side_node.attrs.get("village_support", 1), 1),
-            fog=_wml_bool(side_node.attrs.get("fog"), True),
-            shroud=_wml_bool(side_node.attrs.get("shroud"), False),
-            base_income=income_offset + 2,   # vanilla game_config::base_income
-            recruit_list=[r.strip() for r in
-                          (side_node.attrs.get("recruit", "") or "").split(",")
-                          if r.strip()],
-            leader_type=side_node.attrs.get("type", "").strip(),
-            color=side_node.attrs.get("color", "").strip(),
+            faction=fields["faction"],
+            gold=fields["gold"],
+            village_income=fields["village_income"],
+            village_support=fields["village_support"],
+            fog=fields["fog"],
+            shroud=fields["shroud"],
+            base_income=fields["base_income"],
+            recruit_list=fields["recruit"],
+            leader_type=fields["leader_type"],
+            color=fields["color"],
         )
         gs.sides[side_num] = ss
         # Pre-owned [village] children. The replay's [scenario] /
@@ -523,16 +473,8 @@ def build_initial_state(root: WMLNode) -> GameState:
         # Source: Wesnoth's `team::team(const config&)` reads
         # `[village]` children and inserts each (x, y) into
         # `villages_` -- see wesnoth_src/src/team.cpp:208-217.
-        for v_node in side_node.all("village"):
-            try:
-                vx = int(v_node.attrs.get("x", "0") or "0")
-                vy = int(v_node.attrs.get("y", "0") or "0")
-            except (ValueError, TypeError):
-                continue
-            if vx <= 0 or vy <= 0:
-                continue
-            # WML 1-indexed -> Python 0-indexed.
-            gs.villages_owned[(vx - 1, vy - 1)] = side_num
+        for village in read_villages(side_node, side_num):
+            gs.villages_owned[(village["x"], village["y"])] = side_num
 
         # Leader unit(s) embedded in the side.
         nested_units = side_node.all("unit")
@@ -550,34 +492,17 @@ def build_initial_state(root: WMLNode) -> GameState:
             # campaign replays at dataset load time. Without this skip
             # the int() conversion raises and the whole replay is
             # dropped from the corpus on a parser error.
-            x_raw = u_node.attrs.get("x", "0") or "0"
-            y_raw = u_node.attrs.get("y", "0") or "0"
-            try:
-                wml_x = int(x_raw)
-                wml_y = int(y_raw)
-            except (ValueError, TypeError):
-                continue
+            fields = read_unit(u_node, side_num, uid=next_uid + 1, stats=stats)
+            if fields is None:
+                continue          # a recall-list unit: no board position
             next_uid += 1
-            # Pull [status] petrified=yes if present — Thousand Stings
-            # Garrison embeds 17+ side-3 Giant Scorpions as petrified
-            # statues that block movement but can't fight. Without the
-            # flag, our reconstructor would happily counter-attack
-            # with the statue's full Scorpion stats.
-            status_node = u_node.first("status")
-            petrified = False
-            if status_node is not None:
-                v = (status_node.attrs.get("petrified", "no") or "").lower()
-                petrified = v in ("yes", "true", "1")
             u = Unit(
                 uid=next_uid, unit_type=unit_type, side=side_num,
-                x=max(0, wml_x - 1),
-                y=max(0, wml_y - 1),
-                hp=_safe_int(u_node.attrs.get("hitpoints"), stats["max_hp"]),
-                max_hp=_safe_int(u_node.attrs.get("max_hitpoints"), stats["max_hp"]),
-                moves_left=_safe_int(u_node.attrs.get("moves"), stats["max_moves"]),
-                max_moves=_safe_int(u_node.attrs.get("max_moves"), stats["max_moves"]),
-                is_leader=(u_node.attrs.get("canrecruit", "no") == "yes"),
-                petrified=petrified,
+                x=fields["x"], y=fields["y"],
+                hp=fields["hp"], max_hp=fields["max_hp"],
+                moves_left=fields["moves"], max_moves=fields["max_moves"],
+                is_leader=fields["is_leader"],
+                petrified=fields.get("petrified", False),
             )
             gs.units[u.uid] = u
 

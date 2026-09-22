@@ -33,6 +33,8 @@ from pathlib import Path
 from typing import List, Optional
 
 from tools.replay_extract import WMLNode
+from tools.wml_state import (MP_VILLAGE_GOLD, MP_VILLAGE_SUPPORT,
+                             resolve_map_file)
 
 # Reuse the existing replay-command emitter; the [replay] block at
 # the end is the same shape as before.
@@ -96,6 +98,8 @@ def _build_side_block(
     leader_x: int, leader_y: int, gold: int, base_income: int,
     user_team_name: str = "", team_name: str = "",
     pre_villages: Optional[list] = None,
+    village_economy: tuple = (MP_VILLAGE_GOLD, MP_VILLAGE_SUPPORT),
+    fog: bool = True,
 ) -> WMLNode:
     """Build the [side] WML for a player-controlled side.
 
@@ -119,10 +123,14 @@ def _build_side_block(
     # default base_income (= 2 in default era). 0 -> effective
     # income of 2. There's no `base_income=` attr in standard WML.
     n.attrs["income"]          = "0"
-    n.attrs["fog"]             = "yes"
+    # The game's own fog and village economy rather than a fixed
+    # pair: the mini scenarios run at 3 gold per village and three of
+    # them declare fog off, so a hardcoded block described a different
+    # game from the one that was played.
+    n.attrs["fog"]             = "yes" if fog else "no"
     n.attrs["shroud"]          = "no"
-    n.attrs["village_gold"]    = "2"
-    n.attrs["village_support"] = "1"
+    n.attrs["village_gold"]    = str(int(village_economy[0]))
+    n.attrs["village_support"] = str(int(village_economy[1]))
     if team_name:
         n.attrs["team_name"]      = team_name
     if user_team_name:
@@ -206,12 +214,16 @@ def _build_scenario_node(
             f"GameState missing leader for side 1 or 2: {leader_pos}")
 
     # Side 1 + 2 with our chosen factions/leaders.
+    economy = (int(gs.global_info.village_gold or MP_VILLAGE_GOLD),
+               int(gs.global_info.village_upkeep or MP_VILLAGE_SUPPORT))
+    fog_on = bool(getattr(gs.global_info, "_fog", True))
     s1 = _build_side_block(
         side=1, faction_info=factions[setup.faction1],
         leader_type=setup.leader1,
         leader_x=leader_pos[1][0], leader_y=leader_pos[1][1],
         gold=gs.sides[0].current_gold, base_income=gs.sides[0].base_income,
         team_name="east", user_team_name="teamname^East",
+        village_economy=economy, fog=fog_on,
         pre_villages=by_side.get(1),
     )
     s2 = _build_side_block(
@@ -220,6 +232,7 @@ def _build_scenario_node(
         leader_x=leader_pos[2][0], leader_y=leader_pos[2][1],
         gold=gs.sides[1].current_gold, base_income=gs.sides[1].base_income,
         team_name="west", user_team_name="teamname^West",
+        village_economy=economy, fog=fog_on,
         pre_villages=by_side.get(2),
     )
     out.children.append(s1)
@@ -366,12 +379,15 @@ def export_scenario_replay(
     if mp is None:
         raise RuntimeError(
             f"scenario {setup.scenario_id}: no [multiplayer]/[scenario]")
-    map_file_attr = mp.attrs.get("map_file", "").strip().strip('"')
-    if not map_file_attr:
-        raise RuntimeError(
-            f"scenario {setup.scenario_id}: no map_file attr")
     project_root = Path(__file__).resolve().parent.parent
-    map_path = project_root / "wesnoth_src" / "data" / map_file_attr
+    # Both spellings, so a mini map resolves here too: this raised
+    # "no map_file attr" on every add-on scenario until 2026-09-22.
+    map_path = resolve_map_file(project_root,
+                                map_file=mp.attrs.get("map_file", ""),
+                                map_data=mp.attrs.get("map_data", ""))
+    if map_path is None:
+        raise RuntimeError(
+            f"scenario {setup.scenario_id}: no map_file or map_data attr")
     if not map_path.is_file():
         raise RuntimeError(f"map not found: {map_path}")
     raw_map = map_path.read_text(encoding="utf-8", errors="replace")

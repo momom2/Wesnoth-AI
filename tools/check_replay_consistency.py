@@ -32,6 +32,8 @@ from typing import Optional
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from tools.wml_state import MP_VILLAGE_GOLD  # noqa: E402
+
 # Generous village bound: no 2p ladder map lets one side hold more
 # villages by turn 2 (most allow 2-4; Cynsaun's 30+ villages are not
 # reachable by turn 2 either).
@@ -49,7 +51,7 @@ def check_gold_consistency(path: Path) -> Optional[str]:
     golds = re.findall(r'^\s*gold="?(-?\d+)"?', t[:mp if mp > 0 else len(t)],
                        re.M)
     vg_m = re.search(r'mp_village_gold="?(\d+)', t)
-    village_gold = int(vg_m.group(1)) if vg_m else 2
+    village_gold = int(vg_m.group(1)) if vg_m else MP_VILLAGE_GOLD
     body = t[t.find("[replay]"):]
     side, turn = 0, 0
     spend = {1: 0, 2: 0}
