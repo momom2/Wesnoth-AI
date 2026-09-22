@@ -4,6 +4,35 @@ Live backlog for `docs/plan_20260904.md`. The pre-restart backlog
 (1,055 lines of rulings and open items, 2026-05 to 2026-09-04) is
 archived verbatim at `docs/archive/backlog_20260904.md`.
 
+## NEXT: the network cannot see the time of day (2026-09-22, user ruling)
+
+Found while reviewing the scenario-build plan; the user's ruling is
+that this is **the next thing worked on**, ahead of that plan.
+
+`encoder.GLOBAL_FEAT_DIM` is 6, and the six are turn number, side to
+move, our gold, our income, our villages and theirs. No time of day,
+no lawful bonus, anywhere in the global, unit or hex features. Combat
+applies the bonus (`rust/wesnoth_core/src/combat.rs:136`,
+`combat_modifier(alignment, lawful_bonus, fearless)`), so the network
+plays a game where a lawful unit's damage swings by 50% between dawn
+and midnight for reasons it cannot observe.
+
+The turn number does not stand in for it. Two pool scenarios start at
+second watch (Fallenstar Lake, Ruined Passage, `current_time=5`), four
+minis roll `random_start_time=yes`, and Tombs of Kesorak and Elensefar
+Courtyard carry `[time_area]` zones whose hexes run a different cycle
+from the rest of the board. On those maps the same turn number means
+different things, and inside a time area it means different things on
+different hexes.
+
+Shape of the work: a global feature for the current slot and its
+lawful bonus, and a per-hex bonus so time areas are visible; then a
+fresh arm on the reference's recipe and an 800-game match against the
+reference, one factor, as the terrain-set arm was run
+(docs/terrain_multi_hot_prereg_20260919.md is the template). It is a
+checkpoint-flag change like `terrain_multi_hot`, so old checkpoints
+keep observing what they observed.
+
 ## Phase 1 status (CLOSED 2026-09-12)
 
 The exit criterion is met and every step has its acceptance

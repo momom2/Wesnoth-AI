@@ -77,6 +77,21 @@ rule makes it the first thing W6 writes down.
    plan**; the other two are necessary and insufficient.
 3. **Discrepancy.** What we build against what the engine builds (W4).
 
+Classification therefore has four buckets, not three. **SUBSTITUTED**
+is the one rev 2 lacked: input we read and then deliberately do
+something else with, because reimplementing Wesnoth's version is out
+of scope. `[side][ai]` is the case that forces it. We replace the
+engine's RCA AI with `tools/neutral_ai.py`, a stationary-only port,
+by user ruling 2026-07-14.
+
+A SUBSTITUTED entry records its reason **and its preconditions**,
+because a substitution is only valid while its assumptions hold. The
+neutral AI's precondition is that side-3 units cannot move: the
+enclave maps pin them through their own `turn refresh` event, and
+2p_mini through terrain. Nothing checks that today, so if a scenario
+change or an expansion change let those units move, a stationary-only
+AI would keep driving them and nothing would say so.
+
 ## Architecture
 
 | stage | input | output | its oracle |
@@ -227,14 +242,17 @@ circularity is stated rather than hidden.
 
 Three risks to price first, all found by review:
 
-- **Switching to the game's expansion would silently undo a fidelity
-  fix.** Our expander reduces `MODIFY_UNIT` to a `[modify_unit]` form
-  (`scenario_events.py:259-275`) that pins `enclave_micro_isar`'s
-  tentacles to 0 movement, engine-verified. The game's expansion is
-  `[store_unit kill=yes]`, `[foreach]`, `[unstore_unit]`, and `foreach`
-  and `unstore_unit` have no handler, so the pin would vanish. W1's
+- **Switching to the game's expansion would break a SUBSTITUTED
+  entry's precondition.** `enclave_micro_isar.cfg:86-91` pins its
+  `role=monster` units to 0 movement every `turn refresh`, and our
+  expander reduces that macro to a `[modify_unit]` form we interpret
+  (`scenario_events.py:259-275`). The game's expansion is
+  `[store_unit kill=yes]`, `[foreach]`, `[unstore_unit]`, none of
+  which we handle, so the pin would vanish. The pin is the scenario's
+  rule, not our fix; what depends on it is our stationary-only neutral
+  AI, which would then drive mobile units and say nothing. W1's
   "implemented or listed" would pass on listing, so the items are
-  linked: `foreach` before W5.
+  linked: `foreach` before W5, and the precondition gets a test.
 - **`[side] fog=yes` is declared on all 56 player sides.** Reading it
   without a precedence rule overrides `setup.fogless`, a training
   lever with its own tests. The rule is: the scenario supplies the
@@ -259,8 +277,14 @@ pin still holds. *Kill:* none.
 Decide each by evidence. The six-slot cycle is hardcoded and every
 pool scenario happens to use exactly it. The experience modifier has
 several homes, of which the template's injected 70 is read by nothing
-in the sim. The turn-cap tiebreak divergence of correction 3 is
-recorded first, since it exists today and is written down nowhere.
+in the sim.
+
+Two known SUBSTITUTED entries get written down here, since both exist
+today and neither is recorded anywhere: the neutral AI with its
+immobility precondition, and the turn-cap tiebreak, which scores
+income times five plus gold plus unit worth excluding the leader in
+the engine, against our villages at 2.0, gold at 0 and material
+including the leader.
 
 *Cost:* half a day per assumption. *Acceptance:* each is a read, or a
 record of the evidence that justified keeping it. *Kill:* an
@@ -302,11 +326,17 @@ its requirement list is larger than rev 1 stated, omitting
 as wanting programmatically generated scenarios, with W0's diff as its
 acceptance test.
 
-## Noted, out of scope
+## Not in this plan, and ahead of it
 
 The encoder feeds the network no time-of-day signal: `GLOBAL_FEAT_DIM`
 is 6 (turn, side, gold, income, own villages, enemy villages), and
-units carry alignment but no time of day or lawful bonus. On the two
+units carry alignment but no time of day or lawful bonus. Since
+alignment only matters through the current time, the network cannot
+tell a lawful unit's good hour from its bad one, and on the two
 second-watch maps and the random-start minis the turn number does not
-encode the phase. That is a model-input question with an 800-game
-answer, and it belongs in the training-signal backlog.
+even encode the phase.
+
+This is a model-input question with an 800-game answer, not fidelity
+work, and by user ruling 2026-09-22 it is **the next thing worked on**,
+ahead of this plan. It sits in BACKLOG.md under the training-signal
+items.
