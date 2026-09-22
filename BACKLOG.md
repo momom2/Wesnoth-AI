@@ -947,6 +947,32 @@ inference.
   (+9 +- 55); the mcts:32 gaps (-367, +223) were procedure effects.
   Open: 800-game edges before any of these is quoted as a fact.
 
+## Scenario building, from the ground up (2026-09-22, PLANNED)
+
+**docs/scenario_build_plan_20260922.md.** One scenario builder whose
+output is checked against the game, with two automatic detectors
+first: an exhaustive classification of the expanded WML that fails on
+anything unprocessed, and a scenario-init oracle against real Wesnoth
+that catches any discrepancy. User ruling: stop patching defects one
+by one; make it correct from the ground up and detect the rest
+automatically.
+
+Work items, each gating the next, all local: W1 the engine oracle for
+scenario init (built first, it is the acceptance test for the rest);
+W2 the classification manifest with a failing default; W3 repair the
+template builder, unimportable since 2026-08-10, and regenerate
+keeping the player sides; W4 generation reads one expanded source;
+W5 our own preprocessor, differentially verified against Wesnoth's
+output on all 28 scenarios; W6 the assumptions that become reads,
+decided by W1 rather than by argument.
+
+Measured while planning: the Wesnoth preprocessor costs 60-90 ms per
+scenario, about 2 s for the pool, so speed is not a reason to
+reimplement it; our expander deletes `{DEFAULT_SCHEDULE}` outright,
+emitting zero `[time]` blocks where the game emits six, although every
+macro body is in our cache; the committed templates are self-contained
+(544 KB, map inlined for all 28).
+
 ## The scenario's economy is read from the scenario (2026-09-21, FIXED)
 
 Found while sizing the corpus for the fine-tune arm, by asking why no
