@@ -1182,8 +1182,16 @@ def build_save_wml(
         )
 
     pvp = pvp_defaults or PvPDefaults()
-    village_gold    = pvp.village_gold
-    village_support = pvp.village_support
+    # The economy the GAME was played under, not the multiplayer
+    # default. Since 716a1c3 the sim reads the scenario's own village
+    # gold, so five of the seven mini scenarios play at 3; an export
+    # that wrote PvPDefaults' 2 declared a game that never happened
+    # (found 2026-09-22 by review, demonstrated on 2p_mini_edited).
+    # `dump_savestate` and `replay_builder` were fixed in be00037;
+    # this was the third emitter.
+    gi = sim.gs.global_info
+    village_gold    = int(getattr(gi, "village_gold", None) or pvp.village_gold)
+    village_support = int(getattr(gi, "village_upkeep", None) or pvp.village_support)
 
     # Per-side starting gold: scrape the wesnoth_src .cfg
     # for any `gold=N` overrides (Arcanclave: 175). Falls back
@@ -1323,7 +1331,8 @@ def build_save_wml(
                     template_body, re.MULTILINE)
     if n_m:
         scen_name = n_m.group(1)
-    exp_mod = pvp.experience_modifier
+    exp_mod = int(getattr(gi, "_experience_modifier", None)
+                  or pvp.experience_modifier)
 
     # ---- compose the rest from the scaffold ----
     scaffold = _read_template(_SCAFFOLD_PATH)

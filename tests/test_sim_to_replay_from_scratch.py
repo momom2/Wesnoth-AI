@@ -385,6 +385,43 @@ def test_the_export_reads_the_gold_a_macro_declares():
         assert [s.current_gold for s in built.sides[:2]] == [gold, gold], scenario_id
 
 
+def test_the_export_declares_the_economy_the_game_was_played_under(tmp_path):
+    """An exported save must describe the game that happened. Since
+    716a1c3 the sim reads each scenario's own village gold, so five of
+    the seven mini scenarios play at 3, while this exporter still took
+    the multiplayer default of 2 from `PvPDefaults` -- a divergence
+    that commit created and that `dump_savestate` and `replay_builder`
+    were fixed for in be00037. Wesnoth playing back a save whose
+    village income differs from the sim's diverges as soon as a
+    village pays."""
+    import bz2
+    import random
+    import re
+    from dataclasses import replace as _replace
+
+    from tools.scenario_pool import build_scenario_gamestate, random_setup
+    from tools.sim_to_replay import export_replay_from_scratch
+    from tools.wesnoth_sim import WesnothSim
+
+    village_gold = re.compile(r'(?:mp_)?village_gold\s*=\s*"?(\d+)"?')
+    for scenario_id, mini in (("2p_mini_edited", True),
+                              ("multiplayer_Hamlets", False)):
+        setup = _replace(random_setup(random.Random(1), forced_faction=None,
+                                      mini_maps=mini), scenario_id=scenario_id)
+        sim = WesnothSim(build_scenario_gamestate(setup),
+                         scenario_id=scenario_id, max_turns=4)
+        sim.step({"type": "end_turn"})
+        out = tmp_path / f"{scenario_id}.bz2"
+        export_replay_from_scratch(sim, out)
+        text = bz2.open(out, "rt", encoding="utf-8", errors="replace").read()
+        played = sim.gs.global_info.village_gold
+        declared = {int(v) for v in village_gold.findall(text)}
+        # Scenery sides legitimately declare 0; every player-facing
+        # value must be the one the game ran.
+        assert played in declared, (scenario_id, played, sorted(declared))
+        assert declared <= {0, played}, (scenario_id, played, sorted(declared))
+
+
 def test_all_mini_maps_emit_without_error(tmp_path):
     """Same guarantee as the 21-ladder-map test, for the tactical-
     training mini pool (Mini Maps Collection add-on). Mini templates

@@ -962,9 +962,26 @@ scenario init (built first, it is the acceptance test for the rest);
 W2 the classification manifest with a failing default; W3 repair the
 template builder, unimportable since 2026-08-10, and regenerate
 keeping the player sides; W4 generation reads one expanded source;
-W5 our own preprocessor, differentially verified against Wesnoth's
-output on all 28 scenarios; W6 the assumptions that become reads,
-decided by W1 rather than by argument.
+W0 diff our expansion against the game's as a standing test; W1 the
+failing default; W2 repair the template builder; W3 the manifest bound
+to readers; W4 the engine oracle on the existing --load path; W5 one
+expansion source; W6 the assumptions that become reads. Our own
+preprocessor is deferred behind a trigger.
+
+Two independent reviews found seven factual errors between them, all
+corrected in rev 3 and recorded there rather than dropped. The sharpest:
+`{DEFAULT_SCHEDULE}` is not a recursion failure but an entry on
+`_COSMETIC_MACROS` that deletes it, so rev 1's argument for writing our
+own preprocessor was itself an instance of the bug class; the committed
+templates are the preprocessor's output plus our builder's injections,
+so a generation path reading them would read our own 70 as the
+scenario's; and the quick-leader rule is already modelled at
+tools/traits.py:275-285.
+
+The second review also found a live defect that 716a1c3 CREATED and
+be00037 half-fixed: `sim_to_replay`'s from-scratch export still wrote
+PvPDefaults' village gold, so a mini game the sim now plays at 3
+exported a save declaring 2. Fixed with a test the same day.
 
 Measured while planning: the Wesnoth preprocessor costs 60-90 ms per
 scenario, about 2 s for the pool, so speed is not a reason to
