@@ -1,0 +1,5 @@
+turn-gap verdict: RICH
+  screened 60 of 60 positions; nominal hits 16: [11, 15, 17, 20, 23, 24, 32, 34, 38, 42, 47, 49, 50, 53, 55, 57]
+  confirmed 7 of 60 = 0.117 +- 0.041: [11, 15, 20, 24, 42, 47, 57]
+  confirmation records 16
+  bars: KILL below 3 confirmed, RICH from 6
