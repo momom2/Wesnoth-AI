@@ -993,6 +993,32 @@ def illuminated_lawful_bonus_at(gs: GameState, unit: Unit, turn: int) -> int:
     return apply_unit_illumination(base, illuminate_step(unit, gs.map.units) > 0)
 
 
+def side_income(gs: GameState, side: int) -> Tuple[int, int]:
+    """(income, net upkeep) that `side` is paid at a turn start, a
+    direct port of play_controller.cpp:524-534:
+      income  = base_income + villages_owned * village_gold
+      upkeep  = sum(unit.level for the side's non-loyal units)
+      support = villages_owned * village_support
+      net upkeep = max(0, upkeep - support)
+    The engine reports the first as a side's `total_income`."""
+    s = gs.sides[side - 1]
+    owned = s.nb_villages_controlled
+    village_gold = gs.global_info.village_gold or 2
+    village_support = gs.global_info.village_upkeep or 1
+    income = s.base_income + owned * village_gold
+    upkeep = 0
+    for u in gs.map.units:
+        if u.side != side:
+            continue
+        # Leaders never contribute to upkeep, regardless of whether they
+        # have the `loyal` trait (src/units/unit.cpp:1746-1751,
+        # `unit::upkeep` short-circuits on `can_recruit()`).
+        if u.is_leader or "loyal" in u.traits:
+            continue
+        upkeep += int(_stats_for(u.name).get("level", 1))
+    return income, max(0, upkeep - owned * village_support)
+
+
 def _lawful_bonus_at(gs: GameState, x: int, y: int, turn_number: int) -> int:
     """Per-hex lawful_bonus. Honors scenario-defined [time_area] zones
     (Tombs of Kesorak's dark/illuminated regions, Elensefar Courtyard's
@@ -1982,39 +2008,13 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             new_units.add(healed)
         gs.map.units = new_units
 
-        # Income & upkeep — direct port of play_controller.cpp:524-534
-        # (only fires when turn > 1, matching Wesnoth's "no income on
-        # the first side turn" rule).
-        #   income  = base_income + villages_owned * village_gold
-        #   upkeep  = sum(unit.level for non-loyal units of side)
-        #   support = villages_owned * village_support
-        #   net     = +income − max(0, upkeep − support)
+        # Income & upkeep (side_income), paid only when turn > 1:
+        # Wesnoth's "no income on the first side turn" rule.
         if (1 <= side <= len(gs.sides)
                 and gs.global_info.turn_number > 1):
             s = gs.sides[side - 1]
             owned = s.nb_villages_controlled
-            village_gold = gs.global_info.village_gold or 2
-            village_support = gs.global_info.village_upkeep or 1
-            income = s.base_income + owned * village_gold
-            upkeep = 0
-            for u in gs.map.units:
-                if u.side != side:
-                    continue
-                # Leaders never contribute to upkeep, regardless of
-                # whether they have the `loyal` trait. Verified in
-                # wesnoth_src/src/units/unit.cpp:1746-1751
-                # (`unit::upkeep` short-circuits on `can_recruit()`).
-                # Without this, our income is short by leader.level
-                # gold per turn -- compounding to ~30g over a 30-turn
-                # game and biasing the policy toward smaller armies.
-                if u.is_leader:
-                    continue
-                if "loyal" in u.traits:
-                    continue
-                u_stats = _stats_for(u.name)
-                upkeep += int(u_stats.get("level", 1))
-            support = owned * village_support
-            net_upkeep = max(0, upkeep - support)
+            income, net_upkeep = side_income(gs, side)
             new_gold = s.current_gold + income - net_upkeep
             gs.sides[side - 1] = SideInfo(
                 player=s.player, recruits=s.recruits,
