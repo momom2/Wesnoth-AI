@@ -33,8 +33,10 @@ has no `src/` tree; for engine-internals research, read the GitHub
 **1.18.4 tag** directly (as docs/wesnoth_rules.md entries do).
 
 **The sim's runtime WML subset IS tracked in git (since 2026-07-02):**
-`data/multiplayer/{factions,scenarios,maps}` + `data/add-ons/
-Mini_Maps_Collection` (~840KB) — so a bare `git clone` can run
+`data/multiplayer/{factions,scenarios,maps}`, `data/core/macros` (the
+31 files the scenario expander reads), and the add-ons
+`Mini_Maps_Collection`, `Seamless_Map_Picker` and `WL_Mappack` -- 276
+files, counted 2026-09-23 -- so a bare `git clone` can run
 self-play training on a GPU node with no Wesnoth install. The rest
 of `wesnoth_src/` stays untracked. A robocopy refresh from Steam
 will show these as git diffs; that's intentional (data drift
@@ -840,6 +842,11 @@ it is ready, then deleted.
   touches them, so branch-side edits would conflict with each other.
 - **Parallel agent sessions** each use their own branch in their own
   worktree, so no session edits another's files.
+- **Pushing** a topic branch is free (user ruling 2026-09-23); pushing
+  `main` asks.
+- **Deleting a branch** that holds commits `main` does not have: tag
+  its tip `archive/<name>` and push the tag first, so the work stays
+  reachable.
 - Rejected: Git Flow's `develop` / `release/` branches. They serve
   software shipped in numbered releases, and GitHub's own flow has
   neither (docs.github.com, "GitHub flow").
@@ -917,6 +924,16 @@ many line-coverage tests.
   multiple multi-GB zombie Python processes that locked up the 
   user's machine.)
 - Use `constants.py` values in assertions (not hardcoded duplicates).
+- **Every run lists its failed, errored and skipped tests** (pytest.ini
+  `-rfEs`). A skip count that differs between two runs of one tree is a
+  test that sometimes does not run; diff the two SKIPPED lists to name
+  it.
+- **A test that builds a search policy seeds it**: `MCTSPolicy(...,
+  rng_seed=N)` / `TurnCommitPolicy(..., rng_seed=N)`, or `rng=` on a
+  direct `mcts_search`. Unseeded, the search draws fresh OS entropy,
+  so any assertion or skip that depends on what it chose varies from
+  run to run -- the fast tier's 41/42 skip flicker was exactly that
+  (2026-09-23).
 - Never weaken a test without explicit user confirmation. A failing
   test is a signal — find the root cause first.
 - **A green local run does NOT cover the Rust paths.** The laptop's
@@ -942,10 +959,11 @@ many line-coverage tests.
 ## Working Style
 
 - **High autonomy** on reversible local work (edits, tests, reads),
-  including creating, switching and committing on topic branches
-  (see Branching).
+  including creating, switching, committing on and pushing topic
+  branches (see Branching).
 - **Ask before**: merging to `main` or committing to it directly,
-  pushing, force-pushing, deleting a branch whose work is not merged,
+  pushing `main`, force-pushing, deleting a branch whose work is not
+  merged,
   deleting tracked files, making architectural changes (new IPC,
   replacing the model, etc.).
 - **Give best effort**: production-quality code with edge cases handled,
