@@ -62,4 +62,5 @@ jobs:
         run: ruff check .
 
       - name: Full suite, fast and slow tiers
-        run: python -m pytest -m "" -q -rs
+        # pytest.ini adds -rfEs: failures, errors and skips are listed by name.
+        run: python -m pytest -m "" -q
