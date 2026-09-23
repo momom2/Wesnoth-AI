@@ -157,47 +157,42 @@ def test_marker_propagates_through_encode():
                             relevant_set_hexes=True).encode(gs).hex_subset is True
 
 
-def test_superset_assert_FIRES_when_the_set_is_short():
+def test_superset_assert_FIRES_when_the_set_is_short(monkeypatch):
     """The guard is only worth having if it actually trips. Shrink the
     relevant set behind the encoder's back and require the mask build to
     raise -- a silently shrunken action space is the failure mode this
-    exists to prevent (an excluded hex is an unorderable hex)."""
+    exists to prevent (an excluded hex is an unorderable hex).
+
+    The guard belongs to the Python path. The Rust observation builds the
+    relevant set from its own landable rows (core_observe.rs), so it
+    cannot drop a landable hex; the test turns the kernel off."""
     import pytest
     import torch
-    from wesnoth_ai.encoder import GameStateEncoder
+    import wesnoth_ai.encoder as enc_mod
+    import wesnoth_ai.observe as observe_mod
     from wesnoth_ai.model import WesnothModel
     from wesnoth_ai.action_sampler import enumerate_legal_actions_with_priors
     import wesnoth_ai.visibility as vis
 
+    monkeypatch.setattr(observe_mod, "observe", lambda *args, **kwargs: None)
     gs = _pool_state()
-    enc = GameStateEncoder(d_model=32, relevant_set_hexes=True)
     model = WesnothModel(d_model=32, num_layers=2, num_heads=4, d_ff=64).eval()
 
     # sanity: intact set enumerates without tripping
-    encoded = enc.encode(gs)
+    encoded = enc_mod.GameStateEncoder(d_model=32, relevant_set_hexes=True).encode(gs)
     with torch.no_grad():
         out = model(encoded)
     enumerate_legal_actions_with_priors(encoded, out, gs)
 
     # now drop hexes from the stream while the mask still offers them
     full = vis.relevant_hexes_in_slot_order(gs)
-    orig = vis.relevant_hexes_in_slot_order
-    try:
-        vis.relevant_hexes_in_slot_order = lambda g: full[: max(1, len(full) // 3)]
-        import importlib
-        import wesnoth_ai.encoder as enc_mod
-        importlib.reload(enc_mod)
-        enc2 = enc_mod.GameStateEncoder(d_model=32, relevant_set_hexes=True)
-        e2 = enc2.encode(gs)
-        with torch.no_grad():
-            o2 = model(e2)
-        with pytest.raises(AssertionError, match="relevant-set gap"):
-            enumerate_legal_actions_with_priors(e2, o2, gs)
-    finally:
-        vis.relevant_hexes_in_slot_order = orig
-        import importlib
-        import wesnoth_ai.encoder as enc_mod
-        importlib.reload(enc_mod)
+    monkeypatch.setattr(enc_mod, "relevant_hexes_in_slot_order",
+                        lambda g: full[: max(1, len(full) // 3)])
+    shrunk = enc_mod.GameStateEncoder(d_model=32, relevant_set_hexes=True).encode(gs)
+    with torch.no_grad():
+        out = model(shrunk)
+    with pytest.raises(AssertionError, match="relevant-set gap"):
+        enumerate_legal_actions_with_priors(shrunk, out, gs)
 
 
 def test_policy_threads_flag_to_both_encoders():

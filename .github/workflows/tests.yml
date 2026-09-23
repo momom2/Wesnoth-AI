@@ -1,0 +1,66 @@
+# The merge gate the laptop cannot run (CLAUDE.md "Branching").
+#
+# The local fast tier certifies the Python paths only. The laptop may not
+# run the slow tier, which generates self-play games, and cannot build
+# the Rust wheel, so every Rust test skips there. This job runs both, on
+# a bare clone of the pushed commit.
+name: tests
+
+on:
+  push:
+    branches: ["**"]
+  workflow_dispatch:
+
+# A newer push to the same branch supersedes a run still in progress.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # The laptop's version, so a red run points at Linux, the slow
+          # tier or the Rust build rather than at the interpreter.
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: .github/workflows/tests.yml
+
+      - name: Install Python dependencies
+        # CPU torch from PyTorch's index: the default Linux wheel pulls
+        # the CUDA libraries, which no test here can use. The rest is what
+        # the code imports (requirements.txt names torch-directml, which
+        # is Windows-only). ruff is pinned to the version the laptop runs.
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install numpy scipy psutil pyyaml huggingface_hub pytest ruff==0.15.17
+
+      - name: Build the Rust wheel from this commit
+        # rustup and cargo ship with the runner image.
+        run: python -m pip install ./rust/wesnoth_core
+
+      - name: The wheel is the phase the source declares
+        # Same regex as tests/conftest.py. A mismatch would make the Rust
+        # tests skip quietly, which is the laptop's situation, not a gate.
+        run: |
+          python - <<'EOF'
+          import pathlib, re, wesnoth_core
+          text = pathlib.Path("rust/wesnoth_core/src/lib.rs").read_text()
+          want = int(re.search(r"__phase__[^0-9]{0,40}?(\d+)", text).group(1))
+          got = int(getattr(wesnoth_core, "__phase__", 0))
+          print(f"wheel phase {got}, source phase {want}")
+          assert got == want
+          EOF
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Full suite, fast and slow tiers
+        # pytest.ini adds -rfEs: failures, errors and skips are listed by name.
+        run: python -m pytest -m "" -q

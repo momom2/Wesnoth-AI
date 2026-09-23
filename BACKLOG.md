@@ -31,6 +31,22 @@ bridge's `--test`, because the committed templates have the player
 sides stripped), and it must go through `WesnothGame` because the
 Windows binary is GUI-subsystem and gives nothing on stdout.
 
+## Open after CI landed (2026-09-23)
+
+- **The corpus tests never run on CI.** 33 of its 49 skips need
+  replay, imitation or value data that is not in git, among them the
+  SL trainer, pathfind parity and relevant-set imitation tests. A few
+  extracted games committed as a fixture would run them. The repo is
+  public and the corpus is other players' games, so which games (if
+  any) may be committed is the user's call; the AI-vs-AI fixture
+  `tests/fixtures/strict_sync_hamlets_t9.bz2` is the precedent.
+- **`rust/wesnoth_core/src/encode.rs` holds six `#[test]` functions
+  that nothing runs.** CI builds the wheel but does not run `cargo
+  test`. With pyo3's `extension-module` feature unconditional in
+  Cargo.toml the test binary probably fails to link against libpython
+  (not verified; nothing here builds the crate). A `cargo test` step
+  on CI settles it.
+
 ## PARKED: the network cannot see the time of day (2026-09-22)
 
 Built and tested on 2026-09-22, **not run**: the user's order is
@@ -38,7 +54,8 @@ Built and tested on 2026-09-22, **not run**: the user's order is
 batched with whatever else the scenario rework turns up.
 `GLOBAL_FEAT_DIM` is 6 -> 8 (this turn's and next turn's lawful bonus
 over `LAWFUL_BONUS_NORM` 25), mirrored in the Rust kernels with
-`__phase__` 10 -> 11 and a gate that refuses a stale wheel,
+`__phase__` 10 -> 11 (built and tested on CI 2026-09-23) and a gate
+that refuses a stale wheel,
 `OBSERVATION_EPOCH` 3 -> 4, seven tests in
 `tests/test_time_of_day_features.py`, pre-registration in
 docs/time_of_day_prereg_20260922.md.

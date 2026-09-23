@@ -17,7 +17,8 @@ behind config is preferred to code that gates behavior behind weights.
   `python main.py --check-setup`
 - **Test:** `pytest` (tests are Python-only; they exercise the WML
   parser and Lua-file generation with synthetic data — they do NOT spin
-  up real Wesnoth)
+  up real Wesnoth). CI runs the full suite with a freshly built Rust
+  wheel on every push (see Testing).
 
 ### Wesnoth data provenance (updated 2026-06-12)
 
@@ -56,7 +57,7 @@ Most replays in `replays_raw/` are from 1.18.x clients; pin
 accordingly. If a replay's `[scenario] version=` says something
 other than 1.18.x, scrape from that version's tag instead.
 
-## Current status (2026-09-04, entries through 2026-09-18)
+## Current status (2026-09-04, entries through 2026-09-23)
 
 **Read `docs/plan_20260904.md` first; `BACKLOG.md` holds the next
 actions in order.** Superseded status blocks, plans, leg records and
@@ -593,9 +594,29 @@ State of play:
   only events and time areas from our expander, and diffing both, old
   against new, over all 31 corpus scenarios shows only display text
   and one heals block with identical sim abilities -- the sweep would
-  pass both ways and certify nothing. **Owed on a box:** the Rust
-  change (unbuilt here) and the slow test tier (it generates
-  self-play games).
+  pass both ways and certify nothing. The Rust change and the slow
+  tier, which the laptop cannot run, passed on CI the same day (next
+  entry).
+- 2026-09-23 (0.2.2 -> 0.3.0): **every push is tested on GitHub, the
+  Rust paths included.** Work happens on topic branches (Code Style,
+  Branching), and `.github/workflows/tests.yml` runs on every push: it
+  builds the Rust wheel from the pushed commit, refuses a wheel whose
+  `__phase__` differs from the source's, lints, and runs the full
+  suite, both tiers, on a 4-core Linux runner (about 13 minutes in
+  all). Its first green run (1,322 passed, 49 skipped) built the
+  phase-11 wheel, which carries the time-of-day features and had never
+  been built, and every Rust test passes on it, `GameCore` and the
+  combat and observation kernels included. The first run's nine
+  failures held no fidelity bug. Two tools and one test reached around
+  the Rust kernels (the strike verifier wrapped the Python resolver,
+  the swap detector's scripted RNG had no `seed_int`, the relevant-set
+  gap test shrank a set the kernel does not read); one test assumed 16
+  host cores; and three SL tests ran on a corpus a clone lacks, where
+  `train()` completed zero steps without complaint -- a missing or
+  empty corpus now raises. The 49 skips need data outside git (33:
+  replay, imitation and value corpora), CUDA (14) or a live Wesnoth
+  (2). Also landed: the fast tier's 41/42 skip flicker was an unseeded
+  turn search, now seeded (0.2.4).
 
 Standing rules (full list in the plan): the reference player is
 `terrain` at `raw:t0+eo-1.5` (user ruling 2026-09-20; one checkpoint
@@ -829,8 +850,9 @@ it is ready, then deleted.
 - **Names:** `feature/<name>`, `fix/<name>`, `test/<name>`,
   `exp/<name>`; short, descriptive, hyphenated
   (`fix/heals-value-default`). One task, one branch.
-- **Ready to merge** = `ruff check .` clean and the fast tier green;
-  once CI exists, its checks green as well (full suite, Rust build).
+- **Ready to merge** = `ruff check .` clean, the fast tier green
+  locally, and the branch's latest CI run green (`gh run list --branch
+  <branch>`; see Testing).
 - **Merge with a merge commit** (`git merge --no-ff`), never squash:
   the commit messages are this project's lab notebook.
 - **`exp/` branches differ.** An experiment's code merges only if it
@@ -907,11 +929,15 @@ many line-coverage tests.
 - Run `pytest` after changes. This runs the FAST tier (~2.5 min):
   tests marked `slow` (full-game / subprocess / threading e2e,
   >10s each — see pytest.ini) are excluded by default.
-- **Run the FULL suite — `pytest -m ""` (~11 min) — before
-  committing sim/trainer/mask changes and before launching any
-  training campaign.** The slow tier holds the e2e regression
-  guards (MCTS self-play smoke, concurrent train-step races,
-  export validation); the fast tier alone does NOT cover them.
+- **CI runs the FULL suite — `pytest -m ""` — on every push**
+  (`.github/workflows/tests.yml`, GitHub Actions, about 10 minutes of
+  tests). The slow tier holds the e2e regression guards (MCTS
+  self-play smoke, concurrent train-step races, export validation);
+  the fast tier alone does NOT cover them, and the laptop does not run
+  them (they generate self-play games). A branch merges on a green
+  run, and a training campaign launches from a commit that has one.
+  CI has no GPU and no corpora: the CUDA tests and the tests that read
+  replay, imitation or value data skip there.
 - **Never run more than one pytest invocation at a time.** Each
   pytest spawns a Python process that imports torch + the model;
   parallel runs balloon memory (5+ GB per process) and a stuck
@@ -936,25 +962,25 @@ many line-coverage tests.
   (2026-09-23).
 - Never weaken a test without explicit user confirmation. A failing
   test is a signal — find the root cause first.
-- **A green local run does NOT cover the Rust paths.** The laptop's
-  installed `wesnoth_core` wheel is phase 3 and exports only
-  `encode_raw_streams`, `enumerate_moves`, `unit_reach_arrays` — no
-  `GameCore`, no `resolve_attack`, no `observe_side`. So
+- **The Rust paths are tested on CI, not on the laptop.** CI builds
+  the wheel from each pushed commit and asserts its `__phase__` equals
+  the one `rust/wesnoth_core/src/lib.rs` declares, so every Rust test
+  runs there; a green CI run certifies a Rust change, and a box is
+  needed only for what CI cannot run (CUDA, throughput). The laptop's
+  installed wheel is phase 3 and exports only `encode_raw_streams`,
+  `enumerate_moves`, `unit_reach_arrays`, so locally
   `tests/test_game_core.py` skips in full and the other
-  `tests/test_rust_*.py` files skip in part, silently. Check
-  `python -c "import wesnoth_core; print(wesnoth_core.__phase__)"`
-  against `rust/wesnoth_core/src/lib.rs` before believing any core-on
-  result, and certify Rust changes on a box.
-  The wheel cannot be rebuilt here. **Corrected 2026-09-22:** the
-  block is NOT limited to `pyo3-build-config` as this note previously
-  said. `cargo check` in the project tree is refused on every crate
-  whose build script must execute — measured on `pyo3-build-config`,
-  `proc-macro2` and `libc`, each "Accès refusé" (os error 5), the
-  compiled build-script binary never executed. So no Rust change can
-  be type-checked here, let alone built, and every one is certified on
-  a box. A test that reads the Rust SOURCE for a constant is the one
-  local check available (tests/test_time_of_day_features.py does this
-  for the feature widths).
+  `tests/test_rust_*.py` files skip in part (the suite prints a banner
+  saying so). Check `python -c "import wesnoth_core;
+  print(wesnoth_core.__phase__)"` against lib.rs before believing any
+  local core-on result.
+  The wheel cannot be rebuilt here: `cargo check` in the project tree
+  is refused on every crate whose build script must execute (measured
+  2026-09-22 on `pyo3-build-config`, `proc-macro2` and `libc`, each
+  "Accès refusé", os error 5). A test that reads the Rust SOURCE for a
+  constant is the one local check available
+  (tests/test_time_of_day_features.py does this for the feature
+  widths).
 
 ## Working Style
 

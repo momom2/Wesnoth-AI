@@ -2968,6 +2968,8 @@ def filter_competitive_2p(dataset_dir: Path) -> List[Path]:
 
     PLAYER_FACTIONS = {"Drakes", "Knalgan Alliance", "Rebels",
                        "Loyalists", "Northerners", "Undead"}
+    if not dataset_dir.is_dir():
+        raise FileNotFoundError(f"replay dataset {dataset_dir} does not exist")
     index_path = dataset_dir / "index.jsonl"
     if not index_path.exists():
         log.warning(f"{index_path} not found; scanning all .json.gz instead")

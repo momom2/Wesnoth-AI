@@ -1801,6 +1801,8 @@ def train(
     # Competitive-2p filter: reads index.jsonl entries and only keeps
     # replays on ships-with ladder maps with two default-faction sides.
     # Drops ~97% of the raw dataset (most replays are FFA / multi-side).
+    if not dataset_dir.is_dir():
+        raise FileNotFoundError(f"replay dataset {dataset_dir} does not exist")
     if competitive_only:
         files = filter_competitive_2p(dataset_dir)
         log.info(f"Competitive-2p filter: {len(files)} of "
@@ -1823,6 +1825,8 @@ def train(
             max_starting=max_starting_units,
         )
         log.info(f"After size filters: {len(files)} replay files remain")
+    if not files:
+        raise ValueError(f"no replay in {dataset_dir} passes the filters")
 
     # Held-out split BY GAME (seed-0 deterministic shuffle of the
     # post-filter file list; the last `holdout_games` files are never
