@@ -10,8 +10,9 @@ Inputs:
 
 For each [attack] command:
   - Apply our reconstructor up to (but not including) the attack.
-  - Run combat.resolve_attack with the recorded seed; instrument
-    `_perform_hit` to capture our per-strike (chance, hits, damage).
+  - Run combat.resolve_attack with the recorded seed and read its
+    per-strike (chance, hits, damage) from the checkup record it
+    returns.
   - Compare against the recorded strikes from mp_checkup. Report the
     FIRST mismatch (which command, which strike, what differs).
 
@@ -55,47 +56,11 @@ class StrikeMismatch:
     detail: str
 
 
-def _instrument_perform_hit():
-    """Wrap combat._perform_hit to capture per-strike (cth, hits,
-    damage). Returns a list that gets populated during a resolve_attack
-    call; caller clears it before each combat. The wrapper is reset
-    by `_uninstrument`."""
-    log: List[Tuple[int, bool, int]] = []
-
-    real = cb._perform_hit
-
-    def wrapped(*args, **kwargs):
-        s, t, ss, _ts = args[0], args[1], args[2], args[3]
-        cth = ss.cth
-        # Wesnoth's mp_checkup records the UNCLAMPED weapon damage
-        # stat (attack.cpp:1004 `damage = attacker.damage_;`), not
-        # the actual HP removed. So we capture striker_stats.damage,
-        # adjusted for slow.
-        weapon_damage = (ss.slow_damage if s.is_slowed else ss.damage)
-        target_hp_pre = t.hp
-        out = real(*args, **kwargs)
-        target_hp_post = t.hp
-        # `hits` = the rng-determined hit/miss. We infer it from
-        # whether HP changed (true hit) OR from striker_stats's
-        # remaining-attacks decrement combined with hp delta. For
-        # damage>0 weapons, hits iff hp changed.
-        hits = (target_hp_pre != target_hp_post)
-        # Edge: if weapon_damage == 0 (e.g., slowed unit with
-        # slow_damage 0), the strike might HIT but deal no damage.
-        # The combat code returns True without changing hp in this
-        # case (line: `if dmg <= 0: return True`). We have no way
-        # to distinguish hit-with-0-damage from miss without
-        # additional instrumentation, so we approximate with hp
-        # delta. None of the default-era weapons have base damage 0.
-        log.append((cth, hits, weapon_damage if hits else 0))
-        return out
-
-    cb._perform_hit = wrapped
-    return log, real
-
-
-def _uninstrument(real):
-    cb._perform_hit = real
+def _strike_log(result) -> List[Tuple[int, bool, int]]:
+    """(chance, hits, damage) per strike, from the resolver's own
+    [mp_checkup] record. Both resolvers, Python and Rust, fill it."""
+    return [(int(s["chance"]), bool(s["hits"]), int(s["damage"]))
+            for s in (result.checkup_strikes or []) if "chance" in s]
 
 
 def _verify_attack(
@@ -143,22 +108,19 @@ def _verify_attack(
     a_bs = is_backstab_active(att, dfd, gs.map.units)
     d_bs = is_backstab_active(dfd, att, gs.map.units)
 
-    log, real = _instrument_perform_hit()
-    try:
-        cb.resolve_attack(
-            att_cu, dfd_cu,
-            a_weapon_idx=a_weapon,
-            d_weapon_idx=d_weapon if d_weapon >= 0 else None,
-            a_lawful_bonus=a_law,
-            d_lawful_bonus=d_law,
-            a_leadership_bonus=a_lead,
-            d_leadership_bonus=d_lead,
-            a_backstab_active=a_bs,
-            d_backstab_active=d_bs,
-            rng=cb.MTRng(seed),
-        )
-    finally:
-        _uninstrument(real)
+    result = cb.resolve_attack(
+        att_cu, dfd_cu,
+        a_weapon_idx=a_weapon,
+        d_weapon_idx=d_weapon if d_weapon >= 0 else None,
+        a_lawful_bonus=a_law,
+        d_lawful_bonus=d_law,
+        a_leadership_bonus=a_lead,
+        d_leadership_bonus=d_lead,
+        a_backstab_active=a_bs,
+        d_backstab_active=d_bs,
+        rng=cb.MTRng(seed),
+    )
+    log = _strike_log(result)
 
     mismatches: List[StrikeMismatch] = []
     n = max(len(log), len(recorded_strikes))
